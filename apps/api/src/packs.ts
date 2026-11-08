@@ -9,6 +9,13 @@ import type { PackManifest } from "@countersign/core";
 import type { Db } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import {
+  MARKETING_ACTIONS,
+  MARKETING_INBOUND,
+  MARKETING_NIGHTLY,
+  MARKETING_REPORTS,
+  marketingManifest,
+} from "@countersign/pack-marketing";
+import {
   MATERIALS_ACTIONS,
   MATERIALS_HANDLERS,
   MATERIALS_REPORTS,
@@ -30,6 +37,36 @@ export interface RegisteredPack {
   reviews?: Readonly<Record<string, PackReviewHandler>>;
   /** People's actions on a client's pack data from the back office (e.g. a catalog merge). */
   actions?: Readonly<Record<string, PackActionHandler>>;
+  /**
+   * M43: what it takes from outside with no session (`POST /api/in/:pack/:tenantId/:target`),
+   * for a client that has it on: a measured site's beacon. The answer is always 204.
+   */
+  inbound?: PackInbound;
+  /** M43: its nightly pass over every client with it on, at this UTC hour and minute. */
+  nightly?: PackNightly;
+}
+
+/** What the inbound route hands a pack: the body (capped at `maxBytes`) and the request's facts. */
+export interface PackInbound {
+  maxBytes: number;
+  receive(
+    db: Db,
+    req: {
+      tenantId: string;
+      target: string;
+      body: string;
+      ip: string;
+      headers: Readonly<Record<string, string>>;
+      cf?: Record<string, unknown> | undefined;
+      now: Date;
+    },
+  ): Promise<unknown>;
+}
+
+export interface PackNightly {
+  hour: number;
+  minute: number;
+  run(db: Db, now: Date, onError?: (tenantId: string, error: unknown) => void): Promise<unknown>;
 }
 
 /** Every pack the deployment registers. Enabling one for a client is a `tenant_pack` row. */
@@ -40,6 +77,15 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
     reports: MATERIALS_REPORTS,
     reviews: MATERIALS_REVIEWS,
     actions: MATERIALS_ACTIONS,
+  },
+  // M43 (docs/plan.md §1.72): the Marketing area, Mezonas's own website first.
+  {
+    manifest: marketingManifest,
+    handlers: {},
+    reports: MARKETING_REPORTS,
+    actions: MARKETING_ACTIONS,
+    inbound: MARKETING_INBOUND,
+    nightly: MARKETING_NIGHTLY,
   },
 ];
 

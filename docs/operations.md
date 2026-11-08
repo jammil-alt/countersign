@@ -790,6 +790,28 @@ ships tools and skills only; the agents that use it are built in the Agent lab.
    the same for the back office under the client (`/ops/clients/:id/reports/materials/prices`);
    unsure matches arrive in the inbox as a match review card, and each answer teaches the catalog.
 
+### Mezonas, our own client (the Marketing area, `docs/plan.md` §1.72)
+
+Mezonas is served as its own first client, so the Marketing pack measures `mezonas.com` exactly
+as it will a client's site. Once per environment (staging, then production):
+
+1. **Migration 0037 must be applied.**
+2. **Create the client** in the back office: **Mezonas**, time zone America/Chicago. Invite no
+   client people: we work it from the back office.
+3. **Its settings:** approvals delegated to us (the client's Settings), and the internal flag:
+   `PATCH /api/ops/clients/<id>/settings` with `{"internal": true, "reason": "Mezonas, our own
+   client"}` (no switch on the screen yet). Internal means: never billed (set up no Stripe
+   customer for it), no Weekly Table, real data.
+4. **Switch on the Marketing pack** for it (Packs → Marketing → Switch on).
+5. **Add the site:** `POST /api/ops/clients/<id>/packs/marketing/actions/add-site` with
+   `{"domain": "mezonas.com", "name": "mezonas.com", "goals": ["hero-talk", "contact-email"]}`
+   (a screen comes with M44). The answer has the site's id.
+6. **The snippet** posts to `<app origin>/api/in/marketing/<client id>/<site id>`. It goes on the
+   site in its own PR, after the privacy wording is reviewed (`docs/marketing-plan.md` F1, F2).
+
+Figures are built nightly at 03:41 UTC; the report is under the client
+(`/ops/clients/<id>/reports/marketing/overview`).
+
 ## 1.2 Compliance: HIPAA mode, retiring a client, the audit log (`docs/plan.md` §1.35)
 
 **HIPAA mode.** A client whose records hold health information is put in HIPAA mode on its

@@ -12,7 +12,15 @@ import {
   WorkOSError,
 } from "@countersign/auth";
 import { cloneJson } from "@countersign/core";
-import { appUser, connection, inboxItem, membership, run, tenant } from "@countersign/db";
+import {
+  appUser,
+  connection,
+  inboxItem,
+  membership,
+  run,
+  tenant,
+  tenantChange,
+} from "@countersign/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -74,7 +82,13 @@ describe.skipIf(!h)("onboarding", () => {
       const settings = await H.call(OPERATOR, "GET", `/api/ops/clients/${id}/settings`);
       expect(settings.status).toBe(200);
       expect(j(settings.json)).toMatchObject({
-        client: { id, name: "Cabinet shop", timezone: "America/Chicago", sandbox: false },
+        client: {
+          id,
+          name: "Cabinet shop",
+          timezone: "America/Chicago",
+          sandbox: false,
+          internal: false,
+        },
         approvals: { externalActions: "operator", changes: [] },
         notifications: { itemsWaiting: true, weeklyDigest: true },
       });
@@ -206,6 +220,31 @@ describe.skipIf(!h)("onboarding", () => {
       const back = await H.call(OPERATOR, "PATCH", path, { approvals: "client_admin" });
       expect(j(back.json).approvals.changes).toHaveLength(2);
       expect(j(back.json).approvals.changes[0]).toMatchObject({ to: "client_admin", reason: "" });
+    });
+
+    it("marks a client as one of our own (M43), logged, without touching its approvals", async () => {
+      // Client C, which the other operator serves.
+      const path = `/api/ops/clients/${H.C.tenantId}/settings`;
+      const res = await H.call(OTHER_OPERATOR, "PATCH", path, {
+        internal: true,
+        reason: "Mezonas, our own first client",
+      });
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      expect(j(res.json).client.internal).toBe(true);
+      expect(j(res.json).approvals.changes).toEqual([]);
+      const [c] = await H.t.db.select().from(tenant).where(eq(tenant.id, H.C.tenantId));
+      expect(c?.settings).toMatchObject({ internal: true, approvals: { undoSeconds: 0 } });
+      const changes = await H.t.db
+        .select()
+        .from(tenantChange)
+        .where(eq(tenantChange.tenantId, H.C.tenantId));
+      expect(changes.map((x) => x.change)).toEqual([
+        { setting: "internal", from: false, to: true },
+      ]);
+      const same = await H.call(OTHER_OPERATOR, "PATCH", path, { internal: true });
+      expect([same.status, code(same.json)]).toEqual([409, "no_op"]);
+      const back = await H.call(OTHER_OPERATOR, "PATCH", path, { internal: false });
+      expect(j(back.json).client.internal).toBe(false);
     });
 
     it("is only for the clients an operator serves", async () => {

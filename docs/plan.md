@@ -1998,6 +1998,29 @@ Open for the owner:
 - Whether a vendor with nobody who agreed to email should be asked anyway once the client says so (today it is listed and skipped).
 - How long to wait for quotes by default (the reach-out's `timeout`, set per step; we suggest 2 days).
 - The QuickBooks account a PO line books to when the item has none (a skill setting per client agent today, §1.71 QuickBooks rows).
+### 1.72 The Marketing area: measurement, Mezonas as its own first client (M43; migration 0037; docs/marketing-plan.md)
+
+Owner, 2026-11-08: "build it as a new pack", with Mezonas served as a true client and worked from
+the back office. The plan for the whole area (measurement, search, content, the agent set, then
+clients) is `docs/marketing-plan.md`; this is M43, the first step. It is outside v0.15's §1 scope
+until ARCHITECTURE v0.16; the owner asked for it. Ported from Plenary Labs' marketing portal
+(copied, not shared). Hot-spot edits are blocks headed `// M43: …`.
+
+| Topic | Decision |
+|---|---|
+| A pack | `packs/marketing` (`@countersign/pack-marketing`, id `marketing`), the Marketing area (ARCHITECTURE §12.0). Imports core and db only. Every table has `tenant_id`, forced RLS and the comment `pack:marketing`; one client's figures never reach another (invariant 1). |
+| Mezonas as a client | Mezonas is served as its own first client: a normal tenant created from the back office in each environment (`docs/operations.md`, "Mezonas, our own client"), with its approvals delegated to the operator and the pack switched on. Not in the seed: the seed never runs on production, and a third seeded client would change what every seeded test and sweep expects. // DECISION |
+| The internal flag | `tenant.settings.internal = true`: one of our own. Its data is real (never purged like a demo); it is never billed, because no Stripe customer is set up for it (the billing pass only reaches clients with one); it gets no Weekly Table. Set by an operator from the client's settings (`PATCH /api/ops/clients/:id/settings {internal}`), logged in `tenant_change` (`setting: internal`). Left out of the command center's and KPIs' client counts later, when their screens show one. // DECISION |
+| Tables (0037) | `site` (a client's measured website: domain without `www.`, name, goals, on or off), `site_salt`, `site_event` (90 days), `site_visit` (13 months; times to the hour; `reached_goal` and `goal`, never who), `site_daily_page`, `site_daily_click`, `site_daily_total`, `site_bot_daily`. Composite foreign keys `(site_id, tenant_id)`. The runtime may DELETE on the day and raw tables (a day is rebuilt whole; retention), unlike the platform's history; `site` has no DELETE (a site is switched off). // DECISION |
+| Goals, not sign-ups | mezonas.com has no form: a visit's goal is a click on one of the site's goal elements (`data-track` names, e.g. `hero-talk` on "Talk to us"), set per site. A visit says it reached a goal and which, with no link to any person. // DECISION |
+| The collector | A generic platform route, `POST /api/in/:pack/:tenantId/:target` (`routes.packInbound`, public): for a registered pack with an `inbound` handler and a client with the pack on, it caps the body at the pack's `maxBytes`, passes the pack only the user agent, origin, language, DNT, Sec-GPC and content type headers, `request.cf` and the IP, and answers 204 with no body to everything, so nothing can be probed. Not `mount()`ed: no session, no cookie read, no audit row (the request is anonymous). A failure is reported without the address or body and still answered 204. Nothing in the platform names the pack (invariant 2). // DECISION |
+| What is kept | The visit is a SHA-256 of the site's salt for the UTC day, the IP and the user agent, cut to 128 bits; the salt is random and deleted once its day is over. Neither the IP nor the user agent is stored or logged. Do Not Track and Global Privacy Control are honoured on the server: such a beacon is not counted at all. |
+| Checks on a beacon | The site must be on and the `Origin` must be its domain (or `www.`); then malformed, a bot user agent, `navigator.webdriver`, and more than 500 events from one visit in a day are dropped and counted per reason in `site_bot_daily` ("filtered by heuristics": no Bot Management score). |
+| Nightly | A generic pack hook (`RegisteredPack.nightly`, hour and minute): the Marketing pack's runs at 03:41 UTC, per client with the pack on, in that client's transaction: rebuild the last three finished days and any older unbuilt one, then delete events past 90 days, visits past 13 months and every spent salt. |
+| Sites | Added and changed by a person from the back office, as pack actions (`add-site`, `update-site`: name, goals, on or off), never by an agent. A refusal (`PackRefusal`) is a 422, as Materials' `MatchError` is. |
+| Report | `overview` (portal and back office, JSON and CSV): the last 28 finished days against the 28 before, from the daily totals only: visits, views, goals, bounces, goal and bounce rates, the days, the top pages and sources, and requests filtered; under 20 visits is marked a small sample. |
+| No agents yet | The manifest has no tools, skills or templates in M43; the pack will ship the agent set as templates (owner, 2026-11-08), from M47. |
+| Not in M43 | The script on mezonas.com, `data-track` names, `/no-measure` and the privacy policy's measurement section (the site's own PR, after the owner and the lawyer read the wording; the site deploys from `main` on every push); the collector's own host (`collect.mezonas.com`, its own PR); the back-office screens (M44). |
 
 ---
 
@@ -2823,6 +2846,27 @@ QuickBooks purchase order: the request is opened and its lines matched, an unsur
 the card, two vendors emailed an RFQ, one reply recorded from a PDF, a silent vendor expired, the
 vendor picked on the card, the PO PDF emailed and the QuickBooks PO created, each write approved
 once, and the client and the back office see the request ordered.
+### M43: The Marketing area, measurement (§1.72; docs/marketing-plan.md)
+
+PRs: the migration (0037) on its own; the pack, the collector route, the nightly hook and the
+internal flag; then, after the owner's review of the wording, the site's script and privacy section;
+and the collector's host.
+
+- Migration: `site`, `site_salt`, `site_event`, `site_visit`, `site_daily_page`, `site_daily_click`,
+  `site_daily_total`, `site_bot_daily`.
+- Work: `packs/marketing` (measure: the beacon, sources, the visit hash, the store, the nightly
+  build and retention; sites; the overview report); `routes.packInbound` and
+  `apps/api/src/routes/pack-inbound.ts`; `RegisteredPack.inbound` and `nightly`; the internal flag.
+
+Tests (throwaway Postgres, as the Worker's role): a view from the site's own page stored with its
+source and place and no address; another origin, a switched-off site, DNT, a bot user agent,
+webdriver and a malformed body each dropped and counted; a day built into visits and totals with
+its goal and times to the hour, twice the same; retention; client B never reads or writes client
+A's figures; through the API, 204 for everything and nothing stored for a client without the pack;
+the overview in the portal with no forbidden field.
+
+**Done when** a week of mezonas.com's figures, in the Mezonas client, sits within a sensible band
+of Cloudflare's own analytics, and no IP address is in the database, Workers Logs or Sentry.
 
 ---
 
@@ -2994,6 +3038,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0032 | P-1 (M34, §1.63) | `catalog_item`, `item_alias`, `item_match`, `price_observation`, `alert` (ARCHITECTURE §12.2, §5.2) |
 | 0034 | P-7 (M40, §1.69) | `message_translation`; `contact.translation`; `usage_platform_daily.translations` (ARCHITECTURE §5.7) |
 | 0036 | P-9 (M42, §1.71) | `purchase_request_line.qty` nullable; `quote_request.reach_out_id` (composite foreign key to `reach_out`) |
+| 0037 | M43 (§1.72) | The Marketing pack's `site`, `site_salt`, `site_event`, `site_visit`, `site_daily_page`, `site_daily_click`, `site_daily_total`, `site_bot_daily` (docs/marketing-plan.md §4.3) |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
