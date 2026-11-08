@@ -59,7 +59,8 @@ jobs:
 
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The api suite has grown (P-1..P-6): runs took 15-16 minutes on 2026-11-08. Split it before raising again.
+    timeout-minutes: 30
     services:
       postgres:
         image: pgvector/pgvector:pg16
