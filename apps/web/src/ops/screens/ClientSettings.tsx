@@ -391,18 +391,29 @@ function People({
         ) : null}
         <MemberList members={people} testId="ops-client-members" />
         {settings.client.sandbox ? null : (
-          <InviteForm
-            surface="ops"
-            testId="ops-client-invite"
-            onInvite={async (body) => {
-              const result = await api.call(apiRoutes.opsInvite, {
-                params: { id: clientId },
-                body,
-              });
-              onInvited();
-              return result;
-            }}
-          />
+          <>
+            <InviteForm
+              surface="ops"
+              testId="ops-client-invite"
+              onInvite={async (body) => {
+                const result = await api.call(apiRoutes.opsInvite, {
+                  params: { id: clientId },
+                  body,
+                });
+                onInvited();
+                return result;
+              }}
+            />
+            <p className="mt-3 text-sm">
+              <Link
+                to={clientPagePath(clientId, "directory")}
+                className="text-link hover:underline"
+                data-testid="ops-client-invite-directory"
+              >
+                Invite from the directory
+              </Link>
+            </p>
+          </>
         )}
         {team.length > 0 ? (
           <p className="mt-3 text-sm text-ink-muted" data-testid="ops-client-team">

@@ -309,4 +309,79 @@ describe("C5 Contacts", () => {
       ]),
     );
   });
+
+  it("invites an employee to sign in from their details, and shows who can sign in", async () => {
+    const posts: unknown[] = [];
+    const MEMBER = "00000000-0000-4000-8000-0000000c0b09";
+    renderAt(`/contacts?person=${LISA}`, "client_admin", {
+      "GET /api/directory": () => ({
+        people: [
+          contact({ access: null }),
+          { ...LISA_ROW, access: posts.length > 0 ? "invited" : null },
+          contact({
+            id: MEMBER,
+            name: "Mo Member",
+            relationship: "employee",
+            organization: null,
+            access: "member",
+          }),
+        ],
+        organizations: [],
+        pendingSuggestions: 0,
+      }),
+      [`POST /api/contacts/${LISA}/invite`]: ({ init }) => {
+        posts.push(JSON.parse(String(init.body)));
+        return {
+          member: {
+            userId: "u-lisa",
+            email: "lisa@harbor.example.com",
+            name: "Lisa Park",
+            role: "client_user",
+            signedIn: null,
+            canSign: true,
+          },
+          email: { status: "not_sent", reason: "dev_sign_in" },
+        };
+      },
+      [`GET /api/contacts/${LISA}/messages`]: () => ({ items: [] }),
+    });
+    expect(await screen.findByTestId(`people-row-${MEMBER}-access`)).toHaveTextContent(
+      "Can sign in",
+    );
+    const detail = await screen.findByTestId(`people-detail-${LISA}`);
+    await userEvent.click(within(detail).getByTestId("people-detail-invite"));
+    const dialog = await screen.findByRole("dialog", { name: "Invite to sign in" });
+    expect(within(dialog).getByTestId("people-detail-invite-dialog-name")).toHaveTextContent(
+      "Lisa Park",
+    );
+    expect(within(dialog).getByTestId("people-detail-invite-dialog-role")).toHaveValue(
+      "client_user",
+    );
+    expect(within(dialog).getByTestId("people-detail-invite-dialog-can-sign")).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await userEvent.click(within(dialog).getByTestId("people-detail-invite-dialog-send"));
+    expect(await within(dialog).findByTestId("people-detail-invite-dialog-done")).toHaveTextContent(
+      "Invited lisa@harbor.example.com.",
+    );
+    expect(posts).toEqual([{ role: "client_user", canSign: true }]);
+    await userEvent.click(within(dialog).getByTestId("people-detail-invite-dialog-close"));
+    expect(await screen.findByTestId("people-detail-access-badge")).toHaveTextContent(
+      "Invited, hasn't signed in yet",
+    );
+  });
+
+  it("offers no login to a vendor, nor to a client user", async () => {
+    renderAt(`/contacts?person=${MARCO}`, "client_admin");
+    const detail = await screen.findByTestId(`people-detail-${MARCO}`);
+    expect(within(detail).queryByTestId("people-detail-invite")).toBeNull();
+    expect(within(detail).queryByTestId("people-detail-access")).toBeNull();
+  });
+
+  it("shows a client user no invite on their own people", async () => {
+    renderAt(`/contacts?person=${LISA}`, "client_user");
+    const detail = await screen.findByTestId(`people-detail-${LISA}`);
+    expect(within(detail).queryByTestId("people-detail-invite")).toBeNull();
+  });
 });

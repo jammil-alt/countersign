@@ -117,6 +117,7 @@ export * from "./converse";
 export * from "./desk/item";
 export * from "./desk/rules";
 export * from "./directory/autonomy";
+export * from "./directory/invite";
 export * from "./directory/kinds";
 export * from "./directory/language";
 export * from "./directory/rows";

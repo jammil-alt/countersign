@@ -326,4 +326,96 @@ describe("back office directory", () => {
     expect(screen.getByTestId(`directory-person-${PAT}-edit`)).toBeInTheDocument();
     expect(screen.getByTestId("directory-tab-import")).toBeInTheDocument();
   });
+
+  it("invites one of the client's own people to sign in, with a status on each person", async () => {
+    const SAM = "00000000-0000-4000-8000-0000000c0002";
+    const ROW = "00000000-0000-4000-8000-0000000c0003";
+    const NOEMAIL = "00000000-0000-4000-8000-0000000c0004";
+    const sam = {
+      ...pat,
+      id: SAM,
+      name: "Sam Ortiz",
+      email: "sam@demo.example.com",
+      organization: null,
+      relationship: "employee",
+      access: null,
+    };
+    const row = {
+      ...sam,
+      id: ROW,
+      name: "Row Member",
+      email: "row@demo.example.com",
+      access: "member",
+    };
+    const noEmail = { ...sam, id: NOEMAIL, name: "No Email", email: null, access: null };
+    const posts: unknown[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${DEMO}`]: () => ({
+        client: { id: DEMO, name: "Demo client", timezone: "America/Chicago" },
+        agents: [],
+      }),
+      [`GET /api/ops/clients/${DEMO}/directory`]: () => ({
+        people: [
+          { ...pat, access: null },
+          posts.length > 0 ? { ...sam, access: "invited" } : sam,
+          row,
+          noEmail,
+        ],
+        organizations: [birch()],
+        pendingSuggestions: 0,
+      }),
+      [`POST /api/ops/clients/${DEMO}/contacts/${SAM}/invite`]: ({ init }) => {
+        posts.push(JSON.parse(String(init.body)));
+        return {
+          member: {
+            userId: "u-sam",
+            email: "sam@demo.example.com",
+            name: "Sam Ortiz",
+            role: "client_admin",
+            signedIn: false,
+            canSign: true,
+          },
+          email: { status: "sent", reason: null },
+        };
+      },
+    });
+    renderAt(`/ops/clients/${DEMO}/directory`, api);
+    await screen.findByTestId(`directory-person-${SAM}`);
+    // A vendor and a member get no button; an employee with no email gets a quiet hint.
+    expect(screen.queryByTestId(`directory-person-${PAT}-invite`)).toBeNull();
+    expect(screen.queryByTestId(`directory-person-${ROW}-invite`)).toBeNull();
+    expect(screen.getByTestId(`directory-person-${ROW}-access`)).toHaveTextContent("Can sign in");
+    expect(screen.queryByTestId(`directory-person-${NOEMAIL}-invite`)).toBeNull();
+    expect(screen.getByTestId(`directory-person-${NOEMAIL}-invite-no-email`)).toHaveTextContent(
+      "Add an email to invite",
+    );
+
+    await userEvent.click(screen.getByTestId(`directory-person-${SAM}-invite`));
+    const dialog = await screen.findByRole("dialog", { name: "Invite to sign in" });
+    expect(
+      within(dialog).getByTestId(`directory-person-${SAM}-invite-dialog-email`),
+    ).toHaveTextContent("sam@demo.example.com");
+    expect(within(dialog).queryByRole("textbox")).toBeNull();
+    await userEvent.selectOptions(
+      within(dialog).getByTestId(`directory-person-${SAM}-invite-dialog-role`),
+      "client_admin",
+    );
+    // A client admin always approves.
+    expect(
+      within(dialog).getByTestId(`directory-person-${SAM}-invite-dialog-can-sign`),
+    ).toBeDisabled();
+    await userEvent.click(within(dialog).getByTestId(`directory-person-${SAM}-invite-dialog-send`));
+    expect(
+      await within(dialog).findByTestId(`directory-person-${SAM}-invite-dialog-done`),
+    ).toHaveTextContent("We emailed sam@demo.example.com an invitation.");
+    expect(posts).toEqual([{ role: "client_admin", canSign: true }]);
+    await userEvent.click(
+      within(dialog).getByTestId(`directory-person-${SAM}-invite-dialog-close`),
+    );
+    expect(await screen.findByTestId(`directory-person-${SAM}-access`)).toHaveTextContent(
+      "Invited, hasn't signed in yet",
+    );
+    expect(screen.queryByTestId(`directory-person-${SAM}-invite`)).toBeNull();
+  });
 });

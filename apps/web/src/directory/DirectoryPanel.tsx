@@ -9,6 +9,7 @@ import {
   CONTACT_RELATIONSHIPS,
   type Contact,
   type ContactCreateInput,
+  type ContactInviteBody,
   type ContactPatchInput,
   type DirectoryImportKind,
   type DirectoryListQuery,
@@ -36,6 +37,7 @@ import { useApi, useApiClient } from "../api/useApi";
 import type { PlainKey } from "../i18n/catalog";
 import { errorText } from "../i18n/errors";
 import { type I18n, useI18n } from "../i18n/i18n";
+import { AccessBadge, InviteContactAction } from "../people/People";
 import { Field, Select, TextArea, TextInput } from "../ui/forms";
 import {
   Badge,
@@ -194,6 +196,10 @@ function useDirectoryApi(surface: DirectorySurface, query: DirectoryListQuery) {
       ops
         ? api.call(apiRoutes.opsDirectoryImportConnector, { params: p(), body })
         : api.call(apiRoutes.portalDirectoryImportConnector, { body }),
+    invite: (id: string, body: ContactInviteBody) =>
+      ops
+        ? api.call(apiRoutes.opsContactInvite, { params: { id: ops, contactId: id }, body })
+        : api.call(apiRoutes.portalContactInvite, { params: { id }, body }),
     apply: (body: ImportApplyBody) =>
       ops
         ? api.call(apiRoutes.opsDirectoryImportApply, { params: p(), body })
@@ -400,10 +406,20 @@ function People({
                   <div className="flex flex-wrap items-center gap-1.5">
                     {p.relationship ? <Badge>{t(RELATIONSHIP_KEY[p.relationship])}</Badge> : null}
                     {p.optedOut ? <Badge>{t("contacts.optedOut")}</Badge> : null}
+                    <AccessBadge access={p.access} testId={`directory-person-${p.id}-access`} />
                     {p.source && SOURCE_KEY[p.source] ? (
                       <span className="text-xs text-ink-muted">
                         {t(SOURCE_KEY[p.source] as PlainKey)}
                       </span>
+                    ) : null}
+                    {canEdit ? (
+                      <InviteContactAction
+                        person={p}
+                        surface={api.ops ? "ops" : "portal"}
+                        testId={`directory-person-${p.id}-invite`}
+                        onInvite={(body) => api.invite(p.id, body)}
+                        onInvited={onChanged}
+                      />
                     ) : null}
                     {canEdit ? (
                       <Button

@@ -36,6 +36,16 @@ export const InviteBody = z.strictObject({
 });
 export type InviteBody = z.infer<typeof InviteBody>;
 
+/**
+ * Inviting a person from the directory (2026-11-08): the role and "can sign" only. The email and
+ * the name are the contact's, never the body's (strict: an `email` here is refused).
+ */
+export const ContactInviteBody = z.strictObject({
+  role: InvitableRole,
+  canSign: z.boolean().optional(),
+});
+export type ContactInviteBody = z.infer<typeof ContactInviteBody>;
+
 /** A person in a client. */
 export const Member = z.object({
   userId: z.string(),
@@ -223,6 +233,29 @@ export const onboardingRoutes = {
     summary: "Invite a client admin or user to a client; they sign in with that address",
     params: IdParams,
     body: InviteBody,
+    response: InviteResult,
+  }),
+  // DECISION: inviting from the directory has its own routes (one per surface) that read the
+  // contact, check `canInviteContact` and then run the same invite as the email form; the existing
+  // invite routes keep their body as it is.
+  opsContactInvite: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/contacts/:contactId/invite",
+    auth: "session",
+    roles: OPS,
+    summary: "Invite one of a client's own people from its directory to sign in",
+    params: z.object({ id: Id, contactId: Id }),
+    body: ContactInviteBody,
+    response: InviteResult,
+  }),
+  portalContactInvite: defineRoute({
+    method: "POST",
+    path: "/api/contacts/:id/invite",
+    auth: "session",
+    roles: ADMIN,
+    summary: "Invite one of your own people from your directory to the portal",
+    params: IdParams,
+    body: ContactInviteBody,
     response: InviteResult,
   }),
   portalUsers: defineRoute({

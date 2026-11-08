@@ -6,10 +6,12 @@
 import { clientApproverSetting, updateInfo } from "@countersign/agents";
 import type { InviteDelivery } from "@countersign/auth";
 import {
+  type ContactInviteBody,
   DEFAULT_NOTIFICATIONS,
   type ExternalApprover,
   type InvitableRole,
   type InviteResult,
+  isOwnPerson,
   type Member,
   type NotificationSettings,
   type OpsClientSettings,
@@ -21,9 +23,11 @@ import {
   agent,
   appUser,
   connection,
+  contact,
   inboxItem,
   membership,
   membershipsOfUser,
+  organization,
   run,
   type Tx,
   tenant,
@@ -77,12 +81,12 @@ export function validTimezone(tz: string): boolean {
 }
 
 /** Whether this deployment's sign-in records a first sign-in (WorkOS does; dev doesn't). */
-function knowsSignIns(ctx: Pick<HandlerCtx<RouteSpec>, "services">): boolean {
+export function knowsSignIns(ctx: Pick<HandlerCtx<RouteSpec>, "services">): boolean {
   const choice = ctx.services.auth();
   return choice.ok && choice.adapter.kind === "workos";
 }
 
-async function membersOf(
+export async function membersOf(
   tx: Tx,
   tenantId: string,
   options: { clientRolesOnly: boolean; signIns: boolean },
@@ -202,6 +206,50 @@ export async function inviteToClient(
     });
   }
   return result;
+}
+
+/**
+ * Invites one of the client's own people from its directory (2026-11-08): the contact is read in
+ * the client's scope (another client's is "not found"), checked with core's rule, then invited
+ * exactly as the email form invites, with the contact's email and name, never the body's.
+ */
+export async function inviteContact(
+  ctx: Pick<HandlerCtx<RouteSpec>, "tx" | "services" | "afterCommit">,
+  tenantId: string,
+  contactId: string,
+  body: ContactInviteBody,
+  options: { surface: "ops" | "portal" },
+): Promise<InviteResult> {
+  const [row] = await ctx.tx
+    .select({
+      name: contact.name,
+      email: contact.email,
+      relationship: contact.relationship,
+      kinds: organization.kinds,
+    })
+    .from(contact)
+    .leftJoin(
+      organization,
+      and(eq(organization.id, contact.organizationId), eq(organization.tenantId, contact.tenantId)),
+    )
+    .where(and(eq(contact.id, contactId), eq(contact.tenantId, tenantId)));
+  if (!row) throw notFound("contact");
+  const person = { relationship: row.relationship ?? null, email: row.email };
+  if (!isOwnPerson(person, { kinds: row.kinds ?? [] })) {
+    throw new HttpError(
+      422,
+      "not_invitable",
+      "only the client's own people (employees, contractors, its own organization) sign in",
+    );
+  }
+  const email = row.email?.trim();
+  if (!email) throw new HttpError(422, "no_email", "add an email to invite them");
+  return inviteToClient(
+    ctx,
+    tenantId,
+    { email, name: row.name, role: body.role, canSign: body.canSign },
+    options,
+  );
 }
 
 // ── Overview ─────────────────────────────────────────────────────────────────────────────────────
@@ -490,14 +538,27 @@ export function onboardingRouteHandlers(app: Hono<AppEnv>): void {
     return opsSettings(ctx, await clientRow(tx, t.id));
   });
 
-  mount(app, routes.opsInvite, async (ctx) => {
-    ensureClient(ctx, ctx.params.id);
-    const t = await clientRow(ctx.tx, ctx.params.id);
+  /** A client this operator serves that takes invites: not the Sandbox. */
+  async function invitableClient(
+    ctx: { tx: Tx; tenantIds: readonly string[] },
+    id: string,
+  ): Promise<void> {
+    ensureClient(ctx, id);
+    const t = await clientRow(ctx.tx, id);
     // The Sandbox is the operator's own test client: it has no client people (§1.5).
     if (t.settings.sandbox === true) {
       throw new HttpError(409, "sandbox", "the Sandbox client has no client people");
     }
+  }
+
+  mount(app, routes.opsInvite, async (ctx) => {
+    await invitableClient(ctx, ctx.params.id);
     return inviteToClient(ctx, ctx.params.id, ctx.body, { surface: "ops" });
+  });
+
+  mount(app, routes.opsContactInvite, async (ctx) => {
+    await invitableClient(ctx, ctx.params.id);
+    return inviteContact(ctx, ctx.params.id, ctx.params.contactId, ctx.body, { surface: "ops" });
   });
 
   // ── Portal (client admins) ─────────────────────────────────────────────────────────────────────
@@ -511,6 +572,10 @@ export function onboardingRouteHandlers(app: Hono<AppEnv>): void {
   mount(app, routes.portalInvite, (ctx) =>
     // The session's one client, never one from the request.
     inviteToClient(ctx, ctx.tenantIds[0] as string, ctx.body, { surface: "portal" }),
+  );
+
+  mount(app, routes.portalContactInvite, (ctx) =>
+    inviteContact(ctx, ctx.tenantIds[0] as string, ctx.params.id, ctx.body, { surface: "portal" }),
   );
 
   mount(app, routes.portalSettings, async (ctx) => {

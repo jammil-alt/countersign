@@ -361,6 +361,11 @@ describe("client settings", () => {
     });
     renderAt(`/ops/clients/${DEMO}/settings/people`, api);
     const form = await screen.findByTestId("ops-client-invite", {}, { timeout: 10_000 });
+    // Or one of the client's own people, from its directory.
+    expect(screen.getByTestId("ops-client-invite-directory")).toHaveAttribute(
+      "href",
+      `/ops/clients/${DEMO}/directory`,
+    );
     await userEvent.type(
       within(form).getByTestId("ops-client-invite-email"),
       "clerk@demo.example.com",
