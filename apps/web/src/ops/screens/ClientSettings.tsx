@@ -208,6 +208,8 @@ function SettingsForm({
   return (
     <Section title="General" testId="ops-client-settings-general">
       <Details settings={current} onSave={save} />
+      {/* M44 (docs/plan.md §1.74): whether the client is one of our own (§1.72). */}
+      <OursSetting settings={current} onSave={save} />
       {client.data ? (
         <ClientLanguageSetting
           clientId={clientId}
@@ -224,8 +226,77 @@ type Save = (body: {
   name?: string;
   timezone?: string;
   approvals?: ExternalApprover;
+  internal?: boolean;
   reason?: string;
 }) => Promise<void>;
+
+/**
+ * M44: one of our own (`tenant.settings.internal`, docs/plan.md §1.72): Mezonas as its own client.
+ * Its data is real, it is never billed and it gets no Weekly Table; the back office's Marketing
+ * entry opens it. Changed with a reason, kept in the client's change log, as the approvals are.
+ */
+function OursSetting({ settings, onSave }: { settings: OpsClientSettings; onSave: Save }) {
+  const saved = settings.client.internal;
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function save() {
+    setBusy(true);
+    setNote(null);
+    try {
+      await onSave({ internal: !saved, ...(reason.trim() ? { reason: reason.trim() } : {}) });
+      setReason("");
+      setNote("Saved.");
+    } catch (error) {
+      setNote(failure(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card title="One of ours" pad testId="ops-client-settings-internal">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 flex-1 text-ink">
+          {saved
+            ? "This client is us. Its data is real, it is never billed and it gets no Weekly Table."
+            : "A client of ours. Mark it as one of ours only if it is Mezonas itself."}
+        </p>
+        <Badge tone={saved ? "accent" : "neutral"} testId="ops-client-settings-internal-state">
+          {saved ? "Ours" : "A client"}
+        </Badge>
+      </div>
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <Field
+          label="Why"
+          hint="Kept in the client's change log."
+          className="min-w-0 flex-1 basis-64"
+        >
+          <TextInput
+            value={reason}
+            maxLength={500}
+            onChange={(e) => setReason(e.target.value)}
+            data-testid="ops-client-settings-internal-reason"
+          />
+        </Field>
+        <Button
+          variant={saved ? "secondary" : "primary"}
+          disabled={busy}
+          onClick={() => void save()}
+          data-testid="ops-client-settings-internal-save"
+        >
+          {saved ? "Mark as a client" : "Mark as ours"}
+        </Button>
+      </div>
+      {note ? (
+        <p role="status" className="mt-2 text-sm text-ink-muted">
+          {note}
+        </p>
+      ) : null}
+    </Card>
+  );
+}
 
 function failure(error: unknown): string {
   const code = isApiError(error) ? error.code : null;

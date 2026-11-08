@@ -94,9 +94,7 @@ describe("the Marketing entry", () => {
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent(MARKETING_PATHS.overview(OURS)),
     );
-    expect(await screen.findByTestId("marketing-overview-coming")).toHaveTextContent(
-      "Coming in M44",
-    );
+    expect(await screen.findByTestId("marketing-overview")).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Mezonas" })).toBeInTheDocument();
   });
 
@@ -134,7 +132,8 @@ describe("a client's Marketing pages", () => {
     expect(links.map((l) => l.textContent)).toEqual(MARKETING_NAV.map((s) => s.label));
     const current = links.find((l) => l.getAttribute("href") === MARKETING_PATHS[id](OURS));
     expect(current?.className).toContain("border-slate");
-    expect(await screen.findByText(/^Coming in M4\d$/)).toBeInTheDocument();
+    // Each page renders its own section in the frame (a stub until its milestone fills it).
+    expect(await screen.findByTestId(`marketing-${id}`)).toBeInTheDocument();
   });
 
   it("sends the area's own address to its overview", async () => {

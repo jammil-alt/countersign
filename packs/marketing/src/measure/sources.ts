@@ -21,7 +21,6 @@ import {
   siteOf,
   small,
   sourceParts,
-  sumArray,
   toCsv,
 } from "./range";
 
