@@ -38,6 +38,8 @@ const SOURCE_LABEL: Record<string, PlainKey> = {
   email: "document.source.email",
   connector: "document.source.connector",
   request: "document.source.request",
+  // P-5: a document a tool made for the client (a purchase order PDF; docs/plan.md §1.67).
+  generated: "document.source.generated",
 };
 
 export function sourceLabel(source: string, { t }: Pick<I18n, "t"> = EN): string {

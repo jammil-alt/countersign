@@ -690,6 +690,7 @@ export const de: Messages = {
   "document.source.email": "Weitergeleitet",
   "document.source.connector": "Aus einem verbundenen Tool",
   "document.source.request": "Angefordert",
+  "document.source.generated": "Von Ihrem Agenten erstellt", // fluent review
   "document.title": "{vendor} · Rechnung {number}",
   "document.received": "{source} {time}",
   "document.receivedFrom": "{source} {time} von {from}",

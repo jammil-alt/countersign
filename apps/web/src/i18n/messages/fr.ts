@@ -676,6 +676,7 @@ export const fr: Messages = {
   "document.source.email": "Transféré",
   "document.source.connector": "Depuis un outil connecté",
   "document.source.request": "Demandé",
+  "document.source.generated": "Créé par votre agent", // fluent review
   "document.title": "{vendor} · facture {number}",
   "document.received": "{source} {time}",
   "document.receivedFrom": "{source} {time} par {from}",

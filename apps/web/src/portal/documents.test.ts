@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { isApiError } from "../api/client";
 import { uploadFiles } from "../api/upload";
-import { documentStatus, figure, money } from "./documents";
+import { documentStatus, figure, money, sourceLabel } from "./documents";
 
 describe("document figures", () => {
   it("formats money from decimal strings with separators, never floats", () => {
@@ -23,6 +23,14 @@ describe("document figures", () => {
   it("names every document status in words", () => {
     expect(documentStatus("needs_review")).toEqual({ label: "Needs review", tone: "warning" });
     expect(documentStatus("failed").tone).toBe("risk");
+  });
+});
+
+// P-5: a purchase order PDF a tool made reads as the agent's work, not a raw source id.
+describe("document sources", () => {
+  it("names a generated document in words", () => {
+    expect(sourceLabel("generated")).toBe("Made by your agent");
+    expect(sourceLabel("upload")).not.toBe("upload");
   });
 });
 

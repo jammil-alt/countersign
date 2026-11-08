@@ -665,6 +665,7 @@ export const ptBR: Messages = {
   "document.source.email": "Encaminhado",
   "document.source.connector": "De uma ferramenta conectada",
   "document.source.request": "Solicitado",
+  "document.source.generated": "Criado pelo seu agente", // fluent review
   "document.title": "{vendor} · nota {number}",
   "document.received": "{source} {time}",
   "document.receivedFrom": "{source} {time} por {from}",

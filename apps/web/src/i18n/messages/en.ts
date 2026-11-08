@@ -640,6 +640,7 @@ export const en = {
   "document.source.email": "Forwarded",
   "document.source.connector": "From a connected tool",
   "document.source.request": "Requested",
+  "document.source.generated": "Made by your agent",
   "document.title": "{vendor} · invoice {number}",
   "document.received": "{source} {time}",
   "document.receivedFrom": "{source} {time} from {from}",
