@@ -1,8 +1,18 @@
-# Mezonas — Architecture v0.14
+# Mezonas — Architecture v0.15
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
+
+> **v0.15 (2026-11-07, owner):** **Data is organised by business area, and purchasing comes
+> first.** Agents are many; the data they share belongs to a few business areas (purchasing, sales,
+> receivables), each a pack with its own tables and tools, used by every agent given those tools.
+> The platform's own tables stay fixed and the client's tools stay the system of record. The
+> **Purchasing area** joins v1: the Materials pack (a master list of what the company buys, each
+> vendor's names for it, cross-vendor matching, prices and alerts, Pia and her reports) is ported
+> from its M8 branches onto the platform as it is now. The **Sales area** (CRM-fed), **area grants**
+> and **client extras** are written down as designed for, not built. Changed: §1, §12 (12.0 new),
+> §18 (M34), §20; CLAUDE.md (Materials no longer built separately); `docs/plan.md` §1.63, M34, §8.
 
 > **v0.14 (2026-11-06, owner):** **WhatsApp conversations are kept, and their attachments filed
 > where the client turns it on.** Parity with Respaldo's capture of documents sent by WhatsApp, by
@@ -290,7 +300,11 @@ In:
   are pooled, and extra credits are billed at a credit price, all from `usage_daily`. A monthly
   statement is kept per client. Stripe only holds the customer and the invoice: it sends the
   invoice, takes payment and tells us the outcome
-- ~~Materials pack~~: built separately from this plan (v0.9)
+- **The Purchasing area** (v0.15, §12.0): the Materials pack, ported from its M8 branches: the master
+  list of what the company buys (`catalog_item`), each vendor's names for it (`item_alias`), every
+  invoice line matched to it (`item_match`, deterministic first, model second, person last),
+  prices in a standard unit (`price_observation`), alerts, the Pia template, and the Price watch and
+  Catalog reports. Enabled per client. Millwork categories as built; embeddings off (§20)
 - **Texts and calls** (v0.9): **Twilio** (SMS, voice, phone numbers and WhatsApp first), then
   **WhatsApp through Meta's Cloud API** (the client's own number and account), and **ElevenLabs** (voice
   agents for live calls) as connectors whose tools agents use, drawing on the client's knowledge;
@@ -410,7 +424,10 @@ Out (designed for, not built):
   the plan, and lasting fixes are proposals the operator applies (v0.13, §10.11)
 - Other packs (Expenses, Bookkeeping, FP&A); they plug in the same way as Materials; use cases such as
   collections (Cole), invoice intake (Iris) and card receipts (Remy) are built from these parts
-  separately, like Pia (v0.9)
+  separately (v0.9)
+- The **Sales area** (CRM-fed deals, activities, account owners), **area grants** (read and write
+  per area and entity, per agent) and **client extras** (`schema_extension`, `custom_record`): designed
+  in §12.0, not built (v0.15)
 
 ---
 
@@ -2223,7 +2240,77 @@ Weekly Table or the page to act on.
 
 ---
 
-## 12. Packs and the Materials pack
+## 12. Business areas, packs and the Materials pack
+
+### 12.0 Business areas (v0.15, owner 2026-11-07)
+
+Agents are many; the data they share is organised by **business area**, not by agent. A business
+area is a domain whose data must outlast a run and be read by several agents: purchasing, sales,
+receivables. Each area is a **pack** (§12.1): its tables, the tools that read and write them, its
+skills, events, template agents and screens. An agent never maps to tables. It reaches an area only
+through the area's tools (invariant 2), and it can use more than one area.
+
+**The layers of data.** Only the area layer grows with use cases.
+
+| Layer | What it holds | Defined by | Changes when |
+|---|---|---|---|
+| Platform | Clients, people, agents and versions, skills, workflows, runs and steps, approvals, external actions, inbox, audit, usage | The platform, once (§5.3) | The platform changes |
+| Raw data | Whatever a connector brings in, as JSON (`raw_record`), append-only | No schema | Never: a new connector writes new entity types |
+| Shared business records | Records several areas need: `vendor`, `transaction` and `transaction_line`, `document` and its extraction, `receivable`, the directory's people and organizations, `alert` | §5.2, small and stable | Rarely: only for a record every area needs |
+| **Area tables** | An area's own data: what only we know about the client's business (a catalog, matches, price history, decisions) | The area's pack, by migration | A new area, or an area's next version |
+| Client extras (designed, §5.3) | A few fields on a record (`ext`) or a small list for one client (`custom_record`), checked against a `schema_extension` | Data, no code | The operator adds them; not built in v1 |
+
+**Rules for areas.**
+1. **Agents use areas through tools, many to many.** Several agents share one area (an intake agent
+   writes the catalog that a price-watch agent reads). An agent may use several areas, and its
+   tools come from its skills and `extraTools`, as today.
+2. **Areas build on the shared records and the directory.** They never keep their own copy of a
+   vendor, a transaction or a person; their tables point at the shared rows.
+3. **The client's tools stay the system of record.** Synced data lands in `raw_record` first and is
+   normalised from there. Area tables hold what the client's tools don't: matches, a master list,
+   history, our decisions. A change to a client's tool is an `external` tool and an
+   `external_action` with approval (invariant 8). A change to an area's tables is an `internal`
+   tool: logged and attributed to the agent version, with no approval.
+4. **Per client.** A client uses an area once it is enabled for them (`tenant_pack`). Every area
+   table carries `tenant_id` with forced RLS, and what an area learns (aliases, catalog items,
+   prices) is that client's only (invariant 1).
+5. **When a use case needs new storage.** Data used only within one run stays in step outputs. Data
+   that lives in the client's tool is synced into raw data and changed through the tool. Data that
+   must last, be searched or be joined across a whole domain becomes an area: a new pack, or the
+   next version of an existing one. A few fields or a small list for one client are client extras.
+6. **An area's version moves with the platform.** Its migrations join the one shared sequence, in
+   their own PR, additive only, keeping the previous Worker working.
+
+**The areas.**
+
+| Area | Status | Built on | Its own data | Agents on it |
+|---|---|---|---|---|
+| **Purchasing** | **In v1 now (v0.15).** The shared records are built; the Materials pack is ported from its M8 branches (M34) | `vendor`, `transaction`, `document`, QuickBooks, upload and email | The Materials pack (§12.2–§12.4): `catalog_item` (the master list of what the company buys), `item_alias` (each vendor's name or SKU for it), `item_match` (each invoice line's decision), `price_observation` (price per item, vendor and date, in a standard unit). The shared `alert` table (§5.2) arrives with it | Invoice intake, the Bill clerk, price watch, purchasing (built in the Agent lab); later reorder and vendor comparison |
+| **Sales** | Designed for, not built | The directory's organizations and people, a CRM connector (Zoho CRM and Podio built, HubSpot next) | Deals and their stages, activities, the rep who owns an account, territories; what only we know (follow-up due, score, next step), fed from the CRM's raw records | Lead follow-up, pipeline hygiene, rep coaching. Agents change the CRM through its connector's tools, behind approval |
+| **Receivables** | Partly built (`receivable`, v0.12) | QuickBooks invoices, customers and payments | Collection attempts and promises to pay, when a collections use case needs them | Collections (Cole) |
+
+**Finding the same thing across sources.** Matching is deterministic first, model second, person
+last (invariant 7): normalise, look up known aliases, parse attributes by category, gather
+candidates (same key attributes, then similar text with `pg_trgm`, then similar meaning with
+`pgvector` when an embedding exists), let a small model choose among a few candidates, and send
+anything unsure to a person, whose answer becomes an alias. The search lives in our Postgres; there
+is no separate vector database. Embeddings stay optional in v1 (§20): when they are added, the
+provider (Anthropic has none: OpenAI or Voyage) is a vendor named in `packages/core/src/compliance`
+(invariant 14).
+
+**Access to an area (designed for, not built).** Today an agent reaches an area when its skills or
+`extraTools` include the area's tools, and a template that needs an area declares it
+(`requiresPacks`), so it can't be forked into a client without the area enabled. The next step is
+an **area grant** like a connection's (§6.9): per agent, `read` and `write` per area and per entity,
+with the strictest of the grant, the step and the mode winning, and the client admin able to tighten
+it. Tools would declare their area and entity (`ToolSpec.area`, `ToolSpec.entity`), and the gate
+would check them like a connection's matrix.
+
+**Client extras (designed for, not built).** For data too small to be an area: `schema_extension`
+(a JSON Schema per client and target, versioned like a skill) checks the `ext` fields of a record or
+a `custom_record` collection. Templates would declare the collections they need, forking creates
+them in the client, template updates merge schema changes, and agents reach them through generic
+`records.*` tools that check the schema and the client. Not in v1 (§1 "Out").
 
 ### 12.1 Pack contract
 
@@ -2729,6 +2816,7 @@ Platform first; the Materials template, forked and customized for the millwork s
 | M31 | Run oversight on failures | A lookup that fails on a vendor name with a trailing space is corrected and the run finishes, with one decision row and one proposal for the operator; a write that reached the client's tool is never retried; past the limit the step fails as before; the portal shows only "Corrected and tried again" |
 | M32 | Checkpoint reviews | An extraction that feeds a create-bill step is reviewed; a wrong total is corrected before the bill is proposed and the approver sees the corrected input; with `review: 'failures'` a clean run makes no oversight call |
 | M33 | (v0.14) WhatsApp passive capture | A WhatsApp photo from a contact whose conversation has attachments on becomes one document, extracted, linked to its message; with it off, only the attachment's existence is kept; a retried webhook makes nothing twice; the client admin toggles it and the change is logged |
+| M34 | (v0.15) The Purchasing area: the Materials pack ported | On staging, the Materials pack is enabled for the Sandbox; three invoices from different vendors for the same sheet good are matched to one catalog item (the second and third by alias or rules, not the model); the Price watch report shows that item's price per vendor and date; a key attribute that differs is never matched; golden matching tests ≥ 95% precision on "same" |
 
 **MVP** (§1): M0–M4 in full; M5 without client requests; M6 without the Builder, operator-written skills, template updates and
 promotion; M7 without the merge view; M8; M9 with the two MVP write tools; plus email forwarding (§6.5)
@@ -2812,8 +2900,15 @@ Decided:
   and, where the client turns it on, their attachments are filed as documents; nothing on that path
   replies; downloads are off by default; the client admin and the operator may both change it, and
   every change is logged; groups wait for Meta's connector (§6.12).
+- v0.15 (owner, 2026-11-07): data is organised by business area, each a pack used by many agents
+  through its tools; the platform's tables stay fixed and the client's tools stay the system of
+  record; the Purchasing area (the Materials pack, ported from M8) is in v1; the Sales area, area
+  grants and client extras are designed for, not built (§12.0).
 
 Open:
+- v0.15, for the owner: embeddings for matching (when, and which provider: OpenAI or Voyage, named in
+  the compliance list); generalising the Materials categories beyond millwork (more parsers in code,
+  or embeddings for categories without one); the Sales area's first use case and CRM.
 - v0.14, for the owner (`docs/plan.md` §1.55): whether to delete media at Twilio once it is filed;
   Twilio's media facts (auth, the redirect's host, retention) and Meta's groups requirements, to verify.
 - v0.12, for the owner (`docs/plan.md` §7): the agent address domain (`<agent>@<client>.agents.mezonas.com`
