@@ -14,7 +14,7 @@ client's tools (QuickBooks Online and Gmail) within each connection's permission
 are built only from platform parts. The data they share is organised by **business area** (purchasing,
 sales, receivables), each a pack used by many agents through its tools; agents never map to tables
 (ARCHITECTURE §12.0, v0.15). The **Purchasing area** (the Materials pack: master list, cross-vendor
-matching, prices, alerts, Pia) is in v1.
+matching, prices, alerts) is in v1.
 
 - What to build: `docs/ARCHITECTURE.md` (v0.15). Do not add features outside its §1 v1 scope.
   v0.12 (the owner's prototype) and v0.13 (run oversight and a model per step) are built API first in
@@ -53,7 +53,7 @@ Other docs: `docs/local-development.md` (running it), `docs/operations.md` (envi
 | `packages/threads` | Threads, messages, `/command` parsing. |
 | `packages/agents` | Tool, skill and agent registries; bundle versions, fork, update and promote; runtime; permission gate; external actions; Builder. |
 | `packages/workflows` | Workflow (step list) executor against a `StepRunner` interface, trigger router. No Workers types; `apps/api` adapts Cloudflare Workflows to it. |
-| `packs/materials` | Materials pack: catalog, matching, pricing, alerts; its tools, skills, tables, routes; the Pia template and her two workflows. |
+| `packs/materials` | Materials pack: catalog, matching, pricing, alerts; its tools, skills, tables, routes, reports and screens. It ships no agent templates. |
 | `fixtures/` | Invoices + expected JSON, QBO payloads, matching pairs, recorded LLM responses. |
 | `scripts/check-deps.mjs` | Enforces package layering (`docs/plan.md` §2). |
 | `scripts/setup-postgres.sh` | Gives a plain Postgres Neon's roles (CI and local). |
