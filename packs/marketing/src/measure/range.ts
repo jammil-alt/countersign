@@ -17,6 +17,7 @@ import { listSites, type SiteRow } from "../sites";
 
 /** Fewer visits (or views) than this behind a figure: shown, and marked as a small sample. */
 export const SMALL_SAMPLE = 20;
+// DECISION (docs/plan.md §1.74): 7, 28 or 90 finished days to yesterday, 28 by default.
 export const PERIODS = ["7", "28", "90"] as const;
 export const DEFAULT_PERIOD_DAYS = 28;
 /** The longest range a query may ask for: a visit is kept 13 months. */
@@ -122,6 +123,7 @@ export interface MedianBand {
  * the daily tables keep bands, not each view's time, so the median is read as a band, never
  * invented to the second. Null with nothing counted.
  */
+// DECISION (docs/plan.md §1.74): a median from the daily bands is a band, not a second.
 export function medianBand(bands: readonly number[]): MedianBand | null {
   const counts = Array.from({ length: ENGAGED_BANDS }, (_, i) => num(bands[i]));
   const total = counts.reduce((a, b) => a + b, 0);

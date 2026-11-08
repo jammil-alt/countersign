@@ -14,6 +14,8 @@
 // Sent as text (`sendBeacon` with a string, or a no-cors `fetch`), which a browser sends across
 // origins without asking first. Ported from Plenary Labs' `apps/site/public/track.js` (copied).
 
+// DECISION (docs/plan.md §1.74): beacons go to the app's own origin until the collector's own host
+// (`collect.mezonas.com`) has its PR; the screen passes `window.location.origin`.
 /** The address a site's beacons go to. */
 export function beaconUrl(origin: string, clientId: string, siteId: string): string {
   return `${origin.replace(/\/+$/, "")}/api/in/marketing/${clientId}/${siteId}`;

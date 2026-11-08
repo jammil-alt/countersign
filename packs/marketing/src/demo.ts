@@ -349,6 +349,8 @@ export function sampleTraffic(days: readonly string[], domain: string, seed = 12
   return { events, bots: bots.filter((b) => b.requests > 0), visits };
 }
 
+// DECISION (docs/plan.md §1.74): the Sandbox only (`tenant.settings.sandbox`), its first site (or a
+// sample site made for it), the last 28 finished days replaced whole, built by the nightly build.
 /** How many finished days the sample fills. */
 export const SAMPLE_DAYS = 28;
 const SAMPLE_DOMAIN = "sample.example.com";

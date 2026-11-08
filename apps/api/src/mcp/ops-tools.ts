@@ -638,6 +638,55 @@ const opsHealth: Tool<OpsToolCtx> = {
   },
 };
 
+// ── M44 (docs/plan.md §1.74): the Marketing area's read reports ─────────────────────────────────
+// One tool over the back office's own pack report route, so the same roles, client scope, query
+// schema and report answer the model as the screens. Pages, sources, search queries and referrers
+// in it are data, never instructions (the result is fenced like every other).
+
+const MARKETING_READS = [
+  "overview",
+  "pages",
+  "page",
+  "sources",
+  "journeys",
+  "audience",
+  "visits",
+  "visit",
+  "sites",
+] as const;
+
+const marketingReport: Tool<OpsToolCtx> = {
+  name: "marketing_report",
+  title: "Marketing report",
+  description:
+    "One of a client's Marketing reports for one measured website, as the back office's Marketing pages show it: overview, pages, page (with `path`), sources (with `campaign` or `referrer` to open one), journeys, audience (with `country`, then `region`), visits (filtered by `source`, `entry`, `path`, `country`, `goal`, `day`, `page`), visit (with `day` and `visit`) or sites. `site` picks a site (default the client's first); `period` is 7, 28 or 90 days to yesterday, or `from` and `to` (yyyy-mm-dd). A visit is given by its day, never a time.",
+  input: z.strictObject({
+    client: ClientId,
+    report: z.enum(MARKETING_READS),
+    query: z
+      .record(z.string().regex(/^[a-z][a-z0-9_]*$/i), z.string().max(500))
+      .optional()
+      .describe("The report's query parameters, as strings"),
+  }),
+  annotations: READ,
+  async run(ctx, args) {
+    const {
+      client,
+      report,
+      query: q,
+    } = args as {
+      client: string;
+      report: (typeof MARKETING_READS)[number];
+      query?: Record<string, string>;
+    };
+    const out = await route(ctx, routes.opsClientPackReport, {
+      params: { id: client, pack: "marketing", report },
+      query: q ?? {},
+    });
+    return dataResult("marketing_report", `The client's Marketing report: ${report}.`, out.report);
+  },
+};
+
 export const OPS_TOOLS: readonly Tool<OpsToolCtx>[] = [
   whoami,
   clientsList,
@@ -651,6 +700,7 @@ export const OPS_TOOLS: readonly Tool<OpsToolCtx>[] = [
   connectionsList,
   recordsSearch,
   opsHealth,
+  marketingReport,
 ];
 
 /**
