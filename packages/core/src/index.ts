@@ -44,6 +44,7 @@ export * from "./api/gchat";
 export * from "./api/gsheets";
 export * from "./api/knowledge";
 export * from "./api/language";
+export * from "./api/ledger";
 // v0.12 W1-A: go-live stages and client controls
 export * from "./api/lifecycle";
 export * from "./api/messaging";
