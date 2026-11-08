@@ -1,6 +1,6 @@
 // The registries the API and the runs share (docs/plan.md §2): tools from the platform's own list
 // and each registered connector's manifest, built-in skills, and event types. This is the one
-// place that names connectors (and, later, packs); nothing in packages/* does.
+// place that names connectors and (through packs.ts) packs; nothing in packages/* does.
 
 import {
   // v0.12 W2-D
@@ -55,12 +55,15 @@ import {
 import { SkillDefinition } from "@countersign/core";
 import { EventTypeRegistry } from "@countersign/senses";
 import type { Bindings } from "./env";
+import { DEPLOYMENT_PACKS, packToolSource, type RegisteredPack } from "./packs";
 
 export interface Platform {
   connectors: ConnectorRegistry;
   tools: ToolRegistry;
   catalog: SkillCatalog;
   events: EventTypeRegistry;
+  // P-1: the packs it registered, with their reports, review cards and actions.
+  packs: readonly RegisteredPack[];
   /** What publishing and validation need: tools, skills, event types. */
   ctx: RegistryContext;
 }
@@ -68,6 +71,8 @@ export interface Platform {
 export interface PlatformOptions {
   connectors?: readonly Connector[];
   skills?: readonly SkillDefinition[];
+  // P-1: default every pack the deployment registers (packs.ts).
+  packs?: readonly RegisteredPack[];
 }
 
 /**
@@ -113,11 +118,17 @@ export function connectorReadSkills(connectors: ConnectorRegistry): SkillDefinit
 
 export function createPlatform(options: PlatformOptions = {}): Platform {
   const connectors = new ConnectorRegistry(options.connectors ?? []);
-  const tools = new ToolRegistry({ platform: PLATFORM_TOOLS, connectors });
+  // P-1: each registered pack's tools join the registry (docs/plan.md §1.63).
+  const packs = options.packs ?? DEPLOYMENT_PACKS;
+  const tools = new ToolRegistry({
+    platform: PLATFORM_TOOLS,
+    connectors,
+    packs: packs.map(packToolSource),
+  });
   // The platform's built-in skills (docs.*, knowledge.search, directory.lookup, comms.reach-out,
   // supervisor.*) come first, then the caller's, QuickBooks' own, then a tool-mode skill
-  // per connector read tool. Connectors' event types (e.g. webhook.received) join the catalogue;
-  // packs register theirs here when they exist (registerPack); none yet.
+  // per connector read tool. Connectors' and packs' event types (e.g. webhook.received,
+  // materials.line.matched) join the catalogue.
   const catalog = new SkillCatalog(
     [
       ...DOCS_SKILLS,
@@ -133,6 +144,8 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       // DECISION: QuickBooks' one agent-mode skill (the Bill clerk's line mapping) ships with the
       // connector, beside the tools it reads with, and is offered wherever qbo is registered.
       ...(connectors.has(QBO_CONNECTOR_ID) ? QBO_SKILLS : []),
+      // P-1: each pack's skills (a client uses them only with the pack on: requiresPacks).
+      ...packs.flatMap((p) => p.manifest.skills),
       ...connectorReadSkills(connectors),
     ],
     tools,
@@ -143,7 +156,15 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       events.registerConnector(c.manifest.id, c.manifest.events, c.manifest.sharedNamespaces);
     }
   }
-  return { connectors, tools, catalog, events, ctx: { tools, catalog, events: events.byType() } };
+  for (const p of packs) events.registerPack(p.manifest.id, p.manifest.events);
+  return {
+    connectors,
+    tools,
+    catalog,
+    events,
+    packs,
+    ctx: { tools, catalog, events: events.byType() },
+  };
 }
 
 /** QBO_ENV, read leniently: anything but `production` is the sandbox. */

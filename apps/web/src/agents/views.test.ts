@@ -28,8 +28,8 @@ describe("an agent's own view", () => {
     const prices: PackReport = {
       pack: "materials",
       slug: "prices",
-      title: "Price watch",
-      description: "Prices by vendor",
+      titleKey: "materials.prices.title",
+      descriptionKey: "materials.prices.description",
       Component: Nothing,
     };
     expect(defaultReports({ packs: [] })).toEqual([]);

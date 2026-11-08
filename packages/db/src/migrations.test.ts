@@ -84,12 +84,26 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     for (const r of rows) expect(r.tableowner, r.tablename).toBe("cs_owner");
   });
 
+  // Pack tables carry the comment `pack:<id>` (docs/plan.md §1.12, §1.63): the platform's schema
+  // doesn't know them (it never imports a pack), so their columns are the pack's own test's
+  // business; their row-level security is checked here like every other table's.
+  const packTables = async () =>
+    new Set(
+      (
+        await t.db.$client<{ relname: string }[]>`
+          select c.relname from pg_class c
+          join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+          where c.relkind = 'r' and obj_description(c.oid, 'pg_class') like 'pack:%'`
+      ).map((r) => r.relname),
+    );
+
   it("match the Drizzle schema: every table and column, with its nullability", async () => {
-    const cols = await t.db.$client<
-      { table_name: string; column_name: string; is_nullable: string }[]
-    >`
-      select table_name, column_name, is_nullable from information_schema.columns
-      where table_schema = 'public'`;
+    const packs = await packTables();
+    const cols = (
+      await t.db.$client<{ table_name: string; column_name: string; is_nullable: string }[]>`
+        select table_name, column_name, is_nullable from information_schema.columns
+        where table_schema = 'public'`
+    ).filter((c) => !packs.has(c.table_name));
     const actual = new Map(cols.map((c) => [`${c.table_name}.${c.column_name}`, c.is_nullable]));
     const expected = new Set<string>();
     for (const table of tables) {
@@ -115,7 +129,21 @@ describe.skipIf(!online)("migrations on an empty database", () => {
         and exists (select 1 from pg_attribute a
                     where a.attrelid = c.oid and a.attname = 'tenant_id' and not a.attisdropped)
       order by c.relname`;
-    expect(rows.map((r) => r.relname).sort()).toEqual([...TENANT_TABLES].sort());
+    // P-1 (0032): the Materials pack's four tables are the only pack tables, and they are checked
+    // for RLS below like every other.
+    const packs = await packTables();
+    expect([...packs].sort()).toEqual([
+      "catalog_item",
+      "item_alias",
+      "item_match",
+      "price_observation",
+    ]);
+    expect(
+      rows
+        .map((r) => r.relname)
+        .filter((n) => !packs.has(n))
+        .sort(),
+    ).toEqual([...TENANT_TABLES].sort());
     for (const r of rows) {
       expect(r.rls && r.forced, `${r.relname} forces RLS`).toBe(true);
       expect(r.policies, `${r.relname} has a policy`).toBeGreaterThan(0);
@@ -190,6 +218,12 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       // v0.14 capture (0031): a WhatsApp conversation and its log stay.
       "conversation",
       "conversation_change",
+      // P-1 (0032): alerts and the Materials pack's tables are kept; a merge repoints, never deletes.
+      "alert",
+      "catalog_item",
+      "item_alias",
+      "item_match",
+      "price_observation",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
@@ -202,6 +236,15 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     // v0.14 capture (0031): a conversation's capture changes in place; its log is insert only.
     expect(await can("conversation", "UPDATE")).toBe(true);
     expect(await can("conversation_change", "UPDATE")).toBe(false);
+    // P-1 (0032): a person accepts or dismisses an alert; catalog items, aliases and prices are
+    // corrected in place; a matching decision is a log (a person's decision is a new row).
+    for (const table of ["alert", "catalog_item", "item_alias", "price_observation"]) {
+      expect(await can(table, "SELECT"), `${table} SELECT`).toBe(true);
+      expect(await can(table, "INSERT"), `${table} INSERT`).toBe(true);
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
+    }
+    expect(await can("item_match", "INSERT")).toBe(true);
+    expect(await can("item_match", "UPDATE")).toBe(false);
     for (const table of ["automation", "automation_version", "test_case", "test_suite_run"]) {
       expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
     }
