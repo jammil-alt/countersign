@@ -836,6 +836,74 @@ describe.skipIf(!harness)("runtime", () => {
     expect(result.status === "escalated" && result.reason).toBe("max_cost");
   });
 
+  // §1.77: the monthly cap per client agent.
+  it("escalates when the client agent's month is spent, counting this month's runs only", async () => {
+    const pinned = makeBundle({ maxMonthlyCostUsd: "0.0100" });
+    const a = await h.ops(async (tx) => {
+      const { agent: tpl, version } = await createTemplate(tx, { slug: "monthly", bundle: pinned });
+      await publish(tx, { agentId: tpl.id, versionId: version.id, ctx: h.ctx });
+      const f = await fork(tx, {
+        tenantId: h.A.tenantId,
+        slug: "monthly",
+        templateVersionId: version.id,
+      });
+      await updateOperational(tx, {
+        agentId: f.agent.id,
+        patch: { bindings: { testkit: h.A.connectionId } },
+      });
+      await publish(tx, { agentId: f.agent.id, versionId: f.version.id, ctx: h.ctx });
+      await tx.update(agent).set({ runStatus: "active" }).where(eq(agent.id, f.agent.id));
+      return f;
+    });
+    const start = (cost: string, createdAt?: Date) =>
+      h.client(h.A, async (tx) => {
+        const r = await createRun(tx, {
+          tenantId: h.A.tenantId,
+          agentId: a.agent.id,
+          workflowSlug: "check-record",
+          mode: "live",
+        });
+        await tx
+          .update(run)
+          .set({ costUsd: cost, ...(createdAt ? { createdAt } : {}) })
+          .where(eq(run.id, r.id));
+        return r;
+      });
+    const lookup = (runId: string, model: FakeModel) =>
+      runAgent(h.deps(model), {
+        tenantId: h.A.tenantId,
+        agentVersionId: a.version.id,
+        skill: "test.lookup",
+        input: { name: "Oak" },
+        runId,
+        stepId: LOOKUP_STEP,
+      });
+    // Last month's spend doesn't count: the step runs and finishes.
+    const now = new Date();
+    await start("5.0000", new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15)));
+    const fresh = await start("0");
+    const ok = new FakeModel([{ toolUse: { name: "finish", input: { answer: "Oak is there" } } }]);
+    expect((await lookup(fresh.id, ok)).status).toBe("succeeded");
+    // This month's runs have spent the cap: the step stops before any model call.
+    await start("0.0100");
+    const over = await start("0");
+    const model = new FakeModel([
+      { toolUse: { name: "finish", input: { answer: "Oak is there" } } },
+    ]);
+    const result = await lookup(over.id, model);
+    expect(result.status === "escalated" && result.reason).toBe("max_monthly_cost");
+    expect(model.requests).toHaveLength(0);
+    if (result.status !== "escalated") throw new Error("not escalated");
+    const [item] = await h.client(h.A, (tx) =>
+      tx.select().from(inboxItem).where(eq(inboxItem.id, result.inboxItemId)),
+    );
+    expect(item?.title).toContain("monthly budget reached");
+    expect(item?.payload).toMatchObject({
+      reason: "max_monthly_cost",
+      maxMonthlyCostUsd: "0.0100",
+    });
+  });
+
   it("skills that produce alerts must cite sources", async () => {
     const model = new FakeModel([
       { toolUse: { name: "finish", input: { title: "Price up 20%" } } },

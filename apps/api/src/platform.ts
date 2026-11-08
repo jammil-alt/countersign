@@ -32,8 +32,11 @@ import {
   createGmailConnector,
   // v0.14 W4-D
   createGsheetsConnector,
+  // §1.77
+  createHackerNewsConnector,
   // v0.12 W3-B
   createHubspotConnector,
+  createLinkedInConnector,
   createOutlookConnector,
   createPodioConnector,
   createQboConnector,
@@ -228,7 +231,10 @@ type OAuthEnvKey =
   // v0.12 bankfeed: Plaid.
   | "PLAID_CLIENT_ID"
   | "PLAID_SECRET"
-  | "PLAID_ENV";
+  | "PLAID_ENV"
+  // §1.77: our LinkedIn app.
+  | "LINKEDIN_CLIENT_ID"
+  | "LINKEDIN_CLIENT_SECRET";
 
 export function platformFor(
   env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey | "BROWSER">,
@@ -261,6 +267,9 @@ export function platformFor(
     env.PLAID_CLIENT_ID ?? "-",
     env.PLAID_SECRET ? "plaid-secret" : "-",
     plaidEnvironment(env.PLAID_ENV),
+    // §1.77: LinkedIn's app id, and whether its secret is set (never the secret).
+    env.LINKEDIN_CLIENT_ID ?? "-",
+    env.LINKEDIN_CLIENT_SECRET ? "linkedin" : "-",
   ].join(":");
   if (cached?.key !== key) {
     cached = {
@@ -381,6 +390,11 @@ export function deploymentConnectors(
     // Website logins (docs/plan.md §1.26): registered everywhere, so sites can be offered and
     // built with; agents sign in only where Browser Run is bound (BROWSER).
     createBrowserConnector({ available: Boolean(env.BROWSER) }),
+    // §1.77: Hacker News, read only and keyless (the forum watch), registered everywhere.
+    createHackerNewsConnector(),
+    // §1.77 (M49): LinkedIn company page posts, always signed; like Outlook, registered everywhere
+    // and signing in once LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET and OAUTH_STATE_SECRET are set.
+    createLinkedInConnector(oauthClient(env.LINKEDIN_CLIENT_ID, env.LINKEDIN_CLIENT_SECRET, env)),
     ...(production
       ? []
       : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))]),

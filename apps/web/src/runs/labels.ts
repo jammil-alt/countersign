@@ -110,6 +110,12 @@ const TOOLS: Record<string, string> = {
   "sheets.range.update": "Change cells in a sheet",
   "gchat.message.post": "Post a message",
   "slack.message.post": "Post a message",
+  // §1.77
+  "linkedin.post": "Post on LinkedIn",
+  "hackernews.search": "Search Hacker News",
+  "hackernews.thread": "Read a Hacker News thread",
+  "web.search": "Search the web",
+  "web.fetch": "Read a web page",
   "ramp.receipt.upload": "Upload a receipt",
   "hubspot.record.create": "Create a record",
   "hubspot.record.update": "Update a record",
@@ -178,6 +184,9 @@ const CONNECTOR_NAMES: Record<string, string> = {
   drive: "Google Drive",
   gchat: "Google Chat",
   slack: "Slack",
+  // §1.77
+  linkedin: "LinkedIn",
+  hackernews: "Hacker News",
   zoho_crm: "Zoho CRM",
   podio: "Podio",
   hubspot: "HubSpot",

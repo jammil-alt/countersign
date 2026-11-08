@@ -91,6 +91,9 @@ describe("tool registry", () => {
       "testkit.record.update",
       "threads.post",
       "threads.read",
+      // §1.77: web research
+      "web.fetch",
+      "web.search",
     ]);
     expect(tools.get(TESTKIT_UPDATE_TOOL)?.kind).toBe("connector");
     expect(tools.get("memory.write")?.spec.sideEffect).toBe("internal");

@@ -136,6 +136,22 @@ export function costOf(
   return micro.div(MILLION).toDecimalPlaces(COST_PLACES).toFixed(COST_PLACES);
 }
 
+// §1.77: the model vendor's server-side tools (web search and fetch, `web.search` / `web.fetch`).
+// DECISION: a web search is billed per request on top of its tokens; a web fetch costs its tokens
+// only. The list price ($10 per 1,000 searches) is unverified like every price here.
+export const WEB_SEARCH_PRICE_PER_REQUEST = "0.01";
+
+/** What a call's server-side tool use costs beyond its tokens, from the answer's usage block. */
+export function serverToolCostOf(usage: {
+  readonly server_tool_use?: { readonly web_search_requests?: number | null } | null;
+}): string {
+  const searches = Math.max(0, Math.round(usage.server_tool_use?.web_search_requests ?? 0));
+  return new Decimal(String(searches))
+    .mul(WEB_SEARCH_PRICE_PER_REQUEST)
+    .toDecimalPlaces(COST_PLACES)
+    .toFixed(COST_PLACES);
+}
+
 /** Sum of call costs (decimal strings); unpriced calls (null) are skipped. */
 export function sumCosts(costs: readonly (string | null)[]): string {
   return costs

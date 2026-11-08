@@ -25,6 +25,8 @@ import type { InboundPort } from "./inbound";
 import type { ThreadsPort } from "./threads";
 // P-7
 import type { TranslationPort } from "./translate";
+// §1.77
+import type { WebResearchPort } from "./web";
 
 export type RunMode = "live" | "test";
 
@@ -74,6 +76,9 @@ export interface ToolInvocation {
   // P-7: message translation (docs/plan.md §1.69)
   /** Translations of the client's messages (`comms.translate`); absent where none is given. */
   translation?: TranslationPort | undefined;
+  // §1.77: web research
+  /** `web.search` and `web.fetch`; absent where research is off (they answer `off`). */
+  web?: WebResearchPort | undefined;
   /**
    * Asks another agent of the same client (`agents.ask`): set by the runtime for a skill's tool
    * calls, absent inside an ask (no asks within asks) and in action steps.
