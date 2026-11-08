@@ -10,7 +10,7 @@ import { type Db, document, type Tx, tenant, vendor, withTenant } from "@counter
 import { countPages } from "@countersign/documents";
 import { and, eq } from "drizzle-orm";
 import { PageSizes, PDFDocument, type PDFFont, type PDFPage, rgb, StandardFonts } from "pdf-lib";
-import { quoteLines, quoteRow } from "./quotes";
+import { quoteLines, quoteRow, vendorAliases } from "./quotes";
 import { type PurchasingContext, PurchasingError, requestLines, requestRow } from "./requests";
 
 // The design system's ink, muted ink, slate and border (packages/design-system/tokens.css).
@@ -30,6 +30,8 @@ export interface PoLine {
 }
 
 export interface PoContent {
+  /** P-9: a request for a quote has the same layout without prices or a total. */
+  kind?: "purchase_order" | "rfq";
   reference: string;
   clientName: string;
   vendorName: string;
@@ -71,7 +73,8 @@ function qtyText(qty: string): string {
 /** Renders the order. The same content gives the same bytes (fixed dates and producer). */
 export async function renderPurchaseOrder(po: PoContent): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  doc.setTitle(`Purchase order ${po.reference}`);
+  const rfq = po.kind === "rfq";
+  doc.setTitle(`${rfq ? "Request for quote" : "Purchase order"} ${po.reference}`);
   doc.setProducer("Mezonas");
   doc.setCreator("Mezonas");
   const at = new Date(`${po.date}T12:00:00Z`);
@@ -132,7 +135,7 @@ export async function renderPurchaseOrder(po: PoContent): Promise<Uint8Array> {
 
   text(po.clientName, { size: 11, color: MUTED });
   y -= 16;
-  text("Purchase order", { size: 20, bold: true });
+  text(rfq ? "Request for quote" : "Purchase order", { size: 20, bold: true });
   text(po.reference, { size: 12, bold: true, color: SLATE, right: MARGIN + width });
   y -= 30;
   const facts: [string, string][] = [
@@ -169,8 +172,8 @@ export async function renderPurchaseOrder(po: PoContent): Promise<Uint8Array> {
   text("Item", { bold: true, size: 9 });
   text("Qty", { bold: true, size: 9, right: cols.qty });
   text("Unit", { bold: true, size: 9, x: cols.unit });
-  text("Unit price", { bold: true, size: 9, right: cols.price });
-  text("Amount", { bold: true, size: 9, right: cols.amount });
+  text(rfq ? "Your unit price" : "Unit price", { bold: true, size: 9, right: cols.price });
+  text(rfq ? "Lead time" : "Amount", { bold: true, size: 9, right: cols.amount });
   y -= 16;
   rule();
   y -= 6;
@@ -180,8 +183,10 @@ export async function renderPurchaseOrder(po: PoContent): Promise<Uint8Array> {
     text(wrapped[0] ?? "");
     text(qtyText(l.qty), { right: cols.qty });
     text(l.unit ?? "", { x: cols.unit });
-    text(moneyText(l.unitPrice, po.currency), { right: cols.price });
-    text(moneyText(l.amount, po.currency), { right: cols.amount });
+    if (!rfq) {
+      text(moneyText(l.unitPrice, po.currency), { right: cols.price });
+      text(moneyText(l.amount, po.currency), { right: cols.amount });
+    }
     for (const more of wrapped.slice(1)) {
       y -= 14;
       text(more, { x: MARGIN + 12 });
@@ -190,9 +195,11 @@ export async function renderPurchaseOrder(po: PoContent): Promise<Uint8Array> {
   }
   rule();
   y -= 8;
-  room(20);
-  text("Total", { bold: true, x: cols.unit });
-  text(moneyText(po.total, po.currency), { bold: true, right: cols.amount });
+  if (!rfq) {
+    room(20);
+    text("Total", { bold: true, x: cols.unit });
+    text(moneyText(po.total, po.currency), { bold: true, right: cols.amount });
+  }
   y -= 28;
   if (po.notes) {
     room(30);
@@ -381,4 +388,152 @@ export async function purchaseOrderDocument(
       sources: [id, input.requestId, input.quoteRequestId, ...made.quoteLineIds],
     };
   });
+}
+
+// ── P-9: a request for a quote as a PDF (docs/plan.md §1.71) ────────────────────────────────────
+
+/** Stores a PDF we made as the client's document (source `generated`), once per client and hash. */
+async function storeGenerated(
+  db: Db,
+  content: ContentStore,
+  ctx: PurchasingContext,
+  file: { bytes: Uint8Array; filename: string; meta: Record<string, unknown> },
+): Promise<{ id: string; created: boolean }> {
+  const stored = await content.put({
+    tenantId: ctx.tenantId,
+    bytes: file.bytes,
+    contentType: "application/pdf",
+    metadata: { filename: file.filename },
+  });
+  return withTenant(db, ctx.tenantId, async (tx) => {
+    const [row] = await tx
+      .insert(document)
+      .values({
+        tenantId: ctx.tenantId,
+        source: "generated",
+        connectionId: null,
+        storageKey: stored.key,
+        mimeType: "application/pdf",
+        filename: file.filename,
+        sizeBytes: file.bytes.length,
+        sha256: stored.sha256,
+        pageCount: countPages(file.bytes, "application/pdf"),
+        meta: {
+          ...file.meta,
+          agentVersionId: ctx.agentVersionId,
+          runId: ctx.runId,
+          ...(ctx.testRun ? { testRun: true } : {}),
+        },
+      })
+      .onConflictDoNothing({ target: [document.tenantId, document.sha256] })
+      .returning({ id: document.id });
+    const id =
+      row?.id ??
+      (
+        await tx
+          .select({ id: document.id })
+          .from(document)
+          .where(and(eq(document.tenantId, ctx.tenantId), eq(document.sha256, stored.sha256)))
+          .limit(1)
+      )[0]?.id;
+    if (!id) throw new Error("document vanished after a conflicting insert");
+    return { id, created: row !== undefined };
+  });
+}
+
+// DECISION: the RFQ PDF is the purchase order's layout titled "Request for quote", with the
+// vendor's own words for each line, the quantities and blank price and lead-time columns; dated
+// the day the RFQ was made, so the same RFQ is the same bytes (one document).
+export async function rfqDocument(
+  db: Db,
+  content: ContentStore | null,
+  ctx: PurchasingContext,
+  input: { quoteRequestId: string },
+): Promise<{
+  documentId: string;
+  filename: string;
+  reference: string;
+  vendorId: string;
+  vendorName: string;
+  lines: number;
+  created: boolean;
+  sources: string[];
+}> {
+  if (!content) throw new PurchasingError("invalid", "document storage isn't available here");
+  const made = await withTenant(db, ctx.tenantId, async (tx) => {
+    const q = await quoteRow(tx, ctx.tenantId, input.quoteRequestId);
+    const r = await requestRow(tx, ctx.tenantId, q.purchaseRequestId);
+    const [client] = await tx
+      .select({ name: tenant.name })
+      .from(tenant)
+      .where(eq(tenant.id, ctx.tenantId))
+      .limit(1);
+    const [v] = await tx
+      .select({ name: vendor.name })
+      .from(vendor)
+      .where(and(eq(vendor.tenantId, ctx.tenantId), eq(vendor.id, q.vendorId)))
+      .limit(1);
+    const asked = await requestLines(tx, ctx.tenantId, r.id);
+    const lines: PoLine[] = [];
+    for (const { row, item } of asked) {
+      if (row.qty === null) {
+        throw new PurchasingError("invalid", `line ${row.lineNo} has no quantity yet`);
+      }
+      const alias = item
+        ? await vendorAliases(tx, ctx.tenantId, q.vendorId, item.id)
+        : { sku: null, description: null };
+      const words = alias.description ?? row.description;
+      lines.push({
+        lineNo: row.lineNo,
+        description: alias.sku ? `${words} (your item ${alias.sku})` : words,
+        qty: toNumeric(row.qty),
+        unit: row.unit,
+        unitPrice: "0",
+        amount: "0",
+      });
+    }
+    const reference = `RFQ-${q.id.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+    const c: PoContent = {
+      kind: "rfq",
+      reference,
+      clientName: client?.name ?? "",
+      vendorName: v?.name ?? "A vendor",
+      date: q.createdAt.toISOString().slice(0, 10),
+      neededBy: r.neededBy,
+      fulfillment: r.fulfillment,
+      deliverTo: r.deliverTo,
+      currency: q.currency,
+      lines,
+      total: "0",
+      notes: `Please reply with your price per unit, the unit, the lead time and whether you have each item${q.dueAt ? `, by ${q.dueAt.toISOString().slice(0, 10)}` : ""}.`,
+    };
+    return {
+      content: c,
+      vendorId: q.vendorId,
+      requestId: r.id,
+      lineIds: asked.map((l) => l.row.id),
+    };
+  });
+  const bytes = await renderPurchaseOrder(made.content);
+  const filename = `${made.content.reference}.pdf`;
+  const stored = await storeGenerated(db, content, ctx, {
+    bytes,
+    filename,
+    meta: {
+      kind: "rfq",
+      reference: made.content.reference,
+      purchaseRequestId: made.requestId,
+      quoteRequestId: input.quoteRequestId,
+    },
+  });
+  return {
+    documentId: stored.id,
+    filename,
+    reference: made.content.reference,
+    vendorId: made.vendorId,
+    vendorName: made.content.vendorName,
+    lines: made.content.lines.length,
+    created: stored.created,
+    sources: [stored.id, input.quoteRequestId, made.requestId, ...made.lineIds],
+  };
 }

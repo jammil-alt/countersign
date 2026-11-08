@@ -267,6 +267,20 @@ describe.skipIf(!h)("documents", () => {
     expect((item?.payload as { sources?: string[] } | undefined)?.sources).toContain(doc.id);
   });
 
+  // P-9: a vendor's quote is read the same way, but it is nobody's bill (docs/plan.md §1.71).
+  it("reads a quote whose totals don't add up without an invoice review or a duplicate check", async () => {
+    const x = expectedOf("cedar-ridge-7731");
+    const { document: doc } = await store(A, "cedar-ridge-7731.png", "image/png");
+    const r = await extractDocument(harness.deps(answering({ ...x, total: "5900.00" })), {
+      tenantId: A.tenantId,
+      documentId: doc.id,
+      reading: "quote",
+    });
+    expect(r).toMatchObject({ status: "extracted", totalsMatch: false, inboxItemId: null });
+    expect(r.duplicateOf).toBeNull();
+    expect(r.problems.join(" ")).toContain("total is 5,900.00");
+  });
+
   it("marks the document failed when the model gives no usable answer", async () => {
     const { document: doc } = await store(B, "keystone-55102.pdf", "application/pdf");
     const llm = createLlmClient({ transport: new FakeModel([{ text: "I can't read this." }]) });

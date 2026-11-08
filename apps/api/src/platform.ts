@@ -9,6 +9,7 @@ import {
   CONVERSE_SKILLS,
   DIRECTORY_SKILLS,
   DOCS_SKILLS,
+  INBOUND_SKILLS,
   KNOWLEDGE_SKILLS,
   PLATFORM_TOOLS,
   REACH_SKILLS,
@@ -139,6 +140,8 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       ...REACH_SKILLS,
       // P-4: conversations (comms.converse)
       ...CONVERSE_SKILLS,
+      // P-9: the message that started the run, as a step's output (comms.read-message)
+      ...INBOUND_SKILLS,
       // P-7: message translation (comms.translate)
       ...TRANSLATE_SKILLS,
       ...SUPERVISOR_SKILLS,

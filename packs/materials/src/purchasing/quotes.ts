@@ -5,19 +5,32 @@
 // (invariant 7). A quote is not a price observation: price history stays what was paid.
 
 import { dec, toNumeric } from "@countersign/core";
-import { type Db, document, rawRecord, type Tx, vendor, withTenant } from "@countersign/db";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import {
+  type Db,
+  docLine,
+  document,
+  rawRecord,
+  reachOut,
+  type Tx,
+  tenant,
+  vendor,
+  withTenant,
+} from "@countersign/db";
+import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { parseLine } from "../catalog/keys";
 import type { CatalogItemRow } from "../catalog/store";
 import { convert } from "../pricing/uom";
 import {
   itemAlias,
+  priceObservation,
   purchaseRequest,
   type QuoteChannel,
   quoteLine,
   quoteRequest,
   type RequestStatus,
 } from "../schema";
+// P-9
+import { vendorContacts } from "./contacts";
 import {
   type PurchasingContext,
   PurchasingError,
@@ -25,6 +38,7 @@ import {
   requestLines,
   requestRow,
 } from "./requests";
+import { rfqSubject, rfqText } from "./rfq";
 
 export type QuoteRow = typeof quoteRequest.$inferSelect;
 export type QuoteLineRow = typeof quoteLine.$inferSelect;
@@ -144,10 +158,17 @@ export interface CreatedQuote extends QuoteView {
   created: boolean;
   /** The lines to ask this vendor about, in its own words where it has them. */
   lines: RfqLine[];
+  // P-9: who to send it to and the words to send (docs/plan.md §1.71).
+  /** The vendor's person who may be emailed (materials.vendor-contacts), else null. */
+  contactId: string | null;
+  contactName: string | null;
+  /** The email's subject and text, for reach out's fixed message. */
+  subject: string;
+  rfqText: string;
 }
 
 /** The vendor's own name for an item: its SKU and description aliases, a person's first. */
-async function vendorAliases(tx: Tx, tenantId: string, vendorId: string, itemId: string) {
+export async function vendorAliases(tx: Tx, tenantId: string, vendorId: string, itemId: string) {
   const rows = await tx
     .select()
     .from(itemAlias)
@@ -159,9 +180,29 @@ async function vendorAliases(tx: Tx, tenantId: string, vendorId: string, itemId:
       ),
     )
     .orderBy(desc(itemAlias.source), desc(itemAlias.updatedAt));
+  // P-9: the vendor's own words are the description on its latest invoice line for the item (a
+  // priced document line), else the alias's normalized description.
+  const [own] = await tx
+    .select({ description: docLine.rawDescription })
+    .from(priceObservation)
+    .innerJoin(
+      docLine,
+      and(eq(docLine.id, priceObservation.docLineId), eq(docLine.tenantId, tenantId)),
+    )
+    .where(
+      and(
+        eq(priceObservation.tenantId, tenantId),
+        eq(priceObservation.vendorId, vendorId),
+        eq(priceObservation.catalogItemId, itemId),
+        isNotNull(priceObservation.docLineId),
+      ),
+    )
+    .orderBy(desc(priceObservation.observedOn), desc(priceObservation.id))
+    .limit(1);
   return {
     sku: rows.find((r) => r.vendorSku)?.vendorSku ?? null,
-    description: rows.find((r) => r.normalizedDescription)?.normalizedDescription ?? null,
+    description:
+      own?.description ?? rows.find((r) => r.normalizedDescription)?.normalizedDescription ?? null,
   };
 }
 
@@ -174,6 +215,8 @@ export async function createQuotes(
     vendorIds: readonly string[];
     dueAt?: string | undefined;
     notes?: string | undefined;
+    /** P-9: an RFQ PDF goes with the email, so a long list may be left to it. */
+    withDocument?: boolean | undefined;
   },
 ): Promise<{ requestId: string; quotes: CreatedQuote[] }> {
   return withTenant(db, ctx.tenantId, async (tx) => {
@@ -203,6 +246,13 @@ export async function createQuotes(
       throw new PurchasingError("not_found", `vendor ${unknown.join(", ")} not found`);
     }
     const quotes: CreatedQuote[] = [];
+    // P-9: the words of each RFQ email, and who it goes to.
+    const [client] = await tx
+      .select({ name: tenant.name })
+      .from(tenant)
+      .where(eq(tenant.id, ctx.tenantId))
+      .limit(1);
+    const contacts = await vendorContacts(tx, ctx.tenantId, vendorIds);
     for (const v of [...vendors].sort((a, b) => a.name.localeCompare(b.name))) {
       const [made] = await tx
         .insert(quoteRequest)
@@ -249,7 +299,27 @@ export async function createQuotes(
           vendorSku: alias.sku,
         });
       }
-      quotes.push({ ...quoteView(q, v.name), created: made !== undefined, lines: rfq });
+      const who = contacts.find((c) => c.vendorId === v.id);
+      const clientName = client?.name ?? "We";
+      quotes.push({
+        ...quoteView(q, v.name),
+        created: made !== undefined,
+        lines: rfq,
+        contactId: who?.contactId ?? null,
+        contactName: who?.contactName ?? null,
+        subject: rfqSubject(clientName, rfq.length),
+        rfqText: rfqText({
+          clientName,
+          vendorName: v.name,
+          contactName: who?.contactName ?? null,
+          neededBy: r.neededBy,
+          fulfillment: r.fulfillment,
+          deliverTo: r.deliverTo,
+          replyBy: q.dueAt ? q.dueAt.toISOString().slice(0, 10) : null,
+          lines: rfq,
+          withDocument: input.withDocument === true,
+        }),
+      });
     }
     return { requestId: r.id, quotes };
   });
@@ -306,6 +376,209 @@ export async function markSent(
       quote: quoteView(fresh, await vendorName(tx, ctx.tenantId, q.vendorId)),
       requestStatus,
     };
+  });
+}
+
+// ── P-9: sent, from the reach-out's outcome, and expired (docs/plan.md §1.71) ────────────────
+
+/** What a reach-out step answered (`comms.reach-out`'s output), as mark-sent reads it. */
+export interface ReachOutOutcome {
+  outcome: string;
+  channel: string | null;
+  reachOutId: string | null;
+  attempts: number;
+  reason?: string | null | undefined;
+  testRun?: boolean | undefined;
+  reply?:
+    | {
+        text?: string | undefined;
+        rawRecordId?: string | null | undefined;
+        documents?: readonly string[] | undefined;
+        at?: string | undefined;
+      }
+    | null
+    | undefined;
+}
+
+const VIA: Record<string, QuoteChannel> = {
+  email: "email",
+  sms: "sms",
+  whatsapp: "whatsapp",
+  voice: "phone",
+};
+
+/**
+ * Moves a request on once no RFQ is waiting: `quoted` when a quote is in and no RFQ sent is still
+ * open (drafts never sent don't hold it back). Answers the request's status.
+ */
+export async function settleRequest(
+  tx: Tx,
+  tenantId: string,
+  requestId: string,
+  now: Date,
+): Promise<RequestStatus> {
+  const r = await requestRow(tx, tenantId, requestId);
+  const all = await tx
+    .select({ status: quoteRequest.status })
+    .from(quoteRequest)
+    .where(and(eq(quoteRequest.tenantId, tenantId), eq(quoteRequest.purchaseRequestId, r.id)));
+  if (
+    (r.status === "open" || r.status === "quoting") &&
+    all.some((x) => x.status === "received") &&
+    !all.some((x) => x.status === "sent")
+  ) {
+    await tx
+      .update(purchaseRequest)
+      .set({ status: "quoted", updatedAt: now })
+      .where(and(eq(purchaseRequest.tenantId, tenantId), eq(purchaseRequest.id, r.id)));
+    return "quoted";
+  }
+  return r.status;
+}
+
+export interface SentFromReach {
+  quote: QuoteView;
+  requestStatus: RequestStatus;
+  /** Something went out (an attempt was made). */
+  sent: boolean;
+  /** The vendor answered: read and record its reply next. */
+  replied: boolean;
+  /** No answer came (or the vendor can't be reached any more): the RFQ is expired. */
+  expired: boolean;
+  reason: string | null;
+  /** The reply, as data for the reading skill: its words, its record and its first document. */
+  reply: {
+    text: string;
+    rawRecordId: string | null;
+    documentId: string | null;
+    documents: string[];
+  } | null;
+}
+
+/**
+ * Records how an RFQ went out from its reach-out step's outcome: sent when an attempt was made
+ * (with the reach-out tied to the RFQ), then expired when no reply came; a reach-out that sent
+ * nothing (refused, declined, opted out before sending, a test run) leaves the RFQ a draft.
+ */
+// DECISION: an RFQ that went out and got no reply by the reach-out's timeout is `expired` at once,
+// and the request moves on to `quoted` when the others are in; one that never went out stays a
+// draft, with the reason, so asking again later is still possible.
+export async function sentFromReachOut(
+  db: Db,
+  ctx: PurchasingContext,
+  input: { quoteRequestId: string; reachOut: ReachOutOutcome; dueAt?: string | undefined },
+): Promise<SentFromReach> {
+  return withTenant(db, ctx.tenantId, async (tx) => {
+    const q = await quoteRow(tx, ctx.tenantId, input.quoteRequestId);
+    const r = await requestRow(tx, ctx.tenantId, q.purchaseRequestId);
+    const name = await vendorName(tx, ctx.tenantId, q.vendorId);
+    const ro = input.reachOut;
+    const now = new Date();
+    const went = ro.attempts > 0 && ro.reachOutId !== null && ro.testRun !== true;
+    let row: typeof reachOut.$inferSelect | undefined;
+    if (went) {
+      [row] = await tx
+        .select()
+        .from(reachOut)
+        .where(and(eq(reachOut.tenantId, ctx.tenantId), eq(reachOut.id, ro.reachOutId as string)))
+        .limit(1);
+      if (!row) throw new PurchasingError("not_found", `reach-out ${ro.reachOutId} not found`);
+    }
+    const replied = went && ro.outcome === "replied";
+    const reason = went
+      ? replied
+        ? null
+        : (ro.reason ?? (ro.outcome === "no_reply" ? "no reply in time" : ro.outcome))
+      : (ro.reason ?? "nothing was sent");
+    if (went && (q.status === "draft" || q.status === "sent")) {
+      if (!QUOTABLE.includes(r.status)) {
+        throw new PurchasingError("status", `the request is ${r.status}`);
+      }
+      const attempts = (row?.attempts ?? []) as { at?: string }[];
+      const firstAt = attempts.find((a) => typeof a.at === "string")?.at;
+      await tx
+        .update(quoteRequest)
+        .set({
+          status: replied ? "sent" : "expired",
+          sentVia: VIA[ro.channel ?? ""] ?? "other",
+          sentRef: ro.reachOutId,
+          reachOutId: ro.reachOutId,
+          sentAt: q.sentAt ?? (firstAt ? new Date(firstAt) : (row?.createdAt ?? now)),
+          ...(input.dueAt ? { dueAt: new Date(input.dueAt) } : {}),
+          ...(replied ? {} : { notes: reason }),
+          updatedAt: now,
+        })
+        .where(and(eq(quoteRequest.tenantId, ctx.tenantId), eq(quoteRequest.id, q.id)));
+      if (r.status === "open") {
+        await tx
+          .update(purchaseRequest)
+          .set({ status: "quoting", updatedAt: now })
+          .where(and(eq(purchaseRequest.tenantId, ctx.tenantId), eq(purchaseRequest.id, r.id)));
+      }
+    }
+    const requestStatus = await settleRequest(tx, ctx.tenantId, r.id, now);
+    const fresh = await quoteRow(tx, ctx.tenantId, q.id);
+    const documents = [...(ro.reply?.documents ?? [])];
+    return {
+      quote: quoteView(fresh, name),
+      requestStatus,
+      sent: went,
+      replied,
+      expired: fresh.status === "expired",
+      reason,
+      reply:
+        replied && ro.reply
+          ? {
+              text: ro.reply.text ?? "",
+              rawRecordId: ro.reply.rawRecordId ?? null,
+              documentId: documents[0] ?? null,
+              documents,
+            }
+          : null,
+    };
+  });
+}
+
+/**
+ * Expires a request's RFQs still waiting on an answer (sent, no quote): those past their due time,
+ * or all of them with `all`. Then the request moves on.
+ */
+export async function expireQuotes(
+  db: Db,
+  ctx: PurchasingContext,
+  input: { requestId: string; all?: boolean | undefined; asOf?: string | undefined },
+): Promise<{ expired: QuoteView[]; requestStatus: RequestStatus }> {
+  return withTenant(db, ctx.tenantId, async (tx) => {
+    const r = await requestRow(tx, ctx.tenantId, input.requestId);
+    const asOf = input.asOf ? new Date(input.asOf) : new Date();
+    const waiting = await tx
+      .select({ q: quoteRequest, vendorName: vendor.name })
+      .from(quoteRequest)
+      .innerJoin(vendor, eq(vendor.id, quoteRequest.vendorId))
+      .where(
+        and(
+          eq(quoteRequest.tenantId, ctx.tenantId),
+          eq(quoteRequest.purchaseRequestId, r.id),
+          eq(quoteRequest.status, "sent"),
+        ),
+      )
+      .orderBy(asc(vendor.name));
+    const due = waiting.filter(
+      ({ q }) => input.all === true || (q.dueAt !== null && q.dueAt.getTime() <= asOf.getTime()),
+    );
+    const now = new Date();
+    for (const { q } of due) {
+      await tx
+        .update(quoteRequest)
+        .set({ status: "expired", notes: q.notes ?? "no reply in time", updatedAt: now })
+        .where(and(eq(quoteRequest.tenantId, ctx.tenantId), eq(quoteRequest.id, q.id)));
+    }
+    const requestStatus = await settleRequest(tx, ctx.tenantId, r.id, now);
+    const expired = [];
+    for (const { q, vendorName: n } of due) {
+      expired.push(quoteView(await quoteRow(tx, ctx.tenantId, q.id), n));
+    }
+    return { expired, requestStatus };
   });
 }
 
@@ -526,25 +799,8 @@ export async function recordQuote(
       })
       .where(and(eq(quoteRequest.tenantId, ctx.tenantId), eq(quoteRequest.id, q.id)));
     // DECISION: a request is `quoted` once at least one quote is in and no RFQ sent is still
-    // waiting (drafts never sent don't hold it back).
-    const all = await tx
-      .select({ status: quoteRequest.status })
-      .from(quoteRequest)
-      .where(
-        and(eq(quoteRequest.tenantId, ctx.tenantId), eq(quoteRequest.purchaseRequestId, r.id)),
-      );
-    let requestStatus = r.status;
-    if (
-      (r.status === "open" || r.status === "quoting") &&
-      all.some((x) => x.status === "received") &&
-      !all.some((x) => x.status === "sent")
-    ) {
-      requestStatus = "quoted";
-      await tx
-        .update(purchaseRequest)
-        .set({ status: "quoted", updatedAt: now })
-        .where(and(eq(purchaseRequest.tenantId, ctx.tenantId), eq(purchaseRequest.id, r.id)));
-    }
+    // waiting (drafts never sent don't hold it back). P-9: shared with expiring (settleRequest).
+    const requestStatus = await settleRequest(tx, ctx.tenantId, r.id, now);
     const fresh = await quoteRow(tx, ctx.tenantId, q.id);
     return {
       quote: quoteView(fresh, name),

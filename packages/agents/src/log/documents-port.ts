@@ -97,6 +97,7 @@ export function dbDocumentsPort(db: Db, options: DbDocumentsOptions): DocumentsP
           documentId: input.documentId,
           agentVersionId: input.agentVersionId,
           testRun: input.testRun,
+          ...(input.reading ? { reading: input.reading } : {}),
           onCall: async (record) => {
             await input.recordUsage?.(usageOf(record));
           },

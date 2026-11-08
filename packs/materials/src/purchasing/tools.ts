@@ -19,10 +19,19 @@ import {
 import { defineTool, type PackTool, type PackToolContext } from "../tools";
 import { backfillFromBills } from "./backfill";
 import { compareQuotes, SPLIT_MIN_SAVING_PCT } from "./compare";
+// P-9
+import { vendorContacts } from "./contacts";
 import { frequentItems, vendorsForItems } from "./history";
 import { matchText } from "./match-text";
-import { purchaseOrderDocument } from "./po";
-import { createQuotes, getQuote, markSent, recordQuote } from "./quotes";
+import { purchaseOrderDocument, rfqDocument } from "./po";
+import {
+  createQuotes,
+  expireQuotes,
+  getQuote,
+  markSent,
+  recordQuote,
+  sentFromReachOut,
+} from "./quotes";
 import {
   addLines,
   createRequest,
@@ -32,6 +41,7 @@ import {
   type PurchasingContext,
   type RequestView,
   requestSources,
+  updateLines,
   updateRequest,
 } from "./requests";
 
@@ -49,6 +59,10 @@ const purchasing = (ctx: PackToolContext): PurchasingContext => ({
 const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, yyyy-mm-dd");
 const Moment = z.iso.datetime({ offset: true });
 const Text = (max: number) => z.string().trim().min(1).max(max);
+// P-9: an optional text that also takes null or "" for "not stated" (a reading skill's output).
+const OptText = (max: number) =>
+  z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? null : v), Text(max).nullish());
+const OptUuid = z.preprocess((v) => (v === "" ? null : v), z.uuid().nullish());
 
 /**
  * A quantity or price: a decimal string, or a JSON number read as its shortest decimal text (a
@@ -74,11 +88,12 @@ const Candidate = z.object({
 
 // Optional fields also take null, so a task skill's output (which says null for "not stated")
 // can be passed straight in.
+// P-9: a quantity may be unknown (null): the line waits for a person to say how many.
 const LineIn = z.object({
   description: Text(500),
-  qty: Positive,
-  unit: Text(40).nullish(),
-  notes: Text(1000).nullish(),
+  qty: Positive.nullish().transform((v) => v ?? null),
+  unit: OptText(40),
+  notes: OptText(1000),
 });
 
 const LineOut = z.object({
@@ -153,14 +168,19 @@ export const requestCreate = defineTool({
   summary: "Opened a request for {{request.lines.length}} items",
   input: z
     .object({
-      channel: z.enum(REQUEST_CHANNELS),
-      requestedByContactId: z.uuid().optional(),
-      requestedByUserId: z.uuid().optional(),
-      rawRecordId: z.uuid().optional(),
-      neededBy: Day.optional(),
-      fulfillment: z.enum(FULFILLMENTS).optional(),
-      deliverTo: Text(500).optional(),
-      notes: Text(2000).optional(),
+      // P-9: a message's channel as `inbound.get` names it: a /command or Sloan's pass is the portal.
+      channel: z.preprocess(
+        (v) => (v === "command" || v === "sloan" ? "portal" : v),
+        z.enum(REQUEST_CHANNELS),
+      ),
+      // P-9: null means "not stated", so a reading skill's output and a message's ids pass straight in.
+      requestedByContactId: OptUuid,
+      requestedByUserId: OptUuid,
+      rawRecordId: OptUuid,
+      neededBy: Day.nullish(),
+      fulfillment: z.enum(FULFILLMENTS).nullish(),
+      deliverTo: OptText(500),
+      notes: OptText(2000),
       lines: z.array(LineIn).max(50),
     })
     .refine((v) => !(v.requestedByContactId && v.requestedByUserId), {
@@ -168,7 +188,18 @@ export const requestCreate = defineTool({
     }),
   output: RequestResult,
   async run(input, ctx) {
-    return withRequest(await createRequest(ctx.db, purchasing(ctx), input));
+    return withRequest(
+      await createRequest(ctx.db, purchasing(ctx), {
+        ...input,
+        requestedByContactId: input.requestedByContactId ?? undefined,
+        requestedByUserId: input.requestedByUserId ?? undefined,
+        rawRecordId: input.rawRecordId ?? undefined,
+        neededBy: input.neededBy ?? undefined,
+        fulfillment: input.fulfillment ?? undefined,
+        deliverTo: input.deliverTo ?? undefined,
+        notes: input.notes ?? undefined,
+      }),
+    );
   },
 });
 
@@ -469,7 +500,7 @@ const QuoteLineOut = z.object({
 export const quoteCreate = defineTool({
   id: "materials.quote.create",
   description:
-    "Creates a draft request for a quote (RFQ) to each vendor for a purchase request, one per vendor (a vendor already asked keeps its RFQ). Answers each RFQ with the lines to ask about, in the vendor's own words where it has them. Sends nothing: a send step does that, then materials.quote.mark-sent.",
+    "Creates a draft request for a quote (RFQ) to each vendor for a purchase request, one per vendor (a vendor already asked keeps its RFQ). Answers each RFQ with the lines to ask about, in the vendor's own words where it has them, the vendor's person to email (contactId, from the directory) and the email's subject and text (rfqText) for reach out's fixed message. Sends nothing: a reach-out step does that, then materials.quote.mark-sent with its outcome.",
   sideEffect: "internal",
   summary: "Drafted {{quotes.length}} requests for quotes",
   input: z.object({
@@ -477,12 +508,19 @@ export const quoteCreate = defineTool({
     vendorIds: z.array(z.uuid()).min(1).max(10),
     dueAt: Moment.optional(),
     notes: Text(2000).optional(),
+    // P-9: an RFQ PDF goes with each email (materials.quote.document), so a long list fits.
+    withDocument: z.boolean().optional(),
   }),
   output: z.object({
     requestId: z.string(),
     quotes: z.array(
       QuoteOut.extend({
         created: z.boolean(),
+        // P-9: who to email it to, and the email's words for reach out's fixed message.
+        contactId: z.string().nullable(),
+        contactName: z.string().nullable(),
+        subject: z.string(),
+        rfqText: z.string(),
         lines: z.array(
           z.object({
             requestLineId: z.string(),
@@ -514,25 +552,88 @@ export const quoteCreate = defineTool({
 export const quoteMarkSent = defineTool({
   id: "materials.quote.mark-sent",
   description:
-    "Marks a draft request for a quote as sent: how it went out (email, sms, whatsapp, phone, portal, other), the sent message's id, and when the answer is due. The purchase request is then out for quotes.",
+    "Marks a draft request for a quote as sent: how it went out (email, sms, whatsapp, phone, portal, other), the sent message's id, and when the answer is due. The purchase request is then out for quotes. Pass a reach-out step's whole output as `reachOut` instead: the RFQ is marked sent when something went out (tied to that reach-out), expired when no reply came in time, and left a draft when nothing was sent; the reply's words and first document come back for reading.",
   sideEffect: "internal",
   verb: "update",
-  summary: "Sent the request for a quote to {{quote.vendorName}}",
-  input: z.object({
-    quoteRequestId: z.uuid(),
-    sentVia: z.enum(QUOTE_CHANNELS),
-    sentRef: Text(500).optional(),
-    sentAt: Moment.optional(),
-    dueAt: Moment.optional(),
-  }),
+  summary: "Request for a quote to {{quote.vendorName}}: {{quote.status}}",
+  input: z
+    .object({
+      quoteRequestId: z.uuid(),
+      sentVia: z.enum(QUOTE_CHANNELS).optional(),
+      sentRef: Text(500).optional(),
+      sentAt: Moment.optional(),
+      dueAt: Moment.optional(),
+      // P-9: comms.reach-out's output (docs/plan.md §1.71).
+      reachOut: z
+        .object({
+          outcome: z.string(),
+          channel: z.string().nullable(),
+          reachOutId: z.uuid().nullable(),
+          attempts: z.number().int().min(0),
+          reason: z.string().nullish(),
+          testRun: z.boolean().optional(),
+          reply: z
+            .object({
+              text: z.string().optional(),
+              rawRecordId: z.string().nullish(),
+              documents: z.array(z.uuid()).optional(),
+              at: z.string().optional(),
+            })
+            .nullish(),
+        })
+        .optional(),
+    })
+    .refine((v) => v.sentVia !== undefined || v.reachOut !== undefined, {
+      message: "say how it went out (sentVia), or pass the reach-out's outcome (reachOut)",
+    }),
   output: z.object({
     quote: QuoteOut,
     requestStatus: z.enum(REQUEST_STATUSES),
+    sent: z.boolean(),
+    replied: z.boolean(),
+    expired: z.boolean(),
+    reason: z.string().nullable(),
+    reply: z
+      .object({
+        text: z.string(),
+        rawRecordId: z.string().nullable(),
+        documentId: z.string().nullable(),
+        documents: z.array(z.string()),
+      })
+      .nullable(),
     sources: z.array(z.string()),
   }),
   async run(input, ctx) {
-    const r = await markSent(ctx.db, purchasing(ctx), input);
-    return { ...r, sources: [r.quote.id, r.quote.requestId] };
+    if (input.reachOut) {
+      const r = await sentFromReachOut(ctx.db, purchasing(ctx), {
+        quoteRequestId: input.quoteRequestId,
+        reachOut: input.reachOut,
+        dueAt: input.dueAt,
+      });
+      return {
+        ...r,
+        sources: [
+          r.quote.id,
+          r.quote.requestId,
+          ...(input.reachOut.reachOutId ? [input.reachOut.reachOutId] : []),
+          ...(r.reply?.rawRecordId ? [r.reply.rawRecordId] : []),
+          ...(r.reply?.documents ?? []),
+        ],
+      };
+    }
+    const r = await markSent(ctx.db, purchasing(ctx), {
+      ...input,
+      sentVia: input.sentVia as (typeof QUOTE_CHANNELS)[number],
+    });
+    return {
+      ...r,
+      sent: true,
+      replied: false,
+      expired: false,
+      reason: null,
+      reply: null,
+      sources: [r.quote.id, r.quote.requestId],
+    };
   },
 });
 
@@ -571,13 +672,13 @@ export const quoteGet = defineTool({
 export const QuotedLineIn = z
   .object({
     requestLineId: z.uuid(),
-    description: Text(500).nullish(),
+    description: OptText(500),
     qty: Positive.nullish(),
-    unit: Text(40).nullish(),
+    unit: OptText(40),
     unitPrice: NonNegative.nullish(),
     leadTimeDays: z.number().int().min(0).max(365).nullish(),
     available: z.boolean().nullish(),
-    notes: Text(1000).nullish(),
+    notes: OptText(1000),
   })
   // null is "not stated", the same as leaving the field out.
   .transform((l) => ({
@@ -606,9 +707,10 @@ export const quoteRecord = defineTool({
       .nullish()
       .transform((v) => v ?? undefined),
     receivedAt: Moment.optional(),
-    answerRawRecordId: z.uuid().optional(),
-    answerDocumentId: z.uuid().optional(),
-    notes: Text(2000).optional(),
+    // P-9: null is "not stated", as a reading skill writes it.
+    answerRawRecordId: OptUuid,
+    answerDocumentId: OptUuid,
+    notes: OptText(2000),
     lines: z.array(QuotedLineIn).max(50),
   }),
   output: z.object({
@@ -619,7 +721,12 @@ export const quoteRecord = defineTool({
     sources: z.array(z.string()),
   }),
   async run(input, ctx) {
-    const r = await recordQuote(ctx.db, purchasing(ctx), input);
+    const r = await recordQuote(ctx.db, purchasing(ctx), {
+      ...input,
+      answerRawRecordId: input.answerRawRecordId ?? undefined,
+      answerDocumentId: input.answerDocumentId ?? undefined,
+      notes: input.notes ?? undefined,
+    });
     return {
       ...r,
       sources: [
@@ -803,6 +910,133 @@ export const backfillFromBillsTool = defineTool({
   run: (input, ctx) => backfillFromBills(ctx.db, purchasing(ctx), input),
 });
 
+// ── P-9: the email flow's tools (docs/plan.md §1.71) ────────────────────────────────────────────
+
+export const requestUpdateLines = defineTool({
+  id: "materials.request.update-lines",
+  description:
+    "Changes lines of a purchase request still open (before any vendor is asked): the quantity, the unit, the words of what is wanted (matched to the catalog again unless a person chose its item), a note. Only pass what a person said, never a guess.",
+  sideEffect: "internal",
+  verb: "update",
+  summary: "Changed {{changed.length}} lines of the request",
+  input: z.object({
+    requestId: z.uuid(),
+    lines: z
+      .array(
+        z.object({
+          lineId: z.uuid(),
+          description: Text(500).optional(),
+          qty: Positive.optional(),
+          unit: Text(40).nullable().optional(),
+          notes: Text(1000).nullable().optional(),
+        }),
+      )
+      .min(1)
+      .max(50),
+  }),
+  output: RequestResult.extend({
+    changed: z.array(z.object({ lineId: z.string(), fields: z.array(z.string()) })),
+  }),
+  async run(input, ctx) {
+    const r = await updateLines(ctx.db, purchasing(ctx), input);
+    return { ...withRequest(r.request), changed: r.changed };
+  },
+});
+
+export const vendorContactsTool = defineTool({
+  id: "materials.vendor-contacts",
+  description:
+    "For vendors, the people at each one we may email (the vendor's organization in the client's directory: an email address, consent to email, not opted out), and the one to send a request for a quote to (contactId, for reach out's `to`). Vendors with nobody to email are listed with the reason and left out of vendorIds. Reads only.",
+  sideEffect: "none",
+  summary: "{{vendorIds.length}} of {{vendors.length}} vendors can be emailed",
+  input: z.object({ vendorIds: z.array(z.uuid()).min(1).max(50) }),
+  output: z.object({
+    vendors: z.array(
+      z.object({
+        vendorId: z.string(),
+        vendorName: z.string(),
+        organizationId: z.string().nullable(),
+        contactId: z.string().nullable(),
+        contactName: z.string().nullable(),
+        contacts: z.array(
+          z.object({
+            contactId: z.string(),
+            name: z.string(),
+            email: z.string(),
+            title: z.string().nullable(),
+            emailConsent: z.boolean(),
+            optedOut: z.boolean(),
+            language: z.string().nullable(),
+          }),
+        ),
+        reason: z.string().nullable(),
+      }),
+    ),
+    /** The vendors someone can be emailed at, in the order asked. */
+    vendorIds: z.array(z.string()),
+    missing: z.array(
+      z.object({ vendorId: z.string(), vendorName: z.string(), reason: z.string() }),
+    ),
+    sources: z.array(z.string()),
+  }),
+  async run(input, ctx) {
+    const vendors = await withTenant(ctx.db, ctx.tenantId, (tx) =>
+      vendorContacts(tx, ctx.tenantId, input.vendorIds),
+    );
+    return {
+      vendors,
+      vendorIds: vendors.filter((v) => v.contactId).map((v) => v.vendorId),
+      missing: vendors
+        .filter((v) => !v.contactId)
+        .map((v) => ({ vendorId: v.vendorId, vendorName: v.vendorName, reason: v.reason ?? "" })),
+      sources: vendors.flatMap((v) => [
+        v.vendorId,
+        ...(v.organizationId ? [v.organizationId] : []),
+        ...(v.contactId ? [v.contactId] : []),
+      ]),
+    };
+  },
+});
+
+export const quoteExpire = defineTool({
+  id: "materials.quote.expire",
+  description:
+    "Expires a purchase request's requests for quotes still waiting on an answer: those past their due time, or all of them with `all`. The request then moves on (quoted once a quote is in and nothing is still waiting).",
+  sideEffect: "internal",
+  verb: "update",
+  summary: "Expired {{expired.length}} requests for quotes",
+  input: z.object({ requestId: z.uuid(), all: z.boolean().optional(), asOf: Moment.optional() }),
+  output: z.object({
+    expired: z.array(QuoteOut),
+    requestStatus: z.enum(REQUEST_STATUSES),
+    sources: z.array(z.string()),
+  }),
+  async run(input, ctx) {
+    const r = await expireQuotes(ctx.db, purchasing(ctx), input);
+    return { ...r, sources: [input.requestId, ...r.expired.map((q) => q.id)] };
+  },
+});
+
+export const quoteDocument = defineTool({
+  id: "materials.quote.document",
+  description:
+    "Renders a request for a quote as a PDF (the client's name, the vendor, the lines to price in the vendor's own words where we have them, quantities, needed-by, delivery or pickup) and stores it as the client's document. Answers its document id, for reach out's attachments. Sends nothing.",
+  sideEffect: "internal",
+  summary: "Made the request for a quote for {{vendorName}}",
+  input: z.object({ quoteRequestId: z.uuid() }),
+  output: z.object({
+    documentId: z.string(),
+    filename: z.string(),
+    reference: z.string(),
+    vendorId: z.string(),
+    vendorName: z.string(),
+    lines: z.number(),
+    created: z.boolean(),
+    sources: z.array(z.string()),
+  }),
+  run: (input, ctx) => rfqDocument(ctx.db, ctx.content, purchasing(ctx), input),
+});
+
 export const PURCHASING_TOOLS: readonly PackTool[] = [
   requestCreate,
   requestGet,
@@ -820,6 +1054,11 @@ export const PURCHASING_TOOLS: readonly PackTool[] = [
   quoteCompare,
   poDocument,
   backfillFromBillsTool,
+  // P-9
+  requestUpdateLines,
+  vendorContactsTool,
+  quoteExpire,
+  quoteDocument,
 ];
 
 /** The task skills' structured outputs, shared with the manifest. */

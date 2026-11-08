@@ -160,6 +160,8 @@ export interface DocumentsPort {
       testRun: boolean;
       recordUsage?: ToolInvocation["recordUsage"];
       recordModelCall?: ToolInvocation["recordModelCall"];
+      // P-9: read as a vendor's quote (no totals review, no duplicate check).
+      reading?: "invoice" | "quote";
     },
   ): Promise<ExtractSummary>;
   findSupport(
