@@ -566,6 +566,8 @@ export function createBankfeedConnector(options: BankfeedOptions = {}): Bankfeed
     // inside Plaid's widget), so the connector is `oauth2` and uses the same begin and callback
     // routes; `beginLink` answers a Link token where `authorize` would answer a URL.
     auth: "oauth2",
+    // B-5 (docs/plan.md §1.79): a client connects each bank on its own (one Plaid item each).
+    multiple: true,
     entities: [BANKFEED_TRANSACTION_ENTITY, "Account"],
     // Card charges and bank transactions are named as the design names them (ARCHITECTURE §6.11),
     // so another feed provider can raise the same events later.

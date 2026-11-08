@@ -33,6 +33,12 @@ export interface OAuthStateClaims {
   /** Unix seconds. */
   issuedAt: number;
   expiresAt: number;
+  /**
+   * B-5 (docs/plan.md §1.79): for a connector a client may connect several times (a second bank),
+   * which connection this sign-in is for: `new` for another, or the id of the one signed in again.
+   * Absent: the client's one connection, as before.
+   */
+  target?: string;
 }
 
 const Payload = z.object({
@@ -45,6 +51,11 @@ const Payload = z.object({
   exp: z.number().int(),
   /** Set only for the back office; a portal state has no `o`, as before. */
   o: z.literal("ops").optional(),
+  /** B-5: `new`, or a connection id; absent as before. */
+  x: z
+    .string()
+    .regex(/^(new|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/)
+    .optional(),
 });
 
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -70,6 +81,8 @@ export interface OAuthStateBinding {
   userId: string;
   /** Default `portal`. */
   origin?: OAuthOrigin;
+  /** B-5: which connection a multi-connection sign-in is for (`new` or an id). */
+  target?: string;
 }
 
 // DECISION: the origin is an optional `o: "ops"` in the same v1 payload, so a portal state is
@@ -88,6 +101,7 @@ export async function createOAuthState(
     nonce: toBase64Url(randomBytes(16)),
     issuedAt: now,
     expiresAt: now + ttl,
+    ...(binding.target ? { target: binding.target } : {}),
   };
   const payload = toBase64Url(
     utf8(
@@ -100,6 +114,7 @@ export async function createOAuthState(
         iat: claims.issuedAt,
         exp: claims.expiresAt,
         ...(claims.origin === "ops" ? { o: "ops" } : {}),
+        ...(claims.target ? { x: claims.target } : {}),
       }),
     ),
   );
@@ -160,6 +175,7 @@ export async function readOAuthState(
       nonce: parsed.n,
       issuedAt: parsed.iat,
       expiresAt: parsed.exp,
+      ...(parsed.x ? { target: parsed.x } : {}),
     },
   };
 }

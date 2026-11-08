@@ -486,6 +486,7 @@ export function defineConnector(
     credentialFields,
     permissionEntities,
     testOnly,
+    multiple,
     tools,
     ...hooks
   } = def;
@@ -510,6 +511,8 @@ export function defineConnector(
     // v0.12 W2-A
     ...(permissionEntities === undefined ? {} : { permissionEntities }),
     ...(testOnly === undefined ? {} : { testOnly }),
+    // B-5 (docs/plan.md §1.79)
+    ...(multiple === undefined ? {} : { multiple }),
   });
   if (!parsed.success) {
     problems.push(

@@ -90,6 +90,11 @@ export const ConnectorManifest = z
     description: z.string(),
     icon: z.string(),
     auth: z.enum(["oauth2", "api_key", "none"]),
+    /**
+     * B-5 (docs/plan.md §1.79): a client may connect several accounts of it, one connection each
+     * (a second bank); the rest keep one connection per connector.
+     */
+    multiple: z.boolean().optional(),
     /** What sync brings in: ['Purchase', 'Bill', ...]. */
     entities: z.array(z.string()),
     tools: z.array(ToolSpec),
