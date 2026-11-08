@@ -52,6 +52,7 @@ import {
   user,
 } from "./api.test-helper";
 import { dbVoiceServices } from "./calls/services";
+import { quietNever, quietNow } from "./quiet-hours.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
 
@@ -305,10 +306,7 @@ describe.skipIf(!h)("calls through the API", () => {
   }
 
   beforeAll(async () => {
-    expect(
-      (await H.call(OPERATOR, "PUT", msg(), { quietHours: { start: "03:00", end: "03:01" } }))
-        .status,
-    ).toBe(200);
+    expect((await H.call(OPERATOR, "PUT", msg(), { quietHours: quietNever() })).status).toBe(200);
     setup = j((await H.call(OPERATOR, "POST", msg("/twilio"))).json).setup;
     const bought = await H.call(OPERATOR, "POST", msg("/numbers"), { phoneNumber: "+15125550101" });
     setup = j(bought.json).setup;
@@ -658,7 +656,7 @@ describe.skipIf(!h)("calls through the API", () => {
       const cards = await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, refused.runId));
       expect(cards).toHaveLength(0);
 
-      await H.call(OPERATOR, "PUT", msg(), { quietHours: { start: "00:00", end: "23:59" } });
+      await H.call(OPERATOR, "PUT", msg(), { quietHours: quietNow() });
       const [quiet] = await startedBy(() => textIn(PAT, "Call me now"));
       if (!quiet) throw new Error("no run");
       const r2 = await executeRun(deps(), quiet, cloudflareStepRunner(approver()));
@@ -670,7 +668,7 @@ describe.skipIf(!h)("calls through the API", () => {
       expect(action?.status).toBe("failed");
       expect(JSON.stringify(action?.error)).toContain("quiet hours");
       expect(twilio.placed()).toHaveLength(placed);
-      await H.call(OPERATOR, "PUT", msg(), { quietHours: { start: "03:00", end: "03:01" } });
+      await H.call(OPERATOR, "PUT", msg(), { quietHours: quietNever() });
     });
 
     it("never lets a template fill the purpose or opening: refused at publish and at the gate", async () => {

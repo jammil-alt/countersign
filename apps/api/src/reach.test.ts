@@ -48,6 +48,7 @@ import {
 } from "./api.test-helper";
 import { handleEmail } from "./email";
 import { defaultDeps } from "./http";
+import { quietNever } from "./quiet-hours.test-helper";
 import { planWhyApproval, reachOutTick } from "./reach/service";
 import { credentialsFor, executeRun, reachDepsFor } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
@@ -269,10 +270,7 @@ describe.skipIf(!h)("reach out through the API", () => {
   };
 
   beforeAll(async () => {
-    expect(
-      (await H.call(OPERATOR, "PUT", msg(), { quietHours: { start: "03:00", end: "03:01" } }))
-        .status,
-    ).toBe(200);
+    expect((await H.call(OPERATOR, "PUT", msg(), { quietHours: quietNever() })).status).toBe(200);
     setup = j((await H.call(OPERATOR, "POST", msg("/twilio"))).json).setup;
     setup = j(
       (await H.call(OPERATOR, "POST", msg("/numbers"), { phoneNumber: "+15125550101" })).json,
