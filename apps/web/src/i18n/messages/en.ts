@@ -819,6 +819,17 @@ export const en = {
   "people.problem.unavailable": "That address can't be invited here. Ask us and we'll sort it out.",
   "people.problem.noEmail": "Enter an email address.",
   "people.problem.failed": "We couldn't send that invite. Try again.",
+  "people.problem.notInvitable": "Only your own people can be invited to sign in.",
+  "people.access.member": "Can sign in",
+  "people.access.invited": "Invited, hasn't signed in yet",
+  "people.fromDirectory.invite": "Invite to sign in",
+  "people.fromDirectory.title": "Invite to sign in",
+  "people.fromDirectory.help": "They sign in with the email address in your directory.",
+  "people.fromDirectory.canSign": "Can approve",
+  "people.fromDirectory.adminSigns": "Admins always approve.",
+  "people.fromDirectory.addEmail": "Add an email to invite",
+  "people.fromDirectory.close": "Close",
+  "people.fromDirectory.link": "Invite from the directory",
 
   // ── Reports ──
   "reports.subtitle": "What your agents did.",

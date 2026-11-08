@@ -22,6 +22,7 @@ import {
   type MessagingChannel,
   normalizePhone,
   type OpsContactMessage,
+  type OrganizationKind,
   QuietHours,
   type ReachChannel,
   type ReachContact,
@@ -88,7 +89,7 @@ function timezoneOrThrow(tz: string): string {
 
 export const CONTACT_THREAD_SUBJECT = "contact";
 
-type OrgRef = { id: string; name: string; language: string | null };
+type OrgRef = { id: string; name: string; language: string | null; kinds?: OrganizationKind[] };
 
 /**
  * A contact with its organization (the directory, docs/plan.md §1.27) and the language agents
@@ -170,7 +171,12 @@ export async function listContacts(tx: Tx, tenantId: string): Promise<Contact[]>
 async function organizationOf(tx: Tx, row: ContactRow): Promise<OrgRef | null> {
   if (!row.organizationId) return null;
   const [org] = await tx
-    .select({ id: organization.id, name: organization.name, language: organization.language })
+    .select({
+      id: organization.id,
+      name: organization.name,
+      language: organization.language,
+      kinds: organization.kinds,
+    })
     .from(organization)
     .where(and(eq(organization.id, row.organizationId), eq(organization.tenantId, row.tenantId)));
   return org ?? null;

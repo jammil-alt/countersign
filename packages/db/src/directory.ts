@@ -39,7 +39,13 @@ export interface DirectoryFilters {
 
 export interface PersonWithOrganization {
   person: ContactRow;
-  organization: { id: string; name: string; language: string | null } | null;
+  organization: {
+    id: string;
+    name: string;
+    language: string | null;
+    /** What the organization is to the client (`own`: the client's own). */
+    kinds?: OrganizationKind[];
+  } | null;
 }
 
 /** The client's default language (`tenant.settings.language`), or null. */
@@ -82,6 +88,7 @@ export async function directoryPeople(
       orgId: organization.id,
       orgName: organization.name,
       orgLanguage: organization.language,
+      orgKinds: organization.kinds,
     })
     .from(contact)
     .leftJoin(
@@ -94,7 +101,14 @@ export async function directoryPeople(
   return rows.map((r) => ({
     person: r.person,
     organization:
-      r.orgId && r.orgName ? { id: r.orgId, name: r.orgName, language: r.orgLanguage } : null,
+      r.orgId && r.orgName
+        ? {
+            id: r.orgId,
+            name: r.orgName,
+            language: r.orgLanguage,
+            kinds: (r.orgKinds ?? []) as OrganizationKind[],
+          }
+        : null,
   }));
 }
 

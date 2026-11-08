@@ -4,6 +4,7 @@
 // here. Every change is logged (`contact_change`, `organization_change`).
 
 import {
+  contactAccess,
   DIRECTORY_LIST_MAX,
   DIRECTORY_SUGGESTION_SUBJECT,
   type DirectoryList,
@@ -42,11 +43,17 @@ import { type AppEnv, ensureClient, type HandlerCtx, mount, notFound } from "../
 import { resolveInboxItem } from "../inbox";
 import { contactView } from "../messaging/contacts";
 import { dispatchEvents } from "../runs/dispatch";
+import { knowsSignIns, membersOf } from "./onboarding";
 
 export async function directoryList(
   tx: Tx,
   tenantId: string,
   q: DirectoryListQuery,
+  /**
+   * Whether each person can sign in (2026-11-08), for the client admin and the operator; null
+   * leaves it out (client users don't need it). `signIns`: whether sign-in records a first one.
+   */
+  access: { signIns: boolean } | null = null,
 ): Promise<DirectoryList> {
   const wantPeople = q.type !== "organization";
   const client = await clientLanguageOf(tx, tenantId);
@@ -67,6 +74,15 @@ export async function directoryList(
         DIRECTORY_LIST_MAX,
       ).map((r) => contactView(r.item.person, r.item.organization, client))
     : [];
+  if (access && people.length > 0) {
+    // DECISION: the status comes from the members the API already lists (an invite is a
+    // membership): no new table, no migration. Matched by email, lower case.
+    const members = await membersOf(tx, tenantId, {
+      clientRolesOnly: false,
+      signIns: access.signIns,
+    });
+    for (const p of people) p.access = contactAccess(p.email, members);
+  }
   const organizations = wantOrgs
     ? rankOrganizations(
         await directoryOrganizations(tx, tenantId, { kind: q.kind }),
@@ -121,7 +137,7 @@ export function directoryRoutes(app: Hono<AppEnv>): void {
   // ── Back office ──
   mount(app, routes.opsDirectory, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
-    return directoryList(ctx.tx, ctx.params.id, ctx.query);
+    return directoryList(ctx.tx, ctx.params.id, ctx.query, { signIns: knowsSignIns(ctx) });
   });
   mount(app, routes.opsOrganizationCreate, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
@@ -181,7 +197,14 @@ export function directoryRoutes(app: Hono<AppEnv>): void {
 
   // ── Portal ──
   const client = (ctx: { tenantIds: readonly string[] }) => ctx.tenantIds[0] as string;
-  mount(app, routes.portalDirectory, async (ctx) => directoryList(ctx.tx, client(ctx), ctx.query));
+  mount(app, routes.portalDirectory, async (ctx) =>
+    directoryList(
+      ctx.tx,
+      client(ctx),
+      ctx.query,
+      ctx.role === "client_admin" ? { signIns: knowsSignIns(ctx) } : null,
+    ),
+  );
   mount(app, routes.portalOrganizationCreate, async (ctx) => {
     const row = await createOrganization(ctx.tx, client(ctx), ctx.body, ctx.session.user.id);
     return { organization: await organizationOut(ctx.tx, client(ctx), row.id) };

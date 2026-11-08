@@ -102,6 +102,15 @@ function AdminTeam({ team }: { team: ReturnType<typeof useApi<typeof apiRoutes.p
             return result;
           }}
         />
+        <p className="mt-3 text-sm">
+          <Link
+            to={PORTAL_PATHS.contacts}
+            className="text-link hover:underline"
+            data-testid="portal-invite-directory"
+          >
+            {t("people.fromDirectory.link")}
+          </Link>
+        </p>
       </Section>
     </>
   );

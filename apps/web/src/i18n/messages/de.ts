@@ -877,6 +877,18 @@ export const de: Messages = {
     "Diese Adresse kann hier nicht eingeladen werden. Sprechen Sie uns an, wir klären das.",
   "people.problem.noEmail": "Geben Sie eine E-Mail-Adresse ein.",
   "people.problem.failed": "Wir konnten die Einladung nicht senden. Versuchen Sie es noch einmal.",
+  "people.problem.notInvitable": "Nur Ihre eigenen Leute können zur Anmeldung eingeladen werden.",
+  "people.access.member": "Kann sich anmelden",
+  "people.access.invited": "Eingeladen, noch nicht angemeldet",
+  "people.fromDirectory.invite": "Zur Anmeldung einladen",
+  "people.fromDirectory.title": "Zur Anmeldung einladen",
+  "people.fromDirectory.help":
+    "Die Person meldet sich mit der E-Mail-Adresse aus Ihrem Verzeichnis an.",
+  "people.fromDirectory.canSign": "Kann freigeben",
+  "people.fromDirectory.adminSigns": "Admins geben immer frei.",
+  "people.fromDirectory.addEmail": "E-Mail hinzufügen, um einzuladen",
+  "people.fromDirectory.close": "Schließen",
+  "people.fromDirectory.link": "Aus dem Verzeichnis einladen",
 
   // ── Reports ──
   "reports.subtitle": "Was Ihre Agenten erledigt haben.",

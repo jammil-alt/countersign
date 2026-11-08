@@ -95,6 +95,11 @@ describe("portal team", () => {
       "Invited buyer@demo.example.com.",
     );
     expect(invites).toEqual([{ email: "buyer@demo.example.com", role: "client_admin" }]);
+    // Or one of your own people, from the directory.
+    expect(screen.getByTestId("portal-invite-directory")).toHaveAttribute("href", "/contacts");
+    expect(screen.getByTestId("portal-invite-directory")).toHaveTextContent(
+      "Invite from the directory",
+    );
     expect(await screen.findByTestId("portal-team-buyer@demo.example.com")).toBeInTheDocument();
     expect(screen.getByText("3 people use your portal.")).toBeInTheDocument();
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ContactAutonomy } from "../directory/autonomy";
-import { DIRECTORY_TITLE_MAX, Relationship } from "../directory/kinds";
+import { ContactAccess } from "../directory/invite";
+import { DIRECTORY_TITLE_MAX, OrganizationKind, Relationship } from "../directory/kinds";
 import { LanguageUsed } from "../directory/language";
 import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
@@ -133,7 +134,13 @@ export const Contact = z.object({
   notes: z.string().nullable().optional(),
   /** The directory (docs/plan.md §1.27). */
   organization: z
-    .object({ id: z.string(), name: z.string(), language: z.string().nullable().optional() })
+    .object({
+      id: z.string(),
+      name: z.string(),
+      language: z.string().nullable().optional(),
+      /** What the organization is to the client (the directory's list; `own` is the client's). */
+      kinds: z.array(OrganizationKind).optional(),
+    })
     .nullable()
     .optional(),
   /** The language agents write to them in: theirs, else their organization's, else yours. */
@@ -154,6 +161,11 @@ export const Contact = z.object({
   autonomy: ContactAutonomy.optional(),
   // P-7: this person's switch over the client's translation (docs/plan.md §1.69).
   translation: ContactTranslation.optional(),
+  /**
+   * Whether they can sign in (2026-11-08): `member`, `invited` (not signed in yet) or null. Only
+   * in the directory's list, for the client admin and the operator.
+   */
+  access: ContactAccess.nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

@@ -853,6 +853,17 @@ export const it: Messages = {
     "Quell'indirizzo non può essere invitato qui. Chiedi a noi e risolviamo.",
   "people.problem.noEmail": "Inserisci un indirizzo email.",
   "people.problem.failed": "Non siamo riusciti a inviare l'invito. Riprova.",
+  "people.problem.notInvitable": "Puoi invitare ad accedere solo il tuo personale.",
+  "people.access.member": "Può accedere",
+  "people.access.invited": "Invitato, non ha ancora effettuato l'accesso",
+  "people.fromDirectory.invite": "Invita ad accedere",
+  "people.fromDirectory.title": "Invita ad accedere",
+  "people.fromDirectory.help": "Accede con l'indirizzo email della tua rubrica.",
+  "people.fromDirectory.canSign": "Può approvare",
+  "people.fromDirectory.adminSigns": "Gli amministratori approvano sempre.",
+  "people.fromDirectory.addEmail": "Aggiungi un'email per invitare",
+  "people.fromDirectory.close": "Chiudi",
+  "people.fromDirectory.link": "Invita dalla rubrica",
 
   // ── Reports ──
   "reports.subtitle": "Cosa hanno fatto i tuoi agenti.",

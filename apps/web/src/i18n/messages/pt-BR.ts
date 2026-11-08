@@ -848,6 +848,17 @@ export const ptBR: Messages = {
     "Esse endereço não pode ser convidado aqui. Fale com a gente e resolvemos.",
   "people.problem.noEmail": "Digite um endereço de e-mail.",
   "people.problem.failed": "Não conseguimos enviar esse convite. Tente de novo.",
+  "people.problem.notInvitable": "Só a sua própria equipe pode ser convidada a entrar.",
+  "people.access.member": "Pode entrar",
+  "people.access.invited": "Convidado, ainda não entrou",
+  "people.fromDirectory.invite": "Convidar para entrar",
+  "people.fromDirectory.title": "Convidar para entrar",
+  "people.fromDirectory.help": "A pessoa entra com o e-mail do seu diretório.",
+  "people.fromDirectory.canSign": "Pode aprovar",
+  "people.fromDirectory.adminSigns": "Administradores sempre aprovam.",
+  "people.fromDirectory.addEmail": "Adicione um e-mail para convidar",
+  "people.fromDirectory.close": "Fechar",
+  "people.fromDirectory.link": "Convidar a partir do diretório",
 
   // ── Reports ──
   "reports.subtitle": "O que os seus agentes fizeram.",

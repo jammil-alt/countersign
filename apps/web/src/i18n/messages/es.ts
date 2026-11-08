@@ -848,6 +848,17 @@ export const es: Messages = {
     "No se puede invitar a esa dirección aquí. Pídanoslo y lo resolvemos.",
   "people.problem.noEmail": "Escriba una dirección de correo.",
   "people.problem.failed": "No pudimos enviar esa invitación. Inténtelo de nuevo.",
+  "people.problem.notInvitable": "Solo puede invitar a iniciar sesión a su propio personal.",
+  "people.access.member": "Puede iniciar sesión",
+  "people.access.invited": "Invitado, aún no ha iniciado sesión",
+  "people.fromDirectory.invite": "Invitar a iniciar sesión",
+  "people.fromDirectory.title": "Invitar a iniciar sesión",
+  "people.fromDirectory.help": "Inicia sesión con el correo electrónico de su directorio.",
+  "people.fromDirectory.canSign": "Puede aprobar",
+  "people.fromDirectory.adminSigns": "Los administradores siempre aprueban.",
+  "people.fromDirectory.addEmail": "Agregue un correo para invitar",
+  "people.fromDirectory.close": "Cerrar",
+  "people.fromDirectory.link": "Invitar desde el directorio",
 
   // ── Reports ──
   "reports.subtitle": "Lo que hicieron sus agentes.",

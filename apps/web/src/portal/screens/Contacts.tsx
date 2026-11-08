@@ -12,6 +12,7 @@ import {
   CONTACT_RELATIONSHIPS,
   type Contact,
   type ContactCreateInput,
+  isOwnPerson,
   type Organization,
   type PermissionLevel,
   type ReachChannel,
@@ -30,6 +31,7 @@ import {
 } from "../../directory/DirectoryPanel";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
+import { AccessBadge, InviteContactAction } from "../../people/People";
 import { shortTime } from "../../runs/format";
 import { useSession } from "../../session/session";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
@@ -386,6 +388,7 @@ function PersonRow({
         <span className="flex flex-col items-start gap-1">
           {p.relationship ? <Tag>{t(RELATIONSHIP_KEY[p.relationship])}</Tag> : null}
           {p.title ? <span className="text-sm text-ink-muted">{p.title}</span> : null}
+          <AccessBadge access={p.access} testId={`people-row-${p.id}-access`} />
         </span>
       </td>
       <td className="text-sm text-ink">
@@ -461,6 +464,24 @@ function PersonDetail({
         <div className="flex flex-wrap gap-2 px-6 pb-4">
           {p.relationship ? <Tag>{t(RELATIONSHIP_KEY[p.relationship])}</Tag> : null}
           {p.languageUsed ? <Tag>{languageUsedText(p.languageUsed, i18n)}</Tag> : null}
+        </div>
+      ) : null}
+      {admin && (p.access || isOwnPerson(p, p.organization)) ? (
+        // Signing in (2026-11-08): the client's own people only, for the client admin.
+        <div
+          className="flex flex-wrap items-center gap-2 px-6 pb-4"
+          data-testid="people-detail-access"
+        >
+          <AccessBadge access={p.access} testId="people-detail-access-badge" />
+          <InviteContactAction
+            person={p}
+            surface="portal"
+            testId="people-detail-invite"
+            onInvite={(body) =>
+              api.call(apiRoutes.portalContactInvite, { params: { id: p.id }, body })
+            }
+            onInvited={onChanged}
+          />
         </div>
       ) : null}
       {editing ? (

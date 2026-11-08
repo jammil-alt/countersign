@@ -728,6 +728,10 @@ set the Gmail ingestion query → enable packs → fork templates into the clien
 flows, bind the client's connections → test-run on the client's data → publish and activate → choose who
 approves writes (client admin by default, or the operator).
 
+The client's other people can be invited the same way, by address (client settings, or the portal's
+Team), or from the directory: "Invite to sign in" on an employee, a contractor or anyone in the
+client's own organization who has an email (the client's Directory tab, or the portal's Contacts).
+
 ### Adding the supervisor to a client
 
 The supervisor (`docs/plan.md` §1.28) watches one client's runs, connections, website logins, codes

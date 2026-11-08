@@ -865,6 +865,17 @@ export const fr: Messages = {
     "Cette adresse ne peut pas être invitée ici. Demandez-nous et nous réglerons cela.",
   "people.problem.noEmail": "Saisissez une adresse e-mail.",
   "people.problem.failed": "Nous n'avons pas pu envoyer cette invitation. Réessayez.",
+  "people.problem.notInvitable": "Seul votre propre personnel peut être invité à se connecter.",
+  "people.access.member": "Peut se connecter",
+  "people.access.invited": "Invité, ne s'est pas encore connecté",
+  "people.fromDirectory.invite": "Inviter à se connecter",
+  "people.fromDirectory.title": "Inviter à se connecter",
+  "people.fromDirectory.help": "La personne se connecte avec l'adresse e-mail de votre annuaire.",
+  "people.fromDirectory.canSign": "Peut approuver",
+  "people.fromDirectory.adminSigns": "Les administrateurs approuvent toujours.",
+  "people.fromDirectory.addEmail": "Ajoutez un e-mail pour inviter",
+  "people.fromDirectory.close": "Fermer",
+  "people.fromDirectory.link": "Inviter depuis l'annuaire",
 
   // ── Reports ──
   "reports.subtitle": "Ce que vos agents ont fait.",
