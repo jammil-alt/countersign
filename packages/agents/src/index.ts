@@ -33,6 +33,9 @@ export * from "./log/platform-store";
 export * from "./log/ports";
 export * from "./log/run-log";
 export * from "./log/threads-port";
+// P-7: message translation
+export * from "./log/translation-port";
+export * from "./log/translations";
 export * from "./log/usage";
 export * from "./registry/agents";
 // v0.12 W2-B
@@ -57,6 +60,8 @@ export * from "./runtime/oversee";
 export * from "./runtime/planned";
 export * from "./runtime/ports";
 export * from "./runtime/run-agent";
+// P-7
+export * from "./runtime/translate";
 // v0.12 W2-C: the test bench
 export * from "./testbench/run-skill";
 // v0.12 W2-D
@@ -74,4 +79,6 @@ export * from "./tools/platform";
 export * from "./tools/reach";
 export * from "./tools/supervisor";
 export * from "./tools/threads";
+// P-7
+export * from "./tools/translate";
 export * from "./tools/types";

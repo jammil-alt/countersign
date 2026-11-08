@@ -82,6 +82,8 @@ import { testbenchRoutes } from "./testbench";
 // v0.12 W1-C: threads, the lead and `/commands`
 import { PortalLead, threadRoutes } from "./threads";
 // v0.12 W2-E: the triggers list
+// P-7: message translation
+import { translationRoutes } from "./translation";
 import { triggerRoutes } from "./triggers";
 import { AgentRunsNow, DayRuns, usageRoutes } from "./usage";
 // v0.14 W4-A: WhatsApp through Meta
@@ -2020,5 +2022,7 @@ export const routes = {
   ...packRoutes,
   // P-6: the client runs it, we step in (docs/plan.md §1.68).
   ...stepInRoutes,
+  // P-7: message translation (docs/plan.md §1.69).
+  ...translationRoutes,
 } as const;
 export type Routes = typeof routes;

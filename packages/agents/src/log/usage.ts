@@ -138,6 +138,8 @@ export async function rollupUsageDaily(
  * v0.12 W1-H (ARCHITECTURE §13): recomputes one client's own usage for one day, the reading no
  * agent asked for (uploads and forwarded mail: doc_extraction rows with no agent version), into
  * usage_platform_daily. A day with no such reading writes no row.
+ * P-7: and the translations no agent made (the background job, a person's own text), with their
+ * tokens and cost; a day with neither writes no row.
  */
 // DECISION: a background reading that fails writes no doc_extraction row, so its model call (if it
 // got that far) is not counted: rows are immutable and only a reading has one. Failures are rare,
@@ -152,18 +154,39 @@ export async function rollupPlatformDaily(
       select ${input.day}::date as day,
              (${input.day}::date)::timestamp at time zone 'UTC' as lo,
              (${input.day}::date + 1)::timestamp at time zone 'UTC' as hi
+    ),
+    reads as (
+      select count(distinct de.document_id)::int as documents,
+             coalesce(sum(de.tokens_in), 0)::bigint as tokens_in,
+             coalesce(sum(de.tokens_out), 0)::bigint as tokens_out,
+             coalesce(sum(de.cost_usd), 0) as cost_usd,
+             count(*)::int as n
+      from doc_extraction de, d
+      where de.tenant_id = ${t} and de.agent_version_id is null
+        and de.created_at >= d.lo and de.created_at < d.hi
+    ),
+    -- P-7 (docs/plan.md §1.69): model translations no agent made (the background job, a person's
+    -- own text); an agent's are its step's, already in usage_daily.
+    tr as (
+      select count(*)::int as translations,
+             coalesce(sum(mt.tokens_in), 0)::bigint as tokens_in,
+             coalesce(sum(mt.tokens_out), 0)::bigint as tokens_out,
+             coalesce(sum(mt.cost_usd), 0) as cost_usd
+      from message_translation mt, d
+      where mt.tenant_id = ${t} and mt.agent_version_id is null and mt.model is not null
+        and mt.created_at >= d.lo and mt.created_at < d.hi
     )
-    insert into usage_platform_daily (tenant_id, day, documents, tokens_in, tokens_out, cost_usd)
-    select ${t}::uuid, d.day, count(distinct de.document_id)::int,
-           coalesce(sum(de.tokens_in), 0)::bigint, coalesce(sum(de.tokens_out), 0)::bigint,
-           coalesce(sum(de.cost_usd), 0)
-    from doc_extraction de, d
-    where de.tenant_id = ${t} and de.agent_version_id is null
-      and de.created_at >= d.lo and de.created_at < d.hi
-    group by d.day
+    insert into usage_platform_daily
+      (tenant_id, day, documents, translations, tokens_in, tokens_out, cost_usd)
+    select ${t}::uuid, d.day, reads.documents, tr.translations,
+           reads.tokens_in + tr.tokens_in, reads.tokens_out + tr.tokens_out,
+           reads.cost_usd + tr.cost_usd
+    from d, reads, tr
+    where reads.n > 0 or tr.translations > 0
     on conflict (tenant_id, day) do update set
-      documents = excluded.documents, tokens_in = excluded.tokens_in,
-      tokens_out = excluded.tokens_out, cost_usd = excluded.cost_usd
+      documents = excluded.documents, translations = excluded.translations,
+      tokens_in = excluded.tokens_in, tokens_out = excluded.tokens_out,
+      cost_usd = excluded.cost_usd
   `);
   return tx
     .select()

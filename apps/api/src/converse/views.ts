@@ -17,6 +17,8 @@ import {
 } from "@countersign/core";
 import { appUser, reachOut, type Tx } from "@countersign/db";
 import { and, eq, inArray, like } from "drizzle-orm";
+// P-7
+import { translationsFor } from "../translate/views";
 
 interface Meta {
   key: string;
@@ -51,6 +53,17 @@ export interface StoredEdit {
   by: string;
   byUs: boolean;
   at: string;
+  // P-7: the person's own words, translated into the contact's language to become `text`.
+  translated?: TranslatedEdit;
+}
+
+/** P-7: a person's words translated before signing (docs/plan.md §1.69). */
+export interface TranslatedEdit {
+  /** What the person wrote; `text` is its translation, what is signed and sent. */
+  original: string;
+  from: string;
+  to: string;
+  translationId: string;
 }
 
 function editOf(row: Row): StoredEdit | null {
@@ -138,6 +151,11 @@ export async function runConversations(
     us: byUs,
     name: names.get(by) ?? null,
   });
+  // P-7: each reply's translation, beside its raw record (docs/plan.md §1.69).
+  const replyIds = rows
+    .map((r) => (r.reply as ReachReply | null)?.rawRecordId)
+    .filter((v): v is string => typeof v === "string" && v.length > 0);
+  const translated = await translationsFor(tx, tenantId, { rawRecordIds: replyIds }, "ops");
   const out = new Map<string, ConverseOpsView>();
   for (const list of bySubject.values()) {
     list.sort((a, b) => (metaOf(a)?.turn ?? 0) - (metaOf(b)?.turn ?? 0));
@@ -178,6 +196,10 @@ export async function runConversations(
           text: reply.text,
           at: reply.at,
           status: "received",
+          ...(() => {
+            const t = reply.rawRecordId ? translated.get(reply.rawRecordId) : undefined;
+            return t ? { translation: t } : {};
+          })(),
         });
       }
     }
@@ -210,6 +232,21 @@ export function portalConversation(
         text: m.text,
         at: m.at,
         ...(m.edited ? { edited: { by: portalActor(m.edited.by) } } : {}),
+        // P-7: the translation without its model or cost (invariant 11).
+        ...(m.translation
+          ? {
+              translation: {
+                id: m.translation.id,
+                status: m.translation.status,
+                reason: m.translation.reason,
+                from: m.translation.from,
+                to: m.translation.to,
+                text: m.translation.text,
+                truncated: m.translation.truncated,
+                at: m.translation.at,
+              },
+            }
+          : {}),
       })),
     ...(view.events?.length
       ? { events: view.events.map((e) => ({ ...e, by: portalActor(e.by) })) }

@@ -8,6 +8,8 @@ import {
   THREAD_TEXT_MAX,
   ThreadKind,
 } from "../threads/schemas";
+// P-7
+import { OpsTranslationView, TranslationView } from "../translate/settings";
 import { defineRoute } from "./contract";
 
 // Threads, the lead and `/commands` (ARCHITECTURE §11.2, §14; docs/plan.md §1.38). The portal reads
@@ -30,7 +32,11 @@ export const ThreadPost = z.strictObject({
 export type ThreadPostInput = z.input<typeof ThreadPost>;
 
 /** An operator chooses who reads it: the client, or operators only (a note). */
-export const OpsThreadPost = ThreadPost.extend({ audience: MessageAudience });
+export const OpsThreadPost = ThreadPost.extend({
+  audience: MessageAudience,
+  // P-7: also store the message in the client's working language, for the client (§1.69).
+  translate: z.boolean().optional(),
+});
 export type OpsThreadPostInput = z.input<typeof OpsThreadPost>;
 
 /** Older pages: messages before an instant, newest page first in time order. */
@@ -83,6 +89,8 @@ export const PortalMessage = z.object({
   command: z.string().nullable(),
   sources: z.array(z.string()),
   createdAt: z.string(),
+  // P-7: the message in the reader's working language, beside the original (docs/plan.md §1.69).
+  translation: TranslationView.optional(),
 });
 export type PortalMessage = z.infer<typeof PortalMessage>;
 
@@ -112,6 +120,8 @@ export const OpsMessage = z.object({
   audience: MessageAudience,
   sources: z.array(z.string()),
   createdAt: z.string(),
+  // P-7: a client user's message in English, or the lead's in the working language (§1.69).
+  translation: OpsTranslationView.optional(),
 });
 export type OpsMessage = z.infer<typeof OpsMessage>;
 

@@ -1854,6 +1854,22 @@ blocks headed `// P-7: …`.
 | Compliance | No new vendor: the model's provider is already named in `packages/core/src/compliance`. |
 | Not in this stream | Documents and invoices (never translated, §1.18), call audio and transcripts, live call translation, right-to-left languages, languages outside the six, a "try again" button for a capped or failed translation, translating webhook payloads without a step. |
 
+Decisions made while building M40 (`claude/p7-translation`, 2026-11-08; `// P-7` blocks):
+
+| Topic | Decision |
+|---|---|
+| Where the code is | Core: `translate/detect.ts` (detection), `translate/settings.ts` (settings, the contact's switch, the cut, payload paths, the views), `api/translation.ts` (six routes). Agents: `runtime/translate.ts` (the call and its prompt), `tools/translate.ts` (the tool, the skill, the port's shape), `log/translations.ts` (`translateAndStore`, the one path for every caller, and the views' reads), `log/translation-port.ts`. The Worker: `translate/service.ts` (the job, the sweep, settings, the Desk's helper), `translate/views.ts`, `routes/translation.ts`. // DECISION |
+| Every candidate gets a row | The job reads the client's originals whatever the client's switch, because a contact's own switch can turn it on for them; one that isn't wanted is `skipped` with `client_off` or `contact_off` and no call, so the next pass never reads it again and a chatty contact can't crowd out others. // DECISION |
+| The sweep | Hourly at minute 23 (`TRANSLATION_SWEEP_MINUTE`), every client whose `translation.working` is set. After a pass that called the model, the client's `usage_platform_daily` for the day is rolled up again. // DECISION |
+| Thread messages | A client member's text message (sender a `client_admin` or `client_user` of that client, kind `text`) is translated into English. The portal never shows that translation (it is for us); it shows a lead message's (`direction: out`). A `/command` message is never translated. // DECISION |
+| The lead's reply | `translate: true` on a note for operators is refused (422 `not_for_client`); with the client's working language or outgoing switch off, 409 `translation_off`. The translation is made after the response, like the job. // DECISION |
+| The Desk | The translation is made in the edit's request, before the message row is locked, so the approver gets the card with both texts in the answer. Only an open item is translated; the person's words must be a valid message first. A translation the limit, HIPAA or a failure stops is an error and nothing is saved: 429 `translation_limit`, 409 `not_covered`, 502 `translation_failed`, 422 `not_translatable`. The plan's and the card's `edited.translated` is `{original, from, to, translationId}`. // DECISION |
+| No model configured | Where no model key is set (and in tests by default), a call that would be made is stored as `failed: no_model`; nothing else changes. // DECISION |
+| Tokens and cost | The row keeps the call's tokens (cache included) and the cost to four places, like a document's reading. // DECISION |
+| Tool output | `sources` is the original's id and the translation row's id. The step's output keeps `from`, `to`, `text` and `status`, so later steps can read the translation as data. // DECISION |
+| Screens | One shared piece, `apps/web/src/ui/translated.tsx` (`TranslatedText`), used in the contact's message list (both surfaces). The thread, conversation and Desk screens get the fields from the API and are the UI session's. Six languages' words, `translation.*`; the five other than English need the fluent review. // DECISION |
+| Not built | A test of the conversation transcripts' `translation` (the views are typed and share `translationsFor`); a "try again" for a capped or failed translation; translation on the step-in edit. |
+
 Open for the owner (the defaults chosen):
 - Off for every client until the operator or the client admin sets a working language.
 - With a working language set, incoming, outgoing and thread translation are on; each can be turned off for the client, and incoming and outgoing per contact.

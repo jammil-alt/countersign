@@ -19,7 +19,7 @@ import {
 } from "@countersign/core";
 import { inboxItem, reachOut, type Tx } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
-import type { StoredEdit } from "../converse/views";
+import type { StoredEdit, TranslatedEdit } from "../converse/views";
 import { HttpError, notFound } from "../http";
 import type { InboxRow } from "../inbox";
 import { reachMaxChars, type StoredPlan } from "../reach/service";
@@ -64,6 +64,8 @@ export async function editMessage(
     text: string;
     by: { userId: string; byUs: boolean };
     now: Date;
+    // P-7: `text` is the translation of the person's words (docs/plan.md §1.69).
+    translated?: TranslatedEdit;
   },
 ): Promise<EditedMessageResult> {
   const { item } = input;
@@ -121,6 +123,7 @@ export async function editMessage(
     by: input.by.userId,
     byUs: input.by.byUs,
     at: at.toISOString(),
+    ...(input.translated ? { translated: input.translated } : {}),
   };
   const { whatsappTemplate: _template, ...rest } = plan;
   const next = {
@@ -152,6 +155,8 @@ export async function editMessage(
           at: at.toISOString(),
           byUs: input.by.byUs,
           ...(input.by.byUs ? {} : { by: input.by.userId }),
+          // P-7: the approver sees both: the person's words and what will be sent.
+          ...(input.translated ? { translated: input.translated } : {}),
         },
       },
     })

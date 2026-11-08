@@ -6,6 +6,14 @@
 // `thread.message_posted` in the request's transaction and dispatches it after commit; a `/name`
 // message names the agent the message trigger (W2-E) starts.
 
+// P-7: message translation
+import {
+  clientTranslation,
+  latestTranslations,
+  opsTranslationView,
+  translateAndStore,
+  translationView,
+} from "@countersign/agents";
 import {
   firstName,
   type OpsLead,
@@ -53,6 +61,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, HttpError, iso, mount, notFound } from "../http";
 import { dispatchEvents } from "../runs/dispatch";
+import { translateLater, translationDepsFor } from "../translate/service";
 import { tenantLocale } from "./language";
 import { findRecord } from "./records";
 
@@ -222,7 +231,11 @@ async function portalMessages(
     tenantId,
     rows.filter((m) => m.senderType === "agent").map((m) => m.agentVersionId),
   );
+  // P-7: only what was translated for the client (the lead's words in its working language); a
+  // client member's own words translated for us are the back office's (docs/plan.md §1.69).
+  const translated = await latestTranslations(tx, tenantId, { messageIds: rows.map((m) => m.id) });
   return rows.map((m): PortalMessage => {
+    const tr = translated.get(m.id);
     let name: string | null = null;
     const isLead = m.senderType === "user" && !!lead && m.senderId === lead.userId;
     if (m.senderType === "user" && m.senderId) {
@@ -250,6 +263,7 @@ async function portalMessages(
       command: m.command,
       sources: m.sources,
       createdAt: m.createdAt.toISOString(),
+      ...(tr && tr.direction === "out" ? { translation: translationView(tr) } : {}),
     };
   });
 }
@@ -312,7 +326,10 @@ async function opsMessages(tx: Tx, tenantId: string, rows: MessageRow[]): Promis
     tenantId,
     rows.filter((m) => m.senderType === "agent").map((m) => m.agentVersionId),
   );
+  // P-7: a client member's words in English, or the lead's in the working language (§1.69).
+  const translated = await latestTranslations(tx, tenantId, { messageIds: rows.map((m) => m.id) });
   return rows.map((m): OpsMessage => {
+    const tr = translated.get(m.id);
     let name: string | null = null;
     if (m.senderType === "user" && m.senderId) {
       const u = users.get(m.senderId);
@@ -333,6 +350,7 @@ async function opsMessages(tx: Tx, tenantId: string, rows: MessageRow[]): Promis
       audience: m.audience,
       sources: m.sources,
       createdAt: m.createdAt.toISOString(),
+      ...(tr ? { translation: opsTranslationView(tr) } : {}),
     };
   });
 }
@@ -437,6 +455,11 @@ export function threadRouteHandlers(app: Hono<AppEnv>): void {
     if (collect.length > 0) {
       ctx.defer(() => dispatchEvents({ db: services.db, instances: services.instances }, collect));
     }
+    // P-7: the member's words, translated for the back office where the client has it on.
+    if ((await clientTranslation(tx, tenantId)).settings.threads) {
+      const deps = translationDepsFor(services);
+      ctx.defer(() => translateLater(deps, tenantId));
+    }
     return { messages: await portalMessages(tx, tenantId, viewer, posted) };
   });
 
@@ -491,6 +514,18 @@ export function threadRouteHandlers(app: Hono<AppEnv>): void {
     }
     if (t.status !== "open") throw new HttpError(409, "closed", "this thread is closed");
     await checkSources(tx, t.tenantId, body.sources);
+    // P-7: the lead's words in the client's working language too, stored beside them (§1.69).
+    const translation = body.translate ? (await clientTranslation(tx, t.tenantId)).settings : null;
+    if (translation && (!translation.working || !translation.outgoing)) {
+      throw new HttpError(
+        409,
+        "translation_off",
+        "this client has no working language to translate into",
+      );
+    }
+    if (translation && body.audience !== "client") {
+      throw new HttpError(422, "not_for_client", "only a message to the client is translated");
+    }
     const collect: EventRow[] = [];
     const posted = await postAsPerson(
       tx,
@@ -508,6 +543,22 @@ export function threadRouteHandlers(app: Hono<AppEnv>): void {
     );
     if (collect.length > 0) {
       ctx.defer(() => dispatchEvents({ db: services.db, instances: services.instances }, collect));
+    }
+    const first = posted[0];
+    if (translation?.working && first) {
+      const deps = translationDepsFor(services);
+      const to = translation.working;
+      ctx.defer(() =>
+        translateAndStore(deps.db, deps.transport(t.tenantId), {
+          tenantId: t.tenantId,
+          source: { kind: "message", id: first.id },
+          direction: "out",
+          text: body.text,
+          to,
+          settings: translation,
+          requestedBy: session.user.id,
+        }),
+      );
     }
     return { messages: await opsMessages(tx, t.tenantId, posted) };
   });

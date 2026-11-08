@@ -56,6 +56,9 @@ export interface ApiHarness {
   objects: MemoryObjectStore;
   /** What reads documents in the background: replays fixtures/llm. */
   extraction: { transport: LlmTransport | null };
+  // P-7
+  /** What translates messages outside a run: none by default (tests set a FakeModel). */
+  translation: { transport: LlmTransport | null };
   operator: string;
   /** Serves only client C. */
   otherOperator: string;
@@ -168,6 +171,8 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
   const extraction: { transport: LlmTransport | null } = {
     transport: withRecording(null, { mode: "replay", store: fileFixtureStore() }),
   };
+  // P-7: no translation model unless a test sets one, so other tests never call one.
+  const translation: { transport: LlmTransport | null } = { transport: null };
   const app = createApp({
     platform: () => platform,
     openDb: () => ({ db, close: async () => {} }),
@@ -177,6 +182,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     ...(options.fetch ? { fetch: () => options.fetch as FetchLike } : {}),
     objects: () => objects,
     extractionTransport: () => extraction.transport,
+    translationTransport: () => translation.transport,
     stripe: () => options.stripe ?? null,
     qboSync: () => options.qboSync ?? null,
     exports: () => options.exports ?? null,
@@ -205,6 +211,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     instances,
     objects,
     extraction,
+    translation,
     operator,
     otherOperator,
     A,

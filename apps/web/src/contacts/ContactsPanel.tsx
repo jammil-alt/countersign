@@ -39,6 +39,8 @@ import {
   Loading,
   SectionLabel,
 } from "../ui/primitives";
+// P-7
+import { TranslatedText } from "../ui/translated";
 
 export type ContactsSurface = { kind: "ops"; clientId: string } | { kind: "portal" };
 
@@ -710,8 +712,9 @@ function ContactMessages({
               {m.status ? ` · ${status ? t(status) : m.status}` : ""}
             </span>
             {/* The sender's words (a text, an email, a call transcript), shown as text, never as
-                markup, and never translated. */}
-            <p className="mt-0.5 whitespace-pre-wrap text-ink">{m.text}</p>
+                markup. P-7: with the client's working language on, the translation shows first
+                and the original is one click away (docs/plan.md §1.69). */}
+            <TranslatedText text={m.text} translation={m.translation} />
           </li>
         );
       })}

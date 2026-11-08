@@ -27,6 +27,8 @@ import type { CaptureParams } from "../conversations/media";
 import { captureDepsFor, captureJobsFor } from "../conversations/start";
 import { type AppEnv, ensureClient, errorResponse, HttpError, mount, notFound } from "../http";
 import { dispatchEvents } from "../runs/dispatch";
+// P-7: message translation
+import { translateLater, translationDepsFor } from "../translate/service";
 import { type InboundReply, replyDepsFromEnv, sendReplies } from "../triggers/replies";
 import {
   type MetaRoute,
@@ -137,6 +139,8 @@ export function whatsappMetaRoutes(app: Hono<AppEnv>): void {
       const events: EventRow[] = [];
       const captures: CaptureParams[] = [];
       const replies: { tenantId: string; replies: InboundReply[] }[] = [];
+      // P-7: the clients that got a message, to translate after the commit (docs/plan.md §1.69).
+      const received = new Set<string>();
       for (const msg of delivery.messages) {
         // Routed by the number it came to; a number no client has is ignored.
         const route = await routeOf(msg.phoneNumberId);
@@ -149,6 +153,7 @@ export function whatsappMetaRoutes(app: Hono<AppEnv>): void {
         // P-3: a reach-out reply's PDFs and images (docs/plan.md §1.65).
         if (got.replyMedia) captures.push(got.replyMedia);
         if (got.replies.length) replies.push({ tenantId: route.tenantId, replies: got.replies });
+        received.add(route.tenantId);
       }
       for (const st of delivery.statuses) {
         const route = await routeOf(st.phoneNumberId);
@@ -179,6 +184,11 @@ export function whatsappMetaRoutes(app: Hono<AppEnv>): void {
             }),
           ).start(params),
         );
+      }
+      // P-7: their new messages, translated beside the originals where a client has it on.
+      if (received.size > 0) {
+        const tdeps = translationDepsFor(services);
+        for (const tenantId of received) deferred.push(() => translateLater(tdeps, tenantId));
       }
       for (const r of replies) {
         deferred.push(() =>
