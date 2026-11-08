@@ -95,6 +95,11 @@ export const OpsClientSettings = z.object({
     timezone: z.string(),
     /** The Sandbox client: the operator's own test client, with no client people. */
     sandbox: z.boolean(),
+    /**
+     * M43 (docs/plan.md §1.72): one of our own, Mezonas as its own first client: real data, never
+     * billed, no Weekly Table. Set by an operator.
+     */
+    internal: z.boolean(),
   }),
   approvals: z.object({
     externalActions: ExternalApprover,
@@ -206,13 +211,16 @@ export const onboardingRoutes = {
     path: "/api/ops/clients/:id/settings",
     auth: "session",
     roles: OPS,
-    summary: "Change a client's name, timezone or who approves its external actions",
+    summary:
+      "Change a client's name, timezone, who approves its external actions, or whether it is ours",
     params: IdParams,
     body: z.strictObject({
       name: z.string().trim().min(1).max(200).optional(),
       timezone: z.string().trim().min(1).max(100).optional(),
       approvals: ExternalApprover.optional(),
-      /** Why approvals changed (kept in the client's change log). */
+      /** M43: whether the client is one of our own (`tenant.settings.internal`). */
+      internal: z.boolean().optional(),
+      /** Why approvals or the internal flag changed (kept in the client's change log). */
       reason: z.string().trim().max(500).optional(),
     }),
     response: OpsClientSettings,

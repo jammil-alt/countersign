@@ -32,7 +32,13 @@ const member = (email: string, role: string, extra: Record<string, unknown> = {}
 });
 
 const settings = (over: Record<string, unknown> = {}) => ({
-  client: { id: DEMO, name: "Demo client", timezone: "America/Chicago", sandbox: false },
+  client: {
+    id: DEMO,
+    name: "Demo client",
+    timezone: "America/Chicago",
+    sandbox: false,
+    internal: false,
+  },
   approvals: { externalActions: "client_admin", changes: [] },
   notifications: { itemsWaiting: true, weeklyDigest: false },
   members: [
@@ -166,7 +172,13 @@ describe("new client", () => {
       }),
       [`GET /api/ops/clients/${NEW}/settings`]: () =>
         settings({
-          client: { id: NEW, name: "Cabinet shop", timezone: "America/Chicago", sandbox: false },
+          client: {
+            id: NEW,
+            name: "Cabinet shop",
+            timezone: "America/Chicago",
+            sandbox: false,
+            internal: false,
+          },
           approvals: { externalActions: "operator", changes: [] },
           members: [member("owner@cabinets.example.com", "client_admin", { signedIn: false })],
         }),

@@ -146,6 +146,19 @@ export const packRoutes = {
     body: z.record(z.string(), z.unknown()),
     response: z.object({ result: z.record(z.string(), z.unknown()) }),
   }),
+  // M43 (docs/plan.md §1.72): what a pack takes from outside, with no session (a measured site's
+  // beacon, for the Marketing pack). The platform checks the client has the pack on and caps the
+  // body; the pack decides. Always 204 with no body, so a sender learns nothing about which
+  // clients, packs or targets exist.
+  packInbound: defineRoute({
+    method: "POST",
+    path: "/api/in/:pack/:tenantId/:target",
+    auth: "public",
+    roles: [],
+    summary: "Something a pack takes from outside, e.g. a measured website's beacon (always 204)",
+    params: z.object({ pack: Slug, tenantId: z.string(), target: z.string() }),
+    response: z.literal(""),
+  }),
   portalPacks: defineRoute({
     method: "GET",
     path: "/api/packs",
