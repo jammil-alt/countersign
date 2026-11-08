@@ -283,7 +283,7 @@ export async function receiveReachOutReply(
     if (!stored || !sameAddress(stored, bare)) return null;
     if (!/^[0-9a-f]{32}$/.test(tag)) return null;
     const id = `${tag.slice(0, 8)}-${tag.slice(8, 12)}-${tag.slice(12, 16)}-${tag.slice(16, 20)}-${tag.slice(20)}`;
-    const [row] = await tx
+    let [row] = await tx
       .select()
       .from(reachOut)
       .where(
@@ -293,6 +293,29 @@ export async function receiveReachOutReply(
           ne(reachOut.status, "ended"),
         ),
       );
+    // P-9: an email conversation's later messages carry its first message's tag (§1.66), so a
+    // reply to any of them goes to the conversation's message waiting now (docs/plan.md §1.71).
+    if (!row) {
+      const [tagged] = await tx
+        .select({ subject: reachOut.subject, contactId: reachOut.contactId })
+        .from(reachOut)
+        .where(and(eq(reachOut.id, id), eq(reachOut.tenantId, target.tenantId)));
+      if (tagged?.subject.startsWith("converse:")) {
+        [row] = await tx
+          .select()
+          .from(reachOut)
+          .where(
+            and(
+              eq(reachOut.tenantId, target.tenantId),
+              eq(reachOut.contactId, tagged.contactId),
+              eq(reachOut.subject, tagged.subject),
+              eq(reachOut.status, "open"),
+            ),
+          )
+          .orderBy(desc(reachOut.createdAt))
+          .limit(1);
+      }
+    }
     if (!row) return [];
     const [who] = await tx
       .select()
