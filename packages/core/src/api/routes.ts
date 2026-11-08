@@ -10,6 +10,8 @@ import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas
 import { SkillDefinition } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
+// P-8: US texting registration
+import { a2pRoutes } from "./a2p";
 import { accessRoutes } from "./access";
 // v0.12 W2-D: Sloan, the account agent
 import { accountRoutes } from "./account";
@@ -2024,5 +2026,7 @@ export const routes = {
   ...stepInRoutes,
   // P-7: message translation (docs/plan.md §1.69).
   ...translationRoutes,
+  // P-8: US texting registration (docs/plan.md §1.70)
+  ...a2pRoutes,
 } as const;
 export type Routes = typeof routes;

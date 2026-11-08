@@ -88,6 +88,8 @@ describe("portal settings", () => {
       ["Exports", "/settings/exports"],
       ["Conversations", "/settings/conversations"],
       ["Voice samples", "/settings/voice"],
+      // P-8
+      ["US texting", "/settings/texting"],
     ]);
     // Sloan, in a few words, where it is offered.
     expect(screen.getByTestId("portal-settings-sloan")).toHaveTextContent(
