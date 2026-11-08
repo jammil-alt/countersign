@@ -6,7 +6,8 @@
 // (send only), `slack` (posts to picked channels), `bankfeed` (bank and card feeds through Plaid,
 // read only), `gsheets` (Google Sheets, only the sheets the client picks), `gchat` (Google Chat, posts
 // to the spaces a client binds; v0.14 W4-E), `gsc` and `bing_webmaster` (search figures, read only;
-// M45), and `testkit`, the test connector. Also `stripe/`,
+// M45), `website` (guides published to a client's own site; M46), and `testkit`, the test
+// connector. Also `stripe/`,
 // Mezonas' own billing client (not a connector: no manifest, no agent tools).
 // No Workers, DOM or Node types: Web APIs are reached through ./runtime, R2 through a structural type.
 // Allowed workspace dependencies: db core. See docs/plan.md §2.
@@ -71,6 +72,8 @@ export * from "./upload/index";
 export * from "./voice/services";
 export * from "./voice/spec";
 export * from "./webhook/index";
+// M46: the website guides are published to (docs/plan.md §1.76).
+export * from "./website/index";
 // v0.14 W4-A: WhatsApp through Meta (docs/plan.md §1.57).
 export * from "./whatsapp_meta/index";
 export * from "./zoho_crm/index";

@@ -88,6 +88,8 @@ import { opsModelRoutes } from "./routes/ops-models";
 import { opsOversightRoutes } from "./routes/ops-oversight";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { packInboundRoutes } from "./routes/pack-inbound";
+// M46
+import { packPreviewRoutes } from "./routes/pack-preview";
 // P-1: packs (docs/plan.md §1.63).
 import { packRouteHandlers } from "./routes/packs";
 import { portalRouteHandlers } from "./routes/portal";
@@ -172,6 +174,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   hookRoutes(app);
   // M43: what a pack takes from outside with no session (a measured website's beacon).
   packInboundRoutes(app);
+  // M46: preview links to a pack's pages before they are public (docs/plan.md §1.76).
+  packPreviewRoutes(app);
   documentRoutes(app);
   feedbackRouteHandlers(app);
   onboardingRouteHandlers(app);

@@ -27,6 +27,7 @@ import {
   packToolContext,
 } from "@countersign/pack-materials";
 import type { z } from "zod";
+import type { SignedWrite } from "./signed-writes";
 
 /**
  * A pack's report, as the generic report routes call it (routes/packs.ts). §1.73: with its
@@ -57,7 +58,17 @@ export interface PackActionHandler {
   input: z.ZodType;
   run(
     db: Db,
-    ctx: { tenantId: string; userId: string; input: unknown },
+    ctx: {
+      tenantId: string;
+      userId: string;
+      input: unknown;
+      /**
+       * M46 (docs/plan.md §1.76): a change outside this person signs as they take the action
+       * (publishing a guide), run once through its connector as an external action they
+       * approved (signed-writes.ts). A pack that writes nothing outside never calls it.
+       */
+      signedWrite?: SignedWrite;
+    },
   ): Promise<Record<string, unknown>>;
 }
 
@@ -77,6 +88,11 @@ export interface RegisteredPack {
   inbound?: PackInbound;
   /** M43: its nightly pass over every client with it on, at this UTC hour and minute. */
   nightly?: PackNightly;
+  /**
+   * M46: the reports whose items are pages a preview link may show (routes/pack-preview.ts):
+   * each item a checked fragment `{ title, description, html, path, domain }`.
+   */
+  previews?: readonly string[];
 }
 
 /** What the inbound route hands a pack: the body (capped at `maxBytes`) and the request's facts. */
@@ -120,6 +136,8 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
     actions: MARKETING_ACTIONS,
     inbound: MARKETING_INBOUND,
     nightly: MARKETING_NIGHTLY,
+    // M46: a guide's version before it is public (docs/plan.md §1.76).
+    previews: ["content-preview"],
   },
 ];
 
