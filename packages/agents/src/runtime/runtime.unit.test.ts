@@ -74,6 +74,8 @@ describe("tool registry", () => {
       "docs.get",
       "docs.match_bill",
       "docs.plan_bill",
+      // P-9
+      "docs.read",
       "health.agents",
       "health.connections",
       "health.inbox",

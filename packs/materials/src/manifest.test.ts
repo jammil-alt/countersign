@@ -28,6 +28,9 @@ describe("the Materials manifest", () => {
       ...materialsManifest.tools.map((t) => t.id),
       "inbox.create",
       "docs.get",
+      // P-9: the reading skills read the message (inbound.get) and settle a document (docs.read).
+      "inbound.get",
+      "docs.read",
     ]);
     for (const skill of MATERIALS_SKILLS) {
       expect(SkillDefinition.safeParse(skill).success, skill.id).toBe(true);
