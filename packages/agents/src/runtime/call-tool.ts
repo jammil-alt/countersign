@@ -201,6 +201,8 @@ async function dispatch(
       inbound: deps.ports.inbound,
       // P-7: message translation
       translation: deps.ports.translation,
+      // §1.77: web research
+      web: deps.ports.web,
       ask: step.ask,
       language: step.language,
       now: deps.now,

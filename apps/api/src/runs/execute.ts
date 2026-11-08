@@ -121,6 +121,9 @@ export interface RunDeps {
    * `model_call` rows are still written, without their bodies.
    */
   modelCallBodies?: ObjectStore | null;
+  // §1.77
+  /** Web research for `web.search` and `web.fetch` (MARKETING_RESEARCH=on); absent: off. */
+  webResearch?: boolean;
 }
 
 /**
@@ -203,7 +206,14 @@ export function runDepsFromEnv(
     release: releaseDepsFromEnv(env, base),
     // v0.12 W1-E: model calls' bodies, under the client's prefix in the same bucket.
     modelCallBodies: new R2ObjectStore(env.ARTIFACTS),
+    // §1.77: off unless the owner sets MARKETING_RESEARCH=on (docs/marketing-plan.md §11.5).
+    webResearch: researchOn(env),
   };
+}
+
+/** MARKETING_RESEARCH=on: `web.search` and `web.fetch` call the vendor; anything else is off. */
+export function researchOn(env: Pick<Bindings, "MARKETING_RESEARCH">): boolean {
+  return env.MARKETING_RESEARCH?.trim().toLowerCase() === "on";
 }
 
 // DECISION: skill and action steps retry three times with backoff and give up after 15 minutes:
@@ -272,6 +282,8 @@ export function runtimeFor(
       // P-7: `comms.translate` on the run's transport (held to the client's HIPAA mode by
       // forClient), docs/plan.md §1.69.
       translation: { transport: deps.transport, ...(deps.now ? { now: deps.now } : {}) },
+      // §1.77: web research on the same transport, when the deployment has it on.
+      ...(deps.webResearch ? { webResearch: { transport: deps.transport } } : {}),
     }),
     tools: deps.platform.tools,
     catalog: deps.platform.catalog,

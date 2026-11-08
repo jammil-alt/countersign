@@ -131,6 +131,12 @@ export interface Vars {
    * what a client in HIPAA mode may send data to. Unset: none, so no client can be in HIPAA mode.
    */
   BAA_PROCESSORS?: string;
+  // §1.77 (docs/marketing-plan.md §11.5): `on` lets `web.search` and `web.fetch` call the model
+  // vendor's search and fetch; anything else (or unset) keeps them off.
+  MARKETING_RESEARCH?: string;
+  // §1.77: our LinkedIn app (Community Management API); unset: LinkedIn is "not available yet".
+  LINKEDIN_CLIENT_ID?: string;
+  LINKEDIN_CLIENT_SECRET?: string;
   /** Error tracking (src/observability/sentry.ts); set by deploy.yml with `--var`. Not a secret. */
   SENTRY_DSN?: string;
   /** The deployed commit, Sentry's release; set by deploy.yml with `--var`. */

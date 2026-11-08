@@ -6,9 +6,9 @@
 // (send only), `slack` (posts to picked channels), `bankfeed` (bank and card feeds through Plaid,
 // read only), `gsheets` (Google Sheets, only the sheets the client picks), `gchat` (Google Chat, posts
 // to the spaces a client binds; v0.14 W4-E), `gsc` and `bing_webmaster` (search figures, read only;
-// M45), `website` (guides published to a client's own site; M46), and `testkit`, the test
-// connector. Also `stripe/`,
-// Mezonas' own billing client (not a connector: no manifest, no agent tools).
+// M45), `website` (guides published to a client's own site; M46), `hackernews` (read only) and
+// `linkedin` (company page posts, always signed; §1.77), and `testkit`, the test connector. Also
+// `stripe/`, Mezonas' own billing client (not a connector: no manifest, no agent tools).
 // No Workers, DOM or Node types: Web APIs are reached through ./runtime, R2 through a structural type.
 // Allowed workspace dependencies: db core. See docs/plan.md §2.
 
@@ -36,10 +36,14 @@ export * from "./gsc/index";
 // v0.14 W4-D: Google Sheets (picked sheets only).
 export * from "./gsheets/a1";
 export * from "./gsheets/index";
+// §1.77: Hacker News, read only (the forum watch).
+export * from "./hackernews/index";
 export * from "./http";
 // v0.12 W3-B
 export * from "./hubspot/index";
 export * from "./invoke";
+// §1.77 (M49): LinkedIn company page posts, always signed.
+export * from "./linkedin/index";
 export * from "./logger";
 export * from "./messaging/services";
 export * from "./messaging/spec";

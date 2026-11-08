@@ -1,8 +1,11 @@
 // The runtime's ports over the database, for apps/api and the workflow executor to pass in.
 
 import type { Db } from "@countersign/db";
+import type { LlmTransport } from "@countersign/llm";
 import { dbRuntimeStore } from "../registry/runtime-store";
 import type { ReleasePort, RuntimePorts } from "../runtime/ports";
+// §1.77
+import { llmWebResearch } from "../tools/web";
 // v0.12 W2-D
 import { type AccountViews, dbAccountPort } from "./account-port";
 import { dbCarriedActions } from "./carried-actions";
@@ -43,6 +46,12 @@ export interface DbPortsOptions {
   // P-7
   /** The model transport for `comms.translate` (the run's, held to the client's HIPAA mode). */
   translation?: TranslationPortOptions;
+  // §1.77
+  /**
+   * Web research (`web.search`, `web.fetch`) on this transport (the run's, held to the client's
+   * HIPAA mode); absent: research is off and the tools answer `off`.
+   */
+  webResearch?: { transport: LlmTransport };
 }
 
 export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePorts {
@@ -70,5 +79,7 @@ export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePort
     ...(options.account ? { account: dbAccountPort(db, options.account, emit) } : {}),
     // P-7: message translation, on the run's transport.
     ...(options.translation ? { translation: dbTranslationPort(db, options.translation) } : {}),
+    // §1.77: web research, one port per run so its per-step caps are the run's.
+    ...(options.webResearch ? { web: llmWebResearch(options.webResearch) } : {}),
   };
 }

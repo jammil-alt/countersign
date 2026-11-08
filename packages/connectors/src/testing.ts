@@ -371,6 +371,14 @@ export {
   type FakeSpreadsheet,
   fakeGoogleSheets,
 } from "./gsheets/fake";
+// §1.77: Hacker News (read only) and LinkedIn (company page posts).
+export {
+  FAKE_HN_ITEMS,
+  FAKE_HN_NOW,
+  type FakeHackerNews,
+  type FakeHnItem,
+  fakeHackerNews,
+} from "./hackernews/fake";
 // v0.12 W3-B: Ramp and HubSpot (docs/plan.md §1.52).
 export {
   FAKE_HUBSPOT,
@@ -378,6 +386,12 @@ export {
   type FakeHubspotObject,
   fakeHubspot,
 } from "./hubspot/fake";
+export {
+  FAKE_LINKEDIN,
+  type FakeLinkedIn,
+  type FakeLinkedInPost,
+  fakeLinkedIn,
+} from "./linkedin/fake";
 // v0.12 W3-B
 export {
   FAKE_MICROSOFT,

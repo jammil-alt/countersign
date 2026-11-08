@@ -21,6 +21,11 @@ export const DEFAULT_MODELS = {
   classification: MODELS.haiku,
   /** Optional, for the Builder on complex requests. */
   builderComplex: MODELS.opus,
+  /**
+   * §1.77: `web.search` and `web.fetch`, one search or fetch through the vendor's server-side
+   * tools; the agent that asked reasons over the results on its own model.
+   */
+  research: MODELS.haiku,
 } as const;
 
 export type ModelPurpose = keyof typeof DEFAULT_MODELS;

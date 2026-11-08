@@ -21,6 +21,8 @@ import { THREADS_TOOLS } from "./threads";
 // P-7: message translation
 import { translateTool } from "./translate";
 import { defineInternalTool, type InternalTool } from "./types";
+// §1.77: web research
+import { WEB_TOOLS } from "./web";
 
 export { MEMORY_TEST_SCOPE_PREFIX, memoryScope } from "./memory-scope";
 
@@ -108,4 +110,6 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   ...INBOUND_TOOLS,
   // P-7: message translation (docs/plan.md §1.69)
   translateTool,
+  // §1.77: web research (docs/plan.md §1.77)
+  ...WEB_TOOLS,
 ];

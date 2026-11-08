@@ -82,3 +82,5 @@ export * from "./tools/threads";
 // P-7
 export * from "./tools/translate";
 export * from "./tools/types";
+// §1.77: web research
+export * from "./tools/web";

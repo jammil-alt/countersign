@@ -36,8 +36,11 @@ import {
   createGscConnector,
   // v0.14 W4-D
   createGsheetsConnector,
+  // §1.77
+  createHackerNewsConnector,
   // v0.12 W3-B
   createHubspotConnector,
+  createLinkedInConnector,
   createOutlookConnector,
   createPodioConnector,
   createQboConnector,
@@ -238,7 +241,10 @@ type OAuthEnvKey =
   | "PLAID_ENV"
   // M46: the site content bucket and IndexNow's key.
   | "SITE_CONTENT"
-  | "INDEXNOW_KEY";
+  | "INDEXNOW_KEY"
+  // §1.77: our LinkedIn app.
+  | "LINKEDIN_CLIENT_ID"
+  | "LINKEDIN_CLIENT_SECRET";
 
 export function platformFor(
   env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey | "BROWSER">,
@@ -274,6 +280,9 @@ export function platformFor(
     // M46: whether the bucket and the key are set (never the key).
     env.SITE_CONTENT ? "site-content" : "-",
     env.INDEXNOW_KEY ? "indexnow" : "-",
+    // §1.77: LinkedIn's app id, and whether its secret is set (never the secret).
+    env.LINKEDIN_CLIENT_ID ?? "-",
+    env.LINKEDIN_CLIENT_SECRET ? "linkedin" : "-",
   ].join(":");
   if (cached?.key !== key) {
     cached = {
@@ -404,6 +413,11 @@ export function deploymentConnectors(
     // once the client admin has entered its key (nothing to configure for the deployment).
     createGscConnector(),
     createBingWebmasterConnector(),
+    // §1.77: Hacker News, read only and keyless (the forum watch), registered everywhere.
+    createHackerNewsConnector(),
+    // §1.77 (M49): LinkedIn company page posts, always signed; like Outlook, registered everywhere
+    // and signing in once LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET and OAUTH_STATE_SECRET are set.
+    createLinkedInConnector(oauthClient(env.LINKEDIN_CLIENT_ID, env.LINKEDIN_CLIENT_SECRET, env)),
     ...(production
       ? []
       : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))]),

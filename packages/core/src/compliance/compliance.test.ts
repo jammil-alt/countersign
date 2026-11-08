@@ -97,6 +97,15 @@ describe("processors", () => {
     // v0.12 bankfeed: Plaid is Mezonas' processor, not the client's tool.
     expect(processorsForOffer("bankfeed")).toEqual(["plaid"]);
     expect(processorsForTool("bankfeed.transaction.query", "bankfeed")).toEqual(["plaid"]);
+    // §1.77: web research is its own processor; Hacker News is one; LinkedIn is the client's own.
+    expect(processorsForTool("web.search", null)).toEqual(["anthropic_web"]);
+    expect(processorsForTool("web.fetch", null)).toEqual(["anthropic_web"]);
+    expect(processorsForTool("hackernews.search", "hackernews")).toEqual(["hackernews"]);
+    expect(processorsForOffer("hackernews")).toEqual(["hackernews"]);
+    expect(processorsForOffer("linkedin")).toEqual([]);
+    expect(processingRefusal({ hipaa: true }, all, ["anthropic_web"], "web.search")).toBe(
+      "web.search sends data to Anthropic web search and fetch, which has no signed BAA; this client is in HIPAA mode",
+    );
   });
 
   it("lists exactly these processors", () => {
@@ -111,6 +120,8 @@ describe("processors", () => {
       "elevenlabs",
       "resend",
       "plaid",
+      "anthropic_web",
+      "hackernews",
     ]);
     expect(hipaaReadiness(parseCoveredProcessors("cloudflare neon workos"), ["bankfeed"])).toEqual([
       "The bankfeed connector is offered and sends data to Plaid, with no signed BAA. Withdraw it first.",

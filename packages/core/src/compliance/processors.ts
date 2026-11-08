@@ -32,6 +32,10 @@ export const PROCESSORS = [
   "resend",
   // v0.12 bankfeed: bank and card feeds (docs/plan.md §1.52).
   "plaid",
+  // §1.77: web research (`web.search`, `web.fetch`) through the model vendor's server-side tools,
+  // and Hacker News search (`hackernews.*`, Algolia's search and the official item API).
+  "anthropic_web",
+  "hackernews",
 ] as const;
 export type Processor = (typeof PROCESSORS)[number];
 
@@ -49,6 +53,9 @@ export const PROCESSOR_NAMES: Record<Processor, string> = {
   elevenlabs: "ElevenLabs",
   resend: "Resend",
   plaid: "Plaid",
+  // §1.77
+  anthropic_web: "Anthropic web search and fetch",
+  hackernews: "Hacker News (Algolia and Firebase)",
 };
 
 /** `BAA_PROCESSORS`: comma- or space-separated processor ids; unknown words are ignored. */
@@ -83,6 +90,11 @@ const CONNECTOR_PROCESSORS: Record<string, readonly Processor[]> = {
   // the messages pass through Meta to us, as they do for Twilio's WhatsApp, so it is the same
   // processor (`meta_whatsapp`) a client in HIPAA mode needs covered.
   whatsapp_meta: ["meta_whatsapp"],
+  // DECISION (§1.77): Hacker News is a public service with no account, but an agent's search words
+  // go to Algolia (and item ids to Firebase), so a client in HIPAA mode is refused it like any
+  // vendor of ours without a BAA. LinkedIn is not here: it is the client's own company page, which
+  // only the client signs in to, like Slack.
+  hackernews: ["hackernews"],
 };
 
 /** The processors a connector sends a client's data to, whichever of its tools is used. */
@@ -95,6 +107,10 @@ export function processorsForTool(toolId: string, connectorId: string | null): P
   const out = new Set<Processor>(connectorId ? processorsForConnector(connectorId) : []);
   if (toolId.startsWith("whatsapp.")) out.add("meta_whatsapp");
   if (toolId.startsWith("call.")) out.add("elevenlabs");
+  // DECISION (§1.77): web research is its own processor, not `anthropic`: the vendor's search and
+  // fetch tools send the agent's words on to search and web providers, so a BAA that covers the
+  // model alone does not cover them.
+  if (toolId.startsWith("web.")) out.add("anthropic_web");
   return [...out];
 }
 

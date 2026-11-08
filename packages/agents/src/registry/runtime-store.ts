@@ -16,7 +16,7 @@ import {
   tenant,
   withTenant,
 } from "@countersign/db";
-import { and, desc, eq, inArray, like, not } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, not, sql } from "drizzle-orm";
 import { notFound } from "../errors";
 import type {
   ApprovalRouting,
@@ -209,6 +209,19 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
           agentVersionId: row.liveVersionId,
           name: row.serviceName ?? row.name,
         };
+      });
+    },
+
+    // §1.77: a client agent's spend since the start of the month (the monthly cap).
+    agentCostSince(tenantId, agentId, since) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .select({ total: sql<string>`coalesce(sum(${run.costUsd}), 0)::text` })
+          .from(run)
+          .where(
+            and(eq(run.tenantId, tenantId), eq(run.agentId, agentId), gte(run.createdAt, since)),
+          );
+        return row?.total ?? "0";
       });
     },
 
