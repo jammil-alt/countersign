@@ -1168,6 +1168,118 @@ export const transactionLine = pgTable(
   ],
 );
 
+// ── The chart of accounts (B-2, docs/plan.md §1.79; migration 0039) ──────────────────────────────
+
+/** QuickBooks' five classifications, lowercased. */
+export const LEDGER_CLASSIFICATIONS = [
+  "asset",
+  "liability",
+  "equity",
+  "revenue",
+  "expense",
+] as const;
+export type LedgerClassification = (typeof LEDGER_CLASSIFICATIONS)[number];
+export const LEDGER_NOTE_SOURCES = ["client", "operator", "agent"] as const;
+export type LedgerNoteSource = (typeof LEDGER_NOTE_SOURCES)[number];
+/** A note on an account is one or two sentences. */
+export const LEDGER_NOTE_MAX = 500;
+
+/**
+ * A client's account in its accounting tool (connector level, like `vendor`): synced in place by
+ * the connector, never deleted (an account gone or made inactive there is `active = false`).
+ */
+// DECISION: a platform table, not a pack's (docs/plan.md §1.79): accounts are the client's tool's
+// records, read by the Bill clerk, the buyer and the Bookkeeping area alike.
+export const ledgerAccount = pgTable(
+  "ledger_account",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    connectionId: uuid("connection_id").notNull(),
+    connector: text("connector").notNull(),
+    /** QuickBooks' Account.Id. */
+    externalId: text("external_id").notNull(),
+    name: text("name").notNull(),
+    /** QuickBooks' FullyQualifiedName ("Parent:Child"). */
+    fullName: text("full_name").notNull(),
+    /** QuickBooks' AcctNum. */
+    number: text("number"),
+    classification: text("classification").$type<LedgerClassification>(),
+    /** QuickBooks' AccountType, e.g. `Bank`, `Credit Card`, `Expense`. */
+    accountType: text("account_type").notNull(),
+    accountSubType: text("account_sub_type"),
+    parentExternalId: text("parent_external_id"),
+    /** The description kept in the accounting tool. */
+    description: text("description"),
+    currency: currency(),
+    active: boolean("active").notNull().default(true),
+    /** The raw record of the version last read. */
+    rawRecordId: uuid("raw_record_id"),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique("ledger_account_id_tenant_key").on(t.id, t.tenantId),
+    unique("ledger_account_external_key").on(t.tenantId, t.connector, t.externalId),
+    foreignKey({
+      name: "ledger_account_connection_fk",
+      columns: [t.connectionId, t.tenantId],
+      foreignColumns: [connection.id, connection.tenantId],
+    }),
+    foreignKey({
+      name: "ledger_account_raw_record_fk",
+      columns: [t.rawRecordId, t.tenantId],
+      foreignColumns: [rawRecord.id, rawRecord.tenantId],
+    }),
+    check(
+      "ledger_account_classification_check",
+      sql`${t.classification} is null or ${oneOf(t.classification, LEDGER_CLASSIFICATIONS)}`,
+    ),
+  ],
+);
+
+/**
+ * What an account is used for, in words (B-2): the client's answers, the operator's, and the
+ * agent's, learned from what was booked there. Insert only: a change is a newer note.
+ */
+export const ledgerAccountNote = pgTable(
+  "ledger_account_note",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    ledgerAccountId: uuid("ledger_account_id").notNull(),
+    note: text("note").notNull(),
+    source: text("source").$type<LedgerNoteSource>().notNull(),
+    /** The records it rests on (bookings, transactions), invariant 10. */
+    sources: json<string[]>("sources").notNull().default([]),
+    agentVersionId: uuid("agent_version_id").references(() => agentVersion.id),
+    userId: uuid("user_id").references(() => appUser.id),
+    /** The question this note answers. */
+    inboxItemId: uuid("inbox_item_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "ledger_account_note_account_fk",
+      columns: [t.ledgerAccountId, t.tenantId],
+      foreignColumns: [ledgerAccount.id, ledgerAccount.tenantId],
+    }),
+    foreignKey({
+      name: "ledger_account_note_inbox_item_fk",
+      columns: [t.inboxItemId, t.tenantId],
+      foreignColumns: [inboxItem.id, inboxItem.tenantId],
+    }),
+    index("ledger_account_note_account_idx").on(t.tenantId, t.ledgerAccountId, t.createdAt),
+    check("ledger_account_note_source_check", oneOf(t.source, LEDGER_NOTE_SOURCES)),
+    check("ledger_account_note_length_check", sql`char_length(${t.note}) between 1 and 500`),
+    // An agent's note rests on records and names its version; a person's names the person.
+    check(
+      "ledger_account_note_author_check",
+      sql`(${t.source} = 'agent' and ${t.agentVersionId} is not null and jsonb_array_length(${t.sources}) > 0) or (${t.source} <> 'agent' and ${t.userId} is not null)`,
+    ),
+  ],
+);
+
 /** An original file (invoice, receipt), stored once per client and sha256. */
 export const document = pgTable(
   "document",
@@ -3482,6 +3594,9 @@ export const TENANT_TABLES = [
   "alert",
   // P-7 (0034)
   "message_translation",
+  // B-1 (0039): the chart of accounts and what each account is for (docs/plan.md §1.79).
+  "ledger_account",
+  "ledger_account_note",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
