@@ -47,6 +47,14 @@ const page = (pages: Page[], name: string) => {
 };
 
 /** What measuring adds to a page, taken out again. */
+/** The script's code inside the `<script>…</script>` the build wraps it in. */
+function scriptBody(tag: string): string {
+  const open = "<script>";
+  const close = "</script>";
+  if (!tag.startsWith(open) || !tag.endsWith(close)) throw new Error("not a script tag");
+  return tag.slice(open.length, -close.length);
+}
+
 const withoutMeasuring = (html: string) =>
   html
     .replace(/\n {4}<script>\n[\s\S]*?\n<\/script>/, "")
@@ -126,8 +134,9 @@ describe("measuring on", () => {
 
   it("inlines the script once on every page but /no-measure", () => {
     for (const p of on) {
-      const scripts = p.html.match(/<script>/g) ?? [];
-      expect(scripts.length, p.name).toBe(p.name === "no-measure" ? 0 : 1);
+      // Counted as text, not with a pattern: the build writes the tag exactly so.
+      const scripts = p.html.split("<script>").length - 1;
+      expect(scripts, p.name).toBe(p.name === "no-measure" ? 0 : 1);
       if (p.name !== "no-measure") expect(p.html).toContain(JSON.stringify(URL_ON));
     }
   });
@@ -249,7 +258,7 @@ function browser(options: { dnt?: string; gpc?: boolean; beacon?: boolean } = {}
     Uint8Array,
   };
   const run = () =>
-    runInNewContext(measureScript(URL_ON).replace(/^<script>|<\/script>$/g, ""), context);
+    runInNewContext(scriptBody(measureScript(URL_ON)), context);
   const fire = (type: string, event: unknown = {}) => {
     for (const fn of listeners[type] ?? []) fn(event);
   };
