@@ -6,9 +6,9 @@ import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
   dialect: "postgresql",
-  // Platform tables. Pack schemas join this list when packs gain tables (docs/plan.md §1.2 "Packs"),
-  // so every table lives in one migration sequence.
-  schema: ["./src/schema.ts"],
+  // Platform tables, then each pack's (docs/plan.md §1.2 "Packs", §1.63), so every table lives in one
+  // migration sequence. A path, not an import: the platform never imports a pack.
+  schema: ["./src/schema.ts", "../../packs/materials/src/schema.ts"],
   out: "./migrations",
   dbCredentials: { url: process.env.DIRECT_DATABASE_URL ?? "" },
   strict: true,

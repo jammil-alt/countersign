@@ -52,6 +52,7 @@ export * from "./api/notify";
 export * from "./api/onboarding";
 // v0.13 W2-I: run oversight
 export * from "./api/oversight";
+export * from "./api/packs";
 export * from "./api/people";
 export * from "./api/qbo";
 export * from "./api/reach";

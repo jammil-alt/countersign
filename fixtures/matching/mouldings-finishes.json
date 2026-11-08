@@ -1,0 +1,167 @@
+{
+  "description": "Edgebanding, mouldings, finishes and adhesives (basic parsers; the model and people decide the rest).",
+  "pairs": [
+    {
+      "a": "15/16 X .5MM WHITE PVC EDGEBANDING 600FT",
+      "b": "EDGE BANDING PVC WHITE 15/16\" X 0.5MM 600' ROLL",
+      "label": "same",
+      "note": "roll spelled differently"
+    },
+    {
+      "a": "15/16 X .5MM WHITE PVC EDGEBANDING 600FT",
+      "b": "15/16 X 1MM WHITE PVC EDGEBANDING 600FT",
+      "label": "different",
+      "note": ".5 vs 1 mm"
+    },
+    {
+      "a": "15/16 X .5MM WHITE PVC EDGEBANDING 600FT",
+      "b": "13/16 X .5MM WHITE PVC EDGEBANDING 600FT",
+      "label": "different",
+      "note": "15/16 vs 13/16"
+    },
+    {
+      "a": "15/16 X .5MM WHITE PVC EDGEBANDING 600FT",
+      "b": "15/16 X .5MM BLACK PVC EDGEBANDING 600FT",
+      "label": "different",
+      "note": "white vs black"
+    },
+    {
+      "a": "15/16 X .5MM WHITE PVC EDGEBANDING 600FT",
+      "b": "15/16 X .5MM WHITE ABS EDGEBANDING 600FT",
+      "label": "different",
+      "note": "PVC vs ABS"
+    },
+    {
+      "a": "15/16 X .5MM WHITE PVC EDGEBANDING 600FT",
+      "b": "15/16 X .5MM WHITE PVC EB 300FT",
+      "label": "same",
+      "note": "roll length converts"
+    },
+    {
+      "a": "22MM X 1MM BLACK PVC EDGE BANDING",
+      "b": "7/8 X 1MM BLACK PVC EDGEBANDING",
+      "label": "same",
+      "note": "22mm is 7/8"
+    },
+    {
+      "a": "22MM X 2MM BLACK PVC EDGE BANDING",
+      "b": "22MM X 1MM BLACK PVC EDGE BANDING",
+      "label": "different",
+      "note": "2 vs 1 mm"
+    },
+    {
+      "a": "EB 7/8 MAPLE WOOD VENEER 250'",
+      "b": "7/8 MAPLE VENEER EDGEBANDING 250FT",
+      "label": "same",
+      "note": "veneer"
+    },
+    {
+      "a": "EB 7/8 MAPLE WOOD VENEER 250'",
+      "b": "EB 7/8 CHERRY WOOD VENEER 250'",
+      "label": "different",
+      "note": "maple vs cherry"
+    },
+    {
+      "a": "EB 7/8 MAPLE WOOD VENEER 250'",
+      "b": "EB 15/16 MAPLE WOOD VENEER 250'",
+      "label": "different",
+      "note": "7/8 vs 15/16"
+    },
+    {
+      "a": "WM366 PRIMED MDF CASING 16FT",
+      "b": "WM 366 PRIMED MDF CASING",
+      "label": "same",
+      "note": "same profile; the code is split on one side"
+    },
+    {
+      "a": "WM366 PRIMED MDF CASING 16FT",
+      "b": "WM366 MDF CASING PRIMED 8FT",
+      "label": "same",
+      "note": "length converts"
+    },
+    {
+      "a": "WM366 PRIMED MDF CASING 16FT",
+      "b": "WM356 PRIMED MDF CASING 16FT",
+      "label": "different",
+      "note": "366 vs 356"
+    },
+    {
+      "a": "POPLAR CROWN 3/4 X 3-1/2",
+      "b": "POPLAR CROWN 3/4 X 4-1/2",
+      "label": "different",
+      "note": "3-1/2 vs 4-1/2"
+    },
+    {
+      "a": "TITEBOND II PREMIUM WOOD GLUE 1 GAL",
+      "b": "Titebond 2 Premium Wood Glue - Gallon",
+      "label": "same",
+      "note": "II vs 2"
+    },
+    {
+      "a": "TITEBOND II PREMIUM WOOD GLUE 1 GAL",
+      "b": "TITEBOND III ULTIMATE WOOD GLUE 1 GAL",
+      "label": "different",
+      "note": "II vs III"
+    },
+    {
+      "a": "TITEBOND II PREMIUM WOOD GLUE 1 GAL",
+      "b": "TITEBOND II PREMIUM WOOD GLUE 5 GAL",
+      "label": "same",
+      "note": "container converts"
+    },
+    {
+      "a": "TITEBOND III ULTIMATE WOOD GLUE GALLON",
+      "b": "TITEBOND 3 ULTIMATE GLUE 1GAL",
+      "label": "same",
+      "note": "III vs 3"
+    },
+    {
+      "a": "ML CAMPBELL MAGNAMAX 35 SHEEN 5 GAL",
+      "b": "M.L. CAMPBELL MAGNAMAX 35SH 5GAL",
+      "label": "same",
+      "note": "sheen spelling"
+    },
+    {
+      "a": "ML CAMPBELL MAGNAMAX 35 SHEEN 5 GAL",
+      "b": "ML CAMPBELL MAGNAMAX 20 SHEEN 5 GAL",
+      "label": "different",
+      "note": "35 vs 20 sheen"
+    },
+    {
+      "a": "ML CAMPBELL MAGNAMAX 35 SHEEN 5 GAL",
+      "b": "CHEMCRAFT MAGNAMAX 35 SHEEN 5 GAL",
+      "label": "different",
+      "note": "brand"
+    },
+    {
+      "a": "SHERWIN WILLIAMS KEM AQUA SATIN LACQUER QT",
+      "b": "SHERWIN WILLIAMS KEM AQUA GLOSS LACQUER QT",
+      "label": "different",
+      "note": "satin vs gloss"
+    },
+    {
+      "a": "GORILLA WOOD GLUE 1 GAL",
+      "b": "TITEBOND WOOD GLUE 1 GAL",
+      "label": "different",
+      "note": "brand"
+    },
+    {
+      "a": "FREIGHT CHARGE",
+      "b": "FREIGHT",
+      "label": "different",
+      "note": "not an item"
+    },
+    {
+      "a": "FUEL SURCHARGE",
+      "b": "FUEL SURCHARGE",
+      "label": "different",
+      "note": "surcharges are not catalog items"
+    },
+    {
+      "a": "3M 90 SPRAY ADHESIVE",
+      "b": "3M 77 SPRAY ADHESIVE",
+      "label": "different",
+      "note": "90 vs 77"
+    }
+  ]
+}

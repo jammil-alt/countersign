@@ -179,6 +179,12 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 label="Connectors"
                 testId="ops-nav-connectors"
               />
+              <SidebarLink
+                to={OPS_PATHS.packs}
+                icon="price-change"
+                label="Packs"
+                testId="ops-nav-packs"
+              />
             </SidebarSection>
             <SidebarSection label="Business">
               <SidebarLink
