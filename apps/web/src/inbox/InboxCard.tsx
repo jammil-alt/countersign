@@ -17,6 +17,7 @@ import type { z } from "zod";
 import { directoryFieldName, directoryValue } from "../directory/DirectoryPanel";
 import type { PlainKey } from "../i18n/catalog";
 import { EN, type I18n, useI18n } from "../i18n/i18n";
+import { packReviewCard } from "../packs/reviews";
 import { SourceLinks } from "../records/SourceLinks";
 import { shortTime } from "../runs/format";
 import type { AccentTone } from "../ui/figures";
@@ -240,6 +241,7 @@ export function InboxCard({
   showToolId,
   testId,
   onUndo,
+  surface = "portal",
 }: {
   item: InboxCardItem;
   /** "Record keeping · Client A": who asks, for whom. */
@@ -264,6 +266,8 @@ export function InboxCard({
   testId?: string;
   /** v0.12 W1-D: takes back an approval inside its undo window; null where nobody may. */
   onUndo?: (() => Promise<void>) | null;
+  /** Which inbox shows it: a pack's review card calls that surface's routes. */
+  surface?: "portal" | "ops";
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -301,12 +305,15 @@ export function InboxCard({
           i18n.locale,
         )
       : null;
-  const facts = isChange
-    ? []
-    : (suggestionFacts(item.payload, i18n) ??
-      // v0.12 W2-D: a change Sloan drafted, as its now and after lines.
-      accountChangeFacts(item.payload, i18n) ??
-      payloadFacts(item.payload));
+  // A pack's review (e.g. the Materials match review) brings its own card and its own finish.
+  const ReviewCard = isChange ? null : packReviewCard(item.payload);
+  const facts =
+    isChange || ReviewCard
+      ? []
+      : (suggestionFacts(item.payload, i18n) ??
+        // v0.12 W2-D: a change Sloan drafted, as its now and after lines.
+        accountChangeFacts(item.payload, i18n) ??
+        payloadFacts(item.payload));
   const steps = findingSteps(item.payload);
   const sources = Array.isArray(item.payload.sources)
     ? item.payload.sources.filter((x): x is string => typeof x === "string")
@@ -365,6 +372,13 @@ export function InboxCard({
           display={item.display?.tool}
           names={item.display?.names}
         />
+      ) : ReviewCard ? (
+        <ReviewCard
+          itemId={item.id}
+          surface={surface}
+          open={open}
+          onResolve={onResolve ? (body) => resolve(body) : null}
+        />
       ) : facts.length > 0 ? (
         <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 text-sm">
           {facts.map(([k, v]) => (
@@ -389,7 +403,7 @@ export function InboxCard({
 
       {isRelease && open && renderRelease ? renderRelease(item) : null}
 
-      {item.kind === "request" && open && onResolve && !isRelease && !choices ? (
+      {item.kind === "request" && open && onResolve && !isRelease && !choices && !ReviewCard ? (
         <label className="ds-field" htmlFor={`answer-${item.id}`}>
           <span className="text-sm font-medium text-ink">{t("inbox.yourAnswer")}</span>
           <textarea
@@ -453,7 +467,7 @@ export function InboxCard({
             </Button>
           </div>
         ) : null}
-        {open && onResolve && !isRelease && choices ? (
+        {open && onResolve && !isRelease && !ReviewCard && choices ? (
           <div className="flex flex-wrap gap-2" data-testid="inbox-item-choices">
             {choices.map((c) => (
               <Button
@@ -467,7 +481,7 @@ export function InboxCard({
               </Button>
             ))}
           </div>
-        ) : open && onResolve && !isRelease ? (
+        ) : open && onResolve && !isRelease && !ReviewCard ? (
           <Actions
             kind={item.kind}
             finding={isFinding(item)}

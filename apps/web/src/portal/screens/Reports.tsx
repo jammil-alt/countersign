@@ -57,9 +57,9 @@ function ReportLinks({ packs, current }: { packs: PackReport[]; current: string 
     <div className="overflow-x-auto" data-testid="portal-report-links">
       <Tabs
         items={[
-          // Pack reports carry their own titles (a pack's screens, not the platform's words).
+          // Pack reports carry their own titles (a pack's screens), as message keys.
           { to: "/reports", title: t("reports.activity") },
-          ...packs.map((r) => ({ to: packReportPath(r), title: r.title })),
+          ...packs.map((r) => ({ to: packReportPath(r), title: t(r.titleKey) })),
         ].map((r) => ({ to: r.to, label: r.title, active: current === r.to }))}
       />
     </div>

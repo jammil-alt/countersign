@@ -1278,6 +1278,8 @@ export const docLine = pgTable(
       foreignColumns: [docExtraction.id, docExtraction.tenantId],
     }),
     unique("doc_line_no_key").on(t.extractionId, t.lineNo),
+    // P-1 (migration 0033): for the Materials pack's composite foreign keys, as raw_record's.
+    unique("doc_line_id_tenant_key").on(t.id, t.tenantId),
   ],
 );
 
@@ -3193,6 +3195,66 @@ export const conversationChange = pgTable(
   ],
 );
 
+// ── Alerts (P-1, migration 0033; ARCHITECTURE §5.2) ───────────────────────────────────────────────────────────────────────────────────────
+
+export const ALERT_SEVERITIES = ["info", "warning", "critical"] as const;
+export const ALERT_STATUSES = ["open", "accepted", "dismissed"] as const;
+
+/**
+ * Something an agent noticed that a person should see (ARCHITECTURE §5.2), with the records it
+ * rests on (`evidence`, never empty: CLAUDE.md invariant 10) and the agent version that raised it.
+ * A pack's alerts name the pack; its rules decide `kind`. Kept, never deleted: a person accepts or
+ * dismisses one (status), and nothing else changes it.
+ */
+export const alert = pgTable(
+  "alert",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    pack: text("pack"),
+    kind: text("kind").notNull(),
+    subjectType: text("subject_type").notNull(),
+    subjectId: uuid("subject_id").notNull(),
+    severity: text("severity").$type<(typeof ALERT_SEVERITIES)[number]>().notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    /** Record ids the alert rests on. */
+    evidence: json<string[]>("evidence").notNull(),
+    /** What the rule measured (prices, percentages, the vendor), for reports. */
+    facts: json("facts").notNull().default({}),
+    dollarImpact: money("dollar_impact"),
+    currency: text("currency").notNull().default("USD"),
+    // DECISION: deduplication (ARCHITECTURE §12.4: one open alert per kind, item and vendor) is a
+    // key the raiser builds, unique among a client's open alerts, so two runs can't both raise it.
+    dedupeKey: text("dedupe_key"),
+    status: text("status").$type<(typeof ALERT_STATUSES)[number]>().notNull().default("open"),
+    raisedByRunId: uuid("raised_by_run_id"),
+    agentVersionId: uuid("agent_version_id").references(() => agentVersion.id),
+    createdAt: createdAt(),
+    resolvedAt: ts("resolved_at"),
+    resolvedBy: uuid("resolved_by").references(() => appUser.id),
+  },
+  (t) => [
+    unique("alert_id_tenant_key").on(t.id, t.tenantId),
+    foreignKey({
+      name: "alert_run_fk",
+      columns: [t.raisedByRunId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    uniqueIndex("alert_open_dedupe_key")
+      .on(t.tenantId, t.dedupeKey)
+      .where(sql`${t.status} = 'open' and ${t.dedupeKey} is not null`),
+    index("alert_tenant_idx").on(t.tenantId, t.status, t.createdAt),
+    index("alert_subject_idx").on(t.tenantId, t.subjectType, t.subjectId),
+    check("alert_severity_check", oneOf(t.severity, ALERT_SEVERITIES)),
+    check("alert_status_check", oneOf(t.status, ALERT_STATUSES)),
+    check(
+      "alert_evidence_check",
+      sql`jsonb_typeof(${t.evidence}) = 'array' and jsonb_array_length(${t.evidence}) > 0`,
+    ),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -3262,6 +3324,9 @@ export const TENANT_TABLES = [
   // v0.14 capture (0031)
   "conversation",
   "conversation_change",
+  // P-1 (0033): the shared alert table. The Materials pack's own tables are not listed here: the
+  // platform never imports a pack; they carry the comment `pack:materials` (migrations.test.ts).
+  "alert",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 

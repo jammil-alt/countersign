@@ -17,6 +17,7 @@ export const OPS_PATHS = {
     `/ops/clients/${clientId}/agents/${slug}/triggers`,
   skills: "/ops/skills",
   connectors: "/ops/connectors",
+  packs: "/ops/packs",
   usage: "/ops/usage",
   billing: "/ops/billing",
   feedback: "/ops/feedback",

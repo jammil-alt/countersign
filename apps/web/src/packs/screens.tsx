@@ -1,0 +1,217 @@
+// Pack screens in both shells (ARCHITECTURE §15): the portal mounts a pack's reports from the
+// registry (./registry.ts); the back office's Packs page lists the deployment's packs and switches
+// one on for a client, so that client's agents can use its tools and skills; the client page shows
+// the same switch and links to that client's reports. Packs ship no agents (docs/plan.md §1.63):
+// agents are built in the Agent lab, so a pack's template list is usually empty.
+import { useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { apiRoutes } from "../api/routes";
+import { useApi, useApiClient } from "../api/useApi";
+import { ClientFrame } from "../ops/client/ClientFrame";
+import { shortTime } from "../runs/format";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorNotice,
+  Loading,
+  PageHeader,
+  SectionLabel,
+} from "../ui/primitives";
+import { CatalogView, PackReportLinks, PriceWatchView } from "./materials/Reports";
+
+// ── Portal ───────────────────────────────────────────────────────────────────────────────────────
+
+export const PortalPriceWatchScreen = () => <PriceWatchView />;
+export const PortalCatalogScreen = () => <CatalogView />;
+
+// ── Back office ──────────────────────────────────────────────────────────────────────────────────
+
+// A client's pack pages sit in the client page's Packs tab (../ops/client/ClientFrame.tsx).
+export function OpsClientPacksScreen() {
+  const { clientId = "" } = useParams();
+  return (
+    <ClientFrame clientId={clientId}>
+      <ClientPacks clientId={clientId} />
+    </ClientFrame>
+  );
+}
+
+export function OpsClientPriceWatchScreen() {
+  const { clientId = "" } = useParams();
+  return (
+    <ClientFrame clientId={clientId}>
+      <PriceWatchView clientId={clientId} />
+    </ClientFrame>
+  );
+}
+
+export function OpsClientCatalogScreen() {
+  const { clientId = "" } = useParams();
+  return (
+    <ClientFrame clientId={clientId}>
+      <CatalogView clientId={clientId} />
+    </ClientFrame>
+  );
+}
+
+function EnableButton({
+  clientId,
+  pack,
+  onDone,
+}: {
+  clientId: string;
+  pack: string;
+  onDone: (installed: string[]) => void;
+}) {
+  const client = useApiClient();
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<unknown>(null);
+  return (
+    <span className="flex items-center gap-2">
+      {problem ? <ErrorNotice error={problem} /> : null}
+      <Button
+        size="sm"
+        variant="primary"
+        data-testid={`pack-enable-${pack}-${clientId}`}
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setProblem(null);
+          try {
+            const res = await client.call(apiRoutes.opsEnableClientPack, {
+              params: { id: clientId, pack },
+            });
+            onDone(res.installed.map((i) => i.slug));
+          } catch (e) {
+            setProblem(e);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        Switch on
+      </Button>
+    </span>
+  );
+}
+
+export function OpsPacksScreen() {
+  const { data, error, loading, reload } = useApi(apiRoutes.opsPacks);
+  const [installed, setInstalled] = useState<string[]>([]);
+  if (loading && !data) return <Loading />;
+  if (error) return <ErrorNotice error={error} onRetry={reload} />;
+  if (!data) return null;
+  return (
+    <div data-testid="ops-packs">
+      <PageHeader
+        title="Packs"
+        subtitle="Tools, skills and reports for one kind of work. Switch a pack on for a client so its agents can use them."
+      />
+      {installed.length > 0 ? (
+        <p className="mb-4 text-sm text-ink" data-testid="ops-packs-installed">
+          Installed {installed.join(", ")} as templates.
+        </p>
+      ) : null}
+      {data.packs.map((p) => (
+        <section key={p.id} className="mb-8" data-testid={`ops-pack-${p.id}`}>
+          <Card className="p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-medium text-ink">{p.name}</h2>
+                <p className="mt-1 max-w-2xl text-sm text-ink-muted">{p.description}</p>
+              </div>
+              <span className="reference text-ink-muted">v{p.version}</span>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div>
+                {p.templates.length > 0 ? <SectionLabel>Templates</SectionLabel> : null}
+                <ul className="flex flex-col gap-1.5">
+                  {p.templates.map((t) => (
+                    <li key={t.slug} className="flex items-center gap-2 text-sm">
+                      {t.templateId ? (
+                        <Link to={`/ops/templates/${t.slug}`} className="text-ink hover:underline">
+                          {t.name}
+                        </Link>
+                      ) : (
+                        <span className="text-ink">{t.name}</span>
+                      )}
+                      <Badge tone={t.templateId ? "positive" : "neutral"}>
+                        {t.templateId ? "Installed" : "Installs when switched on"}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+                <SectionLabel>Reports</SectionLabel>
+                <p className="text-sm text-ink-muted">{p.screens.map((s) => s.title).join(", ")}</p>
+              </div>
+              <div>
+                <SectionLabel>Clients</SectionLabel>
+                <ul className="flex flex-col divide-y divide-line">
+                  {p.clients.map((c) => (
+                    <li
+                      key={c.id}
+                      className="flex items-center justify-between gap-3 py-2 text-sm"
+                      data-testid={`ops-pack-client-${c.id}`}
+                    >
+                      <Link to={`/ops/clients/${c.id}`} className="text-ink hover:underline">
+                        {c.name}
+                      </Link>
+                      {c.enabled ? (
+                        <Badge tone="positive">On since {shortTime(c.enabledAt)}</Badge>
+                      ) : (
+                        <EnableButton
+                          clientId={c.id}
+                          pack={p.id}
+                          onDone={(slugs) => {
+                            setInstalled(slugs);
+                            reload();
+                          }}
+                        />
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </Card>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/** The client page's packs: which are on, switch one on, and that client's reports. */
+export function ClientPacks({ clientId }: { clientId: string }) {
+  const { data, error, reload } = useApi(apiRoutes.opsClientPacks, { params: { id: clientId } });
+  if (error) return <ErrorNotice error={error} onRetry={reload} />;
+  if (!data) return <Loading />;
+  if (data.packs.length === 0) return <EmptyState>This deployment has no packs.</EmptyState>;
+  return (
+    <section data-testid="ops-client-packs">
+      <div className="flex flex-col gap-3">
+        {data.packs.map((p) => (
+          <Card key={p.id} className="p-5" testId={`ops-client-pack-${p.id}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-medium text-ink">{p.name}</p>
+                <p className="text-sm text-ink-muted">{p.description}</p>
+              </div>
+              {p.enabled ? (
+                <Badge tone="positive">On</Badge>
+              ) : (
+                <EnableButton clientId={clientId} pack={p.id} onDone={() => reload()} />
+              )}
+            </div>
+            {p.enabled && p.screens.length > 0 ? (
+              <div className="mt-4">
+                <PackReportLinks screens={p.screens} base={`/ops/clients/${clientId}`} />
+              </div>
+            ) : null}
+          </Card>
+        ))}
+      </div>
+    </section>
+  );
+}

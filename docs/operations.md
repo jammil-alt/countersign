@@ -768,6 +768,22 @@ and, after approval, itemizes the bill, attaches the invoice and notes it in the
    asked, nothing is written. One bill with fewer lines than the invoice and the same total: three
    approvals in turn (itemize, attach, memo), each written once.
 
+### Switching on the Purchasing area (the Materials pack)
+
+The Materials pack (`docs/plan.md` §1.63, ARCHITECTURE §12.0–§12.4) gives a client a catalog of what
+it buys, each vendor's name for each item, a match for every invoice line and a price history. It
+ships tools and skills only; the agents that use it are built in the Agent lab.
+
+1. **Migration 0032 must be applied** (it is on staging once its PR merges).
+2. **Switch it on** for the client: back office → Packs → the client's **Switch on**, or the
+   client's Settings → Packs. Nothing else is installed, and it is logged.
+3. **Build or fork an agent** in the Agent lab that lists the pack's skills (`materials.match-lines`,
+   `materials.record-prices`, `materials.price-check`, `materials.vendor-compare`,
+   `materials.weekly-digest`). An agent using them can't be activated for a client without the pack.
+4. **Where the results show:** the client's portal Reports (Price watch, Catalog, each with a CSV);
+   the same for the back office under the client (`/ops/clients/:id/reports/materials/prices`);
+   unsure matches arrive in the inbox as a match review card, and each answer teaches the catalog.
+
 ## 1.2 Compliance: HIPAA mode, retiring a client, the audit log (`docs/plan.md` §1.35)
 
 **HIPAA mode.** A client whose records hold health information is put in HIPAA mode on its

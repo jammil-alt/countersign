@@ -53,6 +53,7 @@ import { MESSAGE_MEDIA_ENTITY } from "./conversations/capture";
 import { handleEmail } from "./email";
 import { defaultDeps } from "./http";
 import { REACH_REPLY_EMAIL_ENTITY } from "./reach/replies";
+import { quietNever } from "./quiet-hours.test-helper";
 import { reachOutTick } from "./reach/service";
 import { credentialsFor, executeRun, reachDepsFor } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
@@ -283,7 +284,7 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
 
   beforeAll(async () => {
     expect(
-      (await H.call(OPERATOR, "PUT", msg(), { quietHours: { start: "03:00", end: "03:01" } }))
+      (await H.call(OPERATOR, "PUT", msg(), { quietHours: quietNever() }))
         .status,
     ).toBe(200);
     setup = j((await H.call(OPERATOR, "POST", msg("/twilio"))).json).setup;
