@@ -8,6 +8,8 @@ import { MATCH_CONFIDENCE_AUTO } from "./catalog/settings";
 import { MATERIALS_EVENTS } from "./events";
 import { PACK_ID } from "./ids";
 import { PRICE_DEFAULTS } from "./pricing/rules";
+import { PURCHASING_SKILLS } from "./purchasing/skills";
+import { PURCHASING_TOOLS } from "./purchasing/tools";
 import {
   catalogDuplicates,
   MATERIALS_TOOLS,
@@ -20,6 +22,9 @@ import {
 } from "./tools";
 
 export { PACK_ID };
+
+// P-5: the Purchasing area's tools, after the catalog's and the prices'.
+const ALL_TOOLS: readonly PackTool[] = [...MATERIALS_TOOLS, ...PURCHASING_TOOLS];
 
 const schema = (tool: PackTool, key: "input" | "output") =>
   tool.spec[key] as Record<string, unknown>;
@@ -197,17 +202,20 @@ export const MATERIALS_SKILLS: readonly SkillDefinition[] = [
     requiresPacks: [PACK_ID],
     producesAlerts: false,
   },
+  // P-5: the Purchasing area's skills (docs/plan.md §1.67).
+  ...PURCHASING_SKILLS,
 ];
 
 export const materialsManifest: PackManifest = PackManifest.parse({
   id: PACK_ID,
   name: "Materials",
-  version: "0.1.0",
+  // P-5: 0.2.0 adds purchase requests, quotes, purchase orders and prices from QuickBooks bills.
+  version: "0.2.0",
   description:
-    "Material cost management: the client's catalog of materials, matching invoice lines across vendors, prices and alerts.",
+    "Material cost management and purchasing: the client's catalog of materials, matching invoice lines across vendors, prices and alerts, purchase requests, quotes and purchase orders.",
   requiresConnectors: [],
   events: MATERIALS_EVENTS,
-  tools: MATERIALS_TOOLS.map((t) => t.spec),
+  tools: ALL_TOOLS.map((t) => t.spec),
   skills: MATERIALS_SKILLS,
   templates: [],
   screens: [
@@ -226,5 +234,5 @@ export const materialsManifest: PackManifest = PackManifest.parse({
 
 /** The pack's tool handlers by id, for apps/api to adapt into the tool registry. */
 export const MATERIALS_HANDLERS: Readonly<Record<string, PackTool>> = Object.fromEntries(
-  MATERIALS_TOOLS.map((t) => [t.spec.id, t]),
+  ALL_TOOLS.map((t) => [t.spec.id, t]),
 );

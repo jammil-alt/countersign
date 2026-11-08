@@ -4,6 +4,7 @@
 // (the pack never imports packages/agents) and hands each call its database and model transport.
 // The pricing tools (record, check, history, compare vendors, digest) are at the end.
 
+import type { ContentStore } from "@countersign/connectors";
 import type { ToolSpec } from "@countersign/core";
 import { type Db, docExtraction, docLine, withTenant } from "@countersign/db";
 import { createLlmClient, type LlmClient, type LlmTransport } from "@countersign/llm";
@@ -33,6 +34,9 @@ export interface PackToolContext {
   db: Db;
   /** The model, with each call's cost added to the step; null where no transport is configured. */
   llm: LlmClient | null;
+  // P-5: the client's document storage, for a document a tool makes (a purchase order PDF); null
+  // where the caller passed none.
+  content: ContentStore | null;
 }
 
 export interface PackTool {
@@ -53,6 +57,8 @@ export interface ToolContextSource {
   recordUsage?:
     | ((usage: { costUsd: string; tokensIn: number; tokensOut: number }) => Promise<void>)
     | undefined;
+  // P-5
+  content?: ContentStore | null | undefined;
 }
 
 /** Builds a call's context; the model client adds each call's cost to the step (§13). */
@@ -77,10 +83,11 @@ export function packToolContext(source: ToolContextSource): PackToolContext {
     settings: source.settings ?? {},
     db: source.db,
     llm,
+    content: source.content ?? null,
   };
 }
 
-function jsonSchemaOf(schema: z.ZodType): Record<string, unknown> {
+export function jsonSchemaOf(schema: z.ZodType): Record<string, unknown> {
   const json = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<
     string,
     unknown
@@ -89,10 +96,12 @@ function jsonSchemaOf(schema: z.ZodType): Record<string, unknown> {
   return json;
 }
 
-function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
+export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
   id: string;
   description: string;
   sideEffect: "none" | "internal";
+  // P-5: an internal tool that changes the pack's records in place (a request's status) says so.
+  verb?: "update";
   summary?: string;
   input: I;
   output: O;
@@ -105,7 +114,7 @@ function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
       input: jsonSchemaOf(def.input),
       output: jsonSchemaOf(def.output),
       sideEffect: def.sideEffect,
-      verb: def.sideEffect === "none" ? "read" : "create",
+      verb: def.sideEffect === "none" ? "read" : (def.verb ?? "create"),
       source: "materials",
       ...(def.summary ? { summary: def.summary } : {}),
     },

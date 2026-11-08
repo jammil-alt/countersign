@@ -7,6 +7,7 @@ import type { Db, Tx } from "@countersign/db";
 import { z } from "zod";
 import { decideLine } from "./catalog/match";
 import { mergeItems } from "./catalog/merge";
+import { requestsCsv, requestsReport } from "./purchasing/report";
 import { catalogCsv, catalogReport, priceWatch, priceWatchCsv, reviewLines } from "./reports";
 
 export interface PackReportHandler {
@@ -25,6 +26,12 @@ export const MATERIALS_REPORTS: Readonly<Record<string, PackReportHandler>> = {
     title: "Catalog",
     json: async (tx, tenantId) => ({ ...(await catalogReport(tx, tenantId)) }),
     csv: async (tx, tenantId) => catalogCsv(await catalogReport(tx, tenantId)),
+  },
+  // P-5: purchase requests with their quotes and orders (docs/plan.md §1.67); no screen yet.
+  requests: {
+    title: "Purchase requests",
+    json: async (tx, tenantId) => ({ ...(await requestsReport(tx, tenantId)) }),
+    csv: async (tx, tenantId) => requestsCsv(await requestsReport(tx, tenantId)),
   },
 };
 

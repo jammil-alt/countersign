@@ -670,6 +670,7 @@ export const it: Messages = {
   "document.source.connector": "Da uno strumento collegato",
   "document.source.request": "Richiesto",
   "document.source.message": "Da un messaggio", // fluent review
+  "document.source.generated": "Creato dal tuo agente", // fluent review
   "document.title": "{vendor} · fattura {number}",
   "document.received": "{source} {time}",
   "document.receivedFrom": "{source} {time} da {from}",

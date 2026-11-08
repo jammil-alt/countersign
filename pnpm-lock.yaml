@@ -477,6 +477,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@4.0.0)
+      pdf-lib:
+        specifier: 1.17.1
+        version: 1.17.1
       zod:
         specifier: ^4.6.2
         version: 4.6.7

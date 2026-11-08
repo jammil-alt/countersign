@@ -12,7 +12,8 @@ import { PACK_ID } from "./ids";
 import { daysBefore } from "./pricing/rules";
 import { catalogItem, itemAlias, priceObservation } from "./schema";
 
-export const REPORTS = ["prices", "catalog"] as const;
+// P-5: `requests`, the Purchasing area's purchase requests (purchasing/report.ts).
+export const REPORTS = ["prices", "catalog", "requests"] as const;
 export type MaterialsReport = (typeof REPORTS)[number];
 
 export interface EvidenceDocument {

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Materials pack: catalog, item matching, prices and alert rules; its tools, skills, tables, routes and the Pia agent template",
+  "description": "Materials pack: catalog, item matching, prices and alert rules; its tools, skills, tables and routes; the Purchasing area (requests, quotes, purchase orders)",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -19,7 +19,8 @@
     "@countersign/llm": "workspace:*",
     "@countersign/senses": "workspace:*",
     "zod": "^4.6.2",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "pdf-lib": "1.17.1"
   },
   "devDependencies": {
     "@types/node": "^22.20.2"
