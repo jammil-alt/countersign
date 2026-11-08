@@ -1,0 +1,23 @@
+{
+  "name": "@countersign/pack-marketing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Marketing pack (the Marketing area): first-party measurement of a client's website, and later its search figures, content and the agents that draft for a person to sign",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@countersign/core": "workspace:*",
+    "@countersign/db": "workspace:*",
+    "zod": "^4.6.2",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2"
+  }
+}

@@ -253,6 +253,13 @@
       "when": 1794113069766,
       "tag": "0036_purchasing_email",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794125837872,
+      "tag": "0037_marketing",
+      "breakpoints": true
     }
   ]
 }
