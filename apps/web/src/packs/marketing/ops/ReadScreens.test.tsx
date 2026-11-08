@@ -422,6 +422,16 @@ describe("Sites", () => {
       { siteId: SITE, status: "off" },
     ]);
     expect(screen.queryByTestId("marketing-sites-sample")).toBeNull();
+    expect(screen.queryByTestId("marketing-sites-held")).toBeNull();
+  });
+
+  it("says measurement is held for a client in HIPAA mode (M50)", async () => {
+    renderAt(MARKETING_PATHS.sites(CLIENT), {
+      sites: { ...sitesReport(), measurementHeld: true },
+    });
+    expect(await screen.findByTestId("marketing-sites-held")).toHaveTextContent(
+      "This client is in HIPAA mode, so nothing its sites send is stored.",
+    );
   });
 
   it("adds a site, and says why one was refused", async () => {

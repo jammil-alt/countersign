@@ -28,6 +28,8 @@ export interface SiteStatusRow extends MarketingSite {
 
 export interface SitesReport {
   sites: SiteStatusRow[];
+  /** M50: the client is in HIPAA mode, so nothing its sites send is stored. */
+  measurementHeld?: boolean;
 }
 
 /** "hero-talk, contact-email" or "hero-talk contact-email" → the names. */
@@ -87,6 +89,16 @@ export function MarketingSitesScreen() {
       <Loaded state={state}>
         {(r) => (
           <div className="flex flex-col gap-6">
+            {r.measurementHeld ? (
+              <Card pad testId="marketing-sites-held">
+                <p className="font-medium text-ink">Measurement is held</p>
+                <p className="mt-1 text-sm text-ink-muted">
+                  This client is in HIPAA mode, so nothing its sites send is stored. Its snippet
+                  does no harm on a page, but no visits are counted until the owner decides how to
+                  measure a health client's site.
+                </p>
+              </Card>
+            ) : null}
             {r.sites.length === 0 ? (
               <EmptyState
                 testId="marketing-sites-empty"

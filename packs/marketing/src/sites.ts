@@ -2,7 +2,8 @@
 // actions, `/api/ops/clients/:id/packs/marketing/actions/:action`), never by an agent. Each site's
 // snippet posts to the platform's inbound route with the client's and the site's ids.
 
-import { type Db, type Tx, withTenant } from "@countersign/db";
+import { complianceOf, inboundHeld } from "@countersign/core";
+import { type Db, type Tx, tenant, withTenant } from "@countersign/db";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { TRACK_NAME } from "./measure/events";
@@ -92,12 +93,23 @@ export interface SiteStatusRow extends SiteRow {
   visitsLast7: number;
 }
 
-/** The Sites report (M44): each of the client's sites, and whether its figures are coming in. */
+/**
+ * The Sites report (M44): each of the client's sites, and whether its figures are coming in.
+ * M50: `measurementHeld` when the client is in HIPAA mode, so the platform stores nothing its
+ * sites send (docs/plan.md §1.78).
+ */
 export async function sitesReport(
   tx: Tx,
   tenantId: string,
   today: string,
-): Promise<{ sites: SiteStatusRow[] }> {
+): Promise<{ sites: SiteStatusRow[]; measurementHeld: boolean }> {
+  const [client] = await tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId));
+  const measurementHeld = inboundHeld(
+    complianceOf(client?.settings as Record<string, unknown> | undefined),
+  );
   const sites = await listSites(tx, tenantId);
   const rows = await tx.execute<{
     site_id: string;
@@ -122,6 +134,7 @@ export async function sitesReport(
       dataThrough: by.get(s.id)?.built ?? null,
       visitsLast7: Number(by.get(s.id)?.visits ?? 0),
     })),
+    measurementHeld,
   };
 }
 

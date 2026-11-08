@@ -155,7 +155,14 @@ describe.skipIf(!h)("the Marketing area for a client", () => {
     const held = await beacon();
     expect([held.status, held.json]).toEqual([204, null]);
     expect(await stored()).toBe(0);
+    // The back office's Sites says why.
+    const sites = (on: boolean) =>
+      H.call(OPERATOR, "GET", `/api/ops/clients/${H.A.tenantId}/reports/marketing/sites`).then(
+        (r) => expect(j(r.json).report.measurementHeld).toBe(on),
+      );
+    await sites(true);
     await setHipaa(false);
+    await sites(false);
     expect((await beacon()).status).toBe(204);
     expect(await stored()).toBe(1);
   });
