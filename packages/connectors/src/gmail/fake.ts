@@ -7,7 +7,13 @@ import PostalMime from "postal-mime";
 import type { FetchLike, HttpRequestInit, HttpResponseLike } from "../http";
 import { formDecode } from "../http";
 import { fromBase64, fromUtf8, toBase64Url, utf8 } from "../runtime";
-import { GMAIL_API, GMAIL_SCOPES, GOOGLE_REVOKE_URL, GOOGLE_TOKEN_URL } from "./index";
+import {
+  GMAIL_API,
+  GMAIL_SCOPES,
+  GMAIL_UPLOAD_SEND_URL,
+  GOOGLE_REVOKE_URL,
+  GOOGLE_TOKEN_URL,
+} from "./index";
 
 export const FAKE_GOOGLE = {
   clientId: "1234-mezonas.apps.googleusercontent.com",
@@ -61,6 +67,14 @@ export async function readSentEmail(message: string) {
     text: m.text ?? null,
     messageId: m.messageId ?? null,
     date: m.date ?? null,
+    // P-3
+    attachments: m.attachments.map((a) => ({
+      filename: a.filename ?? null,
+      mimeType: a.mimeType,
+      disposition: a.disposition ?? null,
+      bytes:
+        typeof a.content === "string" ? utf8(a.content) : new Uint8Array(a.content as ArrayBuffer),
+    })),
   };
 }
 
@@ -154,7 +168,7 @@ export function fakeGoogle(): FakeGoogle {
     return respond(200, {});
   }
 
-  function send(init: HttpRequestInit | undefined): HttpResponseLike {
+  function send(init: HttpRequestInit | undefined, upload = false): HttpResponseLike {
     const auth = init?.headers?.authorization ?? "";
     const at = accessTokens.get(auth.replace(/^Bearer /, ""));
     if (!at?.live || at.grant.revoked) {
@@ -170,6 +184,15 @@ export function fakeGoogle(): FakeGoogle {
     if (failing.count > 0) {
       failing.count--;
       return respond(failing.status, { error: { code: failing.status, message: "Backend Error" } });
+    }
+    // P-3: the upload URI takes the message itself (`message/rfc822`), as media.
+    if (upload) {
+      if (init?.headers?.["content-type"] !== "message/rfc822" || !init.body) {
+        return respond(400, { error: { code: 400, message: "Media type not supported" } });
+      }
+      const id = `18f${String(++n).padStart(13, "0")}`;
+      sent.push({ id, threadId: id, account: at.grant.address, raw: "", message: init.body });
+      return respond(200, { id, threadId: id, labelIds: ["SENT"] });
     }
     let raw: string;
     try {
@@ -195,6 +218,7 @@ export function fakeGoogle(): FakeGoogle {
       if (url === `${GMAIL_API}/users/me/messages/send` && init?.method === "POST") {
         return send(init);
       }
+      if (url === GMAIL_UPLOAD_SEND_URL && init?.method === "POST") return send(init, true);
       return respond(404, { error: { code: 404, message: `no fake for ${url}` } });
     },
     issueCode(opts = {}) {

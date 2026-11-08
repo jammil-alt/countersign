@@ -47,6 +47,15 @@ export const DisplayColumns = z.strictObject({
     .array(z.strictObject({ key: ItemKey, names: ItemKey.optional() }))
     .max(4)
     .optional(),
+  // P-2 (docs/plan.md §1.64): a line's job and class.
+  /**
+   * More refs a line carries besides what it is booked to (its customer, its class), each one
+   * present shown by name with it, read the same way as `refs`.
+   */
+  tags: z
+    .array(z.strictObject({ key: ItemKey, names: ItemKey.optional() }))
+    .max(4)
+    .optional(),
 });
 export type DisplayColumns = z.infer<typeof DisplayColumns>;
 

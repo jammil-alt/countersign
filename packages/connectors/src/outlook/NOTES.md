@@ -105,6 +105,15 @@ The Entra app (owner):
   permissions. **Publisher verification** (a Microsoft Partner Network id tied to mezonas.com) so
   work tenants show a verified publisher and allow user consent.
 
+### Attachments (P-3, docs/plan.md §1.65)
+
+- Each file goes in `message.attachments` of the `sendMail` body as
+  `{"@odata.type": "#microsoft.graph.fileAttachment", name, contentType, contentBytes}` (base64).
+- Graph's limit for a request is 4 MB (from memory, UNCHECKED). A larger file needs an upload
+  session on a draft message, which needs `Mail.ReadWrite`, a scope we don't ask for. So we send at
+  most 3 MB of files in one email (`OUTLOOK_ATTACHMENT_LIMITS`, 4 MB in base64), at most five,
+  and refuse more with words the approver can read.
+
 ## Not built
 
 - Reading, searching and replying inside a thread (`Mail.Read`, `Mail.ReadWrite`): replies come
@@ -113,4 +122,5 @@ The Entra app (owner):
 - A test email from the portal (Gmail's `sendToSelf`).
 - A client user connecting their own Outlook (Gmail's `PERSONAL_CONNECTORS` rule): only the client
   admin connects Outlook for now.
-- HTML and attachments: plain text only, like `email.send`.
+- HTML: plain text only, like `email.send` (PDFs and images up to 3 MB in all can be attached,
+  P-3). Larger files (upload sessions need `Mail.ReadWrite`).

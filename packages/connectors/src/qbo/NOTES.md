@@ -121,3 +121,41 @@ To verify (docs, then the sandbox company):
 6. Sandbox walk: connect, see invoices and payments sync (365 days), receive a payment and see the
    receivable become paid with `receivable.paid`, read the aging report and compare it with
    QuickBooks' own screen, add a note to an invoice, create a bill from an uploaded invoice.
+
+## QuickBooks ingredients (P-2, 2026-11-07)
+
+Built the same way: against the fake, from what we knew of the API, nothing called live.
+
+| Fact we built on | Where in the code |
+|---|---|
+| `Account` is queryable with `AccountType in ('Expense', …)`, `Name like '%…%'`, `Active = true` / `Active = false`; it carries `Name`, `FullyQualifiedName` (parents joined by `:`), `AccountType` (words, e.g. "Cost of Goods Sold"), `AccountSubType` (one word, e.g. "SuppliesMaterialsCogs"), `Active`, `CurrencyRef` | `ingredients.ts` `accountQueryTool`, `records.ts` `toAccount` |
+| `Class` is queryable the same way and carries `Name`, `FullyQualifiedName`, `Active` (and `SubClass`, `ParentRef`) | `ingredients.ts` `classQueryTool`, `records.ts` `toClass` |
+| Name lists answer active records unless asked otherwise, and `Active in (true, false)` brings inactive ones too | `tool-kit.ts` `lineRefsProblem`, `ingredients.ts` `vendorsNamed`; our reads always send `Active = …` |
+| Both expense line details (`AccountBasedExpenseLineDetail`, `ItemBasedExpenseLineDetail`) take `ClassRef`, `CustomerRef` and `BillableStatus` (`Billable`, `NotBillable`, `HasBeenBilled`) on bills, purchases and purchase orders | `tool-kit.ts` `lineCoding`, `wireLine` |
+| A bill line's class is kept when the company tracks classes per line ("Assign classes: one to each row in transaction"); with classes per transaction or off, QuickBooks ignores or refuses a line's `ClassRef` | not handled: the line's class is sent as given |
+| Create a vendor: `POST /vendor` with `DisplayName` (required, at most 500 characters), `CompanyName`, `PrimaryEmailAddr.Address`, `PrimaryPhone.FreeFormNumber`, `BillAddr` (`Line1`, `Line2`, `City`, `CountrySubDivisionCode`, `PostalCode`, `Country`), `TermRef`; the answer is the vendor with `Id` and `SyncToken` "0" | `ingredients.ts` `vendorCreateTool` |
+| Display names are unique across vendors, customers and employees, case aside: a taken one answers 400 with code `6240` ("Duplicate Name Exists Error") | `ingredients.ts` (mapped to a duplicate refusal) |
+| `GET /term/{id}` reads payment terms (`Name`, `Active`) | `ingredients.ts` `companyTerms` |
+| Create a purchase order: `POST /purchaseorder` with `VendorRef`, `APAccountRef`, `DocNumber`, `TxnDate`, `DueDate` (the expected date), `CurrencyRef`, `PrivateNote` (the memo the vendor doesn't see), `ShipAddr`, `Line[]` (both expense detail types); the answer has `POStatus` "Open" and `TotalAmt` | `purchase-order.ts` |
+| `APAccountRef` on a purchase order: we send the one active Accounts Payable account in the order's currency, or none | `purchase-order.ts` `payablesAccount` |
+| `PurchaseOrder` is queryable by `Id in (…)`, `DocNumber =`, `VendorRef =`, `POStatus =`, `TxnDate` ranges | `purchase-order.ts` |
+| Creating a purchase order doesn't email it to the vendor (`EmailStatus` stays "NotSet") | the approval card says we don't send it |
+
+To verify (docs, then the sandbox company):
+
+1. Every row above, first whether `APAccountRef` is required on a new purchase order, and what
+   QuickBooks does with a company that has more than one A/P account.
+2. The `like` operator on `Account.Name` and `Class.Name`: case, and whether `%` works at both ends.
+3. Whether `AccountType in (…)` takes the words ("Cost of Goods Sold") or the enum names
+   (`CostOfGoodsSold`) in a query; we send what an agent gives, and the fake keeps the words.
+4. Class tracking: which company setting makes a line's `ClassRef` stick, and what the API answers
+   when classes are off. We could read `Preferences.AccountingInfoPrefs.ClassTrackingPerLine` and
+   refuse early; we don't yet.
+5. `BillableStatus` on a purchase order line: kept, ignored or refused? And whether a line with a
+   customer and no `BillableStatus` defaults to `NotBillable` (we always send one).
+6. Duplicate vendor names: whether `6240` is also the code when the name is an inactive vendor's,
+   and the limit on `DisplayName` (500?), `CompanyName` (100?) and `FreeFormNumber` (30?).
+7. Whether `requestid` is honoured on `POST /vendor` and `POST /purchaseorder` as on bills.
+8. Sandbox walk: list accounts and classes, add a vendor, create a purchase order for it with a
+   class and a billable customer on a line, see it open in QuickBooks, then receive it into a bill
+   by hand and check the order closes (we don't link bills to orders yet).

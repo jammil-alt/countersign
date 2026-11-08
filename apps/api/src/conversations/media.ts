@@ -25,6 +25,7 @@ import {
   acceptingTriggers,
   attachmentKind,
   bytesMatchType,
+  CAPTURE_DEFAULT_MAX_BYTES,
   type ConversationCapture,
   captureAllows,
   extensionFor,
@@ -39,6 +40,9 @@ import { collectEmitted, EmittedEvents, type EventTypeRegistry, emit } from "@co
 import { and, eq, isNotNull } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { reportHandled } from "../observability/report";
+import { wakeAll } from "../reach/replies";
+// P-3: attachments both ways
+import { pendingRepliesFor, settlePendingReply } from "../reach/reply-media";
 import { dispatchAfterCommit } from "../runs/dispatch";
 import type { RunInstances } from "../runs/instances";
 import { connectionCredentials } from "../secrets";
@@ -61,9 +65,14 @@ export interface CaptureParams {
   /** The attachments to fetch, by index. */
   indexes: number[];
   /** Why: the webhook, the cron's restart, or a person's "download now". */
-  reason: "inbound" | "restart" | "download_now";
+  // P-3: or `reply`: a reach-out's reply, whose PDFs and images are fetched whatever the
+  // conversation's setting (reach/reply-media.ts, docs/plan.md §1.65).
+  reason: "inbound" | "restart" | "download_now" | "reply";
   /** The conversation, for a message from before v0.14 whose record doesn't name it. */
   conversationId?: string;
+  // P-3: a reply has its sender, and a text (MMS) has no conversation.
+  contactId?: string;
+  channel?: "sms" | "whatsapp";
 }
 
 export interface CaptureDeps {
@@ -101,7 +110,13 @@ export async function runCapture(
   for (const index of params.indexes) {
     results.push(await steps.do(`media:${index}`, () => captureOne(deps, params, index)));
   }
-  await steps.do("notify", () => notifyAgent(deps, params, results));
+  // P-3: a reply's job ends the wait of the reach-out it answered, with the documents' ids; the
+  // conversation's own agent hears of the message through its own capture job, not this one.
+  if (params.reason === "reply") {
+    await steps.do("reply", () => settleReplies(deps, params));
+  } else {
+    await steps.do("notify", () => notifyAgent(deps, params, results));
+  }
   const toRead = results.filter((r) => r.read && r.documentId).map((r) => r.documentId as string);
   if (toRead.length > 0 && deps.read) {
     await steps.do("read", async () => {
@@ -140,8 +155,10 @@ export async function captureOne(
     );
     const media = storedMediaOf(raw.payload, mediaSidOf).find((m) => m.index === index);
     const conversationId = storedCaptureOf(raw.payload)?.conversationId ?? params.conversationId;
-    if (!media || !conversationId) return null;
-    const conv = await getConversation(tx, tenantId, conversationId);
+    // P-3: a reply by text (MMS) has no conversation.
+    const reply = params.reason === "reply";
+    if (!media || (!conversationId && !reply)) return null;
+    const conv = conversationId ? await getConversation(tx, tenantId, conversationId) : null;
     // v0.14 W4-A: the message's connection, Twilio's or Meta's, with its own credentials.
     const [conn] = await tx
       .select()
@@ -155,12 +172,20 @@ export async function captureOne(
       conn?.connector === WHATSAPP_META_CONNECTOR_ID && conn.status === "connected"
         ? metaCredentialsOf(await (await connectionCredentials(tx, deps.env, conn)).get())
         : null;
+    const setting = conv ? (conv.capture as ConversationCapture) : null;
     return {
       prior,
       media,
-      capture: conv.capture as ConversationCapture,
-      conversationId: conv.id,
-      contactId: conv.contactId,
+      // P-3: a reply's PDFs and images whatever the setting, at the conversation's size limit.
+      capture: reply
+        ? ({
+            archive: true,
+            attachments: "documents",
+            maxBytes: setting?.maxBytes ?? CAPTURE_DEFAULT_MAX_BYTES,
+          } satisfies ConversationCapture)
+        : (setting as ConversationCapture),
+      conversationId: conv?.id ?? null,
+      contactId: conv?.contactId ?? params.contactId ?? null,
       connector: conn?.connector ?? TWILIO_CONNECTOR_ID,
       auth,
       meta,
@@ -170,7 +195,9 @@ export async function captureOne(
   const { prior, media, capture } = prep;
   // Filed or refused: final. Failed, or refused because the setting didn't take it then: tried
   // again only by "download now", up to the limit.
-  if (prior && !(params.reason === "download_now" && retryable(prior.outcome))) {
+  // P-3: a reply tries again what the setting refused, as "download now" does.
+  const again = params.reason === "download_now" || params.reason === "reply";
+  if (prior && !(again && retryable(prior.outcome))) {
     return {
       index,
       status: prior.outcome.status,
@@ -237,15 +264,18 @@ export async function captureOne(
           connectionId: params.connectionId,
           bytes,
           // Ids only, never the sender's filename (v0.14 W4-A: a wamid's `+`, `/` and `=` as `-`).
-          filename: `whatsapp-${fileSafeId(params.messageSid)}-${index}.${extensionFor(media.contentType)}`,
+          // P-3: a text's (MMS) files are `mms-…`.
+          filename: `${params.channel === "sms" ? "mms" : "whatsapp"}-${fileSafeId(params.messageSid)}-${index}.${extensionFor(media.contentType)}`,
           mimeType: media.contentType,
           meta: {
-            channel: "whatsapp",
+            channel: params.channel ?? "whatsapp",
             conversationId: prep.conversationId,
             rawRecordId: params.rawRecordId,
             messageSid: params.messageSid,
             mediaIndex: index,
             contactId: prep.contactId,
+            // P-3: filed as a reach-out's reply (its raw record is the origin above).
+            ...(params.reason === "reply" ? { reachOutReply: true } : {}),
           },
           allowType: (t) => attachmentKind(t) !== null,
         });
@@ -432,6 +462,21 @@ async function notifyAgent(
   });
   await dispatchAfterCommit({ db: deps.db, instances: deps.instances }, tenantId, collect);
   return sent;
+}
+
+// P-3: attachments both ways (docs/plan.md §1.65).
+/** Settles the reach-outs this reply answered with their documents, and wakes their runs. */
+async function settleReplies(deps: CaptureDeps, params: CaptureParams): Promise<number> {
+  const settled = await withTenant(deps.db, params.tenantId, async (tx) => {
+    const out: { id: string; runId: string }[] = [];
+    for (const row of await pendingRepliesFor(tx, params.tenantId, params.rawRecordId)) {
+      const s = await settlePendingReply(tx, row, false);
+      if (s) out.push({ id: s.id, runId: s.runId });
+    }
+    return out;
+  });
+  await wakeAll(deps.instances, settled);
+  return settled.length;
 }
 
 /** Whether the conversation's agent will be told after the downloads (inbound-text skips it). */

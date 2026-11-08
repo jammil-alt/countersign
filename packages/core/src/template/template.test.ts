@@ -119,6 +119,9 @@ describe("resolving", () => {
       "Itemized into 1 line; total 9742.35",
     );
     expect(renderSummary("Unit price {{p}}", { p: "0.0425" })).toBe("Unit price 0.0425");
+    // P-2: a whole amount keeps its two places.
+    expect(renderSummary("Total {{t}}", { t: "1125.0000" })).toBe("Total 1125.00");
+    expect(renderSummary("Total {{t}}", { t: "-80.1000" })).toBe("Total -80.10");
     // Other languages write their own templates.
     expect(renderSummary({ en: "Found {{n}} bills", es: "{{n}} facturas" }, { n: 1 }, "es")).toBe(
       "1 facturas",

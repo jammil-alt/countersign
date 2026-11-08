@@ -5,6 +5,7 @@
 // call is one short withTenant transaction for the connection's client (invariant 1).
 
 import {
+  attachmentLine,
   type ConnectionRef,
   type EmailSendAttempt,
   type EmailServices,
@@ -171,7 +172,10 @@ export function dbEmailServices(db: Db, connection: ConnectionRef): EmailService
         const body: ThreadMessageBody = {
           direction: "out",
           channel: "email",
-          text: `${m.subject}\n\n${m.text}`,
+          // P-3: the files that went with it, by name and size (docs/plan.md §1.65).
+          text: [`${m.subject}\n\n${m.text}`, attachmentLine(m.output.attachments ?? [])]
+            .filter(Boolean)
+            .join("\n\n"),
           sid: m.output.id,
           rawRecordId: stored.id,
           status: "sent",

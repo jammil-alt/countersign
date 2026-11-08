@@ -57,6 +57,8 @@ import {
   markThreadStatus,
   type ThreadMessageBody,
 } from "../messaging/contacts";
+// P-3: attachments both ways
+import { replyMediaJob } from "../reach/reply-media";
 import { dispatchEvents } from "../runs/dispatch";
 import { connectionCredentials } from "../secrets";
 // v0.12 W2-E: inbound dispatch to agents' message triggers
@@ -140,6 +142,8 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
       let replies: InboundReply[] = [];
       // v0.14 capture: the attachments to fetch once this transaction commits.
       let capture: CaptureParams | null = null;
+      // P-3: a reach-out reply's files, fetched after the commit as their own job.
+      let replyMedia: CaptureParams | null = null;
       await withTenant(services.db, tenantId, async (tx) => {
         const { row, config } = await verified(tx, c, tenantId, form, "messages");
         // A card number in a text is never stored (PCI DSS 3.3, docs/plan.md §1.35).
@@ -284,6 +288,17 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
         }
         const keyword = keywordOfInbound(msg);
         if (keyword) contactRow = await applyKeyword(tx, contactRow, keyword, msg.channel, now);
+        // P-3: a reply to an open reach-out keeps its PDFs and images (docs/plan.md §1.65).
+        replyMedia = await replyMediaJob(tx, {
+          tenantId,
+          connectionId: row.id,
+          rawRecordId: stored.id,
+          messageSid: msg.sid,
+          contactId: contactRow.id,
+          channel: msg.channel,
+          media: msg.media,
+          keyword,
+        });
 
         const threadId = await contactThread(tx, contactRow);
         const body: ThreadMessageBody = {
@@ -358,6 +373,21 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
       // v0.14 capture: the attachments are fetched after the commit, as a durable job.
       if (capture) {
         const params: CaptureParams = capture;
+        c.get("req").deferred.push(() =>
+          captureJobsFor(
+            services.env,
+            captureDepsFor({
+              db: services.db,
+              env: services.env,
+              deps: services.deps,
+              platform: services.platform,
+            }),
+          ).start(params),
+        );
+      }
+      // P-3: a reach-out reply's PDFs and images, after the reply is matched (docs/plan.md §1.65).
+      if (replyMedia) {
+        const params: CaptureParams = replyMedia;
         c.get("req").deferred.push(() =>
           captureJobsFor(
             services.env,

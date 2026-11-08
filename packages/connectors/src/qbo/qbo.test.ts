@@ -112,7 +112,7 @@ describe("qbo connector: manifest and sign-in", () => {
     }
   });
 
-  it("declares nine reads and eight approval-gated writes, no delete", () => {
+  it("declares twelve reads and ten approval-gated writes, no delete", () => {
     const { connector } = setup();
     new ConnectorRegistry([connector]);
     expect(connector.manifest.auth).toBe("oauth2");
@@ -135,6 +135,12 @@ describe("qbo connector: manifest and sign-in", () => {
       [QBO_TOOLS.agingReport, "none", "read"],
       [QBO_TOOLS.invoiceAddNote, "external", "update"],
       [QBO_TOOLS.billCreate, "external", "create"],
+      // P-2: QuickBooks ingredients.
+      [QBO_TOOLS.accountQuery, "none", "read"],
+      [QBO_TOOLS.classQuery, "none", "read"],
+      [QBO_TOOLS.vendorCreate, "external", "create"],
+      [QBO_TOOLS.purchaseOrderCreate, "external", "create"],
+      [QBO_TOOLS.purchaseOrderQuery, "none", "read"],
     ]);
     // The record types the v0.12 tools name (ToolSpec.entity), for per-entity permissions.
     const entity = (id: string) => connector.manifest.tools.find((t) => t.id === id)?.entity;
@@ -166,7 +172,7 @@ describe("qbo connector: manifest and sign-in", () => {
       const shown = display.fields.flatMap((f) => [f.now, f.after]).filter(Boolean);
       // A new bill's expected total is its total, not a guard on a record that exists.
       const guards =
-        t.id === QBO_TOOLS.billCreate
+        t.id === QBO_TOOLS.billCreate || t.id === QBO_TOOLS.purchaseOrderCreate
           ? /syncToken|\.id\b|Ids?\b/
           : /syncToken|expectedTotal|\.id\b|Ids?\b/;
       expect(shown.join(" "), t.id).not.toMatch(guards);
