@@ -117,7 +117,9 @@ After the first run: save the project id from the run summary as the repository 
 ### The public site (mezonas.com)
 
 `apps/site` (`docs/plan.md` §1.29): the landing page, terms, privacy policy and subprocessors, as
-static files on the Worker **`mezonas-site`** (`apps/site/wrangler.jsonc`: assets only, no code).
+static files on the Worker **`mezonas-site`** (`apps/site/wrangler.jsonc`). The Worker has a little
+code (`src/worker.ts`) that runs first only for `/guides`, `/guides/*` and `/sitemap.xml`; with
+guides off, as deployed, it hands those to the static files too, so they answer as before.
 There is one site for staging and production: `deploy.yml`'s `site` job builds it and runs
 `wrangler deploy` on every push to `main` (and on a manual run from `main`), never from a `v*` tag.
 It needs only the repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; the token
@@ -154,10 +156,33 @@ What the owner does, once:
       legal pages' placeholders before submitting (`apps/site/README.md`); while any remain, those
       pages say "Draft for legal review".
 
-`www` serves the same pages, each with a canonical link to the apex, since a Worker with no code
-can't redirect by host. To make `www` a redirect instead (optional): Cloudflare → `mezonas.com` →
-Rules → Redirect Rules → template "Redirect from WWW to root" (301, keep the path); Redirect Rules
-run before the Worker.
+`www` serves the same pages, each with a canonical link to the apex (a redirect by host in the
+Worker would make its code run first for every request). To make `www` a redirect instead
+(optional): Cloudflare → `mezonas.com` → Rules → Redirect Rules → template "Redirect from WWW to
+root" (301, keep the path); Redirect Rules run before the Worker.
+
+**Measuring and guides are off until the owner turns them on** (`docs/plan.md` §1.72, the "Site:"
+rows; `apps/site/README.md`). A merge changes nothing for visitors. Each is a separate step:
+
+- [ ] **Measuring.** After the lawyer has read `docs/marketing/privacy-measurement-draft.md`:
+      put the reviewed section into `apps/site/src/pages/privacy.html` (the build refuses to
+      measure until `/privacy` drops "This website uses no analytics" and links `/no-measure`);
+      set up the Mezonas client's site in the back office (Marketing → Sites) with its goals
+      (`hero-talk`, `nav-contact`, `footer-contact`, `contact-email`); add a repository variable
+      `MEZONAS_MEASURE_URL` (Settings → Secrets and variables → Actions → Variables) holding
+      `https://<collector host>/api/in/marketing/<client id>/<site id>`, staging's host until
+      production's first release (`docs/marketing-plan.md` D2); and pass it to the `site` job's
+      "Build the site" step in `deploy.yml` (`env: MEZONAS_MEASURE_URL: ${{ vars.MEZONAS_MEASURE_URL }}`;
+      a change to the deploy workflow, in its own PR). Unset or empty, the site builds exactly as
+      today. The collector's own host (`collect.mezonas.com`, plan F3) is its own PR.
+- [ ] **Guides.** Create the R2 bucket `mezonas-site-content`, bind it as `SITE_CONTENT` to
+      `apps/api` (which publishes) and to `mezonas-site` (which reads), and set `SITE_GUIDES` to
+      `on`: uncomment the two lines in `apps/site/wrangler.jsonc`. Without both, `/guides` is the
+      404 page and `/sitemap.xml` the static one. Once guides are live, submit
+      `https://mezonas.com/sitemap.xml` in Search Console.
+
+Deploying the Worker's code needs no change to `deploy.yml`: `wrangler deploy` bundles
+`src/worker.ts` (from `main` in `wrangler.jsonc`) with the static files, using the same token.
 
 ### The code service (Access phase 2)
 

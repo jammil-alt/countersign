@@ -5,5 +5,8 @@
     "allowJs": true,
     "checkJs": true
   },
-  "include": ["build.mjs", "src"]
+  "include": ["build.mjs", "src"],
+  // The page's measuring script runs in a browser, with names (the DOM, __MEASURE_URL__) that
+  // Node's types don't have; site.test.ts runs it in a sandbox instead.
+  "exclude": ["src/measure.js"]
 }
