@@ -1,11 +1,12 @@
 // v0.13 W2-I: run oversight's rows (ARCHITECTURE §5.6, §10.11; docs/plan.md §1.54). Each decision is
 // one `oversight_decision` row (insert only), written with the items it opens in one transaction:
-// an ask (an `approval` item to the step's approver, else the client's lead, subject
+// an ask (an `approval` item to the step's approver, else the client's team (P-6), subject
 // `oversight_ask`), a proposal for the operator (a `review` item, subject `oversight_proposal`,
 // made once per fingerprint while open) and a stop the operator must check (a write that reached
 // the client's tool). Every read and write is scoped to the run's own client (invariant 1).
 
 import {
+  agent,
   type Db,
   externalAction,
   inboxItem,
@@ -13,10 +14,11 @@ import {
   run,
   stepRun,
   type Tx,
+  tenant,
   withTenant,
 } from "@countersign/db";
-import { leadOf } from "@countersign/threads";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { clientApproverSetting } from "../registry/runtime-store";
 import { resolveApprover } from "../runtime/context";
 import type {
   DecisionRecord,
@@ -186,18 +188,30 @@ export function dbOversightStore(db: Db): OversightStore {
       return withTenant(db, tenantId, async (tx) => {
         let askId: string | null = null;
         if (d.ask) {
-          // DECISION: a test run's ask goes to the operator, like its person steps (§10.4); a live
-          // one to the step's approver, else the client's lead (as the operator's item), else the
-          // operator role (W1-C's lead check).
+          // DECISION: a test run's ask goes to the operator, like its person steps (§10.4).
+          // P-6 (owner, 2026-11-08; docs/plan.md §1.68): a live one goes to the client's team,
+          // never to us by default: the step's approver, else the agent's (the client agent's
+          // override), else the client's approvals setting, else the client admin. It reaches the
+          // operator only where the client's approvals are set to us.
           let assignee: {
             assigneeRole: "operator" | "client_admin" | "client_user" | null;
             assigneeUserId: string | null;
           };
           if (d.ask.test) assignee = { assigneeRole: "operator", assigneeUserId: null };
-          else if (d.ask.approver) assignee = resolveApprover([d.ask.approver]);
           else {
-            const lead = await leadOf(tx, tenantId);
-            assignee = { assigneeRole: "operator", assigneeUserId: lead?.userId ?? null };
+            const [a] = await tx
+              .select({ approver: agent.approver })
+              .from(agent)
+              .where(and(eq(agent.id, d.agentId), eq(agent.tenantId, tenantId)));
+            const [t] = await tx
+              .select({ settings: tenant.settings })
+              .from(tenant)
+              .where(eq(tenant.id, tenantId));
+            assignee = resolveApprover([
+              d.ask.approver,
+              a?.approver,
+              clientApproverSetting(t?.settings ?? {}),
+            ]);
           }
           const [row] = await tx
             .insert(inboxItem)

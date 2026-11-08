@@ -50,6 +50,8 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { HttpError, iso, notFound } from "../http";
 import { type InboxRow, type ResolveOutcome, resolveInboxItem, withCanSign } from "../inbox";
 import type { Platform } from "../platform";
+// P-6
+import { editMessage, isMessageItem } from "../step-in/messages";
 
 /** How much of the undo window must be left for an undo to start: it commits well before the end. */
 // DECISION: an undo needs two seconds of window left, measured on the database's clock, so it has
@@ -273,6 +275,25 @@ export async function editItem(
 ): Promise<{ row: InboxRow; edited: JsonObject; at: Date }> {
   const by = await signer(tx, input.tenantId, input.by);
   const item = await lockItem(tx, input.tenantId, input.itemId);
+  // P-6: a message waiting for approval (a conversation's or a reach-out's): its approver may
+  // give the text to send instead, as `input.message` (docs/plan.md §1.68).
+  if (isMessageItem(item)) {
+    if (!mayResolve(item, by)) {
+      throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
+    }
+    const message = input.edited.message;
+    if (typeof message !== "string" || Object.keys(input.edited).length !== 1) {
+      throw new HttpError(422, "invalid_edit", "send the message's new text as input.message");
+    }
+    const done = await editMessage(tx, {
+      tenantId: input.tenantId,
+      item,
+      text: message,
+      by: { userId: by.userId, byUs: false },
+      now: new Date(),
+    });
+    return { row: done.item, edited: { message: done.text }, at: done.at };
+  }
   if (item.kind !== "external_action") {
     throw new HttpError(409, "not_a_change", "only a drafted change can be edited");
   }

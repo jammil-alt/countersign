@@ -168,6 +168,17 @@ const CHANNEL_WORDS: Record<ReachChannel, string> = {
   voice: "call",
 };
 
+/**
+ * The longest message a reach-out writes on a channel (a WhatsApp file's caption is at most 1024
+ * characters). P-6: a person's edit of a message before approving it is held to the same.
+ */
+export function reachMaxChars(channel: ReachChannel, withAttachments: boolean): number {
+  if (channel === "sms") return 320;
+  if (channel === "voice") return 300;
+  if (channel === "whatsapp" && withAttachments) return 1000;
+  return 1500;
+}
+
 // ── Thread lines ────────────────────────────────────────────────────────────────────────────────
 
 async function threadLine(
@@ -1234,14 +1245,7 @@ export async function attemptFrom(
               contactName: who.name,
               clientName: state.t.name,
               // P-3: a WhatsApp file's caption is at most 1024 characters.
-              maxChars:
-                channel === "sms"
-                  ? 320
-                  : channel === "voice"
-                    ? 300
-                    : channel === "whatsapp" && plan.attachments?.length
-                      ? 1000
-                      : 1500,
+              maxChars: reachMaxChars(channel, !!plan.attachments?.length),
               model: plan.model,
             });
     } catch (error) {

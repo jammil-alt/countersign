@@ -5,7 +5,14 @@
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { ActionStep, OversightSettings, SkillStep } from "@countersign/core";
-import { agent, externalAction, inboxItem, oversightDecision, stepRun } from "@countersign/db";
+import {
+  agent,
+  externalAction,
+  inboxItem,
+  oversightDecision,
+  stepRun,
+  tenant,
+} from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -347,8 +354,11 @@ describe.skipIf(!harness)("run oversight: the review and its record", () => {
     expect(broke.requests).toHaveLength(0);
   });
 
-  it("asks the lead by default, and a test run's ask goes to the operator", async () => {
-    for (const mode of ["live", "test"] as const) {
+  // P-6 (docs/plan.md §1.68): the client's team runs its agents day to day; we are never the
+  // default step. The ask goes to the client admin by default (it went to the lead before), to us
+  // only where the client's approvals are set to us, and a test run's to us as before.
+  it("asks the client's team by default, us only when the client's approvals are ours; a test run's ask goes to the operator", async () => {
+    const ask = async (mode: "live" | "test") => {
       const ids = await failedStep(READ_STEP, { note: "x" }, mode);
       const verdict = await overseeStep(
         h.deps(
@@ -365,20 +375,41 @@ describe.skipIf(!harness)("run oversight: the review and its record", () => {
         request(READ_STEP, ids, { mode }),
       );
       expect(verdict.action).toBe("ask");
-      if (verdict.action !== "ask") return;
+      if (verdict.action !== "ask") throw new Error("expected an ask");
       const [item] = await h.client(h.A, (tx) =>
         tx.select().from(inboxItem).where(eq(inboxItem.id, verdict.inboxItemId)),
       );
-      expect(item).toMatchObject({
-        kind: "approval",
-        subjectType: "oversight_ask",
-        assigneeRole: "operator",
-        title: 'Before we try "Read the note" again: Which record did you mean?',
-        payload: expect.objectContaining({ question: "Which record did you mean?" }),
-      });
-      // The client-facing item carries no note, error or model.
-      expect(JSON.stringify(item?.payload)).not.toMatch(/Ambiguous|claude|error/);
-      if (mode === "test") expect(item?.payload).toMatchObject({ testRun: true });
+      return item;
+    };
+    const live = await ask("live");
+    expect(live).toMatchObject({
+      kind: "approval",
+      subjectType: "oversight_ask",
+      assigneeRole: "client_admin",
+      assigneeUserId: null,
+      title: 'Before we try "Read the note" again: Which record did you mean?',
+      payload: expect.objectContaining({ question: "Which record did you mean?" }),
+    });
+    // The client-facing item carries no note, error or model.
+    expect(JSON.stringify(live?.payload)).not.toMatch(/Ambiguous|claude|error/);
+    const test = await ask("test");
+    expect(test).toMatchObject({
+      assigneeRole: "operator",
+      payload: expect.objectContaining({ testRun: true }),
+    });
+    // The client's approvals set to us (the opt-in, e.g. the Sandbox): then ours.
+    const [t] = await h.t.db.select().from(tenant).where(eq(tenant.id, h.A.tenantId));
+    await h.t.db
+      .update(tenant)
+      .set({ settings: { ...(t?.settings ?? {}), approvals: { external_actions: "operator" } } })
+      .where(eq(tenant.id, h.A.tenantId));
+    try {
+      expect((await ask("live"))?.assigneeRole).toBe("operator");
+    } finally {
+      await h.t.db
+        .update(tenant)
+        .set({ settings: t?.settings ?? {} })
+        .where(eq(tenant.id, h.A.tenantId));
     }
   });
 

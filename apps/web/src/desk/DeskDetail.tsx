@@ -293,6 +293,36 @@ export function DeskDetail({
             <ItemBody item={lead} heading={leadHeading} />
           )}
 
+          {/* P-6: we passed this to you, and why (docs/plan.md §1.68). */}
+          {open && lead.steppedIn?.action === "reassign" ? (
+            <p className="text-sm text-copper-ink" data-testid="desk-passed">
+              {t("desk.passedToYou", { reason: lead.steppedIn.reason })}
+            </p>
+          ) : null}
+
+          {/* P-6: a message waiting for approval: its approver may change it first. */}
+          {!batch && open && !settled && canSign && messageOf(lead) !== null ? (
+            <MessageEdit
+              item={lead}
+              busy={busy}
+              onSave={(message) =>
+                act(async () => {
+                  const res = await api.call(apiRoutes.portalEditInbox, {
+                    params: { id: lead.id },
+                    body: { input: { message } },
+                  });
+                  const sent = String(res.edited.input.message ?? message);
+                  setItems([
+                    {
+                      ...withState(lead, res.item),
+                      payload: withMessage(lead.payload, sent),
+                    },
+                  ]);
+                })
+              }
+            />
+          ) : null}
+
           {need === "code" && open ? (
             <ReleaseCodeEntry inboxItemId={lead.id} onDone={onChanged} />
           ) : null}
@@ -830,11 +860,14 @@ function Outcome({
       ? items.length > 1
         ? t("desk.outcome.batch", { count: done, total: items.length })
         : t(words[decision])
-      : lead.resolvedBy?.name
-        ? t("inbox.outcome.resolvedBy", { name: lead.resolvedBy.name })
-        : lead.status === "expired"
-          ? t("common.expired")
-          : t("inbox.outcome.resolved");
+      : lead.steppedIn && lead.steppedIn.action !== "reassign"
+        ? // P-6: we stepped in, on your behalf, and why (§1.68).
+          t("desk.steppedIn", { reason: lead.steppedIn.reason })
+        : lead.resolvedBy?.name
+          ? t("inbox.outcome.resolvedBy", { name: lead.resolvedBy.name })
+          : lead.status === "expired"
+            ? t("common.expired")
+            : t("inbox.outcome.resolved");
   const left = inWindow.length > 0 ? Math.max(...inWindow.map((i) => undoLeft(i, now))) : 0;
   const declined = decision === "rejected" || decision === "declined";
   return (
@@ -988,4 +1021,91 @@ function useNow(live: boolean): number {
     return () => clearInterval(timer);
   }, [live]);
   return live ? now : Date.now();
+}
+
+// ── P-6: changing a message before approving it (docs/plan.md §1.68) ──────────────────────────────
+
+/** The text a message waiting for approval will send, or null for any other item. */
+function messageOf(item: DeskItem): string | null {
+  if (item.kind !== "approval" || typeof item.payload.reachOutId !== "string") return null;
+  for (const key of ["converse", "reachOut"] as const) {
+    const v = item.payload[key];
+    if (isPlainObject(v) && typeof v.message === "string") return v.message;
+  }
+  return null;
+}
+
+function withMessage(payload: DeskItem["payload"], message: string): DeskItem["payload"] {
+  const out: Record<string, unknown> = { ...payload, edited: { message } };
+  for (const key of ["converse", "reachOut"] as const) {
+    const v = payload[key];
+    if (isPlainObject(v)) out[key] = { ...v, message };
+  }
+  return out;
+}
+
+function MessageEdit({
+  item,
+  busy,
+  onSave,
+}: {
+  item: DeskItem;
+  busy: boolean;
+  onSave: (message: string) => void;
+}) {
+  const { t } = useI18n();
+  const current = messageOf(item) ?? "";
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(current);
+  const edited = isPlainObject(item.payload.edited);
+  return (
+    <div className="flex flex-col gap-2" data-testid="desk-message">
+      {edited ? (
+        <p className="text-sm text-copper-ink" data-testid="desk-message-edited">
+          {t("desk.messageEdited")}
+        </p>
+      ) : null}
+      {editing ? (
+        <>
+          <TextArea
+            data-testid="desk-message-input"
+            aria-label={t("desk.editMessage")}
+            value={text}
+            maxLength={1600}
+            rows={4}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              data-testid="desk-message-save"
+              variant="primary"
+              disabled={busy || text.trim().length === 0}
+              onClick={() => {
+                onSave(text.trim());
+                setEditing(false);
+              }}
+            >
+              {t("desk.editMessageSave")}
+            </Button>
+            <Button variant="ghost" disabled={busy} onClick={() => setEditing(false)}>
+              {t("common.cancel")}
+            </Button>
+          </div>
+        </>
+      ) : (
+        <div>
+          <Button
+            data-testid="desk-message-edit"
+            disabled={busy}
+            onClick={() => {
+              setText(current);
+              setEditing(true);
+            }}
+          >
+            {t("desk.editMessage")}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 }

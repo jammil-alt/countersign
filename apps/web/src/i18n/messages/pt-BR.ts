@@ -399,6 +399,22 @@ export const ptBR: Messages = {
   // P-4: a conversation on the run timeline
   "run.conversation.sent": "Enviado",
   "run.conversation.reply": "Resposta",
+  // P-6: stepping in, taking a conversation over, editing a message (docs/plan.md §1.68); needs a fluent review
+  "run.conversation.us": "Mezonas",
+  "run.conversation.takenOver": "{who} assumiu a conversa",
+  "run.conversation.ended": "{who} encerrou a conversa",
+  "run.conversation.editedBy": "Editado por {who} antes do envio",
+  "run.conversation.takeOver": "Assumir",
+  "run.conversation.end": "Encerrar a conversa",
+  "run.conversation.reason": "Motivo (opcional)",
+  "run.conversation.controlHint":
+    "Assumir: o agente não envia mais nada e a pergunta vai para a sua mesa. Encerrar: o agente para aqui.",
+  "desk.steppedIn": "Mezonas, em seu nome: {reason}",
+  "desk.passedToYou": "A Mezonas passou isto para você: {reason}",
+  "desk.editMessage": "Alterar a mensagem",
+  "desk.editMessageSave": "Salvar a mensagem",
+  "desk.messageEdited":
+    "Você alterou esta mensagem. O que você aprovar é exatamente o que será enviado.",
   "step.status.pending": "Não iniciado",
   "step.status.running": "Em andamento",
   "step.status.waiting": "Aguardando",

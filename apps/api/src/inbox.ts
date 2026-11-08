@@ -65,7 +65,13 @@ export function toRunResolution(item: Pick<InboxRow, "resolution" | "resolvedBy"
         ? null
         : r.decision === "approve";
   const by = typeof r.by === "string" ? r.by : (item.resolvedBy ?? null);
-  return { approved, answer: r.answer ?? null, by } satisfies InboxResolution;
+  // P-6: an item withdrawn by a take-over is no decision (docs/plan.md §1.68).
+  return {
+    approved,
+    answer: r.answer ?? null,
+    by,
+    ...(r.withdrawn === true ? { withdrawn: true } : {}),
+  } satisfies InboxResolution;
 }
 
 export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<ResolveOutcome> {

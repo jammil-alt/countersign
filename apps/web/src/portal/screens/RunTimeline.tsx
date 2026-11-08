@@ -11,12 +11,14 @@ import { pickLocalized, type RunAuditEntry, shortRunId } from "@countersign/core
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
-import { useApi } from "../../api/useApi";
+import { useApi, useApiClient } from "../../api/useApi";
 import type { PlainKey } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
 import { ChangeTables } from "../../inbox/ChangePanel";
 import { changeHeading, connectorName, connectorOf } from "../../inbox/change";
 import { SourceLinks } from "../../records/SourceLinks";
+// P-6
+import { ConversationControls } from "../../runs/ConversationControls";
 import { shortTime, stepStatusLabel } from "../../runs/format";
 import { subjectTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
@@ -93,17 +95,21 @@ export function PortalRunScreen() {
 
   return (
     <Page testId="portal-run-page">
-      <Loaded state={state}>{(d) => <RunPage data={d} />}</Loaded>
+      <Loaded state={state}>{(d) => <RunPage data={d} onChanged={reload} />}</Loaded>
     </Page>
   );
 }
 
 type RunData = NonNullable<ReturnType<typeof useApi<typeof apiRoutes.portalRun>>["data"]>;
 
-function RunPage({ data }: { data: RunData }) {
+function RunPage({ data, onChanged }: { data: RunData; onChanged: () => void }) {
+  const api = useApiClient();
   const i18n = useI18n();
   const { t, locale } = i18n;
   const time = (iso: string | null) => shortTime(iso, undefined, i18n);
+  // P-6: "Mezonas" when it was us; the client's own people by name.
+  const actorWords = (by: { us: boolean; name: string | null }) =>
+    by.us ? t("run.conversation.us") : (by.name ?? "");
   const { run } = data;
   const short = shortRunId(run.id);
   const openApprovals = data.approvals.filter((a) => a.status === "open");
@@ -136,13 +142,50 @@ function RunPage({ data }: { data: RunData }) {
         {s.conversation ? (
           <Transcript
             testId="portal-run-step-conversation"
-            lines={s.conversation.messages.map((m, k) => ({
-              key: `${k}`,
-              direction: m.direction,
-              who: m.direction === "out" ? t("run.conversation.sent") : t("run.conversation.reply"),
-              text: m.text,
-              when: m.at ? time(m.at) : null,
-            }))}
+            lines={[
+              ...s.conversation.messages.map((m, k) => ({
+                key: `${k}`,
+                direction: m.direction,
+                who:
+                  m.direction === "out" ? t("run.conversation.sent") : t("run.conversation.reply"),
+                text: m.text,
+                when: m.at ? time(m.at) : null,
+                // P-6: changed before it went, and by whom (§1.68).
+                meta: m.edited
+                  ? t("run.conversation.editedBy", { who: actorWords(m.edited.by) })
+                  : null,
+              })),
+              // P-6: who took it over or ended it, and why.
+              ...(s.conversation.events ?? []).map((e, k) => ({
+                key: `event-${k}`,
+                direction: "out" as const,
+                who: t(
+                  e.kind === "taken_over" ? "run.conversation.takenOver" : "run.conversation.ended",
+                  { who: actorWords(e.by) },
+                ),
+                text: e.reason ?? "",
+                when: time(e.at),
+              })),
+            ]}
+          />
+        ) : null}
+        {s.conversation?.mayControl ? (
+          <ConversationControls
+            testId="portal-run-step-conversation-control"
+            reasonRequired={false}
+            words={{
+              takeOver: t("run.conversation.takeOver"),
+              end: t("run.conversation.end"),
+              reason: t("run.conversation.reason"),
+              hint: t("run.conversation.controlHint"),
+            }}
+            onAct={async (action, reason) => {
+              await api.call(apiRoutes.portalConversationControl, {
+                params: { id: run.id, stepRunId: s.id },
+                body: { action, ...(reason ? { reason } : {}) },
+              });
+              onChanged();
+            }}
           />
         ) : null}
         <SourceLinks

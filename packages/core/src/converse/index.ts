@@ -340,6 +340,20 @@ export function typedResultOutput(
 
 // ── What the run pages show ─────────────────────────────────────────────────────────────────────
 
+// P-6: who stepped in or edited, as each surface names them (docs/plan.md §1.68).
+/** A person on the transcript: `us` is Mezonas (the operator); the portal never names our people. */
+export const ConverseActor = z.object({ us: z.boolean(), name: z.string().nullable() });
+export type ConverseActor = z.infer<typeof ConverseActor>;
+
+/** A person taking the conversation over or ending it, on the transcript (no model call). */
+export const ConverseEvent = z.object({
+  kind: z.enum(["taken_over", "ended"]),
+  at: z.string(),
+  by: ConverseActor,
+  reason: z.string().nullable(),
+});
+export type ConverseEvent = z.infer<typeof ConverseEvent>;
+
 /** One message on a run page. The back office also sees the turn's model and cost. */
 export const ConverseViewMessage = z.object({
   turn: z.number().int(),
@@ -350,6 +364,10 @@ export const ConverseViewMessage = z.object({
   status: z.string(),
   model: z.string().optional(),
   costUsd: z.string().optional(),
+  // P-6: changed before it was approved; the agent's original is kept (§1.68).
+  edited: z
+    .object({ original: z.string().nullable(), by: ConverseActor, at: z.string() })
+    .optional(),
 });
 
 /** The back office's view of a conversation step (`GET /api/ops/runs/:id`). */
@@ -359,6 +377,8 @@ export const ConverseOpsView = z.object({
   outcome: ConverseOutcome.nullable(),
   messages: z.array(ConverseViewMessage),
   costUsd: z.string(),
+  // P-6: take-overs and ends, in order (§1.68).
+  events: z.array(ConverseEvent).optional(),
 });
 export type ConverseOpsView = z.infer<typeof ConverseOpsView>;
 
@@ -368,7 +388,18 @@ export type ConverseOpsView = z.infer<typeof ConverseOpsView>;
  */
 export const ConversePortalView = z.object({
   messages: z.array(
-    z.object({ direction: z.enum(["out", "in"]), text: z.string(), at: z.string().nullable() }),
+    z.object({
+      direction: z.enum(["out", "in"]),
+      text: z.string(),
+      at: z.string().nullable(),
+      // P-6: who changed it before it went (never the agent's draft).
+      edited: z.object({ by: ConverseActor }).optional(),
+    }),
   ),
+  // P-6: take-overs and ends (§1.68); whether it is still going, and whether this person (the
+  // conversation's approver) may take it over or end it.
+  events: z.array(ConverseEvent).optional(),
+  live: z.boolean().optional(),
+  mayControl: z.boolean().optional(),
 });
 export type ConversePortalView = z.infer<typeof ConversePortalView>;

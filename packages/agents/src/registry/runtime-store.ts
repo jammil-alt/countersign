@@ -12,12 +12,18 @@ import {
   membership,
   memoryNote,
   run,
+  type Tx,
   tenant,
   withTenant,
 } from "@countersign/db";
 import { and, desc, eq, inArray, like, not } from "drizzle-orm";
 import { notFound } from "../errors";
-import type { MemoryNoteRecord, PinnedAgent, RuntimeStore } from "../runtime/ports";
+import type {
+  ApprovalRouting,
+  MemoryNoteRecord,
+  PinnedAgent,
+  RuntimeStore,
+} from "../runtime/ports";
 import { MEMORY_TEST_SCOPE_PREFIX } from "../tools/platform";
 import { grantOf } from "./grants";
 import { resolveCustomSkill } from "./skills";
@@ -40,6 +46,38 @@ export function clientApproverSetting(settings: Record<string, unknown>): string
     ?.external_actions;
   const value = nested ?? settings["approvals.external_actions"];
   return typeof value === "string" ? value : null;
+}
+
+// P-6: the same routing read in the caller's transaction (docs/plan.md §1.68).
+/**
+ * Who approves what at one client, read in the caller's transaction: the approver rules, the
+ * client's default and the client people who sign (the runtime store's `approvalRouting`).
+ */
+export async function approvalRoutingTx(tx: Tx, tenantId: string): Promise<ApprovalRouting> {
+  const [row] = await tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId));
+  const settings = row?.settings ?? {};
+  const set = readApproverRuleSet(settings);
+  const people = await tx
+    .select({ userId: membership.userId })
+    .from(membership)
+    .where(
+      and(
+        eq(membership.tenantId, tenantId),
+        inArray(membership.role, ["client_admin", "client_user"]),
+        // v0.12 W1-D: a viewer is never an approver: a rule naming one routes to the client
+        // admin, like a rule naming someone who left (ARCHITECTURE §4).
+        eq(membership.canSign, true),
+      ),
+    );
+  return {
+    rules: set.rules,
+    revision: set.revision,
+    clientDefault: clientApproverSetting(settings),
+    members: new Set(people.map((p) => p.userId)),
+  };
 }
 
 export function dbRuntimeStore(db: Db): RuntimeStore {
@@ -147,32 +185,7 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
     },
 
     approvalRouting(tenantId) {
-      return withTenant(db, tenantId, async (tx) => {
-        const [row] = await tx
-          .select({ settings: tenant.settings })
-          .from(tenant)
-          .where(eq(tenant.id, tenantId));
-        const settings = row?.settings ?? {};
-        const set = readApproverRuleSet(settings);
-        const people = await tx
-          .select({ userId: membership.userId })
-          .from(membership)
-          .where(
-            and(
-              eq(membership.tenantId, tenantId),
-              inArray(membership.role, ["client_admin", "client_user"]),
-              // v0.12 W1-D: a viewer is never an approver: a rule naming one routes to the client
-              // admin, like a rule naming someone who left (ARCHITECTURE §4).
-              eq(membership.canSign, true),
-            ),
-          );
-        return {
-          rules: set.rules,
-          revision: set.revision,
-          clientDefault: clientApproverSetting(settings),
-          members: new Set(people.map((p) => p.userId)),
-        };
-      });
+      return withTenant(db, tenantId, (tx) => approvalRoutingTx(tx, tenantId));
     },
 
     askTarget(tenantId, agentId) {

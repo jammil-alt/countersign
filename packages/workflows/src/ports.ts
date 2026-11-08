@@ -66,6 +66,12 @@ export type StepOutcome =
       costUsd?: string;
       tokensIn?: number;
       tokensOut?: number;
+      // P-6: a person ended the step outside an approval (docs/plan.md §1.68)
+      /**
+       * A person turned the step down while it waited on something other than an approval (they
+       * ended a live conversation): the step's `onReject` applies, as for a rejected write.
+       */
+      declined?: boolean;
     }
   /**
    * A write needs approval: the port has already created the inbox item (and the proposed
@@ -177,6 +183,12 @@ export const InboxResolution = z.object({
   answer: z.unknown().optional(),
   /** The user who resolved it. */
   by: z.string().nullable().default(null),
+  // P-6: an item withdrawn when a person took a conversation over (docs/plan.md §1.68)
+  /**
+   * Not a decision: the item was withdrawn (its conversation was taken over), so it is neither an
+   * approval nor a rejection. The port says what comes next; nothing is written on it.
+   */
+  withdrawn: z.boolean().optional(),
 });
 export type InboxResolution = z.infer<typeof InboxResolution>;
 

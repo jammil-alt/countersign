@@ -401,6 +401,22 @@ export const it: Messages = {
   // P-4: a conversation on the run timeline
   "run.conversation.sent": "Inviato",
   "run.conversation.reply": "Risposta",
+  // P-6: stepping in, taking a conversation over, editing a message (docs/plan.md §1.68); needs a fluent review
+  "run.conversation.us": "Mezonas",
+  "run.conversation.takenOver": "{who} ha preso in mano la conversazione",
+  "run.conversation.ended": "{who} ha chiuso la conversazione",
+  "run.conversation.editedBy": "Modificato da {who} prima dell'invio",
+  "run.conversation.takeOver": "Prendi in mano",
+  "run.conversation.end": "Chiudi la conversazione",
+  "run.conversation.reason": "Motivo (facoltativo)",
+  "run.conversation.controlHint":
+    "Prendi in mano: l'agente non invia altro e la domanda arriva sulla tua scrivania. Chiudi: l'agente si ferma qui.",
+  "desk.steppedIn": "Mezonas, per conto vostro: {reason}",
+  "desk.passedToYou": "Mezonas ti ha passato questo: {reason}",
+  "desk.editMessage": "Cambia il messaggio",
+  "desk.editMessageSave": "Salva il messaggio",
+  "desk.messageEdited":
+    "Hai cambiato questo messaggio. Quello che approvi è esattamente ciò che parte.",
   "step.status.pending": "Non iniziato",
   "step.status.running": "In corso",
   "step.status.waiting": "In attesa",

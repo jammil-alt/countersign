@@ -244,6 +244,13 @@ export interface Approver {
    * server from the membership; absent means a signer (operators, and callers that predate it).
    */
   canSign?: boolean;
+  // P-6: the operator steps in (docs/plan.md §1.68)
+  /**
+   * The operator stepping in on an item of a client they serve (`POST /api/ops/clients/:id/inbox/
+   * :itemId/step-in`), with a reason recorded on the item. Set only by that route on the server,
+   * never from a request body. The approval then takes the client's own path, unchanged.
+   */
+  steppingIn?: boolean;
 }
 
 export interface ResolveExternalActionInput {
@@ -275,6 +282,9 @@ export function mayResolve(
   // v0.12 W1-D: a viewer is never an approver, whatever the item names (ARCHITECTURE §4).
   if (by.canSign === false) return false;
   if (by.role === "operator" && by.sandbox === true) return true;
+  // P-6: the client's team runs its agents day to day; the operator oversees and may step into
+  // any item of a client they serve, never as the default step (docs/plan.md §1.68).
+  if (by.role === "operator" && by.steppingIn === true) return true;
   if (item.assigneeUserId) return item.assigneeUserId === by.userId;
   switch (item.assigneeRole) {
     case "operator":

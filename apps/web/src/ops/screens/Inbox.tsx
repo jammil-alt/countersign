@@ -32,6 +32,8 @@ import {
   escalationTone,
 } from "../command/escalations";
 import { age, NOBODY_TO_ACT_WORDS, plural } from "../run/words";
+// P-6
+import { StepIn } from "./StepIn";
 
 type Item = ResponseOf<typeof apiRoutes.opsInbox>["items"][number];
 type View = "us" | "clients";
@@ -127,7 +129,7 @@ export function OpsInboxScreen() {
       : item.resolvedBy
         ? (ROLE_WORDS[item.assigneeRole ?? "client_admin"] ?? null)
         : null;
-    return (
+    const shown = (
       <InboxCard
         key={item.id}
         item={item}
@@ -167,6 +169,20 @@ export function OpsInboxScreen() {
             : null
         }
       />
+    );
+    // P-6: a client's own item: theirs to answer, ours to step into when we must (§1.68).
+    if (mine || item.status !== "open") return shown;
+    return (
+      <div key={item.id} className="flex flex-col gap-2">
+        {shown}
+        <StepIn
+          item={item}
+          onDone={() => {
+            reload();
+            needs.reload();
+          }}
+        />
+      </div>
     );
   };
 

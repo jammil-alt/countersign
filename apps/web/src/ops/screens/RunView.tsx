@@ -18,6 +18,8 @@ import { ChangeTables } from "../../inbox/ChangePanel";
 import { changeHeading } from "../../inbox/change";
 import { InboxCard, type ResolveInput } from "../../inbox/InboxCard";
 import { SourceLinks, sourcesOf } from "../../records/SourceLinks";
+// P-6
+import { ConversationControls } from "../../runs/ConversationControls";
 import { duration, isRunGoing, shortTime, stepStatusLabel, usd } from "../../runs/format";
 import { qualifiedToolLabel as toolLabel } from "../../runs/labels";
 import { opsRunTitle } from "../../runs/subject";
@@ -242,6 +244,13 @@ export function OpsRunScreen() {
             failedNode={error.nodeId}
             oversight={oversight}
             wait={wait}
+            onConversation={async (stepRunId, action, reason) => {
+              await api.call(apiRoutes.opsConversationControl, {
+                params: { id: run.tenantId, runId: run.id, stepRunId },
+                body: { action, reason },
+              });
+              reload();
+            }}
           />
         ) : null}
         {tab === "changes" ? <Changes data={data} onResolve={resolve} /> : null}
@@ -402,12 +411,19 @@ function Timeline({
   failedNode,
   oversight,
   wait,
+  onConversation,
 }: {
   data: RunDetail;
   rows: RunStepRow[];
   failedNode: string | null;
   oversight: Decision[];
   wait: Wait | null;
+  // P-6: take a live conversation over, or end it (§1.68).
+  onConversation?: (
+    stepRunId: string,
+    action: "take_over" | "end",
+    reason: string,
+  ) => Promise<void>;
 }) {
   const { run } = data;
   const steps = new Map(data.steps.map((s) => [s.id, s]));
@@ -469,22 +485,52 @@ function Timeline({
           {s?.conversation ? (
             <Transcript
               testId={`ops-run-conversation-${r.key}`}
-              lines={s.conversation.messages.map((m, k) => ({
-                key: `${m.turn}-${m.direction}-${k}`,
-                direction: m.direction,
-                who:
-                  m.direction === "in"
-                    ? (s.conversation?.who?.name ?? "Them")
-                    : `Agent · message ${m.turn}`,
-                text: m.text,
-                when: m.at ? shortTime(m.at) : (CONVERSE_STATUS[m.status] ?? m.status),
-                meta:
-                  m.direction === "out"
-                    ? [m.model, m.costUsd && !isZero(m.costUsd) ? usd(m.costUsd) : null]
-                        .filter(Boolean)
-                        .join(" · ") || null
-                    : null,
-              }))}
+              lines={[
+                ...s.conversation.messages.map((m, k) => ({
+                  key: `${m.turn}-${m.direction}-${k}`,
+                  direction: m.direction,
+                  who:
+                    m.direction === "in"
+                      ? (s.conversation?.who?.name ?? "Them")
+                      : `Agent · message ${m.turn}`,
+                  // P-6: an edited message shows the agent's original under what went (§1.68).
+                  text: m.edited
+                    ? `${m.text}\n\nEdited by ${actorName(m.edited.by)}. The agent wrote: ${m.edited.original ?? "(written when sent)"}`
+                    : m.text,
+                  when: m.at ? shortTime(m.at) : (CONVERSE_STATUS[m.status] ?? m.status),
+                  meta:
+                    m.direction === "out"
+                      ? [m.model, m.costUsd && !isZero(m.costUsd) ? usd(m.costUsd) : null]
+                          .filter(Boolean)
+                          .join(" · ") || null
+                      : null,
+                })),
+                // P-6: who took it over or ended it, and why; no model call (§1.68).
+                ...(s.conversation.events ?? []).map((e, k) => ({
+                  key: `event-${k}`,
+                  direction: "out" as const,
+                  who: actorName(e.by),
+                  text: `${e.kind === "taken_over" ? "Took the conversation over" : "Ended the conversation"}${e.reason ? `: ${e.reason}` : ""}`,
+                  when: shortTime(e.at),
+                  meta: null,
+                })),
+              ]}
+            />
+          ) : null}
+          {s?.conversation &&
+          s.conversation.outcome === null &&
+          run.mode === "live" &&
+          onConversation ? (
+            <ConversationControls
+              testId={`ops-run-conversation-control-${r.key}`}
+              reasonRequired
+              words={{
+                takeOver: "Take over",
+                end: "End conversation",
+                reason: "Why (the client sees this)",
+                hint: "Take over: the agent sends nothing more and the answer comes to you. End: the step's on-reject applies. Day to day this is the client's; step in only when you must.",
+              }}
+              onAct={(action, reason) => onConversation(s.id, action, reason)}
             />
           ) : null}
           {failed && s ? (
@@ -517,7 +563,15 @@ const CONVERSE_STATUS: Record<string, string> = {
   not_approved: "not approved",
   not_sent: "not sent",
   sending: "sending",
+  // P-6
+  taken_over: "not sent: taken over",
+  ended: "not sent: ended",
 };
+
+/** P-6: a person on a conversation's transcript: us by name, or the client's person. */
+function actorName(by: { us: boolean; name: string | null }): string {
+  return by.us ? `${by.name ?? "Mezonas"} (Mezonas)` : (by.name ?? "the client");
+}
 
 function compact(value: unknown): string {
   if (value === null || value === undefined) return "—";

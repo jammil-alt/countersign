@@ -71,6 +71,8 @@ export * from "./api/runs-filter";
 export * from "./api/search";
 // v0.14 W4-C: the Slack channel picker
 export * from "./api/slack";
+// P-6
+export * from "./api/step-in";
 export * from "./api/supervisor";
 export * from "./api/table";
 // v0.12 W2-C: the test bench
@@ -130,6 +132,8 @@ export * from "./i18n/notify";
 // v0.13 W2-I
 export * from "./i18n/oversight";
 export * from "./i18n/release";
+// P-6
+export * from "./i18n/step-in";
 export * from "./i18n/supervisor";
 export * from "./i18n/threads";
 export * from "./i18n/timeline";
