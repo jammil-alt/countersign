@@ -1033,6 +1033,9 @@ export const usagePlatformDaily = pgTable(
     tokensIn: bigint("tokens_in", { mode: "number" }).notNull().default(0),
     tokensOut: bigint("tokens_out", { mode: "number" }).notNull().default(0),
     costUsd: usd("cost_usd"),
+    // P-7 (migration 0034): model translations no agent made (the background job, a person's own
+    // text); their tokens and cost are in the columns above with the readings'.
+    translations: integer("translations").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.tenantId, t.day] })],
 );
@@ -1554,6 +1557,9 @@ export const contact = pgTable(
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
+    // P-7 (migration 0034, docs/plan.md §1.69): this person's switch over the client's translation.
+    /** `{incoming?, outgoing?}`: `true` or `false` wins over the client's setting; absent follows it. */
+    translation: json<ContactTranslation>("translation").notNull().default({}),
   },
   (t) => [
     unique("contact_id_tenant_key").on(t.id, t.tenantId),
@@ -1752,6 +1758,144 @@ export const browserSiteVersion = pgTable(
   (t) => [
     unique("browser_site_version_site_version_key").on(t.siteId, t.version),
     check("browser_site_version_version_check", sql`${t.version} >= 1`),
+  ],
+);
+
+// ── P-7: message translation (migration 0034; docs/plan.md §1.69, ARCHITECTURE §5.7) ─────────────
+
+/** A contact's switch over the client's translation (docs/plan.md §1.69). */
+export interface ContactTranslation {
+  incoming?: boolean;
+  outgoing?: boolean;
+}
+
+export const TRANSLATION_DIRECTIONS = ["in", "out"] as const;
+export const TRANSLATION_STATUSES = [
+  "translated",
+  "skipped",
+  "capped",
+  "refused",
+  "failed",
+] as const;
+export const TRANSLATION_DETECTED_BY = ["rule", "model", "none"] as const;
+/** The six languages (core's LOCALES) and `unknown` for anything else. */
+export const TRANSLATION_LANGUAGES = ["en", "es", "fr", "pt-BR", "it", "de", "unknown"] as const;
+
+/**
+ * One translation attempt of one original (docs/plan.md §1.69): a raw record (a text, a WhatsApp
+ * message, an email reply), a thread message, or a reach-out's message a person wrote. Every
+ * outcome is a row, insert only (a trigger, like doc_extraction): the original is never touched and
+ * a retry is a new row. The text is the sender's words in another language: data, never
+ * instructions (invariant 9). Made by an agent: its version, run and step; by a person: who asked.
+ */
+export const messageTranslation = pgTable(
+  "message_translation",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    rawRecordId: uuid("raw_record_id"),
+    messageId: uuid("message_id"),
+    reachOutId: uuid("reach_out_id"),
+    /** Which text of the original: `text`, or a dotted path into a raw record's payload. */
+    field: text("field").notNull().default("text"),
+    direction: text("direction").$type<(typeof TRANSLATION_DIRECTIONS)[number]>().notNull(),
+    sourceLanguage: text("source_language")
+      .$type<(typeof TRANSLATION_LANGUAGES)[number]>()
+      .notNull(),
+    targetLanguage: text("target_language")
+      .$type<(typeof TRANSLATION_LANGUAGES)[number]>()
+      .notNull(),
+    detectedBy: text("detected_by").$type<(typeof TRANSLATION_DETECTED_BY)[number]>().notNull(),
+    status: text("status").$type<(typeof TRANSLATION_STATUSES)[number]>().notNull(),
+    /** Why it was skipped, capped, refused or failed, as a code (`same_language`, `contact_off`…). */
+    reason: text("reason"),
+    /** The translation; only when `translated`. */
+    text: text("text"),
+    originalChars: integer("original_chars").notNull().default(0),
+    /** Only the first part of a long original was translated. */
+    truncated: boolean("truncated").notNull().default(false),
+    model: text("model"),
+    tokensIn: integer("tokens_in").notNull().default(0),
+    tokensOut: integer("tokens_out").notNull().default(0),
+    costUsd: usd("cost_usd"),
+    agentVersionId: uuid("agent_version_id"),
+    runId: uuid("run_id"),
+    stepRunId: uuid("step_run_id"),
+    requestedBy: uuid("requested_by").references(() => appUser.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("message_translation_id_tenant_key").on(t.id, t.tenantId),
+    foreignKey({
+      name: "message_translation_raw_record_fk",
+      columns: [t.rawRecordId, t.tenantId],
+      foreignColumns: [rawRecord.id, rawRecord.tenantId],
+    }),
+    foreignKey({
+      name: "message_translation_message_fk",
+      columns: [t.messageId, t.tenantId],
+      foreignColumns: [message.id, message.tenantId],
+    }),
+    foreignKey({
+      name: "message_translation_reach_out_fk",
+      columns: [t.reachOutId, t.tenantId],
+      foreignColumns: [reachOut.id, reachOut.tenantId],
+    }),
+    foreignKey({
+      name: "message_translation_agent_version_fk",
+      columns: [t.agentVersionId, t.tenantId],
+      foreignColumns: [agentVersion.id, agentVersion.tenantId],
+    }),
+    foreignKey({
+      name: "message_translation_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    foreignKey({
+      name: "message_translation_step_run_fk",
+      columns: [t.stepRunId, t.tenantId],
+      foreignColumns: [stepRun.id, stepRun.tenantId],
+    }),
+    // One translation per original, field and language; every other outcome may repeat.
+    uniqueIndex("message_translation_raw_record_key")
+      .on(t.tenantId, t.rawRecordId, t.field, t.targetLanguage)
+      .where(sql`${t.status} = 'translated' and ${t.rawRecordId} is not null`),
+    uniqueIndex("message_translation_message_key")
+      .on(t.tenantId, t.messageId, t.field, t.targetLanguage)
+      .where(sql`${t.status} = 'translated' and ${t.messageId} is not null`),
+    index("message_translation_raw_record_idx").on(t.tenantId, t.rawRecordId),
+    index("message_translation_message_idx").on(t.tenantId, t.messageId),
+    index("message_translation_reach_out_idx").on(t.tenantId, t.reachOutId),
+    // The daily limit and the rollup: a client's rows by day.
+    index("message_translation_tenant_idx").on(t.tenantId, t.createdAt),
+    check(
+      "message_translation_source_check",
+      sql`num_nonnulls(${t.rawRecordId}, ${t.messageId}, ${t.reachOutId}) = 1`,
+    ),
+    check("message_translation_direction_check", oneOf(t.direction, TRANSLATION_DIRECTIONS)),
+    check("message_translation_status_check", oneOf(t.status, TRANSLATION_STATUSES)),
+    check("message_translation_detected_by_check", oneOf(t.detectedBy, TRANSLATION_DETECTED_BY)),
+    check(
+      "message_translation_source_language_check",
+      oneOf(t.sourceLanguage, TRANSLATION_LANGUAGES),
+    ),
+    check(
+      "message_translation_target_language_check",
+      sql`${t.targetLanguage} in ('en', 'es', 'fr', 'pt-BR', 'it', 'de')`,
+    ),
+    check(
+      "message_translation_text_check",
+      sql`(${t.status} = 'translated') = (${t.text} is not null)`,
+    ),
+    check("message_translation_field_check", sql`length(${t.field}) between 1 and 200`),
+    check(
+      "message_translation_amounts_check",
+      sql`${t.tokensIn} >= 0 and ${t.tokensOut} >= 0 and ${t.costUsd} >= 0 and ${t.originalChars} >= 0`,
+    ),
+    check(
+      "message_translation_step_check",
+      sql`${t.stepRunId} is null or (${t.runId} is not null and ${t.agentVersionId} is not null)`,
+    ),
   ],
 );
 
@@ -3336,6 +3480,8 @@ export const TENANT_TABLES = [
   // P-1 (0033): the shared alert table. The Materials pack's own tables are not listed here: the
   // platform never imports a pack; they carry the comment `pack:materials` (migrations.test.ts).
   "alert",
+  // P-7 (0034)
+  "message_translation",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
