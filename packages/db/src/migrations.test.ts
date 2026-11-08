@@ -132,17 +132,29 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     // P-1 (0032): the Materials pack's four tables are the only pack tables, and they are checked
     // for RLS below like every other.
     // P-5 (0033): its purchase requests and quotes are the pack's too.
+    // M43 (0037): the Marketing pack's tables.
     const packs = await packTables();
-    expect([...packs].sort()).toEqual([
-      "catalog_item",
-      "item_alias",
-      "item_match",
-      "price_observation",
-      "purchase_request",
-      "purchase_request_line",
-      "quote_line",
-      "quote_request",
-    ]);
+    expect([...packs].sort()).toEqual(
+      [
+        "catalog_item",
+        "item_alias",
+        "item_match",
+        "price_observation",
+        "purchase_request",
+        "purchase_request_line",
+        "quote_line",
+        "quote_request",
+        // M43 (0037): the Marketing pack's measured sites and what their visitors did.
+        "site",
+        "site_bot_daily",
+        "site_daily_click",
+        "site_daily_page",
+        "site_daily_total",
+        "site_event",
+        "site_salt",
+        "site_visit",
+      ].sort(),
+    );
     expect(
       rows
         .map((r) => r.relname)
@@ -273,6 +285,23 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     for (const table of ["automation", "automation_version", "test_case", "test_suite_run"]) {
       expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
     }
+    // M43 (0037): a site's settings change in place; a day's visits and totals are rebuilt by
+    // deleting and inserting them, and retention deletes raw events, old visits and spent salts.
+    expect(await can("site", "UPDATE")).toBe(true);
+    expect(await can("site", "DELETE")).toBe(false);
+    for (const table of [
+      "site_salt",
+      "site_event",
+      "site_visit",
+      "site_daily_page",
+      "site_daily_click",
+      "site_daily_total",
+    ]) {
+      expect(await can(table, "INSERT"), `${table} INSERT`).toBe(true);
+      expect(await can(table, "DELETE"), `${table} DELETE`).toBe(true);
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(false);
+    }
+    expect(await can("site_bot_daily", "UPDATE")).toBe(true);
     expect(await can("model_call", "UPDATE")).toBe(false);
     for (const table of [
       "usage_platform_daily",
