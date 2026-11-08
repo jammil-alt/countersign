@@ -46,6 +46,7 @@ import { gchatRoutes } from "./gchat";
 import { gsheetsRoutes } from "./gsheets";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
+import { ledgerRoutes } from "./ledger";
 // v0.12 W1-A: go-live stages and client controls
 import { lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
@@ -2039,6 +2040,8 @@ export const routes = {
   ...whatsappMetaRoutes,
   // P-1: packs (the Purchasing area's Materials pack), docs/plan.md §1.63.
   ...packRoutes,
+  // The back office's chart of accounts (docs/plan.md §1.79).
+  ...ledgerRoutes,
   // P-6: the client runs it, we step in (docs/plan.md §1.68).
   ...stepInRoutes,
   // P-7: message translation (docs/plan.md §1.69).

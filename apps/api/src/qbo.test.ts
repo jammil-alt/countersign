@@ -37,7 +37,7 @@ import {
 } from "@countersign/db";
 import { storeDocument } from "@countersign/documents";
 import { FakeModel } from "@countersign/llm";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import cdcFixture from "../../../fixtures/qbo/webhook-notification.json";
 import {
@@ -916,6 +916,106 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
       tenantId: H.A.tenantId,
     } as never).get();
     expect(opened).toMatchObject({ refreshToken: qbo.refreshToken });
+  });
+
+  it("lets the operator add and change accounts and classes in the chart, each signed, written once", async () => {
+    const ledger = j((await call(OPERATOR, "GET", `/api/ops/clients/${H.A.tenantId}/ledger`)).json);
+    const mine = ledger.ledgers.find(
+      (l: { connectionId: string }) => l.connectionId === connectionId,
+    );
+    const supplies = mine.accounts.find((a: { externalId: string }) => a.externalId === "84");
+    expect(supplies).toMatchObject({ name: "Shop Supplies", kind: "expense", syncToken: "2" });
+    expect(mine.dimensions.length).toBeGreaterThan(0);
+    // A client's people never reach it.
+    expect((await call(admin("a"), "GET", `/api/ops/clients/${H.A.tenantId}/ledger`)).status).toBe(
+      403,
+    );
+
+    const change = (
+      tool: string,
+      input: Record<string, unknown>,
+      requestId = crypto.randomUUID(),
+    ) =>
+      call(OPERATOR, "POST", `/api/ops/clients/${H.A.tenantId}/ledger/changes`, {
+        connectionId,
+        tool,
+        input,
+        requestId,
+      });
+    const requestId = crypto.randomUUID();
+    const added = await change(
+      "qbo.account.create",
+      { name: "Fuel", accountType: "Expense", number: "6120", description: "Gas for the vans" },
+      requestId,
+    );
+    expect(added.status, JSON.stringify(added.json)).toBe(200);
+    expect(j(added.json)).toMatchObject({ status: "done", output: { name: "Fuel" } });
+    const fuelId = j(added.json).output.id;
+    expect(qbo.get("Account", fuelId)).toMatchObject({ AccountType: "Expense", AcctNum: "6120" });
+    // A double click: the same request writes once.
+    expect(
+      j(
+        (await change("qbo.account.create", { name: "Fuel", accountType: "Expense" }, requestId))
+          .json,
+      ).status,
+    ).toBe("done");
+    const actions = await H.t.db
+      .select()
+      .from(externalAction)
+      .where(
+        and(
+          eq(externalAction.tenantId, H.A.tenantId),
+          eq(externalAction.tool, "qbo.account.create"),
+        ),
+      );
+    expect(actions).toHaveLength(1);
+    // Signed by the person who made it: approved by them, no run, no agent.
+    expect(actions[0]).toMatchObject({ status: "done", runId: null, agentVersionId: null });
+    expect(actions[0]?.approvedBy).toBeTruthy();
+
+    // A change on the version last synced; then the same version again is stale.
+    const renamed = await change("qbo.account.update", {
+      id: "84",
+      syncToken: "2",
+      name: "Shop supplies",
+    });
+    expect(j(renamed.json)).toMatchObject({ status: "done", output: { name: "Shop supplies" } });
+    const stale = await change("qbo.account.update", {
+      id: "84",
+      syncToken: "2",
+      description: "Glue",
+    });
+    expect(j(stale.json).status).toBe("failed");
+    expect(j(stale.json).error).toContain("changed in QuickBooks since it was read");
+    // A class, then its name taken again: refused before anything is written.
+    expect(j((await change("qbo.class.create", { name: "Remodels" })).json).status).toBe("done");
+    const dup = j((await change("qbo.class.create", { name: "Remodels" })).json);
+    expect(dup.status).toBe("failed");
+    expect(dup.error).toContain("already a class named Remodels");
+    // Only the ledger's writes: another tool is refused by the contract.
+    expect(
+      (
+        await call(OPERATOR, "POST", `/api/ops/clients/${H.A.tenantId}/ledger/changes`, {
+          connectionId,
+          tool: "qbo.bill.create",
+          input: {},
+          requestId: crypto.randomUUID(),
+        })
+      ).status,
+    ).toBe(400);
+    // The ledger catches up on the next sync.
+    await forgetClaims();
+    await sync();
+    const after = await H.t.db
+      .select()
+      .from(ledgerAccount)
+      .where(
+        and(
+          eq(ledgerAccount.tenantId, H.A.tenantId),
+          inArray(ledgerAccount.externalId, ["84", fuelId]),
+        ),
+      );
+    expect(after.map((a) => a.name).sort()).toEqual(["Fuel", "Shop supplies"]);
   });
 
   it("revokes the grant at Intuit when the client disconnects; syncs then stop", async () => {

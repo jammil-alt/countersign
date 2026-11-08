@@ -45,6 +45,7 @@ import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
 import { NewTemplateScreen, TemplatePage } from "./agents/TemplateScreens";
 import { ClientAgentsScreen } from "./client/ClientAgents";
+import { OpsClientLedgerScreen } from "./client/ClientLedger";
 import { ClientOverviewScreen } from "./client/ClientOverview";
 import { CommandCenterScreen } from "./command/CommandCenter";
 import { LabScreen } from "./lab/LabScreen";
@@ -111,6 +112,8 @@ export const opsRoutes = (
     <Route path="clients/:clientId/documents" element={<OpsDocumentsScreen />} />
     <Route path="clients/:clientId/documents/:documentId" element={<OpsDocumentScreen />} />
     <Route path="clients/:clientId/records" element={<OpsRecordsScreen />} />
+    {/* The client's chart of accounts, classes and locations, changed only with a signature */}
+    <Route path="clients/:clientId/ledger" element={<OpsClientLedgerScreen />} />
     <Route path="clients/:clientId/records/:recordId" element={<OpsRecordScreen />} />
     {/* Setup: Connections, Messaging, Directory and Knowledge */}
     <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
