@@ -131,12 +131,17 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       order by c.relname`;
     // P-1 (0032): the Materials pack's four tables are the only pack tables, and they are checked
     // for RLS below like every other.
+    // P-5 (0033): its purchase requests and quotes are the pack's too.
     const packs = await packTables();
     expect([...packs].sort()).toEqual([
       "catalog_item",
       "item_alias",
       "item_match",
       "price_observation",
+      "purchase_request",
+      "purchase_request_line",
+      "quote_line",
+      "quote_request",
     ]);
     expect(
       rows
@@ -224,6 +229,11 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "item_alias",
       "item_match",
       "price_observation",
+      // P-5 (0033): a request is cancelled or closed and a quote declined or expired, never deleted.
+      "purchase_request",
+      "purchase_request_line",
+      "quote_request",
+      "quote_line",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
@@ -245,6 +255,17 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     }
     expect(await can("item_match", "INSERT")).toBe(true);
     expect(await can("item_match", "UPDATE")).toBe(false);
+    // P-5 (0033): a request's status and fields, a quote's status and its lines change in place.
+    for (const table of [
+      "purchase_request",
+      "purchase_request_line",
+      "quote_request",
+      "quote_line",
+    ]) {
+      expect(await can(table, "SELECT"), `${table} SELECT`).toBe(true);
+      expect(await can(table, "INSERT"), `${table} INSERT`).toBe(true);
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
+    }
     for (const table of ["automation", "automation_version", "test_case", "test_suite_run"]) {
       expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
     }

@@ -8,15 +8,20 @@ import {
   agent,
   agentVersion,
   appUser,
+  connection,
+  contact,
   type Db,
   docExtraction,
   docLine,
   document,
   membership,
+  rawRecord,
   tenant,
   transaction,
+  transactionLine,
   vendor,
 } from "@countersign/db";
+import { and, eq } from "drizzle-orm";
 
 const BUNDLE: AgentBundle = {
   schemaVersion: 1,
@@ -57,6 +62,25 @@ export interface ShopFixture {
     lines: readonly InvoiceLine[],
     options?: InvoiceOptions,
   ): Promise<{ documentId: string; extractionId: string; lineIds: string[] }>;
+  /** P-5: a contact in the client's directory. */
+  contact(name: string): Promise<string>;
+  /**
+   * P-5: a QuickBooks bill as sync stores it: a raw record (Bill, its QBO payload) and the
+   * transaction mapped from it, with its lines. A later `syncToken` is the bill's next version.
+   */
+  qboBill(bill: QboBillFixture): Promise<{ rawRecordId: string; transactionId: string }>;
+}
+
+export interface QboBillFixture {
+  id: string;
+  vendorId: string;
+  vendorQboId?: string;
+  date: string;
+  syncToken?: string;
+  lines: (
+    | { id: string; item: string; description?: string; qty: number; unitPrice: number }
+    | { id: string; account: string; description?: string; amount: number }
+  )[];
 }
 
 export interface InvoiceOptions {
@@ -99,6 +123,8 @@ export async function insertShop(db: Db, name: string): Promise<ShopFixture> {
   if (!av) throw new Error("no agent version");
 
   const vendors = new Map<string, string>();
+  let qboConnectionId: string | null = null;
+  let contacts = 0;
   const shop: ShopFixture = {
     tenantId,
     userId: u.id,
@@ -183,6 +209,112 @@ export async function insertShop(db: Db, name: string): Promise<ShopFixture> {
         ids.push(dl.id);
       }
       return { documentId: d.id, extractionId: ex.id, lineIds: ids };
+    },
+    async contact(contactName) {
+      const [c] = await db
+        .insert(contact)
+        .values({
+          tenantId,
+          name: contactName,
+          phone: `+1555${String(++contacts).padStart(7, "0")}`,
+        })
+        .returning();
+      if (!c) throw new Error("no contact");
+      return c.id;
+    },
+    async qboBill(bill) {
+      if (!qboConnectionId) {
+        const [conn] = await db
+          .insert(connection)
+          .values({ tenantId, connector: "qbo", status: "connected", externalAccountId: "realm-1" })
+          .returning();
+        if (!conn) throw new Error("no connection");
+        qboConnectionId = conn.id;
+      }
+      const payload = {
+        Id: bill.id,
+        SyncToken: bill.syncToken ?? "0",
+        TxnDate: bill.date,
+        VendorRef: { value: bill.vendorQboId ?? "56", name: "Vendor" },
+        TotalAmt: 0,
+        Line: bill.lines.map((l, i) =>
+          "item" in l
+            ? {
+                Id: l.id,
+                LineNum: i + 1,
+                ...(l.description ? { Description: l.description } : {}),
+                Amount: l.qty * l.unitPrice,
+                DetailType: "ItemBasedExpenseLineDetail",
+                ItemBasedExpenseLineDetail: {
+                  ItemRef: { value: `${i + 10}`, name: l.item },
+                  Qty: l.qty,
+                  UnitPrice: l.unitPrice,
+                },
+              }
+            : {
+                Id: l.id,
+                LineNum: i + 1,
+                ...(l.description ? { Description: l.description } : {}),
+                Amount: l.amount,
+                DetailType: "AccountBasedExpenseLineDetail",
+                AccountBasedExpenseLineDetail: { AccountRef: { value: "7", name: l.account } },
+              },
+        ),
+      };
+      const [raw] = await db
+        .insert(rawRecord)
+        .values({
+          tenantId,
+          connectionId: qboConnectionId,
+          connector: "qbo",
+          entityType: "Bill",
+          externalId: bill.id,
+          externalVersion: bill.syncToken ?? "0",
+          payload,
+        })
+        .returning();
+      if (!raw) throw new Error("no raw record");
+      const externalId = `Bill:${bill.id}`;
+      const [existing] = await db
+        .select()
+        .from(transaction)
+        .where(and(eq(transaction.tenantId, tenantId), eq(transaction.externalId, externalId)));
+      let txId = existing?.id;
+      if (existing) {
+        await db
+          .update(transaction)
+          .set({ sourceRawRecordId: raw.id })
+          .where(eq(transaction.id, existing.id));
+      } else {
+        const [tx] = await db
+          .insert(transaction)
+          .values({
+            tenantId,
+            kind: "bill",
+            connector: "qbo",
+            vendorId: bill.vendorId,
+            txnDate: bill.date,
+            total: "0",
+            externalId,
+            sourceRawRecordId: raw.id,
+          })
+          .returning();
+        if (!tx) throw new Error("no transaction");
+        txId = tx.id;
+        for (const [i, l] of bill.lines.entries()) {
+          await db.insert(transactionLine).values({
+            tenantId,
+            transactionId: tx.id,
+            lineNo: i + 1,
+            detailType: "item" in l ? "item" : "account",
+            itemRef: "item" in l ? l.item : null,
+            accountRef: "item" in l ? null : l.account,
+            description: l.description ?? null,
+            amount: String("item" in l ? l.qty * l.unitPrice : l.amount),
+          });
+        }
+      }
+      return { rawRecordId: raw.id, transactionId: txId as string };
     },
   };
   return shop;

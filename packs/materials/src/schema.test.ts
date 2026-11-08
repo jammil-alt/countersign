@@ -1,8 +1,9 @@
-// Migration 0032 as the pack sees it: its tables match this pack's Drizzle schema, are marked as
-// the pack's, force row-level security, give the runtime no DELETE, keep one alias per key, and
-// one client never sees or writes another's catalog (CLAUDE.md invariant 1).
+// Migrations 0032 and 0033 as the pack sees them: its tables match this pack's Drizzle schema, are
+// marked as the pack's, force row-level security, give the runtime no DELETE, keep one alias per
+// key, and one client never sees or writes another's catalog, requests or quotes (CLAUDE.md
+// invariant 1). P-5 (0033): purchase requests, quotes, prices from QuickBooks bill lines.
 
-import { type Tx, withTenant, withTenants } from "@countersign/db";
+import { document, type Tx, withTenant, withTenants } from "@countersign/db";
 import {
   asWorker,
   createTestDatabase,
@@ -13,7 +14,17 @@ import { is, sql } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "./schema";
-import { catalogItem, itemAlias, itemMatch, MATERIALS_TABLES, priceObservation } from "./schema";
+import {
+  catalogItem,
+  itemAlias,
+  itemMatch,
+  MATERIALS_TABLES,
+  priceObservation,
+  purchaseRequest,
+  purchaseRequestLine,
+  quoteLine,
+  quoteRequest,
+} from "./schema";
 import { insertShop, type ShopFixture } from "./testing.test-helper";
 
 const online = await databaseAvailable();
@@ -83,7 +94,58 @@ describe.skipIf(!online)("materials tables (migration 0032)", () => {
       standardUom: "sheet",
       docLineId: lineId,
     });
-    return { vendorId, itemId: item.id, lineId };
+    // P-5: a request with one line, an RFQ to the vendor and its answer.
+    const [request] = await t.db
+      .insert(purchaseRequest)
+      .values({
+        tenantId: shop.tenantId,
+        channel: "sms",
+        requestedByContactId: await shop.contact("Sam Ortiz"),
+        neededBy: "2026-11-20",
+        fulfillment: "delivery",
+        agentVersionId: shop.agentVersionId,
+      })
+      .returning();
+    if (!request) throw new Error("no request");
+    const [requestLine] = await t.db
+      .insert(purchaseRequestLine)
+      .values({
+        tenantId: shop.tenantId,
+        purchaseRequestId: request.id,
+        lineNo: 1,
+        catalogItemId: item.id,
+        matchMethod: "rules",
+        description: "10 sheets 3/4 baltic birch",
+        qty: "10",
+        unit: "sheets",
+      })
+      .returning();
+    if (!requestLine) throw new Error("no request line");
+    const [quote] = await t.db
+      .insert(quoteRequest)
+      .values({ tenantId: shop.tenantId, purchaseRequestId: request.id, vendorId })
+      .returning();
+    if (!quote) throw new Error("no quote");
+    await t.db.insert(quoteLine).values({
+      tenantId: shop.tenantId,
+      quoteRequestId: quote.id,
+      purchaseRequestLineId: requestLine.id,
+      catalogItemId: item.id,
+      qty: "10",
+      unit: "SHT",
+      unitPrice: "61.2500",
+      unitPriceStd: "61.2500",
+      standardUom: "sheet",
+      leadTimeDays: 2,
+    });
+    return {
+      vendorId,
+      itemId: item.id,
+      lineId,
+      requestId: request.id,
+      requestLineId: requestLine.id,
+      quoteId: quote.id,
+    };
   }
 
   let rowsA: Awaited<ReturnType<typeof seedCatalog>>;
@@ -140,6 +202,18 @@ describe.skipIf(!online)("materials tables (migration 0032)", () => {
   });
 
   it("give the runtime no DELETE, and only inserts on matching decisions", async () => {
+    for (const table of [
+      "purchase_request",
+      "purchase_request_line",
+      "quote_request",
+      "quote_line",
+    ]) {
+      const update = (
+        await t.db.$client<{ ok: boolean }[]>`
+          select has_table_privilege('cs_runtime', ${table}, 'UPDATE') as ok`
+      )[0]?.ok;
+      expect(update, table).toBe(true);
+    }
     const can = async (table: string, privilege: string) =>
       (
         await t.db.$client<{ ok: boolean }[]>`
@@ -157,7 +231,7 @@ describe.skipIf(!online)("materials tables (migration 0032)", () => {
     expect(await can("item_match", "UPDATE")).toBe(false);
   });
 
-  it("a client session sees only its own catalog, aliases, matches and prices", async () => {
+  it("a client session sees only its own catalog, aliases, matches, prices, requests and quotes", async () => {
     await withTenant(t.db, A.tenantId, async (tx) => {
       await asWorker(tx);
       for (const table of MATERIALS_TABLES) {
@@ -256,5 +330,151 @@ describe.skipIf(!online)("materials tables (migration 0032)", () => {
       .set({ mergedIntoId: other.id })
       .where(sql`${catalogItem.id} = ${first.id}`);
     expect(await errorCode(item("hardware|blum|71b3550|nickel"))).toBeUndefined();
+  });
+  it("never lets a request, quote or quote line point at another client's rows", async () => {
+    // Past RLS (superuser): the composite foreign keys alone refuse each.
+    expect(
+      await errorCode(
+        t.db.insert(purchaseRequestLine).values({
+          tenantId: A.tenantId,
+          purchaseRequestId: rowsB.requestId,
+          lineNo: 9,
+          description: "x",
+          qty: "1",
+        }),
+      ),
+    ).toBe("23503");
+    expect(
+      await errorCode(
+        t.db.insert(quoteRequest).values({
+          tenantId: A.tenantId,
+          purchaseRequestId: rowsA.requestId,
+          vendorId: rowsB.vendorId,
+        }),
+      ),
+    ).toBe("23503");
+    expect(
+      await errorCode(
+        t.db.insert(quoteLine).values({
+          tenantId: A.tenantId,
+          quoteRequestId: rowsA.quoteId,
+          purchaseRequestLineId: rowsB.requestLineId,
+        }),
+      ),
+    ).toBe("23503");
+  });
+
+  it("checks statuses, channels, quantities and one RFQ per vendor", async () => {
+    const request = (values: Record<string, unknown>) =>
+      errorCode(
+        t.db
+          .insert(purchaseRequest)
+          .values({ tenantId: A.tenantId, channel: "email", ...values } as never),
+      );
+    expect(await request({ status: "shipped" })).toBe("23514");
+    expect(await request({ channel: "fax" })).toBe("23514");
+    expect(await request({ fulfillment: "drone" })).toBe("23514");
+    expect(await request({ orderConnector: "qbo" })).toBe("23514");
+    expect(
+      await request({ requestedByContactId: await A.contact("x"), requestedByUserId: A.userId }),
+    ).toBe("23514");
+    expect(await request({ orderConnector: "qbo", orderExternalId: "PO-1" })).toBeUndefined();
+    expect(
+      await errorCode(
+        t.db.insert(purchaseRequestLine).values({
+          tenantId: A.tenantId,
+          purchaseRequestId: rowsA.requestId,
+          lineNo: 2,
+          description: "nothing",
+          qty: "0",
+        }),
+      ),
+    ).toBe("23514");
+    // A matched line says how it was matched.
+    expect(
+      await errorCode(
+        t.db.insert(purchaseRequestLine).values({
+          tenantId: A.tenantId,
+          purchaseRequestId: rowsA.requestId,
+          lineNo: 2,
+          catalogItemId: rowsA.itemId,
+          description: "x",
+          qty: "1",
+        }),
+      ),
+    ).toBe("23514");
+    expect(
+      await errorCode(
+        t.db.insert(quoteRequest).values({
+          tenantId: A.tenantId,
+          purchaseRequestId: rowsA.requestId,
+          vendorId: rowsA.vendorId,
+        }),
+      ),
+    ).toBe("23505");
+    expect(
+      await errorCode(
+        t.db
+          .update(quoteRequest)
+          .set({ status: "lost" as never })
+          .where(sql`${quoteRequest.id} = ${rowsA.quoteId}`),
+      ),
+    ).toBe("23514");
+    // A standard-unit price names its unit.
+    expect(
+      await errorCode(
+        t.db
+          .update(quoteLine)
+          .set({ standardUom: null })
+          .where(sql`${quoteLine.quoteRequestId} = ${rowsA.quoteId}`),
+      ),
+    ).toBe("23514");
+  });
+
+  it("keeps one price per QuickBooks bill line version, and allows doc-line prices beside them", async () => {
+    const bill = await A.qboBill({
+      id: "301",
+      vendorId: rowsA.vendorId,
+      date: "2026-10-02",
+      lines: [{ id: "1", item: "BB 3/4", qty: 5, unitPrice: 60 }],
+    });
+    const price = (rawLineId: string | null, rawRecordId: string | null = bill.rawRecordId) =>
+      errorCode(
+        t.db.insert(priceObservation).values({
+          tenantId: A.tenantId,
+          catalogItemId: rowsA.itemId,
+          vendorId: rowsA.vendorId,
+          observedOn: "2026-10-02",
+          unitPriceStd: "60",
+          qtyStd: "5",
+          standardUom: "sheet",
+          transactionId: bill.transactionId,
+          rawRecordId,
+          rawLineId,
+        }),
+      );
+    expect(await price("1")).toBeUndefined();
+    expect(await price("1")).toBe("23505");
+    expect(await price("2")).toBeUndefined();
+    expect(await price(null)).toBe("23514");
+    expect(await price(null, null)).toBeUndefined();
+    expect(await price(null, null)).toBeUndefined();
+  });
+
+  it("lets a document be one a tool generated", async () => {
+    const insert = (source: string) =>
+      errorCode(
+        t.db.insert(document).values({
+          tenantId: A.tenantId,
+          source: source as never,
+          storageKey: `tenants/${A.tenantId}/content/ab/${source}`,
+          mimeType: "application/pdf",
+          filename: "PO.pdf",
+          sizeBytes: 10,
+          sha256: (source === "generated" ? "b" : "c").repeat(64),
+        }),
+      );
+    expect(await insert("generated")).toBeUndefined();
+    expect(await insert("made-up")).toBe("23514");
   });
 });

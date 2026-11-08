@@ -232,6 +232,13 @@
       "when": 1794086635000,
       "tag": "0032_materials",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794094982034,
+      "tag": "0033_purchasing",
+      "breakpoints": true
     }
   ]
 }
