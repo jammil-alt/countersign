@@ -59,7 +59,7 @@ jobs:
 
   check:
     runs-on: ubuntu-latest
-    # The api suite has grown (P-1..P-6): runs took 15-16 minutes on 2026-11-08. Split it before raising again.
+    # A full run takes about 8 minutes (2026-11-08); the limit leaves room for a slow runner.
     timeout-minutes: 30
     services:
       postgres:
@@ -142,9 +142,13 @@ jobs:
         env:
           LLM_MODE: replay
 
+      # `!countersign` leaves out the repo root: a change to a root file (CLAUDE.md, docs/) selects
+      # it, and its own `test` is `pnpm -r test`, which ran every package a second time alongside
+      # these, on the same database (14-16 minute runs on 2026-11-08). Root files that aren't docs
+      # already test everything (`What to test` above).
       - name: Tests (changed packages and their dependents)
         if: steps.scope.outputs.tests == 'affected'
-        run: pnpm --filter "...[origin/${{ inputs.base }}]" test
+        run: pnpm --filter "...[origin/${{ inputs.base }}]" --filter '!countersign' test
         env:
           LLM_MODE: replay
 
