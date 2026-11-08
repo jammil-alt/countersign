@@ -94,6 +94,9 @@ import { runControlRoutes } from "./routes/run-controls";
 import { sessionRoutes } from "./routes/session";
 // v0.14 W4-C: the Slack channel picker
 import { slackRoutes } from "./routes/slack";
+// v0.14 W4-A
+// P-6
+import { stepInRouteHandlers } from "./routes/step-in";
 import { supervisorRouteHandlers } from "./routes/supervisor";
 import { tableRouteHandlers } from "./routes/table";
 // v0.12 W2-C
@@ -107,7 +110,6 @@ import { twilioVoiceRoutes } from "./routes/twilio-voice";
 import { usageRouteHandlers } from "./routes/usage";
 import { voiceHookRoutes } from "./routes/voice-hooks";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
-// v0.14 W4-A
 import { whatsappMetaRoutes } from "./routes/whatsapp-meta";
 // v0.14 W4-B
 import { zohoRoutes } from "./routes/zoho";
@@ -211,6 +213,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   conversationRouteHandlers(app);
   // v0.14 W4-A: WhatsApp through Meta (the webhook and the groups setting)
   whatsappMetaRoutes(app);
+  // P-6: the client runs it, we step in (docs/plan.md §1.68)
+  stepInRouteHandlers(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));

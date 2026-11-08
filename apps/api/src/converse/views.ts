@@ -5,7 +5,9 @@
 // `converse:<run>:<key>`) of one run of one client.
 
 import {
+  type ConverseActor,
   type ConverseChannel,
+  type ConverseEvent,
   type ConverseOpsView,
   type ConverseOutcome,
   type ConversePortalView,
@@ -13,8 +15,8 @@ import {
   pickMessage,
   type ReachReply,
 } from "@countersign/core";
-import { reachOut, type Tx } from "@countersign/db";
-import { and, eq, like } from "drizzle-orm";
+import { appUser, reachOut, type Tx } from "@countersign/db";
+import { and, eq, inArray, like } from "drizzle-orm";
 
 interface Meta {
   key: string;
@@ -28,6 +30,32 @@ interface Meta {
     contactName: string;
   };
   end?: { outcome: ConverseOutcome };
+  // P-6: take-overs and ends, kept on the row that was current then (docs/plan.md §1.68).
+  events?: StoredEvent[];
+}
+
+// P-6: what a row keeps of people stepping in and editing (docs/plan.md §1.68).
+/** A take-over or an end, as stored: who by id, and whether it was us (the operator). */
+export interface StoredEvent {
+  kind: ConverseEvent["kind"];
+  at: string;
+  by: string;
+  byUs: boolean;
+  reason: string | null;
+}
+
+/** A message changed before it was approved: the agent's text kept as `original`. */
+export interface StoredEdit {
+  original: string | null;
+  text: string;
+  by: string;
+  byUs: boolean;
+  at: string;
+}
+
+function editOf(row: Row): StoredEdit | null {
+  const plan = row.plan as { edited?: StoredEdit } | null;
+  return plan?.edited ?? null;
 }
 
 type Row = typeof reachOut.$inferSelect;
@@ -57,9 +85,17 @@ function statusOf(row: Row): string {
   if (sentAt(row)) return "sent";
   if (row.status === "awaiting_approval") return "waiting_for_approval";
   if (row.status === "open" && row.nextAttemptAt) return "held_for_quiet_hours";
+  // P-6: a message a person took over from, or ended, before it went.
+  if (row.outcome === "declined" && row.reason?.startsWith(TAKEN_OVER)) return "taken_over";
+  if (row.outcome === "declined" && row.reason?.startsWith(ENDED)) return "ended";
   if (row.outcome === "declined") return "not_approved";
   return row.status === "ended" ? "not_sent" : "sending";
 }
+
+/** The reason a message ends with when a person takes the conversation over (P-6). */
+export const TAKEN_OVER = "taken over";
+/** The reason a message ends with when a person ends the conversation (P-6). */
+export const ENDED = "ended by";
 
 /** A run's conversations, by the step run they belong to. */
 export async function runConversations(
@@ -83,6 +119,25 @@ export async function runConversations(
     list.push(r);
     bySubject.set(r.subject, list);
   }
+  // P-6: the names of the people who edited, took over or ended (the back office sees them all).
+  const people = new Set<string>();
+  for (const r of rows) {
+    const e = editOf(r);
+    if (e) people.add(e.by);
+    for (const ev of metaOf(r)?.events ?? []) people.add(ev.by);
+  }
+  const names = new Map<string, string | null>();
+  if (people.size > 0) {
+    const found = await tx
+      .select({ id: appUser.id, name: appUser.name, email: appUser.email })
+      .from(appUser)
+      .where(inArray(appUser.id, [...people]));
+    for (const u of found) names.set(u.id, u.name ?? u.email);
+  }
+  const actor = (by: string, byUs: boolean): ConverseActor => ({
+    us: byUs,
+    name: names.get(by) ?? null,
+  });
   const out = new Map<string, ConverseOpsView>();
   for (const list of bySubject.values()) {
     list.sort((a, b) => (metaOf(a)?.turn ?? 0) - (metaOf(b)?.turn ?? 0));
@@ -90,6 +145,7 @@ export async function runConversations(
     const setup = first ? metaOf(first)?.setup : undefined;
     if (!first?.stepRunId || !setup) continue;
     const messages: ConverseOpsView["messages"] = [];
+    const events: ConverseEvent[] = [];
     let cost = new Decimal(0);
     let outcome: ConverseOutcome | null = null;
     for (const r of list) {
@@ -105,7 +161,15 @@ export async function runConversations(
         status: statusOf(r),
         ...(meta.model ? { model: meta.model } : {}),
         ...(meta.costUsd ? { costUsd: meta.costUsd } : {}),
+        // P-6: edited before it was approved: the agent's text and who changed it.
+        ...(() => {
+          const e = editOf(r);
+          return e ? { edited: { original: e.original, by: actor(e.by, e.byUs), at: e.at } } : {};
+        })(),
       });
+      for (const ev of meta.events ?? []) {
+        events.push({ kind: ev.kind, at: ev.at, by: actor(ev.by, ev.byUs), reason: ev.reason });
+      }
       const reply = r.reply as ReachReply | null;
       if (reply) {
         messages.push({
@@ -123,17 +187,34 @@ export async function runConversations(
       outcome,
       messages,
       costUsd: cost.toFixed(4),
+      ...(events.length ? { events } : {}),
     });
   }
   return out;
 }
 
 /** The portal's: only what was said and when (no drafts awaiting a signature, no model, no cost). */
-export function portalConversation(view: ConverseOpsView | undefined): ConversePortalView {
+export function portalConversation(
+  view: ConverseOpsView | undefined,
+  // P-6: whether this person may take the conversation over or end it (its approver).
+  mayControl = false,
+): ConversePortalView {
   if (!view) return { messages: [] };
+  // P-6: the portal never names our people: "Mezonas" (the screens' words) when it was us.
+  const portalActor = (a: ConverseActor): ConverseActor => (a.us ? { us: true, name: null } : a);
   return {
     messages: view.messages
       .filter((m) => m.direction === "in" || m.status === "sent")
-      .map((m) => ({ direction: m.direction, text: m.text, at: m.at })),
+      .map((m) => ({
+        direction: m.direction,
+        text: m.text,
+        at: m.at,
+        ...(m.edited ? { edited: { by: portalActor(m.edited.by) } } : {}),
+      })),
+    ...(view.events?.length
+      ? { events: view.events.map((e) => ({ ...e, by: portalActor(e.by) })) }
+      : {}),
+    live: view.outcome === null,
+    ...(mayControl && view.outcome === null ? { mayControl: true } : {}),
   };
 }

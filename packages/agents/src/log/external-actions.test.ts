@@ -52,4 +52,15 @@ describe("mayResolve", () => {
     expect(mayResolve(item("operator"), { ...member, sandbox: true })).toBe(false);
     expect(mayResolve(item("client_admin"), { ...member, sandbox: true })).toBe(false);
   });
+
+  // P-6 (docs/plan.md §1.68): stepping in is set only by the back office's step-in route.
+  it("lets the operator stepping in resolve any item of the client, and means nothing for others", () => {
+    const steppingIn: Approver = { ...operator, steppingIn: true };
+    for (const i of [item("client_admin"), item("client_user"), item(null), item(null, "usr")]) {
+      expect(mayResolve(i, steppingIn)).toBe(true);
+      expect(mayResolve(i, operator)).toBe(false);
+    }
+    expect(mayResolve(item("client_admin"), { ...member, steppingIn: true })).toBe(false);
+    expect(mayResolve(item("operator"), { ...admin, steppingIn: true })).toBe(false);
+  });
 });

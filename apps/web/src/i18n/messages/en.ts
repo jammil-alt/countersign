@@ -389,6 +389,23 @@ export const en = {
   // P-4: a conversation on the run timeline
   "run.conversation.sent": "Sent",
   "run.conversation.reply": "Reply",
+  // P-6: stepping in, taking a conversation over, editing a message (docs/plan.md §1.68)
+  "run.conversation.takenOver": "{who} took the conversation over",
+  "run.conversation.ended": "{who} ended the conversation",
+  "run.conversation.editedBy": "Edited by {who} before it went",
+  "run.conversation.takenOverByUs": "We took the conversation over",
+  "run.conversation.endedByUs": "We ended the conversation",
+  "run.conversation.editedByUs": "We changed this before it went",
+  "run.conversation.takeOver": "Take over",
+  "run.conversation.end": "End conversation",
+  "run.conversation.reason": "Why (optional)",
+  "run.conversation.controlHint":
+    "Take over: the agent sends nothing more and the question comes to your Desk. End: the agent stops here.",
+  "desk.steppedIn": "We stepped in: {reason}",
+  "desk.passedToYou": "We passed this to you: {reason}",
+  "desk.editMessage": "Change the message",
+  "desk.editMessageSave": "Save the message",
+  "desk.messageEdited": "You changed this message. What you approve is exactly what goes.",
   "step.status.pending": "Not started",
   "step.status.running": "Running",
   "step.status.waiting": "Waiting",

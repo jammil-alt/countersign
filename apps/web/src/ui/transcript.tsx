@@ -10,6 +10,13 @@ export interface TranscriptLine {
   text: string;
   when?: string | null | undefined;
   meta?: string | null | undefined;
+  /**
+   * P-6: a person's action rather than a message: someone took the conversation over or ended it
+   * (§1.68). People carry copper (brand book), whoever sent it.
+   */
+  person?: boolean | undefined;
+  /** P-6: `meta` is a person's doing (they changed the message before it went): copper. */
+  metaPerson?: boolean | undefined;
 }
 
 export function Transcript({
@@ -27,13 +34,17 @@ export function Transcript({
           key={l.key}
           className={cx(
             "rounded-md border px-3 py-2 text-sm",
-            l.direction === "in" ? "border-copper bg-copper-tint" : "border-line",
+            l.direction === "in" || l.person ? "border-copper bg-copper-tint" : "border-line",
           )}
         >
           <span className="flex flex-wrap items-baseline gap-2 text-xs text-ink-muted">
-            <span className={l.direction === "in" ? "text-copper-ink" : "text-ink"}>{l.who}</span>
+            <span className={l.direction === "in" || l.person ? "text-copper-ink" : "text-ink"}>
+              {l.who}
+            </span>
             {l.when ? <span>{l.when}</span> : null}
-            {l.meta ? <span className="figures">{l.meta}</span> : null}
+            {l.meta ? (
+              <span className={cx("figures", l.metaPerson && "text-copper-ink")}>{l.meta}</span>
+            ) : null}
           </span>
           <span className="block whitespace-pre-wrap text-ink">{l.text}</span>
         </li>

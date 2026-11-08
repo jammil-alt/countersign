@@ -4,6 +4,7 @@
 // responses are parsed against contract schemas that have no such fields, and free-form payloads
 // are scrubbed besides.
 
+import type { Approver } from "@countersign/agents";
 import type { Session } from "@countersign/auth";
 import {
   applyMatrixChange,
@@ -48,6 +49,8 @@ import { and, desc, eq, inArray, isNull, ne, or, type SQL, sql } from "drizzle-o
 import type { Hono } from "hono";
 import { changeDisplay, clientTitles, itemDisplay, plainTitle } from "../change-display";
 import { syncedRefNames } from "../change-names";
+// P-6
+import { mayControlConversation } from "../converse/control";
 // P-4
 import { portalConversation, runConversations } from "../converse/views";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
@@ -64,6 +67,7 @@ import {
 } from "../runs/client-status";
 import { dispatchEvents } from "../runs/dispatch";
 import { runSubjects, sourceNames } from "../runs/subject";
+import { steppedInOf } from "../step-in/service";
 import { clientDescription } from "../weekly/stats";
 import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
 import { matrixEdit } from "./mappers";
@@ -151,7 +155,11 @@ export async function portalItems(tx: Tx, rows: InboxRow[], platform: Platform) 
     dueAt: iso(i.dueAt),
     createdAt: i.createdAt.toISOString(),
     resolvedAt: iso(i.resolvedAt),
-    resolvedBy: i.resolvedBy ? { id: i.resolvedBy, name: names.get(i.resolvedBy) ?? null } : null,
+    // P-6: when we stepped in, the portal names no person of ours (docs/plan.md §1.68).
+    resolvedBy: i.resolvedBy
+      ? { id: i.resolvedBy, name: steppedInOf(i) ? null : (names.get(i.resolvedBy) ?? null) }
+      : null,
+    steppedIn: steppedInOf(i),
     // v0.12 W1-D: the Desk's undo window, snooze and batch.
     deliverAfter: iso(i.deliverAfter),
     snoozedUntil: iso(i.snoozedUntil),
@@ -384,7 +392,14 @@ export async function portalConnections(
  * A run's client timeline, as `GET /api/runs/:id` returns it: visible steps, approvals and
  * changes. v0.12 W2-D: a function, so Sloan's `account.run` reads exactly what the portal shows.
  */
-export async function portalRunView(tx: Tx, tenantId: string, runId: string, platform: Platform) {
+export async function portalRunView(
+  tx: Tx,
+  tenantId: string,
+  runId: string,
+  platform: Platform,
+  // P-6: the person looking, for whether they may take a live conversation over (§1.68).
+  viewer?: Approver,
+) {
   // Test runs are hidden from the portal (ARCHITECTURE §10.4).
   const [summary] = await runSummaries(tx, tenantId, [eq(run.id, runId)], 1, platform);
   if (!summary) throw notFound("run");
@@ -418,6 +433,18 @@ export async function portalRunView(tx: Tx, tenantId: string, runId: string, pla
   const oversight = await timelineOversight(tx, tenantId, runId, platform, workflow);
   // P-4: the client's side of each conversation step, never a prompt, model or cost (§1.66).
   const conversations = await runConversations(tx, tenantId, runId);
+  // P-6: which live conversations this person approves, so may take over or end (§1.68).
+  const controls = new Set<string>();
+  if (viewer) {
+    for (const [stepRunId, view] of conversations) {
+      if (
+        view.outcome === null &&
+        (await mayControlConversation(tx, tenantId, runId, stepRunId, viewer))
+      ) {
+        controls.add(stepRunId);
+      }
+    }
+  }
   const timeline = steps.flatMap((s) => {
     const step = stepOfNode(lookup, s.nodeId);
     // Unknown nodes (agent tasks, internal bookkeeping) are internal steps: not shown.
@@ -437,7 +464,7 @@ export async function portalRunView(tx: Tx, tenantId: string, runId: string, pla
         ...(oversight.has(s.id) ? { oversight: oversight.get(s.id) } : {}),
         // P-4
         ...(conversations.has(s.id)
-          ? { conversation: portalConversation(conversations.get(s.id)) }
+          ? { conversation: portalConversation(conversations.get(s.id), controls.has(s.id)) }
           : {}),
       },
     ];
@@ -473,8 +500,12 @@ export async function portalRunView(tx: Tx, tenantId: string, runId: string, pla
       title: titles.get(i.id) ?? plainTitle(i),
       status: i.status,
       approved: i.status === "resolved" ? approved : null,
-      by: i.resolvedBy ? { id: i.resolvedBy, name: names.get(i.resolvedBy) ?? null } : null,
+      // P-6: "We stepped in" when we did: never our person's name.
+      by: i.resolvedBy
+        ? { id: i.resolvedBy, name: steppedInOf(i) ? null : (names.get(i.resolvedBy) ?? null) }
+        : null,
       resolvedAt: iso(i.resolvedAt),
+      steppedIn: steppedInOf(i),
     };
   });
 
@@ -632,8 +663,9 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     return { runs, perDay: await clientRunsPerDay(tx, scope, t?.timezone ?? "UTC") };
   });
 
-  mount(app, routes.portalRun, async ({ tx, tenantIds, params, services }) =>
-    portalRunView(tx, tenantIds[0] as string, params.id, services.platform),
+  mount(app, routes.portalRun, async ({ tx, tenantIds, params, services, session, role }) =>
+    // P-6: the viewer, for the conversations they may take over (docs/plan.md §1.68).
+    portalRunView(tx, tenantIds[0] as string, params.id, services.platform, by(session, role)),
   );
 
   mount(app, routes.portalConnections, async ({ tx, tenantIds, services, session }) => ({

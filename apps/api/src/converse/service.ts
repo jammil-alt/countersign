@@ -12,6 +12,7 @@
 // (invariant 1).
 
 import {
+  type ApprovalRouting,
   type ConverseTurnResult,
   checkAgainst,
   converseMaxChars,
@@ -83,13 +84,14 @@ import {
   reachOutEventType,
   type StoredPlan,
 } from "../reach/service";
+import type { StoredEvent } from "./views";
 
 export type ConverseDeps = ReachDeps;
 
 // ── What a conversation keeps on its message rows ───────────────────────────────────────────────
 
 /** Fixed when the conversation starts: kept on its first message's row. */
-interface ConverseSetup {
+export interface ConverseSetup {
   input: ConverseInput;
   contactId: string;
   contactName: string;
@@ -104,7 +106,7 @@ interface ConverseSetup {
 }
 
 /** `reach_out.plan.converse`: the turn that wrote this message. */
-interface ConverseMeta {
+export interface ConverseMeta {
   key: string;
   turn: number;
   kind: "ask" | "confirm" | "closing";
@@ -120,17 +122,19 @@ interface ConverseMeta {
   handover?: { inboxItemId: string; reason: string };
   /** How it ended, once it did: a retried step returns this again. */
   end?: { outcome: ConverseOutcome; result: unknown; confirmed: boolean; reason: string | null };
+  // P-6: a person took the conversation over or ended it (docs/plan.md §1.68).
+  events?: StoredEvent[];
 }
 
-type ConversePlan = StoredPlan & { converse: ConverseMeta };
+export type ConversePlan = StoredPlan & { converse: ConverseMeta };
 
-function planOf(row: ReachOutRow): ConversePlan {
+export function planOf(row: ReachOutRow): ConversePlan {
   return row.plan as unknown as ConversePlan;
 }
-function metaOf(row: ReachOutRow): ConverseMeta {
+export function metaOf(row: ReachOutRow): ConverseMeta {
   return planOf(row).converse;
 }
-function sentAt(row: ReachOutRow): string | null {
+export function sentAt(row: ReachOutRow): string | null {
   const a = ((row.attempts ?? []) as { status?: string; at?: string }[]).find(
     (x) => x.status === "sent",
   );
@@ -142,6 +146,100 @@ function textOf(row: ReachOutRow): string {
 }
 
 /** What the step's waits and approvals carry: the conversation's key, and what they wait on. */
+/** Fixed when the conversation started: on its first message's row. */
+export function setupOf(rows: ReachOutRow[]): ConverseSetup {
+  const setup = rows[0] ? metaOf(rows[0]).setup : undefined;
+  if (!setup) throw new Error("the conversation has no setup");
+  return setup;
+}
+
+/** Who is talking, as the transcript reads it. */
+export function transcriptOf(rows: ReachOutRow[]): ConverseLine[] {
+  const lines: ConverseLine[] = [];
+  for (const r of rows) {
+    const at = sentAt(r);
+    if (at) lines.push({ direction: "out", text: textOf(r), at, sourceId: r.id });
+    const reply = r.reply as ReachReply | null;
+    if (reply) {
+      lines.push({
+        direction: "in",
+        text: reply.text,
+        at: reply.at,
+        sourceId: reply.rawRecordId ?? r.id,
+      });
+    }
+  }
+  return lines;
+}
+
+/**
+ * The inbox item a conversation handed to a person waits on (`kind: request`, subject
+ * `conversation_handover`): the goal, what is known and the transcript, their words marked as
+ * theirs. Shared by the hand-over a limit makes and a person taking the conversation over (P-6).
+ */
+export function handoverItemValues(input: {
+  info: Pick<RunInfo, "id" | "tenantId" | "agentId" | "mode">;
+  nodeId: string;
+  key: string;
+  rows: ReachOutRow[];
+  reason: string;
+  proposed: unknown;
+  assignee: {
+    assigneeRole: "operator" | "client_admin" | "client_user" | null;
+    assigneeUserId: string | null;
+  };
+  dueAt: Date;
+  title?: string;
+}) {
+  const { info, rows } = input;
+  const setup = setupOf(rows);
+  const transcript = transcriptOf(rows).map((l) => ({
+    from: l.direction === "out" ? "agent" : "them",
+    text: l.text,
+    at: l.at,
+    ...(l.direction === "in" ? { theirWords: true } : {}),
+  }));
+  return {
+    tenantId: info.tenantId,
+    kind: "request" as const,
+    agentId: info.agentId,
+    subjectType: CONVERSE_HANDOVER_SUBJECT,
+    subjectId: info.id,
+    runId: info.id,
+    ...input.assignee,
+    title: (
+      input.title ?? `Take over the conversation with ${setup.contactName}: ${input.reason}`
+    ).slice(0, 200),
+    payload: {
+      mode: "ask",
+      nodeId: input.nodeId,
+      question: `Finish this with ${setup.contactName}: ${setup.input.goal}`.slice(0, 500),
+      converse: {
+        key: input.key,
+        who: { id: setup.contactId, name: setup.contactName },
+        channel: setup.input.channel,
+        goal: setup.input.goal,
+        reason: input.reason,
+        proposed: (input.proposed ?? null) as JsonObject[string],
+        fields: Object.keys((setup.input.result.properties as Record<string, unknown>) ?? {}),
+        transcript,
+      },
+      sources: setup.input.about,
+      ...(info.mode === "test" ? { testRun: true } : {}),
+    } as JsonObject,
+    dueAt: input.dueAt,
+  };
+}
+
+/** The open hand-over item's place on the conversation's last row (P-6 shares it). */
+export function withHandover(row: ReachOutRow, inboxItemId: string, reason: string) {
+  const plan = planOf(row);
+  return json({
+    ...plan,
+    converse: { ...plan.converse, handover: { inboxItemId, reason } },
+  });
+}
+
 export interface ConverseState {
   converse: { key: string; reachOutId?: string; handover?: string };
 }
@@ -166,7 +264,7 @@ function clientQuietHours(settings: unknown) {
   return q.success ? q.data : DEFAULT_QUIET_HOURS;
 }
 
-function json(value: unknown): Record<string, unknown> {
+export function json(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
@@ -206,31 +304,6 @@ export function conversePort(deps: ConverseDeps): ConversePort {
         )
         .orderBy(asc(reachOut.createdAt)),
     ).then((rows) => rows.sort((a, b) => metaOf(a).turn - metaOf(b).turn));
-
-  const setupOf = (rows: ReachOutRow[]): ConverseSetup => {
-    const setup = rows[0] ? metaOf(rows[0]).setup : undefined;
-    if (!setup) throw new Error("the conversation has no setup");
-    return setup;
-  };
-
-  /** Who is talking, as the transcript reads it. */
-  const transcriptOf = (rows: ReachOutRow[]): ConverseLine[] => {
-    const lines: ConverseLine[] = [];
-    for (const r of rows) {
-      const at = sentAt(r);
-      if (at) lines.push({ direction: "out", text: textOf(r), at, sourceId: r.id });
-      const reply = r.reply as ReachReply | null;
-      if (reply) {
-        lines.push({
-          direction: "in",
-          text: reply.text,
-          at: reply.at,
-          sourceId: reply.rawRecordId ?? r.id,
-        });
-      }
-    }
-    return lines;
-  };
 
   const outputOf = (
     rows: ReachOutRow[],
@@ -274,7 +347,7 @@ export function conversePort(deps: ConverseDeps): ConversePort {
         })
         .where(and(eq(reachOut.id, last.id), eq(reachOut.tenantId, last.tenantId)));
     });
-    return { kind: "done", output: outputOf(rows, end) };
+    return doneWith(outputOf(rows, end));
   };
 
   /**
@@ -298,53 +371,25 @@ export function conversePort(deps: ConverseDeps): ConversePort {
     const t = now();
     const itemId = await withTenant(db, info.tenantId, async (tx) => {
       const { assignee } = await approverFor(tx, place, setup);
-      const transcript = transcriptOf(rows).map((l) => ({
-        from: l.direction === "out" ? "agent" : "them",
-        text: l.text,
-        at: l.at,
-        ...(l.direction === "in" ? { theirWords: true } : {}),
-      }));
       const [item] = await tx
         .insert(inboxItem)
-        .values({
-          tenantId: info.tenantId,
-          kind: "request",
-          agentId: info.agentId,
-          subjectType: CONVERSE_HANDOVER_SUBJECT,
-          subjectId: info.id,
-          runId: info.id,
-          ...assignee,
-          title: `Take over the conversation with ${setup.contactName}: ${reason}`.slice(0, 200),
-          payload: {
-            mode: "ask",
+        .values(
+          handoverItemValues({
+            info,
             nodeId: place.nodeId,
-            question: `Finish this with ${setup.contactName}: ${setup.input.goal}`.slice(0, 500),
-            converse: {
-              key: place.key,
-              who: { id: setup.contactId, name: setup.contactName },
-              channel: setup.input.channel,
-              goal: setup.input.goal,
-              reason,
-              proposed: (proposed ?? null) as JsonObject[string],
-              fields: Object.keys((setup.input.result.properties as Record<string, unknown>) ?? {}),
-              transcript,
-            },
-            sources: setup.input.about,
-            ...(info.mode === "test" ? { testRun: true } : {}),
-          } as JsonObject,
-          dueAt: new Date(t.getTime() + parseDuration(place.approval.timeout ?? "7 days")),
-        })
+            key: place.key,
+            rows,
+            reason,
+            proposed,
+            assignee,
+            dueAt: new Date(t.getTime() + parseDuration(place.approval.timeout ?? "7 days")),
+          }),
+        )
         .returning({ id: inboxItem.id });
       if (!item) throw new Error("inbox item insert returned nothing");
-      const plan = planOf(last);
       await tx
         .update(reachOut)
-        .set({
-          plan: json({
-            ...plan,
-            converse: { ...plan.converse, handover: { inboxItemId: item.id, reason } },
-          }),
-        })
+        .set({ plan: withHandover(last, item.id, reason) })
         .where(and(eq(reachOut.id, last.id), eq(reachOut.tenantId, last.tenantId)));
       return item.id;
     });
@@ -537,40 +582,7 @@ export function conversePort(deps: ConverseDeps): ConversePort {
       };
     }
     const routing = await deps.runtime.ports.store.approvalRouting(info.tenantId);
-    const [a] = await tx
-      .select({ approver: agent.approver, channels: agent.channels })
-      .from(agent)
-      .where(and(eq(agent.id, info.agentId), eq(agent.tenantId, info.tenantId)));
-    const [v] = await tx
-      .select({ bundle: agentVersion.bundle })
-      .from(agentVersion)
-      .where(
-        and(eq(agentVersion.id, info.agentVersionId), eq(agentVersion.tenantId, info.tenantId)),
-      );
-    const connId = ((a?.channels ?? {}) as Record<string, string>)[setup.input.channel];
-    const [conn] = connId
-      ? await tx
-          .select({ connector: connection.connector })
-          .from(connection)
-          .where(and(eq(connection.id, connId), eq(connection.tenantId, info.tenantId)))
-      : [];
-    const route = routeApproval({
-      rules: routing.rules,
-      facts: {
-        connector: conn?.connector ?? "",
-        tool:
-          (conn ? channelTool(conn.connector, setup.input.channel as ReachChannel) : null) ??
-          "comms.converse",
-        verb: "create",
-        agentId: info.agentId,
-        amount: null,
-      },
-      step: place.stepApprover,
-      agent: [v?.bundle.definition.permissions.approver, a?.approver],
-      client: routing.clientDefault,
-      members: routing.members,
-    });
-    return { assignee: route.assignee, route: { source: route.source, ruleId: route.ruleId } };
+    return conversationRoute(tx, routing, info, setup.input.channel, place.stepApprover);
   };
 
   const withinWindow = (tenantId: string, setup: ConverseSetup) =>
@@ -630,7 +642,7 @@ export function conversePort(deps: ConverseDeps): ConversePort {
     if (!last) return { kind: "failed", error: "the conversation has no messages" };
     const setup = setupOf(rows);
     const meta = metaOf(last);
-    if (meta.end) return { kind: "done", output: outputOf(rows, meta.end) };
+    if (meta.end) return doneWith(outputOf(rows, meta.end));
     if (meta.handover) {
       return {
         kind: "approval",
@@ -1371,6 +1383,59 @@ export function conversePort(deps: ConverseDeps): ConversePort {
       channels,
     };
   }
+}
+
+// P-6: an ended conversation's outcome tells the executor a person turned the step down, so the
+// step's onReject applies however it was ended (docs/plan.md §1.68).
+function doneWith(output: ConverseOutput): StepOutcome {
+  return output.outcome === "declined"
+    ? { kind: "done", output, declined: true }
+    : { kind: "done", output };
+}
+
+/**
+ * Who approves a live run's conversation: the approver rules, the step's approver, the agent's,
+ * the client's setting, else the client admin (the client's team by default). Read in the
+ * caller's transaction; shared by the service and the take-over check (P-6).
+ */
+export async function conversationRoute(
+  tx: Tx,
+  routing: ApprovalRouting,
+  info: Pick<RunInfo, "tenantId" | "agentId" | "agentVersionId">,
+  channel: ConverseChannel,
+  stepApprover: string | undefined,
+) {
+  const [a] = await tx
+    .select({ approver: agent.approver, channels: agent.channels })
+    .from(agent)
+    .where(and(eq(agent.id, info.agentId), eq(agent.tenantId, info.tenantId)));
+  const [v] = await tx
+    .select({ bundle: agentVersion.bundle })
+    .from(agentVersion)
+    .where(and(eq(agentVersion.id, info.agentVersionId), eq(agentVersion.tenantId, info.tenantId)));
+  const connId = ((a?.channels ?? {}) as Record<string, string>)[channel];
+  const [conn] = connId
+    ? await tx
+        .select({ connector: connection.connector })
+        .from(connection)
+        .where(and(eq(connection.id, connId), eq(connection.tenantId, info.tenantId)))
+    : [];
+  const route = routeApproval({
+    rules: routing.rules,
+    facts: {
+      connector: conn?.connector ?? "",
+      tool:
+        (conn ? channelTool(conn.connector, channel as ReachChannel) : null) ?? "comms.converse",
+      verb: "create",
+      agentId: info.agentId,
+      amount: null,
+    },
+    step: stepApprover,
+    agent: [v?.bundle.definition.permissions.approver, a?.approver],
+    client: routing.clientDefault,
+    members: routing.members,
+  });
+  return { assignee: route.assignee, route: { source: route.source, ruleId: route.ruleId } };
 }
 
 /** The inbox subject of a conversation handed to a person. */

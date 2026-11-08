@@ -410,6 +410,24 @@ export const fr: Messages = {
   // P-4: a conversation on the run timeline
   "run.conversation.sent": "Envoyé",
   "run.conversation.reply": "Réponse",
+  // P-6: stepping in, taking a conversation over, editing a message (docs/plan.md §1.68); needs a fluent review
+  "run.conversation.takenOver": "{who} a repris la conversation",
+  "run.conversation.ended": "{who} a mis fin à la conversation",
+  "run.conversation.editedBy": "Modifié par {who} avant l'envoi",
+  "run.conversation.takenOverByUs": "Nous avons repris la conversation", // fluent review
+  "run.conversation.endedByUs": "Nous avons mis fin à la conversation", // fluent review
+  "run.conversation.editedByUs": "Nous l'avons modifié avant l'envoi", // fluent review
+  "run.conversation.takeOver": "Reprendre",
+  "run.conversation.end": "Terminer la conversation",
+  "run.conversation.reason": "Motif (facultatif)",
+  "run.conversation.controlHint":
+    "Reprendre : l'agent n'envoie plus rien et la question arrive sur votre bureau. Terminer : l'agent s'arrête ici.",
+  "desk.steppedIn": "Nous sommes intervenus : {reason}", // fluent review
+  "desk.passedToYou": "Nous vous l'avons transmis : {reason}", // fluent review
+  "desk.editMessage": "Modifier le message",
+  "desk.editMessageSave": "Enregistrer le message",
+  "desk.messageEdited":
+    "Vous avez modifié ce message. Ce que vous approuvez est exactement ce qui part.",
   "step.status.pending": "Pas commencé",
   "step.status.running": "En cours",
   "step.status.waiting": "En attente",

@@ -525,9 +525,15 @@ Dependency rules (enforced by `scripts/check-deps.mjs`):
 One operator, many clients. Each client is a tenant; the operator's staff reach into every client they
 serve from the back office.
 
+**The client's team runs its agents day to day; the operator oversees and can step into anything, but is
+never the default step** (owner, 2026-11-08; `docs/plan.md` §1.68). Approvals, questions, hand-overs and
+conversations go to the client's team by default. The operator is the step only where they chose it: a
+client whose approvals are set to us (the Sandbox), or a person step assigned to the lead. Oversight stays
+ours: failed runs, budget hits, proposals and platform health.
+
 | Role | Who | Can |
 |---|---|---|
-| `operator` | The owner and their team | Everything in the back office: create clients, invite users, offer connectors and set their permissions and configuration, enable packs; build, test, **publish** and roll back templates, skills and client agents; fork, customize, update, promote, activate and pause client agents; work requests; see runs, usage and cost across their clients; approve on a client's behalf when delegated |
+| `operator` | The owner and their team | Everything in the back office: create clients, invite users, offer connectors and set their permissions and configuration, enable packs; build, test, **publish** and roll back templates, skills and client agents; fork, customize, update, promote, activate and pause client agents; work requests; see runs, usage and cost across their clients; approve on a client's behalf when delegated; step into any open item or live conversation of a client they serve, with a reason (P-6) |
 | `client_admin` | The client's owner or manager | Portal: connect and disconnect tools (OAuth); approve external actions and reviews (default approver); answer requests; reports, runs and services; raise requests; invite client users; notification settings |
 | `client_user` | Client staff | Portal: inbox items assigned to them, reports, runs; raise requests. A client user with **sign-off off** (`membership.can_sign = false`, v0.12) is a **viewer**: sees the Table, runs, reports and the Weekly Table, signs nothing |
 
@@ -2027,7 +2033,7 @@ outputs, errors and summaries go in as data in a tool-result block, never in the
 | `continue` | A checkpoint | The run goes on. |
 | `retry {after?}` | A failure | The step runs again with the same input after `after` (default 30 s, at most 1 hour): timeouts, rate limits, a connection that came back. |
 | `retry_with {input}` | Either | The step runs again with a corrected input, which must validate against the skill's or tool's input schema; recorded field by field (`input_before`, `input_after`). |
-| `ask {question}` | Either | An inbox item to the step's approver (default the lead) in the platform's words with the agent's question; the run waits. Approved: continue (a checkpoint) or retry (a failure). Rejected: the step's `onReject`. |
+| `ask {question}` | Either | An inbox item to the step's approver (default the client's team: the agent's approver, the client's setting, else the client admin; P-6) in the platform's words with the agent's question; the run waits. Approved: continue (a checkpoint) or retry (a failure). Rejected: the step's `onReject`. |
 | `stop` | Either | A failure fails the run; a checkpoint cancels it. The agent's note goes to the operator. |
 
 Any decision may carry a `proposal {summary, change}`: a lasting fix in plain words (add a trim step,
@@ -2172,6 +2178,15 @@ goal, what is known and the transcript; the step waits on it like a person step.
 with the result (checked against `result`) and the run goes on with `handed_over`; or drops it,
 which is the step's `onReject`.
 
+**Stepping in (P-6).** While it runs, the conversation's approver (from the portal's run page) or the
+operator (from the back office's, with a reason) can **take it over**: the message waiting for a reply or
+for approval is ended unsent, the agent sends nothing more, and the step hands over to that person, who
+answers with the result as with any hand-over. Or **end** it: the step's `onReject`. Both go on the
+transcript ("Mezonas took the conversation over: …"), with no model call. A message waiting for its own
+approval can be **edited** by whoever approves it: the edit becomes the message, so what is approved is
+exactly what is sent, through the same checks (length, consent, quiet hours, the WhatsApp window; card
+numbers redacted); the agent's text is kept and the run pages say who edited it.
+
 **Durable.** The opening turn runs in the step's own durable step, turn *n* in the wait's
 `…:wait:<k>:resume` step or an approval's `…:approval:<k>:resume` step: stable names, so a replayed
 run takes the stored outcome. Inside one, the turn's answer is stored on its message row before the
@@ -2203,6 +2218,13 @@ is core's, one function for the builder and the server (invariant 4).
 - Who sees what: clients see their own items (client_users only those assigned to them); operators see
   every item in the clients they serve, plus the operator inbox (delegated approvals, escalations,
   budget hits, failed runs).
+- **Stepping in (P-6).** The client's items are the client's to answer. The operator may step into any
+  open one of a client they serve, with a reason: approve, reject or answer it (the client's own resolve
+  path, so a change is still approved once and written once with its before state), or pass it to a
+  client role or person. Never a request for a code (only the client's code releases it), and never the
+  go-live sign-off. The item and the portal read "We stepped in" (a person's action, copper) with the
+  reason, never our person's name; the route's audit row names the client; the client's lead thread gets
+  a line, which the lead-message notification carries to the person it waited on.
 - Resolving an item writes `resolution`, emits `inbox.resolved` and sends the event to the waiting run.
 - Every run creates or appends to a thread for its subject (transaction, catalog item, vendor, week).
   Messages carry `sources` (record ids) rendered as links, and an `audience`: operator-only notes never
@@ -2233,7 +2255,8 @@ these additions:
   connector's proposal checks run again (e.g. an itemize total), and the approver rules route it again:
   if the edited change would go to someone else, it is refused (409 `reroute`). `external_action.input`
   stays the agent's version, `edited_input` holds the person's, and execution uses the edit. Both show
-  on the run page.
+  on the run page. P-6: a message waiting for approval (a conversation's or a reach-out's) is edited the
+  same way, `{input: {message}}` (§10.12).
 - **Sign part of a batch.** Items one step proposed together (a `for_each` of actions, or a skill that
   proposes several) share `batch_key = <run id>:<step id>`. `POST /api/inbox/batch/resolve {batchKey,
   approve: [ids], reject: [ids], note?}` resolves each in one transaction ("Send 2 of 3"); each item's
@@ -2692,6 +2715,8 @@ Back office (operator)
                POST /api/ops/agents/:id/run {workflow, input}   (manual trigger)
   Runs         GET  /api/ops/runs?client=&status=&agent=&since=   GET /api/ops/runs/:id (steps, tool calls, cost)
   Inbox        GET  /api/ops/inbox                        POST /api/ops/inbox/:id/resolve
+               POST /api/ops/clients/:id/inbox/:itemId/step-in {action, reason, ...}   (P-6)
+               POST /api/ops/clients/:id/runs/:runId/conversations/:stepRunId {take_over|end, reason}
   Requests     GET  /api/ops/requests                     POST /api/ops/requests/:id/resolve {links}
   Usage        GET  /api/ops/usage?client=&agent=&template=&from=&to=
 
@@ -2700,6 +2725,7 @@ Portal (client)
   Reports      GET  /api/reports/activity?from=&to=       GET  /api/reports/:pack/:report (+ .csv)
   Runs         GET  /api/runs?service=&status=            GET  /api/runs/:id (client timeline)
   Inbox        GET  /api/inbox?kind=&status=              POST /api/inbox/:id/resolve
+               POST /api/runs/:id/conversations/:stepRunId {take_over|end, reason?}   (P-6: its approver)
   Connections  GET  /api/connections (offered connectors, status, permissions, used by, forwarding address)
                PUT  /api/connections/upload/senders {allowed: [...]}   (who may forward)
                POST /api/connections/:connector/authorize (client admin signs in)   DELETE /api/connections/:id

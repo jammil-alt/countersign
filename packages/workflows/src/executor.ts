@@ -400,16 +400,18 @@ class Executor {
       outcome.kind === "approval" && this.testRun
         ? { kind: "done", output: outcome.output ?? null, notWritten: true }
         : outcome;
+    // P-6: a person who ended the step (a live conversation) turned it down (§1.68).
+    const turnedDown = rejected || (done.kind === "done" && done.declined === true);
     let update: StepRunUpdate;
     switch (done.kind) {
       case "done":
         update = {
-          status: rejected ? "skipped" : "succeeded",
+          status: turnedDown ? "skipped" : "succeeded",
           output: done.output,
           summary: this.summaryFor(
             step,
             done.output,
-            rejected,
+            turnedDown,
             this.testRun && done.notWritten === true,
           ),
         };
@@ -602,7 +604,8 @@ class Executor {
         approved: false,
         by: null,
       };
-      if (resolution.approved !== true) rejected = true;
+      // P-6: a withdrawn item (a conversation taken over) is no decision: the port goes on (§1.68).
+      if (resolution.approved !== true && resolution.withdrawn !== true) rejected = true;
       outcome = await this.runner.do(
         `${base}:resume`,
         async () => {
@@ -619,6 +622,8 @@ class Executor {
         this.ctx.stepConfig,
       );
     }
+    // P-6: a step a person ended outside an approval takes its onReject (§1.68).
+    if (outcome.kind === "done" && outcome.declined === true) rejected = true;
     return { stepRunId, outcome, rejected };
   }
 

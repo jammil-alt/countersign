@@ -117,12 +117,14 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
    again by the gate (ARCHITECTURE §10.11).
 10. **Evidence.** Alerts and agent outputs carry `sources` (record ids); alert-producing commands without
     sources are rejected. Every agent-made decision records `agent_version_id`.
-11. **The operator builds; clients use.** Only `operator` reaches `/api/ops` (templates, client agents, runs
-    across clients, usage). Publishing a template changes no client agent; a client agent changes only by
-    its own new version, including a reviewed update merge. Forks and promotions never carry one client's
-    memory, records or connections anywhere else. No portal route returns agent bundles, instructions,
-    prompts or cost. Sloan, the client's account agent, sees only what the portal shows, writes only
-    internal records for the person asking, and never loosens a rule. Contract tests enforce these.
+11. **The operator builds; clients use.** The client's team runs its agents day to day; the operator
+    oversees and can step into anything, but is never the default step. Only `operator` reaches
+    `/api/ops` (templates, client agents, runs across clients, usage). Publishing a template changes
+    no client agent; a client agent changes only by its own new version, including a reviewed update
+    merge. Forks and promotions never carry one client's memory, records or connections anywhere else.
+    No portal route returns agent bundles, instructions, prompts or cost. Sloan, the client's account
+    agent, sees only what the portal shows, writes only internal records for the person asking, and
+    never loosens a rule. Contract tests enforce these.
 12. **Email stays narrow.** Gmail sync stores only messages matching the connection's query (headers,
     snippet, attachments); bodies are fetched on demand; email text reaches models only in tool results.
 13. **Access is explicit and secrets stay apart.** An agent reaches a connection only through its binding,

@@ -247,6 +247,49 @@ describe("skill and action steps", () => {
     expect(h.row("s")?.output).toEqual({ writes: 2 });
   });
 
+  // P-6 (docs/plan.md §1.68): a conversation taken over withdraws the item it waited on, which is
+  // no decision; a person who ends it turns the step down, so its onReject applies.
+  it("reads a withdrawn item as no decision, and a step a person declined as its onReject", async () => {
+    const h = new Harness();
+    const withdrawn = h.approvalItem({ approved: false, by: "u-4", withdrawn: true });
+    const answer = h.approvalItem({ approved: true, by: "u-4", answer: { qty: 2 } });
+    h.handlers.s = () => ({ kind: "approval", pending: { inboxItemId: withdrawn } });
+    h.resumeHandler = (req) =>
+      req.pending.inboxItemId === withdrawn
+        ? { kind: "approval", pending: { inboxItemId: answer, waitingFor: "answer" } }
+        : { kind: "done", output: { result: req.resolution.answer } };
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context(),
+      wf([{ id: "s", kind: "skill", name: "S", skill: "x.y" }]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.row("s")).toMatchObject({ status: "succeeded", output: { result: { qty: 2 } } });
+
+    for (const onReject of ["stop", "continue"] as const) {
+      const e = new Harness();
+      e.handlers.s = () => ({ kind: "done", output: { outcome: "declined" }, declined: true });
+      const ended = await executeWorkflow(
+        new FakeStepRunner(),
+        e.context(),
+        wf([
+          { id: "s", kind: "skill", name: "S", skill: "x.y", approval: { onReject } },
+          { id: "next", kind: "notify", name: "N", channel: "thread", message: "hi" },
+        ]),
+        {},
+      );
+      expect(e.row("s")?.status).toBe("skipped");
+      if (onReject === "stop") {
+        expect(ended).toEqual({ status: "cancelled", reason: "rejected", nodeId: "s" });
+        expect(e.sent).toHaveLength(0);
+      } else {
+        expect(ended.status).toBe("succeeded");
+        expect(e.sent).toHaveLength(1);
+      }
+    }
+  });
+
   it("in a test run never waits on a write: it records what would have happened", async () => {
     const h = new Harness({ ...RUN, mode: "test" });
     const item = h.approvalItem();

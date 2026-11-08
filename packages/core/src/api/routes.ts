@@ -73,6 +73,8 @@ import {
 } from "./runs-filter";
 // v0.14 W4-C: the Slack channel picker
 import { slackRoutes } from "./slack";
+// P-6
+import { SteppedIn, stepInRoutes } from "./step-in";
 import { PortalHealth, supervisorRoutes } from "./supervisor";
 import { tableRoutes } from "./table";
 // v0.12 W2-C: the test bench
@@ -513,6 +515,9 @@ export const PortalInboxItem = z.object({
   // UI-1b: the client agent that asks (its service name, as the sidebar shows it); null when no
   // agent does (a platform item). Never its bundle, instructions or cost (invariant 11).
   service: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
+  // P-6: we stepped in, on the client's behalf, with the reason (docs/plan.md §1.68). The portal
+  // names no person of ours: `resolvedBy.name` is then null and the screens say "Mezonas".
+  steppedIn: SteppedIn.nullable().optional(),
 });
 
 export const ToolAccessSchema = z.object({
@@ -1730,6 +1735,8 @@ export const portalRoutes = {
           approved: z.boolean().nullable(),
           by: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),
           resolvedAt: NullableTimestamp,
+          // P-6: we stepped in on the client's behalf (docs/plan.md §1.68).
+          steppedIn: SteppedIn.nullable().optional(),
         }),
       ),
       actions: z.array(
@@ -2011,5 +2018,7 @@ export const routes = {
   ...whatsappMetaRoutes,
   // P-1: packs (the Purchasing area's Materials pack), docs/plan.md §1.63.
   ...packRoutes,
+  // P-6: the client runs it, we step in (docs/plan.md §1.68).
+  ...stepInRoutes,
 } as const;
 export type Routes = typeof routes;

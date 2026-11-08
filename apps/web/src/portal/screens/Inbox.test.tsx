@@ -451,3 +451,50 @@ describe("portal header: the Inbox count", () => {
     await waitFor(() => expect(desk).toHaveTextContent("1"));
   });
 });
+
+// P-6 (docs/plan.md §1.68): when we step in, the client reads it as ours, on their behalf, with the
+// reason, in their language; and an item we passed to them says so.
+describe("The Inbox: Mezonas stepped in", () => {
+  it("reads a decision we made as on your behalf, with the reason", async () => {
+    const done = {
+      ...ITEM,
+      id: "00000000-0000-4000-8000-0000000b0101",
+      status: "resolved",
+      resolvedAt: "2026-11-05T11:00:00.000Z",
+      resolvedBy: { id: "00000000-0000-4000-8000-0000000c0001", name: null },
+      steppedIn: {
+        action: "approve",
+        reason: "Your admin is away",
+        at: "2026-11-05T11:00:00.000Z",
+      },
+    };
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(0),
+      "GET /api/inbox": inbox(() => ({ resolved: [done] })),
+    });
+    renderAt("/inbox?view=done", api);
+    const card = await screen.findByTestId("desk-detail");
+    expect(await within(card).findByTestId("desk-outcome")).toHaveTextContent(
+      "We stepped in: Your admin is away",
+    );
+  });
+
+  it("says when we passed an item to you, and why", async () => {
+    const passed = {
+      ...ITEM,
+      id: "00000000-0000-4000-8000-0000000b0102",
+      steppedIn: { action: "reassign", reason: "Sam runs it", at: "2026-11-05T11:00:00.000Z" },
+    };
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(1),
+      "GET /api/inbox": inbox(() => ({ open: [passed] })),
+    });
+    renderAt("/inbox", api);
+    const open = await screen.findByTestId("desk-detail");
+    expect(await within(open).findByTestId("desk-passed")).toHaveTextContent(
+      "We passed this to you: Sam runs it",
+    );
+  });
+});

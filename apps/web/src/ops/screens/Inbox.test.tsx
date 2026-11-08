@@ -249,4 +249,50 @@ describe("escalations", () => {
     expect(queries.at(-1)?.get("assigned")).toBe("all");
     expect(queries.at(-1)?.get("client")).toBe(DEMO);
   });
+
+  // P-6 (docs/plan.md §1.68): a client's item is theirs; we step in only with a reason.
+  it("steps in on a client's item with a reason, never on a request for a code", async () => {
+    const sent: unknown[] = [];
+    const CODE_ITEM = "00000000-0000-4000-8000-0000000f3103";
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/inbox": () => ({
+        items: [
+          item(DEMO_ITEM, DEMO, false),
+          { ...item(CODE_ITEM, DEMO, false), kind: "request", subjectType: "access_release" },
+        ],
+        agents: [],
+      }),
+      "GET /api/ops/needs-us": () => NONE_NEED_US,
+      [`POST /api/ops/clients/${DEMO}/inbox/${DEMO_ITEM}/step-in`]: ({ init }) => {
+        sent.push(JSON.parse(String(init.body)));
+        return {
+          item: {
+            id: DEMO_ITEM,
+            status: "resolved",
+            assigneeRole: "client_admin",
+            assigneeUserId: null,
+            resolvedAt: "2026-11-05T11:00:00.000Z",
+            deliverAfter: null,
+            steppedIn: { action: "approve", reason: "Away today", at: "2026-11-05T11:00:00.000Z" },
+          },
+        };
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={["/ops/inbox?view=clients"]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    await screen.findByTestId(`inbox-item-${DEMO_ITEM}`);
+    expect(screen.queryByTestId(`step-in-${CODE_ITEM}-open`)).toBeNull();
+    await userEvent.click(screen.getByTestId(`step-in-${DEMO_ITEM}-open`));
+    const approve = screen.getByTestId(`step-in-${DEMO_ITEM}-approve`);
+    expect(approve).toBeDisabled();
+    await userEvent.type(screen.getByTestId(`step-in-${DEMO_ITEM}-reason`), "Away today");
+    await userEvent.click(approve);
+    await waitFor(() => expect(sent).toEqual([{ action: "approve", reason: "Away today" }]));
+  });
 });

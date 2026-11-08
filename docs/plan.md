@@ -1750,7 +1750,7 @@ agent first). No agent, template or workflow is built here. Hot-spot edits are b
 | Visibility | `GET /api/ops/runs/:id`: a conversation step gains `conversation {channel, who, outcome, messages [{turn, direction, text, at, status, model?, costUsd?}]}`. `GET /api/runs/:id` (portal): `conversation {messages [{direction, text, at}]}` only; the contract test's forbidden-field check covers it. |
 | Builder | Palette "Talk with a person" (`comms.converse`); inspector: who, channel, what to find out (field list → `result`), the goal's words, the first message, the WhatsApp template, limits, and the model picker skill steps already have. |
 | Compliance | No new vendor: the model and the channels' providers are already named in `packages/core/src/compliance`. |
-| Not in this stream | Voice (calls stay with reach out and the voice agent); a person changing the message before approving it (W1-D's edit applies to external actions, not these cards); translating replies (§1.18); the client's lead (an operator) as `to` (open, owner). |
+| Not in this stream | Voice (calls stay with reach out and the voice agent); a person changing the message before approving it (W1-D's edit applies to external actions, not these cards; built in P-6, §1.68); translating replies (§1.18); the client's lead (an operator) as `to` (open, owner). |
 
 Decisions made while building M37 (`claude/p4-conversation`, 2026-11-07; `// P-4` blocks):
 
@@ -1791,6 +1791,30 @@ conversations (P-4) are other streams.
 | Tools and skills | Tools (`none` or `internal`, no approval, logged with the step): `materials.request.{create,get,list,update,add-lines,match-lines}`, `materials.catalog.match-text`, `materials.vendors-for-items`, `materials.frequent-items`, `materials.quote.{create,mark-sent,get,record,compare}`, `materials.po.document`, `materials.backfill-from-bills`. Tool skills (category Purchasing): open-request, update-request, match-request, find-vendors, top-items, request-quotes, mark-quote-sent, record-quote, compare-quotes, purchase-order, import-bill-prices. Quantities and prices take decimal strings or JSON numbers read as their shortest decimal text, at most 4 places. // DECISION |
 | Reports | A `requests` report (JSON and CSV) under the generic pack report routes; no screen: the UI session owns screens. |
 | Files | `packs/materials/src/purchasing/*`, `packs/materials/NOTES.md`; one block each in `packs/materials/src/{schema,manifest,tools,api,index}.ts`, `apps/api/src/packs.ts`, `apps/api/src/runs/execute.ts`; `apps/api/src/purchasing-area.test.ts`. |
+
+### 1.68 Client-run, operator steps in (P-6, M39; no migration; ARCHITECTURE §4, §10.12, §11)
+
+Owner, 2026-11-08: the client's team runs its agents day to day; the operator oversees and can step into
+anything, but is never the default step. Hot-spot edits are blocks headed `// P-6: …`.
+
+| Topic | Decision |
+|---|---|
+| Stepping in | `POST /api/ops/clients/:id/inbox/:itemId/step-in {action: approve, reject, answer or reassign, reason, note?, message?, answer?, to?}`, operators only, for an open item of a client they serve (any other client's, or an item under the wrong client: 404). The reason is required. The client is in the path, so `mount`'s audit row names it. // DECISION |
+| The client's path | Approve, reject and answer call `resolveInboxItem` with the operator as approver and `steppingIn: true`, a flag only this route sets on the server. `mayResolve` lets it through as it does the Sandbox flag; nothing else changes. A change is approved once (`resolveExternalActionTx`), held by the undo window, and written once by the run (`executeAction`, its idempotency key, its before state). // DECISION |
+| What is kept | `payload.steppedIn {action, reason, at}` (the portal reads it), `resolution.steppedIn` with who (the back office only). The portal's item and run page say "We stepped in: {reason}" (portal voice: "we" for Mezonas, copper as a person's action) in six languages and give `resolvedBy.name` as null: we never name our people to the client. // DECISION |
+| Refused | A request for a code (`access_release`, 409 `enter_code`): only the client's own code releases it (§1.26). The go-live sign-off (409 `client_sign_off`): it is the client's acceptance of its agent. A change request and a Sloan account change keep their own routes (as `resolveInboxItem` already refuses); a Sloan account change and a directory suggestion are the client admin's and aren't passed on (409 `not_reassignable`). An approval we make and then undo in its window no longer reads as ours. // DECISION |
+| Reassign | To a client role (`client_admin`, `client_user`) or a person of that client who signs (else 422 `not_a_member` or `not_a_signer`). The item keeps `payload.reassigned [{from, to, reason, at, byUs}]`. // DECISION |
+| Telling them | The existing path to the person an item waited on is the lead thread's notification (`lead_message`), so stepping in posts one line there from us, in the client's language (core `stepInLine`): "We stepped in on "{title}" and approved it for you. Why: {reason}". Not for test runs or our own items. // DECISION |
+| HIPAA | Allowed, and audited like every session route: stepping in sends no client data to a new vendor, so `packages/core/src/compliance` has nothing to refuse. // DECISION |
+| Conversations | `POST /api/ops/clients/:id/runs/:runId/conversations/:stepRunId {action: take_over or end, reason}` (operator, reason required) and `POST /api/runs/:id/conversations/:stepRunId {action, reason?}` (the conversation's approver, as its approval would be routed now; viewers and other client users 403; test runs 404 in the portal). In the request's transaction, no model call. // DECISION |
+| Take over | The message waiting is ended unsent (`declined`, reason "taken over …"); a hand-over item (`conversation_handover`) goes to that person (the operator's own item when it is us); the step waits on it and their answer is the result, as in §1.66. A message card waiting for approval is withdrawn: resolved with `withdrawn: true`, which the executor reads as no decision (`InboxResolution.withdrawn`), so the later answer isn't a rejection. A hand-over already open is reassigned to the person. // DECISION |
+| End | The waiting message is ended (`declined`, "ended by …"); a message card or hand-over waiting is declined. The step ends `declined`, and the executor applies its `onReject` (`StepOutcome.done.declined`). // DECISION |
+| Between messages | In the seconds between a reply and the agent's next message there is nothing to stop yet: 409 `busy`, try again, rather than a flag the run must find later. // DECISION |
+| Transcript | Take-overs and ends are `plan.converse.events [{kind, at, by, byUs, reason}]` on the conversation's last row. The back office shows the person's name; the portal shows "Mezonas" for us and the client's people by name, and offers the buttons only to the conversation's approver (`mayControl`). // DECISION |
+| Editing a message | The approver of a conversation's message or a reach-out's plan edits it with the Desk's shape, `PUT /api/inbox/:id/edit {input: {message}}`; the operator stepping in sends `message` with `approve`. The edit becomes the row's fixed message (both languages' keys), so what is approved is exactly what is sent; the agent's text is kept in `plan.edited {original, text, by, byUs, at}` and the card's `payload.edited`. A second edit keeps the first original. // DECISION |
+| Checks on an edit | At the edit: not empty, at most the channel's length (a conversation's, or reach out's per channel), card numbers redacted. At the send: the same path as any message, so consent, an opt-out, quiet hours (held), the matrix and the idempotency key all hold. A call's words can't be edited (409 `not_editable`). An edited conversation opening loses its WhatsApp template: outside the 24-hour window the send is refused rather than the template going in place of the approved words. // DECISION |
+| Defaults audit | Oversight's `ask` with no step approver went to the lead: now the client's team (the agent's approver, the client's setting, else the client admin). The conversation hand-over already went to the conversation's approver (§1.66). Kept as they are, because they are opt-in or oversight: a person step assigned to the lead or to `operator`, a client whose approvals are set to us, a person step's `notify_operator` timeout, test runs' items, failed writes, budget hits, oversight stops and proposals, supervisor findings, code alerts and browser stops (both sides), change requests, the Materials pack's catalog merge proposals (a merge is a back-office action), and email or digest notices (operator-only thread notes until a sender is wired: a notice, not work). // DECISION |
+| Not in this stream | Stepping in from the MCP connector; a "step in" button on the run page's change panels (the Escalations screen's "Waiting on clients" view has it); editing a call's words. |
 
 ---
 
@@ -2521,6 +2545,27 @@ on a FakeModel with the text kept as data.
 **Done when** a buyer built in the Agent lab from these skills can take a request from intake to a
 stored purchase order PDF, with prices compared in one unit and every step's records cited.
 
+### M39: Client-run, operator steps in (P-6, §1.68)
+
+One PR (`claude/p6-step-in`, stacked on `claude/p4-conversation`). No migration.
+
+Work: the step-in route (approve, reject, answer, reassign) through `resolveInboxItem`; `steppingIn`
+in `mayResolve`; what the item, the portal and the lead thread say; taking a conversation over and
+ending it from both run pages (`InboxResolution.withdrawn`, `StepOutcome.done.declined`); editing a
+message before approving it; oversight's ask to the client's team; the Escalations screen's "Step
+in", the run pages' controls and the Desk's message edit.
+
+Tests (FakeModel, the fake Twilio; no live model): stepping in on a client admin's approval of a
+change writes it once with its before state, recorded as on the client's behalf with the reason, an
+audit row and the portal's words; refused for a client not served and for a request for a code;
+passing to a client person; taking over and ending from both surfaces sends nothing more and goes on
+the transcript; an edit then approval sends the edit once, still under consent and quiet hours; a
+client user who doesn't approve can't edit or approve; oversight's new default; no prompt, model or
+cost in the portal.
+
+**Done when** the operator can step into any client's open item or live conversation with a reason,
+the client sees it was us and why, and nothing day to day waits on us by default.
+
 ---
 
 ## 5. Things to verify, not assume
@@ -2666,6 +2711,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | `apps/api/src/platform.ts` | One registration line per new connector (W3-B) |
 | `apps/api/src/routes/twilio-hooks.ts`, `apps/api/src/triggers/inbound-text.ts` | W2-E: inbound dispatch; v0.14 capture: the conversation, the media list and the job start (one block each, `// v0.14 capture`) |
 | `packages/workflows/src/ports.ts`, `apps/api/src/runs/ports.ts`, `apps/api/src/reach/{service,replies}.ts`, `apps/api/src/triggers/inbound-text.ts`, `apps/api/src/runs/dispatch.ts` | P-4: `PendingApproval.waitingFor`; the `comms.converse` route; one at a time per person; the conversation-first reply match; a conversation awaiting approval counts as open; the portal reply match (one block each, `// P-4: …`) |
+| `packages/workflows/src/{ports,executor}.ts`, `packages/agents/src/log/{external-actions,oversight}.ts`, `apps/api/src/{inbox,desk/desk,reach/service,converse/service,converse/views,routes/portal}.ts` | P-6: `InboxResolution.withdrawn`, `StepOutcome.done.declined`; `steppingIn` in `mayResolve`; oversight's ask default; the run's resolution carrying `withdrawn`; a message edit in the Desk's edit; `reachMaxChars`; the shared hand-over item and route; edits and events on the transcript; `steppedIn` in the portal (one block each, `// P-6: …`) |
 
 ### 8.3 Reserved migrations
 
