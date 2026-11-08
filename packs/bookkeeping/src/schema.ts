@@ -386,6 +386,166 @@ export const bookingLine = pgTable(
   ],
 );
 
+// ── Reconciliation (R-1, docs/plan.md §1.80; migration 0040) ───────────────────────────────────────
+
+export const RECONCILIATION_STATUSES = ["open", "signed_off", "superseded"] as const;
+export type ReconciliationStatus = (typeof RECONCILIATION_STATUSES)[number];
+export const RECONCILIATION_OUTCOMES = ["balanced", "explained", "unexplained"] as const;
+export type ReconciliationOutcome = (typeof RECONCILIATION_OUTCOMES)[number];
+export const RECONCILIATION_SIDES = ["a", "b"] as const;
+export type ReconciliationSide = (typeof RECONCILIATION_SIDES)[number];
+export const RECONCILIATION_ITEM_STATES = ["matched", "unmatched"] as const;
+export const RECONCILIATION_LABELS = ["timing", "missing", "amount_differs", "duplicate"] as const;
+export type ReconciliationLabel = (typeof RECONCILIATION_LABELS)[number];
+export const MATCH_METHODS = ["exact", "amount_date", "group", "model", "person"] as const;
+export type ReconciliationMatchMethod = (typeof MATCH_METHODS)[number];
+export const MATCH_STATUSES = ["accepted", "proposed", "rejected"] as const;
+export type ReconciliationMatchStatus = (typeof MATCH_STATUSES)[number];
+
+/**
+ * Two numbers compared (side A against side B) as of a date, with the items behind them. Before
+ * sign-off only its outcome and status change; a signed-off one never changes.
+ */
+export const reconciliation = pgTable(
+  "reconciliation",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    /** The same two sources over time (e.g. `bank:<link id>|qbo:<connection id>:<account id>`). */
+    pairKey: text("pair_key").notNull(),
+    aLabel: text("a_label").notNull(),
+    bLabel: text("b_label").notNull(),
+    periodStart: date("period_start"),
+    /** The day both balances are as of. */
+    asOf: date("as_of").notNull(),
+    currency: text("currency").notNull().default("USD"),
+    aOpening: money("a_opening"),
+    aClosing: money("a_closing").notNull(),
+    bOpening: money("b_opening"),
+    bClosing: money("b_closing").notNull(),
+    /** closing A − closing B. */
+    difference: money("difference").notNull(),
+    /** What the items don't explain; 0 when explained. */
+    residual: money("residual").notNull(),
+    outcome: text("outcome").$type<ReconciliationOutcome>().notNull(),
+    status: text("status").$type<ReconciliationStatus>().notNull().default("open"),
+    /** The settings it ran with (window, tolerance, group size), as data. */
+    settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+    /** The previous signed-off reconciliation of the pair, whose leftovers were carried. */
+    carriedFromId: uuid("carried_from_id"),
+    sources: jsonb("sources").$type<string[]>().notNull().default([]),
+    agentVersionId: uuid("agent_version_id").references(() => agentVersion.id),
+    runId: uuid("run_id"),
+    signedOffBy: uuid("signed_off_by").references(() => appUser.id),
+    signedOffAt: ts("signed_off_at"),
+    note: text("note"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("reconciliation_id_tenant_key").on(t.id, t.tenantId),
+    foreignKey({
+      name: "reconciliation_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    foreignKey({
+      name: "reconciliation_carried_from_fk",
+      columns: [t.carriedFromId, t.tenantId],
+      foreignColumns: [t.id, t.tenantId],
+    }),
+    index("reconciliation_pair_idx").on(t.tenantId, t.pairKey, t.asOf),
+    // One open reconciliation per pair and day: a new run supersedes the open one.
+    uniqueIndex("reconciliation_open_key")
+      .on(t.tenantId, t.pairKey, t.asOf)
+      .where(sql`${t.status} = 'open'`),
+    check("reconciliation_status_check", oneOf(t.status, RECONCILIATION_STATUSES)),
+    check("reconciliation_outcome_check", oneOf(t.outcome, RECONCILIATION_OUTCOMES)),
+    check(
+      "reconciliation_signed_off_check",
+      sql`(${t.status} = 'signed_off') = (${t.signedOffBy} is not null and ${t.signedOffAt} is not null)`,
+    ),
+    check(
+      "reconciliation_sign_off_explained_check",
+      sql`${t.status} <> 'signed_off' or ${t.residual} = 0`,
+    ),
+  ],
+);
+
+/** One item on one side: what it is, its effect on that side's balance, and where it came from. */
+export const reconciliationItem = pgTable(
+  "reconciliation_item",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    reconciliationId: uuid("reconciliation_id").notNull(),
+    side: text("side").$type<ReconciliationSide>().notNull(),
+    /** Its id where it came from (a bank_txn id, `qbo:Purchase:601`, a statement line's number). */
+    ref: text("ref").notNull(),
+    txnDate: date("txn_date"),
+    /** How much it moves its side's balance (signed). */
+    effect: money("effect").notNull(),
+    description: text("description"),
+    /** A cheque number, a payout id: what exact matching compares. */
+    reference: text("reference"),
+    /** Unmatched at the pair's last sign-off, carried into this one. */
+    carried: boolean("carried").notNull().default(false),
+    /** A person added it (an adjustment they explain in `description`). */
+    addedBy: uuid("added_by").references(() => appUser.id),
+    state: text("state").$type<(typeof RECONCILIATION_ITEM_STATES)[number]>().notNull(),
+    label: text("label").$type<ReconciliationLabel>(),
+  },
+  (t) => [
+    unique("reconciliation_item_id_tenant_key").on(t.id, t.tenantId),
+    foreignKey({
+      name: "reconciliation_item_reconciliation_fk",
+      columns: [t.reconciliationId, t.tenantId],
+      foreignColumns: [reconciliation.id, reconciliation.tenantId],
+    }),
+    index("reconciliation_item_idx").on(t.tenantId, t.reconciliationId, t.side),
+    check("reconciliation_item_side_check", oneOf(t.side, RECONCILIATION_SIDES)),
+    check("reconciliation_item_state_check", oneOf(t.state, RECONCILIATION_ITEM_STATES)),
+    check(
+      "reconciliation_item_label_check",
+      sql`${t.label} is null or ${oneOf(t.label, RECONCILIATION_LABELS)}`,
+    ),
+  ],
+);
+
+/** Items of side A that are items of side B: code's, the model's proposal, or a person's. */
+export const reconciliationMatch = pgTable(
+  "reconciliation_match",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    reconciliationId: uuid("reconciliation_id").notNull(),
+    method: text("method").$type<ReconciliationMatchMethod>().notNull(),
+    status: text("status").$type<ReconciliationMatchStatus>().notNull(),
+    aItemIds: jsonb("a_item_ids").$type<string[]>().notNull(),
+    bItemIds: jsonb("b_item_ids").$type<string[]>().notNull(),
+    confidence: numeric("confidence", { precision: 4, scale: 3 }),
+    reason: text("reason"),
+    agentVersionId: uuid("agent_version_id").references(() => agentVersion.id),
+    userId: uuid("user_id").references(() => appUser.id),
+    createdAt: createdAt(),
+    decidedAt: ts("decided_at"),
+  },
+  (t) => [
+    unique("reconciliation_match_id_tenant_key").on(t.id, t.tenantId),
+    foreignKey({
+      name: "reconciliation_match_reconciliation_fk",
+      columns: [t.reconciliationId, t.tenantId],
+      foreignColumns: [reconciliation.id, reconciliation.tenantId],
+    }),
+    index("reconciliation_match_idx").on(t.tenantId, t.reconciliationId),
+    check("reconciliation_match_method_check", oneOf(t.method, MATCH_METHODS)),
+    check("reconciliation_match_status_check", oneOf(t.status, MATCH_STATUSES)),
+    check(
+      "reconciliation_match_sides_check",
+      sql`jsonb_array_length(${t.aItemIds}) > 0 and jsonb_array_length(${t.bItemIds}) > 0`,
+    ),
+  ],
+);
+
 /** The pack's tables, for the migration's grants and RLS and the tests. */
 export const BOOKKEEPING_TABLES = [
   "bank_account_link",
@@ -394,4 +554,8 @@ export const BOOKKEEPING_TABLES = [
   "booking_rule",
   "booking",
   "booking_line",
+  // R-1 (0040)
+  "reconciliation",
+  "reconciliation_item",
+  "reconciliation_match",
 ] as const;

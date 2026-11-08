@@ -173,6 +173,10 @@ describe.skipIf(!online)("migrations on an empty database", () => {
         "booking",
         "booking_line",
         "booking_rule",
+        // R-1 (0040): reconciliations, their items and matches.
+        "reconciliation",
+        "reconciliation_item",
+        "reconciliation_match",
       ].sort(),
     );
     expect(
@@ -322,6 +326,10 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "bank_txn",
       "booking_rule",
       "booking",
+      // R-1 (0040)
+      "reconciliation",
+      "reconciliation_item",
+      "reconciliation_match",
     ]) {
       expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);

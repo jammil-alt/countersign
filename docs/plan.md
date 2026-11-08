@@ -2254,6 +2254,37 @@ Open for the owner:
 - The default `book_confidence_auto` (0.85) and whether `book` mode may ever post without a person (it may not today: invariant 8's `auto` needs the operator and the client's matrix).
 - Whether learned rules need a person's yes before they apply (today: two consistent approvals).
 
+### 1.80 Reconciliation: two numbers, the items behind them, compared (R-1, M57; migration 0040)
+
+Owner, 2026-11-08: "a step where the agent looks at two numbers and the transactions supporting
+them and compares them: the bank balance at the bank against the bank balance in QuickBooks, a
+payment on the bank against the payment statement, and so on; flexible but most accurate". In the
+Bookkeeping area (§1.79). Hot-spot edits are blocks headed `// R-1: …`.
+
+**Shape.** Every reconciliation compares side A with side B. Each side is a balance (or total) as of
+a date, the items that make it up, and the records they came from. Each item carries its **effect**:
+how much it moves that side's balance (a deposit +, a cheque −; on a card, a charge + and a payment −,
+as the balance is what is owed). Sources fill a side:
+
+| Source | Balance | Items |
+|---|---|---|
+| `bank_feed` | Plaid's current balance (from `bankfeed.account.query`), less what posted after the date | The account's `bank_txn` in the period |
+| `given` | As the step passes it (e.g. `qbo.account.register`: QuickBooks' opening and closing as of the dates) | As passed, each with its id |
+| `records` | Their sum | Bank transactions named by id (one deposit, a payment) |
+| A statement | Opening and closing as read | Its lines, read by `bookkeeping.read-statement` (the model, the text as data) and passed as `given` |
+
+| Topic | Decision |
+|---|---|
+| The anchor | Two checks in decimal, never the model's: each side **rolls forward** (opening + its items = closing, when both are known; a side that doesn't is refused as incomplete, e.g. a statement misread), and the difference is **explained**: (closing A − closing B) = (opening A − opening B − what was carried) + (Σ unmatched A − Σ unmatched B). What remains is the `residual`; a reconciliation with a residual is `unexplained` and can't be signed off. // DECISION |
+| Matching, in invariant 7's order | (1) exact: the same effect to the cent and the same reference, dates within the window; (2) the same effect, dates within the window, one candidate only; (3) groups: one item equals the sum of up to `max_group` on the other side within the window (a payout: charges − refunds − fees), only when exactly one group fits; (4) the model proposes pairs for what is left, with a reason, never accepted by itself; (5) a person on the card. Tolerance is 0 cents unless a setting says otherwise, and the result shows it. // DECISION |
+| Leftovers | Each unmatched item is labelled: `timing` (dated near the end and likely to clear: a deposit in transit, an outstanding cheque), `missing` (only on one side), `amount_differs` (a reference on both sides with different amounts, usually a fee), `duplicate` (the same effect, reference and date twice on one side). A person may relabel. // DECISION |
+| Carried items | A pair (the same bank account and QuickBooks account, say) has a `pair_key`. A signed-off reconciliation's unmatched items are carried into the next one of the pair and can match its items (a deposit in transit clears). // DECISION |
+| Outcome | `balanced` (no difference, nothing unmatched), `explained` (residual 0, leftovers listed), `unexplained` (residual ≠ 0: "$X isn't explained by the items we have"). Led by the numbers: "Bank $12,430.17, QuickBooks $12,180.17, difference $250.00: one deposit in transit". // DECISION |
+| Kept | `reconciliation`, `reconciliation_item`, `reconciliation_match` in the pack. Matches are accepted, proposed (the model's) or rejected; a person's are `person`. Signing off is a person's, on the card, only when explained; a signed-off reconciliation never changes (only its status columns before sign-off). A new run for the same pair and period supersedes an open one. QuickBooks' API can't mark items reconciled, so the sign-off lives here. // DECISION |
+| Fixes | Proposals only: a missing bank fee goes through the Bookkeeper's bookings, behind approval. The skill writes nothing outside. // DECISION |
+| QuickBooks' register | `qbo.account.register`: an account's opening balance, closing balance and postings between two dates, from QuickBooks' GeneralLedger report (to check against the sandbox, `qbo/NOTES.md`). // DECISION |
+| The Bookkeeper | A monthly workflow (the 3rd, in the client's time zone): each linked account against its QuickBooks account for last month, the model's proposals for leftovers, the card for a person. A manual workflow checks one deposit against a payout statement document. // DECISION |
+
 ---
 
 ## 2. Package layering
@@ -3256,6 +3287,20 @@ cards in the portal and the Desk; words in six languages.
 
 Built (2026-11-08) against the fakes; live once Plaid's and Intuit's keys are set (`docs/open.md`).
 
+### M57: Reconciliation (R-1, §1.80)
+
+Migration 0040 on its own; then the engine, `qbo.account.register`, the pack's tools, the statement
+reading skill, the card and the Bookkeeper's workflows, and the screens.
+
+Tests: the engine's matches (exact, window, groups, ambiguity left to a person), roll-forward and
+the residual identity in decimal, carried items clearing; QuickBooks' register against the fake;
+through the API, a month's bank feed against QuickBooks explained by a deposit in transit, signed
+off, and carried into the next month where it clears; a payout statement read and matched to its
+deposit as a group; client isolation and the portal's forbidden fields.
+
+**Done when** a linked account's month is reconciled against QuickBooks with every difference
+labelled and cited, and a person signs it off.
+
 ---
 
 ## 5. Things to verify, not assume
@@ -3429,6 +3474,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0037 | M43 (§1.72) | The Marketing pack's `site`, `site_salt`, `site_event`, `site_visit`, `site_daily_page`, `site_daily_click`, `site_daily_total`, `site_bot_daily` (docs/marketing-plan.md §4.3) |
 | 0038 | M44–M50 wave (§1.73) | The Marketing pack's `search_source`, `search_query_daily`, `search_page_daily`, `content_page`, `content_version`, `content_publish`, `content_redirect`, `claims_version`, `marketing_report`, `marketing_report_action`, `forum_thread`, `forum_reply` (docs/marketing-plan.md §4.4–§4.6, §11.1) |
 | 0039 | M51 (§1.79) | `ledger_account`, `ledger_account_note`, `ledger_dimension`; the Bookkeeping pack's `bank_account_link`, `bank_feed_cursor`, `bank_txn`, `booking_rule`, `booking`, `booking_line` |
+| 0040 | M57 (§1.80) | The Bookkeeping pack's `reconciliation`, `reconciliation_item`, `reconciliation_match` |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
