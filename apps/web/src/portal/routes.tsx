@@ -53,6 +53,8 @@ export const portalRoutes = (
       element={<PortalSettingsScreen section="conversations" />}
     />
     <Route path="settings/voice" element={<PortalSettingsScreen section="voice" />} />
+    {/* P-8: US texting registration */}
+    <Route path="settings/texting" element={<PortalSettingsScreen section="texting" />} />
 
     {/* Off the nav, reached from an agent, a run, Home or Sloan */}
     <Route path="weekly" element={<PortalWeeklyScreen />} />

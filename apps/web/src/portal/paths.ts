@@ -25,6 +25,8 @@ export const PORTAL_PATHS = {
   exports: "/settings/exports",
   conversations: "/settings/conversations",
   voice: "/settings/voice",
+  // P-8: US texting registration (docs/plan.md §1.70)
+  texting: "/settings/texting",
   // Off the nav: reached from an agent, a run, Home or Sloan.
   reports: "/reports",
   records: "/records",

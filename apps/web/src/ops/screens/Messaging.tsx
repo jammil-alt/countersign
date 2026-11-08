@@ -22,6 +22,8 @@ import {
   type Tone,
 } from "../../ui/primitives";
 import { ClientFrame } from "../client/ClientFrame";
+// P-8: US texting registration by API
+import { A2pRegistrationPanel } from "./A2pRegistration";
 import { CallsPanel } from "./Calls";
 import { CaptureDefault } from "./CaptureDefault";
 import { EmailPanel } from "./EmailSetup";
@@ -308,6 +310,11 @@ function A2pPanel({
   const [service, setService] = useState(a2p?.messagingServiceSid ?? "");
   if (!a2p) return null;
   const status = A2P[a2p.status];
+  // P-8: registered by API from the client's details; the SIDs by hand only for a client
+  // registered in Twilio's console (docs/plan.md §1.70).
+  const registration = setup.twilio?.registration ?? null;
+  const byApi = registration !== null && registration.stage !== "draft";
+  const followed = byApi && registration?.stage !== "needs_changes";
   return (
     <Card className="p-5" testId="ops-a2p">
       <SectionLabel
@@ -319,9 +326,21 @@ function A2pPanel({
       >
         US texting registration (A2P 10DLC)
       </SectionLabel>
+      {registration ? (
+        <div className="mb-4">
+          <A2pRegistrationPanel
+            clientId={clientId}
+            registration={registration}
+            busy={busy}
+            act={act}
+          />
+        </div>
+      ) : null}
       <p className="mb-4 text-sm text-ink-muted">
-        Register the client's brand and campaign in Twilio's console, then record them here. Texts
-        to US numbers wait until both are approved.
+        {byApi
+          ? "We registered this client by Twilio's API. Check status asks Twilio now; the cron asks every hour."
+          : "Registered in Twilio's console instead? Record the brand and Messaging Service here."}{" "}
+        Texts to US numbers wait until both are approved.
         {a2p.checkedAt
           ? ` Last checked ${new Date(a2p.checkedAt).toLocaleString()}: brand ${a2p.brandStatus ?? "none"}, campaign ${a2p.campaignStatus ?? "none"}.`
           : ""}
@@ -330,6 +349,7 @@ function A2pPanel({
         className="flex flex-wrap items-end gap-3"
         onSubmit={(e) => {
           e.preventDefault();
+          if (byApi) return;
           void act(() =>
             api.call(apiRoutes.opsTwilioA2p, {
               params: { id: clientId },
@@ -340,6 +360,7 @@ function A2pPanel({
       >
         <Field label="Brand (BN…)" className="w-80">
           <TextInput
+            disabled={byApi}
             value={brand}
             onChange={(e) => setBrand(e.target.value)}
             data-testid="ops-a2p-brand"
@@ -347,16 +368,17 @@ function A2pPanel({
         </Field>
         <Field label="Messaging Service (MG…)" className="w-80">
           <TextInput
+            disabled={byApi}
             value={service}
             onChange={(e) => setService(e.target.value)}
             data-testid="ops-a2p-service"
           />
         </Field>
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" disabled={busy || byApi}>
           Save
         </Button>
         <Button
-          disabled={busy || (!a2p.brandSid && !a2p.messagingServiceSid)}
+          disabled={busy || (!followed && !a2p.brandSid && !a2p.messagingServiceSid)}
           onClick={() =>
             void act(() => api.call(apiRoutes.opsTwilioA2pRefresh, { params: { id: clientId } }))
           }

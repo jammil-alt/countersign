@@ -26,6 +26,11 @@ export interface Secrets {
   /** Mezonas' own Twilio account: it makes each client's subaccount (docs/plan.md §1.22). */
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_AUTH_TOKEN?: string;
+  // P-8: US texting registration by API (docs/plan.md §1.70). Plain settings, not secrets.
+  /** The BU SID of Mezonas' approved ISV primary customer profile in Trust Hub. */
+  TWILIO_PRIMARY_PROFILE_SID?: string;
+  /** Mezonas' own address Trust Hub writes to about each client's profile and trust product. */
+  TWILIO_A2P_EMAIL?: string;
   /** Mezonas' own ElevenLabs account: the voice agents on calls (docs/plan.md §1.23). */
   ELEVENLABS_API_KEY?: string;
   /** Signs ElevenLabs' post-call webhook; also keys each call's tool token. */

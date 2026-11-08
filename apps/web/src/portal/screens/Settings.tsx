@@ -27,6 +27,8 @@ import { PortalBillingScreen } from "./Billing";
 import { PortalConversationsScreen } from "./Conversations";
 import { PortalExportsScreen } from "./Exports";
 import { PortalTeamScreen } from "./Team";
+// P-8
+import { PortalTextingRegistration } from "./TextingRegistration";
 import { VoiceSamples } from "./VoiceSamples";
 
 export type SettingsSection =
@@ -36,7 +38,9 @@ export type SettingsSection =
   | "billing"
   | "exports"
   | "conversations"
-  | "voice";
+  | "voice"
+  // P-8: US texting registration (docs/plan.md §1.70)
+  | "texting";
 
 const SECTION_WORDS: Record<SettingsSection, PlainKey> = {
   general: "settingsPage.general",
@@ -46,6 +50,7 @@ const SECTION_WORDS: Record<SettingsSection, PlainKey> = {
   exports: "settingsPage.exports",
   conversations: "settingsPage.conversations",
   voice: "settingsPage.voice",
+  texting: "settingsPage.texting",
 };
 
 const SECTION_PATH: Record<SettingsSection, string> = {
@@ -56,6 +61,7 @@ const SECTION_PATH: Record<SettingsSection, string> = {
   exports: PORTAL_PATHS.exports,
   conversations: PORTAL_PATHS.conversations,
   voice: PORTAL_PATHS.voice,
+  texting: PORTAL_PATHS.texting,
 };
 
 /** The sections everyone has; the client admin has the rest too. */
@@ -68,12 +74,14 @@ const ADMIN: readonly SettingsSection[] = [
   "exports",
   "conversations",
   "voice",
+  "texting",
 ];
 
 /** What a client user reads on an admin's section, where the section has words of its own. */
 const ADMIN_ONLY: Partial<Record<SettingsSection, PlainKey>> = {
   exports: "exports.adminOnly",
   conversations: "conversations.adminOnly",
+  texting: "texting.adminOnly",
 };
 
 export function PortalSettingsScreen({ section = "general" }: { section?: SettingsSection }) {
@@ -173,6 +181,12 @@ function Body({ section, isAdmin }: { section: SettingsSection; isAdmin: boolean
       return (
         <Part title={title}>
           <VoiceSamples />
+        </Part>
+      );
+    case "texting":
+      return (
+        <Part title={title} subtitle={t("texting.subtitle")}>
+          <PortalTextingRegistration />
         </Part>
       );
   }

@@ -5,6 +5,8 @@
 // no thread line, no status callback. Without a key nothing is sent and rows are `skipped`.
 
 import {
+  // P-8
+  a2pServiceFor,
   type FetchLike,
   globalFetch,
   readTwilioConfig,
@@ -127,7 +129,15 @@ export function twilioTexter(input: {
         await (await connectionCredentials(tx, input.secrets, row)).get(),
       );
       if (!creds) throw new Error("the client's Twilio connection has no credentials");
-      return sendReleaseText(fetch, creds, { from, to: m.to, body: m.body });
+      // P-8: through the client's Messaging Service once its campaign is verified.
+      const config = readTwilioConfig(row.config);
+      const service = config ? a2pServiceFor(config, from) : null;
+      return sendReleaseText(fetch, creds, {
+        from,
+        to: m.to,
+        body: m.body,
+        messagingServiceSid: service,
+      });
     },
   };
 }
