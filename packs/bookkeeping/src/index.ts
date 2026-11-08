@@ -3,4 +3,23 @@
 // against its chart of accounts, and booked after approval. apps/api registers it.
 // May import core, db, llm, senses, documents, connectors; never agents or workflows.
 
+export * from "./accounts";
+export {
+  ACCOUNT_QUESTIONS,
+  BOOKINGS_REVIEW,
+  BOOKKEEPING_ACTIONS,
+  BOOKKEEPING_NIGHTLY,
+  BOOKKEEPING_REPORTS,
+  BOOKKEEPING_REVIEWS,
+  txnView,
+} from "./api";
+export * from "./bookings";
+export { type ImportResult, importFeeds } from "./feed";
+export { PACK_ID } from "./ids";
+export { BOOKKEEPING_HANDLERS, BOOKKEEPING_SKILLS, bookkeepingManifest } from "./manifest";
+export * from "./pack";
+export { payeeKey } from "./payee";
+export { bookingReference, POSTING_TOOLS, qboInput } from "./posting";
 export * from "./schema";
+export { BOOKKEEPER_SLUG, BOOKKEEPER_TEMPLATE } from "./template";
+export { BOOKKEEPING_TOOLS, thresholdFrom } from "./tools";

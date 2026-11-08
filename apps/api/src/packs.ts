@@ -9,6 +9,14 @@ import type { PackManifest } from "@countersign/core";
 import type { Db, Tx } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import {
+  BOOKKEEPING_ACTIONS,
+  BOOKKEEPING_HANDLERS,
+  BOOKKEEPING_NIGHTLY,
+  BOOKKEEPING_REPORTS,
+  BOOKKEEPING_REVIEWS,
+  bookkeepingManifest,
+} from "@countersign/pack-bookkeeping";
+import {
   MARKETING_ACTIONS,
   MARKETING_HANDLERS,
   MARKETING_INBOUND,
@@ -160,6 +168,18 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
     // search, weekly report); the rest (visits, content, claims, the forum watch) stay in the
     // back office.
     portalReports: screenReports(marketingManifest),
+  },
+  // B-3 (docs/plan.md §1.79): the Bookkeeping area, bank and card transactions into QuickBooks.
+  // The portal reads its Bank transactions report; the chart of accounts and the rules are the
+  // back office's (the client answers about accounts on the card).
+  {
+    manifest: bookkeepingManifest,
+    handlers: BOOKKEEPING_HANDLERS,
+    reports: BOOKKEEPING_REPORTS,
+    reviews: BOOKKEEPING_REVIEWS,
+    actions: BOOKKEEPING_ACTIONS,
+    nightly: BOOKKEEPING_NIGHTLY,
+    portalReports: screenReports(bookkeepingManifest),
   },
 ];
 

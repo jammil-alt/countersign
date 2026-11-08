@@ -54,6 +54,9 @@ importers:
       '@countersign/llm':
         specifier: workspace:*
         version: link:../../packages/llm
+      '@countersign/pack-bookkeeping':
+        specifier: workspace:*
+        version: link:../../packs/bookkeeping
       '@countersign/pack-marketing':
         specifier: workspace:*
         version: link:../../packs/marketing

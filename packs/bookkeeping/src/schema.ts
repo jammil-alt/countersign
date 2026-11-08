@@ -346,10 +346,7 @@ export const booking = pgTable(
       "booking_match_check",
       sql`(${t.kind} = 'match') = (${t.matchedTransactionId} is not null)`,
     ),
-    check(
-      "booking_transfer_check",
-      sql`${t.transferLinkId} is null or ${t.kind} = 'transfer'`,
-    ),
+    check("booking_transfer_check", sql`${t.transferLinkId} is null or ${t.kind} = 'transfer'`),
     // Invariant 10: a model's or a rule's decision names the agent version that made it.
     check(
       "booking_decider_check",
