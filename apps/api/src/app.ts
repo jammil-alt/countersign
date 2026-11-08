@@ -82,6 +82,8 @@ import { opsModelRoutes } from "./routes/ops-models";
 // v0.13 W2-I
 import { opsOversightRoutes } from "./routes/ops-oversight";
 import { opsSkillRoutes } from "./routes/ops-skills";
+// P-1: packs (docs/plan.md §1.63).
+import { packRouteHandlers } from "./routes/packs";
 import { portalRouteHandlers } from "./routes/portal";
 import { qboCronTick, qboRoutes, qboSyncFor } from "./routes/qbo";
 import { reachRoutes } from "./routes/reach";
@@ -139,6 +141,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // id by `/api/inbox/:id/resolve` (Hono runs handlers in the order they were added).
   deskRoutes(app);
   portalRouteHandlers(app);
+  // P-1: packs: enable per client, reports, review cards, actions.
+  packRouteHandlers(app);
   qboRoutes(app);
   // v0.14 W4-B: Zoho CRM's notifications.
   zohoRoutes(app);

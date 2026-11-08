@@ -1,0 +1,197 @@
+{
+  "description": "Hardwood lumber, priced by the board foot. Labels are a buyer's.",
+  "pairs": [
+    {
+      "a": "4/4 RED OAK FAS RGH",
+      "b": "RED OAK 4/4 FAS ROUGH BF",
+      "label": "same",
+      "note": "word order"
+    },
+    {
+      "a": "4/4 RED OAK FAS RGH",
+      "b": "4/4 RO FAS",
+      "label": "same",
+      "note": "unstated surfacing is rough"
+    },
+    {
+      "a": "4/4 RED OAK FAS RGH",
+      "b": "5/4 RED OAK FAS RGH",
+      "label": "different",
+      "note": "4/4 vs 5/4"
+    },
+    {
+      "a": "4/4 RED OAK FAS RGH",
+      "b": "4/4 RED OAK #1C RGH",
+      "label": "different",
+      "note": "FAS vs #1 common"
+    },
+    {
+      "a": "4/4 RED OAK FAS RGH",
+      "b": "4/4 RED OAK FAS S2S",
+      "label": "different",
+      "note": "rough vs S2S"
+    },
+    {
+      "a": "4/4 RED OAK FAS RGH",
+      "b": "4/4 WHITE OAK FAS RGH",
+      "label": "different",
+      "note": "red vs white oak"
+    },
+    {
+      "a": "4/4 WHITE OAK FAS RGH",
+      "b": "4/4 WO FAS ROUGH",
+      "label": "same",
+      "note": "WO abbreviation"
+    },
+    {
+      "a": "4/4 WHITE OAK FAS RGH",
+      "b": "4/4 QS WHITE OAK FAS RGH",
+      "label": "different",
+      "note": "plain vs quartersawn"
+    },
+    {
+      "a": "4/4 QUARTERSAWN WHITE OAK FAS",
+      "b": "4/4 QTR WO FAS RGH",
+      "label": "same",
+      "note": "quartersawn both"
+    },
+    {
+      "a": "4/4 RIFT WHITE OAK FAS",
+      "b": "4/4 QTR WHITE OAK FAS",
+      "label": "different",
+      "note": "rift vs quartered"
+    },
+    {
+      "a": "8/4 HARD MAPLE SEL&BTR S2S",
+      "b": "8/4 HM SELECT & BETTER S2S",
+      "label": "same",
+      "note": "HM, select & better"
+    },
+    {
+      "a": "8/4 HARD MAPLE SEL&BTR S2S",
+      "b": "8/4 SOFT MAPLE SEL&BTR S2S",
+      "label": "different",
+      "note": "hard vs soft maple"
+    },
+    {
+      "a": "8/4 HARD MAPLE SEL&BTR S2S",
+      "b": "6/4 HARD MAPLE SEL&BTR S2S",
+      "label": "different",
+      "note": "8/4 vs 6/4"
+    },
+    {
+      "a": "8/4 HARD MAPLE SEL&BTR S2S",
+      "b": "8/4 HARD MAPLE FAS S2S",
+      "label": "different",
+      "note": "sel & btr vs FAS"
+    },
+    {
+      "a": "4/4 HARD MAPLE FAS S2S",
+      "b": "4/4 HARD MAPLE FAS S4S",
+      "label": "different",
+      "note": "S2S vs S4S"
+    },
+    {
+      "a": "5/4 WALNUT #1C SL1E",
+      "b": "5/4 BLACK WALNUT #1 COMMON SLR1E",
+      "label": "same",
+      "note": "SL1E vs SLR1E"
+    },
+    {
+      "a": "5/4 WALNUT #1C SL1E",
+      "b": "5/4 WALNUT FAS SL1E",
+      "label": "different",
+      "note": "#1C vs FAS"
+    },
+    {
+      "a": "4/4 WALNUT FAS RGH",
+      "b": "4/4 WAL FAS ROUGH",
+      "label": "same",
+      "note": "WAL"
+    },
+    {
+      "a": "4/4 CHERRY FAS RGH",
+      "b": "4/4 CHY FAS",
+      "label": "same",
+      "note": "CHY abbreviation"
+    },
+    {
+      "a": "4/4 CHERRY FAS RGH",
+      "b": "4/4 CHERRY #1C RGH",
+      "label": "different",
+      "note": "FAS vs #1C"
+    },
+    {
+      "a": "4/4 POPLAR #1C S4S",
+      "b": "4/4 POP 1COM S4S",
+      "label": "same",
+      "note": "1COM"
+    },
+    {
+      "a": "4/4 POPLAR #1C S4S",
+      "b": "4/4 POPLAR #2C S4S",
+      "label": "different",
+      "note": "#1C vs #2C"
+    },
+    {
+      "a": "4/4 POPLAR FAS RGH",
+      "b": "8/4 POPLAR FAS RGH",
+      "label": "different",
+      "note": "4/4 vs 8/4"
+    },
+    {
+      "a": "4/4 ASH FAS RGH",
+      "b": "4/4 ALDER FAS RGH",
+      "label": "different",
+      "note": "ash vs alder"
+    },
+    {
+      "a": "4/4 SAPELE FAS RGH",
+      "b": "SAPELE 4/4 FAS LUMBER",
+      "label": "same",
+      "note": "lumber"
+    },
+    {
+      "a": "4/4 SAPELE FAS RGH",
+      "b": "4/4 MAHOGANY FAS RGH",
+      "label": "different",
+      "note": "sapele vs mahogany"
+    },
+    {
+      "a": "4/4 HICKORY #1C RGH",
+      "b": "4/4 HIC #1 COM",
+      "label": "same",
+      "note": "HIC"
+    },
+    {
+      "a": "12/4 HARD MAPLE FAS RGH",
+      "b": "12/4 HM FAS RGH",
+      "label": "same",
+      "note": "12/4"
+    },
+    {
+      "a": "4/4 ALDER SELECT S2S",
+      "b": "4/4 ALDER SEL S2S",
+      "label": "same",
+      "note": "SEL"
+    },
+    {
+      "a": "4/4 ALDER SELECT S2S",
+      "b": "4/4 ALDER SEL&BTR S2S",
+      "label": "different",
+      "note": "select vs sel & btr"
+    },
+    {
+      "a": "8/4 WALNUT FAS S2S",
+      "b": "8/4 WALNUT F1F S2S",
+      "label": "different",
+      "note": "FAS vs F1F"
+    },
+    {
+      "a": "4/4 RED OAK FAS RGH",
+      "b": "4/4 RED OAK SEL&BTR RGH",
+      "label": "different",
+      "note": "FAS vs sel & btr"
+    }
+  ]
+}

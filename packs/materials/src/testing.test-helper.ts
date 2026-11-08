@@ -51,6 +51,19 @@ export interface ShopFixture {
   vendor(name: string): Promise<string>;
   /** One invoice from a vendor; answers its doc line ids in order. */
   invoice(vendorId: string, lines: readonly InvoiceLine[]): Promise<string[]>;
+  /** The same, dated, with freight and surcharges; answers the document and its line ids. */
+  invoiceDoc(
+    vendorId: string,
+    lines: readonly InvoiceLine[],
+    options?: InvoiceOptions,
+  ): Promise<{ documentId: string; extractionId: string; lineIds: string[] }>;
+}
+
+export interface InvoiceOptions {
+  /** yyyy-mm-dd: the invoice date. */
+  date?: string;
+  freight?: string;
+  surcharges?: { label: string; amount: string }[];
 }
 
 let counter = 0;
@@ -86,7 +99,7 @@ export async function insertShop(db: Db, name: string): Promise<ShopFixture> {
   if (!av) throw new Error("no agent version");
 
   const vendors = new Map<string, string>();
-  return {
+  const shop: ShopFixture = {
     tenantId,
     userId: u.id,
     agentVersionId: av.id,
@@ -102,6 +115,9 @@ export async function insertShop(db: Db, name: string): Promise<ShopFixture> {
       return v.id;
     },
     async invoice(vendorId, lines) {
+      return (await shop.invoiceDoc(vendorId, lines)).lineIds;
+    },
+    async invoiceDoc(vendorId, lines, options = {}) {
       const ref = randomBytes(8).toString("hex");
       const [tx] = await db
         .insert(transaction)
@@ -110,7 +126,7 @@ export async function insertShop(db: Db, name: string): Promise<ShopFixture> {
           kind: "bill",
           connector: "upload",
           vendorId,
-          txnDate: "2026-11-02",
+          txnDate: options.date ?? "2026-11-02",
           total: "100.0000",
           externalId: ref,
         })
@@ -137,7 +153,9 @@ export async function insertShop(db: Db, name: string): Promise<ShopFixture> {
           tenantId,
           documentId: d.id,
           model: "test-model",
-          header: { vendorName: "Vendor" },
+          header: { vendorName: "Vendor", ...(options.date ? { invoiceDate: options.date } : {}) },
+          freight: options.freight ?? "0",
+          surcharges: options.surcharges ?? [],
           subtotal: "100",
           total: "100",
           linesSum: "100",
@@ -158,13 +176,14 @@ export async function insertShop(db: Db, name: string): Promise<ShopFixture> {
             qty: line.qty ?? "1",
             uomRaw: line.uom ?? null,
             unitPrice: line.unitPrice ?? "10",
-            extPrice: line.unitPrice ?? "10",
+            extPrice: String(Number(line.unitPrice ?? "10") * Number(line.qty ?? "1")),
           })
           .returning();
         if (!dl) throw new Error("no doc line");
         ids.push(dl.id);
       }
-      return ids;
+      return { documentId: d.id, extractionId: ex.id, lineIds: ids };
     },
   };
+  return shop;
 }

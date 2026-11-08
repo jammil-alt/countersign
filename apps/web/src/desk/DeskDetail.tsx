@@ -27,6 +27,7 @@ import {
   type ResolveInput,
   suggestionFacts,
 } from "../inbox/InboxCard";
+import { packReviewCard } from "../packs/reviews";
 import { PORTAL_PATHS } from "../portal/paths";
 import { ReleaseCodeEntry } from "../portal/screens/AccessRelease";
 import { SourceLinks } from "../records/SourceLinks";
@@ -94,6 +95,8 @@ export function DeskDetail({
   const batch = isBatch({ key: entry.key, items });
   const open = items.some((i) => i.status === "open");
   const need = needOf(lead);
+  // A pack's review (e.g. the Materials match review) brings its own card and its own finish.
+  const ReviewCard = lead.kind === "external_action" ? null : packReviewCard(lead.payload);
   const agent = lead.service?.name ?? null;
   const tool = typeof lead.payload.tool === "string" ? lead.payload.tool : null;
   const toolName = lead.display?.connectorName ?? (tool ? connectorName(connectorOf(tool)) : null);
@@ -279,6 +282,13 @@ export function DeskDetail({
                 })
               }
             />
+          ) : ReviewCard ? (
+            <ReviewCard
+              itemId={lead.id}
+              surface="portal"
+              open={open && !settled}
+              onResolve={canSign ? (body) => resolveOne(body, "answered") : null}
+            />
           ) : (
             <ItemBody item={lead} heading={leadHeading} />
           )}
@@ -287,7 +297,11 @@ export function DeskDetail({
             <ReleaseCodeEntry inboxItemId={lead.id} onDone={onChanged} />
           ) : null}
 
-          {need === "answer" && open && canSign && !quickAnswers(lead.payload, i18n.locale) ? (
+          {need === "answer" &&
+          open &&
+          canSign &&
+          !ReviewCard &&
+          !quickAnswers(lead.payload, i18n.locale) ? (
             <label className="ds-field" htmlFor={`desk-answer-${lead.id}`}>
               <span className="text-sm font-medium text-ink">{t("inbox.yourAnswer")}</span>
               <TextArea
@@ -353,20 +367,22 @@ export function DeskDetail({
                             {t("desk.notNow")}
                           </Button>
                         ) : null}
-                        <Decide
-                          need={need}
-                          lead={lead}
-                          batch={batch}
-                          busy={busy}
-                          toolName={toolName}
-                          answer={answer}
-                          ticked={tickedOpen}
-                          total={openCount}
-                          canEdit={editable.length > 0}
-                          onEdit={() => setEditing(true)}
-                          onResolve={resolveOne}
-                          onBatch={resolveBatch}
-                        />
+                        {ReviewCard ? null : (
+                          <Decide
+                            need={need}
+                            lead={lead}
+                            batch={batch}
+                            busy={busy}
+                            toolName={toolName}
+                            answer={answer}
+                            ticked={tickedOpen}
+                            total={openCount}
+                            canEdit={editable.length > 0}
+                            onEdit={() => setEditing(true)}
+                            onResolve={resolveOne}
+                            onBatch={resolveBatch}
+                          />
+                        )}
                       </>
                     )}
                   </div>
