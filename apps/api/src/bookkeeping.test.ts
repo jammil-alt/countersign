@@ -8,6 +8,7 @@
 //   → a second run writes nothing again.
 // Another client sees nothing; the portal's answers carry no prompt, model or cost.
 
+import { createDbPorts } from "@countersign/agents";
 import {
   BANKING_TOOLS,
   ContentStore,
@@ -353,6 +354,16 @@ describe.skipIf(!h)("the Bookkeeper, end to end", () => {
     });
     ids.fuel = byName.get("Fuel")?.id ?? "";
     expect(ids.fuel).not.toBe("");
+    // Any of the client's agents reads it through the platform's ledger tools, by kind.
+    expect(H.platform.tools.get("ledger.accounts.list")?.spec.sideEffect).toBe("none");
+    expect(H.platform.catalog.get("ledger.chart")?.handler).toBe("ledger.accounts.list");
+    const ledger = createDbPorts(H.db).ledger;
+    if (!ledger) throw new Error("no ledger port");
+    const cards = await ledger.accounts(A(), { kinds: ["card"] });
+    expect(cards.accounts.map((a) => [a.fullName, a.kind, a.externalId, a.connectionId])).toEqual([
+      ["Amex", "card", "41", ids.qbo],
+    ]);
+    expect((await ledger.accounts(H.B.tenantId, {})).count).toBe(0);
     // The client's own purchase is synced with the card it was paid from.
     const [p77] = await H.t.db
       .select()

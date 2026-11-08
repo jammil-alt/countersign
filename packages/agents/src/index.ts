@@ -75,6 +75,7 @@ export * from "./tools/health";
 // v0.12 W2-E
 export * from "./tools/inbound";
 export * from "./tools/knowledge";
+export * from "./tools/ledger";
 export * from "./tools/platform";
 export * from "./tools/reach";
 export * from "./tools/supervisor";
