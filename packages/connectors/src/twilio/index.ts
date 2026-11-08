@@ -74,6 +74,8 @@ import { callTools } from "./call-tools";
 // v0.14 capture
 import { inboundMedia } from "./media";
 
+// P-8: US texting registration by API
+export * from "./a2p";
 export * from "./api";
 // v0.14 capture
 export * from "./media";
@@ -306,8 +308,9 @@ export function a2pOverall(brand: string | null, campaign: string | null): A2pSt
   return "pending";
 }
 
-// DECISION: A2P 10DLC is shown and tracked, not automated: the operator registers the brand and
-// campaign in Twilio's console, records their SIDs here, and "Check status" reads both back.
+// DECISION: for a client registered by hand in Twilio's console, the operator records the brand and
+// Messaging Service here and "Check status" reads both back. P-8 registers by API (twilio/a2p.ts,
+// apps/api's messaging/a2p.ts) and keeps the same fields.
 export async function fetchA2pStatus(
   fetch: FetchLike,
   auth: TwilioAuth,
@@ -501,11 +504,17 @@ export function releaseTextSender(config: TwilioConfig | null): string | null {
 export async function sendReleaseText(
   fetch: FetchLike,
   auth: TwilioAuth,
-  input: { from: string; to: string; body: string },
+  // P-8: the client's Messaging Service once its campaign is verified (a2pServiceFor).
+  input: { from: string; to: string; body: string; messagingServiceSid?: string | null },
 ): Promise<string> {
   const created = MessageCreated.parse(
     await twilioRequest(fetch, auth, "POST", `${accountUrl(auth.accountSid)}/Messages.json`, {
-      form: { To: input.to, From: input.from, Body: input.body },
+      form: {
+        To: input.to,
+        From: input.from,
+        Body: input.body,
+        ...(input.messagingServiceSid ? { MessagingServiceSid: input.messagingServiceSid } : {}),
+      },
     }),
   );
   return created.sid;
@@ -577,6 +586,17 @@ function senderFor(config: TwilioConfig, channel: MessagingChannel): string {
     );
   }
   return n.phoneNumber;
+}
+
+// P-8: once the client's campaign is verified and the number is in its Messaging Service, texts
+// go through the service (docs/plan.md §1.70).
+/** The Messaging Service a text from `from` goes through, or null (sent `From` the number alone). */
+export function a2pServiceFor(config: TwilioConfig, from: string): string | null {
+  const reg = config.a2p.registration;
+  const service = config.a2p.messagingServiceSid;
+  if (reg?.stage !== "ready" || !service || config.a2p.status !== "approved") return null;
+  const n = config.numbers.find((x) => x.phoneNumber === from);
+  return n && reg.serviceNumbers.includes(n.sid) ? service : null;
 }
 
 /**
@@ -767,6 +787,9 @@ async function send(
     From: `${prefix}${from}`,
     StatusCallback: config.webhooks.status,
   };
+  // P-8: with `From` too, so Twilio keeps the sender we chose (NOTES.md).
+  const service = input.channel === "sms" ? a2pServiceFor(config, from) : null;
+  if (service) form.MessagingServiceSid = service;
   let useTemplate = false;
   if (input.channel === "whatsapp") {
     const open = inWhatsAppWindow(lastInboundAt, ctx.now());
