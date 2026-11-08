@@ -20,6 +20,7 @@ import { ConnectorRegistry } from "../registry";
 import { fromUtf8, utf8 } from "../runtime";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo, QBO_FIXTURES } from "../testing";
 import {
+  BANKING_TOOLS,
   createQboConnector,
   parseQboWebhook,
   QBO_TOOLS,
@@ -112,7 +113,7 @@ describe("qbo connector: manifest and sign-in", () => {
     }
   });
 
-  it("declares twelve reads and ten approval-gated writes, no delete", () => {
+  it("declares twelve reads and thirteen approval-gated writes, no delete", () => {
     const { connector } = setup();
     new ConnectorRegistry([connector]);
     expect(connector.manifest.auth).toBe("oauth2");
@@ -141,6 +142,10 @@ describe("qbo connector: manifest and sign-in", () => {
       [QBO_TOOLS.vendorCreate, "external", "create"],
       [QBO_TOOLS.purchaseOrderCreate, "external", "create"],
       [QBO_TOOLS.purchaseOrderQuery, "none", "read"],
+      // B-4: bank transactions booked.
+      [BANKING_TOOLS.purchaseCreate, "external", "create"],
+      [BANKING_TOOLS.depositCreate, "external", "create"],
+      [BANKING_TOOLS.transferCreate, "external", "create"],
     ]);
     // The record types the v0.12 tools name (ToolSpec.entity), for per-entity permissions.
     const entity = (id: string) => connector.manifest.tools.find((t) => t.id === id)?.entity;
@@ -172,7 +177,9 @@ describe("qbo connector: manifest and sign-in", () => {
       const shown = display.fields.flatMap((f) => [f.now, f.after]).filter(Boolean);
       // A new bill's expected total is its total, not a guard on a record that exists.
       const guards =
-        t.id === QBO_TOOLS.billCreate || t.id === QBO_TOOLS.purchaseOrderCreate
+        t.id === QBO_TOOLS.billCreate ||
+        t.id === QBO_TOOLS.purchaseOrderCreate ||
+        (Object.values(BANKING_TOOLS) as string[]).includes(t.id)
           ? /syncToken|\.id\b|Ids?\b/
           : /syncToken|expectedTotal|\.id\b|Ids?\b/;
       expect(shown.join(" "), t.id).not.toMatch(guards);

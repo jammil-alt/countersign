@@ -42,6 +42,7 @@ import { QBO_SIGNATURE_HEADER, verifyQboWebhook } from "./webhook";
 
 export * from "./api";
 export * from "./ar";
+export * from "./banking";
 export * from "./bill-create";
 export * from "./ingredients";
 export * from "./purchase-order";
@@ -97,14 +98,15 @@ export function createQboConnector(options: QboOptions = {}): QboConnector {
     id: QBO_CONNECTOR_ID,
     name: "QuickBooks Online",
     description:
-      "Bills, purchases, purchase orders, vendors, items, accounts, classes, attachments, and invoices, customers and payments in your QuickBooks Online. You sign in to QuickBooks yourself.",
+      "Bills, purchases, purchase orders, vendors, items, accounts, classes, attachments, invoices, customers and payments in your QuickBooks Online, and deposits and transfers booked from your bank. You sign in to QuickBooks yourself.",
     icon: "book",
     auth: "oauth2",
     entities: [...QBO_SYNCED_ENTITIES],
     // v0.12 W2-A: the record types a matrix and a grant set levels for (docs/plan.md §1.44).
     permissionEntities: [
       { id: "bill", label: "Bills", verbs: ["read", "create", "update"] },
-      { id: "purchase", label: "Purchases", verbs: ["read", "update"] },
+      // B-4: purchases gain create (`qbo.purchase.create`, a booked bank transaction).
+      { id: "purchase", label: "Purchases", verbs: ["read", "create", "update"] },
       { id: "item", label: "Items", verbs: ["read", "update"] },
       // P-2: vendors gain create (`qbo.vendor.create`).
       { id: "vendor", label: "Vendors", verbs: ["read", "create"] },
@@ -128,6 +130,9 @@ export function createQboConnector(options: QboOptions = {}): QboConnector {
       { id: "account", label: "Accounts", verbs: ["read"] },
       { id: "class", label: "Classes", verbs: ["read"] },
       { id: "purchase_order", label: "Purchase orders", verbs: ["read", "create"] },
+      // B-4 (docs/plan.md §1.79): deposits and transfers booked from bank transactions.
+      { id: "deposit", label: "Deposits", verbs: ["create"] },
+      { id: "transfer", label: "Transfers", verbs: ["create"] },
     ],
     isConfigured: () => configured,
 

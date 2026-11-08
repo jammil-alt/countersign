@@ -97,7 +97,12 @@ describe("manifests", () => {
       "account",
       "class",
       "purchase_order",
+      // B-4
+      "deposit",
+      "transfer",
     ]);
+    // B-4: purchases can be created (a booked bank transaction).
+    expect(declared?.find((e) => e.id === "purchase")?.verbs).toEqual(["read", "create", "update"]);
     // P-2: vendors can be created.
     expect(declared?.find((e) => e.id === "vendor")?.verbs).toEqual(["read", "create"]);
     expect(declared?.find((e) => e.id === "invoice")?.scopes).toEqual([

@@ -205,6 +205,9 @@ const ENTITY_PATHS: Record<string, string> = {
   class: "Class",
   purchaseorder: "PurchaseOrder",
   term: "Term",
+  // B-4 (docs/plan.md §1.79)
+  deposit: "Deposit",
+  transfer: "Transfer",
 };
 
 export interface FakeQboOptions {
@@ -259,6 +262,8 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
   seed("Term", terms.QueryResponse.Term);
   let nextVendorId = 700;
   let nextPoId = 800;
+  // B-4: purchases, deposits and transfers made from bank transactions.
+  let nextBankId = 600;
   files.set("5000000000000401", utf8("%PDF-1.4\n% Cascade Hardwoods invoice 77812\n%%EOF\n"));
 
   const stamp = () => {
@@ -502,8 +507,88 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
     return response(200, { PurchaseOrder: clone(row), time: now().toISOString() });
   }
 
+  // ── B-4: bank transactions booked (docs/plan.md §1.79) ───────────────────────────────────────
+
+  /** An account of the company, active (QuickBooks answers 2500 for an unknown one). */
+  function liveAccount(ref: unknown): Entity {
+    const id = String((ref as { value?: string } | undefined)?.value ?? "");
+    const a = table("Account").get(id);
+    if (!a || a.Active === false) throw invalidRef();
+    return a;
+  }
+
+  /** A new expense, check or card charge (POST /purchase without an Id). */
+  function createPurchase(body: Entity): HttpResponseLike {
+    const account = liveAccount(body.AccountRef);
+    const entity = body.EntityRef as { value?: string } | undefined;
+    if (entity && !table("Vendor").has(String(entity.value))) throw invalidRef();
+    const lines = (Array.isArray(body.Line) ? body.Line : []) as Record<string, unknown>[];
+    checkLineRefs(lines);
+    for (const l of lines) {
+      liveAccount(
+        (l.AccountBasedExpenseLineDetail as { AccountRef?: unknown } | undefined)?.AccountRef,
+      );
+    }
+    const row: Entity = {
+      ...clone(body),
+      Id: String(nextBankId++),
+      SyncToken: "0",
+      domain: "QBO",
+      sparse: false,
+      AccountRef: { value: account.Id, name: account.Name },
+      CurrencyRef: (body.CurrencyRef as object | undefined) ?? { value: "USD" },
+      Line: lines.map((l, i) => ({ ...l, Id: String(i + 1), LineNum: i + 1 })),
+    };
+    row.TotalAmt = Number(linesTotal(row));
+    touch("Purchase", row, true);
+    return response(200, { Purchase: clone(row), time: now().toISOString() });
+  }
+
+  /** A new deposit (POST /deposit without an Id). */
+  function createDeposit(body: Entity): HttpResponseLike {
+    const account = liveAccount(body.DepositToAccountRef);
+    const lines = (Array.isArray(body.Line) ? body.Line : []) as Record<string, unknown>[];
+    for (const l of lines) {
+      liveAccount((l.DepositLineDetail as { AccountRef?: unknown } | undefined)?.AccountRef);
+    }
+    const row: Entity = {
+      ...clone(body),
+      Id: String(nextBankId++),
+      SyncToken: "0",
+      domain: "QBO",
+      sparse: false,
+      DepositToAccountRef: { value: account.Id, name: account.Name },
+      CurrencyRef: (body.CurrencyRef as object | undefined) ?? { value: "USD" },
+      Line: lines.map((l, i) => ({ ...l, Id: String(i + 1), LineNum: i + 1 })),
+    };
+    row.TotalAmt = Number(linesTotal(row));
+    touch("Deposit", row, true);
+    return response(200, { Deposit: clone(row), time: now().toISOString() });
+  }
+
+  /** A new transfer between two of the company's accounts (POST /transfer without an Id). */
+  function createTransfer(body: Entity): HttpResponseLike {
+    const from = liveAccount(body.FromAccountRef);
+    const to = liveAccount(body.ToAccountRef);
+    if (from.Id === to.Id) throw new FakeFault(400, "6000", "Transfer accounts must differ");
+    const row: Entity = {
+      ...clone(body),
+      Id: String(nextBankId++),
+      SyncToken: "0",
+      domain: "QBO",
+      sparse: false,
+      FromAccountRef: { value: from.Id, name: from.Name },
+      ToAccountRef: { value: to.Id, name: to.Name },
+    };
+    touch("Transfer", row, true);
+    return response(200, { Transfer: clone(row), time: now().toISOString() });
+  }
+
   /** POST /<entity> without an Id: the entities the fake can create. */
   function create(first: string, body: Entity): HttpResponseLike | null {
+    if (first === "purchase") return createPurchase(body);
+    if (first === "deposit") return createDeposit(body);
+    if (first === "transfer") return createTransfer(body);
     if (first === "bill") return createBill(body);
     if (first === "vendor") return createVendor(body);
     if (first === "purchaseorder") return createPurchaseOrder(body);

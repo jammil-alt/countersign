@@ -15,6 +15,7 @@ import {
 } from "../connector";
 import { QboApiError, type QboClient, qboLiteral, qboRequestId } from "./api";
 import { qboArTools } from "./ar";
+import { depositCreateTool, purchaseCreateTool, transferCreateTool } from "./banking";
 import { billCreateTool } from "./bill-create";
 import {
   attachDisplay,
@@ -683,5 +684,9 @@ export function qboTools(clientFor: ClientFor): ToolDefinition[] {
     billCreateTool(clientFor),
     // P-2: QuickBooks ingredients (docs/plan.md §1.64).
     ...qboIngredientTools(clientFor),
+    // B-4 (docs/plan.md §1.79): bank and card transactions booked.
+    purchaseCreateTool(clientFor),
+    depositCreateTool(clientFor),
+    transferCreateTool(clientFor),
   ];
 }
