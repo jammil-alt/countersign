@@ -462,7 +462,11 @@ describe("The Inbox: Mezonas stepped in", () => {
       status: "resolved",
       resolvedAt: "2026-11-05T11:00:00.000Z",
       resolvedBy: { id: "00000000-0000-4000-8000-0000000c0001", name: null },
-      steppedIn: { action: "approve", reason: "Your admin is away", at: "2026-11-05T11:00:00.000Z" },
+      steppedIn: {
+        action: "approve",
+        reason: "Your admin is away",
+        at: "2026-11-05T11:00:00.000Z",
+      },
     };
     const api = fakeApi({
       ...base,
