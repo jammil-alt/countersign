@@ -40,7 +40,7 @@ export function parseInches(text: string): number | null {
     const den = Number(fraction[2]);
     return den === 0 ? null : Number(fraction[1]) / den;
   }
-  if (/^\d*\.?\d+$/.test(text)) return Number(text);
+  if (/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(text)) return Number(text);
   return null;
 }
 
@@ -63,7 +63,7 @@ export function findThickness(
   tokens: readonly string[],
 ): { thickness: Thickness; index: number } | null {
   for (const [index, token] of tokens.entries()) {
-    const mm = /^(\d*\.?\d+)MM$/.exec(token);
+    const mm = /^((?:\d+(?:\.\d+)?|\.\d+))MM$/.exec(token);
     if (mm) {
       const value = Number(mm[1]);
       if (value <= 0 || value > 40) continue;
@@ -97,7 +97,7 @@ function unitOf(mark: string | undefined): DimUnit | null {
   return "in";
 }
 
-const DIM = String.raw`((?:\d+-)?\d+\/\d+|\d*\.?\d+)(MM|IN|FT|'|")?`;
+const DIM = String.raw`((?:\d+-)?\d+\/\d+|(?:\d+(?:\.\d+)?|\.\d+))(MM|IN|FT|'|")?`;
 const SIZE_RE = new RegExp(`^${DIM}X${DIM}(?:X${DIM})?$`);
 
 export interface SheetSize {
@@ -151,7 +151,7 @@ export function findSheetSize(tokens: readonly string[]): SheetSize | null {
 
 /** Millimetres from `22MM`, `7/8`, `15/16"`, `1-1/8IN`, `.5MM`, `10MIL`, `.018`; null otherwise. */
 export function toMm(token: string): number | null {
-  const mm = /^(\d*\.?\d+)MM$/.exec(token);
+  const mm = /^((?:\d+(?:\.\d+)?|\.\d+))MM$/.exec(token);
   if (mm) return Number(mm[1]);
   const mil = /^(\d+)MIL$/.exec(token);
   if (mil) return Number(mil[1]) * 0.0254;
