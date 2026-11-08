@@ -19,6 +19,7 @@
     "@countersign/db": "workspace:*",
     "@countersign/documents": "workspace:*",
     "@countersign/llm": "workspace:*",
+    "@countersign/pack-marketing": "workspace:*",
     "@countersign/pack-materials": "workspace:*",
     "@countersign/senses": "workspace:*",
     "@countersign/threads": "workspace:*",

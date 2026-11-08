@@ -54,6 +54,9 @@ importers:
       '@countersign/llm':
         specifier: workspace:*
         version: link:../../packages/llm
+      '@countersign/pack-marketing':
+        specifier: workspace:*
+        version: link:../../packs/marketing
       '@countersign/pack-materials':
         specifier: workspace:*
         version: link:../../packs/materials
@@ -453,6 +456,25 @@ importers:
       zod:
         specifier: ^4.6.2
         version: 4.6.7
+
+  packs/marketing:
+    dependencies:
+      '@countersign/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@countersign/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@4.0.0)
+      zod:
+        specifier: ^4.6.2
+        version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.2
+        version: 22.20.5
 
   packs/materials:
     dependencies:
