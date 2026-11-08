@@ -2765,32 +2765,6 @@ approver writes Spanish to an English-speaking vendor, sees both texts on the ca
 exactly the English text is sent once; and a client that never set a working language behaves
 exactly as before.
 
-### M42: Purchasing end to end by email (P-9, §1.71)
-
-Five stacked PRs, each a draft: migration 0036 (`claude/p9-purchasing-migration`); the plumbing and
-this section (`claude/p9-purchasing-plumbing`); QuickBooks (`claude/p9-purchasing-qbo`); the
-screens and cards (`claude/p9-purchasing-ui`); the proof (`claude/p9-purchasing-e2e`).
-
-Work: `comms.read-message`; null as "not stated" on `request.create` and `quote.record`; lines
-without a quantity and `request.update-lines`; `vendor-contacts`; the RFQ's words and PDF; mark-sent
-from a reach-out's outcome, `quote.expire`; `docs.read` and quote readings; `materials.request.created`;
-the Builder's packs; then QuickBooks vendor ids, PO lines and the bill-price import; the line review
-and vendor choice cards and the Requests screens; and the API test of the whole email flow.
-
-Tests (no live model, no live provider: FakeModel and the fakes): each new tool's validation and
-client isolation; the RFQ's words in the vendor's own words and under reach out's limit; an RFQ sent,
-replied, expired and never sent; a quote PDF read with no invoice review; and the end-to-end email
-flow with every write approved once, sources on outputs, no other client's data, and portal answers
-with no prompt, model or cost.
-
-**Done when**, on staging, a buyer built in the Agent lab takes an email to its address to a
-QuickBooks purchase order: the request is opened and its lines matched, an unsure line answered on
-the card, two vendors emailed an RFQ, one reply recorded from a PDF, a silent vendor expired, the
-vendor picked on the card, the PO PDF emailed and the QuickBooks PO created, each write approved
-once, and the client and the back office see the request ordered.
-
----
-
 ### M41: US texting registration (P-8, §1.70)
 
 Two PRs: this design (`claude/p8-a2p-design`) and the build (`claude/p8-a2p`, stacked). No migration.
@@ -2816,6 +2790,32 @@ portal's answers with no SID, fee or cost.
 **Done when** a client admin can give the business's details once, the operator can submit them
 with the fees in view, and the client's US texts start going out through its own registered campaign
 without anyone opening Twilio's console, with Twilio's fees on the client's usage.
+
+### M42: Purchasing end to end by email (P-9, §1.71)
+
+Five stacked PRs, each a draft: migration 0036 (`claude/p9-purchasing-migration`); the plumbing and
+this section (`claude/p9-purchasing-plumbing`); QuickBooks (`claude/p9-purchasing-qbo`); the
+screens and cards (`claude/p9-purchasing-ui`); the proof (`claude/p9-purchasing-e2e`).
+
+Work: `comms.read-message`; null as "not stated" on `request.create` and `quote.record`; lines
+without a quantity and `request.update-lines`; `vendor-contacts`; the RFQ's words and PDF; mark-sent
+from a reach-out's outcome, `quote.expire`; `docs.read` and quote readings; `materials.request.created`;
+the Builder's packs; then QuickBooks vendor ids, PO lines and the bill-price import; the line review
+and vendor choice cards and the Requests screens; and the API test of the whole email flow.
+
+Tests (no live model, no live provider: FakeModel and the fakes): each new tool's validation and
+client isolation; the RFQ's words in the vendor's own words and under reach out's limit; an RFQ sent,
+replied, expired and never sent; a quote PDF read with no invoice review; and the end-to-end email
+flow with every write approved once, sources on outputs, no other client's data, and portal answers
+with no prompt, model or cost.
+
+**Done when**, on staging, a buyer built in the Agent lab takes an email to its address to a
+QuickBooks purchase order: the request is opened and its lines matched, an unsure line answered on
+the card, two vendors emailed an RFQ, one reply recorded from a PDF, a silent vendor expired, the
+vendor picked on the card, the PO PDF emailed and the QuickBooks PO created, each write approved
+once, and the client and the back office see the request ordered.
+
+---
 
 ---
 
