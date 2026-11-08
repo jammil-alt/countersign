@@ -283,10 +283,7 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
   }
 
   beforeAll(async () => {
-    expect(
-      (await H.call(OPERATOR, "PUT", msg(), { quietHours: quietNever() }))
-        .status,
-    ).toBe(200);
+    expect((await H.call(OPERATOR, "PUT", msg(), { quietHours: quietNever() })).status).toBe(200);
     setup = j((await H.call(OPERATOR, "POST", msg("/twilio"))).json).setup;
     setup = j(
       (await H.call(OPERATOR, "POST", msg("/numbers"), { phoneNumber: "+15125550101" })).json,
