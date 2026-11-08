@@ -16,6 +16,8 @@ import { type AppDeps, defaultDeps, type Services } from "./http";
 import { forwardingAddress, receiveReachOutReply, wakeAll } from "./reach/replies";
 import { extractInBackground } from "./routes/documents";
 import { dispatchEvents } from "./runs/dispatch";
+// P-7: message translation
+import { translateLater, translationDepsFor } from "./translate/service";
 // v0.12 W2-E: agent addresses
 import { receiveAgentEmail } from "./triggers/inbound-email";
 import { replyDepsFromEnv, sendReplies } from "./triggers/replies";
@@ -71,15 +73,20 @@ export async function handleEmail(
     );
     if (reply) {
       await wakeAll(deps.instances(env), reply.woken);
+      // P-7: the reply's words, translated beside it where the client has it on (§1.69).
+      const translate = reply.woken.length > 0;
       // P-3: then dispatched and read in the background, like forwarded mail.
-      if (reply.events.length > 0 || reply.fresh.length > 0) {
+      if (reply.events.length > 0 || reply.fresh.length > 0 || translate) {
         const services = { db, env, deps } as Pick<Services, "db" | "env" | "deps">;
         closeLater = true;
         waitUntil(
           (async () => {
             try {
-              await dispatchEvents({ db, instances: deps.instances(env) }, reply.events);
-              await extractInBackground(services, reply.tenantId, reply.fresh);
+              if (reply.events.length > 0 || reply.fresh.length > 0) {
+                await dispatchEvents({ db, instances: deps.instances(env) }, reply.events);
+                await extractInBackground(services, reply.tenantId, reply.fresh);
+              }
+              if (translate) await translateLater(translationDepsFor(services), reply.tenantId);
             } finally {
               await close();
             }
@@ -138,6 +145,8 @@ export async function handleEmail(
               );
               if (toAgent.status === "accepted") {
                 await extractInBackground(services, tenantId, toAgent.fresh);
+                // P-7: the email's words, translated beside it where the client has it on.
+                await translateLater(translationDepsFor(services), tenantId);
               }
             }
           } finally {

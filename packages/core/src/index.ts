@@ -78,6 +78,8 @@ export * from "./api/table";
 // v0.12 W2-C: the test bench
 export * from "./api/testbench";
 export * from "./api/threads";
+// P-7: message translation
+export * from "./api/translation";
 // v0.12 W2-E
 export * from "./api/triggers";
 export * from "./api/usage";
@@ -190,6 +192,8 @@ export * from "./testbench/match";
 export * from "./testbench/suite";
 export * from "./threads/command";
 export * from "./threads/schemas";
+export * from "./translate/detect";
+export * from "./translate/settings";
 // v0.12 W2-E
 export * from "./triggers";
 export * from "./weekly/schemas";

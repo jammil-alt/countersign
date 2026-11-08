@@ -11,6 +11,7 @@ import {
   type ContactCreateInput,
   type ContactMessage,
   type ContactPatchInput,
+  ContactTranslation,
   callBlock,
   consentBlock,
   consentBlockFor,
@@ -20,6 +21,7 @@ import {
   languageFor,
   type MessagingChannel,
   normalizePhone,
+  type OpsContactMessage,
   QuietHours,
   type ReachChannel,
   type ReachContact,
@@ -38,6 +40,8 @@ import {
 } from "@countersign/db";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
+// P-7
+import { translationsFor } from "../translate/views";
 
 export type ContactRow = typeof contact.$inferSelect;
 type StoredConsent = NonNullable<typeof contact.$inferInsert.consent>;
@@ -128,6 +132,8 @@ export function contactView(
     canEmail: consentBlockFor(reachContactOf(row), "email") === null,
     // v0.12 W1-G: per channel; a channel left out narrows nothing.
     autonomy: readAutonomy(row.autonomy),
+    // P-7: this person's switch over the client's translation (docs/plan.md §1.69).
+    translation: ContactTranslation.catch({}).parse(row.translation ?? {}),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -579,7 +585,9 @@ export async function contactMessages(
   tx: Tx,
   tenantId: string,
   contactId: string,
-): Promise<ContactMessage[]> {
+  // P-7: the surface decides whether a translation shows its model and cost.
+  surface: "ops" | "portal" = "portal",
+): Promise<OpsContactMessage[]> {
   const rows = await tx
     .select({ id: message.id, body: message.body, createdAt: message.createdAt })
     .from(message)
@@ -593,9 +601,24 @@ export async function contactMessages(
     )
     .orderBy(desc(message.createdAt), desc(message.id))
     .limit(200);
+  // P-7: each line's translation, beside the raw record it shows (docs/plan.md §1.69).
+  const rawOf = (body: unknown) => {
+    const id = (body as Partial<ThreadMessageBody>).rawRecordId;
+    return typeof id === "string" && id ? id : null;
+  };
+  const translated = await translationsFor(
+    tx,
+    tenantId,
+    { rawRecordIds: rows.map((r) => rawOf(r.body)).filter((v): v is string => !!v) },
+    surface,
+  );
   return rows.map((r) => {
     const b = r.body as Partial<ThreadMessageBody>;
+    const raw = rawOf(r.body);
+    // The portal's view has no model or cost; the back office's has both.
+    const translation = (raw ? translated.get(raw) : undefined) as OpsContactMessage["translation"];
     return {
+      ...(translation ? { translation } : {}),
       id: r.id,
       direction: b.direction === "in" ? "in" : "out",
       channel:

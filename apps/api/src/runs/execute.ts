@@ -269,6 +269,9 @@ export function runtimeFor(
       }),
       // v0.12 W2-D: Sloan reads and writes the account through the portal's own code.
       account: accountViews(deps.platform),
+      // P-7: `comms.translate` on the run's transport (held to the client's HIPAA mode by
+      // forClient), docs/plan.md §1.69.
+      translation: { transport: deps.transport, ...(deps.now ? { now: deps.now } : {}) },
     }),
     tools: deps.platform.tools,
     catalog: deps.platform.catalog,

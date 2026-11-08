@@ -1128,6 +1128,13 @@ export const ptBR: Messages = {
   "contacts.withdrawConsent": "Retirar o consentimento",
   "contacts.optOutAll": "Descadastrar de tudo",
   "contacts.loadingMessages": "Carregando mensagens…",
+  // P-7: a message and its translation (docs/plan.md §1.69).
+  "translation.from": "Traduzido de: {language}",
+  "translation.original": "Original",
+  "translation.showOriginal": "Ver original",
+  "translation.showTranslation": "Ver tradução",
+  "translation.truncated": "Os primeiros 6.000 caracteres foram traduzidos",
+  "translation.unknownLanguage": "outro idioma",
   "contacts.noMessages": "Nenhuma mensagem ainda.",
   "contacts.message.theyCalled": "Ligou",
   "contacts.message.weCalled": "Ligamos",

@@ -19,6 +19,8 @@ import type { ModelCallPort } from "./model-calls";
 import { dbPlatformStore } from "./platform-store";
 import { dbRunLog } from "./run-log";
 import { dbThreadsPort } from "./threads-port";
+// P-7
+import { dbTranslationPort, type TranslationPortOptions } from "./translation-port";
 
 export interface DbPortsOptions {
   /**
@@ -38,6 +40,9 @@ export interface DbPortsOptions {
   // v0.12 W2-D
   /** The portal's views and writes for Sloan's `account.*` (apps/api passes them); absent: they fail. */
   account?: AccountViews;
+  // P-7
+  /** The model transport for `comms.translate` (the run's, held to the client's HIPAA mode). */
+  translation?: TranslationPortOptions;
 }
 
 export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePorts {
@@ -63,5 +68,7 @@ export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePort
     ...(options.modelCalls ? { modelCalls: options.modelCalls } : {}),
     // v0.12 W2-D: Sloan's account, as the portal shows it; passing to an agent emits.
     ...(options.account ? { account: dbAccountPort(db, options.account, emit) } : {}),
+    // P-7: message translation, on the run's transport.
+    ...(options.translation ? { translation: dbTranslationPort(db, options.translation) } : {}),
   };
 }

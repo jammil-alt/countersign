@@ -12,6 +12,8 @@ import {
   QuietHours,
 } from "../messaging/rules";
 import { ReachChannel, RoleName } from "../reach/rules";
+// P-7
+import { ContactTranslation, OpsTranslationView, TranslationView } from "../translate/settings";
 import { defineRoute } from "./contract";
 
 // Texts and WhatsApp through Twilio (docs/plan.md §1.19, §1.22): a client's contacts and their
@@ -147,6 +149,8 @@ export const Contact = z.object({
   canEmail: z.boolean().optional(),
   // v0.12 W1-G: per channel, `auto`, `approval` or `off`; a channel left out narrows nothing.
   autonomy: ContactAutonomy.optional(),
+  // P-7: this person's switch over the client's translation (docs/plan.md §1.69).
+  translation: ContactTranslation.optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -173,14 +177,23 @@ export const ContactMessage = z.object({
   /** Delivery status for messages we sent (queued, sent, delivered, failed…). */
   status: z.string().nullable(),
   at: z.string(),
+  // P-7: the latest translation of this message, beside it (docs/plan.md §1.69).
+  translation: TranslationView.optional(),
 });
 export type ContactMessage = z.infer<typeof ContactMessage>;
+
+/** P-7: the back office's line: its translation with the model and cost (docs/plan.md §1.69). */
+export const OpsContactMessage = ContactMessage.extend({
+  translation: OpsTranslationView.optional(),
+});
+export type OpsContactMessage = z.infer<typeof OpsContactMessage>;
 
 const ContactParams = z.object({ id: Id, contactId: Id });
 const PortalContactParams = z.object({ id: Id });
 const ContactList = z.object({ items: z.array(Contact) });
 const OneContact = z.object({ contact: Contact });
 const MessageList = z.object({ items: z.array(ContactMessage) });
+const OpsMessageList = z.object({ items: z.array(OpsContactMessage) });
 
 // ── Twilio setup ─────────────────────────────────────────────────────────────────────────────────
 
@@ -293,7 +306,7 @@ export const messagingRoutes = {
     roles: OPS,
     summary: "A contact's messages, newest first",
     params: ContactParams,
-    response: MessageList,
+    response: OpsMessageList,
   }),
   // Contacts, portal (the client admin).
   portalContacts: defineRoute({

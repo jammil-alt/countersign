@@ -1146,6 +1146,13 @@ export const fr: Messages = {
   "contacts.withdrawConsent": "Retirer le consentement",
   "contacts.optOutAll": "Désinscrire de tout",
   "contacts.loadingMessages": "Chargement des messages…",
+  // P-7: a message and its translation (docs/plan.md §1.69).
+  "translation.from": "Traduit de : {language}",
+  "translation.original": "Original",
+  "translation.showOriginal": "Voir l'original",
+  "translation.showTranslation": "Voir la traduction",
+  "translation.truncated": "Les 6 000 premiers caractères ont été traduits",
+  "translation.unknownLanguage": "une autre langue",
   "contacts.noMessages": "Aucun message pour l'instant.",
   "contacts.message.theyCalled": "A appelé",
   "contacts.message.weCalled": "Nous avons appelé",

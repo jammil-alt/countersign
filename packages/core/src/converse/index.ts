@@ -11,6 +11,8 @@ import { isPlainObject } from "../json";
 import { DecimalString } from "../money";
 import { JsonSchema } from "../schemas/common";
 import { hasTemplate } from "../template/template";
+// P-7
+import { OpsTranslationView, TranslationView } from "../translate/settings";
 
 export const CONVERSE_SKILL = "comms.converse";
 
@@ -368,6 +370,8 @@ export const ConverseViewMessage = z.object({
   edited: z
     .object({ original: z.string().nullable(), by: ConverseActor, at: z.string() })
     .optional(),
+  // P-7: a reply's translation into the working language (docs/plan.md §1.69).
+  translation: OpsTranslationView.optional(),
 });
 
 /** The back office's view of a conversation step (`GET /api/ops/runs/:id`). */
@@ -394,6 +398,8 @@ export const ConversePortalView = z.object({
       at: z.string().nullable(),
       // P-6: who changed it before it went (never the agent's draft).
       edited: z.object({ by: ConverseActor }).optional(),
+      // P-7: a reply's translation, beside it (§1.69).
+      translation: TranslationView.optional(),
     }),
   ),
   // P-6: take-overs and ends (§1.68); whether it is still going, and whether this person (the

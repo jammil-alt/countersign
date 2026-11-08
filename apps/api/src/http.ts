@@ -65,6 +65,12 @@ export interface AppDeps {
    * no model key is configured (documents then wait for an agent's `docs.extract`).
    */
   extractionTransport(env: Bindings): LlmTransport | null;
+  // P-7
+  /**
+   * The model transport that translates messages outside a run (docs/plan.md §1.69); left out, the
+   * extraction transport. Tests pass a FakeModel.
+   */
+  translationTransport?(env: Bindings): LlmTransport | null;
   /** The WorkOS API client for the WorkOS sign-in; default over `fetch` (tests pass a fake). */
   workos?(env: Bindings): WorkOSClient;
   /** Outbound HTTP for provisioning calls (Twilio numbers); tests pass a fake. */

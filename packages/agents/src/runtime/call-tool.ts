@@ -198,6 +198,8 @@ async function dispatch(
       account: deps.ports.account,
       // v0.12 W2-E
       inbound: deps.ports.inbound,
+      // P-7: message translation
+      translation: deps.ports.translation,
       ask: step.ask,
       language: step.language,
       now: deps.now,
