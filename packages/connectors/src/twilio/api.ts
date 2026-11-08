@@ -50,16 +50,17 @@ export async function twilioRequest(
     query?: Record<string, string | undefined>;
     // P-3: a field Twilio takes more than once (`MediaUrl`), after the form's own fields.
     repeated?: { name: string; values: readonly string[] };
+    // P-8: more than one such field (a campaign's samples and keywords, docs/plan.md §1.70).
+    repeatedMany?: readonly { name: string; values: readonly string[] }[];
   } = {},
 ): Promise<unknown> {
   const q = Object.entries(opts.query ?? {}).filter(
     (e): e is [string, string] => e[1] !== undefined,
   );
-  const repeated = opts.repeated
-    ? opts.repeated.values
-        .map((v) => `${encodeURIComponent(opts.repeated?.name ?? "")}=${encodeURIComponent(v)}`)
-        .join("&")
-    : "";
+  const lists = [...(opts.repeated ? [opts.repeated] : []), ...(opts.repeatedMany ?? [])];
+  const repeated = lists
+    .flatMap((r) => r.values.map((v) => `${encodeURIComponent(r.name)}=${encodeURIComponent(v)}`))
+    .join("&");
   const full = q.length > 0 ? `${url}?${formEncode(Object.fromEntries(q))}` : url;
   let res: HttpResponseLike;
   try {

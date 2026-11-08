@@ -10,6 +10,8 @@
 // codes send (no raw record, no thread line).
 
 import {
+  // P-8
+  a2pServiceFor,
   type FetchLike,
   globalFetch,
   // v0.14 W4-A
@@ -196,6 +198,8 @@ export async function sendReplies(
           from: `${prefix}${r.from}`,
           to: `${prefix}${r.to}`,
           body: r.body,
+          // P-8: a text goes through the client's Messaging Service once its campaign is verified.
+          messagingServiceSid: r.channel === "sms" ? a2pServiceFor(config, r.from) : null,
         });
       });
     } catch (error) {

@@ -525,6 +525,12 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   clients' connections. `APP_ORIGIN` must be set, since Twilio is pointed at
   `<APP_ORIGIN>/api/twilio/<client>/messages` and `/status` and signs requests over those URLs.
   What to check in Twilio before a client goes live: `packages/connectors/src/twilio/NOTES.md`.
+  US texting registration by API (P-8, plan §1.70) also needs two plain settings (not secrets), set
+  as Worker variables per environment in `apps/api/wrangler.jsonc`: `TWILIO_PRIMARY_PROFILE_SID` (the BU SID of Mezonas' approved
+  ISV primary customer profile in Trust Hub) and `TWILIO_A2P_EMAIL` (a Mezonas address Trust Hub
+  writes to about each client's profile and trust product). Without them the back office's
+  "Submit to Twilio" answers 503. Submitting charges Twilio's registration fees to Mezonas' account;
+  they come back as the client's credits. Run the mock brand checklist in NOTES.md once first.
 - Needed for calls (plan §1.23; wiring into `deploy.yml` is the coordinator's): `ELEVENLABS_API_KEY`
   (Mezonas' ElevenLabs workspace, Conversational AI) and `ELEVENLABS_WEBHOOK_SECRET` (the signing
   secret of ElevenLabs' post-call webhook, pointed at `<APP_ORIGIN>/api/elevenlabs/post-call`; it

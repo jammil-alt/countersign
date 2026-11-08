@@ -1,4 +1,9 @@
-import { DEFAULT_PERMISSIONS, type JsonObject, type MessagingChannel } from "@countersign/core";
+import {
+  DEFAULT_PERMISSIONS,
+  emptyA2pRegistration,
+  type JsonObject,
+  type MessagingChannel,
+} from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import {
   type ConnectionRef,
@@ -27,7 +32,11 @@ import { ConnectorRegistry } from "../registry";
 import { FAKE_TWILIO_MAIN, fakeTwilio } from "./fake";
 import {
   a2pOverall,
+  // P-8
+  a2pServiceFor,
+  addServiceNumber,
   buyNumber,
+  createA2pService,
   createSubaccount,
   createTwilioConnector,
   fetchA2pStatus,
@@ -617,3 +626,55 @@ describe("twilio connector", () => {
 
 // Keeps the channel type in use for readers of this file.
 export type _Channel = MessagingChannel;
+
+// P-8: texts through the client's Messaging Service once its campaign is verified (plan §1.70).
+describe("twilio sends through the Messaging Service once registered", () => {
+  it("adds MessagingServiceSid (with From) only when ready and the number is in the service", async () => {
+    const { twilio, sub, connector, ctx, config } = await setup();
+    const number = config.numbers[0];
+    if (!number) throw new Error("no number");
+    // A service with the number in its pool, as the registration leaves it.
+    const svc = await createA2pService(twilio.fetch, sub, {
+      friendlyName: "Client A",
+      inboundUrl: config.webhooks.messages,
+      statusUrl: config.webhooks.status,
+    });
+    await addServiceNumber(twilio.fetch, sub, svc, number.sid);
+    config.a2p = {
+      ...config.a2p,
+      messagingServiceSid: svc,
+      registration: { ...emptyA2pRegistration(), stage: "ready", serviceNumbers: [number.sid] },
+    };
+    expect(a2pServiceFor(config, number.phoneNumber)).toBe(svc);
+    const m = memoryMessaging();
+    await executeWrite(
+      connector,
+      SMS_SEND_TOOL,
+      { to: PAT, text: "Hi" },
+      ctx({ messaging: m.services }),
+    );
+    expect(twilio.sends()[0]?.form).toMatchObject({
+      From: number.phoneNumber,
+      MessagingServiceSid: svc,
+    });
+    // Not ready, or the number not in the service: From alone, as before.
+    config.a2p.registration = {
+      ...emptyA2pRegistration(),
+      stage: "campaign",
+      serviceNumbers: [number.sid],
+    };
+    expect(a2pServiceFor(config, number.phoneNumber)).toBeNull();
+    config.a2p.registration = { ...emptyA2pRegistration(), stage: "ready", serviceNumbers: [] };
+    expect(a2pServiceFor(config, number.phoneNumber)).toBeNull();
+    // A client registered by hand (no registration) keeps From alone.
+    config.a2p.registration = undefined;
+    expect(a2pServiceFor(config, number.phoneNumber)).toBeNull();
+    await executeWrite(
+      connector,
+      SMS_SEND_TOOL,
+      { to: PAT, text: "Hi again" },
+      ctx({ messaging: memoryMessaging().services }, "run-1:send:1"),
+    );
+    expect(twilio.sends()[1]?.form.MessagingServiceSid).toBeUndefined();
+  });
+});
