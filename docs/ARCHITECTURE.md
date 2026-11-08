@@ -2946,7 +2946,6 @@ Platform first; the Materials template, forked and customized for the millwork s
 | M32 | Checkpoint reviews | An extraction that feeds a create-bill step is reviewed; a wrong total is corrected before the bill is proposed and the approver sees the corrected input; with `review: 'failures'` a clean run makes no oversight call |
 | M33 | (v0.14) WhatsApp passive capture | A WhatsApp photo from a contact whose conversation has attachments on becomes one document, extracted, linked to its message; with it off, only the attachment's existence is kept; a retried webhook makes nothing twice; the client admin toggles it and the change is logged |
 | M34 | (v0.15) The Purchasing area: the Materials pack ported | On staging, the Materials pack is enabled for the Sandbox; three invoices from different vendors for the same sheet good are matched to one catalog item (the second and third by alias or rules, not the model); the Price watch report shows that item's price per vendor and date; a key attribute that differs is never matched; golden matching tests ≥ 95% precision on "same" |
-
 | M37 | (P-4) Conversations | A three-turn WhatsApp clarification ends with a confirmed, typed result; a limit hands over to a person with the transcript; a replay sends nothing twice; a contact on "needs approval" makes each message wait |
 
 **MVP** (§1): M0–M4 in full; M5 without client requests; M6 without the Builder, operator-written skills, template updates and
