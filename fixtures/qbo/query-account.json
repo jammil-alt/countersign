@@ -2,12 +2,25 @@
   "QueryResponse": {
     "Account": [
       {
+        "Id": "33",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "Name": "Accounts Payable (A/P)",
+        "FullyQualifiedName": "Accounts Payable (A/P)",
+        "AccountType": "Accounts Payable",
+        "AccountSubType": "AccountsPayable",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "Active": true
+      },
+      {
         "Id": "80",
         "SyncToken": "0",
         "domain": "QBO",
         "Name": "Job Materials",
         "FullyQualifiedName": "Job Materials",
         "AccountType": "Cost of Goods Sold",
+        "AccountSubType": "SuppliesMaterialsCogs",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
         "Active": true
       },
       {
@@ -17,11 +30,46 @@
         "Name": "Freight In",
         "FullyQualifiedName": "Job Materials:Freight In",
         "AccountType": "Cost of Goods Sold",
+        "AccountSubType": "ShippingFreightDeliveryCos",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "Active": true
+      },
+      {
+        "Id": "84",
+        "SyncToken": "1",
+        "domain": "QBO",
+        "Name": "Shop Supplies",
+        "FullyQualifiedName": "Shop Supplies",
+        "AccountType": "Expense",
+        "AccountSubType": "SuppliesMaterials",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "Active": true
+      },
+      {
+        "Id": "85",
+        "SyncToken": "2",
+        "domain": "QBO",
+        "Name": "Old Freight",
+        "FullyQualifiedName": "Old Freight",
+        "AccountType": "Expense",
+        "AccountSubType": "ShippingFreightDelivery",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "Active": false
+      },
+      {
+        "Id": "90",
+        "SyncToken": "0",
+        "domain": "QBO",
+        "Name": "Sales Tax Payable",
+        "FullyQualifiedName": "Sales Tax Payable",
+        "AccountType": "Other Current Liability",
+        "AccountSubType": "SalesTaxPayable",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
         "Active": true
       }
     ],
     "startPosition": 1,
-    "maxResults": 2
+    "maxResults": 6
   },
   "time": "2026-11-05T10:00:00.000-08:00"
 }

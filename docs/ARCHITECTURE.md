@@ -954,6 +954,11 @@ its status for the tenant, and the tools it gives agents. Tool ids are `<connect
   same vendor and doc number exists (synced or found live); QuickBooks' `requestid` comes from the
   action's key. Behind approval like every write; the default matrix keeps create at `approval`, and
   the template that uses it starts with approval on (invariant 8). Delete stays off.
+- **Ingredients (P-2, owner 2026-11-07).** Tools for agents built later in the agent lab: reads
+  `qbo.account.query` (entity `account`), `qbo.class.query` (`class`) and `qbo.purchaseorder.query`
+  (`purchase_order`); writes `qbo.vendor.create` (`vendor`, verb `create`, refused when a vendor has
+  the name) and `qbo.purchaseorder.create` (`purchase_order`, verb `create`, the rules of create bill),
+  both behind approval; bill and purchase lines may name a class and a customer (billable or not).
 
 ### 6.3 Upload connector
 

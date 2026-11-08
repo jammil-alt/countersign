@@ -340,7 +340,11 @@ function LinesTable({
               {l.description ?? "—"}
               <Marker item={l} side={side} />
             </td>
-            <td className="px-1 py-2 align-top break-words text-ink-muted">{l.ref ?? "—"}</td>
+            <td className="px-1 py-2 align-top break-words text-ink-muted">
+              {l.ref ?? "—"}
+              {/* P-2: the line's job and class. */}
+              {l.tags ? <span className="block text-xs">{l.tags.join(" · ")}</span> : null}
+            </td>
             {priced ? (
               <td className="px-1 py-2 text-right align-top whitespace-nowrap text-ink-muted figures">
                 {l.qty !== null && l.unitPrice !== null

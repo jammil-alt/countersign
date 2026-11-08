@@ -391,3 +391,59 @@ describe("InboxCard: a declared change, for a client", () => {
     );
   });
 });
+
+// P-2 (docs/plan.md §1.64): a line's job and class, by name, with what it is booked to.
+describe("the change tables: a line's job and class", () => {
+  const lines = BILL_LINES_DISPLAY.fields[1];
+  if (!lines?.columns) throw new Error("no lines field");
+  const display = {
+    ...BILL_LINES_DISPLAY,
+    fields: [
+      {
+        ...lines,
+        columns: {
+          ...lines.columns,
+          tags: [
+            { key: "customer", names: "customers" },
+            { key: "class", names: "classes" },
+            { key: "customerId", names: "customers" },
+            { key: "classId", names: "classes" },
+          ],
+        },
+      },
+    ],
+  };
+  const before = {
+    ...BILL_BEFORE,
+    lines: [{ ...BILL_BEFORE.lines[0], customer: { id: "7", name: "Henderson kitchen" } }],
+    names: { ...BILL_BEFORE.names, classes: { "301": "Shop" }, customers: {} },
+  };
+  const input = {
+    ...BILL_INPUT,
+    lines: [
+      { ...BILL_INPUT.lines[0], customerId: "8", billable: true, classId: "301" },
+      { ...BILL_INPUT.lines[1], classId: "999" },
+    ],
+  };
+
+  it("shows them under what each line is booked to; an unnamed id only in the back office", () => {
+    const tags = (showIds: boolean) => {
+      const model = changeModel(display, before, input, "en", { showIds });
+      const field = model.fields.find((f) => f.key === "lines");
+      const now = field?.now.type === "lines" ? field.now.items.map((l) => l.tags) : null;
+      const after = field?.after.type === "lines" ? field.after.items.map((l) => l.tags) : null;
+      return { now, after };
+    };
+    // The record's line names its job; the new lines' customer 8 and class 999 have no name.
+    expect(tags(false)).toEqual({ now: [["Henderson kitchen"]], after: [["Shop"], undefined] });
+    expect(tags(true).after).toEqual([["#8", "Shop"], ["#999"]]);
+    renderTables({ before, input, display });
+    expect(screen.getByTestId("change-lines-now-item-0")).toHaveTextContent(
+      "Job MaterialsHenderson kitchen",
+    );
+    expect(screen.getByTestId("change-lines-after-item-0")).toHaveTextContent(
+      "Baltic birch 3/4 4x8Shop",
+    );
+    expect(screen.getByTestId("change-lines-after-item-1").textContent).not.toContain("999");
+  });
+});
