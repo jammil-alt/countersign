@@ -42,7 +42,7 @@ export function CompareTable({ comparison }: { comparison: Comparison }) {
                               o.unitPrice
                                 ? `${fmt.unitPrice(o.unitPrice, o.currency)}${o.unit ? ` / ${o.unit}` : ""}`
                                 : null,
-                              o.cost ? fmt.money(o.cost, o.currency) : null,
+                              o.lineTotal ? fmt.money(o.lineTotal, o.currency) : null,
                               o.leadTimeDays !== null
                                 ? t("materials.request.lead", { count: o.leadTimeDays })
                                 : null,

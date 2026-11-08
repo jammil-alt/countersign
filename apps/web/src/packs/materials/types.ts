@@ -138,7 +138,8 @@ export interface Offer {
   unitPrice: string | null;
   unit: string | null;
   currency: string;
-  cost: string | null;
+  /** What the line would cost from this vendor (decimal). */
+  lineTotal: string | null;
   leadTimeDays: number | null;
   available: boolean;
   comparable: boolean;

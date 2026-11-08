@@ -197,7 +197,7 @@ describe.skipIf(!online)("the Purchasing area's cards and page (database)", () =
     ]);
     expect(page.request.comparison.suggestion.kind).toBe("single");
     expect(page.request.choice.quoteRequestId).toBe(quotes["Keystone Lumber"]);
-    expect(JSON.stringify(page)).not.toMatch(/agentVersionId|runId|instructions|userId/);
+    expect(JSON.stringify(page)).not.toMatch(/agentVersionId|runId|instructions|userId|"cost"/);
     expect(
       await withTenant(db, B.tenantId, (tx) => item(tx, B.tenantId, requestId, "2026-11-08")),
     ).toBeNull();

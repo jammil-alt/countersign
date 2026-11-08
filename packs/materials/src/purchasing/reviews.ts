@@ -10,7 +10,7 @@ import { document, type Tx, withTenant } from "@countersign/db";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { catalogItem, purchaseRequest, quoteRequest } from "../schema";
-import { compareQuotesTx } from "./compare";
+import { type Comparison, compareQuotesTx } from "./compare";
 import { quoteLines } from "./quotes";
 import {
   loadRequest,
@@ -40,6 +40,19 @@ export interface VendorChoice {
 export function choiceOf(ext: unknown): VendorChoice | null {
   const c = (ext as { choice?: unknown } | null)?.choice;
   return c && typeof c === "object" ? (c as VendorChoice) : null;
+}
+
+// DECISION: what a line would cost from a vendor is `lineTotal` on screens and cards, so the
+// portal's answers carry no field named `cost` (that word is kept for what agents cost).
+export function forPeople(c: Comparison) {
+  return {
+    ...c,
+    lines: c.lines.map(({ offers, best, ...l }) => ({
+      ...l,
+      offers: offers.map(({ cost, ...o }) => ({ ...o, lineTotal: cost })),
+      best: best ? (({ cost, ...b }) => ({ ...b, lineTotal: cost }))(best) : null,
+    })),
+  };
 }
 
 const CATALOG_LIMIT = 300;
@@ -141,7 +154,9 @@ export async function decideRequestLine(
 export async function vendorChoiceView(tx: Tx, tenantId: string, payload: unknown) {
   const { requestId } = RequestPayload.parse(payload);
   const r = await requestRow(tx, tenantId, requestId);
-  const comparison = await compareQuotesTx(tx, { tenantId }, { requestId, asOf: today() });
+  const comparison = forPeople(
+    await compareQuotesTx(tx, { tenantId }, { requestId, asOf: today() }),
+  );
   const choice = choiceOf(r.ext);
   return {
     requestId,
@@ -273,7 +288,7 @@ export async function requestPage(tx: Tx, tenantId: string, id: string, asOf: st
   );
   const received = r.quotes.some((q) => q.status === "received");
   const comparison = received
-    ? await compareQuotesTx(tx, { tenantId }, { requestId: id, asOf })
+    ? forPeople(await compareQuotesTx(tx, { tenantId }, { requestId: id, asOf }))
     : null;
   const docs = await tx
     .select({
