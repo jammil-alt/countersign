@@ -476,7 +476,7 @@ describe("The Inbox: Mezonas stepped in", () => {
     renderAt("/inbox?view=done", api);
     const card = await screen.findByTestId("desk-detail");
     expect(await within(card).findByTestId("desk-outcome")).toHaveTextContent(
-      "Mezonas, on your behalf: Your admin is away",
+      "We stepped in: Your admin is away",
     );
   });
 
@@ -494,7 +494,7 @@ describe("The Inbox: Mezonas stepped in", () => {
     renderAt("/inbox", api);
     const open = await screen.findByTestId("desk-detail");
     expect(await within(open).findByTestId("desk-passed")).toHaveTextContent(
-      "Mezonas passed this to you: Sam runs it",
+      "We passed this to you: Sam runs it",
     );
   });
 });

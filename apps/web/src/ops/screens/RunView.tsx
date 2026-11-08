@@ -513,6 +513,7 @@ function Timeline({
                   text: `${e.kind === "taken_over" ? "Took the conversation over" : "Ended the conversation"}${e.reason ? `: ${e.reason}` : ""}`,
                   when: shortTime(e.at),
                   meta: null,
+                  person: true,
                 })),
               ]}
             />

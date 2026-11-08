@@ -500,7 +500,7 @@ export async function portalRunView(
       title: titles.get(i.id) ?? plainTitle(i),
       status: i.status,
       approved: i.status === "resolved" ? approved : null,
-      // P-6: "Mezonas, on your behalf" when we stepped in: never our person's name.
+      // P-6: "We stepped in" when we did: never our person's name.
       by: i.resolvedBy
         ? { id: i.resolvedBy, name: steppedInOf(i) ? null : (names.get(i.resolvedBy) ?? null) }
         : null,

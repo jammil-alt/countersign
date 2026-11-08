@@ -1,6 +1,6 @@
 // P-6: step in on a client's open item (docs/plan.md §1.68). Day to day the client's team answers
-// it; we oversee, and step in only when we must, always with a reason the client reads ("Mezonas,
-// on your behalf"). Approve and reject take the client's own path; a question takes an answer; a
+// it; we oversee, and step in only when we must, always with a reason the client reads ("We stepped
+// in: …", copper as a person's action). Approve and reject take the client's own path; a question takes an answer; a
 // message waiting for approval can be changed before it is approved; anything can be passed to
 // someone else at the client. Never a request for a code: only the client's code releases it.
 import { useState } from "react";

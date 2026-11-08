@@ -400,17 +400,19 @@ export const es: Messages = {
   "run.conversation.sent": "Enviado",
   "run.conversation.reply": "Respuesta",
   // P-6: stepping in, taking a conversation over, editing a message (docs/plan.md §1.68); needs a fluent review
-  "run.conversation.us": "Mezonas",
   "run.conversation.takenOver": "{who} tomó la conversación",
   "run.conversation.ended": "{who} terminó la conversación",
   "run.conversation.editedBy": "Editado por {who} antes de enviarse",
+  "run.conversation.takenOverByUs": "Tomamos la conversación", // fluent review
+  "run.conversation.endedByUs": "Terminamos la conversación", // fluent review
+  "run.conversation.editedByUs": "Lo cambiamos antes de enviarlo", // fluent review
   "run.conversation.takeOver": "Tomar la conversación",
   "run.conversation.end": "Terminar la conversación",
   "run.conversation.reason": "Motivo (opcional)",
   "run.conversation.controlHint":
     "Tomarla: el agente no envía nada más y la pregunta llega a su escritorio. Terminarla: el agente se detiene aquí.",
-  "desk.steppedIn": "Mezonas, en su nombre: {reason}",
-  "desk.passedToYou": "Mezonas le pasó esto: {reason}",
+  "desk.steppedIn": "Intervenimos: {reason}", // fluent review
+  "desk.passedToYou": "Le pasamos esto: {reason}", // fluent review
   "desk.editMessage": "Cambiar el mensaje",
   "desk.editMessageSave": "Guardar el mensaje",
   "desk.messageEdited": "Usted cambió este mensaje. Lo que apruebe es exactamente lo que se envía.",

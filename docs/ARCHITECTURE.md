@@ -2222,7 +2222,7 @@ is core's, one function for the builder and the server (invariant 4).
   open one of a client they serve, with a reason: approve, reject or answer it (the client's own resolve
   path, so a change is still approved once and written once with its before state), or pass it to a
   client role or person. Never a request for a code (only the client's code releases it), and never the
-  go-live sign-off. The item and the portal read "Mezonas, on your behalf" with the
+  go-live sign-off. The item and the portal read "We stepped in" (a person's action, copper) with the
   reason, never our person's name; the route's audit row names the client; the client's lead thread gets
   a line, which the lead-message notification carries to the person it waited on.
 - Resolving an item writes `resolution`, emits `inbox.resolved` and sends the event to the waiting run.

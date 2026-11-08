@@ -107,9 +107,20 @@ function RunPage({ data, onChanged }: { data: RunData; onChanged: () => void }) 
   const i18n = useI18n();
   const { t, locale } = i18n;
   const time = (iso: string | null) => shortTime(iso, undefined, i18n);
-  // P-6: "Mezonas" when it was us; the client's own people by name.
-  const actorWords = (by: { us: boolean; name: string | null }) =>
-    by.us ? t("run.conversation.us") : (by.name ?? "");
+  // P-6: "we" when it was us (portal voice); the client's own people by name.
+  type Actor = { us: boolean; name: string | null };
+  const editedWords = (by: Actor) =>
+    by.us
+      ? t("run.conversation.editedByUs")
+      : t("run.conversation.editedBy", { who: by.name ?? "" });
+  const eventWords = (kind: string, by: Actor) =>
+    kind === "taken_over"
+      ? by.us
+        ? t("run.conversation.takenOverByUs")
+        : t("run.conversation.takenOver", { who: by.name ?? "" })
+      : by.us
+        ? t("run.conversation.endedByUs")
+        : t("run.conversation.ended", { who: by.name ?? "" });
   const { run } = data;
   const short = shortRunId(run.id);
   const openApprovals = data.approvals.filter((a) => a.status === "open");
@@ -151,18 +162,15 @@ function RunPage({ data, onChanged }: { data: RunData; onChanged: () => void }) 
                 text: m.text,
                 when: m.at ? time(m.at) : null,
                 // P-6: changed before it went, and by whom (§1.68).
-                meta: m.edited
-                  ? t("run.conversation.editedBy", { who: actorWords(m.edited.by) })
-                  : null,
+                meta: m.edited ? editedWords(m.edited.by) : null,
+                metaPerson: !!m.edited,
               })),
               // P-6: who took it over or ended it, and why.
               ...(s.conversation.events ?? []).map((e, k) => ({
                 key: `event-${k}`,
                 direction: "out" as const,
-                who: t(
-                  e.kind === "taken_over" ? "run.conversation.takenOver" : "run.conversation.ended",
-                  { who: actorWords(e.by) },
-                ),
+                who: eventWords(e.kind, e.by),
+                person: true,
                 text: e.reason ?? "",
                 when: time(e.at),
               })),

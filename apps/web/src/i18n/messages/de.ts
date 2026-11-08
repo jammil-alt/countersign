@@ -418,17 +418,19 @@ export const de: Messages = {
   "run.conversation.sent": "Gesendet",
   "run.conversation.reply": "Antwort",
   // P-6: stepping in, taking a conversation over, editing a message (docs/plan.md §1.68); needs a fluent review
-  "run.conversation.us": "Mezonas",
   "run.conversation.takenOver": "{who} hat das Gespräch übernommen",
   "run.conversation.ended": "{who} hat das Gespräch beendet",
   "run.conversation.editedBy": "Vor dem Senden von {who} bearbeitet",
+  "run.conversation.takenOverByUs": "Wir haben das Gespräch übernommen", // fluent review
+  "run.conversation.endedByUs": "Wir haben das Gespräch beendet", // fluent review
+  "run.conversation.editedByUs": "Von uns vor dem Senden geändert", // fluent review
   "run.conversation.takeOver": "Übernehmen",
   "run.conversation.end": "Gespräch beenden",
   "run.conversation.reason": "Grund (optional)",
   "run.conversation.controlHint":
     "Übernehmen: Der Agent sendet nichts mehr, und die Frage kommt auf Ihren Schreibtisch. Beenden: Der Agent hört hier auf.",
-  "desk.steppedIn": "Mezonas, in Ihrem Namen: {reason}",
-  "desk.passedToYou": "Mezonas hat Ihnen das übergeben: {reason}",
+  "desk.steppedIn": "Wir haben eingegriffen: {reason}", // fluent review
+  "desk.passedToYou": "Wir haben das an Sie weitergegeben: {reason}", // fluent review
   "desk.editMessage": "Nachricht ändern",
   "desk.editMessageSave": "Nachricht speichern",
   "desk.messageEdited":
