@@ -714,7 +714,7 @@ The public site at `mezonas.com` (`apps/site`), separate from the app.
 |---|---|
 | Purpose | Tell visitors what Mezonas is, and meet Google's OAuth verification for Gmail: a live homepage on our verified domain that describes the app, with a privacy policy on the same domain linked from it. It also publishes the terms of service and the subprocessors list. |
 | Pages | `/` (landing, with "Terms and policies" at the bottom), `/terms`, `/privacy`, `/subprocessors`, and a 404. |
-| Build | Plain HTML and CSS: `apps/site/build.mjs` (Node, no dependencies) wraps each page in one layout and copies the design system's CSS, fonts and logos. No framework, no client-side code, no analytics, no cookies. A framework or bundler would add nothing to four pages of text. // DECISION |
+| Build | Plain HTML and CSS: `apps/site/build.mjs` (Node, no dependencies) wraps each page in one layout and copies the design system's CSS, fonts and logos. No framework, no analytics, no cookies. A framework or bundler would add nothing to four pages of text. // DECISION Since the Marketing area (§1.72): the one script, `src/measure.js`, is inlined only in a build with `MEZONAS_MEASURE_URL` (refused while `/privacy` says there are no analytics), and a small Worker serves `/guides` and the sitemap from R2 only with `SITE_GUIDES=on` and the `SITE_CONTENT` binding. Neither is on yet. |
 | Layering | `apps/site` depends only on `@countersign/design-system` (a dev dependency, its files), has no runtime dependencies, and nothing depends on it (`scripts/check-deps.mjs`). // DECISION |
 | Gmail scope | The privacy policy says we ask Google only for `gmail.send` and read no mailbox through Google; mail reaches us by forwarding (§6.5 of ARCHITECTURE). Owner, 2026-11-05: no CASA. A test keeps any other Gmail scope out of the policy. |
 | Facts | Every statement in the privacy policy and on the subprocessors page is taken from the code and `docs/operations.md`; what isn't settled is a placeholder. Keep them true when the platform changes (`apps/site/README.md`, "Keeping it true"). |
@@ -2186,7 +2186,7 @@ apps/api ─▶ workflows ─▶ agents ─▶ documents ─▶ connectors ─�
    └─▶ packs/materials ─▶ documents, connectors, llm, senses, db, core   (never agents or workflows)
 apps/web ─▶ core                    (route contract, schemas, workflow validation; HTTP to apps/api)
 apps/mfa ─▶ core                    (the code service, §1.26: its own Worker; apps/api reaches it only by service binding)
-apps/site ─▶ design-system          (the public site, §1.29: static files only)
+apps/site ─▶ design-system          (the public site, §1.29: no runtime dependencies)
 ```
 
 | Package | Workspace deps |

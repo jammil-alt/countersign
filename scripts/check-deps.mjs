@@ -34,13 +34,14 @@ const APP_ALLOWED = {
  */
 const APP_RUNTIME_ALLOWED = {
   "apps/mfa": new Set(["@countersign/core", "hono", "postal-mime", "zod"]),
-  // Static files only: nothing of the site's runs in a Worker or a browser but HTML and CSS.
+  // No runtime dependencies: the site is static files, a small Worker for guides (off unless
+  // SITE_GUIDES=on) and, only in a measuring build, one inlined script (docs/plan.md §1.29).
   "apps/site": new Set(),
 };
 /** Packages no other workspace package may depend on, with the reason. */
 const NO_DEPENDENTS = new Map([
   ["@countersign/mfa", "reached only by service binding"],
-  ["@countersign/site", "a static site, not a library"],
+  ["@countersign/site", "the public site, not a library"],
 ]);
 
 function* files(dir) {
