@@ -68,8 +68,15 @@ export function decideToolCall(input: {
   // levels (on the connection and the grant) fold into the verb's (docs/plan.md §1.44). Absent:
   // the verb alone, as before.
   entity?: (Omit<EntityCall, "tool"> & { tool: Omit<EntityToolRef, "verb"> }) | undefined;
+  // §1.73: the tool always needs a person (core `isAlwaysSigned`): an external write that would
+  // run on its own waits instead. It never loosens anything; `off` still refuses.
+  alwaysSigned?: boolean | undefined;
 }): WriteDecision {
   if (input.sideEffect === "internal") return "run";
+  if (input.alwaysSigned && input.sideEffect === "external") {
+    const rest = decideToolCall({ ...input, alwaysSigned: false });
+    return rest === "run" ? "approval" : rest;
+  }
   // v0.12 W1-G: the strictest input wins.
   if (input.ceilings?.includes("off")) return "refused";
   // v0.12 W2-A: entities. The connection's and the grant's entity levels (and scopes) for this

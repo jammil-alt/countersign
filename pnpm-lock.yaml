@@ -465,6 +465,9 @@ importers:
       '@countersign/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@countersign/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@4.0.0)

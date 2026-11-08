@@ -19,7 +19,7 @@ import {
   notFound,
   type Services,
 } from "../http";
-import type { RegisteredPack } from "../packs";
+import type { PackReportHandler, RegisteredPack } from "../packs";
 import { portalInboxFilter } from "./portal";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -118,15 +118,36 @@ async function reportHandler(
   return handler;
 }
 
+/**
+ * §1.73: the report's query parameters, checked by the pack's own schema (a 400 when they don't
+ * pass). The session's `client` is the platform's, never the pack's; a report without a schema
+ * gets none.
+ */
+export function reportQuery(
+  handler: Pick<PackReportHandler, "query">,
+  raw: Readonly<Record<string, string>> | undefined,
+): Record<string, unknown> {
+  if (!handler.query) return {};
+  const { client: _client, ...rest } = raw ?? {};
+  const parsed = handler.query.safeParse(rest);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const where = issue?.path.length ? `${issue.path.join(".")}: ` : "";
+    throw new HttpError(400, "invalid_query", `${where}${issue?.message ?? "a bad query"}`);
+  }
+  return parsed.data as Record<string, unknown>;
+}
+
 async function reportResponse(
   tx: Tx,
   services: Services,
   tenantId: string,
   packId: string,
   name: string,
+  query?: Readonly<Record<string, string>>,
 ) {
   const handler = await reportHandler(tx, services, tenantId, packId, name);
-  return { report: await handler.json(tx, tenantId, today()) };
+  return { report: await handler.json(tx, tenantId, today(), reportQuery(handler, query)) };
 }
 
 // P-9: one row of a report in full; a report without items answers 404.
@@ -137,10 +158,11 @@ async function reportItem(
   packId: string,
   name: string,
   itemId: string,
+  query?: Readonly<Record<string, string>>,
 ) {
   const handler = await reportHandler(tx, services, tenantId, packId, name);
   if (!handler.item) throw notFound("report item");
-  const found = await handler.item(tx, tenantId, itemId, today());
+  const found = await handler.item(tx, tenantId, itemId, today(), reportQuery(handler, query));
   if (!found) throw notFound("report item");
   return { report: found };
 }
@@ -152,14 +174,16 @@ async function reportCsv(
   tenantId: string,
   packId: string,
   name: string,
+  query?: Readonly<Record<string, string>>,
 ) {
   const handler = await reportHandler(tx, services, tenantId, packId, name);
   const day = today();
+  const q = reportQuery(handler, query);
   return {
     filename: `${packId}-${name}-${day}.csv`,
     contentType: "text/csv; charset=utf-8" as const,
     // A fresh ArrayBuffer-backed copy, as the exports' csvFile makes.
-    bytes: new Uint8Array(new TextEncoder().encode(await handler.csv(tx, tenantId, day))),
+    bytes: new Uint8Array(new TextEncoder().encode(await handler.csv(tx, tenantId, day, q))),
   };
 }
 
@@ -305,19 +329,21 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsClientPackReport, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
-    return reportResponse(ctx.tx, ctx.services, ctx.params.id, ctx.params.pack, ctx.params.report);
+    const { tx, services, params, query } = ctx;
+    return reportResponse(tx, services, params.id, params.pack, params.report, query);
   });
 
   // P-9
   mount(app, routes.opsClientPackReportItem, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
-    const { tx, services, params } = ctx;
-    return reportItem(tx, services, params.id, params.pack, params.report, params.itemId);
+    const { tx, services, params, query } = ctx;
+    return reportItem(tx, services, params.id, params.pack, params.report, params.itemId, query);
   });
 
   mountFile(app, routes.opsClientPackReportCsv, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
-    return reportCsv(ctx.tx, ctx.services, ctx.params.id, ctx.params.pack, ctx.params.report);
+    const { tx, services, params, query } = ctx;
+    return reportCsv(tx, services, params.id, params.pack, params.report, query);
   });
 
   mount(app, routes.opsClientPackAction, async (ctx) => {
@@ -375,16 +401,24 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
   }));
 
   // P-9
-  mount(app, routes.portalPackReportItem, async ({ tx, tenantIds, params, services }) =>
-    reportItem(tx, services, tenantIds[0] as string, params.pack, params.report, params.itemId),
+  mount(app, routes.portalPackReportItem, async ({ tx, tenantIds, params, services, query }) =>
+    reportItem(
+      tx,
+      services,
+      tenantIds[0] as string,
+      params.pack,
+      params.report,
+      params.itemId,
+      query,
+    ),
   );
 
-  mount(app, routes.portalPackReport, async ({ tx, tenantIds, params, services }) =>
-    reportResponse(tx, services, tenantIds[0] as string, params.pack, params.report),
+  mount(app, routes.portalPackReport, async ({ tx, tenantIds, params, services, query }) =>
+    reportResponse(tx, services, tenantIds[0] as string, params.pack, params.report, query),
   );
 
-  mountFile(app, routes.portalPackReportCsv, async ({ tx, tenantIds, params, services }) =>
-    reportCsv(tx, services, tenantIds[0] as string, params.pack, params.report),
+  mountFile(app, routes.portalPackReportCsv, async ({ tx, tenantIds, params, services, query }) =>
+    reportCsv(tx, services, tenantIds[0] as string, params.pack, params.report, query),
   );
 
   async function portalItem(

@@ -6,10 +6,11 @@
 import type { InternalTool, PackToolSource } from "@countersign/agents";
 import type { ContentStore } from "@countersign/connectors";
 import type { PackManifest } from "@countersign/core";
-import type { Db } from "@countersign/db";
+import type { Db, Tx } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import {
   MARKETING_ACTIONS,
+  MARKETING_HANDLERS,
   MARKETING_INBOUND,
   MARKETING_NIGHTLY,
   MARKETING_REPORTS,
@@ -21,12 +22,44 @@ import {
   MATERIALS_REPORTS,
   MATERIALS_REVIEWS,
   materialsManifest,
-  type PackActionHandler,
-  type PackReportHandler,
   type PackReviewHandler,
   type PackTool,
   packToolContext,
 } from "@countersign/pack-materials";
+import type { z } from "zod";
+
+/**
+ * A pack's report, as the generic report routes call it (routes/packs.ts). §1.73: with its
+ * query parameters, checked by the pack's own `query` schema; a report without one gets `{}`.
+ */
+export interface PackReportHandler {
+  title: string;
+  query?: z.ZodType;
+  json(
+    tx: Tx,
+    tenantId: string,
+    today: string,
+    query: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
+  csv(tx: Tx, tenantId: string, today: string, query: Record<string, unknown>): Promise<string>;
+  /** P-9: one row in full (e.g. one purchase request); null when it isn't this client's. */
+  item?(
+    tx: Tx,
+    tenantId: string,
+    id: string,
+    today: string,
+    query: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | null>;
+}
+
+/** A back-office action on one client's pack data (a person's, never an agent's). */
+export interface PackActionHandler {
+  input: z.ZodType;
+  run(
+    db: Db,
+    ctx: { tenantId: string; userId: string; input: unknown },
+  ): Promise<Record<string, unknown>>;
+}
 
 export interface RegisteredPack {
   manifest: PackManifest;
@@ -78,10 +111,11 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
     reviews: MATERIALS_REVIEWS,
     actions: MATERIALS_ACTIONS,
   },
-  // M43 (docs/plan.md §1.72): the Marketing area, Mezonas's own website first.
+  // M43 (docs/plan.md §1.72): the Marketing area, Mezonas's own website first. §1.73: its tools
+  // come from its areas, adapted like Materials' (the pack's tool context is a part of theirs).
   {
     manifest: marketingManifest,
-    handlers: {},
+    handlers: MARKETING_HANDLERS,
     reports: MARKETING_REPORTS,
     actions: MARKETING_ACTIONS,
     inbound: MARKETING_INBOUND,

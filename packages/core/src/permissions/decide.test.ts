@@ -84,6 +84,34 @@ describe("decideToolCall", () => {
   });
 });
 
+// §1.73: publishing and posting.
+describe("verbs a person always signs", () => {
+  const loosest = {
+    sideEffect: "external" as const,
+    verb: "create" as const,
+    matrix: { create: "auto" as const },
+    grant: null,
+    stepApproval: "not_required" as const,
+    agentMode: "act" as const,
+  };
+
+  it("wait for a person even when everything else would let them run", () => {
+    expect(decideToolCall(loosest)).toBe("run");
+    expect(decideToolCall({ ...loosest, alwaysSigned: true })).toBe("approval");
+  });
+
+  it("are still refused where the connection turns the verb off, and never loosen", () => {
+    expect(decideToolCall({ ...loosest, matrix: { create: "off" }, alwaysSigned: true })).toBe(
+      "refused",
+    );
+    expect(decideToolCall({ ...loosest, agentMode: "suggest_only", alwaysSigned: true })).toBe(
+      "approval",
+    );
+    // Not a write to a client's tool: nothing to sign.
+    expect(decideToolCall({ ...loosest, sideEffect: "internal", alwaysSigned: true })).toBe("run");
+  });
+});
+
 describe("matrix changes", () => {
   it("finds loosened verbs (clients may only tighten)", () => {
     expect(loosenedVerbs({}, { create: "off", update: "approval" })).toEqual([]);

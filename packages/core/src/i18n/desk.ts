@@ -41,6 +41,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       grant: "This agent's access to the tool asks for approval.",
       mode: "This agent only suggests changes.",
       person: "The person it reaches asked to see changes first.",
+      always: "A change like this one is always signed by a person.",
     },
     stage: {
       trial: "The agent is in its trial: every change needs approval.",
@@ -74,6 +75,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       grant: "El acceso de este agente a la herramienta pide aprobación.",
       mode: "Este agente solo sugiere cambios.",
       person: "La persona a la que llega pidió ver los cambios antes.",
+      always: "Un cambio como este siempre lo firma una persona.",
     },
     stage: {
       trial: "El agente está en su prueba: cada cambio necesita aprobación.",
@@ -107,6 +109,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       grant: "L'accès de cet agent à l'outil demande une approbation.",
       mode: "Cet agent ne fait que suggérer des changements.",
       person: "La personne concernée a demandé à voir les changements avant.",
+      always: "Un changement comme celui-ci est toujours signé par une personne.",
     },
     stage: {
       trial: "L'agent est en période d'essai : chaque changement demande une approbation.",
@@ -141,6 +144,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       grant: "O acesso deste agente à ferramenta pede aprovação.",
       mode: "Este agente só sugere mudanças.",
       person: "A pessoa que recebe pediu para ver as mudanças antes.",
+      always: "Uma mudança como esta é sempre assinada por uma pessoa.",
     },
     stage: {
       trial: "O agente está em teste: cada mudança precisa de aprovação.",
@@ -174,6 +178,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       grant: "L'accesso di questo agente allo strumento chiede un'approvazione.",
       mode: "Questo agente suggerisce soltanto modifiche.",
       person: "La persona interessata ha chiesto di vedere prima le modifiche.",
+      always: "Una modifica come questa la firma sempre una persona.",
     },
     stage: {
       trial: "L'agente è in prova: ogni modifica richiede un'approvazione.",
@@ -208,6 +213,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       grant: "Der Zugriff dieses Agenten auf das Tool verlangt eine Freigabe.",
       mode: "Dieser Agent schlägt Änderungen nur vor.",
       person: "Die betroffene Person möchte Änderungen vorher sehen.",
+      always: "Eine Änderung wie diese unterschreibt immer ein Mensch.",
     },
     stage: {
       trial: "Der Agent ist in der Probephase: Jede Änderung braucht eine Freigabe.",

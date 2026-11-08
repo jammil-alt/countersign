@@ -24,4 +24,6 @@ export const OPS_PATHS = {
   requests: "/ops/requests",
   audit: "/ops/audit",
   browserSites: "/ops/browser-sites",
+  // §1.73: the Marketing area's entry; a client's marketing pages are in packs/marketing/ops/paths.ts.
+  marketing: "/ops/marketing",
 } as const;

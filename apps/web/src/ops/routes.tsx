@@ -10,6 +10,24 @@
 // The route sweep (#141, apps/web/e2e/route-sweep.mjs) reads the `path="…"` lines of this file.
 
 import { Route } from "react-router-dom";
+// §1.73: the Marketing area, one file per screen (packs/marketing/ops).
+import { MarketingAudienceScreen } from "../packs/marketing/ops/Audience";
+import { MarketingClaimsScreen } from "../packs/marketing/ops/Claims";
+import { MarketingContentScreen } from "../packs/marketing/ops/Content";
+import { MarketingContentPageScreen } from "../packs/marketing/ops/ContentPage";
+import { MarketingEntryScreen } from "../packs/marketing/ops/Entry";
+import { MarketingForumScreen } from "../packs/marketing/ops/Forum";
+import { MarketingJourneysScreen } from "../packs/marketing/ops/Journeys";
+import { MarketingOverviewScreen } from "../packs/marketing/ops/Overview";
+import { MarketingPageDetailScreen } from "../packs/marketing/ops/PageDetail";
+import { MarketingPagesScreen } from "../packs/marketing/ops/Pages";
+import { MarketingReportScreen } from "../packs/marketing/ops/Report";
+import { MarketingReportsScreen } from "../packs/marketing/ops/Reports";
+import { MarketingSearchScreen } from "../packs/marketing/ops/Search";
+import { MarketingSitesScreen } from "../packs/marketing/ops/Sites";
+import { MarketingSourcesScreen } from "../packs/marketing/ops/Sources";
+import { MarketingVisitScreen } from "../packs/marketing/ops/Visit";
+import { MarketingVisitsScreen } from "../packs/marketing/ops/Visits";
 import {
   OpsClientCatalogScreen,
   OpsClientPacksScreen,
@@ -129,6 +147,35 @@ export const opsRoutes = (
       path="clients/:clientId/reports/materials/requests/:id"
       element={<OpsClientRequestScreen />}
     />
+    {/* §1.73: the Marketing area (docs/marketing-plan.md §4.7, §11): the entry opens our own
+        client with the pack on; each of a client's marketing pages is one line. */}
+    <Route path="marketing" element={<MarketingEntryScreen />} />
+    <Route
+      path="clients/:clientId/marketing"
+      element={<Redirect to="/ops/clients/:clientId/marketing/overview" />}
+    />
+    <Route path="clients/:clientId/marketing/overview" element={<MarketingOverviewScreen />} />
+    <Route path="clients/:clientId/marketing/pages" element={<MarketingPagesScreen />} />
+    <Route
+      path="clients/:clientId/marketing/pages/detail"
+      element={<MarketingPageDetailScreen />}
+    />
+    <Route path="clients/:clientId/marketing/sources" element={<MarketingSourcesScreen />} />
+    <Route path="clients/:clientId/marketing/journeys" element={<MarketingJourneysScreen />} />
+    <Route path="clients/:clientId/marketing/audience" element={<MarketingAudienceScreen />} />
+    <Route path="clients/:clientId/marketing/visits" element={<MarketingVisitsScreen />} />
+    <Route path="clients/:clientId/marketing/visits/:visit" element={<MarketingVisitScreen />} />
+    <Route path="clients/:clientId/marketing/search" element={<MarketingSearchScreen />} />
+    <Route path="clients/:clientId/marketing/content" element={<MarketingContentScreen />} />
+    <Route
+      path="clients/:clientId/marketing/content/:pageId"
+      element={<MarketingContentPageScreen />}
+    />
+    <Route path="clients/:clientId/marketing/claims" element={<MarketingClaimsScreen />} />
+    <Route path="clients/:clientId/marketing/reports" element={<MarketingReportsScreen />} />
+    <Route path="clients/:clientId/marketing/reports/:id" element={<MarketingReportScreen />} />
+    <Route path="clients/:clientId/marketing/forum" element={<MarketingForumScreen />} />
+    <Route path="clients/:clientId/marketing/sites" element={<MarketingSitesScreen />} />
     {/* ARCHITECTURE §15 screens not built yet */}
     <Route path="settings" element={<Placeholder title="Settings" />} />
 

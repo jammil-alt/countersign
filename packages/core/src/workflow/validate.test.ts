@@ -408,6 +408,35 @@ describe("publish-time connection checks", () => {
     });
   });
 
+  // §1.73
+  it("refuses skipping approval on a verb a person always signs, whatever the connection allows", () => {
+    const toolId = action(workflowInput() as Workflow).tool;
+    const spec = ctx.tools?.[toolId];
+    if (!spec) throw new Error("no tool");
+    const always: ValidationContext = {
+      ...ctx,
+      tools: { ...ctx.tools, [toolId]: { ...spec, approval: "always" } },
+      publish: { matrices: { qbo: { create: "auto", update: "auto" } } },
+    };
+    const skip = (w: Workflow) => {
+      action(w).approval = { required: "not_required", onReject: "stop" };
+    };
+    expect(codes(edit(workflowInput(), skip), always)).toEqual([
+      { code: "approval_always", stepId: "s7", field: "approval.required" },
+    ]);
+    // Without the skip, or without the flag, it is fine.
+    expect(codes(workflowInput(), always)).toEqual([]);
+    expect(codes(edit(workflowInput(), skip), { ...always, tools: ctx.tools as never })).toEqual(
+      [],
+    );
+  });
+
+  it("accepts the flag only on external tools", () => {
+    const spec = Object.values(ctx.tools ?? {}).find((t) => t.sideEffect === "none");
+    if (!spec) throw new Error("no read tool");
+    expect(ToolSpecSchema.safeParse({ ...spec, approval: "always" }).success).toBe(false);
+  });
+
   it("refuses skipping approval where the connection requires it", () => {
     const skip = (w: Workflow) => {
       action(w).approval = { required: "not_required", onReject: "stop" };
