@@ -2022,6 +2022,62 @@ until ARCHITECTURE v0.16; the owner asked for it. Ported from Plenary Labs' mark
 | No agents yet | The manifest has no tools, skills or templates in M43; the pack will ship the agent set as templates (owner, 2026-11-08), from M47. |
 | Not in M43 | The script on mezonas.com, `data-track` names, `/no-measure` and the privacy policy's measurement section (the site's own PR, after the owner and the lawyer read the wording; the site deploys from `main` on every push); the collector's own host (`collect.mezonas.com`, its own PR); the back-office screens (M44). |
 
+### 1.73 The Marketing area's wave: one foundation for M44–M50 (migration 0038; docs/marketing-plan.md §11)
+
+Owner, 2026-11-08: "get the code done for the whole thing", in a wave of builders working in
+parallel. The foundation is built first on `claude/marketing-foundation` (the migration alone on
+`claude/marketing-v2-migration`), and `docs/marketing-plan.md` §11 is the contract the builders
+share: who owns which files, the tool, report, action and route names, the R2 layout of published
+guides and the flags that keep public things off. Hot-spot edits are lines marked `§1.73`.
+
+| Topic | Decision |
+|---|---|
+| One migration | 0038 holds every table M45–M48 need (search, content, claims, reports, the forum watch), so the builders share one schema and nobody writes a migration in the wave. Each has `tenant_id`, forced RLS, `pack:marketing`, and composite keys `(x_id, tenant_id)` to the same client's site, agent version, run, connection and external action (people are `app_user`, which has no client). // DECISION |
+| History | `content_version`, `content_publish` and `claims_version` are insert only (`forbid_update_except()`); `content_page` changes only its status and live version, `marketing_report` only who read it, `marketing_report_action` only its decision, `forum_reply` only its status, poster, decision and posting; none is deleted. The runtime deletes only a day of search figures, which an import replaces whole, as 0037's day tables. A redirect, a search source and a forum thread change in place. // DECISION |
+| A page's live version | A one-column foreign key, as `agent.live_version_id` is, so the purge can clear it and delete a page with its versions (a composite key with the page's id makes a cycle the purge can't order); a trigger checks it is one of the page's own versions, of the same client. // DECISION |
+| Evidence | A weekly report needs non-empty `sources` and its `agent_version_id`; a version names exactly one author, a person or an agent version, with the run; a forum reply always names its agent version; a thread is seen by an agent or pasted by a person, never neither. |
+| The pack's areas | `packs/marketing/src/{measure,search,content,agents,forum}/index.ts` each export one `AreaModule` (tools, skills, templates, events, portal screens, reports, actions, an optional nightly part); `manifest.ts` adds them up and refuses a name two areas use, so a builder never edits the manifest or `index.ts`. Contracts in `src/pack.ts`: `PackToolContext` is the part of apps/api's adapter context the pack uses (Materials' shape, without document storage), so `adapt` serves both packs unchanged; `defineTool` names tools `marketing.<area>.<what>`, `none` or `internal` only. // DECISION |
+| Report query parameters | The pack report routes (portal and back office: JSON, CSV, items) take `?name=value` strings (`PackReportQuery`: names of letters, digits and `_`, values up to 500 characters). The report's own `query` schema parses them; a failure is 400 `invalid_query`; `client` (the session's active client) is never passed; a report without a schema gets `{}`, so Materials' reports are unchanged. `SiteRangeQuery` (`site`, `from`, `to`) is the common one. // DECISION |
+| Verbs a person always signs | `ToolSpec.approval: 'always'` (external tools only; `defineWriteTool({ approval: 'always' })`): the gate turns any `run` into `approval` for it, whatever the matrix, grant, step and mode (and still refuses where the verb is off); the approval card's reasons say `always` ("A change like this one is always signed by a person", in the six languages, for the fluent review with the rest); workflow validation refuses `not_required` on a step or an automation's step that uses one (`approval_always`, which the Builder's model may fix); a reach-out plan signed as a whole refuses one. For `website.publish`, `website.meta` and `linkedin.post`. // DECISION: a flag on the tool, not on the connector's verb, since a connector's other writes (a website's redirects later) needn't be always signed. |
+| The Marketing entry | The sidebar's Marketing (`/ops/marketing`) opens the client that is ours (`internal`, now also on the clients list) with the pack on: one goes straight to its overview, several give a choice, none says how to set one up (and lists other clients with the pack on). A client's pages are `/ops/clients/:clientId/marketing/<page>`, flat route lines (the route sweep reads them), each its own file in `apps/web/src/packs/marketing/ops/` inside `MarketingLayout`, a stub ("Coming in M4x") until its builder replaces it. // DECISION: its own frame, not a tab of the client page: the area has twelve pages of its own. |
+| Names | Pack tools start with `marketing.`, a connector's with its id: the plan's `site.publish` and `site.meta` are `website.publish` and `website.meta`; the pack's events are `marketing.site.goal`, `marketing.search.imported`, `marketing.content.published` (the manifest requires a pack's events to carry its id). |
+| Nothing public on merge | Publishing needs the `SITE_CONTENT` binding, the site's guides `SITE_GUIDES=on` and that binding, IndexNow its key, measuring on mezonas.com `SITE_MEASURE=on`, LinkedIn its client, web research `MARKETING_RESEARCH=on`; absent, each is off (docs/marketing-plan.md §11.5). |
+
+### 1.74 M44: read screens
+
+Decisions for M44 (the screens builder) go here.
+
+| Topic | Decision |
+|---|---|
+
+### 1.75 M45: search
+
+Decisions for M45 (the search builder) go here.
+
+| Topic | Decision |
+|---|---|
+
+### 1.76 M46: content and publishing
+
+Decisions for M46 (the content and site builders) go here.
+
+| Topic | Decision |
+|---|---|
+
+### 1.77 M47–M49: the agent set
+
+Decisions for M47–M49 (the agent platform and agent set builders) go here.
+
+| Topic | Decision |
+|---|---|
+
+### 1.78 M50: offering it to clients
+
+Decisions for M50 (the clients builder) go here.
+
+| Topic | Decision |
+|---|---|
+
 ---
 
 ## 2. Package layering
@@ -2868,6 +2924,82 @@ the overview in the portal with no forbidden field.
 **Done when** a week of mezonas.com's figures, in the Mezonas client, sits within a sensible band
 of Cloudflare's own analytics, and no IP address is in the database, Workers Logs or Sentry.
 
+### M44: The Marketing area, read screens (§1.73, §1.74; docs/marketing-plan.md §5, §11)
+
+Foundation first (§1.73): migration 0038 on its own (`claude/marketing-v2-migration`), then the
+pack's areas, report query parameters, the always-signed verbs and the back office's Marketing
+shell (`claude/marketing-foundation`). Then the builders in parallel, each on its own branch.
+
+- Work: the reports `overview` (with its query), `pages`, `page`, `sources`, `journeys`,
+  `audience`, `visits`, `visit`, `sites`; their screens; demo traffic on staging and the Sandbox;
+  the ops MCP's marketing read tools.
+
+Tests: each report's figures from built days, small samples and partial days marked; a query that
+doesn't parse is a 400; client B never sees A's; each screen renders its report and its empty
+state, at phone width; no portal answer carries a forbidden field.
+
+**Done when** the owner reads a week of mezonas.com's visits in the back office.
+
+### M45: Search (§1.75)
+
+- Work: the `gsc` and `bing_webmaster` connectors against fakes (`NOTES.md`), their nightly import
+  into `search_query_daily` and `search_page_daily` (a day replaced whole, 16 months the first
+  time), `search_source`'s state, `marketing.search.figures`, the `search` and `search-sources`
+  reports, the Search screen.
+
+Tests: an import twice is the same; a provider's error is kept in our words; a day the provider
+hasn't finished is not imported; client isolation.
+
+**Done when** mezonas.com's Search Console figures are in the back office, with the day they run to.
+
+### M46: Content and publishing (§1.76)
+
+- Work: the content checks and the claims lint (pure), the claims list, the editor, versions and
+  preview; the `website` connector's `website.publish` and `website.meta` (always signed) writing
+  R2 (docs/marketing-plan.md §11.4) and pinging IndexNow; the site Worker serving guides, the
+  sitemap and redirects from R2 behind `SITE_GUIDES`.
+
+Tests: a refused check blocks publishing; publishing waits for a person whatever the settings; a
+published guide is in R2 with its sitemap; unpublish removes it; with the flags absent nothing is
+written and the site is static.
+
+**Done when** a guide written in the back office is live on mezonas.com after the owner signs it.
+
+### M47: Agents 1 (§1.77)
+
+- Work: the weekly site report and titles templates, `marketing.site.figures`,
+  `marketing.site.page`, `marketing.report.record` with the figures check, the Weekly report
+  screens; the monthly cap per client agent if missing.
+
+Tests (FakeModel, replay): a number not in the figures is refused; every report has sources and
+its agent version; a titles proposal waits for a signature.
+
+**Done when** Monday's report for mezonas.com is in the back office, every number traced.
+
+### M48: Agents 2 (§1.77)
+
+- Work: `web.search` and `web.fetch` (named in compliance; behind `MARKETING_RESEARCH`), article
+  drafts, the `hackernews` connector and the forum watch with its screen.
+
+Tests: page text and threads stay tool results; a draft never publishes; a thread is seen once; a
+reply opens "I work at Mezonas" and has no link to our site.
+
+**Done when** an article draft and a forum reply draft wait in the back office for a person.
+
+### M49: Social posts (§1.77)
+
+- Work: the `linkedin` connector (`linkedin.post`, always signed) and the social posts template.
+
+**Done when** a post drafted from a published guide waits for the owner's signature.
+
+### M50: For clients (§1.78)
+
+- Work: the pack for a client: the site's snippet, the portal's reports, the HIPAA refusal, the
+  processor wording drafts, Google OAuth for `gsc`, a CMS connector if a client asks.
+
+**Done when** a second client's site is measured and its reports are in its portal, with nothing
+of Mezonas's in them.
+
 ---
 
 ## 5. Things to verify, not assume
@@ -3039,6 +3171,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0034 | P-7 (M40, §1.69) | `message_translation`; `contact.translation`; `usage_platform_daily.translations` (ARCHITECTURE §5.7) |
 | 0036 | P-9 (M42, §1.71) | `purchase_request_line.qty` nullable; `quote_request.reach_out_id` (composite foreign key to `reach_out`) |
 | 0037 | M43 (§1.72) | The Marketing pack's `site`, `site_salt`, `site_event`, `site_visit`, `site_daily_page`, `site_daily_click`, `site_daily_total`, `site_bot_daily` (docs/marketing-plan.md §4.3) |
+| 0038 | M44–M50 wave (§1.73) | The Marketing pack's `search_source`, `search_query_daily`, `search_page_daily`, `content_page`, `content_version`, `content_publish`, `content_redirect`, `claims_version`, `marketing_report`, `marketing_report_action`, `forum_thread`, `forum_reply` (docs/marketing-plan.md §4.4–§4.6, §11.1) |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
