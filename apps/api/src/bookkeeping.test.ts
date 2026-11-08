@@ -12,10 +12,17 @@ import { createDbPorts } from "@countersign/agents";
 import {
   BANKING_TOOLS,
   ContentStore,
+  createBankfeedConnector,
   createQboConnector,
   generateEncryptionKey,
 } from "@countersign/connectors";
-import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "@countersign/connectors/testing";
+import {
+  FAKE_PLAID,
+  FAKE_QBO_CLIENT,
+  FAKE_QBO_REALM,
+  fakePlaid,
+  fakeQbo,
+} from "@countersign/connectors/testing";
 import { validateBundle } from "@countersign/core";
 import {
   agent,
@@ -62,6 +69,8 @@ const h = await createApiHarness({
       fetch: qbo.fetch,
       sleep: async () => {},
     }),
+    // The deployment's bank feed: the Bookkeeper's monthly reconciliation reads its balances.
+    createBankfeedConnector({ ...FAKE_PLAID, fetch: fakePlaid().fetch }),
   ],
   env: {
     ENCRYPTION_KEY,

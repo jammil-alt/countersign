@@ -2,6 +2,12 @@
 // (`bookkeeping.reconcile-two`); the model only reads a statement into figures, which code then
 // checks add up, and proposes matches for what code left, which a person decides (invariant 7).
 
+import {
+  BANKFEED_TOOLS,
+  QBO_REGISTER_TOOL,
+  RegisterInput,
+  RegisterOutput,
+} from "@countersign/connectors";
 import type { SkillDefinition } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { z } from "zod";

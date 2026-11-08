@@ -48,23 +48,23 @@ describe("the Bookkeeping manifest", () => {
     expect(template?.slug).toBe("bookkeeper");
     const bundle = template?.bundle as AgentBundle;
     expect(bundle.definition.permissions.mode).toBe("suggest_only");
-    // The QuickBooks writes, and two reads for reconciling (R-1).
-    const reads = [BANKFEED_TOOLS.accounts, QBO_REGISTER_TOOL];
-    expect(bundle.definition.extraTools.sort()).toEqual(
-      [...Object.values(BANKING_TOOLS), ...reads].sort(),
-    );
+    expect(bundle.definition.extraTools.sort()).toEqual(Object.values(BANKING_TOOLS).sort());
     const skills = new Set(bundle.definition.skills.map((s) => s.skill));
     const actions: string[] = [];
     for (const wf of bundle.workflows) {
       walkSteps(wf.workflow, ({ step }: { step: Step }) => {
         if (step.kind === "skill") expect(skills.has(step.skill), step.skill).toBe(true);
+        // R-1: the only connector reads are the bank's balances and QuickBooks' register.
+        if (step.kind === "skill" && !step.skill.startsWith("bookkeeping.")) {
+          expect([BANKFEED_TOOLS.accounts, QBO_REGISTER_TOOL]).toContain(step.skill);
+        }
         if (step.kind === "action") {
           actions.push(step.tool);
           expect(step.approval?.required, step.id).toBe("required");
         }
       });
     }
-    expect(actions.sort()).toEqual([...Object.values(BANKING_TOOLS), ...reads].sort());
+    expect(actions.sort()).toEqual(Object.values(BANKING_TOOLS).sort());
   });
 
   it("serves its cards, actions and reports by name", () => {

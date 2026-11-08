@@ -740,7 +740,7 @@ export type PersonDecision =
   | { action: "unmatch"; input: { matchId: string } }
   | { action: "label"; input: { itemId: string; label: ReconciliationLabel | null } }
   | {
-      action: "add-item";
+      action: "add_item";
       input: {
         side: ReconciliationSide;
         date?: string | null | undefined;
@@ -748,7 +748,7 @@ export type PersonDecision =
         description: string;
       };
     }
-  | { action: "sign-off"; input: { note?: string | null | undefined } };
+  | { action: "sign_off"; input: { note?: string | null | undefined } };
 
 /** A person's decision on the card; the residual is worked out again after each. */
 export async function decideReconciliation(
@@ -824,7 +824,7 @@ export async function decideReconciliation(
           eq(reconciliationItem.id, d.input.itemId),
         ),
       );
-  } else if (d.action === "add-item") {
+  } else if (d.action === "add_item") {
     // A person's own item: what one side is missing (a fee not yet in the books), in their words.
     await tx.insert(reconciliationItem).values({
       tenantId: who.tenantId,

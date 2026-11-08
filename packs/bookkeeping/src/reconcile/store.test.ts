@@ -232,17 +232,17 @@ describe.skipIf(!online)("reconciliation (database, as cs_worker)", () => {
   });
 
   it("signs October off on the card, after which it never changes; another client can't see it", async () => {
-    await decide(A, october, { action: "sign-off", input: { note: "Deposit cleared Nov 2" } });
+    await decide(A, october, { action: "sign_off", input: { note: "Deposit cleared Nov 2" } });
     const view = await load(A, october);
     expect(view.status).toBe("signed_off");
     await expect(
       decide(A, october, {
-        action: "add-item",
+        action: "add_item",
         input: { side: "a", effect: "1.00", description: "x" },
       }),
     ).rejects.toThrow("signed off and can't change");
     await expect(load(B, october)).rejects.toThrow("isn't one of this client's");
-    await expect(decide(B, october, { action: "sign-off", input: {} })).rejects.toThrow(
+    await expect(decide(B, october, { action: "sign_off", input: {} })).rejects.toThrow(
       "isn't one of this client's",
     );
   });
@@ -319,16 +319,16 @@ describe.skipIf(!online)("reconciliation (database, as cs_worker)", () => {
     expect(short).toMatchObject({ outcome: "unexplained", residual: "10.0000" });
     expect(short.summary).toContain("$10.00 isn't explained by the items we have.");
     const sid = String(short.reconciliationId);
-    await expect(decide(A, sid, { action: "sign-off", input: {} })).rejects.toThrow(
+    await expect(decide(A, sid, { action: "sign_off", input: {} })).rejects.toThrow(
       "isn't explained yet",
     );
     await decide(A, sid, {
-      action: "add-item",
+      action: "add_item",
       input: { side: "a", date: "2026-10-30", effect: "10.00", description: "Interest not booked" },
     });
     const after = await load(A, sid);
     expect(after).toMatchObject({ outcome: "explained", residual: "0.0000" });
-    await decide(A, sid, { action: "sign-off", input: {} });
+    await decide(A, sid, { action: "sign_off", input: {} });
     expect((await load(A, sid)).status).toBe("signed_off");
 
     // A person relabels the leftover and can sign the first one off as is.

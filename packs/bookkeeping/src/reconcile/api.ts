@@ -36,7 +36,7 @@ const Decision = z.discriminatedUnion("action", [
     input: z.strictObject({ itemId: Id, label: z.enum(RECONCILIATION_LABELS).nullable() }),
   }),
   z.strictObject({
-    action: z.literal("add-item"),
+    action: z.literal("add_item"),
     input: z.strictObject({
       side: z.enum(RECONCILIATION_SIDES),
       date: z
@@ -49,7 +49,7 @@ const Decision = z.discriminatedUnion("action", [
     }),
   }),
   z.strictObject({
-    action: z.literal("sign-off"),
+    action: z.literal("sign_off"),
     input: z.strictObject({ note: z.string().max(500).nullable().optional() }),
   }),
 ]);

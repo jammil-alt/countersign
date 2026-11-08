@@ -135,6 +135,9 @@ export const BOOKKEEPER_TEMPLATE = {
         "bookkeeping.qbo-input",
         "bookkeeping.posted",
         // R-1: reconciliation.
+        // The connectors' reads, as the platform makes them skills (their tool ids).
+        BANKFEED_TOOLS.accounts,
+        QBO_REGISTER_TOOL,
         "bookkeeping.reconcile-pairs",
         "bookkeeping.reconcile-two",
         "bookkeeping.explain-leftovers",
@@ -144,9 +147,6 @@ export const BOOKKEEPER_TEMPLATE = {
         BANKING_TOOLS.purchaseCreate,
         BANKING_TOOLS.depositCreate,
         BANKING_TOOLS.transferCreate,
-        // R-1: reads, for reconciling.
-        BANKFEED_TOOLS.accounts,
-        QBO_REGISTER_TOOL,
       ],
       canCommand: [],
       permissions: { mode: "suggest_only" },
@@ -331,8 +331,8 @@ export const BOOKKEEPER_TEMPLATE = {
             {
               id: "balances",
               name: "Read the bank feed's balances",
-              kind: "action",
-              tool: BANKFEED_TOOLS.accounts,
+              kind: "skill",
+              skill: BANKFEED_TOOLS.accounts,
               input: {},
               client: { visible: false },
             },
@@ -354,8 +354,8 @@ export const BOOKKEEPER_TEMPLATE = {
                 {
                   id: "register",
                   name: "Read the account in QuickBooks",
-                  kind: "action",
-                  tool: QBO_REGISTER_TOOL,
+                  kind: "skill",
+                  skill: QBO_REGISTER_TOOL,
                   input: {
                     accountId: "{{item.ledgerExternalId}}",
                     startDate: "{{steps.pairs.output.periodStart}}",
