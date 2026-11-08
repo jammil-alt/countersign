@@ -216,9 +216,15 @@ export function createWebsiteConnector(options: WebsiteConnectorOptions = {}): C
     icon: "website",
     auth: "none",
     entities: [],
+    // The record types its tools touch, for the matrix (docs/plan.md §1.44).
+    permissionEntities: [
+      { id: "guide", label: "Guides", verbs: ["update"] },
+      { id: "page", label: "Page titles", verbs: ["update"] },
+    ],
     tools: [
       defineWriteTool({
         id: WEBSITE_PUBLISH_TOOL,
+        entity: "guide",
         description:
           "Publish a guide on the client's website at /guides/<slug>, or take one down, with the sitemap and redirects. Always signed by a person.",
         // DECISION: publishing and unpublishing are `update` (they change what the site shows,
@@ -298,6 +304,7 @@ export function createWebsiteConnector(options: WebsiteConnectorOptions = {}): C
       }),
       defineWriteTool({
         id: WEBSITE_META_TOOL,
+        entity: "page",
         description:
           "Change a page's title and description as a search result shows them. A guide's change is written to the site; a change to one of the site's own pages is recorded for a person to make in the site's code. Always signed by a person.",
         verb: "update",
