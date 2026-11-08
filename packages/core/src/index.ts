@@ -9,6 +9,7 @@ export * from "./account/changes";
 export * from "./account/guard";
 export * from "./account/views";
 export * from "./account/words";
+export * from "./api/a2p";
 export * from "./api/access";
 export * from "./api/account";
 export * from "./api/approver-rules";
@@ -151,6 +152,8 @@ export * from "./lifecycle/pause";
 export * from "./lifecycle/stage";
 export * from "./mappers/qbo";
 export * from "./mappers/upload";
+// P-8: US texting registration
+export * from "./messaging/a2p";
 export * from "./messaging/rules";
 export * from "./money";
 export * from "./notify/notify";

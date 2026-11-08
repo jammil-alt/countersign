@@ -14,6 +14,8 @@
 
 import type { ReleasePort, ReleaseRequested } from "@countersign/agents";
 import {
+  // P-8
+  a2pServiceFor,
   type FetchLike,
   generateReleaseCode,
   globalFetch,
@@ -539,7 +541,14 @@ async function deliver(
       await (await connectionCredentials(tx, deps.secrets, route.twilio)).get(),
     );
     if (!creds) throw new Error("the client's Twilio connection has no credentials");
-    await sendReleaseText(deps.fetch, creds, { from: route.from, to: route.to, body: input.text });
+    // P-8: through the client's Messaging Service once its campaign is verified.
+    const config = readTwilioConfig(route.twilio.config);
+    await sendReleaseText(deps.fetch, creds, {
+      from: route.from,
+      to: route.to,
+      body: input.text,
+      messagingServiceSid: config ? a2pServiceFor(config, route.from) : null,
+    });
     return;
   }
   if (!deps.resend) throw new Error("codes can't be emailed here: no sending domain is set up");
