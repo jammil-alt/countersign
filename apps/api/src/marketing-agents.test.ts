@@ -16,7 +16,7 @@ import {
 } from "@countersign/connectors";
 import { AgentBundle, validateBundle } from "@countersign/core";
 import { agent, connection, externalAction, inboxItem, stepRun, toolCall } from "@countersign/db";
-import { FakeModel, type FakeTurn, type LlmRequest } from "@countersign/llm";
+import { FakeModel, type LlmRequest } from "@countersign/llm";
 import {
   contentPage,
   forumReply,
@@ -31,7 +31,6 @@ import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
-  admin,
   createApiHarness,
   FakeWorkflowStep,
   forbiddenKeys,
@@ -379,7 +378,7 @@ describe.skipIf(!h)("the Marketing agent set on the platform", () => {
       },
     ]);
     const waits: string[] = [];
-    const { result, out, params } = await runTemplate("titles", "weekly", model, {
+    const { out, params } = await runTemplate("titles", "weekly", model, {
       bindings: { website },
       // The run waits for the person; the test stops it there.
       onWait: async (type) => {

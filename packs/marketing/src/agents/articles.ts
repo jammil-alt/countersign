@@ -121,7 +121,7 @@ export async function researchFound(tx: Tx, tenantId: string, runId: string | nu
       results?: { url?: unknown }[];
       url?: unknown;
     } | null;
-    if (!o || o.status !== "ok") continue;
+    if (o?.status !== "ok") continue;
     if (Array.isArray(o.sources)) o.sources.forEach(add);
     if (Array.isArray(o.results)) for (const x of o.results) add(x?.url);
     add(o.url);
