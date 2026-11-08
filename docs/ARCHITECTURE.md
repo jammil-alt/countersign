@@ -2516,6 +2516,30 @@ settings `price_change_pct` 5, `vendor_spread_pct`, `creep_pct`; produces alerts
 Events: `materials.line.matched`, `materials.line.needs_review`, `materials.match.decided`,
 `materials.price.observed`, `materials.price.changed`.
 
+Purchasing (pack 0.2.0, docs/plan.md §1.67): requests to buy, quotes and purchase orders.
+```
+purchase_request(id, tenant_id, requested_by_contact_id | requested_by_user_id, channel
+                 /*email|sms|whatsapp|portal|agent*/, raw_record_id, status
+                 /*open|quoting|quoted|ordered|cancelled|closed*/, needed_by, fulfillment
+                 /*delivery|pickup*/, deliver_to, notes, order_connector, order_external_id,
+                 ordered_at, run_id, agent_version_id, created_at, updated_at)
+purchase_request_line(id, tenant_id, purchase_request_id, line_no, catalog_item_id null,
+                      description, qty, unit, notes, match_method /*alias|rules|chosen*/, candidates)
+quote_request(id, tenant_id, purchase_request_id, vendor_id, status
+              /*draft|sent|received|declined|expired*/, sent_at, sent_via, due_at, received_at,
+              answer_raw_record_id, answer_document_id, currency)  unique(purchase_request_id, vendor_id)
+quote_line(id, tenant_id, quote_request_id, purchase_request_line_id, catalog_item_id, description,
+           qty, unit, unit_price, currency, unit_price_std null, standard_uom null, lead_time_days,
+           available)
+price_observation + raw_record_id, raw_line_id   (a QuickBooks bill line as a price's source)
+```
+Tools (all `none` or `internal`): `materials.request.{create,get,list,update,add-lines,match-lines}`,
+`materials.catalog.match-text`, `materials.vendors-for-items`, `materials.frequent-items`,
+`materials.quote.{create,mark-sent,get,record,compare}`, `materials.po.document` (a PDF stored as
+the client's document, source `generated`), `materials.backfill-from-bills`. Skills: a tool skill
+over each the agent uses directly, and two `task` skills on the small model, `materials.read-request`
+and `materials.read-quote`. Report: `requests`.
+
 Reports (portal): Price watch (`/reports/materials/prices`), Catalog (`/reports/materials/catalog`),
 with CSV export. Match review in the Inbox (`review` kind). Back office: the same views for any client,
 plus catalog merge.
@@ -2579,6 +2603,11 @@ gallon, quart. Pack sizes parsed from description (`BX/10`, `100PK`).
 Golden tests: `fixtures/matching/*.json` with line pairs labeled same/different. Target ≥ 95% precision
 on "same" at the auto threshold.
 
+Text with no document line (a request line as asked, a QuickBooks bill line) is matched by steps 1–4
+and 7 only: an alias (with no vendor, every vendor's description alias when they agree), then exactly
+one candidate equal on every key attribute. Anything else keeps its candidates for a person; no model
+adjudicates it. Only the bill backfill creates new items (step 6's rule).
+
 ### 12.4 Pricing and alerts
 
 - `materials.prices.record`: `unit_price_std = unit_price / conversion(uom_raw → standard_uom)`; freight
@@ -2595,6 +2624,13 @@ on "same" at the auto threshold.
   | `outlier` | qty or unit price > 3 MAD from item history |
 - `dollar_impact` = change × trailing 90-day quantity.
 - Deduplicate: one open alert per (kind, item, vendor).
+- Quotes are not prices: price history stays what was paid. `materials.quote.compare` compares a
+  request's quotes in code: per line in the item's standard unit through a conversion rule (an
+  offer with no rule compares only with offers in its own unit, never across currencies), totals per
+  vendor for the lines as asked, lead times against needed-by, and a suggested vendor or split with
+  its reasons and sources.
+- `materials.backfill-from-bills` turns synced QuickBooks bill lines into prices, one per bill line
+  (raw record and line id), idempotent, per the item's standard unit (bill lines carry no unit).
 
 ---
 

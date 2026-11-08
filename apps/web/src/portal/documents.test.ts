@@ -27,6 +27,14 @@ describe("document figures", () => {
   });
 });
 
+// P-5: a purchase order PDF a tool made reads as the agent's work, not a raw source id.
+describe("document sources", () => {
+  it("names a generated document in words", () => {
+    expect(sourceLabel("generated")).toBe("Made by your agent");
+    expect(sourceLabel("upload")).not.toBe("upload");
+  });
+});
+
 describe("uploadFiles", () => {
   const ok = {
     results: [

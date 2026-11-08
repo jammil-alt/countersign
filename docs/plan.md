@@ -1769,6 +1769,29 @@ Decisions made while building M37 (`claude/p4-conversation`, 2026-11-07; `// P-4
 | Run pages | Each message's model and cost are kept on its row (`plan.converse`); a turn that wrote no message (`done`, `give_up`, a failure) adds its cost to the message it answered. The portal shows only messages that went and replies, never one awaiting a signature. The portal's lines read "Sent" and "Reply" (six languages; the five other than English need a fluent review). // DECISION |
 | Not built | The portal channel (a client user in the agent's thread): `start` answers `not_allowed`, "talking in the portal isn't built yet", and the builder offers only directory people and roles. Reading messages the person sends between ours (their texts while no message of ours is open) at the next turn. A reply arriving in the seconds between one turn and the next message isn't matched (it is kept in the contact's thread as any text). |
 
+### 1.67 Purchasing area v2 (P-5, M38; migration 0033)
+
+The Materials pack's next version (0.2.0, same pack id `materials`) gives the Purchasing area what a
+purchasing agent needs: requests to buy, the vendors that sold an item, requests for quotes and
+their comparison, a purchase order PDF, and prices from QuickBooks bills. The owner builds the agent
+in the Agent lab. QuickBooks writes (P-2), attachments on sent messages (P-3) and two-way
+conversations (P-4) are other streams.
+
+| Topic | Decision |
+|---|---|
+| Migration | One migration, 0033 (the lead reserved 0035; 0033 was still free when it merged, §8.1). Four tables, each with `tenant_id`, forced RLS, `cs_runtime` grants without DELETE, composite tenant foreign keys and the `pack:materials` comment: `purchase_request`, `purchase_request_line`, `quote_request`, `quote_line`. Additive only. |
+| Request | Who asked: a contact or a user, at most one, neither when an agent opened it. Channel `email`, `sms`, `whatsapp`, `portal` or `agent`; the raw record it came from; needed-by; `delivery` or `pickup` with where; the order's reference (connector and external id) once placed; run and agent version. A test run's request is written and marked (`ext.testRun`), and lists leave it out. // DECISION |
+| Status | `open`, `quoting`, `quoted`, `ordered`, `closed` only move forward (skipping is allowed); `cancelled` from any status before `ordered`. The first RFQ sent makes a request `quoting`; it is `quoted` once a quote is in and no RFQ sent is still waiting. An order's reference makes it `ordered`, once: a different reference is refused. Lines are added only while `open` or `quoting`. // DECISION |
+| Matching request lines | Deterministic only, through the catalog's own keys and rules: with no vendor, every vendor's description alias for the text, when they all name one item; then exactly one candidate equal on every key attribute. Anything else keeps up to five candidates and no item, never a guess. A request never creates a catalog item. A person's choice (`choices`) may name any live item, recorded as `chosen`. // DECISION |
+| Quote | One RFQ per vendor and request (`unique`); asking again finds it. `materials.quote.create` drafts and sends nothing; `mark-sent` records how it went out. A quoted line without a unit or quantity is for the unit and quantity asked. The standard-unit price is set only through a conversion rule, else null with the reason. An answer is recorded once: a retried step gets it back flagged `alreadyRecorded`; a revised answer is a new RFQ. A quote is not a price observation: price history stays what was paid. // DECISION |
+| Compare | In code, never a model. Per line, offers compare in the item's standard unit; an offer whose unit has no rule compares only with offers in the very same unit, and never across currencies (the currency most offers are in wins; a tie compares nothing). A vendor's total is for the lines as asked. A vendor that would deliver after needed-by is suggested only when no on-time vendor quoted every line. A split is suggested when it saves at least `split_min_saving_pct` (5) on the best single vendor, or when no vendor quoted every line. Reasons are plain sentences; sources are the request, its lines, the quotes and every offer. // DECISION |
+| Purchase order | `materials.po.document` renders the PDF with pdf-lib (as the Weekly Table's) from a request and a received quote: the client's name, the vendor, the lines the vendor can supply with amounts and total in decimal, needed-by, delivery or pickup, a reference (given, else `PO-` and the request id's first eight characters). Fixed dates make the same order the same bytes, so it is one document. Stored with a new document source, `generated`, and no `document.received` event (it is ours, not something to read). Pack tools get the content store through `packServices.content`. // DECISION |
+| Backfill | `materials.backfill-from-bills` reads synced QuickBooks bills by date (at most 500 a call, `next` continues), matches item lines deterministically (a new item when the rules say so), learns the vendor's alias, and records a price per bill line keyed by its raw record and QBO line id (`price_observation.raw_record_id`, `raw_line_id`, unique). A line already priced from an earlier version of the bill is not priced again. Bill lines carry no unit: the price is per the item's standard unit, marked `uomAssumed`. Account lines and unsure lines are counted and left; no events (history, not news). What it can't use: `packs/materials/NOTES.md`. // DECISION |
+| Reading skills | `materials.read-request` and `materials.read-quote` are `task` skills on the classification model: the text is the task input (data, invariant 9); they call the deterministic tools (`materials.catalog.match-text`, `materials.quote.get`, `docs.get`) and never pick a candidate or convert a unit. Their outputs feed `materials.request.create` and `materials.quote.record` directly (null means "not stated"). // DECISION |
+| Tools and skills | Tools (`none` or `internal`, no approval, logged with the step): `materials.request.{create,get,list,update,add-lines,match-lines}`, `materials.catalog.match-text`, `materials.vendors-for-items`, `materials.frequent-items`, `materials.quote.{create,mark-sent,get,record,compare}`, `materials.po.document`, `materials.backfill-from-bills`. Tool skills (category Purchasing): open-request, update-request, match-request, find-vendors, top-items, request-quotes, mark-quote-sent, record-quote, compare-quotes, purchase-order, import-bill-prices. Quantities and prices take decimal strings or JSON numbers read as their shortest decimal text, at most 4 places. // DECISION |
+| Reports | A `requests` report (JSON and CSV) under the generic pack report routes; no screen: the UI session owns screens. |
+| Files | `packs/materials/src/purchasing/*`, `packs/materials/NOTES.md`; one block each in `packs/materials/src/{schema,manifest,tools,api,index}.ts`, `apps/api/src/packs.ts`, `apps/api/src/runs/execute.ts`; `apps/api/src/purchasing-area.test.ts`. |
+
 ### 1.68 Client-run, operator steps in (P-6, M39; no migration; ARCHITECTURE §4, §10.12, §11)
 
 Owner, 2026-11-08: the client's team runs its agents day to day; the operator oversees and can step into
@@ -2501,6 +2524,26 @@ cost; client isolation.
 **Done when** a WhatsApp clarification of a purchase request runs three turns to a confirmed result
 that a later step reads as typed output, and a conversation that hits a limit lands with a person,
 transcript attached.
+
+### M38: Purchasing area v2 (P-5, §1.67)
+
+Two PRs: the migration (0033), then the tools and skills on it.
+
+- Migration: `purchase_request`, `purchase_request_line`, `quote_request`, `quote_line`;
+  `price_observation.raw_record_id` and `raw_line_id`; document source `generated`.
+- Tools and skills in the Materials pack (0.2.0): requests, line matching, vendors for items, what
+  the client buys most, quotes and their comparison, the purchase order PDF, prices from QuickBooks
+  bills; the two reading task skills; the `requests` report.
+
+Tests: every tool's validation; client B never sees client A's requests, quotes or prices; status
+moves; compare with decimal and unit rules, refusing across units and currencies; the PDF's text
+read back; backfill counts, idempotency across re-runs and bill versions, test runs writing
+nothing; sources on every output; an API run of one request from open to purchase order with a
+buyer built in the test (no model, nothing written to a client's tool), and the two reading skills
+on a FakeModel with the text kept as data.
+
+**Done when** a buyer built in the Agent lab from these skills can take a request from intake to a
+stored purchase order PDF, with prices compared in one unit and every step's records cited.
 
 ### M39: Client-run, operator steps in (P-6, §1.68)
 

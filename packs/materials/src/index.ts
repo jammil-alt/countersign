@@ -38,6 +38,12 @@ export { checkPrices } from "./pricing/check";
 export { PricingError, recordPrices } from "./pricing/record";
 export * from "./pricing/rules";
 export { convert, readUom } from "./pricing/uom";
+// P-5: the Purchasing area (docs/plan.md §1.67).
+export { backfillFromBills } from "./purchasing/backfill";
+export { compareOffers, compareQuotes, SPLIT_MIN_SAVING_PCT } from "./purchasing/compare";
+export { renderPurchaseOrder } from "./purchasing/po";
+export { PURCHASING_SKILLS } from "./purchasing/skills";
+export { PURCHASING_TOOLS } from "./purchasing/tools";
 export * from "./reports";
 export * from "./schema";
 export {
