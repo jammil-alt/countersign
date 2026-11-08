@@ -71,6 +71,23 @@ emailed and the QuickBooks purchase order is created; every write is approved on
 - QuickBooks PO lines are account lines only (catalog items carry no QuickBooks item id).
 - The portal channel for conversations (§1.66).
 
+## 1b. The Bookkeeper (bank transactions into QuickBooks)
+
+Built against the fakes (`docs/plan.md` §1.79, M51–M56): the chart of accounts synced from
+QuickBooks with notes on what each account is for, the Bookkeeping pack, the QuickBooks writes
+(purchase, deposit, transfer), several banks per client, the Bookkeeper template and the screens.
+To go live:
+
+| # | Step | Notes |
+|---|---|---|
+| K1 | **Plaid sandbox keys**: `PLAID_CLIENT_ID` and the sandbox `PLAID_SECRET` in the GitHub staging environment; redirect URIs `https://staging.mezonas.com/connections/bankfeed/callback` (and production's, and `http://localhost:8787/…`) in Plaid's dashboard; Link's name "Mezonas". | `docs/operations.md`, Plaid |
+| K2 | Walk `packages/connectors/src/bankfeed/NOTES.md` in Plaid's sandbox. | Nothing has run against real Plaid. |
+| K3 | **Plaid production**: the review (company profile, security questionnaire, use case) and the OAuth banks' registration (Chase and the like take weeks). | Start early. |
+| K4 | Intuit sandbox keys (P3 above), then the checks in `packages/connectors/src/qbo/NOTES.md` ("The chart of accounts", "Booking bank transactions"). | Shared with the buyer. |
+| K5 | Run the Bookkeeper on the Sandbox: `docs/operations.md`, "Switching on the Bookkeeping area". | |
+| K6 | Decide: Plaid's price per bank (absorbed or credits); `book_confidence_auto` (0.85 today); whether learned rules need a person's yes first. | `docs/plan.md` §1.79 |
+| K7 | Fluent review of the Bookkeeping portal words (one block per language). | |
+
 ## 2. The marketing site (mezonas.com)
 
 This session's network can't reach `mezonas.com`, so whether it is live is **not checked here**.
@@ -117,7 +134,7 @@ then one pass of its "To verify" list against the real service.
 | Texts and calls | All three | **Legal review** of consent, calling hours, recording consent and AI disclosure per country, before any live client call or text. |
 | Access | Code service (`apps/mfa`) | Confirm the domains; Email Routing for `agents.staging.mezonas.com`; the codes Twilio subaccount; then turn email codes on (`apps/mfa/NOTES.md`). |
 | Access | Browser logins (`browser`) | Turn on Browser Run; then merge the `BROWSER` binding PR (`claude/browser-binding`, jammil-alt/countersign#55); the first real low-tier site; legal review of agent accounts. |
-| Finance | Plaid (`bankfeed`) | Production review; price per account and whether it's passed into credits; BAA (until then not offered to HIPAA clients). |
+| Finance | Plaid (`bankfeed`) | §1b above (K1–K3): keys, sandbox checks, production review and OAuth banks; price per bank; BAA (until then not offered to HIPAA clients). Several banks per client is built. |
 | Finance | Ramp (`ramp`) | Developer app, `RAMP_*`. |
 | Finance | Stripe (billing) | Account and keys; the open prices (§4). |
 | CRM | HubSpot, Zoho CRM, Podio | A developer app each (`HUBSPOT_*`, `ZOHO_*`, `PODIO_*`). |
@@ -165,12 +182,13 @@ bring this forward.
 ### Docs housekeeping
 
 - `docs/ARCHITECTURE.md` is still v0.15: the Marketing area's v0.16 changes are listed in
-  `docs/marketing-plan.md` §9 and not yet written.
+  `docs/marketing-plan.md` §9, and the Bookkeeping area's in `docs/plan.md` §1.79; neither is
+  written into it yet.
 - `docs/hipaa-plan.md` §1 ("Merge the code") lists PRs that were merged long ago.
 
 ## Suggested order
 
-1. **This week, purchasing:** P1–P4, then §1.2 on the Sandbox with the QuickBooks sandbox; answer
+1. **This week, purchasing and bookkeeping:** P1–P4 and K1–K2, then §1.2 on the Sandbox with the QuickBooks sandbox; answer
    the four §1.3 decisions as the test shows them. In parallel, start S6 (Search Console collects
    from the day it is verified).
 2. **Next, the site:** S1–S4, then S5 and S7; S8–S11 once the lawyer has read the drafts.

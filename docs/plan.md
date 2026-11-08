@@ -2229,6 +2229,19 @@ foreign keys, like every area (invariant 1).
 | The template | B-4: **Bookkeeper**, the pack's template (installed when the pack is switched on): a daily schedule and the bank feed's events start a run: import, match, rules, categorize, the review card for the unsure, the account questions when needed, then for each approved booking the QuickBooks write and `posted`. Mode `suggest_only` until the operator moves it on; approval on for every write. |
 | Not built | Reconciling accounts (QuickBooks' API has no reconciliation); receipts matched to bank transactions (the Bill clerk's documents could later); sales tax; several currencies in one booking. |
 
+Built (2026-11-08, branch `claude/eager-newton-2pwbvb`): M51–M56 against the fakes (QuickBooks,
+Plaid, a FakeModel). Decisions made while building:
+
+| Topic | Decision |
+|---|---|
+| Proposals go to the write | A proposal (a rule's, or the model's at or above the threshold) on an account set to book is ready for its QuickBooks write without a stop on the card: the write's signature is the person's approval (invariant 8). The card is for what the model wasn't sure of (`needs_review`). A declined or refused write records no id: the booking is `failed` and the transaction goes back to the card. // DECISION |
+| Suggest-only accounts | A proposal on an account set to suggest waits; each settle looks for it in QuickBooks, and once the client has entered it the proposal is superseded by a match. // DECISION |
+| The write's reference | Each QuickBooks record carries `[Mezonas bk-<booking id>]` in its private note: a record with it is this booking's earlier write (done); one for the same account, day and amount without it was entered by someone else, and the write is refused ("match it instead"). // DECISION |
+| Card refunds | Money back onto a card booked to an expense or income account is a card credit (`qbo.purchase.create` with `credit`), not a deposit: QuickBooks deposits go to bank accounts. // DECISION |
+| Examples by payee key | An account's examples group by the payee key, so "Shell" and "SHELL 5741" count as one payee. // DECISION |
+| Several banks | A connector may be `multiple` (the bank feed is). `?add=1` on the sign-in starts another connection and `?connection=<id>` signs one in again; the signed state carries which (`x`). Every other tool keeps one connection (409 `one_only`). // DECISION |
+| Screens | The portal's Bank transactions report (read only, six languages); the two cards on both surfaces; the back office's Bank transactions page under the client with the feed's accounts (link, mode, book from), the rules and the chart with its notes (English, as the back office). // DECISION |
+
 Open for the owner:
 
 - Plaid's price per connected bank, absorbed or in credits (§7 item 9).
@@ -3234,6 +3247,8 @@ Work: the back office's account links and rules; the portal's Bank transactions 
 cards in the portal and the Desk; words in six languages.
 
 **Done when** the client admin answers the account questions and the booking review in the portal.
+
+Built (2026-11-08) against the fakes; live once Plaid's and Intuit's keys are set (`docs/open.md`).
 
 ---
 

@@ -174,3 +174,16 @@ Built against the fake; check against the sandbox company:
 5. QuickBooks' own bank feed ("For review" in Banking) isn't in the Accounting API, as far as we
    know: confirm, since it decides whether a client keeps QuickBooks' feed for an account.
 
+## Booking bank transactions (B-4, 2026-11-08, docs/plan.md §1.79)
+
+Built against the fake; check against the sandbox company:
+
+1. `select * from Purchase|Deposit|Transfer where TxnDate = '…'` filters by day (the duplicate check).
+2. A Purchase with `PaymentType: "Cash"` from a Bank account and `"CreditCard"` from a Credit Card
+   account; `Credit: true` for a card refund; `EntityRef` with `type: "Vendor"`.
+3. A Deposit's `DepositLineDetail.AccountRef` (an income account) and `ClassRef`; whether QuickBooks
+   wants `Entity` on the line.
+4. A Transfer between a bank and a card account (a card payment) is accepted, and `Amount` comes back.
+5. The private note keeps our `[Mezonas bk-…]` mark as written (length, characters), so a retried
+   write finds its own record.
+
