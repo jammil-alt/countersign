@@ -75,6 +75,23 @@ the live docs. The fake Twilio (`fake.ts`) follows them.
 | Twilio charges for stored media | UNCHECKED |
 | Twilio has no WhatsApp groups | From search results only: Twilio's WhatsApp FAQ says WhatsApp retired its groups API in April 2020; its "group messaging" sample fans out one-to-one chats through Conversations. Groups wait for Meta's connector (§1.19) |
 
+## Sending files (P-3, docs/plan.md §1.65)
+
+| Fact | Status |
+|---|---|
+| A message's files are `MediaUrl` form fields, one per file (repeated), fetched by Twilio from our 5-minute signed link (`/api/files/:token`, or R2's presigned link) | UNCHECKED: when Twilio fetches (we assume while it accepts the message, well within 5 minutes), whether it retries a failed fetch, and that it follows no redirect we'd need |
+| An SMS with `MediaUrl` goes as MMS: up to 10 files, 5 MB in all, US and Canada numbers | UNCHECKED: the limits, and what Twilio does elsewhere (it may send a link instead). We send at most five files and 5 MB (`TWILIO_MMS_LIMITS`) |
+| WhatsApp takes one file per message, with `Body` as its caption, up to 16 MB | UNCHECKED. We send one file (`TWILIO_WHATSAPP_LIMITS`); a reach-out with more leaves WhatsApp out of its plan |
+| A WhatsApp template (`ContentSid`) can't carry our file | UNCHECKED (media templates exist; we don't use them). A send outside the 24-hour window with a file is refused |
+| Twilio reads the file's type from the link's `Content-Type` | UNCHECKED. Our links answer the stored type |
+
+## Replies with files (P-3)
+
+A text or WhatsApp reply to an open reach-out has its PDFs and images fetched by the capture job
+(reason `reply`) with capture's checks, whatever the conversation's setting; a text's (MMS) files
+are named `mms-<sid>-<index>.<ext>`. UNCHECKED, as for capture: MMS media URLs and their redirect
+host for SMS (we assume the same as WhatsApp's).
+
 ## Webhooks
 
 | Fact | Status |
@@ -105,6 +122,6 @@ the live docs. The fake Twilio (`fake.ts`) follows them.
 - Voice: built by the calls stream (`call.place`, `call.answer`, `call.get`, `twilio/voice.ts`,
   `twilio/call-tools.ts`). Its notes are in `../elevenlabs/NOTES.md`, the call list a re-run
   reconciles with included.
-- MMS media download, toll-free verification, numbers outside the US, Messaging Services managed by API.
+- MMS media download outside a reach-out's reply (P-3 fetches a reply's), toll-free verification, numbers outside the US, Messaging Services managed by API.
 - Inbound messages counted as usage (only sent messages count, against the agent that sent them).
 - Translation of incoming messages (plan §1.18, next step).

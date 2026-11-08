@@ -91,6 +91,22 @@ export interface StoredFile {
 export interface DocumentServices {
   /** The document with this id in the call's client, or null (unknown, or another client's). */
   read(documentId: string): Promise<StoredFile | null>;
+  // P-3: attachments both ways (docs/plan.md §1.65)
+  /** The document's record without its bytes (for approval cards), or null as `read`. */
+  describe?(documentId: string): Promise<DocumentFacts | null>;
+  /**
+   * A link to the document's bytes that works for five minutes, for a provider that fetches the
+   * file itself (Twilio's MediaUrl, Meta's media link); null as `read`.
+   */
+  signedUrl?(documentId: string): Promise<string | null>;
+}
+
+/** A stored document's record, without its bytes. */
+export interface DocumentFacts {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
 }
 
 /** Everything a connector call runs with: one client, one connection. */

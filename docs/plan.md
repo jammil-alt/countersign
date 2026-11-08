@@ -1663,6 +1663,33 @@ data only, within the brand rules (`apps/web/src/ui/README.md`).
 | Agent colour | Owner (design pass 2): solid blocks as on the v1 screens, from existing tokens (slate, copper, positive, signal-ink, `data-seq-4`) with `surface` initials; picked by id and spread within a client so its first five agents differ. State keeps tinted pills and accent bars, so a solid block reads as identity. // DECISION |
 | Go-live view | `goLive.writes` reads the live version, else the latest (a draft that writes no longer reads "goes straight to live"); `liveVersion` says whether there is one. Stage moves still read the live version alone. // DECISION |
 
+### 1.65 Attachments both ways (P-3, M36; no migration)
+
+Ingredients for agents the owner builds in the Agent lab, such as a purchasing agent that emails a
+vendor a purchase order PDF and reads the quote PDF that comes back. Platform and connector pieces
+only: no agent, template or workflow. Built on `claude/p3-attachments` against the fakes. Facts we
+couldn't check are in each connector's `NOTES.md` (resend, gmail, outlook, twilio, whatsapp_meta).
+Hot-spot edits are blocks marked `// P-3`.
+
+| Topic | Decision |
+|---|---|
+| What can go | `attachments: [{documentId}]` on `email.send`, `gmail.send`, `outlook.send`, `sms.send` and `whatsapp.send` (both providers): stored documents of the call's own client, PDFs and images only, at most five, each once (core's `OutboundAttachments`). The name and type come from the document record, never the input. // DECISION |
+| Read for one send | The tool reads each file through `ctx.services.documents` (apps/api's `dbDocumentServices`, inside `withTenant` for the connection's client), so another client's id reads as unknown and is refused (`not_found`, the same answer as an unknown id). The bytes are read for that send only, and checked against the record's type (magic bytes): a mismatch is refused. Nothing is started or sent before the checks pass. // DECISION |
+| Size per provider | The files' total, as stored: Resend 29 MB (40 MB after base64), Gmail 18 MB (25 MB a message after base64), Outlook 3 MB (Graph's 4 MB request; larger files need an upload session on a draft and `Mail.ReadWrite`, which we don't ask for), MMS 5 MB, WhatsApp one file (Twilio 16 MB; Meta images 5 MB, documents 100 MB, a caption 1024 characters). A refusal names the limit in plain words (`AttachmentRefusedError`). // DECISION |
+| Gmail's MIME | `multipart/mixed` built in `gmail/mime.ts`: the text first, then each file `Content-Disposition: attachment`, everything base64 in 76-character lines, so the message stays 7-bit ASCII. The boundary starts `=_` (never in base64) and comes from the Message-ID. A plain ASCII name is quoted; any other as RFC 2231 `filename*=UTF-8''…` beside an RFC 2047 `name`. Quotes, backslashes and line breaks never reach a header; the type must be `type/subtype`. With files, the message goes as media to Gmail's upload URI (`message/rfc822`, up to 35 MB); without, as JSON `raw` as before. // DECISION |
+| Outlook's shape | Graph's `fileAttachment` in `message.attachments` of `sendMail`: `@odata.type`, `name`, `contentType`, `contentBytes` (base64). // DECISION |
+| Texts and WhatsApp | Twilio fetches each file from a 5-minute signed link (`MediaUrl`, repeated; the Worker's `/api/files/:token` or R2's presigned link, `SIGNED_URL_TTL_SECONDS`). Meta gets one file by `link` (a PDF as `document` with its file name, JPEG and PNG as `image`), the text as its caption: not Meta's media upload, since the connector's HTTP interface carries text bodies only (upload is the fallback if links prove unreliable). A WhatsApp template (outside the 24-hour window) carries no file, so that send is refused. Links are made in the tool for the one send and never stored. // DECISION |
+| Approval and records | The before state lists the files by name, type and size (`attachments` on each send's before schema), so the approval card shows them and `external_action.before` keeps them; the input keeps the ids and the output the same list. The thread line adds "Attached: PO-1042.pdf (12 KB)". Card-number redaction, consent, quiet hours, once-only sends and approval are unchanged. // DECISION |
+| Reach out | `ReachOutInput.attachments`: document ids from the step's own input (a fixed id, or an earlier step's output through a template), never written by a model. Checked when the plan is made (this client's, PDF or image; else `not_allowed` with the reason, nothing planned or sent), kept on the plan with names and sizes, shown on the plan's approval card, and sent with each attempt. // DECISION |
+| A channel that can't carry them | Left out of the plan with the reason "can't carry the attachments" (core's `cannot_carry_attachments` block): a call carries none, WhatsApp one, email and MMS five. Never sent without the files, and never with a line naming files the person didn't get. None left: `not_allowed`, nothing sent. A WhatsApp message composed for a file is at most 1000 characters (Meta's caption). // DECISION |
+| Email replies | `receiveReachOutReply` keeps the reply as a raw record (`ReachOutReply` on the client's upload connection, one per reach-out: headers, the reply's own words, each attachment's outcome) and its PDFs and images as `document(source='email')` with that raw record as their origin (`meta.rawRecordId`, `reachOutId`), in the reply's transaction. Then `document.received` is dispatched and the new documents read in the background, like forwarded mail. Checks as forwarded mail: types, inline images left out, magic bytes, 32 MB per document, at most 10 per reply. The reply's text is redacted for card numbers. A second delivery finds the reach-out ended and keeps nothing. // DECISION |
+| Text and WhatsApp replies | The webhook (Twilio's and Meta's) starts capture's job for a message whose sender has an open reach-out (reason `reply`): its PDFs and images only, at the conversation's size limit (20 MB by default), fetched as capture fetches (Twilio's origin and redirect list, Meta's two-step download), filed once per media (`MessageMedia`), `source: 'message'`, the message's raw record as origin, read in the background. A text (MMS) has no conversation; its files are `mms-<sid>-<index>.<ext>`. // DECISION |
+| Whatever the capture setting | A reply's PDFs and images are fetched even where the conversation keeps no attachments: the operator's reach-out asked this person for an answer. Nothing else of the setting changes, and other messages from them stay as the setting says. // DECISION |
+| The reply waits for its files | A text or WhatsApp reply ends the reach-out as `replied` at once (escalation and the timeout stop), with `reply.pending` while a file has no outcome. The step waits on the same event; the reply's job, the step and the minute cron each settle it once every file has an outcome; after 15 minutes (`REPLY_MEDIA_WAIT_MS`) it is settled with what was filed and the rest counted as `not_fetched`. The cron doesn't re-wake a pending reply's run. // DECISION |
+| The step's output | `ReachReply.documents`: the reply's documents' ids, for later steps (an empty list on replies stored before). `ReachReply.refused`: each attachment not kept, by type and reason (`type_not_allowed`, `too_large`, `type_mismatch`, `inline_image`, `too_many`, `not_fetched`): counted, never dropped silently. Text and files stay data (invariant 9): a document is read with `docs.*`. // DECISION |
+| Compliance | No new vendor: Resend, Google, Microsoft, Twilio and Meta already carry the messages these files go with. |
+| Not built | Files larger than Outlook's 3 MB (upload sessions). Meta's media upload. Media templates on WhatsApp. Attachments on a call. A reply's other types (audio, office files) as documents. Screens: the approval card shows `attachments` as it shows any before state; the owner's redesign gives them their own row. |
+
 ---
 
 ## 2. Package layering
@@ -2274,6 +2301,35 @@ if it has one.
 **Done when** a WhatsApp photo from a contact whose conversation has attachments on becomes one
 document, extracted, linked to its message; with it off, only the attachment's existence is kept; a
 retried webhook makes nothing twice; the client admin toggles it and the change is logged.
+
+### M36: Attachments both ways (P-3, §1.65)
+
+One PR (`claude/p3-attachments`), no migration: documents, raw records and the reach-out's reply
+already hold everything.
+
+Work: core's outbound attachment schema, per-channel limits and `cannot_carry_attachments`;
+`ReachOutInput.attachments` and `ReachReply.documents`/`refused`/`pending`; the connectors'
+attachment checks (`describeOutbound`, `loadOutbound`, `linkOutbound`) and `DocumentServices`'
+`describe` and `signedUrl`; Gmail's multipart MIME and upload send; Graph's `fileAttachment`;
+Resend's base64 `attachments`; Twilio's repeated `MediaUrl`; Meta's media by link; the plan's
+attachments, approval card and attempts; the email reply's raw record and documents; the reply job
+on Twilio's and Meta's webhooks (capture's fetch, reason `reply`); settling a pending reply in the
+job, the step and the cron; `NOTES.md` for each connector.
+
+Tests (against the fakes): another client's document refused at the tool and at the plan; type,
+count, size and magic-byte refusals; the MIME parts read back by a real parser and a header that
+can't be broken by a file name; Graph's shape and Outlook's 3 MB limit; Resend's body; Meta's
+message and its limits; MMS and WhatsApp `MediaUrl` signed links that serve the file and expire
+after five minutes; the plan leaving out a call and, for two files, WhatsApp; an email reply's PDF
+filed, read and linked to the reply's raw record, its zip refused and counted, a second delivery
+keeping nothing; a text reply's photo and a WhatsApp reply's PDF filed (the chat keeping no
+attachments), a retried webhook making nothing twice; a pending reply settled by the cron after the
+wait; the step output carrying the ids; the portal's answers with no link, bundle or cost.
+
+**Done when** a reach-out emails a purchase order PDF from the step's input after one approval
+that names it, the vendor's reply PDF becomes a document of that client, read in the background
+and linked to the reply, and the next step gets its id; the same works by text and WhatsApp; a
+document of another client is never sent.
 
 ---
 

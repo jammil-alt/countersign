@@ -109,6 +109,21 @@ Google's review:
 - Whether listing `openid` and `email` beside `gmail.send` on the consent screen changes anything in
   the review (they are non-sensitive).
 
+### Attachments (P-3, docs/plan.md §1.65)
+
+- A message with attachments is built as `multipart/mixed` (the text first, then each file as
+  `Content-Disposition: attachment`, all base64) and sent as media: `POST
+  https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media` with
+  `Content-Type: message/rfc822` and the message as the body. UNCHECKED: that the upload URI
+  takes `uploadType=media` with this type and answers the Message resource (`id`, `threadId`), and
+  its 35 MB limit. A plain message still goes as JSON `raw`.
+- Gmail's own limit: 25 MB per message (from memory, UNCHECKED). Base64 makes files 4/3 larger, so
+  we send at most 18 MB of files (`GMAIL_ATTACHMENT_LIMITS`), at most five.
+- File names: plain ASCII quoted; anything else as RFC 2231 `filename*=UTF-8''…` with an RFC 2047
+  `name` beside it. UNCHECKED how Gmail's web client shows each.
+- Whether `gmail.send` alone is enough for the upload URI (it should be: the scope covers
+  `messages.send` however it is called).
+
 ## Not built
 
 - Reading, searching, labels and drafts (restricted scopes, CASA): replies come back by forwarding
@@ -116,7 +131,7 @@ Google's review:
 - Replying inside an existing Gmail thread (`threadId`, `In-Reply-To`, `References`): each reach-out
   email starts its own thread.
 - Send-as aliases and a display name in `From`: we send as the bare connected address.
-- HTML and attachments: plain text only, like `email.send`.
+- HTML: plain text only, like `email.send` (PDFs and images can be attached, P-3).
 - Counting sends against Gmail's daily limits, and bounces (they arrive in the mailbox, which we
   can't read).
 - More than one Gmail connection per client: v1 keeps one connection per connector per client, so a

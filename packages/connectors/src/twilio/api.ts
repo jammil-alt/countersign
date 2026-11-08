@@ -45,11 +45,21 @@ export async function twilioRequest(
   auth: TwilioAuth,
   method: "GET" | "POST" | "DELETE",
   url: string,
-  opts: { form?: Record<string, string>; query?: Record<string, string | undefined> } = {},
+  opts: {
+    form?: Record<string, string>;
+    query?: Record<string, string | undefined>;
+    // P-3: a field Twilio takes more than once (`MediaUrl`), after the form's own fields.
+    repeated?: { name: string; values: readonly string[] };
+  } = {},
 ): Promise<unknown> {
   const q = Object.entries(opts.query ?? {}).filter(
     (e): e is [string, string] => e[1] !== undefined,
   );
+  const repeated = opts.repeated
+    ? opts.repeated.values
+        .map((v) => `${encodeURIComponent(opts.repeated?.name ?? "")}=${encodeURIComponent(v)}`)
+        .join("&")
+    : "";
   const full = q.length > 0 ? `${url}?${formEncode(Object.fromEntries(q))}` : url;
   let res: HttpResponseLike;
   try {
@@ -60,7 +70,9 @@ export async function twilioRequest(
         accept: "application/json",
         ...(opts.form ? { "content-type": "application/x-www-form-urlencoded" } : {}),
       },
-      ...(opts.form ? { body: formEncode(opts.form) } : {}),
+      ...(opts.form
+        ? { body: [formEncode(opts.form), repeated].filter((p) => p !== "").join("&") }
+        : {}),
       redirect: "manual",
       signal: timeoutSignal(TIMEOUT_MS),
     });

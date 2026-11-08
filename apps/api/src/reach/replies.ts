@@ -6,13 +6,24 @@
 // takes it.
 
 import {
+  type ContentStore,
   forwardingOf,
+  parseForwardedEmail,
   parseForwardingAddress,
   parseReplyEmail,
+  type ReplyEmail,
   sameAddress,
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
-import type { ReachChannel, ReachReply } from "@countersign/core";
+import {
+  bytesMatchType,
+  REPLY_DOCUMENTS_MAX,
+  type ReachChannel,
+  type ReachReply,
+  type ReplyAttachmentRefusal,
+  redactCardNumbers,
+  uuidv7,
+} from "@countersign/core";
 import {
   connection,
   contact,
@@ -23,11 +34,14 @@ import {
   type Tx,
   withTenant,
 } from "@countersign/db";
+import { DocumentError, storeDocument } from "@countersign/documents";
 import type { EventRow } from "@countersign/senses";
 import { and, desc, eq, ne } from "drizzle-orm";
 import { type ContactRow, contactThread, type ThreadMessageBody } from "../messaging/contacts";
 import { reportHandled } from "../observability/report";
 import type { RunInstances } from "../runs/instances";
+// P-3: attachments both ways
+import { replyAttachments } from "./reply-media";
 import { endReachOut, type ReachOutRow, reachOutEventType } from "./service";
 
 interface Wake {
@@ -72,7 +86,12 @@ async function replyLine(tx: Tx, row: ReachOutRow, who: ContactRow, reply: Reach
     senderType: "contact",
     senderId: who.id,
     body: body as unknown as Record<string, unknown>,
-    sources: [...(row.sources ?? []), ...(reply.rawRecordId ? [reply.rawRecordId] : [])],
+    sources: [
+      ...(row.sources ?? []),
+      ...(reply.rawRecordId ? [reply.rawRecordId] : []),
+      // P-3: the documents it came with (a text's, once fetched, are on the reach-out's reply).
+      ...(reply.documents ?? []),
+    ],
   });
 }
 
@@ -153,12 +172,15 @@ export async function matchRepliesIn(
       }
       if (p.keyword) continue;
       const row = open[0] as ReachOutRow;
+      const rawRecordId = typeof p.rawRecordId === "string" ? p.rawRecordId : null;
       const reply: ReachReply = {
         channel: (p.channel === "whatsapp" ? "whatsapp" : "sms") as ReachChannel,
         text: await rawText(tx, tenantId, p.rawRecordId),
         untrusted: true,
-        rawRecordId: typeof p.rawRecordId === "string" ? p.rawRecordId : null,
+        rawRecordId,
         at: now.toISOString(),
+        // P-3: its PDFs and images, filed by the reply's job; pending until each has an outcome.
+        ...(await replyAttachments(tx, tenantId, rawRecordId)),
       };
       const w = await recordReply(tx, row, reply, now);
       if (w) woken.push(w);
@@ -177,6 +199,7 @@ export async function matchRepliesIn(
       untrusted: true,
       rawRecordId: typeof p.rawRecordId === "string" ? p.rawRecordId : null,
       at: now.toISOString(),
+      documents: [],
     };
     const w = await recordReply(tx, row, reply, now);
     if (w) woken.push(w);
@@ -224,8 +247,16 @@ export async function receiveReachOutReply(
     domain: string;
     now: Date;
     forwardingAddress: (tx: Tx, tenantId: string) => Promise<string | null>;
+    // P-3: where the reply's PDFs and images are stored (docs/plan.md §1.65); without it, none are.
+    content?: ContentStore;
   },
-): Promise<{ tenantId: string; woken: Wake[] } | null> {
+): Promise<{
+  tenantId: string;
+  woken: Wake[];
+  // P-3: `document.received` for the reply's new documents, and their ids to read.
+  events: EventRow[];
+  fresh: string[];
+} | null> {
   const to = mail.to.trim().toLowerCase();
   const plus = /^([^@+]+)\+([a-z0-9]{6,40})@(.+)$/.exec(to);
   if (!plus) return null;
@@ -235,6 +266,7 @@ export async function receiveReachOutReply(
   const bare = `${plus[1]}@${plus[3]}`;
   const parsed = await parseReplyEmail(mail.raw).catch(() => null);
   if (!parsed) return null;
+  const filed: { events: EventRow[]; fresh: string[] } = { events: [], fresh: [] };
   const woken = await withTenant(db, target.tenantId, async (tx) => {
     const stored = await options.forwardingAddress(tx, target.tenantId);
     if (!stored || !sameAddress(stored, bare)) return null;
@@ -262,20 +294,186 @@ export async function receiveReachOutReply(
     // DECISION: only the contact's own address counts as their reply; anyone else writing to the
     // tagged address is dropped, so a stranger can't answer for them.
     if (!who?.email || !senders.includes(who.email.toLowerCase())) return [];
+    // P-3: the reply is a raw record (its origin), and its PDFs and images documents of this
+    // client, in this transaction: a second delivery finds the reach-out ended and keeps nothing.
+    const kept = await keepEmailReply(tx, {
+      tenantId: target.tenantId,
+      row,
+      mail,
+      parsed,
+      content: options.content,
+      now: options.now,
+    });
     const w = await recordReply(
       tx,
       row,
       {
         channel: "email",
-        text: parsed.text,
+        // A card number in a reply is never stored (PCI DSS 3.3, docs/plan.md §1.35).
+        text: redactCardNumbers(parsed.text),
         untrusted: true,
-        rawRecordId: null,
+        rawRecordId: kept.rawRecordId,
         at: options.now.toISOString(),
+        documents: kept.documents,
+        ...(kept.refused.length ? { refused: kept.refused } : {}),
       },
       options.now,
     );
-    return w ? [w] : [];
+    // Ended meanwhile by another delivery or the cron: roll back what was kept here.
+    if (!w) throw new ReplyTaken();
+    filed.events = kept.events;
+    filed.fresh = kept.fresh;
+    return [w];
+  }).catch((error: unknown) => {
+    if (error instanceof ReplyTaken) return [] as Wake[];
+    throw error;
   });
   if (woken === null) return null;
-  return { tenantId: target.tenantId, woken };
+  return { tenantId: target.tenantId, woken, ...filed };
+}
+
+// ── P-3: an email reply's attachments (docs/plan.md §1.65) ─────────────────────────────────────
+
+/** An email reply, as a raw record on the client's upload connection (the address it came to). */
+export const REACH_REPLY_EMAIL_ENTITY = "ReachOutReply";
+
+class ReplyTaken extends Error {
+  override name = "ReplyTaken";
+}
+
+/**
+ * Keeps an email reply: a raw record (headers, the reply's own words, what each attachment
+ * became) and its PDFs and images as documents of this client (`source: email`, the raw record as
+ * their origin), at most REPLY_DOCUMENTS_MAX. Checks as for forwarded mail and capture: the type
+ * (declared, and the bytes' own), the documents' 32 MB, inline images left out. Each refusal is
+ * counted on the reply and the raw record, never dropped silently.
+ */
+async function keepEmailReply(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    row: ReachOutRow;
+    mail: { from: string; to: string; raw: Uint8Array };
+    parsed: ReplyEmail;
+    content: ContentStore | undefined;
+    now: Date;
+  },
+): Promise<{
+  rawRecordId: string | null;
+  documents: string[];
+  refused: ReplyAttachmentRefusal[];
+  events: EventRow[];
+  fresh: string[];
+}> {
+  const [upload] = await tx
+    .select({ id: connection.id })
+    .from(connection)
+    .where(
+      and(eq(connection.tenantId, input.tenantId), eq(connection.connector, UPLOAD_CONNECTOR_ID)),
+    )
+    .orderBy(connection.createdAt)
+    .limit(1);
+  const out = {
+    rawRecordId: null as string | null,
+    documents: [] as string[],
+    refused: [] as ReplyAttachmentRefusal[],
+    events: [] as EventRow[],
+    fresh: [] as string[],
+  };
+  if (!upload) return out;
+  const rawRecordId = uuidv7();
+  const files = await parseForwardedEmail(input.mail.raw).catch(() => null);
+  const attachments: Record<string, unknown>[] = [];
+  for (const s of files?.skipped ?? []) {
+    const reason = s.reason === "an inline image" ? "inline_image" : "type_not_allowed";
+    out.refused.push({ contentType: s.mimeType.slice(0, 200), reason });
+    attachments.push({ contentType: s.mimeType.slice(0, 200), status: "refused", reason });
+  }
+  for (const a of files?.attachments ?? []) {
+    const refuse = (reason: string) => {
+      out.refused.push({ contentType: a.mimeType, reason });
+      attachments.push({
+        contentType: a.mimeType,
+        sizeBytes: a.bytes.length,
+        status: "refused",
+        reason,
+      });
+    };
+    if (!input.content) {
+      refuse("not_stored");
+      continue;
+    }
+    if (out.documents.length >= REPLY_DOCUMENTS_MAX) {
+      refuse("too_many");
+      continue;
+    }
+    if (!bytesMatchType(a.bytes, a.mimeType)) {
+      refuse("type_mismatch");
+      continue;
+    }
+    try {
+      const stored = await storeDocument(tx, input.content, {
+        tenantId: input.tenantId,
+        source: "email",
+        connectionId: upload.id,
+        bytes: a.bytes,
+        // The sender's name for the file, as forwarded mail keeps it (card numbers never kept).
+        filename: redactCardNumbers(a.filename),
+        mimeType: a.mimeType,
+        meta: {
+          email: {
+            from: input.parsed.from ?? input.mail.from.toLowerCase(),
+            envelopeFrom: input.mail.from.toLowerCase(),
+            to: input.mail.to.toLowerCase(),
+            subject: input.parsed.subject,
+            messageId: input.parsed.messageId,
+          },
+          rawRecordId,
+          reachOutId: input.row.id,
+          reachOutReply: true,
+        },
+      });
+      if (!out.documents.includes(stored.document.id)) out.documents.push(stored.document.id);
+      if (stored.created) out.fresh.push(stored.document.id);
+      if (stored.event) out.events.push(stored.event);
+      attachments.push({
+        contentType: a.mimeType,
+        sizeBytes: a.bytes.length,
+        status: "filed",
+        documentId: stored.document.id,
+      });
+    } catch (error) {
+      if (!(error instanceof DocumentError)) throw error;
+      refuse(error.code === "too_large" ? "too_large" : "type_not_allowed");
+    }
+  }
+  const [made] = await tx
+    .insert(rawRecord)
+    .values({
+      id: rawRecordId,
+      tenantId: input.tenantId,
+      connectionId: upload.id,
+      connector: UPLOAD_CONNECTOR_ID,
+      entityType: REACH_REPLY_EMAIL_ENTITY,
+      externalId: input.row.id,
+      externalVersion: null,
+      payload: {
+        direction: "in",
+        channel: "email",
+        reachOutId: input.row.id,
+        from: input.parsed.from ?? input.mail.from.toLowerCase(),
+        subject: input.parsed.subject,
+        messageId: input.parsed.messageId,
+        // The reply's own words (quoted history cut), as the reach-out keeps them: data only.
+        text: redactCardNumbers(input.parsed.text),
+        attachments,
+      },
+      syncedAt: input.now,
+    })
+    .onConflictDoNothing()
+    .returning({ id: rawRecord.id });
+  // Another delivery of this reply got here first: everything here rolls back.
+  if (!made) throw new ReplyTaken();
+  out.rawRecordId = rawRecordId;
+  return out;
 }

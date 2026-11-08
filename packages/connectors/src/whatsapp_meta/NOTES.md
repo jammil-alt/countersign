@@ -93,6 +93,20 @@ higher limits and the display name's approval.
 - Graph errors that mean the token is gone: 190 (and 102, 10, 200 in some cases): the connection is
   marked to reconnect.
 
+### Sending files (P-3, docs/plan.md §1.65)
+- One file per message, by link: `type: "document", document: {link, caption, filename}` for a PDF
+  (and GIF or WebP), `type: "image", image: {link, caption}` for JPEG and PNG. The link is our
+  5-minute signed link. UNCHECKED: that Meta fetches it at once (well within 5 minutes), whether it
+  caches by URL, and that it takes the type from `Content-Type`.
+- DECISION: by link, not Meta's media upload (`POST /<PHONE_NUMBER_ID>/media`, multipart): the
+  connector's HTTP interface carries text bodies only. Upload is the fallback if links prove
+  unreliable.
+- Limits (from memory, UNCHECKED): documents up to 100 MB, images up to 5 MB, a caption up to 1024
+  characters. We refuse an image over 5 MB or a caption over 1024 characters
+  (`checkMetaMedia`), and a reach-out composes WhatsApp text of at most 1000 characters when a file
+  goes with it.
+- A template (outside the 24-hour window) carries no file here: refused.
+
 ### Webhook
 - `X-Hub-Signature-256: sha256=<hex>`, HMAC-SHA256 over the raw body with the app secret (checked);
   the GET handshake echoes `hub.challenge` as text/plain (checked).
