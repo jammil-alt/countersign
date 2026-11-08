@@ -34,6 +34,7 @@ import {
   createGmailConnector,
   // M45 (docs/plan.md §1.75)
   createGscConnector,
+  createGscOauthConnector,
   // v0.14 W4-D
   createGsheetsConnector,
   // §1.77
@@ -412,6 +413,12 @@ export function deploymentConnectors(
     // M45: search figures, read only (docs/plan.md §1.75): registered everywhere; each reads only
     // once the client admin has entered its key (nothing to configure for the deployment).
     createGscConnector(),
+    // M50 (docs/plan.md §1.78): Search Console by Google sign-in (webmasters.readonly), on Gmail's
+    // Google client: registered everywhere, signing in once GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+    // and OAUTH_STATE_SECRET are set.
+    createGscOauthConnector(
+      googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
+    ),
     createBingWebmasterConnector(),
     // §1.77: Hacker News, read only and keyless (the forum watch), registered everywhere.
     createHackerNewsConnector(),

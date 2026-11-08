@@ -284,6 +284,19 @@ export async function readGsc(
   }
   const key = gscServiceAccount(creds.serviceAccountKey ?? "");
   const token = await gscToken(key, ctx.now(), fetch);
+  return readGscProperty(property, token, span, fetch);
+}
+
+/**
+ * The span's days of one property with an access token, however it was got (a service account's
+ * assertion, or M50's Google sign-in, ./oauth.ts).
+ */
+export async function readGscProperty(
+  property: string,
+  token: string,
+  span: SearchSpan,
+  fetch: FetchLike,
+): Promise<SearchRead> {
   const read: SearchRead = { records: [], lastDay: null };
   for (let from = span.from; from <= span.to; ) {
     const end = addDays(from, GSC_SPAN_DAYS - 1);
@@ -328,7 +341,8 @@ export type GscConnector = SearchConnector;
 // DECISION: an API-key connector (the service account key and the property in the client's vault,
 // entered by the client admin) with no deployment config: nothing to set before it can be offered,
 // and it reads only once a key is in the vault. Google OAuth for clients waits for Google's
-// verification of the scope (docs/marketing-plan.md D5, M50).
+// verification of the scope (docs/marketing-plan.md D5, M50). M50: it is `gsc_oauth` (./oauth.ts),
+// a connector of its own beside this one, so each keeps one way to sign in.
 export function createGscConnector(options: GscConnectorOptions = {}): GscConnector {
   const fetch = options.fetch ?? globalFetch;
   const connector: Connector = defineConnector({

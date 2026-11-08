@@ -3,7 +3,8 @@
 // assertion and its `webmasters.readonly` scope, and the Search Analytics query answering from the
 // rows a test gives it, by `date` and `page` or `date`, `query` and `page`, with `rowLimit` and
 // `startRow`, final figures only (days up to `finalThrough`), and 403 for a property the account
-// isn't a user on. Shaped like Google's answers as far as we know them (NOTES.md).
+// isn't a user on. M50: Google sign-in too (`gsc_oauth`): the code and refresh grants for one
+// OAuth client, and the sites list. Shaped like Google's answers as far as we know them (NOTES.md).
 
 import { decodeJwt } from "../gchat/jwt";
 import { GOOGLE_TOKEN_URL } from "../gmail/index";
@@ -77,6 +78,20 @@ export interface FakeSearchConsole {
   queries: { property: string; dimensions: string[]; from: string; to: string; startRow: number }[];
   /** Every URL fetched, in order. */
   urls: string[];
+  /**
+   * M50: Google sign-in (`gsc_oauth`): the OAuth client the fake knows, the one code it accepts,
+   * the scope it grants (default `webmasters.readonly`), and what the sites list answers
+   * (default: every property, as its owner).
+   */
+  oauth: {
+    clientId: string;
+    clientSecret: string;
+    code: string;
+    grantScope: string;
+    siteEntries: { siteUrl: string; permissionLevel: string }[] | null;
+    /** Refresh tokens Google no longer honours (revoked or expired). */
+    revoked: Set<string>;
+  };
 }
 
 export async function fakeSearchConsole(
@@ -117,10 +132,61 @@ export async function fakeSearchConsole(
     },
     queries: [],
     urls: [],
+    oauth: {
+      clientId: "fake-google-client",
+      clientSecret: "fake-google-secret",
+      code: "fake-gsc-code",
+      grantScope: GSC_SCOPE,
+      siteEntries: null,
+      revoked: new Set(),
+    },
   };
+
+  /** M50: the authorization code and refresh grants of Google sign-in. */
+  function oauthToken(form: Record<string, string>) {
+    const o = fake.oauth;
+    if (form.client_id !== o.clientId || form.client_secret !== o.clientSecret) {
+      return respond(401, { error: "invalid_client" });
+    }
+    if (form.grant_type === "authorization_code" && form.code !== o.code) {
+      return respond(400, { error: "invalid_grant" });
+    }
+    if (form.grant_type === "refresh_token") {
+      const refresh = form.refresh_token ?? "";
+      if (!refresh.startsWith("1//fake-gsc-refresh") || o.revoked.has(refresh)) {
+        return respond(400, { error: "invalid_grant" });
+      }
+    }
+    const t = `ya29.fake-gsc-${++n}`;
+    live.add(t);
+    return respond(200, {
+      access_token: t,
+      expires_in: 3599,
+      token_type: "Bearer",
+      scope: o.grantScope,
+      ...(form.grant_type === "authorization_code"
+        ? { refresh_token: `1//fake-gsc-refresh-${n}` }
+        : {}),
+    });
+  }
+
+  function sites(init: HttpRequestInit | undefined) {
+    const auth = init?.headers?.authorization ?? "";
+    if (!auth.startsWith("Bearer ") || !live.has(auth.slice("Bearer ".length))) {
+      return respond(401, { error: { code: 401, status: "UNAUTHENTICATED" } });
+    }
+    const entries =
+      fake.oauth.siteEntries ??
+      [...fake.properties].map((siteUrl) => ({ siteUrl, permissionLevel: "siteOwner" }));
+    // Google leaves `siteEntry` out when there are none.
+    return respond(200, entries.length ? { siteEntry: entries } : {});
+  }
 
   async function token(init: HttpRequestInit | undefined) {
     const form = formDecode(init?.body ?? "");
+    if (form.grant_type === "authorization_code" || form.grant_type === "refresh_token") {
+      return oauthToken(form);
+    }
     if (form.grant_type !== "urn:ietf:params:oauth:grant-type:jwt-bearer") {
       return respond(400, { error: "unsupported_grant_type" });
     }
@@ -207,6 +273,7 @@ export async function fakeSearchConsole(
   fake.fetch = async (url, init) => {
     fake.urls.push(url);
     if (url === GOOGLE_TOKEN_URL) return token(init);
+    if (url === GSC_API && (init?.method ?? "GET") === "GET") return sites(init);
     if (url.startsWith(`${GSC_API}/`) && url.endsWith("/searchAnalytics/query")) {
       return query(url, init);
     }

@@ -77,6 +77,11 @@ export interface RegisteredPack {
   handlers: Readonly<Record<string, PackTool>>;
   /** Its client reports by name (`/api/reports/:pack/:report`). */
   reports?: Readonly<Record<string, PackReportHandler>>;
+  /**
+   * M50 (docs/plan.md §1.78): the reports the portal may read (JSON, CSV and items); the others
+   * are the back office's. Absent: every report (Materials').
+   */
+  portalReports?: readonly string[];
   /** Its inbox review cards by the `review` key of an item's payload (e.g. `materials.match`). */
   reviews?: Readonly<Record<string, PackReviewHandler>>;
   /** People's actions on a client's pack data from the back office (e.g. a catalog merge). */
@@ -118,6 +123,19 @@ export interface PackNightly {
   run(db: Db, now: Date, onError?: (tenantId: string, error: unknown) => void): Promise<unknown>;
 }
 
+/**
+ * M50: the reports a pack's portal screens name (`/reports/<pack>/<report>`), for `portalReports`.
+ */
+// DECISION: the pack's own portal screens decide what its portal reads, so a pack lists a report
+// once (its screen) and a new back-office report never reaches the portal by default.
+export function screenReports(manifest: PackManifest): string[] {
+  const prefix = `/reports/${manifest.id}/`;
+  return manifest.screens
+    .filter((s) => s.route.startsWith(prefix))
+    .map((s) => s.route.slice(prefix.length).split("/")[0] ?? "")
+    .filter((name) => name.length > 0);
+}
+
 /** Every pack the deployment registers. Enabling one for a client is a `tenant_pack` row. */
 export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
   {
@@ -138,6 +156,10 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
     nightly: MARKETING_NIGHTLY,
     // M46: a guide's version before it is public (docs/plan.md §1.76).
     previews: ["content-preview"],
+    // M50 (docs/plan.md §1.78): the client's portal reads the reports its screens name (website,
+    // search, weekly report); the rest (visits, content, claims, the forum watch) stay in the
+    // back office.
+    portalReports: screenReports(marketingManifest),
   },
 ];
 

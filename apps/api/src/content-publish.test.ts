@@ -221,7 +221,7 @@ describe.skipIf(!h)("publishing a guide (M46)", () => {
     expect(client.status).toBe(403);
   });
 
-  it("keeps the guides from other clients, and the portal's answer free of forbidden fields", async () => {
+  it("keeps the guides from other clients, and out of the portal", async () => {
     const theirs = await H.call(
       OPERATOR,
       "GET",
@@ -230,8 +230,9 @@ describe.skipIf(!h)("publishing a guide (M46)", () => {
     expect(theirs.status).toBe(404);
     const publishB = await act(H.B.tenantId, "publish", { page: pageId });
     expect(publishB.status).toBe(422);
+    // M50 (docs/plan.md §1.78): content is the back office's; the portal never reads it.
     const portal = await H.call(admin("a"), "GET", "/api/reports/marketing/content");
-    expect(portal.status).toBe(200);
+    expect(portal.status).toBe(404);
     expect(forbiddenKeys(portal.json)).toEqual([]);
     const rows = await H.t.db
       .select()

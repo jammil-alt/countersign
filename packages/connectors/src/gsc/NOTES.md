@@ -38,8 +38,27 @@ its version a hash of what it says. A day is stored only up to the last day Goog
 figures for in that month; the days after wait for a later night. Never the token, the key or a
 response body; a failure is kept as a reason in our words on the connection's sync state.
 
+## Google sign-in (`gsc_oauth`, M50, `./oauth.ts`)
+
+Built 2026-11-08 against the same fake, from what we know of Google's OAuth and Search Console's
+sites list. A connector of its own beside `gsc` (the framework has one way to sign in per
+connector); both store the same raw records and the Marketing pack treats both as Google.
+
+| Fact | Status |
+|---|---|
+| Authorization at `https://accounts.google.com/o/oauth2/v2/auth` with `scope=webmasters.readonly`, `access_type=offline`, `prompt=consent`; code and refresh grants at `https://oauth2.googleapis.com/token` | Checked (as Gmail, Drive and Sheets) |
+| The token answer's `scope` lists what was granted; a person can untick it | Checked for Drive; we refuse less or more than `webmasters.readonly` |
+| `GET https://searchconsole.googleapis.com/webmasters/v3/sites` lists `siteEntry: [{siteUrl, permissionLevel}]`, `siteEntry` absent when there are none | **UNCHECKED** (the `www.googleapis.com/webmasters/v3/sites` host is the documented one) |
+| `permissionLevel` is `siteOwner`, `siteFullUser`, `siteRestrictedUser` or `siteUnverifiedUser`; the first three can read Search Analytics | **UNCHECKED** |
+| `webmasters.readonly` is a sensitive (not restricted) scope, so Google's verification of the OAuth client must name it; until then an app in testing gets refresh tokens that end after 7 days | **UNCHECKED** whether Google counts it as sensitive; owner action (docs/plan.md §1.78) |
+| Revoking at Google ends every scope the account gave the shared client | Checked for Drive (so no `revoke` here either) |
+| The redirect URI `<app origin>/connections/gsc_oauth/callback` must be registered on the OAuth client | Owner action |
+
+The property read is `config.property`: the only property the account can read, else its only
+Domain property, else the one the Marketing pack picks from the site's domain when a person points
+a site's search figures at the connection (`set-search-source`). We never read two properties
+through one connection (a Domain and a URL-prefix property of one site count the same searches).
+
 ## Not built
 
-- Google OAuth for clients (`webmasters.readonly` on the Google client, once Google's verification
-  includes the scope; M50).
 - `searchAppearance`, `country` and `device` dimensions; Discover and News (`type`).

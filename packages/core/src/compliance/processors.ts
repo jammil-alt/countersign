@@ -13,7 +13,8 @@
 // M45: Google Search Console and Bing Webmaster Tools (`gsc`, `bing_webmaster`) are not either: the
 // client's own accounts with Google and Microsoft, holding figures about the client's own site that
 // those vendors already have; we only read them, with a key the client enters, and send them
-// nothing (docs/plan.md §1.75). Mezonas has no contract with either for this.
+// nothing (docs/plan.md §1.75). Mezonas has no contract with either for this. M50: `gsc_oauth`,
+// the same Search Console account by Google sign-in, is not a processor either (§1.78).
 
 import { z } from "zod";
 
@@ -161,6 +162,23 @@ export function processingRefusal(
   const names = missing.map((p) => PROCESSOR_NAMES[p]).join(", ");
   const verb = missing.length === 1 ? "has" : "have";
   return `${what} sends data to ${names}, which ${verb} no signed BAA; this client is in HIPAA mode`;
+}
+
+// ── What HIPAA mode holds back, whoever the vendor ──────────────────────────────────────────────
+
+/**
+ * M50 (docs/plan.md §1.78): what a pack takes in from the public with no session (the inbound
+ * route, `POST /api/in/:pack/:tenantId/:target`: a measured website's beacons). Its vendors are
+ * only our infrastructure, so no processor is missing; but a visit to a health client's site can
+ * itself be health information (a page about a condition, a booking page), and we have not
+ * decided how to measure such a site. So for a client in HIPAA mode the route stores nothing and
+ * the pack is never called, until the owner decides; the answer is still 204.
+ */
+// DECISION: held for every pack's inbound, not only measurement: the route can't tell what a
+// pack's inbound keeps, and nothing else uses it yet. Turning HIPAA mode off resumes it; what was
+// stored before HIPAA mode was turned on stays (its retention limits still apply).
+export function inboundHeld(profile: ComplianceProfile): boolean {
+  return profile.hipaa;
 }
 
 /**

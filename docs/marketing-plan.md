@@ -393,7 +393,8 @@ content), `report.record` (internal; agent set), `forum.threads.unseen` (none), 
 and `forum.reply.draft` (internal; agent platform, plan §1.77). Connectors: `website.publish`, `website.meta` (external, always signed;
 content builder, plan §1.76); `hackernews.search`, `hackernews.thread` (none; agent platform);
 `linkedin.post` (external, always signed; agent platform, M49). Platform: `web.search`, `web.fetch` (none; agent platform).
-Search Console and Bing have no tools: their nightly sync fills the search tables.
+Search Console and Bing have no tools: their nightly sync fills the search tables. M50: Search
+Console by Google sign-in is its own connector, `gsc_oauth`, beside `gsc` (plan §1.78).
 
 **Skills** (`marketing.`): `weekly-report`, `titles`, `article-draft`, `forum-reply`,
 `social-post`. **Templates** (slugs): `site-report`, `titles`, `article-drafts`, `forum-watch`,
@@ -421,6 +422,10 @@ and default to the report's period, the last 28 finished days):
 | `claims` | — | Content |
 | `reports` | `site`; item: a `marketing_report` id | Agent set |
 | `forum` | `status`, `source` | Agent set |
+| `weekly-report` | `site`; item: a `marketing_report` id. The portal's read-only projection of `reports` (plan §1.78) | Clients |
+
+The portal reads only `overview`, `search` and `weekly-report` (the pack's portal screens,
+`portalReports`; plan §1.78).
 
 **Actions** (`POST /api/ops/clients/:id/packs/marketing/actions/<name>`, a person's, never an
 agent's): `add-site`, `update-site` (M43); `set-search-source`, `import-search` (search);

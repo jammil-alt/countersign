@@ -2145,10 +2145,23 @@ templates, the checks in code, the reports and the Weekly report and Forum scree
 
 ### 1.78 M50: offering it to clients
 
-Decisions for M50 (the clients builder) go here.
+Decisions for M50 (the clients builder, branch `claude/marketing-clients`): the portal's reports,
+the HIPAA hold on measurement, Search Console by Google sign-in, and the drafts for the owner and
+the lawyer (`docs/marketing/processor-terms-draft.md`; the runbook is `docs/operations.md`,
+"Offering the Marketing area to a client"). Hot-spot edits are lines marked `M50`.
 
 | Topic | Decision |
 |---|---|
+| Portal reports | Three, read only, registered in `apps/web/src/packs/registry.ts`: **Website** (`overview`: 7, 28 or 90 days, visits, goals, left at once, median engaged band, the days, top pages and sources, filtered requests, the privacy line), **Search** (`search`: Google, Bing or both; times shown, clicks, click rate, position, top searches and pages, close to page one, the day the figures run to) and **Weekly report** (`weekly-report`). Each with CSV; a site picker only when the client has several. Words in the six languages (`marketing.*`); the five translations are one block marked for the fluent review. |
+| What the portal may read | `RegisteredPack.portalReports` (apps/api): the portal's report routes (JSON, CSV, items) serve only those, anything else is 404 as a report that doesn't exist; absent, every report (Materials, unchanged). Marketing's come from its own portal screens (`screenReports(manifest)`: the `/reports/marketing/<name>` routes in `measure/index.ts` `SCREENS`), so a new back-office report never reaches the portal by default. Visits one by one, pages in depth, content, claims, the forum watch and search sources stay in the back office. // DECISION |
+| The weekly report in the portal | Its own report, `weekly-report` (`packs/marketing/src/portal/weekly.ts`), a projection of `marketing_report` and its actions, not the agent set's `reports`: it keeps the week, the summary, what changed, the causes, what we can't know, the actions with their decision, and how many records the report rests on; never the agent version, the run, who decided or read, the figures the agent was given or the evidence links (back-office pages). The body is read field by field with a tolerant schema (Plenary's weekly report shape: `summary`, `changes[{text}]`, `causes[{text}]`, `unknown`), so a field the agent set writes differently reads as empty, never a broken page. Read only: the operator marks actions with the client (`decide-report-action` stays a back-office action). // DECISION |
+| HIPAA: measurement | `inboundHeld(profile)` (`packages/core/src/compliance`): for a client in HIPAA mode the inbound route reads the client's profile after the pack-on check and answers 204 without calling the pack, so nothing a visitor sends is stored, whatever `BAA_PROCESSORS` lists. A visit to a health client's site can itself be health information; the owner decides with the lawyer (`processor-terms-draft.md` §6). Held for every pack's inbound (the route can't tell what one keeps). Turning HIPAA mode off resumes it; what was stored before stays under its retention. The back office's Sites says so (`measurementHeld` on the `sites` report). // DECISION |
+| HIPAA: web research | Already refused by the agent platform (§1.77: `web.*` is `anthropic_web`, `hackernews.*` is `hackernews`, neither in `BAA_PROCESSORS`); tested in `apps/api/src/research.test.ts`. Nothing added. |
+| Search Console by Google sign-in | A connector of its own, `gsc_oauth` (`packages/connectors/src/gsc/oauth.ts`), beside `gsc`'s service account: the framework has one way to sign in per connector, and both store the same raw records (`readGscProperty`), so the pack treats both as Google (`SEARCH_CONNECTORS`). `webmasters.readonly` only, on the deployment's Google OAuth client (`GOOGLE_CLIENT_*`, `OAUTH_STATE_SECRET`); unset, "not available yet". A grant with less or more is refused and nothing kept. No `revoke` (the client is shared with Gmail, Drive and Sheets). Unchecked facts: its `NOTES.md`. // DECISION |
+| Which property | At sign-in we keep the verified properties the account can read (`config.properties`, at most 50) and read `config.property`: the only one, else the only Domain property, else none until a person points a site's Google figures at the connection (`set-search-source`), which picks the site's Domain property, else its URL-prefix one, and refuses when the account can't read the site. Never the first of several: a Domain and a URL-prefix property of one site count the same searches. One connection reads one property. // DECISION |
+| The client page's pack links | `/ops/clients/:id/reports/marketing/{overview,search,weekly-report}` (the client page links each pack screen there) redirect to the area's own pages (`marketing/overview`, `search`, `reports`). |
+| Processor wording | Drafted, not applied: `docs/marketing/processor-terms-draft.md` (we are the client's processor and service provider for its visitors; what the terms, a DPA, the client's own notice and our privacy policy need; HIPAA and children's sites held). The site keeps its terms until the lawyer and the owner decide. |
+| Not in M50 | A CMS publishing connector (`wordpress`, `webflow`: only when a client asks); a portal screen for content approvals (they reach the Desk as any agent's approvals); a portal snippet page (the operator sends the snippet); marking report actions from the portal. |
 
 ---
 
@@ -3078,6 +3091,10 @@ reply opens "I work at Mezonas" and has no link to our site.
 
 - Work: the pack for a client: the site's snippet, the portal's reports, the HIPAA refusal, the
   processor wording drafts, Google OAuth for `gsc`, a CMS connector if a client asks.
+- Built (branch `claude/marketing-clients`): the portal's Website, Search and Weekly report, read
+  only, and only those (`portalReports`); measurement held in HIPAA mode; `gsc_oauth`; the
+  processor terms draft and the runbook. Left: a CMS connector (when a client asks), the lawyer's
+  wording on the site, Google's verification with the scope.
 
 **Done when** a second client's site is measured and its reports are in its portal, with nothing
 of Mezonas's in them.

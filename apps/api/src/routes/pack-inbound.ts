@@ -7,11 +7,12 @@
 // packs or targets exist; a failure is reported (never with the request's address or body) and
 // still answered 204, so measurement never breaks a page. No session is read: the route is not
 // `mount()`ed, writes no audit row (the request is anonymous and holds no person's data), and
-// never reads a cookie. The IP address is handed to the pack for the visit hash and goes no
+// never reads a cookie. M50: for a client in HIPAA mode the pack is never called (`inboundHeld`,
+// packages/core/src/compliance). The IP address is handed to the pack for the visit hash and goes no
 // further: it is not logged, stored or sent anywhere.
 
-import { routes } from "@countersign/core";
-import { tenantPack, withTenant } from "@countersign/db";
+import { complianceOf, inboundHeld, routes } from "@countersign/core";
+import { tenant, tenantPack, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
@@ -75,6 +76,15 @@ export function packInboundRoutes(app: Hono<AppEnv>): void {
           .where(and(eq(tenantPack.tenantId, tenantId), eq(tenantPack.pack, packId))),
       );
       if (on.length === 0) return noContent(c);
+      // M50 (docs/plan.md §1.78): a client in HIPAA mode has its inbound held: nothing stored,
+      // the pack never called, the same 204.
+      const [row] = await services.db
+        .select({ settings: tenant.settings })
+        .from(tenant)
+        .where(eq(tenant.id, tenantId));
+      if (inboundHeld(complianceOf(row?.settings as Record<string, unknown> | undefined))) {
+        return noContent(c);
+      }
       // An oversized body is the pack's to count, as an empty one.
       const body = (await readText(c.req.raw, pack.inbound.maxBytes)) ?? "{";
       const headers: Record<string, string> = {};

@@ -10,6 +10,7 @@
 import {
   BING_WEBMASTER_CONNECTOR_ID,
   GSC_CONNECTOR_ID,
+  GSC_OAUTH_CONNECTOR_ID,
   readSearchDayPayload,
   readSearchSyncState,
   SEARCH_ENTITIES,
@@ -44,14 +45,17 @@ import {
 // Bing's page-less queries are kept against `/*` rather than the home page.
 export const NO_PAGE = "/*";
 
-/** Which connector serves each provider. */
-export const SEARCH_CONNECTOR: Record<SearchProvider, string> = {
-  google: GSC_CONNECTOR_ID,
-  bing: BING_WEBMASTER_CONNECTOR_ID,
+/**
+ * Which connectors serve each provider. M50 (docs/plan.md §1.78): Google by a service account
+ * (`gsc`) or by Google sign-in (`gsc_oauth`); both store the same raw records.
+ */
+export const SEARCH_CONNECTORS: Record<SearchProvider, readonly string[]> = {
+  google: [GSC_CONNECTOR_ID, GSC_OAUTH_CONNECTOR_ID],
+  bing: [BING_WEBMASTER_CONNECTOR_ID],
 };
 
 export const providerOfConnector = (connector: string): SearchProvider | null =>
-  SEARCH_PROVIDERS.find((p) => SEARCH_CONNECTOR[p] === connector) ?? null;
+  SEARCH_PROVIDERS.find((p) => SEARCH_CONNECTORS[p].includes(connector)) ?? null;
 
 /**
  * The path of one of the site's own URLs, or null for another site's (or one we can't read).
