@@ -36,6 +36,7 @@ import {
   FakeWorkflowStep,
   OPERATOR,
 } from "./api.test-helper";
+import { quietNever } from "./quiet-hours.test-helper";
 import { reachOutTick } from "./reach/service";
 import { credentialsFor, executeRun, reachDepsFor } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
@@ -312,7 +313,7 @@ describe.skipIf(!h)("conversations through the API", () => {
 
   beforeAll(async () => {
     expect(
-      (await H.call(OPERATOR, "PUT", msg(), { quietHours: { start: "03:00", end: "03:01" } }))
+      (await H.call(OPERATOR, "PUT", msg(), { quietHours: quietNever() }))
         .status,
     ).toBe(200);
     setup = j((await H.call(OPERATOR, "POST", msg("/twilio"))).json).setup;
