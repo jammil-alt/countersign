@@ -123,6 +123,8 @@ import { whatsappMetaRoutes } from "./routes/whatsapp-meta";
 import { zohoRoutes } from "./routes/zoho";
 import { cronTick, dispatchByIds, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
 import { credentialsFor, forClient, reachDepsFor, runDepsFromEnv } from "./runs/execute";
+// M45: Search Console and Bing, nightly (docs/plan.md §1.75).
+import { searchSyncTick } from "./search-sync";
 import { securityHeaders } from "./security-headers";
 import {
   TRANSLATION_SWEEP_MINUTE,
@@ -308,6 +310,16 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
         scheduledTime,
       ).catch((error: unknown) =>
         reportHandled("zoho sync tick failed", error, { job: "zoho_sync" }),
+      );
+    }
+    // M45: search figures (Search Console, Bing), nightly at 03:11 UTC, and hourly for a
+    // connection never synced yet (docs/plan.md §1.75). Needs the credentials' key.
+    if (env.ENCRYPTION_KEY) {
+      await searchSyncTick(
+        { db, platform, credentials: credentialsFor(db, credentialKeysFromEnv(env)) },
+        scheduledTime,
+      ).catch((error: unknown) =>
+        reportHandled("search sync tick failed", error, { job: "search_sync" }),
       );
     }
     // P-8: US texting registrations Twilio has, hourly (docs/plan.md §1.70).

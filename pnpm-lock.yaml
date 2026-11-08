@@ -459,6 +459,9 @@ importers:
 
   packs/marketing:
     dependencies:
+      '@countersign/connectors':
+        specifier: workspace:*
+        version: link:../../packages/connectors
       '@countersign/core':
         specifier: workspace:*
         version: link:../../packages/core

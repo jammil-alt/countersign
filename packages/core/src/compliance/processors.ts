@@ -7,6 +7,10 @@
 // Mezonas' own account, is.
 // v0.14 W4-D: Google Drive and Google Sheets (`gdrive`, `gsheets`) are not: the client's own Google
 // account, which only the client signs in to; we send its data nowhere else.
+// M45: Google Search Console and Bing Webmaster Tools (`gsc`, `bing_webmaster`) are not either: the
+// client's own accounts with Google and Microsoft, holding figures about the client's own site that
+// those vendors already have; we only read them, with a key the client enters, and send them
+// nothing (docs/plan.md §1.75). Mezonas has no contract with either for this.
 
 import { z } from "zod";
 

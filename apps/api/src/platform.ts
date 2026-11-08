@@ -25,11 +25,15 @@ import {
   ConnectorRegistry,
   // v0.12 bankfeed
   createBankfeedConnector,
+  // M45 (docs/plan.md §1.75)
+  createBingWebmasterConnector,
   createBrowserConnector,
   // v0.14 W4-E
   createGchatConnector,
   createGdriveConnector,
   createGmailConnector,
+  // M45 (docs/plan.md §1.75)
+  createGscConnector,
   // v0.14 W4-D
   createGsheetsConnector,
   // v0.12 W3-B
@@ -381,6 +385,10 @@ export function deploymentConnectors(
     // Website logins (docs/plan.md §1.26): registered everywhere, so sites can be offered and
     // built with; agents sign in only where Browser Run is bound (BROWSER).
     createBrowserConnector({ available: Boolean(env.BROWSER) }),
+    // M45: search figures, read only (docs/plan.md §1.75): registered everywhere; each reads only
+    // once the client admin has entered its key (nothing to configure for the deployment).
+    createGscConnector(),
+    createBingWebmasterConnector(),
     ...(production
       ? []
       : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))]),
