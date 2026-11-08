@@ -249,6 +249,10 @@ async function poContent(
     const ql = quoted.find((x) => x.purchaseRequestLineId === row.id);
     if (!ql?.available || ql.unitPrice === null) continue;
     const qty = ql.qty ?? row.qty;
+    // P-9 (0036): a line nobody has said how many of is never ordered.
+    if (qty === null) {
+      throw new PurchasingError("invalid", `line ${row.lineNo} has no quantity yet`);
+    }
     const amount = dec(ql.unitPrice).times(qty);
     total = total.plus(amount);
     ids.push(ql.id);

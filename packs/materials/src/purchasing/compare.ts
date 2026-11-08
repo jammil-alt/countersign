@@ -13,7 +13,7 @@ import { daysBefore } from "../pricing/rules";
 import { convert, readUom } from "../pricing/uom";
 import { quoteRequest } from "../schema";
 import { quoteLines } from "./quotes";
-import { type PurchasingContext, requestLines, requestRow } from "./requests";
+import { type PurchasingContext, PurchasingError, requestLines, requestRow } from "./requests";
 
 /** A split is suggested only when it saves at least this much on the best single vendor. */
 export const SPLIT_MIN_SAVING_PCT = 5;
@@ -493,6 +493,12 @@ export async function compareQuotes(
   return withTenant(db, ctx.tenantId, async (tx: Tx) => {
     const r = await requestRow(tx, ctx.tenantId, input.requestId);
     const lines = await requestLines(tx, ctx.tenantId, r.id);
+    // P-9 (0036): quotes are asked for lines that say how many; a line added without one since
+    // can't be compared until it does.
+    const noQty = lines.filter((l) => l.row.qty === null).map((l) => l.row.lineNo);
+    if (noQty.length > 0) {
+      throw new PurchasingError("invalid", `line ${noQty.join(", ")} has no quantity yet`);
+    }
     const quotes = await tx
       .select({ q: quoteRequest, vendorName: vendor.name })
       .from(quoteRequest)
@@ -521,13 +527,13 @@ export async function compareQuotes(
             ...(item.attributes as Record<string, string>),
             ...parseLine(row.description).attributes,
           });
-          if (conv.ok) qtyStd = toNumeric(dec(row.qty).times(conv.factor));
+          if (conv.ok) qtyStd = toNumeric(dec(row.qty as string).times(conv.factor));
         }
         return {
           id: row.id,
           lineNo: row.lineNo,
           description: row.description,
-          qty: row.qty,
+          qty: row.qty as string,
           unit: row.unit,
           catalogItemId: item?.id ?? null,
           standardUom: item?.standardUom ?? null,

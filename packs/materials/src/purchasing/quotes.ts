@@ -185,6 +185,14 @@ export async function createQuotes(
     if (lines.length === 0) {
       throw new PurchasingError("invalid", "the request has no lines to ask about");
     }
+    // P-9 (0036): a vendor is asked only once every line says how many.
+    const noQty = lines.filter((l) => l.row.qty === null).map((l) => l.row.lineNo);
+    if (noQty.length > 0) {
+      throw new PurchasingError(
+        "invalid",
+        `line ${noQty.join(", ")} has no quantity yet; set it before asking for quotes`,
+      );
+    }
     const vendorIds = [...new Set(input.vendorIds)];
     const vendors = await tx
       .select({ id: vendor.id, name: vendor.name })
@@ -234,7 +242,7 @@ export async function createQuotes(
           requestLineId: row.id,
           lineNo: row.lineNo,
           description: row.description,
-          qty: row.qty,
+          qty: row.qty as string,
           unit: row.unit,
           catalogItemName: item?.canonicalName ?? null,
           vendorDescription: alias.description,

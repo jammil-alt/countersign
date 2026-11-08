@@ -246,6 +246,13 @@
       "when": 1794109001081,
       "tag": "0034_message_translation",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794113069766,
+      "tag": "0036_purchasing_email",
+      "breakpoints": true
     }
   ]
 }

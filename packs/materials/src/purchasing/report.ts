@@ -16,7 +16,7 @@ export interface RequestsReportRow {
   channel: string;
   neededBy: string | null;
   fulfillment: string | null;
-  lines: { description: string; qty: string; unit: string | null; matched: boolean }[];
+  lines: { description: string; qty: string | null; unit: string | null; matched: boolean }[];
   quotes: { vendor: string; status: string; receivedAt: string | null }[];
   order: string | null;
 }
@@ -94,7 +94,11 @@ export function requestsCsv(report: { requests: RequestsReportRow[] }): string {
       r.neededBy,
       r.fulfillment,
       r.lines
-        .map((l) => `${l.description} x ${dec(l.qty).toString()}${l.unit ? ` ${l.unit}` : ""}`)
+        // P-9 (0036): a line with no quantity yet reads "x ?".
+        .map(
+          (l) =>
+            `${l.description} x ${l.qty === null ? "?" : dec(l.qty).toString()}${l.unit ? ` ${l.unit}` : ""}`,
+        )
         .join("; "),
       r.quotes.map((q) => `${q.vendor}: ${q.status}`).join("; "),
       r.order,
