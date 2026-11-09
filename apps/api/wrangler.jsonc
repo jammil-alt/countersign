@@ -139,6 +139,9 @@
       ],
       "vars": {
         "ENVIRONMENT": "staging",
+        // The code service's mail domain: its mail reaches email() with the rest of the zone's and
+        // is handed on through CODES (./src/mail-route.ts). Matches apps/mfa's AGENT_EMAIL_DOMAIN.
+        "AGENT_EMAIL_DOMAIN": "agents.staging.mezonas.com",
         "AUTH_PROVIDER": "workos",
         // Email forwarding and agents' own addresses (docs/operations.md, "Email forwarding"):
         // Cloudflare Email Routing sends this subdomain's catch-all to this Worker. Until that
@@ -196,6 +199,8 @@
       ],
       "vars": {
         "ENVIRONMENT": "production",
+        // As staging: the code service's mail domain, handed on through CODES.
+        "AGENT_EMAIL_DOMAIN": "agents.mezonas.com",
         "AUTH_PROVIDER": "workos",
         // PLACEHOLDER: the production WorkOS client id, set when WorkOS is provisioned.
         "WORKOS_CLIENT_ID": "",

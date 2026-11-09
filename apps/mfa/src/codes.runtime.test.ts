@@ -188,6 +188,28 @@ describe("emailed codes", () => {
     expect(left.n).toBe(0);
   });
 
+  it("takes the same mail handed on by apps/api (receiveEmail), and nothing too large", async () => {
+    const id = await newIdentity();
+    const wait = await openEmailWait(id.id);
+    const m = email({
+      to: id.email,
+      from: "no-reply@acme.example",
+      subject: "Sign in",
+      text: "Your code is 731905.",
+    });
+    const raw = new Uint8Array(await new Response(m.raw).arrayBuffer());
+    expect(await codes.receiveEmail({ to: id.email, raw })).toEqual({ outcome: "matched" });
+    const r = await codes.claim({ tenantId: TENANT, identityId: id.id, waitId: wait.waitId });
+    expect(r).toEqual({ ok: true, value: { status: "code", code: "731905" } });
+    // An address that names no identity, and mail over the limit, are dropped.
+    expect(await codes.receiveEmail({ to: "agent-zzzzzzzzzzzz@nowhere.example", raw })).toEqual({
+      outcome: "unknown_address",
+    });
+    expect(
+      await codes.receiveEmail({ to: id.email, raw: new Uint8Array(25 * 1024 * 1024 + 1) }),
+    ).toEqual({ outcome: "too_large" });
+  });
+
   it("answers expired after the wait's time, and alerts on a code that comes late", async () => {
     const id = await newIdentity();
     const wait = await openEmailWait(id.id, 30);

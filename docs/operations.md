@@ -81,14 +81,24 @@ After the first run: save the project id from the run summary as the repository 
    `ENCRYPTION_KEY`) and streams the file from the R2 binding (`apps/api/src/storage.ts`).
 2. **Custom domains**: nothing by hand. `wrangler deploy` creates `staging.mezonas.com` and
    `app.mezonas.com` on the `mezonas.com` zone; make sure no existing DNS record uses those names.
-3. **Email forwarding** (built: stream D, `apps/api/src/email.ts`). For each environment:
-   - Cloudflare → `mezonas.com` → Email → Email Routing: add the subdomain (`in.staging.mezonas.com`,
-     `in.mezonas.com`) and let Cloudflare add its MX and SPF records for it. Nothing else on the zone
-     changes; mail for `mezonas.com` itself is not routed.
-   - Routing rules → **Catch-all address** for that subdomain → action **Send to a Worker** → `mezonas-staging`
-     (staging) or `mezonas` (production). No custom addresses: every client's address is
-     `<client label>-<26 characters>-<8 characters>@<subdomain>`, made by the app, and the Worker drops
-     anything that is not exactly a client's current address.
+3. **Email forwarding** (built: stream D, `apps/api/src/email.ts`). Cloudflare Email Routing has
+   **one catch-all per zone**, not one per subdomain (owner, 2026-11-09), and staging and production
+   share `mezonas.com`. So:
+   - Cloudflare → `mezonas.com` → Email → Email Routing → Subdomains: add `in.staging.mezonas.com`,
+     `agents.staging.mezonas.com`, `in.mezonas.com` and `agents.mezonas.com`, letting Cloudflare add
+     each one's MX and SPF records. Mail for `mezonas.com` itself is not routed.
+   - Routing rules → **Catch-all address** → **Send to a Worker** → `mezonas` (production). Until
+     production's first deploy it stays `mezonas-staging`.
+   - Staging gets **one custom address rule per address in use** → Send to a Worker →
+     `mezonas-staging`: each staging client's forwarding address (the back office shows it) and each
+     agent identity's address you test with. Rules match exact addresses only. A staging address
+     without a rule reaches production, which doesn't know it and drops it.
+   - Each environment's `email()` takes its forwarding domain and its agent domain: mail to
+     `AGENT_EMAIL_DOMAIN` is handed to that environment's code service through `CODES`
+     (`apps/api/src/mail-route.ts`), the rest is forwarding. The code service needs no rule of its
+     own.
+   - Every client's address is `<client label>-<26 characters>-<8 characters>@<subdomain>`, made by
+     the app, and the Worker drops anything that is not exactly a client's current address.
    - Worker var `EMAIL_FORWARDING_DOMAIN` = that subdomain, in the environment's `vars` in
      `apps/api/wrangler.jsonc` (`in.staging.mezonas.com` / `in.mezonas.com`). Until it is set, the
      portal says forwarding isn't switched on and `email()` drops everything.
@@ -197,11 +207,13 @@ domain, and generates `MFA_ENCRYPTION_KEY` once. What a person does, per environ
       confirms them (`apps/mfa/wrangler.jsonc`, `vars` and `routes`). Make sure no DNS record already
       uses `codes-staging.mezonas.com`, `codes.mezonas.com` or the `agents` subdomains.
 - [ ] **Deploy once** (a push to `main` for staging), so the Worker exists before the next steps.
-- [ ] **Email Routing for the agent domain.** Cloudflare → `mezonas.com` → Email → Email Routing: add
-      the subdomain (`agents.staging.mezonas.com` / `agents.mezonas.com`) and let Cloudflare add its MX
-      and SPF records. Routing rules → **Catch-all address** for that subdomain → **Send to a Worker** →
-      `mezonas-codes-staging` / `mezonas-codes`. Every identity's address is `agent-<12 characters>@`
-      that subdomain; the Worker drops anything else, without a bounce.
+- [ ] **Email Routing for the agent domain.** The agent subdomain (`agents.staging.mezonas.com` /
+      `agents.mezonas.com`) is added under Email Routing → Subdomains, and its mail reaches the
+      environment's apps/api with the rest of the zone's (one catch-all per zone, "By hand" step 3),
+      which hands it to the code service through `CODES` (`AGENT_EMAIL_DOMAIN` in
+      `apps/api/wrangler.jsonc`). On staging, each agent address you test with needs its own custom
+      rule to `mezonas-staging`. Every identity's address is `agent-<12 characters>@` that
+      subdomain; the code service drops anything else, without a bounce.
 - [ ] **The codes Twilio subaccount.** In Mezonas' Twilio account, create a subaccount for codes per
       environment (e.g. "Mezonas codes (staging)"), separate from the subaccounts clients text from.
       Put its own Account SID and Auth Token in the GitHub environment as `MFA_TWILIO_ACCOUNT_SID` and
