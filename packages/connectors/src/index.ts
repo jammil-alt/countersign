@@ -74,6 +74,7 @@ export * from "./stripe/index";
 export * from "./tenant-keys";
 export * from "./testkit/index";
 export * from "./twilio/index";
+export * from "./twilio/verify";
 export * from "./upload/index";
 export * from "./voice/services";
 export * from "./voice/spec";

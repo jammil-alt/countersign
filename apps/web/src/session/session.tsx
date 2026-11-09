@@ -21,6 +21,8 @@ const IDLE_CHECK_MS = 30_000;
 export type SessionState =
   | { status: "loading" }
   | { status: "signed_out" }
+  /** Signed in with WorkOS, waiting for the second step (docs/plan.md §1.83). */
+  | { status: "second_factor" }
   | { status: "error"; error: unknown }
   | { status: "signed_in"; session: SessionResponse };
 
@@ -29,7 +31,12 @@ interface SessionContextValue {
   /** Reloads `/api/session` (after sign-in or a switch). */
   refresh: () => Promise<SessionState>;
   signOut: () => Promise<void>;
+  /** Shows sign-in without asking the API: the session is already gone (a second step timed out). */
+  restart: () => void;
 }
+
+/** The API's answer to every route but the second step's while that step is pending. */
+export const SECOND_FACTOR_REQUIRED = "second_factor_required";
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
@@ -44,7 +51,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       next =
         isApiError(error) && error.unauthenticated
-          ? { status: "signed_out" }
+          ? error.code === SECOND_FACTOR_REQUIRED
+            ? { status: "second_factor" }
+            : { status: "signed_out" }
           : {
               status: "error",
               error,
@@ -71,6 +80,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (redirectTo) window.location.assign(redirectTo);
   }, [client]);
 
+  const restart = useCallback(() => {
+    identifyForErrors(null);
+    setState({ status: "signed_out" });
+  }, []);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -89,7 +103,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [signedIn, signOut]);
 
-  const value = useMemo(() => ({ state, refresh, signOut }), [state, refresh, signOut]);
+  const value = useMemo(
+    () => ({ state, refresh, signOut, restart }),
+    [state, refresh, signOut, restart],
+  );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 

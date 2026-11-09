@@ -60,6 +60,7 @@ import { ClientDirectoryRoute } from "./screens/ClientDirectory";
 import { ClientKnowledgeRoute } from "./screens/ClientKnowledge";
 import { ClientSettingsScreen } from "./screens/ClientSettings";
 import { ClientsScreen } from "./screens/Clients";
+import { ConnectClaudeScreen } from "./screens/ConnectClaude";
 import { OpsConnectionsScreen } from "./screens/Connections";
 import { OpsConnectorsScreen } from "./screens/Connectors";
 import { OpsDocumentScreen, OpsDocumentsScreen } from "./screens/Documents";
@@ -207,6 +208,10 @@ export const opsRoutes = (
     />
     {/* ARCHITECTURE §15 screens not built yet */}
     <Route path="settings" element={<Placeholder title="Settings" />} />
+
+    {/* §1.83: a Claude connection to the back office waiting for its operator's approval; the
+        link Claude is given, so it never moves. */}
+    <Route path="connect-claude/:code" element={<ConnectClaudeScreen />} />
 
     {/* An address a provider sends the browser back to: it never moves. */}
     <Route path="connections/:connector/callback" element={<OpsOAuthCallbackScreen />} />

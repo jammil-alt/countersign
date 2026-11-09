@@ -16,6 +16,7 @@ import {
   type StripeClient,
   TESTKIT_UPDATE_TOOL,
   TestkitBackend,
+  type VerifyClient,
 } from "@countersign/connectors";
 import {
   AgentBundle,
@@ -137,6 +138,8 @@ export interface HarnessOptions {
   stripe?: StripeClient;
   /** Platform skills beside the built-in ones (e.g. an agent-mode skill over a connector's tools). */
   skills?: SkillDefinition[];
+  /** Twilio Verify for the second step of signing in (plan §1.83); none (the step off) by default. */
+  verify?: VerifyClient;
   /** QuickBooks syncs (in-memory instances); none by default. */
   qboSync?: QboSyncInstances;
   /** Client data export jobs (in memory); none by default. */
@@ -199,6 +202,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     translationTransport: () => translation.transport,
     stripe: () => options.stripe ?? null,
     qboSync: () => options.qboSync ?? null,
+    verify: () => options.verify ?? null,
     exports: () => options.exports ?? null,
     ...(options.mcp ? { mcp: options.mcp } : {}),
     // v0.12 W2-C

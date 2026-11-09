@@ -13,7 +13,7 @@ import {
   isOwnPerson,
   type Member,
 } from "@countersign/core";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { isApiError } from "../api/client";
 import type { PlainKey } from "../i18n/catalog";
 import { EN, type I18n, useI18n } from "../i18n/i18n";
@@ -75,7 +75,16 @@ export function inviteProblem(
   }
 }
 
-export function MemberList({ members, testId }: { members: Member[]; testId: string }) {
+/** `action`: a control at the end of each person's row (the back office's sign-in reset). */
+export function MemberList({
+  members,
+  testId,
+  action,
+}: {
+  members: Member[];
+  testId: string;
+  action?: (member: Member) => ReactNode;
+}) {
   const { t } = useI18n();
   if (members.length === 0) return <EmptyState>{t("people.none")}</EmptyState>;
   return (
@@ -94,6 +103,7 @@ export function MemberList({ members, testId }: { members: Member[]; testId: str
             <span className="flex shrink-0 items-center gap-2">
               {m.signedIn === false ? <Badge>{t("people.invited")}</Badge> : null}
               <Tag tone={m.role === "operator" ? "person" : "neutral"}>{t(ROLE_LABEL[m.role])}</Tag>
+              {action?.(m)}
             </span>
           </li>
         ))}

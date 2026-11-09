@@ -151,6 +151,7 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
       const who = await getSession(c.req.raw, {
         adapter: choice.adapter,
         directory: authDirectory(services.db),
+        allowPendingSecondFactor: true,
       }).catch(() => null);
       if (who?.ok) {
         await auditAlone(services.db, c, {

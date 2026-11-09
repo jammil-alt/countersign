@@ -22,6 +22,7 @@ import { ClientComplianceSetting, ClientRetireSetting } from "./ClientCompliance
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
 import { ClientLanguageSetting } from "./ClientLanguageSetting";
 import { ApproverChoice, type CreatedState } from "./NewClient";
+import { ResetSignInMethods } from "./ResetSignInMethods";
 
 const APPROVER_LABEL: Record<ExternalApprover, string> = {
   client_admin: "their admin",
@@ -460,7 +461,16 @@ function People({
             The Sandbox is our own test client: it has no client people.
           </p>
         ) : null}
-        <MemberList members={people} testId="ops-client-members" />
+        <MemberList
+          members={people}
+          testId="ops-client-members"
+          // Someone who has never signed in has no sign-in methods to reset.
+          action={(m) =>
+            m.signedIn === false ? null : (
+              <ResetSignInMethods member={m} testId={`ops-client-reset-sign-in-${m.email}`} />
+            )
+          }
+        />
         {settings.client.sandbox ? null : (
           <>
             <InviteForm

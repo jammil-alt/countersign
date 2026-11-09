@@ -72,6 +72,7 @@ export * from "./api/runs-filter";
 // v0.12 W2-F
 export * from "./api/search";
 // v0.14 W4-C: the Slack channel picker
+export * from "./api/second-factor";
 export * from "./api/slack";
 // P-6
 export * from "./api/step-in";

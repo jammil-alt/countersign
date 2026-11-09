@@ -6,6 +6,7 @@ import type { ApiClient } from "./api/client";
 import { ApiProvider } from "./api/useApi";
 import { SessionLanguage } from "./i18n/SessionLanguage";
 import { PortalApp } from "./portal/PortalApp";
+import { SecondFactorScreen } from "./session/SecondFactor";
 import { SignInScreen } from "./session/SignIn";
 import { SessionProvider, useSessionState } from "./session/session";
 import { IconSprite } from "./ui/icons";
@@ -50,7 +51,7 @@ export function AppRoutes() {
 const PORTAL_CALLBACK = /^\/connections\/[a-z0-9][a-z0-9_-]*\/callback$/;
 
 /**
- * Signed out → sign-in (and back here after). Operators belong in /ops and client users in the
+ * Signed out → sign-in (and back here after); signed in but pending → the second step. Operators belong in /ops and client users in the
  * portal; the API enforces roles on every route, this only sends each to their own surface.
  */
 function RequireSession({ surface, children }: { surface: "ops" | "portal"; children: ReactNode }) {
@@ -76,6 +77,9 @@ function RequireSession({ surface, children }: { surface: "ops" | "portal"; chil
     const to = next === "/" ? "/sign-in" : `/sign-in?next=${encodeURIComponent(next)}`;
     return <Navigate to={to} replace />;
   }
+  // Signed in with WorkOS, not yet past the second step (docs/plan.md §1.83): the step, wherever
+  // the person was going; passing it loads the session and this page.
+  if (state.status === "second_factor") return <SecondFactorScreen />;
   // DECISION: an operator opening a portal URL goes to the back office; seeing the portal as a
   // client sees it ("view as client") is not in v1 scope.
   if (surface === "ops" && !state.session.operator) return <Navigate to="/" replace />;

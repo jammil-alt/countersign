@@ -74,6 +74,7 @@ import {
   RunStatusSchema,
   RunsPerDay,
 } from "./runs-filter";
+import { secondFactorRoutes } from "./second-factor";
 // v0.14 W4-C: the Slack channel picker
 import { slackRoutes } from "./slack";
 // P-6
@@ -1975,6 +1976,7 @@ export const routes = {
   ...portalRoutes,
   ...feedbackRoutes,
   ...complianceRoutes,
+  ...secondFactorRoutes,
   ...exportRoutes,
   ...onboardingRoutes,
   ...requestRoutes,

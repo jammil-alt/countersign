@@ -100,6 +100,7 @@ import { recordRouteHandlers } from "./routes/records";
 import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
 import { runControlRoutes } from "./routes/run-controls";
+import { secondFactorRoutes } from "./routes/second-factor";
 import { sessionRoutes } from "./routes/session";
 // v0.14 W4-C: the Slack channel picker
 import { slackRoutes } from "./routes/slack";
@@ -201,6 +202,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   releaseRoutes(app);
   browserRoutes(app);
   complianceRouteHandlers(app);
+  secondFactorRoutes(app);
   // v0.12 W1-E
   runControlRoutes(app);
   // v0.12 W1-A: go-live stages and client controls

@@ -20,9 +20,14 @@
 //     is refused by WorkOS. Within RACE_GRACE_SEC of `rat` that request is admitted on the old
 //     cookie; the first request's response already gave the browser the new one.
 //   - WorkOS unreachable (network or 5xx): admitted for up to OUTAGE_GRACE_SEC past `rat`.
+//
+// The second step (docs/plan.md §1.83): `mf` says where the session is with it (`pending` until a
+// code is checked, then `done`; `exempt` for SSO or when the step is off), and `mfx` is the deadline
+// of a pending step, SECOND_FACTOR_PENDING_SEC after the callback.
 
 import {
   SESSION_MAX_AGE_SEC as MAX_AGE,
+  SECOND_FACTOR_PENDING_SEC,
   SESSION_ACTIVITY_WINDOW_SEC,
   SESSION_IDLE_SEC,
 } from "@countersign/core";
@@ -61,6 +66,10 @@ export const SessionPayload = z.object({
   exp: z.int(),
   /** Last activity (seconds); absent on cookies from before the idle limit. */
   lat: z.int().optional(),
+  /** The second step (plan §1.83); absent on cookies from before it. */
+  mf: z.enum(["pending", "done", "exempt"]).optional(),
+  /** Deadline of a pending second step (seconds). */
+  mfx: z.int().optional(),
 });
 export type SessionPayload = z.infer<typeof SessionPayload>;
 
@@ -80,6 +89,8 @@ export interface NewSession {
   readonly workosOrganizationId: string | null;
   readonly sessionId: string | null;
   readonly refreshToken: string;
+  /** `pending` when the sign-in still needs its second step; `exempt` (the default) otherwise. */
+  readonly secondFactor?: "pending" | "exempt";
 }
 
 /** Seconds since the epoch. */
@@ -98,7 +109,36 @@ export function newSession(input: NewSession, now: number): SessionPayload {
     rat: now + REFRESH_INTERVAL_SEC,
     exp: now + SESSION_MAX_AGE_SEC,
     lat: now,
+    mf: input.secondFactor ?? "exempt",
+    ...(input.secondFactor === "pending" ? { mfx: now + SECOND_FACTOR_PENDING_SEC } : {}),
   };
+}
+
+export type SecondFactorCheck =
+  | { readonly status: "pending"; readonly secondsLeft: number }
+  | { readonly status: "done" | "exempt" }
+  /** The step was required but the cookie predates it, or its 10 minutes ran out: sign in again. */
+  | { readonly status: "invalid"; readonly reason: string };
+
+/**
+ * Where a session is with the second step. `required`: the deployment runs the step; when it
+ * doesn't, every session counts as exempt.
+ */
+export function secondFactorOf(
+  session: SessionPayload,
+  now: number,
+  required: boolean,
+): SecondFactorCheck {
+  if (!required) return { status: session.mf === "done" ? "done" : "exempt" };
+  if (session.mf === undefined) {
+    return { status: "invalid", reason: "sign in again to set up your sign-in code" };
+  }
+  if (session.mf !== "pending") return { status: session.mf };
+  const deadline = session.mfx ?? 0;
+  if (now >= deadline) {
+    return { status: "invalid", reason: "the sign-in code wasn't entered in time; sign in again" };
+  }
+  return { status: "pending", secondsLeft: deadline - now };
 }
 
 /** When the session ends whatever happens: its own `exp`, or 12 hours after sign-in. */

@@ -28,6 +28,7 @@ import { authDirectory } from "../auth";
 import type { Bindings } from "../env";
 import { type AppContext, type AppDeps, type AppEnv, requestState } from "../http";
 import { reportHandled, reportProblem } from "../observability/report";
+import { claudeConnectionGate } from "./approval";
 import { logAuditSink, loggedArgs, type McpAuditSink } from "./audit";
 import {
   type AuthorizationServer,
@@ -170,6 +171,18 @@ async function authenticate(
   if (!built.ok || !built.session.isOperator) {
     return forbidden("the Mezonas back office MCP server is for operators");
   }
+  // The second step of signing in (plan §1.83): an approved connection, tied to its AuthKit session.
+  const services = c.get("req").services();
+  const gate = await claudeConnectionGate({
+    db,
+    env: services.env,
+    deps: services.deps,
+    userId: user.id,
+    sessionId: verified.sessionId ?? null,
+    appOrigin: config.resource.slice(0, -MCP_PATH.length),
+    now,
+  });
+  if (!gate.ok) return forbidden(gate.message);
   return { ok: true, session: built.session };
 }
 

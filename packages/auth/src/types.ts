@@ -51,7 +51,9 @@ export type RefusalCode =
   /** The adapter must not run here (the dev adapter in production). */
   | "adapter_disabled"
   /** Sign-in is configured wrongly; nothing can be verified. */
-  | "misconfigured";
+  | "misconfigured"
+  /** Signed in with a password, but the second step (a code) isn't done yet (plan §1.83). */
+  | "second_factor_required";
 
 export interface AuthRefusal {
   readonly ok: false;
@@ -72,6 +74,7 @@ const STATUS: Record<RefusalCode, AuthRefusal["status"]> = {
   tenant_forbidden: 403,
   adapter_disabled: 503,
   misconfigured: 503,
+  second_factor_required: 401,
 };
 
 export function refuse(
@@ -86,9 +89,24 @@ export function isRefusal(value: unknown): value is AuthRefusal {
   return typeof value === "object" && value !== null && (value as { ok?: unknown }).ok === false;
 }
 
+/**
+ * Where a session is with the second step of signing in (docs/plan.md §1.83): `pending` until a
+ * code is checked, then `done`; `exempt` when there is no second step (SSO, the dev sign-in, or the
+ * step switched off).
+ */
+export type SecondFactorStatus = "pending" | "done" | "exempt";
+
 /** What an adapter learns from a request: which app_user it is, and cookies to set. */
 export type Identification =
-  | { readonly ok: true; readonly userId: string; readonly setCookies: readonly string[] }
+  | {
+      readonly ok: true;
+      readonly userId: string;
+      readonly setCookies: readonly string[];
+      /** Absent: `exempt`. */
+      readonly secondFactor?: SecondFactorStatus;
+      /** Seconds left to pass a pending step. */
+      readonly secondFactorSecondsLeft?: number;
+    }
   | AuthRefusal;
 
 /**

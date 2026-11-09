@@ -2996,6 +2996,11 @@ data:
 - Email: only messages matching the connection's query are synced; bodies are fetched on demand, not
   stored in bulk; disconnecting revokes the token and stops sync. Gmail writes are drafts and labels
   only in v1, each approved.
+- **Sign-in codes (owner, 2026-11-09; `docs/plan.md` §1.83):** after WorkOS checks the password,
+  a second step asks for a code from an authenticator app (operators: only this), a text message
+  or WhatsApp, sent and checked by Twilio Verify; recovery codes for a lost phone, or an operator's
+  reset. SSO sign-ins are exempt. Claude connections to the Ops MCP server are approved by their
+  operator from a browser that passed the step.
 - **Compliance (owner, 2026-11-05; `docs/plan.md` §1.35):** every request to a session route,
   sign-in, sign-out and refusal writes an `audit_event` row (who, what, which client, ids, IP,
   user agent; never content), append-only and kept 6 years; operators read it and an access review

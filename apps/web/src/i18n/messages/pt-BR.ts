@@ -778,6 +778,81 @@ export const ptBR: Messages = {
   "signin.error.misconfigured": "A entrada ainda não está configurada neste site.",
   "signin.error.default": "A entrada não terminou. Comece de novo.",
 
+  // ── Second step of sign-in (docs/plan.md §1.83) ──
+  "secondFactor.setup.title": "Configure uma segunda etapa",
+  "secondFactor.setup.help":
+    "Sempre que entrar, você também vai digitar um código. Escolha como recebê-lo.",
+  "secondFactor.setup.operator":
+    "Você acessa todos os clientes, então entra com um app autenticador.",
+  "secondFactor.setup.none":
+    "Ainda não há nenhum método de entrada pronto neste site. Fale com a gente.",
+  "secondFactor.setup.other": "Escolher outra forma",
+  "secondFactor.method.totp": "App autenticador",
+  "secondFactor.method.totp.help":
+    "Um código de um app no seu celular, como Google Authenticator ou 1Password.",
+  "secondFactor.method.sms": "SMS",
+  "secondFactor.method.sms.help": "Enviamos um código por SMS para o seu celular.",
+  "secondFactor.method.whatsapp": "WhatsApp",
+  "secondFactor.method.whatsapp.help": "Enviamos um código para o seu WhatsApp.",
+  "secondFactor.totp.title": "Configure seu app autenticador",
+  "secondFactor.totp.scan": "Escaneie este QR code com seu app autenticador.",
+  "secondFactor.totp.qrAlt": "QR code para escanear com seu app autenticador",
+  "secondFactor.totp.manual": "Não consegue escanear? Digite esta chave no app.",
+  "secondFactor.totp.key": "Chave de configuração",
+  "secondFactor.totp.enter": "Digite o código de 6 dígitos que o app mostra.",
+  "secondFactor.code": "Código de 6 dígitos",
+  "secondFactor.code.invalid": "Digite o código da mensagem ou do app, só números.",
+  "secondFactor.verify": "Verificar",
+  "secondFactor.checking": "Verificando…",
+  "secondFactor.phone.title.sms": "Configure o SMS",
+  "secondFactor.phone.title.whatsapp": "Configure o WhatsApp",
+  "secondFactor.phone.country": "País",
+  "secondFactor.phone.number": "Número de celular",
+  "secondFactor.phone.hint": "Para um número de outro país, comece com + e o código do país.",
+  "secondFactor.phone.invalid": "Esse número de telefone não é válido. Confira o número e o país.",
+  "secondFactor.send": "Enviar código",
+  "secondFactor.sent": "Enviamos um código para {phone}.",
+  "secondFactor.resend": "Enviar um novo código",
+  "secondFactor.changeNumber": "Usar outro número",
+  "secondFactor.signIn.title": "Digite seu código de entrada",
+  "secondFactor.signIn.totp":
+    "Abra seu app autenticador e digite o código de 6 dígitos da {product}.",
+  "secondFactor.signIn.sms": "Vamos enviar um código por SMS para {phone}.",
+  "secondFactor.signIn.whatsapp": "Vamos enviar um código pelo WhatsApp para {phone}.",
+  "secondFactor.use.totp": "Usar o app autenticador",
+  "secondFactor.use.sms": "Receber um SMS",
+  "secondFactor.use.whatsapp": "Receber uma mensagem no WhatsApp",
+  "secondFactor.use.recovery": "Usar um código de recuperação",
+  "secondFactor.recovery.help":
+    "Digite um dos códigos de recuperação que você guardou. Cada código funciona uma vez.",
+  "secondFactor.recovery.label": "Código de recuperação",
+  "secondFactor.recovery.invalid":
+    "Um código de recuperação tem 8 letras e números, como abcd-efgh.",
+  "secondFactor.recovery.left": {
+    one: "Resta {count} código de recuperação.",
+    other: "Restam {count} códigos de recuperação.",
+  },
+  "secondFactor.recovery.none":
+    "Você não tem mais códigos de recuperação. Peça ao seu responsável na Mezonas para redefinir seus métodos de entrada.",
+  "secondFactor.back": "Voltar",
+  "secondFactor.codes.title": "Guarde seus códigos de recuperação",
+  "secondFactor.codes.help":
+    "Se você perder o celular, cada código permite entrar uma vez. Guarde-os em um lugar seguro, como um gerenciador de senhas. Não vamos mostrá-los de novo.",
+  "secondFactor.codes.list": "Seus códigos de recuperação",
+  "secondFactor.codes.download": "Baixar como texto",
+  "secondFactor.codes.file": "Códigos de recuperação da {product}. Cada código funciona uma vez.",
+  "secondFactor.codes.saved": "Guardei estes códigos",
+  "secondFactor.codes.continue": "Continuar",
+  "secondFactor.error.wrong_code": "Esse código não está certo. Confira e tente de novo.",
+  "secondFactor.error.too_many_attempts":
+    "Tentativas demais. Espere {minutes} minutos e tente de novo.",
+  "secondFactor.error.not_available": "Este método não está disponível agora. Escolha outro.",
+  "secondFactor.error.operator": "Operadores entram com um app autenticador.",
+  "secondFactor.expired.title": "Sua entrada expirou",
+  "secondFactor.expired.body":
+    "Você tem {minutes} minutos para concluir esta etapa. Entre de novo para recomeçar.",
+  "secondFactor.signInAgain": "Entrar de novo",
+
   // ── Feedback ──
   "feedback.button": "Relatar um problema no app",
   "feedback.tapWhere": "Toque onde está o problema",
