@@ -197,9 +197,10 @@
       "vars": {
         "ENVIRONMENT": "production",
         "AUTH_PROVIDER": "workos",
-        // PLACEHOLDER: the production WorkOS client id, set when WorkOS is provisioned.
-        "WORKOS_CLIENT_ID": "",
-        // PLACEHOLDER: the Production environment's AuthKit domain, as for staging.
+        // WorkOS's Production environment (owner, 2026-11-09). Not a secret.
+        "WORKOS_CLIENT_ID": "client_01M6HNS5NKAYG0J6EJQY1FTQVZ",
+        // The Production environment's AuthKit domain, as for staging. Empty: the Claude connector
+        // (/mcp) is off in production until it is set; sign-in doesn't use it.
         "WORKOS_AUTHKIT_DOMAIN": "",
         "APP_ORIGIN": "https://app.mezonas.com",
         // Forwarded mail reaches the Worker once Email Routing sends in.mezonas.com to it
