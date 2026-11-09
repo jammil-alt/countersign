@@ -49,6 +49,22 @@ export function useClientSummary(clientId: string): ClientSummaryRow | null {
   return useContext(OpsClientsContext)?.find((c) => c.id === clientId) ?? null;
 }
 
+/** The badges' counts, as GET /api/ops/counts gives them; null while the sharing page loads. */
+type SharedCounts = ResponseOf<typeof apiRoutes.opsCounts> | null;
+const ShareCountsContext = createContext<((counts: SharedCounts | undefined) => void) | null>(null);
+
+/**
+ * For a page that computes the badges' counts itself (the command center, §1.84): hands them to
+ * the frame, which then asks for none of its own while the page is open. `null` while loading.
+ */
+export function useShareCounts(counts: SharedCounts): void {
+  const share = useContext(ShareCountsContext);
+  useEffect(() => {
+    share?.(counts);
+  }, [share, counts]);
+  useEffect(() => () => share?.(undefined), [share]);
+}
+
 export function OpsLayout({ children }: { children: ReactNode }) {
   return (
     <PickedClientProvider>
@@ -64,13 +80,9 @@ function OpsFrame({ children }: { children: ReactNode }) {
   const picked = usePickedClient();
 
   // The clients served: the API's list, the session's memberships until it loads. Loaded once, and
-  // again when the session's clients change (a client created).
-  const clientsState = useApi(apiRoutes.opsClients);
-  const clients = useMemo(
-    () =>
-      clientsState.data?.clients ?? [...new Map(session.tenants.map((t) => [t.id, t])).values()],
-    [clientsState.data, session.tenants],
-  );
+  // again when the session's clients change (a client created). Names only (§1.84): its badges
+  // come from the counts below.
+  const clientsState = useApi(apiRoutes.opsClients, { query: { view: "names" } });
   const { reload: reloadClients } = clientsState;
   const tenantKey = session.tenants.map((t) => t.id).join(",");
   const firstTenants = useRef(tenantKey);
@@ -80,32 +92,40 @@ function OpsFrame({ children }: { children: ReactNode }) {
     reloadClients();
   }, [tenantKey, reloadClients]);
 
-  // Escalations: what needs us (UI cleanup, stream A), the count the Clients page and the command
-  // center show. First from the clients list's `needsUs`; then refreshed on each page change and
-  // every 20 s, as the portal's Desk count does, from Needs us alone.
-  // DECISION: the refresh asks /api/ops/needs-us, not the whole clients list again (docs/plan.md
-  // §1.82): the list's other figures were recomputed every 20 s for one number. Both count the
-  // same escalations (`needsUs` in apps/api), so the badge never jumps between them.
-  const [needsLive, setNeedsLive] = useState(false);
-  const needsState = useApi(apiRoutes.opsNeedsUs, needsLive ? {} : null);
-  const { reload: reloadNeeds } = needsState;
-  const refreshNeeds = useCallback(() => {
-    if (needsLive) reloadNeeds();
-    else setNeedsLive(true);
-  }, [needsLive, reloadNeeds]);
+  // The badges (UI cleanup, stream A): Escalations' count and each client's Needs us and runs
+  // waiting, refreshed on each page change and every 20 s, as the portal's Desk count does.
+  // DECISION: one Needs us per refresh (docs/plan.md §1.84). A page that computes them already (the
+  // command center) hands them over through `useShareCounts`, and the frame asks for nothing while
+  // it does; elsewhere the frame asks GET /api/ops/counts. The frame waits for its first effects
+  // before asking, so a page that shares is known first and no request is sent for nothing.
+  const [shared, setShared] = useState<SharedCounts | undefined>(undefined);
+  const [settled, setSettled] = useState(false);
+  useEffect(() => setSettled(true), []);
+  const own = settled && shared === undefined;
+  const countsState = useApi(apiRoutes.opsCounts, own ? {} : null);
+  const { reload: reloadCounts } = countsState;
   const { pathname } = useLocation();
   const firstPath = useRef(pathname);
   useEffect(() => {
     if (pathname === firstPath.current) return;
     firstPath.current = pathname;
-    refreshNeeds();
-  }, [pathname, refreshNeeds]);
-  usePoll(refreshNeeds, true, INBOX_COUNT_POLL_MS, needsState.loading);
-  const needsUs =
-    needsState.data?.count ??
-    (clientsState.data
-      ? clientsState.data.clients.reduce((n, c) => n + (c.needsUs ?? 0), 0)
-      : undefined);
+    if (own) reloadCounts();
+  }, [pathname, own, reloadCounts]);
+  usePoll(reloadCounts, own, INBOX_COUNT_POLL_MS, countsState.loading);
+  const counts = own ? countsState.data : (shared ?? undefined);
+  const needsUs = counts?.needsUs;
+  const clients = useMemo(() => {
+    const rows = clientsState.data?.clients ?? [
+      ...new Map(session.tenants.map((t) => [t.id, t])).values(),
+    ];
+    if (!counts) return rows;
+    const byId = new Map(counts.clients.map((c) => [c.id, c]));
+    return rows.map((r) => {
+      const c = byId.get(r.id);
+      return c ? { ...r, needsUs: c.needsUs, waitingRuns: c.waitingRuns } : r;
+    });
+  }, [clientsState.data, session.tenants, counts]);
+  const clientRows = clientsState.data ? (clients as ClientSummaryRow[]) : null;
 
   // On an agent's page: the client's agents, for the agent switcher.
   const agentMatch = useMatch("/ops/clients/:clientId/agents/:slug/*");
@@ -240,8 +260,8 @@ function OpsFrame({ children }: { children: ReactNode }) {
           </nav>
         }
       >
-        <OpsClientsContext.Provider value={clientsState.data?.clients ?? null}>
-          {children}
+        <OpsClientsContext.Provider value={clientRows}>
+          <ShareCountsContext.Provider value={setShared}>{children}</ShareCountsContext.Provider>
         </OpsClientsContext.Provider>
       </AppShell>
       {/* The back office always has the Feedback button. */}
