@@ -199,9 +199,9 @@
         "AUTH_PROVIDER": "workos",
         // WorkOS's Production environment (owner, 2026-11-09). Not a secret.
         "WORKOS_CLIENT_ID": "client_01M6HNS5NKAYG0J6EJQY1FTQVZ",
-        // The Production environment's AuthKit domain, as for staging. Empty: the Claude connector
-        // (/mcp) is off in production until it is set; sign-in doesn't use it.
-        "WORKOS_AUTHKIT_DOMAIN": "",
+        // The Production environment's AuthKit domain (owner, 2026-11-09): the Claude connector
+        // (/mcp). Sign-in doesn't use it.
+        "WORKOS_AUTHKIT_DOMAIN": "https://hardy-grain-84.authkit.app",
         "APP_ORIGIN": "https://app.mezonas.com",
         // Forwarded mail reaches the Worker once Email Routing sends in.mezonas.com to it
         // (docs/operations.md, "By hand" step 3).
