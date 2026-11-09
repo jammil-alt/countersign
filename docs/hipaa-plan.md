@@ -74,10 +74,12 @@ with the policies.
 These are the HIPAA Security Rule's administrative safeguards, which are most of SOC 2's common
 criteria too. Written policies and records count as much as code.
 
-- [ ] **Security officer:** name one person, probably the owner.
+- [x] **Security officer:** Jammil, Founder & CEO (2026-11-09, `docs/policies/information-security.md`).
 - [ ] **Risk analysis** (§164.308(a)(1)): what could go wrong, how likely, what we do about it.
       Redo yearly and after big changes.
-- [ ] **Policies:**
+- [ ] **Policies** (drafted 2026-11-09: `docs/policies/information-security.md` covers information
+      security, access control, change management, vulnerabilities, incidents, backups and devices;
+      `docs/policies/data-retention.md` covers retention and disposal):
   - information security;
   - access control (who gets which role, and how access is removed);
   - acceptable use;

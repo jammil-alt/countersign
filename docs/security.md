@@ -3,6 +3,8 @@
 What protects our clients' data today, where it lives in the code, and which settings we keep
 outside the code. It is the record behind HIPAA, SOC 2 and PCI DSS; what is still open is in
 `docs/hipaa-plan.md`. The design and its decisions are in `docs/plan.md` §1.35 (owner, 2026-11-05).
+The policies we commit to are in `docs/policies/` (information security; data retention and
+deletion; adopted 2026-11-09).
 
 Status, 2026-11-06:
 - The settings outside the code are all in place (table below).
