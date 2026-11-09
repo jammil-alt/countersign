@@ -15,9 +15,21 @@ import {
   type WorkOSClient,
   workosStateOf,
 } from "@countersign/auth";
-import { appUser, type Db, userMemberships } from "@countersign/db";
+import {
+  appUser,
+  type Db,
+  type UserMembership,
+  userMemberships,
+  userWithMemberships,
+} from "@countersign/db";
 import { eq, sql } from "drizzle-orm";
 import type { Bindings } from "./env";
+
+const toMembership = (m: UserMembership) => ({
+  tenantId: m.tenantId,
+  tenantName: m.tenantName,
+  role: m.role,
+});
 
 /** app_user and membership reads (app_user is global; memberships through `own_memberships`). */
 export function authDirectory(db: Db): AuthDirectory & DevDirectory {
@@ -32,11 +44,12 @@ export function authDirectory(db: Db): AuthDirectory & DevDirectory {
     user: (userId) => one(eq(appUser.id, userId)),
     userByEmail: (email) => one(eq(appUser.email, email.trim().toLowerCase())),
     async memberships(userId) {
-      return (await userMemberships(db, userId)).map((m) => ({
-        tenantId: m.tenantId,
-        tenantName: m.tenantName,
-        role: m.role,
-      }));
+      return (await userMemberships(db, userId)).map(toMembership);
+    },
+    // Each session route's sign-in check: one transaction for both (docs/plan.md §1.79).
+    async account(userId) {
+      const { user, memberships } = await userWithMemberships(db, userId);
+      return { user, memberships: memberships.map(toMembership) };
     },
   };
 }

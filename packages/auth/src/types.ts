@@ -114,6 +114,11 @@ export interface AuthAdapter {
 export interface AuthDirectory {
   user(userId: string): Promise<AuthUser | null>;
   memberships(userId: string): Promise<readonly Membership[]>;
+  /**
+   * Both at once, where the directory can read them together (one database transaction); a
+   * session is built from this when it is there, else from `user` then `memberships`.
+   */
+  account?(userId: string): Promise<{ user: AuthUser | null; memberships: readonly Membership[] }>;
 }
 
 /** What the dev adapter needs: seeded users, found by email. */
