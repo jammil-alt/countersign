@@ -21,12 +21,13 @@ import { agent, run, type Tx, tenant } from "@countersign/db";
 import { createLlmClient, type LlmTransport } from "@countersign/llm";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
-import { type AppEnv, ensureClient, type HandlerCtx, mount } from "../http";
+import { clientsForModel, modelRefusal } from "../compliance/policy";
+import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount } from "../http";
 import { clientStatusWhere, clientWaits, OPEN_RUN } from "../runs/client-status";
 import { workerTransport } from "../runs/execute";
 import { reachContext, runWaits } from "../runs/run-wait";
 import { runSubjects } from "../runs/subject";
-import { compileQuestion } from "../runs-ask/ask";
+import { ASK_MODEL, compileQuestion } from "../runs-ask/ask";
 import { askContext } from "../runs-ask/context";
 import { recordAskUsage } from "../runs-ask/usage";
 import {
@@ -202,6 +203,9 @@ export function searchRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.portalRunsAsk, async (ctx) => {
     const { tx, tenantIds, body, services, session } = ctx;
     const tenantId = tenantIds[0] as string;
+    // HIPAA mode (docs/hipaa-plan.md T2): the question and the client's runs go to the model.
+    const refusal = await modelRefusal(tx, services.env.BAA_PROCESSORS, tenantId, ASK_MODEL);
+    if (refusal) throw new HttpError(409, "hipaa_mode", refusal);
     const context = await askContext(tx, {
       surface: "portal",
       tenantIds: [tenantId],
@@ -252,7 +256,18 @@ export function searchRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsRunsAsk, async (ctx) => {
     const { tx, body, services, session } = ctx;
-    const ids = opsIds(ctx, body.client);
+    // HIPAA mode (docs/hipaa-plan.md T2): clients without a BAA for the model are left out of the
+    // question; asked about one by name, it is refused.
+    const ids = await clientsForModel(
+      tx,
+      services.env.BAA_PROCESSORS,
+      opsIds(ctx, body.client),
+      ASK_MODEL,
+    );
+    if (body.client && ids.length === 0) {
+      const refusal = await modelRefusal(tx, services.env.BAA_PROCESSORS, body.client, ASK_MODEL);
+      throw new HttpError(409, "hipaa_mode", refusal ?? "this client is in HIPAA mode");
+    }
     const context = await askContext(tx, {
       surface: "ops",
       tenantIds: ids,

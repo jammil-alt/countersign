@@ -66,7 +66,12 @@ import {
   tenantPack,
   testCase,
 } from "@countersign/db";
-import { createLlmClient, knownModelIds, type LlmTransport } from "@countersign/llm";
+import {
+  createLlmClient,
+  DEFAULT_MODELS,
+  knownModelIds,
+  type LlmTransport,
+} from "@countersign/llm";
 import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
@@ -85,6 +90,7 @@ import {
   turnViews,
   updateSession,
 } from "../builder/sessions";
+import { modelRefusal } from "../compliance/policy";
 import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import { workerTransport } from "../runs/execute";
 import { agentSummary, versionSummary } from "./mappers";
@@ -97,6 +103,17 @@ type Ctx = HandlerCtx<never>;
 function transport(ctx: Pick<Ctx, "services">): LlmTransport {
   const { deps, env } = ctx.services;
   return deps.llm?.(env) ?? workerTransport(env);
+}
+
+/** HIPAA mode (docs/hipaa-plan.md T2): the Builder reads a client's agent only with a BAA. */
+async function refuseUncoveredBuilder(ctx: Pick<Ctx, "tx" | "services">, tenantId: string | null) {
+  const refusal = await modelRefusal(
+    ctx.tx,
+    ctx.services.env.BAA_PROCESSORS,
+    tenantId,
+    DEFAULT_MODELS.builder,
+  );
+  if (refusal) throw new HttpError(409, "hipaa_mode", refusal);
 }
 
 async function agentInScope(ctx: Pick<Ctx, "tx" | "tenantIds">, id: string): Promise<AgentRow> {
@@ -209,6 +226,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
     const { tx, body, session, services } = ctx;
     const clientId = body.clientId ?? null;
     if (clientId) ensureClient(ctx, clientId);
+    await refuseUncoveredBuilder(ctx, clientId);
     const bctx = await builderContext(ctx, clientId);
     const pseudo = {
       tenantId: clientId,
@@ -303,6 +321,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
       request = typeof text === "string" && text.trim() ? text : item.title;
     }
 
+    await refuseUncoveredBuilder(ctx, row.tenantId);
     const bctx = await builderContext(ctx, row.tenantId, row);
     const result = await reviseAgent(
       {
@@ -605,6 +624,7 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     const history = turns
       .filter((t) => t.command !== "/start")
       .map((t) => ({ role: t.role, text: t.text }));
+    await refuseUncoveredBuilder(ctx, s.tenantId);
     const llm = createLlmClient({ transport: transport(ctx) });
     const builderTurnId = uuidv7();
 

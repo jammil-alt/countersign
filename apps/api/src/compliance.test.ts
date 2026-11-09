@@ -11,8 +11,10 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR } from "./api.test-helper";
 import {
   ComplianceRefusal,
+  clientsForModel,
   guardModels,
   hipaaToolPolicy,
+  modelRefusal,
   profileReader,
 } from "./compliance/policy";
 import { purgeRetiredFiles } from "./compliance/retention";
@@ -202,6 +204,57 @@ describe.skipIf(!h)("compliance", () => {
       const forB = guardModels(inner, B.tenantId, profileReader(harness.db), covered);
       await forB.create({ model: "openai:gpt-5.5", max_tokens: 10, messages: [] });
       expect(inner.create).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("the back office's own model calls (T2)", () => {
+    it("holds the Builder and plain-words questions to HIPAA mode, before any model call", async () => {
+      // A is in HIPAA mode (above); without Anthropic's BAA its data can't reach the model.
+      const was = harness.env.BAA_PROCESSORS;
+      harness.env.BAA_PROCESSORS = "cloudflare,neon,workos";
+      try {
+        const draft = await call(OPERATOR, "POST", "/api/ops/agents/draft", {
+          description: "Files the bills that arrive by email",
+          clientId: A.tenantId,
+        });
+        expect(draft.status).toBe(409);
+        expect(JSON.stringify(draft.json)).toContain("no signed BAA");
+
+        const portal = await call(admin("a"), "POST", "/api/runs/ask", { text: "failed runs" });
+        expect(portal.status).toBe(409);
+        const named = await call(OPERATOR, "POST", "/api/ops/runs/ask", {
+          text: "failed runs",
+          client: A.tenantId,
+        });
+        expect(named.status).toBe(409);
+
+        // Across clients, A is left out rather than the question refused.
+        expect(
+          await clientsForModel(
+            harness.db,
+            harness.env.BAA_PROCESSORS,
+            [A.tenantId, B.tenantId],
+            "claude-haiku-5-5",
+          ),
+        ).toEqual([B.tenantId]);
+        expect(
+          await modelRefusal(
+            harness.db,
+            harness.env.BAA_PROCESSORS,
+            B.tenantId,
+            "claude-haiku-5-5",
+          ),
+        ).toBeNull();
+        expect(
+          await modelRefusal(harness.db, harness.env.BAA_PROCESSORS, null, "claude-haiku-5-5"),
+        ).toBeNull();
+      } finally {
+        harness.env.BAA_PROCESSORS = was;
+      }
+      // Covered: the same client passes the check.
+      expect(
+        await modelRefusal(harness.db, harness.env.BAA_PROCESSORS, A.tenantId, "claude-haiku-5-5"),
+      ).toBeNull();
     });
   });
 

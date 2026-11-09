@@ -8,13 +8,14 @@ import {
   type ComplianceProfile,
   complianceOf,
   type Processor,
+  parseCoveredProcessors,
   processingRefusal,
   processorForModel,
   processorsForTool,
 } from "@countersign/core";
 import { type Db, tenant } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 export class ComplianceRefusal extends Error {
   override name = "ComplianceRefusal";
@@ -70,4 +71,49 @@ export function guardModels(
       return inner.create(request, options);
     },
   };
+}
+
+// docs/hipaa-plan.md T2: the back office's own model calls (the Builder, plain-words questions)
+// held to HIPAA mode like a run's. Checked before the call, so a refusal costs nothing.
+
+async function hipaaOf(db: Pick<Db, "select">, tenantIds: readonly string[]): Promise<Set<string>> {
+  if (tenantIds.length === 0) return new Set();
+  const rows = await db
+    .select({ id: tenant.id, settings: tenant.settings })
+    .from(tenant)
+    .where(inArray(tenant.id, [...new Set(tenantIds)]));
+  return new Set(
+    rows
+      .filter((r) => complianceOf(r.settings as Record<string, unknown> | undefined).hipaa)
+      .map((r) => r.id),
+  );
+}
+
+/** Why `model` may not read this client's data (HIPAA mode, no BAA with its provider), or null. */
+export async function modelRefusal(
+  db: Pick<Db, "select">,
+  baaProcessors: string | undefined,
+  tenantId: string | null,
+  model: string,
+): Promise<string | null> {
+  if (!tenantId) return null;
+  const hipaa = (await hipaaOf(db, [tenantId])).has(tenantId);
+  return processingRefusal(
+    { hipaa },
+    parseCoveredProcessors(baaProcessors),
+    [processorForModel(model)],
+    `The model ${model}`,
+  );
+}
+
+/** The clients whose data `model` may read: those in HIPAA mode without its provider's BAA left out. */
+export async function clientsForModel(
+  db: Pick<Db, "select">,
+  baaProcessors: string | undefined,
+  tenantIds: readonly string[],
+  model: string,
+): Promise<string[]> {
+  if (parseCoveredProcessors(baaProcessors).has(processorForModel(model))) return [...tenantIds];
+  const hipaa = await hipaaOf(db, tenantIds);
+  return tenantIds.filter((id) => !hipaa.has(id));
 }

@@ -125,6 +125,7 @@ describe("processors", () => {
       "plaid",
       "anthropic_web",
       "hackernews",
+      "claude_ai",
     ]);
     expect(hipaaReadiness(parseCoveredProcessors("cloudflare neon workos"), ["bankfeed"])).toEqual([
       "The bankfeed connector is offered and sends data to Plaid, with no signed BAA. Withdraw it first.",

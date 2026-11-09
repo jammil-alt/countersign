@@ -21,8 +21,9 @@ import {
   type Session,
   verifyAccessToken,
 } from "@countersign/auth";
-import { appUser } from "@countersign/db";
-import { eq } from "drizzle-orm";
+import { complianceOf, parseCoveredProcessors } from "@countersign/core";
+import { appUser, type Db, tenant } from "@countersign/db";
+import { eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { authDirectory } from "../auth";
 import type { Bindings } from "../env";
@@ -165,12 +166,44 @@ async function authenticate(
   if (!user) {
     return forbidden("sign in to the Mezonas back office in a browser once, then connect again");
   }
-  const memberships = await authDirectory(db).memberships(user.id);
+  const memberships = await withoutUncoveredClients(
+    db,
+    await authDirectory(db).memberships(user.id),
+    c.env.BAA_PROCESSORS,
+  );
   const built = buildSession(user, memberships, "workos", null);
   if (!built.ok || !built.session.isOperator) {
     return forbidden("the Mezonas back office MCP server is for operators");
   }
   return { ok: true, session: built.session };
+}
+
+/**
+ * HIPAA mode (docs/hipaa-plan.md, T1): what the connector's tools return goes to the operator's
+ * Claude at claude.ai, so a client in HIPAA mode is left out of the MCP session, and so out of
+ * every tool, until `claude_ai` is in BAA_PROCESSORS. The back office in a browser still serves it.
+ */
+// DECISION: filtered here, once per call, rather than in each tool: every tool's scope comes from
+// the session's memberships, so no tool (today's or a new one) can reach a client left out.
+async function withoutUncoveredClients<M extends { tenantId: string }>(
+  db: Db,
+  memberships: readonly M[],
+  baaProcessors: string | undefined,
+): Promise<M[]> {
+  if (memberships.length === 0 || parseCoveredProcessors(baaProcessors).has("claude_ai")) {
+    return [...memberships];
+  }
+  const ids = [...new Set(memberships.map((m) => m.tenantId))];
+  const rows = await db
+    .select({ id: tenant.id, settings: tenant.settings })
+    .from(tenant)
+    .where(inArray(tenant.id, ids));
+  const hipaa = new Set(
+    rows
+      .filter((r) => complianceOf(r.settings as Record<string, unknown> | null).hipaa)
+      .map((r) => r.id),
+  );
+  return memberships.filter((m) => !hipaa.has(m.tenantId));
 }
 
 export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {

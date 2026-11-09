@@ -3,7 +3,7 @@
 // issuer, unknown user, not an operator), the operator's client scope, each tool's shape, the
 // screenshot as an image block, the untrusted-data fence, the two-step resolve and the audit trail.
 
-import { appUser, auditEvent, feedback } from "@countersign/db";
+import { appUser, auditEvent, feedback, tenant } from "@countersign/db";
 import { eq } from "drizzle-orm";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -131,12 +131,21 @@ describe.skipIf(!h)("MCP server", () => {
     return { status: res.status, json: j(json), headers: res.headers };
   }
 
-  const rpc = (bearer: string, method: string, params: Record<string, unknown> = {}) =>
-    post(bearer, { jsonrpc: "2.0", id: nextId++, method, params });
+  const rpc = (
+    bearer: string,
+    method: string,
+    params: Record<string, unknown> = {},
+    env: Partial<Bindings> = {},
+  ) => post(bearer, { jsonrpc: "2.0", id: nextId++, method, params }, {}, env);
 
   /** tools/call → { text, images, isError } */
-  async function tool(bearer: string, name: string, args: Record<string, unknown> = {}) {
-    const res = await rpc(bearer, "tools/call", { name, arguments: args });
+  async function tool(
+    bearer: string,
+    name: string,
+    args: Record<string, unknown> = {},
+    env: Partial<Bindings> = {},
+  ) {
+    const res = await rpc(bearer, "tools/call", { name, arguments: args }, env);
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const result = res.json.result as {
       content: { type: string; text?: string; data?: string; mimeType?: string }[];
@@ -525,6 +534,34 @@ describe.skipIf(!h)("MCP server", () => {
       );
       const other = (await tool(otherToken, "whoami")).data();
       expect(other.clients.map((c: { id: string }) => c.id)).toEqual([H.C.tenantId]);
+    });
+
+    it("leaves a client in HIPAA mode out of every tool until claude.ai has a BAA (T1)", async () => {
+      const [before] = await H.t.db
+        .select({ settings: tenant.settings })
+        .from(tenant)
+        .where(eq(tenant.id, H.B.tenantId));
+      await H.t.db
+        .update(tenant)
+        .set({ settings: { ...(before?.settings ?? {}), compliance: { hipaa: true } } })
+        .where(eq(tenant.id, H.B.tenantId));
+      try {
+        const me = (await tool(opToken, "whoami")).data();
+        expect(me.clients.map((c: { id: string }) => c.id)).toEqual([H.A.tenantId]);
+        const got = await tool(opToken, "client_get", { client: H.B.tenantId });
+        expect(got.text).toMatch(/^not_found: /);
+        // Covered: back in.
+        const covered = { BAA_PROCESSORS: "cloudflare neon workos claude_ai" };
+        const all = (await tool(opToken, "whoami", {}, covered)).data();
+        expect(all.clients.map((c: { id: string }) => c.id).sort()).toEqual(
+          [H.A.tenantId, H.B.tenantId].sort(),
+        );
+      } finally {
+        await H.t.db
+          .update(tenant)
+          .set({ settings: before?.settings ?? {} })
+          .where(eq(tenant.id, H.B.tenantId));
+      }
     });
 
     it("clients_list and client_get: agents, connections by status, health", async () => {

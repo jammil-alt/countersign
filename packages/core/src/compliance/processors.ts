@@ -37,6 +37,9 @@ export const PROCESSORS = [
   // and Hacker News search (`hackernews.*`, Algolia's search and the official item API).
   "anthropic_web",
   "hackernews",
+  // The Ops MCP connector: what its tools return reaches the operator's Claude at claude.ai, a
+  // different Anthropic service from the API, under its own terms (docs/hipaa-plan.md, T1).
+  "claude_ai",
 ] as const;
 export type Processor = (typeof PROCESSORS)[number];
 
@@ -57,6 +60,7 @@ export const PROCESSOR_NAMES: Record<Processor, string> = {
   // §1.77
   anthropic_web: "Anthropic web search and fetch",
   hackernews: "Hacker News (Algolia and Firebase)",
+  claude_ai: "Claude (claude.ai), for the Ops MCP connector",
 };
 
 /** `BAA_PROCESSORS`: comma- or space-separated processor ids; unknown words are ignored. */
