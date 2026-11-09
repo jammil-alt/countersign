@@ -46,7 +46,7 @@ export function authDirectory(db: Db): AuthDirectory & DevDirectory {
     async memberships(userId) {
       return (await userMemberships(db, userId)).map(toMembership);
     },
-    // Each session route's sign-in check: one transaction for both (docs/plan.md §1.79).
+    // Each session route's sign-in check: one transaction for both (docs/plan.md §1.82).
     async account(userId) {
       const { user, memberships } = await userWithMemberships(db, userId);
       return { user, memberships: memberships.map(toMembership) };
