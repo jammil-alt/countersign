@@ -101,11 +101,15 @@ interface Names {
   agents: Map<string, { id: string; name: string; serviceName: string | null }>;
 }
 
-async function namesFor(tx: Tx, ids: readonly string[], agentIds: Iterable<string | null>) {
-  const clients = await tx
+function clientRows(tx: Tx, ids: readonly string[]) {
+  return tx
     .select({ id: tenant.id, name: tenant.name, settings: tenant.settings })
     .from(tenant)
     .where(inArray(tenant.id, [...ids]));
+}
+
+/** Agents' names by id; no client names (those come from `clientRows`). */
+async function agentNames(tx: Tx, agentIds: Iterable<string | null>): Promise<Names> {
   const wanted = [...new Set([...agentIds].filter((v): v is string => !!v))];
   const agents = wanted.length
     ? await tx
@@ -113,10 +117,12 @@ async function namesFor(tx: Tx, ids: readonly string[], agentIds: Iterable<strin
         .from(agent)
         .where(inArray(agent.id, wanted))
     : [];
-  const names: Names = {
-    clients: new Map(clients.map((c) => [c.id, c.name])),
-    agents: new Map(agents.map((a) => [a.id, a])),
-  };
+  return { clients: new Map(), agents: new Map(agents.map((a) => [a.id, a])) };
+}
+
+async function namesFor(tx: Tx, ids: readonly string[], agentIds: Iterable<string | null>) {
+  const [clients, { agents }] = await Promise.all([clientRows(tx, ids), agentNames(tx, agentIds)]);
+  const names: Names = { clients: new Map(clients.map((c) => [c.id, c.name])), agents };
   return { names, clients };
 }
 
@@ -226,10 +232,28 @@ async function needsUsParts(
 ): Promise<NeedsUsParts> {
   const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const failedSince = new Date(now.getTime() - FAILED_RUN_ESCALATION_DAYS * DAY_MS);
-  const clientAgents = await activeClientAgents(tx, ids);
-  const { names, clients } = await namesFor(tx, ids, [
-    ...clientAgents.map((a) => a.id),
-    ...clientAgents.map((a) => a.templateId),
+  // DECISION: the reads that need nothing from each other are asked at once, in the request's
+  // transaction, which the driver pipelines (as search.ts does): a few round trips instead of one
+  // per query (docs/plan.md §1.79). Escalations are still added in the same order.
+  const [clientAgents, clients, failed, broken] = await Promise.all([
+    activeClientAgents(tx, ids),
+    clientRows(tx, ids),
+    tx
+      .select()
+      .from(run)
+      .where(
+        and(
+          inArray(run.tenantId, [...ids]),
+          eq(run.mode, "live"),
+          eq(run.status, "failed"),
+          gte(run.createdAt, failedSince),
+          sql`not exists (select 1 from run retry where retry.retry_of = ${run.id} and retry.tenant_id = ${run.tenantId})`,
+        ),
+      ),
+    tx
+      .select()
+      .from(connection)
+      .where(and(inArray(connection.tenantId, [...ids]), eq(connection.status, "error"))),
   ]);
 
   // The Sandbox has no client people: the operator resolves every item there, so all of its items
@@ -241,20 +265,35 @@ async function needsUsParts(
     ? (or(eq(inboxItem.assigneeRole, "operator"), inArray(inboxItem.tenantId, sandboxes)) as SQL)
     : eq(inboxItem.assigneeRole, "operator");
 
+  // Low confidence: today's readings under each client's threshold.
+  const thresholds = new Map(clients.map((c) => [c.id, lowConfidenceThreshold(c.settings)]));
+  const [names, items, lowReadings, clientItems] = await Promise.all([
+    agentNames(tx, [...clientAgents.map((a) => a.id), ...clientAgents.map((a) => a.templateId)]),
+    tx
+      .select()
+      .from(inboxItem)
+      .where(
+        and(
+          inArray(inboxItem.tenantId, [...ids]),
+          eq(inboxItem.status, "open"),
+          ours,
+          // DECISION: a test run's items (always the operator's) block no client: left out.
+          sql`coalesce(${inboxItem.payload}->>'testRun', '') <> 'true'`,
+        ),
+      ),
+    lowReadingsToday(tx, ids, thresholds, today),
+    // Approvals on the client: one per run (or per item without a run), when the oldest has
+    // waited over a day or nobody can act on it. A test run's items are ours, so never here.
+    openItems(
+      tx,
+      ids.filter((id) => !sandboxes.includes(id)),
+      [clientAssigned, sql`coalesce(${inboxItem.payload}->>'testRun', '') <> 'true'`],
+    ),
+  ]);
+  names.clients = new Map(clients.map((c) => [c.id, c.name]));
+
   type Pending = Omit<Escalation, "agent"> & { agentId: string | null };
   const escalations: Pending[] = [];
-  const items = await tx
-    .select()
-    .from(inboxItem)
-    .where(
-      and(
-        inArray(inboxItem.tenantId, [...ids]),
-        eq(inboxItem.status, "open"),
-        ours,
-        // DECISION: a test run's items (always the operator's) block no client: left out.
-        sql`coalesce(${inboxItem.payload}->>'testRun', '') <> 'true'`,
-      ),
-    );
   for (const i of items) {
     escalations.push({
       kind: "item",
@@ -266,18 +305,6 @@ async function needsUsParts(
       blockedSince: i.createdAt.toISOString(),
     });
   }
-  const failed = await tx
-    .select()
-    .from(run)
-    .where(
-      and(
-        inArray(run.tenantId, [...ids]),
-        eq(run.mode, "live"),
-        eq(run.status, "failed"),
-        gte(run.createdAt, failedSince),
-        sql`not exists (select 1 from run retry where retry.retry_of = ${run.id} and retry.tenant_id = ${run.tenantId})`,
-      ),
-    );
   for (const r of failed) {
     escalations.push({
       kind: "failed_run",
@@ -289,10 +316,6 @@ async function needsUsParts(
       blockedSince: (r.finishedAt ?? r.createdAt).toISOString(),
     });
   }
-  const broken = await tx
-    .select()
-    .from(connection)
-    .where(and(inArray(connection.tenantId, [...ids]), eq(connection.status, "error")));
   for (const c of broken) {
     const users = clientAgents.filter(
       (a) =>
@@ -313,9 +336,6 @@ async function needsUsParts(
     });
   }
 
-  // Low confidence: today's readings under each client's threshold.
-  const thresholds = new Map(clients.map((c) => [c.id, lowConfidenceThreshold(c.settings)]));
-  const lowReadings = await lowReadingsToday(tx, ids, thresholds, today);
   // DECISION: each document read under the threshold today escalates once (its latest such
   // reading), blocked since that reading; the low-confidence figure counts every reading.
   const latestPerDocument = new Map<string, LowReading>();
@@ -332,13 +352,6 @@ async function needsUsParts(
     });
   }
 
-  // Approvals on the client: one per run (or per item without a run), when the oldest has waited
-  // over a day or nobody can act on it. A test run's items are ours, so never here.
-  const clientItems = await openItems(
-    tx,
-    ids.filter((id) => !sandboxes.includes(id)),
-    [clientAssigned, sql`coalesce(${inboxItem.payload}->>'testRun', '') <> 'true'`],
-  );
   if (clientItems.length > 0) {
     const members = await clientMembers(tx, ids, reach);
     const groups = new Map<string, OpenItemRow[]>();
@@ -369,8 +382,8 @@ async function needsUsParts(
     ...escalations.map((e) => e.agentId),
     ...lowReadings.map((r) => r.agentId),
   ].filter((id): id is string => !!id && !names.agents.has(id));
-  const extra = await namesFor(tx, [], moreAgents);
-  for (const [id, a] of extra.names.agents) names.agents.set(id, a);
+  const extra = await agentNames(tx, moreAgents);
+  for (const [id, a] of extra.agents) names.agents.set(id, a);
   return {
     escalations: sortEscalations(
       escalations.map(({ agentId, ...rest }) => ({ ...rest, agent: agentRef(names, agentId) })),
@@ -433,47 +446,231 @@ async function commandCenter(
     liveByClient.set(a.tenantId, (liveByClient.get(a.tenantId) ?? 0) + 1);
   }
 
-  // Running now: runs queued or running that wait on nobody, and their steps in flight.
-  // (Joined, not a correlated subquery: drizzle leaves a single table's columns unqualified in
-  // its select list, which would bind them inside a subquery to the wrong table.)
-  const [running] = await tx
-    .select({
-      runs: sql<number>`count(distinct ${run.id})::int`,
-      steps: sql<number>`(count(${stepRun.id}) filter (where ${stepRun.status} = 'running'))::int`,
-    })
-    .from(run)
-    .leftJoin(stepRun, and(eq(stepRun.runId, run.id), eq(stepRun.tenantId, run.tenantId)))
-    .where(and(inArray(run.tenantId, ids), ...opsStatusWhere(["queued", "running"])));
-
-  // Waiting for approval (UI cleanup, stream A): live runs waiting on a person, as Runs filters
-  // them; how many waited over a day, and how many nobody can act on.
-  const waitingRows = await tx
-    .select()
-    .from(run)
-    .where(and(inArray(run.tenantId, ids), eq(run.mode, "live"), ...opsStatusWhere(["waiting"])));
-  const waits = [...(await runWaits(tx, waitingRows, reach)).values()];
-  const oldestWait = waits.map((w) => w.since).sort()[0] ?? null;
-
+  const blockedLongBefore = new Date(now.getTime() - BLOCKED_LONG_HOURS * HOUR_MS).toISOString();
   const templateVersionIds = [
     ...new Set(lowReadings.map((r) => r.templateVersionId).filter((v): v is string => !!v)),
   ];
-  const templateVersions = templateVersionIds.length
-    ? await tx
+  const agentIds = clientAgents.map((a) => a.id);
+
+  // Runs today (live, UTC) and the clean ones: succeeded with no step retried.
+  const retried = tx
+    .select({ runId: stepRun.runId, tenantId: stepRun.tenantId })
+    .from(stepRun)
+    .where(and(inArray(stepRun.tenantId, ids), gt(stepRun.attempts, 1)))
+    .groupBy(stepRun.runId, stepRun.tenantId)
+    .as("retried");
+  const noRetry = and(eq(retried.runId, run.id), eq(retried.tenantId, run.tenantId));
+  const clean = sql<number>`(count(*) filter (where ${run.status} = 'succeeded' and ${retried.runId} is null))::int`;
+  const stepDay = sql`coalesce(${stepRun.startedAt}, ${run.createdAt})`;
+
+  // DECISION: every figure below reads only what Needs us already gave, so all are asked at once
+  // in the request's transaction, which the driver pipelines (docs/plan.md §1.79). A figure that
+  // needs a second read (the waits, the template names, the spend) chains it on its own first.
+  const [
+    [running],
+    { waitingRows, waits },
+    templateVersions,
+    [waiting],
+    [todayRuns],
+    { steps, reading, spend },
+    weekRuns,
+    responses,
+    recent,
+    open,
+    weekCost,
+    agentDays,
+    liveDays,
+  ] = await Promise.all([
+    // Running now: runs queued or running that wait on nobody, and their steps in flight.
+    // (Joined, not a correlated subquery: drizzle leaves a single table's columns unqualified in
+    // its select list, which would bind them inside a subquery to the wrong table.)
+    tx
+      .select({
+        runs: sql<number>`count(distinct ${run.id})::int`,
+        steps: sql<number>`(count(${stepRun.id}) filter (where ${stepRun.status} = 'running'))::int`,
+      })
+      .from(run)
+      .leftJoin(stepRun, and(eq(stepRun.runId, run.id), eq(stepRun.tenantId, run.tenantId)))
+      .where(and(inArray(run.tenantId, ids), ...opsStatusWhere(["queued", "running"]))),
+
+    // Waiting for approval (UI cleanup, stream A): live runs waiting on a person, as Runs filters
+    // them; how many waited over a day, and how many nobody can act on.
+    (async () => {
+      const rows = await tx
+        .select()
+        .from(run)
+        .where(
+          and(inArray(run.tenantId, ids), eq(run.mode, "live"), ...opsStatusWhere(["waiting"])),
+        );
+      return { waitingRows: rows, waits: [...(await runWaits(tx, rows, reach)).values()] };
+    })(),
+
+    // The template versions low readings ran on, and their names.
+    (async () => {
+      if (templateVersionIds.length === 0) return [];
+      const rows = await tx
         .select({
           id: agentVersion.id,
           agentId: agentVersion.agentId,
           version: agentVersion.version,
         })
         .from(agentVersion)
-        .where(inArray(agentVersion.id, templateVersionIds))
-    : [];
-  const extra = await namesFor(
-    tx,
-    [],
-    templateVersions.map((t) => t.agentId).filter((id) => !names.agents.has(id)),
-  );
-  for (const [id, a] of extra.names.agents) names.agents.set(id, a);
-  const blockedLongBefore = new Date(now.getTime() - BLOCKED_LONG_HOURS * HOUR_MS).toISOString();
+        .where(inArray(agentVersion.id, templateVersionIds));
+      const extra = await agentNames(
+        tx,
+        rows.map((t) => t.agentId).filter((id) => !names.agents.has(id)),
+      );
+      for (const [id, a] of extra.agents) names.agents.set(id, a);
+      return rows;
+    })(),
+
+    // Waiting on clients: open items the client holds, and the oldest's age.
+    tx
+      .select({
+        count: sql<number>`count(*)::int`,
+        oldest: sql<string | null>`${isoText(sql`min(${inboxItem.createdAt})`)}`,
+      })
+      .from(inboxItem)
+      .where(and(inArray(inboxItem.tenantId, ids), eq(inboxItem.status, "open"), clientAssigned)),
+
+    tx
+      .select({
+        runs: sql<number>`count(*)::int`,
+        clean,
+        failed: sql<number>`(count(*) filter (where ${run.status} = 'failed'))::int`,
+      })
+      .from(run)
+      .leftJoin(retried, noRetry)
+      .where(and(inArray(run.tenantId, ids), eq(run.mode, "live"), gte(run.createdAt, today))),
+
+    // Model spend today: step runs (any mode: test runs cost the same) and background readings.
+    (async () => {
+      const [[steps], [reading]] = await Promise.all([
+        tx
+          .select({
+            usd: sql<string>`coalesce(sum(${stepRun.costUsd}), 0)::numeric(14,4)::text`,
+            runs: sql<number>`count(distinct ${stepRun.runId})::int`,
+            perRun: sql<
+              string | null
+            >`(sum(${stepRun.costUsd}) / nullif(count(distinct ${stepRun.runId}), 0))::numeric(14,4)::text`,
+          })
+          .from(stepRun)
+          .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
+          .where(
+            and(
+              inArray(stepRun.tenantId, ids),
+              sql`${stepDay} >= ${today.toISOString()}::timestamptz`,
+            ),
+          ),
+        tx
+          .select({
+            usd: sql<string>`coalesce(sum(${docExtraction.costUsd}), 0)::numeric(14,4)::text`,
+          })
+          .from(docExtraction)
+          .where(
+            and(
+              inArray(docExtraction.tenantId, ids),
+              sql`${docExtraction.agentVersionId} is null`,
+              gte(docExtraction.createdAt, today),
+            ),
+          ),
+      ]);
+      const [spend] = await tx.execute<{ total: string }>(
+        sql`select (${steps?.usd ?? "0"}::numeric + ${reading?.usd ?? "0"}::numeric)::numeric(14,4)::text as total`,
+      );
+      return { steps, reading, spend };
+    })(),
+
+    // Client health over 7 days.
+    tx
+      .select({ tenantId: run.tenantId, runs: sql<number>`count(*)::int`, clean })
+      .from(run)
+      .leftJoin(retried, noRetry)
+      .where(and(inArray(run.tenantId, ids), eq(run.mode, "live"), gte(run.createdAt, weekAgo)))
+      .groupBy(run.tenantId),
+    tx
+      .select({
+        tenantId: inboxItem.tenantId,
+        hours: sql<number>`(percentile_cont(0.5) within group (order by extract(epoch from (${inboxItem.resolvedAt} - ${inboxItem.createdAt}))) / 3600)::float8`,
+      })
+      .from(inboxItem)
+      .where(
+        and(
+          inArray(inboxItem.tenantId, ids),
+          eq(inboxItem.status, "resolved"),
+          gte(inboxItem.resolvedAt, weekAgo),
+          clientAssigned,
+        ),
+      )
+      .groupBy(inboxItem.tenantId),
+
+    // The agents table: state now, last 24 runs, cost over 7 days.
+    agentIds.length
+      ? tx
+          .execute<{
+            id: string;
+            agent_id: string;
+            status: string;
+            mode: string;
+            created_at: string;
+            waiting: boolean;
+          }>(sql`
+        select id, agent_id, status, mode, created_at, waiting from (
+          select ${run.id} as id, ${run.agentId} as agent_id, ${run.status} as status,
+                 ${run.mode} as mode, ${isoText(run.createdAt)} as created_at,
+                 (${run.status} = 'waiting' or (${run.status} in ('queued', 'running') and ${waitsOnPerson})) as waiting,
+                 row_number() over (partition by ${run.agentId} order by ${run.createdAt} desc, ${run.id} desc) as n
+          from ${run}
+          where ${run.tenantId} in (${uuidList(ids)}) and ${run.agentId} in (${uuidList(agentIds)})
+        ) x where n <= ${AGENT_RECENT_RUNS}
+        order by agent_id, created_at desc`)
+          .then((rows) => [...rows])
+      : Promise.resolve([]),
+    agentIds.length
+      ? tx
+          .select({
+            agentId: run.agentId,
+            n: sql<number>`count(*)::int`,
+            waiting: sql<number>`(count(*) filter (where ${run.status} = 'waiting' or ${waitsOnPerson}))::int`,
+          })
+          .from(run)
+          .where(
+            and(
+              inArray(run.tenantId, ids),
+              inArray(run.agentId, agentIds),
+              inArray(run.status, ["queued", "running", "waiting"]),
+            ),
+          )
+          .groupBy(run.agentId)
+      : Promise.resolve([]),
+    agentIds.length
+      ? tx
+          .select({
+            agentId: run.agentId,
+            usd: sql<string>`coalesce(sum(${stepRun.costUsd}), 0)::numeric(14,4)::text`,
+          })
+          .from(stepRun)
+          .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
+          .where(
+            and(
+              inArray(stepRun.tenantId, ids),
+              inArray(run.agentId, agentIds),
+              sql`${stepDay} >= ${weekAgo.toISOString()}::timestamptz`,
+            ),
+          )
+          .groupBy(run.agentId)
+      : Promise.resolve([]),
+    // UI cleanup (design pass): runs each day for the small charts, in UTC like "today": every
+    // run of each agent (test runs included), and live runs across the clients for the figures.
+    agentIds.length
+      ? runsByDay(tx, [inArray(run.tenantId, ids), inArray(run.agentId, agentIds)], {
+          timezone: "UTC",
+          now,
+        })
+      : Promise.resolve({ all: [], byAgent: new Map() }),
+    runsByDay(tx, [inArray(run.tenantId, ids), eq(run.mode, "live")], { timezone: "UTC", now }),
+  ]);
+  const oldestWait = waits.map((w) => w.since).sort()[0] ?? null;
 
   const groups = new Map<string, CommandCenter["lowConfidence"][number]>();
   for (const r of lowReadings) {
@@ -500,85 +697,6 @@ async function commandCenter(
     });
   }
 
-  // Waiting on clients: open items the client holds, and the oldest's age.
-  const [waiting] = await tx
-    .select({
-      count: sql<number>`count(*)::int`,
-      oldest: sql<string | null>`${isoText(sql`min(${inboxItem.createdAt})`)}`,
-    })
-    .from(inboxItem)
-    .where(and(inArray(inboxItem.tenantId, ids), eq(inboxItem.status, "open"), clientAssigned));
-
-  // Runs today (live, UTC) and the clean ones: succeeded with no step retried.
-  const retried = tx
-    .select({ runId: stepRun.runId, tenantId: stepRun.tenantId })
-    .from(stepRun)
-    .where(and(inArray(stepRun.tenantId, ids), gt(stepRun.attempts, 1)))
-    .groupBy(stepRun.runId, stepRun.tenantId)
-    .as("retried");
-  const noRetry = and(eq(retried.runId, run.id), eq(retried.tenantId, run.tenantId));
-  const clean = sql<number>`(count(*) filter (where ${run.status} = 'succeeded' and ${retried.runId} is null))::int`;
-  const [todayRuns] = await tx
-    .select({
-      runs: sql<number>`count(*)::int`,
-      clean,
-      failed: sql<number>`(count(*) filter (where ${run.status} = 'failed'))::int`,
-    })
-    .from(run)
-    .leftJoin(retried, noRetry)
-    .where(and(inArray(run.tenantId, ids), eq(run.mode, "live"), gte(run.createdAt, today)));
-
-  // Model spend today: step runs (any mode: test runs cost the same) and background readings.
-  const stepDay = sql`coalesce(${stepRun.startedAt}, ${run.createdAt})`;
-  const [steps] = await tx
-    .select({
-      usd: sql<string>`coalesce(sum(${stepRun.costUsd}), 0)::numeric(14,4)::text`,
-      runs: sql<number>`count(distinct ${stepRun.runId})::int`,
-      perRun: sql<
-        string | null
-      >`(sum(${stepRun.costUsd}) / nullif(count(distinct ${stepRun.runId}), 0))::numeric(14,4)::text`,
-    })
-    .from(stepRun)
-    .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
-    .where(
-      and(inArray(stepRun.tenantId, ids), sql`${stepDay} >= ${today.toISOString()}::timestamptz`),
-    );
-  const [reading] = await tx
-    .select({ usd: sql<string>`coalesce(sum(${docExtraction.costUsd}), 0)::numeric(14,4)::text` })
-    .from(docExtraction)
-    .where(
-      and(
-        inArray(docExtraction.tenantId, ids),
-        sql`${docExtraction.agentVersionId} is null`,
-        gte(docExtraction.createdAt, today),
-      ),
-    );
-  const [spend] = await tx.execute<{ total: string }>(
-    sql`select (${steps?.usd ?? "0"}::numeric + ${reading?.usd ?? "0"}::numeric)::numeric(14,4)::text as total`,
-  );
-
-  // Client health over 7 days.
-  const weekRuns = await tx
-    .select({ tenantId: run.tenantId, runs: sql<number>`count(*)::int`, clean })
-    .from(run)
-    .leftJoin(retried, noRetry)
-    .where(and(inArray(run.tenantId, ids), eq(run.mode, "live"), gte(run.createdAt, weekAgo)))
-    .groupBy(run.tenantId);
-  const responses = await tx
-    .select({
-      tenantId: inboxItem.tenantId,
-      hours: sql<number>`(percentile_cont(0.5) within group (order by extract(epoch from (${inboxItem.resolvedAt} - ${inboxItem.createdAt}))) / 3600)::float8`,
-    })
-    .from(inboxItem)
-    .where(
-      and(
-        inArray(inboxItem.tenantId, ids),
-        eq(inboxItem.status, "resolved"),
-        gte(inboxItem.resolvedAt, weekAgo),
-        clientAssigned,
-      ),
-    )
-    .groupBy(inboxItem.tenantId);
   const health = clients
     .map((c) => {
       const w = weekRuns.find((x) => x.tenantId === c.id);
@@ -601,74 +719,7 @@ async function commandCenter(
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  // The agents table: state now, last 24 runs, cost over 7 days.
-  const agentIds = clientAgents.map((a) => a.id);
-  const recent = agentIds.length
-    ? await tx.execute<{
-        id: string;
-        agent_id: string;
-        status: string;
-        mode: string;
-        created_at: string;
-        waiting: boolean;
-      }>(sql`
-        select id, agent_id, status, mode, created_at, waiting from (
-          select ${run.id} as id, ${run.agentId} as agent_id, ${run.status} as status,
-                 ${run.mode} as mode, ${isoText(run.createdAt)} as created_at,
-                 (${run.status} = 'waiting' or (${run.status} in ('queued', 'running') and ${waitsOnPerson})) as waiting,
-                 row_number() over (partition by ${run.agentId} order by ${run.createdAt} desc, ${run.id} desc) as n
-          from ${run}
-          where ${run.tenantId} in (${uuidList(ids)}) and ${run.agentId} in (${uuidList(agentIds)})
-        ) x where n <= ${AGENT_RECENT_RUNS}
-        order by agent_id, created_at desc`)
-    : [];
-  const open = agentIds.length
-    ? await tx
-        .select({
-          agentId: run.agentId,
-          n: sql<number>`count(*)::int`,
-          waiting: sql<number>`(count(*) filter (where ${run.status} = 'waiting' or ${waitsOnPerson}))::int`,
-        })
-        .from(run)
-        .where(
-          and(
-            inArray(run.tenantId, ids),
-            inArray(run.agentId, agentIds),
-            inArray(run.status, ["queued", "running", "waiting"]),
-          ),
-        )
-        .groupBy(run.agentId)
-    : [];
-  const weekCost = agentIds.length
-    ? await tx
-        .select({
-          agentId: run.agentId,
-          usd: sql<string>`coalesce(sum(${stepRun.costUsd}), 0)::numeric(14,4)::text`,
-        })
-        .from(stepRun)
-        .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
-        .where(
-          and(
-            inArray(stepRun.tenantId, ids),
-            inArray(run.agentId, agentIds),
-            sql`${stepDay} >= ${weekAgo.toISOString()}::timestamptz`,
-          ),
-        )
-        .groupBy(run.agentId)
-    : [];
-  const recentRows = [...recent];
-  // UI cleanup (design pass): runs each day for the small charts, in UTC like "today": every run
-  // of each agent (test runs included), and live runs across the clients for the figures.
-  const agentDays = agentIds.length
-    ? await runsByDay(tx, [inArray(run.tenantId, ids), inArray(run.agentId, agentIds)], {
-        timezone: "UTC",
-        now,
-      })
-    : { all: [], byAgent: new Map() };
-  const liveDays = await runsByDay(tx, [inArray(run.tenantId, ids), eq(run.mode, "live")], {
-    timezone: "UTC",
-    now,
-  });
+  const recentRows = recent;
   const agents = clientAgents.map((a) => ({
     id: a.id,
     name: a.name,
@@ -750,7 +801,7 @@ async function feed(tx: Tx, ids: string[], since: Date): Promise<FeedItem[]> {
   const raw: Raw[] = [];
 
   // Client-visible step summaries of live runs.
-  const steps = await tx
+  const stepsQ = tx
     .select({
       id: stepRun.id,
       tenantId: stepRun.tenantId,
@@ -772,15 +823,7 @@ async function feed(tx: Tx, ids: string[], since: Date): Promise<FeedItem[]> {
     )
     .orderBy(desc(stepRun.finishedAt))
     .limit(FEED_LIMIT);
-  // DECISION: "client-visible" step summaries are the summaries of live runs' finished steps (the
-  // line the timeline shows); internal steps write none.
-  for (const s of steps) {
-    if (!s.at || !s.summary) continue;
-    raw.push({ ...s, id: `step:${s.id}`, kind: "step", at: s.at.toISOString(), text: s.summary });
-  }
-
-  // Writes done in the client's tools.
-  const writes = await tx
+  const writesQ = tx
     .select({
       id: externalAction.id,
       tenantId: externalAction.tenantId,
@@ -800,6 +843,62 @@ async function feed(tx: Tx, ids: string[], since: Date): Promise<FeedItem[]> {
     )
     .orderBy(desc(externalAction.executedAt))
     .limit(FEED_LIMIT);
+  const signedQ = tx
+    .select()
+    .from(inboxItem)
+    .where(
+      and(
+        inArray(inboxItem.tenantId, ids),
+        eq(inboxItem.status, "resolved"),
+        isNotNull(inboxItem.resolvedBy),
+        gt(inboxItem.resolvedAt, since),
+      ),
+    )
+    .orderBy(desc(inboxItem.resolvedAt))
+    .limit(FEED_LIMIT);
+  const failuresQ = tx
+    .select()
+    .from(run)
+    .where(
+      and(
+        inArray(run.tenantId, ids),
+        eq(run.mode, "live"),
+        eq(run.status, "failed"),
+        sql`coalesce(${run.finishedAt}, ${run.createdAt}) > ${since.toISOString()}::timestamptz`,
+      ),
+    )
+    .orderBy(desc(sql`coalesce(${run.finishedAt}, ${run.createdAt})`))
+    .limit(FEED_LIMIT);
+  const draftsQ = tx
+    .select()
+    .from(inboxItem)
+    .where(
+      and(
+        inArray(inboxItem.tenantId, ids),
+        eq(inboxItem.subjectType, "account_change"),
+        gt(inboxItem.createdAt, since),
+      ),
+    )
+    .orderBy(desc(inboxItem.createdAt))
+    .limit(FEED_LIMIT);
+
+  // DECISION: the five reads are asked at once, in the request's transaction, which the driver
+  // pipelines (docs/plan.md §1.79).
+  const [steps, writes, signed, failures, drafts] = await Promise.all([
+    stepsQ,
+    writesQ,
+    signedQ,
+    failuresQ,
+    draftsQ,
+  ]);
+  // DECISION: "client-visible" step summaries are the summaries of live runs' finished steps (the
+  // line the timeline shows); internal steps write none.
+  for (const s of steps) {
+    if (!s.at || !s.summary) continue;
+    raw.push({ ...s, id: `step:${s.id}`, kind: "step", at: s.at.toISOString(), text: s.summary });
+  }
+
+  // Writes done in the client's tools.
   for (const w of writes) {
     if (!w.at) continue;
     raw.push({
@@ -814,19 +913,6 @@ async function feed(tx: Tx, ids: string[], since: Date): Promise<FeedItem[]> {
   }
 
   // Signatures: items a person resolved.
-  const signed = await tx
-    .select()
-    .from(inboxItem)
-    .where(
-      and(
-        inArray(inboxItem.tenantId, ids),
-        eq(inboxItem.status, "resolved"),
-        isNotNull(inboxItem.resolvedBy),
-        gt(inboxItem.resolvedAt, since),
-      ),
-    )
-    .orderBy(desc(inboxItem.resolvedAt))
-    .limit(FEED_LIMIT);
   for (const i of signed) {
     if (!i.resolvedAt) continue;
     raw.push({
@@ -841,19 +927,6 @@ async function feed(tx: Tx, ids: string[], since: Date): Promise<FeedItem[]> {
   }
 
   // Failures of live runs.
-  const failures = await tx
-    .select()
-    .from(run)
-    .where(
-      and(
-        inArray(run.tenantId, ids),
-        eq(run.mode, "live"),
-        eq(run.status, "failed"),
-        sql`coalesce(${run.finishedAt}, ${run.createdAt}) > ${since.toISOString()}::timestamptz`,
-      ),
-    )
-    .orderBy(desc(sql`coalesce(${run.finishedAt}, ${run.createdAt})`))
-    .limit(FEED_LIMIT);
   for (const r of failures) {
     raw.push({
       id: `failure:${r.id}`,
@@ -867,18 +940,6 @@ async function feed(tx: Tx, ids: string[], since: Date): Promise<FeedItem[]> {
   }
 
   // Sloan's drafted changes: account-change items, when drafted (docs/plan.md §1.47).
-  const drafts = await tx
-    .select()
-    .from(inboxItem)
-    .where(
-      and(
-        inArray(inboxItem.tenantId, ids),
-        eq(inboxItem.subjectType, "account_change"),
-        gt(inboxItem.createdAt, since),
-      ),
-    )
-    .orderBy(desc(inboxItem.createdAt))
-    .limit(FEED_LIMIT);
   for (const d of drafts) {
     raw.push({
       id: `draft:${d.id}`,

@@ -68,11 +68,22 @@ async function inScope<T>(db: Db, scope: Scope, fn: (tx: Tx) => Promise<T>): Pro
     throw new ScopeError(`not a user id: ${scope.userId}`);
   }
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select
-      set_config('app.tenant_ids', ${ids}, true),
-      set_config('app.operator', ${scope.operator ? "on" : "off"}, true),
-      set_config('app.user_id', ${scope.userId ?? ""}, true)`);
-    return fn(tx);
+    // The scope is sent first, then `fn` starts at once: its first queries travel with the scope
+    // instead of a round trip later.
+    // DECISION: one round trip less per transaction (docs/plan.md §1.79). The transaction holds one
+    // connection, and postgres-js runs a connection's statements in the order they were issued;
+    // `.then` here issues the scope before `fn` can issue anything, so every statement of `fn`
+    // still runs scoped. If the scope fails, the transaction is aborted and `fn`'s statements fail
+    // with it: closed, as before.
+    const scoped = tx
+      .execute(sql`select
+        set_config('app.tenant_ids', ${ids}, true),
+        set_config('app.operator', ${scope.operator ? "on" : "off"}, true),
+        set_config('app.user_id', ${scope.userId ?? ""}, true)`)
+      .then(() => undefined);
+    // An async wrapper, so a `fn` that throws before its first await rejects instead.
+    const [, out] = await Promise.all([scoped, (async () => fn(tx))()]);
+    return out;
   });
 }
 

@@ -3,7 +3,7 @@
 
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { type Db, type Tx, withUser } from "./client";
-import { membership, tenant } from "./schema";
+import { appUser, membership, tenant } from "./schema";
 
 export interface UserMembership {
   tenantId: string;
@@ -18,19 +18,45 @@ export interface UserMembership {
  * in to it; operators keep it, to see its retirement through.
  */
 export function userMemberships(db: Db, userId: string): Promise<UserMembership[]> {
-  return withUser(db, userId, (tx) =>
-    tx
-      .select({ tenantId: membership.tenantId, tenantName: tenant.name, role: membership.role })
-      .from(membership)
-      .innerJoin(tenant, eq(tenant.id, membership.tenantId))
-      .where(
-        and(
-          eq(membership.userId, userId),
-          or(isNull(tenant.retiredAt), eq(membership.role, "operator")),
-        ),
-      )
-      .orderBy(tenant.name),
-  );
+  return withUser(db, userId, (tx) => membershipsQuery(tx, userId));
+}
+
+function membershipsQuery(tx: Tx, userId: string) {
+  return tx
+    .select({ tenantId: membership.tenantId, tenantName: tenant.name, role: membership.role })
+    .from(membership)
+    .innerJoin(tenant, eq(tenant.id, membership.tenantId))
+    .where(
+      and(
+        eq(membership.userId, userId),
+        or(isNull(tenant.retiredAt), eq(membership.role, "operator")),
+      ),
+    )
+    .orderBy(tenant.name);
+}
+
+/**
+ * A signed-in user and their memberships, for a request's session: both reads in one transaction,
+ * sent with its scope, instead of a lookup and then a transaction of its own (docs/plan.md §1.79).
+ * `user` is null when the row is gone.
+ */
+export function userWithMemberships(
+  db: Db,
+  userId: string,
+): Promise<{
+  user: { id: string; email: string; name: string | null } | null;
+  memberships: UserMembership[];
+}> {
+  return withUser(db, userId, async (tx) => {
+    const [users, memberships] = await Promise.all([
+      tx
+        .select({ id: appUser.id, email: appUser.email, name: appUser.name })
+        .from(appUser)
+        .where(eq(appUser.id, userId)),
+      membershipsQuery(tx, userId),
+    ]);
+    return { user: users[0] ?? null, memberships };
+  });
 }
 
 /**
