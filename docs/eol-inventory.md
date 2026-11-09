@@ -11,8 +11,8 @@ the next review and drop the mark.
 
 | Component | Version | Support ends | Plan |
 |---|---|---|---|
-| Node.js (build, tests, CI, local dev; `.nvmrc`, `engines`) | 22 | **2027-04-30** | Move to Node 24 (supported to 2028-04-30) before 2027-03. Change `.nvmrc`, `engines`, `@types/node`'s major (held back in `dependabot.yml`) and CI's `setup-node` together. |
-| `github/codeql-action` (`.github/workflows/codeql.yml`) | v3 | **December 2026**, deprecated (*confirm*) | Move to v4 with the next CI pull request. |
+| Node.js (build, tests, CI, local dev; `.nvmrc`, `engines`) | 22 | **2027-04-30** | Moving to Node 24 (supported to 2028-04-30) on `claude/clever-volta-s13mur`: `.nvmrc`, `engines`, `@types/node` 24, every workflow from `.nvmrc`. Drop this row once merged. |
+| `github/codeql-action` (`.github/workflows/codeql.yml`) | v3 | **December 2026**, deprecated (*confirm*) | v4 on the same branch. Drop this row once merged. |
 
 ## Runtimes and services
 
@@ -35,6 +35,7 @@ the next review and drop the mark.
 | Biome | 2.5.13 | Pinned to Plenary Labs' version | Moves when theirs does |
 | Playwright | 1.64.1 | Current | Dependabot |
 | GitHub Actions: `actions/checkout`, `actions/setup-node` | v7 | Current | Dependabot |
+| `google/osv-scanner-action` | v2.7.0 (pinned by commit) | Current | Dependabot |
 | `pnpm/action-setup` | v6 (v6.1.1 pinned by commit in places) | Current | Dependabot |
 
 ## Libraries

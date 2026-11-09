@@ -897,8 +897,11 @@ Settings page in the back office (with a reason). It can only be switched on onc
 would receive its data has a signed BAA. Those vendors are listed in `BAA_PROCESSORS` in
 `apps/api/wrangler.jsonc`, per environment. Add a vendor there by pull request only after its BAA
 is signed, and keep the signed copy. The ids are `cloudflare`, `neon`, `workos`, `anthropic`,
-`openai`, `twilio`, `meta_whatsapp`, `elevenlabs` and `resend`. The first three are needed for any
-HIPAA client. `anthropic` is needed for agents and document reading. M50: website measurement is
+`openai`, `twilio`, `meta_whatsapp`, `elevenlabs`, `resend`, `plaid` and `claude_ai`. The first
+three are needed for any HIPAA client. `anthropic` is needed for agents, document reading, the
+Builder on a client's agent and questions about runs in plain words. `plaid` is needed to offer the
+bank feed. `claude_ai` is claude.ai itself, for the Ops MCP connector: until it is listed, a client
+in HIPAA mode is left out of every MCP tool (the back office in a browser still serves it). M50: website measurement is
 held for a client in HIPAA mode whatever is listed: its site's beacons are answered and nothing is
 stored, until the owner decides (`docs/marketing/processor-terms-draft.md` §6). Web research
 (`anthropic_web`) and Hacker News (`hackernews`) are refused to it until listed.
@@ -914,7 +917,8 @@ disconnected. Then:
    - its Sentry events, if any name it.
 2. 30 days later, the hourly cron deletes its files (`tenants/<id>/` in R2) and records
    `client.purge_files` in the audit log.
-3. Then the owner purges its rows, as `cs_owner`:
+3. Then the owner purges its rows, as `cs_owner`, within 30 days of step 2 (the retention
+   policy's deadline; `client.purge_files` and `client.purge` in the audit log show it was met):
    `DIRECT_DATABASE_URL=<cs_owner url> pnpm --filter @countersign/db run db:purge-client -- <client id>`.
    It refuses to run until the 30 days have passed and step 2 is done. It briefly locks each table, so run it at a
    quiet hour. The audit log keeps the client's rows (ids only). Neon's point-in-time history
@@ -957,6 +961,46 @@ be disabled, as in `db:purge-client`.
   request, the checks `checks / check`, `checks / static` and `analyze`, no force pushes or
   deletion, admin bypass.
 - Neon, project `mezonas` (Launch): History window 7 days (Settings → Postgres).
+
+## 1.3 People: joining and leaving (access control)
+
+**Sign-in.** Only sign-ins where a second factor is certain get a session: email and password
+(WorkOS requires MFA), a passkey, or a client's SSO. Google, Microsoft, GitHub and Apple sign-ins,
+magic links and WorkOS impersonation are refused and audited (`sign_in_method`). Keep only email
+and password, passkeys and SSO switched on in AuthKit (Authentication → Methods), since the Ops MCP
+connector signs in through AuthKit without our callback. Set SSO up only for a client whose
+identity provider requires MFA.
+
+**Joining.** An operator: Actions → Add operator, on each environment. A client's person: invited
+from the client's People (back office) or Team (portal).
+
+**Leaving: the same day.** Log each step's date in the offboarding log:
+1. Mezonas: Actions → **Remove operator**, on production and staging. Every operator membership
+   goes, the back office and the Ops MCP connector refuse them on their next request, and the audit
+   log records `operator.remove` with the run. It refuses the last operator.
+2. WorkOS, both environments: delete the user (ends their WorkOS sessions).
+3. Google Workspace: suspend the account. That ends every sign-in made with Google.
+4. GitHub: remove them from the repository's collaborators.
+5. Each console in the accounts inventory (`docs/plaid-plan.md` §4) that isn't on Google SSO:
+   Cloudflare, Neon, WorkOS's dashboard, Plaid's dashboard, Sentry, Stripe, Twilio, Resend,
+   ElevenLabs, Anthropic and OpenAI consoles, the domain registrar.
+6. Any key they could read: rotate it (§1, "Worker secrets"). There should be none:
+   keys live in GitHub secrets and Workers, never with people.
+
+A client's person leaves from the client's People (back office) or Team (portal, the client admin):
+Remove. Access ends at once, and their open items go to the client admin.
+
+## 1.4 Vulnerabilities and patching
+
+Deadlines from when an alert is raised: critical 7 days, high 30, medium 90, low 180.
+- **Scanners:** Dependabot (alerts and security updates), CodeQL (`codeql.yml`) and OSV-Scanner
+  (`vulnerability-scan.yml`, the lockfile against OSV.dev). Findings are under Security.
+- **Deadlines:** `vulnerability-sla.yml` runs daily: an issue labelled `vulnerability` for each open
+  alert, titled with its due date, closed with how long the fix took. Its run summary lists what is
+  open and overdue. It reads Dependabot alerts only with the `ALERTS_TOKEN` secret: a fine-grained
+  token on `countersign` with "Dependabot alerts: read", renewed before it expires.
+- **Monthly:** read the latest run summary, fix or plan anything near its date, and save the summary
+  with the date.
 
 ## 2. What CI does
 
