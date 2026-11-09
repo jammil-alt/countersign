@@ -22,7 +22,7 @@ import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { shortTime, usd } from "../../runs/format";
-import { usePoll } from "../../runs/usePoll";
+import { pageVisible, usePoll } from "../../runs/usePoll";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge, AgentHuesProvider } from "../../ui/badges";
 import { hasRuns, Sparkbars, Sparkline, StatTile } from "../../ui/figures";
@@ -559,11 +559,23 @@ function LiveFeed() {
       }
     };
     void load();
-    const timer = setInterval(() => void load(), FEED_POLL_MS);
+    // Not while the tab is hidden (as usePoll); back on screen, it catches up at once.
+    let missed = false;
+    const timer = setInterval(() => {
+      if (pageVisible()) void load();
+      else missed = true;
+    }, FEED_POLL_MS);
+    const onVisible = () => {
+      if (!missed || !pageVisible()) return;
+      missed = false;
+      void load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       stopped = true;
       controller.abort();
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [api]);
 

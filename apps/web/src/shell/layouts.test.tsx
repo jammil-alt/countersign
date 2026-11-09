@@ -173,6 +173,31 @@ describe("back office layout", () => {
     expect(sessionStorage.getItem("mezonas.ops.client")).toBeNull();
   });
 
+  it("refreshes the Escalations count from Needs us alone, not the whole clients list", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/clients": () => ({
+        clients: [clientRow(SANDBOX, "Sandbox"), clientRow(DEMO, "Demo client", 2)],
+      }),
+      "GET /api/ops/needs-us": () => ({ count: 5, escalations: [] }),
+      [`GET /api/ops/clients/${DEMO}`]: () => ({
+        ...SANDBOX_DETAIL,
+        client: { ...SANDBOX_DETAIL.client, id: DEMO, name: "Demo client" },
+        agents: [],
+      }),
+    });
+    renderAt("/ops/lab", api);
+    const escalations = await screen.findByTestId("shell-inbox");
+    await waitFor(() => expect(escalations).toHaveTextContent("Escalations2"));
+    expect(api.calls.filter((c) => c === "GET /api/ops/needs-us")).toHaveLength(0);
+
+    // A page change asks for the count alone; the list is not loaded again.
+    await userEvent.selectOptions(await screen.findByTestId("ops-client-switcher"), DEMO);
+    await screen.findByRole("heading", { level: 1, name: "Demo client" });
+    await waitFor(() => expect(escalations).toHaveTextContent("Escalations5"));
+    expect(api.calls.filter((c) => c === "GET /api/ops/clients")).toHaveLength(1);
+  });
+
   it("opens a client from the switcher", async () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
