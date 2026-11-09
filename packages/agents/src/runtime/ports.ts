@@ -27,6 +27,7 @@ import type {
   FindingsPort,
   HealthPort,
   KnowledgePort,
+  LedgerPort,
   PlatformStore,
   RunMode,
 } from "../tools/types";
@@ -340,6 +341,8 @@ export interface RuntimePorts {
   knowledge?: KnowledgePort;
   /** The client's directory for `directory.*`; absent: those tools fail with a reason. */
   directory?: DirectoryPort;
+  /** B-2: the client's ledger for `ledger.*`; absent: those tools fail with a reason. */
+  ledger?: LedgerPort;
   /**
    * Human release; absent: a connection that needs one refuses every call (fails closed), as in a
    * voice call's tool, which can't wait for a code.

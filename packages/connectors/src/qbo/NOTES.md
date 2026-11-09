@@ -159,3 +159,61 @@ To verify (docs, then the sandbox company):
 8. Sandbox walk: list accounts and classes, add a vendor, create a purchase order for it with a
    class and a billable customer on a line, see it open in QuickBooks, then receive it into a bill
    by hand and check the order closes (we don't link bills to orders yet).
+
+## The chart of accounts (B-2, 2026-11-08, docs/plan.md §1.79)
+
+Built against the fake; check against the sandbox company:
+
+1. `Account`, `Class` and `Department` are accepted in CDC's `entities` and come back with
+   `Active: false` (or as a deleted row) when made inactive in QuickBooks; `select * from …` returns
+   active ones only. Locations are QuickBooks' Department (named Location in some companies).
+2. `Classification` is on every Account (we fall back to the account type's classification).
+3. A connection already on CDC reads its whole ledger once (the cursor's `ledger` flag), then CDC.
+4. The payment account of a Purchase (`AccountRef`) is kept as `ext.qbo.accountId` for matching
+   bank transactions.
+5. QuickBooks' own bank feed ("For review" in Banking) isn't in the Accounting API, as far as we
+   know: confirm, since it decides whether a client keeps QuickBooks' feed for an account.
+
+## Booking bank transactions (B-4, 2026-11-08, docs/plan.md §1.79)
+
+Built against the fake; check against the sandbox company:
+
+1. `select * from Purchase|Deposit|Transfer where TxnDate = '…'` filters by day (the duplicate check).
+2. A Purchase with `PaymentType: "Cash"` from a Bank account and `"CreditCard"` from a Credit Card
+   account; `Credit: true` for a card refund; `EntityRef` with `type: "Vendor"`.
+3. A Deposit's `DepositLineDetail.AccountRef` (an income account) and `ClassRef`; whether QuickBooks
+   wants `Entity` on the line.
+4. A Transfer between a bank and a card account (a card payment) is accepted, and `Amount` comes back.
+5. The private note keeps our `[Mezonas bk-…]` mark as written (length, characters), so a retried
+   write finds its own record.
+
+## The ledger's set-up (2026-11-08, docs/plan.md §1.79)
+
+`qbo.account.*`, `qbo.class.*`, `qbo.location.*` create and update, always signed. Built against the
+fake; check against the sandbox company:
+
+1. A name's limits (100 characters, no colon or double quote) and an account description's (100).
+2. `select * from Account|Class|Department where Name = '…' and Active in (true, false)`.
+3. Creating a sub-account (`SubAccount: true`, `ParentRef`) under a parent of the same type, a
+   sub-class (`SubClass`) and a sub-location (`SubDepartment`); and making one top level again by
+   sending the flag `false` with no `ParentRef` in a sparse update.
+4. Whether a sparse update needs `Name` (we send it unchanged) and `AccountType` (we send it only
+   when it changes).
+5. Changing an account's type once it has transactions: which changes QuickBooks refuses, and its
+   error code (we pass its words on).
+6. Duplicate names answer 6240; a repeated `requestid` answers the first result again.
+7. Departments are named "Location" in some companies' settings; the API entity stays Department.
+
+## The register, for reconciliation (R-1, 2026-11-08, docs/plan.md §1.80)
+
+`qbo.account.register` reads `GET /reports/GeneralLedger?account=<id>&start_date&end_date&columns=tx_date,txn_type,doc_num,name,memo,subt_nat_amount,rbal_nat_amount`.
+Built against the fake; check against the sandbox company:
+
+1. The answer's shape: `Columns.Column[].MetaData` with `ColKey`, sections with a "Beginning
+   Balance" row, data rows with `txn_type` carrying the transaction's `id`.
+2. That `subt_nat_amount` is signed as the account's own balance (a bank deposit positive, a card
+   charge positive as it raises what is owed), and `rbal_nat_amount` is the running balance.
+3. That `account=` takes the account id (not its name), and sub-accounts' postings: included or not.
+4. Accrual versus cash basis (`accounting_method`): we send none; a bank account is the same either way.
+5. Report limits (rows per report) for a busy account in one month.
+

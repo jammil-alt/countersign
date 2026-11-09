@@ -143,6 +143,35 @@ describe("sessions and roles", () => {
     });
   });
 
+  it("reads the user and memberships in one call when the directory offers it", async () => {
+    const calls: string[] = [];
+    const together = {
+      ...directory,
+      async user(id: string) {
+        calls.push("user");
+        return directory.user(id);
+      },
+      async memberships(id: string) {
+        calls.push("memberships");
+        return directory.memberships(id);
+      },
+      async account(id: string) {
+        calls.push("account");
+        return { user: byId.get(id)?.user ?? null, memberships: byId.get(id)?.memberships ?? [] };
+      },
+    };
+    const s = ok(await getSession(req("owner@ops.test"), { adapter, directory: together }));
+    expect(s.servedTenantIds).toEqual([A, B]);
+    // The dev adapter finds the user by email first; the session itself is one call.
+    expect(calls).toEqual(["account"]);
+    // A user gone since sign-in is refused, as before.
+    const gone = { ...together, account: async () => ({ user: null, memberships: [] }) };
+    expect(await getSession(req("owner@ops.test"), { adapter, directory: gone })).toMatchObject({
+      ok: false,
+      code: "session_invalid",
+    });
+  });
+
   it("maps to the /api/session response", () => {
     const built = buildSession(
       users["admin@millwork.test"]?.user as AuthUser,

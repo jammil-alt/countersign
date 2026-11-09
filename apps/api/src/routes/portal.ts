@@ -286,6 +286,21 @@ export function hasCredentialForm(connector: Pick<Connector, "manifest"> | undef
 // only one, and the rule is the portal's, not the connector's.
 export const PERSONAL_CONNECTORS: ReadonlySet<string> = new Set(["gmail"]);
 
+interface PortalConnectionRow {
+  connection: {
+    id: string;
+    status: string;
+    externalAccountId: string | null;
+    accountName: string | null;
+    lastSyncAt: string | null;
+    lastActivityAt: string | null;
+    permissions: ReturnType<typeof normalizeMatrix>;
+    access: ReturnType<typeof describeAccess>;
+    usedBy: { id: string; name: string }[];
+    connectedByYou: boolean;
+  } | null;
+}
+
 export async function portalConnections(
   tx: Tx,
   tenantId: string,
@@ -315,6 +330,8 @@ export async function portalConnections(
       usedBy: { id: string; name: string }[];
       connectedByYou: boolean;
     } | null;
+    multiple?: boolean;
+    others?: NonNullable<PortalConnectionRow["connection"]>[];
   }[]
 > {
   const [t] = await tx.select().from(tenant).where(eq(tenant.id, tenantId));
@@ -358,9 +375,26 @@ export async function portalConnections(
       })
     );
   });
+  const state = (c: ConnectionRow) => ({
+    id: c.id,
+    status: c.status,
+    externalAccountId: c.externalAccountId,
+    // QA round 1: a name the client knows, never a bare id (a QuickBooks realm id).
+    accountName: connectionLabel(c.config, c.externalAccountId),
+    lastSyncAt: iso(c.lastSyncAt),
+    lastActivityAt: iso(lastActivityOf(c, activity)),
+    permissions: normalizeMatrix(c.permissions),
+    access: (() => {
+      const m = platform.connectors.get(c.connector)?.manifest;
+      return m ? describeAccess(m, c.permissions) : [];
+    })(),
+    usedBy: usedBy(c),
+    connectedByYou: viewerId !== undefined && c.connectedBy === viewerId,
+  });
   return ids.map((id) => {
     const manifest = platform.connectors.get(id)?.manifest;
-    const c = rows.find((r) => r.connector === id) ?? null;
+    const all = rows.filter((r) => r.connector === id);
+    const c = all[0] ?? null;
     return {
       connector: id,
       name: manifest?.name ?? id,
@@ -371,19 +405,9 @@ export async function portalConnections(
       personal: PERSONAL_CONNECTORS.has(id),
       // v0.12 W2-A: the record types the matrix sets levels for.
       permissionEntities: manifest?.permissionEntities ?? [],
-      connection: c && {
-        id: c.id,
-        status: c.status,
-        externalAccountId: c.externalAccountId,
-        // QA round 1: a name the client knows, never a bare id (a QuickBooks realm id).
-        accountName: connectionLabel(c.config, c.externalAccountId),
-        lastSyncAt: iso(c.lastSyncAt),
-        lastActivityAt: iso(lastActivityOf(c, activity)),
-        permissions: normalizeMatrix(c.permissions),
-        access: manifest ? describeAccess(manifest, c.permissions) : [],
-        usedBy: usedBy(c),
-        connectedByYou: viewerId !== undefined && c.connectedBy === viewerId,
-      },
+      connection: c && state(c),
+      // B-5 (docs/plan.md §1.79): a tool connected several times lists the rest after the first.
+      ...(manifest?.multiple ? { multiple: true, others: all.slice(1).map(state) } : {}),
     };
   });
 }

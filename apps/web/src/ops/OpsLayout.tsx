@@ -12,6 +12,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { useLocation, useMatch, useNavigate } from "react-router-dom";
 import type { ResponseOf } from "../api/client";
@@ -62,29 +63,49 @@ function OpsFrame({ children }: { children: ReactNode }) {
   const clientId = useRouteClientId();
   const picked = usePickedClient();
 
-  // The clients served: the API's list, the session's memberships until it loads.
+  // The clients served: the API's list, the session's memberships until it loads. Loaded once, and
+  // again when the session's clients change (a client created).
   const clientsState = useApi(apiRoutes.opsClients);
   const clients = useMemo(
     () =>
       clientsState.data?.clients ?? [...new Map(session.tenants.map((t) => [t.id, t])).values()],
     [clientsState.data, session.tenants],
   );
-
-  // Escalations: what needs us (UI cleanup, stream A), from the clients list's `needsUs`, the
-  // count the Clients page and the command center show. Reloads on each page change and every
-  // 20 s, as the portal's Desk count does.
-  const { pathname } = useLocation();
   const { reload: reloadClients } = clientsState;
+  const tenantKey = session.tenants.map((t) => t.id).join(",");
+  const firstTenants = useRef(tenantKey);
+  useEffect(() => {
+    if (tenantKey === firstTenants.current) return;
+    firstTenants.current = tenantKey;
+    reloadClients();
+  }, [tenantKey, reloadClients]);
+
+  // Escalations: what needs us (UI cleanup, stream A), the count the Clients page and the command
+  // center show. First from the clients list's `needsUs`; then refreshed on each page change and
+  // every 20 s, as the portal's Desk count does, from Needs us alone.
+  // DECISION: the refresh asks /api/ops/needs-us, not the whole clients list again (docs/plan.md
+  // §1.82): the list's other figures were recomputed every 20 s for one number. Both count the
+  // same escalations (`needsUs` in apps/api), so the badge never jumps between them.
+  const [needsLive, setNeedsLive] = useState(false);
+  const needsState = useApi(apiRoutes.opsNeedsUs, needsLive ? {} : null);
+  const { reload: reloadNeeds } = needsState;
+  const refreshNeeds = useCallback(() => {
+    if (needsLive) reloadNeeds();
+    else setNeedsLive(true);
+  }, [needsLive, reloadNeeds]);
+  const { pathname } = useLocation();
   const firstPath = useRef(pathname);
   useEffect(() => {
     if (pathname === firstPath.current) return;
     firstPath.current = pathname;
-    reloadClients();
-  }, [pathname, reloadClients]);
-  usePoll(reloadClients, true, INBOX_COUNT_POLL_MS, clientsState.loading);
-  const needsUs = clientsState.data
-    ? clientsState.data.clients.reduce((n, c) => n + (c.needsUs ?? 0), 0)
-    : undefined;
+    refreshNeeds();
+  }, [pathname, refreshNeeds]);
+  usePoll(refreshNeeds, true, INBOX_COUNT_POLL_MS, needsState.loading);
+  const needsUs =
+    needsState.data?.count ??
+    (clientsState.data
+      ? clientsState.data.clients.reduce((n, c) => n + (c.needsUs ?? 0), 0)
+      : undefined);
 
   // On an agent's page: the client's agents, for the agent switcher.
   const agentMatch = useMatch("/ops/clients/:clientId/agents/:slug/*");

@@ -19,6 +19,8 @@ import {
   PageHeader,
   SectionLabel,
 } from "../ui/primitives";
+import { BankTransactionsView } from "./bookkeeping/BankTransactions";
+import { ReconciliationsView } from "./bookkeeping/Reconciliations";
 import { CatalogView, PackReportLinks, PriceWatchView } from "./materials/Reports";
 // P-9
 import { RequestsView, RequestView } from "./materials/Requests";
@@ -32,6 +34,11 @@ export function PortalRequestsScreen() {
   const { id } = useParams();
   return id ? <RequestView /> : <RequestsView />;
 }
+
+// B-6 (docs/plan.md §1.79): the Bookkeeping area's Bank transactions.
+export const PortalBankTransactionsScreen = () => <BankTransactionsView />;
+// R-1 (docs/plan.md §1.80): Reconciliations.
+export const PortalReconciliationsScreen = () => <ReconciliationsView />;
 
 // ── Back office ──────────────────────────────────────────────────────────────────────────────────
 
@@ -78,6 +85,26 @@ export function OpsClientRequestScreen() {
   return (
     <ClientFrame clientId={clientId}>
       <RequestView clientId={clientId} />
+    </ClientFrame>
+  );
+}
+
+// B-6: a client's bank transactions, with its account links, rules and chart of accounts.
+export function OpsClientBankTransactionsScreen() {
+  const { clientId = "" } = useParams();
+  return (
+    <ClientFrame clientId={clientId}>
+      <BankTransactionsView clientId={clientId} />
+    </ClientFrame>
+  );
+}
+
+// R-1: a client's reconciliations.
+export function OpsClientReconciliationsScreen() {
+  const { clientId = "" } = useParams();
+  return (
+    <ClientFrame clientId={clientId}>
+      <ReconciliationsView clientId={clientId} />
     </ClientFrame>
   );
 }

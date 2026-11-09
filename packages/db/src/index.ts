@@ -20,5 +20,11 @@ export {
   withUser,
 } from "./client";
 export * from "./directory";
-export { membershipsOfUser, type UserMembership, userMemberships } from "./queries";
+export * from "./ledger";
+export {
+  membershipsOfUser,
+  type UserMembership,
+  userMemberships,
+  userWithMemberships,
+} from "./queries";
 export * from "./schema";

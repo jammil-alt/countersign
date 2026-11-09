@@ -44,7 +44,58 @@ export function createDb(connectionString: string, options: CreateDbOptions = {}
     idle_timeout: 10,
     max_lifetime: 5 * 60,
   });
-  return drizzle({ client, schema }) as Db;
+  return drizzle({ client: withUnknownParams(client), schema }) as Db;
+}
+
+/** Postgres' `unknown` type: the server decides a parameter's type from the query, as for none. */
+const UNKNOWN_OID = 705;
+
+/** A value whose text form postgres-js writes the same whatever type the server reads it as. */
+function plainText(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (value instanceof Uint8Array) return false;
+  if (Array.isArray(value)) {
+    return value.every((v) => v === null || typeof v === "string" || typeof v === "number");
+  }
+  return typeof value !== "function";
+}
+
+/**
+ * The client drizzle uses, with every parameter sent as `unknown` instead of untyped.
+ *
+ * postgres-js describes a query whose parameters have no type before it runs it, on each
+ * connection, and waits for the answer: a second round trip for nearly every query, since a Worker
+ * opens a new connection per request. A parameter typed `unknown` is read by the server exactly as
+ * one with no type (it takes its type from where it is used), but postgres-js sends the query in
+ * one go, and queries issued together go together.
+ */
+// DECISION: twice fewer round trips per query (docs/plan.md §1.83). Only values whose text is the
+// same for any type are retyped (strings, numbers, booleans, dates, plain objects as JSON, arrays of
+// strings and numbers); bytes and anything else keep today's describe-first path.
+function withUnknownParams(
+  client: postgres.Sql,
+  asUnknown: (v: unknown) => unknown = (v) => client.typed(v as never, UNKNOWN_OID),
+): postgres.Sql {
+  const typed = (params: unknown) =>
+    Array.isArray(params) ? params.map((v) => (plainText(v) ? asUnknown(v) : v)) : params;
+  return new Proxy(client, {
+    get(target, prop, receiver) {
+      if (prop === "unsafe") {
+        return (query: string, params?: unknown, opts?: unknown) =>
+          (target.unsafe as (...a: unknown[]) => unknown)(query, typed(params), opts);
+      }
+      if (prop === "begin" || prop === "savepoint") {
+        return (...args: unknown[]) => {
+          const fn = args.pop() as (tx: postgres.Sql) => unknown;
+          const method = Reflect.get(target, prop) as (...a: unknown[]) => unknown;
+          return method.call(target, ...args, (tx: postgres.Sql) =>
+            fn(withUnknownParams(tx, asUnknown)),
+          );
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
 }
 
 export async function closeDb(db: Db): Promise<void> {
@@ -68,11 +119,22 @@ async function inScope<T>(db: Db, scope: Scope, fn: (tx: Tx) => Promise<T>): Pro
     throw new ScopeError(`not a user id: ${scope.userId}`);
   }
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select
-      set_config('app.tenant_ids', ${ids}, true),
-      set_config('app.operator', ${scope.operator ? "on" : "off"}, true),
-      set_config('app.user_id', ${scope.userId ?? ""}, true)`);
-    return fn(tx);
+    // The scope is sent first, then `fn` starts at once: its first queries travel with the scope
+    // instead of a round trip later.
+    // DECISION: one round trip less per transaction (docs/plan.md §1.82). The transaction holds one
+    // connection, and postgres-js runs a connection's statements in the order they were issued;
+    // `.then` here issues the scope before `fn` can issue anything, so every statement of `fn`
+    // still runs scoped. If the scope fails, the transaction is aborted and `fn`'s statements fail
+    // with it: closed, as before.
+    const scoped = tx
+      .execute(sql`select
+        set_config('app.tenant_ids', ${ids}, true),
+        set_config('app.operator', ${scope.operator ? "on" : "off"}, true),
+        set_config('app.user_id', ${scope.userId ?? ""}, true)`)
+      .then(() => undefined);
+    // An async wrapper, so a `fn` that throws before its first await rejects instead.
+    const [, out] = await Promise.all([scoped, (async () => fn(tx))()]);
+    return out;
   });
 }
 

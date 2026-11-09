@@ -50,6 +50,8 @@ export const CLIENT_TABS: {
     pages: [
       ["documents", "Documents"],
       ["records", "Records"],
+      // The ledger per accounting connection (docs/plan.md §1.79).
+      ["ledger", "Chart of accounts"],
     ],
   },
   {

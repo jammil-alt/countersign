@@ -267,6 +267,27 @@
       "when": 1794126783613,
       "tag": "0038_marketing_v2",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794169327087,
+      "tag": "0039_bookkeeping",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1794171769697,
+      "tag": "0040_reconciliation",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794195496976,
+      "tag": "0041_qbo_webhook_event",
+      "breakpoints": true
     }
   ]
 }

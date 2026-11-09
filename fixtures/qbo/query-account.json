@@ -9,8 +9,15 @@
         "FullyQualifiedName": "Accounts Payable (A/P)",
         "AccountType": "Accounts Payable",
         "AccountSubType": "AccountsPayable",
-        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
-        "Active": true
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-01-05T09:00:00-08:00",
+          "LastUpdatedTime": "2026-01-05T09:00:00-08:00"
+        }
       },
       {
         "Id": "80",
@@ -20,8 +27,15 @@
         "FullyQualifiedName": "Job Materials",
         "AccountType": "Cost of Goods Sold",
         "AccountSubType": "SuppliesMaterialsCogs",
-        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
-        "Active": true
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-01-05T09:00:00-08:00",
+          "LastUpdatedTime": "2026-01-05T09:00:00-08:00"
+        }
       },
       {
         "Id": "81",
@@ -31,8 +45,15 @@
         "FullyQualifiedName": "Job Materials:Freight In",
         "AccountType": "Cost of Goods Sold",
         "AccountSubType": "ShippingFreightDeliveryCos",
-        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
-        "Active": true
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-01-05T09:00:00-08:00",
+          "LastUpdatedTime": "2026-01-05T09:00:00-08:00"
+        }
       },
       {
         "Id": "84",
@@ -42,8 +63,15 @@
         "FullyQualifiedName": "Shop Supplies",
         "AccountType": "Expense",
         "AccountSubType": "SuppliesMaterials",
-        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
-        "Active": true
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-01-05T09:00:00-08:00",
+          "LastUpdatedTime": "2026-01-05T09:00:00-08:00"
+        }
       },
       {
         "Id": "85",
@@ -53,8 +81,15 @@
         "FullyQualifiedName": "Old Freight",
         "AccountType": "Expense",
         "AccountSubType": "ShippingFreightDelivery",
-        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
-        "Active": false
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "Active": false,
+        "MetaData": {
+          "CreateTime": "2026-01-05T09:00:00-08:00",
+          "LastUpdatedTime": "2026-01-05T09:00:00-08:00"
+        }
       },
       {
         "Id": "90",
@@ -64,8 +99,15 @@
         "FullyQualifiedName": "Sales Tax Payable",
         "AccountType": "Other Current Liability",
         "AccountSubType": "SalesTaxPayable",
-        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
-        "Active": true
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "Active": true,
+        "MetaData": {
+          "CreateTime": "2026-01-05T09:00:00-08:00",
+          "LastUpdatedTime": "2026-01-05T09:00:00-08:00"
+        }
       }
     ],
     "startPosition": 1,

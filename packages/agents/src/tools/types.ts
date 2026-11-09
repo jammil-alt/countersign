@@ -11,6 +11,10 @@ import type {
   FindingParams,
   HealthSummary,
   JsonObject,
+  LedgerAccountsInput,
+  LedgerAccountsOutput,
+  LedgerDimensionsInput,
+  LedgerDimensionsOutput,
   Locale,
   ToolSpec,
   VoiceSampleChannel,
@@ -60,6 +64,8 @@ export interface ToolInvocation {
   knowledge?: KnowledgePort | undefined;
   /** The client's directory (`directory.*`); absent where nothing provides it. */
   directory?: DirectoryPort | undefined;
+  /** B-2: the client's ledger (`ledger.*`); absent where nothing provides it. */
+  ledger?: LedgerPort | undefined;
   /** The client's own health records (`health.*`, the supervisor); absent where none is given. */
   health?: HealthPort | undefined;
   /** The supervisor's findings and summaries (`supervisor.*`); absent where none is given. */
@@ -227,6 +233,12 @@ export interface VoiceSampleForTool {
  * The client's directory as tools reach it (docs/plan.md §1.27). Implemented over the database in
  * `src/log/`; each call is one client-scoped transaction.
  */
+/** B-2 (docs/plan.md §1.79): the client's ledger for `ledger.*`, read in its own transaction. */
+export interface LedgerPort {
+  accounts(tenantId: string, input: LedgerAccountsInput): Promise<LedgerAccountsOutput>;
+  dimensions(tenantId: string, input: LedgerDimensionsInput): Promise<LedgerDimensionsOutput>;
+}
+
 export interface DirectoryPort {
   search(tenantId: string, input: DirectorySearchInput): Promise<DirectorySearchOutput>;
   get(tenantId: string, input: DirectoryGetInput): Promise<DirectoryGetOutput>;

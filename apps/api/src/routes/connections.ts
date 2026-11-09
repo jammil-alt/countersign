@@ -439,6 +439,76 @@ async function finishSignIn(
   return id;
 }
 
+/**
+ * B-5 (docs/plan.md §1.79): for a tool a client may connect several times (`multiple`), `add=1`
+ * starts another connection and `connection=<id>` signs one of them in again; anything else is the
+ * client's newest, as for every other tool.
+ */
+async function signInTarget(
+  tx: Tx,
+  tenantId: string,
+  connectorId: string,
+  connector: Connector | undefined,
+  query: { add?: "1" | undefined; connection?: string | undefined },
+): Promise<{ existing: ConnectionRow | undefined; claim?: string }> {
+  if (query.add || query.connection) {
+    if (!connector?.manifest.multiple) {
+      throw new HttpError(
+        409,
+        "one_only",
+        `${connector?.manifest.name ?? connectorId} is connected once`,
+      );
+    }
+  }
+  if (query.add) return { existing: undefined, claim: "new" };
+  if (query.connection) {
+    const [row] = await tx
+      .select()
+      .from(connection)
+      .where(
+        and(
+          eq(connection.id, query.connection),
+          eq(connection.tenantId, tenantId),
+          eq(connection.connector, connectorId),
+        ),
+      );
+    if (!row) throw notFound("connection");
+    return { existing: row, claim: row.id };
+  }
+  return { existing: await newestConnection(tx, tenantId, connectorId) };
+}
+
+/** The connection a callback completes: the one its signed state names, else the newest. */
+async function callbackTarget(
+  tx: Tx,
+  services: Services,
+  tenantId: string,
+  connector: Connector,
+  state: string | undefined,
+): Promise<ConnectionRow | undefined> {
+  const connectorId = connector.manifest.id;
+  if (connector.manifest.multiple && state) {
+    const read = await readOAuthState(state, { secret: stateSecret(services.env) });
+    const target = read.ok ? read.claims.target : undefined;
+    if (target === "new") return undefined;
+    if (target) {
+      const [row] = await tx
+        .select()
+        .from(connection)
+        .where(
+          and(
+            eq(connection.id, target),
+            eq(connection.tenantId, tenantId),
+            eq(connection.connector, connectorId),
+          ),
+        );
+      if (!row) throw notFound("connection");
+      return row;
+    }
+  }
+  return newestConnection(tx, tenantId, connectorId);
+}
+
 async function newestConnection(tx: Tx, tenantId: string, connectorId: string) {
   const [row] = await tx
     .select()
@@ -467,17 +537,14 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
   });
 
   mount(app, routes.portalAuthorize, async (ctx) => {
-    const { c, tx, tenantIds, params, session, services, role } = ctx;
+    const { c, tx, tenantIds, params, query, session, services, role } = ctx;
     const tenantId = tenantIds[0] as string;
     await offeredTo(tx, tenantId, params.connector);
-    const allowed = mayManage(
-      role,
-      session.user.id,
-      params.connector,
-      await newestConnection(tx, tenantId, params.connector),
-    );
-    if (!allowed.ok) throw new HttpError(403, "forbidden", allowed.message);
     const connector = services.platform.connectors.get(params.connector);
+    // B-5 (docs/plan.md §1.79): which connection a multi-connection sign-in is for.
+    const target = await signInTarget(tx, tenantId, params.connector, connector, query);
+    const allowed = mayManage(role, session.user.id, params.connector, target.existing);
+    if (!allowed.ok) throw new HttpError(403, "forbidden", allowed.message);
     if (connector?.manifest.auth === "oauth2") {
       if (!canSignIn(connector)) {
         throw new HttpError(
@@ -489,8 +556,7 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
       // v0.12 bankfeed: a hosted link widget (Plaid Link) opens in the page; its result comes back
       // to the callback route below with the state, as a provider's redirect would.
       if (connector.beginLink) {
-        const existing = await newestConnection(tx, tenantId, params.connector);
-        const reconnect = await reconnectContext(tx, services, existing);
+        const reconnect = await reconnectContext(tx, services, target.existing);
         const [t] = await tx
           .select({ settings: tenant.settings })
           .from(tenant)
@@ -509,6 +575,7 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
           }),
           stateSecret: stateSecret(services.env),
           ...(reconnect ? { reconnect } : {}),
+          ...(target.claim ? { target: target.claim } : {}),
         }).catch((error: unknown) => {
           if (error instanceof HttpError) throw error;
           reportHandled(`starting ${params.connector} failed`, error, {
@@ -568,7 +635,9 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
     const tenantId = tenantIds[0] as string;
     await offeredTo(tx, tenantId, params.connector);
     const connector = oauthConnector(services.platform, params.connector);
-    const existing = await newestConnection(tx, tenantId, params.connector);
+    // B-5: the signed state says which connection this is (another one, or one signed in again);
+    // completeAuthorization checks the state in full before anything is kept.
+    const existing = await callbackTarget(tx, services, tenantId, connector, body.params.state);
     const allowed = mayManage(ctx.role, session.user.id, params.connector, existing);
     if (!allowed.ok) throw new HttpError(403, "forbidden", allowed.message);
     const id = await finishSignIn(ctx, {

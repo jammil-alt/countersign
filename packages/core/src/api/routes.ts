@@ -46,6 +46,7 @@ import { gchatRoutes } from "./gchat";
 import { gsheetsRoutes } from "./gsheets";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
+import { ledgerRoutes } from "./ledger";
 // v0.12 W1-A: go-live stages and client controls
 import { lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
@@ -536,6 +537,26 @@ export const ToolAccessSchema = z.object({
   entity: z.string().nullable().optional(),
 });
 
+/** One connection of a tool, as the portal shows it. */
+export const PortalConnectionState = z.object({
+  id: z.string(),
+  status: z.string(),
+  externalAccountId: z.string().nullable(),
+  /**
+   * The account's name in the tool (e.g. the QuickBooks company), or a mail account's address;
+   * null when the tool gives neither (core connectionLabel).
+   */
+  accountName: z.string().nullable(),
+  lastSyncAt: NullableTimestamp,
+  /** The last sync, or for upload and forwarding the last document that came through. */
+  lastActivityAt: NullableTimestamp.optional(),
+  permissions: ConnectionMatrix,
+  access: z.array(ToolAccessSchema),
+  usedBy: z.array(z.object({ id: z.string(), name: z.string() })),
+  /** The signed-in person connected it (a client user may then disconnect it). */
+  connectedByYou: z.boolean().optional(),
+});
+
 export const PortalConnection = z.object({
   connector: z.string(),
   name: z.string(),
@@ -552,26 +573,20 @@ export const PortalConnection = z.object({
   personal: z.boolean().optional(),
   // v0.12 W2-A: the record types the connector declares, for the entity rows of the matrix.
   permissionEntities: z.array(PermissionEntity).optional(),
-  connection: z
-    .object({
-      id: z.string(),
-      status: z.string(),
-      externalAccountId: z.string().nullable(),
-      /**
-       * The account's name in the tool (e.g. the QuickBooks company), or a mail account's address;
-       * null when the tool gives neither (core connectionLabel).
-       */
-      accountName: z.string().nullable(),
-      lastSyncAt: NullableTimestamp,
-      /** The last sync, or for upload and forwarding the last document that came through. */
-      lastActivityAt: NullableTimestamp.optional(),
-      permissions: ConnectionMatrix,
-      access: z.array(ToolAccessSchema),
-      usedBy: z.array(z.object({ id: z.string(), name: z.string() })),
-      /** The signed-in person connected it (a client user may then disconnect it). */
-      connectedByYou: z.boolean().optional(),
-    })
-    .nullable(),
+  connection: PortalConnectionState.nullable(),
+  /** B-5 (docs/plan.md §1.79): a tool the client may connect several times (a second bank). */
+  multiple: z.boolean().optional(),
+  /** B-5: its other connections, oldest first, after `connection`. */
+  others: z.array(PortalConnectionState).optional(),
+});
+
+/**
+ * B-5: for a tool a client may connect several times, which one a sign-in is for: another one
+ * (`add=1`), or one signed in again (`connection=<id>`). Neither: the client's one, as before.
+ */
+export const PortalAuthorizeQuery = z.object({
+  add: z.literal("1").optional(),
+  connection: z.uuid().optional(),
 });
 
 /** The Gmail test email's body: empty. The recipient is never an input. */
@@ -1783,6 +1798,7 @@ export const portalRoutes = {
     summary:
       "Sign in to an offered tool: connects it, or answers where the provider's sign-in starts (a URL, or a link widget to open)",
     params: z.object({ connector: ConnectorId }),
+    query: PortalAuthorizeQuery,
     response: z.object({
       connection: PortalConnection,
       redirectUrl: z.string().nullable(),
@@ -2024,6 +2040,8 @@ export const routes = {
   ...whatsappMetaRoutes,
   // P-1: packs (the Purchasing area's Materials pack), docs/plan.md §1.63.
   ...packRoutes,
+  // The back office's chart of accounts (docs/plan.md §1.79).
+  ...ledgerRoutes,
   // P-6: the client runs it, we step in (docs/plan.md §1.68).
   ...stepInRoutes,
   // P-7: message translation (docs/plan.md §1.69).

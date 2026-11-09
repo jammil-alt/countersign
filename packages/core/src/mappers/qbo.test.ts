@@ -9,6 +9,7 @@ import credits from "../../../../fixtures/qbo/query-vendorcredit.json";
 import { dec } from "../money";
 import {
   isVoidedQboInvoice,
+  mapQboAccount,
   mapQboAttachable,
   mapQboInvoice,
   mapQboTransaction,
@@ -209,5 +210,68 @@ describe("mapQboInvoice (accounts receivable, v0.12)", () => {
 
   it("refuses what is not an invoice", () => {
     expect(() => mapQboInvoice({ Id: "1", TotalAmt: 5 })).toThrow(MapperError);
+  });
+});
+
+describe("mapQboAccount (B-2, docs/plan.md §1.79)", () => {
+  it("keeps an account's names, number, type, parent and description", () => {
+    expect(
+      mapQboAccount({
+        Id: 97,
+        SyncToken: "3",
+        Name: " Fuel ",
+        FullyQualifiedName: "Vehicles:Fuel",
+        AcctNum: "6120",
+        Classification: "Expense",
+        AccountType: "Expense",
+        AccountSubType: "Auto",
+        ParentRef: { value: "96" },
+        Description: "Gas for the trucks",
+        Active: true,
+        CurrencyRef: { value: "usd" },
+      }),
+    ).toEqual({
+      externalId: "97",
+      name: "Fuel",
+      fullName: "Vehicles:Fuel",
+      number: "6120",
+      classification: "expense",
+      kind: "expense",
+      accountType: "Expense",
+      accountSubType: "Auto",
+      parentExternalId: "96",
+      description: "Gas for the trucks",
+      currency: "USD",
+      active: true,
+    });
+  });
+
+  it("works out the classification from the type when it is left out", () => {
+    const of = (AccountType: string) => mapQboAccount({ Id: "1", Name: "A", AccountType });
+    expect(of("Bank").classification).toBe("asset");
+    // And its kind in the platform's words, whatever QuickBooks calls it.
+    expect(of("Bank").kind).toBe("bank");
+    expect(of("Credit Card").kind).toBe("card");
+    expect(of("Cost of Goods Sold").kind).toBe("cost_of_goods");
+    expect(of("Something new").kind).toBe("other");
+    expect(of("Credit Card").classification).toBe("liability");
+    expect(of("Cost of Goods Sold").classification).toBe("expense");
+    expect(of("Income").classification).toBe("revenue");
+    expect(of("Something new").classification).toBeNull();
+    expect(mapQboAccount({ Id: "1", Name: "A", Active: false }).active).toBe(false);
+  });
+
+  it("refuses an account with no name", () => {
+    expect(() => mapQboAccount({ Id: "1", Name: "" })).toThrow();
+  });
+
+  it("keeps the bank or card account a purchase was paid from", () => {
+    const p = mapQboTransaction("Purchase", {
+      Id: "9",
+      TotalAmt: 12,
+      AccountRef: { value: "35", name: "Checking" },
+      Line: [],
+    });
+    expect((p.ext?.qbo as { accountId?: string | null } | undefined)?.accountId).toBe("35");
   });
 });

@@ -58,7 +58,8 @@ dashboard.
 
 1. The Neon project `mezonas`, Postgres 16, in the region given when running the workflow (the owner
    chose the same region Plenary Labs uses, `aws-us-east-2`, which is the workflow's default),
-   unless the `NEON_PROJECT_ID` variable already names one.
+   unless the `NEON_PROJECT_ID` variable already names one. The API Worker is placed in the same
+   region (`placement` in `apps/api/wrangler.jsonc`, docs/plan.md §1.82): move both together.
 2. Role `cs_owner` (Neon-managed is fine for the owner) and database `countersign` on `main`; branch
    `staging` from `main`.
 3. On each branch, with SQL: `cs_runtime` (NOLOGIN) and `cs_worker` (LOGIN, member of `cs_runtime` only).
@@ -292,6 +293,14 @@ Still to do:
 5. Production: Intuit's app review for production keys, then the production redirect URI
    `https://app.mezonas.com/api/connections/qbo/callback` and webhook
    `https://app.mezonas.com/api/connections/qbo/webhook`, and the production secrets.
+6. **The webhook's verifier token** (docs/plan.md §1.81). Intuit shows one per key set: the
+   development keys' on the Development tab, the production keys' on the Production tab
+   (Webhooks → "Show verifier token"). Put each in its GitHub environment as the secret
+   `QBO_WEBHOOK_VERIFIER` (Settings → Environments → `staging` for the development one,
+   `production` for the production one); the next deploy copies it into the Worker. Never put it
+   in `wrangler.jsonc`, a commit or a message. Without it the webhook answers 503. Check after a
+   deploy: an unsigned POST answers 401 (`curl -sS -X POST <url> -d '{}'`); Intuit's "Send test
+   notification", if offered, answers 200 and shows as "qbo webhook received" in the Worker's logs.
 
 ### Google (Gmail, send only, M10)
 
@@ -879,6 +888,37 @@ ships tools and skills only; the agents that use it are built in the Agent lab.
 4. **Where the results show:** the client's portal Reports (Price watch, Catalog, each with a CSV);
    the same for the back office under the client (`/ops/clients/:id/reports/materials/prices`);
    unsure matches arrive in the inbox as a match review card, and each answer teaches the catalog.
+
+### Switching on the Bookkeeping area (bank transactions into QuickBooks)
+
+The Bookkeeping pack (`docs/plan.md` §1.79) books a client's bank and card transactions in its
+QuickBooks: each one matched with what is already there, booked by the client's rules or proposed
+from its chart of accounts, a person deciding what isn't sure, and every write signed.
+
+1. **Migrations 0039 and 0040 must be applied.** Plaid's keys must be set (`PLAID_CLIENT_ID`, `PLAID_SECRET`,
+   above) and QuickBooks' (`QBO_*`).
+2. **The client connects QuickBooks and its banks** from the portal's Connections page. Each bank is
+   its own connection ("Connect another bank"); the first QuickBooks sync brings the chart of
+   accounts.
+3. **Switch on the Bookkeeping pack** for the client (Packs → Bookkeeping → Switch on). The
+   Bookkeeper template is installed the first time any client gets it.
+4. **Link the accounts**: the client's page → Packs → Bank transactions → "Read the feed now", then
+   for each bank or card account pick its QuickBooks account and what we do with it: **Book in
+   QuickBooks** (we write it after a person signs), **Suggest only** (the client keeps QuickBooks'
+   own bank feed for that account and enters it there; we match it once it is in), or **Off**. Set
+   "Book from" to the first day not yet in the books. Nothing is booked until an account is on.
+5. **Add the rules you already know** (Rules on the same page): a payee, money in or out, an
+   account. More are learned from the client's approvals.
+6. **Fork the Bookkeeper** into the client (Agents → New agent → from a template), bind its
+   QuickBooks connection and its bank feed, publish and take it through trial as usual. It runs every
+   morning in the client's time zone, every Monday asks the client what its undescribed accounts
+   are for, and on the 3rd of each month reconciles each linked account against QuickBooks for last
+   month (asking a person to sign off any month that isn't balanced). "Check a deposit against its
+   payout statement" is run by hand with the deposit and the statement's document.
+7. **What the client sees**: Reports → Bank transactions and Reconciliations (read only); the
+   booking review card, the account questions and the reconciliation card in its Desk; each
+   QuickBooks write as an approval. The chart, its notes and
+   the rules are the back office's.
 
 ### Mezonas, our own client (the Marketing area, `docs/plan.md` §1.72)
 

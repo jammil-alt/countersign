@@ -2169,6 +2169,181 @@ the lawyer (`docs/marketing/processor-terms-draft.md`; the runbook is `docs/oper
 | Processor wording | Drafted, not applied: `docs/marketing/processor-terms-draft.md` (we are the client's processor and service provider for its visitors; what the terms, a DPA, the client's own notice and our privacy policy need; HIPAA and children's sites held). The site keeps its terms until the lawyer and the owner decide. |
 | Not in M50 | A CMS publishing connector (`wordpress`, `webflow`: only when a client asks); a portal screen for content approvals (they reach the Desk as any agent's approvals); a portal snippet page (the operator sends the snippet); marking report actions from the portal. |
 
+### 1.79 The Bookkeeping area: bank transactions into QuickBooks (B-1 to B-6, M51–M56; migration 0039)
+
+Owner, 2026-11-08: "integrate Plaid to pull transactions from clients that log in, to build a
+bookkeeping agent", and "a table at a connector level for clients that has their chart of
+accounts; use memory to enrich the description of the accounts as we book things, or ask
+clarifications". This brings the **Bookkeeping area** into scope (ARCHITECTURE §1 listed a
+Bookkeeping pack as out; it is in from here, to be written into ARCHITECTURE v0.16 with the
+Marketing area). The bank feed itself (`bankfeed`, Plaid, §1.52) is built; this stream turns its
+transactions into bookings in the client's QuickBooks. Hot-spot edits are blocks headed `// B-n: …`.
+
+**Shape.** A client connects its bank or card in the portal (Plaid Link, built). Each transaction
+lands as a raw record (built). The new **Bookkeeping pack** (`packs/bookkeeping`) reads those into
+its own `bank_txn` rows, one per transaction, with a status. For each bank or card account the
+client has linked to a QuickBooks account, the agent books each posted transaction: first a match
+with a record already in QuickBooks, then the client's rules, then the model, and a person when it
+isn't sure. Each booking is written to QuickBooks once, after approval (invariant 8). The client's
+**chart of accounts** is a platform table synced from QuickBooks, with **notes** that say what each
+account is used for: the client's own words (asked on a card when an account isn't clear), the
+operator's, and the agent's, learned from what was booked there, each with its sources.
+
+**Tables (0039).**
+
+Platform (shared records like `vendor`; the connector fills them, any agent or pack reads them):
+
+| Table | Columns | Rules |
+|---|---|---|
+| `ledger_account` | `id`, `tenant_id`, `connection_id`, `connector` (`qbo`), `external_id` (QuickBooks' `Account.Id`), `name`, `full_name` (`FullyQualifiedName`), `number` (`AcctNum`), `classification` (`asset`, `liability`, `equity`, `revenue`, `expense`), `kind` (the platform's words: `bank`, `card`, `receivable`, `payable`, `other_current_asset`, `fixed_asset`, `other_asset`, `other_current_liability`, `long_term_liability`, `equity`, `income`, `other_income`, `cost_of_goods`, `expense`, `other_expense`, `other`), `account_type` (the tool's own, e.g. `Credit Card`), `account_sub_type`, `parent_external_id`, `description` (QuickBooks' own), `currency`, `active`, `raw_record_id` (the version read), `created_at`, `updated_at` | Unique (`connection_id`, `external_id`): the ledger belongs to the accounting connection, one to one with the company's general ledger. Synced in place (UPDATE), never deleted: an account deleted or made inactive in QuickBooks is `active = false`. |
+| `ledger_dimension` | `id`, `tenant_id`, `connection_id`, `connector`, `kind` (`class`, `location`), `external_id`, `name`, `full_name`, `parent_external_id`, `active`, `raw_record_id`, `created_at`, `updated_at` | The ledger's classes and locations (QuickBooks' Class and Department), unique (`connection_id`, `kind`, `external_id`); synced in place, never deleted. |
+| `ledger_account_note` | `id`, `tenant_id`, `ledger_account_id`, `note` (≤ 500 characters), `source` (`client`, `operator`, `agent`), `sources` (record ids it rests on, json array), `agent_version_id`, `user_id`, `inbox_item_id` (the question it answers), `created_at` | Insert only (no UPDATE or DELETE grant): a change is a newer note. An agent's note needs sources (invariant 10) and an agent version; a person's needs a user. |
+
+The Bookkeeping pack (`pack:bookkeeping`):
+
+| Table | Columns | Rules |
+|---|---|---|
+| `bank_account_link` | `id`, `tenant_id`, `connection_id` (the bank feed), `external_account_id` (Plaid's account id), `name`, `mask`, `kind` (`bank`, `card`, `other`), `ledger_account_id` (the QuickBooks bank or card account; null until linked), `mode` (`off`, `suggest`, `book`), `book_from` (date), `updated_by`, `created_at`, `updated_at` | One per (connection, account). Made by the import when an account is first seen, `off`. Linked and switched on by a person (back office or the client admin), never by an agent. |
+| `bank_feed_cursor` | `tenant_id`, `connection_id`, `last_raw_record_id`, `updated_at` | Where the import got to in the feed's raw records. |
+| `bank_txn` | `id`, `tenant_id`, `connection_id`, `account_link_id`, `external_id` (Plaid's transaction id), `raw_record_id` (latest version), `txn_date`, `amount` (`numeric(14,4)`, positive), `currency`, `direction` (`in`, `out`), `payee` (merchant, else the bank's words), `payee_key` (normalised), `description`, `bank_category`, `status`, `created_at`, `updated_at` | One per (connection, external id). Status: `pending` (the bank hasn't posted it), `new`, `matched` (already in QuickBooks), `proposed`, `needs_review`, `approved`, `posted`, `excluded` (a person said not to book it), `removed` (the bank dropped it), `skipped` (its account isn't on, or before `book_from`). |
+| `booking_rule` | `id`, `tenant_id`, `payee_key`, `direction`, `account_link_id` (null: any account), `ledger_account_id`, `vendor_id`, `class_ref`, `memo`, `source` (`person`, `learned`), `active`, `hits`, `created_by`, `created_at`, `updated_at` | A person's rule wins over a learned one; the most specific (with an account) wins. Learned after two approvals of the same payee to the same account with no disagreement. |
+| `booking` | `id`, `tenant_id`, `bank_txn_id`, `kind` (`expense`, `deposit`, `transfer`, `match`), `status` (`proposed`, `approved`, `rejected`, `posted`, `failed`, `superseded`), `decided_by` (`match`, `rule`, `model`, `person`), `confidence` (`numeric(4,3)`), `rule_id`, `matched_transaction_id` (a QuickBooks record already there), `transfer_link_id`, `vendor_id`, `memo`, `sources`, `agent_version_id`, `run_id`, `user_id`, `external_action_id`, `qbo_entity`, `qbo_id`, `error`, `created_at`, `decided_at`, `posted_at` | Insert, then status only: a changed decision is a new booking, the old one `superseded` (history kept). At most one live booking per transaction (a partial unique index). |
+| `booking_line` | `id`, `tenant_id`, `booking_id`, `line_no`, `ledger_account_id`, `amount` (`numeric(14,4)`), `class_ref`, `customer_ref`, `description` | Insert only. The lines add up to the transaction's amount exactly (decimal.js); a split is several lines. |
+
+Every pack table has `tenant_id`, forced RLS on `app.tenant_ids` and composite `(x_id, tenant_id)`
+foreign keys, like every area (invariant 1).
+
+| Topic | Decision |
+|---|---|
+| Where the chart of accounts lives | A platform table, filled by the QuickBooks connector's sync (`Account`, `Class` and `Department` join the synced entities: every one at the initial read, then CDC; a connection already on CDC reads them once), so the Bill clerk, the buyer and any later accounting connector share it. Not the pack's: accounts are the client's tool's records, like vendors. // DECISION |
+| What an account means | `bookkeeping.accounts.list` gives each active account its name, number, type, QuickBooks' description, its notes (the client's and the operator's first, then the agent's, newest first, at most five) and the payees most often booked there (computed from posted and approved bookings, never stored). That last list is the "memory" that grows as we book; it needs no model and can't drift from what was booked. // DECISION |
+| Notes the agent writes | `bookkeeping.account.note` (internal) adds an `agent` note, at most one sentence, with the bookings it rests on as sources; refused without sources. It never replaces the client's words: they are listed first. // DECISION |
+| Asking the client | `bookkeeping.accounts.unclear` lists the active income, expense and cost-of-goods accounts with no description and no person's note (at most 10, the ones the model was unsure between first). A workflow's person step shows them on the card `bookkeeping.account-questions` ("What do you use this account for?"); each answer is a `client` note linked to the inbox item. The booking review card also takes an optional "why" with a person's choice, kept as a `client` note on the chosen account. // DECISION |
+| Import | `bookkeeping.transactions.import` (internal, also the pack's nightly at 04:16 UTC) reads the bank feed's raw records after the cursor, under a share lock on the connection so a sync in progress commits first. A new account makes its link (`off`). A version updates its `bank_txn` (amount, date, words) while it isn't approved or posted; a removed one is `removed`, or, if already posted, flagged for a person (`ext.removedAfterPosting`). A pending transaction stays `pending`; when it posts, the pending row is `removed` and the posted one is the one booked. A test run imports nothing. // DECISION |
+| Which transactions are booked | Only those on a link with `mode` `suggest` or `book`, a QuickBooks account, and a date on or after `book_from`; the rest are `skipped`. `suggest` proposes and stops; `book` proposes and, once approved, posts. A link is `off` until a person turns it on, so connecting a bank changes nothing in QuickBooks. // DECISION |
+| Order of deciding | Invariant 7. (1) **Match**: a QuickBooks purchase (synced `transaction`) for the same amount to the cent, dated within 3 days, paid from the linked account (its id, else its name), not already matched: `matched`, nothing written. (2) **Transfer**: an `out` on one linked account and an `in` of the same amount within 3 days on another (a card payment, a move to savings): one `transfer` booking. (3) **Rule**: the client's rule for the payee: `proposed`, confidence 1. (4) **Model**: `bookkeeping.categorize` (an `agent` skill) picks an account from the chart, with the notes and examples as tool results (invariant 9: the bank's words are data); at or above `book_confidence_auto` (default 0.85) `proposed`, else `needs_review`. (5) **Person**: the card. // DECISION |
+| Bookings are proposals | `bookkeeping.booking.propose` (internal) records a booking and its lines; the lines must add up to the amount and every account must be the client's and active. Nothing is written to QuickBooks by the pack. // DECISION |
+| Writing to QuickBooks | B-4 adds `qbo.purchase.create` (an expense, check or card charge; a card refund is `Credit: true`), `qbo.deposit.create` and `qbo.transfer.create`, external, approval on, each with its before state (none) and a duplicate check (the same amount, date and account already in QuickBooks refuses). The workflow passes `bookkeeping.booking.qbo-input`'s answer to the write and `bookkeeping.booking.posted` records the QuickBooks id. Delete stays off. // DECISION |
+| Learning | A person's choice on the card is a `person` booking; two approvals of one payee to one account make a `learned` rule; a person's rejection of a learned rule's booking turns the rule off. Rules and notes are the client's and never reach another client or a template (invariant 1, 11). // DECISION |
+| QuickBooks' own bank feed | Per account, by `mode`: if the client keeps QuickBooks' bank feed for an account, set it to `suggest` (we propose and match; the client adds it in QuickBooks, and the match step then finds it), or `book` and turn QuickBooks' feed off for that account. The operator decides with the client; the link page says so. // DECISION: QuickBooks' API doesn't expose its "For review" list (to verify, `qbo/NOTES.md`). |
+| Several banks | B-5. The platform keeps one connection per connector today; the tables already key everything by connection. |
+| The template | B-4: **Bookkeeper**, the pack's template (installed when the pack is switched on): a daily schedule and the bank feed's events start a run: import, match, rules, categorize, the review card for the unsure, the account questions when needed, then for each approved booking the QuickBooks write and `posted`. Mode `suggest_only` until the operator moves it on; approval on for every write. |
+| Not built | Reconciliation came after, in §1.80 (QuickBooks' API has no reconciliation, so the sign-off lives with us); receipts matched to bank transactions (the Bill clerk's documents could later); sales tax; several currencies in one booking. |
+
+Built (2026-11-08, branch `claude/eager-newton-2pwbvb`): M51–M56 against the fakes (QuickBooks,
+Plaid, a FakeModel). Decisions made while building:
+
+| Topic | Decision |
+|---|---|
+| Proposals go to the write | A proposal (a rule's, or the model's at or above the threshold) on an account set to book is ready for its QuickBooks write without a stop on the card: the write's signature is the person's approval (invariant 8). The card is for what the model wasn't sure of (`needs_review`). A declined or refused write records no id: the booking is `failed` and the transaction goes back to the card. // DECISION |
+| Suggest-only accounts | A proposal on an account set to suggest waits; each settle looks for it in QuickBooks, and once the client has entered it the proposal is superseded by a match. // DECISION |
+| The write's reference | Each QuickBooks record carries `[Mezonas bk-<booking id>]` in its private note: a record with it is this booking's earlier write (done); one for the same account, day and amount without it was entered by someone else, and the write is refused ("match it instead"). // DECISION |
+| Card refunds | Money back onto a card booked to an expense or income account is a card credit (`qbo.purchase.create` with `credit`), not a deposit: QuickBooks deposits go to bank accounts. // DECISION |
+| Examples by payee key | An account's examples group by the payee key, so "Shell" and "SHELL 5741" count as one payee. // DECISION |
+| The ledger per connection (owner, 2026-11-08) | The chart of accounts, classes and locations belong to the accounting connection, one to one with that company's general ledger: unique by connection and the tool's id, so a client with several entities (several QuickBooks companies, later) gets each ledger beside the other with no ids colliding. Several QuickBooks connections per client, synced records and vendor ids by connection, and an agent per company are left until a client needs them. // DECISION |
+| A kind in the platform's words | Each connector's mapper sets `ledger_account.kind` from the tool's own type (kept in `account_type` for display); agents and packs read the kind, so "is this a card account" is asked the same way for QuickBooks and any later tool. One list in core (`LEDGER_KIND_VALUES`) and the database's check (`LEDGER_KINDS`), held together by a test. // DECISION |
+| The chart for any agent | `ledger.accounts.list` and `ledger.dimensions.list` are platform tools (the `ledger.chart` skill), over packages/db's `ledgerChart` and `ledgerDimensions`: any of the client's agents reads the chart with its notes, Bookkeeping on or not. The pack's `bookkeeping.accounts.list` is the same read plus the payees its bookings show. // DECISION |
+| The ledger's set-up (owner, 2026-11-08: "full control, always behind an approval gate") | `qbo.account.create`/`update`, `qbo.class.create`/`update` and `qbo.location.create`/`update` (QuickBooks' Department): name, type, detail type, number, description, parent, active or inactive. Every one is `approval: "always"`: a person signs each change whatever a step, the client's matrix or the agent's mode says, and a workflow step set to run without one fails validation. Nothing is deleted (QuickBooks makes a record inactive). A change names the version it was read at and is refused if QuickBooks moved on; a name in use is refused when proposed, and by QuickBooks (6240, in our words) if it was taken since; a retried write is QuickBooks' to recognise by its request id. Accounts, classes and locations gain create and update in the connection's permissions. // DECISION |
+| The chart of accounts page | The back office's client page, Data → Chart of accounts (`GET /api/ops/clients/:id/ledger`): each connection's accounts, classes and locations with the version last synced. Adding or changing one shows the change (before and after) first; "Sign and save" is the operator's signature, recorded as an external action they approved (the signed write of §1.76) and run once; then the connection syncs so the ledger catches up. The client's portal doesn't change the chart (yet). // DECISION |
+| Several banks | A connector may be `multiple` (the bank feed is). `?add=1` on the sign-in starts another connection and `?connection=<id>` signs one in again; the signed state carries which (`x`). Every other tool keeps one connection (409 `one_only`). // DECISION |
+| Screens | The portal's Bank transactions report (read only, six languages); the two cards on both surfaces; the back office's Bank transactions page under the client with the feed's accounts (link, mode, book from), the rules and the chart with its notes (English, as the back office). // DECISION |
+
+Open for the owner:
+
+- Plaid's price per connected bank, absorbed or in credits (§7 item 9).
+- The default `book_confidence_auto` (0.85) and whether `book` mode may ever post without a person (it may not today: invariant 8's `auto` needs the operator and the client's matrix).
+- Whether learned rules need a person's yes before they apply (today: two consistent approvals).
+
+### 1.80 Reconciliation: two numbers, the items behind them, compared (R-1, M57; migration 0040)
+
+Owner, 2026-11-08: "a step where the agent looks at two numbers and the transactions supporting
+them and compares them: the bank balance at the bank against the bank balance in QuickBooks, a
+payment on the bank against the payment statement, and so on; flexible but most accurate". In the
+Bookkeeping area (§1.79). Hot-spot edits are blocks headed `// R-1: …`.
+
+**Shape.** Every reconciliation compares side A with side B. Each side is a balance (or total) as of
+a date, the items that make it up, and the records they came from. Each item carries its **effect**:
+how much it moves that side's balance (a deposit +, a cheque −; on a card, a charge + and a payment −,
+as the balance is what is owed). Sources fill a side:
+
+| Source | Balance | Items |
+|---|---|---|
+| `bank_feed` | Plaid's current balance (from `bankfeed.account.query`), less what posted after the date | The account's `bank_txn` in the period |
+| `given` | As the step passes it (e.g. `qbo.account.register`: QuickBooks' opening and closing as of the dates) | As passed, each with its id |
+| `records` | Their sum | Bank transactions named by id (one deposit, a payment) |
+| A statement | Opening and closing as read | Its lines, read by `bookkeeping.read-statement` (the model, the text as data) and passed as `given` |
+
+| Topic | Decision |
+|---|---|
+| The anchor | Two checks in decimal, never the model's: each side **rolls forward** (opening + its items = closing, when both are known; a side that doesn't is refused as incomplete, e.g. a statement misread), and the difference is **explained**: (closing A − closing B) = (opening A − opening B − what was carried) + (Σ unmatched A − Σ unmatched B). What remains is the `residual`; a reconciliation with a residual is `unexplained` and can't be signed off. // DECISION |
+| Matching, in invariant 7's order | (1) exact: the same effect to the cent and the same reference, dates within the window; (2) the same effect, dates within the window, one candidate only; (3) groups: one item equals the sum of up to `max_group` on the other side within the window (a payout: charges − refunds − fees), only when exactly one group fits; (4) the model proposes pairs for what is left, with a reason, never accepted by itself; (5) a person on the card. Tolerance is 0 cents unless a setting says otherwise, and the result shows it. // DECISION |
+| Leftovers | Each unmatched item is labelled: `timing` (dated near the end and likely to clear: a deposit in transit, an outstanding cheque), `missing` (only on one side), `amount_differs` (a reference on both sides with different amounts, usually a fee), `duplicate` (the same effect, reference and date twice on one side). A person may relabel. // DECISION |
+| Carried items | A pair (the same bank account and QuickBooks account, say) has a `pair_key`. A signed-off reconciliation's unmatched items are carried into the next one of the pair and can match its items (a deposit in transit clears). // DECISION |
+| Outcome | `balanced` (no difference, nothing unmatched), `explained` (residual 0, leftovers listed), `unexplained` (residual ≠ 0: "$X isn't explained by the items we have"). Led by the numbers: "Bank $12,430.17, QuickBooks $12,180.17, difference $250.00: one deposit in transit". // DECISION |
+| Kept | `reconciliation`, `reconciliation_item`, `reconciliation_match` in the pack. Matches are accepted, proposed (the model's) or rejected; a person's are `person`. Signing off is a person's, on the card, only when explained; a signed-off reconciliation never changes (only its status columns before sign-off). A new run for the same pair and period supersedes an open one. QuickBooks' API can't mark items reconciled, so the sign-off lives here. // DECISION |
+| Fixes | Proposals only: a missing bank fee goes through the Bookkeeper's bookings, behind approval. The skill writes nothing outside. // DECISION |
+| QuickBooks' register | `qbo.account.register`: an account's opening balance, closing balance and postings between two dates, from QuickBooks' GeneralLedger report (to check against the sandbox, `qbo/NOTES.md`). // DECISION |
+| The Bookkeeper | A monthly workflow (the 3rd, in the client's time zone): each linked account against its QuickBooks account for last month, the model's proposals for leftovers, the card for a person. A manual workflow checks one deposit against a payout statement document. // DECISION |
+
+Built (2026-11-08, branch `claude/eager-newton-2pwbvb`): M57 against the fakes (QuickBooks, Plaid,
+a FakeModel). Decisions made while building:
+
+| Topic | Decision |
+|---|---|
+| What is carried | The pair's last **settled** reconciliation before the day: signed off, or balanced (nothing left, so nobody is asked). An open one with leftovers is never carried unchecked. // DECISION |
+| Who is asked | Only a reconciliation that isn't balanced goes to the model's suggestions and the card; a balanced month asks nobody and stays open with nothing to sign. Owner, 2026-11-09: confirmed, no sign-off for a month with zero difference. // DECISION |
+| The window and the tolerance (owner, 2026-11-09) | The window stays 5 days, for timing. The tolerance stays a setting of the reconcile step, 0 by default, because the skill reconciles more than banks: a purchase order against its bill, say, where a supplier's rounding or a small agreed difference is a fair tolerance. A bank account against QuickBooks keeps 0: whatever the Bookkeeper books is written at the bank's own amount, so the two match to the cent; a foreign-currency difference arises when a payment is applied to an invoice or bill (a realized gain or loss, at matching, from the bank's actual rate), not at reconciliation. A match within a tolerance still leaves its cents in the residual, so it spares a person the matching, never the explaining. // DECISION |
+| The bank's balance as of the day | Plaid's `current` balance is today's: what posted after the day is taken off. Pending transactions aren't in it and aren't items (to check in Plaid's sandbox, `bankfeed/NOTES.md`). The feed side's opening is its closing less the period's items, so an item the feed misses shows in the residual. // DECISION |
+| Reads in a workflow | The bank's balances and QuickBooks' register are the platform's read skills of those connector tools (`bankfeed.account.query`, `qbo.account.register`): action steps are only for writes. The monthly run lists only the accounts the bound bank feed answered for. // DECISION |
+| The tools | `bookkeeping.reconcile.pairs` (each linked account against its QuickBooks account, the period and today's balance), `bookkeeping.reconcile` (both sides built, matched, kept; a test run keeps nothing), `bookkeeping.reconcile.open` (what is left, the words as data) and `bookkeeping.reconcile.propose` (the model's suggestion, checked in code to add up, never accepted by itself). Skills: `bookkeeping.reconcile-pairs`, `bookkeeping.reconcile-two` (settings `window_days`, `tolerance`, `max_group`, `timing_days`), `bookkeeping.explain-leftovers` (agent) and `bookkeeping.read-statement` (task, the small model). // DECISION |
+| The card | `bookkeeping.reconciliation`: accept or reject a suggestion, match chosen items (they must add up within the tolerance), undo a match, relabel, add what one side is missing (a person's item, labelled missing), and sign off with a note once the residual is 0. Each decision works the residual out again. Its screens: the card, and Reports → Reconciliations (portal and back office). // DECISION |
+
+### 1.81 Intuit's webhook notifications kept, one row per change (migration 0041)
+
+Owner, 2026-11-09: Intuit's production review wants a live, verified webhook, and each change it
+reports stored once with its realm, entity, id, operation and time. The endpoint already existed
+(`POST /api/connections/qbo/webhook`, M9); this extends it rather than adding a second one.
+
+| Topic | Decision |
+|---|---|
+| One endpoint | `POST /api/connections/qbo/webhook` stays the app's one webhook (production: `https://app.mezonas.com/api/connections/qbo/webhook`), with its existing secret `QBO_WEBHOOK_VERIFIER`. The signature (`intuit-signature`, base64 HMAC-SHA256 of the raw body under the verifier) is checked before anything parses the body, in constant time; missing or wrong is 401. // DECISION |
+| Kept | `qbo_webhook_event`: one row per record change (realm, entity, id, operation, Intuit's `lastUpdated`, when we received it, whether it started a sync), for each connection to that company, under the client's row-level security. A change for a company no client has connected is logged and not kept (no client to keep it under). Insert only. // DECISION |
+| Once | Unique on connection, entity, id, operation and `lastUpdated` (nulls not distinct): a resent notification keeps nothing new. // DECISION |
+| Acted on | A change to an entity our sync reads (`QBO_SYNCED_ENTITIES`) starts a sync of the company (CDC); any other is kept and nothing more. The change itself is read by that sync, never processed inline. // DECISION |
+| Unreadable | A signed body that isn't JSON or isn't a notification is answered 200 and logged, not refused: Intuit would only resend it, and the next sync reads the changes anyway. // DECISION |
+| Logged | Receipt, the result of the check, the realm ids, how many changes per entity, how many kept, syncs started. Never the body, an entity's id or the verifier. // DECISION |
+
+### 1.82 Speed: where the Worker runs, and fewer round trips (2026-11-09)
+
+The back office took 1–4 s per request on staging (owner, 2026-11-09). Measured: about a third of
+API requests, `/api/health` included, waited 1–2.8 s for a fresh Worker (Cloudflare's measured
+startup is 309 ms; the rest is outside our code), and a warm command center made about 45 database
+round trips in a row from the visitor's nearest location to Neon in `aws-us-east-2`. The back office
+also reloaded the whole clients list every 20 s for one number, in background tabs too.
+
+| Topic | Decision |
+|---|---|
+| Placement | `"placement": { "region": "aws:us-east-2" }` for staging and production (`apps/api/wrangler.jsonc`): the Worker runs next to Neon, so a round trip is a few ms, and its traffic lands on fewer machines, so more requests find it warm. Static files are still served from the nearest location. Moving Neon means moving this too (docs/operations.md). // DECISION |
+| The scope with the first queries | `inScope` (`packages/db/src/client.ts`) sends `set_config` and starts `fn` without waiting: the transaction's one connection runs statements in the order issued, so everything `fn` asks still runs scoped (`scope.test.ts`). One round trip less for every transaction. // DECISION |
+| Sign-in check | `AuthDirectory.account` (optional): the user and their memberships in one `withUser` transaction (`userWithMemberships`), instead of a lookup and then a transaction. // DECISION |
+| Reads asked at once | The command center, Needs us, the feed and the clients list ask their independent reads together in the request's transaction, which postgres-js pipelines (as search and billing already did). None of them changes the scope while reads are in flight. // DECISION |
+| The platform per request | `services().platform` is built on first use, not for every request: the tool registry and skill catalog take tens of ms in a fresh isolate and most reads never use them. // DECISION |
+| Polling | `usePoll` and the command center's feed skip ticks while the tab is hidden and catch up once on return. The back office's Escalations badge refreshes from `/api/ops/needs-us` (the same count), not the whole clients list; the list loads once, and again when the session's clients change. // DECISION |
+| Not done | Converting tool schemas to JSON Schema lazily: tool skills copy them when their modules load, so it moved no work off startup (measured). Dropping the Anthropic SDK (3 MB) or moving Playwright (3.2 MB, loaded only for website logins) out of the bundle to cut the 12 MB script: possible, at the cost of our own model transport or a separate Worker for browser logins; the owner's call. |
+
+### 1.83 Speed: one round trip per query (2026-11-09)
+
+After §1.82, staging was faster but each request still took 1–3 s. Measured locally through a proxy
+adding a 10 ms round trip: postgres-js describes a query whose parameters have no type before it
+runs it, on each connection, and waits for the answer. A Worker opens a new connection per request,
+so nearly every query cost two round trips, and queries asked together (§1.82) were held back by
+those descriptions. The command center took 554 ms at 10 ms per round trip.
+
+| Topic | Decision |
+|---|---|
+| Parameters typed `unknown` | `createDb` (`packages/db/src/client.ts`) hands drizzle a client that sends each parameter as Postgres' `unknown` (oid 705): the server types it from the query exactly as before, but postgres-js sends the query at once. One round trip per query, and queries asked together go together. Command center 554 → 227 ms, clients 387 → 193 ms, Needs us 346 → 193 ms (10 ms round trips). // DECISION |
+| Which values | Strings, numbers, booleans, dates, plain objects (as JSON) and arrays of strings and numbers: their text is the same whatever type the server reads. Bytes and anything else keep the describe-first path (`params.test.ts`). A raw `Date`, which postgres-js refused through drizzle before, now goes as ISO text. // DECISION |
+
 ---
 
 ## 2. Package layering
@@ -3105,6 +3280,92 @@ reply opens "I work at Mezonas" and has no link to our site.
 **Done when** a second client's site is measured and its reports are in its portal, with nothing
 of Mezonas's in them.
 
+### M51: The Bookkeeping area's tables (B-1, §1.79)
+
+Migration 0039 on its own: `ledger_account` and `ledger_account_note` (platform), and the
+Bookkeeping pack's `bank_account_link`, `bank_feed_cursor`, `bank_txn`, `booking_rule`, `booking`
+and `booking_line`, with forced RLS, grants and the `pack:bookkeeping` comment.
+
+Tests: the migration loops; every table has RLS; notes and booking lines can't be updated or
+deleted; bookings change only their status columns; one live booking per transaction.
+
+**Done when** the migration applies on staging with the previous Worker still working.
+
+### M52: The chart of accounts (B-2, §1.79)
+
+Work: `Account` in QuickBooks' sync and the fake; the account mapper in core; `ledger_account`
+kept in place from each version; the payment account's id on synced purchases (`ext.qbo.accountId`);
+the pack's `bookkeeping.accounts.list`, `bookkeeping.account.note`, `bookkeeping.accounts.unclear`
+and the card `bookkeeping.account-questions`.
+
+Tests (the fake QuickBooks): accounts synced, changed and made inactive; notes in order with their
+sources, an agent's refused without sources; a client's answer stored as its note; client B never
+sees client A's accounts or notes.
+
+**Done when** a client's QuickBooks accounts are in Mezonas with their types, and an answer on the
+card shows as that account's note to the agent.
+
+### M53: Bank transactions into bookings (B-3, §1.79)
+
+Work: the Bookkeeping pack: the import (tool and nightly), the account links and their back-office
+action, the match with QuickBooks, transfers, rules, `bookkeeping.booking.propose`, the
+`bookkeeping.categorize` skill, the review card `bookkeeping.bookings` and learning.
+
+Tests (FakeModel, no live model): pending then posted is booked once; a removed transaction; an
+account that isn't on is skipped; a QuickBooks purchase already there is matched and nothing is
+proposed; a card payment is one transfer; a person's rule wins; two approvals learn a rule and a
+rejection turns it off; lines that don't add up are refused; the bank's words stay data; client
+isolation.
+
+**Done when** a week of the Plaid sandbox's transactions for a linked account is matched, ruled or
+proposed, with the unsure ones on the card.
+
+### M54: Posting to QuickBooks and the Bookkeeper (B-4, §1.79)
+
+Work: `qbo.purchase.create`, `qbo.deposit.create`, `qbo.transfer.create` behind approval with
+duplicate checks, in the fake; `bookkeeping.booking.qbo-input` and `bookkeeping.booking.posted`; the
+Bookkeeper template.
+
+**Done when**, on staging with the Plaid and QuickBooks sandboxes, a linked card's charges are
+booked to the right accounts in QuickBooks, each write approved once, and a second run writes
+nothing again.
+
+### M55: Several banks per client (B-5, §1.79)
+
+Work: more than one connection per connector for the bank feed (the platform's connection
+lookups, Link, disconnect and the portal's Connections page).
+
+**Done when** a client connects two banks and both feeds import.
+
+### M56: Screens (B-6, §1.79)
+
+Work: the back office's account links and rules; the portal's Bank transactions report; the two
+cards in the portal and the Desk; words in six languages.
+
+**Done when** the client admin answers the account questions and the booking review in the portal.
+
+Built (2026-11-08) against the fakes; live once Plaid's and Intuit's keys are set (`docs/open.md`).
+
+### M57: Reconciliation (R-1, §1.80)
+
+Migration 0040 on its own; then the engine, `qbo.account.register`, the pack's tools, the statement
+reading skill, the card and the Bookkeeper's workflows, and the screens.
+
+Tests: the engine's matches (exact, window, groups, ambiguity left to a person), roll-forward and
+the residual identity in decimal, carried items clearing; QuickBooks' register against the fake;
+through the API, a month's bank feed against QuickBooks explained by a deposit in transit, signed
+off, and carried into the next month where it clears; a payout statement read and matched to its
+deposit as a group; client isolation and the portal's forbidden fields.
+
+**Done when** a linked account's month is reconciled against QuickBooks with every difference
+labelled and cited, and a person signs it off.
+
+Built (2026-11-08): the engine and its tests, `qbo.account.register` against the fake, the pack's
+tools, skills, card and report with database tests, the Bookkeeper's monthly and payout workflows,
+the card and the Reconciliations screen in six languages, and `apps/api/src/reconcile.test.ts`
+(October explained by a deposit in transit and signed off, November carrying it in where it
+clears). Open: QuickBooks' register and Plaid's balances checked in their sandboxes (`NOTES.md`).
+
 ---
 
 ## 5. Things to verify, not assume
@@ -3277,6 +3538,9 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0036 | P-9 (M42, §1.71) | `purchase_request_line.qty` nullable; `quote_request.reach_out_id` (composite foreign key to `reach_out`) |
 | 0037 | M43 (§1.72) | The Marketing pack's `site`, `site_salt`, `site_event`, `site_visit`, `site_daily_page`, `site_daily_click`, `site_daily_total`, `site_bot_daily` (docs/marketing-plan.md §4.3) |
 | 0038 | M44–M50 wave (§1.73) | The Marketing pack's `search_source`, `search_query_daily`, `search_page_daily`, `content_page`, `content_version`, `content_publish`, `content_redirect`, `claims_version`, `marketing_report`, `marketing_report_action`, `forum_thread`, `forum_reply` (docs/marketing-plan.md §4.4–§4.6, §11.1) |
+| 0039 | M51 (§1.79) | `ledger_account`, `ledger_account_note`, `ledger_dimension`; the Bookkeeping pack's `bank_account_link`, `bank_feed_cursor`, `bank_txn`, `booking_rule`, `booking`, `booking_line` |
+| 0040 | M57 (§1.80) | The Bookkeeping pack's `reconciliation`, `reconciliation_item`, `reconciliation_match` |
+| 0041 | §1.81 | `qbo_webhook_event`: Intuit's webhook notifications, one row per change |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
