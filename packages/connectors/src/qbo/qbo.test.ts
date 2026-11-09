@@ -22,6 +22,7 @@ import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo, QBO_FIXTURES } from "../testi
 import {
   BANKING_TOOLS,
   createQboConnector,
+  intuitTidOf,
   LEDGER_WRITE_TOOLS,
   parseQboWebhook,
   parseQboWebhookChanges,
@@ -615,7 +616,21 @@ describe("qbo connector: itemizing lines", () => {
     });
     const handler = racing.tools[QBO_TOOLS.billUpdateLines];
     if (handler?.kind !== "write") throw new Error("not a write");
-    await expect(handler.run(itemize, ctx(), null)).rejects.toMatchObject({ code: "5010" });
+    const refused = handler.run(itemize, ctx(), null);
+    // Intuit's request id travels with the error (what Intuit support asks for).
+    await expect(refused).rejects.toMatchObject({
+      code: "5010",
+      intuitTid: expect.stringMatching(/^1-fake-\d+$/),
+    });
+    await expect(refused).rejects.toThrow(/\(intuit_tid 1-fake-\d+\)$/);
+  });
+
+  it("keeps only a well-formed intuit_tid", () => {
+    const res = (tid: string | null) => ({ headers: { get: () => tid } });
+    expect(intuitTidOf(res("1-6923f4a5-7f2b6e1c3a9d"))).toBe("1-6923f4a5-7f2b6e1c3a9d");
+    expect(intuitTidOf(res(null))).toBeNull();
+    expect(intuitTidOf(res("x".repeat(101)))).toBeNull();
+    expect(intuitTidOf(res("1-abc\nInjected: header"))).toBeNull();
   });
 
   it("itemizes a purchase, carrying its payment fields", async () => {
