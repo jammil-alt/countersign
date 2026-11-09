@@ -2361,6 +2361,28 @@ and audit.
 
 ---
 
+### 1.83 A second factor by text, WhatsApp or authenticator app (owner, 2026-11-09)
+
+Owner, 2026-11-09: build sign-in codes by text and WhatsApp as well as an authenticator app, and
+require the authenticator app for operators. WorkOS's own MFA offers only the authenticator app.
+Its MFA API does SMS for US numbers only, and there is no WhatsApp. So Mezonas runs the second step
+itself, after WorkOS checks the password. Once it's on, WorkOS's own MFA is switched off, so nobody
+is asked twice. Two PRs: migration 0042, then sign-in.
+
+| Topic | Decision |
+|---|---|
+| Who checks codes | **Twilio Verify**, on Mezonas' own Twilio account: `Verifications` and `VerificationCheck` for text and WhatsApp codes, and TOTP `Factors` and `Challenges` for authenticator apps. We never hold a code or an authenticator secret. The secret is shown once, as a QR code, while setting up, and is not stored. Settings: `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` (already there), plus the Worker variable `TWILIO_VERIFY_SERVICE_SID`. WhatsApp also needs a WhatsApp sender on the Verify service. What isn't checked against Twilio's docs is in `packages/connectors/src/twilio/VERIFY_NOTES.md`. // DECISION |
+| Off until set up | Without the three settings the step is off: sessions are `exempt`, and WorkOS's own MFA must stay on. `docs/operations.md` gives the order: set up Verify, deploy, check one sign-in, then switch WorkOS MFA off. // DECISION |
+| Who needs it | Everyone who signs in with a password (or an emailed code). People who sign in through their company's SSO are exempt: their identity provider does the second factor. The dev sign-in is exempt (it never runs in production). |
+| Which methods | **Operators: authenticator app only**, since they reach every client. Client users: authenticator app, text message or WhatsApp. An operator who also has a phone method from before can't use it. One method of each kind per person. |
+| The session | The sealed cookie gains `mf`: `pending`, `done` or `exempt`, and `mfx`, the deadline of a pending step. A WorkOS sign-in starts `pending` with 10 minutes to finish. A pending session reaches only the second-step routes; every other route answers 401 `second_factor_required`. Passing the step reseals the cookie as `done`. A cookie from before this has no `mf` and is refused, so everyone signs in once more. |
+| Setting up | At the first sign-in after this ships, a person picks a method and proves it with one code. Then they get **10 recovery codes**, shown once. Each is a one-time 8-character code, stored as an HMAC keyed from `ENCRYPTION_KEY`. A recovery code finishes one sign-in in place of the usual code. Text and WhatsApp numbers are stored in E.164, with the person's own country picked on the form. |
+| Limits | At most 5 wrong codes and 5 sends per person in 15 minutes, counted from the audit log's `session.second_factor*` rows. Past that, the step refuses for 15 minutes. Twilio has its own limits on top. |
+| Losing the phone | Recovery codes first. Otherwise an operator resets the person's methods from the back office (a client's People list), with a reason. The person then sets up again at their next sign-in. A reset is an audit row, and it deletes the Twilio factor too. |
+| The audit log | `session.second_factor_setup`, `session.second_factor` (ok or refused, with the method), `session.second_factor_send`, `session.recovery_codes`, `session.second_factor_reset` and `mcp.approve`. The rows have no client, so only operators read them. |
+| The Ops MCP connector (§1.34) | It signs in through AuthKit directly, not through our cookie. With WorkOS MFA off it would have no second factor. So when the step is on, a Claude connection is tied to its AuthKit session (`sid`). The first call of a new session is refused with a link to `/ops/connect-claude/<code>`. An operator who has passed the step in the browser opens the link and approves the connection. The approval lasts until the AuthKit session ends, 12 hours at most (`mcp_session_approval`). |
+| Not in this pass | Changing your own method or recovery codes without an operator reset; email codes (Magic Auth is a sign-in method, not a second factor); passkeys. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
