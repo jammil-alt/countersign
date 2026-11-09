@@ -1,6 +1,6 @@
 <!--
 title: Privacy policy
-description: How Mezonas collects, uses, shares and protects data, including Google user data from Gmail, and how to have your data deleted.
+description: How Mezonas collects, uses, shares and protects data, including Google user data from Gmail and bank data through Plaid, and how to have your data deleted.
 legal: true
 -->
 <div class="wrap">
@@ -8,7 +8,7 @@ legal: true
     <header class="doc__head">
       <p class="eyebrow">Legal</p>
       <h1>Privacy policy</h1>
-      <p class="doc__updated">Last updated <time datetime="2026-11-06">November 6, 2026</time></p>
+      <p class="doc__updated">Last updated <time datetime="2026-11-09">November 9, 2026</time></p>
     </header>
     <p class="doc__intro">
       This policy explains what data Mezonas handles, why, who we share it with, how we protect it
@@ -23,6 +23,7 @@ legal: true
         <li><a href="#what-we-collect">What we collect</a></li>
         <li><a href="#how-we-use">How we use it</a></li>
         <li><a href="#google">Google user data</a></li>
+        <li><a href="#bank-accounting">Bank accounts and accounting tools</a></li>
         <li><a href="#text-messages">Text messages</a></li>
         <li><a href="#ai">AI model processing</a></li>
         <li><a href="#sharing">Sharing</a></li>
@@ -60,7 +61,8 @@ legal: true
       </p>
       <h3>Data a client connects</h3>
       <ul>
-        <li><strong>Records from the client's tools</strong>, such as accounting records (bills, purchases, vendors) and CRM records, read through the connections the client sets up.</li>
+        <li><strong>Records from the client's tools</strong>, such as accounting records (bills, purchases, vendors, accounts) and CRM records, read through the connections the client sets up.</li>
+        <li><strong>Bank and card transactions and balances</strong> from the business accounts a client connects through Plaid (see <a href="#bank-accounting">Bank accounts and accounting tools</a>).</li>
         <li><strong>Documents</strong> the client uploads, such as invoices, receipts and spreadsheets, and the details we extract from them.</li>
         <li><strong>Forwarded email.</strong> Each client has a private Mezonas address to forward mail to. We accept mail only from senders the client lists. From each accepted message we keep its headers (sender, recipients, subject, date) and its PDF and image attachments; the body of the message is dropped before anything is stored.</li>
         <li><strong>The client's directory</strong>: the people and organizations its agents work with, such as employees, customers and vendors, with details like name, email, phone, title, language and contact consent.</li>
@@ -157,8 +159,47 @@ legal: true
       </p>
     </section>
 
+    <section id="bank-accounting" aria-labelledby="bank-accounting-title">
+      <h2 id="bank-accounting-title">5. Bank accounts and accounting tools</h2>
+      <h3>Bank and card accounts, through Plaid</h3>
+      <p>
+        We use Plaid Inc. ("Plaid") to connect the bank and card accounts a client chooses. A
+        person at the client signs in to their bank in Plaid's window; we never see or store that
+        login. Plaid then sends us, read only, the accounts' names, the last four digits of their
+        numbers, their balances and their transactions. We can't move money, and we don't ask Plaid
+        to.
+      </p>
+      <p>
+        By connecting an account, the client grants us and Plaid the right, power and authority to
+        act on its behalf to access and transmit its financial information from the bank, and
+        agrees to that information being transferred, stored and processed by Plaid in accordance
+        with the
+        <a href="https://plaid.com/legal/#end-user-privacy-policy">Plaid End User Privacy Policy</a>.
+      </p>
+      <h3>How we use it</h3>
+      <ul>
+        <li>To keep the client's books: matching each transaction with what is already in its accounting tool, proposing the account it belongs in, and, after a person at the client approves, recording it there.</li>
+        <li>To reconcile each account's balance with the client's books, month by month.</li>
+        <li>We don't sell this data, use it for advertising, or use it to train AI models.</li>
+      </ul>
+      <h3>Accounting tools</h3>
+      <p>
+        When a client connects QuickBooks Online, it signs in to Intuit itself and chooses its
+        company. We read the records its agents need (accounts, vendors, items, bills, purchases,
+        deposits and transfers) and write only what a person at the client has approved. We never
+        delete records in it.
+      </p>
+      <h3>Disconnecting</h3>
+      <p>
+        A client's admin can disconnect a bank or QuickBooks at any time in the portal. We then stop
+        reading it, remove the connection at Plaid or revoke it at Intuit, and delete the stored
+        token. People can also manage the connections Plaid holds for them at
+        <a href="https://my.plaid.com/">my.plaid.com</a>.
+      </p>
+    </section>
+
     <section id="text-messages" aria-labelledby="text-messages-title">
-      <h2 id="text-messages-title">5. Text messages</h2>
+      <h2 id="text-messages-title">6. Text messages</h2>
       <p>
         Businesses that use Mezonas can text the people they work with, from their own numbers.
         Our <a href="/sms-terms">text message terms</a> explain who sends these messages and how to
@@ -179,7 +220,7 @@ legal: true
     </section>
 
     <section id="ai" aria-labelledby="ai-title">
-      <h2 id="ai-title">6. AI model processing</h2>
+      <h2 id="ai-title">7. AI model processing</h2>
       <p>
         Agents use AI models to read documents, write messages and decide what to propose. For
         each step, we send the model provider only what that step needs, such as a document's
@@ -199,7 +240,7 @@ legal: true
     </section>
 
     <section id="sharing" aria-labelledby="sharing-title">
-      <h2 id="sharing-title">7. Sharing</h2>
+      <h2 id="sharing-title">8. Sharing</h2>
       <p>We share data only:</p>
       <ul>
         <li>with the providers that help us run the service, listed on our <a href="/subprocessors">subprocessors page</a>, each for its own task;</li>
@@ -211,7 +252,7 @@ legal: true
     </section>
 
     <section id="security" aria-labelledby="security-title">
-      <h2 id="security-title">8. Security</h2>
+      <h2 id="security-title">9. Security</h2>
       <ul>
         <li><strong>Each client kept apart.</strong> Every client's data is separated in our database by row-level security, so the service reaches a client's data only within that client's scope. What an agent learns for one client is never used for another.</li>
         <li><strong>A key for each client.</strong> Logins, keys and tokens a client stores with us are encrypted with that client's own key, which is itself encrypted with our master key. They can be replaced or removed, never read back on any screen, including ours. Agents never see them; our code uses them for one step at a time.</li>
@@ -224,7 +265,7 @@ legal: true
     </section>
 
     <section id="retention" aria-labelledby="retention-title">
-      <h2 id="retention-title">9. Retention and deletion</h2>
+      <h2 id="retention-title">10. Retention and deletion</h2>
       <ul>
         <li>We keep a client's data while we provide the service, so its record of the work stays complete.</li>
         <li>When a client disconnects a tool, we stop using it and delete the stored login or token for it.</li>
@@ -234,7 +275,7 @@ legal: true
     </section>
 
     <section id="rights" aria-labelledby="rights-title">
-      <h2 id="rights-title">10. Your rights</h2>
+      <h2 id="rights-title">11. Your rights</h2>
       <p>
         <strong>Clients</strong> can see their data in the portal, correct it, export it, and ask
         us to delete it.
@@ -251,7 +292,7 @@ legal: true
     </section>
 
     <section id="transfers" aria-labelledby="transfers-title">
-      <h2 id="transfers-title">11. International transfers</h2>
+      <h2 id="transfers-title">12. International transfers</h2>
       <p>
         Our database is hosted in the United States, and our providers may process data in other
         countries. Where the law requires safeguards for data moved between countries, we use
@@ -261,7 +302,7 @@ legal: true
     </section>
 
     <section id="children" aria-labelledby="children-title">
-      <h2 id="children-title">12. Children</h2>
+      <h2 id="children-title">13. Children</h2>
       <p>
         Mezonas is a service for businesses. It is not meant for children, and we don't knowingly
         collect data from anyone under 16. If you think we have, tell us and we will delete it.
@@ -269,7 +310,7 @@ legal: true
     </section>
 
     <section id="changes" aria-labelledby="changes-title">
-      <h2 id="changes-title">13. Changes</h2>
+      <h2 id="changes-title">14. Changes</h2>
       <p>
         We may update this policy. We change the date at the top of this page, and for changes
         that matter we tell each client's admin by email before they take effect.
@@ -277,7 +318,7 @@ legal: true
     </section>
 
     <section id="contact" aria-labelledby="contact-title">
-      <h2 id="contact-title">14. Contact</h2>
+      <h2 id="contact-title">15. Contact</h2>
       <p>Questions or requests about privacy: jammil@twelvethirty-4.com.</p>
       <p>Post: Twelve Thirty-Four Consulting LLC, Dallas, Texas.</p>
     </section>
