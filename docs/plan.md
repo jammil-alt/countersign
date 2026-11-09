@@ -2344,6 +2344,21 @@ those descriptions. The command center took 554 ms at 10 ms per round trip.
 | Parameters typed `unknown` | `createDb` (`packages/db/src/client.ts`) hands drizzle a client that sends each parameter as Postgres' `unknown` (oid 705): the server types it from the query exactly as before, but postgres-js sends the query at once. One round trip per query, and queries asked together go together. Command center 554 → 227 ms, clients 387 → 193 ms, Needs us 346 → 193 ms (10 ms round trips). // DECISION |
 | Which values | Strings, numbers, booleans, dates, plain objects (as JSON) and arrays of strings and numbers: their text is the same whatever type the server reads. Bytes and anything else keep the describe-first path (`params.test.ts`). A raw `Date`, which postgres-js refused through drizzle before, now goes as ISO text. // DECISION |
 
+### 1.84 Speed: one request for Home, one Needs us per refresh (2026-11-09)
+
+After §1.83 each query is one round trip, but the back office still asked for the same work many
+times: Home loaded the command center, the overview (for "versions behind" alone), oversight, the
+feed and the full clients list, and Needs us was computed in three of them (command center,
+clients list, the badge's refresh). Each request also pays about nine statements of sign-in, scope
+and audit.
+
+| Topic | Decision |
+|---|---|
+| The command center carries the page | Its response adds each agent's `behind` (template versions, from `versionsBehind` in `packages/agents`: one query for the table, where the overview asked `updateInfo` per agent, four queries each loading whole bundles), `oversight` (the latest five decisions, `oversightList`, as `GET /api/ops/oversight?limit=5`) and `clientCounts`. Home no longer asks the overview or oversight. // DECISION |
+| The badges | `GET /api/ops/counts`: Needs us in all and each client's Needs us and runs waiting. The frame's clients list is `?view=names` (no counts, loaded once); the badges come from the counts, merged into the list the client pages read (`useClientSummary`). On Home the command center hands its counts to the frame (`useShareCounts`), which then asks for none: one Needs us per refresh. The frame waits for its first effects before asking, so a sharing page is known first. // DECISION |
+| Pickers | The lab and the builder ask `?view=names` too. The Clients page keeps the full list. |
+| Checked | `command-center.test.ts`: `behind` equals the overview's updates, `oversight` the oversight route's, `clientCounts` the counts route's and the full list's. |
+
 ---
 
 ## 2. Package layering

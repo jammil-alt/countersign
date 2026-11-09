@@ -29,6 +29,7 @@ import { hasRuns, Sparkbars, Sparkline, StatTile } from "../../ui/figures";
 import { Columns, Loaded, Page } from "../../ui/page";
 import { Button, buttonClass, Card, EmptyState, PageHeader, Tag } from "../../ui/primitives";
 import { type ChipState, StatusChip } from "../../ui/status";
+import { useShareCounts } from "../OpsLayout";
 import { OPS_PATHS } from "../paths";
 import { failedRunsSince, RUNNING_RUNS, runsLink, WAITING_RUNS } from "../run/links";
 import { age, oversightLine, percent, plural } from "../run/words";
@@ -48,12 +49,24 @@ type Grouping = "client" | "template" | "status";
 export function CommandCenterScreen() {
   const state = useApi(apiRoutes.opsCommandCenter);
   usePoll(state.reload, true, COMMAND_POLL_MS, state.loading);
-  // Template updates waiting, for the agents table's "N versions behind" (the overview lists them).
-  const overview = useApi(apiRoutes.opsOverview);
+  // DECISION: one request for the page (docs/plan.md §1.84). The agents table's "N versions behind"
+  // and Run oversight come with the command center, and so do the badges' counts, which the frame
+  // takes from here instead of computing Needs us again.
   const behind = useMemo(
-    () => new Map((overview.data?.updates ?? []).map((u) => [u.agent.id, u.behind])),
-    [overview.data],
+    () =>
+      new Map(
+        (state.data?.agents ?? []).flatMap((a) => (a.behind ? [[a.id, a.behind] as const] : [])),
+      ),
+    [state.data],
   );
+  const counts = useMemo(
+    () =>
+      state.data
+        ? { needsUs: state.data.needUs.count, clients: state.data.clientCounts ?? [] }
+        : null,
+    [state.data],
+  );
+  useShareCounts(counts);
 
   return (
     <Page testId="ops-command">
@@ -84,7 +97,7 @@ export function CommandCenterScreen() {
               <ClientHealth data={data} />
             </Columns>
             <LowConfidence data={data} />
-            <Oversight />
+            <Oversight data={data.oversight} />
           </AgentHuesProvider>
         )}
       </Loaded>
@@ -763,10 +776,9 @@ function LowConfidence({ data }: { data: CommandCenter }) {
   );
 }
 
-function Oversight() {
-  const state = useApi(apiRoutes.opsOversight, { query: { limit: 5 } });
-  if (!state.data || state.data.decisions.length === 0) return null;
-  const { totals, decisions } = state.data;
+function Oversight({ data }: { data: CommandCenter["oversight"] }) {
+  if (!data || data.decisions.length === 0) return null;
+  const { totals, decisions } = data;
   return (
     <Card
       title="Run oversight"

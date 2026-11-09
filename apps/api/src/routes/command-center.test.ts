@@ -481,6 +481,67 @@ describe.skipIf(!h)("command center, search and questions", () => {
     expect(cc.perDay).toHaveLength(KPI_DAYS);
   });
 
+  it("carries what the page asked other routes for, with the same answers (§1.84)", async () => {
+    const [cc, overview, oversight, counts, full, names] = await Promise.all(
+      [
+        "/api/ops/command-center",
+        "/api/ops/overview",
+        "/api/ops/oversight?limit=5",
+        "/api/ops/counts",
+        "/api/ops/clients",
+        "/api/ops/clients?view=names",
+      ].map(async (path) => {
+        const res = await H.call(OPERATOR, "GET", path);
+        expect(res.status, `${path} ${JSON.stringify(res.json)}`).toBe(200);
+        return j(res.json);
+      }),
+    );
+    // Template updates: the agents table's "behind" is the overview's, agent by agent.
+    const behind = Object.fromEntries(
+      (cc.agents as { id: string; behind?: number }[])
+        .filter((a) => a.behind)
+        .map((a) => [a.id, a.behind]),
+    );
+    expect(behind).toEqual(
+      Object.fromEntries(
+        (overview.updates as { agent: { id: string }; behind: number }[]).map((u) => [
+          u.agent.id,
+          u.behind,
+        ]),
+      ),
+    );
+    // Run oversight: the lab's latest five.
+    expect(cc.oversight).toEqual(oversight);
+    // The badges: the same counts as GET /api/ops/counts and the full clients list.
+    type Counts = { id: string; needsUs?: number | undefined; waitingRuns?: number | undefined };
+    const byId = (rows: Counts[]) => Object.fromEntries(rows.map(({ id, ...rest }) => [id, rest]));
+    expect(byId(cc.clientCounts)).toEqual(byId(counts.clients));
+    expect(counts.needsUs).toBe(cc.needUs.count);
+    expect(byId(counts.clients)).toEqual(
+      byId(
+        (full.clients as Counts[]).map((c) => ({
+          id: c.id,
+          needsUs: c.needsUs,
+          waitingRuns: c.waitingRuns,
+        })),
+      ),
+    );
+    expect(counts.clients.find((c: { id: string }) => c.id === H.A.tenantId)).toMatchObject({
+      needsUs: 6,
+    });
+    // The picker's list leaves the costly counts out, and keeps the rest.
+    type Row = { id: string; name: string; agents: number };
+    const rows = (list: Row[]) => list.map((c) => [c.id, c.name, c.agents]);
+    expect(rows(names.clients)).toEqual(rows(full.clients));
+    for (const c of names.clients) {
+      expect(c).not.toHaveProperty("needsUs");
+      expect(c).not.toHaveProperty("waitingRuns");
+    }
+    for (const who of [admin("a"), user("a")]) {
+      expect((await H.call(who, "GET", "/api/ops/counts")).status).toBe(403);
+    }
+  });
+
   it("narrows to one client served, and refuses one not served", async () => {
     const one = await H.call(OPERATOR, "GET", `/api/ops/command-center?client=${H.B.tenantId}`);
     expect(one.status).toBe(200);

@@ -216,8 +216,12 @@ async function clientSummaries(
   tx: Tx,
   ids: readonly string[],
   services: Pick<Services, "auth" | "env" | "platform">,
+  view: "full" | "names" = "full",
 ) {
   if (ids.length === 0) return [];
+  // §1.84: `names` (the back office's picker) leaves out the costly counts; its badges come from
+  // the command center or GET /api/ops/counts.
+  const counts = view === "full";
   // DECISION: the five reads are asked at once, in the request's transaction, which the driver
   // pipelines (docs/plan.md §1.82): the back office loads this list on every visit.
   const [rows, agents, open, escalations, waiting] = await Promise.all([
@@ -244,14 +248,20 @@ async function clientSummaries(
       .groupBy(inboxItem.tenantId),
     // UI cleanup (stream A): Needs us and runs waiting for approval, per client, from the same
     // definitions the command center and the runs list use, so every count agrees.
-    needsUs(tx, ids, new Date(), needsUsContext(services)),
-    tx
-      .select({ tenantId: run.tenantId, n: count() })
-      .from(run)
-      .where(
-        and(inArray(run.tenantId, [...ids]), eq(run.mode, "live"), ...opsStatusWhere(["waiting"])),
-      )
-      .groupBy(run.tenantId),
+    counts ? needsUs(tx, ids, new Date(), needsUsContext(services)) : null,
+    counts
+      ? tx
+          .select({ tenantId: run.tenantId, n: count() })
+          .from(run)
+          .where(
+            and(
+              inArray(run.tenantId, [...ids]),
+              eq(run.mode, "live"),
+              ...opsStatusWhere(["waiting"]),
+            ),
+          )
+          .groupBy(run.tenantId)
+      : null,
   ]);
   return rows.map((t) => ({
     id: t.id,
@@ -260,8 +270,12 @@ async function clientSummaries(
     createdAt: t.createdAt.toISOString(),
     agents: agents.find((a) => a.tenantId === t.id)?.n ?? 0,
     openInbox: open.find((o) => o.tenantId === t.id)?.n ?? 0,
-    needsUs: escalations.filter((e) => e.client.id === t.id).length,
-    waitingRuns: waiting.find((w) => w.tenantId === t.id)?.n ?? 0,
+    ...(escalations && waiting
+      ? {
+          needsUs: escalations.filter((e) => e.client.id === t.id).length,
+          waitingRuns: waiting.find((w) => w.tenantId === t.id)?.n ?? 0,
+        }
+      : {}),
     sandbox: isSandbox(t.settings as Record<string, unknown>),
     // §1.73: one of our own (Mezonas), for the back office's Marketing entry.
     internal: isInternal(t.settings as Record<string, unknown>),
@@ -337,7 +351,7 @@ async function connectionInScope(tx: Tx, tenantIds: readonly string[], id: strin
 
 export function opsClientRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsClients, async (ctx) => ({
-    clients: await clientSummaries(ctx.tx, ctx.tenantIds, ctx.services),
+    clients: await clientSummaries(ctx.tx, ctx.tenantIds, ctx.services, ctx.query.view),
   }));
 
   mount(app, routes.opsCreateClient, async (ctx) => {

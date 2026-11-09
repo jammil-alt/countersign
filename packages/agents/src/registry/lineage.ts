@@ -22,8 +22,9 @@ import {
   validateBundle,
   walkSteps,
 } from "@countersign/core";
-import type { Tx } from "@countersign/db";
+import { agent, agentVersion, type Tx } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
+import { aliasedTable, and, eq, inArray } from "drizzle-orm";
 import { AgentsError } from "../errors";
 import {
   type AgentRow,
@@ -81,6 +82,35 @@ export async function updateInfo(tx: Tx, input: { agentId: string }): Promise<Up
     available: row.linked && behind > 0,
     releaseNote: tLive?.releaseNote ?? null,
   };
+}
+
+/**
+ * `updateInfo`'s `behind` for many client agents in one query: for each linked agent whose
+ * template has moved on since its live version's base, how many versions. Agents with no update
+ * (up to date, detached, no live version or no base) are left out.
+ */
+// DECISION: the command center shows "N versions behind" for its whole agents table; asking
+// updateInfo per agent was four queries each, loading whole bundles for two numbers (§1.84).
+export async function versionsBehind(
+  tx: Tx,
+  agentIds: readonly string[],
+): Promise<Map<string, number>> {
+  if (agentIds.length === 0) return new Map();
+  const live = aliasedTable(agentVersion, "live");
+  const base = aliasedTable(agentVersion, "base");
+  const template = aliasedTable(agent, "template");
+  const templateLive = aliasedTable(agentVersion, "template_live");
+  const rows = await tx
+    .select({ id: agent.id, base: base.version, latest: templateLive.version })
+    .from(agent)
+    .innerJoin(live, eq(live.id, agent.liveVersionId))
+    .innerJoin(base, eq(base.id, live.basedOnTemplateVersionId))
+    .innerJoin(template, eq(template.id, agent.templateId))
+    .innerJoin(templateLive, eq(templateLive.id, template.liveVersionId))
+    .where(and(inArray(agent.id, [...agentIds]), eq(agent.kind, "client"), eq(agent.linked, true)));
+  return new Map(
+    rows.filter((r) => r.latest > r.base).map((r) => [r.id, r.latest - r.base] as const),
+  );
 }
 
 export interface MergePreview {

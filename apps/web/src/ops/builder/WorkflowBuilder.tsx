@@ -378,7 +378,7 @@ function BuilderBody(
   // ── Whose tools the palette offers ──
   const clients = useApi(
     apiRoutes.opsClients,
-    agent.kind === "client" && !agent.testCopy ? {} : null,
+    agent.kind === "client" && !agent.testCopy ? { query: { view: "names" } } : null,
   );
   const sandbox = clients.data?.clients.find((c) => c.id === agent.tenantId)?.sandbox === true;
   const connectors = useMemo(
@@ -1367,7 +1367,7 @@ function TestRunPanel({
   const sampleText = hasSample ? JSON.stringify(sample, null, 2) : "";
   const isTemplate = agent.kind === "template";
   // A template can run on the Sandbox's fixture data or on a client the operator serves.
-  const clients = useApi(apiRoutes.opsClients, isTemplate ? {} : null);
+  const clients = useApi(apiRoutes.opsClients, isTemplate ? { query: { view: "names" } } : null);
   const [clientId, setClientId] = useState("");
   // Recent events come from the client the run will read: the agent's own, or the template's
   // chosen client (the Sandbox when none is chosen).

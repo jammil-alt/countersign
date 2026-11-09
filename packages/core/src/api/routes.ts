@@ -914,6 +914,8 @@ export const opsRoutes = {
     auth: "session",
     roles: OPS,
     summary: "The clients this operator serves",
+    // §1.84: `names` leaves out Needs us and runs waiting (the costly counts), for pickers.
+    query: z.object({ view: z.enum(["full", "names"]).optional() }),
     response: z.object({ clients: z.array(ClientSummary) }),
   }),
   opsCreateClient: defineRoute({

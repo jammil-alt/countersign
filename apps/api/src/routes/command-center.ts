@@ -3,10 +3,12 @@
 // over existing rows, across the clients the operator serves (or the one asked for): RLS scopes
 // the transaction and every query also names the clients (invariant 1). Back office only.
 
+import { versionsBehind } from "@countersign/agents";
 import {
   AGENT_RECENT_RUNS,
   approvalOverdue,
   BLOCKED_LONG_HOURS,
+  type ClientCounts,
   type CommandCenter,
   clientHealth,
   ESCALATION_LIST_MAX,
@@ -54,9 +56,12 @@ import {
   runWaits,
   waitsOnPerson,
 } from "../runs/run-wait";
+import { oversightList } from "./ops-oversight";
 import { searchRoutes } from "./search";
 
 const HOUR_MS = 60 * 60 * 1000;
+/** The command center's Run oversight card: the latest decisions (as the lab's `limit`). */
+const COMMAND_OVERSIGHT_SHOWN = 5;
 const DAY_MS = 24 * HOUR_MS;
 
 /** The clients a request covers: the one asked for (if served), else every client served. */
@@ -480,6 +485,8 @@ async function commandCenter(
     weekCost,
     agentDays,
     liveDays,
+    behind,
+    oversight,
   ] = await Promise.all([
     // Running now: runs queued or running that wait on nobody, and their steps in flight.
     // (Joined, not a correlated subquery: drizzle leaves a single table's columns unqualified in
@@ -669,6 +676,9 @@ async function commandCenter(
         })
       : Promise.resolve({ all: [], byAgent: new Map() }),
     runsByDay(tx, [inArray(run.tenantId, ids), eq(run.mode, "live")], { timezone: "UTC", now }),
+    // §1.84: what the page asked other routes for (the overview's updates, oversight).
+    versionsBehind(tx, agentIds),
+    oversightList(tx, ids, { limit: COMMAND_OVERSIGHT_SHOWN }),
   ]);
   const oldestWait = waits.map((w) => w.since).sort()[0] ?? null;
 
@@ -742,6 +752,7 @@ async function commandCenter(
         waiting: r.waiting === true,
       })),
     cost7dUsd: weekCost.find((w) => w.agentId === a.id)?.usd ?? "0.0000",
+    ...(behind.has(a.id) ? { behind: behind.get(a.id) } : {}),
     perDay: daysOf(agentDays.byAgent, a.id),
   }));
 
@@ -790,7 +801,42 @@ async function commandCenter(
     health,
     agents,
     perDay: liveDays.all,
+    oversight,
+    clientCounts: countsOf(ids, sorted, waitingRows),
   };
+}
+
+/** Each client's badge counts: its escalations, and its live runs waiting for approval. */
+function countsOf(
+  ids: readonly string[],
+  escalations: readonly Pick<Escalation, "client">[],
+  waitingRuns: readonly { tenantId: string }[],
+): ClientCounts[] {
+  return ids.map((id) => ({
+    id,
+    needsUs: escalations.filter((e) => e.client.id === id).length,
+    waitingRuns: waitingRuns.filter((r) => r.tenantId === id).length,
+  }));
+}
+
+/** The badges alone (§1.84): Needs us and the waiting runs, each client's and in all. */
+export async function clientCounts(
+  tx: Tx,
+  ids: readonly string[],
+  now: Date,
+  reach: NeedsUsContext,
+): Promise<{ needsUs: number; clients: ClientCounts[] }> {
+  if (ids.length === 0) return { needsUs: 0, clients: [] };
+  const [escalations, waitingRows] = await Promise.all([
+    needsUs(tx, ids, now, reach),
+    tx
+      .select({ tenantId: run.tenantId })
+      .from(run)
+      .where(
+        and(inArray(run.tenantId, [...ids]), eq(run.mode, "live"), ...opsStatusWhere(["waiting"])),
+      ),
+  ]);
+  return { needsUs: escalations.length, clients: countsOf(ids, escalations, waitingRows) };
 }
 
 // ── The feed ────────────────────────────────────────────────────────────────────────────────────
@@ -987,6 +1033,11 @@ export function commandCenterRoutes(app: Hono<AppEnv>): void {
     );
     return { count: escalations.length, escalations: escalations.slice(0, ESCALATION_LIST_MAX) };
   });
+
+  // §1.84: the back office's badges, on pages without the command center.
+  mount(app, routes.opsCounts, async (ctx) =>
+    clientCounts(ctx.tx, [...ctx.tenantIds], new Date(), needsUsContext(ctx.services)),
+  );
 
   mount(app, routes.opsFeed, async (ctx) => {
     const now = new Date();

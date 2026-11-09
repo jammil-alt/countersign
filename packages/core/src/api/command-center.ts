@@ -7,6 +7,7 @@ import { z } from "zod";
 import { isUuid } from "../ids";
 import { isPlainObject } from "../json";
 import { defineRoute } from "./contract";
+import { OpsOversightList } from "./oversight";
 import { RunWait } from "./run-state";
 import { runsAskRoutes } from "./runs-ask";
 import { searchRoutes } from "./search";
@@ -160,6 +161,16 @@ export function sortEscalations<T extends Pick<Escalation, "blockedSince" | "kin
 /** A decimal amount in USD, as text (invariant 6). */
 const Usd = z.string();
 
+/** A client's counts for the back office's badges (§1.84). */
+export const ClientCounts = z.object({
+  id: z.string(),
+  /** Needs us at this client: the command center's escalations. */
+  needsUs: z.number().int(),
+  /** Its live runs waiting for approval now. */
+  waitingRuns: z.number().int(),
+});
+export type ClientCounts = z.infer<typeof ClientCounts>;
+
 export const CommandCenter = z.object({
   /** When the figures were taken (the server's clock). */
   at: z.string(),
@@ -255,6 +266,8 @@ export const CommandCenter = z.object({
         }),
       ),
       cost7dUsd: Usd,
+      /** §1.84: template versions its live version is behind (linked agents with an update). */
+      behind: z.number().int().optional(),
       // UI cleanup (design pass): its runs each day, test runs included (the back office sees all
       // of an agent's work), the last KPI_DAYS days in UTC, oldest first.
       perDay: z.array(DayRuns).optional(),
@@ -263,6 +276,11 @@ export const CommandCenter = z.object({
   // UI cleanup (design pass): live runs each day across the clients served, the last KPI_DAYS
   // days in UTC, oldest first, for the figures' small charts.
   perDay: z.array(DayRuns).optional(),
+  // §1.84: what the page showed from other routes, so the command center is one request.
+  /** The latest run oversight decisions (`GET /api/ops/oversight?limit=5`). */
+  oversight: OpsOversightList.optional(),
+  /** Each client's counts, as `GET /api/ops/counts` gives them: the back office's badges. */
+  clientCounts: z.array(ClientCounts).optional(),
 });
 export type CommandCenter = z.infer<typeof CommandCenter>;
 
@@ -315,6 +333,16 @@ const commandCenterOnly = {
       "Needs us across the clients served (or one): items for us, failed runs, broken connections, low-confidence readings, and approvals waiting long or that nobody can act on",
     query: z.object({ client: Id.optional() }),
     response: z.object({ count: z.number().int(), escalations: z.array(Escalation) }),
+  }),
+  // §1.84: the badges alone, for pages that don't load the command center.
+  opsCounts: defineRoute({
+    method: "GET",
+    path: "/api/ops/counts",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Needs us in all and each client's counts (Needs us, runs waiting for approval), for the back office's badges",
+    response: z.object({ needsUs: z.number().int(), clients: z.array(ClientCounts) }),
   }),
   opsFeed: defineRoute({
     method: "GET",

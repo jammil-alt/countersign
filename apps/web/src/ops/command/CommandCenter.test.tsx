@@ -1,7 +1,7 @@
 // O1 Command center: up to four figures, each a link to its filtered list; "Needs us" with a way
 // into each escalation (an approval stuck at a client among them); all agents by client, template
 // or status; the live feed; client health with the supervisor's findings.
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -116,6 +116,8 @@ const center = (over: Record<string, unknown> = {}) => ({
   agents: [
     agent({
       openRuns: 1,
+      // §1.84: the template update waiting comes with the command center.
+      behind: 1,
       recentRuns: [
         { id: "r2", status: "running", mode: "live", createdAt: hoursAgo(1) },
         { id: "r1", status: "failed", mode: "live", createdAt: hoursAgo(2) },
@@ -136,30 +138,16 @@ const center = (over: Record<string, unknown> = {}) => ({
       cost7dUsd: "6.1000",
     }),
   ],
+  clientCounts: [
+    { id: DEMO, needsUs: 3, waitingRuns: 1 },
+    { id: OTHER, needsUs: 0, waitingRuns: 0 },
+  ],
   perDay: Array.from({ length: 14 }, (_, i) => ({
     runs: i === 13 ? 18 : 24,
     failed: i === 13 ? 2 : 0,
   })),
   ...over,
 });
-
-const overview = {
-  since: hoursAgo(24 * 7),
-  clients: 2,
-  failedRuns: [],
-  inbox: [],
-  connections: [],
-  updates: [
-    {
-      agent: { id: AGENT, slug: "pia", name: "Pia" },
-      client: demo,
-      template: { id: "t1", name: "Purchasing" },
-      behind: 1,
-      releaseNote: null,
-    },
-  ],
-  counts: { failedRuns: 0, inbox: 0, connections: 0, updates: 1 },
-};
 
 function renderAt(api: ReturnType<typeof fakeApi>) {
   return render(
@@ -176,7 +164,6 @@ function routes(over: Record<string, () => unknown> = {}) {
     "GET /api/session": () => OPERATOR_SESSION,
     "GET /api/ops/clients": () => ({ clients: [] }),
     "GET /api/ops/command-center": () => center(),
-    "GET /api/ops/overview": () => overview,
     "GET /api/ops/feed": () => ({
       at: now.toISOString(),
       items: [
@@ -199,10 +186,6 @@ function routes(over: Record<string, () => unknown> = {}) {
           text: "4 cost updates",
         },
       ],
-    }),
-    "GET /api/ops/oversight": () => ({
-      decisions: [],
-      totals: { count: 0, costUsd: "0", byAction: {} },
     }),
     [`GET /api/ops/clients/${DEMO}/health`]: () => ({
       supervisor: {
@@ -239,7 +222,8 @@ function routes(over: Record<string, () => unknown> = {}) {
 
 describe("command center", () => {
   it("shows the figures, what needs us and the agents, and opens a blocked run", async () => {
-    renderAt(routes());
+    const api = routes();
+    renderAt(api);
     const figures = await screen.findByTestId("ops-command-figures");
     // Four figures, each a link to its list filtered.
     const need = within(figures).getByTestId("ops-command-need-us");
@@ -318,6 +302,17 @@ describe("command center", () => {
       within(pia).getByRole("img", { name: "Runs each day, last 14 days: 4 in all, 1 failed" }),
     ).toBeInTheDocument();
     expect(within(agents).getByTestId(`ops-agent-${AGENT2}`)).toHaveTextContent("Paused");
+
+    // §1.84: one request for the page. The badge reads the command center's count, and nothing
+    // else asks for Needs us, the overview or oversight.
+    await waitFor(() =>
+      expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Escalations3"),
+    );
+    for (const other of ["/api/ops/counts", "/api/ops/needs-us", "/api/ops/overview"]) {
+      expect(api.calls).not.toContain(`GET ${other}`);
+    }
+    expect(api.calls).not.toContain("GET /api/ops/oversight");
+    expect(api.calls.filter((c) => c === "GET /api/ops/command-center")).toHaveLength(1);
     // Without the days (an older API), the last runs as bars.
     expect(
       within(within(agents).getByTestId(`ops-agent-${AGENT2}`)).getByText("No runs"),

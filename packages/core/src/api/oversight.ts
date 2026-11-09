@@ -50,6 +50,18 @@ export const OpsOversightQuery = z.object({
   cause: z.enum(OVERSIGHT_CAUSES).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
+export type OpsOversightQuery = z.infer<typeof OpsOversightQuery>;
+
+/** Decisions newest first, with totals over the ones listed (the lab, the command center). */
+export const OpsOversightList = z.object({
+  decisions: z.array(OpsOversightDecision),
+  totals: z.object({
+    count: z.number().int(),
+    costUsd: z.string(),
+    byAction: z.record(z.string(), z.number().int()),
+  }),
+});
+export type OpsOversightList = z.infer<typeof OpsOversightList>;
 
 export const oversightRoutes = {
   opsOversight: defineRoute({
@@ -60,13 +72,6 @@ export const oversightRoutes = {
     summary:
       "Run oversight decisions across the clients you serve, newest first, with counts by action and their cost",
     query: OpsOversightQuery,
-    response: z.object({
-      decisions: z.array(OpsOversightDecision),
-      totals: z.object({
-        count: z.number().int(),
-        costUsd: z.string(),
-        byAction: z.record(z.string(), z.number().int()),
-      }),
-    }),
+    response: OpsOversightList,
   }),
 } as const;

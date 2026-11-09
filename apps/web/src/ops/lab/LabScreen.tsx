@@ -647,7 +647,7 @@ function AssignForm({
   version: number | null;
   onCancel(): void;
 }) {
-  const clients = useApi(apiRoutes.opsClients);
+  const clients = useApi(apiRoutes.opsClients, { query: { view: "names" } });
   const [clientId, setClientId] = useState("");
   const action = useAction();
   const navigate = useNavigate();

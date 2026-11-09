@@ -68,6 +68,12 @@ const clientRow = (id: string, name: string, needsUs = 0) => ({
   waitingRuns: 0,
 });
 
+/** GET /api/ops/counts for these clients' Needs us. */
+const counts = (...rows: [string, number][]) => ({
+  needsUs: rows.reduce((n, [, c]) => n + c, 0),
+  clients: rows.map(([id, needsUs]) => ({ id, needsUs, waitingRuns: 0 })),
+});
+
 afterEach(() => {
   document.documentElement.removeAttribute("data-theme");
   localStorage.clear();
@@ -82,6 +88,8 @@ describe("back office layout", () => {
         // What needs us, counted per client by the API (UI cleanup, stream A): the badges read it.
         clients: [clientRow(SANDBOX, "Sandbox"), clientRow(DEMO, "Demo client", 2)],
       }),
+      // The badges (§1.84): what needs us, counted per client by the API.
+      "GET /api/ops/counts": () => counts([SANDBOX, 0], [DEMO, 2]),
       [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
     });
     renderAt(`/ops/clients/${SANDBOX}`, api);
@@ -173,13 +181,14 @@ describe("back office layout", () => {
     expect(sessionStorage.getItem("mezonas.ops.client")).toBeNull();
   });
 
-  it("refreshes the Escalations count from Needs us alone, not the whole clients list", async () => {
+  it("keeps the badges fresh from the counts alone, and loads the clients list once", async () => {
+    let needs = 2;
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
       "GET /api/ops/clients": () => ({
-        clients: [clientRow(SANDBOX, "Sandbox"), clientRow(DEMO, "Demo client", 2)],
+        clients: [clientRow(SANDBOX, "Sandbox"), clientRow(DEMO, "Demo client")],
       }),
-      "GET /api/ops/needs-us": () => ({ count: 5, escalations: [] }),
+      "GET /api/ops/counts": () => counts([SANDBOX, 0], [DEMO, needs]),
       [`GET /api/ops/clients/${DEMO}`]: () => ({
         ...SANDBOX_DETAIL,
         client: { ...SANDBOX_DETAIL.client, id: DEMO, name: "Demo client" },
@@ -189,13 +198,19 @@ describe("back office layout", () => {
     renderAt("/ops/lab", api);
     const escalations = await screen.findByTestId("shell-inbox");
     await waitFor(() => expect(escalations).toHaveTextContent("Escalations2"));
-    expect(api.calls.filter((c) => c === "GET /api/ops/needs-us")).toHaveLength(0);
+    // The picker's list is names only (§1.84): its counts come from GET /api/ops/counts.
+    expect(api.calls).not.toContain("GET /api/ops/needs-us");
 
-    // A page change asks for the count alone; the list is not loaded again.
+    // A page change asks for the counts again; the list is not loaded again.
+    needs = 5;
     await userEvent.selectOptions(await screen.findByTestId("ops-client-switcher"), DEMO);
     await screen.findByRole("heading", { level: 1, name: "Demo client" });
     await waitFor(() => expect(escalations).toHaveTextContent("Escalations5"));
     expect(api.calls.filter((c) => c === "GET /api/ops/clients")).toHaveLength(1);
+    // The client's own page reads its Needs us from those counts.
+    await waitFor(() =>
+      expect(screen.getByTestId("ops-client-needs-us")).toHaveTextContent("Needs us 5"),
+    );
   });
 
   it("opens a client from the switcher", async () => {
