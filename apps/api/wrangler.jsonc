@@ -202,11 +202,15 @@
         // As staging: the code service's mail domain, handed on through CODES.
         "AGENT_EMAIL_DOMAIN": "agents.mezonas.com",
         "AUTH_PROVIDER": "workos",
-        // PLACEHOLDER: the production WorkOS client id, set when WorkOS is provisioned.
-        "WORKOS_CLIENT_ID": "",
-        // PLACEHOLDER: the Production environment's AuthKit domain, as for staging.
-        "WORKOS_AUTHKIT_DOMAIN": "",
+        // WorkOS's Production environment (owner, 2026-11-09). Not a secret.
+        "WORKOS_CLIENT_ID": "client_01M6HNS5NKAYG0J6EJQY1FTQVZ",
+        // The Production environment's AuthKit domain (owner, 2026-11-09): the Claude connector
+        // (/mcp). Sign-in doesn't use it.
+        "WORKOS_AUTHKIT_DOMAIN": "https://hardy-grain-84.authkit.app",
         "APP_ORIGIN": "https://app.mezonas.com",
+        // Forwarded mail reaches the Worker once Email Routing sends in.mezonas.com to it
+        // (docs/operations.md, "By hand" step 3).
+        "EMAIL_FORWARDING_DOMAIN": "in.mezonas.com",
         "LLM_MODE": "live",
         // PLACEHOLDER: production keys need Intuit's app review; until then QuickBooks stays off
         // in production (no QBO_CLIENT_ID).
