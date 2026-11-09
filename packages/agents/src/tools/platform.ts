@@ -14,6 +14,7 @@ import { HEALTH_TOOLS } from "./health";
 // v0.12 W2-E
 import { INBOUND_TOOLS } from "./inbound";
 import { KNOWLEDGE_TOOLS } from "./knowledge";
+import { LEDGER_TOOLS } from "./ledger";
 import { memoryScope } from "./memory-scope";
 import { reachOutTool } from "./reach";
 import { SUPERVISOR_TOOLS } from "./supervisor";
@@ -98,6 +99,8 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   ...DOCS_TOOLS,
   ...KNOWLEDGE_TOOLS,
   ...DIRECTORY_TOOLS,
+  // B-2 (docs/plan.md §1.79)
+  ...LEDGER_TOOLS,
   reachOutTool,
   // P-4: conversations
   converseTool,

@@ -11,6 +11,8 @@ const Id = z.string().refine((v) => isUuid(v), "not an id");
 export const QboWebhookResponse = z.object({
   /** Syncs started for the companies the notification named (one per connection). */
   syncs: z.number().int().nonnegative(),
+  /** Record changes kept (docs/plan.md §1.81); a change Intuit sent before isn't kept again. */
+  stored: z.number().int().nonnegative(),
 });
 
 export const qboRoutes = {
@@ -20,7 +22,7 @@ export const qboRoutes = {
     auth: "public",
     roles: [],
     summary:
-      "Intuit's webhook, signed (intuit-signature): starts a sync for each connected company it names",
+      "Intuit's webhook, signed (intuit-signature): keeps each record change it names and starts a sync for each connected company",
     response: QboWebhookResponse,
   }),
   opsConnectionSync: defineRoute({

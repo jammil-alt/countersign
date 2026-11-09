@@ -69,6 +69,8 @@ export async function beginLinkAuthorization(input: {
   /** The connection being signed in again, when it still holds credentials (update mode). */
   reconnect?: LinkRequest["reconnect"];
   origin?: OAuthOrigin;
+  /** B-5: which connection the sign-in is for (`new` or an id), for a multi-connection tool. */
+  target?: string;
   now?: Date;
 }): Promise<{ link: LinkStart; state: string }> {
   const { connector } = input;
@@ -81,6 +83,7 @@ export async function beginLinkAuthorization(input: {
       connector: connector.manifest.id,
       userId: input.userId,
       ...(input.origin ? { origin: input.origin } : {}),
+      ...(input.target ? { target: input.target } : {}),
     },
     { secret: input.stateSecret, ...(input.now ? { now: input.now } : {}) },
   );

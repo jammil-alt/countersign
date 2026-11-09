@@ -191,6 +191,7 @@ async function dispatch(
       ...(deps.packServices ? { packServices: deps.packServices } : {}),
       knowledge: deps.ports.knowledge,
       directory: deps.ports.directory,
+      ledger: deps.ports.ledger,
       health: deps.ports.health,
       findings: deps.ports.findings,
       // v0.12 W1-C

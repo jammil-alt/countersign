@@ -18,6 +18,7 @@ import { dbHealthPort } from "./health-port";
 // v0.12 W2-E
 import { dbInboundPort } from "./inbound-port";
 import { dbKnowledgePort } from "./knowledge-port";
+import { dbLedgerPort } from "./ledger-port";
 import type { ModelCallPort } from "./model-calls";
 import { dbPlatformStore } from "./platform-store";
 import { dbRunLog } from "./run-log";
@@ -63,6 +64,8 @@ export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePort
     platform: dbPlatformStore(db),
     knowledge: dbKnowledgePort(db),
     directory: dbDirectoryPort(db),
+    // B-2: the client's ledger.
+    ledger: dbLedgerPort(db),
     health: dbHealthPort(db, options.connectorName ? { connectorName: options.connectorName } : {}),
     findings: dbFindingsPort(db, emit),
     attention: dbConnectionAttention(db, emit),

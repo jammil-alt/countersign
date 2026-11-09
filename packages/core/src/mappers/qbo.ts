@@ -25,6 +25,11 @@ export type QboArEntity = (typeof QBO_AR_ENTITIES)[number];
 // theirs), attachments last (so the transactions they hang on already exist when their files are
 // linked). Customer, Invoice and Payment are the v0.12 accounts receivable entities.
 export const QBO_SYNCED_ENTITIES = [
+  // B-2 (docs/plan.md §1.79): the ledger first, as name lists read whole: the chart of accounts,
+  // its classes and its locations (QuickBooks' Department).
+  "Account",
+  "Class",
+  "Department",
   "Vendor",
   "Item",
   "Customer",
@@ -280,6 +285,9 @@ export function mapQboTransaction(entityType: string, raw: unknown): Transaction
         docNumber: t.DocNumber ?? null,
         dueDate: t.DueDate ?? null,
         tax: t.TxnTaxDetail?.TotalTax === undefined ? null : qboAmount(t.TxnTaxDetail.TotalTax),
+        // B-3 (docs/plan.md §1.79): the bank or card account a purchase was paid from, by id, so
+        // a bank transaction can be matched to it.
+        accountId: entityType === "Purchase" ? (t.AccountRef?.value ?? null) : null,
       },
     },
   };
@@ -311,6 +319,156 @@ export function mapQboVendor(raw: unknown): VendorInput {
     aliases: [...new Set(aliases)],
     active: v.Active !== false,
     email: v.PrimaryEmailAddr?.Address ?? null,
+  };
+}
+
+// ── The chart of accounts (B-2, docs/plan.md §1.79) ─────────────────────────────────────────────
+
+export const QboAccountRaw = z.looseObject({
+  Id: z.union([z.string(), z.number()]).transform(String),
+  SyncToken: z.union([z.string(), z.number()]).transform(String).optional(),
+  Name: z.string().min(1),
+  FullyQualifiedName: z.string().optional(),
+  AcctNum: z.string().optional(),
+  Classification: z.string().optional(),
+  AccountType: z.string().optional(),
+  AccountSubType: z.string().optional(),
+  ParentRef: Ref.optional(),
+  Description: z.string().optional(),
+  Active: z.boolean().optional(),
+  CurrencyRef: Ref.optional(),
+});
+export type QboAccountRaw = z.infer<typeof QboAccountRaw>;
+
+/**
+ * What an account is in the platform's words (B-1, docs/plan.md §1.79), whatever the accounting
+ * tool: each connector's mapper sets it, and agents and packs read it rather than a tool's own
+ * type. The same list as `LEDGER_KINDS` in packages/db (a test there holds them together).
+ */
+export const LEDGER_KIND_VALUES = [
+  "bank",
+  "card",
+  "receivable",
+  "payable",
+  "other_current_asset",
+  "fixed_asset",
+  "other_asset",
+  "other_current_liability",
+  "long_term_liability",
+  "equity",
+  "income",
+  "other_income",
+  "cost_of_goods",
+  "expense",
+  "other_expense",
+  "other",
+] as const;
+export type LedgerKindInput = (typeof LEDGER_KIND_VALUES)[number];
+
+/** QuickBooks' account types: the platform's kind, and the classification when QuickBooks leaves it out. */
+const QBO_ACCOUNT_TYPES: Readonly<
+  Record<string, { kind: LedgerKindInput; classification: LedgerClassificationInput }>
+> = {
+  Bank: { kind: "bank", classification: "asset" },
+  "Accounts Receivable": { kind: "receivable", classification: "asset" },
+  "Other Current Asset": { kind: "other_current_asset", classification: "asset" },
+  "Fixed Asset": { kind: "fixed_asset", classification: "asset" },
+  "Other Asset": { kind: "other_asset", classification: "asset" },
+  "Accounts Payable": { kind: "payable", classification: "liability" },
+  "Credit Card": { kind: "card", classification: "liability" },
+  "Other Current Liability": { kind: "other_current_liability", classification: "liability" },
+  "Long Term Liability": { kind: "long_term_liability", classification: "liability" },
+  Equity: { kind: "equity", classification: "equity" },
+  Income: { kind: "income", classification: "revenue" },
+  "Other Income": { kind: "other_income", classification: "revenue" },
+  "Cost of Goods Sold": { kind: "cost_of_goods", classification: "expense" },
+  Expense: { kind: "expense", classification: "expense" },
+  "Other Expense": { kind: "other_expense", classification: "expense" },
+};
+
+export type LedgerClassificationInput = "asset" | "liability" | "equity" | "revenue" | "expense";
+
+export interface LedgerAccountInput {
+  externalId: string;
+  name: string;
+  fullName: string;
+  number: string | null;
+  classification: LedgerClassificationInput | null;
+  kind: LedgerKindInput;
+  accountType: string;
+  accountSubType: string | null;
+  parentExternalId: string | null;
+  description: string | null;
+  currency: string;
+  active: boolean;
+}
+
+/** A QuickBooks account as the chart of accounts keeps it. */
+export function mapQboAccount(raw: unknown): LedgerAccountInput {
+  const a = parse(QboAccountRaw, raw, "Account");
+  const name = a.Name.trim();
+  const type = a.AccountType?.trim() || "Other";
+  const stated = a.Classification?.trim().toLowerCase();
+  const classification =
+    stated === "asset" ||
+    stated === "liability" ||
+    stated === "equity" ||
+    stated === "revenue" ||
+    stated === "expense"
+      ? stated
+      : (QBO_ACCOUNT_TYPES[type]?.classification ?? null);
+  const currency = (a.CurrencyRef?.value ?? "USD").toUpperCase();
+  return {
+    externalId: a.Id,
+    name,
+    fullName: a.FullyQualifiedName?.trim() || name,
+    number: a.AcctNum?.trim() || null,
+    classification,
+    kind: QBO_ACCOUNT_TYPES[type]?.kind ?? "other",
+    accountType: type,
+    accountSubType: a.AccountSubType?.trim() || null,
+    parentExternalId: a.ParentRef?.value ?? null,
+    description: a.Description?.trim() || null,
+    currency: CurrencyCode.safeParse(currency).success ? currency : "USD",
+    active: a.Active !== false,
+  };
+}
+
+/** QuickBooks' Class and Department (a location), as the ledger's dimensions keep them. */
+export const QboDimensionRaw = z.looseObject({
+  Id: z.union([z.string(), z.number()]).transform(String),
+  SyncToken: z.union([z.string(), z.number()]).transform(String).optional(),
+  Name: z.string().min(1),
+  FullyQualifiedName: z.string().optional(),
+  ParentRef: Ref.optional(),
+  Active: z.boolean().optional(),
+});
+
+export interface LedgerDimensionInput {
+  kind: "class" | "location";
+  externalId: string;
+  name: string;
+  fullName: string;
+  parentExternalId: string | null;
+  active: boolean;
+}
+
+/** QuickBooks' entity for each dimension: a location is a Department there. */
+export const QBO_DIMENSION_ENTITIES = { Class: "class", Department: "location" } as const;
+
+export function mapQboDimension(
+  entity: keyof typeof QBO_DIMENSION_ENTITIES,
+  raw: unknown,
+): LedgerDimensionInput {
+  const d = parse(QboDimensionRaw, raw, entity);
+  const name = d.Name.trim();
+  return {
+    kind: QBO_DIMENSION_ENTITIES[entity],
+    externalId: d.Id,
+    name,
+    fullName: d.FullyQualifiedName?.trim() || name,
+    parentExternalId: d.ParentRef?.value ?? null,
+    active: d.Active !== false,
   };
 }
 

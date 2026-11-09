@@ -69,6 +69,7 @@ import { knowledgeRouteHandlers } from "./routes/knowledge";
 // v0.12 W2-C: the test bench, skill tests and the agent lab
 import { labRoutes } from "./routes/lab";
 import { languageRouteHandlers } from "./routes/language";
+import { ledgerRoutes } from "./routes/ledger";
 import { lifecycleRoutes } from "./routes/lifecycle";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 import { notifyRouteHandlers } from "./routes/notify";
@@ -186,6 +187,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   approverRuleRoutes(app);
   contactRoutes(app);
   directoryRoutes(app);
+  // The back office's chart of accounts (docs/plan.md §1.79).
+  ledgerRoutes(app);
   reachRoutes(app);
   messagingSetupRoutes(app);
   twilioHookRoutes(app);

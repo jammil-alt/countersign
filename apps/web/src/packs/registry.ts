@@ -7,7 +7,13 @@ import type { PlainKey } from "../i18n/catalog";
 import { PortalSearchScreen } from "./marketing/portal/Search";
 import { PortalWebsiteScreen } from "./marketing/portal/Website";
 import { PortalWeeklyReportScreen } from "./marketing/portal/WeeklyReport";
-import { PortalCatalogScreen, PortalPriceWatchScreen, PortalRequestsScreen } from "./screens";
+import {
+  PortalBankTransactionsScreen,
+  PortalCatalogScreen,
+  PortalPriceWatchScreen,
+  PortalReconciliationsScreen,
+  PortalRequestsScreen,
+} from "./screens";
 
 export interface PackReport {
   /** The pack's id, as `tenant_pack.pack` names it, e.g. "materials". */
@@ -69,6 +75,22 @@ export const PACK_REPORTS: readonly PackReport[] = [
     titleKey: "marketing.weekly.title",
     descriptionKey: "marketing.weekly.description",
     Component: PortalWeeklyReportScreen,
+  },
+  // B-6 (docs/plan.md §1.79): the Bookkeeping area's bank transactions, read only.
+  {
+    pack: "bookkeeping",
+    slug: "transactions",
+    titleKey: "bookkeeping.transactions.title",
+    descriptionKey: "bookkeeping.transactions.description",
+    Component: PortalBankTransactionsScreen,
+  },
+  // R-1 (docs/plan.md §1.80): reconciliations, read only (a person decides on the card).
+  {
+    pack: "bookkeeping",
+    slug: "reconciliations",
+    titleKey: "bookkeeping.recons.title",
+    descriptionKey: "bookkeeping.recons.description",
+    Component: PortalReconciliationsScreen,
   },
 ];
 

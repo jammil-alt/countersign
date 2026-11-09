@@ -84,6 +84,9 @@ describe("tool registry", () => {
       "inbox.create",
       "knowledge.search",
       "knowledge.voice_samples",
+      // B-2 (docs/plan.md §1.79)
+      "ledger.accounts.list",
+      "ledger.dimensions.list",
       "memory.write",
       "supervisor.check",
       "supervisor.report",
