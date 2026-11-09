@@ -84,7 +84,7 @@ function OpsFrame({ children }: { children: ReactNode }) {
   // center show. First from the clients list's `needsUs`; then refreshed on each page change and
   // every 20 s, as the portal's Desk count does, from Needs us alone.
   // DECISION: the refresh asks /api/ops/needs-us, not the whole clients list again (docs/plan.md
-  // §1.79): the list's other figures were recomputed every 20 s for one number. Both count the
+  // §1.82): the list's other figures were recomputed every 20 s for one number. Both count the
   // same escalations (`needsUs` in apps/api), so the badge never jumps between them.
   const [needsLive, setNeedsLive] = useState(false);
   const needsState = useApi(apiRoutes.opsNeedsUs, needsLive ? {} : null);

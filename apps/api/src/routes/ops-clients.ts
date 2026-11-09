@@ -218,33 +218,41 @@ async function clientSummaries(
   services: Pick<Services, "auth" | "env" | "platform">,
 ) {
   if (ids.length === 0) return [];
-  const rows = await tx
-    .select()
-    .from(tenant)
-    .where(inArray(tenant.id, [...ids]))
-    .orderBy(tenant.name);
-  const agents = await tx
-    .select({ tenantId: agent.tenantId, n: count() })
-    .from(agent)
-    .where(
-      and(inArray(agent.tenantId, [...ids]), eq(agent.kind, "client"), eq(agent.status, "active")),
-    )
-    .groupBy(agent.tenantId);
-  const open = await tx
-    .select({ tenantId: inboxItem.tenantId, n: count() })
-    .from(inboxItem)
-    .where(and(inArray(inboxItem.tenantId, [...ids]), eq(inboxItem.status, "open")))
-    .groupBy(inboxItem.tenantId);
-  // UI cleanup (stream A): Needs us and runs waiting for approval, per client, from the same
-  // definitions the command center and the runs list use, so every count agrees.
-  const escalations = await needsUs(tx, ids, new Date(), needsUsContext(services));
-  const waiting = await tx
-    .select({ tenantId: run.tenantId, n: count() })
-    .from(run)
-    .where(
-      and(inArray(run.tenantId, [...ids]), eq(run.mode, "live"), ...opsStatusWhere(["waiting"])),
-    )
-    .groupBy(run.tenantId);
+  // DECISION: the five reads are asked at once, in the request's transaction, which the driver
+  // pipelines (docs/plan.md §1.82): the back office loads this list on every visit.
+  const [rows, agents, open, escalations, waiting] = await Promise.all([
+    tx
+      .select()
+      .from(tenant)
+      .where(inArray(tenant.id, [...ids]))
+      .orderBy(tenant.name),
+    tx
+      .select({ tenantId: agent.tenantId, n: count() })
+      .from(agent)
+      .where(
+        and(
+          inArray(agent.tenantId, [...ids]),
+          eq(agent.kind, "client"),
+          eq(agent.status, "active"),
+        ),
+      )
+      .groupBy(agent.tenantId),
+    tx
+      .select({ tenantId: inboxItem.tenantId, n: count() })
+      .from(inboxItem)
+      .where(and(inArray(inboxItem.tenantId, [...ids]), eq(inboxItem.status, "open")))
+      .groupBy(inboxItem.tenantId),
+    // UI cleanup (stream A): Needs us and runs waiting for approval, per client, from the same
+    // definitions the command center and the runs list use, so every count agrees.
+    needsUs(tx, ids, new Date(), needsUsContext(services)),
+    tx
+      .select({ tenantId: run.tenantId, n: count() })
+      .from(run)
+      .where(
+        and(inArray(run.tenantId, [...ids]), eq(run.mode, "live"), ...opsStatusWhere(["waiting"])),
+      )
+      .groupBy(run.tenantId),
+  ]);
   return rows.map((t) => ({
     id: t.id,
     name: t.name,

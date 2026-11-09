@@ -150,10 +150,17 @@ export function requestState(deps: AppDeps) {
           const opened = deps.openDb(env);
           close = opened.close;
           let auth: AdapterChoice | undefined;
+          let platform: Platform | undefined;
           services = {
             env,
             db: opened.db,
-            platform: deps.platform(env),
+            // DECISION: built on first use, not for every request (docs/plan.md §1.82): the tool
+            // registry and skill catalog take tens of ms to build in a fresh isolate, and most
+            // requests (lists, counts, the command center) never read them.
+            get platform() {
+              platform ??= deps.platform(env);
+              return platform;
+            },
             instances: deps.instances(env),
             deps,
             auth: () => {

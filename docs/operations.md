@@ -59,7 +59,7 @@ dashboard.
 1. The Neon project `mezonas`, Postgres 16, in the region given when running the workflow (the owner
    chose the same region Plenary Labs uses, `aws-us-east-2`, which is the workflow's default),
    unless the `NEON_PROJECT_ID` variable already names one. The API Worker is placed in the same
-   region (`placement` in `apps/api/wrangler.jsonc`, docs/plan.md §1.79): move both together.
+   region (`placement` in `apps/api/wrangler.jsonc`, docs/plan.md §1.82): move both together.
 2. Role `cs_owner` (Neon-managed is fine for the owner) and database `countersign` on `main`; branch
    `staging` from `main`.
 3. On each branch, with SQL: `cs_runtime` (NOLOGIN) and `cs_worker` (LOGIN, member of `cs_runtime` only).
