@@ -32,7 +32,8 @@ database, Worker, bucket, WorkOS application, key or secret. Never point anythin
 resources.
 
 Other docs: `docs/local-development.md` (running it), `docs/operations.md` (environments, secrets, CI, deploys),
-`docs/security.md` (the security controls and settings), `docs/hipaa-plan.md` (what's open for HIPAA, SOC 2 and PCI).
+`docs/security.md` (the security controls and settings), `docs/hipaa-plan.md` (what's open for HIPAA, SOC 2 and PCI), `docs/plaid-plan.md` (Plaid's 11
+attestations, due 2027-05-10), `docs/eol-inventory.md` (support end dates, reviewed quarterly).
 
 ## Layout
 

@@ -2,6 +2,7 @@
 
 The plan from here to a client in HIPAA mode, a SOC 2 report and a PCI self-assessment.
 `docs/security.md` has what is done. The design is in `docs/plan.md` §1.35.
+Plaid's attestations (`docs/plaid-plan.md`) need the same policies and routines.
 Last updated 2026-11-06.
 
 Until #82 and #84 merge, `docs/plan.md` §1.35 and `docs/operations.md` §1.2 exist only on their
