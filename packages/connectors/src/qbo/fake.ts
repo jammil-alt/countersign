@@ -78,6 +78,8 @@ export interface FakeQboRequest {
   body: string | null;
 }
 
+let tids = 0;
+
 function response(
   status: number,
   body: unknown,
@@ -85,7 +87,13 @@ function response(
   bytes?: Uint8Array,
 ): HttpResponseLike {
   const text = typeof body === "string" ? body : body === undefined ? "" : JSON.stringify(body);
-  const h = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+  // Intuit names every response with an `intuit_tid` header, which its support asks for.
+  const h = Object.fromEntries(
+    Object.entries({ intuit_tid: `1-fake-${++tids}`, ...headers }).map(([k, v]) => [
+      k.toLowerCase(),
+      v,
+    ]),
+  );
   return {
     status,
     ok: status >= 200 && status < 300,
@@ -1061,9 +1069,17 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
       return res;
     } catch (error) {
       if (error instanceof FakeFault) {
-        return response(error.status, {
-          Fault: { Error: [{ Message: error.message, code: error.code }], type: "ValidationFault" },
-        });
+        // Intuit names each request with an `intuit_tid` header, which support asks for.
+        return response(
+          error.status,
+          {
+            Fault: {
+              Error: [{ Message: error.message, code: error.code }],
+              type: "ValidationFault",
+            },
+          },
+          { intuit_tid: `1-fake-${requests.length}` },
+        );
       }
       throw error;
     }

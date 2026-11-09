@@ -70,16 +70,28 @@ export class QboApiError extends Error {
     message: string,
     /** 429 and 5xx: a later try may get through (the step's retry). */
     readonly retryable: boolean,
+    /**
+     * Intuit's id for the request (the `intuit_tid` response header), which Intuit asks for when a
+     * failure is reported to them. Kept on the error and in its message, so it reaches the step's
+     * error and the logs. Null when Intuit sent none.
+     */
+    readonly intuitTid: string | null = null,
   ) {
-    super(message);
+    super(intuitTid ? `${message} (intuit_tid ${intuitTid})` : message);
     this.name = "QboApiError";
   }
 }
 
+/** Intuit's request id from a response, when it sent one (a short token; anything else is dropped). */
+export function intuitTidOf(res: { headers: { get(name: string): string | null } }): string | null {
+  const tid = res.headers.get("intuit_tid")?.trim() ?? "";
+  return /^[A-Za-z0-9-]{1,100}$/.test(tid) ? tid : null;
+}
+
 /** The record changed since it was read: its SyncToken moved on (QBO error 5010, or our check). */
 export class QboStaleObjectError extends QboApiError {
-  constructor(message: string) {
-    super(409, "5010", message, false);
+  constructor(message: string, intuitTid: string | null = null) {
+    super(409, "5010", message, false, intuitTid);
     this.name = "QboStaleObjectError";
   }
 }
@@ -225,6 +237,7 @@ export async function qboTokenCall(
       "BAD_TOKEN_RESPONSE",
       "Intuit's token endpoint did not answer JSON",
       res.status >= 500,
+      intuitTidOf(res),
     );
   }
   const parsed = QboTokenResponse.safeParse(body);
@@ -234,6 +247,7 @@ export async function qboTokenCall(
       "BAD_TOKEN_RESPONSE",
       "Intuit's token answer has an unexpected shape",
       false,
+      intuitTidOf(res),
     );
   }
   return parsed.data;
@@ -432,14 +446,21 @@ export async function qboClient(ctx: ToolContext, opts: QboClientOptions): Promi
       throw new ReconnectRequiredError("QuickBooks refused the access token after a refresh");
     }
     const fault = readFault(parsed);
+    const tid = intuitTidOf(res);
     if (!res.ok || fault) {
       const code = fault?.code ?? `HTTP_${res.status}`;
       const message = fault?.message ?? `QuickBooks answered ${res.status}`;
-      if (code === "5010") throw new QboStaleObjectError(message);
-      throw new QboApiError(res.status, code, message, res.status === 429 || res.status >= 500);
+      if (code === "5010") throw new QboStaleObjectError(message, tid);
+      throw new QboApiError(
+        res.status,
+        code,
+        message,
+        res.status === 429 || res.status >= 500,
+        tid,
+      );
     }
     if (parsed === null)
-      throw new QboApiError(res.status, "NOT_JSON", "QuickBooks answered no JSON", true);
+      throw new QboApiError(res.status, "NOT_JSON", "QuickBooks answered no JSON", true, tid);
     return parsed;
   }
 
@@ -517,6 +538,7 @@ export async function qboClient(ctx: ToolContext, opts: QboClientOptions): Promi
           fault?.code ?? `HTTP_${res.status}`,
           fault?.message ?? `QuickBooks answered ${res.status} for the download`,
           res.status === 429 || res.status >= 500,
+          intuitTidOf(res),
         );
       }
       const link = checkPublicHttpsUrl(text);

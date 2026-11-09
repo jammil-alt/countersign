@@ -24,6 +24,7 @@ connected.
 | A stale `SyncToken` is refused with 400, `Fault.Error[].code` `5010` (Stale Object Error) | `api.ts` → `QboStaleObjectError` |
 | `requestid` query parameter makes a write idempotent: the same id within Intuit's window gets the first answer | `api.ts` `qboRequestId` (from the external action's idempotency key) |
 | Errors: `Fault.Error[{Message, Detail, code}]`, auth errors as lower-case `fault.error[]` | `api.ts` `readFault` |
+| Every response carries an `intuit_tid` header, Intuit's id for the request, which its support asks for | `api.ts` `intuitTidOf`: kept on `QboApiError.intuitTid` and appended to its message, so it reaches the step's error and the logs |
 | 401 means the access token expired: refresh once and retry | `api.ts` via `tokenManager.withAccessToken` |
 | Throttling: about 500 requests a minute and 10 at once per company; over it, 429 | `api.ts` `RealmThrottle` (450/min, 10 at once, per isolate), 3 retries at 1 s, 2 s, 4 s or `Retry-After` |
 | CDC: `GET /cdc?entities=Bill,Purchase,…&changedSince=<ISO time>` → `CDCResponse[].QueryResponse[]` with one block per entity; deleted records come as `{ "Id", "status": "Deleted", "MetaData.LastUpdatedTime" }`; at most 30 days back and 1000 objects per entity per answer, no paging | `sync.ts` |
