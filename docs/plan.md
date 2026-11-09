@@ -2169,6 +2169,24 @@ the lawyer (`docs/marketing/processor-terms-draft.md`; the runbook is `docs/oper
 | Processor wording | Drafted, not applied: `docs/marketing/processor-terms-draft.md` (we are the client's processor and service provider for its visitors; what the terms, a DPA, the client's own notice and our privacy policy need; HIPAA and children's sites held). The site keeps its terms until the lawyer and the owner decide. |
 | Not in M50 | A CMS publishing connector (`wordpress`, `webflow`: only when a client asks); a portal screen for content approvals (they reach the Desk as any agent's approvals); a portal snippet page (the operator sends the snippet); marking report actions from the portal. |
 
+### 1.79 Speed: where the Worker runs, and fewer round trips (2026-11-09)
+
+The back office took 1–4 s per request on staging (owner, 2026-11-09). Measured: about a third of
+API requests, `/api/health` included, waited 1–2.8 s for a fresh Worker (Cloudflare's measured
+startup is 309 ms; the rest is outside our code), and a warm command center made about 45 database
+round trips in a row from the visitor's nearest location to Neon in `aws-us-east-2`. The back office
+also reloaded the whole clients list every 20 s for one number, in background tabs too.
+
+| Topic | Decision |
+|---|---|
+| Placement | `"placement": { "region": "aws:us-east-2" }` for staging and production (`apps/api/wrangler.jsonc`): the Worker runs next to Neon, so a round trip is a few ms, and its traffic lands on fewer machines, so more requests find it warm. Static files are still served from the nearest location. Moving Neon means moving this too (docs/operations.md). // DECISION |
+| The scope with the first queries | `inScope` (`packages/db/src/client.ts`) sends `set_config` and starts `fn` without waiting: the transaction's one connection runs statements in the order issued, so everything `fn` asks still runs scoped (`scope.test.ts`). One round trip less for every transaction. // DECISION |
+| Sign-in check | `AuthDirectory.account` (optional): the user and their memberships in one `withUser` transaction (`userWithMemberships`), instead of a lookup and then a transaction. // DECISION |
+| Reads asked at once | The command center, Needs us, the feed and the clients list ask their independent reads together in the request's transaction, which postgres-js pipelines (as search and billing already did). None of them changes the scope while reads are in flight. // DECISION |
+| The platform per request | `services().platform` is built on first use, not for every request: the tool registry and skill catalog take tens of ms in a fresh isolate and most reads never use them. // DECISION |
+| Polling | `usePoll` and the command center's feed skip ticks while the tab is hidden and catch up once on return. The back office's Escalations badge refreshes from `/api/ops/needs-us` (the same count), not the whole clients list; the list loads once, and again when the session's clients change. // DECISION |
+| Not done | Converting tool schemas to JSON Schema lazily: tool skills copy them when their modules load, so it moved no work off startup (measured). Dropping the Anthropic SDK (3 MB) or moving Playwright (3.2 MB, loaded only for website logins) out of the bundle to cut the 12 MB script: possible, at the cost of our own model transport or a separate Worker for browser logins; the owner's call. |
+
 ---
 
 ## 2. Package layering
