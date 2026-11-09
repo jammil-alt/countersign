@@ -219,6 +219,16 @@ export type CodeAlert = z.infer<typeof CodeAlert>;
 export type AlertsResult = z.infer<typeof AlertsResult>;
 export type DeleteIdentityResult = z.infer<typeof DeleteIdentityResult>;
 
+/**
+ * Mail for the agent domain, handed to the code service by apps/api's `email()`. Cloudflare Email
+ * Routing has one catch-all per zone, so each environment's zone sends all its mail to apps/api,
+ * which passes the agent domain's on here (docs/operations.md, "Email Routing"). Answers the same
+ * outcome the code service's own `email()` would (`matched`, `unknown_address`, …).
+ */
+export interface CodesMailbox {
+  receiveEmail(input: { to: string; raw: Uint8Array }): Promise<{ outcome: string }>;
+}
+
 /** The code service as `apps/api` sees it through the `CODES` service binding. */
 export interface CodesService {
   createIdentity(input: CreateIdentityInput): Promise<CodesResponse<IdentityView>>;

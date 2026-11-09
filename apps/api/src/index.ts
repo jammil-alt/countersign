@@ -4,6 +4,7 @@
 import { app } from "./app";
 import { handleEmail } from "./email";
 import type { Bindings } from "./env";
+import { routeEmail } from "./mail-route";
 import { scheduled } from "./scheduled";
 
 export { app } from "./app";
@@ -18,8 +19,9 @@ export { TestSuiteWorkflow } from "./testbench/workflow";
 export default {
   fetch: app.fetch,
   scheduled,
-  // Email forwarding (ARCHITECTURE §6.5): Email Routing on EMAIL_FORWARDING_DOMAIN → here.
+  // Email Routing (one catch-all per zone) → here: the agent domain's mail goes on to the code
+  // service, the rest is forwarding (ARCHITECTURE §6.5; ./mail-route.ts).
   async email(message, env, ctx) {
-    await handleEmail(message, env, (p) => ctx.waitUntil(p));
+    await routeEmail(message, env, (m) => handleEmail(m, env, (p) => ctx.waitUntil(p)));
   },
 } satisfies ExportedHandler<Bindings>;

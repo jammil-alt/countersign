@@ -12,6 +12,7 @@ import {
   type ClaimResult,
   type CodeAlert,
   CodesInputs,
+  type CodesMailbox,
   type CodesResponse,
   type CodesService,
   type CreateIdentityInput,
@@ -25,8 +26,9 @@ import {
 } from "@countersign/core";
 import type { z } from "zod";
 import { newIdentityId } from "./crypto";
-import { agentAddress } from "./email";
+import { agentAddress, MAX_EMAIL_BYTES } from "./email";
 import type { CodesEnv } from "./env";
+import { handleEmail } from "./inbox";
 import { logEvent } from "./log";
 import { buyNumber, releaseNumber, type TwilioAccount, TwilioError } from "./twilio";
 
@@ -49,7 +51,7 @@ function parse<S extends z.ZodType>(
   );
 }
 
-export class Codes extends WorkerEntrypoint<CodesEnv> implements CodesService {
+export class Codes extends WorkerEntrypoint<CodesEnv> implements CodesService, CodesMailbox {
   private identityStub(identityId: string) {
     return this.env.IDENTITY.get(this.env.IDENTITY.idFromName(identityId));
   }
@@ -66,6 +68,18 @@ export class Codes extends WorkerEntrypoint<CodesEnv> implements CodesService {
 
   /** Twilio's REST API, called through the global fetch at call time (tests replace it). */
   private readonly fetcher: typeof fetch = (input, init) => fetch(input, init);
+
+  /** Mail for the agent domain, passed on by apps/api's `email()` (core's `CodesMailbox`). */
+  async receiveEmail(input: { to: string; raw: Uint8Array }): Promise<{ outcome: string }> {
+    const to = typeof input?.to === "string" ? input.to : "";
+    const raw = input?.raw instanceof Uint8Array ? input.raw : new Uint8Array(0);
+    if (raw.length > MAX_EMAIL_BYTES) return { outcome: "too_large" };
+    const outcome = await handleEmail(
+      { to, rawSize: raw.length, raw: new Response(raw).body as ReadableStream<Uint8Array> },
+      this.env,
+    );
+    return { outcome };
+  }
 
   async createIdentity(input: CreateIdentityInput): Promise<CodesResponse<IdentityView>> {
     const p = parse(CodesInputs.createIdentity, input);

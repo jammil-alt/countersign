@@ -2,7 +2,7 @@
 // plus the secrets, which never appear in wrangler.jsonc and so are not in the generated type.
 
 import type { BrowserWorker } from "@cloudflare/playwright";
-import type { CodesService } from "@countersign/core";
+import type { CodesMailbox, CodesService } from "@countersign/core";
 
 export interface Secrets {
   WORKOS_API_KEY?: string;
@@ -117,6 +117,11 @@ export interface Vars {
   LLM_MODE?: string;
   /** e.g. `in.mezonas.com`: Cloudflare Email Routing sends it to `email()`. Unset: forwarding is off. */
   EMAIL_FORWARDING_DOMAIN?: string;
+  /**
+   * e.g. `agents.mezonas.com`: the code service's mail domain (apps/mfa's AGENT_EMAIL_DOMAIN). Mail
+   * to it reaching `email()` is handed to the code service (`CODES.receiveEmail`). Unset: none is.
+   */
+  AGENT_EMAIL_DOMAIN?: string;
   /** `sandbox` (default) or `production`: which QuickBooks the qbo connector talks to. */
   QBO_ENV?: string;
   /** v0.12 bankfeed: `sandbox` (default) or `production`: which Plaid the bank feed talks to. */
@@ -149,7 +154,7 @@ export interface Vars {
  * Cloudflare Browser Run, for browser logins (docs/plan.md §1.26); unset, they are not available.
  */
 export interface OptionalBindings {
-  CODES?: CodesService;
+  CODES?: CodesService & Partial<CodesMailbox>;
   /** QboSyncWorkflow: one instance per QuickBooks sync (cron, webhook, "sync now"). */
   QBO_SYNC?: Workflow;
   /** ExportWorkflow: one instance per client data export (docs/plan.md §1.36). */

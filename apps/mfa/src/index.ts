@@ -3,17 +3,19 @@
 //  - `Codes`, a WorkerEntrypoint: the RPC apps/api calls through its `CODES` service binding
 //    (core's `CodesService`). Not reachable over HTTP.
 //  - `fetch`: Twilio's signed inbound texts, `POST /twilio/sms/:identityId`, and `GET /health`.
-//  - `email`: Cloudflare Email Routing's mail for AGENT_EMAIL_DOMAIN.
+//  - `email`: Cloudflare Email Routing's mail for AGENT_EMAIL_DOMAIN, when a zone routes it here;
+//    usually apps/api passes it on through `Codes.receiveEmail` instead (one catch-all per zone).
 // It imports @countersign/core only and holds its own key and storage (Durable Objects).
 
 import { Hono } from "hono";
-import { identityFromAddress, MAX_EMAIL_BYTES, parseInboundEmail } from "./email";
 import type { CodesEnv } from "./env";
+import { handleEmail } from "./inbox";
 import { logEvent } from "./log";
 import { EMPTY_TWIML, verifyTwilioSignature } from "./twilio";
 
 export { Directory } from "./directory";
 export { Identity } from "./identity";
+export { handleEmail, type InboundEmail } from "./inbox";
 export { Codes } from "./service";
 
 const IDENTITY_ID = /^[a-z2-7]{12}$/;
@@ -66,46 +68,6 @@ app.post("/twilio/sms/:identityId", async (c) => {
 });
 
 app.all("*", (c) => c.text("not found", 404));
-
-/** What `email()` needs of Cloudflare's ForwardableEmailMessage. */
-export interface InboundEmail {
-  readonly to: string;
-  readonly raw: ReadableStream<Uint8Array>;
-  readonly rawSize: number;
-}
-
-// DECISION: mail that names no identity, is too large or fails authentication is dropped without a
-// bounce (as apps/api's forwarding does): a bounce would tell a guesser which addresses exist.
-export async function handleEmail(message: InboundEmail, env: CodesEnv): Promise<string> {
-  const domain = env.AGENT_EMAIL_DOMAIN?.trim();
-  const identityId = domain ? identityFromAddress(message.to, domain) : null;
-  if (!identityId) {
-    logEvent("email.dropped", { reason: "unknown_address" });
-    return "unknown_address";
-  }
-  if (message.rawSize > MAX_EMAIL_BYTES) {
-    logEvent("email.dropped", { identityId, reason: "too_large" });
-    return "too_large";
-  }
-  const raw = new Uint8Array(await new Response(message.raw).arrayBuffer());
-  const parsed = await parseInboundEmail(raw);
-  const stub = env.IDENTITY.get(env.IDENTITY.idFromName(identityId));
-  const outcome = await stub.receive({
-    channel: "email",
-    sender: parsed.from,
-    subject: parsed.subject,
-    text: parsed.text,
-    authenticated: parsed.authenticated,
-  });
-  logEvent("email.received", {
-    identityId,
-    outcome: outcome.outcome,
-    spf: parsed.auth.spf,
-    dkim: parsed.auth.dkim,
-    dmarc: parsed.auth.dmarc,
-  });
-  return outcome.outcome === "ignored" ? outcome.reason : outcome.outcome;
-}
 
 export default {
   fetch: app.fetch,
