@@ -24,6 +24,7 @@ import {
   createQboConnector,
   LEDGER_WRITE_TOOLS,
   parseQboWebhook,
+  parseQboWebhookChanges,
   QBO_REGISTER_TOOL,
   QBO_TOOLS,
   QboStaleObjectError,
@@ -888,5 +889,60 @@ describe("qbo webhooks", () => {
     expect(
       parseQboWebhook({ eventNotifications: [{ realmId: "../etc", dataChangeEvent: {} }] }),
     ).toEqual([]);
+  });
+
+  it("reads each record change, in both payload shapes, leaving out what isn't Intuit's shape", () => {
+    expect(parseQboWebhookChanges(notification)).toEqual([
+      {
+        realmId: "9130357766900456",
+        entity: "Bill",
+        id: "147",
+        operation: "Create",
+        lastUpdated: new Date("2026-11-05T17:41:12.000Z"),
+      },
+      {
+        realmId: "9130357766900456",
+        entity: "Purchase",
+        id: "202",
+        operation: "Delete",
+        lastUpdated: new Date("2026-11-05T17:50:03.000Z"),
+      },
+    ]);
+    expect(parseQboWebhookChanges(cloudEvents)).toEqual([
+      {
+        realmId: "9130357766900456",
+        entity: "Bill",
+        id: "147",
+        operation: "Create",
+        lastUpdated: new Date("2026-11-05T17:41:12.000Z"),
+      },
+    ]);
+    expect(parseQboWebhookChanges({ hello: "world" })).toBeNull();
+    expect(
+      parseQboWebhookChanges({
+        eventNotifications: [
+          {
+            realmId: 9130357766900456,
+            dataChangeEvent: {
+              entities: [
+                // No id or operation, a name that isn't one, a date that isn't: kept only as far
+                // as it is Intuit's shape.
+                { name: "Bill" },
+                { name: "Bill; drop table", id: "1", operation: "Update" },
+                { name: "Vendor", id: 56, operation: "Update", lastUpdated: "yesterday" },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        realmId: "9130357766900456",
+        entity: "Vendor",
+        id: "56",
+        operation: "Update",
+        lastUpdated: null,
+      },
+    ]);
   });
 });

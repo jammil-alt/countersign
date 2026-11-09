@@ -29,6 +29,7 @@ import {
   inboxItem,
   ledgerAccount,
   ledgerDimension,
+  qboWebhookEvent,
   rawRecord,
   transaction,
   transactionLine,
@@ -38,7 +39,7 @@ import {
 import { storeDocument } from "@countersign/documents";
 import { FakeModel } from "@countersign/llm";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import cdcFixture from "../../../fixtures/qbo/webhook-notification.json";
 import {
   type ApiHarness,
@@ -576,7 +577,8 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
       H.env,
     );
     expect(ok.status).toBe(200);
-    expect(await ok.json()).toEqual({ syncs: 1 });
+    // Both record changes are kept (docs/plan.md §1.81), and one sync is started.
+    expect(await ok.json()).toEqual({ syncs: 1, stored: 2 });
     const started = [...syncs.started.entries()].slice(before);
     expect(started).toHaveLength(1);
     expect(started[0]?.[1]).toEqual({
@@ -590,7 +592,8 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
       { method: "POST", headers: { "intuit-signature": sig }, body },
       H.env,
     );
-    expect(await burst.json()).toEqual({ syncs: 0 });
+    // Intuit resent the same notification: nothing new is kept.
+    expect(await burst.json()).toEqual({ syncs: 0, stored: 0 });
     expect(syncs.started.size).toBe(before + 1);
     await forgetClaims();
 
@@ -615,8 +618,105 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
       { method: "POST", headers: { "intuit-signature": otherSig }, body: other },
       H.env,
     );
-    expect(await res.json()).toEqual({ syncs: 0 });
+    expect(await res.json()).toEqual({ syncs: 0, stored: 0 });
     expect(syncs.started.size).toBe(before + 1);
+  });
+
+  it("keeps each change Intuit names once, acts only on what it syncs, and logs no payload", async () => {
+    await forgetClaims();
+    syncs.started.clear();
+    const send = async (raw: string, sign = true) =>
+      H.app.request(
+        "/api/connections/qbo/webhook",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(sign
+              ? {
+                  "intuit-signature": await qboWebhookSignature(
+                    VERIFIER,
+                    new TextEncoder().encode(raw),
+                  ),
+                }
+              : {}),
+          },
+          body: raw,
+        },
+        H.env,
+      );
+    const logs: string[] = [];
+    const capture = (...args: unknown[]) => void logs.push(JSON.stringify(args));
+    const spies = [
+      vi.spyOn(console, "log").mockImplementation(capture),
+      vi.spyOn(console, "warn").mockImplementation(capture),
+    ];
+    try {
+      // An estimate isn't something we sync: kept, not acted on.
+      const estimate = JSON.stringify({
+        eventNotifications: [
+          {
+            realmId: FAKE_QBO_REALM,
+            dataChangeEvent: {
+              entities: [
+                {
+                  name: "Estimate",
+                  id: "88",
+                  operation: "Create",
+                  lastUpdated: "2026-11-09T10:00:00.000Z",
+                },
+              ],
+            },
+          },
+        ],
+      });
+      const r1 = await send(estimate);
+      expect(r1.status).toBe(200);
+      expect(await r1.json()).toEqual({ syncs: 0, stored: 1 });
+      expect(syncs.started.size).toBe(0);
+      // Resent: stored once.
+      expect(await (await send(estimate)).json()).toEqual({ syncs: 0, stored: 0 });
+      const kept = await withTenant(H.db, H.A.tenantId, (tx) =>
+        tx.select().from(qboWebhookEvent).where(eq(qboWebhookEvent.entity, "Estimate")),
+      );
+      expect(kept).toHaveLength(1);
+      expect(kept[0]).toMatchObject({
+        connectionId,
+        realmId: FAKE_QBO_REALM,
+        entityId: "88",
+        operation: "Create",
+        lastUpdated: new Date("2026-11-09T10:00:00.000Z"),
+        acted: false,
+      });
+      // The same record changed again later is a new change.
+      const later = estimate.replace("2026-11-09T10:00:00.000Z", "2026-11-09T11:00:00.000Z");
+      expect(await (await send(later)).json()).toEqual({ syncs: 0, stored: 1 });
+
+      // Signed but not JSON, or not a notification: acknowledged, logged, nothing kept.
+      for (const raw of ["{not json", JSON.stringify({ hello: "world" })]) {
+        const r = await send(raw);
+        expect(r.status, raw).toBe(200);
+        expect(await r.json()).toEqual({ syncs: 0, stored: 0 });
+      }
+      // Unsigned: refused, and nothing kept.
+      expect((await send(later, false)).status).toBe(401);
+
+      const all = logs.join("\n");
+      expect(all).toContain("qbo webhook received");
+      expect(all).toContain('"verified":true');
+      expect(all).toContain('"Estimate":1');
+      expect(all).toContain("qbo webhook unreadable");
+      expect(all).toContain("missing_signature");
+      // No payload and no secret in the logs: no entity id, no body, no verifier.
+      expect(all).not.toContain('"88"');
+      expect(all).not.toContain("hello");
+      expect(all).not.toContain(VERIFIER);
+    } finally {
+      for (const s of spies) s.mockRestore();
+    }
+    // Another client sees none of it.
+    const others = await withTenant(H.db, H.B.tenantId, (tx) => tx.select().from(qboWebhookEvent));
+    expect(others).toEqual([]);
   });
 
   it("lets the operator start a sync, and only for QuickBooks connections it serves", async () => {

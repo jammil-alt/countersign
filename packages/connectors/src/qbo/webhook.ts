@@ -1,6 +1,7 @@
 // Intuit's webhooks (ARCHITECTURE §6.2): one endpoint for the app, signed with the app's verifier
-// token. A notification only says which companies changed; the platform starts a sync for each
-// (it never processes the change inline), and the sync reads the changes through CDC.
+// token. A notification says which records changed in which companies; the platform keeps each
+// change as a row (docs/plan.md §1.81) and starts a sync for each company (it never processes the
+// change inline), and the sync reads the changes through CDC.
 
 import { z } from "zod";
 import { constantTimeEqual } from "../http";
@@ -37,7 +38,14 @@ const Classic = z.object({
         dataChangeEvent: z
           .looseObject({
             entities: z
-              .array(z.looseObject({ name: z.string(), id: z.string().optional() }))
+              .array(
+                z.looseObject({
+                  name: z.string(),
+                  id: z.union([z.string(), z.number()]).transform(String).optional(),
+                  operation: z.string().optional(),
+                  lastUpdated: z.string().optional(),
+                }),
+              )
               .optional(),
           })
           .optional(),
@@ -51,7 +59,8 @@ const CloudEvents = z
     z.looseObject({
       type: z.string().optional(),
       intuitaccountid: z.union([z.string(), z.number()]).transform(String).optional(),
-      intuitentityid: z.string().optional(),
+      intuitentityid: z.union([z.string(), z.number()]).transform(String).optional(),
+      time: z.string().optional(),
     }),
   )
   .max(1000);
@@ -88,4 +97,86 @@ export function parseQboWebhook(body: unknown): { realmId: string; entities: str
     realmId,
     entities: [...entities].sort(),
   }));
+}
+
+/** One record change a notification names (docs/plan.md §1.81). */
+export interface QboWebhookChange {
+  realmId: string;
+  /** Intuit's entity name: `Bill`, `Vendor`, … */
+  entity: string;
+  id: string;
+  /** `Create`, `Update`, `Delete`, `Merge`, `Void`, `Emailed`, … as Intuit sends it. */
+  operation: string;
+  /** When it changed at Intuit; null when the notification doesn't say or says it badly. */
+  lastUpdated: Date | null;
+}
+
+const REALM = /^\d{1,32}$/;
+const ENTITY = /^[A-Za-z]{1,64}$/;
+const SHORT = /^[\w.-]{1,64}$/;
+
+function when(v: string | undefined): Date | null {
+  if (!v) return null;
+  const t = Date.parse(v);
+  return Number.isFinite(t) ? new Date(t) : null;
+}
+
+/** `qbo.bill.created.v1` → `Bill` and `Create`. */
+const CLOUD_OPERATIONS: Record<string, string> = {
+  created: "Create",
+  updated: "Update",
+  deleted: "Delete",
+  merged: "Merge",
+  voided: "Void",
+  emailed: "Emailed",
+};
+
+/**
+ * Each record change a notification names, in either payload shape; null when the body is neither.
+ * A change missing its entity, id or operation, or with values that aren't Intuit's shape, is left
+ * out (the company's sync still reads it).
+ */
+export function parseQboWebhookChanges(body: unknown): QboWebhookChange[] | null {
+  const out: QboWebhookChange[] = [];
+  const add = (c: QboWebhookChange) => {
+    if (
+      REALM.test(c.realmId) &&
+      ENTITY.test(c.entity) &&
+      SHORT.test(c.id) &&
+      SHORT.test(c.operation)
+    ) {
+      out.push(c);
+    }
+  };
+  const classic = Classic.safeParse(body);
+  if (classic.success) {
+    for (const n of classic.data.eventNotifications) {
+      for (const e of n.dataChangeEvent?.entities ?? []) {
+        if (!e.id || !e.operation) continue;
+        add({
+          realmId: n.realmId,
+          entity: e.name,
+          id: e.id,
+          operation: e.operation,
+          lastUpdated: when(e.lastUpdated),
+        });
+      }
+    }
+    return out;
+  }
+  const ce = CloudEvents.safeParse(body);
+  if (!ce.success) return null;
+  for (const e of ce.data) {
+    const [, name, verb] = e.type?.split(".") ?? [];
+    const operation = verb ? CLOUD_OPERATIONS[verb] : undefined;
+    if (!e.intuitaccountid || !e.intuitentityid || !name || !operation) continue;
+    add({
+      realmId: e.intuitaccountid,
+      entity: name.charAt(0).toUpperCase() + name.slice(1),
+      id: e.intuitentityid,
+      operation,
+      lastUpdated: when(e.time),
+    });
+  }
+  return out;
 }

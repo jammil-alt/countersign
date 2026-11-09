@@ -292,6 +292,14 @@ Still to do:
 5. Production: Intuit's app review for production keys, then the production redirect URI
    `https://app.mezonas.com/api/connections/qbo/callback` and webhook
    `https://app.mezonas.com/api/connections/qbo/webhook`, and the production secrets.
+6. **The webhook's verifier token** (docs/plan.md §1.81). Intuit shows one per key set: the
+   development keys' on the Development tab, the production keys' on the Production tab
+   (Webhooks → "Show verifier token"). Put each in its GitHub environment as the secret
+   `QBO_WEBHOOK_VERIFIER` (Settings → Environments → `staging` for the development one,
+   `production` for the production one); the next deploy copies it into the Worker. Never put it
+   in `wrangler.jsonc`, a commit or a message. Without it the webhook answers 503. Check after a
+   deploy: an unsigned POST answers 401 (`curl -sS -X POST <url> -d '{}'`); Intuit's "Send test
+   notification", if offered, answers 200 and shows as "qbo webhook received" in the Worker's logs.
 
 ### Google (Gmail, send only, M10)
 

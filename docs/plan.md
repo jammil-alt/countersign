@@ -2298,6 +2298,21 @@ a FakeModel). Decisions made while building:
 | The tools | `bookkeeping.reconcile.pairs` (each linked account against its QuickBooks account, the period and today's balance), `bookkeeping.reconcile` (both sides built, matched, kept; a test run keeps nothing), `bookkeeping.reconcile.open` (what is left, the words as data) and `bookkeeping.reconcile.propose` (the model's suggestion, checked in code to add up, never accepted by itself). Skills: `bookkeeping.reconcile-pairs`, `bookkeeping.reconcile-two` (settings `window_days`, `tolerance`, `max_group`, `timing_days`), `bookkeeping.explain-leftovers` (agent) and `bookkeeping.read-statement` (task, the small model). // DECISION |
 | The card | `bookkeeping.reconciliation`: accept or reject a suggestion, match chosen items (they must add up within the tolerance), undo a match, relabel, add what one side is missing (a person's item, labelled missing), and sign off with a note once the residual is 0. Each decision works the residual out again. Its screens: the card, and Reports → Reconciliations (portal and back office). // DECISION |
 
+### 1.81 Intuit's webhook notifications kept, one row per change (migration 0041)
+
+Owner, 2026-11-09: Intuit's production review wants a live, verified webhook, and each change it
+reports stored once with its realm, entity, id, operation and time. The endpoint already existed
+(`POST /api/connections/qbo/webhook`, M9); this extends it rather than adding a second one.
+
+| Topic | Decision |
+|---|---|
+| One endpoint | `POST /api/connections/qbo/webhook` stays the app's one webhook (production: `https://app.mezonas.com/api/connections/qbo/webhook`), with its existing secret `QBO_WEBHOOK_VERIFIER`. The signature (`intuit-signature`, base64 HMAC-SHA256 of the raw body under the verifier) is checked before anything parses the body, in constant time; missing or wrong is 401. // DECISION |
+| Kept | `qbo_webhook_event`: one row per record change (realm, entity, id, operation, Intuit's `lastUpdated`, when we received it, whether it started a sync), for each connection to that company, under the client's row-level security. A change for a company no client has connected is logged and not kept (no client to keep it under). Insert only. // DECISION |
+| Once | Unique on connection, entity, id, operation and `lastUpdated` (nulls not distinct): a resent notification keeps nothing new. // DECISION |
+| Acted on | A change to an entity our sync reads (`QBO_SYNCED_ENTITIES`) starts a sync of the company (CDC); any other is kept and nothing more. The change itself is read by that sync, never processed inline. // DECISION |
+| Unreadable | A signed body that isn't JSON or isn't a notification is answered 200 and logged, not refused: Intuit would only resend it, and the next sync reads the changes anyway. // DECISION |
+| Logged | Receipt, the result of the check, the realm ids, how many changes per entity, how many kept, syncs started. Never the body, an entity's id or the verifier. // DECISION |
+
 ---
 
 ## 2. Package layering
@@ -3494,6 +3509,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0038 | M44–M50 wave (§1.73) | The Marketing pack's `search_source`, `search_query_daily`, `search_page_daily`, `content_page`, `content_version`, `content_publish`, `content_redirect`, `claims_version`, `marketing_report`, `marketing_report_action`, `forum_thread`, `forum_reply` (docs/marketing-plan.md §4.4–§4.6, §11.1) |
 | 0039 | M51 (§1.79) | `ledger_account`, `ledger_account_note`, `ledger_dimension`; the Bookkeeping pack's `bank_account_link`, `bank_feed_cursor`, `bank_txn`, `booking_rule`, `booking`, `booking_line` |
 | 0040 | M57 (§1.80) | The Bookkeeping pack's `reconciliation`, `reconciliation_item`, `reconciliation_match` |
+| 0041 | §1.81 | `qbo_webhook_event`: Intuit's webhook notifications, one row per change |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
