@@ -309,13 +309,13 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     for (const table of ["automation", "automation_version", "test_case", "test_suite_run"]) {
       expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
     }
-    // B-1 (0039): accounts sync in place and are never deleted; notes and booking lines are a
-    // log; a booking changes only its outcome (the trigger), never deleted.
+    // B-1 (0039): accounts sync in place and are never deleted; notes, booking lines and (0041)
+    // Intuit's webhook notifications are a log; a booking changes only its outcome (the trigger), never deleted.
     for (const table of ["ledger_account", "ledger_dimension"]) {
       expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
-    for (const table of ["ledger_account_note", "booking_line"]) {
+    for (const table of ["ledger_account_note", "booking_line", "qbo_webhook_event"]) {
       expect(await can(table, "INSERT"), `${table} INSERT`).toBe(true);
       expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(false);
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);

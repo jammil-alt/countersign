@@ -53,6 +53,7 @@ import {
   organization,
   organizationChange,
   oversightDecision,
+  qboWebhookEvent,
   rawRecord,
   reachOut,
   receivable,
@@ -745,6 +746,17 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     externalId: "5000000000000301",
     name: "Shop",
     fullName: "Shop",
+  });
+  // 0041: one of Intuit's notifications for this company.
+  await db.insert(qboWebhookEvent).values({
+    tenantId,
+    connectionId: c.id,
+    realmId: "9341458640918607",
+    entity: "Bill",
+    entityId: "146",
+    operation: "Update",
+    lastUpdated: new Date("2026-11-09T12:00:00Z"),
+    acted: true,
   });
   await db.insert(ledgerAccountNote).values({
     tenantId,

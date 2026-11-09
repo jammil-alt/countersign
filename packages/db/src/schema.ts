@@ -3594,6 +3594,46 @@ export const alert = pgTable(
   ],
 );
 
+
+/**
+ * Intuit's webhook notifications for a QuickBooks connection, one row per entity change it names
+ * (docs/plan.md §1.81): what changed, as Intuit said, kept as a log. The change itself is read by
+ * the next sync (CDC); a row whose entity we sync started one. Intuit resends, so the same change
+ * is stored once.
+ */
+export const qboWebhookEvent = pgTable(
+  "qbo_webhook_event",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    connectionId: uuid("connection_id").notNull(),
+    realmId: text("realm_id").notNull(),
+    /** Intuit's entity name (`Bill`, `Vendor`, …). */
+    entity: text("entity").notNull(),
+    entityId: text("entity_id").notNull(),
+    /** `Create`, `Update`, `Delete`, `Merge`, `Void`, `Emailed`, as Intuit sends it. */
+    operation: text("operation").notNull(),
+    /** When the record changed at Intuit; null when the notification didn't say. */
+    lastUpdated: ts("last_updated"),
+    /** An entity our sync reads: its notification started one. */
+    acted: boolean("acted").notNull(),
+    receivedAt: ts("received_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique("qbo_webhook_event_id_tenant_key").on(t.id, t.tenantId),
+    // Intuit can resend a notification: one row per change.
+    unique("qbo_webhook_event_change_key")
+      .on(t.connectionId, t.entity, t.entityId, t.operation, t.lastUpdated)
+      .nullsNotDistinct(),
+    index("qbo_webhook_event_received_idx").on(t.tenantId, t.receivedAt),
+    foreignKey({
+      name: "qbo_webhook_event_connection_fk",
+      columns: [t.connectionId, t.tenantId],
+      foreignColumns: [connection.id, connection.tenantId],
+    }),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -3672,6 +3712,8 @@ export const TENANT_TABLES = [
   "ledger_account",
   "ledger_account_note",
   "ledger_dimension",
+  // 0041: Intuit's webhook notifications, one row per entity change (docs/plan.md §1.81).
+  "qbo_webhook_event",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
