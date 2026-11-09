@@ -746,7 +746,8 @@ WorkOS values below. Each PR's checks pass before it merges.
    - Then the catch-all → Send to a Worker → `mezonas` (it was `mezonas-staging`). Production's
      `email()` hands `agents.mezonas.com` mail to the code service itself.
 4. **The first operator:** Actions → **Add operator** → `production`, your email and name ("Run the
-   seed first" unticked). Sign in at `https://app.mezonas.com`.
+   seed first" unticked). On an empty production it also creates the first client, Mezonas, so
+   you have somewhere to be an operator of. Sign in at `https://app.mezonas.com`.
 5. **The platform templates** (the seed never runs on production): signed in to the back office,
    open the browser's console and run, once:
    ```js
@@ -759,17 +760,21 @@ WorkOS values below. Each PR's checks pass before it merges.
    ```
    Each answers 200 (and 200 again if run twice). Pack templates (the Bookkeeper) install
    themselves when a pack is switched on.
-6. **Clients:** create the Mezonas client (`### Mezonas, our own client` below) and the first real
-   client; switch on their packs; build or fork their agents as on staging.
+6. **Clients:** finish the Mezonas client from step 4 (`### Mezonas, our own client` below: its
+   internal flag, approvals, packs) and create the first real client; switch on their packs; build or fork their agents as on staging.
 
 ### The first operator
 
 A fresh environment has no users, and sign-in only admits invited addresses, so the first operator
 is invited from GitHub: Actions → **Add operator** → target, email (the address you sign in to
 WorkOS with), name. It creates an `app_user` row that your first WorkOS sign-in with that verified
-email claims, and an operator membership in every client. On staging it can run the seed first
-(Sandbox and Demo clients, the platform templates); the seed never runs on production. Safe to run
-again, e.g. after new clients exist.
+email claims, and an operator membership in every client. An operator's access comes from those
+memberships, so an environment with no client at all (production on its first day) gets its first
+client, **Mezonas** (America/Chicago), and you become its operator; without one, signing in shows
+"You don't have access to this" and nobody could create a client. On staging it can run the seed
+first (Sandbox and Demo clients, the platform templates); the seed never runs on production, and
+the workflow refuses to run there with "Run the seed first" ticked (it is ticked by default). Safe to
+run again, e.g. after new clients exist: it never adds a second first client.
 
 ### MCP server (Claude connector for the back office)
 

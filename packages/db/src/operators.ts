@@ -4,8 +4,12 @@
 //
 // An invite is an `app_user` row with the email and no `workos_user_id`; the first WorkOS sign-in
 // with that verified email claims it (packages/auth provisioning). An operator serves clients
-// through `operator` memberships, so the invite is a member of every existing client.
+// through `operator` memberships, so the invite is a member of every existing client. An
+// environment with no client at all (production on its first day) gets its first client, Mezonas,
+// so the operator has somewhere to be an operator of: with no membership the app shows "You don't
+// have access to this" and nobody could create a client.
 
+import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { type Db, withOperator } from "./client";
 import { appUser, membership, tenant } from "./schema";
@@ -16,7 +20,18 @@ export interface AddOperatorResult {
   readonly created: boolean;
   /** Clients the operator now serves, existing memberships included. */
   readonly clients: number;
+  /** The first client's name when this call created it (an environment with no client), else null. */
+  readonly createdClient: string | null;
 }
+
+/**
+ * The client an empty environment starts with: Mezonas serves itself first (docs/operations.md,
+ * "Mezonas, our own client"), in the owner's time zone. Its internal flag and packs are set from the
+ * back office afterwards, as for any client.
+ */
+// DECISION: created only when the environment has no client at all, so running Add operator again,
+// or on an environment with clients, never adds one.
+export const FIRST_CLIENT = { name: "Mezonas", timezone: "America/Chicago" } as const;
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -30,8 +45,19 @@ export async function addOperator(
 
   const tenants = await db.select({ id: tenant.id }).from(tenant);
   const tenantIds = tenants.map((t) => t.id);
+  const firstClientId = tenantIds.length === 0 ? randomUUID() : null;
+  if (firstClientId) tenantIds.push(firstClientId);
 
   return withOperator(db, tenantIds, async (tx) => {
+    if (firstClientId) {
+      await tx.insert(tenant).values({
+        id: firstClientId,
+        name: FIRST_CLIENT.name,
+        timezone: FIRST_CLIENT.timezone,
+        // As a client made in the back office with nothing offered yet (POST /api/ops/clients).
+        settings: { connectors_offered: [] },
+      });
+    }
     const inserted = await tx
       .insert(appUser)
       .values({ email, name })
@@ -60,6 +86,11 @@ export async function addOperator(
         )
         .onConflictDoNothing();
     }
-    return { userId: row.id, created: inserted.length > 0, clients: tenantIds.length };
+    return {
+      userId: row.id,
+      created: inserted.length > 0,
+      clients: tenantIds.length,
+      createdClient: firstClientId ? FIRST_CLIENT.name : null,
+    };
   });
 }
