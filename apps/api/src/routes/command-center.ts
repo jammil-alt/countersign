@@ -234,7 +234,7 @@ async function needsUsParts(
   const failedSince = new Date(now.getTime() - FAILED_RUN_ESCALATION_DAYS * DAY_MS);
   // DECISION: the reads that need nothing from each other are asked at once, in the request's
   // transaction, which the driver pipelines (as search.ts does): a few round trips instead of one
-  // per query (docs/plan.md §1.79). Escalations are still added in the same order.
+  // per query (docs/plan.md §1.82). Escalations are still added in the same order.
   const [clientAgents, clients, failed, broken] = await Promise.all([
     activeClientAgents(tx, ids),
     clientRows(tx, ids),
@@ -464,7 +464,7 @@ async function commandCenter(
   const stepDay = sql`coalesce(${stepRun.startedAt}, ${run.createdAt})`;
 
   // DECISION: every figure below reads only what Needs us already gave, so all are asked at once
-  // in the request's transaction, which the driver pipelines (docs/plan.md §1.79). A figure that
+  // in the request's transaction, which the driver pipelines (docs/plan.md §1.82). A figure that
   // needs a second read (the waits, the template names, the spend) chains it on its own first.
   const [
     [running],
@@ -883,7 +883,7 @@ async function feed(tx: Tx, ids: string[], since: Date): Promise<FeedItem[]> {
     .limit(FEED_LIMIT);
 
   // DECISION: the five reads are asked at once, in the request's transaction, which the driver
-  // pipelines (docs/plan.md §1.79).
+  // pipelines (docs/plan.md §1.82).
   const [steps, writes, signed, failures, drafts] = await Promise.all([
     stepsQ,
     writesQ,

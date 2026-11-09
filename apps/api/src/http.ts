@@ -154,7 +154,7 @@ export function requestState(deps: AppDeps) {
           services = {
             env,
             db: opened.db,
-            // DECISION: built on first use, not for every request (docs/plan.md §1.79): the tool
+            // DECISION: built on first use, not for every request (docs/plan.md §1.82): the tool
             // registry and skill catalog take tens of ms to build in a fresh isolate, and most
             // requests (lists, counts, the command center) never read them.
             get platform() {

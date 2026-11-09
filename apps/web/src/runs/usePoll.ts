@@ -13,7 +13,7 @@ export function pageVisible(): boolean {
 // DECISION: a reload aborts the request before it (useApi), so a tick on top of a slow answer
 // cancelled it: on staging, where the run page can take over 2 s to answer, every answer was
 // cancelled and the run kept saying "Running" after it was done. A tick now waits for the answer.
-// DECISION: no ticks while the tab is hidden (docs/plan.md §1.79): a back office left open in a
+// DECISION: no ticks while the tab is hidden (docs/plan.md §1.82): a back office left open in a
 // background tab asked for every count around the clock. Coming back reloads once, at once, when a
 // tick was skipped, so what is on screen is never older than one interval.
 export function usePoll(reload: () => void, active: boolean, ms: number, busy: boolean): void {

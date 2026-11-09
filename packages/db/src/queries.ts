@@ -37,7 +37,7 @@ function membershipsQuery(tx: Tx, userId: string) {
 
 /**
  * A signed-in user and their memberships, for a request's session: both reads in one transaction,
- * sent with its scope, instead of a lookup and then a transaction of its own (docs/plan.md §1.79).
+ * sent with its scope, instead of a lookup and then a transaction of its own (docs/plan.md §1.82).
  * `user` is null when the row is gone.
  */
 export function userWithMemberships(
