@@ -2361,6 +2361,19 @@ and audit.
 
 ---
 
+### 1.85 Connector marks: logos, a brand's colour, or our icon (2026-11-09)
+
+Every connector tile (back-office Connectors and Connections, the vault, the portal's Accounts)
+shows the connector's mark from one map, `apps/web/src/connections/brands.ts`, instead of its
+initials. A provider whose logo Simple Icons publishes under CC0 (16.37.0) gets that logo in the
+provider's colour on the hairline tile; a black logo is drawn in ink so it turns in dark mode. A
+provider whose logo is not there (Slack, LinkedIn, Outlook, Bing, Ramp, Podio; most were removed at
+the brand's request) or reads badly small (Zoho's wordmark) gets its letters on its colour, or ink
+when we are not sure of the colour, rather than a copied logo. Connectors we build ourselves (bank
+feeds, upload, email sending, texts, webhooks, website, website logins) take a Mezonas icon. A
+website login keeps the site's initials. These colours are the providers' and are used nowhere
+else, so the palette rule (no new colours) holds for our own UI.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

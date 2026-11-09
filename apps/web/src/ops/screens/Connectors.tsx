@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { ConnectorMark } from "../../connections/ConnectorMark";
 import { MatrixTable } from "../../connections/MatrixTable";
 import { useSession } from "../../session/session";
 import { Field, Select, TextInput } from "../../ui/forms";
@@ -66,13 +67,6 @@ const KIND_LABEL: Record<Connector["auth"], string> = {
   none: "Built in",
 };
 
-function initials(name: string): string {
-  const words = name.split(/[\s_-]+/).filter(Boolean);
-  return (
-    words.length > 1 ? `${words[0]?.[0] ?? ""}${words[1]?.[0] ?? ""}` : name.slice(0, 2)
-  ).toUpperCase();
-}
-
 function ConnectorStatusChip({
   status,
   testId,
@@ -101,18 +95,6 @@ function errorWords(c: Connector): string | null {
       : null,
   ].filter(Boolean);
   return parts.length > 0 ? parts.join(", ") : null;
-}
-
-/** The logo square: the connector's initials on a hairline tile. */
-function LogoSquare({ name }: { name: string }) {
-  return (
-    <span
-      aria-hidden
-      className="inline-flex size-9 flex-none items-center justify-center rounded-sm border border-line bg-surface text-xs font-semibold text-ink"
-    >
-      {initials(name)}
-    </span>
-  );
 }
 
 export function OpsConnectorsScreen() {
@@ -227,7 +209,7 @@ export function OpsConnectorsScreen() {
                             data-testid={`connector-${c.id}-open`}
                             onClick={() => setSelectedId(c.id)}
                           >
-                            <LogoSquare name={c.name} />
+                            <ConnectorMark name={c.name} connector={c.id} size="sm" />
                             <span className="flex flex-col">
                               <span className="font-medium text-ink">{c.name}</span>
                               <span className="text-sm text-ink-muted">{c.description}</span>
@@ -339,7 +321,7 @@ function ConnectorPanel({
     <Card testId="connector-panel">
       <div className="flex flex-col gap-4 px-6 py-5">
         <div className="flex items-start gap-3">
-          <LogoSquare name={c.name} />
+          <ConnectorMark name={c.name} connector={c.id} size="sm" />
           <div className="flex min-w-0 flex-1 flex-col">
             <h2 className="type-subheading text-ink">{c.name}</h2>
             <span className="text-sm text-ink-muted">{KIND_LABEL[c.auth]}</span>
