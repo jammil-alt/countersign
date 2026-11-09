@@ -89,7 +89,6 @@ its payout statement, signed off on a card). To go live:
 | K6 | Decide: Plaid's price per bank (absorbed or credits); `book_confidence_auto` (0.85 today); whether learned rules need a person's yes first. | `docs/plan.md` §1.79 |
 | K7 | Fluent review of the Bookkeeping portal words (one block per language, the reconciliation block too). | |
 | K8 | Check QuickBooks' register (`qbo/NOTES.md`, "The register, for reconciliation") and Plaid's balances (`bankfeed/NOTES.md`) in their sandboxes, then reconcile one Sandbox month by hand: the Bookkeeper's "Every month" workflow, run now. | Migration 0040 applied. |
-| K9 | Decide: the matching window (5 days), a tolerance other than 0 for any client, and whether a balanced month should be signed off by a person too. | `docs/plan.md` §1.80 |
 
 ## 2. The marketing site (mezonas.com)
 
