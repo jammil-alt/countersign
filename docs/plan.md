@@ -2331,6 +2331,19 @@ also reloaded the whole clients list every 20 s for one number, in background ta
 | Polling | `usePoll` and the command center's feed skip ticks while the tab is hidden and catch up once on return. The back office's Escalations badge refreshes from `/api/ops/needs-us` (the same count), not the whole clients list; the list loads once, and again when the session's clients change. // DECISION |
 | Not done | Converting tool schemas to JSON Schema lazily: tool skills copy them when their modules load, so it moved no work off startup (measured). Dropping the Anthropic SDK (3 MB) or moving Playwright (3.2 MB, loaded only for website logins) out of the bundle to cut the 12 MB script: possible, at the cost of our own model transport or a separate Worker for browser logins; the owner's call. |
 
+### 1.83 Speed: one round trip per query (2026-11-09)
+
+After §1.82, staging was faster but each request still took 1–3 s. Measured locally through a proxy
+adding a 10 ms round trip: postgres-js describes a query whose parameters have no type before it
+runs it, on each connection, and waits for the answer. A Worker opens a new connection per request,
+so nearly every query cost two round trips, and queries asked together (§1.82) were held back by
+those descriptions. The command center took 554 ms at 10 ms per round trip.
+
+| Topic | Decision |
+|---|---|
+| Parameters typed `unknown` | `createDb` (`packages/db/src/client.ts`) hands drizzle a client that sends each parameter as Postgres' `unknown` (oid 705): the server types it from the query exactly as before, but postgres-js sends the query at once. One round trip per query, and queries asked together go together. Command center 554 → 227 ms, clients 387 → 193 ms, Needs us 346 → 193 ms (10 ms round trips). // DECISION |
+| Which values | Strings, numbers, booleans, dates, plain objects (as JSON) and arrays of strings and numbers: their text is the same whatever type the server reads. Bytes and anything else keep the describe-first path (`params.test.ts`). A raw `Date`, which postgres-js refused through drizzle before, now goes as ISO text. // DECISION |
+
 ---
 
 ## 2. Package layering
