@@ -166,6 +166,17 @@ describe.skipIf(!online)("migrations on an empty database", () => {
         "search_page_daily",
         "search_query_daily",
         "search_source",
+        // B-1 (0039): the Bookkeeping pack's links, feed cursor, transactions, rules and bookings.
+        "bank_account_link",
+        "bank_feed_cursor",
+        "bank_txn",
+        "booking",
+        "booking_line",
+        "booking_rule",
+        // R-1 (0040): reconciliations, their items and matches.
+        "reconciliation",
+        "reconciliation_item",
+        "reconciliation_match",
       ].sort(),
     );
     expect(
@@ -297,6 +308,31 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     }
     for (const table of ["automation", "automation_version", "test_case", "test_suite_run"]) {
       expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
+    }
+    // B-1 (0039): accounts sync in place and are never deleted; notes and booking lines are a
+    // log; a booking changes only its outcome (the trigger), never deleted.
+    for (const table of ["ledger_account", "ledger_dimension"]) {
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
+      expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
+    }
+    for (const table of ["ledger_account_note", "booking_line"]) {
+      expect(await can(table, "INSERT"), `${table} INSERT`).toBe(true);
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(false);
+      expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
+    }
+    for (const table of [
+      "bank_account_link",
+      "bank_feed_cursor",
+      "bank_txn",
+      "booking_rule",
+      "booking",
+      // R-1 (0040)
+      "reconciliation",
+      "reconciliation_item",
+      "reconciliation_match",
+    ]) {
+      expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
+      expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
     // M43 (0037): a site's settings change in place; a day's visits and totals are rebuilt by
     // deleting and inserting them, and retention deletes raw events, old visits and spent salts.
