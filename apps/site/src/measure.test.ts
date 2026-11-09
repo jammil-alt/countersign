@@ -197,6 +197,17 @@ describe("data-track names", () => {
 /** A stub browser, enough for the script: records what it sends and the listeners it adds. */
 function browser(options: { dnt?: string; gpc?: boolean; beacon?: boolean } = {}) {
   const sent: { url: string; body: string }[] = [];
+  // The page's clock, frozen unless a test moves it: with the real one, a millisecond between two
+  // events counts as engaged time, and whether the test sees it depends on how busy the machine is.
+  let clock = NOW.getTime();
+  class PageDate extends Date {
+    static override now() {
+      return clock;
+    }
+  }
+  const advance = (ms: number) => {
+    clock += ms;
+  };
   const fetched: { url: string; init: Record<string, unknown> }[] = [];
   const listeners: Record<string, ((event: unknown) => void)[]> = {};
   const listen = (type: string, fn: (event: unknown) => void) => {
@@ -250,7 +261,7 @@ function browser(options: { dnt?: string; gpc?: boolean; beacon?: boolean } = {}
       fetched.push({ url, init });
       return Promise.resolve();
     },
-    Date,
+    Date: PageDate,
     Math,
     JSON,
     Set,
@@ -262,7 +273,7 @@ function browser(options: { dnt?: string; gpc?: boolean; beacon?: boolean } = {}
     for (const fn of listeners[type] ?? []) fn(event);
   };
   const events = () => sent.flatMap((s) => JSON.parse(s.body).events as Record<string, unknown>[]);
-  return { run, fire, sent, fetched, events, Element, document };
+  return { run, fire, sent, fetched, events, Element, document, advance };
 }
 
 describe("the page's script", () => {
@@ -307,13 +318,23 @@ describe("the page's script", () => {
   it("sends engagement with the scroll quarter when the page is left, once if nothing changed", () => {
     const b = browser();
     b.run();
+    b.advance(1500);
     b.fire("pagehide");
     b.fire("pagehide");
     const engaged = b.events().filter((e) => e.k === "engage");
     expect(engaged).toHaveLength(1);
-    expect(engaged[0]).toMatchObject({ k: "engage", p: "/", s: 2 });
+    expect(engaged[0]).toMatchObject({ k: "engage", p: "/", s: 2, ms: 1500 });
     const [view] = b.events();
     expect(engaged[0]?.id).toBe(view?.id);
+    // Time passing while the page is still in view is new engagement: sent again.
+    b.advance(500);
+    b.fire("pagehide");
+    expect(
+      b
+        .events()
+        .filter((e) => e.k === "engage")
+        .map((e) => e.ms),
+    ).toEqual([1500, 500]);
   });
 
   it("falls back to fetch with no credentials when there is no sendBeacon", () => {
