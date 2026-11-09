@@ -789,6 +789,8 @@ export const fr: Messages = {
     "Vérifiez d'abord votre adresse e-mail sur la page de connexion, puis reconnectez-vous.",
   "signin.error.email_taken":
     "Cette adresse e-mail est liée à une autre connexion. Contactez-nous pour régler cela.",
+  "signin.error.sign_in_method":
+    "Connectez-vous avec votre adresse e-mail et votre mot de passe, une clé d'accès ou l'authentification unique de votre entreprise. Les autres moyens de connexion ne sont pas acceptés ici.",
   "signin.error.misconfigured": "La connexion n'est pas encore configurée sur ce site.",
   "signin.error.default": "La connexion n'a pas abouti. Recommencez.",
 

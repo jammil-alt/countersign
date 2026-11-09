@@ -89,6 +89,17 @@ const PROVISION_MESSAGES: Record<ProvisionRefusalReason, string> = {
   email_taken: "this email address belongs to a different sign-in",
 };
 
+// DECISION (docs/security.md §2; Plaid, HIPAA §164.312(d), SOC 2 CC6.1, PCI DSS 8.4): a session
+// only for sign-ins where a second factor is certain. WorkOS requires MFA for email and password
+// sign-ins; a passkey is a second factor in itself; SSO is a client's own identity provider, set
+// up by the operator only where it enforces MFA. Social sign-ins (Google, Microsoft, GitHub,
+// Apple) and magic links skip WorkOS's MFA, and impersonation from WorkOS's dashboard has no factor
+// of the person's at all, so each is refused, as is a sign-in WorkOS didn't name.
+export const MFA_SIGN_IN_METHODS: ReadonlySet<string> = new Set(["Password", "Passkey", "SSO"]);
+
+const SIGN_IN_METHOD_MESSAGE =
+  "sign in with your email address and password, a passkey or your company's single sign-on";
+
 function displayName(auth: WorkOSAuthentication): string | null {
   const name = [auth.user.firstName, auth.user.lastName].filter(Boolean).join(" ").trim();
   return name || null;
@@ -186,6 +197,14 @@ export function createWorkOSAdapter(options: {
           refused ? "code_rejected" : "workos_unavailable",
           "the sign-in could not be completed; start again",
         );
+      }
+      if (!MFA_SIGN_IN_METHODS.has(auth.authenticationMethod ?? "")) {
+        // The browser never gets a session of ours, so end the WorkOS one here.
+        if (auth.sessionId) await workos.revokeSession(auth.sessionId).catch(() => undefined);
+        return {
+          ...refuse("no_access", SIGN_IN_METHOD_MESSAGE, clear),
+          reason: "sign_in_method",
+        };
       }
       const organizationName = auth.organizationId
         ? await workos.organizationName(auth.organizationId).catch(() => null)

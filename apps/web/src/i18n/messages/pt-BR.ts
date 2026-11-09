@@ -775,6 +775,8 @@ export const ptBR: Messages = {
     "Primeiro confirme seu endereço de e-mail na página de entrada, depois entre de novo.",
   "signin.error.email_taken":
     "Este endereço de e-mail está ligado a outra forma de entrada. Fale com a gente para resolver.",
+  "signin.error.sign_in_method":
+    "Entre com seu e-mail e senha, uma chave de acesso ou o login único da sua empresa. Outras formas de entrar não podem ser usadas aqui.",
   "signin.error.misconfigured": "A entrada ainda não está configurada neste site.",
   "signin.error.default": "A entrada não terminou. Comece de novo.",
 

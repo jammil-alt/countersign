@@ -60,8 +60,8 @@ export interface AuthRefusal {
   readonly message: string;
   /** Cookies to send with the refusal, e.g. clearing a dead session. */
   readonly setCookies: readonly string[];
-  /** Why sign-in provisioning refused (with `no_access`), so the sign-in page can say so. */
-  readonly reason?: ProvisionRefusalReason;
+  /** Why sign-in refused (with `no_access`), so the sign-in page can say so. */
+  readonly reason?: SignInRefusalReason;
 }
 
 const STATUS: Record<RefusalCode, AuthRefusal["status"]> = {
@@ -140,6 +140,12 @@ export type ProvisionRefusalReason =
   | "not_invited"
   /** The address belongs to a different WorkOS user: never merged (account takeover). */
   | "email_taken";
+
+/** Why a finished sign-in got no session: provisioning's reasons, or how the person signed in. */
+export type SignInRefusalReason =
+  | ProvisionRefusalReason
+  /** A sign-in method that WorkOS doesn't hold to our second factor (docs/security.md §2). */
+  | "sign_in_method";
 
 export type ProvisionOutcome =
   | { readonly ok: true; readonly userId: string }

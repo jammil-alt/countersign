@@ -457,6 +457,7 @@ describe.skipIf(!h)("WorkOS sign-in callback", () => {
     organizationId: null,
     refreshToken: "rt_op",
     sessionId: "sess_op",
+    authenticationMethod: "Password",
   };
   const workos: WorkOSClient = {
     authorizationUrl: ({ state }) => `https://workos.test/authorize?state=${state}`,

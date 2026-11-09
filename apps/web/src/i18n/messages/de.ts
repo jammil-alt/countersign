@@ -803,6 +803,8 @@ export const de: Messages = {
     "Bestätigen Sie zuerst Ihre E-Mail-Adresse auf der Anmeldeseite und melden Sie sich dann erneut an.",
   "signin.error.email_taken":
     "Diese E-Mail-Adresse gehört zu einer anderen Anmeldung. Schreiben Sie uns, wir klären das.",
+  "signin.error.sign_in_method":
+    "Melden Sie sich mit E-Mail-Adresse und Passwort, einem Passkey oder dem Single Sign-on Ihres Unternehmens an. Andere Anmeldewege sind hier nicht möglich.",
   "signin.error.misconfigured": "Die Anmeldung ist auf dieser Website noch nicht eingerichtet.",
   "signin.error.default": "Die Anmeldung wurde nicht abgeschlossen. Beginnen Sie neu.",
 

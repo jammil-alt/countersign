@@ -26,6 +26,7 @@ const SIGN_IN_ERRORS: Record<string, PlainKey> = {
   not_invited: "signin.error.not_invited",
   email_not_verified: "signin.error.email_not_verified",
   email_taken: "signin.error.email_taken",
+  sign_in_method: "signin.error.sign_in_method",
   misconfigured: "signin.error.misconfigured",
   adapter_disabled: "signin.error.misconfigured",
 };

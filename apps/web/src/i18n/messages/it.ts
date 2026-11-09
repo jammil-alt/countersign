@@ -779,6 +779,8 @@ export const it: Messages = {
     "Prima verifica il tuo indirizzo email nella pagina di accesso, poi accedi di nuovo.",
   "signin.error.email_taken":
     "Questo indirizzo email è legato a un altro tipo di accesso. Contattaci e lo sistemiamo.",
+  "signin.error.sign_in_method":
+    "Accedi con indirizzo email e password, una passkey o il single sign-on della tua azienda. Qui non si possono usare altri modi di accesso.",
   "signin.error.misconfigured": "L'accesso non è ancora configurato su questo sito.",
   "signin.error.default": "L'accesso non è stato completato. Ricomincia.",
 

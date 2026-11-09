@@ -775,6 +775,8 @@ export const es: Messages = {
     "Primero verifique su dirección de correo en la página de inicio de sesión y vuelva a intentarlo.",
   "signin.error.email_taken":
     "Esta dirección de correo está vinculada a otro inicio de sesión. Escríbanos y lo resolvemos.",
+  "signin.error.sign_in_method":
+    "Inicie sesión con su correo y contraseña, una llave de acceso o el inicio de sesión único de su empresa. Aquí no se pueden usar otras formas de entrar.",
   "signin.error.misconfigured": "El inicio de sesión aún no está configurado en este sitio.",
   "signin.error.default": "El inicio de sesión no terminó. Empiece de nuevo.",
 

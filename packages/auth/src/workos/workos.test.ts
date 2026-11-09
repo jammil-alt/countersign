@@ -40,6 +40,7 @@ function auth(overrides: Partial<WorkOSAuthentication> = {}): WorkOSAuthenticati
     organizationId: null,
     refreshToken: "rt_1",
     sessionId: "sess_1",
+    authenticationMethod: "Password",
     ...overrides,
   };
 }
@@ -320,6 +321,53 @@ describe("sign-in flow", () => {
     );
     expect(result).toMatchObject({ ok: false, status: 403, code: "no_access" });
     expect(workos.revokeSession).toHaveBeenCalledWith("sess_1");
+  });
+
+  it.each(["GoogleOAuth", "MicrosoftOAuth", "MagicAuth", "Impersonation", null])(
+    "refuses a sign-in by %s, where our second factor isn't certain, and revokes it",
+    async (method) => {
+      const workos = fakeWorkOS({
+        authenticateWithCode: vi.fn(async () => auth({ authenticationMethod: method })),
+      });
+      const provision = vi.fn(async () => ({ ok: true as const, userId: USER_ID }));
+      const { adapter } = setup(workos, provision);
+      const start = await adapter.signIn({}, at(T0));
+      if (!start.ok) throw new Error(start.code);
+      const state = new URL(start.redirectTo).searchParams.get("state") ?? "";
+      const result = await adapter.callback(
+        withCookie(
+          `${STATE_COOKIE}=${cookieValue(start.setCookies, STATE_COOKIE)}`,
+          `${ORIGIN}/api/auth/callback?code=c&state=${state}`,
+        ),
+        at(T0),
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        status: 403,
+        code: "no_access",
+        reason: "sign_in_method",
+      });
+      expect(provision).not.toHaveBeenCalled();
+      expect(workos.revokeSession).toHaveBeenCalledWith("sess_1");
+    },
+  );
+
+  it.each(["Password", "Passkey", "SSO"])("admits a sign-in by %s", async (method) => {
+    const workos = fakeWorkOS({
+      authenticateWithCode: vi.fn(async () => auth({ authenticationMethod: method })),
+    });
+    const { adapter } = setup(workos, async () => ({ ok: true, userId: USER_ID }));
+    const start = await adapter.signIn({}, at(T0));
+    if (!start.ok) throw new Error(start.code);
+    const state = new URL(start.redirectTo).searchParams.get("state") ?? "";
+    const result = await adapter.callback(
+      withCookie(
+        `${STATE_COOKIE}=${cookieValue(start.setCookies, STATE_COOKIE)}`,
+        `${ORIGIN}/api/auth/callback?code=c&state=${state}`,
+      ),
+      at(T0),
+    );
+    expect(result).toMatchObject({ ok: true, signedIn: { userId: USER_ID, method } });
   });
 
   it("refuses a return_to that leaves the site", async () => {

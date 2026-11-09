@@ -747,6 +747,8 @@ export const en = {
     "Verify your email address on the sign-in page first, then sign in again.",
   "signin.error.email_taken":
     "This email address is tied to a different sign-in. Contact us to sort it out.",
+  "signin.error.sign_in_method":
+    "Sign in with your email address and password, a passkey or your company's single sign-on. Other ways to sign in can't be used here.",
   "signin.error.misconfigured": "Sign-in is not set up on this site yet.",
   "signin.error.default": "Sign-in did not finish. Start again.",
 
