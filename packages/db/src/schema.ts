@@ -3594,7 +3594,6 @@ export const alert = pgTable(
   ],
 );
 
-
 /**
  * Intuit's webhook notifications for a QuickBooks connection, one row per entity change it names
  * (docs/plan.md §1.81): what changed, as Intuit said, kept as a log. The change itself is read by
