@@ -1,0 +1,61 @@
+name: Remove operator
+
+# By hand, from Actions → Remove operator: de-provisioning (docs/security.md §2,
+# docs/plaid-plan.md). Takes away every operator membership of the address, so the back office and
+# the Ops MCP connector refuse them on their next request, and writes one audit row
+# (`operator.remove`, with this run's id). Refuses the last operator. Run it the day someone leaves,
+# on both environments, then delete their user in WorkOS (it ends their WorkOS sessions) and follow
+# the offboarding checklist (docs/operations.md §1.3).
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environment
+        type: choice
+        options: [staging, production]
+        default: production
+      email:
+        description: The operator's email
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: operators-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  remove-operator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET: ${{ inputs.target }}
+      EMAIL: ${{ inputs.email }}
+      BY: "${{ github.actor }}, run ${{ github.run_id }}"
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Ready?
+        run: |
+          [ -n "$NEON_API_KEY" ] || { echo "::error::NEON_API_KEY secret is missing"; exit 1; }
+          [ -n "$NEON_PROJECT_ID" ] || { echo "::error::NEON_PROJECT_ID variable is missing"; exit 1; }
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Remove
+        run: |
+          set -euo pipefail
+          branch=$([ "$TARGET" = production ] && echo main || echo staging)
+          url=$(npx --yes neonctl@4 connection-string "$branch" \
+            --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
+          echo "::add-mask::$url"
+          export DIRECT_DATABASE_URL="$url"
+          pnpm --filter @countersign/db run db:remove-operator "$EMAIL" "$BY"
+          echo "Removed $EMAIL as operator on $TARGET. Next: delete the user in WorkOS ($TARGET)." >> "$GITHUB_STEP_SUMMARY"

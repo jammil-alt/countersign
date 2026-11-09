@@ -18,6 +18,7 @@
     "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "tsx scripts/seed.ts",
     "db:add-operator": "tsx scripts/add-operator.ts",
+    "db:remove-operator": "tsx scripts/remove-operator.ts",
     "db:purge-client": "tsx scripts/purge-client.ts"
   },
   "dependencies": {

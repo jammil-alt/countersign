@@ -68,6 +68,18 @@ export const InviteEmail = z.object({
 export type InviteEmail = z.infer<typeof InviteEmail>;
 
 export const InviteResult = z.object({ member: Member, email: InviteEmail });
+
+/**
+ * Removing someone from a client (access control, docs/security.md §2): their membership goes at
+ * once, and so does their access, since every request reads memberships afresh. Open items
+ * assigned to them by name go to the client admin.
+ */
+export const RemoveMemberResult = z.object({
+  removed: z.object({ userId: z.string(), email: z.string() }),
+  /** Open inbox items that named them, now the client admin's. */
+  reassigned: z.number().int(),
+});
+export type RemoveMemberResult = z.infer<typeof RemoveMemberResult>;
 export type InviteResult = z.infer<typeof InviteResult>;
 
 /** The client's notification switches (each person also picks their own channels: api/notify.ts). */
@@ -235,6 +247,15 @@ export const onboardingRoutes = {
     body: InviteBody,
     response: InviteResult,
   }),
+  opsRemoveMember: defineRoute({
+    method: "DELETE",
+    path: "/api/ops/clients/:id/members/:userId",
+    auth: "session",
+    roles: OPS,
+    summary: "Remove a client admin or user from a client; they lose access at once",
+    params: z.object({ id: Id, userId: Id }),
+    response: RemoveMemberResult,
+  }),
   // DECISION: inviting from the directory has its own routes (one per surface) that read the
   // contact, check `canInviteContact` and then run the same invite as the email form; the existing
   // invite routes keep their body as it is.
@@ -274,6 +295,15 @@ export const onboardingRoutes = {
     summary: "Invite someone from your business to the portal",
     body: InviteBody,
     response: InviteResult,
+  }),
+  portalRemoveUser: defineRoute({
+    method: "DELETE",
+    path: "/api/users/:id",
+    auth: "session",
+    roles: ADMIN,
+    summary: "Remove someone from your business's portal; they lose access at once",
+    params: IdParams,
+    response: RemoveMemberResult,
   }),
   portalSettings: defineRoute({
     method: "GET",

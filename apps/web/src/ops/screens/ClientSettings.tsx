@@ -460,7 +460,16 @@ function People({
             The Sandbox is our own test client: it has no client people.
           </p>
         ) : null}
-        <MemberList members={people} testId="ops-client-members" />
+        <MemberList
+          members={people}
+          testId="ops-client-members"
+          onRemove={async (m) => {
+            await api.call(apiRoutes.opsRemoveMember, {
+              params: { id: clientId, userId: m.userId },
+            });
+            onInvited();
+          }}
+        />
         {settings.client.sandbox ? null : (
           <>
             <InviteForm

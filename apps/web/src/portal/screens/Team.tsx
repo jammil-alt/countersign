@@ -7,7 +7,7 @@ import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { useI18n } from "../../i18n/i18n";
-import { InviteForm, ROLE_LABEL } from "../../people/People";
+import { InviteForm, RemovePerson, ROLE_LABEL } from "../../people/People";
 import { useSession } from "../../session/session";
 import { PersonBadge } from "../../ui/badges";
 import { Loaded, Page, Section } from "../../ui/page";
@@ -85,11 +85,22 @@ function MemberTeam({ team }: { team: ReturnType<typeof useApi<typeof apiRoutes.
 function AdminTeam({ team }: { team: ReturnType<typeof useApi<typeof apiRoutes.portalTeam>> }) {
   const { t } = useI18n();
   const api = useApiClient();
+  const session = useSession();
   const users = useApi(apiRoutes.portalUsers);
   return (
     <>
       <Loaded state={users}>
-        {(data) => <TeamList rows={teamRows(data.users, team.data?.members ?? [])} />}
+        {(data) => (
+          <TeamList
+            rows={teamRows(data.users, team.data?.members ?? [])}
+            selfId={session.user.id}
+            onRemove={async (r) => {
+              await api.call(apiRoutes.portalRemoveUser, { params: { id: r.userId } });
+              users.reload();
+              team.reload();
+            }}
+          />
+        )}
       </Loaded>
       <Section title={t("teamPage.invite")}>
         <InviteForm
@@ -116,7 +127,17 @@ function AdminTeam({ team }: { team: ReturnType<typeof useApi<typeof apiRoutes.p
   );
 }
 
-function TeamList({ rows }: { rows: Row[] }) {
+function TeamList({
+  rows,
+  selfId,
+  onRemove,
+}: {
+  rows: Row[];
+  /** The admin: they can't remove themselves. */
+  selfId?: string;
+  /** The client admin's: remove someone (never an operator or themselves). */
+  onRemove?: (row: Row) => Promise<void>;
+}) {
   const { t } = useI18n();
   if (rows.length === 0) return <EmptyState>{t("people.none")}</EmptyState>;
   return (
@@ -150,6 +171,13 @@ function TeamList({ rows }: { rows: Row[] }) {
               {r.invited ? <Badge>{t("people.invited")}</Badge> : null}
               <Tag tone={r.role === "operator" ? "person" : "neutral"}>{t(ROLE_LABEL[r.role])}</Tag>
             </span>
+            {onRemove && r.role !== "operator" && r.userId !== selfId ? (
+              <RemovePerson
+                name={r.name ?? r.email}
+                testId={`portal-team-${r.email}`}
+                onRemove={() => onRemove(r)}
+              />
+            ) : null}
           </li>
         ))}
       </ul>

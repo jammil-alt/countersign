@@ -75,7 +75,73 @@ export function inviteProblem(
   }
 }
 
-export function MemberList({ members, testId }: { members: Member[]; testId: string }) {
+/**
+ * Removing someone (de-provisioning, docs/security.md §2): an inline confirmation, then
+ * `onRemove`. Their access ends at once; what waited on them goes to the client admin.
+ */
+export function RemovePerson({
+  name,
+  testId,
+  onRemove,
+}: {
+  name: string;
+  testId: string;
+  onRemove: () => Promise<void>;
+}) {
+  const { t } = useI18n();
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!confirming) {
+    return (
+      <Button
+        size="sm"
+        variant="ghost"
+        data-testid={`${testId}-remove`}
+        onClick={() => setConfirming(true)}
+      >
+        {t("people.remove")}
+      </Button>
+    );
+  }
+  return (
+    <div className="ds-banner block basis-full" data-testid={`${testId}-remove-confirm`}>
+      <p>{t("people.removeWarning", { name })}</p>
+      {error ? <p className="mt-1 text-risk">{error}</p> : null}
+      <div className="mt-2 flex gap-2">
+        <Button
+          variant="primary"
+          disabled={busy}
+          data-testid={`${testId}-remove-yes`}
+          onClick={() => {
+            setBusy(true);
+            setError(null);
+            onRemove()
+              .then(() => setConfirming(false))
+              .catch((e: unknown) => setError(isApiError(e) ? e.message : String(e)))
+              .finally(() => setBusy(false));
+          }}
+        >
+          {t("people.remove")}
+        </Button>
+        <Button variant="ghost" onClick={() => setConfirming(false)}>
+          {t("people.removeKeep")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export function MemberList({
+  members,
+  testId,
+  onRemove,
+}: {
+  members: Member[];
+  testId: string;
+  /** Offered for client admins and users; operators are removed by the workflow. */
+  onRemove?: (member: Member) => Promise<void>;
+}) {
   const { t } = useI18n();
   if (members.length === 0) return <EmptyState>{t("people.none")}</EmptyState>;
   return (
@@ -95,6 +161,13 @@ export function MemberList({ members, testId }: { members: Member[]; testId: str
               {m.signedIn === false ? <Badge>{t("people.invited")}</Badge> : null}
               <Tag tone={m.role === "operator" ? "person" : "neutral"}>{t(ROLE_LABEL[m.role])}</Tag>
             </span>
+            {onRemove && m.role !== "operator" ? (
+              <RemovePerson
+                name={m.name ?? m.email}
+                testId={`${testId}-${m.email}`}
+                onRemove={() => onRemove(m)}
+              />
+            ) : null}
           </li>
         ))}
       </ul>

@@ -829,6 +829,10 @@ export const es: Messages = {
   "people.role.client_user": "Usuario",
   "people.role.operator": "Mezonas",
   "people.invited": "Invitado",
+  "people.remove": "Quitar",
+  "people.removeWarning":
+    "{name} pierde el acceso de inmediato. Lo que esté esperando por esta persona pasa al administrador.",
+  "people.removeKeep": "Mantener",
   "people.none": "Nadie todavía. Invite a alguien abajo.",
   "people.email": "Correo electrónico",
   "people.name": "Nombre (opcional)",

@@ -16,6 +16,7 @@ import {
   type NotificationSettings,
   type OpsClientSettings,
   type OpsOverview,
+  type RemoveMemberResult,
   type RouteSpec,
   routes,
 } from "@countersign/core";
@@ -117,6 +118,54 @@ export async function membersOf(
     signedIn: options.signIns ? r.workosUserId !== null : null,
     canSign: r.canSign,
   }));
+}
+
+/**
+ * Removes a client admin or user from one client (de-provisioning, docs/security.md §2). The
+ * membership row goes; the person keeps their `app_user` row, which history and the audit log
+ * name. Operators are removed by the Remove operator workflow, never here. The request's audit
+ * row (mount) records who removed whom.
+ */
+// DECISION: their open items assigned by name go to the client admin role, so nothing waits on
+// someone who can no longer sign in; approver rules that name them already route to the client
+// admin, since the runtime checks membership at each proposal.
+export async function removeFromClient(
+  tx: Tx,
+  tenantId: string,
+  userId: string,
+  by: { userId: string; surface: "ops" | "portal" },
+): Promise<RemoveMemberResult> {
+  if (by.surface === "portal" && userId === by.userId) {
+    throw new HttpError(409, "self", "you can't remove yourself; ask another admin or us");
+  }
+  const [m] = await tx
+    .select({ role: membership.role, email: appUser.email })
+    .from(membership)
+    .innerJoin(appUser, eq(appUser.id, membership.userId))
+    .where(and(eq(membership.tenantId, tenantId), eq(membership.userId, userId)));
+  if (!m || (by.surface === "portal" && m.role === "operator")) throw notFound("member");
+  if (m.role === "operator") {
+    throw new HttpError(
+      409,
+      "is_operator",
+      "operators are removed by the Remove operator workflow",
+    );
+  }
+  await tx
+    .delete(membership)
+    .where(and(eq(membership.tenantId, tenantId), eq(membership.userId, userId)));
+  const moved = await tx
+    .update(inboxItem)
+    .set({ assigneeUserId: null, assigneeRole: "client_admin" })
+    .where(
+      and(
+        eq(inboxItem.tenantId, tenantId),
+        eq(inboxItem.assigneeUserId, userId),
+        eq(inboxItem.status, "open"),
+      ),
+    )
+    .returning({ id: inboxItem.id });
+  return { removed: { userId, email: m.email }, reassigned: moved.length };
 }
 
 function emailOf(delivery: InviteDelivery): InviteResult["email"] {
@@ -556,6 +605,14 @@ export function onboardingRouteHandlers(app: Hono<AppEnv>): void {
     return inviteToClient(ctx, ctx.params.id, ctx.body, { surface: "ops" });
   });
 
+  mount(app, routes.opsRemoveMember, async (ctx) => {
+    ensureClient(ctx, ctx.params.id);
+    return removeFromClient(ctx.tx, ctx.params.id, ctx.params.userId, {
+      userId: ctx.session.user.id,
+      surface: "ops",
+    });
+  });
+
   mount(app, routes.opsContactInvite, async (ctx) => {
     await invitableClient(ctx, ctx.params.id);
     return inviteContact(ctx, ctx.params.id, ctx.params.contactId, ctx.body, { surface: "ops" });
@@ -572,6 +629,14 @@ export function onboardingRouteHandlers(app: Hono<AppEnv>): void {
   mount(app, routes.portalInvite, (ctx) =>
     // The session's one client, never one from the request.
     inviteToClient(ctx, ctx.tenantIds[0] as string, ctx.body, { surface: "portal" }),
+  );
+
+  mount(app, routes.portalRemoveUser, (ctx) =>
+    // The session's one client, never one from the request.
+    removeFromClient(ctx.tx, ctx.tenantIds[0] as string, ctx.params.id, {
+      userId: ctx.session.user.id,
+      surface: "portal",
+    }),
   );
 
   mount(app, routes.portalContactInvite, (ctx) =>

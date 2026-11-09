@@ -133,4 +133,52 @@ describe("portal team", () => {
     expect(screen.queryByTestId("portal-invite")).toBeNull();
     expect(api.calls).not.toContain("GET /api/users");
   });
+
+  it("lets the admin remove someone after confirming, and not themselves", async () => {
+    const self = {
+      ...person("admin@demo-client.example.com", "client_admin"),
+      userId: CLIENT_SESSION.user.id,
+    };
+    const users = [
+      self,
+      {
+        ...person("viewer@demo.example.com", "client_user"),
+        userId: "00000000-0000-4000-8000-0000000000e1",
+      },
+    ];
+    const removed: string[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/overview": () => overview,
+      "GET /api/team": () => team,
+      "GET /api/users": () => ({ users }),
+      "DELETE /api/users/00000000-0000-4000-8000-0000000000e1": () => {
+        removed.push("00000000-0000-4000-8000-0000000000e1");
+        users.splice(1, 1);
+        return {
+          removed: {
+            userId: "00000000-0000-4000-8000-0000000000e1",
+            email: "viewer@demo.example.com",
+          },
+          reassigned: 0,
+        };
+      },
+    });
+    renderAt("/settings/team", api);
+    const viewer = await screen.findByTestId("portal-team-viewer@demo.example.com");
+    expect(
+      within(screen.getByTestId("portal-team-admin@demo-client.example.com")).queryByText("Remove"),
+    ).toBeNull();
+
+    await userEvent.click(within(viewer).getByTestId("portal-team-viewer@demo.example.com-remove"));
+    expect(viewer).toHaveTextContent("loses access at once");
+    expect(removed).toEqual([]);
+    await userEvent.click(
+      within(viewer).getByTestId("portal-team-viewer@demo.example.com-remove-yes"),
+    );
+    await waitFor(() => expect(removed).toEqual(["00000000-0000-4000-8000-0000000000e1"]));
+    await waitFor(() =>
+      expect(screen.queryByTestId("portal-team-viewer@demo.example.com")).toBeNull(),
+    );
+  });
 });

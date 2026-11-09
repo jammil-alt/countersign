@@ -316,6 +316,79 @@ describe.skipIf(!h)("onboarding", () => {
       expect(code(member.json)).toBe("already_member");
     });
 
+    it("removes someone at once: their access, and their named items go to the client admin", async () => {
+      const invited = await H.call(admin("a"), "POST", "/api/users", {
+        email: "leaver@a.example.com",
+        role: "client_user",
+      });
+      expect(invited.status, JSON.stringify(invited.json)).toBe(200);
+      const leaverId = j(invited.json).member.userId as string;
+      expect((await H.call("leaver@a.example.com", "GET", "/api/runs")).status).toBe(200);
+      const [item] = await H.t.db
+        .insert(inboxItem)
+        .values({
+          tenantId: H.A.tenantId,
+          kind: "request",
+          title: "Leaver's item",
+          assigneeUserId: leaverId,
+        })
+        .returning({ id: inboxItem.id });
+
+      // A client user can't remove anyone; an admin can't remove themselves, or reach an operator.
+      expect((await H.call(user("a"), "DELETE", `/api/users/${leaverId}`)).status).toBe(403);
+      const self = await H.call(admin("a"), "DELETE", `/api/users/${H.A.admin}`);
+      expect([self.status, code(self.json)]).toEqual([409, "self"]);
+      expect((await H.call(admin("a"), "DELETE", `/api/users/${H.operator}`)).status).toBe(404);
+      // Another client's person is not found from here.
+      expect((await H.call(admin("a"), "DELETE", `/api/users/${H.B.admin}`)).status).toBe(404);
+
+      const removed = await H.call(admin("a"), "DELETE", `/api/users/${leaverId}`);
+      expect(removed.status, JSON.stringify(removed.json)).toBe(200);
+      expect(j(removed.json)).toEqual({
+        removed: { userId: leaverId, email: "leaver@a.example.com" },
+        reassigned: 1,
+      });
+      expect(await membershipsOf(H, "leaver@a.example.com")).toEqual([]);
+      expect((await H.call("leaver@a.example.com", "GET", "/api/runs")).status).toBe(403);
+      const [moved] = await H.t.db
+        .select()
+        .from(inboxItem)
+        .where(eq(inboxItem.id, item?.id ?? ""));
+      expect(moved).toMatchObject({ assigneeUserId: null, assigneeRole: "client_admin" });
+      // Removing them again: not found.
+      expect((await H.call(admin("a"), "DELETE", `/api/users/${leaverId}`)).status).toBe(404);
+    });
+
+    it("lets an operator remove a client's person, never an operator, only in clients served", async () => {
+      const invited = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.B.tenantId}/invites`, {
+        email: "leaver@b.example.com",
+        role: "client_user",
+      });
+      expect(invited.status, JSON.stringify(invited.json)).toBe(200);
+      const leaverId = j(invited.json).member.userId as string;
+
+      const other = await H.call(
+        OTHER_OPERATOR,
+        "DELETE",
+        `/api/ops/clients/${H.B.tenantId}/members/${leaverId}`,
+      );
+      expect(other.status).toBe(404);
+      const op = await H.call(
+        OPERATOR,
+        "DELETE",
+        `/api/ops/clients/${H.B.tenantId}/members/${H.operator}`,
+      );
+      expect([op.status, code(op.json)]).toEqual([409, "is_operator"]);
+
+      const removed = await H.call(
+        OPERATOR,
+        "DELETE",
+        `/api/ops/clients/${H.B.tenantId}/members/${leaverId}`,
+      );
+      expect(removed.status, JSON.stringify(removed.json)).toBe(200);
+      expect(await membershipsOf(H, "leaver@b.example.com")).toEqual([]);
+    });
+
     it("stores notification settings for the client admin's own client", async () => {
       const first = await H.call(admin("a"), "GET", "/api/settings");
       expect(j(first.json)).toEqual({
