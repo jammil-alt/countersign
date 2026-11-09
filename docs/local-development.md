@@ -7,7 +7,7 @@ external service switches on when its setting appears in `.env`.
 ## Once
 
 ```bash
-nvm use                      # Node 22 (.nvmrc)
+nvm use                      # Node 24 (.nvmrc)
 corepack enable              # pnpm version from package.json
 pnpm install
 cp .env.example .env

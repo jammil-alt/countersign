@@ -24,8 +24,10 @@ import postgres from "postgres";
 import { closeDb, createDb, type Db, type Tx } from "./client";
 
 const DEFAULT_ADMIN_URL = "postgresql://postgres:postgres@localhost:5432/postgres";
-const MIGRATIONS = fileURLToPath(new URL("../migrations", import.meta.url));
-const PROVISION = fileURLToPath(new URL("../scripts/provision-worker-role.mjs", import.meta.url));
+const MIGRATIONS = fileURLToPath(new URL("../migrations", import.meta.url).href);
+const PROVISION = fileURLToPath(
+  new URL("../scripts/provision-worker-role.mjs", import.meta.url).href,
+);
 
 export const adminUrl = (): string => process.env.TEST_ADMIN_DATABASE_URL || DEFAULT_ADMIN_URL;
 const required = () => process.env.COUNTERSIGN_REQUIRE_DB === "1";

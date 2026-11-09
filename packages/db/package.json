@@ -28,7 +28,7 @@
     "zod": "^4.6.2"
   },
   "devDependencies": {
-    "@types/node": "^22.20.2",
+    "@types/node": "^24.19.2",
     "drizzle-kit": "^0.31.10",
     "tsx": "^4.23.15"
   }

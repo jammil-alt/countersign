@@ -3,9 +3,11 @@
 // Workers runtime to load, so this reads its source.
 
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
+const read = (path: string) =>
+  readFileSync(fileURLToPath(new URL(path, import.meta.url).href), "utf8");
 const wrangler = read("../wrangler.jsonc");
 const entry = read("./worker.ts");
 const classNames = [

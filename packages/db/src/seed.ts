@@ -8,6 +8,8 @@
 // Node only (it reads the seed files); not exported from the package's Worker-safe index.
 
 import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   type AgentBundle,
   batchKeyOf,
@@ -48,8 +50,10 @@ export const SEED_USERS = {
   demoAdmin: { email: "admin@demo-client.example.com", name: "Demo admin" },
 } as const;
 
-const SEED_DIR = new URL("../seed/agents/", import.meta.url);
-const CLIENT_SEED_DIR = new URL("../seed/clients/", import.meta.url);
+// Paths, not URLs: under @types/node 24 Node's fs takes only its own URL type, which a Worker's
+// global URL (apps/api compiles this file) is not.
+const SEED_DIR = fileURLToPath(new URL("../seed/agents/", import.meta.url).href);
+const CLIENT_SEED_DIR = fileURLToPath(new URL("../seed/clients/", import.meta.url).href);
 
 export interface SeedTemplate {
   slug: string;
@@ -63,7 +67,7 @@ export async function loadSeedTemplates(): Promise<SeedTemplate[]> {
   const out: SeedTemplate[] = [];
   for (const file of files) {
     const slug = file.slice(0, -".v1.json".length);
-    const raw: unknown = JSON.parse(await readFile(new URL(file, SEED_DIR), "utf8"));
+    const raw: unknown = JSON.parse(await readFile(join(SEED_DIR, file), "utf8"));
     const result = validateBundle(raw);
     if (!result.valid || !result.value) {
       const errors = result.errors.map((e) => `${e.field}: ${e.message}`).join("; ");
@@ -85,7 +89,7 @@ export async function loadSeedVersions(): Promise<SeedTemplateVersion[]> {
   for (const file of await readdir(SEED_DIR)) {
     const m = /^([a-z0-9-]+)\.v(\d{1,4})\.json$/.exec(file);
     if (!m?.[1] || !m[2] || Number(m[2]) < 2) continue;
-    const raw: unknown = JSON.parse(await readFile(new URL(file, SEED_DIR), "utf8"));
+    const raw: unknown = JSON.parse(await readFile(join(SEED_DIR, file), "utf8"));
     const result = validateBundle(raw);
     if (!result.valid || !result.value) {
       const errors = result.errors.map((e) => `${e.field}: ${e.message}`).join("; ");
@@ -323,9 +327,7 @@ export interface DemoDesk {
 
 /** The Demo client agent's bundle, validated. Throws when the file fails validation. */
 export async function loadDemoAgent(): Promise<SeedTemplate> {
-  const raw: unknown = JSON.parse(
-    await readFile(new URL(DEMO_AGENT_FILE, CLIENT_SEED_DIR), "utf8"),
-  );
+  const raw: unknown = JSON.parse(await readFile(join(CLIENT_SEED_DIR, DEMO_AGENT_FILE), "utf8"));
   const result = validateBundle(raw);
   if (!result.valid || !result.value) {
     const errors = result.errors.map((e) => `${e.field}: ${e.message}`).join("; ");

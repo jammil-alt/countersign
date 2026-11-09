@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@11.20.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "dev": "pnpm --filter @countersign/web run --if-present build && pnpm --filter @countersign/api run --if-present dev",
@@ -22,7 +22,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.13",
     "@opentelemetry/api": "1.10.0",
-    "@types/node": "^22.20.2",
+    "@types/node": "^24.19.2",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
   }
