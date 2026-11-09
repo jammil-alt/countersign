@@ -14,12 +14,17 @@ import {
 import {
   isQboTransactionEntity,
   type JsonObject,
+  type LedgerAccountInput,
+  type LedgerDimensionInput,
   MapperError,
+  mapQboAccount,
   mapQboAttachable,
+  mapQboDimension,
   mapQboTransaction,
   mapQboVendor,
   normalizeVendorName,
   QBO_CONNECTOR_ID,
+  QBO_DIMENSION_ENTITIES,
   qboTransactionExternalId,
   type TransactionInput,
   type VendorInput,
@@ -27,6 +32,8 @@ import {
 import {
   connection,
   event,
+  ledgerAccount,
+  ledgerDimension,
   rawRecord,
   type Tx,
   transaction,
@@ -140,6 +147,32 @@ export async function storeQboPage(
     try {
       if (record.isDeleted) {
         await deleted(tx, tenantId, connectionId, record, news);
+        // B-2: an account, class or location deleted in QuickBooks stays in the ledger, inactive
+        // (bookings and rules name it).
+        if (record.entityType === "Account") {
+          await tx
+            .update(ledgerAccount)
+            .set({ active: false, rawRecordId: raw.id, updatedAt: input.now })
+            .where(
+              and(
+                eq(ledgerAccount.tenantId, tenantId),
+                eq(ledgerAccount.connectionId, connectionId),
+                eq(ledgerAccount.externalId, record.externalId),
+              ),
+            );
+        } else if (isDimensionEntity(record.entityType)) {
+          await tx
+            .update(ledgerDimension)
+            .set({ active: false, rawRecordId: raw.id, updatedAt: input.now })
+            .where(
+              and(
+                eq(ledgerDimension.tenantId, tenantId),
+                eq(ledgerDimension.connectionId, connectionId),
+                eq(ledgerDimension.kind, QBO_DIMENSION_ENTITIES[record.entityType]),
+                eq(ledgerDimension.externalId, record.externalId),
+              ),
+            );
+        }
         // v0.12 W1-F: a deleted invoice keeps its receivable, status `deleted`.
         if (record.entityType === "Invoice") {
           await deleteReceivable(
@@ -157,6 +190,17 @@ export async function storeQboPage(
           news,
         );
         out.receivables[r] += 1;
+      } else if (record.entityType === "Account") {
+        // B-2 (docs/plan.md §1.79): the chart of accounts, kept in place from each version.
+        await upsertLedgerAccount(tx, input, raw.id, mapQboAccount(record.payload));
+      } else if (isDimensionEntity(record.entityType)) {
+        // B-2: its classes and locations, per connection like the accounts.
+        await upsertLedgerDimension(
+          tx,
+          input,
+          raw.id,
+          mapQboDimension(record.entityType, record.payload),
+        );
       } else if (record.entityType === "Vendor") {
         await upsertVendor(tx, tenantId, mapQboVendor(record.payload));
       } else if (isQboTransactionEntity(record.entityType)) {
@@ -243,6 +287,79 @@ async function deleted(
       changed: ["deleted"],
     },
   });
+}
+
+/** B-2: one account of the client's chart, inserted or brought up to this version. */
+async function upsertLedgerAccount(
+  tx: Tx,
+  input: Pick<StorePageInput, "tenantId" | "connectionId" | "now">,
+  rawRecordId: string,
+  a: LedgerAccountInput,
+): Promise<void> {
+  const fields = {
+    connectionId: input.connectionId,
+    name: a.name,
+    fullName: a.fullName,
+    number: a.number,
+    classification: a.classification,
+    kind: a.kind,
+    accountType: a.accountType,
+    accountSubType: a.accountSubType,
+    parentExternalId: a.parentExternalId,
+    description: a.description,
+    currency: a.currency,
+    active: a.active,
+    rawRecordId,
+    updatedAt: input.now,
+  };
+  await tx
+    .insert(ledgerAccount)
+    .values({
+      tenantId: input.tenantId,
+      connector: QBO_CONNECTOR_ID,
+      externalId: a.externalId,
+      ...fields,
+    })
+    .onConflictDoUpdate({
+      // The ledger belongs to the connection (docs/plan.md §1.79): one to one with its company.
+      target: [ledgerAccount.connectionId, ledgerAccount.externalId],
+      set: fields,
+    });
+}
+
+function isDimensionEntity(entity: string): entity is "Class" | "Department" {
+  return Object.hasOwn(QBO_DIMENSION_ENTITIES, entity);
+}
+
+/** B-2: one class or location of the connection's ledger, inserted or brought up to date. */
+async function upsertLedgerDimension(
+  tx: Tx,
+  input: Pick<StorePageInput, "tenantId" | "connectionId" | "now">,
+  rawRecordId: string,
+  d: LedgerDimensionInput,
+): Promise<void> {
+  const fields = {
+    name: d.name,
+    fullName: d.fullName,
+    parentExternalId: d.parentExternalId,
+    active: d.active,
+    rawRecordId,
+    updatedAt: input.now,
+  };
+  await tx
+    .insert(ledgerDimension)
+    .values({
+      tenantId: input.tenantId,
+      connectionId: input.connectionId,
+      connector: QBO_CONNECTOR_ID,
+      kind: d.kind,
+      externalId: d.externalId,
+      ...fields,
+    })
+    .onConflictDoUpdate({
+      target: [ledgerDimension.connectionId, ledgerDimension.kind, ledgerDimension.externalId],
+      set: fields,
+    });
 }
 
 type VendorRow = typeof vendor.$inferSelect;

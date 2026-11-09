@@ -267,6 +267,57 @@ describe.skipIf(!h)("bank and card feeds through the API", () => {
     expect(plaid.items.size).toBe(1);
   });
 
+  it("B-5: connects a second bank beside the first, lists both, and signs either in again", async () => {
+    // Another bank: a new connection, a new item.
+    const start = await call(admin("a"), "POST", "/api/connections/bankfeed/authorize?add=1");
+    expect(start.status, JSON.stringify(start.json)).toBe(200);
+    const { link } = j(start.json);
+    expect(plaid.linkTokens.get(link.token)).toMatchObject({ products: ["transactions"] });
+    expect(plaid.linkTokens.get(link.token)).not.toHaveProperty("access_token");
+    const publicToken = plaid.issuePublicToken();
+    publicTokens.push(publicToken);
+    const done = await call(admin("a"), "POST", "/api/connections/bankfeed/callback", {
+      params: { public_token: publicToken, state: link.state },
+    });
+    expect(done.status, JSON.stringify(done.json)).toBe(200);
+    const second = j(done.json).connection.connection;
+    expect(second.id).not.toBe(connId);
+    expect(second.externalAccountId).toBe(plaid.itemOf(publicToken)?.itemId);
+    expect(plaid.items.size).toBe(2);
+    // The portal lists both.
+    const list = j((await call(admin("a"), "GET", "/api/connections")).json).connections;
+    const bank = list.find((c: { connector: string }) => c.connector === "bankfeed");
+    expect(bank.multiple).toBe(true);
+    expect([bank.connection.id, ...bank.others.map((o: { id: string }) => o.id)].sort()).toEqual(
+      [connId, second.id].sort(),
+    );
+    // The first, signed in again by its id: update mode on its own item, the second untouched.
+    const again = await call(
+      admin("a"),
+      "POST",
+      `/api/connections/bankfeed/authorize?connection=${connId}`,
+    );
+    expect(again.status, JSON.stringify(again.json)).toBe(200);
+    expect(plaid.linkTokens.get(j(again.json).link.token)).toMatchObject({
+      access_token: plaid.accessTokens()[0],
+    });
+    const redone = await call(admin("a"), "POST", "/api/connections/bankfeed/callback", {
+      params: { public_token: plaid.issuePublicToken(), state: j(again.json).link.state },
+    });
+    expect(j(redone.json).connection.connection).toMatchObject({
+      id: connId,
+      externalAccountId: itemId,
+    });
+    // A tool connected once refuses another; another client's connection is not found.
+    expect(
+      (await call(admin("a"), "POST", "/api/connections/testkit/authorize?add=1")).status,
+    ).toBe(409);
+    expect(
+      (await call(admin("b"), "POST", `/api/connections/bankfeed/authorize?connection=${connId}`))
+        .status,
+    ).toBe(404);
+  });
+
   it("never shows the operator (or anyone) a token", async () => {
     for (const path of [`/api/ops/clients/${A()}/connections`, `/api/ops/clients/${A()}`]) {
       const res = await call(OPERATOR, "GET", path);

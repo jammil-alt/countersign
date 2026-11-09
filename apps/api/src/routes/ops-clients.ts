@@ -219,7 +219,7 @@ async function clientSummaries(
 ) {
   if (ids.length === 0) return [];
   // DECISION: the five reads are asked at once, in the request's transaction, which the driver
-  // pipelines (docs/plan.md §1.79): the back office loads this list on every visit.
+  // pipelines (docs/plan.md §1.82): the back office loads this list on every visit.
   const [rows, agents, open, escalations, waiting] = await Promise.all([
     tx
       .select()

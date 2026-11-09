@@ -27,6 +27,9 @@ import {
   event,
   externalAction,
   inboxItem,
+  ledgerAccount,
+  ledgerDimension,
+  qboWebhookEvent,
   rawRecord,
   transaction,
   transactionLine,
@@ -35,8 +38,8 @@ import {
 } from "@countersign/db";
 import { storeDocument } from "@countersign/documents";
 import { FakeModel } from "@countersign/llm";
-import { and, asc, eq, sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import cdcFixture from "../../../fixtures/qbo/webhook-notification.json";
 import {
   type ApiHarness,
@@ -380,8 +383,48 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
     const [conn] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
     expect(conn?.syncCursor).toMatchObject({ v: 1, phase: "cdc" });
     expect(conn?.lastSyncAt).not.toBeNull();
+    // B-2 (docs/plan.md §1.79): the chart of accounts, each with its type and classification.
+    const accounts = await H.t.db
+      .select()
+      .from(ledgerAccount)
+      .where(eq(ledgerAccount.tenantId, H.A.tenantId))
+      .orderBy(asc(ledgerAccount.externalId));
+    expect(
+      accounts.map((a) => [a.externalId, a.name, a.accountType, a.classification, a.active]),
+    ).toEqual([
+      ["33", "Accounts Payable (A/P)", "Accounts Payable", "liability", true],
+      ["80", "Job Materials", "Cost of Goods Sold", "expense", true],
+      ["81", "Freight In", "Cost of Goods Sold", "expense", true],
+      ["84", "Shop Supplies", "Expense", "expense", true],
+      ["85", "Old Freight", "Expense", "expense", false],
+      ["90", "Sales Tax Payable", "Other Current Liability", "liability", true],
+    ]);
+    expect(accounts.every((a) => a.connectionId === connectionId && a.rawRecordId)).toBe(true);
+    // In the platform's words too, whatever the tool calls them.
+    expect(accounts.map((a) => a.kind)).toEqual([
+      "payable",
+      "cost_of_goods",
+      "cost_of_goods",
+      "expense",
+      "expense",
+      "other_current_liability",
+    ]);
+    // Its classes, per connection like the accounts.
+    const classes = await H.t.db
+      .select()
+      .from(ledgerDimension)
+      .where(eq(ledgerDimension.tenantId, H.A.tenantId))
+      .orderBy(asc(ledgerDimension.externalId));
+    // An inactive class is kept, marked inactive.
+    expect(classes.map((d) => [d.kind, d.name, d.active, d.connectionId])).toEqual([
+      ["class", "Shop", true, connectionId],
+      ["class", "Install", true, connectionId],
+      ["class", "Portland", true, connectionId],
+      ["class", "Old shop", false, connectionId],
+    ]);
     // Client B sees none of it.
     await withTenant(H.db, H.B.tenantId, async (tx) => {
+      expect(await tx.select().from(ledgerAccount)).toEqual([]);
       expect(await tx.select().from(transaction)).toEqual([]);
       expect(await tx.select().from(rawRecord).where(eq(rawRecord.connector, "qbo"))).toEqual([]);
     });
@@ -488,6 +531,35 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
     });
   });
 
+  it("B-2: CDC brings an account's change in place, and a deleted account stays, inactive", async () => {
+    qbo.put("Account", {
+      Id: "84",
+      SyncToken: "2",
+      Name: "Shop Supplies",
+      FullyQualifiedName: "Shop Supplies",
+      AccountType: "Expense",
+      AccountSubType: "SuppliesMaterials",
+      Classification: "Expense",
+      Description: "Glue, sandpaper, blades",
+      Active: true,
+      MetaData: { LastUpdatedTime: "2026-11-05T18:30:00Z" },
+    });
+    qbo.remove("Account", "81");
+    await sync();
+    const accounts = await H.t.db
+      .select()
+      .from(ledgerAccount)
+      .where(eq(ledgerAccount.tenantId, H.A.tenantId));
+    const byId = new Map(accounts.map((a) => [a.externalId, a]));
+    expect(accounts).toHaveLength(6);
+    expect(byId.get("84")).toMatchObject({
+      description: "Glue, sandpaper, blades",
+      accountSubType: "SuppliesMaterials",
+      active: true,
+    });
+    expect(byId.get("81")?.active).toBe(false);
+  });
+
   it("starts a sync from a signed webhook, and refuses a bad signature", async () => {
     const body = JSON.stringify(cdcFixture);
     const sig = await qboWebhookSignature(VERIFIER, new TextEncoder().encode(body));
@@ -505,7 +577,8 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
       H.env,
     );
     expect(ok.status).toBe(200);
-    expect(await ok.json()).toEqual({ syncs: 1 });
+    // Both record changes are kept (docs/plan.md §1.81), and one sync is started.
+    expect(await ok.json()).toEqual({ syncs: 1, stored: 2 });
     const started = [...syncs.started.entries()].slice(before);
     expect(started).toHaveLength(1);
     expect(started[0]?.[1]).toEqual({
@@ -519,7 +592,8 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
       { method: "POST", headers: { "intuit-signature": sig }, body },
       H.env,
     );
-    expect(await burst.json()).toEqual({ syncs: 0 });
+    // Intuit resent the same notification: nothing new is kept.
+    expect(await burst.json()).toEqual({ syncs: 0, stored: 0 });
     expect(syncs.started.size).toBe(before + 1);
     await forgetClaims();
 
@@ -544,8 +618,105 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
       { method: "POST", headers: { "intuit-signature": otherSig }, body: other },
       H.env,
     );
-    expect(await res.json()).toEqual({ syncs: 0 });
+    expect(await res.json()).toEqual({ syncs: 0, stored: 0 });
     expect(syncs.started.size).toBe(before + 1);
+  });
+
+  it("keeps each change Intuit names once, acts only on what it syncs, and logs no payload", async () => {
+    await forgetClaims();
+    syncs.started.clear();
+    const send = async (raw: string, sign = true) =>
+      H.app.request(
+        "/api/connections/qbo/webhook",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(sign
+              ? {
+                  "intuit-signature": await qboWebhookSignature(
+                    VERIFIER,
+                    new TextEncoder().encode(raw),
+                  ),
+                }
+              : {}),
+          },
+          body: raw,
+        },
+        H.env,
+      );
+    const logs: string[] = [];
+    const capture = (...args: unknown[]) => void logs.push(JSON.stringify(args));
+    const spies = [
+      vi.spyOn(console, "log").mockImplementation(capture),
+      vi.spyOn(console, "warn").mockImplementation(capture),
+    ];
+    try {
+      // An estimate isn't something we sync: kept, not acted on.
+      const estimate = JSON.stringify({
+        eventNotifications: [
+          {
+            realmId: FAKE_QBO_REALM,
+            dataChangeEvent: {
+              entities: [
+                {
+                  name: "Estimate",
+                  id: "88",
+                  operation: "Create",
+                  lastUpdated: "2026-11-09T10:00:00.000Z",
+                },
+              ],
+            },
+          },
+        ],
+      });
+      const r1 = await send(estimate);
+      expect(r1.status).toBe(200);
+      expect(await r1.json()).toEqual({ syncs: 0, stored: 1 });
+      expect(syncs.started.size).toBe(0);
+      // Resent: stored once.
+      expect(await (await send(estimate)).json()).toEqual({ syncs: 0, stored: 0 });
+      const kept = await withTenant(H.db, H.A.tenantId, (tx) =>
+        tx.select().from(qboWebhookEvent).where(eq(qboWebhookEvent.entity, "Estimate")),
+      );
+      expect(kept).toHaveLength(1);
+      expect(kept[0]).toMatchObject({
+        connectionId,
+        realmId: FAKE_QBO_REALM,
+        entityId: "88",
+        operation: "Create",
+        lastUpdated: new Date("2026-11-09T10:00:00.000Z"),
+        acted: false,
+      });
+      // The same record changed again later is a new change.
+      const later = estimate.replace("2026-11-09T10:00:00.000Z", "2026-11-09T11:00:00.000Z");
+      expect(await (await send(later)).json()).toEqual({ syncs: 0, stored: 1 });
+
+      // Signed but not JSON, or not a notification: acknowledged, logged, nothing kept.
+      for (const raw of ["{not json", JSON.stringify({ hello: "world" })]) {
+        const r = await send(raw);
+        expect(r.status, raw).toBe(200);
+        expect(await r.json()).toEqual({ syncs: 0, stored: 0 });
+      }
+      // Unsigned: refused, and nothing kept.
+      expect((await send(later, false)).status).toBe(401);
+
+      const all = logs.join("\n");
+      expect(all).toContain("qbo webhook received");
+      expect(all).toContain('"verified":true');
+      expect(all).toContain('"Estimate":1');
+      expect(all).toContain("qbo webhook unreadable");
+      expect(all).toContain("missing_signature");
+      // No payload and no secret in the logs: no entity id, no body, no verifier.
+      expect(all).not.toContain('"88"');
+      expect(all).not.toContain("hello");
+      expect(all).not.toContain(VERIFIER);
+    } finally {
+      for (const s of spies) s.mockRestore();
+    }
+    // Another client sees none of it.
+    const others = await withTenant(H.db, H.B.tenantId, (tx) => tx.select().from(qboWebhookEvent));
+    expect(others).toEqual([]);
   });
 
   it("lets the operator start a sync, and only for QuickBooks connections it serves", async () => {
@@ -845,6 +1016,106 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
       tenantId: H.A.tenantId,
     } as never).get();
     expect(opened).toMatchObject({ refreshToken: qbo.refreshToken });
+  });
+
+  it("lets the operator add and change accounts and classes in the chart, each signed, written once", async () => {
+    const ledger = j((await call(OPERATOR, "GET", `/api/ops/clients/${H.A.tenantId}/ledger`)).json);
+    const mine = ledger.ledgers.find(
+      (l: { connectionId: string }) => l.connectionId === connectionId,
+    );
+    const supplies = mine.accounts.find((a: { externalId: string }) => a.externalId === "84");
+    expect(supplies).toMatchObject({ name: "Shop Supplies", kind: "expense", syncToken: "2" });
+    expect(mine.dimensions.length).toBeGreaterThan(0);
+    // A client's people never reach it.
+    expect((await call(admin("a"), "GET", `/api/ops/clients/${H.A.tenantId}/ledger`)).status).toBe(
+      403,
+    );
+
+    const change = (
+      tool: string,
+      input: Record<string, unknown>,
+      requestId = crypto.randomUUID(),
+    ) =>
+      call(OPERATOR, "POST", `/api/ops/clients/${H.A.tenantId}/ledger/changes`, {
+        connectionId,
+        tool,
+        input,
+        requestId,
+      });
+    const requestId = crypto.randomUUID();
+    const added = await change(
+      "qbo.account.create",
+      { name: "Fuel", accountType: "Expense", number: "6120", description: "Gas for the vans" },
+      requestId,
+    );
+    expect(added.status, JSON.stringify(added.json)).toBe(200);
+    expect(j(added.json)).toMatchObject({ status: "done", output: { name: "Fuel" } });
+    const fuelId = j(added.json).output.id;
+    expect(qbo.get("Account", fuelId)).toMatchObject({ AccountType: "Expense", AcctNum: "6120" });
+    // A double click: the same request writes once.
+    expect(
+      j(
+        (await change("qbo.account.create", { name: "Fuel", accountType: "Expense" }, requestId))
+          .json,
+      ).status,
+    ).toBe("done");
+    const actions = await H.t.db
+      .select()
+      .from(externalAction)
+      .where(
+        and(
+          eq(externalAction.tenantId, H.A.tenantId),
+          eq(externalAction.tool, "qbo.account.create"),
+        ),
+      );
+    expect(actions).toHaveLength(1);
+    // Signed by the person who made it: approved by them, no run, no agent.
+    expect(actions[0]).toMatchObject({ status: "done", runId: null, agentVersionId: null });
+    expect(actions[0]?.approvedBy).toBeTruthy();
+
+    // A change on the version last synced; then the same version again is stale.
+    const renamed = await change("qbo.account.update", {
+      id: "84",
+      syncToken: "2",
+      name: "Shop supplies",
+    });
+    expect(j(renamed.json)).toMatchObject({ status: "done", output: { name: "Shop supplies" } });
+    const stale = await change("qbo.account.update", {
+      id: "84",
+      syncToken: "2",
+      description: "Glue",
+    });
+    expect(j(stale.json).status).toBe("failed");
+    expect(j(stale.json).error).toContain("changed in QuickBooks since it was read");
+    // A class, then its name taken again: refused before anything is written.
+    expect(j((await change("qbo.class.create", { name: "Remodels" })).json).status).toBe("done");
+    const dup = j((await change("qbo.class.create", { name: "Remodels" })).json);
+    expect(dup.status).toBe("failed");
+    expect(dup.error).toContain("already a class named Remodels");
+    // Only the ledger's writes: another tool is refused by the contract.
+    expect(
+      (
+        await call(OPERATOR, "POST", `/api/ops/clients/${H.A.tenantId}/ledger/changes`, {
+          connectionId,
+          tool: "qbo.bill.create",
+          input: {},
+          requestId: crypto.randomUUID(),
+        })
+      ).status,
+    ).toBe(400);
+    // The ledger catches up on the next sync.
+    await forgetClaims();
+    await sync();
+    const after = await H.t.db
+      .select()
+      .from(ledgerAccount)
+      .where(
+        and(
+          eq(ledgerAccount.tenantId, H.A.tenantId),
+          inArray(ledgerAccount.externalId, ["84", fuelId]),
+        ),
+      );
+    expect(after.map((a) => a.name).sort()).toEqual(["Fuel", "Shop supplies"]);
   });
 
   it("revokes the grant at Intuit when the client disconnects; syncs then stop", async () => {

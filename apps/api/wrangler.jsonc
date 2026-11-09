@@ -92,6 +92,10 @@
     "staging": {
       "name": "mezonas-staging",
       "routes": [{ "pattern": "staging.mezonas.com", "custom_domain": true }],
+      // Next to Neon (aws-us-east-2, Bootstrap cloud's region): a request makes its database
+      // round trips there instead of from the visitor's nearest location (docs/plan.md §1.82).
+      // Static files are still served from the nearest location. Change with the Neon region.
+      "placement": { "region": "aws:us-east-2" },
       "triggers": { "crons": ["* * * * *"] },
       // Hyperdrive `mezonas-db-staging` (Neon branch staging), from Bootstrap cloud.
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "934bb30230e344539da6ab05c4447ec6" }],
@@ -157,6 +161,10 @@
     "production": {
       "name": "mezonas",
       "routes": [{ "pattern": "app.mezonas.com", "custom_domain": true }],
+      // Next to Neon (aws-us-east-2, Bootstrap cloud's region): a request makes its database
+      // round trips there instead of from the visitor's nearest location (docs/plan.md §1.82).
+      // Static files are still served from the nearest location. Change with the Neon region.
+      "placement": { "region": "aws:us-east-2" },
       "triggers": { "crons": ["* * * * *"] },
       // Hyperdrive `mezonas-db` (Neon branch main), from Bootstrap cloud.
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "b4032076210742cb961ccc2fc1bdf282" }],

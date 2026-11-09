@@ -29,9 +29,12 @@ import { MarketingSourcesScreen } from "../packs/marketing/ops/Sources";
 import { MarketingVisitScreen } from "../packs/marketing/ops/Visit";
 import { MarketingVisitsScreen } from "../packs/marketing/ops/Visits";
 import {
+  // B-6
+  OpsClientBankTransactionsScreen,
   OpsClientCatalogScreen,
   OpsClientPacksScreen,
   OpsClientPriceWatchScreen,
+  OpsClientReconciliationsScreen,
   // P-9
   OpsClientRequestScreen,
   OpsClientRequestsScreen,
@@ -43,6 +46,7 @@ import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
 import { NewTemplateScreen, TemplatePage } from "./agents/TemplateScreens";
 import { ClientAgentsScreen } from "./client/ClientAgents";
+import { OpsClientLedgerScreen } from "./client/ClientLedger";
 import { ClientOverviewScreen } from "./client/ClientOverview";
 import { CommandCenterScreen } from "./command/CommandCenter";
 import { LabScreen } from "./lab/LabScreen";
@@ -109,6 +113,8 @@ export const opsRoutes = (
     <Route path="clients/:clientId/documents" element={<OpsDocumentsScreen />} />
     <Route path="clients/:clientId/documents/:documentId" element={<OpsDocumentScreen />} />
     <Route path="clients/:clientId/records" element={<OpsRecordsScreen />} />
+    {/* The client's chart of accounts, classes and locations, changed only with a signature */}
+    <Route path="clients/:clientId/ledger" element={<OpsClientLedgerScreen />} />
     <Route path="clients/:clientId/records/:recordId" element={<OpsRecordScreen />} />
     {/* Setup: Connections, Messaging, Directory and Knowledge */}
     <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
@@ -146,6 +152,16 @@ export const opsRoutes = (
     <Route
       path="clients/:clientId/reports/materials/requests/:id"
       element={<OpsClientRequestScreen />}
+    />
+    {/* B-6 (docs/plan.md §1.79): a client's bank transactions, account links, rules and chart */}
+    <Route
+      path="clients/:clientId/reports/bookkeeping/transactions"
+      element={<OpsClientBankTransactionsScreen />}
+    />
+    {/* R-1 (docs/plan.md §1.80): a client's reconciliations */}
+    <Route
+      path="clients/:clientId/reports/bookkeeping/reconciliations"
+      element={<OpsClientReconciliationsScreen />}
     />
     {/* §1.73: the Marketing area (docs/marketing-plan.md §4.7, §11): the entry opens our own
         client with the pack on; each of a client's marketing pages is one line. */}

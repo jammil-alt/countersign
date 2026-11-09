@@ -1,5 +1,5 @@
 // The scope goes to the database in the same round trip as a transaction's first queries
-// (docs/plan.md §1.79): every statement `fn` issues, even at once and before awaiting anything,
+// (docs/plan.md §1.82): every statement `fn` issues, even at once and before awaiting anything,
 // still runs after the scope is set, and a failing `fn` still rolls back.
 
 import { sql } from "drizzle-orm";

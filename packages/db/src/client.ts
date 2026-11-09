@@ -70,7 +70,7 @@ async function inScope<T>(db: Db, scope: Scope, fn: (tx: Tx) => Promise<T>): Pro
   return db.transaction(async (tx) => {
     // The scope is sent first, then `fn` starts at once: its first queries travel with the scope
     // instead of a round trip later.
-    // DECISION: one round trip less per transaction (docs/plan.md §1.79). The transaction holds one
+    // DECISION: one round trip less per transaction (docs/plan.md §1.82). The transaction holds one
     // connection, and postgres-js runs a connection's statements in the order they were issued;
     // `.then` here issues the scope before `fn` can issue anything, so every statement of `fn`
     // still runs scoped. If the scope fails, the transaction is aborted and `fn`'s statements fail
