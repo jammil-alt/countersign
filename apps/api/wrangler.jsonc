@@ -194,6 +194,9 @@
         // PLACEHOLDER: the Production environment's AuthKit domain, as for staging.
         "WORKOS_AUTHKIT_DOMAIN": "",
         "APP_ORIGIN": "https://app.mezonas.com",
+        // Forwarded mail reaches the Worker once Email Routing sends in.mezonas.com to it
+        // (docs/operations.md, "By hand" step 3).
+        "EMAIL_FORWARDING_DOMAIN": "in.mezonas.com",
         "LLM_MODE": "live",
         // PLACEHOLDER: production keys need Intuit's app review; until then QuickBooks stays off
         // in production (no QBO_CLIENT_ID).

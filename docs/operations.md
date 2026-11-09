@@ -192,9 +192,9 @@ storage and its own Twilio subaccount; apps/api reaches it only through the `COD
 `deploy.yml` deploys it before apps/api, creates its Durable Objects (migration `v1`) and its custom
 domain, and generates `MFA_ENCRYPTION_KEY` once. What a person does, per environment:
 
-- [ ] **Confirm the names.** The domains in the table above are placeholders until the owner
-      confirms them (`apps/mfa/wrangler.jsonc`, `vars` and `routes`). Make sure no DNS record already
-      uses `codes-staging.mezonas.com`, `codes.mezonas.com` or the `agents` subdomains.
+- [x] **Confirm the names.** The owner confirmed the domains in the table above (2026-11-09):
+      `codes-staging.mezonas.com`, `codes.mezonas.com`, `agents.staging.mezonas.com` and
+      `agents.mezonas.com`. Make sure no DNS record already uses them.
 - [ ] **Deploy once** (a push to `main` for staging), so the Worker exists before the next steps.
 - [ ] **Email Routing for the agent domain.** Cloudflare → `mezonas.com` → Email → Email Routing: add
       the subdomain (`agents.staging.mezonas.com` / `agents.mezonas.com`) and let Cloudflare add its MX
@@ -679,6 +679,62 @@ PR that says `Fixes MEZONAS-API-12` resolves the issue in that release, and Sent
    with the Sentry connector can read the stack trace, find the cause and open the fix PR.
 
 A fix ships with a test that fails without it (the error's input as a fixture where it can be).
+
+### The first production release
+
+Production (`https://app.mezonas.com`) has never been deployed. In this order (owner and Claude,
+2026-11-09):
+
+**On `main` first:** the migrations PR, then the code PRs, then this file's config PR with the two
+WorkOS values below. Each PR's checks pass before it merges.
+
+**The owner's setup (once):**
+1. **DNS:** no record uses `app`, `codes`, `agents` or `in` on `mezonas.com`. The deploy creates
+   `app.mezonas.com` and `codes.mezonas.com` itself.
+2. **WorkOS → Production environment:** redirect URI `https://app.mezonas.com/api/auth/callback`;
+   default sign-out URI `https://app.mezonas.com/`; Multi-factor auth required (Authentication →
+   Features); session 12 hours, inactivity 30 minutes (Applications → the app → Sessions). Its
+   client id and AuthKit domain go in `apps/api/wrangler.jsonc` (`env.production.vars`,
+   `WORKOS_CLIENT_ID` and `WORKOS_AUTHKIT_DOMAIN`) by PR: they aren't secrets.
+3. **GitHub → Settings → Environments → `production`:**
+   - secrets `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, and `RESEND_API_KEY` with the variables
+     `RESEND_FALLBACK_DOMAIN` and `RESEND_FALLBACK_DOMAIN_ID` (the buyer emails RFQs and POs);
+   - Sentry's `SENTRY_DSN_API`, `SENTRY_DSN_WEB` (and `SENTRY_AUTH_TOKEN` as a repository secret,
+     if not there yet);
+   - **Required reviewers:** the owner, so no production deploy runs without that click.
+   - Not by hand: `ENCRYPTION_KEY`, `WORKOS_COOKIE_PASSWORD` and `OAUTH_STATE_SECRET` are generated
+     inside Cloudflare on the first deploy. Never replace `ENCRYPTION_KEY`.
+   - Later, as each review lands, with no new release: `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`,
+     `QBO_WEBHOOK_VERIFIER` (Intuit), `PLAID_CLIENT_ID`, `PLAID_SECRET` (Plaid), then a redeploy
+     (Actions → Deploy → production). Until then QuickBooks and bank feeds show "Not available
+     yet" in production.
+
+**The release:**
+1. Tag `v0.1.0` on `main` (or Actions → Deploy → production) and approve it. It runs the full
+   check, applies every migration to Neon `main`, deploys the code service and the app, and runs
+   `scripts/smoke.sh https://app.mezonas.com`.
+2. Check from outside: `curl -sS https://app.mezonas.com/api/health` answers 200;
+   `curl -sS -X POST https://app.mezonas.com/api/connections/qbo/webhook -d '{}'` answers 401
+   (once `QBO_WEBHOOK_VERIFIER` is set; 503 before).
+3. **Email Routing** (Cloudflare → `mezonas.com` → Email → Email Routing), now that the Workers
+   exist: add `in.mezonas.com`, catch-all → Send to a Worker → `mezonas`; add
+   `agents.mezonas.com`, catch-all → `mezonas-codes`.
+4. **The first operator:** Actions → **Add operator** → `production`, your email and name ("Run the
+   seed first" unticked). Sign in at `https://app.mezonas.com`.
+5. **The platform templates** (the seed never runs on production): signed in to the back office,
+   open the browser's console and run, once:
+   ```js
+   for (const [slug, version] of [["bill-clerk", 1], ["builder", 1], ["coordinator", 1],
+     ["document-clerk", 1], ["supervisor", 3]]) {
+     const r = await fetch(`/api/ops/platform-templates/${slug}/install`, { method: "POST",
+       headers: { "content-type": "application/json" }, body: JSON.stringify({ version }) });
+     console.log(slug, r.status);
+   }
+   ```
+   Each answers 200 (and 200 again if run twice). Pack templates (the Bookkeeper) install
+   themselves when a pack is switched on.
+6. **Clients:** create the Mezonas client (`### Mezonas, our own client` below) and the first real
+   client; switch on their packs; build or fork their agents as on staging.
 
 ### The first operator
 

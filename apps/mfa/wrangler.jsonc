@@ -45,7 +45,7 @@
   },
 
   // Each environment repeats every binding: wrangler does not inherit bindings into an environment.
-  // PLACEHOLDER domains until the owner confirms them (docs/operations.md, "The code service").
+  // Domains confirmed by the owner, 2026-11-09 (docs/operations.md, "The code service").
   "env": {
     "staging": {
       "name": "mezonas-codes-staging",
