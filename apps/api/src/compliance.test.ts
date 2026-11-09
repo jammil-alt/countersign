@@ -249,7 +249,8 @@ describe.skipIf(!h)("compliance", () => {
           await modelRefusal(harness.db, harness.env.BAA_PROCESSORS, null, "claude-haiku-5-5"),
         ).toBeNull();
       } finally {
-        harness.env.BAA_PROCESSORS = was;
+        if (was === undefined) delete harness.env.BAA_PROCESSORS;
+        else harness.env.BAA_PROCESSORS = was;
       }
       // Covered: the same client passes the check.
       expect(
