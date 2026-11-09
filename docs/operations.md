@@ -716,9 +716,14 @@ WorkOS values below. Each PR's checks pass before it merges.
 2. Check from outside: `curl -sS https://app.mezonas.com/api/health` answers 200;
    `curl -sS -X POST https://app.mezonas.com/api/connections/qbo/webhook -d '{}'` answers 401
    (once `QBO_WEBHOOK_VERIFIER` is set; 503 before).
-3. **Email Routing** (Cloudflare → `mezonas.com` → Email → Email Routing), now that the Workers
-   exist: add `in.mezonas.com`, catch-all → Send to a Worker → `mezonas`; add
-   `agents.mezonas.com`, catch-all → `mezonas-codes`.
+3. **Email Routing** (Cloudflare → `mezonas.com` → Email → Email Routing; one catch-all for the
+   whole zone, "By hand" step 3), now that the Worker exists:
+   - Subdomains: add `in.mezonas.com` and `agents.mezonas.com`.
+   - First, a custom address rule → Send to a Worker → `mezonas-staging` for each staging address
+     still in use (each staging client's forwarding address, any agent address being tested), so
+     staging keeps its mail.
+   - Then the catch-all → Send to a Worker → `mezonas` (it was `mezonas-staging`). Production's
+     `email()` hands `agents.mezonas.com` mail to the code service itself.
 4. **The first operator:** Actions → **Add operator** → `production`, your email and name ("Run the
    seed first" unticked). Sign in at `https://app.mezonas.com`.
 5. **The platform templates** (the seed never runs on production): signed in to the back office,
