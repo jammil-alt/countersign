@@ -20,6 +20,7 @@ export {
   withUser,
 } from "./client";
 export * from "./directory";
+export * from "./ledger";
 export {
   membershipsOfUser,
   type UserMembership,

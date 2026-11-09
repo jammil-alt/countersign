@@ -34,6 +34,37 @@ describe("usePoll", () => {
     expect(reload).toHaveBeenCalledTimes(3);
   });
 
+  it("skips ticks while the tab is hidden, and reloads once when it is back", () => {
+    let state: DocumentVisibilityState = "visible";
+    const spy = vi.spyOn(document, "visibilityState", "get").mockImplementation(() => state);
+    try {
+      const reload = vi.fn();
+      renderHook(() => usePoll(reload, true, 2_000, false));
+      state = "hidden";
+      act(() => vi.advanceTimersByTime(60_000));
+      expect(reload).not.toHaveBeenCalled();
+
+      state = "visible";
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      expect(reload).toHaveBeenCalledTimes(1);
+      act(() => vi.advanceTimersByTime(2_000));
+      expect(reload).toHaveBeenCalledTimes(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("does not reload on coming back when no tick was missed", () => {
+    const reload = vi.fn();
+    renderHook(() => usePoll(reload, true, 2_000, false));
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it("stops when it is no longer active", () => {
     const reload = vi.fn();
     const { rerender } = renderHook(({ active }) => usePoll(reload, active, 2_000, false), {

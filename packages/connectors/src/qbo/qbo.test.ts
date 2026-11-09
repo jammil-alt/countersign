@@ -20,8 +20,12 @@ import { ConnectorRegistry } from "../registry";
 import { fromUtf8, utf8 } from "../runtime";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo, QBO_FIXTURES } from "../testing";
 import {
+  BANKING_TOOLS,
   createQboConnector,
+  LEDGER_WRITE_TOOLS,
   parseQboWebhook,
+  parseQboWebhookChanges,
+  QBO_REGISTER_TOOL,
   QBO_TOOLS,
   QboStaleObjectError,
   QboTotalWouldChangeError,
@@ -112,7 +116,7 @@ describe("qbo connector: manifest and sign-in", () => {
     }
   });
 
-  it("declares twelve reads and ten approval-gated writes, no delete", () => {
+  it("declares thirteen reads and nineteen approval-gated writes, no delete", () => {
     const { connector } = setup();
     new ConnectorRegistry([connector]);
     expect(connector.manifest.auth).toBe("oauth2");
@@ -141,7 +145,23 @@ describe("qbo connector: manifest and sign-in", () => {
       [QBO_TOOLS.vendorCreate, "external", "create"],
       [QBO_TOOLS.purchaseOrderCreate, "external", "create"],
       [QBO_TOOLS.purchaseOrderQuery, "none", "read"],
+      // B-4: bank transactions booked.
+      [BANKING_TOOLS.purchaseCreate, "external", "create"],
+      [BANKING_TOOLS.depositCreate, "external", "create"],
+      [BANKING_TOOLS.transferCreate, "external", "create"],
+      // The ledger's set-up, each always signed.
+      [LEDGER_WRITE_TOOLS.accountCreate, "external", "create"],
+      [LEDGER_WRITE_TOOLS.accountUpdate, "external", "update"],
+      [LEDGER_WRITE_TOOLS.classCreate, "external", "create"],
+      [LEDGER_WRITE_TOOLS.classUpdate, "external", "update"],
+      [LEDGER_WRITE_TOOLS.locationCreate, "external", "create"],
+      [LEDGER_WRITE_TOOLS.locationUpdate, "external", "update"],
+      // R-1: an account's register, for reconciliation.
+      [QBO_REGISTER_TOOL, "none", "read"],
     ]);
+    for (const id of Object.values(LEDGER_WRITE_TOOLS)) {
+      expect(connector.manifest.tools.find((t) => t.id === id)?.approval, id).toBe("always");
+    }
     // The record types the v0.12 tools name (ToolSpec.entity), for per-entity permissions.
     const entity = (id: string) => connector.manifest.tools.find((t) => t.id === id)?.entity;
     expect(entity(QBO_TOOLS.invoiceAddNote)).toBe("invoice");
@@ -172,7 +192,9 @@ describe("qbo connector: manifest and sign-in", () => {
       const shown = display.fields.flatMap((f) => [f.now, f.after]).filter(Boolean);
       // A new bill's expected total is its total, not a guard on a record that exists.
       const guards =
-        t.id === QBO_TOOLS.billCreate || t.id === QBO_TOOLS.purchaseOrderCreate
+        t.id === QBO_TOOLS.billCreate ||
+        t.id === QBO_TOOLS.purchaseOrderCreate ||
+        (Object.values(BANKING_TOOLS) as string[]).includes(t.id)
           ? /syncToken|\.id\b|Ids?\b/
           : /syncToken|expectedTotal|\.id\b|Ids?\b/;
       expect(shown.join(" "), t.id).not.toMatch(guards);
@@ -794,12 +816,13 @@ describe("qbo sync", () => {
     ]);
     const cdcCall = s.qbo.apiCalls("GET", "cdc").at(-1)?.url ?? "";
     expect(decodeURIComponent(cdcCall)).toContain(
-      "entities=Vendor,Item,Customer,Purchase,Bill,VendorCredit,Invoice,Payment,Attachable",
+      "entities=Account,Class,Department,Vendor,Item,Customer,Purchase,Bill,VendorCredit,Invoice,Payment,Attachable",
     );
     expect(page.next).toEqual({
       v: 1,
       phase: "cdc",
       ar: true,
+      ledger: true,
       changedSince: "2026-11-05T18:14:00.000Z",
     });
   });
@@ -866,5 +889,60 @@ describe("qbo webhooks", () => {
     expect(
       parseQboWebhook({ eventNotifications: [{ realmId: "../etc", dataChangeEvent: {} }] }),
     ).toEqual([]);
+  });
+
+  it("reads each record change, in both payload shapes, leaving out what isn't Intuit's shape", () => {
+    expect(parseQboWebhookChanges(notification)).toEqual([
+      {
+        realmId: "9130357766900456",
+        entity: "Bill",
+        id: "147",
+        operation: "Create",
+        lastUpdated: new Date("2026-11-05T17:41:12.000Z"),
+      },
+      {
+        realmId: "9130357766900456",
+        entity: "Purchase",
+        id: "202",
+        operation: "Delete",
+        lastUpdated: new Date("2026-11-05T17:50:03.000Z"),
+      },
+    ]);
+    expect(parseQboWebhookChanges(cloudEvents)).toEqual([
+      {
+        realmId: "9130357766900456",
+        entity: "Bill",
+        id: "147",
+        operation: "Create",
+        lastUpdated: new Date("2026-11-05T17:41:12.000Z"),
+      },
+    ]);
+    expect(parseQboWebhookChanges({ hello: "world" })).toBeNull();
+    expect(
+      parseQboWebhookChanges({
+        eventNotifications: [
+          {
+            realmId: 9130357766900456,
+            dataChangeEvent: {
+              entities: [
+                // No id or operation, a name that isn't one, a date that isn't: kept only as far
+                // as it is Intuit's shape.
+                { name: "Bill" },
+                { name: "Bill; drop table", id: "1", operation: "Update" },
+                { name: "Vendor", id: 56, operation: "Update", lastUpdated: "yesterday" },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        realmId: "9130357766900456",
+        entity: "Vendor",
+        id: "56",
+        operation: "Update",
+        lastUpdated: null,
+      },
+    ]);
   });
 });

@@ -1,0 +1,25 @@
+{
+  "name": "@countersign/pack-bookkeeping",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Bookkeeping pack (the Bookkeeping area): bank and card transactions from the bank feed, matched, ruled or categorized against the client's chart of accounts, and booked to its accounting tool after approval",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@countersign/connectors": "workspace:*",
+    "@countersign/core": "workspace:*",
+    "@countersign/db": "workspace:*",
+    "@countersign/llm": "workspace:*",
+    "zod": "^4.6.2",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2"
+  }
+}

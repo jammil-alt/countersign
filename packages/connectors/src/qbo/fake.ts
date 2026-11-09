@@ -205,6 +205,10 @@ const ENTITY_PATHS: Record<string, string> = {
   class: "Class",
   purchaseorder: "PurchaseOrder",
   term: "Term",
+  // B-4 (docs/plan.md §1.79)
+  deposit: "Deposit",
+  transfer: "Transfer",
+  department: "Department",
 };
 
 export interface FakeQboOptions {
@@ -259,6 +263,10 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
   seed("Term", terms.QueryResponse.Term);
   let nextVendorId = 700;
   let nextPoId = 800;
+  // B-4: purchases, deposits and transfers made from bank transactions.
+  let nextBankId = 600;
+  // The ledger's set-up: new accounts, classes and locations.
+  let nextLedgerId = 500;
   files.set("5000000000000401", utf8("%PDF-1.4\n% Cascade Hardwoods invoice 77812\n%%EOF\n"));
 
   const stamp = () => {
@@ -367,6 +375,14 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
         next.TotalAmt = Number(linesTotal(next));
         if (entity === "Bill") next.Balance = next.TotalAmt;
       }
+    }
+    // The ledger's set-up: a name or parent change moves the full name, and a sub-account made
+    // top level has no parent.
+    if (["Account", "Class", "Department"].includes(entity)) {
+      if (body.SubAccount === false || body.SubClass === false || body.SubDepartment === false) {
+        delete next.ParentRef;
+      }
+      next.FullyQualifiedName = fullName(entity, next);
     }
     next.SyncToken = String(Number(current.SyncToken ?? "0") + 1);
     touch(entity, next);
@@ -502,12 +518,275 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
     return response(200, { PurchaseOrder: clone(row), time: now().toISOString() });
   }
 
+  // ── B-4: bank transactions booked (docs/plan.md §1.79) ───────────────────────────────────────
+
+  /** An account of the company, active (QuickBooks answers 2500 for an unknown one). */
+  function liveAccount(ref: unknown): Entity {
+    const id = String((ref as { value?: string } | undefined)?.value ?? "");
+    const a = table("Account").get(id);
+    if (!a || a.Active === false) throw invalidRef();
+    return a;
+  }
+
+  /** A new expense, check or card charge (POST /purchase without an Id). */
+  function createPurchase(body: Entity): HttpResponseLike {
+    const account = liveAccount(body.AccountRef);
+    const entity = body.EntityRef as { value?: string } | undefined;
+    if (entity && !table("Vendor").has(String(entity.value))) throw invalidRef();
+    const lines = (Array.isArray(body.Line) ? body.Line : []) as Record<string, unknown>[];
+    checkLineRefs(lines);
+    for (const l of lines) {
+      liveAccount(
+        (l.AccountBasedExpenseLineDetail as { AccountRef?: unknown } | undefined)?.AccountRef,
+      );
+    }
+    const row: Entity = {
+      ...clone(body),
+      Id: String(nextBankId++),
+      SyncToken: "0",
+      domain: "QBO",
+      sparse: false,
+      AccountRef: { value: account.Id, name: account.Name },
+      CurrencyRef: (body.CurrencyRef as object | undefined) ?? { value: "USD" },
+      Line: lines.map((l, i) => ({ ...l, Id: String(i + 1), LineNum: i + 1 })),
+    };
+    row.TotalAmt = Number(linesTotal(row));
+    touch("Purchase", row, true);
+    return response(200, { Purchase: clone(row), time: now().toISOString() });
+  }
+
+  /** A new deposit (POST /deposit without an Id). */
+  function createDeposit(body: Entity): HttpResponseLike {
+    const account = liveAccount(body.DepositToAccountRef);
+    const lines = (Array.isArray(body.Line) ? body.Line : []) as Record<string, unknown>[];
+    for (const l of lines) {
+      liveAccount((l.DepositLineDetail as { AccountRef?: unknown } | undefined)?.AccountRef);
+    }
+    const row: Entity = {
+      ...clone(body),
+      Id: String(nextBankId++),
+      SyncToken: "0",
+      domain: "QBO",
+      sparse: false,
+      DepositToAccountRef: { value: account.Id, name: account.Name },
+      CurrencyRef: (body.CurrencyRef as object | undefined) ?? { value: "USD" },
+      Line: lines.map((l, i) => ({ ...l, Id: String(i + 1), LineNum: i + 1 })),
+    };
+    row.TotalAmt = Number(linesTotal(row));
+    touch("Deposit", row, true);
+    return response(200, { Deposit: clone(row), time: now().toISOString() });
+  }
+
+  /** A new transfer between two of the company's accounts (POST /transfer without an Id). */
+  function createTransfer(body: Entity): HttpResponseLike {
+    const from = liveAccount(body.FromAccountRef);
+    const to = liveAccount(body.ToAccountRef);
+    if (from.Id === to.Id) throw new FakeFault(400, "6000", "Transfer accounts must differ");
+    const row: Entity = {
+      ...clone(body),
+      Id: String(nextBankId++),
+      SyncToken: "0",
+      domain: "QBO",
+      sparse: false,
+      FromAccountRef: { value: from.Id, name: from.Name },
+      ToAccountRef: { value: to.Id, name: to.Name },
+    };
+    touch("Transfer", row, true);
+    return response(200, { Transfer: clone(row), time: now().toISOString() });
+  }
+
+  // ── The ledger's set-up: accounts, classes and locations ──────────────────────────────────
+
+  /** QuickBooks' full name: the parent's, a colon, then the name. */
+  function fullName(entity: string, row: Entity): string {
+    const parent = row.ParentRef as { value?: string } | undefined;
+    const p = parent?.value ? table(entity).get(String(parent.value)) : undefined;
+    return p ? `${String(p.FullyQualifiedName ?? p.Name)}:${String(row.Name)}` : String(row.Name);
+  }
+
+  /** A new account, class or department: a name unique under its parent (6240 otherwise). */
+  function createLedger(entity: string, body: Entity): HttpResponseLike {
+    if (typeof body.Name !== "string" || body.Name.trim() === "") {
+      throw new FakeFault(400, "2020", "Required param missing, need to supply the required value");
+    }
+    if (entity === "Account" && typeof body.AccountType !== "string") {
+      throw new FakeFault(400, "2020", "Required param missing, need to supply the required value");
+    }
+    const parent = body.ParentRef as { value?: string } | undefined;
+    if (parent && !table(entity).has(String(parent.value))) throw invalidRef();
+    const name = String(body.Name).trim().toLowerCase();
+    const taken = [...table(entity).values()].some(
+      (r) =>
+        String(r.Name).trim().toLowerCase() === name &&
+        ((r.ParentRef as { value?: string } | undefined)?.value ?? null) ===
+          (parent?.value ?? null),
+    );
+    if (taken) throw new FakeFault(400, "6240", "Duplicate Name Exists Error");
+    const row: Entity = {
+      ...clone(body),
+      Id: String(nextLedgerId++),
+      SyncToken: "0",
+      domain: "QBO",
+      sparse: false,
+      Active: true,
+    };
+    row.FullyQualifiedName = fullName(entity, row);
+    touch(entity, row, true);
+    return response(200, { [entity]: clone(row), time: now().toISOString() });
+  }
+
   /** POST /<entity> without an Id: the entities the fake can create. */
   function create(first: string, body: Entity): HttpResponseLike | null {
+    if (first === "account") return createLedger("Account", body);
+    if (first === "class") return createLedger("Class", body);
+    if (first === "department") return createLedger("Department", body);
+    if (first === "purchase") return createPurchase(body);
+    if (first === "deposit") return createDeposit(body);
+    if (first === "transfer") return createTransfer(body);
     if (first === "bill") return createBill(body);
     if (first === "vendor") return createVendor(body);
     if (first === "purchaseorder") return createPurchaseOrder(body);
     return null;
+  }
+
+  // R-1 (docs/plan.md §1.80): QuickBooks' GeneralLedger for one account between two dates, built
+  // from the fake's purchases, deposits and transfers on it: a Beginning Balance row, a row per
+  // posting signed as the account's own balance, and the running balance.
+  function generalLedger(query: Record<string, string>): HttpResponseLike {
+    const id = query.account ?? "";
+    const account = table("Account").get(id);
+    if (!account) throw invalidRef();
+    const liability = [
+      "Credit Card",
+      "Accounts Payable",
+      "Other Current Liability",
+      "Long Term Liability",
+    ].includes(String(account.AccountType ?? ""));
+    // Money into the account raises an asset's balance and lowers what a liability owes.
+    const into = (amount: string) => (liability ? dec(amount).negated() : dec(amount));
+    const postings: {
+      date: string;
+      type: string;
+      id: string;
+      doc: string;
+      name: string;
+      memo: string;
+      effect: ReturnType<typeof dec>;
+    }[] = [];
+    const ref = (v: unknown) => String((v as { value?: unknown } | undefined)?.value ?? "");
+    for (const p of table("Purchase").values()) {
+      if (ref(p.AccountRef) !== id) continue;
+      const amount = String(p.TotalAmt ?? 0);
+      postings.push({
+        date: String(p.TxnDate ?? ""),
+        type: p.Credit === true ? "Credit Card Credit" : "Expense",
+        id: p.Id,
+        doc: String(p.DocNumber ?? ""),
+        name: String((p.EntityRef as { name?: string } | undefined)?.name ?? ""),
+        memo: String(p.PrivateNote ?? ""),
+        effect: p.Credit === true ? into(amount) : into(amount).negated(),
+      });
+    }
+    for (const d of table("Deposit").values()) {
+      if (ref(d.DepositToAccountRef) !== id) continue;
+      postings.push({
+        date: String(d.TxnDate ?? ""),
+        type: "Deposit",
+        id: d.Id,
+        doc: "",
+        name: "",
+        memo: String(d.PrivateNote ?? ""),
+        effect: into(String(d.TotalAmt ?? 0)),
+      });
+    }
+    for (const t of table("Transfer").values()) {
+      const amount = String(t.Amount ?? 0);
+      const memo = String(t.PrivateNote ?? "");
+      if (ref(t.FromAccountRef) === id) {
+        postings.push({
+          date: String(t.TxnDate ?? ""),
+          type: "Transfer",
+          id: t.Id,
+          doc: "",
+          name: "",
+          memo,
+          effect: into(amount).negated(),
+        });
+      }
+      if (ref(t.ToAccountRef) === id) {
+        postings.push({
+          date: String(t.TxnDate ?? ""),
+          type: "Transfer",
+          id: t.Id,
+          doc: "",
+          name: "",
+          memo,
+          effect: into(amount),
+        });
+      }
+    }
+    postings.sort((a, b) =>
+      a.date === b.date ? a.id.localeCompare(b.id) : a.date.localeCompare(b.date),
+    );
+    const start = query.start_date ?? "0000-01-01";
+    const end = query.end_date ?? "9999-12-31";
+    let balance = dec(String(account.OpeningBalance ?? 0));
+    for (const p of postings) if (p.date < start) balance = balance.plus(p.effect);
+    const cell = (value: string, id?: string) => (id ? { value, id } : { value });
+    const keys = [
+      "tx_date",
+      "txn_type",
+      "doc_num",
+      "name",
+      "memo",
+      "subt_nat_amount",
+      "rbal_nat_amount",
+    ];
+    const rowsOut: unknown[] = [
+      {
+        type: "Data",
+        ColData: [
+          cell("Beginning Balance"),
+          cell(""),
+          cell(""),
+          cell(""),
+          cell(""),
+          cell(""),
+          cell(balance.toFixed(2)),
+        ],
+      },
+    ];
+    for (const p of postings) {
+      if (p.date < start || p.date > end) continue;
+      balance = balance.plus(p.effect);
+      rowsOut.push({
+        type: "Data",
+        ColData: [
+          cell(p.date),
+          cell(p.type, p.id),
+          cell(p.doc),
+          cell(p.name),
+          cell(p.memo),
+          cell(p.effect.toFixed(2)),
+          cell(balance.toFixed(2)),
+        ],
+      });
+    }
+    return response(200, {
+      Header: { ReportName: "GeneralLedger", StartPeriod: start, EndPeriod: end },
+      Columns: {
+        Column: keys.map((k) => ({ ColTitle: k, MetaData: [{ Name: "ColKey", Value: k }] })),
+      },
+      Rows: {
+        Row: [
+          {
+            type: "Section",
+            Header: { ColData: [cell(String(account.Name))] },
+            Rows: { Row: rowsOut },
+          },
+        ],
+      },
+    });
   }
 
   // v0.12 W1-F: QuickBooks' AgedReceivableDetail, built from the company's invoices in the shape
@@ -754,6 +1033,8 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
       else if (method === "GET" && first === "cdc") res = cdc(query);
       else if (method === "GET" && first === "reports" && second === "AgedReceivableDetail") {
         res = agedReceivableDetail(query);
+      } else if (method === "GET" && first === "reports" && second === "GeneralLedger") {
+        res = generalLedger(query);
       } else if (method === "GET" && first === "download" && second) {
         res = files.has(second)
           ? response(200, `${FILES}/${second}?X-Amz-Signature=fake`, {

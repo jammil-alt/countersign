@@ -170,6 +170,15 @@ describe("privacy policy", () => {
   });
 });
 
+describe("bank data through Plaid", () => {
+  it("names Plaid, links its end user privacy policy, and is in the contents", () => {
+    const { html } = page("privacy");
+    expect(visibleText(html)).toContain("We use Plaid Inc.");
+    expect(attrs(html, "href")).toContain("https://plaid.com/legal/#end-user-privacy-policy");
+    expect(attrs(html, "href")).toContain("#bank-accounting");
+  });
+});
+
 describe("company", () => {
   it("names the legal entity on the terms and the privacy policy, and leaves no placeholder for it", () => {
     for (const name of ["terms", "privacy", "sms-terms"]) {

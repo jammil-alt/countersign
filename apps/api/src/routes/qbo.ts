@@ -3,19 +3,23 @@
 // - `GET /api/connections/qbo/callback`: Intuit sends the client back here after signing in. The
 //   generic forwarder in ./connections.ts (shared with Gmail) hands the parameters on to the
 //   portal's callback page, which finishes the sign-in (POST /api/connections/qbo/callback).
-// - `POST /api/connections/qbo/webhook`: Intuit's signed notifications. Checked, then a sync is
-//   started for each connection to a company it names; nothing is processed inline.
+// - `POST /api/connections/qbo/webhook`: Intuit's signed notifications. The signature is checked on
+//   the raw body; each record change it names is kept (`qbo_webhook_event`, once however often
+//   Intuit resends it) and a sync is started for each connection to a company it names; nothing
+//   is processed inline (docs/plan.md §1.81).
 // - `POST /api/ops/connections/:id/sync`: the operator starts a sync now.
 // The cron starts a sync of every connected QuickBooks every 15 minutes (qboCronTick).
 
 import {
   parseQboWebhook,
+  parseQboWebhookChanges,
   QBO_CONNECTOR_ID,
   QBO_SIGNATURE_HEADER,
   QBO_WEBHOOK_MAX_BYTES,
+  type QboWebhookChange,
 } from "@countersign/connectors";
-import { routes } from "@countersign/core";
-import { connection, type Db, tenant, withTenant } from "@countersign/db";
+import { QBO_SYNCED_ENTITIES, routes } from "@countersign/core";
+import { connection, type Db, qboWebhookEvent, tenant, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import type { Bindings } from "../env";
@@ -104,6 +108,47 @@ async function readBody(req: Request, limit: number): Promise<Uint8Array | null>
   return bytes.length > limit ? null : bytes;
 }
 
+/** Entities our sync reads: a change to one starts a sync; any other is kept, not acted on. */
+const SYNCED: ReadonlySet<string> = new Set(QBO_SYNCED_ENTITIES);
+
+/**
+ * Keeps one connection's changes from a notification; answers how many were new (a change Intuit
+ * resends is kept once, by the table's key).
+ */
+async function keepChanges(
+  db: Db,
+  conn: { tenantId: string; connectionId: string },
+  changes: readonly QboWebhookChange[],
+): Promise<number> {
+  if (changes.length === 0) return 0;
+  return withTenant(db, conn.tenantId, async (tx) => {
+    const rows = await tx
+      .insert(qboWebhookEvent)
+      .values(
+        changes.map((ch) => ({
+          tenantId: conn.tenantId,
+          connectionId: conn.connectionId,
+          realmId: ch.realmId,
+          entity: ch.entity,
+          entityId: ch.id,
+          operation: ch.operation,
+          lastUpdated: ch.lastUpdated,
+          acted: SYNCED.has(ch.entity),
+        })),
+      )
+      .onConflictDoNothing()
+      .returning({ id: qboWebhookEvent.id });
+    return rows.length;
+  });
+}
+
+/** Entity names and how many changes each, for the log line (no ids, no payload). */
+function countByEntity(changes: readonly QboWebhookChange[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const ch of changes) out[ch.entity] = (out[ch.entity] ?? 0) + 1;
+  return out;
+}
+
 export function qboRoutes(app: Hono<AppEnv>): void {
   app.post(routes.qboWebhook.path, async (c) => {
     try {
@@ -112,29 +157,62 @@ export function qboRoutes(app: Hono<AppEnv>): void {
       if (!connector || !c.env.QBO_WEBHOOK_VERIFIER) {
         throw new HttpError(503, "not_configured", "QuickBooks webhooks are not set up here");
       }
+      // The raw body, as Intuit signed it, before anything parses it.
       const body = await readBody(c.req.raw, QBO_WEBHOOK_MAX_BYTES);
       if (!body) throw new HttpError(413, "too_large", "QuickBooks notifications are smaller");
       const signature = c.req.header(QBO_SIGNATURE_HEADER) ?? "";
       if (!(await connector.verifyWebhook?.({ [QBO_SIGNATURE_HEADER]: signature }, body))) {
+        console.warn("qbo webhook refused", {
+          verified: false,
+          reason: signature ? "invalid_signature" : "missing_signature",
+          bytes: body.length,
+        });
         throw new HttpError(401, "invalid_signature", "the signature does not match");
       }
+      // DECISION (docs/plan.md §1.81): a signed body we can't read is acknowledged (200) and
+      // logged, not refused: Intuit would only resend it, and the next sync reads the changes
+      // anyway.
       let json: unknown;
       try {
         json = JSON.parse(new TextDecoder().decode(body));
       } catch {
-        throw new HttpError(400, "invalid_request", "the body is not JSON");
+        console.warn("qbo webhook unreadable", { verified: true, reason: "not_json" });
+        return c.json(routes.qboWebhook.response.parse({ syncs: 0, stored: 0 }));
       }
       const companies = parseQboWebhook(json);
-      if (!companies) throw new HttpError(400, "invalid_request", "not a QuickBooks notification");
+      const changes = parseQboWebhookChanges(json) ?? [];
+      if (!companies) {
+        console.warn("qbo webhook unreadable", { verified: true, reason: "not_a_notification" });
+        return c.json(routes.qboWebhook.response.parse({ syncs: 0, stored: 0 }));
+      }
       const instances = qboSyncFor(services.deps, services.env);
       let syncs = 0;
-      for (const { realmId } of companies) {
-        for (const conn of await qboConnectionsFor(services.db, realmId)) {
+      let stored = 0;
+      let unmatched = 0;
+      for (const { realmId, entities } of companies) {
+        const mine = changes.filter((ch) => ch.realmId === realmId);
+        const conns = await qboConnectionsFor(services.db, realmId);
+        if (conns.length === 0) unmatched += 1;
+        // A notification naming no entity still asks for a sync; one naming only entities we
+        // don't sync is kept but starts none.
+        const act = entities.length === 0 || entities.some((e) => SYNCED.has(e));
+        for (const conn of conns) {
+          stored += await keepChanges(services.db, conn, mine);
+          if (!act) continue;
           const r = await startQboSync(services.db, instances, { ...conn, reason: "webhook" });
           if (r.started) syncs += 1;
         }
       }
-      return c.json(routes.qboWebhook.response.parse({ syncs }));
+      console.log("qbo webhook received", {
+        verified: true,
+        realmIds: companies.map((co) => co.realmId),
+        entities: countByEntity(changes),
+        changes: changes.length,
+        stored,
+        unmatchedCompanies: unmatched,
+        syncs,
+      });
+      return c.json(routes.qboWebhook.response.parse({ syncs, stored }));
     } catch (error) {
       return errorResponse(c, error);
     }

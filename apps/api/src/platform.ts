@@ -11,6 +11,7 @@ import {
   DOCS_SKILLS,
   INBOUND_SKILLS,
   KNOWLEDGE_SKILLS,
+  LEDGER_SKILLS,
   PLATFORM_TOOLS,
   REACH_SKILLS,
   type RegistryContext,
@@ -148,6 +149,8 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       ...DOCS_SKILLS,
       ...KNOWLEDGE_SKILLS,
       ...DIRECTORY_SKILLS,
+      // B-2 (docs/plan.md §1.79): the chart of accounts, for any agent.
+      ...LEDGER_SKILLS,
       ...REACH_SKILLS,
       // P-4: conversations (comms.converse)
       ...CONVERSE_SKILLS,
