@@ -4,10 +4,11 @@
 // database: the portal reads, the operator binds the account's, an agent's own stays the existing
 // route's, and which agents listen on a number.
 
-import type { ChannelBindings } from "@countersign/core";
-import { agent, connection, withTenant } from "@countersign/db";
+import { agentAddress, type ChannelBindings } from "@countersign/core";
+import { agent, agentVersion, connection, tenant, tenantChange, withTenant } from "@countersign/db";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { admin, createApiHarness, OPERATOR, user } from "./api.test-helper";
+import { admin, createApiHarness, OPERATOR, testBundle, user } from "./api.test-helper";
 import {
   agentsListeningOn,
   type ChannelConnection,
@@ -114,7 +115,8 @@ describe("pickChannel (no database)", () => {
   });
 });
 
-const h = await createApiHarness();
+const DOMAIN = "in.mezonas.test";
+const h = await createApiHarness({ env: { EMAIL_FORWARDING_DOMAIN: DOMAIN } });
 afterAll(() => h?.close());
 
 describe.skipIf(!h)("channels through the API", () => {
@@ -170,6 +172,20 @@ describe.skipIf(!h)("channels through the API", () => {
     );
     pia = await addAgent("pia", { sms: second });
     remy = await addAgent("remy", {});
+    // Remy is live, so it has its own email address (§10.8); Pia isn't yet.
+    const [v] = await H.t.db
+      .insert(agentVersion)
+      .values({
+        tenantId: A(),
+        agentId: remy,
+        version: 1,
+        bundle: testBundle("Remy Records"),
+        bundleHash: "h",
+        status: "live",
+        authorType: "operator",
+      })
+      .returning();
+    await H.t.db.update(agent).set({ liveVersionId: v?.id }).where(eq(agent.id, remy));
   });
 
   it("the portal reads the account's number and email and each service's", async () => {
@@ -186,6 +202,27 @@ describe.skipIf(!h)("channels through the API", () => {
     expect(piaLines.channels.find((l: J) => l.kind === "sms")).toMatchObject({
       address: "+15550000102",
       source: "agent",
+    });
+    // An agent's email is its own address (§10.8), sent through the account's connection; an
+    // agent without one (not live) shows the account's.
+    const [t] = await H.t.db.select({ name: tenant.name }).from(tenant).where(eq(tenant.id, A()));
+    const remyLines = body.agents.find((a: J) => a.agentId === remy);
+    expect(remyLines.channels.find((l: J) => l.kind === "email")).toEqual({
+      kind: "email",
+      connectionId: mail,
+      connector: "resend",
+      address: agentAddress({
+        commandName: "remy",
+        clientName: t?.name ?? "",
+        tenantId: A(),
+        domain: DOMAIN,
+      }),
+      source: "agent",
+    });
+    expect(piaLines.channels.find((l: J) => l.kind === "email")).toMatchObject({
+      connectionId: mail,
+      address: "office@mail.mezonas.test",
+      source: "default",
     });
     // Client B sees none of client A's.
     const b = await call(admin("b"), "GET", "/api/settings/channels");
@@ -207,11 +244,21 @@ describe.skipIf(!h)("channels through the API", () => {
       source: "account",
     });
     expect(body.options.map((o: J) => o.connectionId).sort()).toEqual([main, mail, second].sort());
+    // The change is recorded with what it was and what it is, as an agent's channels are.
+    const changes = await H.t.db.select().from(tenantChange).where(eq(tenantChange.tenantId, A()));
+    expect(changes.map((c) => c.change)).toEqual([
+      { setting: "channels", from: {}, to: { sms: second } },
+    ]);
+    expect(changes[0]?.actorId).toBe(H.operator);
 
     for (const channels of [{ sms: otherClients }, { sms: mail }, { email: H.A.connectionId }]) {
       const bad = await call(OPERATOR, "PUT", `/api/ops/clients/${A()}/channels`, { channels });
       expect(bad.status, JSON.stringify(channels)).toBe(422);
     }
+    // A refused change records nothing.
+    expect(
+      await H.t.db.select().from(tenantChange).where(eq(tenantChange.tenantId, A())),
+    ).toHaveLength(1);
     expect(
       (await call(admin("a"), "PUT", `/api/ops/clients/${A()}/channels`, { channels: {} })).status,
     ).toBe(403);

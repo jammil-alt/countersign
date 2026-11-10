@@ -83,7 +83,11 @@ export const ChannelLine = z.object({
   kind: ReachChannel,
   connectionId: z.string(),
   connector: z.string(),
-  /** The number (E.164) or email address it sends from; null when the connection has none yet. */
+  /**
+   * The number (E.164) it texts and calls from, or the email address people write to (an agent's
+   * own address, §10.8, or the account's forwarding address, on Mezonas' sending; a bound mailbox's
+   * own address); null when the connection has none yet.
+   */
   address: z.string().nullable(),
   source: ChannelSource,
 });
