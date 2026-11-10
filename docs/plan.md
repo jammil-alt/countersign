@@ -2415,7 +2415,12 @@ conditions. Everything that waits has one deadline shape with `ifNoAnswer`: `sto
 Business hours per client (default Mon to Fri 8 to 6) and per person, with away dates. Write tools
 declare their undo; a late reject is offered an undo, never applied by itself. Every account has a
 number and an email; some agents have their own. Skills in the Library are templates a step
-customizes, with update and promote. The design, with the inventory of today's 100 skills and 188
+customizes, with update and promote. Browser scripts are recorded in our hosted browser by the
+operator or the client admin (our code signs in from the vault first; a client's recording is
+published by the operator); where no script covers a need, an `ai` skill browses read-only on the
+site's allowed pages and, if it can't find it within its limits, asks the lead or the client admin
+for help with what it tried, keeps the answer, and offers a path that works twice as a script draft.
+The design, with the inventory of today's 100 skills and 188
 tools, is the owner's doc "Mezonas process model"; milestones are §9.
 // DECISION: the property is `ifNoAnswer`, not `then`: an object with `then` is a thenable, and
 // awaiting a step's config would call it (Biome noThenProperty).
