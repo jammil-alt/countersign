@@ -17,14 +17,32 @@ import {
   type OversightActionName,
   type OversightCause,
   type OversightReview,
+  OWNER_REVIEW_DUES,
+  type OwnerReviewDue,
 } from "./decision";
 import type { AnomalySignal } from "./watch";
 
 export const OWNER_CHECK_RESULTS = ["clean", "flagged", "reviewed", "not_watched"] as const;
 export type OwnerCheckResult = (typeof OWNER_CHECK_RESULTS)[number];
-export const OWNER_CHECK_ATTEMPTS = ["succeeded", "failed"] as const;
+/**
+ * How the attempt ended: done (`succeeded`), `failed` (or threw), `escalated` (a budget was
+ * reached and it went to us), `rejected` (a person turned its write or sign-off down) or
+ * `unanswered` (nobody answered in time).
+ */
+// DECISION (wave 6 review): an escalation, a person's no and nobody answering are outcomes of their
+// own, so the line names what happened rather than "Failed" or "nothing off".
+export const OWNER_CHECK_ATTEMPTS = [
+  "succeeded",
+  "failed",
+  "escalated",
+  "rejected",
+  "unanswered",
+] as const;
 export type OwnerCheckAttempt = (typeof OWNER_CHECK_ATTEMPTS)[number];
-/** Why a check was flagged without a review, or why the step wasn't watched. */
+/**
+ * Why a review that was due wasn't made (on a flagged step, or a clean one whose routine review
+ * was due), why the run ended before the owner looked, or why the step wasn't watched.
+ */
 export const OWNER_CHECK_REASONS = [
   /** Two reviews for the step, or the run's `maxPerRun`, already made. */
   "limit",
@@ -34,6 +52,8 @@ export const OWNER_CHECK_REASONS = [
   "no_decision",
   /** The step's input could not be resolved to show the reviewer. */
   "input_unresolved",
+  /** A person's answer (a no, or nobody answering in time) ended the run during the attempt. */
+  "ended_by_person",
   /** The agent's owner is off. */
   "owner_off",
   /** This step's review is off. */
@@ -53,9 +73,11 @@ export interface OwnerCheckEntry {
   /** What the cheap watch saw on a success (empty for a failure or a step not watched). */
   signals: readonly AnomalySignal[];
   reason?: OwnerCheckReason;
-  /** `reviewed`: why, and the verdict's action. */
+  /** `reviewed`: why, and the verdict's action. Also on a review that was due and not made. */
   cause?: OversightCause;
   verdict?: OversightActionName;
+  /** Why a step that succeeded was due a review whatever its result (checkpoint, all, always). */
+  reviewDue?: OwnerReviewDue;
 }
 
 /** The cheap watch's signals as the API carries them. */
@@ -84,6 +106,7 @@ export const OwnerCheckView = z.object({
   reason: z.enum(OWNER_CHECK_REASONS).nullable(),
   cause: z.enum(OVERSIGHT_CAUSES).nullable(),
   verdict: z.enum(OVERSIGHT_ACTIONS).nullable(),
+  reviewDue: z.enum(OWNER_REVIEW_DUES).nullable(),
   /** `reviewed`: the `oversight_decision` it led to (its note, sources and cost are there). */
   decisionId: z.string().nullable(),
   /** The line the run view shows: "Owner checked: nothing off". */
@@ -137,50 +160,103 @@ const VERDICT_WORDS: Record<OversightActionName, string> = {
   stop: "stopped the run",
 };
 
-const REASON_WORDS: Record<OwnerCheckReason, string> = {
-  limit: "not reviewed: the review limit was reached",
-  review_failed: "not reviewed: the review failed",
-  no_decision: "not reviewed: the review gave no decision",
-  input_unresolved: "not reviewed: its input could not be shown",
+/** The end of a reason's line. */
+const REASON_TAIL: Record<OwnerCheckReason, string> = {
+  limit: "the review limit was reached",
+  review_failed: "the review failed",
+  no_decision: "the review gave no decision",
+  input_unresolved: "its input could not be shown",
+  ended_by_person: "the run ended there",
   owner_off: "the owner is off for this agent",
   step_off: "the owner's review is off for this step",
 };
 
-/** What set the check off: the signals, the failure, or a checkpoint. */
-function whatWasOff(check: {
-  attemptOutcome: OwnerCheckAttempt;
-  signals: readonly (AnomalySignalView | AnomalySignal)[];
-  cause?: OversightCause | null | undefined;
-}): string {
-  if (check.attemptOutcome === "failed") return "Failed";
-  if (check.signals.length > 0) {
-    return `Flagged: ${check.signals.map(signalWords).join(", ")}`;
-  }
-  return check.cause === "checkpoint" ? "Checkpoint before a write" : "Flagged";
-}
+/** The routine review a step that succeeded was due, by name. */
+const DUE_WORDS: Record<OwnerReviewDue, string> = {
+  checkpoint: "checkpoint review",
+  all: "every-step review",
+  always: "routine review",
+};
 
-/**
- * The run view's line for a check: "Owner checked: nothing off", "Flagged: total 12× its usual →
- * reviewed → carried on", "Failed → not reviewed: the review limit was reached", "Not watched: the
- * owner is off for this agent".
- */
-export function ownerCheckWords(check: {
+/** Why a step that succeeded was reviewed when nothing was off. */
+const REVIEWED_WORDS: Record<OwnerReviewDue, string> = {
+  checkpoint: "Checkpoint before a write → reviewed",
+  all: "Reviewed (every step)",
+  always: "Reviewed (always for this step)",
+};
+
+type CheckWords = {
   result: OwnerCheckResult;
   attemptOutcome: OwnerCheckAttempt;
   signals: readonly (AnomalySignalView | AnomalySignal)[];
   reason?: OwnerCheckReason | null | undefined;
   cause?: OversightCause | null | undefined;
   verdict?: OversightActionName | null | undefined;
-}): string {
+  reviewDue?: OwnerReviewDue | null | undefined;
+};
+
+/** How the attempt ended, when it didn't simply succeed; null when it did. */
+function howItEnded(outcome: OwnerCheckAttempt): string | null {
+  switch (outcome) {
+    case "failed":
+      return "Failed";
+    case "escalated":
+      return "Escalated to us: a budget was reached";
+    case "rejected":
+      return "Turned down by a person";
+    case "unanswered":
+      return "Nobody answered in time";
+    case "succeeded":
+      return null;
+  }
+}
+
+/** What set the check off: how the attempt ended, the signals, or the review that was due. */
+function whatWasOff(check: CheckWords): string {
+  const ended = howItEnded(check.attemptOutcome);
+  if (ended) return ended;
+  if (check.signals.length > 0) {
+    return `Flagged: ${check.signals.map(signalWords).join(", ")}`;
+  }
+  return "Nothing off";
+}
+
+/**
+ * The run view's line for a check: "Owner checked: nothing off", "Flagged: total 12× its usual →
+ * reviewed → carried on", "Reviewed (every step) → carried on", "Failed → not reviewed: the review
+ * limit was reached", "Owner checked: nothing off → every-step review not made: the review gave
+ * no decision", "Turned down by a person → nothing for the owner to review", "Not watched: the
+ * owner is off for this agent".
+ */
+export function ownerCheckWords(check: CheckWords): string {
+  const reason = check.reason ?? null;
   switch (check.result) {
-    case "clean":
-      return "Owner checked: nothing off";
     case "not_watched":
-      return `Not watched: ${REASON_WORDS[check.reason ?? "owner_off"]}`;
+      return `Not watched: ${REASON_TAIL[reason ?? "owner_off"]}`;
+    case "clean": {
+      const ended = howItEnded(check.attemptOutcome);
+      if (reason === "ended_by_person") {
+        return `${ended ?? "Owner checked: nothing off"} → not reviewed: ${REASON_TAIL[reason]}`;
+      }
+      if (ended) return `${ended} → nothing for the owner to review`;
+      if (reason) {
+        const due = check.reviewDue ? DUE_WORDS[check.reviewDue] : "routine review";
+        return `Owner checked: nothing off → ${due} not made: ${REASON_TAIL[reason]}`;
+      }
+      return "Owner checked: nothing off";
+    }
     case "flagged":
-      return `${whatWasOff(check)} → ${check.reason ? REASON_WORDS[check.reason] : "not reviewed"}`;
-    case "reviewed":
-      return `${whatWasOff(check)} → reviewed → ${check.verdict ? VERDICT_WORDS[check.verdict] : "no change"}`;
+      return `${whatWasOff(check)} → not reviewed${reason ? `: ${REASON_TAIL[reason]}` : ""}`;
+    case "reviewed": {
+      const did = check.verdict ? VERDICT_WORDS[check.verdict] : "no change";
+      const off = whatWasOff(check);
+      if (off === "Nothing off") {
+        // A routine review of a step nothing was off with: why it was due.
+        const due = check.reviewDue;
+        return `${due ? REVIEWED_WORDS[due] : "Nothing off → reviewed"} → ${did}`;
+      }
+      return `${off} → reviewed → ${did}`;
+    }
   }
 }
 

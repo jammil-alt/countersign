@@ -50,6 +50,61 @@ describe("the owner's check in words", () => {
     ).toBe("Failed → reviewed → tried again");
   });
 
+  it("tells a routine review from a checkpoint and from a flag (wave 6 review)", () => {
+    const base = { result: "reviewed", attemptOutcome: "succeeded", signals: [] } as const;
+    expect(
+      ownerCheckWords({ ...base, cause: "checkpoint", verdict: "continue", reviewDue: "all" }),
+    ).toBe("Reviewed (every step) → carried on");
+    expect(
+      ownerCheckWords({ ...base, cause: "checkpoint", verdict: "continue", reviewDue: "always" }),
+    ).toBe("Reviewed (always for this step) → carried on");
+    expect(
+      ownerCheckWords({ ...base, cause: "checkpoint", verdict: "stop", reviewDue: "checkpoint" }),
+    ).toBe("Checkpoint before a write → reviewed → stopped the run");
+  });
+
+  it("says a clean step's routine review wasn't made, without calling it flagged", () => {
+    expect(
+      ownerCheckWords({
+        result: "clean",
+        attemptOutcome: "succeeded",
+        signals: [],
+        reason: "no_decision",
+        cause: "checkpoint",
+        reviewDue: "all",
+      }),
+    ).toBe("Owner checked: nothing off → every-step review not made: the review gave no decision");
+    expect(
+      ownerCheckWords({
+        result: "clean",
+        attemptOutcome: "succeeded",
+        signals: [],
+        reason: "limit",
+        reviewDue: "checkpoint",
+      }),
+    ).toBe("Owner checked: nothing off → checkpoint review not made: the review limit was reached");
+  });
+
+  it("names an escalation, a person's no and nobody answering", () => {
+    expect(ownerCheckWords({ result: "flagged", attemptOutcome: "escalated", signals: [] })).toBe(
+      "Escalated to us: a budget was reached → not reviewed",
+    );
+    expect(ownerCheckWords({ result: "clean", attemptOutcome: "rejected", signals: [] })).toBe(
+      "Turned down by a person → nothing for the owner to review",
+    );
+    expect(ownerCheckWords({ result: "clean", attemptOutcome: "unanswered", signals: [] })).toBe(
+      "Nobody answered in time → nothing for the owner to review",
+    );
+    expect(
+      ownerCheckWords({
+        result: "clean",
+        attemptOutcome: "unanswered",
+        signals: [],
+        reason: "ended_by_person",
+      }),
+    ).toBe("Nobody answered in time → not reviewed: the run ended there");
+  });
+
   it("says when the owner isn't watching", () => {
     expect(
       ownerCheckWords({
