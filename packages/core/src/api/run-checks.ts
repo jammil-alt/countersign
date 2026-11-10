@@ -583,7 +583,13 @@ export function recordOfStoredStep(
     rec.counts = { items: count, failed: typeof out.failed === "number" ? out.failed : 0 };
   }
   if (step.kind === "process" && outcome === "stopped") {
-    const stopStatus = stopStatusOf(row.nodeId, rows);
+    // DECISION (wave 5, fix 3): read from the process's own row first (`{ stopStatus }`, which a
+    // retry copies, so a retry of a retry keeps it), then from the stop rows inside it for runs
+    // stored before the row kept it.
+    const own = STOP_STATUSES.includes(out.stopStatus as StopStatus)
+      ? (out.stopStatus as StopStatus)
+      : null;
+    const stopStatus = own ?? stopStatusOf(row.nodeId, rows);
     if (stopStatus) rec.stopStatus = stopStatus;
   }
   if (step.onError === "continue" && row.status === "failed" && outcome) {
@@ -593,8 +599,9 @@ export function recordOfStoredStep(
 }
 
 /**
- * How the stop that ended a stopped process would have ended the run: the last stop row inside it
- * (`<process>/…`), whose output keeps its status. Null for a run stored before stop rows kept it.
+ * How the stop that ended a stopped process would have ended the run, for a run stored before the
+ * process's own row kept it: the last stop row inside it (`<process>/…`), whose output keeps its
+ * status. Null for a run stored before stop rows kept it.
  */
 function stopStatusOf(processNode: string, rows: readonly RowLike[]): StopStatus | null {
   const stop = rows
@@ -617,9 +624,10 @@ export interface ReusedStep {
 /**
  * What a later step read as a stored step's output: the row's output, except a failed row's,
  * whose error the step log merged into it (that error is the record's), and a read's or skill's
- * output turned down at its sign-off, which the run never let later steps read (null).
+ * output turned down at its sign-off, which the run never let later steps read (null). A stopped
+ * process's reads as null too (its row keeps only `{ stopStatus }`).
  */
-function stepOutputOf(row: RowLike, items: readonly ItemLike[]): unknown {
+function stepOutputOf(row: RowLike, items: readonly ItemLike[], kind: string): unknown {
   if (row.status === "skipped" && RECORD_WORK_KINDS.has(row.nodeType)) {
     const signOff = `${row.nodeId}:signoff`;
     const signed = items.some(
@@ -630,7 +638,7 @@ function stepOutputOf(row: RowLike, items: readonly ItemLike[]): unknown {
     );
     if (signed) return null;
   }
-  return scopeOutputOfRow(row.status, row.output);
+  return scopeOutputOfRow(row.status, row.output, kind);
 }
 
 /**
@@ -656,7 +664,7 @@ export function reusedStepOf(
   return {
     status: status as ReusedStep["status"],
     output: row.output ?? null,
-    stepOutput: stepOutputOf(row, items),
+    stepOutput: stepOutputOf(row, items, step.kind),
     record: recordOfStoredStep(step, row, rows, items),
   };
 }

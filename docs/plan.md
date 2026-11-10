@@ -3286,6 +3286,12 @@ executor, the run views' `outcome`; no migration):
   (`error_message_not_here`, `validateProcessAutomation`): it becomes the using step's output,
   which a write's input reads anywhere, so it never carries `steps.<id>.error.message` or a whole
   step; `error.code` and output fields still go there.
+- DECISION (`wave5/fix3`): a process gone on past a stop inside it keeps that stop's status on
+  its own row (output `{ stopStatus }`, the row `skipped`), which a retry copies whole; a retry's
+  record reads it from there first, and from the last stop row under `<process>/` only for runs
+  stored before. So a retry of a retry (whose run has no stop rows of its own) still routes on
+  `steps.<id>.stopStatus`, and a for each inside the process can't change which stop is read. A
+  stopped process's output still reads as null for later steps (`scopeOutputOfRow` with the kind).
 
 ## 2. Package layering
 

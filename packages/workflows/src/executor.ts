@@ -668,7 +668,9 @@ class Executor {
     this.record(
       frame,
       step,
-      "stepOutput" in row ? row.stepOutput : processes.scopeOutputOfRow(row.status, row.output),
+      "stepOutput" in row
+        ? row.stepOutput
+        : processes.scopeOutputOfRow(row.status, row.output, step.kind),
       row.record ?? (outcome ? { outcome } : {}),
     );
   }
@@ -2957,7 +2959,13 @@ class Executor {
               : status === "cancelled"
                 ? "skipped"
                 : "succeeded",
-        ...(ended ? {} : { output }),
+        // Fix 3: a stop gone on past keeps how it would have ended the run on the process's own
+        // row (`{ stopStatus }`), which a retry copies whole, so a retry of a retry reads it too.
+        ...(ended
+          ? goesOn && ended.result.reason === "stop"
+            ? { output: { stopStatus: ended.result.status } }
+            : {}
+          : { output }),
         // Wave 5 review: a failure gone on past keeps its error on the row, where a retry that
         // reuses the step reads it back (`steps.<id>.error`).
         ...(goesOn && ended?.result.reason !== "stop" ? { error: carriedError(ended) } : {}),

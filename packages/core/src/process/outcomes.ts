@@ -521,9 +521,11 @@ export function outcomeOfStoredRow(
  * What a later step reads as `steps.<id>.output` of a reused row: the row's output, except a
  * failed row's, which the step log stored with its error merged in (`{ ..., error }`): that
  * error is the record's `error`, not output, so it is taken out, and nothing left reads as null,
- * as the run that failed recorded it.
+ * as the run that failed recorded it. A stopped process's row (`skipped`) keeps only how the stop
+ * inside it ended (`{ stopStatus }`, the record's): its output reads as null, as recorded.
  */
-export function scopeOutputOfRow(status: string, output: unknown): unknown {
+export function scopeOutputOfRow(status: string, output: unknown, kind?: string): unknown {
+  if (kind === "process" && status === "skipped") return null;
   if (status !== "failed" || !isPlainObject(output)) return output ?? null;
   const { error: _error, ...rest } = output;
   return Object.keys(rest).length === 0 ? null : rest;

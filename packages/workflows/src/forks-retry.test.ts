@@ -674,6 +674,51 @@ describe("a retry routes on the whole record of the steps it reuses", () => {
     expect(h.agentCalls.map((c) => c.step.id)).toEqual(["boom"]);
   });
 
+  it("how the stop inside a process ended, on a retry of a retry", async () => {
+    // Fix 3: the process's own row keeps `stopStatus`, which a retry copies; the retry has no
+    // stop rows of its own under the process, so a retry of it reads the row.
+    const first = new Harness();
+    first.handlers.boom = () => ({ kind: "failed", error: "the vendor's site is down" });
+    const steps = [sub(), routeThenBoom("steps.x.stopStatus", "cancelled")];
+    const automations = automation([{ id: "end", kind: "stop", name: "End", status: "cancelled" }]);
+    const one = await executeWorkflow(
+      new FakeStepRunner(),
+      first.context({ automations }),
+      proc(steps),
+      {},
+    );
+    expect(one).toMatchObject({ status: "failed", nodeId: "boom" });
+    expect(pathOf(first)).toBe("yes");
+    expect(first.row("x")?.output).toEqual({ stopStatus: "cancelled" });
+
+    /** A retry of the run `of` ran in, from the `if`: `boom` answers with `boom`. */
+    const retry = async (of: Harness, n: number, boom: Harness["handlers"][string]) => {
+      const resume = resumeOf(of, steps, "route");
+      expect(resume.reused.x?.record?.stopStatus).toBe("cancelled");
+      expect(resume.reused.x?.stepOutput).toBeNull();
+      const h = new Harness({ ...of.run, id: `0192f7a0-0000-7000-8000-00000000a00${n}` });
+      h.handlers.boom = boom;
+      h.handlers.end = () => ({ kind: "failed", error: "the process ran again" });
+      const result = await executeWorkflow(
+        new FakeStepRunner(),
+        h.context({ automations, resume }),
+        proc(steps),
+        {},
+      );
+      return { h, result };
+    };
+    const second = await retry(first, 2, () => ({ kind: "failed", error: "still down" }));
+    expect(second.result).toMatchObject({ status: "failed", nodeId: "boom" });
+    expect(pathOf(second.h)).toBe("yes");
+    // The retry reused the process: its row is copied, and no stop ran inside it.
+    expect(second.h.row("x")).toMatchObject({ summary: "reused from R-000001" });
+    expect([...second.h.rows.values()].some((r) => r.nodeType === "stop")).toBe(false);
+
+    const third = await retry(second.h, 3, () => ({ kind: "done", output: { ok: true } }));
+    expect(third.result.status).toBe("succeeded");
+    expect(pathOf(third.h)).toBe("yes");
+  });
+
   it("a confer's verdict", async () => {
     const first = new Harness();
     const confer = { ai: async () => ({ verdict: "disagree" as const, note: "odd" }) };
