@@ -15,7 +15,6 @@
 
 import {
   type ActionStep,
-  type AnomalySignal,
   type Approval,
   automationSkillRef,
   clientLabel,
@@ -30,6 +29,10 @@ import {
   // v0.13 W2-I
   OVERSIGHT_DEFAULT_MAX_PER_RUN,
   OVERSIGHT_MAX_PER_STEP,
+  // Wave 6
+  type OwnerCheckAttempt,
+  type OwnerCheckEntry,
+  type OwnerCheckReason,
   // R6
   type OwnerWatchedStep,
   ownerStepApproval,
@@ -62,6 +65,7 @@ import {
 } from "./expand";
 // R6: the owner's watch over the v0.13 loop (one loop, one port).
 import {
+  type AfterSuccess,
   type OwnerWatch,
   ownerAfterSuccess,
   ownerErrorKey,
@@ -83,6 +87,8 @@ import {
   // v0.13 W2-I
   type OversightPort,
   type OversightVerdict,
+  // Wave 6
+  type OwnerCheckLog,
   type PendingApproval,
   type RunInfo,
   type StepCatalog,
@@ -128,6 +134,9 @@ export interface ExecutorContext {
   // v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54).
   /** The run's own agent reviewing failed steps; absent: no step is reviewed, as before. */
   oversight?: ExecutorOversight;
+  // Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)")
+  /** Where the owner's check on each attempt at a native v4 step is kept; absent: nowhere. */
+  ownerChecks?: OwnerCheckLog;
   // R3: the process model (ARCHITECTURE §10.14; docs/plan.md §1.86, §9).
   /**
    * How v3 workflows are read as v4 (`processes.ConvertLookup`, from packages/agents' registries).
@@ -325,6 +334,11 @@ type Asker = (
 
 function failedAttempt(a: Attempt | { thrown: unknown }): boolean {
   return "thrown" in a || a.outcome.kind === "failed";
+}
+
+/** Wave 6: how an attempt ended, for the owner's check: anything but done is a failure. */
+function attemptOutcomeOf(a: Attempt | { thrown: unknown }): OwnerCheckAttempt {
+  return "thrown" in a || a.outcome.kind !== "done" ? "failed" : "succeeded";
 }
 
 function withDiagnosis(diagnosis: string | undefined): { diagnosis?: string } {
@@ -1336,11 +1350,24 @@ class Executor {
       }
       return this.finishWork(name, approval, done.attempt, done.diagnosis);
     }
-    return this.finishWork(
-      name,
-      approval,
-      await this.attempt(step, name, frame, approval, undefined, opts),
-    );
+    // Wave 6: the owner doesn't watch this step (it is off, or the step's review is): recorded too.
+    const unwatched = (attemptOutcome: OwnerCheckAttempt) =>
+      this.recordCheck(name, opts, {
+        attempt: 1,
+        result: "not_watched",
+        attemptOutcome,
+        signals: [],
+        reason: opts.watched?.review === "off" ? "step_off" : "owner_off",
+      });
+    let only: Attempt;
+    try {
+      only = await this.attempt(step, name, frame, approval, undefined, opts);
+    } catch (error) {
+      if (!(error instanceof RunEnd)) await unwatched("failed");
+      throw error;
+    }
+    await unwatched(attemptOutcomeOf(only));
+    return this.finishWork(name, approval, only);
   }
 
   /**
@@ -3016,9 +3043,9 @@ class Executor {
     name: string,
     attempt: Attempt | { thrown: unknown },
     opts: WorkOptions,
-  ): { review: boolean; signals: AnomalySignal[] } {
+  ): AfterSuccess {
     if ("thrown" in attempt || attempt.outcome.kind !== "done" || attempt.rejected) {
-      return { review: false, signals: [] };
+      return { review: false, signals: [], found: [] };
     }
     const verdicts = verdictsOf(opts.verdicts?.());
     return ownerAfterSuccess(this.ctx.oversight, opts.watched ?? step, {
@@ -3027,6 +3054,35 @@ class Executor {
       output: attempt.outcome.output,
       ...(verdicts.length > 0 ? { confer: verdicts } : {}),
     });
+  }
+
+  /**
+   * Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): the owner's check on one attempt at a native
+   * v4 step, recorded in a durable step of its own (`${name}:owner:${attempt}`), so a replay reuses
+   * it; the port keeps one row per run, node and attempt besides. A converted v3 step records
+   * nothing, so a v3 run keeps exactly the durable steps it had.
+   */
+  // DECISION (wave 6): a check that can't be written never fails the step or the run: the step's
+  // own result stands and the run view shows no check for that attempt.
+  async recordCheck(
+    name: string,
+    opts: WorkOptions,
+    entry: Omit<OwnerCheckEntry, "runId" | "nodeId">,
+  ): Promise<void> {
+    const log = this.ctx.ownerChecks;
+    if (!log || !opts.watched) return;
+    try {
+      await this.runner.do(
+        `${name}:owner:${entry.attempt}`,
+        async () => {
+          await log.record({ runId: this.ctx.run.id, nodeId: name, ...entry });
+          return null;
+        },
+        this.ctx.stepConfig,
+      );
+    } catch (error) {
+      if (error instanceof RunEnd) throw error;
+    }
   }
 
   /** The first attempt and its thrown error, if any: a review never hides the step's own error. */
@@ -3095,14 +3151,40 @@ class Executor {
         if (current.outcome.kind === "done") await opts.afterRun(current.outcome.output);
       }
       const after = failing ? null : this.afterSuccess(step, name, current, opts);
-      if (after && !after.review) break;
+      // Wave 6: the owner's check on this attempt, recorded whatever came of it.
+      const attemptOutcome = attemptOutcomeOf(current);
+      const seen = after?.signals ?? [];
+      const flag = (reason: OwnerCheckReason) =>
+        this.recordCheck(name, opts, {
+          attempt: seq,
+          result: "flagged",
+          attemptOutcome,
+          signals: seen,
+          reason,
+        });
+      if (after && !after.review) {
+        // Nothing off, or (an escalation, a signal on a step whose review is off) off and not
+        // reviewed by the setting.
+        const off = attemptOutcome === "failed" || after.found.length > 0;
+        await this.recordCheck(name, opts, {
+          attempt: seq,
+          result: off ? "flagged" : "clean",
+          attemptOutcome,
+          signals: after.found,
+        });
+        break;
+      }
       // DECISION: the executor counts interventions per step and per run (a replay counts the same
       // stored verdicts again); the port holds the cost limit, from the decisions' recorded cost.
-      if (seq > OVERSIGHT_MAX_PER_STEP || this.interventions >= maxPerRun) break;
+      if (seq > OVERSIGHT_MAX_PER_STEP || this.interventions >= maxPerRun) {
+        await flag("limit");
+        break;
+      }
       if (seq === 1) {
         try {
           input = resolveTemplate(step.input, frame.scope);
         } catch {
+          await flag("input_unresolved");
           break;
         }
       }
@@ -3152,11 +3234,25 @@ class Executor {
         );
       } catch {
         // A review that fails is no intervention: the step's own error (or output) stands.
+        await flag("review_failed");
         break;
       }
+      if (verdict.action === "none") {
+        await flag("no_decision");
+        break;
+      }
+      // Wave 6: recorded before the verdict is applied, so a run waiting on an ask shows it.
+      await this.recordCheck(name, opts, {
+        attempt: seq,
+        result: "reviewed",
+        attemptOutcome,
+        signals: seen,
+        cause,
+        verdict: verdict.action,
+      });
       // DECISION: `continue` after a checkpoint changes nothing, so it is not an intervention: it
       // counts toward neither limit (docs/plan.md §1.54).
-      if (verdict.action === "none" || verdict.action === "continue") break;
+      if (verdict.action === "continue") break;
       this.interventions += 1;
       diagnosis = verdict.note;
       if (verdict.action === "stop") {

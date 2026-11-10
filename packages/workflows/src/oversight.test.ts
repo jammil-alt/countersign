@@ -420,7 +420,11 @@ describe("the owner's watch", () => {
             // No watch on a v3 run: an empty output asks for nothing.
             expect(
               ownerAfterSuccess({ settings: s }, st, { name: st.id, checkpoint, output: {} }),
-            ).toEqual({ review: reviewsAfterSuccess(s, st, checkpoint), signals: [] });
+            ).toEqual({
+              review: reviewsAfterSuccess(s, st, checkpoint),
+              signals: [],
+              found: [],
+            });
           }
         }
       }
@@ -449,10 +453,12 @@ describe("the owner's watch", () => {
     expect(ownerAfterSuccess(owner, step("find"), at([]))).toEqual({
       review: true,
       signals: [{ kind: "empty_output" }],
+      found: [{ kind: "empty_output" }],
     });
     expect(ownerAfterSuccess(owner, step("find"), at({ items: [1] }))).toEqual({
       review: false,
       signals: [],
+      found: [],
     });
     // A confer that disagreed, on a conversation.
     expect(
@@ -462,7 +468,11 @@ describe("the owner's watch", () => {
         output: { price: "4.00" },
         confer: ["disagree"],
       }),
-    ).toEqual({ review: true, signals: [{ kind: "confer_disagreed", count: 1 }] });
+    ).toEqual({
+      review: true,
+      signals: [{ kind: "confer_disagreed", count: 1 }],
+      found: [{ kind: "confer_disagreed", count: 1 }],
+    });
     // Never under off, nor on a step set to off.
     for (const o of [{ settings: settings({ review: "off" }), watch: {} }, { watch: {} }]) {
       expect(ownerAfterSuccess(o, step("find"), at([])).review).toBe(false);
@@ -474,25 +484,21 @@ describe("the owner's watch", () => {
   it("compares a loop's write with that step's history, whatever the iteration", () => {
     const usual = ["100", "100", "100", "100", "100"].map((amount) => ({ amount, currency: null }));
     const owner = { settings: settings(), watch: { history: { "each:put": usual } } };
+    const outlier = {
+      kind: "total_outlier" as const,
+      field: "total",
+      amount: "5000",
+      currency: null,
+      median: "100",
+      runs: 5,
+    };
     expect(
       ownerAfterSuccess(owner, step("put"), {
         name: "each:7:put",
         checkpoint: false,
         output: { total: "5000" },
       }),
-    ).toEqual({
-      review: true,
-      signals: [
-        {
-          kind: "total_outlier",
-          field: "total",
-          amount: "5000",
-          currency: null,
-          median: "100",
-          runs: 5,
-        },
-      ],
-    });
+    ).toEqual({ review: true, signals: [outlier], found: [outlier] });
     expect(
       ownerAfterSuccess(owner, step("put"), {
         name: "each:8:put",

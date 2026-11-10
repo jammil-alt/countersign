@@ -58,6 +58,8 @@ export interface AfterSuccess {
   review: boolean;
   /** The signals that asked for the review (empty when it is a checkpoint's, or none). */
   signals: AnomalySignal[];
+  /** Wave 6: every signal the watch saw, reviewed or not (for the owner's recorded check). */
+  found: AnomalySignal[];
 }
 
 /**
@@ -77,7 +79,7 @@ export function ownerAfterSuccess(
     confer?: readonly processes.ConferVerdict[] | undefined;
   },
 ): AfterSuccess {
-  if (!ownerWatches(step)) return { review: false, signals: [] };
+  if (!ownerWatches(step)) return { review: false, signals: [], found: [] };
   const signals = owner?.watch
     ? anomalySignals({
         kind: step.kind,
@@ -87,7 +89,7 @@ export function ownerAfterSuccess(
       })
     : [];
   const review = ownerReviewsSuccess(owner?.settings, step, at.checkpoint, signals);
-  return { review, signals: review ? signals : [] };
+  return { review, signals: review ? signals : [], found: signals };
 }
 
 function lookup(
