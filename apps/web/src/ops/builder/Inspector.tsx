@@ -136,7 +136,8 @@ export function Inspector(props: InspectorProps) {
   if (trigger) {
     body = <TriggerInspector {...props} trigger={trigger} />;
   } else if (step) {
-    body = <StepInspector {...props} step={step} />;
+    // Keyed by the step: fields that keep text while it is typed start afresh for another step.
+    body = <StepInspector key={step.id} {...props} step={step} />;
   } else {
     body = (
       <div className="flex flex-col gap-2 text-sm text-ink-muted">

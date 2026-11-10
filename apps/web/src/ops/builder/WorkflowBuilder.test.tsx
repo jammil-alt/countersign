@@ -13,7 +13,7 @@ import {
   type PermissionMatrix,
   processes,
 } from "@countersign/core";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -1381,5 +1381,348 @@ describe("WorkflowBuilder with the Builder", () => {
     const saved = AnyAgentBundle.parse((sent[0]?.body as { bundle: unknown } | undefined)?.bundle);
     const find = saved.workflows[0]?.workflow.steps[0];
     expect(find?.kind === "skill" ? find.model : null).toEqual({ id: "claude-haiku-4-5" });
+  });
+});
+
+// R8 (docs/plan.md §1.86, §9; ARCHITECTURE §10.14): v4 processes, checks, deadlines and a skill
+// step's customization.
+describe("WorkflowBuilder on processes", () => {
+  /** The step as saved: the body's bundle read as v4, the step found anywhere in its process. */
+  function savedStep(sent: { body: Record<string, unknown> }[], id: string) {
+    const bundle = AnyAgentBundle.parse(sent.at(-1)?.body.bundle);
+    const process = bundle.workflows[0]?.workflow;
+    if (process?.schemaVersion !== 4) throw new Error("not saved as a process");
+    return processes.findStep(process, id)?.step;
+  }
+
+  /** The last step of the saved process (a step added in the test). */
+  function savedLast(sent: { body: Record<string, unknown> }[]) {
+    const bundle = AnyAgentBundle.parse(sent.at(-1)?.body.bundle);
+    const process = bundle.workflows[0]?.workflow;
+    if (process?.schemaVersion !== 4) throw new Error("not saved as a process");
+    return process.steps.at(-1);
+  }
+
+  async function select(user: ReturnType<typeof userEvent.setup>, id: string) {
+    await ready();
+    await user.click(screen.getByTestId(`builder-step-${id}-select`));
+  }
+
+  async function save(user: ReturnType<typeof userEvent.setup>, sent: unknown[]) {
+    const before = sent.length;
+    await user.click(screen.getByTestId("builder-save"));
+    await waitFor(() => expect(sent.length).toBe(before + 1));
+  }
+
+  it("opens a stored v3 version as a process, says so, and saves it as v4 without editing it", async () => {
+    const { sent } = setup();
+    await ready();
+    const user = userEvent.setup();
+    expect(screen.getByTestId("builder-notice")).toHaveTextContent(
+      "v1 is stored in the older workflow format",
+    );
+    // Reading it converted is not an edit: nothing to save until something changes.
+    expect(screen.getByTestId("builder-save")).toBeDisabled();
+    expect(screen.queryByTestId("builder-unsaved")).toBeNull();
+    // The v3 fork is an if, the action a write with its approval; the canvas words follow.
+    expect(screen.getByTestId("builder-step-confidence")).toHaveTextContent("If");
+    expect(screen.getByTestId("builder-step-update")).toHaveTextContent("Write");
+    await select(user, "find");
+    await user.type(screen.getByTestId("builder-inspector-name"), "!");
+    await save(user, sent);
+    const body = sent[0]?.body as {
+      bundle: { workflows: { workflow: { schemaVersion: number } }[] };
+      parentVersionId: string;
+    };
+    expect(body.parentVersionId).toBe(V1);
+    expect(body.bundle.workflows.map((w) => w.workflow.schemaVersion)).toEqual([4]);
+    expect(savedStep(sent, "confidence")?.kind).toBe("if");
+    expect(savedStep(sent, "update")).toMatchObject({
+      kind: "write",
+      tool: "testkit.record.update",
+      checks: { approval: { required: "required", mode: "in_turn", ifNoAnswer: "stop" } },
+    });
+    expect(savedStep(sent, "ask")).toMatchObject({
+      kind: "person",
+      deadline: { after: "2 days", hours: "clock", ifNoAnswer: "stop" },
+    });
+    // The stored v1 is what it was: the builder sent a new version, never v1 changed.
+    expect(BUNDLE.workflows[0]?.workflow.schemaVersion).toBe(3);
+  });
+
+  it("adds a second opinion: a model with a focus, then a person if it disagreed, in business hours", async () => {
+    const { sent } = setup();
+    const user = userEvent.setup();
+    await select(user, "update");
+    await user.click(screen.getByTestId("builder-confer-add"));
+    // An AI reviewer's focus becomes its instructions: written here.
+    await user.type(screen.getByTestId("builder-confer-0-focus"), "Do the amounts match?");
+    await user.click(screen.getByTestId("builder-confer-add-person"));
+    await user.selectOptions(screen.getByTestId("builder-confer-1-person"), "lead");
+    const after = screen.getByTestId("builder-confer-1-deadline-after");
+    await user.clear(after);
+    await user.type(after, "4 hours");
+    await user.selectOptions(screen.getByTestId("builder-confer-1-deadline-hours"), "business");
+    expect(screen.getByTestId("builder-confer-1-deadline-business")).toHaveTextContent(
+      "Counts only while the person asked is working",
+    );
+    // The person only when the model disagreed: its verdict is offered to the condition.
+    await user.click(screen.getByTestId("builder-confer-1-when-add"));
+    await user.click(screen.getByTestId("builder-confer-1-when-rule-0-field-pick"));
+    await user.click(
+      screen.getByTestId("builder-confer-1-when-rule-0-field-path-confer.0.verdict"),
+    );
+    await user.clear(screen.getByTestId("builder-confer-1-when-rule-0-value"));
+    await user.type(screen.getByTestId("builder-confer-1-when-rule-0-value"), "disagree");
+    expect(screen.getByTestId("builder-step-update-confer")).toHaveTextContent(
+      "Checked with a person",
+    );
+    expect(screen.getByTestId("builder-valid")).toBeInTheDocument();
+    await save(user, sent);
+    expect(savedStep(sent, "update")?.checks?.confer).toEqual({
+      with: [
+        { ai: { focus: "Do the amounts match?" } },
+        {
+          person: "lead",
+          deadline: { after: "4 hours", hours: "business", ifNoAnswer: "stop" },
+          when: {
+            match: "all",
+            rules: [{ field: "{{confer.0.verdict}}", op: "=", value: "disagree" }],
+          },
+        },
+      ],
+    });
+  });
+
+  it("names approvers who all must approve, with a deadline, and escalates when nobody answers", async () => {
+    const { sent } = setup();
+    const user = userEvent.setup();
+    await select(user, "update");
+    expect(screen.getByTestId("builder-approval-default")).toHaveTextContent(
+      "The default approver",
+    );
+    await user.click(screen.getByTestId("builder-approval-add-approver"));
+    await user.click(screen.getByTestId("builder-approval-add-approver"));
+    await user.selectOptions(screen.getByTestId("builder-approver-1-who"), "lead");
+    await user.selectOptions(screen.getByTestId("builder-approval-mode"), "all");
+    await user.click(screen.getByTestId("builder-approver-0-has-deadline"));
+    await user.selectOptions(screen.getByTestId("builder-approval-then"), "escalate");
+    await user.selectOptions(screen.getByTestId("builder-approval-then-escalate-to"), "operator");
+    await save(user, sent);
+    expect(savedStep(sent, "update")?.checks?.approval).toEqual({
+      required: "required",
+      mode: "all",
+      approvers: [
+        { who: "client_admin", deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" } },
+        { who: "lead" },
+      ],
+      ifNoAnswer: {
+        escalate: {
+          to: "operator",
+          deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+        },
+      },
+      onReject: "stop",
+    });
+  });
+
+  it("offers going ahead with no answer, or some runs only, only where a write may be loosened", async () => {
+    setup({ update: "approval" });
+    const user = userEvent.setup();
+    await select(user, "update");
+    const then = screen.getByTestId("builder-approval-then");
+    expect(within(then).getByRole("option", { name: /Go ahead/ })).toBeDisabled();
+    expect(screen.getByTestId("builder-approval-then-proceed-reason")).toHaveTextContent(
+      "The Testkit connection requires approval for updates.",
+    );
+    expect(screen.queryByTestId("builder-approval-when-add")).toBeNull();
+    expect(screen.getByTestId("builder-approval-toggle")).toBeDisabled();
+  });
+
+  it("lets the operator loosen a write where it may be, and the canvas says it runs on its own", async () => {
+    const { sent } = setup();
+    const user = userEvent.setup();
+    await select(user, "update");
+    const then = screen.getByTestId("builder-approval-then");
+    expect(within(then).getByRole("option", { name: /Go ahead/ })).toBeEnabled();
+    await user.selectOptions(then, "proceed");
+    await user.click(screen.getByTestId("builder-approval-when-add"));
+    expect(screen.getByTestId("builder-approval-when")).toBeInTheDocument();
+    await user.click(screen.getByTestId("builder-approval-when-always"));
+    await user.click(screen.getByTestId("builder-approval-toggle"));
+    expect(screen.getByTestId("builder-step-update-approval")).toHaveTextContent("On its own");
+    await save(user, sent);
+    expect(savedStep(sent, "update")?.checks?.approval).toMatchObject({
+      required: "not_required",
+      ifNoAnswer: "proceed",
+    });
+  });
+
+  it("adds an urgent notice that must be seen in time", async () => {
+    const { sent } = setup();
+    const user = userEvent.setup();
+    await select(user, "update");
+    await user.click(screen.getByTestId("builder-notify-add"));
+    await user.type(screen.getByTestId("builder-notify-0-message"), "The bill changed");
+    await user.selectOptions(screen.getByTestId("builder-notify-0-to-add"), "lead");
+    await user.click(screen.getByTestId("builder-notify-0-urgent"));
+    const ack = screen.getByTestId("builder-notify-0-ack");
+    await user.clear(ack);
+    await user.type(ack, "15 minutes");
+    expect(screen.getByTestId("builder-step-update-notify")).toHaveTextContent("Urgent notice");
+    await save(user, sent);
+    expect(savedStep(sent, "update")?.checks?.notify).toEqual([
+      {
+        to: ["client_admin", "lead"],
+        channel: "inbox",
+        message: "The bill changed",
+        urgent: { ackWithin: "15 minutes", ifNoAnswer: "stop" },
+      },
+    ]);
+  });
+
+  it("edits a person step's deadline: business hours, reminders, skip, and who is told", async () => {
+    const { sent } = setup();
+    const user = userEvent.setup();
+    await select(user, "ask");
+    await user.selectOptions(screen.getByTestId("builder-person-deadline-hours"), "business");
+    await user.type(screen.getByTestId("builder-person-deadline-remind"), "1 hour, 4 hours");
+    await user.selectOptions(screen.getByTestId("builder-person-deadline-then"), "skip");
+    await user.selectOptions(screen.getByTestId("builder-person-deadline-tell-add"), "operator");
+    expect(screen.getByTestId("builder-step-ask")).toHaveTextContent("2 days in business hours");
+    await save(user, sent);
+    expect(savedStep(sent, "ask")).toMatchObject({
+      deadline: {
+        after: "2 days",
+        hours: "business",
+        remind: ["1 hour", "4 hours"],
+        ifNoAnswer: "skip",
+        tell: ["operator"],
+      },
+    });
+  });
+
+  it("customizes a skill step against the skill's own values, and says what can't apply", async () => {
+    const when = {
+      match: "all" as const,
+      rules: [{ field: "{{input.vendor}}", op: "=" as const, value: "Home Depot" }],
+    };
+    const categorize = {
+      ref: "custom:categorize",
+      source: "shared" as const,
+      version: 1,
+      definition: {
+        schemaVersion: 1 as const,
+        id: "custom:categorize",
+        name: "Pick the account",
+        description: "Rules first, then a model",
+        category: "custom",
+        mode: "agent" as const,
+        method: "rules_then_ai" as const,
+        instructions: "Pick the account for each line.",
+        tools: [],
+        input: { type: "object", properties: { vendor: { type: "string" } } },
+        output: {
+          type: "object",
+          properties: { account: { type: "string" }, confidence: { type: "number" } },
+        },
+        settings: [
+          {
+            key: "threshold",
+            label: "Threshold",
+            type: "number" as const,
+            default: 0.8,
+            clientSpecific: false,
+          },
+        ],
+        rules: [{ id: "home-depot", name: "Home Depot", when, set: { account: "Materials" } }],
+        requiresConnectors: [],
+        requiresPacks: [],
+        producesAlerts: false,
+      },
+    };
+    const { sent } = setup({ catalog: { ...CATALOG, skills: [...CATALOG.skills, categorize] } });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-skill:custom:categorize-add"));
+    expect(screen.getByTestId("builder-customize-method")).toHaveTextContent(
+      "Rules, then AI for what they leave open",
+    );
+    expect(screen.getByTestId("builder-setting-threshold-template")).toHaveTextContent(
+      "The skill's default: 0.8",
+    );
+    await user.type(screen.getByTestId("builder-setting-threshold"), "0.9");
+    await user.type(screen.getByTestId("builder-customize-instructions"), "Prefer Materials.");
+    expect(screen.getByTestId("builder-customize-own-instructions")).toHaveTextContent(
+      "Pick the account for each line.",
+    );
+    await user.click(screen.getByTestId("builder-rule-home-depot-edit"));
+    await user.click(screen.getByTestId("builder-rule-add"));
+    await user.click(screen.getByTestId("builder-customize-keep-confidence"));
+    // A row that sets a field the step no longer passes on can't apply: core says why.
+    const set = screen.getByTestId("builder-rule-added-0-set");
+    fireEvent.change(set, { target: { value: '{"confidence": 1}' } });
+    expect(screen.getByTestId("builder-customize-problems")).toHaveTextContent(
+      "rule step-rule-1 sets confidence, not an output field",
+    );
+    fireEvent.change(set, { target: { value: '{"account": "Tools"}' } });
+    expect(screen.queryByTestId("builder-customize-problems")).toBeNull();
+    await save(user, sent);
+    const step = savedLast(sent);
+    expect(step?.kind === "skill" ? step.customize : null).toEqual({
+      settings: { threshold: 0.9 },
+      addInstructions: "Prefer Materials.",
+      rules: {
+        add: [{ id: "step-rule-1", when: { match: "all", rules: [] }, set: { account: "Tools" } }],
+        edit: [{ id: "home-depot", when, set: { account: "Materials" } }],
+      },
+      keep: ["account"],
+    });
+  });
+
+  it("edits a conversation step: who, the channel, what to find, and who signs its messages", async () => {
+    const { sent } = setup();
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-conversation-add"));
+    await user.type(screen.getByTestId("builder-conversation-with"), "c-42");
+    await user.selectOptions(screen.getByTestId("builder-conversation-channel"), "call");
+    await user.type(screen.getByTestId("builder-conversation-goal"), "Confirm the delivery date");
+    const name = screen.getByTestId("builder-conversation-find-0");
+    await user.clear(name);
+    await user.type(name, "deliveryDate");
+    await user.selectOptions(screen.getByTestId("builder-conversation-find-0-type"), "date");
+    // A client agent that acts, on a connection that allows auto: later messages may go under
+    // the first yes.
+    await user.selectOptions(screen.getByTestId("builder-conversation-later"), "within_goal");
+    await save(user, sent);
+    expect(savedLast(sent)).toMatchObject({
+      kind: "conversation",
+      with: "c-42",
+      channel: "call",
+      goal: "Confirm the delivery date",
+      find: { deliveryDate: "date" },
+      messages: { first: "required", later: "within_goal" },
+      deadline: { after: "3 days", hours: "clock", ifNoAnswer: "stop" },
+    });
+  });
+
+  it("keeps a template's conversation messages signed", async () => {
+    setup({ agent: { kind: "template", tenantId: null, bindings: {} } });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-conversation-add"));
+    expect(screen.getByTestId("builder-conversation-first")).toBeDisabled();
+    expect(
+      within(screen.getByTestId("builder-conversation-later")).getByRole("option", {
+        name: /Go under the first yes/,
+      }),
+    ).toBeDisabled();
+    expect(screen.getByTestId("builder-conversation-messages-reason")).toHaveTextContent(
+      "Templates keep approval on",
+    );
   });
 });

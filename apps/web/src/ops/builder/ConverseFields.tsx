@@ -16,9 +16,10 @@ import {
   type PathOption,
   processes,
 } from "@countersign/core";
+import { useState } from "react";
 import { TextArea } from "../../ui/forms";
 import { Button } from "../../ui/primitives";
-import { DeadlineEditor } from "./deadline";
+import { DeadlineEditor, ListInput } from "./deadline";
 import { type FieldErrors, Row, SmallInput, SmallSelect, TemplateInput } from "./fields";
 import type { People } from "./people";
 
@@ -509,7 +510,21 @@ export function ConversationFields({
   const update = (key: string, patch: Partial<ConversationStep>) =>
     set(key, (s) => ({ ...s, ...patch }));
   const roles = bundle.people ?? [];
-  const rows = findRows(step.find);
+  // The rows are kept while they are typed (a field being renamed has no name for a moment, and
+  // `find` is keyed by name); `find` follows every change, and an outside change (undo) shows.
+  const committed = JSON.stringify(step.find);
+  const [rows, setRows] = useState(() => findRows(step.find));
+  const [last, setLast] = useState(committed);
+  if (committed !== last) {
+    setLast(committed);
+    if (JSON.stringify(findOf(rows)) !== committed) setRows(findRows(step.find));
+  }
+  const setFind = (next: ResultField[]) => {
+    setRows(next);
+    const find = findOf(next);
+    setLast(JSON.stringify(find));
+    update("find", { find });
+  };
   return (
     <div className="flex flex-col gap-3" data-testid="builder-conversation">
       <div className="grid grid-cols-2 gap-3">
@@ -588,7 +603,7 @@ export function ConversationFields({
           types={[...FIND_TYPES, ...LIST_TYPES]}
           max={CONVERSE_CAPS.resultFields}
           testPrefix="builder-conversation-find"
-          onChange={(next) => update("find", { find: findOf(next) })}
+          onChange={setFind}
         />
       </Row>
       {rows.map((r) =>
@@ -604,19 +619,11 @@ export function ConversationFields({
         errors={errors}
         hint='What the agent may tell them, e.g. "the order number, the delivery date".'
       >
-        <SmallInput
-          data-field="mayShare"
-          data-testid="builder-conversation-share"
-          value={step.mayShare.join(", ")}
-          onChange={(e) =>
-            update("mayShare", {
-              mayShare: e.target.value
-                .split(",")
-                .map((x) => x.trim())
-                .filter(Boolean)
-                .slice(0, 20),
-            })
-          }
+        <ListInput
+          field="mayShare"
+          testId="builder-conversation-share"
+          value={step.mayShare}
+          onChange={(mayShare) => update("mayShare", { mayShare: mayShare.slice(0, 20) })}
         />
       </Row>
       <Row

@@ -5,6 +5,7 @@
 // and who is told when it passes. Going ahead on a write's approval is loosening (invariant 8):
 // it is offered only where the operator may loosen, with the reason when not.
 import type { processes } from "@countersign/core";
+import { useState } from "react";
 import { type FieldErrors, Row, SmallInput, SmallSelect } from "./fields";
 import { type People, PeopleList, PersonPicker } from "./people";
 
@@ -27,12 +28,49 @@ function thenKind(then: DeadlineThen): keyof typeof THEN_LABEL {
   return typeof then === "object" ? "escalate" : then;
 }
 
-/** Durations typed as "1 day, 2 days". */
-function durations(text: string): string[] {
+/** A list typed as "1 day, 2 days". */
+function listOf(text: string): string[] {
   return text
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
+}
+
+/**
+ * A comma-separated list as it is typed: the text is kept while it is written ("1 hour, " is on
+ * its way to a second item) and the list goes on at every change; an outside change (undo) shows.
+ */
+export function ListInput({
+  value,
+  onChange,
+  field,
+  testId,
+}: {
+  value: readonly string[];
+  onChange(value: string[]): void;
+  field: string;
+  testId: string;
+}) {
+  const shown = value.join(", ");
+  const [text, setText] = useState(shown);
+  const [last, setLast] = useState(shown);
+  if (shown !== last) {
+    setLast(shown);
+    if (listOf(text).join(", ") !== shown) setText(shown);
+  }
+  return (
+    <SmallInput
+      data-field={field}
+      data-testid={testId}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        const next = listOf(e.target.value);
+        setLast(next.join(", "));
+        onChange(next);
+      }}
+    />
+  );
 }
 
 export interface ThenProps {
@@ -200,12 +238,11 @@ export function DeadlineEditor(props: DeadlineProps) {
         errors={errors}
         hint='Up to five, e.g. "1 hour, 4 hours". Empty: no reminders.'
       >
-        <SmallInput
-          data-field={`${prefix}.remind`}
-          data-testid={`${testId}-remind`}
-          value={(value.remind ?? []).join(", ")}
-          onChange={(e) => {
-            const remind = durations(e.target.value);
+        <ListInput
+          field={`${prefix}.remind`}
+          testId={`${testId}-remind`}
+          value={value.remind ?? []}
+          onChange={(remind) => {
             const { remind: _r, ...rest } = value;
             onChange(remind.length ? { ...rest, remind } : rest, `${prefix}.remind`);
           }}
