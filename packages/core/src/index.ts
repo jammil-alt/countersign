@@ -47,6 +47,8 @@ export * from "./api/hours";
 export * from "./api/knowledge";
 export * from "./api/language";
 export * from "./api/ledger";
+// R8: the Library's banks (docs/plan.md §1.86).
+export * from "./api/library";
 // v0.12 W1-A: go-live stages and client controls
 export * from "./api/lifecycle";
 export * from "./api/messaging";

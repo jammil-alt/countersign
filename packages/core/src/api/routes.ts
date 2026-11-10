@@ -7,7 +7,7 @@ import { isUuid } from "../ids";
 import { ROLES, Role } from "../roles";
 import { JsonSchema } from "../schemas/common";
 import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas/permissions";
-import { SkillDefinition } from "../schemas/skill";
+import { SkillBrowse, SkillDefinition, SkillMethod } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
 // P-8: US texting registration
@@ -49,6 +49,8 @@ import { hoursRoutes } from "./hours";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 import { ledgerRoutes } from "./ledger";
+// R8: the Library's banks
+import { libraryRoutes } from "./library";
 // v0.12 W1-A: go-live stages and client controls
 import { lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
@@ -813,6 +815,19 @@ export const SkillListItem = z.object({
   usedBy: z.number().int(),
   /** Those client agents, "Bill clerk · Demo client", for the library's hover and list. */
   usedByNames: z.array(z.string()).optional(),
+  // R8 (docs/plan.md §1.86): the Library's facts. Optional, so a list without them still reads.
+  /** How it works: `rules`, `ai` or `rules_then_ai` (stored rows derive it from their mode). */
+  method: SkillMethod.optional(),
+  /** The read tools it may call (its declared reads). */
+  reads: z.array(z.string()).optional(),
+  /** The sites and pages an `ai` skill may browse; null when it browses none. */
+  browse: SkillBrowse.nullable().optional(),
+  /**
+   * A tool-mode skill that only wraps one tool: retiring (85 of the 100), kept so stored versions
+   * still run; a process reads or writes through `wraps` instead.
+   */
+  retired: z.boolean().optional(),
+  wraps: z.string().nullable().optional(),
 });
 export type SkillListItem = z.infer<typeof SkillListItem>;
 
@@ -2054,5 +2069,7 @@ export const routes = {
   ...a2pRoutes,
   // R4: business hours, person hours and channels (docs/plan.md §1.86).
   ...hoursRoutes,
+  // R8: the Library (docs/plan.md §1.86).
+  ...libraryRoutes,
 } as const;
 export type Routes = typeof routes;

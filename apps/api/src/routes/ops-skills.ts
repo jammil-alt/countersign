@@ -15,11 +15,13 @@ import {
 } from "@countersign/agents";
 import {
   type AgentBundle,
+  isToolWrapper,
   parseSkillRef,
   routes,
   type SkillDefinition,
   type SkillListItem,
   type SkillUse,
+  skillMethod,
   skillTools,
 } from "@countersign/core";
 import { agent, agentVersion, skill, skillVersion, tenant } from "@countersign/db";
@@ -201,6 +203,12 @@ function listItem(
     tools: skillTools(def),
     connectors: skillConnectors(def, platform),
     ...clientUses(input.uses),
+    // R8: the Library's facts (docs/plan.md §1.86).
+    method: skillMethod(def),
+    reads: def.reads ?? [],
+    browse: def.browse ?? null,
+    retired: isToolWrapper(def),
+    wraps: isToolWrapper(def) ? (def.handler ?? null) : null,
   };
 }
 
