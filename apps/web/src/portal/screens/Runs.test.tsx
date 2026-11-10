@@ -176,6 +176,39 @@ describe("portal runs", () => {
     expect(screen.getByTestId(`portal-run-row-${RUN_A}`)).toBeInTheDocument();
   });
 
+  it("sorts by a column head, and turns the order round on a second pick", async () => {
+    setup();
+    const table = await screen.findByTestId("portal-runs");
+    const order = () =>
+      within(table)
+        .getAllByTestId(/^portal-run-row-/)
+        .map((r) => r.getAttribute("data-testid"));
+    // Newest first until a head is picked; both started together, so as the API sent them.
+    expect(order()).toEqual([`portal-run-row-${RUN_A}`, `portal-run-row-${RUN_B}`]);
+    const status = screen.getByTestId("portal-runs-sort-status");
+    expect(status.closest("th")).toHaveAttribute("aria-sort", "none");
+
+    // Words go A to Z first: "Done" before "Waiting on you".
+    await userEvent.click(status);
+    expect(status.closest("th")).toHaveAttribute("aria-sort", "ascending");
+    expect(order()).toEqual([`portal-run-row-${RUN_B}`, `portal-run-row-${RUN_A}`]);
+    await userEvent.click(status);
+    expect(status.closest("th")).toHaveAttribute("aria-sort", "descending");
+    expect(order()).toEqual([`portal-run-row-${RUN_A}`, `portal-run-row-${RUN_B}`]);
+  });
+
+  it("opens a run from anywhere on its row", async () => {
+    setup();
+    const row = await screen.findByTestId(`portal-run-row-${RUN_B}`);
+    // The run's link stays the way in for keyboards; a click on the agent's cell opens it too.
+    expect(within(row).getByTestId(`portal-run-${RUN_B}-open`)).toHaveAttribute(
+      "href",
+      `/runs/${RUN_B}`,
+    );
+    await userEvent.click(within(row).getByText("Pia"));
+    await waitFor(() => expect(screen.queryByTestId("portal-runs-page")).toBeNull());
+  });
+
   it("answers a question in plain words as the list's filter, shown as chips", async () => {
     const { queries, asks } = setup();
     await screen.findByTestId("portal-runs");

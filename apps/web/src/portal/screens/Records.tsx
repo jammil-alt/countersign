@@ -15,6 +15,7 @@ import { shortTime } from "../../runs/format";
 import { Icon } from "../../ui/icons";
 import { Loaded, Page } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, PageHeader, Tabs } from "../../ui/primitives";
+import { useRowLink } from "../../ui/rows";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { money } from "../documents";
 
@@ -168,6 +169,7 @@ function RecordsTable({
   showSource: boolean;
 }) {
   const { t } = i18n;
+  const rowLink = useRowLink();
   const open = (id: string, label: string) => (
     <Link to={`/records/${id}`} className="font-medium text-ink hover:underline">
       {label}
@@ -189,7 +191,11 @@ function RecordsTable({
         </thead>
         <tbody>
           {data.page.rows.map((r) => (
-            <tr key={r.id} data-testid={`portal-records-row-${r.id}`}>
+            <tr
+              key={r.id}
+              data-testid={`portal-records-row-${r.id}`}
+              {...rowLink(`/records/${r.id}`)}
+            >
               <td className="text-ink figures">{day(r.txnDate, i18n)}</td>
               <td>
                 {open(r.id, txnKind(r.txnKind, i18n))}
@@ -217,7 +223,11 @@ function RecordsTable({
         </thead>
         <tbody>
           {data.page.rows.map((r) => (
-            <tr key={r.id} data-testid={`portal-records-row-${r.id}`}>
+            <tr
+              key={r.id}
+              data-testid={`portal-records-row-${r.id}`}
+              {...rowLink(`/records/${r.id}`)}
+            >
               <td>{open(r.id, r.name)}</td>
               <td className="n text-ink figures">{i18n.fmt.number(r.transactions)}</td>
               {showSource ? <td className="text-ink">{sourceName(sources, r.sourceId)}</td> : null}
@@ -288,7 +298,11 @@ function RecordsTable({
       </thead>
       <tbody>
         {data.page.rows.map((r) => (
-          <tr key={r.id} data-testid={`portal-records-row-${r.id}`}>
+          <tr
+            key={r.id}
+            data-testid={`portal-records-row-${r.id}`}
+            {...rowLink(`/records/${r.id}`)}
+          >
             <td>
               {open(r.id, r.name)}
               {r.deleted ? deleted : null}
