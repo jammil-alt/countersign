@@ -3,15 +3,19 @@
 // agent's bound connections.
 import {
   type AgentBundle,
+  type AnyAgentBundle,
   allSteps,
   type BuilderCatalog,
   // P-4
   CONVERSE_SKILL,
   type EventTypeSpec,
+  isToolWrapper,
   lookupSkill,
   type OpsConnection,
   type PermissionMatrix,
+  type ProcessAgentBundle,
   parseSkillRef,
+  processes,
   type SkillDefinition,
   type ToolSpec,
   type TriggerOn,
@@ -90,6 +94,36 @@ export function validateLikeServer(
   return { valid: errors.length === 0, errors };
 }
 
+/** A validation problem of a bundle that holds processes (v4 codes). */
+export type BuilderProblem = processes.BundleValidationError;
+
+/**
+ * R8: the server's check of a bundle that holds processes, in the browser: core's
+ * `validateAnyBundle` with the same context, plus the refusal of agent skills it can't resolve.
+ * Warnings are advice (a process that might be better split), never a reason to refuse.
+ */
+export function validateProcessesLikeServer(
+  bundle: ProcessAgentBundle | AnyAgentBundle,
+  ctx: TypingContext,
+  publish?: { matrices: Record<string, Partial<PermissionMatrix> | undefined> },
+): { valid: boolean; errors: BuilderProblem[]; warnings: processes.BundleWarning[] } {
+  const r = processes.validateAnyBundle(bundle, {
+    ...ctx,
+    ...(publish ? { publish, clientAgent: true } : {}),
+  });
+  const missing: BuilderProblem[] = bundle.definition.skills
+    .filter((s) => !lookupSkill(s.skill, ctx))
+    .filter((s) => !r.errors.some((e) => e.code === "unknown_skill" && e.message.includes(s.skill)))
+    .map((s) => ({
+      stepId: null,
+      field: "definition.skills",
+      code: "unknown_skill",
+      message: `skill ${s.skill} not found`,
+    }));
+  const errors = [...r.errors, ...missing];
+  return { valid: errors.length === 0, errors, warnings: r.warnings };
+}
+
 export function connectorName(data: BuilderData, id: string): string {
   return data.catalog.connectors.find((c) => c.id === id)?.name ?? id;
 }
@@ -127,10 +161,9 @@ export interface PaletteSection {
 }
 
 const LOGIC: { logic: LogicKind; title: string; detail: string }[] = [
-  { logic: "fork", title: "Fork", detail: "Paths with rules; the first that matches runs" },
+  { logic: "if", title: "If", detail: "Paths with rules; the first that matches runs" },
   { logic: "for_each", title: "For each", detail: "Run steps once per item of a list" },
   { logic: "wait", title: "Wait", detail: "Pause for a while" },
-  { logic: "notify", title: "Notify", detail: "Post a message" },
   { logic: "stop", title: "Stop", detail: "End the run here" },
 ];
 
@@ -143,6 +176,9 @@ export const BUILT_IN_CONNECTORS = ["upload"] as const;
 
 /** The in-memory test system: offered only to the Sandbox client and a template's test copies. */
 export const TESTKIT = "testkit";
+
+/** The platform's own tools (alerts, prices) are grouped under our name. */
+const PLATFORM = "platform";
 
 /** The connectors a skill reads or writes through: those it requires and its tools'. */
 export function skillConnectors(
@@ -166,25 +202,36 @@ export function toolConnector(id: string, data: BuilderData): string | null {
   return data.catalog.connectors.some((x) => x.id === c) ? c : null;
 }
 
-/** The connectors a bundle already reaches: its skills', its extra tools' and its actions'. */
-export function bundleConnectors(bundle: AgentBundle, data: BuilderData): Set<string> {
+/**
+ * The connectors a bundle already reaches: its skills', its extra tools' and its tool steps'
+ * (v3 actions, v4 reads and writes).
+ */
+export function bundleConnectors(
+  bundle: AgentBundle | AnyAgentBundle | ProcessAgentBundle,
+  data: BuilderData,
+): Set<string> {
   const out = new Set<string>();
   const addSkill = (ref: string) => {
     const s = data.catalog.skills.find((x) => x.ref === ref || parseSkillRef(x.ref).id === ref);
     if (s) for (const c of skillConnectors(s.definition, data)) out.add(c);
   };
-  for (const s of bundle.definition.skills) addSkill(s.skill);
-  for (const id of bundle.definition.extraTools) {
+  const addTool = (id: string) => {
     const c = toolConnector(id, data);
     if (c) out.add(c);
-  }
+  };
+  for (const s of bundle.definition.skills) addSkill(s.skill);
+  for (const id of bundle.definition.extraTools) addTool(id);
   for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion === 4) {
+      for (const { step } of processes.allSteps(w.workflow)) {
+        if (step.kind === "skill") addSkill(step.skill);
+        if (step.kind === "read" || step.kind === "write") addTool(step.tool);
+      }
+      continue;
+    }
     for (const { step } of allSteps(w.workflow)) {
       if (step.kind === "skill") addSkill(step.skill);
-      if (step.kind === "action") {
-        const c = toolConnector(step.tool, data);
-        if (c) out.add(c);
-      }
+      if (step.kind === "action") addTool(step.tool);
     }
   }
   return out;
@@ -201,7 +248,7 @@ export function bundleConnectors(bundle: AgentBundle, data: BuilderData): Set<st
 // skills and steps already reach, since a bundle has no separate list of them.
 export function paletteConnectors(input: {
   agent: { kind: "template" | "client"; testCopy: boolean };
-  bundle: AgentBundle;
+  bundle: AgentBundle | AnyAgentBundle | ProcessAgentBundle;
   data: BuilderData;
   connections: readonly { connector: string; status: string }[];
   sandbox: boolean;
@@ -224,13 +271,33 @@ export function paletteConnectors(input: {
 }
 
 /**
- * The "Add a step" palette (ARCHITECTURE §10.5; UI cleanup): triggers folded into a few kinds,
- * automations, the platform's skills (the agent's own first), then one section per connector the
- * agent may use with its reads and the changes it makes, then people and logic. Everything reads
- * by its name, never its id.
+ * The tools a step may call directly that aren't a connector's: the platform's or a pack's tools
+ * a retired tool-mode skill wrapped (R2: those skills become read and write steps on the tool).
+ */
+// DECISION: the platform's and packs' own tools are offered only where a tool-mode skill wrapped
+// them: those are built to run as a step on their own. Tools a skill calls inside its own work,
+// and the handlers of step-only skills (a conversation, a reach-out), are not steps.
+function wrappedTools(data: BuilderData): Set<string> {
+  const out = new Set<string>();
+  for (const s of data.catalog.skills) {
+    if (isToolWrapper(s.definition) && s.definition.handler) out.add(s.definition.handler);
+  }
+  for (const id of processes.STEP_ONLY_SKILLS) {
+    const s = data.catalog.skills.find((x) => parseSkillRef(x.ref).id === id);
+    if (s?.definition.handler) out.delete(s.definition.handler);
+  }
+  return out;
+}
+
+/**
+ * The "Add a step" palette (ARCHITECTURE §10.5, §10.14; UI cleanup): triggers folded into a few
+ * kinds, processes, the skills that think (the agent's own first), then one section per connector
+ * the agent may use with its reads and its writes, then people (approve, ask, a conversation, a
+ * notice) and logic. Everything reads by its name, never its id. Tool-mode skills are retiring
+ * (R2): their tool is offered as a read or a write instead.
  */
 export function paletteSections(
-  bundle: AgentBundle,
+  bundle: ProcessAgentBundle | AnyAgentBundle,
   data: BuilderData,
   connectors: ReadonlySet<string> = new Set(data.catalog.connectors.map((c) => c.id)),
 ): PaletteSection[] {
@@ -279,14 +346,15 @@ export function paletteSections(
 
   const own = new Set(bundle.definition.skills.map((s) => parseSkillRef(s.skill).id));
   const platformSkills: PaletteItem[] = [];
-  // P-4
-  const peopleSkills: PaletteItem[] = [];
   const perConnector = new Map<string, PaletteItem[]>();
   const add = (connector: string, item: PaletteItem) =>
     perConnector.set(connector, [...(perConnector.get(connector) ?? []), item]);
   for (const s of data.catalog.skills) {
     // A pinned reference is offered only when the agent already uses it.
     if (s.source === "pinned" && !bundle.definition.skills.some((x) => x.skill === s.ref)) continue;
+    // R2: a skill that only wraps a tool is offered as that tool's read or write step; a
+    // conversation is its own step kind (R7).
+    if (isToolWrapper(s.definition) || parseSkillRef(s.ref).id === CONVERSE_SKILL) continue;
     const mine = own.has(parseSkillRef(s.ref).id);
     const through = skillConnectors(s.definition, data);
     // An agent's own skill stays offered; another needs every connector it reaches.
@@ -301,51 +369,45 @@ export function paletteSections(
       own: mine,
     };
     const home = through[0];
-    // P-4: a conversation is offered with the people steps (§1.66).
-    if (parseSkillRef(s.ref).id === CONVERSE_SKILL) {
-      peopleSkills.push({
-        ...item,
-        detail: "Talk it through with someone until you have the answer, within limits",
-      });
-    } else if (home && through.length === 1) add(home, item);
+    if (home && through.length === 1) add(home, item);
     else platformSkills.push(item);
   }
   platformSkills.sort(
     (a, b) => Number(b.type === "skill" && b.own) - Number(a.type === "skill" && a.own),
   );
 
+  const direct = wrappedTools(data);
   for (const t of data.catalog.tools) {
-    if (t.sideEffect !== "external") continue;
     const c = t.connector ?? t.source;
-    if (!connectors.has(c)) continue;
-    const group = connectorName(data, c);
-    add(c, {
-      type: "action",
-      key: `action:${t.id}`,
+    const isConnector = data.catalog.connectors.some((x) => x.id === c);
+    if (isConnector ? !connectors.has(c) : !direct.has(t.id)) continue;
+    const home = isConnector ? c : t.source === "platform" ? PLATFORM : t.source;
+    const group = home === PLATFORM ? "Mezonas" : connectorName(data, home);
+    const reads = t.sideEffect === "none";
+    add(home, {
+      type: reads ? "read" : "write",
+      key: `${reads ? "read" : "write"}:${t.id}`,
       title: toolLabel(t.id),
-      detail: `Changes ${group}`,
+      detail: reads ? `Reads ${group}` : `Changes ${group}`,
       tool: t,
       group,
     });
   }
+  const order = (i: PaletteItem) => (i.type === "read" ? 1 : i.type === "write" ? 2 : 0);
   const connectorSections: PaletteSection[] = [...perConnector]
     .map(([id, items]) => ({
       key: `connector:${id}`,
-      label: connectorName(data, id),
-      // Reads first, then the changes it makes, each by name.
-      items: [...items].sort(
-        (a, b) =>
-          Number(a.type === "action") - Number(b.type === "action") ||
-          a.title.localeCompare(b.title),
-      ),
+      label: id === PLATFORM ? "Mezonas" : connectorName(data, id),
+      // Skills, then reads, then the changes it makes, each by name.
+      items: [...items].sort((a, b) => order(a) - order(b) || a.title.localeCompare(b.title)),
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
 
-  // UI-2c: the automations a use step can pin (prototype `#O6-Builder`, "Automations").
-  const automations = (data.catalog.automations ?? []).map(
+  // A process used inside another is one step (§10.14; today's automations, pinned).
+  const used = (data.catalog.automations ?? []).map(
     (a): PaletteItem => ({
-      type: "automation",
-      key: `automation:${a.ref}`,
+      type: "process",
+      key: `process:${a.ref}`,
       title: a.name,
       detail: `Version ${a.version}${a.source === "client" ? " · this client's" : ""}`,
       ref: a.ref,
@@ -354,7 +416,7 @@ export function paletteSections(
 
   return [
     { key: "triggers", label: "Triggers", items: groups.flatMap((g) => g.items), groups },
-    { key: "automations", label: "Automations", items: automations },
+    { key: "processes", label: "Processes", items: used },
     { key: "skills", label: "Skills", items: platformSkills },
     ...connectorSections,
     {
@@ -375,8 +437,18 @@ export function paletteSections(
           detail: "A person answers a question",
           mode: "ask",
         },
-        // P-4
-        ...peopleSkills,
+        {
+          type: "conversation",
+          key: "conversation",
+          title: "Talk with a person",
+          detail: "Talk it through with someone until you have the answer, within limits",
+        },
+        {
+          type: "notify",
+          key: "notify",
+          title: "Notify",
+          detail: "Tell your team or ours that something happened",
+        },
       ],
     },
     {

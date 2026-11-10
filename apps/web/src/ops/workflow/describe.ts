@@ -2,6 +2,7 @@
 import {
   type AgentBundle,
   allSteps,
+  processes,
   type Rule,
   type Rules,
   type Step,
@@ -201,6 +202,104 @@ function valueText(v: unknown): string {
   if (typeof v === "string") return v;
   if (v === undefined) return "";
   return JSON.stringify(v);
+}
+
+// ── R8: v4 processes (ARCHITECTURE §10.14) ──────────────────────────────────────────────────────
+
+type ProcessStep = processes.Step;
+
+/** A v4 step's kind in a word: the builder's words (an `if`, not a fork). */
+export const PROCESS_KIND_LABEL: Record<ProcessStep["kind"] | "trigger", string> = {
+  trigger: "Trigger",
+  read: "Read",
+  skill: "Skill",
+  write: "Write",
+  person: "Person",
+  conversation: "Conversation",
+  notify: "Notify",
+  if: "If",
+  for_each: "For each",
+  wait: "Wait",
+  stop: "Stop",
+  process: "Process",
+};
+
+const NOTIFY_CHANNEL: Record<string, string> = {
+  inbox: "Inbox",
+  email: "Email",
+  sms: "Text",
+};
+
+/** "client admin" for a role, a person's name for a user or contact id, else the text. */
+function whoText(who: string, labels: StepLabels): string {
+  return labels.person?.(who) ?? (who.includes("{{") ? fieldText(who) : roleLabel(who));
+}
+
+/** How long a deadline waits, in words: "2 days", "30 minutes in business hours". */
+export function deadlineText(d: Pick<processes.Deadline, "after" | "hours">): string {
+  return d.hours === "business" ? `${d.after} in business hours` : d.after;
+}
+
+/** The second line under a v4 step's name: what it does in words, never its ids. */
+export function processStepDetail(step: ProcessStep, labels: StepLabels = {}): string | null {
+  switch (step.kind) {
+    case "skill": {
+      const name = labels.skill?.(step.skill);
+      const what = name && name !== step.name ? name : null;
+      return [what, step.agent ? `by ${step.agent}` : null].filter(Boolean).join(" · ") || null;
+    }
+    case "read":
+      return [labels.connector?.(step.tool), toolLabel(step.tool)].filter(Boolean).join(" · ");
+    case "write": {
+      const approval = step.checks?.approval;
+      return [
+        labels.connector?.(step.tool),
+        toolLabel(step.tool),
+        approval ? (approval.required === "required" ? "needs approval" : "on its own") : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    case "person":
+      return `${step.mode === "approve" ? "Approve" : "Ask"} · ${whoText(step.assignee, labels)} · ${deadlineText(step.deadline)}`;
+    case "conversation":
+      return [
+        CHANNEL_LABEL[step.channel] ?? step.channel,
+        step.with ? whoText(step.with, labels) : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    case "notify":
+      return [
+        NOTIFY_CHANNEL[step.notify.channel] ?? step.notify.channel,
+        step.notify.to.map((w) => whoText(w, labels)).join(", "),
+        step.notify.urgent ? "urgent" : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    case "if":
+      return `${step.paths.length} ${step.paths.length === 1 ? "path" : "paths"}`;
+    case "for_each":
+      return `over ${fieldText(step.over)}`;
+    case "wait":
+      return `for ${step.for}`;
+    case "stop":
+      return STOP_LABEL[step.status] ?? step.status;
+    case "process": {
+      const [slug = step.process, v] = step.process.split("@");
+      const name = labels.automation?.(step.process) ?? slug.replace(/[-_]+/g, " ");
+      return v ? `${name} · v${v}` : name;
+    }
+  }
+}
+
+/** Step names by id for a v4 process. */
+export function processStepNames(process: Pick<processes.Process, "steps">): StepNames {
+  const names = new Map<string, string>();
+  for (const { step } of processes.allSteps(process)) {
+    names.set(step.id, step.name || PROCESS_KIND_LABEL[step.kind]);
+  }
+  return names;
 }
 
 /** "6 steps, 2 forks": counted across nested paths and loops. */

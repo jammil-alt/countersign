@@ -7,15 +7,20 @@
 // right: the Builder conversation (BuilderPanel) or the selected step. Steps picked with "Select
 // steps" can be saved as an automation. Loaded lazily inside the /ops chunk, so its drag-and-drop
 // code is fetched only when an operator opens a workflow.
+// R8 (docs/plan.md §1.86, §9; ARCHITECTURE §10.14): it edits v4 processes. A stored v3 version
+// opens converted (`readProcessBundle`, every id kept) and the next save writes schemaVersion 4 as
+// a new version; the stored one is never edited (invariant 3).
 import {
   type AgentBundle,
-  AgentBundle as AgentBundleSchema,
+  type AnyAgentBundle,
+  AnyAgentBundle as AnyAgentBundleSchema,
   canonicalJson,
+  type ProcessAgentBundle,
   parseSkillRef,
   Slug,
   type TriggerOn,
-  type ValidationError,
-  type Workflow,
+  type TypingContext,
+  uuidv7,
 } from "@countersign/core";
 import {
   DndContext,
@@ -57,11 +62,20 @@ import {
   TextArea,
   useAction,
 } from "../agents/ui";
-import { KIND_LABEL, type StepLabels } from "../workflow/describe";
+import { PROCESS_KIND_LABEL, type StepLabels } from "../workflow/describe";
 import { BuilderPanel, SaveAsAutomation, useBuilderSession } from "./BuilderPanel";
-import { Canvas, collision, DragCard, type DragData, Palette, resolveDrop } from "./Canvas";
+import {
+  Canvas,
+  collision,
+  DragCard,
+  type DragData,
+  Palette,
+  resolveDrop,
+  triggerKey,
+} from "./Canvas";
 import {
   type BuilderData,
+  type BuilderProblem,
   boundMatrices,
   connectorName,
   filterSections,
@@ -70,12 +84,13 @@ import {
   TESTKIT,
   toolConnector,
   typingContext,
-  validateLikeServer,
+  validateProcessesLikeServer,
 } from "./catalog";
 import { EventOptions, SmallInput, SmallSelect } from "./fields";
-import { type FocusRequest, Inspector, type Member, type Selection } from "./Inspector";
+import { type FocusRequest, Inspector, type Selection } from "./Inspector";
 import {
   type ApprovalEnv,
+  addTrigger,
   addWorkflow,
   allowStep,
   type ContainerId,
@@ -83,22 +98,27 @@ import {
   createStep,
   customizedSteps,
   editWorkflow,
-  forkOfBranch,
   getContainer,
   type History,
+  holdsV3,
+  ifOfBranch,
   insertStep,
   locate,
   moveStep,
   type PaletteItem,
+  type Process,
   ROOT,
+  readProcessBundle,
   redo,
   removeStep,
+  removeTrigger,
   setTrigger,
   startHistory,
   undo,
   updateStep,
   workflowCounts,
 } from "./model";
+import { type Member, type People, personName } from "./people";
 
 type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
 
@@ -109,7 +129,8 @@ export interface WorkflowBuilderProps {
   agent: AgentSummary;
   /** The version the builder opens: the agent's latest, draft or live. */
   from: VersionDetail;
-  bundle: AgentBundle;
+  /** That version's bundle as stored: v3 workflows, v4 processes, or both. */
+  bundle: AgentBundle | AnyAgentBundle;
   /** The workflow slug from the URL. */
   workflow: string;
   /** The agent page's URL. */
@@ -134,9 +155,23 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
   );
   const template = useMemo(() => {
     const raw = templateVersion.data?.version.bundle;
-    const parsed = raw === undefined ? null : AgentBundleSchema.safeParse(raw);
+    const parsed = raw === undefined ? null : AnyAgentBundleSchema.safeParse(raw);
     return parsed?.success ? parsed.data : null;
   }, [templateVersion.data]);
+  // R8: who a step asks or tells, from the client's People list (with their hours).
+  const hours = useApi(
+    apiRoutes.opsClientHours,
+    props.agent.kind === "client" && props.agent.tenantId
+      ? { params: { id: props.agent.tenantId } }
+      : null,
+  );
+  const people = useMemo<People>(
+    () => ({
+      members: props.members ?? [],
+      people: (hours.data?.people ?? []).map((p) => ({ id: p.id, name: p.name, kind: p.kind })),
+    }),
+    [props.members, hours.data],
+  );
 
   const failed = catalog.error ?? events.error;
   if (failed) {
@@ -164,6 +199,7 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
       {...props}
       data={{ catalog: catalog.data, events: events.data.events }}
       template={template}
+      people={people}
     />
   );
 }
@@ -248,12 +284,20 @@ function writeDraft(agentId: string, draft: StoredDraft | null) {
   }
 }
 
-function restoredDraft(agentId: string, from: VersionDetail, bundle: AgentBundle) {
+/** The draft kept on this device, read as processes; null when it is the version it opened. */
+function restoredDraft(
+  agentId: string,
+  from: VersionDetail,
+  start: ProcessAgentBundle,
+  ctx: TypingContext,
+) {
   const stored = readDraft(agentId);
   if (!stored || stored.from !== from.id) return null;
-  const parsed = AgentBundleSchema.safeParse(stored.bundle);
-  if (!parsed.success || canonicalJson(parsed.data) === canonicalJson(bundle)) return null;
-  return { bundle: parsed.data, at: stored.at };
+  const parsed = AnyAgentBundleSchema.safeParse(stored.bundle);
+  if (!parsed.success) return null;
+  const bundle = readProcessBundle(parsed.data, ctx);
+  if (canonicalJson(bundle) === canonicalJson(start)) return null;
+  return { bundle, at: stored.at };
 }
 
 function clock(at: number): string {
@@ -270,21 +314,31 @@ interface Saved {
 }
 
 function BuilderBody(
-  props: WorkflowBuilderProps & { data: BuilderData; template: AgentBundle | null },
+  props: WorkflowBuilderProps & {
+    data: BuilderData;
+    template: AnyAgentBundle | null;
+    people: People;
+  },
 ) {
-  const { agent, from, data, base, template } = props;
+  const { agent, from, data, base } = props;
   const navigate = useNavigate();
   const ctx = useMemo(() => typingContext(data), [data]);
-  const [restored] = useState(() => restoredDraft(agent.id, from, props.bundle));
-  const [history, setHistory] = useState<History>(() =>
-    startHistory(restored?.bundle ?? props.bundle),
+  // The version as the builder edits it: v3 workflows read as processes, every id kept. It is the
+  // starting point, not an edit: nothing is unsaved until the operator changes something.
+  const [start] = useState(() => readProcessBundle(props.bundle, ctx));
+  const opensV3 = holdsV3(props.bundle);
+  const template = useMemo(
+    () => (props.template ? readProcessBundle(props.template, ctx) : null),
+    [props.template, ctx],
   );
+  const [restored] = useState(() => restoredDraft(agent.id, from, start, ctx));
+  const [history, setHistory] = useState<History>(() => startHistory(restored?.bundle ?? start));
   const bundle = history.present;
   const [saved, setSaved] = useState<Saved>(() => ({
     id: from.id,
     version: from.version,
     status: from.status,
-    canon: canonicalJson(props.bundle),
+    canon: canonicalJson(start),
   }));
   const canon = useMemo(() => canonicalJson(bundle), [bundle]);
   const dirty = canon !== saved.canon;
@@ -317,7 +371,12 @@ function BuilderBody(
           tone: "neutral",
           body: `Restored your unsaved changes from ${clock(restored.at)}.`,
         }
-      : null,
+      : opensV3
+        ? {
+            tone: "neutral",
+            body: `v${from.version} is stored in the older workflow format. It opens here as a process with every step as it was; your next save makes a new version in the new format, and v${from.version} stays as it is.`,
+          }
+        : null,
   );
   const action = useAction();
 
@@ -362,13 +421,13 @@ function BuilderBody(
   const targetText = useMemo(() => {
     if (!workflow || addTarget === ROOT) return "at the end";
     if (addTarget.startsWith("otherwise:")) {
-      const fork = forkOfBranch(workflow, addTarget.slice("otherwise:".length));
-      return fork ? `to “Otherwise” in ${fork.name || "the fork"}` : "at the end";
+      const branch = ifOfBranch(workflow, addTarget.slice("otherwise:".length));
+      return branch ? `to “Otherwise” in ${branch.name || "the if"}` : "at the end";
     }
     if (addTarget.startsWith("path:")) {
       const id = addTarget.slice("path:".length);
-      const fork = forkOfBranch(workflow, id);
-      const path = fork?.kind === "fork" ? fork.paths.find((p) => p.id === id) : undefined;
+      const branch = ifOfBranch(workflow, id);
+      const path = branch?.kind === "if" ? branch.paths.find((p) => p.id === id) : undefined;
       return path ? `to “${path.name}”` : "at the end";
     }
     const loop = locate(workflow, addTarget.slice("loop:".length))?.step;
@@ -406,21 +465,22 @@ function BuilderBody(
         return c ? connectorName(data, c) : undefined;
       },
       person: (id) => {
-        const m = props.members?.find((x) => x.userId === id);
-        return m ? (m.name ?? m.email) : undefined;
+        // A role reads as its own words ("client admin"); a person by their name.
+        if (["client_admin", "client_user", "operator", "lead"].includes(id)) return undefined;
+        return personName(props.people, id);
       },
     }),
-    [data, props.members],
+    [data, props.people],
   );
 
   // ── Edits ──
   const apply = useCallback(
-    (fn: (b: AgentBundle) => AgentBundle, key: string | null = null) =>
+    (fn: (b: ProcessAgentBundle) => ProcessAgentBundle, key: string | null = null) =>
       setHistory((h) => commit(h, fn(h.present), key)),
     [],
   );
   const edit = useCallback(
-    (fn: (w: Workflow) => Workflow, key: string | null = null) =>
+    (fn: (w: Process) => Process, key: string | null = null) =>
       apply((b) => editWorkflow(b, slug, fn), key),
     [apply, slug],
   );
@@ -428,8 +488,13 @@ function BuilderBody(
   const addItem = (item: PaletteItem, target?: { container: string; index: number }) => {
     if (!workflow) return;
     if (item.type === "trigger") {
-      edit((w) => setTrigger(w, item.on));
-      setSelection({ type: "trigger" });
+      // It replaces the trigger in the inspector, else the first: a trigger keeps its id.
+      const id =
+        selection?.type === "trigger" && workflow.triggers.some((t) => t.id === selection.id)
+          ? selection.id
+          : workflow.triggers[0]?.id;
+      edit((w) => setTrigger(w, item.on, id));
+      if (id) setSelection({ type: "trigger", id });
       setRail("step");
       return;
     }
@@ -463,7 +528,8 @@ function BuilderBody(
     [agent, props.connections],
   );
   const result = useMemo(
-    () => validateLikeServer(bundle, ctx, agent.kind === "client" ? { matrices } : undefined),
+    () =>
+      validateProcessesLikeServer(bundle, ctx, agent.kind === "client" ? { matrices } : undefined),
     [bundle, ctx, matrices, agent.kind],
   );
   const workflowErrors = result.errors.filter((e) => e.workflow === slug);
@@ -528,15 +594,17 @@ function BuilderBody(
   };
 
   // ── Selecting what an error names ──
-  const showError = (e: ValidationError) => {
+  const showError = (e: BuilderProblem) => {
     if (e.workflow && e.workflow !== slug) {
       navigate(`${base}/workflows/${e.workflow}`);
       return;
     }
     if (!workflow || !e.stepId) return;
-    if (e.stepId === workflow.trigger.id) setSelection({ type: "trigger" });
+    const stepId = e.stepId;
+    if (workflow.triggers.some((t) => t.id === stepId))
+      setSelection({ type: "trigger", id: stepId });
     else {
-      const owner = locate(workflow, e.stepId)?.step ?? forkOfBranch(workflow, e.stepId);
+      const owner = locate(workflow, e.stepId)?.step ?? ifOfBranch(workflow, e.stepId);
       if (!owner) return;
       setSelection({ type: "step", id: owner.id });
     }
@@ -613,6 +681,7 @@ function BuilderBody(
   const session = useBuilderSession({
     agent,
     bundle,
+    read: (b) => readProcessBundle(b, ctx),
     ensureSaved: async () => (dirty ? await save() : saved),
     onDraft: (next) => apply(() => next),
   });
@@ -645,7 +714,7 @@ function BuilderBody(
     counts
       ? [
           plural(counts.steps, "step"),
-          plural(counts.forks, "fork"),
+          `${counts.ifs} if${counts.ifs === 1 ? "" : "s"}`,
           `${counts.writes} ${counts.writes === 1 ? "changes a tool" : "change tools"}`,
           `${counts.needApproval} ${counts.needApproval === 1 ? "needs" : "need"} approval`,
         ].join(" · ")
@@ -729,7 +798,7 @@ function BuilderBody(
                     data-testid="builder-discard-draft"
                     className="text-sm underline"
                     onClick={() => {
-                      setHistory(startHistory(props.bundle));
+                      setHistory(startHistory(start));
                       writeDraft(agent.id, null);
                       setDraftAt(null);
                       setNotice(null);
@@ -756,13 +825,14 @@ function BuilderBody(
         </div>
       ) : null}
 
-      {panel === "test" && workflow && entry ? (
+      {panel === "test" && workflow?.triggers[0] && entry ? (
         <TestRunPanel
           agent={agent}
           workflowName={entry.name}
           slug={slug}
-          sample={samplePayload(workflow, data.events)}
-          eventType={triggerEventType(workflow)}
+          // DECISION: a test run starts from the first trigger's sample, as v3 had one trigger.
+          sample={samplePayload({ trigger: workflow.triggers[0] }, data.events)}
+          eventType={triggerEventType({ trigger: workflow.triggers[0] })}
           busy={action.busy}
           onClose={() => setPanel(null)}
           run={async (payload, clientId) => {
@@ -786,7 +856,7 @@ function BuilderBody(
           if (d?.type === "palette") setActiveLabel({ title: d.item.title, kind: d.item.type });
           else if (workflow) {
             const s = locate(workflow, String(e.active.id))?.step;
-            if (s) setActiveLabel({ title: s.name, kind: KIND_LABEL[s.kind] });
+            if (s) setActiveLabel({ title: s.name, kind: PROCESS_KIND_LABEL[s.kind] });
           }
         }}
         onDragOver={(e) => setOverId(e.over ? String(e.over.id) : null)}
@@ -884,18 +954,27 @@ function BuilderBody(
               </div>
 
               <Problems errors={result.errors} bundle={bundle} slug={slug} onShow={showError} />
+              <Advice warnings={result.warnings.filter((w) => w.workflow === slug)} />
 
               {workflow ? (
                 <Canvas
                   workflow={workflow}
-                  selectedId={selection?.type === "trigger" ? "trigger" : (selection?.id ?? null)}
+                  selectedId={
+                    selection?.type === "trigger"
+                      ? triggerKey(selection.id)
+                      : (selection?.id ?? null)
+                  }
                   env={env}
                   errors={workflowErrors}
                   customized={customized}
                   activeId={activeId}
                   overId={overId}
                   onSelect={(id) => {
-                    setSelection(id === "trigger" ? { type: "trigger" } : { type: "step", id });
+                    setSelection(
+                      id.startsWith("trigger:")
+                        ? { type: "trigger", id: id.slice("trigger:".length) }
+                        : { type: "step", id },
+                    );
                     showRail("step");
                   }}
                   onDelete={remove}
@@ -1001,11 +1080,20 @@ function BuilderBody(
                     env={env}
                     errors={workflowErrors}
                     template={template ? { bundle: template, workflow: templateWorkflow } : null}
-                    members={props.members ?? []}
+                    people={props.people}
                     focus={focus}
                     connectors={connectors}
                     onStep={(id, fn, key) => edit((w) => updateStep(w, id, fn), key)}
-                    onTrigger={(on: TriggerOn, key) => edit((w) => setTrigger(w, on), key)}
+                    onTrigger={(id, on: TriggerOn, key) => edit((w) => setTrigger(w, on, id), key)}
+                    onAddTrigger={(on) => {
+                      const id = uuidv7();
+                      edit((w) => addTrigger(w, on, () => id));
+                      setSelection({ type: "trigger", id });
+                    }}
+                    onRemoveTrigger={(id) => {
+                      edit((w) => removeTrigger(w, id));
+                      setSelection(null);
+                    }}
                     onDelete={remove}
                   />
                 </div>
@@ -1031,10 +1119,10 @@ function Problems({
   slug,
   onShow,
 }: {
-  errors: ValidationError[];
-  bundle: AgentBundle;
+  errors: BuilderProblem[];
+  bundle: ProcessAgentBundle;
   slug: string;
-  onShow(e: ValidationError): void;
+  onShow(e: BuilderProblem): void;
 }) {
   const [open, setOpen] = useState(true);
   if (errors.length === 0) {
@@ -1044,13 +1132,13 @@ function Problems({
       </p>
     );
   }
-  const name = (e: ValidationError) => {
+  const name = (e: BuilderProblem) => {
     if (!e.workflow) return "Agent";
     const w = bundle.workflows.find((x) => x.slug === e.workflow);
     if (!w) return e.workflow;
-    if (e.stepId === w.workflow.trigger.id) return `${w.name} · Trigger`;
+    if (w.workflow.triggers.some((t) => t.id === e.stepId)) return `${w.name} · Trigger`;
     const owner = e.stepId
-      ? (locate(w.workflow, e.stepId)?.step ?? forkOfBranch(w.workflow, e.stepId))
+      ? (locate(w.workflow, e.stepId)?.step ?? ifOfBranch(w.workflow, e.stepId))
       : null;
     return owner ? `${w.name} · ${owner.name}` : w.name;
   };
@@ -1082,6 +1170,29 @@ function Problems({
           ))}
         </ul>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The split signals (ARCHITECTURE §10.14 "When to split"): advice, never errors. The operator
+ * decides whether a long or deeply nested process is better as two agents joined by a handoff.
+ */
+function Advice({ warnings }: { warnings: readonly { message: string; code: string }[] }) {
+  if (warnings.length === 0) return null;
+  return (
+    <div
+      data-testid="builder-advice"
+      className="mb-4 rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink-muted"
+    >
+      <p className="font-medium text-ink">Worth a look</p>
+      <ul className="mt-1 flex flex-col gap-0.5">
+        {warnings.map((w) => (
+          <li key={`${w.code}:${w.message}`}>
+            {w.message}. Two agents joined by a handoff may read better.
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -1140,7 +1251,7 @@ function WorkflowSwitcher({
   adding,
   onAdd,
 }: {
-  bundle: AgentBundle;
+  bundle: Pick<ProcessAgentBundle, "workflows">;
   current: string;
   base: string;
   adding: boolean;
@@ -1196,7 +1307,7 @@ function AddWorkflowForm({
   onCreate,
   onCancel,
 }: {
-  bundle: AgentBundle;
+  bundle: Pick<ProcessAgentBundle, "workflows">;
   events: string[];
   onCreate(input: { slug: string; name: string; on: TriggerOn }): void;
   onCancel(): void;

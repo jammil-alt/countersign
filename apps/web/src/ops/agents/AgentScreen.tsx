@@ -40,7 +40,7 @@ import { StatusChip, serviceChipState } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
 import { OPS_PATHS } from "../paths";
 import { TriggersPanel } from "../triggers/TriggersScreen";
-import { liveAndDraft, parseBundle, versionBadges } from "../versions";
+import { liveAndDraft, parseAnyBundle, parseBundle, versionBadges } from "../versions";
 import { workflowStats } from "../workflow/describe";
 import { StepList } from "../workflow/StepList";
 import { ReviseTab } from "./BuilderParts";
@@ -244,7 +244,10 @@ export function AgentScreen({
   // The builder edits the latest version (draft or live), like the definition editor.
   const latestParsed = data.latest ? parseBundle(data.latest) : null;
   const latestBundle = latestParsed?.ok ? latestParsed.bundle : null;
-  const builderStart = latestBundle?.workflows[0]?.slug ?? "main";
+  // R8: the builder also opens a version that holds v4 processes (what it saves).
+  const latestAnyParsed = data.latest ? parseAnyBundle(data.latest) : null;
+  const latestAny = latestAnyParsed?.ok ? latestAnyParsed.bundle : null;
+  const builderStart = latestAny?.workflows[0]?.slug ?? "main";
   const isClient = view.kind === "client";
   const tabs = (
     <AgentTabs
@@ -261,7 +264,7 @@ export function AgentScreen({
 
   if (builder) {
     const latest = data.latest;
-    if (!latest || !latestBundle) {
+    if (!latest || !latestAny) {
       return (
         <div>
           <AgentBar
@@ -275,8 +278,8 @@ export function AgentScreen({
             {tabs}
           </AgentBar>
           <div className="pt-6">
-            {latestParsed && !latestParsed.ok ? (
-              <ErrorNotice error={new Error(latestParsed.message)} />
+            {latestAnyParsed && !latestAnyParsed.ok ? (
+              <ErrorNotice error={new Error(latestAnyParsed.message)} />
             ) : (
               <EmptyState>This agent has no versions yet.</EmptyState>
             )}
@@ -290,12 +293,14 @@ export function AgentScreen({
           key={`${view.id}:${builderEpoch}`}
           agent={view}
           from={latest}
-          bundle={latestBundle}
+          bundle={latestAny}
           workflow={builder.params.workflow ?? builderStart}
           base={base}
           tabs={tabs}
           above={
             // The workflow's first step is how it starts: the agent's triggers, then the canvas.
+            // A version that holds processes has its triggers on the canvas's trigger card (the
+            // triggers panel reads v3 only, so it shows nothing for one).
             <div className="flex flex-col gap-4" data-testid="agent-workflow-top">
               {lineage}
               <TriggersPanel

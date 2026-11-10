@@ -1,14 +1,17 @@
 // The workflow builder on a fake API: adding from the palette, reordering and moving into and out
 // of fork paths with the keyboard (dnd-kit's keyboard sensor), deleting and undoing, the Approval
 // control's enabled and disabled rules, invalid markers with a clickable summary, and the bundle
-// it saves keeping every step, path and id.
+// it saves keeping every step, path and id. R8: the fixture is a stored v3 version; the builder
+// opens it as a v4 process and saves processes (schemaVersion 4) as a new version.
 import {
   AgentBundle,
   type AgentBundleInput,
+  AnyAgentBundle,
   type BuilderCatalog,
   canonicalJson,
   nodeIds,
   type PermissionMatrix,
+  processes,
 } from "@countersign/core";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -17,6 +20,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentSummary, VersionDetail } from "../../api/routes";
 import { ApiProvider } from "../../api/useApi";
 import { fakeApi, Reply } from "../../test/fixtures";
+import { typingContext } from "./catalog";
+import { readProcessBundle } from "./model";
 import WorkflowBuilder from "./WorkflowBuilder";
 
 const AGENT_ID = "00000000-0000-4000-8000-00000000b101";
@@ -491,7 +496,7 @@ describe("WorkflowBuilder", () => {
     expect(screen.getByTestId("builder-step-find")).not.toHaveTextContent("docs.find-support");
     expect(listOrder("path:low")).toEqual(["ask"]);
     expect(screen.getByTestId("builder-counts")).toHaveTextContent(
-      "Purchasing · 5 steps · 1 fork · 1 changes a tool · 1 needs approval",
+      "Purchasing · 5 steps · 1 if · 1 changes a tool · 1 needs approval",
     );
     expect(screen.getByTestId("builder-version")).toHaveTextContent("Draft · v1");
     expect(screen.getByTestId("builder-valid")).toBeInTheDocument();
@@ -576,7 +581,7 @@ describe("WorkflowBuilder", () => {
     const user = userEvent.setup();
     await user.click(screen.getByTestId("builder-add-step"));
 
-    // The agent's own skills come first, then the library; actions are grouped by tool.
+    // The agent's own skills come first, then the library; reads and writes are grouped by connector.
     const skills = screen.getByTestId("builder-palette-skills");
     expect(
       within(skills)
@@ -592,9 +597,12 @@ describe("WorkflowBuilder", () => {
     expect(within(actions).getByRole("heading")).toHaveTextContent("Testkit");
     expect(within(actions).getByText("Update a record")).toBeInTheDocument();
     expect(actions).not.toHaveTextContent("testkit.record.update");
-    expect(within(actions).queryByText(/query/i)).toBeNull();
+    // R8: reads are offered too, as read steps, before the changes.
+    expect(
+      within(actions).getByTestId("builder-palette-item-read:testkit.record.query"),
+    ).toHaveTextContent("Read");
 
-    await user.click(screen.getByTestId("builder-palette-item-action:testkit.record.update-add"));
+    await user.click(screen.getByTestId("builder-palette-item-write:testkit.record.update-add"));
     const order = rootOrder();
     expect(order).toHaveLength(5);
     const added = order[4] as string;
@@ -854,14 +862,16 @@ describe("WorkflowBuilder", () => {
     const body = sent[0]?.body as { bundle: AgentBundle; parentVersionId: string };
     expect(body.parentVersionId).toBe(V1);
     const before = BUNDLE.workflows[0]?.workflow;
-    const after = AgentBundle.parse(body.bundle).workflows[0]?.workflow;
-    if (!before || !after) throw new Error("no workflow");
-    expect(nodeIds(after)).toEqual(nodeIds(before));
-    // Nothing but the name changed.
-    const renamed = AgentBundle.parse(body.bundle);
+    // R8: saved as a v4 process (a new version; v1 stays v3), every id kept.
+    const after = AnyAgentBundle.parse(body.bundle).workflows[0]?.workflow;
+    if (!before || after?.schemaVersion !== 4) throw new Error("no process");
+    expect(processes.nodeIds(after)).toEqual(nodeIds(before));
+    // Nothing but the name changed from the stored version read as a process.
+    const renamed = AnyAgentBundle.parse(body.bundle);
     const step = renamed.workflows[0]?.workflow.steps[0];
     if (step) step.name = "Find supporting document";
-    expect(canonicalJson(renamed)).toBe(canonicalJson(BUNDLE));
+    const ctx = typingContext({ catalog: CATALOG, events: EVENTS.events });
+    expect(canonicalJson(renamed)).toBe(canonicalJson(readProcessBundle(BUNDLE, ctx)));
     expect(await screen.findByTestId("builder-notice")).toHaveTextContent("Saved v2 as a draft.");
     expect(screen.getByTestId("builder-version")).toHaveTextContent("Draft · v2");
     expect(changed()).toBe(1);
@@ -1348,7 +1358,7 @@ describe("WorkflowBuilder with the Builder", () => {
     await ready();
     const user = userEvent.setup();
     await user.click(screen.getByTestId("builder-add-step"));
-    await user.click(screen.getByTestId("builder-palette-item-automation:polite-follow-up@2-add"));
+    await user.click(screen.getByTestId("builder-palette-item-process:polite-follow-up@2-add"));
     expect(rootOrder()).toHaveLength(5);
     expect(screen.getByTestId("builder-automation")).toHaveTextContent("Polite follow-up · v2");
   });
@@ -1368,7 +1378,7 @@ describe("WorkflowBuilder with the Builder", () => {
     await user.selectOptions(select, "claude-haiku-4-5");
     await user.click(screen.getByTestId("builder-save"));
     await waitFor(() => expect(sent).toHaveLength(1));
-    const saved = AgentBundle.parse((sent[0]?.body as { bundle: unknown } | undefined)?.bundle);
+    const saved = AnyAgentBundle.parse((sent[0]?.body as { bundle: unknown } | undefined)?.bundle);
     const find = saved.workflows[0]?.workflow.steps[0];
     expect(find?.kind === "skill" ? find.model : null).toEqual({ id: "claude-haiku-4-5" });
   });
