@@ -885,18 +885,33 @@ function checkConversation(c: Checker, step: ConversationStep) {
 // ── Steps ────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * Wave 5 review: a step's error message (`steps.<id>.error.message`, or the whole `error`) read
- * where it would leave us: a write's input, a conversation, an email or a text. Its text is the
- * row's error line, hidden only by a heuristic (`processes.plainError`), so it may carry what the
- * provider said back; only `error.code` goes there.
+ * Wave 5 review: a step's error message (`steps.<id>.error.message`, the whole `error`, or the
+ * whole step `steps.<id>`, which holds it) read where it would leave us: a write's input, a
+ * conversation, an email or a text, a skill's input (the model reads it, and the writes it
+ * proposes carry it), and a sub-process's input or a loop's list (a write inside reads them as
+ * `{{input...}}` or `{{item}}`). Its text is the row's error line, hidden only by a heuristic
+ * (`processes.plainError`), so it may carry what the provider said back; only `error.code` goes
+ * there.
  */
 // DECISION (wave 5 review): `error.message` reads only in conditions and in notices to the inbox
 // (people with a Mezonas account); `error.code` anywhere.
+// DECISION (wave 5 re-review): the same places refuse a whole step (`{{steps.<id>}}`), whatever
+// its onError, rather than following each value into the sub-process or the model: name the
+// field it needs (`steps.<id>.output…`, `steps.<id>.outcome`).
 function checkErrorMessage(c: Checker, nodeId: string, value: unknown, where: (string | number)[]) {
   for (const ref of collectRefs(value, where).refs) {
     const [head, id, f, sub] = ref.path;
-    if (head !== "steps" || !id || f !== "error" || (sub !== undefined && sub !== "message"))
+    if (head !== "steps" || !id) continue;
+    if (f === undefined) {
+      c.add(
+        nodeId,
+        field(ref.at),
+        "error_message_not_here",
+        `the whole step can't go here: it holds its error message, which may hold what the provider said back. Name the field it needs, like {{steps.${id}.output}}`,
+      );
       continue;
+    }
+    if (f !== "error" || (sub !== undefined && sub !== "message")) continue;
     c.add(
       nodeId,
       field(ref.at),
@@ -939,6 +954,7 @@ function checkToolStep(
 function checkSkillStep(c: Checker, step: Extract<Step, { kind: "skill" }>, scope: ProcessScope) {
   const { ctx } = c;
   checkRefs(c, step.id, step.input, ["input"], scope);
+  checkErrorMessage(c, step.id, step.input, ["input"]);
   const skill = lookupSkill(step.skill, ctx);
   if (ctx.skills && !skill) c.add(step.id, "skill", "unknown_skill", `no skill "${step.skill}"`);
   if (ctx.agent && step.agent === undefined) {
@@ -1041,6 +1057,7 @@ function innerSteps(def: AnyAutomationDefinition, ctx: TypingContext): Map<strin
 function checkSubProcess(c: Checker, step: SubProcessStep, scope: ProcessScope) {
   const { ctx } = c;
   checkRefs(c, step.id, step.input, ["input"], scope);
+  checkErrorMessage(c, step.id, step.input, ["input"]);
   const def = ctx.automations?.[step.process];
   if (ctx.automations && !def) {
     c.add(step.id, "process", "unknown_automation", `no process "${step.process}"`);
@@ -1256,6 +1273,7 @@ function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<str
       break;
     case "for_each":
       checkRefs(c, step.id, step.over, ["over"], scope);
+      checkErrorMessage(c, step.id, step.over, ["over"]);
       if (!compatible(["array"], valueTypes(c, step.over, scope))) {
         c.add(step.id, "over", "for_each_not_array", "for each needs a list to go over");
       }

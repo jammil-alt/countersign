@@ -286,6 +286,55 @@ describe("validation", () => {
     expect(errors(later(talk)).filter((e) => e.code === "error_message_not_here")).toEqual([
       { code: "error_message_not_here", stepId: "talk", field: "with" },
     ]);
+    // Wave 5 re-review: a sub-process's input (a write inside reads it as {{input.note}}), a
+    // skill's input (the model reads it), a loop's list, and the whole step anywhere it is
+    // refused (it holds the error).
+    const refused = (step: object) =>
+      errors(later(step)).filter((e) => e.code === "error_message_not_here");
+    const sub = (input: object) => ({
+      id: "sub",
+      name: "Sub",
+      kind: "process",
+      process: "check-the-bill@1",
+      input,
+    });
+    expect(refused(sub({ note: "{{steps.find.error.message}}" }))).toEqual([
+      { code: "error_message_not_here", stepId: "sub", field: "input.note" },
+    ]);
+    expect(refused(sub({ note: "{{steps.find}}" }))).toEqual([
+      { code: "error_message_not_here", stepId: "sub", field: "input.note" },
+    ]);
+    const skill = (input: object) => ({
+      id: "draft",
+      name: "Draft",
+      kind: "skill",
+      skill: "testkit.draft",
+      input,
+    });
+    expect(refused(skill({ why: "{{steps.find.error.message}}" }))).toEqual([
+      { code: "error_message_not_here", stepId: "draft", field: "input.why" },
+    ]);
+    expect(refused(skill({ all: "{{steps.find}}" }))).toEqual([
+      { code: "error_message_not_here", stepId: "draft", field: "input.all" },
+    ]);
+    const each = {
+      id: "each",
+      name: "Each",
+      kind: "for_each",
+      over: "{{steps.find.error}}",
+      steps: [{ id: "w", name: "W", kind: "wait", for: "1 hour" }],
+    };
+    expect(refused(each)).toEqual([
+      { code: "error_message_not_here", stepId: "each", field: "over" },
+    ]);
+    expect(refused(write({ memo: "{{steps.find}}" }))).toEqual([
+      { code: "error_message_not_here", stepId: "fix", field: "input.memo" },
+    ]);
+    // A field of the step's output and its code still go there.
+    expect(
+      refused(sub({ note: "{{steps.find.error.code}}", po: "{{steps.find.output}}" })),
+    ).toEqual([]);
+    expect(refused(skill({ code: "{{steps.find.error.code}}" }))).toEqual([]);
     // The code is a word of ours: it may go anywhere.
     expect(errors(later(write({ memo: "{{steps.find.error.code}}" })))).toEqual([]);
     expect(errors(later(notify("email", "Failed: {{steps.find.error.code}}")))).toEqual([]);
