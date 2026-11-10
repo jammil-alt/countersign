@@ -70,10 +70,17 @@ export interface ResolveOutcome {
   conversation?: { runId: string; type: string; payload: unknown } | null;
 }
 
+/** An event for a run, sent once the transaction commits. */
+export interface RunWake {
+  runId: string;
+  type: string;
+  payload: unknown;
+}
+
 /** Sends a resolution's events to its run: the item's own, and a conversation's beside it. */
 export async function sendResolution(
   instances: { sendEvent(runId: string, event: { type: string; payload: unknown }): Promise<void> },
-  outcome: Pick<ResolveOutcome, "resume" | "conversation">,
+  outcome: { resume?: RunWake | null | undefined; conversation?: RunWake | null | undefined },
 ): Promise<void> {
   const { resume, conversation } = outcome;
   if (resume)

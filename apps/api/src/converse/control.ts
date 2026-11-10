@@ -18,7 +18,7 @@ import { agentVersion, inboxItem, reachOut, run, stepRun, type Tx } from "@count
 import type { EventRow, EventTypeRegistry } from "@countersign/senses";
 import { and, asc, eq, like } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
-import { withCanSign } from "../inbox";
+import { type RunWake, withCanSign } from "../inbox";
 import { endReachOut, type ReachOutRow, reachOutEventType } from "../reach/service";
 import { closeItem } from "../step-in/service";
 import {
@@ -31,6 +31,7 @@ import {
   withHandover,
 } from "./service";
 import { ENDED, type StoredEvent, TAKEN_OVER } from "./views";
+import { conversationEventOfSubject } from "./wake";
 
 type RunRow = typeof run.$inferSelect;
 
@@ -145,9 +146,13 @@ export interface ControlInput {
   now: Date;
 }
 
-/** The event to send the run once the transaction commits, if it waits for one. */
+/**
+ * The events to send the run once the transaction commits, if it waits for one: the item's or the
+ * message's own (`resume`), and (wave 2c) the conversation's beside it (`sendResolution`).
+ */
 export interface ControlOutcome {
-  wake: { runId: string; type: string; payload: unknown } | null;
+  resume: RunWake | null;
+  conversation: RunWake | null;
 }
 
 export async function controlConversation(tx: Tx, input: ControlInput): Promise<ControlOutcome> {
@@ -259,9 +264,9 @@ export async function controlConversation(tx: Tx, input: ControlInput): Promise<
         .update(inboxItem)
         .set(assignee)
         .where(and(eq(inboxItem.id, item.id), eq(inboxItem.tenantId, tenantId)));
-      return { wake: null };
+      return { resume: null, conversation: null };
     }
-    return { wake: await close(item, false) };
+    return close(item, false);
   }
 
   // A message waiting for approval: it never goes. Taken over, its card is withdrawn (no one
@@ -272,7 +277,7 @@ export async function controlConversation(tx: Tx, input: ControlInput): Promise<
     if (!ended) throw new HttpError(409, "busy", "the conversation just moved on: look again");
     if (input.action === "take_over") await handOverTo(ended);
     else await savePlan(ended, withEvent(ended.plan));
-    return { wake: await close(item, false, input.action === "take_over") };
+    return close(item, false, input.action === "take_over");
   }
 
   // A message out (or held for quiet hours): its wait ends now; a late reply is kept in the
@@ -282,12 +287,11 @@ export async function controlConversation(tx: Tx, input: ControlInput): Promise<
     if (!ended) throw new HttpError(409, "busy", "the conversation just moved on: look again");
     if (input.action === "take_over") await handOverTo(ended);
     else await savePlan(ended, withEvent(ended.plan));
+    const payload = { reachOutId: ended.id };
+    const type = conversationEventOfSubject(ended.subject);
     return {
-      wake: {
-        runId: r.id,
-        type: reachOutEventType(ended.id),
-        payload: { reachOutId: ended.id },
-      },
+      resume: { runId: r.id, type: reachOutEventType(ended.id), payload },
+      conversation: type ? { runId: r.id, type, payload } : null,
     };
   }
 
