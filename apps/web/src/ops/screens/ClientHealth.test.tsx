@@ -48,25 +48,26 @@ function renderSection(api: ReturnType<typeof fakeApi>) {
 }
 
 describe("the client's health in the back office", () => {
-  it("adds the supervisor to a client that has none", async () => {
+  it('turns Sloan on for a client that has none (docs/plan.md §1.47 "On by default")', async () => {
     let added = false;
+    const on = { ...SUPERVISOR, runStatus: "active" };
     const api = fakeApi({
       [`GET /api/ops/clients/${CLIENT}/health`]: () => ({
-        supervisor: added ? SUPERVISOR : null,
+        supervisor: added ? on : null,
         summary: null,
         findings: [],
       }),
       [`POST /api/ops/clients/${CLIENT}/supervisor`]: () => {
         added = true;
-        return { supervisor: SUPERVISOR, created: true };
+        return { supervisor: on, created: true };
       },
     });
     renderSection(api);
-    await userEvent.click(await screen.findByTestId("ops-client-add-supervisor"));
+    const button = await screen.findByTestId("ops-client-add-supervisor");
+    expect(button).toHaveTextContent("Turn on Sloan");
+    await userEvent.click(button);
     await waitFor(() =>
-      expect(screen.getByTestId("ops-client-supervisor-state")).toHaveTextContent(
-        "Not active yet: draft",
-      ),
+      expect(screen.getByTestId("ops-client-supervisor-state")).toHaveTextContent("Watching"),
     );
     expect(api.calls).toContain(`POST /api/ops/clients/${CLIENT}/supervisor`);
     expect(screen.getByText("No daily check yet. It runs at 08:00 their time.")).toBeVisible();

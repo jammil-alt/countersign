@@ -32,6 +32,7 @@ import {
 import type { EventRow } from "@countersign/senses";
 import { and, count, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { sloanByDefault, withSloan } from "../account/sloan";
 // P-4
 import { runConversations } from "../converse/views";
 import { type AppEnv, ensureClient, HttpError, iso, mount, notFound, type Services } from "../http";
@@ -60,7 +61,7 @@ import {
 import { inviteToClient, withApprovals } from "./onboarding";
 import { canSignIn, sourcesOf } from "./portal";
 import { ensureFilterClients, runErrorGroups, runFilterWhere, runsPerDay } from "./run-controls";
-import { addSupervisor } from "./supervisor";
+import { turnOnSloan } from "./supervisor";
 
 /** The Sandbox client: `tenant.settings.sandbox` (docs/plan.md §1.2). */
 export function isSandbox(settings: Record<string, unknown>): boolean {
@@ -371,11 +372,14 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
         timezone,
         // Approval stays with the client's admin unless the operator delegates it (ARCHITECTURE §4);
         // unset reads as the client admin.
-        settings: withLanguage(
-          body.approvals
-            ? withApprovals({ connectors_offered: offered }, body.approvals)
-            : { connectors_offered: offered },
-          body.language,
+        settings: withSloan(
+          withLanguage(
+            body.approvals
+              ? withApprovals({ connectors_offered: offered }, body.approvals)
+              : { connectors_offered: offered },
+            body.language,
+          ),
+          body.supervisor !== false,
         ),
       })
       .returning();
@@ -398,11 +402,17 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
           { surface: "ops" },
         )
       : null;
-    // Onboarding offers the supervisor (docs/plan.md §1.28): forked and published, ready to test.
-    if (body.supervisor) {
-      await addSupervisor(tx, {
+    // Sloan, the account agent, is on from the start unless the operator unticked it (§1.47).
+    if (sloanByDefault(row.settings)) {
+      await turnOnSloan(tx, {
         tenantId: row.id,
         actorId: session.user.id,
+        actor: {
+          actorKind: "user",
+          actorUserId: session.user.id,
+          actorEmail: session.user.email,
+          actorRole: ctx.role,
+        },
         platform: services.platform,
       });
     }

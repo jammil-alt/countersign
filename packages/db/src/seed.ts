@@ -9,11 +9,16 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import {
+  ACCOUNT_AGENT_SERVICE_DESCRIPTION,
+  ACCOUNT_AGENT_SERVICE_NAME,
   type AgentBundle,
   batchKeyOf,
   bundleHash,
   DEFAULT_PERMISSIONS,
   explainWrite,
+  NO_WRITES_REASON,
+  SUPERVISOR_SLUG,
+  stagesPassed,
   startTrial,
   uuidv5,
   validateBundle,
@@ -22,6 +27,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { type Db, type Tx, withOperator } from "./client";
 import {
   agent,
+  agentChange,
   agentVersion,
   appUser,
   connection,
@@ -113,6 +119,8 @@ export interface SeedResult {
    * seed ran without `e2e`.
    */
   demoDesk: DemoDesk | null;
+  /** The Demo client's Sloan (`seedSloan`), or null when the supervisor template isn't there. */
+  sloan: string | null;
 }
 
 export interface SeedOptions {
@@ -262,12 +270,118 @@ export async function seed(db: Db, options: SeedOptions = {}): Promise<SeedResul
       await tx.update(agent).set({ liveVersionId: id }).where(eq(agent.id, template.agentId));
     }
 
+    const sloan = await seedSloan(tx, { tenantId: tenants.demo, operatorId: users.operator });
+
     const demoDesk = options.e2e
       ? await seedDemoDesk(tx, { tenantId: tenants.demo, adminId: users.demoAdmin })
       : null;
 
-    return { tenants, users, templates: seeded, demoDesk };
+    return { tenants, users, templates: seeded, demoDesk, sloan };
   });
+}
+
+// ── Sloan, on for the Demo client ─────────────────────────────────────────────────────────────────
+//
+// Every client has Sloan, the account agent, turned on by default (docs/plan.md §1.47 "On by
+// default"). The Worker does it with the registry (`turnOnSloan` in apps/api); the seed can't reach
+// the registry (packages/db is below packages/agents), so it writes the rows that call leaves, as
+// seed-demo.ts does for its agents: the supervisor template's live version forked in as v1,
+// published, active, and live with trial and signoff skipped ("no writes"), with the log the back
+// office shows. The Sandbox gets none: it has no client people, and Sloan answers only them.
+// DECISION: a client that has a Sloan already (from the back office, or an earlier seed) keeps it.
+
+/** Seeds the Demo client's Sloan; its agent id, or null when the template isn't there. */
+async function seedSloan(
+  tx: Tx,
+  input: { tenantId: string; operatorId: string },
+): Promise<string | null> {
+  const { tenantId, operatorId } = input;
+  const [template] = await tx
+    .select({ id: agent.id, role: agent.role, liveVersionId: agent.liveVersionId })
+    .from(agent)
+    .where(and(isNull(agent.tenantId), eq(agent.slug, SUPERVISOR_SLUG)));
+  if (!template?.liveVersionId) return null;
+  const [existing] = await tx
+    .select({ id: agent.id })
+    .from(agent)
+    .where(
+      and(
+        eq(agent.tenantId, tenantId),
+        eq(agent.templateId, template.id),
+        eq(agent.testCopy, false),
+      ),
+    )
+    .limit(1);
+  if (existing) return existing.id;
+  const [tv] = await tx
+    .select()
+    .from(agentVersion)
+    .where(eq(agentVersion.id, template.liveVersionId));
+  if (!tv) return null;
+
+  const agentId = await seedId(`sloan:${tenantId}`);
+  const versionId = await seedId(`sloan:${tenantId}:v1`);
+  const at = new Date().toISOString();
+  const inserted = await tx
+    .insert(agent)
+    .values({
+      id: agentId,
+      tenantId,
+      kind: "client",
+      slug: SUPERVISOR_SLUG,
+      name: tv.bundle.definition.identity.name,
+      role: template.role,
+      templateId: template.id,
+      linked: true,
+      serviceName: ACCOUNT_AGENT_SERVICE_NAME,
+      serviceDescription: ACCOUNT_AGENT_SERVICE_DESCRIPTION,
+      runStatus: "active",
+      stage: "live",
+      stageState: {
+        skipped: stagesPassed("bench", "live").map((stage) => ({
+          stage,
+          reason: NO_WRITES_REASON,
+          by: operatorId,
+          at,
+        })),
+      },
+    })
+    .onConflictDoNothing()
+    .returning({ id: agent.id });
+  // Another agent of the Demo client already has the slug: it keeps it, and no Sloan is seeded.
+  if (inserted.length === 0) return null;
+  await tx.insert(agentVersion).values({
+    id: versionId,
+    tenantId,
+    agentId,
+    version: 1,
+    bundle: tv.bundle,
+    bundleHash: tv.bundleHash,
+    status: "live",
+    changeNote: `Forked from ${SUPERVISOR_SLUG} v${tv.version}`,
+    authorType: "operator",
+    authorId: operatorId,
+    basedOnTemplateVersionId: tv.id,
+  });
+  await tx.update(agent).set({ liveVersionId: versionId }).where(eq(agent.id, agentId));
+  const changes: Record<string, unknown>[] = [
+    { kind: "fork", templateId: template.id, templateVersionId: tv.id },
+    { kind: "publish", versionId, version: 1, previousVersionId: null },
+    { kind: "run_status", before: "draft", after: "active" },
+    { kind: "stage", from: "bench", to: "live", reason: NO_WRITES_REASON },
+  ];
+  await tx.insert(agentChange).values(
+    await Promise.all(
+      changes.map(async (change) => ({
+        id: await seedId(`sloan:${tenantId}:change:${String(change.kind)}`),
+        tenantId,
+        agentId,
+        actorId: operatorId,
+        change,
+      })),
+    ),
+  );
+  return agentId;
 }
 
 // ── The Demo client's Desk: one change waiting for a signature, on the test kit only ─────────────

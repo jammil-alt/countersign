@@ -92,7 +92,7 @@ export const supervisorRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "Add the supervisor to a client: a fork of the template's live version, published, ready to test and activate",
+      "Add Sloan, the account agent, to a client and turn it on: a fork of the template's live version, published and active",
     params: z.object({ id: Id }),
     body: z.strictObject({}).default({}),
     response: z.object({ supervisor: SupervisorRef, created: z.boolean() }),
