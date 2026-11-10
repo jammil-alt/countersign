@@ -345,6 +345,10 @@ export function runtimeFor(
       ...(deps.documents ? { content: deps.documents.content } : {}),
     },
     ...(deps.covered ? { policy: hipaaToolPolicy(profileReader(db), deps.covered) } : {}),
+    // Skill model (2026-11-10): a platform tool that called a model without declaring
+    // `usesModel` is logged (its cost is recorded all the same); pack tools can't (packs.ts).
+    onUndeclaredModelCall: (toolId) =>
+      console.warn(JSON.stringify({ msg: "tool called a model without usesModel", toolId })),
     ...(deps.credentials ? { credentials: deps.credentials } : {}),
     ...(deps.now ? { now: deps.now } : {}),
     // Contacts and consent for messaging connectors, scoped to the connection's client; the

@@ -17,6 +17,7 @@ export const CONVERSE_TOOL = "comms.converse";
 
 export const converseTool = defineInternalTool({
   id: CONVERSE_TOOL,
+  usesModel: "each turn of the conversation is written by a model in the agent's voice",
   description:
     "Talk with a person until a goal is met. Runs only as a workflow step (comms.converse).",
   sideEffect: "internal",

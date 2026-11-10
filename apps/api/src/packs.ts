@@ -5,7 +5,7 @@
 
 import type { InternalTool, PackToolSource } from "@countersign/agents";
 import type { ContentStore } from "@countersign/connectors";
-import type { PackManifest } from "@countersign/core";
+import type { PackManifest, ToolSpec } from "@countersign/core";
 import type { Db, Tx } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import {
@@ -183,6 +183,19 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
   },
 ];
 
+/**
+ * The model transport a pack tool's call gets: the run's, only for a tool that declares
+ * `usesModel`; null for every other (its `llm` is null). The skill model's "hidden AI" is never
+ * unlabelled: a pack tool that calls a model without saying so has none to call.
+ */
+export function packToolTransport(
+  spec: Pick<ToolSpec, "usesModel">,
+  services: Readonly<Record<string, unknown>> | undefined,
+): LlmTransport | null {
+  if (spec.usesModel === undefined) return null;
+  return (services?.transport as LlmTransport | null | undefined) ?? null;
+}
+
 function adapt(tool: PackTool): InternalTool {
   return {
     spec: tool.spec,
@@ -191,7 +204,9 @@ function adapt(tool: PackTool): InternalTool {
     async run(input, ctx) {
       const db = ctx.packServices?.db as Db | undefined;
       if (!db) throw new Error(`${tool.spec.id} needs the run's database, which wasn't passed`);
-      const transport = (ctx.packServices?.transport as LlmTransport | null | undefined) ?? null;
+      // Skill model (2026-11-10): only a tool that declares it calls a model (`usesModel`) is
+      // handed one; every other pack tool gets `llm: null`, so it can't call a model unlabelled.
+      const transport = packToolTransport(tool.spec, ctx.packServices);
       // P-5: the client's document storage, for a document a pack tool makes (a purchase order).
       const content = (ctx.packServices?.content as ContentStore | null | undefined) ?? null;
       return tool.run(

@@ -239,6 +239,16 @@ async function dispatch(
     if (problem) return { status: "refused", reason: `${tool.spec.id}: ${problem}` };
   }
   if (tool.kind === "internal") {
+    // Skill model (2026-11-10): a tool that calls a model says so (`usesModel`); one that doesn't
+    // and records a model call's cost is reported (recorded all the same, so no cost is lost).
+    const modelUsed = () => {
+      if (tool.spec.usesModel !== undefined) return;
+      if (deps.onUndeclaredModelCall) deps.onUndeclaredModelCall(tool.spec.id);
+      else
+        deps.logger?.warn("tool called a model without declaring usesModel", {
+          toolId: tool.spec.id,
+        });
+    };
     // Platform and pack tools write only the platform's own records: `none` and `internal` run.
     const parsed = tool.tool.input.safeParse(input);
     if (!parsed.success)
@@ -275,15 +285,18 @@ async function dispatch(
       ask: step.ask,
       language: step.language,
       now: deps.now,
-      recordUsage: (usage) =>
-        deps.ports.log.addUsage(
+      // The cost is recorded first, then an undeclared call is reported: no cost is lost.
+      recordUsage: async (usage) => {
+        await deps.ports.log.addUsage(
           step.tenantId,
           { runId: step.runId, stepRunId: step.stepRunId },
           usage,
-        ),
+        );
+        modelUsed();
+      },
       // v0.12 W1-E: a tool's own model call (a document read) is the step's `model_call` too.
-      recordModelCall: (record, exchange) =>
-        recordModelCall(
+      recordModelCall: async (record, exchange) => {
+        await recordModelCall(
           deps.ports.modelCalls,
           step.tenantId,
           {
@@ -293,7 +306,9 @@ async function dispatch(
           },
           record,
           exchange,
-        ),
+        );
+        modelUsed();
+      },
     });
     const out = tool.tool.output.safeParse(raw);
     if (!out.success) return { status: "failed", error: `invalid output: ${out.error.message}` };
