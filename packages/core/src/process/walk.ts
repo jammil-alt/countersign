@@ -133,3 +133,42 @@ export function subProcessSteps(processes: readonly Walkable[]): SubProcessStep[
 export function subProcessRefs(processes: readonly Walkable[]): string[] {
   return [...new Set(subProcessSteps(processes).map((s) => s.process))];
 }
+
+/**
+ * Skill model (2026-11-10): a step list with some steps replaced, for a template's next version
+ * built from its last. `replace` answers the steps a step becomes (none: `[]`), or undefined to
+ * keep it; a kept if or for_each has its own steps replaced too. Ids are the caller's to keep.
+ */
+export function replaceSteps(
+  steps: readonly Step[],
+  replace: (step: Step) => Step[] | undefined,
+): Step[] {
+  return steps.flatMap((step): Step[] => {
+    const out = replace(step);
+    if (out !== undefined) return out;
+    if (step.kind === "if") {
+      return [
+        {
+          ...step,
+          paths: step.paths.map((p) => ({ ...p, steps: replaceSteps(p.steps, replace) })),
+          otherwise: { ...step.otherwise, steps: replaceSteps(step.otherwise.steps, replace) },
+        },
+      ];
+    }
+    if (step.kind === "for_each") return [{ ...step, steps: replaceSteps(step.steps, replace) }];
+    return [step];
+  });
+}
+
+/** Skill model (2026-11-10): the tools the processes' read and write steps call, each once. */
+export function processTools(processes: readonly Walkable[]): string[] {
+  const out = new Set<string>();
+  for (const p of processes) {
+    walkSteps(p, ({ step }) => {
+      if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
+        out.add(step.tool);
+      }
+    });
+  }
+  return [...out];
+}
