@@ -3,6 +3,7 @@ import {
   BrowserScriptDefinition,
   BrowserScriptSlug,
   RecorderAction,
+  SCRIPT_PROBLEM_CODES,
   ScriptInputDecl,
   ScriptOutputDecl,
   ScriptRecording,
@@ -45,36 +46,31 @@ export const BrowserScriptVersionView = PortalBrowserScriptVersionView.extend({
 });
 
 /**
- * Something that stops a recording from being saved: a code and its values for the portal to
- * word in the client's language, and our own words for the back office.
+ * The problem codes the API answers: core's (`scriptProblemList`, a definition's own problems) and
+ * the API's own, which need the recording or the site: nothing recorded, a definition that doesn't
+ * parse, a site gone from our catalogue, an address off the site's pages.
  */
-export const ScriptProblem = z.object({
-  code: z.enum([
-    "empty",
-    "invalid",
-    "duplicate_name",
-    "reserved_output",
-    "unknown_input",
-    "unknown_output",
-    "output_type",
-    "unused_input",
-    "unread_output",
-    "output_read_twice",
-    "submit_not_write",
-    "write_without_submit",
-    "submits_twice",
-    "submit_not_last",
-    "reverse_not_write",
-    "reverse_unknown_input",
-    "reverse_unknown_output",
-    "off_site",
-    "site_gone",
-    "other",
-  ]),
+export const SCRIPT_VIEW_PROBLEM_CODES = [
+  ...SCRIPT_PROBLEM_CODES,
+  "empty",
+  "invalid",
+  "site_gone",
+  "off_site",
+] as const;
+
+/**
+ * Something that stops a recording from being saved: a code and its values for the portal to
+ * word in the client's language, and our own words for the back office. Core's `ScriptProblem` is
+ * the definition's own; this is the API's view of any of them.
+ */
+// DECISION: one code list, core's plus the API's four, and no catch-all: a problem is always made
+// with its code (wave 4 integration review), never read back from its sentence.
+export const ScriptProblemView = z.object({
+  code: z.enum(SCRIPT_VIEW_PROBLEM_CODES),
   params: z.record(z.string(), z.string()),
   text: z.string(),
 });
-export type ScriptProblem = z.infer<typeof ScriptProblem>;
+export type ScriptProblemView = z.infer<typeof ScriptProblemView>;
 
 export const BrowserScriptView = z.object({
   id: z.string(),
@@ -89,7 +85,7 @@ export const BrowserScriptView = z.object({
   createdSide: z.enum(["operator", "client"]),
   recording: ScriptRecording,
   /** What stops the recording from being saved as it is (empty: it may be saved). */
-  problems: z.array(ScriptProblem),
+  problems: z.array(ScriptProblemView),
   /**
    * Whether the recording as it is now differs from the newest saved version (with none saved:
    * whether anything is recorded), so a version published is never mistaken for the recording.

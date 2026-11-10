@@ -726,6 +726,11 @@ export const ptBR: Messages = {
     "{name} do script que desfaz vem de {from}, que não é uma entrada",
   "scripts.problem.reverse_unknown_output":
     "{name} do script que desfaz vem de {from}, que não é uma saída",
+  "scripts.problem.invalid":
+    "a gravação não pode ser lida como script em {path}: grave essa etapa de novo",
+  "scripts.problem.site_gone": "este site não está mais no nosso catálogo",
+  "scripts.problem.off_site":
+    "a etapa {step} abre {url}, uma página que os agentes não podem abrir neste site",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · configuração",

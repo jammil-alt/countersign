@@ -52,11 +52,11 @@ import {
   recordingDefinition,
   recordingExamples,
   type ScriptLogin,
-  type ScriptProblem,
+  type ScriptProblemView,
   ScriptRecording,
   type ScriptStep,
   scriptInputSchema,
-  scriptProblems,
+  scriptProblemList,
   signInDecision,
 } from "@countersign/core";
 import { browserScript, browserScriptVersion, connection, type Tx, tenant } from "@countersign/db";
@@ -67,7 +67,7 @@ import { HttpError, notFound, type Services } from "../http";
 import { credentialsFor } from "../runs/execute";
 import { signerFor } from "../storage";
 import { browserRunOpener } from "./driver";
-import { invalidProblem, problemOf } from "./problems";
+import { emptyProblem, invalidProblem, offSiteProblem, siteGoneProblem } from "./problems";
 import { type BrowserDeps, RECORDER_SIGN_INS_PER_DAY, recorderBrowserServices } from "./services";
 import { catalogueForClient, pinnedSiteIn } from "./sites";
 
@@ -96,7 +96,9 @@ function recordingOf(row: Pick<ScriptRow, "recording">): ScriptRecording {
 function recordingAsDefinition(
   row: Pick<ScriptRow, "site" | "name">,
   recording: ScriptRecording,
-): { ok: true; definition: BrowserScriptDefinition } | { ok: false; problems: ScriptProblem[] } {
+):
+  | { ok: true; definition: BrowserScriptDefinition }
+  | { ok: false; problems: ScriptProblemView[] } {
   const parsed = BrowserScriptDefinition.safeParse(
     recordingDefinition(row.site, row.name, recording),
   );
@@ -110,11 +112,11 @@ function recordingAsDefinition(
 }
 
 /** What stops a recording from being saved as it is. */
-function problemsOf(row: ScriptRow, recording: ScriptRecording): ScriptProblem[] {
-  if (recording.steps.length === 0) return [problemOf("nothing is recorded yet")];
+function problemsOf(row: ScriptRow, recording: ScriptRecording): ScriptProblemView[] {
+  if (recording.steps.length === 0) return [emptyProblem()];
   const def = recordingAsDefinition(row, recording);
   if (!def.ok) return def.problems;
-  return scriptProblems(def.definition).map(problemOf);
+  return scriptProblemList(def.definition);
 }
 
 /** The scripts' views, newest first, with their clients' and sites' names. */
@@ -610,16 +612,16 @@ async function offSitePages(
   tx: Tx,
   conn: ConnectionRow,
   recording: ScriptRecording,
-): Promise<ScriptProblem[]> {
+): Promise<ScriptProblemView[]> {
   const config = BrowserConnectionConfig.parse(conn.config);
   const site = await pinnedSiteIn(tx, { slug: config.site, versionId: config.siteVersionId });
-  if (!site) return [problemOf("this site is no longer in our catalogue")];
+  if (!site) return [siteGoneProblem()];
   const values = recordingExamples(recording);
-  const problems: ScriptProblem[] = [];
+  const problems: ScriptProblemView[] = [];
   for (const s of recording.steps) {
     if (s.op !== "open" && s.op !== "download") continue;
     const check = checkBrowserUrl(fillScriptUrl(s.url, values), site.profile);
-    if (!check.ok) problems.push(problemOf(`step ${s.id} opens ${s.url}: ${check.reason}`));
+    if (!check.ok) problems.push(offSiteProblem(s.id, s.url, check.reason));
   }
   return problems;
 }

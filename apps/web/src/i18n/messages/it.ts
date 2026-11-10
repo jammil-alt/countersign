@@ -731,6 +731,11 @@ export const it: Messages = {
     "{name} dello script di annullamento viene da {from}, che non è un input",
   "scripts.problem.reverse_unknown_output":
     "{name} dello script di annullamento viene da {from}, che non è un output",
+  "scripts.problem.invalid":
+    "la registrazione non si legge come script in {path}: registra di nuovo quel passaggio",
+  "scripts.problem.site_gone": "questo sito non è più nel nostro catalogo",
+  "scripts.problem.off_site":
+    "il passaggio {step} apre {url}, una pagina che gli agenti non possono aprire su questo sito",
 
   // ── Webhooks ──
   "webhook.section": "Webhook · configurazione",

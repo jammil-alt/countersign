@@ -753,6 +753,11 @@ export const de: Messages = {
     "{name} des Rückgängig-Skripts kommt aus {from}, das keine Eingabe ist",
   "scripts.problem.reverse_unknown_output":
     "{name} des Rückgängig-Skripts kommt aus {from}, das keine Ausgabe ist",
+  "scripts.problem.invalid":
+    "die Aufnahme lässt sich bei {path} nicht als Skript lesen: nehmen Sie diesen Schritt neu auf",
+  "scripts.problem.site_gone": "diese Website ist nicht mehr in unserem Katalog",
+  "scripts.problem.off_site":
+    "Schritt {step} öffnet {url}, eine Seite, die Agenten auf dieser Website nicht öffnen dürfen",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · Einrichtung",

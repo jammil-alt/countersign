@@ -3006,20 +3006,16 @@ Websites screen's Scripts, the Library's and the builder's listings):
   after them. A recorded action reads in one, runs the browser outside any, and writes its step in a
   second; the pinned site is read inside the request's transaction (`pinnedSiteIn`). The API tests
   build the app on `{ max: 1 }` (`appDbMax`) for these routes and the undo tests.
-- DECISION (review fix): recording and tests sign in against an allowance of their own, 30 a day
-  per connection (`RECORDER_SIGN_INS_PER_DAY`, the connection's `recorderState`), never the agents'
-  daily cap; failures and the stop stay shared (the same account). This replaces "each action spends
-  a sign-in against the connection's daily cap" above: a held session lives inside one run's step,
+- DECISION (review fix, replaces "each action spends a sign-in against the connection's daily cap"
+  above): recording and tests sign in against an allowance of their own, 30 a day per connection
+  (`RECORDER_SIGN_INS_PER_DAY`, the connection's `recorderState`), never the agents' daily cap;
+  failures and the stop stay shared (the same account). A held session lives inside one run's step,
   and a Worker can't keep one between requests. Recording is refused (`code_every_sign_in`) on a
   login whose site asks for a second factor at every sign-in and doesn't keep its session.
 - DECISION (review fix): the back office's script view carries each saved version's definition
   (`versions[i].definition`) and `recordingDiffers` (the recording against the newest version, by
   canonical JSON; with none saved, whether anything is recorded); the portal's view leaves the
   definitions out (no portal response carries one). Publishing publishes the version number given.
-- DECISION (review fix): a script's problems are `{ code, params, text }`: the portal words them from
-  the code, the back office reads the text. Core's `scriptProblems` answers in words, so the API
-  reads the codes from its sentences (`apps/api/src/browser/problems.ts`, every sentence held by a
-  test); one it doesn't know is `other`.
 - DECISION (review fix): a recorded page that showed a vault value (the connector's `[hidden]` marker
   in its text, tables, fields or the value read) has its screenshot neither linked nor kept as the
   step's evidence (`screenshotWithheld: true`). A recorded action whose script changed while its
@@ -3065,6 +3061,12 @@ Websites screen's Scripts, the Library's and the builder's listings):
   input, each an empty string for the operator to fill or point at an earlier output. Typing the
   placed step's output per script (`scriptJsonSchemas`) needs the builder's typing context to know
   scripts and is left to the builder's own branch.
+- DECISION (integration): a script's problems are `{ code, params, text }` with one code list:
+  core's `SCRIPT_PROBLEM_CODES` (a definition's own, from `scriptProblemList`) and the API's four
+  that need the recording or the site (`empty`, `invalid`, `site_gone`, `off_site`, made with their
+  codes in `apps/api/src/browser/problems.ts`); no catch-all. The contract's type is
+  `ScriptProblemView` (core's `ScriptProblem` is the definition's own). The portal words every code
+  but `empty` (never shown: nothing is recorded) through `scripts.problem.<code>`.
 
 ## 2. Package layering
 

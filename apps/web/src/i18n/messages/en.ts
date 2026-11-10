@@ -705,6 +705,10 @@ export const en = {
     "the undo script's {name} comes from {from}, which isn't an input",
   "scripts.problem.reverse_unknown_output":
     "the undo script's {name} comes from {from}, which isn't an output",
+  "scripts.problem.invalid":
+    "the recording can't be read as a script at {path}: record that step again",
+  "scripts.problem.site_gone": "this site is no longer in our catalogue",
+  "scripts.problem.off_site": "step {step} opens {url}, a page agents may not open on this site",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · set up",

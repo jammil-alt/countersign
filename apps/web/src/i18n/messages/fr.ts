@@ -743,6 +743,11 @@ export const fr: Messages = {
     "{name} du script d’annulation vient de {from}, qui n’est pas une entrée",
   "scripts.problem.reverse_unknown_output":
     "{name} du script d’annulation vient de {from}, qui n’est pas une sortie",
+  "scripts.problem.invalid":
+    "l’enregistrement ne se lit pas comme un script à {path} : enregistrez cette étape à nouveau",
+  "scripts.problem.site_gone": "ce site n’est plus dans notre catalogue",
+  "scripts.problem.off_site":
+    "l’étape {step} ouvre {url}, une page que les agents ne peuvent pas ouvrir sur ce site",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · configuration",

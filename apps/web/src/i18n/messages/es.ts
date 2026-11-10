@@ -726,6 +726,11 @@ export const es: Messages = {
     "{name} del script que deshace viene de {from}, que no es una entrada",
   "scripts.problem.reverse_unknown_output":
     "{name} del script que deshace viene de {from}, que no es una salida",
+  "scripts.problem.invalid":
+    "la grabación no se puede leer como script en {path}: vuelva a grabar ese paso",
+  "scripts.problem.site_gone": "este sitio ya no está en nuestro catálogo",
+  "scripts.problem.off_site":
+    "el paso {step} abre {url}, una página que los agentes no pueden abrir en este sitio",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · configuración",

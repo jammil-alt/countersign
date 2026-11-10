@@ -8,7 +8,7 @@
 import {
   type RecorderActionInput,
   SCRIPT_PROBLEM_CODES,
-  type ScriptProblemCode,
+  type ScriptProblemView,
   type ScriptStep,
 } from "@countersign/core";
 import { type ReactNode, useState } from "react";
@@ -73,17 +73,24 @@ export function ScriptStateBadge({ script }: { script: Script }) {
  */
 type ProblemIn = string | { code?: unknown; params?: unknown; text?: unknown };
 
+/** The codes worded here: core's and the API's own ("empty" is never shown: nothing is recorded). */
+type WordedCode = Exclude<ScriptProblemView["code"], "empty">;
+const WORDED_CODES: readonly WordedCode[] = [
+  ...SCRIPT_PROBLEM_CODES,
+  "invalid",
+  "site_gone",
+  "off_site",
+];
 const PROBLEM_KEYS = Object.fromEntries(
-  SCRIPT_PROBLEM_CODES.map((code) => [code, `scripts.problem.${code}` as MessageKey]),
-) as Record<ScriptProblemCode, MessageKey>;
+  WORDED_CODES.map((code) => [code, `scripts.problem.${code}` as MessageKey]),
+) as Record<WordedCode, MessageKey>;
 
 /** A problem in the reader's language when it has a code we know, else the server's words. */
 export function problemWords(problem: ProblemIn, t: Translate): string {
   if (typeof problem === "string") return problem;
   const text = typeof problem.text === "string" ? problem.text : "";
   const code = typeof problem.code === "string" ? problem.code : null;
-  const key =
-    code && Object.hasOwn(PROBLEM_KEYS, code) ? PROBLEM_KEYS[code as ScriptProblemCode] : null;
+  const key = code && Object.hasOwn(PROBLEM_KEYS, code) ? PROBLEM_KEYS[code as WordedCode] : null;
   if (!key) return text;
   const params: Record<string, string> = {};
   if (problem.params && typeof problem.params === "object") {
@@ -435,9 +442,7 @@ export function ScriptRecorder({
         ) : script.problems.length > 0 && rec.steps.length > 0 ? (
           <p className="text-sm text-ink-muted" data-testid="script-problems">
             {t("scripts.problems", {
-              problems: (script.problems as readonly ProblemIn[])
-                .map((p) => problemWords(p, t))
-                .join("; "),
+              problems: script.problems.map((p) => problemWords(p, t)).join("; "),
             })}
           </p>
         ) : null}
