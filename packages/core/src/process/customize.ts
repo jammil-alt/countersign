@@ -2,17 +2,25 @@
 // The step may change the skill's settings, add instructions (appended, never replacing), add or
 // edit rule rows, pick the model and keep only some output fields. It never changes what the skill
 // is: its method, its input and output types, its core instructions, its tools or what it reads.
+//
+// Settings, lowest to highest: the skill's own defaults, the agent's settings for the skill (its
+// `skills[].settings`), the step's own `settings`, then the step's customization. A step is the
+// most specific place, so what it sets wins; `customizeSkill` returns the customization's settings
+// apart so the executor layers them last (`stepSkillSettings`).
 
 import { z } from "zod";
+import type { JsonSchema } from "../schemas/common";
 import { Rules } from "../schemas/rules";
 import {
   ModelChoice,
+  resolveSkillSettings,
   SkillDefinition,
   SkillRule,
   SkillRuleId,
   type SkillSetting,
   skillMethod,
 } from "../schemas/skill";
+import { schemaTypes } from "../template/typer";
 
 /** A rule row the step edits, by id: the fields given replace the row's. */
 export const SkillRuleEdit = z.strictObject({
@@ -90,6 +98,47 @@ function settingProblem(s: SkillSetting, value: unknown): string | null {
   }
 }
 
+// One copy, shared with the validators (workflow/validate.ts re-exports them): defined here because
+// this file is loaded while the schemas are (process/schema imports it), so it can't import them.
+/** The JSON type of a literal value (`integer` for a whole number). */
+export function jsonTypeOf(v: unknown): string {
+  if (v === null) return "null";
+  if (Array.isArray(v)) return "array";
+  if (typeof v === "number") return Number.isInteger(v) ? "integer" : "number";
+  return typeof v;
+}
+
+/** Whether a value of the `actual` types fits a field of the `accepted` (unknown fits anything). */
+export function typesCompatible(accepted: string[], actual: string[]): boolean {
+  if (accepted.length === 0 || actual.length === 0) return true;
+  return actual.some(
+    (t) => accepted.includes(t) || (t === "integer" && accepted.includes("number")),
+  );
+}
+
+/** Why a rule row can't set `key` to `value` in this output; null when it can. */
+function setProblem(
+  id: string,
+  key: string,
+  value: unknown,
+  props: Record<string, unknown>,
+): string | null {
+  if (!Object.hasOwn(props, key)) return `rule ${id} sets ${key}, not an output field`;
+  const prop = props[key] as JsonSchema;
+  const accepted = schemaTypes(prop);
+  const actual = jsonTypeOf(value);
+  if (!typesCompatible(accepted, [actual])) {
+    return `rule ${id} sets ${key} to ${actual === "integer" ? "number" : actual}, but it is ${accepted.join(" or ")}`;
+  }
+  if (
+    Array.isArray(prop.enum) &&
+    !prop.enum.some((e) => JSON.stringify(e) === JSON.stringify(value))
+  ) {
+    return `rule ${id} sets ${key} to a value it can't take (${prop.enum.map((e) => JSON.stringify(e)).join(", ")})`;
+  }
+  return null;
+}
+
 interface Applied {
   definition: SkillDefinition | null;
   problems: string[];
@@ -157,14 +206,6 @@ function apply(def: SkillDefinition, raw: unknown): Applied {
       if (index.has(r.id)) problems.push(`rule ${r.id} is already there; edit it instead`);
       else index.set(r.id, rows.push(r) - 1);
     }
-    // A rule sets output fields, so it can only name fields the output has (when it says).
-    if (fields) {
-      for (const r of [...(c.rules.add ?? []), ...(c.rules.edit ?? [])]) {
-        for (const k of Object.keys(r.set ?? {})) {
-          if (!fields.includes(k)) problems.push(`rule ${r.id} sets ${k}, not an output field`);
-        }
-      }
-    }
     out.rules = rows;
   }
 
@@ -192,6 +233,20 @@ function apply(def: SkillDefinition, raw: unknown): Applied {
     }
   }
 
+  // A rule sets output fields, so a row the step adds or edits can only name fields the output
+  // has after `keep` (when it says), each with a value of the field's type.
+  // DECISION: the skill's own rows aren't held to `keep`: a field a step drops is dropped from
+  // what the row sets too. Only the rows the step writes are its to get right.
+  const props = out.output.properties;
+  if (c.rules && props && typeof props === "object" && !Array.isArray(props)) {
+    for (const r of [...(c.rules.add ?? []), ...(c.rules.edit ?? [])]) {
+      for (const [k, v] of Object.entries(r.set ?? {})) {
+        const problem = setProblem(r.id, k, v, props as Record<string, unknown>);
+        if (problem) problems.push(problem);
+      }
+    }
+  }
+
   if (problems.length > 0) return { definition: null, problems };
   // The result is a skill like any other: the same checks hold (unique rules, method and mode).
   const checked = SkillDefinition.safeParse(out);
@@ -204,6 +259,50 @@ function apply(def: SkillDefinition, raw: unknown): Applied {
 /** Why a customization can't apply to this skill; empty when it can. */
 export function customizationProblems(def: SkillDefinition, customization: unknown): string[] {
   return apply(def, customization).problems;
+}
+
+/** A skill as one step runs it, and the settings its customization sets (layered last). */
+export interface CustomizedSkill {
+  /**
+   * The definition with the customization applied (its settings' defaults show the step's
+   * values, so the builder shows them).
+   */
+  definition: SkillDefinition;
+  /** The customization's own settings, by key: the executor layers them over every other. */
+  settings: Record<string, unknown>;
+}
+
+/**
+ * The skill as this step runs it, with the customization's settings apart. Throws
+ * `SkillCustomizationError` as `applyCustomization` does.
+ */
+export function customizeSkill(
+  def: SkillDefinition,
+  customization: SkillCustomization | undefined,
+): CustomizedSkill {
+  return {
+    definition: applyCustomization(def, customization),
+    settings: { ...(customization?.settings ?? {}) },
+  };
+}
+
+/**
+ * The settings a skill step runs with: the skill's defaults, under the agent's settings for the
+ * skill, under the step's `settings`, under the customization's (highest).
+ */
+export function stepSkillSettings(
+  skill: Pick<SkillDefinition, "settings">,
+  layers: {
+    agent?: Record<string, unknown> | undefined;
+    step?: Record<string, unknown> | undefined;
+    customization?: Record<string, unknown> | undefined;
+  },
+): Record<string, unknown> {
+  return resolveSkillSettings(skill, {
+    ...(layers.agent ?? {}),
+    ...(layers.step ?? {}),
+    ...(layers.customization ?? {}),
+  });
 }
 
 /**

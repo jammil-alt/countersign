@@ -9,6 +9,7 @@ import { validateClientView } from "../kpi/validate";
 import { levelFor } from "../permissions/decide";
 // v0.14 W4-B
 import { type EntityGrant, entityOffBy, publishEntity } from "../permissions/entities";
+import { jsonTypeOf, typesCompatible } from "../process/customize";
 import { compileRule, RuleCompileError } from "../rules/compile";
 import {
   type AgentBundle,
@@ -257,20 +258,11 @@ function schemaErrors(
   });
 }
 
-function literalType(v: unknown): string {
-  if (v === null) return "null";
-  if (Array.isArray(v)) return "array";
-  if (typeof v === "number") return Number.isInteger(v) ? "integer" : "number";
-  return typeof v;
-}
+// The JSON type helpers live with the skill customization (process/customize.ts), which checks a
+// rule row's values with them; it can't import this file (schemas/agent → process/schema →
+// customize → here → schemas/agent would be a cycle).
+export { jsonTypeOf, typesCompatible };
 
-/** Whether a value of the `actual` types fits a field of the `accepted` (unknown fits anything). */
-export function typesCompatible(accepted: string[], actual: string[]): boolean {
-  if (accepted.length === 0 || actual.length === 0) return true;
-  return actual.some(
-    (t) => accepted.includes(t) || (t === "integer" && accepted.includes("number")),
-  );
-}
 const compatible = typesCompatible;
 
 interface Checker extends RefChecker<Scope> {
@@ -340,7 +332,7 @@ export function valueTypes<S>(c: RefChecker<S>, value: unknown, scope: S): strin
     const t = c.typePath(scope, path);
     return t.ok ? schemaTypes(t.schema) : [];
   }
-  return [literalType(value)];
+  return [jsonTypeOf(value)];
 }
 
 /** A step's input against its tool's or skill's input schema: required, known, typed. */
