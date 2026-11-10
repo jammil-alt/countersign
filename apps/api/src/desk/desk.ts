@@ -32,6 +32,7 @@ import {
   readApproverRuleSet,
   routeApproval,
   snoozeUntil,
+  stepNodeOf,
   type TeamMember,
   undoSecondsOf,
   withUndoSeconds,
@@ -228,7 +229,9 @@ async function routeFor(
     .from(agentVersion)
     .where(and(eq(agentVersion.id, r.versionId), eq(agentVersion.tenantId, input.tenantId)));
   const payload = isPlainObject(input.item.payload) ? input.item.payload : {};
-  const leaf = typeof payload.stepId === "string" ? (payload.stepId.split(":").at(-1) ?? "") : "";
+  // A retried or helped write's node carries a suffix (`<node>:o1`, `<node>:h1`): the step is
+  // the node before it (core's stepNodeOf), so its own approvers still decide.
+  const leaf = typeof payload.stepId === "string" ? stepNodeOf(payload.stepId).node : "";
   const workflow = v?.bundle.workflows.find((w) => w.slug === r.slug)?.workflow;
   // Wave 3b: a v3 step's own approver, or a v4 step's first approver (core's rule for both).
   const step = workflow ? findNodeStep(workflow, leaf) : undefined;

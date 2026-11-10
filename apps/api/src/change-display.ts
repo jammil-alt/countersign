@@ -9,6 +9,7 @@ import {
   isPlainObject,
   type Locale,
   pickLocalized,
+  stepNodeOf,
 } from "@countersign/core";
 import { agentVersion, run, type Tx } from "@countersign/db";
 import { and, inArray } from "drizzle-orm";
@@ -120,7 +121,8 @@ export async function clientTitles(
     const nodeId = (i.payload as { stepId: string }).stepId;
     // A step inside a loop is named `${loop}:${index}:${childId}`.
     // Wave 3b: a v3 workflow's or a v4 process's step alike.
-    const step = workflow ? findNodeStep(workflow.workflow, nodeId) : undefined;
+    // A retried or helped write's node carries a suffix (`<node>:o1`): read the step before it.
+    const step = workflow ? findNodeStep(workflow.workflow, stepNodeOf(nodeId).node) : undefined;
     if (step) out.set(i.id, clientLabel(step));
   }
   return out;

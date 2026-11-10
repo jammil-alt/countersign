@@ -674,6 +674,23 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
             title: "Approve a change",
             payload: { tool: TESTKIT_UPDATE_TOOL, stepId: "each:0:recheck" },
           },
+          // A write retried with a corrected input, or run again after help, keeps its step.
+          {
+            id: "item-3",
+            kind: "external_action",
+            tenantId: A(),
+            runId,
+            title: "Approve a change",
+            payload: { tool: TESTKIT_UPDATE_TOOL, stepId: "fix:o1" },
+          },
+          {
+            id: "item-4",
+            kind: "external_action",
+            tenantId: A(),
+            runId,
+            title: "Approve a change",
+            payload: { tool: TESTKIT_UPDATE_TOOL, stepId: "each:0:recheck:h1" },
+          },
         ],
         H.platform,
       ),
@@ -681,6 +698,8 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
     expect(Object.fromEntries(titles)).toEqual({
       "item-1": "Corrected the record",
       "item-2": "Read it again",
+      "item-3": "Corrected the record",
+      "item-4": "Read it again",
     });
 
     // The back office's run lists name the step a run failed at, a check of it too.
