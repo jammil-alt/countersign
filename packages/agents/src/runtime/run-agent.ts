@@ -702,9 +702,10 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   // escalates, since asking again would only spend more.
   const overBudget = (reason: "max_steps" | "max_cost"): Promise<AgentResult> =>
     scope ? helpNeeded(scope.budgetReached()) : escalate(reason);
-  // A normal finish: the scope keeps what worked (paths, a draft), then the step finishes.
+  // A normal finish: the scope keeps what worked (paths, a draft), then the step finishes. That
+  // bookkeeping never fails an answer the skill already gave (its writes log their own failures).
   const succeed = async (value: unknown): Promise<AgentResult> => {
-    if (scope) await finishScope(deps, step, scope);
+    if (scope) await finishScope(deps, step, scope).catch(() => undefined);
     return finish(value);
   };
 
