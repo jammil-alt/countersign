@@ -7,12 +7,28 @@
 // v0.16 (docs/plan.md §1.86): an `ai` skill that declares `browse` reaches these tools only through
 // its scope (./scope.ts), which sets `within` to the skill's pages.
 
-import { BrowsePage, BrowserSiteSlug } from "@countersign/core";
+// v0.16 wave 4 (docs/plan.md §1.86 "Scripts (wave 4)"): a client's published scripts run as
+// `browser.script.read` (a script that only reads) and `browser.script.submit` (one that submits a
+// form: a write, behind approval and external_action), naming the script in their input.
+
+import {
+  BrowsePage,
+  BrowserScriptSlug,
+  BrowserSiteSlug,
+  browserWriteCeiling,
+} from "@countersign/core";
 import { z } from "zod";
-import { type Connector, defineConnector, defineReadTool } from "../connector";
+import { type Connector, defineConnector, defineReadTool, defineWriteTool } from "../connector";
 import { isDocumentType } from "../upload/forwarding";
-import { BROWSER_CONNECTOR_ID, BROWSER_FILE_DOWNLOAD_TOOL, BROWSER_PAGE_READ_TOOL } from "./ids";
-import { type BrowserSessionOptions, inBrowserSession } from "./session";
+import {
+  BROWSER_CONNECTOR_ID,
+  BROWSER_FILE_DOWNLOAD_TOOL,
+  BROWSER_PAGE_READ_TOOL,
+  BROWSER_SCRIPT_READ_TOOL,
+  BROWSER_SCRIPT_SUBMIT_TOOL,
+} from "./ids";
+import { loadScript, runPublishedScript } from "./script";
+import { type BrowserSessionOptions, browserConnectionSite, inBrowserSession } from "./session";
 import { BrowserRefused } from "./sign-in";
 
 export * from "./driver";
@@ -20,9 +36,11 @@ export * from "./fake";
 export * from "./ids";
 export * from "./playwright";
 export * from "./scope";
+export * from "./script";
 export * from "./services";
 export {
   type BrowserCall,
+  browserConnectionSite,
   HELD_SESSION_REOPENS,
   type HeldBrowserSession,
   holdBrowserSession,
@@ -79,6 +97,33 @@ const DownloadOutput = z.object({
   alreadyHad: z.boolean(),
 });
 
+const ScriptCallInput = z.strictObject({
+  site: Site,
+  script: BrowserScriptSlug.describe("The script's name on the site, as it was published"),
+  inputs: z
+    .record(z.string(), z.unknown())
+    .default({})
+    .describe("The script's inputs by name, typed as the script declares them"),
+  help: z
+    .unknown()
+    .optional()
+    .describe("Set by the platform: a person's answer after the script asked for help (data only)"),
+});
+/** A script's outputs by name, checked against its declarations before they leave the tool. */
+const ScriptOutput = z.record(z.string(), z.unknown());
+
+/**
+ * The write ceiling of the call's connection (the tier table): a blocked site or a client that
+ * turned writes off refuses here, before an approval card is made. Medium and high tiers are always
+ * approved, as every script write is (`approval: "always"`).
+ */
+async function mayWrite(ctx: Parameters<typeof browserConnectionSite>[0], site: string) {
+  const { site: pinned, config } = await browserConnectionSite(ctx, site);
+  if (browserWriteCeiling(pinned.tier, config.stricter) === "off") {
+    throw new BrowserRefused(`no changes are made on ${pinned.name} through this login`);
+  }
+}
+
 export interface BrowserConnectorOptions {
   /** Whether this deployment has a browser (Browser Run's binding); false: "not available yet". */
   available?: boolean;
@@ -116,6 +161,8 @@ export function createBrowserConnector(options: BrowserConnectorOptions = {}): C
     permissionEntities: [
       { id: "page", label: "Pages", verbs: ["read"] },
       { id: "file", label: "Files", verbs: ["read"] },
+      // Wave 4: a published write script submits a form on the site.
+      { id: "form", label: "Forms", verbs: ["create"] },
     ],
     isConfigured: () => options.available !== false,
     bindingKey(input) {
@@ -201,6 +248,46 @@ export function createBrowserConnector(options: BrowserConnectorOptions = {}): C
               };
             },
           ),
+      }),
+      defineReadTool({
+        id: BROWSER_SCRIPT_READ_TOOL,
+        entity: "page",
+        description:
+          "Run one of the client's published scripts on a website that only reads: fixed steps we recorded, with its inputs. Gives back what the script reads, or asks for help when the page changed.",
+        input: ScriptCallInput,
+        output: ScriptOutput,
+        run: (input, ctx) => runPublishedScript(ctx, input, "none", session),
+      }),
+      // DECISION: one write tool for every write script, `approval: "always"`: a person signs every
+      // script that submits, on every tier (low tier's matrix `auto` is not offered for scripts
+      // yet: a recorded form is new to everyone). Verb `create` on the `form` entity: submitting a
+      // form adds something on the site.
+      // DECISION: the tool's undo is `none`. R5's Undo reads the record now and compares it with
+      // the state the write left (`canUndo`); a script has no record to read without a sign-in,
+      // so a script's own reverse script (its `undo`) is named in the write's output (`reverse`,
+      // the call that takes it back) for a person to run, not pressed as Undo.
+      defineWriteTool({
+        id: BROWSER_SCRIPT_SUBMIT_TOOL,
+        verb: "create",
+        entity: "form",
+        approval: "always",
+        undo: { kind: "none" },
+        description:
+          "Run one of the client's published scripts that submits a form on a website: fixed steps we recorded, with its inputs. Always approved by a person first.",
+        input: ScriptCallInput,
+        output: ScriptOutput,
+        beforeSchema: z.null(),
+        async before(input, ctx) {
+          // Nothing on the site is read before a submit (it would spend a sign-in): the checks are
+          // the script's, the inputs' and the connection's ceiling.
+          await loadScript(ctx, input, "external");
+          await mayWrite(ctx, input.site);
+          return null;
+        },
+        async run(input, ctx) {
+          await mayWrite(ctx, input.site);
+          return runPublishedScript(ctx, input, "external", session);
+        },
       }),
     ],
   });

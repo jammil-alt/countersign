@@ -22,6 +22,17 @@ export interface BrowserTable {
   rows: string[][];
 }
 
+/**
+ * Something a person recording a script may fill or click (docs/plan.md §1.86 "Scripts"): a field,
+ * a list, a button or a link, with a selector that finds it again and the words that name it.
+ * Password, hidden and one-time-code fields are never listed.
+ */
+export interface BrowserControl {
+  selector: string;
+  kind: "field" | "select" | "button" | "link";
+  label: string;
+}
+
 export interface BrowserDownload {
   bytes: Uint8Array;
   /** From Content-Disposition, else the last part of the path. */
@@ -51,6 +62,13 @@ export interface BrowserTab {
   readText(): Promise<string>;
   /** The page's tables, with the same removals as `readText`. */
   readTables(): Promise<BrowserTable[]>;
+  /**
+   * The text of the first element `selector` names, with the same removals as `readText` (a field
+   * reads as its value); null when nothing matches. Absent: a script can't read single fields.
+   */
+  textOf?(selector: string): Promise<string | null>;
+  /** The page's visible fields, lists, buttons and links (at most 200), for the recorder. */
+  controls?(): Promise<BrowserControl[]>;
   /** Fetches a file as the signed-in tab would (same cookies). */
   download(url: string): Promise<BrowserDownload>;
   cookies(): Promise<BrowserCookie[]>;

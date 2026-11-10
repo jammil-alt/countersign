@@ -10,6 +10,7 @@ import type {
   ClaimResult,
   OpenWaitResult,
   PinnedBrowserSite,
+  PublishedBrowserScript,
 } from "@countersign/core";
 import type { z } from "zod";
 import type { BrowserTab } from "./driver";
@@ -43,8 +44,16 @@ export interface BrowserSessionRecord {
   signIn: "fresh" | "kept_session" | "none";
   /** Pages opened after sign-in, in order (sign-in pages are not listed or recorded). */
   pages: string[];
-  /** What the agent did after sign-in: read a page, downloaded a file. */
-  actions: { kind: "read" | "download"; url: string; documentId?: string }[];
+  /**
+   * What was done after sign-in: read a page, downloaded a file; a script's or a recording's fills
+   * and clicks name the element, never the value typed.
+   */
+  actions: {
+    kind: "read" | "download" | "fill" | "click";
+    url: string;
+    documentId?: string;
+    selector?: string;
+  }[];
   /** Storage keys of the screenshots taken after sign-in. */
   screenshots: string[];
   outcome: "done" | "failed" | "stopped";
@@ -89,6 +98,12 @@ export interface BrowserServices {
   saveScreenshot(png: Uint8Array): Promise<string>;
   /** The session's record, on the connection's log. */
   record(session: BrowserSessionRecord): Promise<void>;
+  /**
+   * The connection's client's published script on this site by its slug (scripted site tools,
+   * docs/plan.md §1.86): the version the operator published; null when there is none (a draft
+   * never runs). Absent: this deployment has no scripts.
+   */
+  script?(slug: string): Promise<PublishedBrowserScript | null>;
   /** Waiting between claims (tests pass a fast one). */
   sleep?(ms: number): Promise<void>;
 }
