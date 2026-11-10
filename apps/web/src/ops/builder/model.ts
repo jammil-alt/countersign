@@ -312,6 +312,16 @@ export type PaletteItem =
       /** Wave 4: the step's input as placed (a client's recorded script names itself). */
       input?: JsonObject;
     }
+  // Skill model (2026-11-10): an action write step, resolved from the agent's bindings at run time.
+  | {
+      type: "action";
+      key: string;
+      title: string;
+      detail: string;
+      action: processes.WriteAction;
+      /** The step's input as placed: pre-mapped from the skill step before it. */
+      input?: JsonObject;
+    }
   // A process (today's automation, a pinned `slug@version`), placed as one step.
   | { type: "process"; key: string; title: string; detail: string; ref: string }
   | { type: "person"; key: string; title: string; detail: string; mode: "approve" | "ask" }
@@ -370,6 +380,16 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
         tool: item.tool.id,
         input: item.input ?? {},
         ...(item.tool.sideEffect === "external" ? { checks: { approval: defaultApproval() } } : {}),
+      };
+    // Skill model: every action is external, so its approval starts on (invariant 8).
+    case "action":
+      return {
+        id,
+        kind: "write",
+        name: item.title,
+        action: item.action,
+        input: item.input ?? {},
+        checks: { approval: defaultApproval() },
       };
     case "process":
       // Its inner steps keep their own approvals (on by default); the step overrides none.
@@ -467,13 +487,94 @@ export function allowStep(
       definition: { ...def, skills: [...def.skills, { skill: step.skill, settings: {} }] },
     };
   }
+  // An action write step names no tool: it brings its resolved tool in when it runs.
   if (
     (step.kind === "read" || step.kind === "write") &&
+    step.tool !== undefined &&
     !allowedTools(bundle, ctx).has(step.tool)
   ) {
     return { ...bundle, definition: { ...def, extraTools: [...def.extraTools, step.tool] } };
   }
   return bundle;
+}
+
+// ── Actions (skill model, 2026-11-10) ────────────────────────────────────────────────────────────
+
+/** The palette item for an action, with its input when pre-mapped. */
+export function actionItem(action: processes.WriteAction, input?: JsonObject): PaletteItem {
+  const spec = processes.ACTION_SPECS[action];
+  return {
+    type: "action",
+    key: `action:${action}`,
+    title: spec.label,
+    detail: spec.description,
+    action,
+    ...(input ? { input } : {}),
+  };
+}
+
+/**
+ * What an action write step will use for this agent: a client agent's resolved tool and system
+ * ("Create bill · in QuickBooks"), or why it can't tell (a template, a message channel the
+ * browser doesn't see, a problem with the bindings).
+ */
+export interface ActionTarget {
+  /** The tool it resolves to, when known here. */
+  tool: string | null;
+  /** One sentence for the inspector. */
+  text: string;
+  /** The bindings don't resolve it: publish will refuse. */
+  problem: boolean;
+}
+
+export function actionTarget(
+  step: Pick<processes.WriteStep, "action" | "via">,
+  env: Pick<ApprovalEnv, "agentKind" | "matrices" | "connectorName">,
+): ActionTarget | null {
+  if (step.action === undefined) return null;
+  const spec = processes.ACTION_SPECS[step.action];
+  if ("channel" in spec.from) {
+    const kind = spec.from.channel === "email" ? "email address" : "number";
+    return {
+      tool: null,
+      text: `Sends from the agent's own ${kind}, else the account's, when it runs.`,
+      problem: false,
+    };
+  }
+  if (env.agentKind === "template") {
+    return {
+      tool: null,
+      text: "Uses each client's accounting connection: QuickBooks or BILL.",
+      problem: false,
+    };
+  }
+  const r = processes.resolveActionConnector(step.action, step.via, {
+    bound: Object.keys(env.matrices),
+  });
+  if (!r) return null;
+  if (!r.ok) return { tool: null, text: r.message, problem: true };
+  return {
+    tool: r.tool,
+    text: processes.actionStepLabel(step.action, r.connector),
+    problem: false,
+  };
+}
+
+/**
+ * Puts an action write step right after `stepId` (the builder's offer after a skill whose output
+ * fits), its input pre-mapped from that step's output. Null when the step isn't in the process.
+ */
+export function addActionAfter(
+  process: Process,
+  stepId: string,
+  fit: processes.ActionFit,
+  ctx: TypingContext,
+  newId: NewId = uuidv7,
+): { process: Process; stepId: string } | null {
+  const loc = locate(process, stepId);
+  if (!loc) return null;
+  const step = createStep(actionItem(fit.action, fit.input), ctx, newId);
+  return { process: insertStep(process, loc.container, loc.index + 1, step), stepId: step.id };
 }
 
 // ── Approvals ────────────────────────────────────────────────────────────────────────────────────
@@ -547,6 +648,27 @@ export function isLoosened(approval: ApprovalCheck | undefined): boolean {
  * tool.
  */
 export function approvalOption(step: Step, env: ApprovalEnv): ApprovalOption | null {
+  // Skill model: an action always writes; it may be loosened only where it resolves here to a
+  // tool whose bound connection allows it (templates and message channels keep approval on).
+  if (step.kind === "write" && step.action !== undefined) {
+    const target = actionTarget(step, env);
+    const tool = target?.tool ? env.ctx.tools?.[target.tool] : undefined;
+    const approval = step.checks?.approval;
+    const required = approval?.required !== "not_required";
+    const reason = tool
+      ? looseningBlocked([tool], env)
+      : env.agentKind === "template"
+        ? looseningBlocked([], env)
+        : "Which connection it uses is known only when it runs, so it waits for a person.";
+    const canSkip = reason === null;
+    return {
+      writes: tool ? [tool] : [],
+      canSkip,
+      reason,
+      automatic: canSkip && !required,
+      required,
+    };
+  }
   const writes = processes.stepWrites(step, env.ctx);
   if (!writes || writes.length === 0) return null;
   const approval = step.checks?.approval;

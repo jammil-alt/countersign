@@ -263,13 +263,23 @@ export function processStepDetail(step: ProcessStep, labels: StepLabels = {}): s
       // DECISION (web, wave 3b): without a tool registry at hand (the read-only step lists), an
       // unchecked write reads "needs approval": the safe side, as core counts an unknown tool as
       // an external write.
+      // Skill model: an action write step names what it does; its system is the agent's.
+      if (step.action !== undefined) {
+        const waits = approval ? approval.required === "required" : true;
+        return [
+          processes.ACTION_SPECS[step.action].label,
+          step.via ? labels.connector?.(step.via) : null,
+          waits ? "needs approval" : "on its own",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      }
+      const tool = step.tool as string;
       const waits = approval
         ? approval.required === "required"
-        : labels.changesClientTool?.(step.tool) !== false;
+        : labels.changesClientTool?.(tool) !== false;
       const words = waits ? "needs approval" : approval ? "on its own" : null;
-      return [labels.connector?.(step.tool), toolLabel(step.tool), words]
-        .filter(Boolean)
-        .join(" · ");
+      return [labels.connector?.(tool), toolLabel(tool), words].filter(Boolean).join(" · ");
     }
     case "person":
       return `${step.mode === "approve" ? "Approve" : "Ask"} · ${whoText(step.assignee, labels)} · ${deadlineText(step.deadline)}`;

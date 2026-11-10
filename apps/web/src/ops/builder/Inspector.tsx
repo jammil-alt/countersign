@@ -47,6 +47,7 @@ import {
 } from "./fields";
 import {
   type ApprovalEnv,
+  actionTarget,
   type IfPath,
   looseningBlocked,
   newPath,
@@ -100,6 +101,11 @@ export interface InspectorProps {
   onDelete(id: string): void;
   /** Wave 5: put an `if` right after the step, routed on how it ended ("Add a route for this"). */
   onAddRoute?(stepId: string, option: RouteOption): void;
+  /**
+   * Skill model (2026-11-10): put the write a skill's output fits right after it ("Add: Create
+   * bill"), its input pre-mapped from that output.
+   */
+  onAddAction?(stepId: string, fit: processes.ActionFit): void;
 }
 
 function errorsFor(errors: readonly BuilderProblem[], node: string): FieldErrors {
@@ -308,6 +314,13 @@ function StepInspector(props: InspectorProps & { step: Step }) {
       {props.onAddRoute ? (
         <RoutesSection step={step} onAdd={(option) => props.onAddRoute?.(step.id, option)} />
       ) : null}
+      {step.kind === "skill" && props.onAddAction ? (
+        <ActionOffers
+          step={step}
+          ctx={props.ctx}
+          onAdd={(fit) => props.onAddAction?.(step.id, fit)}
+        />
+      ) : null}
       {/* DECISION (wave 5, web): an if is hidden from the client by default, as before; the operator
           may show it, and its row then says the route it took and why, naming only steps the
           client sees. */}
@@ -400,14 +413,18 @@ function ToolFields(
   },
 ) {
   const { step, paths, fieldErrors, set, ctx, data } = props;
-  const tool = ctx.tools?.[step.tool];
+  if (step.kind === "write" && step.action !== undefined) {
+    return <ActionFields {...props} step={step} />;
+  }
+  const toolId = step.tool as string;
+  const tool = ctx.tools?.[toolId];
   const connector = tool ? (tool.connector ?? tool.source) : null;
   const undo = step.kind === "write" && tool ? processes.describeUndo(tool) : null;
   return (
     <>
       <Row label={step.kind === "read" ? "Reads" : "Changes"} field="tool" errors={fieldErrors}>
         <p className="text-sm text-ink" data-field="tool" tabIndex={-1}>
-          {toolLabel(step.tool)}
+          {toolLabel(toolId)}
           {connector && connector !== "platform" ? (
             <span className="text-ink-muted"> · {connectorName(data, connector)}</span>
           ) : null}
@@ -431,6 +448,123 @@ function ToolFields(
         />
       </Section>
     </>
+  );
+}
+
+/**
+ * Skill model (2026-11-10): an action write step. What it does, the tool it will use for this
+ * agent (a client agent's accounting connection, `via` among two; a message's channel), and its
+ * provider-neutral input.
+ */
+function ActionFields(
+  props: InspectorProps & {
+    step: Extract<Step, { kind: "write" }>;
+    paths: PathOption[];
+    fieldErrors: FieldErrors;
+    set: SetStep;
+  },
+) {
+  const { step, paths, fieldErrors, set, env } = props;
+  const action = step.action as processes.WriteAction;
+  const spec = processes.ACTION_SPECS[action];
+  const target = actionTarget(step, env);
+  const accounting = processes.isAccountingAction(action);
+  const bound = Object.keys(env.matrices).filter((c) =>
+    (processes.ACCOUNTING_CONNECTORS as readonly string[]).includes(c),
+  );
+  return (
+    <>
+      <Row label="Does" field="action" errors={fieldErrors}>
+        <p className="text-sm text-ink" data-field="action" tabIndex={-1}>
+          {spec.label}
+        </p>
+      </Row>
+      <p className="text-sm text-ink-muted">{spec.description}</p>
+      {target ? (
+        <p
+          className={cx("text-sm", target.problem ? "text-risk" : "text-ink")}
+          data-testid="builder-action-target"
+        >
+          {target.text}
+        </p>
+      ) : null}
+      {accounting && (bound.length > 1 || step.via !== undefined) ? (
+        <Row label="In" field="via" errors={fieldErrors}>
+          <select
+            className="ds-input"
+            data-field="via"
+            data-testid="builder-action-via"
+            value={step.via ?? ""}
+            onChange={(e) => {
+              const via = e.target.value;
+              set("via", (s) => {
+                if (s.kind !== "write") return s;
+                const { via: _old, ...rest } = s;
+                return (via ? { ...rest, via } : rest) as Step;
+              });
+            }}
+          >
+            <option value="">Choose a system</option>
+            {processes.ACCOUNTING_CONNECTORS.map((c) => (
+              <option key={c} value={c}>
+                {processes.ACTION_CONNECTOR_NAMES[c] ?? c}
+              </option>
+            ))}
+          </select>
+        </Row>
+      ) : null}
+      <Section title="Input">
+        <SchemaForm
+          schema={processes.actionInputSchema(action)}
+          value={step.input}
+          onChange={(input) => set("input", (s) => ({ ...s, input }) as Step)}
+          paths={paths}
+          prefix="input"
+          errors={fieldErrors}
+          testPrefix="builder-input"
+        />
+      </Section>
+    </>
+  );
+}
+
+/**
+ * Skill model (2026-11-10): after a skill whose output fits an action's input (the same field
+ * names and types, or the skill says so), the builder offers that write with its fields mapped.
+ */
+function ActionOffers({
+  step,
+  ctx,
+  onAdd,
+}: {
+  step: Extract<Step, { kind: "skill" }>;
+  ctx: TypingContext;
+  onAdd(fit: processes.ActionFit): void;
+}) {
+  const fits = processes.actionFits(step.id, processes.stepOutputSchema(step, ctx));
+  if (fits.length === 0) return null;
+  return (
+    <Section title="Next step">
+      <p className="text-sm text-ink-muted">
+        This skill's result has what these need. Each is added after it, its fields filled from the
+        result, with approval on.
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {fits.map((fit) => (
+          <li key={fit.action} className="flex items-center justify-between gap-2">
+            <span className="text-sm text-ink">{Object.keys(fit.input).length} fields filled</span>
+            <Button
+              variant="ghost"
+              data-testid={`builder-offer-${fit.action}`}
+              onClick={() => onAdd(fit)}
+            >
+              <Icon name="add" />
+              Add: {processes.ACTION_SPECS[fit.action].label}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Section>
   );
 }
 

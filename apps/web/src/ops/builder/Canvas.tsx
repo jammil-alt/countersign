@@ -724,6 +724,8 @@ export function Palette({
 const ITEM_KIND: Partial<Record<PaletteItem["type"], string>> = {
   read: "Read",
   write: "Write",
+  // Skill model (2026-11-10): an action is a write too.
+  action: "Write",
 };
 
 function PaletteCard({
