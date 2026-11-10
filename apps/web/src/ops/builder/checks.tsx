@@ -7,7 +7,14 @@
 // and going ahead with no answer are loosening, offered only where the operator may loosen a
 // write (a client agent, a connection that allows `auto`, an agent that acts), with the reason
 // the Approval control has always given.
-import { type PathOption, processes, type Rules } from "@countersign/core";
+import {
+  lookupSkill,
+  type PathOption,
+  parseSkillRef,
+  processes,
+  REACH_OUT_SKILL,
+  type Rules,
+} from "@countersign/core";
 import type { ReactNode } from "react";
 import { TextArea } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
@@ -22,6 +29,7 @@ import {
   approvalOption,
   defaultApproval,
   defaultDeadline,
+  looseningBlocked,
   type Step,
 } from "./model";
 import { type People, PeopleList, PersonPicker } from "./people";
@@ -519,8 +527,15 @@ function ApprovalPart(
   const { step, env, approval, setChecks, errors, people, data } = props;
   const option = approvalOption(step, env);
   const writes = option !== null;
+  // A skill that contacts people (a reach-out) is held to approval as a write is (invariant 8).
+  const reaches =
+    !writes &&
+    step.kind === "skill" &&
+    (lookupSkill(step.skill, env.ctx)?.reachesPeople === true ||
+      parseSkillRef(step.skill).id === REACH_OUT_SKILL);
+  const guarded = writes || reaches;
   // A write with no approval check waits for the default approver (invariant 8).
-  const current: ApprovalCheck | undefined = approval ?? (writes ? defaultApproval() : undefined);
+  const current: ApprovalCheck | undefined = approval ?? (guarded ? defaultApproval() : undefined);
   const setApproval = (key: string, next: ApprovalCheck | undefined) =>
     setChecks(`approval:${key}`, (c) => {
       const { approval: _a, ...rest } = c;
@@ -528,7 +543,7 @@ function ApprovalPart(
     });
   // Loosening a write (off, some runs only, go ahead with no answer) needs the operator's
   // conditions; on a step that writes nothing it isn't loosening, but "off" means no check at all.
-  const blocked = writes ? option.reason : null;
+  const blocked = writes ? option.reason : reaches ? looseningBlocked([], env) : null;
   const undo = writes
     ? option.writes.map((t) => processes.describeUndo(t)).find((d) => d?.warning)?.warning
     : null;
@@ -554,7 +569,7 @@ function ApprovalPart(
   }
 
   const required = current.required !== "not_required";
-  const locked = writes && required && option.canSkip === false;
+  const locked = guarded && required && blocked !== null;
   const tools = writes
     ? [
         ...new Set(
@@ -575,7 +590,7 @@ function ApprovalPart(
       title="Approval"
       testId="builder-approval"
       aside={
-        writes ? null : (
+        guarded ? null : (
           <button
             type="button"
             data-testid="builder-approval-remove"
@@ -592,8 +607,13 @@ function ApprovalPart(
           This step changes the client's tools ({tools}). It waits for someone to approve unless you
           switch approval off.
         </p>
+      ) : reaches ? (
+        <p className="text-sm text-ink">
+          This step contacts people outside the client's team. It waits for someone to approve
+          unless you switch approval off.
+        </p>
       ) : null}
-      {writes ? (
+      {guarded ? (
         <Row label="" field="checks.approval.required" errors={errors}>
           <label className="flex items-center gap-2 text-sm text-ink">
             <input
@@ -606,7 +626,7 @@ function ApprovalPart(
               onChange={(e) => setField("required", e.target.checked ? "required" : "not_required")}
             />
             Needs approval
-            {option.automatic ? <Badge tone="accent">On its own</Badge> : null}
+            {!required && blocked === null ? <Badge tone="accent">On its own</Badge> : null}
           </label>
         </Row>
       ) : null}

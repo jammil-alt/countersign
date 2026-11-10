@@ -1709,6 +1709,47 @@ describe("WorkflowBuilder on processes", () => {
     });
   });
 
+  it("holds a skill that contacts people to approval as a write is", async () => {
+    const reach = {
+      ref: "comms.reach-out",
+      source: "builtin" as const,
+      version: null,
+      definition: {
+        schemaVersion: 1 as const,
+        id: "comms.reach-out",
+        name: "Reach out",
+        description: "Contact someone",
+        category: "comms",
+        mode: "agent" as const,
+        tools: [],
+        input: { type: "object" },
+        output: { type: "object" },
+        settings: [],
+        requiresConnectors: [],
+        requiresPacks: [],
+        producesAlerts: false,
+        reachesPeople: true,
+      },
+    };
+    setup({
+      agent: { kind: "template", tenantId: null, bindings: {} },
+      catalog: { ...CATALOG, skills: [...CATALOG.skills, reach] },
+    });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-skill:comms.reach-out-add"));
+    expect(screen.getByTestId("builder-approval")).toHaveTextContent(
+      "This step contacts people outside the client's team.",
+    );
+    expect(screen.getByTestId("builder-approval-toggle")).toBeChecked();
+    expect(screen.getByTestId("builder-approval-toggle")).toBeDisabled();
+    expect(screen.queryByTestId("builder-approval-remove")).toBeNull();
+    expect(screen.getByTestId("builder-approval-reason")).toHaveTextContent(
+      "Templates keep approval on",
+    );
+  });
+
   it("keeps a template's conversation messages signed", async () => {
     setup({ agent: { kind: "template", tenantId: null, bindings: {} } });
     await ready();
