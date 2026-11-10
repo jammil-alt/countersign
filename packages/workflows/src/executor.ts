@@ -3062,6 +3062,8 @@ class Executor {
    * it; the port keeps one row per run, node and attempt besides. A converted v3 step records
    * nothing, so a v3 run keeps exactly the durable steps it had.
    */
+  // DECISION (wave 6): only native v4 steps (`opts.watched`) record a check; a converted v3 step,
+  // which has no cheap watch, records none, so a v3 run keeps exactly the durable steps it had.
   // DECISION (wave 6): a check that can't be written never fails the step or the run: the step's
   // own result stands and the run view shows no check for that attempt.
   async recordCheck(
