@@ -55,11 +55,14 @@ import {
   organization,
   organizationChange,
   oversightDecision,
+  ownerCheck,
   qboWebhookEvent,
   rawRecord,
   reachOut,
   receivable,
   run,
+  runAudit,
+  runAuditMark,
   savedView,
   skill,
   skillVersion,
@@ -780,6 +783,34 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     version: 1,
     definition: { schemaVersion: 1, site: "supplier", name: "Check stock" },
     recordedSide: "client",
+  });
+  // 0046: the owner's check that led to the decision, the run queued for audit and a mark on it.
+  await db.insert(ownerCheck).values({
+    tenantId,
+    runId: r.id,
+    nodeId: "s1",
+    attempt: 1,
+    result: "reviewed",
+    attemptOutcome: "failed",
+    cause: "failed",
+    verdict: "retry",
+    decisionId: od.id,
+    agentVersionId: av.id,
+  });
+  await db.insert(runAudit).values({
+    tenantId,
+    runId: r.id,
+    agentId: a.id,
+    reason: "wrote",
+    rule: { writes: true, percent: "5", source: "default", bucket: 4210 },
+  });
+  await db.insert(runAuditMark).values({
+    tenantId,
+    runId: r.id,
+    verdict: "problem",
+    note: "The bill went to the wrong vendor.",
+    markedBy: u.id,
+    inboxItemId: ii.id,
   });
   await db.insert(ledgerAccountNote).values({
     tenantId,

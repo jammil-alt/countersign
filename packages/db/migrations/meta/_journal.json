@@ -316,6 +316,13 @@
       "when": 1794296526263,
       "tag": "0045_browser_scripts",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794317455115,
+      "tag": "0046_run_audit",
+      "breakpoints": true
     }
   ]
 }
