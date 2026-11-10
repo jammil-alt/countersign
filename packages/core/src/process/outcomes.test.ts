@@ -244,6 +244,53 @@ describe("validation", () => {
     ]);
   });
 
+  it("keeps a step's error message to conditions and inbox notices; its code goes anywhere", () => {
+    const later = (step: object) => raw(rule("steps.find.error.message", "x", "contains"), [step]);
+    const write = (input: object) => ({
+      id: "fix",
+      name: "Fix",
+      kind: "write",
+      tool: "qbo.bill.update",
+      input,
+    });
+    const notify = (channel: string, message: string) => ({
+      id: "tell",
+      name: "Tell",
+      kind: "notify",
+      notify: { to: ["lead"], channel, message },
+    });
+    // A condition and a notice to the inbox may read it.
+    expect(errors(later(notify("inbox", "Find failed: {{steps.find.error.message}}")))).toEqual([]);
+    // A write's input, an email, a text, a conversation's contact: never.
+    expect(errors(later(write({ memo: "{{steps.find.error.message}}" })))).toEqual([
+      { code: "error_message_not_here", stepId: "fix", field: "input.memo" },
+    ]);
+    expect(errors(later(write({ memo: "{{steps.find.error}}" })))).toEqual([
+      { code: "error_message_not_here", stepId: "fix", field: "input.memo" },
+    ]);
+    expect(errors(later(notify("email", "Failed: {{steps.find.error.message}}")))).toEqual([
+      { code: "error_message_not_here", stepId: "tell", field: "notify.message" },
+    ]);
+    expect(errors(later(notify("sms", "{{steps.find.error.message}}")))).toEqual([
+      { code: "error_message_not_here", stepId: "tell", field: "notify.message" },
+    ]);
+    const talk = {
+      id: "talk",
+      name: "Talk",
+      kind: "conversation",
+      with: "{{steps.find.error.message}}",
+      channel: "email",
+      goal: "Find the price",
+      deadline: { after: "1 day" },
+    };
+    expect(errors(later(talk)).filter((e) => e.code === "error_message_not_here")).toEqual([
+      { code: "error_message_not_here", stepId: "talk", field: "with" },
+    ]);
+    // The code is a word of ours: it may go anywhere.
+    expect(errors(later(write({ memo: "{{steps.find.error.code}}" })))).toEqual([]);
+    expect(errors(later(notify("email", "Failed: {{steps.find.error.code}}")))).toEqual([]);
+  });
+
   it("leaves onError out of a parsed step that never said it, and out of converted v3 steps", () => {
     expect("onError" in stepOf("save")).toBe(false);
     const v4 = fromWorkflowV3(

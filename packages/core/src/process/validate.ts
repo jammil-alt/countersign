@@ -21,7 +21,7 @@ import type { AgentMode } from "../schemas/permissions";
 import type { Rules } from "../schemas/rules";
 import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
 import type { Trigger, Step as V3Step } from "../schemas/workflow";
-import { hasTemplate, singleRef } from "../template/template";
+import { collectRefs, hasTemplate, singleRef } from "../template/template";
 import {
   automationOutputSchema,
   FOR_EACH_OUTPUT,
@@ -105,7 +105,10 @@ export type ProcessValidationCode =
   // Wave 5: `onError` on a step it means nothing for (`if`, `stop`, `wait`, `person`).
   | "on_error_not_here"
   // Wave 5: a condition comparing a step's outcome with a word not in its kind's vocabulary.
-  | "outcome_unknown";
+  | "outcome_unknown"
+  // Wave 5 review: a step's error message where it would leave us (a write's input, a
+  // conversation, an email or text): only its code goes there.
+  | "error_message_not_here";
 
 /**
  * `conversationProblems`' codes. A templated goal is reported as `input_not_fixed`, as every other
@@ -881,6 +884,28 @@ function checkConversation(c: Checker, step: ConversationStep) {
 
 // ── Steps ────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Wave 5 review: a step's error message (`steps.<id>.error.message`, or the whole `error`) read
+ * where it would leave us: a write's input, a conversation, an email or a text. Its text is the
+ * row's error line, hidden only by a heuristic (`processes.plainError`), so it may carry what the
+ * provider said back; only `error.code` goes there.
+ */
+// DECISION (wave 5 review): `error.message` reads only in conditions and in notices to the inbox
+// (people with a Mezonas account); `error.code` anywhere.
+function checkErrorMessage(c: Checker, nodeId: string, value: unknown, where: (string | number)[]) {
+  for (const ref of collectRefs(value, where).refs) {
+    const [head, id, f, sub] = ref.path;
+    if (head !== "steps" || !id || f !== "error" || (sub !== undefined && sub !== "message"))
+      continue;
+    c.add(
+      nodeId,
+      field(ref.at),
+      "error_message_not_here",
+      `a step's error message can't go here: it may hold what the provider said back. Use {{steps.${id}.error.code}}, or say it in a notice to the inbox`,
+    );
+  }
+}
+
 function checkToolStep(
   c: Checker,
   step: Extract<Step, { kind: "read" | "write" }>,
@@ -889,6 +914,7 @@ function checkToolStep(
 ) {
   const { ctx } = c;
   checkRefs(c, step.id, step.input, ["input"], scope);
+  if (step.kind === "write") checkErrorMessage(c, step.id, step.input, ["input"]);
   const tool = ctx.tools?.[step.tool];
   if (ctx.tools && !tool) c.add(step.id, "tool", "unknown_tool", `no tool "${step.tool}"`);
   if (!tool) return;
@@ -947,6 +973,11 @@ function checkNotify(
   checkRefs(c, nodeId, n.to, [...where, "to"], scope);
   checkRefs(c, nodeId, n.message, [...where, "message"], scope);
   if (n.sources !== undefined) checkRefs(c, nodeId, n.sources, [...where, "sources"], scope);
+  // Wave 5 review: an email or a text leaves us; the inbox doesn't.
+  if ((n.channel ?? "inbox") !== "inbox") {
+    checkErrorMessage(c, nodeId, n.to, [...where, "to"]);
+    checkErrorMessage(c, nodeId, n.message, [...where, "message"]);
+  }
   if (n.urgent?.when)
     checkRules(c, nodeId, n.urgent.when, [...where, "urgent", "when"], scope, false);
 }
@@ -1211,6 +1242,7 @@ function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<str
     // instructions, so it is fixed text (invariant 9); who it is with may be templated.
     case "conversation":
       checkRefs(c, step.id, step.with, ["with"], scope);
+      checkErrorMessage(c, step.id, step.with, ["with"]);
       checkFixedText(c, step.id, step.goal, "goal", "goal");
       checkConversation(c, step);
       break;
