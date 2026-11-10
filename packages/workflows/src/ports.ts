@@ -606,5 +606,12 @@ export const NeedsHelp = z.object({
   screenshots: z.array(z.string()).optional(),
   /** The tag the lead's answer is kept under (`[browse-help skill=… sites=…]`). */
   remember: z.string().min(1).max(500).optional(),
+  /**
+   * Who is asked: the lead (absent), or the operator for work only we can do (a recorded script
+   * to record again). Read only from a tool step's output, which our code writes, never a skill's.
+   */
+  to: z.enum(["lead", "operator"]).optional(),
+  /** False when the answer isn't kept as a note (it changes nothing about how to do the work). */
+  keep: z.boolean().optional(),
 });
 export type NeedsHelp = z.infer<typeof NeedsHelp>;

@@ -1953,14 +1953,17 @@ class Executor {
    * R3: a native skill's output said it needs help (`needsHelp`): the lead is asked with what it
    * tried, the answer is kept (`memory.write`) and the step runs once more with `help` in its
    * input, as data. Still stuck after that, the step fails. A converted v3 skill's output is its
-   * output, whatever it holds (it never asked before). Wave 4: a recorded script's step
-   * (`browser.script.*`) asks the operator instead, and its answer is not kept.
+   * output, whatever it holds (it never asked before). A tool step's request may name the
+   * operator (`to`) and say its answer isn't kept (`keep: false`): a recorded script's does.
    */
   // DECISION (wave 4 review): a script's fixed steps can't change with anyone's answer, so its
   // request for help goes to the operator (the `operator` role, as an escalation's `to` names it),
   // who records the script again and publishes it; once answered the step runs once more, on
   // whatever version is published then, and is failed if it still needs help. The answer is not
   // written to memory: it says what we did to the script, not how to do the work.
+  // DECISION (wave 4 integration): the connector says so in the request (`to: "operator"`,
+  // `keep: false`, its `scriptNeedsHelp`); the executor names no tool. Both are read only from a
+  // tool step's output (code wrote it), never a skill's, whose output may come from a model.
   async needsHelp(
     view: SkillStep | ActionStep,
     name: string,
@@ -1990,8 +1993,10 @@ class Executor {
       },
     });
     const b = `${name}:help`;
-    // A recorded script's steps are fixed: no answer changes them, only a new recording does.
-    const scripted = isScriptTool(view);
+    // What a tool step asks for: who answers, and whether the answer is kept as a note.
+    const fromTool = "tool" in view;
+    const toOperator = fromTool && need.to === "operator";
+    const keep = !fromTool || need.keep !== false;
     await this.runner.do(`${b}:waiting`, async () => {
       await log.update(done.stepRunId, {
         status: "waiting",
@@ -1999,14 +2004,14 @@ class Executor {
       });
       return null;
     });
-    const asked = await ask(b, scripted ? "operator" : LEAD_ASSIGNEE, HELP_DEADLINE);
+    const asked = await ask(b, toOperator ? "operator" : LEAD_ASSIGNEE, HELP_DEADLINE);
     const answer = await this.awaitResolution(b, asked.item, asked.timeout);
     if (!answer || answer.approved === false || answer.answer === undefined) {
       await this.runner.do(`${b}:done`, async () => {
         await log.update(done.stepRunId, {
           status: "failed",
-          error: scripted
-            ? "needs help: the script needs recording again, and we didn't answer in time"
+          error: toOperator
+            ? "needs help: it needs our work first, and we didn't answer in time"
             : "needs help: no answer from the lead",
           summary: `${label}: ${this.words.noAnswerInTime}`,
         });
@@ -2016,8 +2021,8 @@ class Executor {
     }
     const help = answer.answer;
     // Kept for next time. A note that fails to save never fails the step, but its row says so.
-    // A script's answer is not: it says what we did to the script, not how to do the work.
-    if (!scripted) {
+    // An answer the request says not to keep (a script's: what we did to it) is not.
+    if (keep) {
       await this.runner.do(`${b}:memory`, async () => {
         const text = typeof help === "string" ? help : JSON.stringify(help);
         // DECISION: a browsing skill's answer (one with `remember`) is kept by the port, as the
@@ -2951,11 +2956,6 @@ function keptFields(output: unknown, schema: Record<string, unknown>): unknown {
   if (!isPlainObject(output) || !isPlainObject(schema.properties)) return output;
   const props = schema.properties;
   return Object.fromEntries(Object.entries(output).filter(([k]) => Object.hasOwn(props, k)));
-}
-
-/** Whether a step runs a client's recorded script (`browser.script.read` / `.submit`). */
-function isScriptTool(view: SkillStep | ActionStep): boolean {
-  return "tool" in view && typeof view.tool === "string" && view.tool.startsWith("browser.script.");
 }
 
 /** A native skill's request for help in its output (`needsHelp`), else null. */

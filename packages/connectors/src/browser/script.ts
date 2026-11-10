@@ -293,9 +293,19 @@ export function scriptNeedsHelp(
   def: Pick<BrowserScriptDefinition, "name" | "site">,
   missing: ScriptStepMissing,
   done: readonly ScriptStepResult[],
-): { question: string; tried: string[]; screenshots?: string[] } {
+): {
+  question: string;
+  tried: string[];
+  screenshots?: string[];
+  to: "operator";
+  keep: false;
+} {
   const shots = done.map((s) => s.screenshot).filter((s): s is string => s !== null);
   return {
+    // Only we can record a script again, and no answer changes its fixed steps: the operator is
+    // asked, and the answer is not kept as a note (packages/workflows' `needsHelp`).
+    to: "operator",
+    keep: false,
     question:
       `The script "${def.name}" couldn't find ${missing.what} on ${missing.url}. The page may have changed: record the script again and publish it, then answer here to run the step once more.`.slice(
         0,

@@ -3092,6 +3092,10 @@ Websites screen's Scripts, the Library's and the builder's listings):
   script's view with `definition: null` (its side effect as stored, else a write), and counts for
   the state and `recordingDiffers` as the newest; the Websites screen keeps Publish off for it and
   the publish route refuses it (409 `invalid_state`): it can't be shown, so it isn't sent.
+- DECISION (integration): the executor names no tool for help. A tool step's `needsHelp` may say
+  who answers (`to: "operator"`, else the lead) and that the answer isn't kept (`keep: false`); the
+  browser connector's `scriptNeedsHelp` says both. Read only from a tool step's output (our code
+  wrote it), never a skill's, whose output may come from a model: a skill always asks the lead.
 
 ## 2. Package layering
 
