@@ -2744,6 +2744,52 @@ Contacts and Accounts, the back office's client settings; no migration, no contr
   own (contacts can run to thousands); the account's channels are bound there with the agent
   page's channel editor, now shared, where unbound reads "The default".
 
+**web (wave 3b)** (`apps/web`, with core's contract additions it needs; no migration):
+- DECISION: every tab of the agent page reads `AnyAgentBundle` (Overview, the bar, an older
+  version's Workflow view, Settings > Definition, Versions with its test runs and go-live, the
+  triggers panel), and so do the lab and the new-agent preview. A test run's input reads the
+  workflow's triggers through core's `allTriggers`: recent events of its first event trigger, the
+  sample of its first trigger. "Revise with the Builder" stays off for a version that holds a
+  process while the Builder's server sessions draft v3 only.
+- DECISION: the triggers panel adds a trigger to a process's `triggers` and removes any but its
+  first, as it does a v3 workflow's `moreTriggers`; every id is kept (invariant 3).
+- DECISION: the builder validates what Publish would send: a stored v3 version opened and not
+  edited is validated as v3 (core validates an all-v3 bundle exactly as `validateBundle`), the
+  edited process as v4. `clientAgent` is always passed, false for a template, as
+  `validateForPublish` passes it; the merge view validates a process bundle whole
+  (`validateAnyBundle`) as the agent it lands on (an update the client agent, a promotion the
+  template).
+- DECISION: the checks panel's Approval part says what each kind changes: a process step's writes
+  are approved inside its process (an approval can still be added before it starts); a
+  conversation's messages are signed under its message settings, so it is offered no approval.
+  The Inspector, the checks panel and `createStep` use core's `outputBeforeChecks` and
+  `stepReaches` (now exported), not copies.
+- DECISION: a rule row a step's customization adds gets the id `rule-<uuidv7>` and a readable
+  name ("Rule 3"); its problems read by that name. Customizations merge three-way by id, so a
+  counter could line a template's and a client's unrelated rows up as one.
+- DECISION: a v4 write with no approval check reads "needs approval" (invariant 8). Where a step
+  list has the tool registry (the builder), a tool that writes only our records reads neither;
+  without it (read-only lists) the safe side, as core counts an unknown tool as external.
+- DECISION (the owner's call recorded): directory contacts are not offered as person conferees,
+  as they are not offered as notice recipients: a conferee is shown the step's result, so asking
+  a vendor or a customer is a message outside the client's team, a write behind approval. A
+  contact already stored on a step still reads by name.
+- DECISION: the portal refuses a week with no open hours before saving (the server's 422
+  `invalid_hours`), and `invalid_hours` reads in the client's language. "Add hours" late in the
+  day starts where the last stretch ends and stops at 23:59; a day full to 23:59 offers no Add.
+- DECISION: the People hours list carries at most `PEOPLE_HOURS_MAX_CONTACTS` (2,000, now in
+  core); a contact missing from a full list has hours we never read, so their detail says so and
+  offers no editor (saving would erase their own week). A list under the cap is complete.
+- DECISION: `PortalConnection` gains the manifest's optional `auth`; "how it connects" is "you
+  sign in" for OAuth (and Plaid's link), "you enter its key" for API keys, "No sign-in or key
+  needed" for `none` (Google Chat, the website, Hacker News, webhooks), and no line when an older
+  Worker didn't say.
+- DECISION: "Enter a login" on a website opens the vault's add panel with that site's setup first,
+  marked and focused; the other sites stay below it.
+- DECISION: the undo a late no is offered (`portalUndoChange`, `opsUndoChange`) is in core's route
+  contract (`packages/core/src/api/undo.ts`); apps/api mounts it and the web calls it from
+  `apiRoutes`, replacing both copies. The Library uses the step lists' `PROCESS_KIND_LABEL`.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
