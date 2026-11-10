@@ -1936,9 +1936,10 @@ Built on `claude/p8-a2p` (stacked on this design). No migration.
 
 Open for the owner:
 
-- **`TWILIO_PRIMARY_PROFILE_SID`**: the BU SID of the approved "Mezonas" primary customer profile (ISV
-  Reseller, Twelve Thirty-Four Consulting LLC), and **`TWILIO_A2P_EMAIL`**, the Mezonas address Trust Hub
-  writes to about each client's profile.
+- ~~**`TWILIO_PRIMARY_PROFILE_SID`** and **`TWILIO_A2P_EMAIL`**~~: set in production's vars
+  (2026-11-10): the approved "Mezonas" primary profile's BU SID and `compliance@mezonas.com`, which
+  needs its own Email Routing rule to a person (the zone's catch-all goes to the Worker). Staging has
+  neither: its Twilio account has no approved profile.
 - **The monthly fee per use case.** We record $10 (`MIXED`) and $1.50 (`LOW_VOLUME`) a month from TCR's
   rates as resellers quote them; Twilio's help article (1260803965530) is the source to confirm, and
   whether Twilio bills the first three months at once.

@@ -217,6 +217,12 @@
         "QBO_ENV": "production",
         // Plaid's production needs its review first; until PLAID_SECRET is set, feeds stay off.
         "PLAID_ENV": "production",
+        // US texting registration (docs/plan.md §1.70): Mezonas' approved ISV primary customer
+        // profile in Trust Hub ("Mezonas", Twilio Approved 2026-11-09) and the Mezonas address Trust
+        // Hub writes to about each client's registration. Not secrets. Staging has neither: its
+        // Twilio account has no approved profile, so "Submit to Twilio" answers 503 there.
+        "TWILIO_PRIMARY_PROFILE_SID": "BUfc3f4925f70126f60f3feecddb28208c",
+        "TWILIO_A2P_EMAIL": "compliance@mezonas.com",
         // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".
         // Add one only once its BAA is signed. Empty: no client can be put in HIPAA mode.
         "BAA_PROCESSORS": ""
