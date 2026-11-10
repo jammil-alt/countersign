@@ -11,6 +11,7 @@ import {
   reviewsFailures,
   SkillStep,
   STEP_REVIEWS,
+  successReviewDue,
 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { executeWorkflow } from "./executor";
@@ -424,6 +425,10 @@ describe("the owner's watch", () => {
               review: reviewsAfterSuccess(s, st, checkpoint),
               signals: [],
               found: [],
+              // Wave 6 review: why it is due, when it is.
+              ...(reviewsAfterSuccess(s, st, checkpoint)
+                ? { why: successReviewDue(s, st, checkpoint) }
+                : {}),
             });
           }
         }

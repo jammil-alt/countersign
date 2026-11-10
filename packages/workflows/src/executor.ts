@@ -336,9 +336,16 @@ function failedAttempt(a: Attempt | { thrown: unknown }): boolean {
   return "thrown" in a || a.outcome.kind === "failed";
 }
 
-/** Wave 6: how an attempt ended, for the owner's check: anything but done is a failure. */
+/**
+ * Wave 6: how an attempt ended, for the owner's check. Review: an escalation (a budget reached), a
+ * person's no and nobody answering are named as such, not as a failure or as nothing off.
+ */
 function attemptOutcomeOf(a: Attempt | { thrown: unknown }): OwnerCheckAttempt {
-  return "thrown" in a || a.outcome.kind !== "done" ? "failed" : "succeeded";
+  if ("thrown" in a) return "failed";
+  if (a.outcome.kind === "escalated") return "escalated";
+  if (a.outcome.kind !== "done") return "failed";
+  if (a.rejected) return a.unanswered ? "unanswered" : "rejected";
+  return "succeeded";
 }
 
 function withDiagnosis(diagnosis: string | undefined): { diagnosis?: string } {
@@ -414,6 +421,16 @@ function carriedError(ended: RunEnd | undefined): string {
   return ended?.continued?.error ?? ended?.result.reason ?? "";
 }
 
+/**
+ * Wave 6 review: how an attempt the run ended in the middle of ended, for the owner's check. Only a
+ * person can end a run inside an attempt today (a confer reviewer nobody answered with `stop`):
+ * a cancel is their no, a timeout nobody answering.
+ */
+function endedOutcome(end: RunEnd): OwnerCheckAttempt {
+  if (end.result.status === "cancelled") return "rejected";
+  return end.result.reason === "timeout" ? "unanswered" : "failed";
+}
+
 /** A RunEnd a step with `onError: continue` may go on past. */
 function continuable(error: unknown): error is RunEnd & { continued: Continued } {
   return error instanceof RunEnd && error.result.status === "failed" && !!error.continued;
@@ -428,6 +445,12 @@ interface Frame {
   // v0.12 W2-B
   /** Inside a use step: the automation (`slug@version`) its steps come from. */
   automation?: string;
+  // Wave 6 review
+  /**
+   * Inside a for each: the loop's owner checks, written together in one durable step when the
+   * outermost loop ends (`Executor.writeChecks`), not one per attempt.
+   */
+  checks?: OwnerCheckEntry[];
 }
 
 type WorkStep = processes.ReadStep | processes.SkillStep | processes.WriteStep;
@@ -1352,18 +1375,24 @@ class Executor {
     }
     // Wave 6: the owner doesn't watch this step (it is off, or the step's review is): recorded too.
     const unwatched = (attemptOutcome: OwnerCheckAttempt) =>
-      this.recordCheck(name, opts, {
-        attempt: 1,
-        result: "not_watched",
-        attemptOutcome,
-        signals: [],
-        reason: opts.watched?.review === "off" ? "step_off" : "owner_off",
-      });
+      this.recordCheck(
+        name,
+        opts,
+        {
+          attempt: 1,
+          result: "not_watched",
+          attemptOutcome,
+          signals: [],
+          reason: opts.watched?.review === "off" ? "step_off" : "owner_off",
+        },
+        frame,
+      );
     let only: Attempt;
     try {
       only = await this.attempt(step, name, frame, approval, undefined, opts);
     } catch (error) {
-      if (!(error instanceof RunEnd)) await unwatched("failed");
+      // Wave 6 review: a run a person ended during the attempt records its check too.
+      await unwatched(error instanceof RunEnd ? endedOutcome(error) : "failed");
       throw error;
     }
     await unwatched(attemptOutcomeOf(only));
@@ -2784,6 +2813,7 @@ class Executor {
     await this.runList(branch, {
       prefix: frame.prefix,
       scope: { ...frame.scope, steps: { ...frame.scope.steps } },
+      ...(frame.checks ? { checks: frame.checks } : {}),
     });
     this.record(frame, step, chosen.output);
   }
@@ -2810,6 +2840,10 @@ class Executor {
     // stop the others; it is counted. Anything else (a no, a stop, no answer) still ends the run.
     const continues = this.continues(step);
     const failedItems = new Set<number>();
+    // Wave 6 review: the outermost loop gathers the owner's checks of every attempt inside it.
+    const own: OwnerCheckEntry[] | undefined =
+      this.ctx.ownerChecks && !frame.checks ? [] : undefined;
+    const checks = frame.checks ?? own;
     try {
       await pool(items.length, step.concurrency ?? 10, async (i) => {
         try {
@@ -2821,6 +2855,7 @@ class Executor {
               item: items[i],
               index: i,
             },
+            ...(checks ? { checks } : {}),
           });
         } catch (error) {
           if (!continues || !continuable(error)) throw error;
@@ -2828,9 +2863,13 @@ class Executor {
         }
       });
     } catch (error) {
-      if (!(error instanceof RunEnd)) throw error;
+      if (!(error instanceof RunEnd)) {
+        await this.writeChecks(name, own);
+        throw error;
+      }
       ended = error;
     }
+    await this.writeChecks(name, own);
 
     const failed = failedItems.size;
     const output = failed > 0 ? { count: items.length, failed } : { count: items.length };
@@ -2953,6 +2992,7 @@ class Executor {
       prefix: `${name}/`,
       scope: { trigger: undefined, input: started.input, steps: {} },
       automation: expanded.ref,
+      ...(frame.checks ? { checks: frame.checks } : {}),
     };
     let ended: RunEnd | undefined;
     try {
@@ -3066,13 +3106,21 @@ class Executor {
   // which has no cheap watch, records none, so a v3 run keeps exactly the durable steps it had.
   // DECISION (wave 6): a check that can't be written never fails the step or the run: the step's
   // own result stands and the run view shows no check for that attempt.
+  // DECISION (wave 6 review): inside a for each the check is kept on the loop's frame and the
+  // outermost loop writes all of them in one durable step (`${loop}:owner`) when it ends, finished
+  // or not; so a v4 run with a loop of n items adds one durable step for the loop, not n.
   async recordCheck(
     name: string,
     opts: WorkOptions,
     entry: Omit<OwnerCheckEntry, "runId" | "nodeId">,
+    frame?: Frame,
   ): Promise<void> {
     const log = this.ctx.ownerChecks;
     if (!log || !opts.watched) return;
+    if (frame?.checks) {
+      frame.checks.push({ runId: this.ctx.run.id, nodeId: name, ...entry });
+      return;
+    }
     try {
       await this.runner.do(
         `${name}:owner:${entry.attempt}`,
@@ -3087,6 +3135,52 @@ class Executor {
     }
   }
 
+  /** A loop's owner checks, in one durable step (`${name}:owner`); none: no step. */
+  async writeChecks(name: string, batch: readonly OwnerCheckEntry[] | undefined): Promise<void> {
+    const log = this.ctx.ownerChecks;
+    if (!log || !batch || batch.length === 0) return;
+    const entries = [...batch];
+    try {
+      await this.runner.do(
+        `${name}:owner`,
+        async () => {
+          if (log.recordMany) await log.recordMany(entries);
+          else for (const e of entries) await log.record(e);
+          return null;
+        },
+        this.ctx.stepConfig,
+      );
+    } catch (error) {
+      if (error instanceof RunEnd) throw error;
+    }
+  }
+
+  /**
+   * Wave 6 review: the check on an attempt the run ended in the middle of (a person's no, or
+   * nobody answering, `ended_by_person`): the owner never looked, and the line says why.
+   */
+  async recordEnded(
+    name: string,
+    opts: WorkOptions,
+    frame: Frame,
+    attempt: number,
+    end: RunEnd,
+  ): Promise<void> {
+    const attemptOutcome = endedOutcome(end);
+    await this.recordCheck(
+      name,
+      opts,
+      {
+        attempt,
+        result: attemptOutcome === "failed" ? "flagged" : "clean",
+        attemptOutcome,
+        signals: [],
+        reason: "ended_by_person",
+      },
+      frame,
+    );
+  }
+
   /** The first attempt and its thrown error, if any: a review never hides the step's own error. */
   async tryAttempt(
     step: SkillStep | ActionStep,
@@ -3099,7 +3193,11 @@ class Executor {
     try {
       return await this.attempt(step, name, frame, approval, retry, opts);
     } catch (error) {
-      if (error instanceof RunEnd) throw error;
+      if (error instanceof RunEnd) {
+        // Wave 6 review: the run ended during the attempt; its check is recorded all the same.
+        await this.recordEnded(name, opts, frame, retry ? retry.seq + 1 : 1, error);
+        throw error;
+      }
       return { thrown: error };
     }
   }
@@ -3150,30 +3248,59 @@ class Executor {
     for (let seq = 1; ; seq++) {
       const failing = failedAttempt(current);
       if (!failing && opts.afterRun && !("thrown" in current) && !current.rejected) {
-        if (current.outcome.kind === "done") await opts.afterRun(current.outcome.output);
+        if (current.outcome.kind === "done") {
+          try {
+            await opts.afterRun(current.outcome.output);
+          } catch (error) {
+            // Wave 6 review: a confer nobody answered ended the run; the check says so.
+            if (error instanceof RunEnd) await this.recordEnded(name, opts, frame, seq, error);
+            throw error;
+          }
+        }
       }
       const after = failing ? null : this.afterSuccess(step, name, current, opts);
       // Wave 6: the owner's check on this attempt, recorded whatever came of it.
       const attemptOutcome = attemptOutcomeOf(current);
       const seen = after?.signals ?? [];
+      // Wave 6 review: why a review was due on a step that succeeded (checkpoint, all, always).
+      const due = after?.why;
+      const cause = failing ? ("failed" as const) : ("checkpoint" as const);
+      // DECISION (wave 6 review): a check is flagged only when the attempt failed (or escalated)
+      // or the watch saw a signal. A clean step whose routine review (a checkpoint, `all`,
+      // `always`) wasn't made stays clean, with why the review wasn't made and why it was due.
+      const off =
+        attemptOutcome === "failed" ||
+        attemptOutcome === "escalated" ||
+        (after?.found.length ?? 0) > 0;
       const flag = (reason: OwnerCheckReason) =>
-        this.recordCheck(name, opts, {
-          attempt: seq,
-          result: "flagged",
-          attemptOutcome,
-          signals: seen,
-          reason,
-        });
+        this.recordCheck(
+          name,
+          opts,
+          {
+            attempt: seq,
+            result: off ? "flagged" : "clean",
+            attemptOutcome,
+            signals: seen,
+            reason,
+            cause,
+            ...(due ? { reviewDue: due } : {}),
+          },
+          frame,
+        );
       if (after && !after.review) {
         // Nothing off, or (an escalation, a signal on a step whose review is off) off and not
-        // reviewed by the setting.
-        const off = attemptOutcome === "failed" || after.found.length > 0;
-        await this.recordCheck(name, opts, {
-          attempt: seq,
-          result: off ? "flagged" : "clean",
-          attemptOutcome,
-          signals: after.found,
-        });
+        // reviewed by the setting; a person's no or nobody answering, nothing for the owner.
+        await this.recordCheck(
+          name,
+          opts,
+          {
+            attempt: seq,
+            result: off ? "flagged" : "clean",
+            attemptOutcome,
+            signals: after.found,
+          },
+          frame,
+        );
         break;
       }
       // DECISION: the executor counts interventions per step and per run (a replay counts the same
@@ -3191,7 +3318,6 @@ class Executor {
         }
       }
       const failed = current;
-      const cause = failing ? ("failed" as const) : ("checkpoint" as const);
       const error = !failing
         ? ""
         : "thrown" in failed
@@ -3243,15 +3369,22 @@ class Executor {
         await flag("no_decision");
         break;
       }
-      // Wave 6: recorded before the verdict is applied, so a run waiting on an ask shows it.
-      await this.recordCheck(name, opts, {
-        attempt: seq,
-        result: "reviewed",
-        attemptOutcome,
-        signals: seen,
-        cause,
-        verdict: verdict.action,
-      });
+      // Wave 6: recorded before the verdict is applied, so a run waiting on an ask shows it
+      // (inside a loop, once the loop ends).
+      await this.recordCheck(
+        name,
+        opts,
+        {
+          attempt: seq,
+          result: "reviewed",
+          attemptOutcome,
+          signals: seen,
+          cause,
+          verdict: verdict.action,
+          ...(due ? { reviewDue: due } : {}),
+        },
+        frame,
+      );
       // DECISION: `continue` after a checkpoint changes nothing, so it is not an intervention: it
       // counts toward neither limit (docs/plan.md §1.54).
       if (verdict.action === "continue") break;

@@ -489,11 +489,14 @@ export interface OversightPort {
 /**
  * Where the owner's check on each attempt at a v4 read, skill or write step is kept (`owner_check`,
  * with the decision a review led to). Called inside a durable step of its own after the attempt
- * (and its review), so a replay reuses it; the store also keeps one row per run, node and attempt.
- * Absent: nothing is recorded and the run has exactly the durable steps it had.
+ * (and its review), so a replay reuses it; inside a for each, once for the whole loop's checks
+ * (`recordMany`, else `record` for each). The store keeps one row per run, node and attempt, so a
+ * repeat is a no-op. Absent: nothing is recorded and the run has exactly the durable steps it had.
  */
 export interface OwnerCheckLog {
   record(entry: OwnerCheckEntry): Promise<void>;
+  /** A loop's checks at once (one transaction); absent: `record` for each. */
+  recordMany?(entries: readonly OwnerCheckEntry[]): Promise<void>;
 }
 
 // ── R3: the process model's ports (ARCHITECTURE §10.14; docs/plan.md §1.86, §9) ─────────────────
