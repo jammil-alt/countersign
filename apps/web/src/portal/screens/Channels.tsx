@@ -13,6 +13,8 @@ import { Loaded } from "../../ui/page";
 import { Card, EmptyState } from "../../ui/primitives";
 import { askSloan } from "../paths";
 
+// DECISION (R8): read-only for the client admin too: the channels routes give the portal nothing
+// to change (the account's and each agent's are bound by the operator), so the page asks Sloan.
 export function PortalChannels() {
   const { t } = useI18n();
   const state = useApi(apiRoutes.portalChannels);

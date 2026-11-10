@@ -78,6 +78,9 @@ const SECTION_PATH: Record<SettingsSection, string> = {
 };
 
 /** The sections everyone has; the client admin has the rest too. */
+// DECISION (R8): Business hours and Channels are Settings sections everyone reads (their routes
+// are every client person's); §10.14's Connections and People stay Accounts, Team and Contacts,
+// which gained what was missing, so no address moves.
 const EVERYONE: readonly SettingsSection[] = ["general", "approvals", "team", "hours", "channels"];
 const ADMIN: readonly SettingsSection[] = [
   "general",

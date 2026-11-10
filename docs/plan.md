@@ -2428,6 +2428,29 @@ tools, is the owner's doc "Mezonas process model"; milestones are §9.
 // keeping every id, and a skill that only wraps one tool becomes a `read` step (side effect `none`)
 // or a `write` step (anything else; an unknown tool counts as external, so approval stays on).
 
+**Wave 3, portal settings (R8)** (`apps/web`: `hours/`, `channels/`, the portal's Settings, Team,
+Contacts and Accounts, the back office's client settings; no migration, no contract change):
+- DECISION: §10.14's four pages are Business hours (`/settings/hours`) and Channels
+  (`/settings/channels`), new Settings sections every client person reads, plus Connections and
+  People where they already were: Accounts gained the tools to connect grouped by kind with how
+  each connects (sign in, a key, or an agent account's login into the vault), and Team and
+  Contacts gained each person's hours and away dates. No address moved.
+- DECISION: the zone is shown, never edited, on Business hours: the hours route takes none (it is
+  the client's timezone, which we set with its details); the page asks Sloan.
+- DECISION: Channels are read-only in the portal, for the client admin too: the channels routes
+  give the portal nothing to change (the account's and each agent's are the operator's).
+- DECISION: a person's own week keeps the zone and US-holiday switch they had, else the client's;
+  choosing a person's own zone is not on screen. Back on the business's hours with no away dates
+  saves `null`.
+- DECISION: who sees whose hours is the routes': the client admin everyone's on the People list
+  (Team and Contacts), a client user only their own (a "Your hours" card on Team).
+- DECISION: connector groups (accounting and money, email, messages and calls, files and sheets,
+  customers and sales, websites and search, other) live in `apps/web/src/connections/groups.ts` by
+  connector id, as the brand marks do, not in the manifest or the API contract.
+- DECISION: the back office's Business hours lists only people with hours or away dates of their
+  own (contacts can run to thousands); the account's channels are bound there with the agent
+  page's channel editor, now shared, where unbound reads "The default".
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
