@@ -55,6 +55,7 @@ import { dispatchEvents } from "../runs/dispatch";
 import { daysOf, runsByDay } from "../runs/figures";
 import { opsStatusWhere, reachContext, runWaits } from "../runs/run-wait";
 import { runSubjects, sourceNames } from "../runs/subject";
+import { stepModelFacts } from "../skill-facts";
 import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
 import { needsUs, needsUsContext } from "./command-center";
 import { connectNoAuth } from "./connections";
@@ -836,6 +837,8 @@ export async function opsRunDetail(
     // Wave 6: the owner's check on each attempt, and the run's place in the audit queue.
     ownerChecks: await runOwnerChecks(tx, r.tenantId, r.id),
     audit: await runAuditState(tx, r.tenantId, r.id),
+    // Skill model (2026-11-10), wave A: each step's kind (Deterministic or AI) and write label.
+    stepFacts: wf ? await stepModelFacts(tx, r.tenantId, wf.workflow, services.platform) : {},
   };
   return { response, rows: { run: r, steps, items, version, workflow: wf ?? null } };
 }

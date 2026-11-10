@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ApiHarness, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
 import { packToolTransport } from "./packs";
 import { createPlatform, deploymentConnectors } from "./platform";
+import { stepModelFacts, timelineWrite } from "./skill-facts";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -50,6 +51,40 @@ describe("kinds of the built-in skills", () => {
     // DECISION: Materials' create-item (reading a name its rules can't parse) and line matching
     // (the attribute fallback and the close-match adjudication) are the packs' hidden AI.
     expect(declared.sort()).toEqual(["materials.catalog.create_item", "materials.match_line"]);
+  });
+});
+
+describe("what the run views say of a step (wave A)", () => {
+  it("labels skill steps by kind and writes by where they write", async () => {
+    const definition = {
+      schemaVersion: 4,
+      triggers: [{ id: "t1", on: { type: "manual", input: { type: "object" } } }],
+      steps: [
+        { id: "read-doc", name: "Read", kind: "skill", skill: "docs.extract", input: {} },
+        { id: "look", name: "Look", kind: "skill", skill: TESTKIT_QUERY_TOOL, input: {} },
+        { id: "save", name: "Draft", kind: "write", tool: "account.draft_change", input: {} },
+        { id: "change", name: "Fix", kind: "write", tool: "testkit.record.update", input: {} },
+      ],
+    };
+    // Built-ins only: no operator skill to read, so no transaction is needed.
+    const facts = await stepModelFacts(null as never, "tenant", definition, platform);
+    expect(facts).toEqual({
+      "read-doc": { skillKind: "ai" },
+      look: { skillKind: "deterministic" },
+      save: { write: { kind: "save_to_records", text: "Save to records" } },
+      change: { write: { kind: "change_in", text: "Change in Testkit" } },
+    });
+    // The client's timeline: saved, or changed in their tool by its name (never a tool id).
+    expect(timelineWrite(platform, "account.draft_change")).toEqual({
+      kind: "save_to_records",
+      connector: null,
+    });
+    expect(timelineWrite(platform, "testkit.record.update")).toEqual({
+      kind: "change_in",
+      connector: "Testkit",
+    });
+    // A tool nobody knows reads as a client's tool: the safe side (invariant 8).
+    expect(timelineWrite(platform, "nobody.knows")).toEqual({ kind: "change_in", connector: null });
   });
 });
 
@@ -185,6 +220,18 @@ describe.skipIf(!h)("the builder and the skill model", () => {
       to: "custom:match-line@1",
     });
     expect(j(same.json)).toMatchObject({ compatible: true, breaks: [], references: [] });
+  });
+
+  it("lists each skill the agent may use with its kind, parameters and recommended model", async () => {
+    const res = await H.call(OPERATOR, "GET", `/api/ops/agents/${agentId}/skills`);
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const skills = j(res.json).skills as { id: string; kind: string }[];
+    expect(skills.find((s) => s.id === "custom:match-line")).toMatchObject({
+      kind: "ai",
+      recommendedModel: { id: "claude-haiku-5-5" },
+      parameters: [{ name: "floor", type: "number", default: 0.8 }],
+    });
+    for (const s of skills) expect(["deterministic", "ai"]).toContain(s.kind);
   });
 
   it("refuses a step that isn't a skill step, or another skill", async () => {

@@ -69,6 +69,7 @@ import {
 } from "../runs/client-status";
 import { dispatchEvents } from "../runs/dispatch";
 import { runSubjects, sourceNames } from "../runs/subject";
+import { timelineWrite } from "../skill-facts";
 import { steppedInOf } from "../step-in/service";
 import { clientDescription } from "../weekly/stats";
 import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
@@ -528,6 +529,11 @@ export async function portalRunView(
           : {}),
         // R8
         ...(check ?? {}),
+        // Skill model (2026-11-10), wave A: a write reads "Saved" or "Changed in QuickBooks";
+        // a confer's row is the check's, not the write's.
+        ...(!check?.confer && (step.kind === "write" || step.kind === "action")
+          ? { write: timelineWrite(platform, step.tool) }
+          : {}),
       },
     ];
   });
