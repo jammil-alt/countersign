@@ -202,6 +202,11 @@ export const BrowserScriptTestResult = z.object({
       screenshotUrl: z.string().nullable(),
     }),
   ),
+  /**
+   * True when a page the test opened showed a value from the vault: then none of its screenshots
+   * is linked (as a recording's, `RecorderPage.screenshotWithheld`).
+   */
+  screenshotWithheld: z.boolean(),
   needsHelp: z.object({ question: z.string(), tried: z.array(z.string()) }).nullable(),
 });
 export type BrowserScriptTestResult = z.infer<typeof BrowserScriptTestResult>;

@@ -703,10 +703,45 @@ export async function siteAllowsScripts(tx: Tx, row: ScriptRow): Promise<void> {
 }
 
 /**
+ * A test's steps, one at a time, each page after it checked for a vault value as the recorder
+ * checks its page (`pageNow`, the value read). `seen.secret` stays set once any page showed one,
+ * also when a later step throws.
+ */
+async function runTestSteps(
+  page: SignedInPage,
+  def: BrowserScriptDefinition,
+  inputs: Record<string, unknown>,
+  seen: { secret: boolean },
+): Promise<ScriptRun> {
+  const run: ScriptRun = { steps: [], outputs: {}, submitted: false, url: page.url() };
+  for (const step of def.steps) {
+    let one: ScriptRun;
+    try {
+      one = await runScriptSteps(page, [step], inputs, def.outputs, {
+        dryRun: true,
+        everyStep: true,
+      });
+    } catch (error) {
+      if (error instanceof ScriptStepMissing) error.done = [...run.steps, ...error.done];
+      throw error;
+    }
+    run.steps.push(...one.steps);
+    Object.assign(run.outputs, one.outputs);
+    run.url = one.url;
+    const now = await pageNow(page);
+    if (now.secret || showsSecret(one.steps.map((s) => s.value))) seen.secret = true;
+  }
+  return run;
+}
+
+/**
  * Tests a script: its steps run in our browser as a dry run (the submit is never clicked, a file
  * is fetched and not kept), with the inputs given or the examples. Test runs never write: a write's
- * outputs say `submitted: false`.
+ * outputs say `submitted: false`. As in a recording, a login whose site asks for a code at every
+ * sign-in is refused, and when a page showed a vault value no screenshot of the test is linked.
  */
+// DECISION: one vault value seen anywhere in a test withholds all its screenshots (not only that
+// step's): a test is one session, and a value shown once may still be on the pages after it.
 export async function testScript(
   services: Services,
   inTx: InTx,
@@ -736,12 +771,14 @@ export async function testScript(
       );
     }
     const conn = await loginRow(tx, row);
-    await loginSite(tx, conn);
+    const { site, config } = await loginSite(tx, conn);
+    refuseCodeEverySignIn(site, config);
     return { row, def, inputs: inputs.data as Record<string, unknown>, conn };
   });
 
   // 2. The browser, outside any transaction; a test writes nothing of its own.
   const ctx = loginContext(services, conn);
+  const seen = { secret: false };
   const steps = async (run: { steps: ScriptRun["steps"] }) =>
     Promise.all(
       run.steps.map(async (s) => ({
@@ -749,7 +786,7 @@ export async function testScript(
         op: s.op,
         url: s.url,
         status: s.status,
-        screenshotUrl: await shotUrl(services, origin, s.screenshot),
+        screenshotUrl: seen.secret ? null : await shotUrl(services, origin, s.screenshot),
       })),
     );
   try {
@@ -757,8 +794,7 @@ export async function testScript(
       ctx,
       { tool: "browser.script.test", site: row.site },
       SESSION,
-      (page) =>
-        runScriptSteps(page, def.steps, inputs, def.outputs, { dryRun: true, everyStep: true }),
+      (page) => runTestSteps(page, def, inputs, seen),
     );
     let outputs: JsonObject | null = null;
     let reason: string | null = null;
@@ -774,6 +810,7 @@ export async function testScript(
       outputs,
       reason,
       steps: await steps(run),
+      screenshotWithheld: seen.secret,
       needsHelp: null,
     };
   } catch (error) {
@@ -785,6 +822,7 @@ export async function testScript(
         outputs: null,
         reason: error.message,
         steps: await steps({ steps: error.done }),
+        screenshotWithheld: seen.secret,
         needsHelp: { question: help.question, tried: help.tried },
       };
     }
@@ -795,6 +833,7 @@ export async function testScript(
         outputs: null,
         reason: error.message,
         steps: [],
+        screenshotWithheld: seen.secret,
         needsHelp: null,
       };
     }

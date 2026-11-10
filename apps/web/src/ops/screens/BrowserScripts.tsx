@@ -349,6 +349,11 @@ function TestOutcome({ result }: { result: TestResult }) {
         )}
       </span>
       {result.reason ? <p className="text-sm text-ink">{result.reason}</p> : null}
+      {result.screenshotWithheld ? (
+        <p className="text-sm text-ink-muted" data-testid="script-test-withheld">
+          A page showed a value from the vault, so no screenshot of this test is shown.
+        </p>
+      ) : null}
       {result.needsHelp ? <p className="text-sm text-ink">{result.needsHelp.question}</p> : null}
       {result.outputs ? (
         <pre

@@ -3075,6 +3075,11 @@ Websites screen's Scripts, the Library's and the builder's listings):
   serviceWorkers: "block" }`, since a service worker's requests pass no route. WebSockets are not
   covered: no route sees a frame sent on one. Browser Run's support for `context.route` and
   `serviceWorkers` is unchecked until staging.
+- DECISION (integration): a test is held to the recorder's rules. It is refused
+  (`code_every_sign_in`) on a login whose site asks for a code at every sign-in and doesn't keep its
+  session, and it runs its steps one at a time, each page after it checked for a vault value as a
+  recorded page is; once one is seen, none of the test's screenshots is linked
+  (`screenshotWithheld: true` on the result).
 
 ## 2. Package layering
 

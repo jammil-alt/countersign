@@ -325,6 +325,7 @@ describe("scripts in the back office", () => {
         return {
           outcome: "done",
           dryRun: true,
+          screenshotWithheld: false,
           outputs: { price: "1212.50", submitted: false, url: null },
           reason: null,
           steps: [

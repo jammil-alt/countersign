@@ -419,6 +419,10 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
       });
       expect(res.status).toBe(409);
       expect(j(res.json).error.code).toBe("code_every_sign_in");
+      // A test signs in too, so it is refused the same way.
+      const test = await H.call(OPERATOR, "POST", `/api/ops/browser-scripts/${stockId}/test`, {});
+      expect(test.status, JSON.stringify(test.json)).toBe(409);
+      expect(j(test.json).error.code).toBe("code_every_sign_in");
       expect(driver.opened).toBe(opened);
     } finally {
       await setTier("low");
@@ -438,6 +442,14 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
     expect(JSON.stringify(shown)).not.toContain(PASSWORD);
     // Nor kept as the step's evidence.
     expect(shown.script.recording.evidence.s1.screenshot).toBeNull();
+    // A test of it links no screenshot either, and says why.
+    const test = await H.call(OPERATOR, "POST", `/api/ops/browser-scripts/${id}/test`, {});
+    expect(test.status, JSON.stringify(test.json)).toBe(200);
+    expect(j(test.json)).toMatchObject({ dryRun: true, screenshotWithheld: true });
+    expect(j(test.json).steps.map((x: { screenshotUrl: unknown }) => x.screenshotUrl)).toEqual([
+      null,
+    ]);
+    expect(JSON.stringify(test.json)).not.toContain(PASSWORD);
   });
 
   it("refuses an action when the recording changed while the browser ran", async () => {
