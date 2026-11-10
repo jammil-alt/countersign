@@ -2428,6 +2428,49 @@ tools, is the owner's doc "Mezonas process model"; milestones are §9.
 // keeping every id, and a skill that only wraps one tool becomes a `read` step (side effect `none`)
 // or a `write` step (anything else; an unknown tool counts as external, so approval stays on).
 
+**Executor (wave 2b, `wave2b/executor`):**
+- // DECISION: one approval engine (`Executor.approve`) decides a write's gate approval and a
+  read's or skill's sign-off. An `all` approval with more than one approver present and no
+  `AgentPort.askApprover` fails the step (the gate's item expired): one signature never stands
+  for several. `in_turn` and `any` need one answer, so without the port they ask the gate's
+  approver alone and `ifNoAnswer` applies.
+- // DECISION: away approvers are skipped only for native v4 checks (a native step's, or an
+  approval a v4 `process` step sets on its automation's step). A converted v3 step's approval is
+  decided exactly as v3 decided it: the stored approver, the stored timeout, waited for.
+- // DECISION: a native skill's proposed writes are signed through the gate in the check's mode,
+  deadlines and `ifNoAnswer`; its confer runs before that approval (on the proposal). A sign-off of
+  the output is asked only for a read, or a skill that proposed no write; a write step's approval is
+  only ever the gate's.
+- // DECISION: a sign-off nobody answered with `ifNoAnswer: stop` fails the run (`timeout`), its row
+  failed "no answer in time", as a person step; it is never reported as a rejection.
+- // DECISION: `proceed` on a person step's deadline: a converted v3 step goes on with
+  `approved: false` (v3's `continue`); a native v4 step reads as a yes (`approved: true`, `by` null,
+  `proceeded: true`, row succeeded), as ARCHITECTURE §10.14's table says. A person step writes
+  nothing itself; every write after it keeps its own approval.
+- // DECISION: a skill customization is checked with `processes.customizeSkill`; the step's
+  `settings` and the customization's are layered with `processes.stepSkillSettings` (the skill's
+  defaults and the agent's own settings stay the runtime's, beneath them); `keep` keeps the
+  customized output schema's fields. A step adding instructions or rule rows fails unless the agent
+  port declares `appliesCustomization`; a skill the catalog can't check fails too.
+- // DECISION: only a native v4 skill asks the lead for help (`needsHelp`); a converted v3 skill's
+  output is its output. The answer is kept with `memory.write` (a browsing skill's under its
+  `remember` tag, in connectors' `browseHelpNote` format); a note that fails to save is written on
+  the step's row and never fails the step.
+- // DECISION: an AI reviewer's focus is sent as written; the values its references stand for go as
+  data (`ConferAiRequest.references`), never rendered into the instruction (invariant 9).
+- // DECISION: a conversation's event type is `conversation-<id>` in letters, digits, `-` and `_`
+  (core `conversationEventType`, at most 100 characters). The run waits on it, with a timeout of the
+  step's deadline (on the hours of who it is with) or the engine's `wakeAt`, whichever is sooner,
+  after a check before each wait; it then calls the port with what woke it (`payload`, `timedOut`
+  or `deadlinePassed`). `declined` takes `checks.approval.onReject`; `no_answer` the deadline's
+  `ifNoAnswer` (`proceed` goes on with what was found, the row succeeded).
+- // DECISION: business deadlines on hours with no open time for five years count in clock time:
+  the deadline still comes due and its `ifNoAnswer` still applies.
+- // DECISION: the validator types a conversation's output (`conversationOutputSchema`), reports
+  `conversationProblems` as codes (a templated goal stays `input_not_fixed`), and holds
+  `messages.first: not_required` to invariant 8: allowed at publish only where every bound
+  connection able to carry the channel allows `auto` for `create`; with none bound, refused.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
