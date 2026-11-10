@@ -25,7 +25,7 @@ import {
 } from "../../ui/primitives";
 import { agentPath } from "../agents/BuilderParts";
 import { errorText, Field, Notice, plural, Select, TextInput, useAction } from "../agents/ui";
-import { parseBundle } from "../versions";
+import { parseAnyBundle } from "../versions";
 import { SchemaCard } from "./parts";
 import { SkillEditor } from "./SkillEditor";
 import { SKILLS_PATH, skillPath } from "./SkillsLibrary";
@@ -446,6 +446,7 @@ function AssignCard({ skill, onAssigned }: { skill: SkillListItem; onAssigned():
   );
   const [agentId, setAgentId] = useState("");
   const [done, setDone] = useState<{ path: string; text: string } | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
   const action = useAction();
   const agents = clientId
     ? (clientAgents.data?.agents ?? []).filter((a) => !a.testCopy && a.runStatus !== "retired")
@@ -454,10 +455,15 @@ function AssignCard({ skill, onAssigned }: { skill: SkillListItem; onAssigned():
   async function assign() {
     const target = agents.find((a) => a.id === agentId);
     if (!target) return;
+    setProblem(null);
     const page = await action.call(apiRoutes.opsAgent, { params: { id: target.id } });
     if (!page.ok || !page.data.latest) return;
-    const parsed = parseBundle(page.data.latest);
-    if (!parsed.ok) return;
+    // Wave 3b: a v4 version is read and saved back as v4; only `definition.skills` changes.
+    const parsed = parseAnyBundle(page.data.latest);
+    if (!parsed.ok) {
+      setProblem(`We couldn't read ${target.name}'s latest version. ${parsed.message}`);
+      return;
+    }
     const bundle = parsed.bundle;
     if (bundle.definition.skills.some((s) => s.skill.split("@")[0] === skill.ref)) {
       setDone({ path: agentPath(target), text: `${target.name} already uses it.` });
@@ -521,6 +527,11 @@ function AssignCard({ skill, onAssigned }: { skill: SkillListItem; onAssigned():
             </Select>
           </Field>
           {action.error ? <Notice tone="warning">{errorText(action.error)}</Notice> : null}
+          {problem ? (
+            <Notice tone="warning" testId="skill-assign-problem">
+              {problem}
+            </Notice>
+          ) : null}
           {done ? (
             <Notice tone="positive" testId="skill-assign-done">
               {done.text}{" "}

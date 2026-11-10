@@ -2891,8 +2891,8 @@ runtime (wave 2c):
   version's Workflow view, Settings > Definition, Versions with its test runs and go-live, the
   triggers panel), and so do the lab and the new-agent preview. A test run's input reads the
   workflow's triggers through core's `allTriggers`: recent events of its first event trigger, the
-  sample of its first trigger. "Revise with the Builder" stays off for a version that holds a
-  process while the Builder's server sessions draft v3 only.
+  sample of its first trigger. "Revise with the Builder" is offered for any readable version,
+  since the Builder's server sessions draft processes (wave 3b builder chat).
 - DECISION: the triggers panel adds a trigger to a process's `triggers` and removes any but its
   first, as it does a v3 workflow's `moreTriggers`; every id is kept (invariant 3).
 - DECISION: the builder validates what Publish would send: a stored v3 version opened and not

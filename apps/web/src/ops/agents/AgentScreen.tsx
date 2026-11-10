@@ -6,7 +6,7 @@
 // publish) and Settings, split into Access (applies at once, logged) and Definition (a new draft
 // version). The old Triggers and Tests addresses open their new homes. `/revise` asks the Builder
 // for a new draft. `?version=N` shows an older version on the bundle tabs.
-import { type AnyAgentBundle, holdsProcess } from "@countersign/core";
+import type { AnyAgentBundle } from "@countersign/core";
 import type { ReactNode } from "react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
@@ -333,9 +333,9 @@ export function AgentScreen({
             view={view}
             base={base}
             detail={data}
-            // The Builder's server sessions draft v3 only, so a version holding processes isn't
-            // offered to it (as before, when this page couldn't read one).
-            canRevise={latestAny !== null && !holdsProcess(latestAny)}
+            // Wave 3b: the Builder's server sessions draft processes, so any readable version
+            // can be revised.
+            canRevise={latestAny !== null}
             onChanged={reload}
             onDiscarded={() =>
               navigate(view.kind === "template" ? "/ops/lab" : `/ops/clients/${view.tenantId}`)

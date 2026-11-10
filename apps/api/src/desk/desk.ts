@@ -234,6 +234,18 @@ async function routeFor(
   const step = workflow ? findNodeStep(workflow, leaf) : undefined;
   const stepApprover =
     step && ownerWatches(step) ? ownerStepApproval(step as OwnerWatchedStep).approver : undefined;
+  // DECISION (wave 3b review): a v4 approval names approvers in turn; the executor can ask a later
+  // one (the first is away, or past their deadline). The edit is routed against each named
+  // approver, and it stays with the item's assignee if any of those routes still goes to them.
+  const checkApprovers =
+    step && "checks" in step
+      ? ((step.checks as { approval?: { approvers?: { who?: string }[] } } | undefined)?.approval
+          ?.approvers ?? [])
+      : [];
+  const candidates = [
+    stepApprover,
+    ...checkApprovers.map((a) => a.who).filter((w): w is string => typeof w === "string"),
+  ].filter((w, i, all) => all.indexOf(w) === i);
   const [t] = await tx
     .select({ settings: tenant.settings })
     .from(tenant)
@@ -249,19 +261,21 @@ async function routeFor(
         eq(membership.canSign, true),
       ),
     );
-  return routeApproval({
-    rules: readApproverRuleSet(settings).rules,
-    facts: changeFacts({
-      spec: tool.spec,
-      connector: tool.connector.manifest.id,
-      agentId: r.agentId,
-      input: input.edited,
+  return candidates.map((who) =>
+    routeApproval({
+      rules: readApproverRuleSet(settings).rules,
+      facts: changeFacts({
+        spec: tool.spec,
+        connector: tool.connector.manifest.id,
+        agentId: r.agentId,
+        input: input.edited,
+      }),
+      step: who,
+      agent: [v?.bundle.definition.permissions.approver, a?.approver],
+      client: clientApproverSetting(settings),
+      members: new Set(signers.map((s) => s.userId)),
     }),
-    step: stepApprover,
-    agent: [v?.bundle.definition.permissions.approver, a?.approver],
-    client: clientApproverSetting(settings),
-    members: new Set(signers.map((s) => s.userId)),
-  });
+  );
 }
 
 /**
@@ -364,7 +378,7 @@ export async function editItem(
   if (!checked.ok) {
     throw new HttpError(checked.code === "refused" ? 409 : 422, checked.code, checked.message);
   }
-  const route = await routeFor(tx, platform, {
+  const routes = await routeFor(tx, platform, {
     tenantId: input.tenantId,
     item,
     toolId: action.tool,
@@ -372,11 +386,12 @@ export async function editItem(
     edited: checked.input,
     connectionId: action.connectionId,
   });
-  if (
-    !route ||
-    route.assignee.assigneeRole !== item.assigneeRole ||
-    route.assignee.assigneeUserId !== item.assigneeUserId
-  ) {
+  const stays = (routes ?? []).some(
+    (route) =>
+      route.assignee.assigneeRole === item.assigneeRole &&
+      route.assignee.assigneeUserId === item.assigneeUserId,
+  );
+  if (!stays) {
     throw new HttpError(
       409,
       "reroute",
