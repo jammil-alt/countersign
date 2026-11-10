@@ -99,6 +99,7 @@ export * from "./approvals/rules";
 // P-3: attachments both ways
 export * from "./attachments";
 export * from "./billing";
+export * from "./browser/script";
 export * from "./browser/site";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";
