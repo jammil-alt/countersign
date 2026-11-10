@@ -372,6 +372,63 @@ describe("needs help", () => {
       { note: 'Asked "Where is the list?", the lead answered: Under Reports' },
     ]);
   });
+
+  // Wave 4 (docs/plan.md §1.86 "Scripts (wave 4)"): a recorded script whose page changed.
+  const scriptHelp = {
+    kind: "done" as const,
+    output: {
+      needsHelp: { question: "The script couldn't find #stock on /orders/lookup", tried: [] },
+    },
+  };
+
+  it("is a native read step's too: the lead is asked and the step runs again with the answer", async () => {
+    const h = new Harness();
+    let runs = 0;
+    h.handlers.stock = () => (++runs === 1 ? scriptHelp : { kind: "done", output: { stock: 42 } });
+    const runner = new FakeStepRunner({ onWait: "block" });
+    runner.onWaitStarted = (_name, type) => runner.deliver(type, { answer: "Re-recorded it" });
+    const result = await executeWorkflow(
+      runner,
+      h.context(),
+      proc([
+        {
+          id: "stock",
+          kind: "read",
+          name: "Check stock",
+          tool: "browser.script.read",
+          input: { site: "supplier", script: "stock", inputs: { sku: "OAK-1" } },
+        },
+      ]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.agentCalls).toHaveLength(3);
+    expect(h.agentCalls[1]).toMatchObject({ step: { tool: "memory.write" } });
+    expect(h.agentCalls[2]?.input).toMatchObject({ script: "stock", help: "Re-recorded it" });
+    expect([...h.items.values()][0]?.item?.title).toMatch(/couldn.t find #stock/);
+  });
+
+  it("is never a converted v3 action's", async () => {
+    const h = new Harness();
+    h.handlers.stock = () => scriptHelp;
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context(),
+      wf([
+        {
+          id: "stock",
+          kind: "action",
+          name: "Check stock",
+          tool: "browser.script.read",
+          input: {},
+          approval: { required: "not_required" },
+        },
+      ]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.items.size).toBe(0);
+  });
 });
 
 describe("the owner (R6)", () => {
