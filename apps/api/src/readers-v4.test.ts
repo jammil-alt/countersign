@@ -570,7 +570,10 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
   }
 
   /** A finished live run of `tidyBundle` with a step log, inserted as the executor writes it. */
-  async function tidyRun(s: { agentId: string; versionId: string }, error?: unknown) {
+  async function tidyRun(
+    s: { agentId: string; versionId: string },
+    error?: Record<string, unknown>,
+  ) {
     const [r] = await H.t.db
       .insert(run)
       .values({
