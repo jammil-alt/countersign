@@ -97,7 +97,16 @@ describe("the output", () => {
 
   it("has an id the engine's subject carries, and one event per conversation", () => {
     const id = conversationId("run-1", "talk");
-    expect(conversationEventType(id)).toBe("conversation:run-1:talk");
+    expect(conversationEventType(id)).toBe("conversation-run-1_ctalk");
+    // Letters, digits, `-` and `_` only, never two ids on one type, never past the limit.
+    const types = ["r:a_b", "r:a:b", "r:a/b", "r:a_cb", `r:${"x".repeat(150)}`, "r:é"].map(
+      conversationEventType,
+    );
+    for (const t of types) expect(t).toMatch(/^[A-Za-z0-9_-]{1,100}$/);
+    expect(new Set(types).size).toBe(types.length);
+    expect(conversationEventType(`r:${"x".repeat(150)}`)).not.toBe(
+      conversationEventType(`r:${"x".repeat(151)}`),
+    );
     expect(conversationIdOfSubject("converse:run-1:talk")).toBe(id);
     expect(conversationIdOfSubject("purchase:run-1")).toBeNull();
   });

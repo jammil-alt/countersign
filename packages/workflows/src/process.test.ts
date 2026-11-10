@@ -150,6 +150,7 @@ describe("skill steps", () => {
 
   it("layers the customization's settings over the step's and keeps only its fields", async () => {
     const h = new Harness();
+    h.agent.appliesCustomization = true;
     h.handlers.s = () => ({ kind: "done", output: { text: "hi", debug: "x" } });
     const result = await executeWorkflow(
       new FakeStepRunner(),
@@ -262,8 +263,10 @@ describe("checks", () => {
     );
     expect(result.status).toBe("succeeded");
     expect(order).toEqual(["confer", "propose", "write", "notify"]);
+    // The focus is the instruction, as written; what it references goes beside it as data.
     expect(reviews[0]).toMatchObject({
-      focus: "do the lines add up for bill 7",
+      focus: "do the lines add up for {{trigger.what}}",
+      references: { "trigger.what": "bill 7" },
       input: { name: "bill 7" },
       stepId: "write",
     });
@@ -718,21 +721,41 @@ describe("deadlines", () => {
     const escalated = [...h.items.values()].find((v) => v.item?.nodeId === "ok:esc1")?.item;
     expect(escalated?.step.assignee).toBe("lead");
     expect(h.operatorNotices).toHaveLength(1);
-    expect(h.row("ok")?.status).toBe("skipped");
-    expect(h.sent[0]?.text).toBe("false");
+    // A native v4 step that proceeds reads as a yes (§10.14's table), nobody having answered.
+    expect(h.row("ok")).toMatchObject({
+      status: "succeeded",
+      output: { approved: true, by: null, proceeded: true },
+    });
+    expect(h.sent[0]?.text).toBe("true");
   });
 });
 
 describe("conversation steps", () => {
-  function port(results: ConversationResult[]) {
+  /**
+   * A port that stays `pending` until something wakes it, then answers with `then(wake)`. A call
+   * without a wake (the first, and each check before waiting) only reports where it is.
+   */
+  function port(
+    then: (wake: NonNullable<ConversationRequest["wake"]>) => ConversationResult,
+    pending: Partial<ConversationResult> = {},
+  ) {
     const calls: ConversationRequest[] = [];
+    let ended: ConversationResult | null = null;
     return {
       calls,
       conversation: async (req: ConversationRequest) => {
         calls.push(req);
-        return (
-          results.shift() ?? { status: "failed", found: {}, conversationId: null, summary: "" }
-        );
+        if (req.wake) ended = then(req.wake);
+        if (ended && ended.status !== "pending") return ended;
+        return {
+          status: "pending" as const,
+          found: {},
+          conversationId: "run-1:ask",
+          summary: "",
+          waitFor: conversationEventType("run-1:ask"),
+          waitingOn: "reply" as const,
+          ...pending,
+        };
       },
     };
   }
@@ -742,22 +765,24 @@ describe("conversation steps", () => {
     name: "Ask the vendor",
     with: "{{trigger.vendor}}",
     channel: "email",
-    goal: "Find the price of {{trigger.item}}",
+    goal: "Find the price of flour",
     find: { price: "money" },
     deadline: { after: "2 days" },
     ...over,
   });
 
-  it("waits on the conversation's event, then reads what it found", async () => {
-    const p = port([
-      { status: "pending", found: {}, conversationId: "c-1", summary: "" },
-      { status: "done", found: { price: "4.20" }, conversationId: "c-1", summary: "Got the price" },
-    ]);
+  it("waits on the conversation's event, passes its payload, then reads what it found", async () => {
+    const p = port((wake) => ({
+      status: "done",
+      found: { price: "4.20", heard: wake.payload },
+      conversationId: "run-1:ask",
+      summary: "Got the price",
+    }));
     const h = new Harness();
     const runner = new FakeStepRunner({ onWait: "block" });
     runner.onWaitStarted = (_name, type) => {
-      expect(type).toBe(conversationEventType("c-1"));
-      runner.deliver(type, {});
+      expect(type).toBe("conversation-run-1_cask");
+      runner.deliver(type, { reply: "r-1" });
     };
     const result = await executeWorkflow(
       runner,
@@ -771,29 +796,88 @@ describe("conversation steps", () => {
           notify: { to: ["lead"], message: "{{steps.ask.output.found.price}}" },
         },
       ]),
-      { vendor: "c-vendor", item: "flour" },
+      { vendor: "c-vendor" },
     );
     expect(result.status).toBe("succeeded");
     expect(p.calls[0]?.step).toMatchObject({ with: "c-vendor", goal: "Find the price of flour" });
     expect(p.calls[0]).toMatchObject({ stepId: "ask", runId: RUN.id, mode: "live" });
+    expect(p.calls[0]?.stepRunId).toBe(h.row("ask")?.id);
+    expect(p.calls.map((c) => c.wake)).toEqual([
+      undefined,
+      undefined,
+      { payload: { reply: "r-1" } },
+    ]);
     expect(h.row("ask")).toMatchObject({ status: "succeeded", summary: "Got the price" });
     expect(h.sent[0]?.text).toBe("4.20");
   });
 
-  it("takes the deadline's ifNoAnswer when nobody answers", async () => {
-    const p = port([
-      { status: "pending", found: {}, conversationId: "c-2", summary: "" },
-      { status: "pending", found: {}, conversationId: "c-2", summary: "" },
-    ]);
+  it("the deadline passing tells the port, and takes the deadline's ifNoAnswer", async () => {
+    const p = port((wake) => ({
+      status: wake.deadlinePassed ? "no_answer" : "pending",
+      found: {},
+      conversationId: "run-1:ask",
+      summary: "No answer",
+    }));
     const h = new Harness();
     const result = await executeWorkflow(
       new FakeStepRunner({ onWait: "timeout" }),
       h.context({ conversation: p }),
       proc([talk({ deadline: { after: "2 days", ifNoAnswer: "skip" } })]),
-      { vendor: "v", item: "i" },
+      { vendor: "v" },
     );
     expect(result.status).toBe("succeeded");
+    expect(p.calls.at(-1)?.wake).toEqual({ deadlinePassed: true });
     expect(h.row("ask")?.status).toBe("skipped");
+  });
+
+  it("wakes at the engine's wakeAt when it comes before the deadline", async () => {
+    let woke = 0;
+    const p = port(
+      (wake) =>
+        wake.timedOut && ++woke === 1
+          ? { status: "done", found: { price: "1" }, conversationId: "c", summary: "" }
+          : { status: "pending", found: {}, conversationId: "c", summary: "" },
+      { wakeAt: new Date(Date.now() + 60_000).toISOString() },
+    );
+    const h = new Harness();
+    const runner = new FakeStepRunner({ onWait: "timeout" });
+    const result = await executeWorkflow(runner, h.context({ conversation: p }), proc([talk()]), {
+      vendor: "v",
+    });
+    expect(result.status).toBe("succeeded");
+    expect(p.calls.at(-1)?.wake).toEqual({ timedOut: true });
+    const wait = runner.calls.find((c) => c.kind === "wait") as { timeout: string };
+    expect(Number.parseInt(wait.timeout, 10)).toBeLessThanOrEqual(60);
+  });
+
+  it("a conversation turned down takes the approval's onReject", async () => {
+    for (const onReject of ["stop", "continue"] as const) {
+      const p = port(() => ({
+        status: "failed",
+        declined: true,
+        found: {},
+        conversationId: "c",
+        summary: "Turned down",
+      }));
+      const h = new Harness();
+      const runner = new FakeStepRunner({ onWait: "block" });
+      runner.onWaitStarted = (_name, type) => runner.deliver(type, {});
+      const result = await executeWorkflow(
+        runner,
+        h.context({ conversation: p }),
+        proc([talk({ checks: { approval: { onReject } } })]),
+        { vendor: "v" },
+      );
+      expect(result).toMatchObject(
+        onReject === "stop"
+          ? { status: "cancelled", reason: "rejected", nodeId: "ask" }
+          : { status: "succeeded" },
+      );
+      expect(h.row("ask")).toMatchObject({
+        status: "skipped",
+        summary: "Ask the vendor: declined",
+      });
+    }
   });
 
   it("fails without the conversation service", async () => {
@@ -1025,7 +1109,7 @@ describe("logic", () => {
       ]),
       { who: "dana" },
     );
-    expect(result.status).toBe("succeeded");
+    expect(result).toEqual({ status: "succeeded" });
     expect(h.agentCalls[0]).toMatchObject({
       nodeId: "use/send",
       automation: "follow-up@1",

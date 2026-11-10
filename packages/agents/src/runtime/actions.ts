@@ -17,11 +17,14 @@ import {
   decideToolCall,
   editablePaths,
   editProblem,
+  effectiveMode,
   grantAllowsTool,
+  isAlwaysSigned,
   isPlainObject,
   type JsonObject,
   type JsonValue,
   processes,
+  recipientOf,
   releaseOf,
   type ToolSpec,
 } from "@countersign/core";
@@ -290,16 +293,29 @@ async function signedGateRefusal(
     conn: ConnectionRef;
     agentId: string | null;
     input: unknown;
+    // R3: asked whether the write may run with no signature at all (`unsignedRefusal`): the
+    // agent's mode at its stage and the recipient's autonomy decide too, and only `run` passes.
+    unsigned?: {
+      mode: Parameters<typeof decideToolCall>[0]["agentMode"];
+      ceilings?: Parameters<typeof decideToolCall>[0]["ceilings"];
+    };
   },
 ): Promise<string | null> {
-  const { spec, conn } = call;
+  const { spec, conn, unsigned } = call;
   const grant = call.agentId ? await deps.ports.store.grant(tenantId, call.agentId, conn.id) : null;
   const decision = decideToolCall({
     sideEffect: spec.sideEffect,
     verb: spec.verb,
     matrix: conn.permissions,
     grant,
-    agentMode: "suggest_only",
+    agentMode: unsigned?.mode ?? "suggest_only",
+    ...(unsigned
+      ? {
+          stepApproval: "not_required" as const,
+          ceilings: unsigned.ceilings,
+          alwaysSigned: isAlwaysSigned(spec),
+        }
+      : {}),
     // v0.12 W2-A: the input's entity and scope count too.
     entity: {
       tool: spec,
@@ -310,7 +326,55 @@ async function signedGateRefusal(
   if (!grantAllowsTool(grant, spec.id) || decision === "refused") {
     return `${spec.verb} is off for this change now`;
   }
+  if (unsigned && decision !== "run") {
+    return `${spec.verb} needs a person's signature on this connection now`;
+  }
   return null;
+}
+
+// ── R3: a write that goes ahead with nobody's answer (docs/plan.md §1.86) ──────────────────────
+
+/**
+ * Why a proposed write may not go ahead unsigned now, or null when the gate would let it run
+ * without a signature: the step's approval `not_required` (what an approval's `ifNoAnswer:
+ * proceed` stands for once nobody answered), the connection's matrix and the agent's grant at
+ * `auto` for the verb (and its entity), the recipient's autonomy, and the agent's mode `act` at
+ * its stage, each read fresh. The executor asks this before a write proceeds with nobody's answer.
+ */
+// DECISION: the validator let `proceed` only where the gate would run the write unsigned when the
+// process was published (invariant 8), but a client may tighten the matrix (or the agent leave
+// `live`) since: the gate is asked again, now, with the same inputs it decides a write by, and a
+// write it would make wait never goes ahead on a deadline.
+export async function unsignedRefusal(
+  deps: RuntimeDeps,
+  input: { tenantId: string; actionId: string },
+): Promise<string | null> {
+  const { tenantId } = input;
+  const { store } = deps.ports;
+  const action = await deps.ports.actions.get(tenantId, input.actionId);
+  if (!action) throw notFound(`external action ${input.actionId}`);
+  const conn = await store.connection(tenantId, action.connectionId);
+  const owner = action.runId ? await store.run(tenantId, action.runId) : null;
+  if (!conn || !owner || !action.agentVersionId) return "the change has no agent to go ahead for";
+  const own = deps.tools.forConnector(action.tool, conn.connector);
+  if (own?.kind !== "connector") return "the connection is gone";
+  const pinned = await store.loadAgentVersion(tenantId, action.agentVersionId);
+  const stage = await store.agentStage(tenantId, owner.agentId);
+  const recipient = recipientOf(own.spec, action.input);
+  const autonomy =
+    recipient && store.contactAutonomy ? await store.contactAutonomy(tenantId, recipient) : null;
+  const refused = await signedGateRefusal(deps, tenantId, {
+    spec: own.spec,
+    connector: own.connector,
+    conn,
+    agentId: owner.agentId,
+    input: action.input,
+    unsigned: {
+      mode: effectiveMode(pinned.bundle.definition, stage),
+      ...(autonomy ? { ceilings: [autonomy] } : {}),
+    },
+  });
+  return refused;
 }
 
 // ── R5: undo (docs/plan.md §1.86, §9; ARCHITECTURE §10.14 "Undo") ────────────────────────────────

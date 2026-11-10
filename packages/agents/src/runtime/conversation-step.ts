@@ -8,7 +8,7 @@
 // transcript by the same turn the engine uses (`converseFindings`).
 //
 // The engine's rows are the truth. The runner starts or carries the conversation on, and returns
-// `pending` with the event to wait on (`conversation:<id>`) until it ends; the executor waits
+// `pending` with the event to wait on (`processes.conversationEventType(id)`) until it ends; the executor waits
 // durably, as for a person step, and calls again when woken. Replies stay data (invariant 9): they
 // reach the model only in a tool result, and `found` keeps only the step's own fields.
 
@@ -38,7 +38,7 @@ export interface ConversationStepInput {
   mode: "live" | "test";
   // DECISION: two optional fields beyond the shared contract. `stepRunId` lets the engine log its
   // turns on the step (absent: the turns' usage is kept on the run only). `wake` says what woke a
-  // waiting step: the payload of its `conversation:<id>` event (an inbox resolution, a reply), the
+  // waiting step: the payload of its `processes.conversationEventType(id)` event (an inbox resolution, a reply), the
   // engine's own wake time passing (`timedOut`), or the step's deadline (`deadlinePassed`, after
   // which the conversation ends and `deadline.ifNoAnswer` applies).
   stepRunId?: string | undefined;
@@ -54,7 +54,7 @@ export interface ConversationStepResult {
   conversationId: string | null;
   /** One plain line for the timeline: never a prompt, a model or a cost (invariant 11). */
   summary: string;
-  /** `pending`: the event that wakes the step (`conversation:<id>`). */
+  /** `pending`: the event that wakes the step (`processes.conversationEventType(id)`). */
   waitFor?: string;
   /** `pending`: wake the step by then even with no event (a reply's own wait), ISO. */
   wakeAt?: string | null;

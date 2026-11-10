@@ -35,7 +35,7 @@ import type { Hono } from "hono";
 // P-4
 import { runConversations } from "../converse/views";
 import { type AppEnv, ensureClient, HttpError, iso, mount, notFound, type Services } from "../http";
-import { resolveInboxItem } from "../inbox";
+import { resolveInboxItem, sendResolution } from "../inbox";
 import { isInternal } from "../internal-client";
 // v0.13 W2-I
 import { runOversight } from "../oversight/views";
@@ -792,11 +792,9 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       // R5: a late no is offered an undo when its write's tool says how.
       tools: services.platform.tools,
     });
-    const { resume } = outcome;
-    if (resume) {
-      ctx.afterCommit(() =>
-        services.instances.sendEvent(resume.runId, { type: resume.type, payload: resume.payload }),
-      );
+    // R7: and a conversation's own event beside it, for a v4 conversation step.
+    if (outcome.resume || outcome.conversation) {
+      ctx.afterCommit(() => sendResolution(services.instances, outcome));
     }
     if (collect.length > 0) {
       ctx.defer(() => dispatchEvents({ db: services.db, instances: services.instances }, collect));

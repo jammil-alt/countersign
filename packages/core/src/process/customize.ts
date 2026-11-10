@@ -20,7 +20,7 @@ import {
   type SkillSetting,
   skillMethod,
 } from "../schemas/skill";
-import { schemaTypes } from "../template/typer";
+import { jsonTypeOf, schemaTypes, typesCompatible } from "../template/typer";
 
 /** A rule row the step edits, by id: the fields given replace the row's. */
 export const SkillRuleEdit = z.strictObject({
@@ -96,24 +96,6 @@ function settingProblem(s: SkillSetting, value: unknown): string | null {
         ? null
         : `one of ${(s.options ?? []).join(", ")}`;
   }
-}
-
-// One copy, shared with the validators (workflow/validate.ts re-exports them): defined here because
-// this file is loaded while the schemas are (process/schema imports it), so it can't import them.
-/** The JSON type of a literal value (`integer` for a whole number). */
-export function jsonTypeOf(v: unknown): string {
-  if (v === null) return "null";
-  if (Array.isArray(v)) return "array";
-  if (typeof v === "number") return Number.isInteger(v) ? "integer" : "number";
-  return typeof v;
-}
-
-/** Whether a value of the `actual` types fits a field of the `accepted` (unknown fits anything). */
-export function typesCompatible(accepted: string[], actual: string[]): boolean {
-  if (accepted.length === 0 || actual.length === 0) return true;
-  return actual.some(
-    (t) => accepted.includes(t) || (t === "integer" && accepted.includes("number")),
-  );
 }
 
 /** Why a rule row can't set `key` to `value` in this output; null when it can. */

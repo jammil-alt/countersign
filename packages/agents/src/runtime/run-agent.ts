@@ -25,6 +25,7 @@ import {
   type Locale,
   type ModelChoice,
   parseSkillRef,
+  processes,
   renderSummary,
   resolveSkillSettings,
   type SkillDefinition,
@@ -90,6 +91,13 @@ export interface RunAgentInput {
    * a skill it doesn't list runs with the step's settings over the skill's defaults.
    */
   automation?: string | undefined;
+  // R3 (docs/plan.md §1.86): a v4 skill step's customization of its Library skill.
+  /**
+   * What the step changes about its skill (`processes.SkillCustomization`): its added
+   * instructions go after the skill's own, never replacing them. The executor has already layered
+   * its settings into `settings`, its model into `model`, and keeps only its `keep` fields.
+   */
+  customize?: processes.SkillCustomization | undefined;
 }
 
 export interface AskBudget {
@@ -174,6 +182,31 @@ export const FINISH_TOOL = "finish";
 /** Tool names the API accepts (`^[a-zA-Z0-9_-]{1,64}$`): dots become double underscores. */
 export function toolName(toolId: string): string {
   return toolId.replaceAll(".", "__");
+}
+
+/**
+ * The skill as a v4 step runs it: its added instructions after the skill's own, checked as the
+ * Library's customization rules check them. Rule rows a step adds or edits are refused here: the
+ * runtime doesn't evaluate a skill's rule rows yet, and a step must never run without the rows it
+ * was published with.
+ */
+// DECISION: settings, model and `keep` are the executor's (it layers the first two into the
+// request and keeps the fields after the run), so only the instructions are applied here; the
+// skill's output schema stays whole for the model's answer, then the executor narrows it.
+function customizedSkill(
+  def: SkillDefinition,
+  c: processes.SkillCustomization,
+): { ok: true; def: SkillDefinition } | { ok: false; error: string } {
+  if ((c.rules?.add?.length ?? 0) > 0 || (c.rules?.edit?.length ?? 0) > 0) {
+    return { ok: false, error: "the step changes its skill's rule rows, which can't run yet" };
+  }
+  if (c.addInstructions === undefined) return { ok: true, def };
+  try {
+    const applied = processes.applyCustomization(def, { addInstructions: c.addInstructions });
+    return { ok: true, def: { ...def, instructions: applied.instructions } };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 /** A synthetic skill for free-form tasks: the agent's extra tools, an answer with sources. */
@@ -376,6 +409,12 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       return fail(`agent ${agent.slug} has no skill ${id}`);
     }
     settings = resolveSkillSettings(def, { ...own?.settings, ...input.settings });
+    // R3: a v4 step's customization, applied to the skill this agent resolved.
+    if (input.customize) {
+      const customized = customizedSkill(def, input.customize);
+      if (!customized.ok) return fail(customized.error);
+      def = customized.def;
+    }
   } else if (input.asked) {
     def = askSkill(input.asked.tools);
   } else if (input.task !== undefined) {

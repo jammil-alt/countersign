@@ -82,6 +82,8 @@ import type {
   WaitRequest,
 } from "@countersign/workflows";
 import { and, eq, gte, inArray, isNull, lte, ne, sql } from "drizzle-orm";
+// R7
+import { conversationEventOfSubject, sendWithConversation } from "../converse/wake";
 import {
   type ContactRow,
   contactLanguage,
@@ -326,13 +328,19 @@ export async function endReachOut(
 }
 
 /** Wakes the run (best effort: the cron re-sends until the run takes it). */
-async function wake(deps: Pick<ReachDeps, "instances">, row: Pick<ReachOutRow, "id" | "runId">) {
+async function wake(
+  deps: Pick<ReachDeps, "instances">,
+  row: Pick<ReachOutRow, "id" | "runId" | "subject">,
+) {
   if (!deps.instances) return;
   try {
-    await deps.instances.sendEvent(row.runId, {
-      type: reachOutEventType(row.id),
-      payload: { reachOutId: row.id },
-    });
+    // R7: a conversation's message wakes a v4 conversation step too (its own event).
+    await sendWithConversation(
+      deps.instances,
+      row.runId,
+      { type: reachOutEventType(row.id), payload: { reachOutId: row.id } },
+      conversationEventOfSubject(row.subject),
+    );
   } catch (error) {
     reportHandled(`waking run ${row.runId} for reach-out ${row.id} failed`, error, {
       job: "reach",
@@ -1388,7 +1396,7 @@ export async function reachOutTick(
 
   const pending = await withTenant(db, tenantId, (tx) =>
     tx
-      .select({ id: reachOut.id, runId: reachOut.runId })
+      .select({ id: reachOut.id, runId: reachOut.runId, subject: reachOut.subject })
       .from(reachOut)
       .innerJoin(run, and(eq(run.id, reachOut.runId), eq(run.tenantId, reachOut.tenantId)))
       .where(

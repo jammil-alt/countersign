@@ -117,7 +117,7 @@ describe("the conversation port", () => {
       found: {},
       conversationId: `${RUN}:talk`,
       summary: "Waiting for their reply.",
-      waitFor: `conversation:${RUN}:talk`,
+      waitFor: `conversation-${RUN}_ctalk`,
       wakeAt: "2026-11-11T09:00:00Z",
       waitingOn: "reply",
     });

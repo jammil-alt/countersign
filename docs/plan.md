@@ -2428,6 +2428,95 @@ tools, is the owner's doc "Mezonas process model"; milestones are §9.
 // keeping every id, and a skill that only wraps one tool becomes a `read` step (side effect `none`)
 // or a `write` step (anything else; an unknown tool counts as external, so approval stays on).
 
+**Executor (wave 2b, `wave2b/executor`):**
+- // DECISION: one approval engine (`Executor.approve`) decides a write's gate approval and a
+  read's or skill's sign-off. An `all` approval with more than one approver present and no
+  `AgentPort.askApprover` fails the step (the gate's item expired): one signature never stands
+  for several. `in_turn` and `any` need one answer, so without the port they ask the gate's
+  approver alone and `ifNoAnswer` applies.
+- // DECISION: away approvers are skipped only for native v4 checks (a native step's, or an
+  approval a v4 `process` step sets on its automation's step). A converted v3 step's approval is
+  decided exactly as v3 decided it: the stored approver, the stored timeout, waited for.
+- // DECISION: a native skill's proposed writes are signed through the gate in the check's mode,
+  deadlines and `ifNoAnswer`; its confer runs before that approval (on the proposal). A sign-off of
+  the output is asked only for a read, or a skill that proposed no write; a write step's approval is
+  only ever the gate's.
+- // DECISION: a sign-off nobody answered with `ifNoAnswer: stop` fails the run (`timeout`), its row
+  failed "no answer in time", as a person step; it is never reported as a rejection.
+- // DECISION: `proceed` on a person step's deadline: a converted v3 step goes on with
+  `approved: false` (v3's `continue`); a native v4 step reads as a yes (`approved: true`, `by` null,
+  `proceeded: true`, row succeeded), as ARCHITECTURE §10.14's table says. A person step writes
+  nothing itself; every write after it keeps its own approval.
+- // DECISION: a skill customization is checked with `processes.customizeSkill`; the step's
+  `settings` and the customization's are layered with `processes.stepSkillSettings` (the skill's
+  defaults and the agent's own settings stay the runtime's, beneath them); `keep` keeps the
+  customized output schema's fields. A step adding instructions or rule rows fails unless the agent
+  port declares `appliesCustomization`; a skill the catalog can't check fails too.
+- // DECISION: only a native v4 skill asks the lead for help (`needsHelp`); a converted v3 skill's
+  output is its output. The answer is kept with `memory.write` (a browsing skill's under its
+  `remember` tag, in connectors' `browseHelpNote` format); a note that fails to save is written on
+  the step's row and never fails the step.
+- // DECISION: an AI reviewer's focus is sent as written; the values its references stand for go as
+  data (`ConferAiRequest.references`), never rendered into the instruction (invariant 9).
+- // DECISION: a conversation's event type is `conversation-<id>` in letters, digits, `-` and `_`
+  (core `conversationEventType`, at most 100 characters). The run waits on it, with a timeout of the
+  step's deadline (on the hours of who it is with) or the engine's `wakeAt`, whichever is sooner,
+  after a check before each wait; it then calls the port with what woke it (`payload`, `timedOut`
+  or `deadlinePassed`). `declined` takes `checks.approval.onReject`; `no_answer` the deadline's
+  `ifNoAnswer` (`proceed` goes on with what was found, the row succeeded).
+- // DECISION: business deadlines on hours with no open time for five years count in clock time:
+  the deadline still comes due and its `ifNoAnswer` still applies.
+- // DECISION: the validator types a conversation's output (`conversationOutputSchema`), reports
+  `conversationProblems` as codes (a templated goal stays `input_not_fixed`), and holds
+  `messages.first: not_required` to invariant 8: allowed at publish only where every bound
+  connection able to carry the channel allows `auto` for `create`; with none bound, refused.
+
+**Runtime (wave 2b, `wave2b/runtime`):**
+- // DECISION: a write's further signers (`AgentPort.askApprover`) each get an `external_action`
+  item for the same change (its subject the action; the gate's card copied), idempotent per
+  (run, node). A yes while another signer's card is open leaves the change `proposed`; the last
+  open signer's yes approves it, a no from anyone rejects it. The run's decision is applied before
+  executing (`approveForRunTx`), checked against the signers' own cards: the run's word alone
+  never signs a change. A change approved on the gate's card alone goes back to `proposed` when
+  the run asks another signer, so it is never carried by a retry on one signature.
+- // DECISION: a write that proceeds with nobody's answer asks the gate again first
+  (`unsignedRefusal`: step `not_required`, the matrix, grant and entity, the recipient's autonomy,
+  the agent's mode at its stage, all read now). If the gate would make it wait, the step fails
+  ("nobody answered in time, and …"); otherwise the change is approved by its deadline
+  (`approvedBy` null) and the step's row carries R5's mark in `step_run.output`
+  (`proceededWithoutAnswer`, `externalActionId`, `inboxItemIds`).
+- // DECISION: an item asked of a user id that isn't a member of the client (a directory contact,
+  who can't sign in) goes to the client admin, as the approver rules send a non-member's rule;
+  `lead` is the client's lead as an operator's item; a test run's items go to the operator.
+  A conversation's or a reach-out's signature is one person's: asking more signers fails closed.
+- // DECISION: runAgent applies a v4 step's added instructions after the skill's own; rule rows a
+  step adds or edits fail the step, since the runtime doesn't evaluate rule rows yet. Settings,
+  model and `keep` stay the executor's. The agent port declares `appliesCustomization`.
+- // DECISION: a v4 notice is one thread message on the run naming its recipients and channel
+  (client-facing for a live run's notice to anyone on the client's side), as v3's notices are until
+  free text goes out by email or text. An urgent one also opens a "Seen" request for its first
+  recipient, due by its time, which the run waits on; the outbox's items-waiting pass tells them.
+  A deadline's `tell` is a `review` item for each person or role it names; a test run's tells us.
+- // DECISION: an AI reviewer runs one model call with no tool but `finish`: the focus in the
+  instructions, the step's input, output and the focus's references as data. With no model named,
+  the first of the agent's model, the reasoning default and the largest model that differs from
+  the step's. An answer that doesn't parse, or a failed call, is `unsure`.
+- // DECISION: the v4 conversation step runs on P-4's service (`converse/engine.ts` over
+  `conversePort`): the first call starts it, a call with no wake only reports where it is (an
+  answered card or an unread reply reports `wakeAt` now; a lost event is re-sent by the cron until
+  the run takes the card or message, which the engine marks as it takes them), and a
+  wake reads the card or rows it waits on, never the event's payload. `messages.later: required`
+  signs every later message. A deadline ends it as handed over (to `ifNoAnswer`), its open message
+  ended and its cards expired. Calls aren't wired to the voice path yet: a call step fails plainly.
+- // DECISION: wherever a conversation's message wakes its run (a reply, a wait ending, a held send,
+  the cron's re-send) or its card is resolved (the portal and back-office resolve routes, the
+  cron's re-send of resolved items), core's conversation event is sent beside the v3 event; a run
+  that doesn't wait on it ignores it. The engine marks a card received once it takes it.
+- // DECISION: the owner's settings and watch come from `processes.ownerOfBundle` of the pinned
+  version (a v3 bundle's settings are exactly its stored ones, with no watch); a v4 run reads the
+  agent's earlier live outputs once (`run:owner-history`, `dbOversightStore.recentOutputs`), and
+  the watch's signals reach `overseeStep`. Deadlines read `hoursFor(db)`.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

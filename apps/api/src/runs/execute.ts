@@ -3,11 +3,17 @@
 // ports, records how it ended on `run`, rolls usage up, and dispatches the events it emitted.
 
 import {
+  // R3: an AI reviewer's check, and conversation steps (docs/plan.md §1.86).
+  conferAi,
+  conversationRunner,
   // R3: v3 workflows read as v4 with the registries' view (docs/plan.md §1.86).
   convertLookup,
   createDbPorts,
   dbModelCalls,
+  // R6: the owner's watch reads the agent's earlier totals.
+  dbOversightStore,
   finishRun,
+  ownerHistory,
   type RuntimeDeps,
   resolveAutomation,
   rollupUsageForRun,
@@ -25,6 +31,8 @@ import {
   type UrlSigner,
 } from "@countersign/connectors";
 import {
+  // R6
+  type AnyAgentBundle,
   type AnyBundleWorkflow,
   type AutomationDefinition,
   automationRefs,
@@ -79,9 +87,13 @@ import { type BrowserDeps, dbBrowserServices } from "../browser/services";
 import { type VoiceDeps, voiceDepsFromEnv } from "../calls/answer";
 import { codesFor } from "../codes/client";
 import { guardModels, hipaaToolPolicy, profileReader } from "../compliance/policy";
+// R7: the v4 conversation step's engine over P-4's service.
+import { conversationEngine } from "../converse/engine";
 // P-4
 import { conversePort } from "../converse/service";
 import type { Bindings } from "../env";
+// R4: stored business hours and away dates, for deadlines.
+import { hoursFor } from "../hours/hours";
 import { connectorServicesFor } from "../messaging/services";
 // v0.13 W2-I
 import { oversightPort } from "../oversight/port";
@@ -241,8 +253,11 @@ type Loaded =
       resume: RunResume | null;
       // v0.12 W2-B: the automation versions its use steps pin.
       automations?: Record<string, AutomationDefinition>;
-      // v0.13 W2-I: the agent's oversight settings, as pinned (absent: off).
+      // v0.13 W2-I: the agent's oversight settings, as pinned (absent: off). R6: its owner's
+      // (`processes.ownerOfBundle`): a v3 agent's are exactly its stored ones.
       oversight?: OversightSettings;
+      // R6: the owner's cheap watch on every step's result (v4 processes only).
+      watch?: boolean;
     }
   | { ok: false; reason: string; cancelled?: true };
 
@@ -426,8 +441,8 @@ export async function executeRun(
         resume: await resumeOf(tx, params, wf.workflow),
         // v0.12 W2-B
         automations: await automationsOf(tx, info.tenantId, wf.workflow),
-        // v0.13 W2-I
-        ...(v?.bundle.definition.oversight ? { oversight: v.bundle.definition.oversight } : {}),
+        // v0.13 W2-I; R6: the owner's settings and watch, from the version as pinned.
+        ...ownerSettingsOf(v?.bundle),
       };
     }),
   );
@@ -527,6 +542,16 @@ export async function executeRun(
     collect: emitted,
     testRun: info.mode === "test",
   });
+  // R6: the history the owner's watch compares a total with, read once (v4 processes only, so a
+  // v3 run has exactly the durable steps it had).
+  const history = loaded.watch
+    ? await runner.do("run:owner-history", () =>
+        ownerHistory(dbOversightStore(db), info.tenantId, {
+          agentId: info.agentId,
+          workflowSlug: info.workflowSlug,
+        }),
+      )
+    : null;
   info.language = loaded.language;
   if (loaded.timeZone) info.timeZone = loaded.timeZone;
   const ctx: ExecutorContext = {
@@ -539,7 +564,8 @@ export async function executeRun(
       conversePort({ db, runtime, ...(deps.instances ? { instances: deps.instances } : {}) }),
     ),
     inbox: dbInboxPort(db, info),
-    notify: threadNotifyPort(runtime),
+    // R3: v4 notices and deadlines' `tell` read who is who in the database.
+    notify: threadNotifyPort(runtime, db),
     log: dbStepLog(db, info),
     catalog: {
       skills: Object.fromEntries(deps.platform.catalog.list().map((s) => [s.id, s])),
@@ -556,10 +582,26 @@ export async function executeRun(
     // converter `toProcessBundle` uses; each converted step still runs as its stored v3 step.
     lookup: convertLookup(deps.platform.catalog, deps.platform.tools),
     // v0.13 W2-I: run oversight; the executor asks only for steps whose failures are reviewed.
+    // R6: the agent's owner, with its watch on a v4 process.
     oversight: {
       port: oversightPort(runtime, db, info, loaded.oversight),
       settings: loaded.oversight,
+      ...(history ? { watch: { history } } : {}),
     },
+    // R4: deadlines on business hours and away dates, as stored.
+    hours: { hoursFor: hoursFor(db) },
+    // R7: conversation steps, through P-4's service.
+    conversation: conversationRunner({
+      engine: conversationEngine({
+        db,
+        runtime,
+        ...(deps.instances ? { instances: deps.instances } : {}),
+        ...(deps.now ? { now: deps.now } : {}),
+      }),
+      runtime,
+    }),
+    // R3: AI reviewers, one model call each.
+    confer: { ai: (req) => conferAi(runtime, req) },
   };
 
   let result: RunResult;
@@ -580,6 +622,23 @@ export async function executeRun(
   }
   await finish(result);
   return result;
+}
+
+// R6 (docs/plan.md §1.86): the agent's owner, from the version as pinned.
+/**
+ * The owner's settings (`processes.ownerOfBundle`) and whether it watches every step's result.
+ * For a v3 bundle the settings are exactly its stored `definition.oversight` (absent: off) and
+ * there is no watch, so a stored agent is overseen as it was.
+ */
+// DECISION (R6): read from the pinned version inside the run's load step, so a replay oversees with
+// the same settings; the watch's history is a durable step of its own, for v4 runs only.
+function ownerSettingsOf(bundle: unknown): { oversight?: OversightSettings; watch?: boolean } {
+  if (!bundle) return {};
+  const owner = processes.ownerOfBundle(bundle as AnyAgentBundle);
+  return {
+    ...(owner.settings ? { oversight: owner.settings } : {}),
+    ...(owner.watch ? { watch: true } : {}),
+  };
 }
 
 // ── v0.12 W2-E: what a successful run hands off (ARCHITECTURE §10.8; docs/plan.md §1.48) ───────
