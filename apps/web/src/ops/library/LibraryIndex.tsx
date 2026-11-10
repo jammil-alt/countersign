@@ -7,7 +7,7 @@ import { useApi } from "../../api/useApi";
 import { Loaded } from "../../ui/page";
 import { buttonClass, Card, PageHeader } from "../../ui/primitives";
 import { LibraryFrame } from "./LibraryFrame";
-import { BANKS, type BankInfo, counted, LIBRARY_PATHS } from "./paths";
+import { BANKS, type BankInfo, counted } from "./paths";
 
 /** "3 processes", "15 skills · 85 tool wrappers retiring": the bank's count in words. */
 export function bankCount(info: BankInfo, row: Index["banks"][number] | undefined): string {
@@ -69,13 +69,6 @@ export function LibraryIndexScreen() {
           </div>
         )}
       </Loaded>
-      <p className="text-sm text-ink-muted">
-        Templates are built in the{" "}
-        <Link to={LIBRARY_PATHS.processes} className="text-ink hover:underline">
-          Processes
-        </Link>{" "}
-        bank and tried in the Agent lab before any client gets them.
-      </p>
     </LibraryFrame>
   );
 }
