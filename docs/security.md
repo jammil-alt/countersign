@@ -27,7 +27,19 @@ branches.
 ## 2. Who can sign in, and for how long
 
 - Sign-in is through **WorkOS AuthKit**. Only invited, verified email addresses get in.
-- **Multi-factor authentication is required** in WorkOS, for email and password sign-ins (§10).
+- **A second step is required** after the password (`docs/plan.md` §1.83): a code from an
+  authenticator app, a text message or WhatsApp, checked by Twilio Verify. Operators must use an
+  authenticator app. People who sign in through their company's SSO are exempt; their identity
+  provider does it.
+  - We never hold a code or an authenticator secret: Twilio does. We keep which methods a person
+    has and their phone number (`user_factor`), under row-level security on the person.
+  - Ten one-time recovery codes are shown once, at setup, and kept as HMACs. An operator can
+    reset a person's methods (lost phone), with a reason in the audit log.
+  - At most 5 wrong codes and 5 codes sent per person in 15 minutes.
+  - A session is `pending` until the code is checked, for 10 minutes at most, and reaches
+    nothing but the second step until then.
+  - Until Twilio Verify is set up on an environment, the step is off and WorkOS's own MFA does the
+    asking (§10).
 - **Sessions end after 30 minutes without the person's own activity and 12 hours after sign-in**
   (in PR #83).
   - Our sealed cookie (`__Host-`, HttpOnly, Secure) records the last activity.
@@ -42,6 +54,9 @@ branches.
   signed in; it never creates a session. Each refusal is in the audit log with its reason.
 - WorkOS sessions are capped at the same 12 hours and 30 minutes. That also covers the Ops MCP
   connector, which signs in with 5-minute WorkOS access tokens instead of our cookie.
+- With the second step on, each **Claude connection** to the Ops MCP server must be approved by
+  its operator, from a browser that has passed the step. The approval is tied to that AuthKit
+  session and lasts until it ends (12 hours at most).
 - Roles are `operator`, `client_admin` and `client_user`. Only operators reach `/api/ops` and the
   MCP connector. Portal routes never return agent definitions, prompts or costs.
 - Code: `packages/auth`, `packages/core/src/security/session-limits.ts`,
@@ -180,6 +195,7 @@ in `docs/hipaa-plan.md`.
 | Meta (WhatsApp) | WhatsApp messages | `meta_whatsapp` |
 | ElevenLabs | Live calls and their transcripts | `elevenlabs` |
 | Resend | Emails sent from our sending service | `resend` |
+| Twilio Verify | People's phone numbers and sign-in codes (not client records) | none (no client data) |
 | Stripe | Billing: client company, amounts. No client records | none (kept out of scope) |
 | Sentry | Error reports, scrubbed of client data | none (kept out of scope) |
 | GitHub | Code only. CI never gets client data | none |

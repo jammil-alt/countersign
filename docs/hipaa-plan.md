@@ -30,6 +30,14 @@ to staging.
 All set on 2026-11-06: WorkOS (MFA and session limits), Cloudflare, GitHub and Neon. The record is
 `docs/security.md` §10.
 
+Sign-in codes by text, WhatsApp or authenticator app (`docs/plan.md` §1.83) replace WorkOS's own
+MFA once they're on:
+- [ ] A Twilio Verify service per environment, and `TWILIO_VERIFY_SERVICE_SID` set (staging, then
+      production).
+- [ ] A WhatsApp sender on each Verify service, then `TWILIO_VERIFY_WHATSAPP` set to `on`.
+- [ ] Check `packages/connectors/src/twilio/VERIFY_NOTES.md`'s UNCHECKED rows on staging.
+- [ ] Switch WorkOS's own MFA off, only after your own sign-in with the new step works.
+
 ## 3. Technical items still open
 
 | # | Item | Why it matters | Suggested fix |

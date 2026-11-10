@@ -1008,6 +1008,40 @@ suggested actions with where each stands). It never sees visits one by one, cont
 list or the forum watch: those stay in the back office. Approvals for its marketing agents reach
 its Desk like any other agent's.
 
+## 1.3 Sign-in codes: text, WhatsApp or authenticator app (`docs/plan.md` §1.83)
+
+After WorkOS checks the password, Mezonas asks for a code: from an authenticator app (operators:
+only this), a text message or WhatsApp. Twilio Verify, on Mezonas' own Twilio account, sends and
+checks every code. Until it's set up the step is off, and WorkOS's own MFA must stay on.
+
+**Turning it on, per environment (staging first):**
+1. In Twilio (Mezonas' own account, the one `TWILIO_ACCOUNT_SID` names): Verify → Services → create
+   **Mezonas sign-in** (staging: **Mezonas sign-in (staging)**). Code length 6. Turn on SMS and
+   TOTP (issuer `Mezonas`). Leave Fraud Guard on. Copy its SID (`VA…`).
+2. Set `TWILIO_VERIFY_SERVICE_SID` to that SID in `apps/api/wrangler.jsonc` for the environment,
+   by pull request. `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `ENCRYPTION_KEY` must already be
+   set (they are on staging).
+3. Deploy. Everyone with a session signs in once more, because cookies from before have no
+   second-step state. Then everyone sets up a method: operators an authenticator app, clients
+   their choice.
+4. Sign in yourself and set up your authenticator app. Save the 10 recovery codes somewhere safe.
+5. **Only then** switch WorkOS's own MFA off (Authentication → Features → Multi-factor auth). Until
+   then people are asked twice; the other way round, nobody is asked at all.
+6. Approve your next Claude connection: the Ops MCP server answers its first call with a link to
+   `/ops/connect-claude/…`. Open it in the browser where you're signed in, and approve.
+
+**WhatsApp** needs a WhatsApp sender on the Verify service: Twilio → Verify → the service →
+WhatsApp, with Mezonas' Meta-approved business and number (since March 2024 Twilio no longer
+sends from its own). Once Twilio shows it active, set `TWILIO_VERIFY_WHATSAPP` to `on` for that
+environment. Until then client users see text messages and the authenticator app only.
+
+**Someone lost their phone:** they use a recovery code. If they have none left, an operator opens
+the client's Settings → People and chooses **Reset sign-in methods**, with a reason. The person
+sets up again at their next sign-in. Each reset is in the audit log.
+
+**Before production:** check the UNCHECKED rows in
+`packages/connectors/src/twilio/VERIFY_NOTES.md` against Twilio's docs or a test service.
+
 ## 1.2 Compliance: HIPAA mode, retiring a client, the audit log (`docs/plan.md` §1.35)
 
 **HIPAA mode.** A client whose records hold health information is put in HIPAA mode on its

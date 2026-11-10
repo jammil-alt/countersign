@@ -142,6 +142,14 @@ export interface Vars {
   // §1.77: our LinkedIn app (Community Management API); unset: LinkedIn is "not available yet".
   LINKEDIN_CLIENT_ID?: string;
   LINKEDIN_CLIENT_SECRET?: string;
+  /**
+   * Twilio Verify's service (`VA…`) on Mezonas' own Twilio account, for the second step of signing
+   * in (docs/plan.md §1.83). With TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and ENCRYPTION_KEY it turns
+   * the step on; unset, it is off and WorkOS's own MFA must stay on.
+   */
+  TWILIO_VERIFY_SERVICE_SID?: string;
+  /** `on` once the Verify service has an approved WhatsApp sender: WhatsApp codes are offered. */
+  TWILIO_VERIFY_WHATSAPP?: string;
   /** Error tracking (src/observability/sentry.ts); set by deploy.yml with `--var`. Not a secret. */
   SENTRY_DSN?: string;
   /** The deployed commit, Sentry's release; set by deploy.yml with `--var`. */

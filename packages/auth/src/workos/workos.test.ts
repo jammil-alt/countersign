@@ -1,3 +1,4 @@
+import { SECOND_FACTOR_PENDING_SEC } from "@countersign/core";
 import { describe, expect, it, vi } from "vitest";
 import { readCookie } from "../cookies";
 import { getSession } from "../session";
@@ -580,5 +581,133 @@ describe("workosStateOf", () => {
         APP_ORIGIN: `${ORIGIN}/ignored/path`,
       }),
     ).toMatchObject({ state: "on", config: { appOrigin: ORIGIN } });
+  });
+});
+
+describe("the second step of signing in (plan §1.83)", () => {
+  function stepSetup(authOverrides: Partial<WorkOSAuthentication> = {}) {
+    const workos = fakeWorkOS({ authenticateWithCode: vi.fn(async () => auth(authOverrides)) });
+    const base = setup(workos);
+    const adapter = createWorkOSAdapter({
+      config,
+      directory: base.directory,
+      workos,
+      secondFactor: true,
+    });
+    return { ...base, adapter, workos };
+  }
+
+  async function signInWith(adapter: ReturnType<typeof stepSetup>["adapter"]) {
+    const start = await adapter.signIn({}, at(T0));
+    if (!start.ok) throw new Error(start.code);
+    const state = new URL(start.redirectTo).searchParams.get("state") ?? "";
+    const done = await adapter.callback(
+      withCookie(
+        `${STATE_COOKIE}=${cookieValue(start.setCookies, STATE_COOKIE)}`,
+        `${ORIGIN}/api/auth/callback?code=c1&state=${state}`,
+      ),
+      at(T0 + 5),
+    );
+    if (!done.ok) throw new Error(done.code);
+    return cookieValue(done.setCookies, SESSION_COOKIE) ?? "";
+  }
+
+  it("leaves a password sign-in pending: refused everywhere but where it's allowed", async () => {
+    const { adapter, directory } = stepSetup({ authenticationMethod: "Password" });
+    const sealed = await signInWith(adapter);
+    const request = withCookie(`${SESSION_COOKIE}=${sealed}`);
+    expect(await getSession(request, { adapter, directory, now: at(T0 + 10) })).toMatchObject({
+      ok: false,
+      status: 401,
+      code: "second_factor_required",
+    });
+    const allowed = await getSession(request, {
+      adapter,
+      directory,
+      now: at(T0 + 10),
+      allowPendingSecondFactor: true,
+    });
+    expect(allowed).toMatchObject({ ok: true, secondFactor: "pending" });
+    if (allowed.ok) expect(allowed.secondFactorSecondsLeft).toBe(SECOND_FACTOR_PENDING_SEC - 5);
+  });
+
+  it("marks the step done, and the resealed cookie then reaches every route", async () => {
+    const { adapter, directory } = stepSetup();
+    const sealed = await signInWith(adapter);
+    const done = await adapter.completeSecondFactor(
+      withCookie(`${SESSION_COOKIE}=${sealed}`),
+      at(T0 + 60),
+    );
+    if (!done.ok) throw new Error(done.code);
+    const after = cookieValue(done.setCookies, SESSION_COOKIE) ?? "";
+    expect(
+      await getSession(withCookie(`${SESSION_COOKIE}=${after}`), {
+        adapter,
+        directory,
+        now: at(T0 + 70),
+      }),
+    ).toMatchObject({ ok: true, secondFactor: "done" });
+    // A done session can't be "completed" again.
+    expect(
+      await adapter.completeSecondFactor(withCookie(`${SESSION_COOKIE}=${after}`), at(T0 + 80)),
+    ).toMatchObject({ ok: false, code: "forbidden" });
+  });
+
+  it("ends a pending sign-in after 10 minutes, and WorkOS's session with it", async () => {
+    const { adapter, directory, workos } = stepSetup();
+    const sealed = await signInWith(adapter);
+    const late = await getSession(withCookie(`${SESSION_COOKIE}=${sealed}`), {
+      adapter,
+      directory,
+      now: at(T0 + 5 + SECOND_FACTOR_PENDING_SEC),
+      allowPendingSecondFactor: true,
+    });
+    expect(late).toMatchObject({ ok: false, code: "session_invalid" });
+    expect(workos.revokeSession).toHaveBeenCalled();
+  });
+
+  it("exempts SSO sign-ins, and refuses a cookie from before the step once it's on", async () => {
+    const sso = stepSetup({ authenticationMethod: "SSO" });
+    const sealed = await signInWith(sso.adapter);
+    expect(
+      await getSession(withCookie(`${SESSION_COOKIE}=${sealed}`), {
+        adapter: sso.adapter,
+        directory: sso.directory,
+        now: at(T0 + 10),
+      }),
+    ).toMatchObject({ ok: true, secondFactor: "exempt" });
+
+    const { mf: _mf, ...old } = (await sessionCookieFor()).payload;
+    const oldSealed = await sealSession(old, PASSWORD);
+    expect(
+      await getSession(withCookie(`${SESSION_COOKIE}=${oldSealed}`), {
+        adapter: sso.adapter,
+        directory: sso.directory,
+        now: at(T0 + 10),
+      }),
+    ).toMatchObject({ ok: false, code: "session_invalid" });
+  });
+
+  it("is off unless the deployment turns it on: every sign-in is exempt", async () => {
+    const { directory } = setup();
+    const workos = fakeWorkOS({ authenticateWithCode: vi.fn(async () => auth()) });
+    const adapter = createWorkOSAdapter({ config, directory, workos });
+    const start = await adapter.signIn({}, at(T0));
+    if (!start.ok) throw new Error(start.code);
+    const state = new URL(start.redirectTo).searchParams.get("state") ?? "";
+    const done = await adapter.callback(
+      withCookie(
+        `${STATE_COOKIE}=${cookieValue(start.setCookies, STATE_COOKIE)}`,
+        `${ORIGIN}/api/auth/callback?code=c1&state=${state}`,
+      ),
+      at(T0 + 5),
+    );
+    if (!done.ok) throw new Error(done.code);
+    expect(
+      await getSession(
+        withCookie(`${SESSION_COOKIE}=${cookieValue(done.setCookies, SESSION_COOKIE)}`),
+        { adapter, directory, now: at(T0 + 10) },
+      ),
+    ).toMatchObject({ ok: true, secondFactor: "exempt" });
   });
 });

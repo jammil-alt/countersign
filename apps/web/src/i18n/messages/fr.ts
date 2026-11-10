@@ -792,6 +792,88 @@ export const fr: Messages = {
   "signin.error.misconfigured": "La connexion n'est pas encore configurée sur ce site.",
   "signin.error.default": "La connexion n'a pas abouti. Recommencez.",
 
+  // ── Second step of sign-in (docs/plan.md §1.83) ──
+  "secondFactor.setup.title": "Configurez une deuxième étape",
+  "secondFactor.setup.help":
+    "À chaque connexion, vous saisirez aussi un code. Choisissez comment le recevoir.",
+  "secondFactor.setup.operator":
+    "Vous avez accès à tous les clients : vous vous connectez donc avec une application d'authentification.",
+  "secondFactor.setup.none":
+    "Aucune méthode de connexion n'est encore prête sur ce site. Contactez-nous.",
+  "secondFactor.setup.other": "Choisir une autre méthode",
+  "secondFactor.method.totp": "Application d'authentification",
+  "secondFactor.method.totp.help":
+    "Un code fourni par une application sur votre téléphone, comme Google Authenticator ou 1Password.",
+  "secondFactor.method.sms": "SMS",
+  "secondFactor.method.sms.help": "Nous envoyons un code par SMS à votre téléphone.",
+  "secondFactor.method.whatsapp": "WhatsApp",
+  "secondFactor.method.whatsapp.help": "Nous envoyons un code sur votre WhatsApp.",
+  "secondFactor.totp.title": "Configurez votre application d'authentification",
+  "secondFactor.totp.scan": "Scannez ce code QR avec votre application d'authentification.",
+  "secondFactor.totp.qrAlt": "Code QR à scanner avec votre application d'authentification",
+  "secondFactor.totp.manual":
+    "Impossible de le scanner ? Saisissez plutôt cette clé dans l'application.",
+  "secondFactor.totp.key": "Clé de configuration",
+  "secondFactor.totp.enter": "Saisissez le code à 6 chiffres affiché par l'application.",
+  "secondFactor.code": "Code à 6 chiffres",
+  "secondFactor.code.invalid":
+    "Saisissez le code du message ou de l'application, en chiffres uniquement.",
+  "secondFactor.verify": "Vérifier",
+  "secondFactor.checking": "Vérification…",
+  "secondFactor.phone.title.sms": "Configurez les SMS",
+  "secondFactor.phone.title.whatsapp": "Configurez WhatsApp",
+  "secondFactor.phone.country": "Pays",
+  "secondFactor.phone.number": "Numéro de mobile",
+  "secondFactor.phone.hint":
+    "Pour un numéro d'un autre pays, commencez par + et l'indicatif du pays.",
+  "secondFactor.phone.invalid":
+    "Ce numéro de téléphone n'est pas valide. Vérifiez le numéro et le pays.",
+  "secondFactor.send": "Envoyer le code",
+  "secondFactor.sent": "Nous avons envoyé un code au {phone}.",
+  "secondFactor.resend": "Envoyer un nouveau code",
+  "secondFactor.changeNumber": "Utiliser un autre numéro",
+  "secondFactor.signIn.title": "Saisissez votre code de connexion",
+  "secondFactor.signIn.totp":
+    "Ouvrez votre application d'authentification et saisissez le code à 6 chiffres de {product}.",
+  "secondFactor.signIn.sms": "Nous enverrons un code par SMS au {phone}.",
+  "secondFactor.signIn.whatsapp": "Nous enverrons un code sur WhatsApp au {phone}.",
+  "secondFactor.use.totp": "Utiliser plutôt l'application d'authentification",
+  "secondFactor.use.sms": "Recevoir plutôt un SMS",
+  "secondFactor.use.whatsapp": "Recevoir plutôt un message WhatsApp",
+  "secondFactor.use.recovery": "Utiliser un code de récupération",
+  "secondFactor.recovery.help":
+    "Saisissez l'un des codes de récupération que vous avez enregistrés. Chaque code ne sert qu'une fois.",
+  "secondFactor.recovery.label": "Code de récupération",
+  "secondFactor.recovery.invalid":
+    "Un code de récupération compte 8 lettres et chiffres, par exemple abcd-efgh.",
+  "secondFactor.recovery.left": {
+    one: "Il vous reste {count} code de récupération.",
+    other: "Il vous reste {count} codes de récupération.",
+  },
+  "secondFactor.recovery.none":
+    "Il ne vous reste aucun code de récupération. Demandez à votre interlocuteur Mezonas de réinitialiser vos méthodes de connexion.",
+  "secondFactor.back": "Retour",
+  "secondFactor.codes.title": "Enregistrez vos codes de récupération",
+  "secondFactor.codes.help":
+    "Si vous perdez votre téléphone, chaque code vous permet de vous connecter une fois. Gardez-les en lieu sûr, par exemple dans un gestionnaire de mots de passe. Nous ne les afficherons plus.",
+  "secondFactor.codes.list": "Vos codes de récupération",
+  "secondFactor.codes.download": "Télécharger en texte",
+  "secondFactor.codes.file":
+    "Codes de récupération pour {product}. Chaque code ne sert qu'une fois.",
+  "secondFactor.codes.saved": "J'ai enregistré ces codes",
+  "secondFactor.codes.continue": "Continuer",
+  "secondFactor.error.wrong_code": "Ce code n'est pas le bon. Vérifiez-le et réessayez.",
+  "secondFactor.error.too_many_attempts":
+    "Trop d'essais. Attendez {minutes} minutes, puis réessayez.",
+  "secondFactor.error.not_available":
+    "Cette méthode n'est pas disponible pour le moment. Choisissez-en une autre.",
+  "secondFactor.error.operator":
+    "Les opérateurs se connectent avec une application d'authentification.",
+  "secondFactor.expired.title": "Votre connexion a expiré",
+  "secondFactor.expired.body":
+    "Vous avez {minutes} minutes pour terminer cette étape. Reconnectez-vous pour recommencer.",
+  "secondFactor.signInAgain": "Se reconnecter",
+
   // ── Feedback ──
   "feedback.button": "Signaler un problème dans l'app",
   "feedback.tapWhere": "Touchez l'endroit du problème",

@@ -158,7 +158,12 @@
         "PLAID_ENV": "sandbox",
         // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".
         // Add one only once its BAA is signed. Empty: no client can be put in HIPAA mode.
-        "BAA_PROCESSORS": ""
+        "BAA_PROCESSORS": "",
+        // The second step of signing in (docs/plan.md §1.83): Twilio Verify's service (`VA…`) on
+        // Mezonas' own Twilio account, and `on` once it has an approved WhatsApp sender. Empty: the
+        // step is off and WorkOS's own MFA stays on. Not secrets.
+        "TWILIO_VERIFY_SERVICE_SID": "",
+        "TWILIO_VERIFY_WHATSAPP": ""
       }
     },
     "production": {
@@ -219,7 +224,12 @@
         "PLAID_ENV": "production",
         // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".
         // Add one only once its BAA is signed. Empty: no client can be put in HIPAA mode.
-        "BAA_PROCESSORS": ""
+        "BAA_PROCESSORS": "",
+        // The second step of signing in (docs/plan.md §1.83): Twilio Verify's service (`VA…`) on
+        // Mezonas' own Twilio account, and `on` once it has an approved WhatsApp sender. Empty: the
+        // step is off and WorkOS's own MFA stays on. Not secrets.
+        "TWILIO_VERIFY_SERVICE_SID": "",
+        "TWILIO_VERIFY_WHATSAPP": ""
       }
     }
   }

@@ -19,6 +19,7 @@ import {
   type ObjectStore,
   R2ObjectStore,
   type StripeClient,
+  type VerifyClient,
 } from "@countersign/connectors";
 import { type Role, type RouteSpec, routeFamily } from "@countersign/core";
 import {
@@ -45,6 +46,7 @@ import { type Platform, platformFor } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
 import { workerTransport } from "./runs/execute";
 import { type RunInstances, workflowInstances } from "./runs/instances";
+import { secondFactorOn } from "./second-factor/config";
 // v0.12 W2-C
 import type { TestSuiteJobs } from "./testbench/instances";
 
@@ -73,6 +75,11 @@ export interface AppDeps {
   translationTransport?(env: Bindings): LlmTransport | null;
   /** The WorkOS API client for the WorkOS sign-in; default over `fetch` (tests pass a fake). */
   workos?(env: Bindings): WorkOSClient;
+  /**
+   * Twilio Verify for the second step of signing in (docs/plan.md §1.83); null where it isn't set
+   * up, which turns the step off. Default: from the env. Tests pass `fakeVerify().client`.
+   */
+  verify?(env: Bindings): VerifyClient | null;
   /** Outbound HTTP for provisioning calls (Twilio numbers); tests pass a fake. */
   fetch?(env: Bindings): FetchLike;
   /** Mezonas' Stripe (billing); null when STRIPE_SECRET_KEY is not set. Tests pass a fake. */
@@ -164,7 +171,7 @@ export function requestState(deps: AppDeps) {
             instances: deps.instances(env),
             deps,
             auth: () => {
-              auth ??= chooseAdapter(env, opened.db, deps.workos?.(env));
+              auth ??= chooseAdapter(env, opened.db, deps.workos?.(env), secondFactorOn(deps, env));
               return auth;
             },
           };

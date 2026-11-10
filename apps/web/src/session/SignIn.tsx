@@ -61,8 +61,11 @@ export function SignInScreen() {
   return <DevSignIn />;
 }
 
-/** UI-3a: the logo, one card on the paper, and who to ask for access; the same for every sign-in. */
-function SignInFrame({ children }: { children: ReactNode }) {
+/**
+ * UI-3a: the logo, one card on the paper, and who to ask for access; the same for every sign-in
+ * and for the second step (which puts its Sign out link below the card instead).
+ */
+export function SignInFrame({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
   const { t } = useI18n();
   return (
     <div
@@ -73,7 +76,9 @@ function SignInFrame({ children }: { children: ReactNode }) {
       <Card className="w-full max-w-md" pad>
         {children}
       </Card>
-      <p className="max-w-md text-center text-sm text-ink-muted">{t("signin.needAccess")}</p>
+      {footer ?? (
+        <p className="max-w-md text-center text-sm text-ink-muted">{t("signin.needAccess")}</p>
+      )}
     </div>
   );
 }
@@ -128,10 +133,13 @@ function DevSignIn() {
     try {
       await client.call(apiRoutes.devSignIn, { body: { email: address.trim() } });
       const state = await refresh();
+      // `next` is only ever a path inside this app (set by the sign-in gate).
+      const target = next?.startsWith("/") && !next.startsWith("//") ? next : null;
       if (state.status === "signed_in") {
-        // `next` is only ever a path inside this app (set by the sign-in gate).
-        const target = next?.startsWith("/") && !next.startsWith("//") ? next : null;
         navigate(target ?? homeFor(state.session), { replace: true });
+      } else if (state.status === "second_factor") {
+        // The sign-in gate shows the second step wherever the person goes.
+        navigate(target ?? "/", { replace: true });
       } else {
         setFailure(new Error(t("signin.noSession")));
       }

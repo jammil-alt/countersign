@@ -133,8 +133,9 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
     within its grant (the strictest of the connection's matrix, the grant, the step and the mode wins).
     Secrets are encrypted with the client's own key, write-only, and never reach a model, a log, a step
     output or a screen; tool code gets them for one step. Second factors live only in `apps/mfa`, handed
-    once to a login in progress. Browser sign-in is code on pinned origins, never the model; agents never
-    sign in to blocked-tier sites (banks, payments, email accounts, identity providers).
+    once to a login in progress. People's own sign-in codes and authenticator secrets live only at
+    Twilio Verify (`docs/plan.md` §1.83). Browser sign-in is code on pinned origins, never the model;
+    agents never sign in to blocked-tier sites (banks, payments, email accounts, identity providers).
 14. **Audited and held to its compliance mode** (`docs/plan.md` §1.35). Session routes go through
     `mount()`, which writes the audit row; anything else that reads or changes client data on a
     person's behalf writes its own (`auditAlone`). `audit_event` is never updated or deleted. A new

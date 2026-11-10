@@ -778,6 +778,81 @@ export const es: Messages = {
   "signin.error.misconfigured": "El inicio de sesión aún no está configurado en este sitio.",
   "signin.error.default": "El inicio de sesión no terminó. Empiece de nuevo.",
 
+  // ── Second step of sign-in (docs/plan.md §1.83) ──
+  "secondFactor.setup.title": "Configure un segundo paso",
+  "secondFactor.setup.help":
+    "Cada vez que inicie sesión, también escribirá un código. Elija cómo recibirlo.",
+  "secondFactor.setup.operator":
+    "Usted puede acceder a todos los clientes, así que inicia sesión con una app de autenticación.",
+  "secondFactor.setup.none":
+    "Este sitio aún no tiene ningún método de inicio de sesión listo. Contáctenos.",
+  "secondFactor.setup.other": "Elegir otra forma",
+  "secondFactor.method.totp": "App de autenticación",
+  "secondFactor.method.totp.help":
+    "Un código de una app en su teléfono, como Google Authenticator o 1Password.",
+  "secondFactor.method.sms": "Mensaje de texto",
+  "secondFactor.method.sms.help": "Le enviamos un código por SMS a su teléfono.",
+  "secondFactor.method.whatsapp": "WhatsApp",
+  "secondFactor.method.whatsapp.help": "Le enviamos un código a su WhatsApp.",
+  "secondFactor.totp.title": "Configure su app de autenticación",
+  "secondFactor.totp.scan": "Escanee este código QR con su app de autenticación.",
+  "secondFactor.totp.qrAlt": "Código QR para escanear con su app de autenticación",
+  "secondFactor.totp.manual": "¿No puede escanearlo? Escriba esta clave en la app.",
+  "secondFactor.totp.key": "Clave de configuración",
+  "secondFactor.totp.enter": "Escriba el código de 6 dígitos que muestra la app.",
+  "secondFactor.code": "Código de 6 dígitos",
+  "secondFactor.code.invalid": "Escriba el código del mensaje o de la app, solo números.",
+  "secondFactor.verify": "Verificar",
+  "secondFactor.checking": "Comprobando…",
+  "secondFactor.phone.title.sms": "Configure los mensajes de texto",
+  "secondFactor.phone.title.whatsapp": "Configure WhatsApp",
+  "secondFactor.phone.country": "País",
+  "secondFactor.phone.number": "Número de móvil",
+  "secondFactor.phone.hint": "Para un número de otro país, empiece con + y el código del país.",
+  "secondFactor.phone.invalid": "Ese número de teléfono no es válido. Revise el número y el país.",
+  "secondFactor.send": "Enviar código",
+  "secondFactor.sent": "Enviamos un código al {phone}.",
+  "secondFactor.resend": "Enviar un código nuevo",
+  "secondFactor.changeNumber": "Usar otro número",
+  "secondFactor.signIn.title": "Escriba su código de inicio de sesión",
+  "secondFactor.signIn.totp":
+    "Abra su app de autenticación y escriba el código de 6 dígitos de {product}.",
+  "secondFactor.signIn.sms": "Le enviaremos un código por SMS al {phone}.",
+  "secondFactor.signIn.whatsapp": "Le enviaremos un código por WhatsApp al {phone}.",
+  "secondFactor.use.totp": "Usar la app de autenticación",
+  "secondFactor.use.sms": "Recibir un mensaje de texto",
+  "secondFactor.use.whatsapp": "Recibir un mensaje de WhatsApp",
+  "secondFactor.use.recovery": "Usar un código de recuperación",
+  "secondFactor.recovery.help":
+    "Escriba uno de los códigos de recuperación que guardó. Cada código funciona una vez.",
+  "secondFactor.recovery.label": "Código de recuperación",
+  "secondFactor.recovery.invalid":
+    "Un código de recuperación tiene 8 letras y números, como abcd-efgh.",
+  "secondFactor.recovery.left": {
+    one: "Le queda {count} código de recuperación.",
+    other: "Le quedan {count} códigos de recuperación.",
+  },
+  "secondFactor.recovery.none":
+    "No le quedan códigos de recuperación. Pida a su responsable de Mezonas que restablezca sus métodos de inicio de sesión.",
+  "secondFactor.back": "Volver",
+  "secondFactor.codes.title": "Guarde sus códigos de recuperación",
+  "secondFactor.codes.help":
+    "Si pierde su teléfono, cada código le permite iniciar sesión una vez. Guárdelos en un lugar seguro, como un gestor de contraseñas. No volveremos a mostrarlos.",
+  "secondFactor.codes.list": "Sus códigos de recuperación",
+  "secondFactor.codes.download": "Descargar como texto",
+  "secondFactor.codes.file": "Códigos de recuperación de {product}. Cada código funciona una vez.",
+  "secondFactor.codes.saved": "Guardé estos códigos",
+  "secondFactor.codes.continue": "Continuar",
+  "secondFactor.error.wrong_code": "Ese código no es correcto. Revíselo e inténtelo de nuevo.",
+  "secondFactor.error.too_many_attempts":
+    "Demasiados intentos. Espere {minutes} minutos e inténtelo de nuevo.",
+  "secondFactor.error.not_available": "Este método no está disponible ahora. Elija otro.",
+  "secondFactor.error.operator": "Los operadores inician sesión con una app de autenticación.",
+  "secondFactor.expired.title": "Su inicio de sesión caducó",
+  "secondFactor.expired.body":
+    "Tiene {minutes} minutos para terminar este paso. Inicie sesión de nuevo para empezar otra vez.",
+  "secondFactor.signInAgain": "Iniciar sesión de nuevo",
+
   // ── Feedback ──
   "feedback.button": "Informar de un problema con la app",
   "feedback.tapWhere": "Toque donde está el problema",

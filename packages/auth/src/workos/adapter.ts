@@ -30,6 +30,7 @@ import {
   safeReturnTo,
   sealSession,
   sealState,
+  secondFactorOf,
   sessionCookie,
   stateCookie,
 } from "./session";
@@ -71,6 +72,14 @@ export type CallbackRefusal = AuthRefusal & { readonly failure?: CallbackFailure
 export interface WorkOSAdapter extends AuthAdapter {
   readonly kind: "workos";
   /**
+   * The second step passed (plan §1.83): the session's cookie, resealed as `done`. Refused unless
+   * the request carries a session whose step is pending.
+   */
+  completeSecondFactor(
+    request: Request,
+    now: Date,
+  ): Promise<{ readonly ok: true; readonly setCookies: readonly string[] } | AuthRefusal>;
+  /**
    * Where to send the browser to sign in, with the state cookie that proves it came from us.
    * `restart`: the callback started this sign-in again after a failure, so it won't again.
    */
@@ -100,7 +109,13 @@ export function createWorkOSAdapter(options: {
   /** Injected in tests; otherwise built over `fetch`. */
   readonly workos?: WorkOSClient;
   readonly fetch?: typeof fetch;
+  /**
+   * The deployment runs the second step of signing in (plan §1.83). Off (default): every session
+   * is exempt, and WorkOS's own MFA is what asks for a second factor.
+   */
+  readonly secondFactor?: boolean;
 }): WorkOSAdapter {
+  const secondFactorRequired = options.secondFactor === true;
   const { config, directory } = options;
   const workos =
     options.workos ??
@@ -131,10 +146,39 @@ export function createWorkOSAdapter(options: {
         if (opened.sid) await workos.revokeSession(opened.sid).catch(() => undefined);
         return refuse("session_invalid", resolved.reason, [clearSessionCookie()]);
       }
+      const step = secondFactorOf(resolved.session, now, secondFactorRequired);
+      if (step.status === "invalid") {
+        if (opened.sid) await workos.revokeSession(opened.sid).catch(() => undefined);
+        return refuse("session_invalid", step.reason, [clearSessionCookie()]);
+      }
       const setCookies = resolved.rotated
         ? [sessionCookie(await sealSession(resolved.session, password), resolved.session, now)]
         : [];
-      return { ok: true, userId: resolved.session.uid, setCookies };
+      return {
+        ok: true,
+        userId: resolved.session.uid,
+        setCookies,
+        secondFactor: step.status,
+        ...(step.status === "pending" ? { secondFactorSecondsLeft: step.secondsLeft } : {}),
+      };
+    },
+
+    async completeSecondFactor(request, nowDate) {
+      const raw = requestCookie(request, SESSION_COOKIE);
+      const opened = raw ? await openSession(raw, password) : null;
+      if (!opened) return refuse("unauthenticated", "not signed in");
+      const now = epochSec(nowDate);
+      const step = secondFactorOf(opened, now, secondFactorRequired);
+      if (step.status !== "pending") {
+        return refuse("forbidden", "there is no sign-in code waiting to be checked");
+      }
+      const { mfx: _deadline, ...rest } = opened;
+      // DECISION: passing the step counts as activity, so the idle limit starts again from here.
+      const done: typeof opened = { ...rest, mf: "done", lat: now };
+      return {
+        ok: true,
+        setCookies: [sessionCookie(await sealSession(done, password), done, now)],
+      };
     },
 
     async signIn({ returnTo, restart }, nowDate) {
@@ -216,6 +260,9 @@ export function createWorkOSAdapter(options: {
           workosOrganizationId: auth.organizationId,
           sessionId: auth.sessionId,
           refreshToken: auth.refreshToken,
+          // DECISION: SSO sign-ins skip our second step; the client's identity provider does it.
+          secondFactor:
+            secondFactorRequired && auth.authenticationMethod !== "SSO" ? "pending" : "exempt",
         },
         now,
       );

@@ -9,11 +9,19 @@ import {
   type AuthRefusal,
   type Membership,
   refuse,
+  type SecondFactorStatus,
   type Session,
 } from "./types";
 
 export type SessionResult =
-  | { readonly ok: true; readonly session: Session; readonly setCookies: readonly string[] }
+  | {
+      readonly ok: true;
+      readonly session: Session;
+      readonly setCookies: readonly string[];
+      readonly secondFactor: SecondFactorStatus;
+      /** Seconds left to pass a pending step; null otherwise. */
+      readonly secondFactorSecondsLeft: number | null;
+    }
   | AuthRefusal;
 
 export interface GetSessionOptions {
@@ -25,6 +33,11 @@ export interface GetSessionOptions {
    * client). Must be one of the user's; omitted means the only one, or all served for operators.
    */
   readonly tenantId?: string | null;
+  /**
+   * Admit a session whose second step is still pending (plan §1.83): only the second-step routes
+   * and sign-out. Everything else refuses it with `second_factor_required`.
+   */
+  readonly allowPendingSecondFactor?: boolean;
 }
 
 /** Build the session for a user from their memberships and the requested client. */
@@ -70,6 +83,14 @@ export async function getSession(
   const identified = await options.adapter.identify(request, options.now ?? new Date());
   if (!identified.ok) return identified;
   const { userId, setCookies } = identified;
+  const secondFactor = identified.secondFactor ?? "exempt";
+  if (secondFactor === "pending" && !options.allowPendingSecondFactor) {
+    return refuse(
+      "second_factor_required",
+      "finish signing in with the code from your phone or authenticator app",
+      setCookies,
+    );
+  }
   const { directory } = options;
   const account = directory.account
     ? await directory.account(userId)
@@ -79,7 +100,14 @@ export async function getSession(
   const memberships = account.memberships ?? (await directory.memberships(userId));
   const built = buildSession(user, memberships, options.adapter.kind, options.tenantId);
   if (!built.ok) return { ...built, setCookies: [...built.setCookies, ...setCookies] };
-  return { ok: true, session: built.session, setCookies };
+  return {
+    ok: true,
+    session: built.session,
+    setCookies,
+    secondFactor,
+    secondFactorSecondsLeft:
+      secondFactor === "pending" ? (identified.secondFactorSecondsLeft ?? null) : null,
+  };
 }
 
 export type RoleCheck = { readonly ok: true; readonly role: Role } | AuthRefusal;

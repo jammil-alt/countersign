@@ -806,6 +806,88 @@ export const de: Messages = {
   "signin.error.misconfigured": "Die Anmeldung ist auf dieser Website noch nicht eingerichtet.",
   "signin.error.default": "Die Anmeldung wurde nicht abgeschlossen. Beginnen Sie neu.",
 
+  // ── Second step of sign-in (docs/plan.md §1.83) ──
+  "secondFactor.setup.title": "Richten Sie einen zweiten Schritt ein",
+  "secondFactor.setup.help":
+    "Bei jeder Anmeldung geben Sie zusätzlich einen Code ein. Wählen Sie, wie Sie ihn erhalten.",
+  "secondFactor.setup.operator":
+    "Sie haben Zugriff auf alle Kunden, deshalb melden Sie sich mit einer Authenticator-App an.",
+  "secondFactor.setup.none":
+    "Auf dieser Seite ist noch keine Anmeldemethode eingerichtet. Kontaktieren Sie uns.",
+  "secondFactor.setup.other": "Andere Methode wählen",
+  "secondFactor.method.totp": "Authenticator-App",
+  "secondFactor.method.totp.help":
+    "Ein Code aus einer App auf Ihrem Handy, etwa Google Authenticator oder 1Password.",
+  "secondFactor.method.sms": "SMS",
+  "secondFactor.method.sms.help": "Wir senden Ihnen einen Code per SMS.",
+  "secondFactor.method.whatsapp": "WhatsApp",
+  "secondFactor.method.whatsapp.help": "Wir senden Ihnen einen Code per WhatsApp.",
+  "secondFactor.totp.title": "Richten Sie Ihre Authenticator-App ein",
+  "secondFactor.totp.scan": "Scannen Sie diesen QR-Code mit Ihrer Authenticator-App.",
+  "secondFactor.totp.qrAlt": "QR-Code zum Scannen mit Ihrer Authenticator-App",
+  "secondFactor.totp.manual":
+    "Scannen klappt nicht? Geben Sie stattdessen diesen Schlüssel in der App ein.",
+  "secondFactor.totp.key": "Einrichtungsschlüssel",
+  "secondFactor.totp.enter": "Geben Sie den 6-stelligen Code ein, den die App anzeigt.",
+  "secondFactor.code": "6-stelliger Code",
+  "secondFactor.code.invalid":
+    "Geben Sie den Code aus der Nachricht oder der App ein, nur Ziffern.",
+  "secondFactor.verify": "Bestätigen",
+  "secondFactor.checking": "Wird geprüft…",
+  "secondFactor.phone.title.sms": "SMS einrichten",
+  "secondFactor.phone.title.whatsapp": "WhatsApp einrichten",
+  "secondFactor.phone.country": "Land",
+  "secondFactor.phone.number": "Handynummer",
+  "secondFactor.phone.hint":
+    "Für eine Nummer aus einem anderen Land beginnen Sie mit + und der Landesvorwahl.",
+  "secondFactor.phone.invalid":
+    "Diese Telefonnummer ist nicht gültig. Prüfen Sie die Nummer und das Land.",
+  "secondFactor.send": "Code senden",
+  "secondFactor.sent": "Wir haben einen Code an {phone} gesendet.",
+  "secondFactor.resend": "Neuen Code senden",
+  "secondFactor.changeNumber": "Andere Nummer verwenden",
+  "secondFactor.signIn.title": "Geben Sie Ihren Anmeldecode ein",
+  "secondFactor.signIn.totp":
+    "Öffnen Sie Ihre Authenticator-App und geben Sie den 6-stelligen Code für {product} ein.",
+  "secondFactor.signIn.sms": "Wir senden einen Code per SMS an {phone}.",
+  "secondFactor.signIn.whatsapp": "Wir senden einen Code per WhatsApp an {phone}.",
+  "secondFactor.use.totp": "Stattdessen die Authenticator-App verwenden",
+  "secondFactor.use.sms": "Stattdessen eine SMS erhalten",
+  "secondFactor.use.whatsapp": "Stattdessen eine WhatsApp-Nachricht erhalten",
+  "secondFactor.use.recovery": "Wiederherstellungscode verwenden",
+  "secondFactor.recovery.help":
+    "Geben Sie einen der gespeicherten Wiederherstellungscodes ein. Jeder Code funktioniert einmal.",
+  "secondFactor.recovery.label": "Wiederherstellungscode",
+  "secondFactor.recovery.invalid":
+    "Ein Wiederherstellungscode hat 8 Buchstaben und Ziffern, etwa abcd-efgh.",
+  "secondFactor.recovery.left": {
+    one: "Sie haben noch {count} Wiederherstellungscode.",
+    other: "Sie haben noch {count} Wiederherstellungscodes.",
+  },
+  "secondFactor.recovery.none":
+    "Sie haben keine Wiederherstellungscodes mehr. Bitten Sie Ihre Ansprechperson bei Mezonas, Ihre Anmeldemethoden zurückzusetzen.",
+  "secondFactor.back": "Zurück",
+  "secondFactor.codes.title": "Speichern Sie Ihre Wiederherstellungscodes",
+  "secondFactor.codes.help":
+    "Wenn Sie Ihr Handy verlieren, können Sie sich mit jedem Code einmal anmelden. Bewahren Sie sie sicher auf, etwa in einem Passwort-Manager. Wir zeigen sie nicht noch einmal an.",
+  "secondFactor.codes.list": "Ihre Wiederherstellungscodes",
+  "secondFactor.codes.download": "Als Text herunterladen",
+  "secondFactor.codes.file":
+    "Wiederherstellungscodes für {product}. Jeder Code funktioniert einmal.",
+  "secondFactor.codes.saved": "Ich habe diese Codes gespeichert",
+  "secondFactor.codes.continue": "Weiter",
+  "secondFactor.error.wrong_code":
+    "Dieser Code stimmt nicht. Prüfen Sie ihn und versuchen Sie es erneut.",
+  "secondFactor.error.too_many_attempts":
+    "Zu viele Versuche. Warten Sie {minutes} Minuten und versuchen Sie es dann erneut.",
+  "secondFactor.error.not_available":
+    "Diese Methode ist gerade nicht verfügbar. Wählen Sie eine andere.",
+  "secondFactor.error.operator": "Operatoren melden sich mit einer Authenticator-App an.",
+  "secondFactor.expired.title": "Ihre Anmeldung ist abgelaufen",
+  "secondFactor.expired.body":
+    "Sie haben {minutes} Minuten für diesen Schritt. Melden Sie sich erneut an, um neu zu beginnen.",
+  "secondFactor.signInAgain": "Erneut anmelden",
+
   // ── Feedback ──
   "feedback.button": "Problem mit der App melden",
   "feedback.tapWhere": "Tippen Sie auf die Stelle mit dem Problem",
