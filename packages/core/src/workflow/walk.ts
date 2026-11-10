@@ -26,16 +26,19 @@ export function walkSteps(workflow: Pick<Workflow, "steps">, visit: (loc: StepLo
     steps.forEach((step, i) => {
       const here = [...pointer, i];
       visit({ step, pointer: here, before: [...before], loops, forks });
-      if (step.kind === "fork") {
-        step.paths.forEach((p, pi) => {
+      // R9: a v4 `if` (the same shape as a fork) in a bundle typed v3, a template's v4 version or
+      // its fork, is walked into too, so no reader of such a bundle misses its nested steps.
+      if (step.kind === "fork" || (step as { kind: string }).kind === "if") {
+        const fork = step as ForkStep;
+        fork.paths.forEach((p, pi) => {
           walkList(p.steps, [...here, "paths", pi, "steps"], before, loops, [
             ...forks,
-            { fork: step, branchId: p.id },
+            { fork, branchId: p.id },
           ]);
         });
-        walkList(step.otherwise.steps, [...here, "otherwise", "steps"], before, loops, [
+        walkList(fork.otherwise.steps, [...here, "otherwise", "steps"], before, loops, [
           ...forks,
-          { fork: step, branchId: step.otherwise.id },
+          { fork, branchId: fork.otherwise.id },
         ]);
       } else if (step.kind === "for_each") {
         walkList(step.steps, [...here, "steps"], before, [...loops, step], forks);

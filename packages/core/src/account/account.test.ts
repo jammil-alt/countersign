@@ -282,6 +282,46 @@ describe("the account agent's publish guard", () => {
       }),
     ).toEqual([]);
   });
+
+  // R9: the supervisor's v4 version holds processes; their read and write steps count, nested too.
+  it("refuses a v4 process's read and write steps on a client's tool, inside an if", () => {
+    const b = bundle({});
+    const w = b.workflows[0];
+    if (!w) throw new Error("no workflow");
+    w.workflow = {
+      schemaVersion: 4,
+      triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+      steps: [
+        { id: "look", name: "Look", kind: "read", tool: "testkit.record.get", input: {} },
+        {
+          id: "when",
+          name: "When",
+          kind: "if",
+          paths: [
+            {
+              id: "yes",
+              name: "Yes",
+              when: { match: "all", rules: [] },
+              steps: [
+                { id: "fix", name: "Fix", kind: "write", tool: "testkit.record.update", input: {} },
+              ],
+            },
+          ],
+          otherwise: { id: "no", steps: [] },
+        },
+      ],
+    } as never;
+    const errors = accountAgentProblems({
+      slug: "supervisor",
+      bundle: b,
+      skills: SKILLS,
+      tools: TOOLS,
+    });
+    expect(errors.map((e) => [e.stepId, e.field, e.code])).toEqual([
+      ["look", "tool", "tool_not_allowed"],
+      ["fix", "tool", "tool_not_allowed"],
+    ]);
+  });
 });
 
 describe("what Sloan reads", () => {

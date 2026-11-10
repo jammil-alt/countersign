@@ -72,6 +72,11 @@ export function accountAgentProblems(input: {
   /** A step's tools: an action's, a skill's; `at` is the bundle's step that holds it. */
   const check = (step: Step, at: { id: string; field: string }, slug: string) => {
     if (step.kind === "action") refuse(step.tool, at.field || "tool", at.id, slug);
+    // R9: a v4 process's read and write steps (the supervisor's v4 version) name their tool.
+    const kind = (step as { kind: string }).kind;
+    if (kind === "read" || kind === "write") {
+      refuse((step as unknown as { tool: string }).tool, at.field || "tool", at.id, slug);
+    }
     if (step.kind === "skill") {
       const skill = input.skills[step.skill] ?? input.skills[parseSkillRef(step.skill).id];
       for (const id of skill ? skillTools(skill) : []) refuse(id, at.field || "skill", at.id, slug);

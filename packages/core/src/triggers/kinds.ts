@@ -16,9 +16,17 @@ import { matchesPeople, type SenderFacts } from "./people";
 
 const Id = z.uuid();
 
-/** Every trigger of a workflow: its first, then `moreTriggers`, each with its own id. */
-export function allTriggers(workflow: Pick<Workflow, "trigger" | "moreTriggers">): Trigger[] {
-  return [workflow.trigger, ...(workflow.moreTriggers ?? [])];
+/**
+ * Every trigger of a workflow: its first, then `moreTriggers`, each with its own id. R9: a v4
+ * process's `triggers` as they are, so a reader of a bundle typed v3 that holds a process (a
+ * template's v4 version, or its fork) lists them instead of failing on a missing `trigger`.
+ */
+export function allTriggers(
+  workflow: Pick<Workflow, "trigger" | "moreTriggers"> | { triggers: readonly Trigger[] },
+): Trigger[] {
+  if ("triggers" in workflow && Array.isArray(workflow.triggers)) return [...workflow.triggers];
+  const v3 = workflow as Pick<Workflow, "trigger" | "moreTriggers">;
+  return [v3.trigger, ...(v3.moreTriggers ?? [])];
 }
 
 // ── Events ───────────────────────────────────────────────────────────────────────────────────────
