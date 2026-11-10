@@ -1,14 +1,68 @@
-// The design's square connector mark ("QB", "GM"): initials in a bordered tile.
+// The connector's square mark wherever a connector is listed: the provider's logo or its colour
+// (brands.ts), a Mezonas icon for our own connectors, else the name's initials ("PO") on the
+// design's hairline tile.
 import type { PlainKey } from "../i18n/catalog";
 import { EN, type I18n } from "../i18n/i18n";
+import { cx } from "../ui/cx";
+import { Icon } from "../ui/icons";
 import { agentInitials } from "../ui/primitives";
+import { connectorBrand } from "./brands";
 
-export function ConnectorMark({ name }: { name: string }) {
+export function ConnectorMark({
+  name,
+  connector,
+  size = "md",
+}: {
+  name: string;
+  /** The connector's id (`qbo`, `gmail`); without one, or for an unknown id, the initials. */
+  connector?: string | undefined;
+  size?: "sm" | "md";
+}) {
+  const brand = connectorBrand(connector);
+  const tile = cx(
+    "inline-flex shrink-0 items-center justify-center rounded-sm",
+    size === "sm" ? "size-9 text-xs" : "size-10 text-sm",
+  );
+  const neutral = "border border-line bg-surface-subtle text-ink";
+  const glyph = size === "sm" ? 18 : 20;
+
+  if (brand?.kind === "logo") {
+    return (
+      <span
+        aria-hidden
+        data-mark="logo"
+        className={cx(tile, "border border-line")}
+        // A solid white ground in both themes, so the logo's cut-outs read as the provider draws them.
+        style={{ backgroundColor: "#fff" }}
+      >
+        <svg width={glyph} height={glyph} viewBox="0 0 24 24" fill={brand.fill} aria-hidden>
+          <path d={brand.path} />
+        </svg>
+      </span>
+    );
+  }
+  if (brand?.kind === "monogram") {
+    return (
+      <span
+        aria-hidden
+        data-mark="monogram"
+        className={cx(tile, "font-semibold", !brand.fill && "border border-line bg-ink text-paper")}
+        // White on the provider's colour, as the providers draw their own app tiles.
+        style={brand.fill ? { backgroundColor: brand.fill, color: "#fff" } : undefined}
+      >
+        {brand.letters}
+      </span>
+    );
+  }
+  if (brand?.kind === "icon") {
+    return (
+      <span aria-hidden data-mark="icon" className={cx(tile, neutral, "text-ink-muted")}>
+        <Icon name={brand.icon} size={20} />
+      </span>
+    );
+  }
   return (
-    <span
-      aria-hidden
-      className="inline-flex size-10 shrink-0 items-center justify-center rounded-sm border border-line bg-surface-subtle text-sm font-medium text-ink"
-    >
+    <span aria-hidden data-mark="initials" className={cx(tile, neutral, "font-medium")}>
       {agentInitials(name)}
     </span>
   );

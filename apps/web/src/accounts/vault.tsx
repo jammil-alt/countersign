@@ -222,7 +222,11 @@ function VaultLogin({
       }
     >
       <div className="flex items-start gap-3">
-        <ConnectorMark name={item.name} />
+        <ConnectorMark
+          name={item.name}
+          // A website login is the site's, not the browser connector's: its initials.
+          connector={item.browser ? undefined : item.connector}
+        />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <p className="font-medium text-ink">{item.name}</p>
@@ -344,7 +348,7 @@ export function SetupCard({ setup, onSaved }: { setup: Setup; onSaved: () => voi
       className="rounded-md border border-line p-4"
     >
       <div className="mb-3 flex items-start gap-3">
-        <ConnectorMark name={setup.name} />
+        <ConnectorMark name={setup.name} connector={setup.connector} />
         <div className="min-w-0">
           <p className="font-medium text-ink">{setup.name}</p>
           <p className="text-sm text-ink-muted">{setup.description}</p>

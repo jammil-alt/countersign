@@ -1938,9 +1938,10 @@ Built on `claude/p8-a2p` (stacked on this design). No migration.
 
 Open for the owner:
 
-- **`TWILIO_PRIMARY_PROFILE_SID`**: the BU SID of the approved "Mezonas" primary customer profile (ISV
-  Reseller, Twelve Thirty-Four Consulting LLC), and **`TWILIO_A2P_EMAIL`**, the Mezonas address Trust Hub
-  writes to about each client's profile.
+- ~~**`TWILIO_PRIMARY_PROFILE_SID`** and **`TWILIO_A2P_EMAIL`**~~: set in production's vars
+  (2026-11-10): the approved "Mezonas" primary profile's BU SID and `compliance@mezonas.com`, which
+  needs its own Email Routing rule to a person (the zone's catch-all goes to the Worker). Staging has
+  neither: its Twilio account has no approved profile.
 - **The monthly fee per use case.** We record $10 (`MIXED`) and $1.50 (`LOW_VOLUME`) a month from TCR's
   rates as resellers quote them; Twilio's help article (1260803965530) is the source to confirm, and
   whether Twilio bills the first three months at once.
@@ -2384,6 +2385,20 @@ is asked twice. Two PRs: migration 0042, then sign-in.
 | The audit log | `session.second_factor_setup`, `session.second_factor` (ok or refused, with the method), `session.second_factor_send`, `session.recovery_codes`, `session.second_factor_reset` and `mcp.approve`. The rows have no client, so only operators read them. |
 | The Ops MCP connector (§1.34) | It signs in through AuthKit directly, not through our cookie. With WorkOS MFA off it would have no second factor. So when the step is on, a Claude connection is tied to its AuthKit session (`sid`). The first call of a new session is refused with a link to `/ops/connect-claude/<code>`. An operator who has passed the step in the browser opens the link and approves the connection. The approval lasts until the AuthKit session ends, 12 hours at most (`mcp_session_approval`). |
 | Not in this pass | Changing your own method or recovery codes without an operator reset; email codes (Magic Auth is a sign-in method, not a second factor); passkeys. |
+
+### 1.85 Connector marks: logos, a brand's colour, or our icon (2026-11-09)
+
+Every connector tile (back-office Connectors and Connections, the vault, the portal's Accounts)
+shows the connector's mark from one map, `apps/web/src/connections/brands.ts`, instead of its
+initials. A provider whose logo Simple Icons publishes under CC0 (16.37.0) gets that logo in the
+provider's colour on a solid white tile with a hairline border, in both themes, so the logo's
+cut-outs show white as the provider draws them, never the tile behind. A
+provider whose logo is not there (Slack, LinkedIn, Outlook, Bing, Ramp, Podio; most were removed at
+the brand's request) or reads badly small (Zoho's wordmark) gets its letters on its colour, or ink
+when we are not sure of the colour, rather than a copied logo. Connectors we build ourselves (bank
+feeds, upload, email sending, texts, webhooks, website, website logins) take a Mezonas icon. A
+website login keeps the site's initials. These colours are the providers' and are used nowhere
+else, so the palette rule (no new colours) holds for our own UI.
 
 ## 2. Package layering
 

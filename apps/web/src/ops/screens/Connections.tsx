@@ -302,7 +302,7 @@ function ConnectionCard({
   return (
     <Card testId={`ops-connection-${c.id}`} className="flex flex-col p-4">
       <div className="flex items-start gap-3">
-        <ConnectorMark name={name} />
+        <ConnectorMark name={name} connector={c.connector} />
         <div className="min-w-0">
           <p className="font-medium text-ink">{name}</p>
           {accountName ? (

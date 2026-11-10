@@ -383,7 +383,7 @@ function ConnectionRow({
       className="border-b border-line last:border-b-0"
     >
       <div className="flex flex-wrap items-start gap-3 px-6 py-4 max-sm:px-4">
-        <ConnectorMark name={item.name} />
+        <ConnectorMark name={item.name} connector={item.connector} />
         <div className="min-w-0 flex-1">
           <p className="type-subheading text-ink">{item.name}</p>
           <p className="text-sm break-words text-ink-muted">
@@ -631,7 +631,7 @@ function AddToolRow({
       className="flex flex-col gap-2 border-b border-line px-6 py-4 last:border-b-0"
     >
       <div className="flex items-start gap-3">
-        <ConnectorMark name={item.name} />
+        <ConnectorMark name={item.name} connector={item.connector} />
         <div className="min-w-0">
           <p className="font-medium text-ink">{item.name}</p>
           <p className="text-sm text-ink-muted">{descriptionOf(item, i18n)}</p>
