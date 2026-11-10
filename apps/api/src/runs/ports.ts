@@ -9,6 +9,7 @@ import {
   approveForRunTx,
   callTool,
   executeAction,
+  keepBrowseHelp,
   type RuntimeDeps,
   resolveApprover,
   runAgent,
@@ -17,6 +18,7 @@ import {
   unsignedRefusal,
 } from "@countersign/agents";
 import {
+  type Approval,
   type ApprovalAssignee,
   approverFromSetting,
   assigneeOf,
@@ -218,6 +220,24 @@ export function agentPort(
   converse?: ConversePort,
 ): AgentPort {
   const now = () => deps.now?.() ?? new Date();
+  // A call the platform makes for a step (an action step's tool, the lead's answer kept).
+  const platformStep = async (
+    run: RunInfo,
+    stepRunId: string,
+    stepId: string,
+    approval: Approval,
+  ): Promise<StepContext> => ({
+    tenantId: run.tenantId,
+    agent: await deps.ports.store.loadAgentVersion(run.tenantId, run.agentVersionId),
+    runId: run.id,
+    stepRunId,
+    stepId,
+    mode: run.mode,
+    approval,
+    externalIndex: { next: 0 },
+    // v0.12 W1-E: a retry carries the run retried's approved, not-done writes (§10.10).
+    ...(run.retryOf ? { retryOf: run.retryOf } : {}),
+  });
   const port: AgentPort = {
     async runSkill(request) {
       const { run, step, nodeId, stepRunId, input, approval } = request;
@@ -286,21 +306,11 @@ export function agentPort(
     },
 
     async runAction({ run, step, nodeId, stepRunId, input, approval, keyNode }) {
-      const agent = await deps.ports.store.loadAgentVersion(run.tenantId, run.agentVersionId);
       const ctx: StepContext = {
-        tenantId: run.tenantId,
-        agent,
-        runId: run.id,
-        stepRunId,
         // v0.13 W2-I: an oversight retry with a corrected input keys its own write.
-        stepId: keyNode ?? nodeId,
-        mode: run.mode,
-        approval,
+        ...(await platformStep(run, stepRunId, keyNode ?? nodeId, approval)),
         // The step as written in the version: fixed inputs are checked against it, not `input`.
         literalInput: step.input,
-        externalIndex: { next: 0 },
-        // v0.12 W1-E: a retry carries the run retried's approved, not-done writes (§10.10).
-        ...(run.retryOf ? { retryOf: run.retryOf } : {}),
       };
       const o = await callTool(deps, ctx, { toolId: step.tool, input });
       switch (o.status) {
@@ -435,6 +445,13 @@ export function agentPort(
     // R3: runSkill passes `customize` on to runAgent, which applies its added instructions (and
     // refuses rule rows it can't run yet), so a customized step never runs without them.
     appliesCustomization: true,
+
+    // v0.16 (docs/plan.md §1.86): the lead's answer to a browsing skill's help request, kept as
+    // the platform's own note (never the model's memory), logged on the step's row.
+    async keepHelp({ run, stepRunId, nodeId, remember, question, answer }) {
+      const ctx = await platformStep(run, stepRunId, nodeId, DEFAULT_APPROVAL);
+      await keepBrowseHelp(deps, ctx, { remember, question, answer });
+    },
   };
   return port;
 }

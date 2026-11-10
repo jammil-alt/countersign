@@ -3,9 +3,12 @@
 // same way.
 
 import {
+  BROWSE_NOTE_SCOPE,
   bindingKeyFor,
+  browseHelpNote,
   type ConnectionRef,
   captureBefore,
+  isBrowseHelpTag,
   type RunSessions,
   runReadTool,
   ToolRefused,
@@ -31,7 +34,6 @@ import {
   routeApproval,
 } from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
-import { memoryScope } from "../tools/memory-scope";
 import { executeAction } from "./actions";
 import { noteReconnect } from "./attention";
 import { carryApproval } from "./carry";
@@ -107,8 +109,8 @@ export interface ToolCallScope {
   /** After the call, refusals included (the scope's own, the gate's, the tool's). */
   observe?(toolId: string, input: unknown, outcome: ToolOutcome): void;
   /**
-   * Once the skill run finished with an answer: what to keep, given the agent's live notes in
-   * `noteScope` (applied by `finishScope`).
+   * Once a live skill run finished with an answer: what to keep, given the agent's live notes in
+   * `noteScope` (applied by `finishScope`; a test run keeps nothing).
    */
   finish?(notes: readonly string[]): Promise<ScopeEffects> | ScopeEffects;
   /**
@@ -122,14 +124,14 @@ export interface ToolCallScope {
   close?(): Promise<void>;
 }
 
-/** What a scope asks the platform to keep after a skill run (`finishScope` applies it). */
+/** What a scope asks the platform to keep after a live skill run (`finishScope` applies it). */
 export interface ScopeEffects {
-  /** Notes in the scope's `noteScope` (a test run's stay in the run's own scope). */
+  /** Notes in the scope's `noteScope`. */
   memory?: string[] | undefined;
   /**
-   * An operator `review` item, such as a script draft; never from a test run. With `once`, a note
-   * that marks it offered: written first, and the item is created only by the run whose note is
-   * the earliest such one, so two runs finishing together offer it once.
+   * An operator `review` item, such as a script draft. With `once`, a note that marks it offered:
+   * written first, and the item is created only by the run whose note is the earliest such one
+   * read back, so two runs finishing together offer it once.
    */
   operatorItem?:
     | { title: string; subjectType: string; payload: JsonObject; once?: string | undefined }
@@ -632,47 +634,54 @@ async function loggedWrite<T extends JsonObject>(
   }
 }
 
+/** One platform note in a memory scope, logged on the step run as `memory.write`. */
+function writeScopeNote(deps: RuntimeDeps, step: StepContext, scope: string, note: string) {
+  return loggedWrite(deps, step, "memory.write", { note, scope }, async () => {
+    const saved = await deps.ports.platform.writeMemory(step.tenantId, {
+      agentId: step.agent.agentId,
+      note,
+      scope,
+    });
+    return { memoryNoteId: saved.id };
+  });
+}
+
 /**
- * v0.16: once a scoped skill run finished with an answer, keeps what its scope asks: notes in the
- * scope's own memory scope (`noteScope`; a test run's stay in the run's own scope, which no live
- * run reads) and, from a live run only, an operator `review` item (a browsing path that worked
- * twice, offered as a script draft), offered once. Reads the notes itself, whether or not the
- * agent shows memory to its model. Each write is logged on the step run like a platform tool's.
+ * v0.16: once a scoped live skill run finished with an answer, keeps what its scope asks: notes in
+ * the scope's own memory scope (`noteScope`) and an operator `review` item (a browsing path that
+ * worked twice, offered as a script draft), offered once. Reads the notes itself, whether or not
+ * the agent shows memory to its model. Each write is logged on the step run like a platform
+ * tool's. A test run keeps nothing: its notes would never be read back (memory reads skip test
+ * scopes), and the skill bench never writes.
  */
 // DECISION: a draft is an inbox item for the operator, as the owner's proposals are (kind
 // `review`), not a new table: scripts are R9's, and the operator reviews the draft there.
 // DECISION: offered once without a lock or a unique key (no migration): the run writes the
-// offer's note first, reads the notes back, and creates the item only when its note is the only
-// one. Of two runs that finish together, the later reader always sees the other's note, so they
-// never both offer; at worst both step back and the draft is not offered.
+// offer's note first, reads the notes back, and creates the item only when its note is the
+// earliest of them (memoryNotes' order: created, then id). Of two runs that finish together,
+// both read back both notes and only the earlier one's run offers it. Should creating the item
+// fail, its note stays and the draft is not offered again: the failed `inbox.create` row on the
+// step run records it (a missed offer rather than a second one).
 export async function finishScope(
   deps: RuntimeDeps,
   step: StepContext,
   scope: ToolCallScope,
 ): Promise<ScopeEffects> {
-  if (!scope.finish) return {};
+  if (!scope.finish || step.mode === "test") return {};
   const { store, platform } = deps.ports;
   const noteScope = scope.noteScope ?? "agent";
-  const test = step.mode === "test";
   const notes = () => store.memoryNotes(step.tenantId, step.agent.agentId, 50, noteScope);
-  const writeNote = (note: string) =>
-    loggedWrite(deps, step, "memory.write", { note, scope: noteScope }, async () => {
-      const saved = await platform.writeMemory(step.tenantId, {
-        agentId: step.agent.agentId,
-        note,
-        scope: test ? memoryScope(step.mode, step.runId) : noteScope,
-      });
-      return { memoryNoteId: saved.id };
-    });
+  const writeNote = (note: string) => writeScopeNote(deps, step, noteScope, note);
   const effects = await scope.finish((await notes()).map((n) => n.note));
   for (const note of effects.memory ?? []) await writeNote(note);
   const item = effects.operatorItem;
-  if (!item || test) return effects;
+  if (!item) return effects;
   if (item.once !== undefined) {
     const mine = await writeNote(item.once);
     if (!mine) return effects;
-    const marks = (await notes()).filter((n) => n.note === item.once);
-    if (marks.length !== 1 || marks[0]?.id !== mine.memoryNoteId) return effects;
+    // Newest first: the earliest marker read back is the last.
+    const earliest = (await notes()).filter((n) => n.note === item.once).at(-1);
+    if (earliest?.id !== mine.memoryNoteId) return effects;
   }
   const payload: JsonObject = {
     ...item.payload,
@@ -698,4 +707,35 @@ export async function finishScope(
     },
   );
   return effects;
+}
+
+/** The lead's answer to a browsing skill's help request (the executor's `needsHelp`). */
+export interface BrowseHelpAnswer {
+  /** `needsHelp.remember`: the help request's tag (connectors' `browseHelpTag`). */
+  remember: string;
+  question: string;
+  answer: string;
+}
+
+/**
+ * v0.16: keeps the lead's answer to a browsing skill's help request where the next run of the same
+ * skill on the same sites gets it as data: a platform note in the browse scope's own memory scope
+ * (`browse`), which the model's `memory.write` never reaches, logged on the step run. A test run
+ * keeps nothing (its notes are never read back). Throws when the tag isn't a help request's or
+ * the note wasn't saved.
+ */
+// DECISION: the platform's write, not the model's: answers are read back only from the `browse`
+// scope, so a note a model saves in its own memory (from a page's text, say) never reads as a
+// person's answer (invariant 9).
+export async function keepBrowseHelp(
+  deps: RuntimeDeps,
+  step: StepContext,
+  help: BrowseHelpAnswer,
+): Promise<{ memoryNoteId: string } | null> {
+  if (!isBrowseHelpTag(help.remember)) throw new Error("not a help request's tag");
+  if (step.mode === "test") return null;
+  const note = browseHelpNote(help.remember, help.question, help.answer);
+  const saved = await writeScopeNote(deps, step, BROWSE_NOTE_SCOPE, note);
+  if (!saved) throw new Error("the note wasn't saved");
+  return saved;
 }

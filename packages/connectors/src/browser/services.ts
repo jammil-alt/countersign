@@ -61,9 +61,11 @@ export interface BrowserServices {
   site(ref: { slug: string; versionId: string }): Promise<PinnedBrowserSite | null>;
   /**
    * A fresh browser with one tab, reaching only these hosts where the browser can be held to them
-   * (Browser Run's guardrails); null when this deployment has no browser.
+   * (Browser Run's guardrails); null when this deployment has no browser. `keepAliveMs`: how long
+   * the browser may sit idle before it is closed, for a session held across a skill run's model
+   * calls (the driver keeps it within what it allows); absent, the driver's default (one call).
    */
-  open(options: { hosts: string[] }): Promise<BrowserTab | null>;
+  open(options: { hosts: string[]; keepAliveMs?: number | undefined }): Promise<BrowserTab | null>;
   /** The code service; null where it is not bound. */
   codes: BrowserCodesPort | null;
   /** The connection's sign-in counters and stop. */

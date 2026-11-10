@@ -2565,6 +2565,33 @@ Stream browse (wave 2b):
 - DECISION: page limits are not set per skill yet (SkillBrowse has no `limits`), and the save-time
   check stays site-level. The runtime checks every page.
 
+Stream browse (wave 2c):
+- DECISION: a held browser asks Browser Run to stay open while idle for the run's time limit (5
+  minutes; `RunSessions.heldForMs`), within Browser Run's documented 10 s to 10 min
+  (`browserRunKeepAlive`); one tool call's keeps the 60 s default. A browser that closes anyway is
+  found when a call fails and the tab no longer answers (`BrowserTab.alive`): that call runs again
+  in a fresh browser, signed in again within the connection's caps, at most twice per held session
+  (`HELD_SESSION_REOPENS`). The closed browser's record says it couldn't sign out.
+- DECISION: a held session that ends early (a stop page, a failed sign-in, a browser that can't be
+  opened again, a sign-in cap) tells the scope (`RunSessions.ended`), which stops the run's
+  browsing: the next model turn is not taken and the step returns `needsHelp` (limit `session`, or
+  `sign_in` for a cap). The first reason wins.
+- DECISION (replaces wave 2b's answers in `agent`): the lead's answers are platform notes in the
+  `browse` scope, never the agent's memory: the executor hands them to `AgentPort.keepHelp`
+  (agents' `keepBrowseHelp`, logged as `memory.write` on the step's row, only under a help
+  request's tag), and a browsing run reads help answers and known paths from `browse` only.
+  Without the port's `keepHelp`, or for an answer with no tag, the executor writes an ordinary
+  note with no tag, which is never read as an answer.
+- DECISION (replaces wave 2b's "only marker" rule): a draft is offered by the run whose marker is
+  the earliest read back (newest-first order, so the last), so of two runs finishing together
+  exactly one offers it. When creating the item fails, its marker stays and the draft is not
+  offered again; the failed `inbox.create` row on the step records it (a missed offer rather than
+  a second one).
+- DECISION: `needsHelp` waits like `finish` when a write the run proposed waits for a person
+  (`awaiting_approval`, the step row `waiting`).
+- DECISION: a test run keeps no path notes and offers no draft (`finishScope` does nothing): they
+  are never read back, and the skill bench never writes. A test run keeps no help answer either.
+
 Stream channels, hours and undo storage (wave 2b):
 - DECISION: hours are checked where they are written (422 `invalid_hours`), not in core's schema:
   a week with no open stretch, a date that isn't one, and away ranges that overlap or touch for

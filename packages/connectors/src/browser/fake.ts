@@ -311,6 +311,9 @@ export class FakeSupplierPortal {
       // A redirect that stays on the site's allowed pages but leaves a browsing skill's.
       case "/invoices/to-statements":
         return { redirect: `${this.origin}/statements` };
+      // A check the site puts up mid-session: a person must look.
+      case "/invoices/check":
+        return { page: { text: "Please prove you are human", selectors: [".g-recaptcha"] } };
       case "/statements":
         return { page: { text: "Statements\nMarch 2026", selectors: ["#account"] } };
       case "/account/settings":
@@ -422,10 +425,22 @@ export class FakeBrowserDriver implements BrowserDriver {
   readonly events: FakeBrowserEvent[] = [];
   opened = 0;
   closed = 0;
+  /** Tabs Browser Run would have closed (an idle browser past its keep-alive): they never answer. */
+  readonly #dead = new Set<number>();
   constructor(readonly portal: FakeSupplierPortal) {}
+
+  /** Closes every browser opened so far, as Browser Run does to one left idle too long. */
+  killOpen(): void {
+    for (let i = 1; i <= this.opened; i++) this.#dead.add(i);
+  }
 
   async open(): Promise<BrowserTab> {
     this.opened += 1;
+    const tabNo = this.opened;
+    const dead = () => this.#dead.has(tabNo);
+    const answer = () => {
+      if (dead()) throw new Error("Target page, context or browser has been closed");
+    };
     const portal = this.portal;
     const events = this.events;
     let url = "about:blank";
@@ -453,15 +468,18 @@ export class FakeBrowserDriver implements BrowserDriver {
     return {
       url: () => url,
       async goto(target) {
+        answer();
         events.push({ op: "goto", url: target });
         land(target);
       },
       async fill(selector, value) {
+        answer();
         if (!page.selectors.includes(selector)) throw new Error(`no ${selector} on ${url}`);
         events.push({ op: "fill", url, selector, value });
         form[selector] = value;
       },
       async click(selector) {
+        answer();
         if (!page.selectors.includes(selector)) throw new Error(`no ${selector} on ${url}`);
         events.push({ op: "click", url, selector });
         const r = portal.submit(url, selector, form, sid());
@@ -483,31 +501,41 @@ export class FakeBrowserDriver implements BrowserDriver {
         land(r.go);
       },
       async has(selector) {
+        answer();
         return page.selectors.includes(selector);
       },
       async readText() {
+        answer();
         events.push({ op: "read", url });
         // The driver contract: password and hidden inputs are never read.
         const values = (page.fields ?? []).filter((f) => f.type === "text").map((f) => f.value);
         return [page.text, ...values].filter(Boolean).join("\n");
       },
       async readTables() {
+        answer();
         return clone(page.tables ?? []);
       },
       async download(target) {
+        answer();
         events.push({ op: "download", url: target });
         return portal.download(target, sid());
       },
       async cookies() {
+        answer();
         return clone(jar);
       },
       async setCookies(cookies) {
+        answer();
         events.push({ op: "set_cookies", count: cookies.length });
         jar = clone(cookies);
       },
       async screenshot() {
+        answer();
         events.push({ op: "screenshot", url });
         return new Uint8Array([137, 80, 78, 71]);
+      },
+      async alive() {
+        return !dead();
       },
       async close() {
         events.push({ op: "close" });

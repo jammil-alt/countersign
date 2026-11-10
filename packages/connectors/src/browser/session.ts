@@ -51,6 +51,8 @@ type StoredLogin = z.infer<typeof StoredLogin>;
 export interface BrowserSessionOptions {
   /** Claiming a code: every `intervalMs`, at most `attempts` times. */
   codePoll: { intervalMs: number; attempts: number };
+  /** How long the browser may sit idle (a held session's longest wait); absent, the driver's own. */
+  keepAliveMs?: number | undefined;
 }
 
 /** What a tool does once signed in: only through these, each page checked against the rules. */
@@ -70,6 +72,8 @@ export interface SignedInPage {
   lastScreenshot(): string | null;
   /** Hides this session's secrets (password, cookies, code) in a value. */
   redact<T>(value: T): T;
+  /** Whether the browser still answers (Browser Run closes one left idle past its keep-alive). */
+  alive(): Promise<boolean>;
   site: PinnedBrowserSite;
 }
 
@@ -208,7 +212,10 @@ export async function withBrowserSession<T>(
     if (!cap.ok) throw new BrowserCapReached(cap.code, cap.reason);
   }
 
-  const tab = await services.open({ hosts: browserSiteHosts(site.profile) });
+  const tab = await services.open({
+    hosts: browserSiteHosts(site.profile),
+    ...(options.keepAliveMs !== undefined ? { keepAliveMs: options.keepAliveMs } : {}),
+  });
   if (!tab) throw new BrowserRefused("browser sessions are not available in this deployment");
   let signedIn = false;
   let tried = false;
@@ -320,6 +327,7 @@ export async function withBrowserSession<T>(
       note: (action) => record.actions.push(action),
       lastScreenshot: () => pageShot,
       redact: (value) => redact.deep(value),
+      alive: async () => (tab.alive ? tab.alive().catch(() => false) : true),
     };
     const result = await work(page);
     record.outcome = "done";
@@ -361,13 +369,15 @@ function cleanError(error: unknown, redact: { text(value: string): string }): Er
   const message = redact.text(error instanceof Error ? error.message : String(error));
   if (error instanceof BrowserCapReached) return new BrowserCapReached(error.code, message);
   const Clean =
-    error instanceof BrowserStop
-      ? BrowserStop
-      : error instanceof SignInFailed
-        ? SignInFailed
-        : error instanceof BrowserRefused
-          ? BrowserRefused
-          : Error;
+    error instanceof BrowserGone
+      ? BrowserGone
+      : error instanceof BrowserStop
+        ? BrowserStop
+        : error instanceof SignInFailed
+          ? SignInFailed
+          : error instanceof BrowserRefused
+            ? BrowserRefused
+            : Error;
   return new Clean(message);
 }
 
@@ -376,11 +386,30 @@ export interface HeldBrowserSession {
   run<T>(work: (page: SignedInPage) => Promise<T>): Promise<T>;
 }
 
+/** A held session's browser closed between calls (Browser Run's idle limit): open another. */
+class BrowserGone extends Error {
+  override name = "BrowserGone";
+}
+
+/**
+ * How many times a held session opens a fresh browser after its browser closed between calls.
+ * Each one signs in again and counts against the connection's caps.
+ */
+// DECISION: twice per held session. The keep-alive covers the run's time limit, so a browser that
+// closes anyway is Browser Run's doing; a third time something else is wrong, and the run asks
+// for help rather than spend more of the connection's sign-ins.
+export const HELD_SESSION_REOPENS = 2;
+
 /**
  * Signs in once and keeps the session until `close`. withBrowserSession's own `work(page)` runs
  * each call's work in turn, so the checks, evidence, sign-out and record are those of one call
- * (one record for the whole session). A stop page (a CAPTCHA mid-session) ends the session there.
- * Throws the sign-in's own error (caps, a failed sign-in, a stop) when it can't sign in.
+ * (one record per browser). The browser is asked to stay open as long as the run may wait
+ * between calls (`keepAliveMs`, else the run's `sessions.heldForMs`). Should it close anyway, the
+ * call that finds it gone runs again in a fresh browser, signed in again within the caps (at most
+ * `HELD_SESSION_REOPENS` times). A stop page (a CAPTCHA mid-session), a failed sign-in or a
+ * browser that can't be opened again ends the session: the run is told (`sessions.ended`) before
+ * the call's failure reaches it, and later calls fail with that reason. Throws the sign-in's own
+ * error (caps, a failed sign-in, a stop) when it can't sign in at first.
  */
 // DECISION: one session per skill run per site, closed when the run ends (docs/plan.md §1.86):
 // 15 pages must not spend 15 of the connection's daily sign-ins or send 15 codes. The run's time
@@ -389,52 +418,99 @@ export async function holdBrowserSession(
   ctx: ToolContext,
   call: BrowserCall,
   options: BrowserSessionOptions,
+  key = `browser:${ctx.connection.id}`,
 ): Promise<HeldSession<HeldBrowserSession>> {
   type Job = {
     work: (page: SignedInPage) => Promise<unknown>;
     resolve: (value: unknown) => void;
     reject: (error: unknown) => void;
+    /** Already moved to a fresh browser once: never moved again. */
+    moved: boolean;
   };
   const jobs: Job[] = [];
-  const state: { wake: (() => void) | null; closing: boolean; ended: Error | null } = {
-    wake: null,
-    closing: false,
-    ended: null,
-  };
+  const state: {
+    wake: (() => void) | null;
+    closing: boolean;
+    ended: Error | null;
+    told: boolean;
+  } = { wake: null, closing: false, ended: null, told: false };
   const nudge = () => {
     state.wake?.();
     state.wake = null;
+  };
+  // The run hears once that its session ended early; never of its own close.
+  const tell = (error: Error) => {
+    if (state.told || state.closing) return;
+    state.told = true;
+    ctx.sessions?.ended?.(key, error);
   };
   let ready: (page: SignedInPage) => void = () => undefined;
   const opened = new Promise<SignedInPage>((resolve) => {
     ready = resolve;
   });
-  const done = withBrowserSession(ctx, call, options, async (page) => {
-    ready(page);
-    for (;;) {
-      const job = jobs.shift();
-      if (!job) {
-        if (state.closing) return;
-        await new Promise<void>((resolve) => {
-          state.wake = resolve;
-        });
-        continue;
+  const keepAliveMs = options.keepAliveMs ?? ctx.sessions?.heldForMs;
+  const held: BrowserSessionOptions = {
+    ...options,
+    ...(keepAliveMs !== undefined ? { keepAliveMs } : {}),
+  };
+  const browser = () =>
+    withBrowserSession(ctx, call, held, async (page) => {
+      ready(page);
+      for (;;) {
+        const job = jobs.shift();
+        if (!job) {
+          if (state.closing) return;
+          await new Promise<void>((resolve) => {
+            state.wake = resolve;
+          });
+          continue;
+        }
+        try {
+          job.resolve(page.redact(await job.work(page)));
+        } catch (error) {
+          const clean = cleanError(error, { text: (t) => page.redact(t) });
+          // Gone: the browser closed under the session, not the site refusing or stopping it.
+          const gone =
+            !(error instanceof BrowserStop) &&
+            !(error instanceof BrowserRefused) &&
+            !(await page.alive());
+          if (gone && !job.moved) {
+            // The call runs again in a fresh browser.
+            job.moved = true;
+            jobs.unshift(job);
+          } else {
+            if (error instanceof BrowserStop) tell(clean);
+            job.reject(clean);
+          }
+          // A stop page ends the session; so does a closed browser. withBrowserSession records it,
+          // tries to sign out and closes the browser.
+          if (error instanceof BrowserStop) throw error;
+          if (gone) throw new BrowserGone("the browser closed between pages");
+        }
       }
+    });
+  const done = (async () => {
+    for (let reopened = 0; ; reopened++) {
       try {
-        job.resolve(page.redact(await job.work(page)));
+        return await browser();
       } catch (error) {
-        job.reject(cleanError(error, { text: (t) => page.redact(t) }));
-        // A stop page ends the session: withBrowserSession records it and signs out.
-        if (error instanceof BrowserStop) throw error;
+        // A fresh browser only for a call that waits on it, and only so many times.
+        const again =
+          error instanceof BrowserGone &&
+          !state.closing &&
+          jobs.length > 0 &&
+          reopened < HELD_SESSION_REOPENS;
+        if (!again) throw error;
       }
     }
-  });
+  })();
   const finished = done.then(
     () => {
       state.ended = new BrowserRefused("this skill run's browser session has ended");
     },
     (error: unknown) => {
       state.ended = error instanceof Error ? error : new Error(String(error));
+      tell(state.ended);
     },
   );
   // Anything still queued when the session ends gets its reason.
@@ -452,7 +528,7 @@ export async function holdBrowserSession(
           );
         }
         return new Promise<T>((resolve, reject) => {
-          jobs.push({ work, resolve: resolve as (value: unknown) => void, reject });
+          jobs.push({ work, resolve: resolve as (value: unknown) => void, reject, moved: false });
           nudge();
         });
       },
@@ -480,8 +556,9 @@ export async function inBrowserSession<T>(
   if (!ctx.sessions || !call.within) return withBrowserSession(ctx, call, options, work);
   await siteOf(ctx, call);
   const within = call.within;
-  const held = await ctx.sessions.hold(`browser:${ctx.connection.id}:${within.join(" ")}`, () =>
-    holdBrowserSession(ctx, { tool: call.tool, site: call.site, within }, options),
+  const key = `browser:${ctx.connection.id}:${within.join(" ")}`;
+  const held = await ctx.sessions.hold(key, () =>
+    holdBrowserSession(ctx, { tool: call.tool, site: call.site, within }, options, key),
   );
   return held.run(work);
 }

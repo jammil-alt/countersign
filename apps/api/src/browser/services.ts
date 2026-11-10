@@ -25,8 +25,14 @@ import type { CodesClient } from "../codes/client";
 import { pinnedSite } from "./sites";
 
 export interface BrowserDeps {
-  /** A fresh browser for one site (Browser Run); absent where the deployment has none. */
-  open?: (options: { hosts: string[] }) => Promise<BrowserTab | null>;
+  /**
+   * A fresh browser for one site (Browser Run), kept open while idle for `keepAliveMs` when given;
+   * absent where the deployment has none.
+   */
+  open?: (options: {
+    hosts: string[];
+    keepAliveMs?: number | undefined;
+  }) => Promise<BrowserTab | null>;
   /** The code service; null where `CODES` is not bound. */
   codes: CodesClient | null;
   /** Where downloads and screenshots are stored. */

@@ -12,11 +12,11 @@
 // (the smaller of the agent's and this). It keeps one signed-in session per site for the run
 // (`sessions`, closed by `close`). At a limit, or at the connection's sign-in caps, the skill asks
 // for help (`needsHelp`: the question, what it tried, its screenshots) instead of failing; the
-// executor asks the lead and runs the step again with the answer as data. Answers are the agent's
-// memory notes and come back as data the next time the same skill browses that site; paths that
-// worked are notes in the scope's own memory scope (`browse`, never shown to the model as memory),
-// and a path that worked twice is offered to the operator as a script draft (an operator `review`
-// inbox item, like the owner's proposals). No new table.
+// executor asks the lead and runs the step again with the answer as data. Answers and the paths
+// that worked are notes the platform keeps in the scope's own memory scope (`browse`: never shown
+// to the model as memory, never written by its `memory.write`), and come back as data the next
+// time the same skill browses that site; a path that worked twice is offered to the operator as a
+// script draft (an operator `review` inbox item, like the owner's proposals). No new table.
 
 import {
   hashJson,
@@ -125,11 +125,15 @@ export const BROWSE_LIMITS: Readonly<BrowseLimits> = { pages: 15, minutes: 5, co
 
 /**
  * What stopped a browsing run: its pages or time (counted here), its budget (the runtime's model
- * calls or cost) or the connection's sign-in caps.
+ * calls or cost), the connection's sign-in caps, or its session ending early (a stop page, a
+ * failed sign-in, a browser that couldn't be opened again).
  */
-export type BrowseLimit = "pages" | "time" | "budget" | "sign_in";
+export type BrowseLimit = "pages" | "time" | "budget" | "sign_in" | "session";
 
-const LIMIT_WORDS: Record<Exclude<BrowseLimit, "sign_in">, (l: BrowseLimits) => string> = {
+/** The limits that end a run for a reason of their own (`#endReason`), not a count. */
+type Ended = "sign_in" | "session";
+
+const LIMIT_WORDS: Record<Exclude<BrowseLimit, Ended>, (l: BrowseLimits) => string> = {
   pages: (l) => `${l.pages} pages`,
   time: (l) => `${l.minutes} minutes`,
   budget: () => "its budget",
@@ -154,9 +158,9 @@ export interface NeedsHelp {
   // of the client's data, and the evidence stays where the connection's log keeps it.
   screenshots?: string[];
   /**
-   * The tag to keep the answer under: write `browseHelpNote(remember, question, answer)` (or
-   * `${remember} ${answer}`) with `memory.write`, and the same skill browsing the same site gets it
-   * back as data next time.
+   * The tag to keep the answer under: the platform keeps `browseHelpNote(remember, question,
+   * answer)` in the `browse` scope (the runtime's `keepBrowseHelp`, never the model's
+   * `memory.write`), and the same skill browsing the same site gets it back as data next time.
    */
   remember: string;
 }
@@ -184,7 +188,11 @@ export const NEED_HELP_TOOL_SPEC = {
   },
 } as const;
 
-/** `[browse-help skill=<id> sites=<a,b>]`: the tag on an answer's memory note. */
+/**
+ * `[browse-help skill=<id> sites=<a,b>]`: the tag on an answer's memory note. The note is the
+ * platform's (`keepBrowseHelp` in the runtime, in the scope's own `browse` memory scope), never one
+ * the model writes: answers are read back from that scope only.
+ */
 export function browseHelpTag(skill: string, sites: readonly string[]): string {
   return `[browse-help skill=${parseSkillRef(skill).id} sites=${[...sites].sort().join(",")}]`;
 }
@@ -195,6 +203,12 @@ export function browseHelpNote(tag: string, question: string, answer: string): s
 }
 
 const HELP_NOTE = /^\[browse-help skill=(\S+) sites=([a-z0-9,-]+)\]\s*([\s\S]*)$/;
+const HELP_TAG = /^\[browse-help skill=\S+ sites=[a-z0-9,-]+\]$/;
+
+/** Whether `tag` is a help request's tag (`browseHelpTag`), so a note may be kept under it. */
+export function isBrowseHelpTag(tag: string): boolean {
+  return HELP_TAG.test(tag);
+}
 const PATH_NOTE = /^\[browse-path skill=(\S+) fp=([0-9a-f]+)\]\s*([\s\S]*)$/;
 const OFFERED_NOTE = /^\[browse-script-offered skill=(\S+) fp=([0-9a-f]+)\]/;
 
@@ -273,8 +287,8 @@ export class BrowseScope {
   readonly #pool = new RunSessionPool();
   #opened = 0;
   #hit: BrowseLimit | null = null;
-  /** Why the connection would not sign in (its caps), for the help request. */
-  #signInReason: string | null = null;
+  /** Why the connection would not sign in (its caps) or the session ended, for the help request. */
+  #endReason: string | null = null;
   #question: string | null = null;
   readonly #tried: string[] = [];
   readonly #path: BrowsePathStep[] = [];
@@ -295,6 +309,20 @@ export class BrowseScope {
     this.limits = { ...BROWSE_LIMITS, ...input.limits };
     this.#now = input.now ?? (() => new Date());
     this.#startedAt = this.#now().getTime();
+    this.sessions = {
+      // The run may wait this long between calls: no call is let through past its time limit.
+      heldForMs: this.limits.minutes * 60_000,
+      hold: <T>(key: string, open: () => Promise<HeldSession<T>>): Promise<T> =>
+        this.#pool.hold(key, async () => {
+          try {
+            return await open();
+          } catch (error) {
+            this.#ended(error);
+            throw error;
+          }
+        }),
+      ended: (_key, error) => this.#ended(error),
+    };
   }
 
   /** The scope for a skill that declares `browse`; null for one that doesn't. */
@@ -330,8 +358,10 @@ export class BrowseScope {
     if (limit) {
       const why =
         limit === "sign_in"
-          ? `the site can't be signed in to now (${this.#signInReason})`
-          : `this skill's limit of ${LIMIT_WORDS[limit](this.limits)} is reached`;
+          ? `the site can't be signed in to now (${this.#endReason})`
+          : limit === "session"
+            ? `the site's session ended (${this.#endReason})`
+            : `this skill's limit of ${LIMIT_WORDS[limit](this.limits)} is reached`;
       return { ok: false, reason: `${why}: finish with what you found, or ask for help` };
     }
     const args = obj(input);
@@ -403,23 +433,19 @@ export class BrowseScope {
   }
 
   /**
-   * The run's sessions: one signed-in browser per site (./session.ts `inBrowserSession`). A
-   * sign-in refused by the connection's caps stops the run's browsing with a help request.
+   * The run's sessions: one signed-in browser per site (./session.ts `inBrowserSession`), kept
+   * open as long as the run may wait between calls. A sign-in refused by the connection's caps, or
+   * a session that can't go on (a sign-in that failed, a stop page, a browser that couldn't be
+   * opened again), stops the run's browsing with a help request: every later read would fail.
    */
-  readonly sessions: RunSessions = {
-    hold: <T>(key: string, open: () => Promise<HeldSession<T>>): Promise<T> =>
-      this.#pool.hold(key, async () => {
-        try {
-          return await open();
-        } catch (error) {
-          if (error instanceof BrowserCapReached) {
-            this.#hit = "sign_in";
-            this.#signInReason = error.message;
-          }
-          throw error;
-        }
-      }),
-  };
+  readonly sessions: RunSessions;
+
+  // DECISION: the first reason wins; a run already over a limit keeps that one.
+  #ended(error: unknown): void {
+    if (this.#hit) return;
+    this.#hit = error instanceof BrowserCapReached ? "sign_in" : "session";
+    this.#endReason = error instanceof Error ? error.message : String(error);
+  }
 
   /** Closes the run's sessions (signs out); the runtime calls it when the skill run ends. */
   close(): Promise<void> {
@@ -441,10 +467,12 @@ export class BrowseScope {
       question?.trim() ||
       this.#question ||
       (hit === "sign_in"
-        ? `We couldn't sign in to ${where} to look for "${this.goal}": ${this.#signInReason}. Can you find it, or tell us when to try again?`
-        : `We looked for "${this.goal}" on ${where} and didn't find it${
-            hit ? ` within ${LIMIT_WORDS[hit](this.limits)}` : ""
-          }. Where on the site should we look?`);
+        ? `We couldn't sign in to ${where} to look for "${this.goal}": ${this.#endReason}. Can you find it, or tell us when to try again?`
+        : hit === "session"
+          ? `We couldn't go on browsing ${where} to look for "${this.goal}": ${this.#endReason}. Can you find it, or tell us what to do?`
+          : `We looked for "${this.goal}" on ${where} and didn't find it${
+              hit ? ` within ${LIMIT_WORDS[hit](this.limits)}` : ""
+            }. Where on the site should we look?`);
     return {
       question: q.slice(0, 500),
       tried: [`Looked for: ${this.goal}`, ...this.#tried].slice(0, 50),
@@ -467,6 +495,8 @@ export class BrowseScope {
   /**
    * What the model gets as data next to the skill's input: earlier answers to this skill's help
    * requests on these sites, and the paths that worked before (memory notes, never instructions).
+   * `notes` are the agent's notes in `noteScope` only, which only platform code writes: a note the
+   * model saved in its own memory never reads as a person's answer or a known path.
    */
   data(notes: readonly string[]): { helpAnswers: string[]; knownPaths: string[] } {
     const helpAnswers: string[] = [];

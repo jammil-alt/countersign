@@ -310,7 +310,45 @@ describe("needs help", () => {
     expect(h.agentCalls).toHaveLength(1);
   });
 
-  it("keeps the answer under the skill's tag, and says on the row when it couldn't", async () => {
+  it("has the port keep the answer under the skill's tag, and says on the row when it couldn't", async () => {
+    const h = new Harness();
+    let runs = 0;
+    h.handlers.find = () => (++runs === 1 ? helpOutput : { kind: "done", output: { ok: true } });
+    const kept: unknown[] = [];
+    h.agent.keepHelp = async (req) => {
+      kept.push(req);
+      throw new Error("memory is full");
+    };
+    const written: unknown[] = [];
+    const original = h.agent.runAction;
+    h.agent.runAction = async (req) => {
+      if (req.step.tool === "memory.write") written.push(req.input);
+      return original(req);
+    };
+    const runner = new FakeStepRunner({ onWait: "block" });
+    runner.onWaitStarted = (_name, type) => runner.deliver(type, { answer: "Under Reports" });
+    const result = await executeWorkflow(
+      runner,
+      h.context(),
+      proc([{ id: "find", kind: "skill", name: "Find", skill: "web.browse", input: {} }]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(kept).toEqual([
+      expect.objectContaining({
+        nodeId: "find:help:memory",
+        remember: "[browse-help skill=web.browse sites=acme]",
+        question: "Where is the list?",
+        answer: "Under Reports",
+      }),
+    ]);
+    // Never in the agent's own memory, which its model can write.
+    expect(written).toEqual([]);
+    expect(h.row("find")?.error).toMatch(/wasn't kept: memory is full/);
+    expect(h.row("find")?.status).toBe("succeeded");
+  });
+
+  it("without the port's keep, the answer is an ordinary note with no tag", async () => {
     const h = new Harness();
     let runs = 0;
     h.handlers.find = () => (++runs === 1 ? helpOutput : { kind: "done", output: { ok: true } });
@@ -319,7 +357,7 @@ describe("needs help", () => {
     h.agent.runAction = async (req) => {
       if (req.step.tool !== "memory.write") return original(req);
       notes.push(req.input);
-      return { kind: "failed", error: "memory is full" };
+      return { kind: "done", output: { memoryNoteId: "m-1" } };
     };
     const runner = new FakeStepRunner({ onWait: "block" });
     runner.onWaitStarted = (_name, type) => runner.deliver(type, { answer: "Under Reports" });
@@ -331,12 +369,8 @@ describe("needs help", () => {
     );
     expect(result.status).toBe("succeeded");
     expect(notes).toEqual([
-      {
-        note: "[browse-help skill=web.browse sites=acme] Asked: Where is the list? Answer: Under Reports",
-      },
+      { note: 'Asked "Where is the list?", the lead answered: Under Reports' },
     ]);
-    expect(h.row("find")?.error).toMatch(/wasn't kept: memory is full/);
-    expect(h.row("find")?.status).toBe("succeeded");
   });
 });
 

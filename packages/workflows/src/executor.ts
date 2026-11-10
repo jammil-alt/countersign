@@ -2005,17 +2005,24 @@ class Executor {
     // Kept for next time. A note that fails to save never fails the step, but its row says so.
     await this.runner.do(`${b}:memory`, async () => {
       const text = typeof help === "string" ? help : JSON.stringify(help);
-      // DECISION: a browsing skill's answer is kept under its tag in the browse stream's format
-      // (connectors' `browseHelpNote`: "<tag> Asked: <question> Answer: <answer>"), so the same
-      // skill on the same sites gets it back; written here because workflows can't import
-      // connectors (docs/plan.md §2).
-      const note = (
-        need.remember
-          ? `${need.remember} Asked: ${need.question.trim()} Answer: ${text.trim()}`
-          : `Asked "${need.question}", the lead answered: ${text}`
-      ).slice(0, 2000);
+      // DECISION: a browsing skill's answer (one with `remember`) is kept by the port, as the
+      // platform's own note in the browse scope, so the same skill on the same sites gets it back
+      // and nothing the model writes reads as the lead's answer (invariant 9). Any other answer,
+      // or a port without `keepHelp`, is an ordinary memory note.
+      const note = `Asked "${need.question}", the lead answered: ${text}`.slice(0, 2000);
       let problem: string | null = null;
       try {
+        if (need.remember && agent.keepHelp) {
+          await agent.keepHelp({
+            run,
+            stepRunId: done.stepRunId,
+            nodeId: `${b}:memory`,
+            remember: need.remember,
+            question: need.question,
+            answer: text,
+          });
+          return null;
+        }
         const kept = await agent.runAction({
           run,
           step: {
