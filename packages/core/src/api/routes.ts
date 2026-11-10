@@ -6,6 +6,7 @@ import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
 import { ROLES, Role } from "../roles";
 import { JsonSchema } from "../schemas/common";
+import { ConnectorAuth } from "../schemas/connector";
 import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas/permissions";
 import { SkillBrowse, SkillDefinition, SkillMethod } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
@@ -576,6 +577,11 @@ export const PortalConnection = z.object({
   available: z.boolean(),
   /** An API-key connector the client admin sets up with a form on the Access page. */
   credentialForm: z.boolean(),
+  /**
+   * Wave 3b: how it connects (its manifest's `auth`), so the portal says "you sign in" only for a
+   * tool with a sign-in. Optional: an older Worker sends none.
+   */
+  auth: ConnectorAuth.optional(),
   /**
    * A person's own account (Gmail): a client user may connect it too, and disconnect it if they
    * connected it; other tools are the client admin's.

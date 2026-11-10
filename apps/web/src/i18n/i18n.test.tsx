@@ -135,6 +135,10 @@ describe("API errors", () => {
       "Algo falló de nuestro lado. Inténtelo de nuevo en un momento.",
     );
     expect(errorText(error(422, "made_up_code"), es)).toBe("server words");
+    // Wave 3b: hours the hours routes refuse read in the reader's words, not the server's English.
+    expect(errorText(error(422, "invalid_hours"), es)).toBe(
+      "No se puede guardar este horario. Indique el horario de al menos un día y que cada ausencia dure menos de un año.",
+    );
   });
 
   it("keep the server's words in English, as the back office reads them", () => {

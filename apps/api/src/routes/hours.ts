@@ -7,6 +7,7 @@
 
 import {
   type ClientBusinessHours,
+  PEOPLE_HOURS_MAX_CONTACTS,
   type PeopleHours,
   type PersonHoursView,
   type processes,
@@ -26,8 +27,6 @@ import {
 import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 
 const CLIENT_ROLES = ["client_admin", "client_user"] as const;
-/** The most contacts the People hours list carries (as the agent People list does). */
-const MAX_CONTACTS = 2000;
 
 async function businessOf(tx: Tx, tenantId: string): Promise<ClientBusinessHours> {
   const [t] = await tx
@@ -84,7 +83,7 @@ async function peopleHours(tx: Tx, tenantId: string): Promise<PeopleHours> {
     .from(contact)
     .where(eq(contact.tenantId, tenantId))
     .orderBy(asc(contact.name), asc(contact.id))
-    .limit(MAX_CONTACTS);
+    .limit(PEOPLE_HOURS_MAX_CONTACTS);
   return {
     business: await businessOf(tx, tenantId),
     people: [

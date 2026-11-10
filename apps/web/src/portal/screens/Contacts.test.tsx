@@ -437,6 +437,26 @@ describe("a contact's hours and away dates", () => {
     expect(api.calls).toContain("GET /api/settings/people-hours");
   });
 
+  // Wave 3b: the People hours list stops at its cap. A contact past it has hours we never read,
+  // so no editor (saving one would erase their own week): the page says so instead.
+  it("gives a contact past the hours list's cap no editor, rather than reading them as having none", async () => {
+    const others = Array.from({ length: 2000 }, (_, i) => ({
+      kind: "contact",
+      id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+      name: `Contact ${i}`,
+      hours: null,
+    }));
+    const api = renderAt(`/contacts?person=${MARCO}`, "client_admin", {
+      "GET /api/settings/people-hours": () => ({ business, people: others }),
+    });
+    const detail = await screen.findByTestId(`people-detail-${MARCO}`);
+    expect(await within(detail).findByTestId("people-detail-hours-unlisted")).toHaveTextContent(
+      "This contact's hours can't be shown here",
+    );
+    expect(within(detail).queryByTestId("people-detail-hours")).toBeNull();
+    expect(api.calls.some((c) => c.startsWith("PUT /api/settings/people-hours"))).toBe(false);
+  });
+
   it("shows a client user no one's hours", async () => {
     const api = renderAt(`/contacts?person=${MARCO}`, "client_user");
     const detail = await screen.findByTestId(`people-detail-${MARCO}`);

@@ -82,6 +82,13 @@ export type CredentialField = z.infer<typeof CredentialField>;
 /** A value entered for a credential field. */
 export const CREDENTIAL_VALUE_MAX = 4000;
 
+/**
+ * How a client connects a connector: signs in (OAuth, or a hosted link such as Plaid's), enters
+ * its key, or nothing at all (no sign-in).
+ */
+export const ConnectorAuth = z.enum(["oauth2", "api_key", "none"]);
+export type ConnectorAuth = z.infer<typeof ConnectorAuth>;
+
 /** ARCHITECTURE §6.1. The code side (sync, handlers, OAuth) lives in packages/connectors. */
 export const ConnectorManifest = z
   .object({
@@ -89,7 +96,7 @@ export const ConnectorManifest = z
     name: z.string(),
     description: z.string(),
     icon: z.string(),
-    auth: z.enum(["oauth2", "api_key", "none"]),
+    auth: ConnectorAuth,
     /**
      * B-5 (docs/plan.md §1.79): a client may connect several accounts of it, one connection each
      * (a second bank); the rest keep one connection per connector.

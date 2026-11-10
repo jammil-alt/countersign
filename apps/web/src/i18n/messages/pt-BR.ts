@@ -60,6 +60,8 @@ export const ptBR: Messages = {
   "error.contact_exists": "Alguém no diretório já tem esse e-mail ou esse número.",
   "error.rate_limited": "Aguarde um minuto e tente de novo.",
   "error.no_address": "Não sabemos o endereço desta conta. Conecte-a de novo.",
+  "error.invalid_hours":
+    "Não é possível salvar esses horários. Informe o horário de pelo menos um dia e mantenha cada ausência abaixo de um ano.",
 
   // ── Shell ──
   "shell.navigation": "Navegação",
@@ -2467,6 +2469,10 @@ export const ptBR: Messages = {
   "hours.problem.order": "{day}: cada horário de fechamento deve vir depois da abertura.",
   "hours.problem.overlap": "{day}: os horários se sobrepõem.",
   "hours.problem.away": "A data final é anterior à inicial.",
+  "hours.problem.none":
+    "Informe o horário de pelo menos um dia: uma semana sem horário de funcionamento não pode ser salva.",
+  "hours.contactUnlisted":
+    "O horário deste contato não pode ser mostrado aqui, então não pode ser alterado nesta página.",
   "businessHours.subtitle":
     "Quando sua empresa está aberta. Um prazo em horário comercial só corre enquanto a pessoa consultada está trabalhando.",
   "businessHours.zoneNote":
@@ -2505,6 +2511,7 @@ export const ptBR: Messages = {
   "accounts.group.other": "Outras ferramentas",
   "accounts.how.signIn": "Você entra com a sua conta. Nunca vemos sua senha.",
   "accounts.how.key": "Você informa a chave no seu cofre.",
+  "accounts.how.none": "Não é preciso entrar nem informar uma chave.",
   "accounts.how.login":
     "Você informa o acesso de uma conta criada para seus agentes. Ele fica no seu cofre, protegido com a chave da sua empresa, e nunca o vemos.",
   "accounts.add.enterLogin": "Informar um acesso",

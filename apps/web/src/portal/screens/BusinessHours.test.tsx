@@ -147,6 +147,46 @@ describe("business hours in the portal", () => {
     expect(api.calls).not.toContain("PUT /api/settings/business-hours");
   });
 
+  // Wave 3b: the server refuses a week with no open hours (422 invalid_hours); the page says so
+  // first, in the reader's language, and keeps Save off.
+  it("won't save a week with every day closed, and says why in the reader's language", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => asRole("client_admin", "es"),
+      "GET /api/overview": () => overview,
+      "GET /api/settings/business-hours": () => DEFAULT,
+    });
+    renderAt("/settings/hours", api);
+    const card = await screen.findByTestId("portal-business-hours");
+    for (const day of ["mon", "tue", "wed", "thu", "fri"]) {
+      await userEvent.click(within(card).getByTestId(`portal-business-hours-week-${day}-open`));
+    }
+    expect(within(card).getByTestId("portal-business-hours-problem")).toHaveTextContent(
+      "Indique el horario de al menos un día",
+    );
+    expect(within(card).getByTestId("portal-business-hours-save")).toBeDisabled();
+    expect(api.calls).not.toContain("PUT /api/settings/business-hours");
+  });
+
+  it("adds hours late in the day without a stretch that ends as it starts, and none at 23:59", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => asRole("client_admin"),
+      "GET /api/overview": () => overview,
+      "GET /api/settings/business-hours": () => DEFAULT,
+    });
+    renderAt("/settings/hours", api);
+    const card = await screen.findByTestId("portal-business-hours");
+    fireEvent.change(within(card).getByTestId("portal-business-hours-week-fri-0-to"), {
+      target: { value: "23:00" },
+    });
+    await userEvent.click(within(card).getByTestId("portal-business-hours-week-fri-add"));
+    expect(within(card).getByTestId("portal-business-hours-week-fri-1-from")).toHaveValue("23:00");
+    expect(within(card).getByTestId("portal-business-hours-week-fri-1-to")).toHaveValue("23:59");
+    expect(within(card).queryByTestId("portal-business-hours-problem")).toBeNull();
+    expect(within(card).getByTestId("portal-business-hours-save")).toBeEnabled();
+    // The day is full to 23:59: nothing more to add after it.
+    expect(within(card).getByTestId("portal-business-hours-week-fri-add")).toBeDisabled();
+  });
+
   it("shows a client user the hours, read-only, in their language", async () => {
     const api = fakeApi({
       "GET /api/session": () => asRole("client_user", "es"),

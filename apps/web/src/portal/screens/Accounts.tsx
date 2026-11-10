@@ -124,6 +124,8 @@ export function AccountsScreen() {
   const connections = useApi(apiRoutes.portalConnections);
   const vault = useApi(apiRoutes.portalAccess);
   const [adding, setAdding] = useState<boolean | null>(null);
+  // The website whose "Enter a login" opened the vault: its setup comes first, chosen.
+  const [chosenSite, setChosenSite] = useState<string | null>(null);
   const [actionError, setActionError] = useState<unknown>(null);
 
   function reloadAll() {
@@ -185,8 +187,10 @@ export function AccountsScreen() {
     if (location.hash === "#vault" && vaultLoaded) scrollToId("vault");
   }, [location.hash, vaultLoaded]);
 
-  function openVault() {
+  /** Opens the vault's add panel; from a website's "Enter a login", with that site chosen. */
+  function openVault(site?: string) {
     setAdding(true);
+    setChosenSite(site ?? null);
     scrollToId("vault");
   }
 
@@ -199,7 +203,7 @@ export function AccountsScreen() {
           actions={
             isAdmin ? (
               <>
-                <Button data-testid="accounts-add-login" onClick={openVault}>
+                <Button data-testid="accounts-add-login" onClick={() => openVault()}>
                   {t("accounts.addLogin")}
                 </Button>
                 <Button
@@ -225,6 +229,7 @@ export function AccountsScreen() {
                     view={view}
                     items={vaultItems}
                     adding={addOpen}
+                    site={chosenSite}
                     onAdding={setAdding}
                     onChanged={reloadAll}
                   />
@@ -591,7 +596,8 @@ function AddToolCard({
   /** Websites a browser login can be set up on (the client admin's view; else empty). */
   sites: SiteOffer[];
   isAdmin: boolean;
-  onEnterLogin: () => void;
+  /** Opens the vault to enter a key, or a website's login with that site chosen. */
+  onEnterLogin: (site?: string) => void;
   onConnect: (item: Offered) => Promise<void>;
 }) {
   const { t } = useI18n();
@@ -653,7 +659,7 @@ function AddToolCard({
                     </span>
                     <Button
                       size="sm"
-                      onClick={onEnterLogin}
+                      onClick={() => onEnterLogin(s.slug)}
                       data-testid={`portal-connections-site-${s.slug}-login`}
                     >
                       {t("accounts.add.enterLogin")}
@@ -667,6 +673,20 @@ function AddToolCard({
       )}
     </Card>
   );
+}
+
+/**
+ * How a tool connects, in a line: you sign in (OAuth or a hosted link), you enter its key, or
+ * nothing to sign in to. Null when the server didn't say (an older Worker) and it has no key
+ * form: no line rather than a sign-in it may not have.
+ */
+// DECISION (web, wave 3b): the line follows the connector's manifest `auth` (PortalConnection's
+// `auth`); Google Chat, the website, Hacker News and webhooks say there is nothing to sign in to.
+export function howKey(item: Pick<Offered, "auth" | "credentialForm">): PlainKey | null {
+  if (item.credentialForm || item.auth === "api_key") return "accounts.how.key";
+  if (item.auth === "oauth2") return "accounts.how.signIn";
+  if (item.auth === "none") return "accounts.how.none";
+  return null;
 }
 
 function AddToolRow({
@@ -683,6 +703,7 @@ function AddToolRow({
   const i18n = useI18n();
   const { t } = i18n;
   const [busy, setBusy] = useState(false);
+  const how = howKey(item);
   return (
     <li
       data-testid={`portal-connection-${item.connector}`}
@@ -701,7 +722,11 @@ function AddToolRow({
         ) : item.credentialForm ? (
           // API-key tools: the login is entered in the vault (write-only).
           isAdmin ? (
-            <Button size="sm" data-testid="portal-connection-enter-key" onClick={onEnterLogin}>
+            <Button
+              size="sm"
+              data-testid="portal-connection-enter-key"
+              onClick={() => onEnterLogin()}
+            >
               {t("connections.enterKey")}
             </Button>
           ) : (
@@ -723,9 +748,9 @@ function AddToolRow({
         ) : (
           <p className="text-sm text-ink-muted">{t("connections.adminCanConnect")}</p>
         )}
-        {item.available ? (
+        {item.available && how ? (
           <p className="text-sm text-ink-muted" data-testid="portal-connection-how">
-            {item.credentialForm ? t("accounts.how.key") : t("accounts.how.signIn")}
+            {t(how)}
           </p>
         ) : null}
       </div>

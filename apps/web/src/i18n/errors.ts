@@ -43,6 +43,8 @@ const CODE_KEYS: Record<string, PlainKey> = {
   contact_exists: "error.contact_exists",
   rate_limited: "error.rate_limited",
   no_address: "error.no_address",
+  // R8: hours the hours routes refuse (no open hours, away for over a year, a date that isn't one).
+  invalid_hours: "error.invalid_hours",
 };
 
 /**

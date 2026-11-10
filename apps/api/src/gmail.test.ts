@@ -241,9 +241,10 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
 
   it("lets a person connect their own Gmail: send only, state bound, tokens in the vault", async () => {
     const list = await call(user("a"), "GET", "/api/connections");
+    // Wave 3b: how it connects, from its manifest (the portal says "you sign in" only for these).
     expect(
       j(list.json).connections.find((c: { connector: string }) => c.connector === "gmail"),
-    ).toMatchObject({ available: true, personal: true, connection: null });
+    ).toMatchObject({ available: true, personal: true, connection: null, auth: "oauth2" });
     // The operator never signs a client in; a client user signs in to their own account only.
     expect((await call(OPERATOR, "POST", "/api/connections/gmail/authorize")).status).toBe(403);
     expect((await call(user("a"), "POST", "/api/connections/testkit/authorize")).status).toBe(403);

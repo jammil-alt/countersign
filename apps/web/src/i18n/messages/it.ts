@@ -60,6 +60,8 @@ export const it: Messages = {
   "error.contact_exists": "Qualcuno nella rubrica ha già questo indirizzo email o numero.",
   "error.rate_limited": "Attendi un minuto e riprova.",
   "error.no_address": "Non conosciamo l'indirizzo di questo account. Collegalo di nuovo.",
+  "error.invalid_hours":
+    "Questi orari non possono essere salvati. Indica l'orario di almeno un giorno e tieni ogni assenza sotto un anno.",
 
   // ── Shell ──
   "shell.navigation": "Navigazione",
@@ -2479,6 +2481,10 @@ export const it: Messages = {
   "hours.problem.order": "{day}: ogni orario di chiusura deve venire dopo quello di apertura.",
   "hours.problem.overlap": "{day}: le fasce si sovrappongono.",
   "hours.problem.away": "La data di fine è prima di quella di inizio.",
+  "hours.problem.none":
+    "Indica l'orario di almeno un giorno: una settimana senza orari di apertura non può essere salvata.",
+  "hours.contactUnlisted":
+    "Gli orari di questo contatto non possono essere mostrati qui, quindi non si possono modificare da questa pagina.",
   "businessHours.subtitle":
     "Quando la tua azienda è aperta. Una scadenza in orario lavorativo scorre solo mentre la persona interpellata lavora.",
   "businessHours.zoneNote":
@@ -2517,6 +2523,7 @@ export const it: Messages = {
   "accounts.group.other": "Altri strumenti",
   "accounts.how.signIn": "Accedi tu. Non vediamo mai la tua password.",
   "accounts.how.key": "Inserisci la sua chiave nella tua cassaforte.",
+  "accounts.how.none": "Non serve accedere né inserire una chiave.",
   "accounts.how.login":
     "Inserisci le credenziali di un account creato per i tuoi agenti. Restano nella tua cassaforte, cifrate con la chiave della tua azienda, e non le vediamo mai.",
   "accounts.add.enterLogin": "Inserisci le credenziali",
