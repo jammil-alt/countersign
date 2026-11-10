@@ -780,6 +780,7 @@ export const ptBR: Messages = {
 
   // ── Feedback ──
   "feedback.button": "Relatar um problema no app",
+  "feedback.short": "Feedback",
   "feedback.tapWhere": "Toque onde está o problema",
   "feedback.noSpot": "Nenhum lugar específico",
   "feedback.capturing": "Capturando a imagem…",

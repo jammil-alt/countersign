@@ -752,6 +752,7 @@ export const en = {
 
   // ── Feedback ──
   "feedback.button": "Report a problem with the app",
+  "feedback.short": "Feedback",
   "feedback.tapWhere": "Tap where the problem is",
   "feedback.noSpot": "No particular spot",
   "feedback.capturing": "Taking the picture…",

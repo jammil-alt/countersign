@@ -196,7 +196,7 @@ The owner's first click-through as a client asked for one home per thing. Every 
 - **Reports:** no sidebar item; the agent page links its activity and pack reports; `/reports/*` works as before.
 - **Billing:** only under Settings (`/settings/billing`); `/billing` redirects.
 - **Upload:** one entry, Records' "Upload documents" (`/upload`). Accounts keeps the forwarding address with a link to Records.
-- **Contact:** Sloan is the one place to ask: "Ask Sloan" and "Ask for a change" are its two tabs. The Feedback button reads "Report a problem with the app".
+- **Contact:** Sloan is the one place to ask: "Ask Sloan" and "Ask for a change" are its two tabs. The Feedback button sits in the top bar beside the avatar (2026-11-10, the owner: it belonged outside the menu): "Feedback", named "Report a problem with the app".
 - **People:** People and Organizations are the tabs; consent and messages, who agents reach, voice samples and import sit behind the page's More menu, for the admin only.
 - **Settings:** Notifications is hidden until we send these emails (`emailsOn`); Language saves as it is chosen.
 - The route sweep also opens views chosen by a query (`/?view=weekly`, `/sloan?mode=change`); the client walkthrough follows this sidebar (Weekly Table tab, People's More, Billing in Settings, Records then Upload documents, Ask for a change).

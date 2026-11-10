@@ -73,6 +73,20 @@
 .ui-topbar__deskicon {
   display: none;
 }
+/* Feedback: a button dressed as the Inbox link. */
+.ui-topbar__feedback {
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+.ui-topbar__feedback:hover {
+  color: var(--ink);
+}
+.ui-topbar__feedback:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
 
 /* The search box: a button dressed as the prototype's `.ask` field. */
 .ui-searchbox {
