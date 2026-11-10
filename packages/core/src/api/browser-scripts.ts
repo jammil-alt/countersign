@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  BrowserScriptDefinition,
   BrowserScriptSlug,
   RecorderAction,
   ScriptInputDecl,
@@ -28,12 +29,52 @@ const CLIENT_ADMIN = ["client_admin"] as const;
 export const BrowserScriptState = z.enum(["recording", "draft", "published"]);
 export type BrowserScriptState = z.infer<typeof BrowserScriptState>;
 
-export const BrowserScriptVersionView = z.object({
+/** A saved version as the portal lists it: which one, what kind, who recorded it, when. */
+export const PortalBrowserScriptVersionView = z.object({
   version: z.number().int(),
   sideEffect: z.enum(["none", "external"]),
   recordedSide: z.enum(["operator", "client"]),
   createdAt: z.string(),
 });
+
+/** A saved version as the back office reviews it before publishing: the whole stored script. */
+// DECISION: the back office's view carries each version's definition (what publishing runs); the
+// portal's leaves it out, as no portal response carries a definition (invariant 11's contract).
+export const BrowserScriptVersionView = PortalBrowserScriptVersionView.extend({
+  definition: BrowserScriptDefinition,
+});
+
+/**
+ * Something that stops a recording from being saved: a code and its values for the portal to
+ * word in the client's language, and our own words for the back office.
+ */
+export const ScriptProblem = z.object({
+  code: z.enum([
+    "empty",
+    "invalid",
+    "duplicate_name",
+    "reserved_output",
+    "unknown_input",
+    "unknown_output",
+    "output_type",
+    "unused_input",
+    "unread_output",
+    "output_read_twice",
+    "submit_not_write",
+    "write_without_submit",
+    "submits_twice",
+    "submit_not_last",
+    "reverse_not_write",
+    "reverse_unknown_input",
+    "reverse_unknown_output",
+    "off_site",
+    "site_gone",
+    "other",
+  ]),
+  params: z.record(z.string(), z.string()),
+  text: z.string(),
+});
+export type ScriptProblem = z.infer<typeof ScriptProblem>;
 
 export const BrowserScriptView = z.object({
   id: z.string(),
@@ -48,7 +89,12 @@ export const BrowserScriptView = z.object({
   createdSide: z.enum(["operator", "client"]),
   recording: ScriptRecording,
   /** What stops the recording from being saved as it is (empty: it may be saved). */
-  problems: z.array(z.string()),
+  problems: z.array(ScriptProblem),
+  /**
+   * Whether the recording as it is now differs from the newest saved version (with none saved:
+   * whether anything is recorded), so a version published is never mistaken for the recording.
+   */
+  recordingDiffers: z.boolean(),
   versions: z.array(BrowserScriptVersionView),
   published: z.object({ version: z.number().int(), publishedAt: z.string() }).nullable(),
   /** The script-draft offer it was started from (an operator inbox item). */
@@ -56,6 +102,12 @@ export const BrowserScriptView = z.object({
   updatedAt: z.string(),
 });
 export type BrowserScriptView = z.infer<typeof BrowserScriptView>;
+
+/** The portal's view of a script: the same, its versions without their definitions. */
+export const PortalBrowserScriptView = BrowserScriptView.extend({
+  versions: z.array(PortalBrowserScriptVersionView),
+});
+export type PortalBrowserScriptView = z.infer<typeof PortalBrowserScriptView>;
 
 /** A browser login a script may be recorded on (never a blocked or person-only site). */
 export const ScriptLogin = z.object({
@@ -69,6 +121,11 @@ export const ScriptLogin = z.object({
 
 export const BrowserScriptList = z.object({
   scripts: z.array(BrowserScriptView),
+  logins: z.array(ScriptLogin),
+});
+
+export const PortalBrowserScriptList = z.object({
+  scripts: z.array(PortalBrowserScriptView),
   logins: z.array(ScriptLogin),
 });
 
@@ -105,6 +162,11 @@ export const RecorderPage = z.object({
   controls: z.array(RecorderControl),
   /** A 5-minute link to the screenshot after the action; null when none was kept. */
   screenshotUrl: z.string().nullable(),
+  /**
+   * True when the page showed a value from the vault (a password, a code, a session cookie): its
+   * text is hidden where it appeared, and its screenshot is neither linked nor kept as evidence.
+   */
+  screenshotWithheld: z.boolean(),
 });
 export type RecorderPage = z.infer<typeof RecorderPage>;
 
@@ -117,6 +179,10 @@ export const BrowserScriptActionResult = z.object({
   page: RecorderPage,
 });
 
+export const PortalBrowserScriptActionResult = BrowserScriptActionResult.extend({
+  script: PortalBrowserScriptView,
+});
+
 export const TestBrowserScript = z.strictObject({
   /** The saved version to test; absent: the recording as it is. */
   version: z.number().int().min(1).optional(),
@@ -126,6 +192,8 @@ export const TestBrowserScript = z.strictObject({
 
 export const BrowserScriptTestResult = z.object({
   outcome: z.enum(["done", "needs_help", "refused"]),
+  /** Always: a test never submits (a write's outputs say `submitted: false`). */
+  dryRun: z.literal(true),
   /** What it read, checked against its outputs (done only). */
   outputs: z.record(z.string(), z.unknown()).nullable(),
   reason: z.string().nullable(),
@@ -160,6 +228,7 @@ export type BrowserScriptTool = z.infer<typeof BrowserScriptTool>;
 
 const ScriptParams = z.object({ id: Id });
 const OneScript = z.object({ script: BrowserScriptView });
+const PortalOneScript = z.object({ script: PortalBrowserScriptView });
 
 export const browserScriptRoutes = {
   opsBrowserScripts: defineRoute({
@@ -243,7 +312,7 @@ export const browserScriptRoutes = {
     auth: "session",
     roles: CLIENT_ADMIN,
     summary: "Your recorded scripts on your website logins, and where each one stands",
-    response: BrowserScriptList,
+    response: PortalBrowserScriptList,
   }),
   portalStartBrowserScript: defineRoute({
     method: "POST",
@@ -252,7 +321,7 @@ export const browserScriptRoutes = {
     roles: CLIENT_ADMIN,
     summary: "Start recording a script on one of your website logins",
     body: StartBrowserScript.omit({ fromOffer: true }),
-    response: OneScript,
+    response: PortalOneScript,
   }),
   portalBrowserScriptAction: defineRoute({
     method: "POST",
@@ -262,7 +331,7 @@ export const browserScriptRoutes = {
     summary: "Record one action in our browser, signed in by us: the step and its screenshot",
     params: ScriptParams,
     body: z.strictObject({ action: RecorderAction }),
-    response: BrowserScriptActionResult,
+    response: PortalBrowserScriptActionResult,
   }),
   portalEditBrowserScript: defineRoute({
     method: "PUT",
@@ -272,7 +341,7 @@ export const browserScriptRoutes = {
     summary: "Name your recording's inputs and outputs and the steps kept",
     params: ScriptParams,
     body: EditBrowserScript,
-    response: OneScript,
+    response: PortalOneScript,
   }),
   portalSaveBrowserScript: defineRoute({
     method: "POST",
@@ -281,6 +350,6 @@ export const browserScriptRoutes = {
     roles: CLIENT_ADMIN,
     summary: "Save your recording for us to review and publish (it doesn't run until we do)",
     params: ScriptParams,
-    response: OneScript,
+    response: PortalOneScript,
   }),
 } as const;

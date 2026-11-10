@@ -2999,6 +2999,32 @@ Websites screen's Scripts, the Library's and the builder's listings):
 - DECISION: the page scripts behind `BrowserTab.textOf` and `controls` (Playwright, evaluated in the
   page like `readText`) are checked against the fake browser only here: real Chromium and Browser
   Run are unchecked (CI's Chromium job covers the Playwright adapter).
+- DECISION (review fix): no transaction is held across a browser or the runtime. A Worker's
+  database has one pooled connection, so recording an action, testing a script and pressing R5's
+  Undo run on `mountLong` (`apps/api/src/http.ts`): the same sign-in, roles, scope and audit as
+  `mount`, with short `inTx` transactions in the request's scope and the ok audit row written alone
+  after them. A recorded action reads in one, runs the browser outside any, and writes its step in a
+  second; the pinned site is read inside the request's transaction (`pinnedSiteIn`). The API tests
+  build the app on `{ max: 1 }` (`appDbMax`) for these routes and the undo tests.
+- DECISION (review fix): recording and tests sign in against an allowance of their own, 30 a day
+  per connection (`RECORDER_SIGN_INS_PER_DAY`, the connection's `recorderState`), never the agents'
+  daily cap; failures and the stop stay shared (the same account). This replaces "each action spends
+  a sign-in against the connection's daily cap" above: a held session lives inside one run's step,
+  and a Worker can't keep one between requests. Recording is refused (`code_every_sign_in`) on a
+  login whose site asks for a second factor at every sign-in and doesn't keep its session.
+- DECISION (review fix): the back office's script view carries each saved version's definition
+  (`versions[i].definition`) and `recordingDiffers` (the recording against the newest version, by
+  canonical JSON; with none saved, whether anything is recorded); the portal's view leaves the
+  definitions out (no portal response carries one). Publishing publishes the version number given.
+- DECISION (review fix): a script's problems are `{ code, params, text }`: the portal words them from
+  the code, the back office reads the text. Core's `scriptProblems` answers in words, so the API
+  reads the codes from its sentences (`apps/api/src/browser/problems.ts`, every sentence held by a
+  test); one it doesn't know is `other`.
+- DECISION (review fix): a recorded page that showed a vault value (the connector's `[hidden]` marker
+  in its text, tables, fields or the value read) has its screenshot neither linked nor kept as the
+  step's evidence (`screenshotWithheld: true`). A recorded action whose script changed while its
+  browser ran is refused with 409 (the row re-read `for update`), never merged. A test's result says
+  `dryRun: true`, and a write's outputs `submitted: false`.
 
 ## 2. Package layering
 

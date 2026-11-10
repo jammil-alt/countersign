@@ -20,6 +20,7 @@ import { type BrowserSiteProfileInput, bundleHash } from "@countersign/core";
 import {
   agent,
   agentVersion,
+  browserSite,
   connection,
   externalAction,
   inboxItem,
@@ -27,7 +28,7 @@ import {
 } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { inboxEventType } from "@countersign/workflows";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
@@ -71,16 +72,26 @@ const PROFILE: BrowserSiteProfileInput = {
   },
   signOut: { url: `${ORIGIN}/logout` },
   allow: [`${ORIGIN}/home`, `${ORIGIN}/invoices*`, `${ORIGIN}/orders*`],
+  // A recording signs in again for each action: on a site that asks for a code at every sign-in,
+  // only a kept session (low tier) lets it record without a code per action.
+  session: { keep: true },
 };
 
 const codes = new FakeCodesService();
 const portal = new FakeSupplierPortal({ username: USERNAME, password: PASSWORD, codeTo: null });
 const driver = new FakeBrowserDriver(portal);
+/** Runs once, while the next browser opens (a recording's browser runs outside any transaction). */
+let onOpen: (() => Promise<void>) | null = null;
 
 const h = await createApiHarness({
   connectors: () => [createBrowserConnector({ codePoll: { intervalMs: 0, attempts: 5 } })],
   env: { ENCRYPTION_KEY, CODES: codes } as Partial<Bindings>,
-  browserOpener: () => driver.open(),
+  browserOpener: async () => {
+    const hook = onOpen;
+    onOpen = null;
+    await hook?.();
+    return driver.open();
+  },
 });
 afterAll(() => h?.close());
 
@@ -119,14 +130,28 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
       connectionId,
     });
     expect(saved.status, JSON.stringify(saved.json)).toBe(200);
-    // Every recorded action signs in (medium tier, no kept session): more than a day's default.
-    await H.t.db
-      .update(connection)
-      .set({
-        config: sql`${connection.config} || ${JSON.stringify({ caps: { signInsPerDay: 100, hours: null } })}::jsonb`,
-      })
-      .where(eq(connection.id, connectionId));
     return connectionId;
+  }
+
+  /** A login's sign-in counters: the agents' (`browserState`) and the recorder's own. */
+  async function counters(connectionId: string) {
+    const [row] = await H.t.db
+      .select({ config: connection.config })
+      .from(connection)
+      .where(eq(connection.id, connectionId));
+    const config = row?.config as {
+      browserState?: { signIns: number };
+      recorderState?: { signIns: number };
+    };
+    return {
+      agents: config.browserState?.signIns ?? 0,
+      recorder: config.recorderState?.signIns ?? 0,
+    };
+  }
+
+  /** Sets the supplier site's tier, as the operator would in the catalogue. */
+  async function setTier(tier: "low" | "medium" | "blocked") {
+    await H.t.db.update(browserSite).set({ tier }).where(eq(browserSite.slug, "supplier"));
   }
 
   /** Records `actions` on a script, one request each, as `who` on `side`. */
@@ -186,17 +211,29 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
     return row.id;
   }
 
-  const params = (versionId: string): RunParams =>
+  const params = (versionId: string, mode: "live" | "test" = "live"): RunParams =>
     ({
       runId: crypto.randomUUID(),
       tenantId: A(),
       agentId,
       agentVersionId: versionId,
       workflowSlug: "fix-record",
-      mode: "live",
+      mode,
       trigger: { type: "manual" },
       payload: {},
     }) as RunParams;
+
+  /** A write of the place-order script, signed by the client admin. */
+  const orderStep = () => ({
+    id: "order",
+    kind: "write",
+    name: "Order the boards",
+    tool: BROWSER_SCRIPT_SUBMIT_TOOL,
+    input: { site: "supplier", script: "place-order", inputs: { sku: "OAK-1", qty: 2 } },
+    checks: {
+      approval: { approvers: [{ who: "client_admin", deadline: { after: "1 day" } }] },
+    },
+  });
 
   const readStep = (script: string, inputs: Record<string, unknown>) => ({
     id: "stock",
@@ -259,6 +296,7 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
     expect(j(start.json).script).toMatchObject({ state: "recording", createdSide: "operator" });
 
     const before = portal.signIns;
+    const opens = driver.opened;
     const [opened, read] = await record(OPERATOR, "ops", stockId, [
       { op: "open", url: "/orders/lookup?sku=OAK-1" },
       { op: "read_field", selector: "#stock", as: "stock" },
@@ -267,13 +305,18 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
     expect(opened.page.url).toBe(`${ORIGIN}/orders/lookup?sku=OAK-1`);
     expect(opened.page.controls.map((c: { selector: string }) => c.selector)).toContain("#stock");
     expect(opened.page.screenshotUrl).toMatch(/\/api\/files\//);
+    expect(opened.page.screenshotWithheld).toBe(false);
     expect(read.value).toBe("42");
     expect(read.script.recording.outputs).toEqual([
       { name: "stock", label: "stock", type: "text" },
     ]);
-    // Each action signed in once, by our code, with the vault's login; and signed out.
-    expect(portal.signIns - before).toBe(2);
-    expect(portal.sessions.size).toBe(0);
+    expect(read.script.recordingDiffers).toBe(true);
+    // Each action is a browser of its own, signed in by our code with the vault's login: the
+    // first signs in, the second reuses the site's kept session.
+    expect(driver.opened - opens).toBe(2);
+    expect(portal.signIns - before).toBe(1);
+    // The recorder's sign-ins are its own: the agents' allowance is untouched.
+    expect(await counters(logins.a as string)).toEqual({ agents: 0, recorder: 1 });
     // Nothing anyone recording reads carries the login.
     expect(JSON.stringify([opened, read])).not.toContain(PASSWORD);
 
@@ -294,7 +337,21 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
     expect(Object.keys(j(edit.json).script.recording.evidence)).toEqual(["s1", "s2"]);
     const saved = await H.call(OPERATOR, "POST", `/api/ops/browser-scripts/${stockId}/versions`);
     expect(saved.status, JSON.stringify(saved.json)).toBe(200);
-    expect(j(saved.json).script).toMatchObject({ state: "draft", versions: [{ version: 1 }] });
+    expect(j(saved.json).script).toMatchObject({
+      state: "draft",
+      recordingDiffers: false,
+      versions: [{ version: 1 }],
+    });
+    // The back office sees what it would publish: the whole saved script.
+    expect(j(saved.json).script.versions[0].definition).toMatchObject({
+      name: "Check stock",
+      sideEffect: "none",
+      inputs: [{ name: "sku" }],
+      steps: [
+        { id: "s1", op: "open", url: `${ORIGIN}/orders/lookup?sku={{sku}}` },
+        { id: "s2", op: "read_field", selector: "#stock", output: "stock" },
+      ],
+    });
     expect(
       (await H.call(OPERATOR, "POST", `/api/ops/browser-scripts/${stockId}/versions`)).status,
     ).toBe(409);
@@ -326,6 +383,88 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
     const saved = await H.call(OPERATOR, "POST", `/api/ops/browser-scripts/${id}/versions`);
     expect(saved.status).toBe(422);
     expect(j(saved.json).error.message).toMatch(/step s1 opens https:\/\/elsewhere\.test/);
+  });
+
+  it("names a recording's problems by code, for the portal to word", async () => {
+    const start = await H.call(admin("a"), "POST", "/api/access/browser-scripts", {
+      connectionId: logins.a,
+      slug: "unfinished",
+      name: "Unfinished",
+    });
+    const id = j(start.json).script.id;
+    expect(j(start.json).script.problems).toEqual([
+      { code: "empty", params: {}, text: "nothing is recorded yet" },
+    ]);
+    // The portal never sees a version's definition, nor any field so named.
+    expect(JSON.stringify(start.json)).not.toContain('"definition"');
+    const edit = await H.call(admin("a"), "PUT", `/api/access/browser-scripts/${id}`, {
+      name: "Unfinished",
+      inputs: [{ name: "sku", label: "SKU", type: "text", example: "OAK-1" }],
+      outputs: [{ name: "stock", label: "In stock", type: "integer" }],
+      steps: [{ id: "s1", op: "read_field", selector: "#stock", output: "stock" }],
+    });
+    expect(edit.status, JSON.stringify(edit.json)).toBe(200);
+    expect(j(edit.json).script.problems).toEqual([
+      { code: "unused_input", params: { name: "sku" }, text: "no step uses the input sku" },
+    ]);
+  });
+
+  it("records on a login that asks for a code at every sign-in only if the session is kept", async () => {
+    // Medium tier never keeps a session: each recorded action would send a code.
+    await setTier("medium");
+    try {
+      const opened = driver.opened;
+      const res = await H.call(OPERATOR, "POST", `/api/ops/browser-scripts/${stockId}/actions`, {
+        action: { op: "open", url: "/home" },
+      });
+      expect(res.status).toBe(409);
+      expect(j(res.json).error.code).toBe("code_every_sign_in");
+      expect(driver.opened).toBe(opened);
+    } finally {
+      await setTier("low");
+    }
+  });
+
+  it("withholds the screenshot of a page that showed a vault value", async () => {
+    const start = await H.call(OPERATOR, "POST", "/api/ops/browser-scripts", {
+      connectionId: logins.a,
+      slug: "echo",
+      name: "Echo",
+    });
+    const id = j(start.json).script.id;
+    const [shown] = await record(OPERATOR, "ops", id, [{ op: "open", url: "/invoices/echo" }]);
+    expect(shown.page).toMatchObject({ screenshotUrl: null, screenshotWithheld: true });
+    expect(shown.page.text).toContain("[hidden]");
+    expect(JSON.stringify(shown)).not.toContain(PASSWORD);
+    // Nor kept as the step's evidence.
+    expect(shown.script.recording.evidence.s1.screenshot).toBeNull();
+  });
+
+  it("refuses an action when the recording changed while the browser ran", async () => {
+    const start = await H.call(OPERATOR, "POST", "/api/ops/browser-scripts", {
+      connectionId: logins.a,
+      slug: "raced",
+      name: "Raced",
+    });
+    const id = j(start.json).script.id;
+    // While the browser is open (no transaction held), someone reviews the recording.
+    onOpen = async () => {
+      const edit = await H.call(OPERATOR, "PUT", `/api/ops/browser-scripts/${id}`, {
+        name: "Raced, renamed",
+        inputs: [],
+        outputs: [],
+        steps: [],
+      });
+      expect(edit.status, JSON.stringify(edit.json)).toBe(200);
+    };
+    const res = await H.call(OPERATOR, "POST", `/api/ops/browser-scripts/${id}/actions`, {
+      action: { op: "open", url: "/home" },
+    });
+    expect(res.status, JSON.stringify(res.json)).toBe(409);
+    expect(j(res.json).error.code).toBe("conflict");
+    const list = await H.call(OPERATOR, "GET", "/api/ops/browser-scripts");
+    const raced = j(list.json).scripts.find((s: { id: string }) => s.id === id);
+    expect(raced).toMatchObject({ name: "Raced, renamed", recording: { steps: [] } });
   });
 
   it("a client admin's recording is a draft that doesn't run until we publish it", async () => {
@@ -408,6 +547,28 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
     );
     expect(result.status).toBe("failed");
     expect(driver.opened).toBe(opened);
+    // Nor can the client admin test their own draft, or a run use it.
+    expect(
+      (
+        await H.call(admin("a"), "POST", `/api/ops/browser-scripts/${orderId}/test`, {
+          version: 1,
+        })
+      ).status,
+    ).toBe(403);
+    const draftRun = params(await processVersion([orderStep()]));
+    const drafted = await executeRun(
+      deps(),
+      draftRun,
+      cloudflareStepRunner(new FakeWorkflowStep()),
+    );
+    expect(drafted.status).not.toBe("succeeded");
+    expect(driver.opened).toBe(opened);
+    expect(portal.orders).toEqual([]);
+    const tried = await H.t.db
+      .select()
+      .from(externalAction)
+      .where(eq(externalAction.runId, draftRun.runId));
+    expect(tried.filter((a) => a.status === "done")).toEqual([]);
   });
 
   it("tests a write as a dry run that never submits, then publishes it as a tool", async () => {
@@ -416,12 +577,16 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
       inputs: { sku: "OAK-1", qty: 3 },
     });
     expect(test.status, JSON.stringify(test.json)).toBe(200);
+    // A dry run says so: nothing was submitted.
     expect(j(test.json)).toMatchObject({
       outcome: "done",
-      outputs: { price: "1212.50", submitted: true },
+      dryRun: true,
+      outputs: { price: "1212.50", submitted: false },
     });
     expect(j(test.json).steps.at(-1)).toMatchObject({ id: "s5", status: "skipped" });
     expect(portal.orders).toEqual([]);
+    // Tests count against the recorder's sign-ins, never the agents'.
+    expect((await counters(logins.a as string)).agents).toBe(0);
 
     for (const id of [stockId, orderId]) {
       const pub = await H.call(
@@ -441,6 +606,31 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
     ]);
   });
 
+  it("an agent's test run of a write script never submits", async () => {
+    const version = await processVersion([orderStep()]);
+    const p = params(version, "test");
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      // Should the test run ask anyone, the client admin says yes: it still never writes.
+      const items = await H.t.db.select().from(inboxItem).where(eq(inboxItem.status, "open"));
+      const item = items.find((i) => inboxEventType(i.id) === type);
+      if (!item) throw TIMEOUT();
+      await H.call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, { decision: "approve" });
+      return H.instances.events.find((e) => e.event.type === type)?.event.payload;
+    });
+    const result = await executeRun(deps(), p, cloudflareStepRunner(step));
+    const rows = await H.t.db.select().from(stepRun).where(eq(stepRun.runId, p.runId));
+    expect(result).toEqual({ status: "succeeded" });
+    expect(rows.map((r) => [r.nodeId, r.output])).toEqual([
+      ["order", expect.objectContaining({ wouldHaveDone: true })],
+    ]);
+    expect(portal.orders).toEqual([]);
+    const actions = await H.t.db
+      .select()
+      .from(externalAction)
+      .where(eq(externalAction.runId, p.runId));
+    expect(actions.filter((a) => a.status === "done")).toEqual([]);
+  });
+
   it("replays a published read script in a run, with typed outputs", async () => {
     const version = await processVersion([readStep("check-stock", { sku: "OAK-1" })]);
     const p = params(version);
@@ -451,22 +641,12 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
       .from(stepRun)
       .where(and(eq(stepRun.runId, p.runId), eq(stepRun.nodeId, "stock")));
     expect(row?.output).toMatchObject({ stock: 42 });
-    expect(portal.sessions.size).toBe(0);
+    // The site keeps its session (low tier): at most that one is left signed in.
+    expect(portal.sessions.size).toBeLessThanOrEqual(1);
   });
 
   it("a write script waits for approval and goes through external_action once", async () => {
-    const version = await processVersion([
-      {
-        id: "order",
-        kind: "write",
-        name: "Order the boards",
-        tool: BROWSER_SCRIPT_SUBMIT_TOOL,
-        input: { site: "supplier", script: "place-order", inputs: { sku: "OAK-1", qty: 2 } },
-        checks: {
-          approval: { approvers: [{ who: "client_admin", deadline: { after: "1 day" } }] },
-        },
-      },
-    ]);
+    const version = await processVersion([orderStep()]);
     const p = params(version);
     let asked = 0;
     const step = new FakeWorkflowStep(async (_name, type) => {
@@ -586,5 +766,112 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
     // A's published script isn't B's login's: the tool finds nothing there.
     const tools = await H.call(OPERATOR, "GET", `/api/ops/clients/${B()}/browser-scripts`);
     expect(j(tools.json).tools).toEqual([]);
+  });
+
+  it("refuses a site that became blocked: no start, recording, publishing or run", async () => {
+    await setTier("blocked");
+    try {
+      const opened = driver.opened;
+      const start = await H.call(OPERATOR, "POST", "/api/ops/browser-scripts", {
+        connectionId: logins.a,
+        slug: "after-block",
+        name: "After the block",
+      });
+      expect(start.status).toBe(409);
+      const recorded = await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/browser-scripts/${stockId}/actions`,
+        { action: { op: "open", url: "/home" } },
+      );
+      expect(recorded.status).toBe(409);
+      const published = await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/browser-scripts/${stockId}/versions/1/publish`,
+      );
+      expect(published.status).toBe(409);
+      const tested = await H.call(OPERATOR, "POST", `/api/ops/browser-scripts/${stockId}/test`, {
+        version: 1,
+      });
+      expect(tested.status).toBe(409);
+      // A run of the script published before the block never signs in.
+      const version = await processVersion([readStep("check-stock", { sku: "OAK-1" })]);
+      const result = await executeRun(
+        deps(),
+        params(version),
+        cloudflareStepRunner(new FakeWorkflowStep()),
+      );
+      expect(result.status).not.toBe("succeeded");
+      expect(driver.opened).toBe(opened);
+    } finally {
+      await setTier("low");
+    }
+  });
+});
+
+// Production's `openDb` gives a request one pooled connection: a route that opened a transaction
+// beside the request's would wait on itself. Recording, saving and testing run on such an app.
+const codes1 = new FakeCodesService();
+const portal1 = new FakeSupplierPortal({ username: USERNAME, password: PASSWORD, codeTo: null });
+const driver1 = new FakeBrowserDriver(portal1);
+const h1 = await createApiHarness({
+  connectors: () => [createBrowserConnector({ codePoll: { intervalMs: 0, attempts: 5 } })],
+  env: { ENCRYPTION_KEY, CODES: codes1 } as Partial<Bindings>,
+  browserOpener: () => driver1.open(),
+  appDbMax: 1,
+});
+afterAll(() => h1?.close());
+
+describe.skipIf(!h1)("scripts on a database pool of one, as a Worker has it", () => {
+  const H = h1 as ApiHarness;
+
+  it("records an action, saves a version and tests it", async () => {
+    const made = await H.call(OPERATOR, "POST", "/api/ops/browser-sites", {
+      slug: "supplier",
+      name: "Supplier portal",
+      tier: "low",
+      notes: "Terms allow automated access (checked by J. M., 2026-11-05)",
+      profile: PROFILE,
+    });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    await H.call(OPERATOR, "PUT", `/api/ops/clients/${H.A.tenantId}/connectors`, {
+      offered: ["testkit", "browser"],
+    });
+    const set = await H.call(admin("a"), "POST", "/api/access/browser", { site: "supplier" });
+    expect(set.status, JSON.stringify(set.json)).toBe(200);
+    const connectionId = j(set.json).connectionId as string;
+    const identity = [...codes1.identities.values()].find((i) => i.tenantId === H.A.tenantId);
+    portal1.options.codeTo = { codes: codes1, email: identity?.email ?? "" };
+    const saved = await H.call(admin("a"), "PUT", "/api/connections/browser/credentials", {
+      values: { username: USERNAME, password: PASSWORD },
+      connectionId,
+    });
+    expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+
+    const start = await H.call(admin("a"), "POST", "/api/access/browser-scripts", {
+      connectionId,
+      slug: "check-stock",
+      name: "Check stock",
+    });
+    expect(start.status, JSON.stringify(start.json)).toBe(200);
+    const id = j(start.json).script.id;
+    for (const action of [
+      { op: "open", url: "/orders/lookup?sku=OAK-1" },
+      { op: "read_field", selector: "#stock", as: "stock" },
+    ]) {
+      const res = await H.call(admin("a"), "POST", `/api/access/browser-scripts/${id}/actions`, {
+        action,
+      });
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+    }
+    const version = await H.call(admin("a"), "POST", `/api/access/browser-scripts/${id}/versions`);
+    expect(version.status, JSON.stringify(version.json)).toBe(200);
+    expect(j(version.json).script).toMatchObject({ state: "draft", versions: [{ version: 1 }] });
+    const test = await H.call(OPERATOR, "POST", `/api/ops/browser-scripts/${id}/test`, {
+      version: 1,
+    });
+    expect(test.status, JSON.stringify(test.json)).toBe(200);
+    expect(j(test.json)).toMatchObject({ outcome: "done", outputs: { stock: "42" } });
   });
 });

@@ -470,6 +470,46 @@ export function mount<R extends RouteSpec>(
   mountWith(app, spec, handler, respond);
 }
 
+/**
+ * What a slow route's handler gets (`mountLong`): the request's scope without a transaction, and
+ * `inTx` to open short ones in that scope (withOperator or withTenant, as `mount`'s), each
+ * committed before the next starts.
+ */
+export interface LongHandlerCtx<R extends RouteSpec>
+  extends Omit<HandlerCtx<R>, "tx" | "afterCommit"> {
+  /** One short transaction in the request's scope; its after-commit tasks run once it commits. */
+  inTx<T>(work: (scoped: Scoped) => Promise<T>): Promise<T>;
+}
+
+/**
+ * A session route whose handler waits on something slow between its reads and writes (a browser,
+ * a client's tool through the external-action path): the same sign-in, roles, client scope and
+ * input checks as `mount`, but no transaction held across the handler. A Worker's database has one
+ * pooled connection (`openDb`), so a handler that opens transactions of its own (the vault, the
+ * browser's services, the runtime) must never run inside the request's: it would wait on itself.
+ * The handler reads and writes in short `inTx` transactions; the ok audit row is written alone once
+ * it returns (auditAlone), and a refusal or failure is audited as `mount` audits it. Not reachable
+ * through `invokeRoute`.
+ */
+// DECISION: a variant of `mount`, not routes with session code of their own: sign-in, roles, scope
+// and the audit row stay in one place (invariant 14). The ok row is written after the handler's
+// last transaction, so a write that committed beside an audit row that didn't is possible;
+// auditAlone reports that miss, as it does for refusals.
+export function mountLong<R extends RouteSpec>(
+  app: Hono<AppEnv>,
+  spec: R,
+  handler: (ctx: LongHandlerCtx<R>) => Promise<Result<R>>,
+): void {
+  mountWith(app, spec, handler, respond, "long");
+}
+
+/** A slow route's `inTx` for code that takes only the transaction. */
+export function txOnly(
+  inTx: LongHandlerCtx<RouteSpec>["inTx"],
+): <T>(work: (tx: Tx) => Promise<T>) => Promise<T> {
+  return (work) => inTx((scoped) => work(scoped.tx));
+}
+
 /** What a file route's handler hands back: the bytes, their type and the name to save them as. */
 export interface FileResult {
   filename: string;
@@ -521,8 +561,11 @@ export function contentDisposition(name: string, kind: "inline" | "attachment" =
 function mountWith<R extends RouteSpec>(
   app: Hono<AppEnv>,
   spec: R,
-  handler: (ctx: HandlerCtx<R>) => Promise<unknown>,
+  handler:
+    | ((ctx: HandlerCtx<R>) => Promise<unknown>)
+    | ((ctx: LongHandlerCtx<R>) => Promise<unknown>),
   send: (c: AppContext, spec: R, result: unknown) => Response | Promise<Response>,
+  mode: "tx" | "long" = "tx",
 ): void {
   if (spec.auth !== "session") throw new Error(`${spec.path} is public: use mountPublic`);
   const family = routeFamily(spec);
@@ -531,7 +574,8 @@ function mountWith<R extends RouteSpec>(
     handlers = new Map();
     mounted.set(app, handlers);
   }
-  handlers.set(spec, handler as AnyHandler);
+  // A slow route's handler takes no transaction: invokeRoute (the MCP server) never runs one.
+  if (mode === "tx") handlers.set(spec, handler as AnyHandler);
   app.on(spec.method, spec.path, async (c) => {
     let setCookies: readonly string[] = [];
     // The audit row (docs/plan.md §1.35): who, once known, and the client acted in.
@@ -570,12 +614,35 @@ function mountWith<R extends RouteSpec>(
       auditTenant = auditClient(scope, requestedClient(c), routeParams(c));
 
       const input = await parseInput(c, spec);
-      const output = await inScope(c, scope, async (scoped) => {
-        const out = await handler({ c, session, ...scoped, ...input, services });
-        // In the request's own transaction: it commits with what the request wrote.
-        await auditInTx(scoped.tx, c, entry("ok", 200));
-        return out;
-      });
+      let output: unknown;
+      if (mode === "long") {
+        output = await (handler as (ctx: LongHandlerCtx<R>) => Promise<unknown>)({
+          c,
+          session,
+          role: scope.role,
+          tenantIds: scope.tenantIds,
+          operator: scope.operator,
+          defer: (task) => c.get("req").deferred.push(task),
+          inTx: (work) => inScope(c, scope, work),
+          ...input,
+          services,
+        } as LongHandlerCtx<R>);
+        // No request transaction to commit with: its own, once the handler's work is done.
+        await auditAlone(services.db, c, entry("ok", 200));
+      } else {
+        output = await inScope(c, scope, async (scoped) => {
+          const out = await (handler as (ctx: HandlerCtx<R>) => Promise<unknown>)({
+            c,
+            session,
+            ...scoped,
+            ...input,
+            services,
+          });
+          // In the request's own transaction: it commits with what the request wrote.
+          await auditInTx(scoped.tx, c, entry("ok", 200));
+          return out;
+        });
+      }
       for (const cookie of setCookies) c.header("Set-Cookie", cookie, { append: true });
       return send(c, spec, output);
     } catch (error) {
