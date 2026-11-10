@@ -2428,6 +2428,38 @@ tools, is the owner's doc "Mezonas process model"; milestones are §9.
 // keeping every id, and a skill that only wraps one tool becomes a `read` step (side effect `none`)
 // or a `write` step (anything else; an unknown tool counts as external, so approval stays on).
 
+Wave 3, runs and merge (R8; `apps/web/src/ops/merge`, the run views, the inboxes' undo):
+- DECISION: the merge view reads all three versions as v4 once any holds a process (core's
+  `readBundles`), with a `ConvertLookup` built from the builder catalog it already loads (tool-mode
+  skills that wrap one tool, each tool's side effect); no new route. The server repeats the merge
+  on save and decides.
+- DECISION: until the builder stream's `validateAnyBundle` is in core, the merge view validates a
+  merged bundle that holds processes process by process (`processes.validateProcess` with the
+  agent's skills and tools); all-v3 bundles validate as before.
+- DECISION: checks and deadlines read in words in the merge view and the read-only step list
+  (`ops/workflow/checks.ts`); the trigger order (`workflow:<slug>#/workflow/triggerOrder`) reads
+  "order of its triggers", its values as the triggers' names, and a reorder marks the triggers
+  whose place changed as moved.
+- DECISION: what a step's checks did is read from the rows that exist (core `api/run-checks.ts`):
+  a confer is its own `step_run` (`<step>:confer:<n>`), an approver is an inbox item on the step's
+  node (`payload.nodeId`, or the gate's `payload.stepId`), "went ahead" is the write's
+  `output.proceededWithoutAnswer`, "stopped" is the run's error (`timeout`, `not_seen`) at the step
+  or one of its checks, and an urgent notice's Seen is its item (`payload.urgent`) or the notify
+  row's `output.ackItemId`. Shared by the back office (from the run's rows) and the portal (the
+  server fills `TimelineStep`'s new optional fields).
+- DECISION: a confer is a step of its own on the client's timeline ("Checked with Dana: agrees",
+  "A second check: agrees"); a second check's note is model text and stays in the back office; a
+  person's note shows to the client. A confer still waiting shows only in the asked person's Inbox.
+- DECISION: the client sees a v4 step by its `client` setting, else by kind: reads, skills, writes,
+  people, conversations, notices and sub-processes show, logic never (core `shownOnTimeline`).
+- DECISION: the back office's oversight reads as the agent's owner ("The owner corrected the input
+  and tried again after a failed step"); the decisions and their records are unchanged.
+- DECISION: the late answer and the undo offer are read from the item's payload (`lateAnswer`,
+  `undo`, shapes mirrored from apps/api) and the Undo button calls the undo routes, whose specs the
+  web mirrors until they move to core. A late no with no offer and a write that went through says
+  the change can't be undone (sent messages can't be taken back). The portal never shows the
+  tool's id or the server's English reasons; refusals read in the client's words.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
