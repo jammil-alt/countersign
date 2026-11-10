@@ -12,6 +12,8 @@ export * from "./conversation";
 export * from "./convert";
 export * from "./customize";
 export * from "./hours";
+// Wave 5: how a step ended, for an `if` to route on.
+export * from "./outcomes";
 // R6: the owner.
 export * from "./owner";
 export * from "./paths";

@@ -166,9 +166,24 @@ export interface RunContext {
   // v0.12 W2-B
   /** Inside a use step: its resolved input (`{{input...}}`); there is no trigger there. */
   input?: unknown;
-  steps: Record<string, { output: unknown }>;
+  steps: Record<string, StepScope>;
   item?: unknown;
   index?: number;
+}
+
+/**
+ * One step as the steps after it read it: its output and, wave 5 (docs/plan.md §1.86 "Forks"), how
+ * it ended, for an `if` to route on (`processes.StepRecord`, `processes.stepRecordSchema`). The
+ * outcome fields are filled for native v4 processes only.
+ */
+export interface StepScope {
+  output: unknown;
+  outcome?: string;
+  approval?: { outcome: string; by?: string | null };
+  confer?: Record<string, unknown>;
+  error?: { code: string; message: string };
+  choice?: string;
+  counts?: { items: number; failed: number };
 }
 
 /** Whether a value fills a slot in a sentence: not missing, null or blank. */

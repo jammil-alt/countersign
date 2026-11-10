@@ -18,6 +18,7 @@ import {
 import type { JsonSchema } from "../schemas/common";
 import { parseSkillRef } from "../schemas/common";
 import type { AgentMode } from "../schemas/permissions";
+import type { Rules } from "../schemas/rules";
 import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
 import type { Trigger, Step as V3Step } from "../schemas/workflow";
 import { hasTemplate, singleRef } from "../template/template";
@@ -43,7 +44,7 @@ import {
   checkFixed,
   checkInput,
   checkRefs,
-  checkRules,
+  checkRules as checkRulesShared,
   checkSkillFixedWrites,
   checkStepModel,
   checkTrigger,
@@ -66,6 +67,8 @@ import {
   conversationProblems,
   conversationSendTools,
 } from "./conversation";
+// Wave 5: how each step ended, for an `if` to route on (`steps.<id>.outcome` and the rest).
+import { outcomeVocabulary, stepRecordFields, stepRecordSchema } from "./outcomes";
 import {
   type ApprovalCheck,
   CONFER_VERDICTS,
@@ -98,7 +101,11 @@ export type ProcessValidationCode =
   // Invariant 8: a loosened approval on a write whose agent doesn't act on its own.
   | "approval_needs_act"
   // R7: what the schema can't check about a conversation step (`conversationProblems`).
-  | ConversationProblemCode;
+  | ConversationProblemCode
+  // Wave 5: `onError` on a step it means nothing for (`if`, `stop`, `wait`, `person`).
+  | "on_error_not_here"
+  // Wave 5: a condition comparing a step's outcome with a word not in its kind's vocabulary.
+  | "outcome_unknown";
 
 /**
  * `conversationProblems`' codes. A templated goal is reported as `input_not_fixed`, as every other
@@ -124,7 +131,12 @@ export interface ProcessValidationError {
 }
 
 /** Advice, never an error: signs that the process does too much and could be split. */
-export type ProcessWarningCode = "split_long" | "split_deep";
+export type ProcessWarningCode =
+  | "split_long"
+  | "split_deep"
+  // Wave 5: a condition testing an outcome the step, as it is set up, never ends with (`failed`
+  // on a step without `onError: continue`: the run has stopped before the condition is read).
+  | "outcome_unreachable";
 
 export interface ProcessWarning {
   stepId: string | null;
@@ -267,8 +279,11 @@ export const CONFER_RESULT: JsonSchema = {
 export interface ProcessScope {
   trigger: JsonSchema | undefined;
   settings: JsonSchema | undefined;
-  /** Upstream steps visible here, by id, with their output schemas. */
-  steps: Record<string, { step: Step; output: JsonSchema | undefined }>;
+  /**
+   * Upstream steps visible here, by id, with their output schemas. Wave 5: `self` marks the step
+   * itself in its own checks (its output is readable there, its outcome is not: it hasn't ended).
+   */
+  steps: Record<string, { step: Step; output: JsonSchema | undefined; self?: boolean }>;
   /** Inside a for_each: the item schema (undefined when unknown). */
   loop?: { item: JsonSchema | undefined; step: ForEachStep };
   /** In a step's checks: how many of its confer reviewers' verdicts are readable. */
@@ -339,13 +354,29 @@ export function typeProcessPath(scope: ProcessScope, path: readonly string[]): P
     case "settings":
       return schemaAtPath(scope.settings, rest);
     case "steps": {
-      const [id, output, ...tail] = rest;
+      const [id, field, ...tail] = rest;
       if (id === undefined) return { ok: false, message: "steps.<id>.output... needs a step id" };
       const s = scope.steps[id];
       if (!s)
         return { ok: false, message: `step "${id}" does not run before this one on its path` };
-      if (output !== "output") return { ok: false, message: `use steps.${id}.output.<field>` };
-      return schemaAtPath(s.output, tail);
+      if (field === "output") return schemaAtPath(s.output, tail);
+      // Wave 5: how an earlier step ended (`steps.<id>.outcome`, `.approval…`, `.confer…`, …).
+      const record = stepRecordSchema(s.step);
+      if (field !== undefined && record && stepRecordFields(s.step).includes(field)) {
+        if (s.self) {
+          return {
+            ok: false,
+            message: `a step's ${field} is known only once it has ended: read it in a later step`,
+          };
+        }
+        return schemaAtPath(record, [field, ...tail]);
+      }
+      return {
+        ok: false,
+        message: record
+          ? `use steps.${id}.output.<field>, or how it ended: steps.${id}.outcome`
+          : `use steps.${id}.output.<field>`,
+      };
     }
     case "item":
       if (!scope.loop)
@@ -390,8 +421,13 @@ function rootInScope(scope: ProcessScope, path: readonly string[]): boolean {
   if (root === "input") return scope.input !== undefined;
   if (root === "settings") return true;
   if (root === "item") return scope.loop !== undefined;
-  if (root === "steps")
-    return id !== undefined && scope.steps[id] !== undefined && third === "output";
+  if (root === "steps") {
+    const s = id === undefined ? undefined : scope.steps[id];
+    if (!s || third === undefined) return false;
+    if (third === "output") return true;
+    // Wave 5: a record field of an earlier step (never the step's own: it hasn't ended).
+    return !s.self && stepRecordFields(s.step).includes(third);
+  }
   if (root === "confer") {
     return (
       scope.confer !== undefined &&
@@ -465,6 +501,70 @@ export function processScopes(
 interface Checker extends RefChecker<ProcessScope> {
   ctx: ProcessValidationContext;
   add(stepId: string | null, f: string, code: ProcessValidationCode, message: string): void;
+  /** Wave 5: advice that doesn't make the process invalid. Absent: none is kept. */
+  warn?(stepId: string | null, f: string, code: ProcessWarningCode, message: string): void;
+}
+
+/** The literal words a rule compares its field with (`=`, `!=`, `in`); none for other ops. */
+function comparedWords(rule: Rules["rules"][number]): string[] {
+  const words = (v: unknown) => (typeof v === "string" && !hasTemplate(v) ? [v] : ([] as string[]));
+  if (rule.op === "=" || rule.op === "!=") return words(rule.value);
+  if (rule.op === "in" && Array.isArray(rule.value)) return rule.value.flatMap(words);
+  return [];
+}
+
+/**
+ * The shared checks of a condition (v3's `checkRules`), then wave 5's: a rule comparing an earlier
+ * step's outcome (or approval, verdict, quick answer) with a word must use that kind's vocabulary
+ * (`outcome_unknown`), and is advised when the step as set up never ends that way
+ * (`outcome_unreachable`).
+ */
+function checkRules(
+  c: Checker,
+  nodeId: string,
+  rules: Rules,
+  at: (string | number)[],
+  scope: ProcessScope,
+  requireRules: boolean,
+) {
+  checkRulesShared(c, nodeId, rules, at, scope, requireRules);
+  rules.rules.forEach((rule, i) => {
+    let path: string[] | null;
+    try {
+      path = singleRef(rule.field);
+    } catch {
+      return;
+    }
+    if (path?.[0] !== "steps" || path[2] === "output") return;
+    const s = path[1] === undefined ? undefined : scope.steps[path[1]];
+    if (!s || s.self) return;
+    const fieldPath = path.slice(2);
+    const vocabulary = outcomeVocabulary(s.step, fieldPath);
+    if (!vocabulary) return;
+    const typed = typeProcessPath(scope, path);
+    const reachable =
+      typed.ok && Array.isArray(typed.schema?.enum) ? (typed.schema.enum as unknown[]) : null;
+    const where = field([...at, "rules", i, "value"]);
+    for (const word of comparedWords(rule)) {
+      if (!vocabulary.includes(word)) {
+        c.add(
+          nodeId,
+          where,
+          "outcome_unknown",
+          `"${word}" is not how a ${s.step.kind} step ends here: use ${vocabulary.join(", ")}`,
+        );
+      } else if (reachable && !reachable.includes(word)) {
+        c.warn?.(
+          nodeId,
+          where,
+          "outcome_unreachable",
+          `step "${s.step.id}" never ends "${word}" as it is set up${
+            word === "failed" || word === "needs_help" ? " (it needs onError: continue)" : ""
+          }`,
+        );
+      }
+    }
+  });
 }
 
 /** Text that becomes a model's instructions is written in the step, never templated (inv. 9). */
@@ -1020,7 +1120,7 @@ function checkChecks(c: Checker, step: Step, base: ProcessScope) {
   if (!checks) return;
   const own: ProcessScope["steps"] = {
     ...base.steps,
-    [step.id]: { step, output: stepOutputSchema(step, c.ctx) },
+    [step.id]: { step, output: stepOutputSchema(step, c.ctx), self: true },
   };
   const before: ProcessScope = {
     ...base,
@@ -1072,6 +1172,17 @@ function checkChecks(c: Checker, step: Step, base: ProcessScope) {
   });
 }
 
+/**
+ * Wave 5: the kinds `onError` means nothing for, and why. An `if` routes, a `stop` ends, a wait
+ * only waits, and a person step's only failures are the platform's own, which end the run.
+ */
+const NO_ON_ERROR: Partial<Record<Step["kind"], string>> = {
+  if: "an if can't fail by itself: set onError on the steps in its paths",
+  stop: "a stop ends the run: it has no error to go on past",
+  wait: "a wait can't fail",
+  person: "a person step can't fail by itself: its deadline says what happens with no answer",
+};
+
 function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<string> | undefined) {
   switch (step.kind) {
     case "read":
@@ -1114,6 +1225,10 @@ function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<str
     default:
       break;
   }
+  // Wave 5: steps with no failure of their own to go on past.
+  const noError = NO_ON_ERROR[step.kind];
+  if (step.onError !== undefined && noError)
+    c.add(step.id, "onError", "on_error_not_here", noError);
   checkApproval(c, step);
   checkChecks(c, step, scope);
 }
@@ -1308,6 +1423,7 @@ export function validateProcess(
   }
   const process = parsed.data;
   const errors: ProcessValidationError[] = duplicateIds(process);
+  const warnings: ProcessWarning[] = [];
   const c: Checker = {
     ctx,
     typePath: typeProcessPath,
@@ -1315,11 +1431,19 @@ export function validateProcess(
     add(stepId, f, code, message) {
       errors.push({ stepId, field: f, code, message });
     },
+    warn(stepId, f, code, message) {
+      warnings.push({ stepId, field: f, code, message });
+    },
   };
   for (const t of process.triggers) checkProcessTrigger(c, t);
   const list = scopeList(process, ctx);
   checkHandoff(c, process, list);
   const allowed = allowedTools(ctx);
   for (const { step, scope } of list) checkStep(c, step, scope, allowed);
-  return { valid: errors.length === 0, errors, warnings: splitWarnings(process), value: process };
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings: [...splitWarnings(process), ...warnings],
+    value: process,
+  };
 }

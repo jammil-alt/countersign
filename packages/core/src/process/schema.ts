@@ -158,6 +158,15 @@ export type Checks = z.infer<typeof Checks>;
 
 // ── Steps ────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Wave 5 (docs/plan.md §1.86 "Forks"): what a failing step does. `fail` (absent means it) ends the
+ * run, as always; `continue` records the step's outcome `failed` (and `steps.<id>.error`) and the
+ * run goes on, so a later `if` can route on it. It never loosens an approval (invariant 8).
+ */
+export const ON_ERROR = ["fail", "continue"] as const;
+export const OnError = z.enum(ON_ERROR);
+export type OnError = z.infer<typeof OnError>;
+
 const base = {
   id: NodeId,
   name: z.string(),
@@ -165,6 +174,9 @@ const base = {
   checks: Checks.optional(),
   /** The owner's review of this step: `off`, `always`, or (absent) the owner decides. */
   review: StepReview.optional(),
+  // DECISION (wave 5): `onError` is optional with no default, so a parsed or converted step that
+  // never said it keeps its stored shape (no new field in diffs and merges); absent means `fail`.
+  onError: OnError.optional(),
 };
 
 export const ReadStep = z.object({
