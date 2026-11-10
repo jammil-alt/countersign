@@ -133,6 +133,8 @@ async function editScript(
   return oneView(tx, row);
 }
 
+// DECISION: only the operator tests and publishes; a client admin records, reviews and saves a
+// draft (invariant 11). The portal has no test: each recorded action is already a dry run.
 export function browserScriptRoutes(app: Hono<AppEnv>): void {
   const originOf = (url: string) => new URL(url).origin;
 

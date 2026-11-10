@@ -32,9 +32,9 @@ import {
 import {
   BrowserConnectionConfig,
   BrowserScriptDefinition,
-  canonicalJson,
   type BrowserScriptTool,
   type BrowserScriptView,
+  canonicalJson,
   checkBrowserUrl,
   fillScriptUrl,
   type JsonObject,
@@ -372,6 +372,9 @@ function nextStepId(steps: readonly ScriptStep[]): string {
  * with its screenshot. A typed value marked as an input becomes one (its example); a read marked
  * as an output becomes one. Nothing after a submit is recorded: it was never clicked.
  */
+// DECISION: one action per request, each in a session our code signs in to, replaying the steps so
+// far as a dry run: a Worker keeps no browser between requests (no Durable Object; Browser Run's
+// reconnect is unchecked). Each action spends a sign-in within the caps; a kept low-tier session none.
 export async function recordAction(
   services: Services,
   tx: Tx,
