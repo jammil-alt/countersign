@@ -17,6 +17,7 @@ import {
   scriptInputSchema,
   scriptOutputSchema,
 } from "@countersign/core";
+import { z } from "zod";
 import type { ToolContext } from "../connector";
 import { isDocumentType } from "../upload/forwarding";
 import { BROWSER_SCRIPT_READ_TOOL, BROWSER_SCRIPT_SUBMIT_TOOL } from "./ids";
@@ -56,7 +57,13 @@ export interface ScriptRun {
   outputs: Record<string, unknown>;
   /** Whether the submitting click was made. */
   submitted: boolean;
-  url: string;
+  /** The address after the last step; null when the submit landed where agents may not look. */
+  url: string | null;
+  /**
+   * Why the page the submit landed on wasn't opened (off the allowed pages, a stop page): the
+   * form was sent all the same.
+   */
+  landing?: string;
 }
 
 export interface ScriptRunOptions {
@@ -74,10 +81,19 @@ export interface ScriptRunOptions {
 }
 
 /**
- * Runs steps in order with `values` (the inputs; a recording's examples) on a signed-in page.
- * Throws ScriptStepMissing for an element or table that isn't there (nothing after it is done),
- * BrowserRefused for a page the site doesn't allow, and the session's own errors.
+ * Runs steps in order with `values` (the inputs; a recording's examples) on a signed-in page,
+ * held read only (the browser sends no POST, no form) for every step but a submit that isn't a dry
+ * run's. Throws ScriptStepMissing for an element or table that isn't there (nothing after it is
+ * done), BrowserRefused for a page the site doesn't allow, for a click on a button that sends a
+ * form and isn't the marked submit, and for a browser that can't be held read only, and the
+ * session's own errors.
  */
+// DECISION: read only for every step of every script, not only dry runs and reads: a write's
+// steps before its submit are what its test ran, so they may change nothing either. Only the
+// marked submit, in a run that isn't dry, lets the browser post.
+// DECISION: a click on a button that sends a form (controls' `submits`) that isn't the marked
+// submit is refused at run time, as a refusal (not a request for help): the script is wrong, not
+// the page, and only a new recording fixes it. Saving can't tell: it has no page to look at.
 export async function runScriptSteps(
   page: SignedInPage,
   steps: readonly ScriptStep[],
@@ -87,6 +103,7 @@ export async function runScriptSteps(
 ): Promise<ScriptRun> {
   const types = new Map<string, ScriptOutputDecl["type"]>(outputs.map((o) => [o.name, o.type]));
   const run: ScriptRun = { steps: [], outputs: {}, submitted: false, url: page.url() };
+  await page.readOnly(true);
   try {
     await runSteps(page, steps, values, types, options, run);
   } catch (error) {
@@ -122,16 +139,41 @@ async function runSteps(
         await page.fill(step.selector, v === undefined || v === null ? "" : String(v));
         break;
       }
-      case "click":
+      case "click": {
         await need(step, step.selector);
-        if (step.submits && options.dryRun) {
+        if (!step.submits) {
+          if (await page.sendsForm(step.selector)) {
+            throw new BrowserRefused(
+              `step ${step.id} clicks ${step.selector}, which sends a form: only the click marked as the script's submit may, and only when the script runs for real`,
+            );
+          }
+          await page.click(step.selector);
+          shot = page.lastScreenshot();
+          break;
+        }
+        if (options.dryRun) {
           status = "skipped";
           break;
         }
-        await page.click(step.selector);
-        if (step.submits) run.submitted = true;
+        const from = page.url();
+        await page.readOnly(false);
+        let sent: Awaited<ReturnType<SignedInPage["submit"]>>;
+        try {
+          sent = await page.submit(step.selector);
+        } finally {
+          await page.readOnly(true).catch(() => undefined);
+        }
+        run.submitted = true;
+        if (sent.landing !== null) {
+          // Sent, and the page after it is off limits: nothing there is read or photographed.
+          run.url = null;
+          run.landing = sent.landing;
+          run.steps.push({ id: step.id, op: step.op, url: from, screenshot: null, status });
+          return;
+        }
         shot = page.lastScreenshot();
         break;
+      }
       case "read_field": {
         const text = await page.textOf(step.selector);
         if (text === null) throw new ScriptStepMissing(step, page.url(), step.selector);
@@ -206,6 +248,7 @@ export function scriptResult(def: BrowserScriptDefinition, run: ScriptRun): Json
   if (def.sideEffect === "external") {
     raw.submitted = run.submitted;
     raw.url = run.url;
+    if (run.landing !== undefined) raw.landing = run.landing;
   }
   const parsed = scriptOutputSchema(def).safeParse(raw);
   if (!parsed.success) {
@@ -245,6 +288,49 @@ export function scriptNeedsHelp(
 }
 
 // ── As a tool ────────────────────────────────────────────────────────────────────────────────────
+
+/** A step in plain words, for the approval card (the same words the back office shows). */
+export function scriptStepLine(step: ScriptStep): string {
+  switch (step.op) {
+    case "open":
+      return `Open ${step.url}`;
+    case "fill":
+      return "input" in step.value
+        ? `Fill ${step.selector} with the input ${step.value.input}`
+        : `Fill ${step.selector} with “${step.value.text.slice(0, 200)}”`;
+    case "click":
+      return step.submits ? `Send the form with ${step.selector}` : `Click ${step.selector}`;
+    case "read_field":
+      return `Read ${step.selector} as ${step.output}`;
+    case "read_table":
+      return `Read table ${step.table + 1} as ${step.output}`;
+    case "download":
+      return `Download ${step.url} as ${step.output}`;
+  }
+}
+
+/**
+ * A write script's before state (`external_action.before`): the published version a person
+ * approves and its steps in words, so the approval card shows what will be sent; the run refuses
+ * if another version is published by then.
+ */
+export const ScriptSubmitBefore = z.object({
+  versionId: z.string(),
+  version: z.number().int(),
+  name: z.string(),
+  steps: z.array(z.string()),
+});
+export type ScriptSubmitBefore = z.infer<typeof ScriptSubmitBefore>;
+
+/** The before state of a published write script (nothing on the site is read for it). */
+export function scriptSubmitBefore(script: PublishedBrowserScript): ScriptSubmitBefore {
+  return {
+    versionId: script.versionId,
+    version: script.version,
+    name: script.definition.name,
+    steps: script.definition.steps.map(scriptStepLine),
+  };
+}
 
 /** A script tool's call: the site, the script's slug and its inputs. */
 export interface ScriptCall {
@@ -298,16 +384,29 @@ function reverseOf(
  * Runs a published script in one signed-in session (./session.ts: sign-in by code, every page
  * checked, sign-out and the session's record). A step whose element isn't there answers
  * `{ needsHelp }` (a write's with `submitted: false`: the submit is its last step, so nothing was
- * sent); the executor asks the lead and runs the step once more.
+ * sent); the executor asks the operator and runs the step once more. A write names the version
+ * a person approved (`approved`, its before state): another version published since is refused
+ * before a browser opens.
  */
 export async function runPublishedScript(
   ctx: ToolContext,
   call: ScriptCall,
   sideEffect: "none" | "external",
   options: BrowserSessionOptions,
+  approved?: unknown,
 ): Promise<JsonObject> {
   const { script, inputs } = await loadScript(ctx, call, sideEffect);
   const def = script.definition;
+  if (approved !== undefined) {
+    const seen = ScriptSubmitBefore.safeParse(approved);
+    if (!seen.success || seen.data.versionId !== script.versionId) {
+      throw new BrowserRefused(
+        seen.success
+          ? `"${def.name}" changed since it was approved (version ${seen.data.version} was approved, version ${script.version} is published now): it needs approving again`
+          : `"${def.name}" was approved before we kept which version: it needs approving again`,
+      );
+    }
+  }
   const store = ctx.services?.browser?.storeDocument;
   const tool = sideEffect === "external" ? BROWSER_SCRIPT_SUBMIT_TOOL : BROWSER_SCRIPT_READ_TOOL;
   return withBrowserSession(ctx, { tool, site: call.site }, options, async (page) => {

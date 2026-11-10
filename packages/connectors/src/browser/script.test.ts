@@ -155,7 +155,19 @@ describe("scripted site tools", () => {
     const s = await scripted();
     const input = { site: "supplier", script: "order", inputs: { sku: "OAK-1", qty: 2 } };
     const before = await captureBefore(s.connector, BROWSER_SCRIPT_SUBMIT_TOOL, input, s.ctx);
-    expect(before.before).toBeNull();
+    // The approval card shows the version and exactly what will be sent; nothing is read yet.
+    expect(before.before).toEqual({
+      versionId: "version-order",
+      version: 1,
+      name: "Place an order",
+      steps: [
+        `Open ${ORIGIN}/orders/new`,
+        "Fill #sku with the input sku",
+        "Fill #qty with the input qty",
+        "Read #price as price",
+        "Send the form with #place",
+      ],
+    });
     expect(s.driver.opened).toBe(0);
     const out = await executeWrite(s.connector, BROWSER_SCRIPT_SUBMIT_TOOL, input, {
       ...s.ctx,
@@ -240,5 +252,224 @@ describe("scripted site tools", () => {
     expect(why).toMatch(/BrowserRefused: .*agents never open this page/);
     expect(s.driver.events.some((e) => e.op === "goto" && e.url.includes("/account"))).toBe(false);
     expect(s.portal.signOuts).toBe(1);
+  });
+});
+
+// Review of wave 4: only the marked submit, in a run that isn't dry, may change anything.
+describe("a script's page is read only but for its submit", () => {
+  const POLL = { codePoll: { intervalMs: 0, attempts: 1 } };
+  /** The order form with its button clicked but not marked as the submit. */
+  const UNFLAGGED: BrowserScriptDefinitionInput["steps"] = [
+    { id: "s1", op: "open", url: `${ORIGIN}/orders/new` },
+    { id: "s2", op: "fill", selector: "#sku", value: { text: "OAK-1" } },
+    { id: "s3", op: "click", selector: "#place", submits: false },
+  ];
+  const SNEAKY = published("sneaky", {
+    schemaVersion: 1,
+    site: "supplier",
+    name: "Order and look",
+    outputs: [{ name: "orders", label: "Orders", type: "table" }],
+    steps: [...UNFLAGGED, { id: "s4", op: "read_table", table: 0, output: "orders" }],
+    sideEffect: "none",
+  });
+  // Reorder posts by the page's own script: no form button, so only read only stops it.
+  const REORDER = published("reorder", {
+    schemaVersion: 1,
+    site: "supplier",
+    name: "Look at orders",
+    outputs: [{ name: "orders", label: "Orders", type: "table" }],
+    steps: [
+      { id: "s1", op: "open", url: `${ORIGIN}/orders` },
+      { id: "s2", op: "click", selector: "#reorder" },
+      { id: "s3", op: "read_table", table: 0, output: "orders" },
+    ],
+    sideEffect: "none",
+  });
+  const withMore = (opts: Parameters<typeof setUp>[0] = {}) =>
+    scripted({
+      ...opts,
+      scripts: {
+        stock: STOCK,
+        order: ORDER,
+        moved: MOVED,
+        "off-site": OFF_SITE,
+        sneaky: SNEAKY,
+        reorder: REORDER,
+      },
+    });
+
+  it("refuses an unflagged click on the order form in a recording's replay or a test", async () => {
+    const s = await withMore();
+    for (const everyStep of [false, true]) {
+      const why = await failure(
+        withBrowserSession(s.ctx, { tool: "test", site: "supplier" }, POLL, (page) =>
+          runScriptSteps(page, BrowserScriptDefinition.shape.steps.parse(UNFLAGGED), {}, [], {
+            dryRun: true,
+            everyStep,
+          }),
+        ),
+      );
+      expect(why).toMatch(/BrowserRefused: step s3 clicks #place, which sends a form/);
+    }
+    expect(s.portal.orders).toEqual([]);
+    expect(s.driver.events.some((e) => e.op === "click" && e.selector === "#place")).toBe(false);
+  });
+
+  it("refuses it in a published read script's run, and orders nothing", async () => {
+    const s = await withMore();
+    const why = await failure(
+      runReadTool(
+        s.connector,
+        BROWSER_SCRIPT_READ_TOOL,
+        { site: "supplier", script: "sneaky", inputs: {} },
+        s.ctx,
+      ),
+    );
+    expect(why).toMatch(/sends a form/);
+    expect(s.portal.orders).toEqual([]);
+    expect(s.portal.signOuts).toBe(1);
+  });
+
+  it("stops what a page's own script would post during a read run, a test and a replay", async () => {
+    const s = await withMore();
+    const r = await runReadTool(
+      s.connector,
+      BROWSER_SCRIPT_READ_TOOL,
+      { site: "supplier", script: "reorder", inputs: {} },
+      s.ctx,
+    );
+    expect(r.output).toEqual({ orders: { headers: ["Order", "SKU", "Qty"], rows: [] } });
+    await withBrowserSession(s.ctx, { tool: "test", site: "supplier" }, POLL, (page) =>
+      runScriptSteps(page, REORDER.definition.steps, {}, REORDER.definition.outputs, {
+        dryRun: true,
+        everyStep: true,
+      }),
+    );
+    expect(s.portal.orders).toEqual([]);
+    expect(s.driver.events.filter((e) => e.op === "blocked")).toHaveLength(2);
+    // Lifted before each sign-out, which may post.
+    const modes = s.driver.events.flatMap((e) => (e.op === "read_only" ? [e.on] : []));
+    expect(modes).toEqual([true, false, true, false]);
+  });
+
+  it("holds a write's steps read only and lets only its submit post", async () => {
+    const s = await withMore();
+    await executeWrite(
+      s.connector,
+      BROWSER_SCRIPT_SUBMIT_TOOL,
+      { site: "supplier", script: "order", inputs: { sku: "OAK-1", qty: 2 } },
+      { ...s.ctx, idempotencyKey: key },
+    );
+    expect(s.portal.orders).toHaveLength(1);
+    const ops = s.driver.events.flatMap((e) =>
+      e.op === "read_only"
+        ? [`read_only:${e.on}`]
+        : e.op === "click"
+          ? [`click:${e.selector}`]
+          : [],
+    );
+    expect(ops.slice(-5)).toEqual([
+      "read_only:true",
+      "read_only:false",
+      "click:#place",
+      "read_only:true",
+      "read_only:false",
+    ]);
+  });
+
+  it("refuses a browser that can't hold a page read only", async () => {
+    const s = await withMore();
+    const open = s.driver.open.bind(s.driver);
+    s.driver.open = async () => {
+      const tab = await open();
+      delete tab.readOnly;
+      return tab;
+    };
+    expect(
+      await failure(
+        runReadTool(
+          s.connector,
+          BROWSER_SCRIPT_READ_TOOL,
+          { site: "supplier", script: "stock", inputs: { sku: "OAK-1" } },
+          s.ctx,
+        ),
+      ),
+    ).toMatch(/can't hold a page read only/);
+  });
+});
+
+describe("a submit's landing", () => {
+  const input = { site: "supplier", script: "order", inputs: { sku: "OAK-1", qty: 2 } };
+
+  it("off the allowed pages is reported as sent, and nothing there is read", async () => {
+    const s = await scripted();
+    s.portal.orderLanding = `${ORIGIN}/account/settings`;
+    const out = await executeWrite(s.connector, BROWSER_SCRIPT_SUBMIT_TOOL, input, {
+      ...s.ctx,
+      idempotencyKey: key,
+    });
+    expect(out.output).toMatchObject({
+      price: "1212.50",
+      submitted: true,
+      url: null,
+      reverse: null,
+    });
+    expect((out.output as { landing: string }).landing).toMatch(/may not open/);
+    expect(s.portal.orders).toEqual([{ number: "ORD-1", sku: "OAK-1", qty: "2" }]);
+    expect(s.records[0]).toMatchObject({ outcome: "done" });
+    expect(s.records[0]?.pages.some((p) => p.includes("/account"))).toBe(false);
+    const there = s.driver.events.filter(
+      (e) => (e.op === "screenshot" || e.op === "read") && e.url.includes("/account"),
+    );
+    expect(there).toEqual([]);
+    expect(s.portal.signOuts).toBe(1);
+  });
+
+  it("on a stop page is reported as sent too", async () => {
+    const s = await scripted();
+    s.portal.orderLanding = `${ORIGIN}/invoices/check`;
+    const out = await executeWrite(s.connector, BROWSER_SCRIPT_SUBMIT_TOOL, input, {
+      ...s.ctx,
+      idempotencyKey: key,
+    });
+    expect(out.output).toMatchObject({ submitted: true, url: null });
+    expect((out.output as { landing: string }).landing).toBeTruthy();
+    expect(s.portal.orders).toHaveLength(1);
+    expect(s.records[0]).toMatchObject({ outcome: "done" });
+  });
+});
+
+describe("the approved version", () => {
+  const input = { site: "supplier", script: "order", inputs: { sku: "OAK-1", qty: 2 } };
+
+  it("runs when it is still the published one", async () => {
+    const s = await scripted();
+    const { before } = await captureBefore(s.connector, BROWSER_SCRIPT_SUBMIT_TOOL, input, s.ctx);
+    const out = await executeWrite(s.connector, BROWSER_SCRIPT_SUBMIT_TOOL, input, {
+      ...s.ctx,
+      idempotencyKey: key,
+      proposedBefore: before,
+    });
+    expect(out.output).toMatchObject({ submitted: true });
+  });
+
+  it("refuses when another version was published since, or none was kept", async () => {
+    const s = await scripted();
+    const approved = { versionId: "version-old", version: 0, name: "Place an order", steps: [] };
+    for (const [proposedBefore, words] of [
+      [approved, /changed since it was approved \(version 0 was approved, version 1/],
+      [null, /approved before we kept which version/],
+    ] as const) {
+      const why = await failure(
+        executeWrite(s.connector, BROWSER_SCRIPT_SUBMIT_TOOL, input, {
+          ...s.ctx,
+          idempotencyKey: key,
+          proposedBefore,
+        }),
+      );
+      expect(why).toMatch(words);
+    }
+    expect(s.driver.opened).toBe(0);
+    expect(s.portal.orders).toEqual([]);
   });
 });

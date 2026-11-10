@@ -27,7 +27,7 @@ import {
   BROWSER_SCRIPT_READ_TOOL,
   BROWSER_SCRIPT_SUBMIT_TOOL,
 } from "./ids";
-import { loadScript, runPublishedScript } from "./script";
+import { loadScript, runPublishedScript, ScriptSubmitBefore, scriptSubmitBefore } from "./script";
 import { type BrowserSessionOptions, browserConnectionSite, inBrowserSession } from "./session";
 import { BrowserRefused } from "./sign-in";
 
@@ -276,17 +276,22 @@ export function createBrowserConnector(options: BrowserConnectorOptions = {}): C
           "Run one of the client's published scripts that submits a form on a website: fixed steps we recorded, with its inputs. Always approved by a person first.",
         input: ScriptCallInput,
         output: ScriptOutput,
-        beforeSchema: z.null(),
+        beforeSchema: ScriptSubmitBefore,
         async before(input, ctx) {
           // Nothing on the site is read before a submit (it would spend a sign-in): the checks are
-          // the script's, the inputs' and the connection's ceiling.
-          await loadScript(ctx, input, "external");
+          // the script's, the inputs' and the connection's ceiling. The before state is the
+          // version a person approves and its steps, so the card shows what will be sent.
+          const { script } = await loadScript(ctx, input, "external");
           await mayWrite(ctx, input.site);
-          return null;
+          return scriptSubmitBefore(script);
         },
+        // DECISION: the version approved (the proposal's before) must still be the published one
+        // when the write runs; another version published in between is refused, to be approved
+        // again. A direct call with no proposal (`proposedBefore` absent) runs the published one,
+        // as Sheets' write does; a proposal that kept no version (an older card) is refused.
         async run(input, ctx) {
           await mayWrite(ctx, input.site);
-          return runPublishedScript(ctx, input, "external", session);
+          return runPublishedScript(ctx, input, "external", session, ctx.proposedBefore);
         },
       }),
     ],
