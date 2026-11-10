@@ -5,6 +5,7 @@
 import { DecimalString, type SkillDefinition } from "@countersign/core";
 import { billLines, type InvoiceForBill, planBill, type ToolBill } from "@countersign/documents";
 import { z } from "zod";
+import { DOCS_SPLIT_SKILLS, DOCS_SPLIT_TOOLS } from "./docs-split";
 import { defineInternalTool, type InternalTool, type ToolInvocation } from "./types";
 
 const Uuid = z.uuid();
@@ -375,6 +376,8 @@ export const DOCS_TOOLS: readonly InternalTool[] = [
   docsMatchBill,
   docsPlanBill,
   docsBillLines,
+  // Skill model (2026-11-10): Check totals and Save to records: record the reading.
+  ...DOCS_SPLIT_TOOLS,
 ];
 
 const schema = (tool: InternalTool, key: "input" | "output") =>
@@ -491,4 +494,6 @@ export const DOCS_SKILLS: readonly SkillDefinition[] = [
     requiresPacks: [],
     producesAlerts: false,
   },
+  // Skill model (2026-11-10): Read document (AI) and Check totals (deterministic).
+  ...DOCS_SPLIT_SKILLS,
 ];

@@ -78,6 +78,7 @@ export * from "./tools/ask";
 export * from "./tools/converse";
 export * from "./tools/directory";
 export * from "./tools/docs";
+export * from "./tools/docs-split";
 export * from "./tools/health";
 // v0.12 W2-E
 export * from "./tools/inbound";
