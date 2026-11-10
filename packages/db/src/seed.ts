@@ -120,6 +120,10 @@ async function laterVersions(dir: URL, folder: string): Promise<SeedTemplateVers
 }
 
 /** Every seeded version after the first, by slug then version. Throws on an invalid file. */
+// DECISION (R9, one agent one process): the supervisor's v4 keeps its four workflows, each a v4
+// process; publishing doesn't apply `processes.oneProcessProblems` yet. When it does, Sloan keeps
+// `chat` and the slug, and the three watches (a failed run, a connection needing attention, the
+// daily check) become agents of their own under the account agent's guard (docs/plan.md §1.86).
 export async function loadSeedVersions(): Promise<SeedTemplateVersion[]> {
   return laterVersions(SEED_DIR, "agents");
 }

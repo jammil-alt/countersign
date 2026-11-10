@@ -2428,6 +2428,60 @@ tools, is the owner's doc "Mezonas process model"; milestones are §9.
 // keeping every id, and a skill that only wraps one tool becomes a `read` step (side effect `none`)
 // or a `write` step (anything else; an unknown tool counts as external, so approval stays on).
 
+Wave 3, templates (R9's seeds and pack templates, R2's skill names; `packages/db/seed`, the packs'
+templates, their installs):
+- DECISION: each seed and pack template with a workflow gets a new version whose workflows are v4
+  processes, exactly what `processes.upgradeWorkflowV3` reads the v3 version as with the platform's
+  registries (apps/api `templates-v4.test.ts` holds them to it): the Bill clerk's v2, the
+  supervisor's v4, the Demo client agent's v2, the Bookkeeper's v2 and each marketing agent's v2.
+  Nothing else changes: the definition is the earlier version's, every trigger, step and path id
+  is kept, no check or business hours are added. Stored versions are untouched (invariant 3).
+- DECISION: a later seed version file may name the version it changes (`{ "extends": 3,
+  "workflows": [...] }`; `definition` keys are replaced one by one, `workflows` and `people`
+  whole), resolved by `seedVersionBundle` (packages/db) for the seed and the back office's install
+  alike, so both store the same bundle and hash. An unchanged definition, its model among it, is
+  never retyped.
+- DECISION: approval in the v4 versions: every write to a client's tool (QuickBooks, the website,
+  LinkedIn, the testkit) keeps `checks.approval` with `required: required`, `in_turn`,
+  `ifNoAnswer: stop`. A write to a platform record (Sloan's reports and daily check, the
+  Bookkeeper's import, settling, posted ids and reconciliations) carries no approval check, as its
+  v3 tool skill carried none: absent is required (the executor's default) and the gate asks only
+  for a write to a client's tool. Nothing is loosened anywhere.
+- DECISION: deadlines in the v4 versions are v3's timeouts on the clock, `stop` unless v3 said the
+  run goes on: the Bill clerk's and the Bookkeeper's questions to a person (`ask`, never an
+  approval) keep v3's `continue` as `proceed`, so the run behaves as before.
+- DECISION (one agent, one process): publishing doesn't run `processes.oneProcessProblems` yet, so
+  no template is split. Two hold more than one workflow and keep them in their v4 version. When
+  publishing checks it: the supervisor splits into Sloan (`chat`, keeping the slug and the account
+  agent's guard) and three watch agents on the same guard (a failed run, a connection that needs
+  attention, the daily check); the Bookkeeper into the Bookkeeper (daily), a monthly reconciler, a
+  payout check run by hand and the weekly account questions. None hands work to another, so no
+  handoff trigger joins them. Splitting now would take reconciliation and Sloan's watches away
+  from every fork on its next update.
+- DECISION (R2): the seeds' four unregistered skill names (`builder.draft-agent`,
+  `builder.revise-agent`, `agents.route-ask`, `agents.review`) are removed, not registered: the
+  Builder runs its own model calls, and route-ask and review were never built (§1.28). The
+  Builder's and Coordinator's v2 have no skills; their v1, which never passed publishing's
+  checks, stays a draft when the back office installs v2 on a deployment without them.
+- DECISION (R2): all 85 tool-mode built-ins only wrap their tool, so `isToolWrapper` is how the
+  builder and the Library tell a retired skill; no field is added (a test pins it). No v4 version
+  names one in a skill step.
+- DECISION: a pack template carries its later versions (`versions`, v2 first). Switching the pack
+  on, for any client and again, adds each later version the template doesn't hold (by bundle hash)
+  and publishes it, as the seed and the platform-template install add theirs; an operator's own
+  versions keep their numbers. Publishing a template changes no client agent (invariant 11).
+- DECISION: the demo seed (Harbor Millwork) forks each template's newest version of v3 workflows,
+  as its weeks-old history ran; the v4 version is the update its agents are offered. The Demo
+  client agent's v2 is its live version; the Desk item's run stays on v1, the version it ran.
+- DECISION: readers of a bundle typed v3 read a v4 process too: `allTriggers` lists a process's
+  triggers, the v3 walker walks into an `if`, the portal's run forms read a process's first
+  trigger, and the account agent's guard checks read and write steps.
+- DECISION: a client agent of v3 workflows takes its template's v4 version by the usual reviewed
+  update: the update and promotion previews and drafts, customizations, version diffs and the
+  template's used-by counts read v3 as v4 with the registries as they are now
+  (`lineageReadOptions`), and a merged bundle that holds processes is validated as one. The
+  merged draft is all v4; all-v3 merges are unchanged.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

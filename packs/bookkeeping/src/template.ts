@@ -526,8 +526,8 @@ const BOOKKEEPER_V1 = {
 // DECISION (one agent, one process, ARCHITECTURE §10.14): the four workflows stay in one agent in
 // v2, as in v1. Publishing doesn't run the one-process check yet, and splitting would take
 // reconciliation away from every client's Bookkeeper on its next update. When it does, they split
-// into the Bookkeeper (daily), a Reconciler (monthly, and a payout by hand) and an account
-// questions agent (weekly); none hands work to another (docs/plan.md §1.86, templates).
+// into the Bookkeeper (daily), a monthly reconciler, a payout check run by hand and the weekly
+// account questions; none hands work to another (docs/plan.md §1.86, templates).
 
 /** Approval on, as v1's `approval: { required: "required" }` reads in v4. */
 const APPROVAL_REQUIRED = {
