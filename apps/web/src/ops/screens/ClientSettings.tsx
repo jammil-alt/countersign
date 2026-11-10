@@ -4,7 +4,8 @@
 // by default, then the approver rules), People (its people and invites, and the emails its admin
 // chose), Business hours and Channels (R8, plan §1.86: the client's week and its people's hours,
 // read-only; the account's number and email, ours to bind), Billing, Compliance (HIPAA mode and
-// vendors), Exports (it was a tab; `/exports` redirects here) and Retire client. The tools it is
+// vendors), Run audit (wave 6: which finished runs we check by hand), Exports (it was a tab;
+// `/exports` redirects here) and Retire client. The tools it is
 // offered are on Setup, Connections.
 import type { ExternalApprover, OpsClientSettings } from "@countersign/core";
 import { type ReactNode, useEffect, useState } from "react";
@@ -24,6 +25,7 @@ import { ClientComplianceSetting, ClientRetireSetting } from "./ClientCompliance
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
 import { ClientChannelsSection, ClientHoursSection } from "./ClientHours";
 import { ClientLanguageSetting } from "./ClientLanguageSetting";
+import { ClientRunAuditSection } from "./ClientRunAudit";
 import { ApproverChoice, type CreatedState } from "./NewClient";
 
 const APPROVER_LABEL: Record<ExternalApprover, string> = {
@@ -41,6 +43,8 @@ export const SETTINGS_SECTIONS = [
   ["channels", "Channels"],
   ["billing", "Billing"],
   ["compliance", "Compliance"],
+  // Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): which finished runs we check by hand.
+  ["audit", "Run audit"],
   ["exports", "Exports"],
   ["retire", "Retire client"],
 ] as const;
@@ -110,6 +114,8 @@ function SectionBody({ clientId, section }: { clientId: string; section: Setting
           <ClientComplianceSetting clientId={clientId} />
         </Titled>
       );
+    case "audit":
+      return <ClientRunAuditSection clientId={clientId} />;
     case "exports":
       return <ClientExportsSection clientId={clientId} />;
     case "retire":

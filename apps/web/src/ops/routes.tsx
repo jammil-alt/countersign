@@ -76,6 +76,7 @@ import { NewClientScreen } from "./screens/NewClient";
 import { OpsOAuthCallbackScreen } from "./screens/OAuthCallback";
 import { OpsRecordsScreen } from "./screens/Records";
 import { OpsRequestsScreen } from "./screens/Requests";
+import { OpsRunAuditScreen } from "./screens/RunAuditQueue";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
 import { OpsUsageScreen } from "./screens/Usage";
@@ -147,6 +148,8 @@ export const opsRoutes = (
     <Route path="billing" element={<OpsBillingScreen />} />
     <Route path="feedback" element={<OpsFeedbackScreen />} />
     <Route path="audit" element={<OpsAuditScreen />} />
+    {/* Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): runs picked for a person to check */}
+    <Route path="run-audit" element={<OpsRunAuditScreen />} />
     <Route path="requests" element={<OpsRequestsScreen />} />
     {/* Packs (P-1): switch a business area on per client, and a client's pack reports */}
     <Route path="packs" element={<OpsPacksScreen />} />

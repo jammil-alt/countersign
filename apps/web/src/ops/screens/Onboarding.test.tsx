@@ -313,6 +313,8 @@ describe("client settings", () => {
       "Channels",
       "Billing",
       "Compliance",
+      // Wave 6 (plan §1.86)
+      "Run audit",
       "Exports",
       "Retire client",
     ]);

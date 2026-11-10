@@ -25,6 +25,8 @@ export const OPS_PATHS = {
   feedback: "/ops/feedback",
   requests: "/ops/requests",
   audit: "/ops/audit",
+  // Wave 6: the audit queue (runs picked for a person to check).
+  runAudit: "/ops/run-audit",
   browserSites: "/ops/library/browser-sites",
   // §1.73: the Marketing area's entry; a client's marketing pages are in packs/marketing/ops/paths.ts.
   marketing: "/ops/marketing",
