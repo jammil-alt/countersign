@@ -15,6 +15,8 @@
 // those vendors already have; we only read them, with a key the client enters, and send them
 // nothing (docs/plan.md §1.75). Mezonas has no contract with either for this. M50: `gsc_oauth`,
 // the same Search Console account by Google sign-in, is not a processor either (§1.78).
+// §1.87: BILL (`billcom`) is, though the organization is the client's own: every call goes out
+// under Mezonas' developer key and agreement with BILL, as Plaid's do (the owner's brief).
 
 import { z } from "zod";
 
@@ -37,6 +39,8 @@ export const PROCESSORS = [
   // and Hacker News search (`hackernews.*`, Algolia's search and the official item API).
   "anthropic_web",
   "hackernews",
+  // §1.87: BILL (Bill.com), accounts payable, on Mezonas' developer key.
+  "billcom",
 ] as const;
 export type Processor = (typeof PROCESSORS)[number];
 
@@ -57,6 +61,8 @@ export const PROCESSOR_NAMES: Record<Processor, string> = {
   // §1.77
   anthropic_web: "Anthropic web search and fetch",
   hackernews: "Hacker News (Algolia and Firebase)",
+  // §1.87
+  billcom: "BILL",
 };
 
 /** `BAA_PROCESSORS`: comma- or space-separated processor ids; unknown words are ignored. */
@@ -96,6 +102,11 @@ const CONNECTOR_PROCESSORS: Record<string, readonly Processor[]> = {
   // vendor of ours without a BAA. LinkedIn is not here: it is the client's own company page, which
   // only the client signs in to, like Slack.
   hackernews: ["hackernews"],
+  // DECISION (§1.87): BILL is a processor, unlike QuickBooks or Ramp, because the calls go out
+  // under Mezonas' developer key (BILL_DEV_KEY) and its developer agreement with BILL, the way
+  // Plaid's account is ours. A client in HIPAA mode is refused it until `billcom` is in
+  // BAA_PROCESSORS.
+  billcom: ["billcom"],
 };
 
 /** The processors a connector sends a client's data to, whichever of its tools is used. */
