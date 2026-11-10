@@ -452,6 +452,91 @@ describe("onError: continue", () => {
     expect(tries).toBe(1);
   });
 
+  it("on a write the provider turned down without making it: goes on, the action failed unwritten", async () => {
+    const h = new Harness();
+    approvalWrite(h, { approved: true, by: "u-amy" });
+    h.resumeHandler = () => {
+      h.actions.push({ nodeId: "save", status: "failed", error: { notWritten: true } });
+      return { kind: "failed", error: "NotWrittenError: the bill is closed" };
+    };
+    const { result } = await run(
+      [
+        write({ onError: "continue", checks: { approval: {} } }),
+        routeOn("steps.save.outcome", "failed"),
+      ],
+      h,
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.actions).toEqual([{ nodeId: "save", status: "failed", error: { notWritten: true } }]);
+    expect(pathOf(h)).toBe("yes");
+  });
+
+  it("on a write that failed after the provider may have taken it: the run ends there", async () => {
+    const h = new Harness();
+    approvalWrite(h, { approved: true, by: "u-amy" });
+    // A transport error after sending: the runtime leaves the action failed without `notWritten`.
+    h.resumeHandler = () => {
+      h.actions.push({ nodeId: "save", status: "failed", error: { message: "socket hang up" } });
+      return { kind: "failed", error: "Error: socket hang up" };
+    };
+    const { result, runner } = await run(
+      [
+        write({ onError: "continue", checks: { approval: {} } }),
+        routeOn("steps.save.outcome", "failed"),
+      ],
+      h,
+    );
+    expect(result).toMatchObject({ status: "failed", nodeId: "save" });
+    expect(h.actions[0]?.status).toBe("failed");
+    expect(h.row("route")).toBeUndefined();
+    // Read once, in a durable step: a replay decides the same way.
+    expect(runner.names()).toContain("save:writes");
+  });
+
+  it("on a skill that made a write and then failed: the run ends there, its write done", async () => {
+    const h = new Harness();
+    h.handlers.think = () => {
+      h.actions.push({ nodeId: "think", status: "done" });
+      return { kind: "failed", error: "the model gave up" };
+    };
+    const { result } = await run(
+      [skill({ onError: "continue" }), routeOn("steps.think.outcome", "failed")],
+      h,
+    );
+    expect(result).toMatchObject({ status: "failed", nodeId: "think" });
+    expect(h.actions).toEqual([{ nodeId: "think", status: "done" }]);
+    expect(h.row("route")).toBeUndefined();
+  });
+
+  it("nor does a loop going on past its items' failures", async () => {
+    const h = new Harness();
+    h.handlers.w = (req) => {
+      const i = (req.input as { i: number }).i;
+      if (i !== 2) return { kind: "done", output: { ok: true } };
+      h.actions.push({ nodeId: req.nodeId, status: "executing" });
+      return { kind: "failed", error: "the worker restarted mid-write" };
+    };
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context(),
+      proc([
+        {
+          id: "each",
+          kind: "for_each",
+          name: "Each",
+          over: "{{trigger.items}}",
+          onError: "continue",
+          concurrency: 1,
+          steps: [
+            { id: "w", kind: "write", name: "W", tool: WRITE_TOOL.id, input: { i: "{{item}}" } },
+          ],
+        },
+      ]),
+      { items: [1, 2, 3] },
+    );
+    expect(result).toMatchObject({ status: "failed", nodeId: "each:1:w" });
+  });
+
   it("never goes on past a person's no", async () => {
     const h = new Harness();
     approvalWrite(h, { approved: false, by: "u-1" });

@@ -20,6 +20,7 @@ import {
 import {
   type Approval,
   type ApprovalAssignee,
+  actionWrote,
   approverFromSetting,
   assigneeOf,
   // P-4
@@ -31,7 +32,15 @@ import {
   parseSkillRef,
   REACH_OUT_SKILL,
 } from "@countersign/core";
-import { type Db, inboxItem, membership, stepRun, type Tx, withTenant } from "@countersign/db";
+import {
+  type Db,
+  externalAction,
+  inboxItem,
+  membership,
+  stepRun,
+  type Tx,
+  withTenant,
+} from "@countersign/db";
 import { leadOf } from "@countersign/threads";
 import type {
   AgentPort,
@@ -414,6 +423,30 @@ export function agentPort(
       }
       return firstWaiting(state, index) ?? { kind: "done", output: state.output ?? null };
     },
+
+    // Wave 5 review (docs/plan.md §1.86 "Forks (wave 5)"): whether the step made a write, or may
+    // have: its actions done or executing, or failed without the runtime's `notWritten` (an older
+    // failure, recorded before the mark existed, counts as may-have).
+    ...(release
+      ? {
+          stepWrites({ run, nodeId }: { run: RunInfo; nodeId: string }) {
+            const prefix = `${run.id}:${nodeId}:`;
+            return withTenant(release.db, run.tenantId, async (tx) => {
+              const rows = await tx
+                .select({ status: externalAction.status, error: externalAction.error })
+                .from(externalAction)
+                .where(
+                  and(
+                    eq(externalAction.tenantId, run.tenantId),
+                    eq(externalAction.runId, run.id),
+                    sql`starts_with(${externalAction.idempotencyKey}, ${prefix})`,
+                  ),
+                );
+              return rows.some((r) => actionWrote(r));
+            });
+          },
+        }
+      : {}),
 
     // R3 (docs/plan.md §1.86): approval modes and escalation on a write.
     async askApprover(request) {

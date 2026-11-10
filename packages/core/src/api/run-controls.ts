@@ -119,6 +119,20 @@ export function carryDecision(
 }
 
 /**
+ * Whether an external action was written, or may have been: done, executing (a crash mid-write),
+ * or failed without the runtime's `notWritten` mark (an older failure, from before the mark,
+ * counts as may-have). Proposed, approved and rejected actions wrote nothing.
+ */
+// DECISION (wave 5 review): a step goes on past its failure (`onError: continue`) only when none of
+// its actions wrote, or may have: the actions' own record, not the error's words.
+export function actionWrote(action: { status: string; error: unknown }): boolean {
+  if (action.status === "done" || action.status === "executing") return true;
+  if (action.status !== "failed") return false;
+  const error = action.error as { notWritten?: unknown } | null;
+  return !(error && typeof error === "object" && error.notWritten === true);
+}
+
+/**
  * Whether a run went on past a failed write of node `nodeId`: the run's error (`{ nodeId }`) names
  * another step, or none (it didn't fail there). A run that ended at the write's step, or at one of
  * its checks or retries (`<node>:…`), stopped on it.

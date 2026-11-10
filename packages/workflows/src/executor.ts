@@ -1146,9 +1146,21 @@ class Executor {
         if (helped.approvals) approvals = [...approvals, ...helped.approvals];
       }
     } catch (error) {
+      // Wave 5 review: a skill or write whose failure came with a write made, or one that may have
+      // been (the runtime's `notWritten` missing on a failed action), is never gone on past, here
+      // or by a loop or sub-process around it: the run ends there and the operator checks it.
+      if (
+        this.records &&
+        step.kind !== "read" &&
+        continuable(error) &&
+        error.result.nodeId === name &&
+        (await this.wrote(name))
+      ) {
+        throw new RunEnd(error.result);
+      }
       // Wave 5: `onError: continue` goes on past a failure the step reported, its row already
-      // failed; it records the outcome and a plain reason. Nothing is retried, and a write that
-      // failed wrote nothing (one that may have, `finishWork` never lets past).
+      // failed; it records the outcome and a plain reason. Nothing is retried, and nothing was
+      // written (`wrote` above; a write that may have happened, `finishWork` never lets past).
       if (!this.continues(step) || !continuable(error) || error.result.nodeId !== name) throw error;
       approvals = [...approvals, ...(error.continued.approvals ?? [])];
       this.record(
@@ -1200,6 +1212,23 @@ class Executor {
     const ended =
       why ?? (step.kind === "read" && processes.isEmptyOutput(output) ? "empty" : "done");
     this.record(frame, step, output, recorded(ended));
+  }
+
+  /**
+   * Wave 5 review: whether a failed step's writes were made, or may have been (`AgentPort
+   * .stepWrites`, read once in a durable step so a replay decides the same way).
+   */
+  // DECISION (wave 5 review): `onError: continue` goes on past a skill's or a write's failure only
+  // when every write the step proposed is known not to have been made (the gate refused it, its
+  // input was invalid, its release was refused, its connection was gone, the connector said the
+  // provider turned it down): what the external actions say, not the error's words. A skill that
+  // made any write and then failed doesn't go on: the run ends with its writes done.
+  async wrote(name: string): Promise<boolean> {
+    const port = this.ctx.agent.stepWrites;
+    if (!port) return false;
+    return this.runner.do(`${name}:writes`, () =>
+      port.call(this.ctx.agent, { run: this.ctx.run, nodeId: name }),
+    );
   }
 
   /** What the catalog says about skills and tools, as core's typing reads it. */
