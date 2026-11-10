@@ -281,9 +281,13 @@ export interface ProcessScope {
   settings: JsonSchema | undefined;
   /**
    * Upstream steps visible here, by id, with their output schemas. Wave 5: `self` marks the step
-   * itself in its own checks (its output is readable there, its outcome is not: it hasn't ended).
+   * itself in its own checks (its output is readable there, its outcome is not: it hasn't ended);
+   * `outputOnly` a step the hand-off reads (from the stored rows: outputs only).
    */
-  steps: Record<string, { step: Step; output: JsonSchema | undefined; self?: boolean }>;
+  steps: Record<
+    string,
+    { step: Step; output: JsonSchema | undefined; self?: boolean; outputOnly?: boolean }
+  >;
   /** Inside a for_each: the item schema (undefined when unknown). */
   loop?: { item: JsonSchema | undefined; step: ForEachStep };
   /** In a step's checks: how many of its confer reviewers' verdicts are readable. */
@@ -369,6 +373,11 @@ export function typeProcessPath(scope: ProcessScope, path: readonly string[]): P
             message: `a step's ${field} is known only once it has ended: read it in a later step`,
           };
         }
+        // DECISION (wave 5): the hand-off is resolved after the run from its stored rows, which
+        // hold outputs; it reads no outcome (route with an `if` and put what it found in an output).
+        if (s.outputOnly) {
+          return { ok: false, message: "the hand-off reads step outputs only" };
+        }
         return schemaAtPath(record, [field, ...tail]);
       }
       return {
@@ -426,7 +435,7 @@ function rootInScope(scope: ProcessScope, path: readonly string[]): boolean {
     if (!s || third === undefined) return false;
     if (third === "output") return true;
     // Wave 5: a record field of an earlier step (never the step's own: it hasn't ended).
-    return !s.self && stepRecordFields(s.step).includes(third);
+    return !s.self && !s.outputOnly && stepRecordFields(s.step).includes(third);
   }
   if (root === "confer") {
     return (
@@ -1265,6 +1274,10 @@ function checkHandoff(
     if (!top.has(step)) continue;
     Object.assign(scope.steps, before.steps);
     scope.steps[step.id] = { step, output: stepOutputSchema(step, c.ctx) };
+  }
+  for (const id of Object.keys(scope.steps)) {
+    const s = scope.steps[id];
+    if (s) scope.steps[id] = { ...s, outputOnly: true };
   }
   const id = process.triggers[0]?.id ?? "";
   checkRefs(c, id, process.handoff.output, ["handoff", "output"], scope);

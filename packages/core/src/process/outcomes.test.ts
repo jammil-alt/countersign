@@ -227,6 +227,13 @@ describe("validation", () => {
     ]);
   });
 
+  it("keeps the hand-off to outputs: it is read from the stored rows after the run", () => {
+    const input = { ...raw(), handoff: { output: { how: "{{steps.save.outcome}}" } } };
+    expect(errors(input)).toEqual([
+      expect.objectContaining({ code: expect.any(String), field: "handoff.output.how" }),
+    ]);
+  });
+
   it("refuses onError where a step has no failure of its own to go on past", () => {
     const input = raw();
     (input.steps[2] as Record<string, unknown>).onError = "continue";
