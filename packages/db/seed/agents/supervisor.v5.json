@@ -1,0 +1,235 @@
+{
+  "extends": 4,
+  "definition": {
+    "skills": [
+      {
+        "skill": "supervisor.explain",
+        "settings": {}
+      },
+      {
+        "skill": "account.chat",
+        "settings": {}
+      }
+    ],
+    "extraTools": ["supervisor.report", "supervisor.check"]
+  },
+  "workflows": [
+    {
+      "slug": "run-failed",
+      "name": "When a run fails",
+      "workflow": {
+        "schemaVersion": 4,
+        "triggers": [
+          {
+            "id": "trg-run-failed",
+            "on": {
+              "type": "event",
+              "event": "run.failed"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "id": "run-diagnosed",
+            "name": "Did the agent say why?",
+            "kind": "if",
+            "paths": [
+              {
+                "id": "run-diagnosed-yes",
+                "name": "The agent said why",
+                "when": {
+                  "match": "all",
+                  "rules": [
+                    {
+                      "field": "{{trigger.diagnosis}}",
+                      "op": "exists"
+                    }
+                  ]
+                },
+                "steps": [
+                  {
+                    "id": "run-report-diagnosed",
+                    "name": "Report the agent's diagnosis",
+                    "client": {
+                      "visible": true,
+                      "label": "Told you what needs you"
+                    },
+                    "kind": "write",
+                    "tool": "supervisor.report",
+                    "input": {
+                      "event": "run.failed",
+                      "facts": "{{trigger}}",
+                      "note": "{{trigger.diagnosis}}"
+                    }
+                  }
+                ]
+              }
+            ],
+            "otherwise": {
+              "id": "run-diagnosed-no",
+              "steps": [
+                {
+                  "id": "run-triage",
+                  "name": "Look into the failure",
+                  "client": {
+                    "visible": false
+                  },
+                  "kind": "skill",
+                  "skill": "supervisor.explain",
+                  "input": {
+                    "event": "run.failed",
+                    "facts": "{{trigger}}"
+                  }
+                },
+                {
+                  "id": "run-report",
+                  "name": "Report it",
+                  "client": {
+                    "visible": true,
+                    "label": "Told you what needs you"
+                  },
+                  "kind": "write",
+                  "tool": "supervisor.report",
+                  "input": {
+                    "event": "run.failed",
+                    "facts": "{{trigger}}",
+                    "note": "{{steps.run-triage.output.note}}",
+                    "sources": "{{steps.run-triage.output.sources}}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "slug": "connection-needs-attention",
+      "name": "When a connection needs a person",
+      "workflow": {
+        "schemaVersion": 4,
+        "triggers": [
+          {
+            "id": "trg-connection",
+            "on": {
+              "type": "event",
+              "event": "connection.needs_attention"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "id": "connection-triage",
+            "name": "Look into the connection",
+            "client": {
+              "visible": false
+            },
+            "kind": "skill",
+            "skill": "supervisor.explain",
+            "input": {
+              "event": "connection.needs_attention",
+              "facts": "{{trigger}}"
+            }
+          },
+          {
+            "id": "connection-report",
+            "name": "Report it",
+            "client": {
+              "visible": true,
+              "label": "Told you what needs you"
+            },
+            "kind": "write",
+            "tool": "supervisor.report",
+            "input": {
+              "event": "connection.needs_attention",
+              "facts": "{{trigger}}",
+              "note": "{{steps.connection-triage.output.note}}",
+              "sources": "{{steps.connection-triage.output.sources}}"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "slug": "daily-check",
+      "name": "Daily health check",
+      "workflow": {
+        "schemaVersion": 4,
+        "triggers": [
+          {
+            "id": "trg-daily",
+            "on": {
+              "type": "schedule",
+              "cron": "0 8 * * *"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "id": "check",
+            "name": "Check the account",
+            "client": {
+              "visible": true,
+              "label": "Checked your account"
+            },
+            "kind": "write",
+            "tool": "supervisor.check",
+            "input": {}
+          }
+        ]
+      }
+    },
+    {
+      "slug": "chat",
+      "name": "When someone writes to Sloan",
+      "workflow": {
+        "schemaVersion": 4,
+        "triggers": [
+          {
+            "id": "trg-chat",
+            "on": {
+              "type": "event",
+              "event": "thread.message_posted",
+              "filter": {
+                "match": "all",
+                "rules": [
+                  {
+                    "field": "{{trigger.subjectType}}",
+                    "op": "=",
+                    "value": "account"
+                  },
+                  {
+                    "field": "{{trigger.senderType}}",
+                    "op": "=",
+                    "value": "user"
+                  },
+                  {
+                    "field": "{{trigger.audience}}",
+                    "op": "=",
+                    "value": "client"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "steps": [
+          {
+            "id": "answer",
+            "name": "Answer the message",
+            "client": {
+              "visible": true,
+              "label": "Answered you"
+            },
+            "kind": "skill",
+            "skill": "account.chat",
+            "input": {
+              "threadId": "{{trigger.threadId}}",
+              "messageId": "{{trigger.messageId}}"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

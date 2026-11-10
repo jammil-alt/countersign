@@ -1,0 +1,148 @@
+{
+  "extends": 1,
+  "definition": {
+    "skills": [
+      {
+        "skill": "docs.read-document",
+        "settings": {},
+        "model": {
+          "id": "claude-haiku-5-5"
+        }
+      },
+      {
+        "skill": "docs.check-totals",
+        "settings": {}
+      }
+    ],
+    "extraTools": ["docs.reading.record"]
+  },
+  "workflows": [
+    {
+      "slug": "read-again",
+      "name": "When a document couldn't be read",
+      "workflow": {
+        "schemaVersion": 4,
+        "triggers": [
+          {
+            "id": "trg-unread",
+            "on": {
+              "type": "event",
+              "event": "document.extraction_failed"
+            }
+          },
+          {
+            "id": "trg-document",
+            "on": {
+              "type": "manual",
+              "input": {
+                "type": "object",
+                "properties": {
+                  "documentId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": ["documentId"],
+                "additionalProperties": false
+              }
+            }
+          }
+        ],
+        "steps": [
+          {
+            "id": "read",
+            "name": "Read the document",
+            "client": {
+              "visible": true,
+              "label": "Read the document"
+            },
+            "kind": "skill",
+            "skill": "docs.read-document",
+            "input": {
+              "documentId": "{{trigger.documentId}}"
+            }
+          },
+          {
+            "id": "totals",
+            "name": "Check the totals",
+            "client": {
+              "visible": false
+            },
+            "kind": "skill",
+            "skill": "docs.check-totals",
+            "input": {
+              "reading": "{{steps.read.output}}"
+            }
+          },
+          {
+            "id": "totals-off",
+            "name": "Totals don't add up?",
+            "client": {
+              "visible": false
+            },
+            "kind": "if",
+            "paths": [
+              {
+                "id": "totals-off-path",
+                "name": "They don't",
+                "when": {
+                  "match": "all",
+                  "rules": [
+                    {
+                      "field": "{{steps.totals.output.totalsMatch}}",
+                      "op": "=",
+                      "value": false
+                    }
+                  ]
+                },
+                "steps": [
+                  {
+                    "id": "totals-person",
+                    "name": "Ask a person to check the totals",
+                    "client": {
+                      "visible": true,
+                      "label": "Asked you to check a document's totals"
+                    },
+                    "kind": "person",
+                    "mode": "approve",
+                    "assignee": "client_admin",
+                    "title": "Check the totals on {{steps.totals.output.vendorName}} invoice {{steps.totals.output.invoiceNumber}}",
+                    "payload": {
+                      "documentId": "{{trigger.documentId}}",
+                      "problems": "{{steps.totals.output.problems}}"
+                    },
+                    "deadline": {
+                      "after": "3 days",
+                      "hours": "business",
+                      "remind": ["1 day"],
+                      "ifNoAnswer": "stop"
+                    },
+                    "channel": "inbox",
+                    "onReject": "stop"
+                  }
+                ]
+              }
+            ],
+            "otherwise": {
+              "id": "totals-ok",
+              "steps": []
+            }
+          },
+          {
+            "id": "save-reading",
+            "name": "Save to records: the reading",
+            "client": {
+              "visible": false
+            },
+            "kind": "write",
+            "tool": "docs.reading.record",
+            "input": {
+              "documentId": "{{trigger.documentId}}",
+              "reading": "{{steps.totals.output.reading}}"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
