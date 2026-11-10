@@ -4758,7 +4758,11 @@ and channels, the undo path and site-scoped browsing, wired end to end in apps/a
 and its follow-ups): R8 (the builder on processes, the Library, the portal's Connections, People,
 Business hours and Channels; the Builder chat and "Save as automation" on processes; every reader of
 a stored version reads v3 or v4) and R9's templates. Wave 4: R9's recorded scripts, run as
-`browser.script.read` and `browser.script.submit` (decisions in §1.86 "Scripts (wave 4)").
+`browser.script.read` and `browser.script.submit` (decisions in §1.86 "Scripts (wave 4)"). Wave 5
+(the owner's ask, after R9): a process forks on how any earlier step ended, not only on data: every
+v4 step records `steps.<id>.outcome` and its detail, an `if` routes on it, a step may carry on past
+a failure (`onError: continue`) only where nothing was written, and the builder's "Add a route"
+ends the new route with a stop (decisions in §1.86 "Forks (wave 5)").
 Migrations 0043, 0044 and 0045 are each their own commit, for their own PRs; so are the routes moved
 to `mountLong` (a pool of one connection never deadlocks), which touch sign-in callbacks. Not yet
 checked on staging: Browser Run's support for a context-wide `route` and `serviceWorkers: "block"`
