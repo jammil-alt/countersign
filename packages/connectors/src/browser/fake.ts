@@ -12,6 +12,7 @@ import type {
 } from "@countersign/core";
 import { utf8 } from "../runtime";
 import type {
+  BrowserControl,
   BrowserCookie,
   BrowserDownload,
   BrowserDriver,
@@ -213,6 +214,17 @@ interface FakePage {
   tables?: BrowserTable[];
   /** Form fields: password and hidden ones are never read. */
   fields?: { type: "text" | "password" | "hidden"; value: string }[];
+  /** What single elements read as (`textOf`), by selector. */
+  values?: Record<string, string>;
+  /** Selectors of the page's buttons (the rest of `selectors` are fields), for `controls`. */
+  buttons?: string[];
+}
+
+/** An order placed on the fake portal's order form (a recorded write script's submit). */
+export interface FakeOrder {
+  number: string;
+  sku: string;
+  qty: string;
 }
 
 /**
@@ -227,6 +239,8 @@ export class FakeSupplierPortal {
   readonly codesSent: string[] = [];
   signIns = 0;
   signOuts = 0;
+  /** Orders the order form placed, in order (scripts' writes). */
+  readonly orders: FakeOrder[] = [];
   /** What the next visit to /login shows instead: a CAPTCHA, a new-device check, a redirect. */
   loginTwist: "captcha" | "new_device" | "redirect_away" | null = null;
   options: FakePortalOptions;
@@ -314,6 +328,40 @@ export class FakeSupplierPortal {
       // A check the site puts up mid-session: a person must look.
       case "/invoices/check":
         return { page: { text: "Please prove you are human", selectors: [".g-recaptcha"] } };
+      // The order form a write script fills and submits, and the pages it reads.
+      case "/orders":
+        return {
+          page: {
+            text: "Orders",
+            selectors: ["#account", "#new-order"],
+            buttons: ["#new-order"],
+            tables: [
+              {
+                headers: ["Order", "SKU", "Qty"],
+                rows: this.orders.map((o) => [o.number, o.sku, o.qty]),
+              },
+            ],
+          },
+        };
+      case "/orders/new":
+        return {
+          page: {
+            text: "New order\nPrice per unit $1,212.50",
+            selectors: ["#account", "#sku", "#qty", "#price", "#place"],
+            buttons: ["#place"],
+            values: { "#price": "$1,212.50", "#sku": "", "#qty": "" },
+          },
+        };
+      case "/orders/lookup": {
+        const sku = u.searchParams.get("sku") ?? "";
+        return {
+          page: {
+            text: `Stock for ${sku}`,
+            selectors: ["#account", "#stock"],
+            values: { "#stock": sku === "OAK-1" ? "42" : "0" },
+          },
+        };
+      }
       case "/statements":
         return { page: { text: "Statements\nMarch 2026", selectors: ["#account"] } };
       case "/account/settings":
@@ -360,6 +408,18 @@ export class FakeSupplierPortal {
       this.sessions.add(sid);
       this.signIns += 1;
       return { go: `${this.origin}/home` };
+    }
+    if (u.pathname === "/orders/new" && selector === "#place") {
+      const order = {
+        number: `ORD-${this.orders.length + 1}`,
+        sku: form["#sku"] ?? "",
+        qty: form["#qty"] ?? "",
+      };
+      this.orders.push(order);
+      return { go: `${this.origin}/orders` };
+    }
+    if (u.pathname === "/orders" && selector === "#new-order") {
+      return { go: `${this.origin}/orders/new` };
     }
     if (selector === "#logout") {
       if (sid) this.sessions.delete(sid);
@@ -514,6 +574,19 @@ export class FakeBrowserDriver implements BrowserDriver {
       async readTables() {
         answer();
         return clone(page.tables ?? []);
+      },
+      async textOf(selector) {
+        answer();
+        if (!page.selectors.includes(selector)) return null;
+        return form[selector] ?? page.values?.[selector] ?? "";
+      },
+      async controls(): Promise<BrowserControl[]> {
+        answer();
+        return page.selectors.map((selector) => ({
+          selector,
+          kind: page.buttons?.includes(selector) ? "button" : "field",
+          label: selector.replace(/^#/, ""),
+        }));
       },
       async download(target) {
         answer();

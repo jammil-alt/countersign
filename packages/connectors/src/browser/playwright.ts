@@ -4,7 +4,13 @@
 // strings our code wrote, evaluated in the page. The model never runs anything in a page.
 
 import { fromBase64 } from "../runtime";
-import type { BrowserCookie, BrowserDownload, BrowserTab, BrowserTable } from "./driver";
+import type {
+  BrowserControl,
+  BrowserCookie,
+  BrowserDownload,
+  BrowserTab,
+  BrowserTable,
+} from "./driver";
 
 /** The part of Playwright's `Page` this adapter uses. */
 export interface PlaywrightPageLike {
@@ -115,6 +121,69 @@ const READ_TABLES = `(() => { ${WALK}
   return tables;
 })()`;
 
+/** One element's text, with READ_TEXT's removals (a field reads as its value); null when none. */
+function textOfScript(selector: string): string {
+  return `(() => { ${WALK}
+  let el = null;
+  try { el = document.querySelector(${JSON.stringify(selector)}); } catch { return null; }
+  if (!el || !visibleAncestors(el)) return null;
+  const f = fieldText(el);
+  if (f !== null) return f.trim();
+  const out = [];
+  textOf(el, out);
+  return clean(out.join(""));
+})()`;
+}
+
+/**
+ * The fields, lists, buttons and links a person recording may use, each with a selector that finds
+ * it again (its id, its name, a link's address, else its place in the page); never a password,
+ * hidden or one-time-code field.
+ */
+const CONTROLS = `(() => { ${WALK}
+function sel(el) {
+  const tag = el.tagName.toLowerCase();
+  if (el.id && /^[A-Za-z][\\w-]*$/.test(el.id)) return "#" + el.id;
+  const q = (v) => v.replace(/["\\\\]/g, "\\\\$&");
+  const name = el.getAttribute("name");
+  if (name) return tag + '[name="' + q(name) + '"]';
+  const href = tag === "a" && el.getAttribute("href");
+  if (href) return 'a[href="' + q(href) + '"]';
+  const parts = [];
+  for (let e = el; e && e !== document.body; e = e.parentElement) {
+    const t = e.tagName.toLowerCase();
+    const same = e.parentElement ? Array.from(e.parentElement.children).filter((x) => x.tagName === e.tagName) : [];
+    parts.unshift(same.length > 1 ? t + ":nth-of-type(" + (same.indexOf(e) + 1) + ")" : t);
+  }
+  return "body > " + parts.join(" > ");
+}
+function labelOf(el) {
+  const aria = el.getAttribute("aria-label");
+  if (aria) return aria;
+  if (el.id) { const l = document.querySelector('label[for="' + el.id + '"]'); if (l) return cellText(l); }
+  const wrap = el.closest("label");
+  if (wrap) return cellText(wrap);
+  return el.getAttribute("placeholder") || cellText(el) || el.getAttribute("value") || el.getAttribute("title") || "";
+}
+const out = [];
+for (const el of Array.from(document.querySelectorAll("input,select,textarea,button,a[href]"))) {
+  if (out.length >= 200) break;
+  if (!visibleAncestors(el)) continue;
+  const tag = el.tagName;
+  let kind = "field";
+  if (tag === "SELECT") kind = "select";
+  else if (tag === "BUTTON") kind = "button";
+  else if (tag === "A") kind = "link";
+  else if (tag === "INPUT") {
+    const t = (el.getAttribute("type") || "text").toLowerCase();
+    if (t === "submit" || t === "button" || t === "reset" || t === "image") kind = "button";
+    if (t === "file") continue;
+  }
+  out.push({ selector: sel(el), kind, label: labelOf(el).slice(0, 120) });
+}
+return out;
+})()`;
+
 /** Fetches with the page's cookies; the address it ends at after redirects comes back too. */
 function downloadScript(url: string): string {
   return `(async () => {
@@ -173,6 +242,8 @@ export function playwrightTab(page: PlaywrightPageLike, options: PlaywrightTabOp
     },
     readText: () => page.evaluate<string>(READ_TEXT),
     readTables: () => page.evaluate<BrowserTable[]>(READ_TABLES),
+    textOf: (selector) => page.evaluate<string | null>(textOfScript(selector)),
+    controls: () => page.evaluate<BrowserControl[]>(CONTROLS),
     async download(url): Promise<BrowserDownload> {
       const r = await page.evaluate<{
         status: number;

@@ -21,7 +21,7 @@ import {
 } from "@countersign/core";
 import { z } from "zod";
 import type { HeldSession, ToolContext } from "../connector";
-import type { BrowserCookie, BrowserDownload, BrowserTable } from "./driver";
+import type { BrowserControl, BrowserCookie, BrowserDownload, BrowserTable } from "./driver";
 import { checkBrowsePage } from "./scope";
 import type { BrowserServices, BrowserSessionRecord } from "./services";
 import {
@@ -63,6 +63,23 @@ export interface SignedInPage {
   readTables(): Promise<BrowserTable[]>;
   /** Fetches an allowed file; the address it ends at is checked again. */
   download(url: string): Promise<BrowserDownload>;
+  /** Whether an element `selector` names is on the page. */
+  has(selector: string): Promise<boolean>;
+  /** Types into an element (a script's or a recording's fill; never a login: that is sign-in's). */
+  fill(selector: string, value: string): Promise<void>;
+  /**
+   * Clicks an element; the page it lands on is checked like an opened one (allowed, no stop page)
+   * and photographed. Answers the address it ends at.
+   */
+  click(selector: string): Promise<string>;
+  /** One element's text (a field's value); null when nothing matches. */
+  textOf(selector: string): Promise<string | null>;
+  /** The page's fields, lists, buttons and links, for the recorder; [] where the driver can't. */
+  controls(): Promise<BrowserControl[]>;
+  /** The address the page is on now. */
+  url(): string;
+  /** A screenshot of the page now, kept as evidence: its storage key, or null when it failed. */
+  shoot(): Promise<string | null>;
   /** Notes an action for the session's record. */
   note(action: BrowserSessionRecord["actions"][number]): void;
   /**
@@ -163,6 +180,18 @@ async function siteOf(ctx: ToolContext, call: BrowserCall) {
     if (!first.ok) throw new BrowserRefused(`${call.url}: ${first.reason}`);
   }
   return { services, config, site, allowed };
+}
+
+/**
+ * The connection's pinned site and its setup, checked as a session checks them (the site named is
+ * the connection's, still in the catalogue), without opening a browser: a write's before state.
+ */
+export async function browserConnectionSite(
+  ctx: ToolContext,
+  site: string,
+): Promise<{ site: PinnedBrowserSite; config: BrowserConnectionConfig }> {
+  const checked = await siteOf(ctx, { tool: "", site });
+  return { site: checked.site, config: checked.config };
 }
 
 /**
@@ -324,6 +353,37 @@ export async function withBrowserSession<T>(
         }
         return file;
       },
+      has: (selector) => tab.has(selector),
+      async fill(selector, value) {
+        await tab.fill(selector, value);
+        // The value is the client's data: the record names the element only.
+        record.actions.push({ kind: "fill", url: tab.url(), selector });
+      },
+      async click(selector) {
+        pageShot = null;
+        const from = tab.url();
+        await tab.click(selector);
+        record.actions.push({ kind: "click", url: from, selector });
+        const after = allowed(tab.url());
+        if (!after.ok) {
+          // A click that leaves the allowed pages: stop there, read nothing.
+          throw new BrowserRefused(
+            `clicking ${selector} went to a page agents may not open: ${after.reason}`,
+          );
+        }
+        await checkForStops(tab, site.profile.login);
+        if (after.url !== record.pages.at(-1)) record.pages.push(after.url);
+        pageShot = await shot();
+        return after.url;
+      },
+      async textOf(selector) {
+        if (!tab.textOf) throw new BrowserRefused("this browser can't read single fields");
+        const text = await tab.textOf(selector);
+        return text === null ? null : redact.text(text);
+      },
+      controls: async () => redact.deep(tab.controls ? await tab.controls() : []),
+      url: () => tab.url(),
+      shoot: () => shot(),
       note: (action) => record.actions.push(action),
       lastScreenshot: () => pageShot,
       redact: (value) => redact.deep(value),

@@ -992,7 +992,7 @@ class Executor {
     if (step.kind !== "write" && checks?.confer) {
       opts.afterRun = async (output) => {
         // A request for help isn't the step's result: it is conferred on once answered.
-        if (needsHelpOf(output, !origin && view.kind === "skill")) return;
+        if (needsHelpOf(output, !origin)) return;
         await conferOutput(shape(output));
       };
     }
@@ -1005,7 +1005,10 @@ class Executor {
     let proposed = done.proposed;
 
     // R3: a native skill that couldn't do it asks the lead, then runs once more with the answer.
-    if (view.kind === "skill" && !origin) {
+    // Wave 4: so does a native read or write step whose tool asked (a recorded script whose page
+    // changed answers `needsHelp`, docs/plan.md §1.86 "Scripts (wave 4)").
+    // DECISION: any native work step's `needsHelp` output asks; a converted v3 step's never does.
+    if (!origin) {
       const helped = await this.needsHelp(view, name, frame, approval, done, opts);
       output = helped.output;
       proposed = helped.proposed;
@@ -1953,7 +1956,7 @@ class Executor {
    * output, whatever it holds (it never asked before).
    */
   async needsHelp(
-    view: SkillStep,
+    view: SkillStep | ActionStep,
     name: string,
     frame: Frame,
     approval: Approval,

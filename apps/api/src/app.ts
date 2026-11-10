@@ -46,6 +46,7 @@ import { auditExportRoutes } from "./routes/audit-export";
 import { bankfeedRoutes } from "./routes/bankfeed";
 import { billingRouteHandlers } from "./routes/billing";
 import { browserRoutes } from "./routes/browser";
+import { browserScriptRoutes } from "./routes/browser-scripts";
 import { callsSetupRoutes } from "./routes/calls-setup";
 // R4: business hours, person hours and channels (docs/plan.md §1.86)
 import { channelRoutes } from "./routes/channels";
@@ -208,6 +209,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   accessRoutes(app);
   releaseRoutes(app);
   browserRoutes(app);
+  // Wave 4 (docs/plan.md §1.86 "Scripts (wave 4)")
+  browserScriptRoutes(app);
   complianceRouteHandlers(app);
   // v0.12 W1-E
   runControlRoutes(app);

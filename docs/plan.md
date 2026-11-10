@@ -2932,6 +2932,74 @@ runtime (wave 2c):
   contract (`packages/core/src/api/undo.ts`); apps/api mounts it and the web calls it from
   `apiRoutes`, replacing both copies. The Library uses the step lists' `PROCESS_KIND_LABEL`.
 
+**Scripts (wave 4)** (R9's second half: scripted site tools; `packages/core/src/browser/script.ts`,
+`packages/connectors/src/browser/script.ts`, `apps/api/src/browser/scripts.ts`,
+`apps/api/src/routes/browser-scripts.ts`, migration 0045, `apps/web/src/accounts/scripts.tsx`, the
+Websites screen's Scripts, the Library's and the builder's listings):
+- DECISION: a script is data per client site: `browser_script` (its name, the recording being made,
+  edited in place, and the published version) and `browser_script_version` (each saved definition
+  with its evidence screenshots by step id; immutable, never deleted). Migration 0045, forced RLS on
+  `tenant_id`; publishing points the script at a version (`published_version`), it never changes
+  one.
+- DECISION: two static tools on the browser connector run every client's scripts, naming the
+  script in their input (`{ site, script, inputs }`): `browser.script.read` (a script that only
+  reads) and `browser.script.submit` (one that submits). The script is looked up at call time
+  through `BrowserServices.script`, inside the connection's own client (and on its own login), so a
+  script exists for that client alone and the platform's tool registry stays the same for everyone
+  (no per-client tools in `packages/agents`). Inputs and outputs are checked with Zod built from the
+  script's declarations, both ways (invariant 5).
+- DECISION: `browser.script.submit` is `approval: "always"`, verb `create` on a new `form` entity:
+  a person signs every script write on every tier, through the gate and `external_action` (executed
+  once by its key). The tier table's low-tier `auto` is not offered for scripts yet. Its `before`
+  reads nothing from the site (that would spend a sign-in): it checks the script is published, the
+  inputs, and the connection's write ceiling (`browserWriteCeiling`: blocked or the client's "no
+  writes" refuse before a card is made).
+- DECISION: the tool's undo is `none`. R5's Undo reads the record now and compares it with the state
+  the write left; a script has no record to read without a sign-in. A script's own undo (a named
+  reverse script with its inputs from this script's inputs or outputs) is kept on the version and
+  named in the write's output (`reverse`), for a person to run.
+- DECISION: the submit is a write script's last step, and its output is `{ submitted, url }` plus
+  what it read before submitting: a recording never clicks the submit (nothing reaches the
+  client's tool outside `external_action`, invariant 8), so a page after it was never seen.
+  Steps: open, fill, click (one may submit), read a field, read a table (by its place on the page),
+  download a file (into documents, as `browser.file.download`). Addresses may hold `{{input}}`,
+  filled percent-encoded and checked against the site's pages on every run.
+- DECISION: recording is one action per request, each in a browser session our code signs in to
+  (`withBrowserSession`): the steps so far are replayed as a dry run, then the new action is done
+  and kept with its screenshot. No live view and no session held across requests: a Worker can't
+  keep a browser between requests without a Durable Object or Browser Run's reconnect (unchecked).
+  Each action spends a sign-in against the connection's daily cap (a low-tier site that keeps its
+  session spends none). The recorder shows the page after each action: its address, some text,
+  its tables, its fields and buttons with selectors (`BrowserTab.controls`), and the screenshot.
+- DECISION: a typed value marked `as` becomes an input (the value its example); a read marked `as`
+  an output. The review edits names, labels, types and which steps stay; saving checks the
+  definition (`scriptProblems`) and every address against the site's pages with the examples, and
+  refuses one that is the same as the last version.
+- DECISION: only the operator tests and publishes. A client admin records, reviews and saves; the
+  version stays a draft (state "Waiting for us to publish") until the operator publishes it
+  (invariant 11). A test is a dry run of a version (or the recording) with given inputs or the
+  examples: the submit is never clicked and a download is fetched and not kept (test runs never
+  write, not even our own records). Publishing writes a line on the login's log
+  (`browser_script_published`).
+- DECISION: an element that isn't there stops the script (nothing after it runs, so a write submits
+  nothing) and the tool answers `{ needsHelp }` (a write's with `submitted: false`). The executor
+  now asks the lead for any native v4 read or write step whose output says so, as for a native
+  skill, and runs it once more with the answer (`help` in the input, data only; a converted v3
+  step never asks). The answer is an ordinary note: it can't change a script's fixed steps, so the
+  operator re-records and republishes, and the re-run takes the version published then.
+- DECISION: the script-draft offer (a browsing path that worked twice, §1.86 browse) has "Record it
+  as a script" in the Escalations, opening the Websites screen's recorder with
+  `?offer=<item>&client=<client>`; starting from it prefills the path's pages as open steps (a
+  download as a download step with an output of its own).
+- DECISION: the Library's Tools bank lists the picked client's published scripts under the browser
+  connector; a client agent's builder palette offers them in the browser connector's section as read
+  and write steps with the script named in the input (a write starting with its approval on). The
+  builder change is a preset `input` on palette read and write items and three small hooks
+  (`WorkflowBuilder.tsx`, `catalog.ts`, `model.ts`); the rest is `builder/scripts.ts`.
+- DECISION: the page scripts behind `BrowserTab.textOf` and `controls` (Playwright, evaluated in the
+  page like `readText`) are checked against the fake browser only here: real Chromium and Browser
+  Run are unchecked (CI's Chromium job covers the Playwright adapter).
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
@@ -4129,7 +4197,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0041 | §1.81 | `qbo_webhook_event`: Intuit's webhook notifications, one row per change |
 | 0043 | R4 (§1.86) | `membership.hours`, `contact.hours`: a person's own week and away dates, nullable `jsonb` |
 | 0044 | R5 (§1.86) | `external_action.after`: the state a write left, for undo, nullable `jsonb` |
-| 0045 | R9 (§1.86) | Recorded browser scripts (scripted site tools), if they need their own table |
+| 0045 | R9 (§1.86) | `browser_script`, `browser_script_version`: a client's recorded scripts (scripted site tools), forced RLS on `tenant_id`, versions immutable |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
@@ -4394,4 +4462,7 @@ Status (2026-11-10): wave 1 (R1, R2's schema, R5's declarations, ARCHITECTURE v0
 v4 validator, executor, owner, conversation step, hours and channels storage, the undo path and
 site-scoped browsing) are merged on `claude/busy-euler-cgu5kr`. Wave 2b wires them end to end in
 apps/api and fixes wave 2's review findings; wave 3 is R8 and R9's templates. Migrations 0043 and
-0044 are their own commits, for their own PRs.
+0044 are their own commits, for their own PRs. Wave 4 (`wave4/scripts`) is R9's scripted site
+tools: recorded, reviewed, tested and published scripts run as `browser.script.read` and
+`browser.script.submit` (decisions in §1.86 "Scripts (wave 4)"), with migration 0045 in its own
+commit.
