@@ -282,7 +282,8 @@ describe("skills and automations library", () => {
       }),
     });
     // Skills is the first tab; automations wait in theirs.
-    const tabs = await screen.findByTestId("skills-tabs");
+    // The first screen of a test file loads the app's chunks: slow on CI, so it gets longer.
+    const tabs = await screen.findByTestId("skills-tabs", {}, { timeout: 10_000 });
     expect(await within(tabs).findByRole("link", { name: /^Skills\s*3$/ })).toHaveClass(
       "border-slate",
     );
