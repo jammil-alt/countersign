@@ -252,21 +252,13 @@ describe.skipIf(!h)("the Bill clerk", () => {
     );
     expect((await txnOf("Bill:150"))?.total).toBe("9742.3500");
 
-    // The template, installed as the seed installs it, then forked into client A.
-    const seeded = (await loadSeedTemplates()).find((t) => t.slug === "bill-clerk");
-    if (!seeded) throw new Error("no bill-clerk seed");
-    const tpl = await H.call(OPERATOR, "POST", "/api/ops/templates", {
-      slug: "bill-clerk",
-      bundle: seeded.bundle,
+    // The template, installed as the seed installs it, then forked into client A. R9: its live
+    // version is v2, the same workflow as a v4 process (v1, of v3 workflows, runs in e2e.test.ts).
+    const tpl = await H.call(OPERATOR, "POST", "/api/ops/platform-templates/bill-clerk/install", {
+      version: 2,
     });
     expect(tpl.status, JSON.stringify(tpl.json)).toBe(200);
-    templateId = j(tpl.json).agent.id;
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${templateId}/versions/${j(tpl.json).version.id}/publish`,
-    );
-    expect(pub.status, JSON.stringify(pub.json)).toBe(200);
+    templateId = j(tpl.json).template.id;
   });
 
   it("validates against the platform, with approval on every write", async () => {
