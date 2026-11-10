@@ -87,6 +87,40 @@ describe("skill reads, browsing and rules", () => {
     }
   });
 
+  it("keeps browsing on the site's own pages: no //, no . or .., no encoded dots or slashes", () => {
+    const pages = (p: string) =>
+      SkillDefinition.safeParse({ ...task, browse: { sites: ["supplier-portal"], pages: [p] } })
+        .success;
+    for (const good of ["/", "/orders/*", "/orders/2026.11/*", "/a/.well-known", "/x%20y"]) {
+      expect(pages(good), good).toBe(true);
+    }
+    for (const bad of [
+      "//host/x",
+      "//evil.example.com/orders",
+      "/orders//x",
+      "/../x",
+      "/orders/../admin",
+      "/./x",
+      "/orders/..",
+      "/%2e%2e/x",
+      "/%2E%2E/x",
+      "/orders%2f..%2fadmin",
+      "/orders/%2F",
+      "/orders/%5c..%5cadmin",
+      "/orders/.%2e/admin",
+    ]) {
+      expect(pages(bad), bad).toBe(false);
+    }
+  });
+
+  it("refuses the rest of a bad browse", () => {
+    for (const bad of [{ sites: ["supplier-portal"], pages: ["/orders/*", "/../x"] }]) {
+      expect(SkillDefinition.safeParse({ ...task, browse: bad }).success, JSON.stringify(bad)).toBe(
+        false,
+      );
+    }
+  });
+
   it("holds rule rows on rules skills only, with unique ids", () => {
     expect(
       SkillDefinition.safeParse({ ...task, method: "rules_then_ai", rules: [rule] }).success,

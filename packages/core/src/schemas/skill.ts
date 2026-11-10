@@ -43,11 +43,25 @@ export const SKILL_METHODS = ["rules", "ai", "rules_then_ai"] as const;
 export const SkillMethod = z.enum(SKILL_METHODS);
 export type SkillMethod = z.infer<typeof SkillMethod>;
 
-/** A page path pattern on a site: `/orders/*`, `/account/invoices`. */
+/**
+ * A page path pattern on a site: `/orders/*`, `/account/invoices`. It stays on the site's own
+ * pages: never `//` (a protocol-relative URL is another host), never a `.` or `..` segment, and
+ * never a percent-encoded dot, slash or backslash (`%2e`, `%2f`, `%5c`), which a browser decodes
+ * into one of those.
+ */
+// DECISION: an empty segment anywhere (`/orders//x`) is refused too, not only a leading `//`: no
+// site's page needs one, and a path that only one parser normalizes is how allowlists leak.
 export const BrowsePage = z
   .string()
   .max(200)
-  .regex(/^\/[A-Za-z0-9._~\-/*%]*$/, "a path from /, with * for any part, e.g. /orders/*");
+  .regex(/^\/[A-Za-z0-9._~\-/*%]*$/, "a path from /, with * for any part, e.g. /orders/*")
+  .refine((p) => !p.includes("//"), { message: "a path has no empty parts (no //)" })
+  .refine((p) => p.split("/").every((seg) => seg !== "." && seg !== ".."), {
+    message: "a path has no . or .. parts",
+  })
+  .refine((p) => !/%(2e|2f|5c)/i.test(p), {
+    message: "a path has no encoded dots or slashes (%2e, %2f, %5c)",
+  });
 
 /**
  * The sites and pages an `ai` skill may browse, through the client's browser connections: only
