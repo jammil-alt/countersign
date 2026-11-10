@@ -21,6 +21,7 @@ import {
   personHoursOf,
   personHoursProblem,
   setClientBusinessHours,
+  weekProblem,
 } from "../hours/hours";
 import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 
@@ -132,6 +133,8 @@ export function hoursRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.portalSetBusinessHours, async ({ tx, tenantIds, body }) => {
     const tenantId = tenantIds[0] as string;
+    const problem = weekProblem(body.week);
+    if (problem) throw new HttpError(422, "invalid_hours", problem);
     await setClientBusinessHours(tx, tenantId, {
       week: body.week,
       usHolidays: body.usHolidays,

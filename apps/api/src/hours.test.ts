@@ -125,6 +125,22 @@ describe.skipIf(!h)("business hours and person hours", () => {
       });
       expect(zoned.status).toBe(400);
     });
+
+    it("refuses a week with no open hours, which would never let a deadline come due", async () => {
+      const before = await call(admin("a"), "GET", "/api/settings/business-hours");
+      for (const week of [{}, { mon: [], sat: [] }]) {
+        const closed = await call(admin("a"), "PUT", "/api/settings/business-hours", {
+          week,
+          usHolidays: true,
+          closed: [],
+        });
+        expect(closed.status, JSON.stringify(week)).toBe(422);
+        expect((closed.json as J).error.code).toBe("invalid_hours");
+      }
+      // Nothing changed.
+      const after = await call(admin("a"), "GET", "/api/settings/business-hours");
+      expect(after.json).toEqual(before.json);
+    });
   });
 
   describe("a person's own hours", () => {
@@ -165,6 +181,62 @@ describe.skipIf(!h)("business hours and person hours", () => {
         hours: { hours: { tz: "Mars/Olympus", week: {} }, away: [] },
       });
       expect(zone.status).toBe(422);
+    });
+
+    it("refuses hours with no open time, and away for more than 366 days in a row", async () => {
+      const refused = async (path: string, hours: unknown, who = user("a")) => {
+        const res = await call(who, "PUT", path, { hours });
+        expect(res.status, JSON.stringify(hours)).toBe(422);
+        expect((res.json as J).error.code).toBe("invalid_hours");
+        return (res.json as J).error.message as string;
+      };
+      expect(
+        await refused("/api/settings/my-hours", {
+          hours: { tz: "America/Denver", week: { sun: [] } },
+          away: [],
+        }),
+      ).toContain("no open hours");
+      // One range years long, ranges laid end to end, and ranges that overlap all count as one.
+      for (const away of [
+        [{ from: "2026-11-10", to: "2099-12-31" }],
+        [
+          { from: "2027-01-01", to: "2027-12-31" },
+          { from: "2026-01-01", to: "2026-12-31" },
+        ],
+        [
+          { from: "2026-01-01", to: "2026-10-31" },
+          { from: "2026-06-01", to: "2027-01-05" },
+        ],
+      ]) {
+        expect(await refused("/api/settings/my-hours", { away })).toContain("366 days in a row");
+      }
+      // A date that isn't one.
+      expect(
+        await refused("/api/settings/my-hours", {
+          away: [{ from: "2026-02-30", to: "2026-03-02" }],
+        }),
+      ).toContain("not a date");
+      // The client admin's writes for others are held to the same.
+      const [m] = await H.t.db
+        .select({ userId: membership.userId })
+        .from(membership)
+        .where(and(eq(membership.tenantId, H.A.tenantId), eq(membership.role, "client_user")));
+      await refused(
+        `/api/settings/people-hours/users/${m?.userId}`,
+        { away: [{ from: "2026-01-01", to: "2028-01-01" }] },
+        admin("a"),
+      );
+      // A full year (leap day included), and a gap between two long stretches, are fine.
+      const ok = await call(user("a"), "PUT", "/api/settings/my-hours", {
+        hours: {
+          away: [
+            { from: "2028-01-01", to: "2028-12-31" },
+            { from: "2029-01-02", to: "2029-12-31" },
+          ],
+        },
+      });
+      expect(ok.status).toBe(200);
+      await call(user("a"), "PUT", "/api/settings/my-hours", { hours: null });
     });
   });
 
