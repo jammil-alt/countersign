@@ -20,6 +20,7 @@ import {
 import {
   type Approval,
   type ApprovalAssignee,
+  actionWrote,
   approverFromSetting,
   assigneeOf,
   // P-4
@@ -31,7 +32,16 @@ import {
   parseSkillRef,
   REACH_OUT_SKILL,
 } from "@countersign/core";
-import { type Db, inboxItem, membership, stepRun, type Tx, withTenant } from "@countersign/db";
+import {
+  type Db,
+  externalAction,
+  inboxItem,
+  membership,
+  stepRun,
+  type Tx,
+  toolCall,
+  withTenant,
+} from "@countersign/db";
 import { leadOf } from "@countersign/threads";
 import type {
   AgentPort,
@@ -42,7 +52,7 @@ import type {
   StepOutcome,
   StepRunUpdate,
 } from "@countersign/workflows";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   afterReleaseWait,
@@ -414,6 +424,57 @@ export function agentPort(
       }
       return firstWaiting(state, index) ?? { kind: "done", output: state.output ?? null };
     },
+
+    // Wave 5 review (docs/plan.md §1.86 "Forks (wave 5)"): whether the step made a write, or may
+    // have: its actions done or executing, or failed without the runtime's `notWritten` (an older
+    // failure, recorded before the mark existed, counts as may-have).
+    ...(release
+      ? {
+          stepWrites({ run, nodeId }: { run: RunInfo; nodeId: string }) {
+            const prefix = `${run.id}:${nodeId}:`;
+            return withTenant(release.db, run.tenantId, async (tx) => {
+              const rows = await tx
+                .select({ status: externalAction.status, error: externalAction.error })
+                .from(externalAction)
+                .where(
+                  and(
+                    eq(externalAction.tenantId, run.tenantId),
+                    eq(externalAction.runId, run.id),
+                    sql`starts_with(${externalAction.idempotencyKey}, ${prefix})`,
+                  ),
+                );
+              if (rows.some((r) => actionWrote(r))) return true;
+              // Fix 3: a retry's carried writes run on the run retried's actions (their run id and
+              // key), so they are found by this run's tool calls at the step, which name them.
+              const carried = await tx
+                .select({ status: externalAction.status, error: externalAction.error })
+                .from(toolCall)
+                .innerJoin(
+                  stepRun,
+                  and(eq(stepRun.id, toolCall.stepRunId), eq(stepRun.tenantId, toolCall.tenantId)),
+                )
+                .innerJoin(
+                  externalAction,
+                  and(
+                    eq(externalAction.id, toolCall.externalActionId),
+                    eq(externalAction.tenantId, toolCall.tenantId),
+                  ),
+                )
+                .where(
+                  and(
+                    eq(toolCall.tenantId, run.tenantId),
+                    eq(stepRun.runId, run.id),
+                    or(
+                      eq(stepRun.nodeId, nodeId),
+                      sql`starts_with(${stepRun.nodeId}, ${`${nodeId}:`})`,
+                    ),
+                  ),
+                );
+              return carried.some((r) => actionWrote(r));
+            });
+          },
+        }
+      : {}),
 
     // R3 (docs/plan.md §1.86): approval modes and escalation on a write.
     async askApprover(request) {

@@ -12,7 +12,7 @@ import {
 } from "@countersign/core";
 import { agent, agentVersion, inboxItem, run, stepRun } from "@countersign/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { admin, createApiHarness, testBundle } from "./api.test-helper";
+import { admin, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
 import { stepFinder, stepOfRow } from "./routes/run-checks";
 
 const h = await createApiHarness();
@@ -58,6 +58,37 @@ function bundleV4(dana: string): AnyAgentBundle {
       message: "Done",
       urgent: { ackWithin: "1 hour", ifNoAnswer: "stop" },
     },
+  });
+  // Wave 5 (web): a read that carries on when it fails, and an if the client sees, routed on how
+  // the write and the read ended.
+  p.steps.push({
+    id: "look",
+    name: "Look the record up",
+    kind: "read",
+    tool: "testkit.record.query",
+    input: {},
+    onError: "continue",
+  });
+  p.steps.push({
+    id: "route",
+    name: "Which way",
+    kind: "if",
+    client: { visible: true, label: "Pick the way" },
+    paths: [
+      {
+        id: "p-done",
+        name: "Corrected",
+        when: {
+          match: "all",
+          rules: [
+            { field: "{{steps.update.outcome}}", op: "=", value: "done" },
+            { field: "{{steps.look.outcome}}", op: "=", value: "failed" },
+          ],
+        },
+        steps: [],
+      },
+    ],
+    otherwise: { id: "p-else", steps: [] },
   });
   return b;
 }
@@ -153,6 +184,15 @@ describe.skipIf(!h)("a v4 run's checks in the portal", () => {
         output: { urgent: { dueAt: at(64).toISOString() } },
         summary: "Tell the team: sent",
       }),
+      row("look", "read", 5, {
+        status: "failed",
+        error: "The record service didn't answer",
+        summary: "Look the record up: failed",
+      }),
+      row("route", "if", 6, {
+        output: { pathId: "p-done", pathName: "Corrected" },
+        summary: "Pick the way: Corrected",
+      }),
     ]);
     const item = (nodeId: string, m: number, more: Record<string, unknown>) => ({
       tenantId: A(),
@@ -188,6 +228,8 @@ describe.skipIf(!h)("a v4 run's checks in the portal", () => {
       "confer:person",
       "Corrected the record",
       "Tell the team",
+      "Look the record up",
+      "Pick the way",
     ]);
     const [ai, person] = steps;
     // A second check's words are a model's: never in the portal.
@@ -215,7 +257,37 @@ describe.skipIf(!h)("a v4 run's checks in the portal", () => {
       [null, "Client A user", "no_answer"],
     ]);
     expect(j(byNode("Tell the team")).urgent).toMatchObject({ state: "waiting", seenAt: null });
+    // Wave 5: how each step ended, the word a later `if` routes on; a confer row has none.
+    expect(j(write).outcome).toBe("done");
+    expect(j(byNode("Tell the team")).outcome).toBe("sent");
+    expect(j(ai).outcome).toBeUndefined();
+    // Wave 5 (web): the read failed and the run carried on; the if says its route and why, in the
+    // labels the client sees (never a field or a rule).
+    expect(j(byNode("Look the record up"))).toMatchObject({ outcome: "failed", carriedOn: true });
+    expect(j(write).carriedOn).toBeUndefined();
+    expect(j(byNode("Pick the way")).route).toEqual({
+      path: "Corrected",
+      because: [
+        { label: "Corrected the record", outcome: "done" },
+        { label: "Look the record up", outcome: "failed" },
+      ],
+    });
+    expect(JSON.stringify(res.json)).not.toContain("steps.update.outcome");
     // Nothing of a model or a cost anywhere.
     expect(JSON.stringify(res.json)).not.toContain("add up to the total");
+  });
+
+  it("gives the back office's run view each step's outcome (wave 5)", async () => {
+    const res = await H.call(OPERATOR, "GET", `/api/ops/runs/${runId}`);
+    expect(res.status).toBe(200);
+    const steps = j(res.json).steps as { nodeId: string; outcome?: string }[];
+    expect(Object.fromEntries(steps.map((s) => [s.nodeId, s.outcome ?? null]))).toEqual({
+      "update:confer:0": null,
+      "update:confer:1": null,
+      update: "done",
+      tell: "sent",
+      look: "failed",
+      route: null,
+    });
   });
 });

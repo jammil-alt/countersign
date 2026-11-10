@@ -70,7 +70,7 @@ import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
 // R8: the timeline's check fields
-import { TimelineChecks } from "./run-checks";
+import { OUTCOME_WORDS, TimelineChecks } from "./run-checks";
 import { runControlRoutes } from "./run-controls";
 // UI cleanup (stream A)
 import { RunWait } from "./run-state";
@@ -336,6 +336,9 @@ export const OpsStep = z.object({
   models: z.array(z.string()).optional(),
   // P-4: a conversation step's transcript, with each turn's model and cost (§1.66).
   conversation: ConverseOpsView.optional(),
+  // Wave 5 (§1.86 "Forks (wave 5)"): how the step ended (`outcomeOfStepRow`); absent for a check's
+  // row, a step under way, or a kind with no outcome.
+  outcome: z.enum(OUTCOME_WORDS).optional(),
 });
 
 export const OpsToolCall = z.object({

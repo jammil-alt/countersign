@@ -154,6 +154,11 @@ export async function executeWrite(
   toolId: string,
   input: unknown,
   ctx: WriteContext,
+  /**
+   * Wave 5 review: told right before the handler runs, so the caller knows that an error after it
+   * may come after the provider took the write (before it: checks, input, the before read).
+   */
+  hooks: { sending?: () => void } = {},
 ): Promise<WriteResult> {
   const { spec, handler } = lookup(connector, toolId);
   if (handler.kind !== "write") throw new ToolCallError("not_a_write", toolId, "tool only reads");
@@ -167,6 +172,7 @@ export async function executeWrite(
     "invalid_before",
     toolId,
   );
+  hooks.sending?.();
   const raw = await handler.run(parsed, logged, before);
   const output = parse(handler.output, raw, "invalid_output", toolId);
   const summary = summarize(spec, output);

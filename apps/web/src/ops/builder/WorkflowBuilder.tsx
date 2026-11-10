@@ -118,6 +118,12 @@ import {
   updateStep,
   workflowCounts,
 } from "./model";
+import {
+  addRouteAfter,
+  approvalRouteNames,
+  plainOutcomeProblem,
+  testRunApprovalNote,
+} from "./outcomes";
 import { type Member, type People, personName } from "./people";
 import { useClientScriptTools } from "./scripts";
 
@@ -540,14 +546,28 @@ function BuilderBody(
   // DECISION (web, wave 3b): validate what Publish would send: the stored v3 bundle until the first
   // edit, then the v4 process; the converted reading isn't shown as the version's own problems.
   const unchangedV3 = opensV3 && !dirty && saved.id === from.id;
-  const result = useMemo(
-    () =>
-      validateProcessesLikeServer(unchangedV3 ? props.bundle : bundle, ctx, {
-        clientAgent: agent.kind === "client",
-        publish: agent.kind === "client" ? { matrices } : undefined,
-      }),
-    [unchangedV3, props.bundle, bundle, ctx, matrices, agent.kind],
-  );
+  const result = useMemo(() => {
+    const r = validateProcessesLikeServer(unchangedV3 ? props.bundle : bundle, ctx, {
+      clientAgent: agent.kind === "client",
+      publish: agent.kind === "client" ? { matrices } : undefined,
+    });
+    // Wave 5: a condition on how a step ended says what's wrong in the builder's words.
+    const plain = <
+      P extends {
+        workflow?: string | undefined;
+        stepId: string | null;
+        field: string;
+        code: string;
+        message: string;
+      },
+    >(
+      p: P,
+    ): P => {
+      const process = bundle.workflows.find((w) => w.slug === p.workflow)?.workflow;
+      return process ? { ...p, message: plainOutcomeProblem(process, p) } : p;
+    };
+    return { ...r, errors: r.errors.map(plain), warnings: r.warnings.map(plain) };
+  }, [unchangedV3, props.bundle, bundle, ctx, matrices, agent.kind]);
   const workflowErrors = result.errors.filter((e) => e.workflow === slug);
   const env: ApprovalEnv = {
     ctx,
@@ -849,6 +869,8 @@ function BuilderBody(
           // DECISION: a test run starts from the first trigger's sample, as v3 had one trigger.
           sample={samplePayload(workflow, data.events)}
           eventType={triggerEventType(workflow)}
+          // Wave 5 review: routes on an approval go the no-approval way in a test run.
+          approvalNote={testRunApprovalNote(approvalRouteNames(workflow))}
           busy={action.busy}
           onClose={() => setPanel(null)}
           run={async (payload, clientId) => {
@@ -1111,6 +1133,11 @@ function BuilderBody(
                       setSelection(null);
                     }}
                     onDelete={remove}
+                    // DECISION (wave 5, web): the step stays selected after "Add a route", so its
+                    // inspector says what was set; the new if waits on the canvas for its steps.
+                    onAddRoute={(id, option) =>
+                      edit((w) => addRouteAfter(w, id, option)?.process ?? w)
+                    }
                   />
                 </div>
               ) : null}
@@ -1203,11 +1230,18 @@ function Advice({ warnings }: { warnings: readonly { message: string; code: stri
     >
       <p className="font-medium text-ink">Worth a look</p>
       <ul className="mt-1 flex flex-col gap-0.5">
-        {warnings.map((w) => (
-          <li key={`${w.code}:${w.message}`}>
-            {w.message}. Two agents joined by a handoff may read better.
-          </li>
-        ))}
+        {warnings.map((w) =>
+          // Wave 5: a condition on an outcome its step never reaches is its own advice.
+          w.code === "outcome_unreachable" ? (
+            <li key={`${w.code}:${w.message}`} data-testid="builder-advice-outcome">
+              {w.message}
+            </li>
+          ) : (
+            <li key={`${w.code}:${w.message}`}>
+              {w.message}. Two agents joined by a handoff may read better.
+            </li>
+          ),
+        )}
       </ul>
     </div>
   );
@@ -1472,6 +1506,7 @@ function TestRunPanel({
   slug,
   sample,
   eventType,
+  approvalNote,
   busy,
   run,
   onClose,
@@ -1483,6 +1518,8 @@ function TestRunPanel({
   sample: unknown;
   /** The trigger's event type, for "Use a recent event"; null for other triggers. */
   eventType: string | null;
+  /** Wave 5 review: routes that read an approval, which reads "needed no approval" in a test. */
+  approvalNote?: string | null;
   busy: boolean;
   /** `clientId`: a template's chosen client (none: the Sandbox). */
   run(payload: unknown, clientId: string | null): Promise<string | null>;
@@ -1526,6 +1563,11 @@ function TestRunPanel({
           : "It runs on this client's data."}{" "}
         Unsaved changes are saved as a draft first.
       </p>
+      {approvalNote ? (
+        <p className="text-sm text-ink" data-testid="builder-test-approval-note">
+          {approvalNote}
+        </p>
+      ) : null}
       {isTemplate ? (
         <SmallSelect
           aria-label="Client"

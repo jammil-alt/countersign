@@ -2,9 +2,12 @@
 // for an if's paths, a trigger's filter and, since R8, every check's condition ("confer when the
 // total is over $5,000") and a skill's rule rows. Conditions are plain rules over the run, never a
 // model (§10.14 "Checks").
-import type { PathOption, Rule, RuleOp, Rules } from "@countersign/core";
+// Wave 5: a field with a closed set of values (how an earlier step ended) picks its value from a
+// dropdown in words, and an if's path can add "Approve the bill: was rejected" in one pick.
+import type { Rule, RuleOp, Rules } from "@countersign/core";
 import { Icon } from "../../ui/icons";
 import { type FieldErrors, SmallInput, SmallSelect, TemplateInput } from "./fields";
+import type { PickPath, QuickRule } from "./outcomes";
 
 const OPS: { op: RuleOp; label: string }[] = [
   { op: ">", label: ">" },
@@ -48,6 +51,17 @@ export function ruleValueText(value: unknown): string {
 
 export const NO_RULES: Rules = { match: "all", rules: [] };
 
+/**
+ * Wave 5: the values in words of a rule's field when it has a closed set (`PickPath.values`: how
+ * an earlier step ended, its approval, a quick answer), compared with = or ≠; else null.
+ */
+function choicesOf(paths: readonly PickPath[], rule: Rule): Record<string, string> | null {
+  if (rule.op !== "=" && rule.op !== "!=") return null;
+  const field = rule.field.trim();
+  const p = paths.find((x) => `{{${x.path}}}` === field);
+  return p?.values && Object.keys(p.values).length > 0 ? p.values : null;
+}
+
 /** Rule rows for one path, a trigger filter or a check's condition. */
 export function RulesEditor({
   rules,
@@ -57,10 +71,13 @@ export function RulesEditor({
   prefix,
   testPrefix,
   addLabel = "Add condition",
+  quick,
 }: {
   rules: Rules;
   onChange(rules: Rules, key: string): void;
-  paths: readonly PathOption[];
+  paths: readonly PickPath[];
+  /** Wave 5: one-pick conditions on how an earlier step ended (an if's paths). */
+  quick?: readonly QuickRule[] | undefined;
   errors: FieldErrors;
   /** "when" for a path, "on.filter" for a trigger, "checks.approval.when" for a check. */
   prefix: string;
@@ -118,6 +135,34 @@ export function RulesEditor({
               </SmallSelect>
               {rule.op === "exists" ? (
                 <span className="flex-1" />
+              ) : choicesOf(paths, rule) ? (
+                // Wave 5: a field with a closed set of values (how an earlier step ended) picks
+                // one in words.
+                <SmallSelect
+                  aria-label="Value"
+                  data-field={`${at}.value`}
+                  data-testid={`${testPrefix}-rule-${i}-value`}
+                  value={typeof rule.value === "string" ? rule.value : ""}
+                  invalid={errors.at(`${at}.value`).length > 0}
+                  className="min-w-0 flex-1"
+                  onChange={(e) => {
+                    const { value: _v, ...rest } = rule;
+                    const value = e.target.value;
+                    setRule(i, value === "" ? rest : { ...rule, value }, `${at}.value`);
+                  }}
+                >
+                  <option value="">Pick one</option>
+                  {Object.entries(choicesOf(paths, rule) ?? {}).map(([value, words]) => (
+                    <option key={value} value={value}>
+                      {words}
+                    </option>
+                  ))}
+                  {typeof rule.value === "string" &&
+                  rule.value !== "" &&
+                  !(rule.value in (choicesOf(paths, rule) ?? {})) ? (
+                    <option value={rule.value}>{rule.value}</option>
+                  ) : null}
+                </SmallSelect>
               ) : (
                 <SmallInput
                   aria-label="Value"
@@ -174,6 +219,25 @@ export function RulesEditor({
           <Icon name="add" />
           {addLabel}
         </button>
+        {quick && quick.length > 0 ? (
+          <SmallSelect
+            aria-label="Add: how an earlier step ended"
+            data-testid={`${testPrefix}-add-outcome`}
+            value=""
+            className="min-w-0 flex-1"
+            onChange={(e) => {
+              const picked = quick.find((q) => q.key === e.target.value);
+              if (picked) onChange({ ...rules, rules: [...rules.rules, picked.rule] }, "rules");
+            }}
+          >
+            <option value="">How an earlier step ended…</option>
+            {quick.map((q) => (
+              <option key={q.key} value={q.key}>
+                {q.label}
+              </option>
+            ))}
+          </SmallSelect>
+        ) : null}
         {rules.rules.length > 1 ? (
           <SmallSelect
             aria-label="Match"

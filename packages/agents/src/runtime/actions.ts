@@ -11,6 +11,8 @@ import {
   ToolCallError,
   UnconfirmedWriteError,
   type UndoInputHook,
+  type WriteResult,
+  writeNotMade,
 } from "@countersign/connectors";
 import {
   canonicalJson,
@@ -87,6 +89,7 @@ export async function executeAction(
       const failed = await actions.fail(input.tenantId, found.id, {
         message: refused,
         release: true,
+        notWritten: true,
       });
       return { status: "failed", action: failed, error: refused };
     }
@@ -118,6 +121,7 @@ export async function executeAction(
   if (tool?.kind !== "connector") {
     const failed = await actions.fail(input.tenantId, action.id, {
       message: `unknown tool ${action.tool}`,
+      notWritten: true,
     });
     return { status: "failed", action: failed, error: `unknown tool ${action.tool}` };
   }
@@ -125,6 +129,7 @@ export async function executeAction(
   if (!conn) {
     const failed = await actions.fail(input.tenantId, action.id, {
       message: "connection not found",
+      notWritten: true,
     });
     return { status: "failed", action: failed, error: "connection not found" };
   }
@@ -132,13 +137,41 @@ export async function executeAction(
   const own = deps.tools.forConnector(action.tool, conn.connector);
   if (own?.kind !== "connector") {
     const message = `${action.tool} isn't supplied by the ${conn.connector} connection`;
-    const failed = await actions.fail(input.tenantId, action.id, { message });
+    const failed = await actions.fail(input.tenantId, action.id, { message, notWritten: true });
     return { status: "failed", action: failed, error: message };
   }
+  // Wave 5 review: whether the handler was reached. An error before it (the connector's checks,
+  // the input, the before read) wrote nothing; one after it may come after the provider took it.
+  let sending = false;
+  // A write that may have happened goes to the operator, not to a retry: the action fails with the
+  // reason, marked `unconfirmed`, and a `review` item opens with it, in one transaction.
+  const unconfirmed = async (error: UnconfirmedWriteError): Promise<ActionOutcome> => {
+    const owner = action.runId ? await store.run(input.tenantId, action.runId) : null;
+    const failed = await actions.fail(
+      input.tenantId,
+      action.id,
+      { message: error.message, unconfirmed: true, ...error.details },
+      {
+        inbox: {
+          title: error.title,
+          agentId: owner?.agentId ?? null,
+          payload: {
+            reason: error.message,
+            tool: action.tool,
+            connectionId: action.connectionId,
+            idempotencyKey: action.idempotencyKey,
+            ...error.details,
+          },
+        },
+      },
+    );
+    return { status: "failed", action: failed, error: error.message };
+  };
+  let written: WriteResult;
   try {
     // v0.12 W1-D: the signer's edit, when there is one, is what is written; `input` stays the
     // agent's version (ARCHITECTURE §11.1).
-    const written = await executeWrite(
+    written = await executeWrite(
       own.connector,
       action.tool,
       action.editedInput ?? action.input,
@@ -148,7 +181,39 @@ export async function executeAction(
         // v0.14 W4-D: what the approver saw, for tools that refuse a change made since.
         proposedBefore: action.before,
       },
+      {
+        sending: () => {
+          sending = true;
+        },
+      },
     );
+  } catch (error) {
+    // DECISION: a write that may have happened goes to the operator, not to a retry (docs/plan.md
+    // §1.22).
+    if (error instanceof UnconfirmedWriteError) return unconfirmed(error);
+    // DECISION (wave 5 review): the handler answered but its answer didn't parse: the write was
+    // made and we can't say what it left, so the operator checks it, as any unconfirmed write.
+    if (sending && error instanceof ToolCallError && error.code === "invalid_output") {
+      return unconfirmed(
+        new UnconfirmedWriteError(
+          `The change through ${action.tool} may have been made`,
+          `its answer didn't read as expected (${error.message})`,
+        ),
+      );
+    }
+    await noteReconnect(deps, input.tenantId, conn, error);
+    // DECISION (wave 5 review): `notWritten` only where nothing was written for sure: the handler
+    // was never reached, or the connector said the provider turned it down (`NotWrittenError`).
+    // Any other failure may have come after the provider took it, so a step never goes on past
+    // it (`onError: continue`, the executor asks `stepWrites`).
+    const notWritten = !sending || writeNotMade(error);
+    const failed = await actions.fail(input.tenantId, action.id, {
+      message: message(error),
+      ...(notWritten ? { notWritten: true } : {}),
+    });
+    return { status: "failed", action: failed, error: message(error) };
+  }
+  try {
     // R5: the record as this write left it, for an undo to check that nobody changed it since.
     const after = actions.keepsAfter
       ? await readAfter(deps, input.tenantId, own, conn, action)
@@ -160,34 +225,14 @@ export async function executeAction(
     });
     return { status: "done", action: done, output: written.output, summary: written.summary };
   } catch (error) {
-    if (error instanceof UnconfirmedWriteError) {
-      // DECISION: a write that may have happened goes to the operator, not to a retry: the action
-      // fails with the connector's reason and a `review` item opens with it, in one transaction
-      // (docs/plan.md §1.22).
-      const owner = action.runId ? await store.run(input.tenantId, action.runId) : null;
-      const failed = await actions.fail(
-        input.tenantId,
-        action.id,
-        { message: error.message, unconfirmed: true, ...error.details },
-        {
-          inbox: {
-            title: error.title,
-            agentId: owner?.agentId ?? null,
-            payload: {
-              reason: error.message,
-              tool: action.tool,
-              connectionId: action.connectionId,
-              idempotencyKey: action.idempotencyKey,
-              ...error.details,
-            },
-          },
-        },
-      );
-      return { status: "failed", action: failed, error: error.message };
-    }
-    await noteReconnect(deps, input.tenantId, conn, error);
-    const failed = await actions.fail(input.tenantId, action.id, { message: message(error) });
-    return { status: "failed", action: failed, error: message(error) };
+    // DECISION (wave 5 review): the write was made but couldn't be recorded: never `failed` as if
+    // nothing happened. It is unconfirmed: the operator checks it, and the run ends there.
+    return unconfirmed(
+      new UnconfirmedWriteError(
+        `The change through ${action.tool} was made but not recorded`,
+        message(error),
+      ),
+    );
   }
 }
 

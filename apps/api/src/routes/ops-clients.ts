@@ -60,6 +60,7 @@ import {
 } from "./mappers";
 import { inviteToClient, withApprovals } from "./onboarding";
 import { canSignIn, sourcesOf } from "./portal";
+import { stepOutcomes } from "./run-checks";
 import { ensureFilterClients, runErrorGroups, runFilterWhere, runsPerDay } from "./run-controls";
 import { addSupervisor } from "./supervisor";
 
@@ -717,12 +718,15 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     const cited = steps.flatMap((s) => sourcesOf(s.output));
     // P-4: each conversation step's transcript, with its turns' models and cost (§1.66).
     const conversations = await runConversations(tx, r.tenantId, r.id);
+    const outcomes = stepOutcomes(steps, items);
     return {
       run: { ...(view ?? opsRun(r)), subject: subjects.get(r.id) },
       steps: steps.map((s) => ({
         ...opsStep(s),
         models: modelsByStep.get(s.id) ?? [],
         ...(conversations.has(s.id) ? { conversation: conversations.get(s.id) } : {}),
+        // Wave 5: how the step ended, the word a later `if` routes on.
+        ...(outcomes.has(s.id) ? { outcome: outcomes.get(s.id) } : {}),
       })),
       toolCalls: calls.map(opsToolCall),
       actions: actions.map((a) => opsAction(a, services.platform)),

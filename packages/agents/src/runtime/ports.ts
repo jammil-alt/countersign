@@ -435,6 +435,11 @@ export interface CarryCandidate {
   approvedBy: string | null;
   result: unknown;
   error: unknown;
+  /**
+   * Wave 5 review: its run went on past this write's failure (`onError: continue`; the run's
+   * error names another step): never executed again without a new approval (`carryDecision`).
+   */
+  carriedOn?: boolean;
 }
 
 /** src/log/carried-actions.ts. */

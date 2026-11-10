@@ -1906,4 +1906,112 @@ describe("WorkflowBuilder on processes", () => {
       "Templates keep approval on",
     );
   });
+
+  // Wave 5 (docs/plan.md §1.86 "Forks (wave 5)"): fork on how a step ended.
+  describe("forks on how a step ended", () => {
+    it("offers earlier steps' outcomes in words in an if's conditions, never a later step's", async () => {
+      const { sent } = setup();
+      const user = userEvent.setup();
+      await select(user, "confidence");
+      await user.click(screen.getByTestId("builder-path-low-rule-0-field-pick"));
+      const list = screen.getByTestId("builder-path-low-rule-0-field-paths");
+      expect(
+        within(list).getByTestId("builder-path-low-rule-0-field-path-steps.find.outcome"),
+      ).toHaveTextContent("Find supporting document: how it ended");
+      expect(
+        within(list).queryByTestId("builder-path-low-rule-0-field-path-steps.update.outcome"),
+      ).toBeNull();
+      expect(
+        within(list).queryByTestId("builder-path-low-rule-0-field-path-steps.confidence.outcome"),
+      ).toBeNull();
+      // One pick adds "how an earlier step ended", its value a dropdown in words.
+      const add = screen.getByTestId("builder-path-low-add-outcome");
+      expect(within(add).queryByRole("option", { name: /Update the record/ })).toBeNull();
+      await user.selectOptions(add, "steps.read.outcome=done");
+      await save(user, sent);
+      expect(savedStep(sent, "confidence")).toMatchObject({
+        paths: [
+          {
+            id: "low",
+            when: {
+              rules: [
+                { field: "{{steps.read.output.confidence}}", op: "<", value: 0.9 },
+                { field: "{{steps.read.outcome}}", op: "=", value: "done" },
+              ],
+            },
+          },
+          { id: "big" },
+        ],
+      });
+      const value = screen.getByTestId("builder-path-low-rule-1-value");
+      expect(within(value).getByRole("option", { name: "was rejected" })).toBeInTheDocument();
+      await user.selectOptions(value, "rejected");
+      await save(user, sent);
+      expect(
+        (savedStep(sent, "confidence") as processes.IfStep).paths[0]?.when.rules[1]?.value,
+      ).toBe("rejected");
+    });
+
+    it("adds a route right after a step, sets what it needs and says so, approval on", async () => {
+      const { sent } = setup();
+      const user = userEvent.setup();
+      await select(user, "update");
+      expect(screen.getByTestId("builder-routes-now")).toHaveTextContent(
+        "Later steps can route on: was done.",
+      );
+      await user.click(screen.getByTestId("builder-route-rejected-add"));
+      expect(screen.getByTestId("builder-route-added")).toHaveTextContent(
+        "Added “If rejected” right after this step.",
+      );
+      expect(screen.getByTestId("builder-route-added-change")).toHaveTextContent(
+        "If rejected: When a person rejects it, the step is skipped and the run goes on to the route. Approval stays on.",
+      );
+      // The route still ends the run after a no, as a no always did, and says so.
+      expect(screen.getByTestId("builder-route-added-stop")).toHaveTextContent(
+        "The route ends with a stop step, so nothing below it runs, as before. Remove that stop to carry on below.",
+      );
+      expect(screen.getByTestId("builder-routes-now")).toHaveTextContent("was rejected");
+      await save(user, sent);
+      expect(savedStep(sent, "update")?.checks?.approval).toEqual({
+        required: "required",
+        mode: "in_turn",
+        ifNoAnswer: "stop",
+        onReject: "continue",
+      });
+      expect(savedLast(sent)).toMatchObject({
+        kind: "if",
+        name: "If rejected",
+        paths: [
+          {
+            name: "Rejected",
+            when: {
+              match: "all",
+              rules: [{ field: "{{steps.update.outcome}}", op: "=", value: "rejected" }],
+            },
+            steps: [{ kind: "stop", name: "Stop the run", status: "cancelled" }],
+          },
+        ],
+        otherwise: { steps: [] },
+      });
+      expect(screen.getByTestId("builder-valid")).toBeInTheDocument();
+    });
+
+    it("saves 'if this step fails: carry on' and takes it back off", async () => {
+      const { sent } = setup();
+      const user = userEvent.setup();
+      await select(user, "find");
+      expect(screen.getByTestId("builder-on-error")).toHaveValue("fail");
+      await user.selectOptions(screen.getByTestId("builder-on-error"), "continue");
+      await save(user, sent);
+      expect(savedStep(sent, "find")?.onError).toBe("continue");
+      // A failure is something later steps can now route on.
+      expect(screen.getByTestId("builder-routes-now")).toHaveTextContent("failed");
+      await user.selectOptions(screen.getByTestId("builder-on-error"), "fail");
+      await save(user, sent);
+      expect(savedStep(sent, "find")).not.toHaveProperty("onError");
+      // A person step has no failure of its own to carry on past.
+      await user.click(screen.getByTestId("builder-step-ask-select"));
+      expect(screen.queryByTestId("builder-on-error")).toBeNull();
+    });
+  });
 });

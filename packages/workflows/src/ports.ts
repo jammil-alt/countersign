@@ -209,6 +209,14 @@ export interface AgentPort {
    */
   askApprover?(request: AskApproverRequest): Promise<{ inboxItemId: string }>;
   /**
+   * Wave 5 review (docs/plan.md §1.86 "Forks (wave 5)"): whether any write the step under
+   * `nodeId` proposed in this run was made, or may have been (its `external_action` done,
+   * executing, or failed without the runtime's `notWritten`). A step that failed goes on past its
+   * failure (`onError: continue`) only when this says none. Ports without it: only a failure whose
+   * error says the write may have happened ends the run (`processes.writeMayHaveHappened`).
+   */
+  stepWrites?(request: { run: RunInfo; nodeId: string }): Promise<boolean>;
+  /**
    * The port applies `SkillStepRequest.customize`: the added instructions and rule rows reach the
    * skill's run. Without it, a step that adds either fails before it runs: it would otherwise run
    * without them, silently.

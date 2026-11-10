@@ -101,8 +101,11 @@ export type CarryDecision =
  */
 // DECISION: "approved and not done" is `approved`, `executing` or `failed` with an approval time; a
 // failure whose write may have happened (`unconfirmed`) is never carried: a person checks it.
+// DECISION (wave 5 review): nor is a failed write whose run carried on past it (`onError:
+// continue`, `carriedOn`: its run didn't end at that step). The run took its route on that failure;
+// making the write now would be a second decision nobody signed, so it is proposed again.
 export function carryDecision(
-  action: { status: string; approvedAt: Date | null; error: unknown },
+  action: { status: string; approvedAt: Date | null; error: unknown; carriedOn?: boolean },
   now: Date,
 ): CarryDecision {
   if (action.status === "done") return "done";
@@ -111,7 +114,38 @@ export function carryDecision(
   if (now.getTime() - action.approvedAt.getTime() >= CARRIED_APPROVAL_MAX_AGE_MS) return "propose";
   const error = action.error as { unconfirmed?: unknown } | null;
   if (action.status === "failed" && error?.unconfirmed === true) return "propose";
+  if (action.status === "failed" && action.carriedOn === true) return "propose";
   return "execute";
+}
+
+/**
+ * Whether an external action was written, or may have been: done, executing (a crash mid-write),
+ * or failed without the runtime's `notWritten` mark (an older failure, from before the mark,
+ * counts as may-have). Proposed, approved and rejected actions wrote nothing.
+ */
+// DECISION (wave 5 review): a step goes on past its failure (`onError: continue`) only when none of
+// its actions wrote, or may have: the actions' own record, not the error's words.
+export function actionWrote(action: { status: string; error: unknown }): boolean {
+  if (action.status === "done" || action.status === "executing") return true;
+  if (action.status !== "failed") return false;
+  const error = action.error as { notWritten?: unknown } | null;
+  return !(error && typeof error === "object" && error.notWritten === true);
+}
+
+/**
+ * Whether a run went on past a failed write of node `nodeId`: the run's error (`{ nodeId }`) names
+ * another step, or none (it didn't fail there). A run that ended at the write's step, or at one of
+ * its checks or retries (`<node>:…`), stopped on it.
+ */
+export function wentOnPast(nodeId: string, runError: unknown): boolean {
+  const at =
+    runError &&
+    typeof runError === "object" &&
+    typeof (runError as { nodeId?: unknown }).nodeId === "string"
+      ? (runError as { nodeId: string }).nodeId
+      : null;
+  if (!at) return true;
+  return !(at === nodeId || nodeId.startsWith(`${at}:`) || at.startsWith(`${nodeId}:`));
 }
 
 // ── Shapes ──────────────────────────────────────────────────────────────────────────────────────

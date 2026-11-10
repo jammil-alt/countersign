@@ -39,6 +39,7 @@ import {
   // v0.12 W2-E
   HANDOFF_OUTPUT_MAX_BYTES,
   HANDOFF_SOURCES_MAX,
+  isPlainObject,
   isUuid,
   type Locale,
   // v0.13 W2-I
@@ -49,7 +50,9 @@ import {
   RUN_SUCCEEDED_EVENT,
   type RunSucceededPayload,
   resolveTemplate,
+  reusedStepOf,
   runErrorKey,
+  type StoredStepLike,
   shortRunId,
 } from "@countersign/core";
 import {
@@ -57,6 +60,7 @@ import {
   agentVersion,
   connection,
   type Db,
+  inboxItem,
   run,
   stepRun,
   type Tx,
@@ -78,7 +82,7 @@ import {
   type RunResume,
   type StepRunner,
 } from "@countersign/workflows";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { dbReleasePort, type ReleaseDeps, releaseDepsFromEnv } from "../access/release";
 // v0.12 W2-D
 import { accountViews } from "../account/views";
@@ -733,7 +737,10 @@ async function runSucceededPayload(
 /**
  * What a retry reuses: the run retried's rows of the top-level steps before `resumeFrom` that
  * succeeded (or were skipped), with their outputs. Read once, inside the run's load step, so a
- * replay of the instance reuses the same outputs.
+ * replay of the instance reuses the same outputs. Wave 5 review: also a step that failed and the
+ * run carried on past (`onError: continue`), never run again, and each reused step's whole record
+ * (`reusedStepOf`: outcome, approval, confer, quick answer, counts, error) from the run's rows and
+ * inbox items, so a later `if` routes as it did in the run retried.
  */
 async function resumeOf(
   tx: Tx,
@@ -743,22 +750,40 @@ async function resumeOf(
   if (!params.retryOf || !params.resumeFrom) return null;
   const index = workflow.steps.findIndex((s) => s.id === params.resumeFrom);
   if (index <= 0) return null;
-  const before = workflow.steps.slice(0, index).map((s) => s.id);
+  const before = workflow.steps.slice(0, index);
   const rows = await tx
-    .select({ nodeId: stepRun.nodeId, status: stepRun.status, output: stepRun.output })
+    .select({
+      nodeId: stepRun.nodeId,
+      nodeType: stepRun.nodeType,
+      status: stepRun.status,
+      input: stepRun.input,
+      output: stepRun.output,
+    })
     .from(stepRun)
-    .where(
-      and(
-        eq(stepRun.runId, params.retryOf),
-        eq(stepRun.tenantId, params.tenantId),
-        inArray(stepRun.nodeId, before),
-      ),
-    );
+    .where(and(eq(stepRun.runId, params.retryOf), eq(stepRun.tenantId, params.tenantId)))
+    // In the order they ran: the last stop inside a stopped process is the one that ended it.
+    .orderBy(asc(stepRun.startedAt), asc(stepRun.id));
+  const items = (
+    await tx
+      .select()
+      .from(inboxItem)
+      .where(and(eq(inboxItem.runId, params.retryOf), eq(inboxItem.tenantId, params.tenantId)))
+  ).map((i) => ({
+    id: i.id,
+    kind: i.kind,
+    status: i.status,
+    payload: isPlainObject(i.payload) ? (i.payload as Record<string, unknown>) : {},
+    resolution: i.resolution,
+    resolvedBy: i.resolvedBy,
+    resolvedAt: i.resolvedAt?.toISOString() ?? null,
+    createdAt: i.createdAt.toISOString(),
+  }));
   const reused: RunResume["reused"] = {};
-  for (const r of rows) {
-    if (r.status === "succeeded" || r.status === "skipped") {
-      reused[r.nodeId] = { status: r.status, output: r.output ?? null };
-    }
+  for (const step of before) {
+    const row = rows.find((r) => r.nodeId === step.id);
+    if (!row) continue;
+    const found = reusedStepOf(step as unknown as StoredStepLike, row, rows, items);
+    if (found) reused[step.id] = found;
   }
   return { from: params.resumeFrom, of: shortRunId(params.retryOf), reused };
 }

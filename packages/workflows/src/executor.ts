@@ -149,8 +149,22 @@ export interface RunResume {
   from: string;
   /** The run retried, as people see it (`R-1a2b3c`), for the reused steps' summaries. */
   of: string;
-  /** Top-level step id → its row in the run retried (succeeded or skipped), output as stored. */
-  reused: Record<string, { status: "succeeded" | "skipped"; output: unknown }>;
+  /**
+   * Top-level step id → its row in the run retried (succeeded or skipped, or wave 5: failed and
+   * carried on past with `onError: continue`), output as stored. `record`: how it ended, rebuilt
+   * from the run retried's rows and items (core's `reusedStepOf`), for a later `if` to route on
+   * as the run retried did; absent, its outcome word is read from the row alone.
+   */
+  reused: Record<
+    string,
+    {
+      status: "succeeded" | "skipped" | "failed";
+      output: unknown;
+      /** What later steps read as its output (absent: `processes.scopeOutputOfRow`). */
+      stepOutput?: unknown;
+      record?: processes.StepRecord;
+    }
+  >;
 }
 
 export type RunEndStatus = "succeeded" | "failed" | "cancelled";
@@ -185,6 +199,29 @@ interface Attempt {
   skipped?: boolean;
   /** It proposed a write (an approval was asked, or a test run's write was recorded unmade). */
   proposed?: boolean;
+  // Wave 5
+  /** Nobody answered its approval (`ifNoAnswer` `stop` or `skip`): not a person's no. */
+  unanswered?: boolean;
+  /** Each approval decided, in order: what a later step reads as `steps.<id>.approval`. */
+  approvals?: ApprovalRecord[];
+}
+
+/** Wave 5: one approval as `steps.<id>.approval` reads it. */
+type ApprovalRecord = NonNullable<processes.StepRecord["approval"]>;
+
+/** Wave 5: why a work step didn't run on (`work`'s `ran: false`), as its outcome says it. */
+type NotRun = "rejected" | "no_answer" | "skipped";
+
+/** Wave 5: what one approval's asking came to, as a later step reads it. */
+function approvalRecord(decided: Decided): ApprovalRecord | null {
+  const { resolution } = decided;
+  if (decided.proceeded || decided.skip || decided.unanswered) return { outcome: "no_answer" };
+  // P-6: a withdrawn item (a conversation taken over) is no decision.
+  if (resolution.withdrawn === true) return null;
+  return {
+    outcome: resolution.approved === true ? "approved" : "rejected",
+    by: resolution.by ?? null,
+  };
 }
 
 /** An oversight retry (or R3: the re-run after the lead's help): its place, input and keys. */
@@ -221,6 +258,17 @@ interface WorkOptions {
   /** The confer verdicts so far, for the owner's watch. */
   verdicts?: () => ConferEntry[] | undefined;
 }
+
+/** What `Executor.work` comes back with: the step ran on, or why it didn't (wave 5). */
+type WorkDone =
+  | {
+      ran: true;
+      output: unknown;
+      stepRunId: string;
+      proposed: boolean;
+      approvals?: ApprovalRecord[];
+    }
+  | { ran: false; output: unknown; why: NotRun; approvals?: ApprovalRecord[] };
 
 /** One approver of an approval check, planned before the step runs. */
 interface PlannedApprover {
@@ -307,6 +355,15 @@ const HELP_DEADLINE: processes.Deadline = {
   ifNoAnswer: "stop",
 };
 
+/**
+ * Wave 5 review: a v4 notice's durable step, retried as skill and action steps are (apps/api's
+ * step config) rather than on the platform's defaults, so its last try is known: only that try's
+ * failure is final (`notice`).
+ */
+const NOTICE_STEP_CONFIG = {
+  retries: { limit: 3, delay: "10 seconds", backoff: "exponential" },
+} as const satisfies StepConfig;
+
 /** A person conferee's quick answers. */
 const CONFER_CHOICES: NonNullable<PersonStep["choices"]> = [
   { value: "agree", label: "Agree" },
@@ -314,10 +371,38 @@ const CONFER_CHOICES: NonNullable<PersonStep["choices"]> = [
   { value: "unsure", label: "Not sure" },
 ];
 
+/**
+ * Wave 5: a failure the step itself reported (a failed or escalated outcome, help nobody gave, a
+ * conversation that failed), which a step with `onError: continue` goes on past. What it carries
+ * comes from stored durable results only, so a replay goes on the same way. Absent on a RunEnd: the
+ * run ends whatever the step says (a person's no, nobody answering with `stop`, a stop step, a
+ * write that may have happened, an exception).
+ */
+interface Continued {
+  outcome: "failed" | "needs_help";
+  /** The error as the step's row says it. */
+  error: string;
+  /** The approvals decided before it failed. */
+  approvals?: NonNullable<processes.StepRecord["approval"]>[];
+}
+
 class RunEnd extends Error {
-  constructor(readonly result: RunResult) {
+  constructor(
+    readonly result: RunResult,
+    readonly continued?: Continued,
+  ) {
     super(`run ended: ${result.status}${result.reason ? ` (${result.reason})` : ""}`);
   }
+}
+
+/** The error of a failure a step went on past, as its row keeps it. */
+function carriedError(ended: RunEnd | undefined): string {
+  return ended?.continued?.error ?? ended?.result.reason ?? "";
+}
+
+/** A RunEnd a step with `onError: continue` may go on past. */
+function continuable(error: unknown): error is RunEnd & { continued: Continued } {
+  return error instanceof RunEnd && error.result.status === "failed" && !!error.continued;
 }
 
 interface Frame {
@@ -389,6 +474,9 @@ export async function executeWorkflow(
     };
   }
   const ex = new Executor(runner, ctx, expansions, loaded.origins, overrides);
+  // DECISION (wave 5): outcomes are recorded for native v4 processes only; a converted v3 workflow's
+  // scope stays `{ output }` (its conditions can't name an outcome, and nothing it reads changes).
+  ex.records = loaded.v3 === null;
   // v0.13 M32: checkpoints, from the version's steps and the automations they expand to. Pure over
   // immutable versions, so a replay computes the same set.
   if (ctx.oversight) ex.checkpoints = checkpointsOf(loaded, ctx, expansions);
@@ -476,6 +564,11 @@ class Executor {
    * automation's inner step as `${useStepId}/${innerId}`.
    */
   checkpoints: ReadonlySet<string> = new Set();
+  /**
+   * Wave 5: whether steps record how they ended beside their output (`steps.<id>.outcome`, …):
+   * a native v4 process. A stored v3 workflow's scope stays `{ output }` exactly.
+   */
+  records = false;
 
   get testRun(): boolean {
     return this.ctx.run.mode === "test";
@@ -488,6 +581,26 @@ class Executor {
 
   origin(step: processes.Step): V3Step | undefined {
     return this.origins.get(step);
+  }
+
+  /**
+   * Wave 5: a step's place in the run scope: its output and, in a native v4 process, how it ended
+   * (`processes.StepRecord`), for an `if` after it to route on. Every value comes from the step's
+   * stored durable results, so a replayed run records the same and takes the same path.
+   */
+  record(frame: Frame, step: processes.Step, output: unknown, rec: processes.StepRecord = {}) {
+    const entry: RunContext["steps"][string] = { output };
+    if (this.records) {
+      for (const [k, v] of Object.entries(rec)) {
+        if (v !== undefined) (entry as unknown as Record<string, unknown>)[k] = v;
+      }
+    }
+    frame.scope.steps[step.id] = entry;
+  }
+
+  /** Wave 5: whether the step goes on past a failure it reported (`onError: continue`). */
+  continues(step: processes.Step): boolean {
+    return this.records && step.onError === "continue";
   }
 
   /**
@@ -539,6 +652,7 @@ class Executor {
       });
       // DECISION: a step skipped in the run retried (a write a person turned down, a person step
       // that timed out with `continue`) stays skipped: copying it as succeeded would misreport it.
+      // Wave 5 review: one failed and carried on past stays failed, its error kept in its output.
       await this.ctx.log.update(id, {
         status: row.status,
         output: row.output,
@@ -546,7 +660,19 @@ class Executor {
       });
       return null;
     });
-    frame.scope.steps[step.id] = { output: row.output };
+    // Wave 5: a reused step records how it ended in the run retried, whole (outcome, approval,
+    // confer, quick answer, counts, error), so a later `if` routes as it did there, and its
+    // output as later steps read it there (a failed row's output holds its error, which is the
+    // record's: `scopeOutputOfRow`).
+    const outcome = processes.outcomeOfStoredRow(step, row);
+    this.record(
+      frame,
+      step,
+      "stepOutput" in row
+        ? row.stepOutput
+        : processes.scopeOutputOfRow(row.status, row.output, step.kind),
+      row.record ?? (outcome ? { outcome } : {}),
+    );
   }
 
   async runStep(step: processes.Step, frame: Frame): Promise<void> {
@@ -996,22 +1122,70 @@ class Executor {
         await conferOutput(shape(output));
       };
     }
-    const done = await this.work(view, name, frame, approval, opts);
-    if (!done.ran) {
-      frame.scope.steps[step.id] = { output: done.output };
-      return;
-    }
-    let output = done.output;
-    let proposed = done.proposed;
+    // Wave 5: how it ended, for a later `if` (`steps.<id>.outcome`, `.approval`, `.confer`).
+    let approvals: ApprovalRecord[] = [];
+    const recorded = (outcome: string, extra: processes.StepRecord = {}): processes.StepRecord => ({
+      outcome,
+      approval: processes.combinedApproval(approvals),
+      ...(conferred ? { confer: processes.conferRecord(conferred) } : {}),
+      ...extra,
+    });
+    let output: unknown;
+    let proposed: boolean;
+    let stepRunId: string;
+    let why: NotRun | undefined;
+    try {
+      const done = await this.work(view, name, frame, approval, opts);
+      approvals = done.approvals ?? [];
+      if (!done.ran) {
+        this.record(frame, step, done.output, recorded(done.why));
+        return;
+      }
+      output = done.output;
+      proposed = done.proposed;
+      stepRunId = done.stepRunId;
 
-    // R3: a native skill that couldn't do it asks the lead, then runs once more with the answer.
-    // Wave 4: so does a native read or write step whose tool asked (a recorded script whose page
-    // changed answers `needsHelp`, docs/plan.md §1.86 "Scripts (wave 4)").
-    // DECISION: any native work step's `needsHelp` output asks; a converted v3 step's never does.
-    if (!origin) {
-      const helped = await this.needsHelp(view, name, frame, approval, done, opts);
-      output = helped.output;
-      proposed = helped.proposed;
+      // R3: a native skill that couldn't do it asks the lead, then runs once more with the answer.
+      // Wave 4: so does a native read or write step whose tool asked (a recorded script whose page
+      // changed answers `needsHelp`, docs/plan.md §1.86 "Scripts (wave 4)").
+      // DECISION: any native work step's `needsHelp` output asks; a converted v3 step's never does.
+      if (!origin) {
+        const helped = await this.needsHelp(view, name, frame, approval, done, opts);
+        output = helped.output;
+        proposed = helped.proposed;
+        why = helped.why;
+        if (helped.approvals) approvals = [...approvals, ...helped.approvals];
+      }
+    } catch (error) {
+      // Wave 5 review: a skill or write whose failure came with a write made, or one that may have
+      // been (the runtime's `notWritten` missing on a failed action), is never gone on past, here
+      // or by a loop or sub-process around it: the run ends there and the operator checks it.
+      if (
+        this.records &&
+        step.kind !== "read" &&
+        continuable(error) &&
+        error.result.nodeId === name &&
+        (await this.wrote(name))
+      ) {
+        throw new RunEnd(error.result);
+      }
+      // Wave 5: `onError: continue` goes on past a failure the step reported, its row already
+      // failed; it records the outcome and a plain reason. Nothing is retried, and nothing was
+      // written (`wrote` above; a write that may have happened, `finishWork` never lets past).
+      if (!this.continues(step) || !continuable(error) || error.result.nodeId !== name) throw error;
+      approvals = [...approvals, ...(error.continued.approvals ?? [])];
+      this.record(
+        frame,
+        step,
+        null,
+        recorded(error.continued.outcome, {
+          error: processes.plainError(
+            error.continued.error,
+            error.continued.outcome === "needs_help" ? "needs_help" : undefined,
+          ),
+        }),
+      );
+      return;
     }
     output = shape(output);
 
@@ -1031,9 +1205,10 @@ class Executor {
           ),
         )));
     if (signOff && signs) {
-      const decided = await this.signOff(step, name, done.stepRunId, signOff, output);
-      if (decided === "skip") {
-        frame.scope.steps[step.id] = { output: null };
+      const decided = await this.signOff(step, name, stepRunId, signOff, output);
+      if (decided.approval) approvals = [...approvals, decided.approval];
+      if (!decided.go) {
+        this.record(frame, step, null, recorded(decided.why ?? "rejected"));
         return;
       }
     }
@@ -1043,7 +1218,28 @@ class Executor {
         await this.notice(n, `${name}:notify:${i}`, scope, clientLabel(view));
       }
     }
-    frame.scope.steps[step.id] = { output };
+    // DECISION (wave 5): a read that found nothing is `empty` (`processes.isEmptyOutput`); a re-run
+    // after help that was turned down keeps the output it had and says why.
+    const ended =
+      why ?? (step.kind === "read" && processes.isEmptyOutput(output) ? "empty" : "done");
+    this.record(frame, step, output, recorded(ended));
+  }
+
+  /**
+   * Wave 5 review: whether a failed step's writes were made, or may have been (`AgentPort
+   * .stepWrites`, read once in a durable step so a replay decides the same way).
+   */
+  // DECISION (wave 5 review): `onError: continue` goes on past a skill's or a write's failure only
+  // when every write the step proposed is known not to have been made (the gate refused it, its
+  // input was invalid, its release was refused, its connection was gone, the connector said the
+  // provider turned it down): what the external actions say, not the error's words. A skill that
+  // made any write and then failed doesn't go on: the run ends with its writes done.
+  async wrote(name: string): Promise<boolean> {
+    const port = this.ctx.agent.stepWrites;
+    if (!port) return false;
+    return this.runner.do(`${name}:writes`, () =>
+      port.call(this.ctx.agent, { run: this.ctx.run, nodeId: name }),
+    );
   }
 
   /** What the catalog says about skills and tools, as core's typing reads it. */
@@ -1111,10 +1307,7 @@ class Executor {
     frame: Frame,
     approval: Approval,
     opts: WorkOptions = {},
-  ): Promise<
-    | { ran: true; output: unknown; stepRunId: string; proposed: boolean }
-    | { ran: false; output: unknown | null }
-  > {
+  ): Promise<WorkDone> {
     // v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54). Without a port, or when
     // this step's failures aren't reviewed, the first attempt is the only one, exactly as before.
     if (this.oversees(step, opts)) {
@@ -1131,7 +1324,7 @@ class Executor {
           diagnosis: done.diagnosis,
         });
       }
-      if (done.kind === "skipped") return { ran: false, output: null };
+      if (done.kind === "skipped") return { ran: false, output: null, why: "skipped" };
       // v0.13 M32: stopped at a checkpoint, before the write it feeds.
       if (done.kind === "cancelled") {
         throw new RunEnd({
@@ -1150,34 +1343,55 @@ class Executor {
     );
   }
 
-  /** How the step's last attempt ended decides the run (unchanged by oversight). */
+  /**
+   * How the step's last attempt ended decides the run (unchanged by oversight). Wave 5: a failure
+   * it reported carries what `onError: continue` needs (`RunEnd.continued`), except one whose
+   * write may have happened, which always ends the run (a person checks it, never a route).
+   */
   finishWork(
     name: string,
     approval: Approval,
-    { outcome, rejected, skipped, stepRunId, proposed }: Attempt,
+    { outcome, rejected, skipped, unanswered, stepRunId, proposed, approvals = [] }: Attempt,
     diagnosis?: string,
-  ):
-    | { ran: true; output: unknown; stepRunId: string; proposed: boolean }
-    | { ran: false; output: unknown } {
+  ): WorkDone {
     if (outcome.kind === "escalated") {
-      throw new RunEnd({ status: "failed", reason: `escalated: ${outcome.reason}`, nodeId: name });
+      const reason = `escalated: ${outcome.reason}`;
+      throw new RunEnd(
+        { status: "failed", reason, nodeId: name },
+        { outcome: "failed", error: reason, approvals },
+      );
     }
     if (outcome.kind === "failed") {
-      throw new RunEnd({
-        status: "failed",
-        reason: outcome.error,
-        nodeId: name,
-        // v0.13 W2-I: the last decision's note, for `run.failed` (operator side only).
-        ...(diagnosis === undefined ? {} : { diagnosis }),
-      });
+      throw new RunEnd(
+        {
+          status: "failed",
+          reason: outcome.error,
+          nodeId: name,
+          // v0.13 W2-I: the last decision's note, for `run.failed` (operator side only).
+          ...(diagnosis === undefined ? {} : { diagnosis }),
+        },
+        // DECISION (wave 5): a failure whose write may have happened (the connector's
+        // `UnconfirmedWriteError`) is never gone on past: the action is with the operator to check,
+        // and a recovery path must not run beside a write that may be there.
+        processes.writeMayHaveHappened(outcome.error)
+          ? undefined
+          : { outcome: "failed", error: outcome.error, approvals },
+      );
     }
     if (outcome.kind !== "done") throw new Error("unreachable");
     if (rejected && approval.onReject === "stop" && !skipped) {
       // DECISION: a rejected write ends the run as `cancelled` (a person's decision, not a fault).
       throw new RunEnd({ status: "cancelled", reason: "rejected", nodeId: name });
     }
-    if (rejected) return { ran: false, output: outcome.output };
-    return { ran: true, output: outcome.output, stepRunId, proposed: proposed === true };
+    if (rejected) {
+      return {
+        ran: false,
+        output: outcome.output,
+        why: unanswered ? "no_answer" : "rejected",
+        approvals,
+      };
+    }
+    return { ran: true, output: outcome.output, stepRunId, proposed: proposed === true, approvals };
   }
 
   /**
@@ -1242,6 +1456,8 @@ class Executor {
     let outcome = first.outcome;
     let rejected = false;
     let skipped = false;
+    let unanswered = false;
+    const approvals: ApprovalRecord[] = [];
     // A test run's write comes back as done, recorded unmade.
     let proposed =
       outcome.kind === "approval" || (outcome.kind === "done" && outcome.notWritten === true);
@@ -1276,6 +1492,10 @@ class Executor {
       // P-6: a withdrawn item (a conversation taken over) is no decision: the port goes on (§1.68).
       if (resolution.approved !== true && resolution.withdrawn !== true) rejected = true;
       if (decided.skip) skipped = true;
+      // Wave 5: nobody answering is no person's no (`no_answer`, not `rejected`).
+      if (decided.skip || decided.unanswered) unanswered = true;
+      const decision = approvalRecord(decided);
+      if (decision) approvals.push(decision);
       const extra = decided.proceeded
         ? {
             proceededWithoutAnswer: true,
@@ -1306,6 +1526,8 @@ class Executor {
       rejected,
       ...(skipped ? { skipped } : {}),
       ...(proposed ? { proposed } : {}),
+      ...(unanswered ? { unanswered } : {}),
+      ...(approvals.length > 0 ? { approvals } : {}),
     };
   }
 
@@ -1325,7 +1547,10 @@ class Executor {
     const fallback = approval.timeout ?? this.ctx.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
     if (!opts.plan) {
       const resolution = await this.awaitResolution(base, pending.inboxItemId, fallback);
-      return resolution ? { resolution } : { resolution: { approved: false, by: null } };
+      // Wave 5: `unanswered` only says why (for the outcome); it decides as it always did.
+      return resolution
+        ? { resolution }
+        : { resolution: { approved: false, by: null }, unanswered: true };
     }
     const { agent, run } = this.ctx;
     const ask: Asker | null = agent.askApprover
@@ -1819,7 +2044,7 @@ class Executor {
     stepRunId: string,
     plan: ApprovalPlan,
     output: unknown,
-  ): Promise<"go" | "skip"> {
+  ): Promise<{ go: boolean; why?: NotRun; approval: ApprovalRecord | null }> {
     const base = `${name}:signoff`;
     const label = clientLabel(asLabelled(step));
     const ask = this.personAsker(stepRunId, {
@@ -1834,10 +2059,14 @@ class Executor {
       fallback: DEFAULT_APPROVAL_TIMEOUT,
       nameOf: (k) => `${base}:a${k}`,
     });
-    if (decided.proceeded) return "go";
+    // Wave 5: what a later step reads as `steps.<id>.approval`.
+    const approval = approvalRecord(decided);
+    if (decided.proceeded) return { go: true, approval };
     const { resolution } = decided;
     const answered = !decided.skip && !decided.unanswered;
-    if (answered && (resolution.approved === true || resolution.withdrawn === true)) return "go";
+    if (answered && (resolution.approved === true || resolution.withdrawn === true)) {
+      return { go: true, approval };
+    }
     await this.runner.do(`${base}:done`, async () => {
       await this.ctx.log.update(stepRunId, {
         status: decided.unanswered ? "failed" : "skipped",
@@ -1849,7 +2078,8 @@ class Executor {
       return null;
     });
     if (decided.unanswered) throw new RunEnd({ status: "failed", reason: "timeout", nodeId: name });
-    if (decided.skip || plan.check.onReject === "continue") return "skip";
+    if (decided.skip) return { go: false, why: "no_answer", approval };
+    if (plan.check.onReject === "continue") return { go: false, why: "rejected", approval };
     throw new RunEnd({ status: "cancelled", reason: "rejected", nodeId: name });
   }
 
@@ -1863,78 +2093,111 @@ class Executor {
     nodeName: string,
     scope: unknown,
     label: string,
-  ): Promise<void> {
+    // Wave 5: a notify step with `onError: continue`: a send that fails is recorded as failed in
+    // the durable step's result (so a replay doesn't send again) and the run goes on.
+    continues = false,
+  ): Promise<{ outcome: "sent" | "skipped" | "not_seen" | "failed"; error?: string }> {
     const { run, log, notify } = this.ctx;
-    const sent = await this.runner.do(nodeName, async () => {
-      if (n.when && !evaluateRules(n.when, scope)) return { sent: false, ack: null, urgent: null };
-      const text = renderTemplate(n.message, scope);
-      const sources = noticeSources(n.sources, scope);
-      const channel = n.channel ?? "inbox";
-      const id = await log.start({
-        runId: run.id,
-        nodeId: nodeName,
-        nodeType: "notify",
-        input: { channel, to: n.to, text, ...(sources.length ? { sources } : {}) },
-      });
-      if (this.testRun) {
-        await log.update(id, {
-          status: "succeeded",
-          output: { sent: false },
-          summary: this.words.wouldSend(label),
-        });
-        return { sent: false, ack: null, urgent: null };
-      }
-      const urgent = n.urgent && (!n.urgent.when || evaluateRules(n.urgent.when, scope));
-      const urgentDue = urgent
-        ? new Date(Date.now() + parseDuration(n.urgent?.ackWithin ?? "1 hour")).toISOString()
-        : null;
-      let ack: string | null = null;
-      if (notify.notify) {
-        const r = await notify.notify({
-          run,
-          nodeId: nodeName,
-          to: [...n.to],
-          channel,
-          text,
-          sources,
-          ...(urgentDue ? { urgent: { dueAt: urgentDue } } : {}),
-        });
-        ack = r.ackItemId ?? null;
-      } else {
-        // DECISION: without the port's v4 notify, each recipient gets the v3 notice (an inbox
-        // notice as a thread message, sms as one too); an urgent one isn't waited on.
-        const v3: NotifyStep = {
-          id: nodeName,
-          name: label,
-          kind: "notify",
-          channel: channel === "email" ? "email" : "thread",
-          message: n.message,
-          ...(n.sources ? { sources: n.sources } : {}),
-        };
-        for (const to of n.to) {
-          await notify.send({
-            run,
-            step: v3,
-            nodeId: nodeName,
-            channel: v3.channel,
-            to,
-            text,
-            sources,
-          });
+    const sent: {
+      sent: boolean;
+      ack: string | null;
+      urgent: string | null;
+      skipped?: boolean;
+      failed?: string;
+    } = await this.runner.do(
+      nodeName,
+      async (attempt) => {
+        if (n.when && !evaluateRules(n.when, scope)) {
+          return { sent: false, ack: null, urgent: null, skipped: true };
         }
-      }
-      await log.update(id, { status: "succeeded", summary: `${label}: ${this.words.sent}` });
-      return { sent: true, ack, urgent: urgentDue };
-    });
-    if (!sent.ack || !n.urgent) return;
+        const text = renderTemplate(n.message, scope);
+        const sources = noticeSources(n.sources, scope);
+        const channel = n.channel ?? "inbox";
+        const id = await log.start({
+          runId: run.id,
+          nodeId: nodeName,
+          nodeType: "notify",
+          input: { channel, to: n.to, text, ...(sources.length ? { sources } : {}) },
+        });
+        if (this.testRun) {
+          await log.update(id, {
+            status: "succeeded",
+            output: { sent: false },
+            summary: this.words.wouldSend(label),
+          });
+          return { sent: false, ack: null, urgent: null };
+        }
+        try {
+          const urgent = n.urgent && (!n.urgent.when || evaluateRules(n.urgent.when, scope));
+          const urgentDue = urgent
+            ? new Date(Date.now() + parseDuration(n.urgent?.ackWithin ?? "1 hour")).toISOString()
+            : null;
+          let ack: string | null = null;
+          if (notify.notify) {
+            const r = await notify.notify({
+              run,
+              nodeId: nodeName,
+              to: [...n.to],
+              channel,
+              text,
+              sources,
+              ...(urgentDue ? { urgent: { dueAt: urgentDue } } : {}),
+            });
+            ack = r.ackItemId ?? null;
+          } else {
+            // DECISION: without the port's v4 notify, each recipient gets the v3 notice (an inbox
+            // notice as a thread message, sms as one too); an urgent one isn't waited on.
+            const v3: NotifyStep = {
+              id: nodeName,
+              name: label,
+              kind: "notify",
+              channel: channel === "email" ? "email" : "thread",
+              message: n.message,
+              ...(n.sources ? { sources: n.sources } : {}),
+            };
+            for (const to of n.to) {
+              await notify.send({
+                run,
+                step: v3,
+                nodeId: nodeName,
+                channel: v3.channel,
+                to,
+                text,
+                sources,
+              });
+            }
+          }
+          await log.update(id, { status: "succeeded", summary: `${label}: ${this.words.sent}` });
+          return { sent: true, ack, urgent: urgentDue };
+        } catch (error) {
+          // DECISION (wave 5 review): the send is retried per `NOTICE_STEP_CONFIG`, like any durable
+          // step; only its last try's failure is final. With `onError: continue` that one is the
+          // step's stored result (never sent again on replay); an earlier one throws to be retried.
+          // A runner that can't say which try it is (no `attempt`) has no retries to wait for.
+          const last = !attempt || attempt.attempt > NOTICE_STEP_CONFIG.retries.limit;
+          if (!continues || !last) throw error;
+          await log.update(id, {
+            status: "failed",
+            error: message(error),
+            summary: `${label}: ${this.words.failed}`,
+          });
+          return { sent: false, ack: null, urgent: null, failed: message(error) };
+        }
+      },
+      NOTICE_STEP_CONFIG,
+    );
+    if (typeof sent.failed === "string") return { outcome: "failed", error: sent.failed };
+    // A test run's notice reads as sent, so it takes the path the live run would.
+    if (!sent.sent) return { outcome: sent.skipped || !this.testRun ? "skipped" : "sent" };
+    if (!sent.ack || !n.urgent) return { outcome: "sent" };
     const seen = await this.awaitResolution(`${nodeName}:seen`, sent.ack, n.urgent.ackWithin);
-    if (seen) return;
+    if (seen) return { outcome: "sent" };
     const then = n.urgent.ifNoAnswer ?? "stop";
-    if (then === "proceed" || then === "skip") return;
+    if (then === "proceed" || then === "skip") return { outcome: "not_seen" };
     if (then === "stop")
       throw new RunEnd({ status: "failed", reason: "not_seen", nodeId: nodeName });
     // Escalate: the same urgent notice to `to`, with its own time to say "Seen".
-    await this.notice(
+    return this.notice(
       {
         ...n,
         to: [then.escalate.to],
@@ -1946,6 +2209,7 @@ class Executor {
       `${nodeName}:esc`,
       scope,
       label,
+      continues,
     );
   }
 
@@ -1971,7 +2235,7 @@ class Executor {
     approval: Approval,
     done: { output: unknown; stepRunId: string; proposed: boolean },
     opts: WorkOptions,
-  ): Promise<{ output: unknown; proposed: boolean }> {
+  ): Promise<{ output: unknown; proposed: boolean; why?: NotRun; approvals?: ApprovalRecord[] }> {
     const need = needsHelpOf(done.output, true);
     if (!need) return { output: done.output, proposed: done.proposed };
     const { run, log, agent } = this.ctx;
@@ -2007,17 +2271,23 @@ class Executor {
     const asked = await ask(b, toOperator ? "operator" : LEAD_ASSIGNEE, HELP_DEADLINE);
     const answer = await this.awaitResolution(b, asked.item, asked.timeout);
     if (!answer || answer.approved === false || answer.answer === undefined) {
+      const error = toOperator
+        ? "needs help: it needs our work first, and we didn't answer in time"
+        : "needs help: no answer from the lead";
       await this.runner.do(`${b}:done`, async () => {
         await log.update(done.stepRunId, {
           status: "failed",
-          error: toOperator
-            ? "needs help: it needs our work first, and we didn't answer in time"
-            : "needs help: no answer from the lead",
+          error,
           summary: `${label}: ${this.words.noAnswerInTime}`,
         });
         return null;
       });
-      throw new RunEnd({ status: "failed", reason: "needs_help", nodeId: name });
+      // Wave 5: help nobody gave is the step's own failure (`needs_help`), gone on past with
+      // `onError: continue`.
+      throw new RunEnd(
+        { status: "failed", reason: "needs_help", nodeId: name },
+        { outcome: "needs_help", error },
+      );
     }
     const help = answer.answer;
     // Kept for next time. A note that fails to save never fails the step, but its row says so.
@@ -2088,10 +2358,21 @@ class Executor {
         opts,
       ),
     );
-    if (!again.ran) return { output: again.output, proposed: done.proposed };
+    if (!again.ran) {
+      return {
+        output: again.output,
+        proposed: done.proposed,
+        why: again.why,
+        ...(again.approvals ? { approvals: again.approvals } : {}),
+      };
+    }
     if (needsHelpOf(again.output, true))
       throw new Error("still needs help after the lead's answer");
-    return { output: again.output, proposed: done.proposed || again.proposed };
+    return {
+      output: again.output,
+      proposed: done.proposed || again.proposed,
+      ...(again.approvals ? { approvals: again.approvals } : {}),
+    };
   }
 
   // ── person steps ─────────────────────────────────────────────────────────────────────────────
@@ -2188,7 +2469,12 @@ class Executor {
     if (step.mode === "approve" && !approved && step.onReject === "stop") {
       throw new RunEnd({ status: "cancelled", reason: "rejected", nodeId: name });
     }
-    frame.scope.steps[step.id] = { output };
+    // Wave 5: answered, and the quick answer chosen (one of the step's own values) to route on.
+    const choice =
+      typeof output.answer === "string" && step.choices?.some((c) => c.value === output.answer)
+        ? output.answer
+        : undefined;
+    this.record(frame, step, output, { outcome: "answered", ...(choice ? { choice } : {}) });
   }
 
   /**
@@ -2234,7 +2520,7 @@ class Executor {
       return null;
     });
     if (then === "stop") throw new RunEnd({ status: "failed", reason: "timeout", nodeId: name });
-    frame.scope.steps[step.id] = { output };
+    this.record(frame, step, output, { outcome: "no_answer" });
   }
 
   // ── R3: conversation steps ───────────────────────────────────────────────────────────────────
@@ -2366,19 +2652,28 @@ class Executor {
       if (onReject === "stop") {
         throw new RunEnd({ status: "cancelled", reason: "rejected", nodeId: name });
       }
-      frame.scope.steps[step.id] = { output };
+      this.record(frame, step, output, { outcome: "declined" });
       return;
     }
     if (result.status === "failed") {
+      const error = result.summary || "the conversation failed";
       await this.runner.do(`${name}:done`, async () => {
         await log.update(started.stepRunId, {
           status: "failed",
           output,
-          error: result.summary || "the conversation failed",
+          error,
           summary: `${stepStateLabel(asLabelled(step), false)}: ${this.words.failed}`,
         });
         return null;
       });
+      // Wave 5: with `onError: continue` the run goes on with what it found and why it failed.
+      if (this.continues(step)) {
+        this.record(frame, step, output, {
+          outcome: "failed",
+          error: processes.plainError(error),
+        });
+        return;
+      }
       throw new RunEnd({
         status: "failed",
         reason: result.summary || "conversation failed",
@@ -2417,7 +2712,8 @@ class Executor {
         return null;
       });
       if (ended === "stop") throw new RunEnd({ status: "failed", reason: "timeout", nodeId: name });
-      frame.scope.steps[step.id] = { output: final };
+      // Wave 5: the contact didn't answer in time, whatever the escalation or `ifNoAnswer` did.
+      this.record(frame, step, final, { outcome: "no_answer" });
       return;
     }
     await this.runner.do(`${name}:done`, async () => {
@@ -2428,7 +2724,7 @@ class Executor {
       });
       return null;
     });
-    frame.scope.steps[step.id] = { output };
+    this.record(frame, step, output, { outcome: result.status });
   }
 
   // ── logic ────────────────────────────────────────────────────────────────────────────────────
@@ -2462,7 +2758,7 @@ class Executor {
       prefix: frame.prefix,
       scope: { ...frame.scope, steps: { ...frame.scope.steps } },
     });
-    frame.scope.steps[step.id] = { output: chosen.output };
+    this.record(frame, step, chosen.output);
   }
 
   async forEach(step: processes.ForEachStep, name: string, frame: Frame): Promise<void> {
@@ -2483,24 +2779,34 @@ class Executor {
     });
 
     let ended: RunEnd | undefined;
+    // Wave 5: with `onError: continue`, an item whose steps failed (a failure they reported) doesn't
+    // stop the others; it is counted. Anything else (a no, a stop, no answer) still ends the run.
+    const continues = this.continues(step);
+    const failedItems = new Set<number>();
     try {
-      await pool(items.length, step.concurrency ?? 10, (i) =>
-        this.runList(step.steps, {
-          prefix: `${name}:${i}:`,
-          scope: {
-            ...frame.scope,
-            steps: { ...frame.scope.steps },
-            item: items[i],
-            index: i,
-          },
-        }),
-      );
+      await pool(items.length, step.concurrency ?? 10, async (i) => {
+        try {
+          await this.runList(step.steps, {
+            prefix: `${name}:${i}:`,
+            scope: {
+              ...frame.scope,
+              steps: { ...frame.scope.steps },
+              item: items[i],
+              index: i,
+            },
+          });
+        } catch (error) {
+          if (!continues || !continuable(error)) throw error;
+          failedItems.add(i);
+        }
+      });
     } catch (error) {
       if (!(error instanceof RunEnd)) throw error;
       ended = error;
     }
 
-    const output = { count: items.length };
+    const failed = failedItems.size;
+    const output = failed > 0 ? { count: items.length, failed } : { count: items.length };
     await this.runner.do(`${name}:done`, async () => {
       await log.update(stepRunId, {
         status: ended?.result.status === "failed" ? "failed" : "succeeded",
@@ -2510,10 +2816,13 @@ class Executor {
       return null;
     });
     if (ended) throw ended;
-    frame.scope.steps[step.id] = { output };
+    // DECISION (wave 5): `all_failed` only when there were items and every one failed; a loop over
+    // nothing is `done`.
+    const outcome = failed === 0 ? "done" : failed === items.length ? "all_failed" : "some_failed";
+    this.record(frame, step, output, { outcome, counts: { items: items.length, failed } });
   }
 
-  async wait(step: processes.WaitStep, name: string, _frame: Frame): Promise<void> {
+  async wait(step: processes.WaitStep, name: string, frame: Frame): Promise<void> {
     const { run, log } = this.ctx;
     const label = clientLabel(asLabelled(step));
     const { stepRunId } = await this.runner.do(name, async () => {
@@ -2532,13 +2841,26 @@ class Executor {
       });
       return null;
     });
+    // Wave 5: a wait for a duration ends when its time runs out.
+    this.record(frame, step, null, { outcome: "timed_out" });
   }
 
   /** A notify step: a converted one exactly as v3 sent it; a v4 one through `notice`. */
   async notifyStep(step: processes.NotifyStep, name: string, frame: Frame): Promise<void> {
     const origin = this.origin(step);
     if (origin?.kind === "notify") return this.notifyV3(origin, name, frame);
-    await this.notice(step.notify, name, frame.scope, step.name);
+    const ended = await this.notice(
+      step.notify,
+      name,
+      frame.scope,
+      step.name,
+      this.continues(step),
+    );
+    // Wave 5: sent, skipped (its `when`), not seen in time (urgent, the run went on), or failed.
+    this.record(frame, step, null, {
+      outcome: ended.outcome,
+      ...(ended.error ? { error: processes.plainError(ended.error) } : {}),
+    });
   }
 
   async notifyV3(step: NotifyStep, name: string, frame: Frame): Promise<void> {
@@ -2612,6 +2934,14 @@ class Executor {
       if (!(error instanceof RunEnd)) throw error;
       ended = error;
     }
+    // Wave 5: with `onError: continue`, a stop step inside ends the sub-process alone (`stopped`)
+    // and a failure a step inside reported is the process step's (`failed`); a no, nobody
+    // answering with `stop`, or an exception still ends the run.
+    // DECISION (wave 5): without `onError: continue` a stop inside ends the whole run, as always.
+    const goesOn =
+      ended !== undefined &&
+      this.continues(step) &&
+      (ended.result.reason === "stop" || continuable(ended));
     const output = ended ? null : resolveTemplate(expanded.output, inner.scope);
     const label = clientLabel(asLabelled(step));
     await this.runner.do(`${name}:done`, async () => {
@@ -2619,8 +2949,26 @@ class Executor {
       await log.update(started.stepRunId, {
         // DECISION: a use step's row has no `cancelled` status: one its steps cancelled (a
         // rejected write, a stop) is `skipped`, like a write a person turned down.
-        status: status === "failed" ? "failed" : status === "cancelled" ? "skipped" : "succeeded",
-        ...(ended ? {} : { output }),
+        // Wave 5: one gone on past says how it ended: a stop inside `skipped` (stopped), a failure
+        // `failed`, whatever the stop's own status.
+        status:
+          goesOn && ended?.result.reason === "stop"
+            ? "skipped"
+            : status === "failed"
+              ? "failed"
+              : status === "cancelled"
+                ? "skipped"
+                : "succeeded",
+        // Fix 3: a stop gone on past keeps how it would have ended the run on the process's own
+        // row (`{ stopStatus }`), which a retry copies whole, so a retry of a retry reads it too.
+        ...(ended
+          ? goesOn && ended.result.reason === "stop"
+            ? { output: { stopStatus: ended.result.status } }
+            : {}
+          : { output }),
+        // Wave 5 review: a failure gone on past keeps its error on the row, where a retry that
+        // reuses the step reads it back (`steps.<id>.error`).
+        ...(goesOn && ended?.result.reason !== "stop" ? { error: carriedError(ended) } : {}),
         summary: `${label}: ${
           status === undefined
             ? this.words.done
@@ -2631,8 +2979,20 @@ class Executor {
       });
       return null;
     });
-    if (ended) throw ended;
-    frame.scope.steps[step.id] = { output };
+    if (ended && !goesOn) throw ended;
+    if (ended) {
+      const stopped = ended.result.reason === "stop";
+      // Wave 5 review: a stop inside keeps how it would have ended the run (`stopStatus`), so a
+      // route that ends the run after it ends it the same way.
+      this.record(frame, step, null, {
+        outcome: stopped ? "stopped" : "failed",
+        ...(stopped
+          ? { stopStatus: ended.result.status }
+          : { error: processes.plainError(carriedError(ended)) }),
+      });
+      return;
+    }
+    this.record(frame, step, output, { outcome: "completed" });
   }
 
   // ── v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54) ──────────────────────
@@ -2860,6 +3220,9 @@ class Executor {
       const id = await log.start({ runId: run.id, nodeId: name, nodeType: "stop" });
       await log.update(id, {
         status: "succeeded",
+        // Wave 5 review: how it ends the run, which a retry reads back as a stopped process's
+        // `stopStatus` (core's `recordOfStoredStep`).
+        output: { status: step.status },
         summary: `${clientLabel(asLabelled(step))}: ${this.words.stopped[step.status]}`,
       });
       return null;

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   approvalOf,
+  carriedOn,
   checkKindOf,
   conferOf,
   itemOfStep,
   noAnswerOf,
+  routeOfRow,
   stepNodeOf,
   urgentOf,
 } from "./run-checks";
@@ -150,5 +152,83 @@ describe("run checks", () => {
       ])?.state,
     ).toBe("not_seen");
     expect(urgentOf(row({ nodeType: "notify" }), [])).toBeNull();
+  });
+});
+
+// Wave 5 (web): the route an if took, and why in outcome words.
+describe("routeOfRow", () => {
+  const fork = {
+    id: "route",
+    kind: "if",
+    paths: [
+      {
+        id: "p-rej",
+        name: "Rejected",
+        when: {
+          match: "any" as const,
+          rules: [
+            { field: "{{steps.approve.outcome}}", op: "=" as const, value: "rejected" },
+            { field: "{{steps.find.outcome}}", op: "in" as const, value: ["empty", "failed"] },
+            { field: "{{steps.find.output.total}}", op: ">" as const, value: 5 },
+          ],
+        },
+      },
+    ],
+  };
+  const outcomes: Record<string, "rejected" | "done" | "empty"> = {
+    approve: "rejected",
+    find: "done",
+    "each:0:approve": "done",
+    "each:0:find": "empty",
+  };
+  const label = (id: string) =>
+    ({ approve: "Approve the bill", find: "Find the PO" })[id as "approve" | "find"];
+  const at = (n: string) => outcomes[n];
+
+  it("names the path and the outcome rules that held", () => {
+    const route = routeOfRow(
+      fork,
+      { nodeId: "route", output: { pathId: "p-rej", pathName: "Rejected" } },
+      at,
+      label,
+    );
+    expect(route).toEqual({
+      path: "Rejected",
+      because: [{ label: "Approve the bill", outcome: "rejected" }],
+    });
+  });
+
+  it("reads a loop item's own rows", () => {
+    const route = routeOfRow(
+      fork,
+      { nodeId: "each:0:route", output: { pathId: "p-rej" } },
+      at,
+      label,
+    );
+    expect(route?.because).toEqual([{ label: "Find the PO", outcome: "empty" }]);
+  });
+
+  it("leaves out steps the reader doesn't see, and reads otherwise as no path", () => {
+    expect(
+      routeOfRow(fork, { nodeId: "route", output: { pathId: "p-rej" } }, at, () => null),
+    ).toEqual({ path: "Rejected", because: [] });
+    expect(routeOfRow(fork, { nodeId: "route", output: { pathId: "else" } }, at, label)).toEqual({
+      path: null,
+      because: [],
+    });
+    expect(routeOfRow({ ...fork, kind: "read" }, { nodeId: "route", output: {} }, at, label)).toBe(
+      null,
+    );
+    expect(routeOfRow(fork, { nodeId: "route", output: null }, at, label)).toBeNull();
+  });
+});
+
+describe("carriedOn", () => {
+  it("is a failure a step's onError: continue went on past", () => {
+    expect(carriedOn({ onError: "continue" }, "failed")).toBe(true);
+    expect(carriedOn({ onError: "continue" }, "some_failed")).toBe(true);
+    expect(carriedOn({ onError: "continue" }, "done")).toBe(false);
+    expect(carriedOn({}, "failed")).toBe(false);
+    expect(carriedOn(undefined, "failed")).toBe(false);
   });
 });

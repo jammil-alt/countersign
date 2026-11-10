@@ -3,9 +3,13 @@
 // (`processScopes`), so a picked reference is one the validator accepts. A step's checks read more
 // than the step itself: its own output (after a read or a skill that writes nothing, and always in
 // a notify) and the verdicts of its confer reviewers.
+// Wave 5 (§1.86 "Forks (wave 5)"): how each earlier step ended (`steps.<id>.outcome`, its
+// approval, confer, error, quick answer, a loop's counts: `stepOutcomeFields`), for an `if` to
+// route on. Never the step's own: it hasn't ended when its checks run.
 
 import type { JsonSchema } from "../schemas/common";
 import { type PathOption, pathOptions } from "../template/typer";
+import { stepOutcomeFields } from "./outcomes";
 import type { Process } from "./schema";
 import {
   CONFER_RESULT,
@@ -34,8 +38,11 @@ export function processPathsAt(
   const scope = processScopes(process, ctx).get(stepId);
   if (!scope) return [];
   const out: PathOption[] = [...pathOptions(scope.trigger, "trigger", depth)];
-  for (const [id, { output }] of Object.entries(scope.steps)) {
+  for (const [id, { step, output }] of Object.entries(scope.steps)) {
     out.push(...pathOptions(output, `steps.${id}.output`, depth, id));
+    for (const f of stepOutcomeFields(step)) {
+      out.push({ path: `steps.${id}.${f.path}`, schema: f.schema, stepId: id });
+    }
   }
   if (options.own) {
     const step = findStep(process, stepId)?.step;
