@@ -4,19 +4,29 @@
 // `site` in each tool's input. The model gets page data only: `browser.page.read` (text and
 // tables of an allowed page) and `browser.file.download` (a file into documents, as uploads are).
 // No form submit yet: it comes after the pilot, as an external action behind approval.
+// v0.16 (docs/plan.md §1.86): an `ai` skill that declares `browse` reaches these tools only through
+// its scope (./scope.ts), which sets `within` to the skill's pages.
 
-import { BrowserSiteSlug } from "@countersign/core";
+import { BrowsePage, BrowserSiteSlug } from "@countersign/core";
 import { z } from "zod";
 import { type Connector, defineConnector, defineReadTool } from "../connector";
 import { isDocumentType } from "../upload/forwarding";
+import { BROWSER_CONNECTOR_ID, BROWSER_FILE_DOWNLOAD_TOOL, BROWSER_PAGE_READ_TOOL } from "./ids";
 import { type BrowserSessionOptions, withBrowserSession } from "./session";
 import { BrowserRefused } from "./sign-in";
 
 export * from "./driver";
 export * from "./fake";
+export * from "./ids";
 export * from "./playwright";
+export * from "./scope";
 export * from "./services";
-export { Redactor, type SignedInPage, withBrowserSession } from "./session";
+export {
+  type BrowserCall,
+  Redactor,
+  type SignedInPage,
+  withBrowserSession,
+} from "./session";
 export {
   BrowserRefused,
   BrowserStop,
@@ -28,25 +38,32 @@ export {
   signOut,
 } from "./sign-in";
 
-export const BROWSER_CONNECTOR_ID = "browser";
-export const BROWSER_PAGE_READ_TOOL = "browser.page.read";
-export const BROWSER_FILE_DOWNLOAD_TOOL = "browser.file.download";
-
 /** The most page text a read returns (characters); the rest is cut and `truncated` says so. */
 export const BROWSER_TEXT_MAX = 60_000;
 
 const Site = BrowserSiteSlug.describe("The site's slug, as the agent's binding names it");
 const Url = z.string().min(1).max(2000).describe("An address on the site, one agents may open");
+// DECISION: a browsing skill's pages travel in the input, the only thing that reaches the connector
+// from a call. They can only narrow (a page must match the site's allowed pages too), and the
+// skill's scope always replaces whatever the model wrote here.
+const Within = z
+  .array(BrowsePage)
+  .min(1)
+  .max(50)
+  .optional()
+  .describe("Set by the platform for a skill that browses: only pages matching these open");
 
-const PageReadInput = z.strictObject({ site: Site, url: Url });
+const PageReadInput = z.strictObject({ site: Site, url: Url, within: Within });
 const PageReadOutput = z.object({
   url: z.string(),
   text: z.string(),
   tables: z.array(z.object({ headers: z.array(z.string()), rows: z.array(z.array(z.string())) })),
   truncated: z.boolean(),
+  /** A browsing skill's read only: the page's evidence screenshot (its storage key). */
+  screenshot: z.string().optional(),
 });
 
-const DownloadInput = z.strictObject({ site: Site, url: Url });
+const DownloadInput = z.strictObject({ site: Site, url: Url, within: Within });
 const DownloadOutput = z.object({
   documentId: z.string(),
   filename: z.string(),
@@ -110,18 +127,25 @@ export function createBrowserConnector(options: BrowserConnectorOptions = {}): C
         run: (input, ctx) =>
           withBrowserSession(
             ctx,
-            { tool: BROWSER_PAGE_READ_TOOL, site: input.site },
+            {
+              tool: BROWSER_PAGE_READ_TOOL,
+              site: input.site,
+              url: input.url,
+              within: input.within,
+            },
             session,
             async (page) => {
               const url = await page.open(input.url);
               const text = await page.readText();
               const tables = await page.readTables();
               page.note({ kind: "read", url });
+              const shot = input.within ? page.lastScreenshot() : null;
               return {
                 url,
                 text: text.slice(0, BROWSER_TEXT_MAX),
                 tables,
                 truncated: text.length > BROWSER_TEXT_MAX,
+                ...(shot ? { screenshot: shot } : {}),
               };
             },
           ),
@@ -137,7 +161,12 @@ export function createBrowserConnector(options: BrowserConnectorOptions = {}): C
         run: (input, ctx) =>
           withBrowserSession(
             ctx,
-            { tool: BROWSER_FILE_DOWNLOAD_TOOL, site: input.site },
+            {
+              tool: BROWSER_FILE_DOWNLOAD_TOOL,
+              site: input.site,
+              url: input.url,
+              within: input.within,
+            },
             session,
             async (page) => {
               const file = await page.download(input.url);

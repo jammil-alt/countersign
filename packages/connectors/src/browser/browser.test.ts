@@ -21,6 +21,7 @@ import {
   BROWSER_PAGE_READ_TOOL,
   type BrowserServices,
   type BrowserSessionRecord,
+  BrowseScope,
   createBrowserConnector,
   FakeBrowserDriver,
   FakeCodesService,
@@ -160,6 +161,7 @@ function setUp(opts: Setup = {}) {
     connection,
     credentials,
     connector,
+    ctx,
     async identify() {
       const made = await codes.createIdentity({ tenantId: TENANT, label: "Supplier portal" });
       if (!made.ok) throw new Error("no identity");
@@ -495,5 +497,123 @@ describe("browser connector: kept sessions (low tier)", () => {
     expect(s.credentials.current()).toEqual({ username: USERNAME, password: PASSWORD });
     expect(s.portal.signOuts).toBe(1);
     expect(s.records[1]).toMatchObject({ outcome: "failed", signedOut: true, keptSession: false });
+  });
+});
+
+// v0.16 (docs/plan.md §1.86): an `ai` skill that browses, through its scope (./scope.ts).
+describe("browser connector: a browsing skill's pages", () => {
+  const SKILL_PAGES = ["/invoices/*", "/invoices"];
+  const statements = {
+    allow: [`${ORIGIN}/home`, `${ORIGIN}/invoices*`, `${ORIGIN}/statements*`],
+  };
+  const scoped = (s: S, url: string, within: string[] = SKILL_PAGES) =>
+    runReadTool(s.connector, BROWSER_PAGE_READ_TOOL, { site: "supplier", url, within }, s.ctx);
+
+  it("refuses off-site, protocol-relative and traversing addresses before a browser opens", async () => {
+    const s = setUp({ profile: statements });
+    await s.identify();
+    for (const [url, pattern] of [
+      ["https://elsewhere.test/invoices/1", /not one agents may open/],
+      ["//elsewhere.test/invoices/1", /not a web address/],
+      [`${ORIGIN}/invoices/../statements`, /climbs out of its path/],
+      [`${ORIGIN}/invoices/%2e%2e/statements`, /climbs out of its path/],
+      [`${ORIGIN}/invoices/..%2fstatements`, /climbs out of its path/],
+      // On the site's allowed pages, but not the skill's: the intersection holds.
+      [`${ORIGIN}/statements`, /not one of this skill's pages/],
+    ] as const) {
+      expect(await failure(scoped(s, url))).toMatch(pattern);
+    }
+    expect(s.driver.opened).toBe(0);
+    expect(s.portal.signIns).toBe(0);
+    expect(s.state.value).toBeNull();
+  });
+
+  it("can't widen the site: pages the site doesn't allow stay shut whatever `within` says", async () => {
+    const s = setUp();
+    await s.identify();
+    expect(await failure(scoped(s, `${ORIGIN}/orders/7`, ["/orders/*"]))).toMatch(
+      /not one agents may open/,
+    );
+    expect(await failure(scoped(s, `${ORIGIN}/invoices/settings`, ["/invoices/*"]))).toMatch(
+      /agents never open this page/,
+    );
+    expect(s.driver.opened).toBe(0);
+  });
+
+  it("leaves a redirect off the skill's pages without reading it, and signs out", async () => {
+    const s = setUp({ profile: statements });
+    await s.identify();
+    expect(await failure(scoped(s, `${ORIGIN}/invoices/to-statements`))).toMatch(
+      /went to a page agents may not open: not one of this skill's pages/,
+    );
+    const reads = s.driver.events.flatMap((e) => (e.op === "read" ? [e.url] : []));
+    expect(reads.some((u) => u.includes("statements"))).toBe(false);
+    expect(s.portal.signOuts).toBe(1);
+    expect(s.driver.closed).toBe(s.driver.opened);
+  });
+
+  it("reads a listed page and returns its evidence screenshot", async () => {
+    const s = setUp();
+    await s.identify();
+    const r = await scoped(s, `${ORIGIN}/invoices`);
+    expect(r.output).toMatchObject({ url: `${ORIGIN}/invoices`, screenshot: "shot-2" });
+    // Without `within`, reads are as they were: no screenshot key.
+    const plain = await s.read(`${ORIGIN}/invoices`);
+    expect(plain.output).not.toHaveProperty("screenshot");
+  });
+
+  it("through a BrowseScope: off-site refused, then the page limit asks for help", async () => {
+    const s = setUp();
+    await s.identify();
+    const scope = new BrowseScope({
+      skill: "custom:find-invoice@3",
+      browse: { sites: ["supplier"], pages: SKILL_PAGES },
+      goal: "Find the invoice for PO-77",
+      limits: { pages: 2 },
+    });
+    const call = async (toolId: string, input: Record<string, unknown>) => {
+      const checked = scope.check(toolId, input);
+      if (!checked.ok) {
+        scope.observe(toolId, input, { status: "refused", reason: checked.reason });
+        return checked;
+      }
+      try {
+        const r = await runReadTool(s.connector, toolId, checked.input, s.ctx);
+        scope.observe(toolId, checked.input, { status: "done", output: r.output });
+        return { ok: true as const };
+      } catch (error) {
+        scope.observe(toolId, checked.input, { status: "failed", error: String(error) });
+        return { ok: false as const };
+      }
+    };
+    // The model writes its own `within` to widen: it is replaced by the skill's pages.
+    await call(BROWSER_PAGE_READ_TOOL, {
+      site: "supplier",
+      url: "https://elsewhere.test/x",
+      within: ["/*"],
+    });
+    await call(BROWSER_PAGE_READ_TOOL, { site: "supplier", url: `${ORIGIN}/invoices` });
+    await call(BROWSER_PAGE_READ_TOOL, { site: "supplier", url: `${ORIGIN}/invoices/INV-1001` });
+    expect(scope.overLimit("0.01")).toBeNull();
+    const third = await call(BROWSER_PAGE_READ_TOOL, {
+      site: "supplier",
+      url: `${ORIGIN}/invoices/INV-1002`,
+    });
+    expect(third).toMatchObject({ ok: false, reason: expect.stringMatching(/limit of 2 pages/) });
+    expect(scope.overLimit("0.01")).toBe("pages");
+    expect(s.driver.opened).toBe(2);
+    expect(scope.needsHelp()).toEqual({
+      question:
+        'We looked for "Find the invoice for PO-77" on supplier and didn\'t find it within 2 pages. Where on the site should we look?',
+      tried: [
+        "Looked for: Find the invoice for PO-77",
+        "Refused https://elsewhere.test/x: https://elsewhere.test/x: not one of this skill's pages (/invoices/*, /invoices)",
+        `Read ${ORIGIN}/invoices`,
+        `Read ${ORIGIN}/invoices/INV-1001`,
+        expect.stringMatching(/^Refused .*INV-1002: .*limit of 2 pages/),
+      ],
+      screenshots: ["shot-2", "shot-4"],
+      remember: "[browse-help skill=custom:find-invoice sites=supplier]",
+    });
   });
 });
