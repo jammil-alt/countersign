@@ -172,6 +172,11 @@ export function NewClientScreen() {
         ["already_member", "other_client", "is_operator", "invalid_request"].includes(code)
       ) {
         setProblems({ admin: inviteProblem(error, "ops") });
+      } else if (code === "no_template") {
+        // The supervisor is forked from a platform template; a new environment may not have it.
+        setProblems({
+          form: "The supervisor template isn't installed here. Install it, or untick the supervisor, then create the client.",
+        });
       } else setProblems({ form: "We couldn't create the client. Try again." });
     } finally {
       setBusy(false);

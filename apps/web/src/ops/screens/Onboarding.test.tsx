@@ -245,6 +245,19 @@ describe("new client", () => {
     );
     expect(screen.getByTestId("new-client-name")).toHaveValue("Shop");
   });
+
+  it("says when the supervisor template is missing", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/connectors": () => ({ connectors: [] }),
+      "POST /api/ops/clients": () =>
+        new Reply(409, { error: { code: "no_template", message: "x" } }),
+    });
+    renderAt("/ops/clients/new", api);
+    await userEvent.type(await screen.findByTestId("new-client-name"), "Shop");
+    await userEvent.click(screen.getByTestId("new-client-create"));
+    expect(await screen.findByText(/supervisor template isn't installed here/)).toBeInTheDocument();
+  });
 });
 
 describe("client settings", () => {
