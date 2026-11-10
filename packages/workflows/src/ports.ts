@@ -170,6 +170,23 @@ export interface ActionStepRequest {
   keyNode?: string;
 }
 
+// Skill model (2026-11-10): action write steps.
+/** An action write step to resolve for the run's agent (`AgentPort.resolveAction`). */
+export interface ResolveActionRequest {
+  run: RunInfo;
+  /** The step's durable name. */
+  nodeId: string;
+  action: processes.WriteAction;
+  /** The connector the step pins (accounting actions only). */
+  via?: string;
+}
+
+/**
+ * The tool an action runs with for this agent: `processes.actionTool(action, connector)`. Small
+ * JSON: it is stored as a durable step result. `refused`: it doesn't resolve (nothing written).
+ */
+export type ResolvedAction = { tool: string; connector: string } | { refused: string };
+
 export interface ResumeRequest {
   run: RunInfo;
   step: SkillStep | ActionStep;
@@ -230,6 +247,12 @@ export interface AgentPort {
    * the answer is kept as an ordinary memory note (`memory.write`), never read back as an answer.
    */
   keepHelp?(request: KeepHelpRequest): Promise<void>;
+  /**
+   * Skill model (2026-11-10): the tool an action write step runs with for the run's agent: its
+   * bound accounting connection (or `via`), or its email or text channel (its own, else the
+   * account's). Called once per step in a durable step. Ports without it fail action steps.
+   */
+  resolveAction?(request: ResolveActionRequest): Promise<ResolvedAction>;
 }
 
 /** The lead's answer to a help request, to keep (`AgentPort.keepHelp`). */

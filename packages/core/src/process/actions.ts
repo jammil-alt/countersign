@@ -97,12 +97,15 @@ export const ACTION_CONNECTOR_NAMES: Readonly<Record<string, string>> = {
   twilio: "your number",
 };
 
-/** "Create bill · in QuickBooks", "Send email · through Gmail", "Send text · from your number". */
-export function actionStepLabel(action: WriteAction, connector: string): string {
+/**
+ * "Create bill · in QuickBooks", "Send email · through Gmail", "Send text · from your number": the
+ * step's name (the action's label unless the operator named it) and where it resolved to.
+ */
+export function actionStepLabel(action: WriteAction, connector: string, name?: string): string {
   const spec = ACTION_SPECS[action];
-  const name = ACTION_CONNECTOR_NAMES[connector] ?? connector;
+  const system = ACTION_CONNECTOR_NAMES[connector] ?? connector;
   const word = "accounting" in spec.from ? "in" : connector === "twilio" ? "from" : "through";
-  return `${spec.label} · ${word} ${name}`;
+  return `${name ?? spec.label} · ${word} ${system}`;
 }
 
 /** The tool `action` runs with through `connector`, or null when that connector can't. */

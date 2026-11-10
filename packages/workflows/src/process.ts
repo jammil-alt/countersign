@@ -171,6 +171,8 @@ export function workView(
       ...(approval ? { approval } : {}),
     };
   }
+  // Skill model: an action write step is resolved to its tool before it gets here.
+  if (step.tool === undefined) throw new Error(`"${step.name}" names no tool`);
   return {
     ...common,
     kind: "action",
@@ -238,5 +240,5 @@ export function storedKind(step: processes.Step, origin: V3Step | undefined): st
 /** The tool a step's error key names: a write or read step's, or a v3 action's. */
 export function toolOf(step: processes.Step, origin: V3Step | undefined): string | null {
   if (origin) return origin.kind === "action" ? origin.tool : null;
-  return step.kind === "read" || step.kind === "write" ? step.tool : null;
+  return step.kind === "read" || step.kind === "write" ? (step.tool ?? null) : null;
 }

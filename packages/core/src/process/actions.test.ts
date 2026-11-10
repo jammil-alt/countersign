@@ -301,7 +301,7 @@ describe("validateProcess: action write steps", () => {
     expect(
       pub(
         { create: "auto" },
-        { agent: { skills: [], extraTools: [], permissions: { mode: "suggest" } } },
+        { agent: { skills: [], extraTools: [], permissions: { mode: "suggest_only" } } as never },
       ),
     ).toEqual(["approval_needs_act@w1:checks.approval.required"]);
   });
