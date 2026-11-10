@@ -31,6 +31,7 @@ import {
   PersonForm,
   RELATIONSHIP_KEY,
 } from "../../directory/DirectoryPanel";
+import { listedHours } from "../../hours/format";
 import { PersonHoursEditor } from "../../hours/HoursParts";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
@@ -231,6 +232,8 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
                         body: body as ContactCreateInput,
                       });
                       list.reload();
+                      // The new contact's place on the People hours list (it may sit past the cap).
+                      hours.reload();
                       select(res.contact.id);
                     }}
                   />
@@ -246,10 +249,7 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
                   hours={
                     hours.data
                       ? {
-                          hours:
-                            hours.data.people.find(
-                              (h) => h.kind === "contact" && h.id === selected.id,
-                            )?.hours ?? null,
+                          hours: listedHours(hours.data, "contact", selected.id),
                           business: hours.data.business.hours,
                           save: async (next) => {
                             await api.call(apiRoutes.portalSetContactHours, {
@@ -456,9 +456,12 @@ function PersonDetail({
   agents: string[];
   admin: boolean;
   onChanged: () => void;
-  /** Their hours and away dates, and how to save them (the client admin's); null: not shown. */
+  /**
+   * Their hours and away dates, and how to save them (the client admin's); null: not shown.
+   * `hours` undefined: not on the People hours list (past its cap), so not known here.
+   */
   hours: {
-    hours: processes.PersonHours | null;
+    hours: processes.PersonHours | null | undefined;
     business: processes.BusinessHours;
     save: (next: processes.PersonHours | null) => Promise<void>;
   } | null;
@@ -540,12 +543,20 @@ function PersonDetail({
       </DetailBlock>
       {hours ? (
         <DetailBlock title={t("hours.title")}>
-          <PersonHoursEditor
-            person={{ hours: hours.hours }}
-            business={hours.business}
-            onSave={hours.save}
-            testId="people-detail-hours"
-          />
+          {hours.hours === undefined ? (
+            // Saving from here would send only what the editor holds and erase hours we never
+            // read, so a contact past the list's cap gets no editor.
+            <p className="text-sm text-ink-muted" data-testid="people-detail-hours-unlisted">
+              {t("hours.contactUnlisted")}
+            </p>
+          ) : (
+            <PersonHoursEditor
+              person={{ hours: hours.hours }}
+              business={hours.business}
+              onSave={hours.save}
+              testId="people-detail-hours"
+            />
+          )}
         </DetailBlock>
       ) : null}
       {admin ? (

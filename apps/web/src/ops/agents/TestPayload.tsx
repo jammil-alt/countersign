@@ -2,7 +2,7 @@
 // payload, one of the client's recent events of the trigger's type (its payload as emitted, so the
 // run reads real records), or input typed by hand. Shared by a client agent's Settings tab and the
 // workflow builder's test-run panel.
-import type { RecentEvent, Workflow } from "@countersign/core";
+import { allTriggers, type RecentEvent, type Trigger, type Workflow } from "@countersign/core";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -15,24 +15,33 @@ type CatalogEvent = ResponseOf<typeof apiRoutes.opsEventCatalog>["events"][numbe
 /** `sample`, `manual`, or `event:<id>` for one of the recent events. */
 export type PayloadSource = "sample" | "manual" | `event:${string}`;
 
-/** The event type a workflow's trigger waits for, or null when it isn't an event trigger. */
-// R8: only the trigger is read, so a v4 process passes its first trigger the same way.
-export function triggerEventType(
-  workflow: Pick<Workflow, "trigger"> | null | undefined,
-): string | null {
-  const on = workflow?.trigger.on;
-  return on?.type === "event" ? on.event : null;
+/** A v3 workflow (its `trigger` and `moreTriggers`) or a v4 process (its `triggers`). */
+export type Triggered =
+  | Pick<Workflow, "trigger" | "moreTriggers">
+  | { triggers: readonly Trigger[] };
+
+/**
+ * The event type a workflow waits for: its first event trigger's, or null when none of its
+ * triggers is an event. A v4 process reads its `triggers` (core's `allTriggers`), so a live v4
+ * version's Versions tab doesn't fail on a missing `trigger`.
+ */
+export function triggerEventType(workflow: Triggered | null | undefined): string | null {
+  if (!workflow) return null;
+  for (const t of allTriggers(workflow)) if (t.on.type === "event") return t.on.event;
+  return null;
 }
 
 /**
- * The trigger's sample payload: the event catalogue's sample (undefined when its type has none),
- * or a blank of the input's shape.
+ * The first trigger's sample payload: the event catalogue's sample (undefined when its type has
+ * none, or the process has no trigger yet), or a blank of the input's shape.
  */
 export function samplePayload(
-  workflow: Pick<Workflow, "trigger">,
+  workflow: Triggered,
   events: readonly Pick<CatalogEvent, "type" | "sample">[],
 ): unknown {
-  const on = workflow.trigger.on;
+  const first = allTriggers(workflow)[0];
+  if (!first) return undefined;
+  const on = first.on;
   switch (on.type) {
     case "event":
       return events.find((e) => e.type === on.event)?.sample ?? undefined;

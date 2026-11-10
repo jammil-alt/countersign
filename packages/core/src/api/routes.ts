@@ -6,6 +6,7 @@ import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
 import { ROLES, Role } from "../roles";
 import { JsonSchema } from "../schemas/common";
+import { ConnectorAuth } from "../schemas/connector";
 import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas/permissions";
 import { SkillBrowse, SkillDefinition, SkillMethod } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
@@ -94,6 +95,8 @@ import { PortalLead, threadRoutes } from "./threads";
 // P-7: message translation
 import { translationRoutes } from "./translation";
 import { triggerRoutes } from "./triggers";
+// R5: take back a change that went ahead before a late no
+import { undoRoutes } from "./undo";
 import { AgentRunsNow, DayRuns, usageRoutes } from "./usage";
 // v0.14 W4-A: WhatsApp through Meta
 import { whatsappMetaRoutes } from "./whatsapp-meta";
@@ -576,6 +579,11 @@ export const PortalConnection = z.object({
   available: z.boolean(),
   /** An API-key connector the client admin sets up with a form on the Access page. */
   credentialForm: z.boolean(),
+  /**
+   * Wave 3b: how it connects (its manifest's `auth`), so the portal says "you sign in" only for a
+   * tool with a sign-in. Optional: an older Worker sends none.
+   */
+  auth: ConnectorAuth.optional(),
   /**
    * A person's own account (Gmail): a client user may connect it too, and disconnect it if they
    * connected it; other tools are the client admin's.
@@ -2077,5 +2085,7 @@ export const routes = {
   ...hoursRoutes,
   // R8: the Library (docs/plan.md §1.86).
   ...libraryRoutes,
+  // R5: the Undo a late no is offered (docs/plan.md §1.86).
+  ...undoRoutes,
 } as const;
 export type Routes = typeof routes;

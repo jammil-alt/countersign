@@ -10,11 +10,11 @@ import {
   type LocalizedText,
   pickLocalized,
   type ResolveBody,
+  type UndoChangeResult,
 } from "@countersign/core";
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
 import type { z } from "zod";
-import type { UndoChangeResult } from "../api/routes";
 import { directoryFieldName, directoryValue } from "../directory/DirectoryPanel";
 import type { PlainKey } from "../i18n/catalog";
 import { EN, type I18n, useI18n } from "../i18n/i18n";

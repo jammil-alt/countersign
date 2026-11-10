@@ -61,6 +61,8 @@ export const de: Messages = {
   "error.contact_exists": "Jemand im Verzeichnis hat diese E-Mail-Adresse oder Nummer schon.",
   "error.rate_limited": "Warten Sie eine Minute und versuchen Sie es erneut.",
   "error.no_address": "Wir kennen die Adresse dieses Kontos nicht. Verbinden Sie es erneut.",
+  "error.invalid_hours":
+    "Diese Zeiten können nicht gespeichert werden. Geben Sie mindestens einem Tag Öffnungszeiten und halten Sie jede Abwesenheit unter einem Jahr.",
 
   // ── Shell ──
   "shell.navigation": "Navigation",
@@ -2516,6 +2518,10 @@ export const de: Messages = {
   "hours.problem.order": "{day}: Jede Schließzeit muss nach der Öffnungszeit liegen.",
   "hours.problem.overlap": "{day}: Die Zeiträume überschneiden sich.",
   "hours.problem.away": "Das Enddatum liegt vor dem Startdatum.",
+  "hours.problem.none":
+    "Geben Sie mindestens einem Tag Öffnungszeiten: Eine Woche ohne Öffnungszeiten kann nicht gespeichert werden.",
+  "hours.contactUnlisted":
+    "Die Zeiten dieses Kontakts können hier nicht angezeigt und daher auf dieser Seite nicht geändert werden.",
   "businessHours.subtitle":
     "Wann Ihr Unternehmen geöffnet ist. Eine Frist in Geschäftszeiten läuft nur, während die gefragte Person arbeitet.",
   "businessHours.zoneNote":
@@ -2555,6 +2561,7 @@ export const de: Messages = {
   "accounts.group.other": "Weitere Tools",
   "accounts.how.signIn": "Sie melden sich selbst an. Wir sehen Ihr Passwort nie.",
   "accounts.how.key": "Sie geben den Schlüssel in Ihrem Tresor ein.",
+  "accounts.how.none": "Keine Anmeldung und kein Schlüssel nötig.",
   "accounts.how.login":
     "Sie geben die Zugangsdaten eines Kontos ein, das für Ihre Agenten angelegt wurde. Sie liegen in Ihrem Tresor, verschlüsselt mit dem Schlüssel Ihres Unternehmens, und wir sehen sie nie.",
   "accounts.add.enterLogin": "Zugangsdaten eingeben",

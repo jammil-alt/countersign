@@ -101,15 +101,21 @@ export type BuilderProblem = processes.BundleValidationError;
  * R8: the server's check of a bundle that holds processes, in the browser: core's
  * `validateAnyBundle` with the same context, plus the refusal of agent skills it can't resolve.
  * Warnings are advice (a process that might be better split), never a reason to refuse.
+ * `clientAgent` is always given, as the server's `validateForPublish` gives it (`row.kind ===
+ * "client"`): a template's process step may not change an inner step's approval.
  */
 export function validateProcessesLikeServer(
   bundle: ProcessAgentBundle | AnyAgentBundle,
   ctx: TypingContext,
-  publish?: { matrices: Record<string, Partial<PermissionMatrix> | undefined> },
+  agent: {
+    clientAgent: boolean;
+    publish?: { matrices: Record<string, Partial<PermissionMatrix> | undefined> } | undefined;
+  },
 ): { valid: boolean; errors: BuilderProblem[]; warnings: processes.BundleWarning[] } {
   const r = processes.validateAnyBundle(bundle, {
     ...ctx,
-    ...(publish ? { publish, clientAgent: true } : {}),
+    ...(agent.publish ? { publish: agent.publish } : {}),
+    clientAgent: agent.clientAgent,
   });
   const missing: BuilderProblem[] = bundle.definition.skills
     .filter((s) => !lookupSkill(s.skill, ctx))

@@ -2,7 +2,7 @@
 // their settings (forms from each skill's settings schema), permissions and default approver,
 // budgets. Saving makes a new draft version from the version it was opened on; the workflows are
 // kept as they are (the builder edits them). The same editor serves templates and client agents.
-import type { AgentBundle, SkillOption } from "@countersign/core";
+import type { AnyAgentBundle, SkillOption } from "@countersign/core";
 import { useMemo, useState } from "react";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionSummary } from "../../api/routes";
@@ -35,7 +35,7 @@ export function DefinitionEditor({
   agent: AgentSummary;
   /** The version the editor was opened on: the new draft's parent. */
   from: VersionSummary;
-  bundle: AgentBundle;
+  bundle: AnyAgentBundle;
   /** The skills this agent may use (GET /api/ops/agents/:id/skills). */
   skills: readonly SkillOption[];
   onSaved(result: SaveResult): void;

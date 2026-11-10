@@ -21,10 +21,10 @@ import {
 } from "../../ui/primitives";
 import type { AgentLinkState } from "../screens/AgentPage";
 import { AutomationsCard } from "../skills/SkillsLibrary";
-import { TRIGGER_KIND_LABEL } from "../workflow/describe";
+import { PROCESS_KIND_LABEL, TRIGGER_KIND_LABEL } from "../workflow/describe";
 import { BankSearch, LibraryFrame } from "./LibraryFrame";
 import { counted, matches } from "./paths";
-import { kindLabel, PROCESS_KIND_LABEL } from "./words";
+import { kindLabel } from "./words";
 
 const templatePath = (slug: string) => `/ops/templates/${slug}`;
 /** The builder, open on one of the template's workflows. */

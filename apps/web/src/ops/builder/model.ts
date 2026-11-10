@@ -18,7 +18,6 @@ import {
   type ProcessBundleWorkflow,
   parseSkillRef,
   processes,
-  REACH_OUT_SKILL,
   readConverted,
   type SkillDefinition,
   skillTools,
@@ -352,8 +351,8 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
     case "skill": {
       const step: Step = { id, kind: "skill", name: item.skill.name, skill: item.ref, input: {} };
       const writes = processes.stepWrites(step, ctx);
-      const reaches =
-        item.skill.reachesPeople === true || parseSkillRef(item.ref).id === REACH_OUT_SKILL;
+      // Core's rule, as the validator reads it: a skill that reaches people (a reach-out).
+      const reaches = processes.stepReaches(step, ctx);
       return (writes && writes.length > 0) || reaches
         ? { ...step, checks: { approval: defaultApproval() } }
         : step;

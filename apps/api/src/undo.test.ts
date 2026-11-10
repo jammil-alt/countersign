@@ -5,7 +5,13 @@
 // changes, only the people the offer names or a client admin may press, the back office's route
 // is the operator's.
 
-import { checkRouteContract, forbiddenPortalFields, type RouteSpec } from "@countersign/core";
+import {
+  checkRouteContract,
+  forbiddenPortalFields,
+  type RouteSpec,
+  routes,
+  undoRoutes,
+} from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -27,12 +33,17 @@ import {
   testBundle,
   user,
 } from "./api.test-helper";
-import { undoRoutes } from "./undo/routes";
 
 describe("undo routes (static)", () => {
   it("hold to the route contract", () => {
     expect(checkRouteContract(undoRoutes as unknown as Record<string, RouteSpec>)).toEqual([]);
     expect(forbiddenPortalFields(undoRoutes.portalUndoChange.response)).toEqual([]);
+  });
+
+  // Wave 3b: the specs live in core's contract, so the web client calls the same ones.
+  it("are in core's route contract", () => {
+    expect(routes.portalUndoChange).toBe(undoRoutes.portalUndoChange);
+    expect(routes.opsUndoChange).toBe(undoRoutes.opsUndoChange);
   });
 });
 

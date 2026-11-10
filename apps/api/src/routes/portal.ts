@@ -15,6 +15,8 @@ import {
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
 import {
+  type AnyAgentBundle,
+  type ConnectorAuth,
   checkKindOf,
   clientLabel,
   connectionLabel,
@@ -318,6 +320,7 @@ export async function portalConnections(
     icon: string | null;
     available: boolean;
     credentialForm: boolean;
+    auth?: ConnectorAuth;
     personal: boolean;
     permissionEntities: PermissionEntity[];
     connection: {
@@ -404,6 +407,7 @@ export async function portalConnections(
       icon: manifest?.icon ?? null,
       available: canSignIn(platform.connectors.get(id)),
       credentialForm: hasCredentialForm(platform.connectors.get(id)),
+      ...(manifest ? { auth: manifest.auth } : {}),
       personal: PERSONAL_CONNECTORS.has(id),
       // v0.12 W2-A: the record types the matrix sets levels for.
       permissionEntities: manifest?.permissionEntities ?? [],

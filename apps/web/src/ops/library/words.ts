@@ -1,22 +1,12 @@
 // R8: the Library's words for the process model (ARCHITECTURE §10.14): v4 step kinds, skill
 // methods, a tool's side effect and undo, and where a condition sits. Pure.
 import type { LibraryConditionUse, LibraryTool, processes, SkillListItem } from "@countersign/core";
+import { PROCESS_KIND_LABEL } from "../workflow/describe";
 
-/** v4 step kinds in the builder's words. */
-export const PROCESS_KIND_LABEL: Record<processes.StepKind, string> = {
-  read: "Read",
-  skill: "Skill",
-  write: "Write",
-  person: "Person",
-  conversation: "Conversation",
-  notify: "Notify",
-  if: "If",
-  for_each: "For each",
-  wait: "Wait",
-  stop: "Stop",
-  process: "Process",
-};
-
+/**
+ * A v4 step kind in the builder's words. One map, the step lists' (ops/workflow/describe), as the
+ * library stream's integration note asked.
+ */
 export function kindLabel(kind: string): string {
   return PROCESS_KIND_LABEL[kind as processes.StepKind] ?? kind;
 }

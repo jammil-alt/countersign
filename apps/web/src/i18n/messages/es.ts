@@ -61,6 +61,8 @@ export const es: Messages = {
   "error.contact_exists": "Alguien del directorio ya tiene ese correo o ese número.",
   "error.rate_limited": "Espere un minuto e inténtelo de nuevo.",
   "error.no_address": "No sabemos la dirección de esta cuenta. Vuelva a conectarla.",
+  "error.invalid_hours":
+    "No se puede guardar este horario. Indique el horario de al menos un día y que cada ausencia dure menos de un año.",
 
   // ── Shell ──
   "shell.navigation": "Navegación",
@@ -2465,6 +2467,10 @@ export const es: Messages = {
   "hours.problem.order": "{day}: cada hora de cierre debe ser posterior a la de apertura.",
   "hours.problem.overlap": "{day}: los horarios se superponen.",
   "hours.problem.away": "La fecha final es anterior a la inicial.",
+  "hours.problem.none":
+    "Indique el horario de al menos un día: no se puede guardar una semana sin horario.",
+  "hours.contactUnlisted":
+    "El horario de este contacto no se puede mostrar aquí, así que no se puede cambiar desde esta página.",
   "businessHours.subtitle":
     "Cuándo está abierta su empresa. Un plazo en horario laboral solo corre mientras la persona consultada trabaja.",
   "businessHours.zoneNote":
@@ -2504,6 +2510,7 @@ export const es: Messages = {
   "accounts.group.other": "Otras herramientas",
   "accounts.how.signIn": "Usted inicia sesión. Nunca vemos su contraseña.",
   "accounts.how.key": "Usted ingresa su clave en su bóveda.",
+  "accounts.how.none": "No necesita iniciar sesión ni ingresar una clave.",
   "accounts.how.login":
     "Usted ingresa el acceso de una cuenta creada para sus agentes. Se guarda en su bóveda, cifrado con la clave de su empresa, y nunca lo vemos.",
   "accounts.add.enterLogin": "Ingresar un acceso",

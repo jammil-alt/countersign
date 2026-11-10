@@ -60,6 +60,8 @@ export const fr: Messages = {
   "error.contact_exists": "Quelqu'un dans l'annuaire a déjà cette adresse e-mail ou ce numéro.",
   "error.rate_limited": "Attendez une minute et réessayez.",
   "error.no_address": "Nous ne connaissons pas l'adresse de ce compte. Connectez-le à nouveau.",
+  "error.invalid_hours":
+    "Ces horaires ne peuvent pas être enregistrés. Indiquez les horaires d'au moins un jour, et gardez chaque absence sous un an.",
 
   // ── Shell ──
   "shell.navigation": "Navigation",
@@ -2506,6 +2508,10 @@ export const fr: Messages = {
   "hours.problem.order": "{day} : chaque heure de fermeture doit suivre son heure d'ouverture.",
   "hours.problem.overlap": "{day} : les plages se chevauchent.",
   "hours.problem.away": "La date de fin précède la date de début.",
+  "hours.problem.none":
+    "Indiquez les horaires d'au moins un jour : une semaine sans heures d'ouverture ne peut pas être enregistrée.",
+  "hours.contactUnlisted":
+    "Les horaires de ce contact ne peuvent pas être affichés ici, ils ne peuvent donc pas être modifiés depuis cette page.",
   "businessHours.subtitle":
     "Quand votre entreprise est ouverte. Un délai en heures ouvrées ne court que pendant les heures de travail de la personne sollicitée.",
   "businessHours.zoneNote":
@@ -2545,6 +2551,7 @@ export const fr: Messages = {
   "accounts.group.other": "Autres outils",
   "accounts.how.signIn": "Vous vous y connectez. Nous ne voyons jamais votre mot de passe.",
   "accounts.how.key": "Vous saisissez sa clé dans votre coffre.",
+  "accounts.how.none": "Aucune connexion ni clé n'est nécessaire.",
   "accounts.how.login":
     "Vous saisissez les identifiants d'un compte créé pour vos agents. Ils sont gardés dans votre coffre, chiffrés avec la clé de votre entreprise, et nous ne les voyons jamais.",
   "accounts.add.enterLogin": "Saisir des identifiants",

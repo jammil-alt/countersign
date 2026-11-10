@@ -464,13 +464,17 @@ function BuilderBody(
         const c = toolConnector(toolId, data);
         return c ? connectorName(data, c) : undefined;
       },
+      changesClientTool: (toolId) => {
+        const tool = ctx.tools?.[toolId];
+        return tool ? tool.sideEffect === "external" : undefined;
+      },
       person: (id) => {
         // A role reads as its own words ("client admin"); a person by their name.
         if (["client_admin", "client_user", "operator", "lead"].includes(id)) return undefined;
         return personName(props.people, id);
       },
     }),
-    [data, props.people],
+    [data, ctx, props.people],
   );
 
   // ── Edits ──
@@ -527,10 +531,20 @@ function BuilderBody(
     () => (agent.kind === "client" ? boundMatrices(agent.bindings, props.connections ?? []) : {}),
     [agent, props.connections],
   );
+  // While a stored v3 version is open unchanged, Publish sends that version as stored and the
+  // server validates it as v3, so the problem list and the Publish button read the stored bundle
+  // (core validates an all-v3 bundle exactly as `validateBundle` does). After the first edit they
+  // read the process the next save writes.
+  // DECISION (web, wave 3b): validate what Publish would send: the stored v3 bundle until the first
+  // edit, then the v4 process; the converted reading isn't shown as the version's own problems.
+  const unchangedV3 = opensV3 && !dirty && saved.id === from.id;
   const result = useMemo(
     () =>
-      validateProcessesLikeServer(bundle, ctx, agent.kind === "client" ? { matrices } : undefined),
-    [bundle, ctx, matrices, agent.kind],
+      validateProcessesLikeServer(unchangedV3 ? props.bundle : bundle, ctx, {
+        clientAgent: agent.kind === "client",
+        publish: agent.kind === "client" ? { matrices } : undefined,
+      }),
+    [unchangedV3, props.bundle, bundle, ctx, matrices, agent.kind],
   );
   const workflowErrors = result.errors.filter((e) => e.workflow === slug);
   const env: ApprovalEnv = {
@@ -831,8 +845,8 @@ function BuilderBody(
           workflowName={entry.name}
           slug={slug}
           // DECISION: a test run starts from the first trigger's sample, as v3 had one trigger.
-          sample={samplePayload({ trigger: workflow.triggers[0] }, data.events)}
-          eventType={triggerEventType({ trigger: workflow.triggers[0] })}
+          sample={samplePayload(workflow, data.events)}
+          eventType={triggerEventType(workflow)}
           busy={action.busy}
           onClose={() => setPanel(null)}
           run={async (payload, clientId) => {

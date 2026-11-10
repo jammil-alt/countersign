@@ -333,12 +333,14 @@ describe("the tools to connect, grouped", () => {
     ...over,
   });
   const LIST = [
-    offered("zoho_crm", "Zoho CRM"),
-    offered("gsheets", "Google Sheets"),
-    offered("bankfeed", "Bank feed"),
-    offered("ramp", "Ramp", { credentialForm: true }),
-    offered("slack", "Slack", { available: false }),
+    offered("zoho_crm", "Zoho CRM", { auth: "oauth2" }),
+    offered("gsheets", "Google Sheets", { auth: "oauth2" }),
+    offered("bankfeed", "Bank feed", { auth: "oauth2" }),
+    offered("ramp", "Ramp", { credentialForm: true, auth: "api_key" }),
+    offered("slack", "Slack", { available: false, auth: "oauth2" }),
     offered("mystery", "Something new"),
+    // Wave 3b: no sign-in at all (Google Chat joins a space; nothing to sign in to).
+    offered("gchat", "Google Chat", { auth: "none" }),
   ];
 
   it("lists them by kind with how each connects, and website logins open the vault", async () => {
@@ -377,6 +379,14 @@ describe("the tools to connect, grouped", () => {
     expect(within(add).getByTestId("portal-connections-group-other")).toHaveTextContent(
       "Something new",
     );
+    // No sign-in: never "You sign in to it"; a server that didn't say how: no line at all.
+    const gchat = within(add).getByTestId("portal-connection-gchat");
+    expect(within(gchat).getByTestId("portal-connection-how")).toHaveTextContent(
+      "No sign-in or key needed.",
+    );
+    expect(gchat).not.toHaveTextContent("You sign in");
+    const mystery = within(add).getByTestId("portal-connection-mystery");
+    expect(within(mystery).queryByTestId("portal-connection-how")).toBeNull();
     // A website: the login of an account made for the agents, into the vault.
     const logins = within(add).getByTestId("portal-connections-group-logins");
     expect(logins).toHaveTextContent("You enter the login of an account made for your agents.");
@@ -384,6 +394,36 @@ describe("the tools to connect, grouped", () => {
     expect(
       within(screen.getByTestId("vault-add-panel")).getByTestId("vault-browser-offer-rugby"),
     ).toBeInTheDocument();
+  });
+
+  // Wave 3b: "Enter a login" on one site opens the vault with that site first, chosen and focused.
+  it("opens the vault on the site whose Enter a login was pressed", async () => {
+    renderAs("client_admin", {
+      "GET /api/connections": () => ({ connections: LIST }),
+      "GET /api/access": () => ({
+        items: [],
+        setup: [],
+        browserSites: [
+          { slug: "rugby", name: "Rugby Architectural", tier: "low", secondFactor: "email" },
+          { slug: "podio", name: "Podio", tier: "low", secondFactor: "email" },
+        ],
+        canEdit: true,
+        people: [],
+      }),
+    });
+    const logins = await screen.findByTestId("portal-connections-group-logins");
+    await userEvent.click(within(logins).getByTestId("portal-connections-site-podio-login"));
+    const panel = screen.getByTestId("vault-add-panel");
+    const offers = within(panel).getAllByTestId(/^vault-browser-offer-/);
+    expect(offers.map((o) => o.getAttribute("data-testid"))).toEqual([
+      "vault-browser-offer-podio",
+      "vault-browser-offer-rugby",
+    ]);
+    expect(offers[0]).toHaveAttribute("data-chosen", "true");
+    expect(offers[1]).not.toHaveAttribute("data-chosen");
+    await waitFor(() =>
+      expect(within(offers[0] as HTMLElement).getByTestId("vault-browser-confirm")).toHaveFocus(),
+    );
   });
 
   it("offers a client user no website logins, in their language", async () => {

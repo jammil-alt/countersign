@@ -1,8 +1,18 @@
 // Business hours in words (R8): a week as a few lines, problems in plain words, dates that never
 // move a day with the reader's zone, and the week as it is saved.
+
+import { PEOPLE_HOURS_MAX_CONTACTS } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { createI18n } from "../i18n/i18n";
-import { awayNow, cleanWeek, dateText, weekLines, weekProblem } from "./format";
+import {
+  awayNow,
+  cleanWeek,
+  dateText,
+  listedHours,
+  nextStretch,
+  weekLines,
+  weekProblem,
+} from "./format";
 
 const en = createI18n("en");
 const de = createI18n("de");
@@ -47,6 +57,61 @@ describe("hours in words", () => {
         en,
       ),
     ).toBe("Wednesday: the hours overlap.");
+  });
+
+  // Wave 3b: the server refuses a week with no open hours (422 invalid_hours).
+  it("refuses a week with every day closed, in the reader's words", () => {
+    expect(weekProblem({}, en)).toBe(
+      "Give at least one day its hours: a week with no open hours can't be saved.",
+    );
+    expect(weekProblem({ mon: [], sat: [] }, de)).toMatch(/^Geben Sie mindestens einem Tag/);
+  });
+
+  it("adds a stretch an hour after the last, or up to 23:59 late in the day, never 23:59 to 23:59", () => {
+    const first = { from: "08:00", to: "18:00" };
+    expect(nextStretch([], first)).toEqual(first);
+    expect(nextStretch([{ from: "08:00", to: "12:00" }], first)).toEqual({
+      from: "13:00",
+      to: "15:00",
+    });
+    expect(nextStretch([{ from: "08:00", to: "22:30" }], first)).toEqual({
+      from: "23:30",
+      to: "23:59",
+    });
+    expect(nextStretch([{ from: "08:00", to: "23:00" }], first)).toEqual({
+      from: "23:00",
+      to: "23:59",
+    });
+    expect(nextStretch([{ from: "08:00", to: "23:59" }], first)).toBeNull();
+    // The latest end counts, whatever the order.
+    expect(
+      nextStretch(
+        [
+          { from: "14:00", to: "16:00" },
+          { from: "08:00", to: "12:00" },
+        ],
+        first,
+      ),
+    ).toEqual({ from: "17:00", to: "19:00" });
+  });
+
+  it("knows a contact's hours only from a list that holds every contact", () => {
+    const contact = (id: string, hours: null | { away: never[] } = null) => ({
+      kind: "contact" as const,
+      id,
+      name: id,
+      hours,
+    });
+    const short = { people: [contact("a", { away: [] })] };
+    expect(listedHours(short, "contact", "a")).toEqual({ away: [] });
+    // A list under the cap is whole: a contact missing from it has no hours of their own.
+    expect(listedHours(short, "contact", "b")).toBeNull();
+    const full = {
+      people: Array.from({ length: PEOPLE_HOURS_MAX_CONTACTS }, (_, i) => contact(`c${i}`)),
+    };
+    // At the cap some may be left out: unknown, never "no hours".
+    expect(listedHours(full, "contact", "past-the-cap")).toBeUndefined();
+    expect(listedHours(full, "contact", "c1")).toBeNull();
   });
 
   it("saves a week in day order, each day's stretches sorted, closed days left out", () => {

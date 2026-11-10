@@ -6,7 +6,7 @@
 // publish) and Settings, split into Access (applies at once, logged) and Definition (a new draft
 // version). The old Triggers and Tests addresses open their new homes. `/revise` asks the Builder
 // for a new draft. `?version=N` shows an older version on the bundle tabs.
-import type { AgentBundle } from "@countersign/core";
+import { type AnyAgentBundle, holdsProcess } from "@countersign/core";
 import type { ReactNode } from "react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
@@ -40,7 +40,7 @@ import { StatusChip, serviceChipState } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
 import { OPS_PATHS } from "../paths";
 import { TriggersPanel } from "../triggers/TriggersScreen";
-import { liveAndDraft, parseAnyBundle, parseBundle, versionBadges } from "../versions";
+import { liveAndDraft, parseAnyBundle, versionBadges } from "../versions";
 import { workflowStats } from "../workflow/describe";
 import { StepList } from "../workflow/StepList";
 import { ReviseTab } from "./BuilderParts";
@@ -219,9 +219,9 @@ export function AgentScreen({
   const shown: VersionDetail | null = requested
     ? (inHand ?? fetched.data?.version ?? null)
     : (data.live ?? data.latest);
-  const parsed = shown ? parseBundle(shown) : null;
+  const parsed = shown ? parseAnyBundle(shown) : null;
   const bundle = parsed?.ok ? parsed.bundle : null;
-  const liveParsed = data.live ? parseBundle(data.live) : null;
+  const liveParsed = data.live ? parseAnyBundle(data.live) : null;
   const liveBundle = liveParsed?.ok ? liveParsed.bundle : null;
 
   const keep = search.toString() ? `?${search.toString()}` : "";
@@ -241,10 +241,9 @@ export function AgentScreen({
     <ErrorNotice error={new Error(parsed.message)} />
   ) : null;
 
-  // The builder edits the latest version (draft or live), like the definition editor.
-  const latestParsed = data.latest ? parseBundle(data.latest) : null;
-  const latestBundle = latestParsed?.ok ? latestParsed.bundle : null;
-  // R8: the builder also opens a version that holds v4 processes (what it saves).
+  // The builder edits the latest version (draft or live), like the definition editor. R8: every
+  // tab reads a version that holds v4 processes too (what the builder saves, and the templates'
+  // v4 versions and their forks).
   const latestAnyParsed = data.latest ? parseAnyBundle(data.latest) : null;
   const latestAny = latestAnyParsed?.ok ? latestAnyParsed.bundle : null;
   const builderStart = latestAny?.workflows[0]?.slug ?? "main";
@@ -299,14 +298,12 @@ export function AgentScreen({
           tabs={tabs}
           above={
             // The workflow's first step is how it starts: the agent's triggers, then the canvas.
-            // A version that holds processes has its triggers on the canvas's trigger card (the
-            // triggers panel reads v3 only, so it shows nothing for one).
             <div className="flex flex-col gap-4" data-testid="agent-workflow-top">
               {lineage}
               <TriggersPanel
                 agent={view}
                 latest={latest}
-                bundle={latestBundle}
+                bundle={latestAny}
                 onChanged={(versionId) => {
                   setAwaiting(versionId);
                   reload();
@@ -327,7 +324,7 @@ export function AgentScreen({
       <AgentBar
         view={view}
         clientName={clientName}
-        bundle={latestBundle ?? bundle}
+        bundle={latestAny ?? bundle}
         live={live}
         draft={draft}
         lineage={lineage}
@@ -336,7 +333,9 @@ export function AgentScreen({
             view={view}
             base={base}
             detail={data}
-            canRevise={latestBundle !== null}
+            // The Builder's server sessions draft v3 only, so a version holding processes isn't
+            // offered to it (as before, when this page couldn't read one).
+            canRevise={latestAny !== null && !holdsProcess(latestAny)}
             onChanged={reload}
             onDiscarded={() =>
               navigate(view.kind === "template" ? "/ops/lab" : `/ops/clients/${view.tenantId}`)
@@ -479,7 +478,7 @@ function AgentBar({
 }: {
   view: AgentSummary;
   clientName: string | undefined;
-  bundle: AgentBundle | null;
+  bundle: AnyAgentBundle | null;
   live: { version: number } | null;
   draft: { version: number } | null;
   lineage: ReactNode;
@@ -645,7 +644,7 @@ function AgentActions({
   );
 }
 
-function WorkflowTab({ bundle, version }: { bundle: AgentBundle; version: VersionDetail }) {
+function WorkflowTab({ bundle, version }: { bundle: AnyAgentBundle; version: VersionDetail }) {
   if (bundle.workflows.length === 0) {
     return <EmptyState>v{version.version} has no workflows.</EmptyState>;
   }
@@ -808,7 +807,7 @@ function DefinitionPart({
     { kind: "saved"; save: SaveResult } | { kind: "no_change"; from: number } | null
   >(null);
   const latest = detail.latest;
-  const parsed = latest ? parseBundle(latest) : null;
+  const parsed = latest ? parseAnyBundle(latest) : null;
 
   return (
     <div className="flex flex-col gap-4" data-testid="agent-settings-definition-part">

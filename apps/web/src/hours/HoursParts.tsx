@@ -24,6 +24,7 @@ import {
   cleanWeek,
   dateText,
   dayName,
+  nextStretch,
   type Stretch,
   sameWeek,
   WEEKDAYS,
@@ -191,6 +192,7 @@ export function WeekEditor({
         const stretches = week[day] ?? [];
         const open = stretches.length > 0;
         const name = dayName(day, i18n.intl, "long");
+        const next = nextStretch(stretches, NINE_TO_SIX);
         return (
           <li
             key={day}
@@ -269,13 +271,11 @@ export function WeekEditor({
                     <Button
                       size="sm"
                       variant="ghost"
-                      disabled={disabled}
+                      // DECISION: a new stretch starts an hour after the last one ends, so it
+                      // never overlaps by default; late in the day see `nextStretch`.
+                      disabled={disabled || next === null}
                       onClick={() => {
-                        const last = stretches[stretches.length - 1];
-                        // DECISION: a new stretch starts an hour after the last one ends (to
-                        // 23:59 at the latest), so it never overlaps by default.
-                        const from = last ? addHours(last.to, 1) : NINE_TO_SIX.from;
-                        setDay(day, [...stretches, { from, to: addHours(from, 2) }]);
+                        if (next) setDay(day, [...stretches, next]);
                       }}
                       data-testid={`${testId}-${day}-add`}
                     >
@@ -292,14 +292,6 @@ export function WeekEditor({
       })}
     </ul>
   );
-}
-
-/** "HH:MM" plus whole hours, capped at 23:59. */
-function addHours(hhmm: string, hours: number): string {
-  const [h = 0, m = 0] = hhmm.split(":").map(Number);
-  const total = Math.min(h * 60 + m + hours * 60, 23 * 60 + 59);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(Math.floor(total / 60))}:${pad(total % 60)}`;
 }
 
 /** A list of dates with an Add: the client's closed dates. */

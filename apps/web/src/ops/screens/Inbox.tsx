@@ -14,7 +14,7 @@ import type { Escalation, OpsAgentRef } from "@countersign/core";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
-import { apiRoutes, undoChangeRoutes } from "../../api/routes";
+import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { InboxCard, outcomeText } from "../../inbox/InboxCard";
 import { OPEN_RESOLVED, StatusFilter } from "../../inbox/StatusFilter";
@@ -171,7 +171,7 @@ export function OpsInboxScreen() {
         // R5: the lead takes back a change that went ahead before a late no (the server checks
         // that this operator is the client's lead).
         onUndoChange={async () => {
-          const out = await api.call(undoChangeRoutes.opsUndoChange, { params: { id: item.id } });
+          const out = await api.call(apiRoutes.opsUndoChange, { params: { id: item.id } });
           reload();
           return out;
         }}

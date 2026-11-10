@@ -496,7 +496,7 @@ export function stepWrites(step: Step, ctx: TypingContext): ToolSpec[] | undefin
 }
 
 /** Whether the step contacts people: a conversation, or a skill that reaches people. */
-function stepReaches(step: Step, ctx: TypingContext): boolean {
+export function stepReaches(step: Step, ctx: TypingContext): boolean {
   if (step.kind === "conversation") return true;
   return step.kind === "skill" && lookupSkill(step.skill, ctx)?.reachesPeople === true;
 }

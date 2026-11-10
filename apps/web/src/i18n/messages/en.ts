@@ -57,6 +57,8 @@ export const en = {
   "error.contact_exists": "Someone in the directory already has that email address or number.",
   "error.rate_limited": "Wait a minute and try again.",
   "error.no_address": "We don't know this account's address. Connect it again.",
+  "error.invalid_hours":
+    "These hours can't be saved. Give at least one day its hours, and keep each time away under a year.",
 
   // ── Shell ──
   "shell.navigation": "Navigation",
@@ -2394,6 +2396,10 @@ export const en = {
   "hours.problem.order": "{day}: each closing time must be after its opening time.",
   "hours.problem.overlap": "{day}: the hours overlap.",
   "hours.problem.away": "The end date is before the start.",
+  "hours.problem.none":
+    "Give at least one day its hours: a week with no open hours can't be saved.",
+  "hours.contactUnlisted":
+    "This contact's hours can't be shown here, so they can't be changed from this page.",
   "businessHours.subtitle":
     "When your business is open. A deadline set in business hours only counts down while the person asked is working.",
   "businessHours.zoneNote": "Your time zone is set with your company details. To change it,",
@@ -2430,6 +2436,7 @@ export const en = {
   "accounts.group.other": "Other tools",
   "accounts.how.signIn": "You sign in to it. We never see your password.",
   "accounts.how.key": "You enter its key in your vault.",
+  "accounts.how.none": "No sign-in or key needed.",
   "accounts.how.login":
     "You enter the login of an account made for your agents. It is kept in your vault, locked with your company's key, and we never see it.",
   "accounts.add.enterLogin": "Enter a login",

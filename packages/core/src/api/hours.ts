@@ -64,6 +64,12 @@ export type PersonHoursView = z.infer<typeof PersonHoursView>;
 export const PersonHoursBody = z.strictObject({ hours: PersonHours.nullable() });
 export type PersonHoursBody = z.input<typeof PersonHoursBody>;
 
+/**
+ * The most contacts the People hours list carries (as the agent People list does). A list with
+ * this many may have left some out, so a contact missing from it has hours we don't know.
+ */
+export const PEOPLE_HOURS_MAX_CONTACTS = 2000;
+
 export const PeopleHours = z.object({
   business: ClientBusinessHours,
   people: z.array(PersonHoursView),

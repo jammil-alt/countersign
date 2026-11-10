@@ -1,11 +1,12 @@
 // R5 (ARCHITECTURE §10.14 "Undo"): an answer after the run went ahead, on its item. A late no to a
 // write that can be taken back offers Undo, which only the press runs; a write that can't be taken
 // back says so; the portal never shows the tool's id or the server's English reasons.
+
+import type { UndoChangeResult } from "@countersign/core";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
-import type { UndoChangeResult } from "../api/routes";
 import { I18nProvider } from "../i18n/i18n";
 import { InboxCard, type InboxCardItem } from "./InboxCard";
 import { LateAnswer } from "./LateAnswer";
