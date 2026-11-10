@@ -2428,6 +2428,42 @@ tools, is the owner's doc "Mezonas process model"; milestones are §9.
 // keeping every id, and a skill that only wraps one tool becomes a `read` step (side effect `none`)
 // or a `write` step (anything else; an unknown tool counts as external, so approval stays on).
 
+#### Library (wave 3, R8)
+
+- DECISION: the Library is `/ops/library`, one tab per bank (Processes, Skills, Tools, Connectors,
+  Triggers, Record types, Condition sets) above each bank's own page; the sidebar's Skills and
+  Connectors become one Library link, and `/ops/skills`, `/ops/connectors` and
+  `/ops/browser-sites` redirect into it. A skill's, a new skill's and an automation's pages keep
+  their addresses (`/ops/skills/...`); their breadcrumbs lead back into the Library.
+- DECISION: the banks that had a screen keep it inside the Library's frame (the skills library,
+  the connectors catalog, website logins, which is the Connectors tab since a site is a
+  connector); the frame loads nothing, so each bank's page is the only thing asking the API.
+- DECISION: read-only routes in their own file (`packages/core/src/api/library.ts`,
+  `apps/api/src/routes/library.ts`): `GET /api/ops/library` (counts), `/processes`, `/tools`,
+  `/record-types`, `/conditions`. Skills, connectors, sites, automations and the event catalogue
+  keep their routes; the skills list gains optional `method`, `reads`, `browse`, `retired` and
+  `wraps` rather than a second skills route.
+- DECISION: Processes are the templates (active, published or not), each workflow of the live
+  (else latest) version read as v4 (`processes.fromWorkflowV3`, nothing rewritten, invariant 3);
+  automations show in the same bank as "used inside other processes", through the existing
+  automations card and route. "Used by" counts the served clients' active client agents forked
+  from the template (test copies aren't).
+- DECISION: retiring tool-wrapper skills (`isToolWrapper`) leave the Skills bank's other tabs for a
+  Retired tab, each naming the tool a `read` or `write` step uses instead; the Tools bank marks the
+  tools they wrap. The index counts them apart.
+- DECISION: Record types are the connectors' `permissionEntities` (id `<connector>.<entity>`, the
+  form a conversation's `find` names), with their verbs, scopes and tools, plus the platform's own
+  record kinds (`RECORD_KINDS`, what a source id names), which agents read through tools only.
+- DECISION: nothing stores named condition sets, so the bank is derived and read only: every
+  condition the processes use (trigger filters, `if` paths, each check's `when`, a `process`
+  step's approval overrides; core's `processes.conditionUses`), from each template's live (else
+  latest) version and each automation's in scope, grouped by canonical JSON (key: its sha256's
+  first 16 hex digits), named by the first `if` path that uses it. Storage for named sets (a
+  `condition_set` table and versions, and a `{ set: 'name@v' }` reference in `Rules`) is open: it
+  needs a migration and a schema change in core, neither in this wave.
+- DECISION: a write that declares no undo shows as "No undo declared" (the undo path treats it as
+  `none`); a write a person always signs shows the copper "A person always signs".
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

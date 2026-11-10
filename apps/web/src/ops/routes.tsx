@@ -102,7 +102,9 @@ export const opsRoutes = (
     {/* Back-office agent page (UI-2b), with O6 Workflow builder and O7 Triggers as tabs (UI-2c) */}
     <Route path="clients/:clientId/agents/:slug/*" element={<AgentPage />} />
     {/* R8 The Library (docs/plan.md §1.86): the banks the operator builds from. Skills (O4),
-        Connectors (O3) and Website logins keep their screens inside it. */}
+        Connectors (O3) and Website logins keep their screens inside it.
+        DECISION (library): their old addresses redirect here (below); a skill's and an
+        automation's own pages keep theirs. */}
     <Route path="library" element={<LibraryIndexScreen />} />
     <Route path="library/processes" element={<ProcessesBank />} />
     <Route path="library/skills" element={<LibrarySkills />} />

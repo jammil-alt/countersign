@@ -52,6 +52,8 @@ export function SkillsScreen({ automations: withAutomations = true }: { automati
   const [search, setSearch] = useState("");
   const all = library.data?.skills ?? [];
   // R8: tool wrappers are retiring; they show on their own tab only.
+  // DECISION (library): a Retired tab, not hidden: stored versions still run them, and the operator
+  // can see what a read or write step replaces.
   const skills = all.filter((s) => s.retired !== true);
   const retired = all.filter((s) => s.retired === true);
   const autos = withAutomations ? (automations.data?.automations ?? []) : [];

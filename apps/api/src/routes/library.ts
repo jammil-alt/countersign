@@ -250,6 +250,8 @@ async function automationProcesses(ctx: Scope, platform: Platform): Promise<Read
 }
 
 /** Every condition the processes use, grouped where the same rules are used more than once. */
+// DECISION (library): grouped by canonical JSON (`processes.conditionKey`), keyed by the first 16
+// hex digits of its sha256, named by the first `if` path using it; the most used come first.
 async function conditionSets(read: readonly ReadProcess[]): Promise<LibraryConditionSet[]> {
   const byKey = new Map<string, LibraryConditionSet & { canonical: string }>();
   for (const p of read) {
