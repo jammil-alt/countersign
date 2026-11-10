@@ -117,7 +117,15 @@ function dayAgo(): string {
 
 function ClientList({ clients }: { clients: Clients }) {
   const [view, setView] = useClientsView();
-  if (clients.length === 0) return <EmptyState>No clients yet.</EmptyState>;
+  if (clients.length === 0)
+    return (
+      <EmptyState
+        icon="customer"
+        title="No clients yet"
+        line="Add a client, connect their tools, then fork agents for them from your templates."
+        action={{ label: "New client", to: "/ops/clients/new", testId: "ops-clients-empty-new" }}
+      />
+    );
   return (
     <div className="flex flex-col gap-4">
       <fieldset className="ds-seg m-0 self-end" data-testid="ops-clients-view">

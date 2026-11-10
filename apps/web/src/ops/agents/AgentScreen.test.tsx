@@ -102,6 +102,12 @@ describe("AgentScreen", () => {
     expect(within(within(bar).getByTestId("agent-bar-crumbs")).getByRole("link")).toHaveTextContent(
       "Harbor Millwork",
     );
+    // Back to the list it came from: its client's agents.
+    expect(screen.getByTestId("agent-back")).toHaveTextContent("All Harbor Millwork agents");
+    expect(screen.getByTestId("agent-back")).toHaveAttribute(
+      "href",
+      expect.stringMatching(/^\/ops\/clients\/[^/]+\/agents$/),
+    );
     expect(within(bar).getByTestId("agent-kind")).toHaveTextContent("Client agent");
     expect(within(bar).getByTestId("agent-lineage-line")).toHaveTextContent(
       "Written for Harbor Millwork from no template.",
@@ -149,6 +155,8 @@ describe("AgentScreen", () => {
   });
 
   it("says a template is a template, and names its client copies", async () => {
+    // The lab's view as it was left (its tab and search), for "All agents" to go back to.
+    window.sessionStorage.setItem("mezonas.lab.query", "tab=all&q=bill");
     setup(
       "/ops/templates/material-costs",
       {
@@ -178,6 +186,9 @@ describe("AgentScreen", () => {
     expect(await within(bar).findByTestId("agent-lineage-copies")).toHaveTextContent(
       "Client copy: Demo client",
     );
+    expect(screen.getByTestId("agent-back")).toHaveTextContent("All agents");
+    expect(screen.getByTestId("agent-back")).toHaveAttribute("href", "/ops/lab?tab=all&q=bill");
+    window.sessionStorage.removeItem("mezonas.lab.query");
   });
 
   it("says whose copy of which template a client agent is, and links its update", async () => {

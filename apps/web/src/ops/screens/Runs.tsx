@@ -16,9 +16,10 @@ import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { duration, isRunGoing, shortTime, usd } from "../../runs/format";
-import { opsRunTitle } from "../../runs/subject";
+import { opsRunShortTitle, opsRunTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
+import { Clamp } from "../../ui/Clamp";
 import { cx } from "../../ui/cx";
 import { StatTile } from "../../ui/figures";
 import { TextInput } from "../../ui/forms";
@@ -41,10 +42,16 @@ import {
   RUN_STATUS_WORDS,
   runChip,
   runErrorLine,
+  waitOnWords,
 } from "../run/words";
 
 type Run = ResponseOf<typeof apiRoutes.opsRuns>["runs"][number];
 type Group = NonNullable<ResponseOf<typeof apiRoutes.opsRuns>["groups"]>[number];
+
+/** "client admin" → "Client admin", for a cell that starts with it. */
+function capitalize(words: string): string {
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 /** The most runs the list loads. */
 export const RUNS_LIMIT = 100;
@@ -352,7 +359,16 @@ export function OpsRunsScreen() {
       <Loaded state={state}>
         {() =>
           runs.length === 0 ? (
-            <EmptyState>No runs match. Remove a filter or pick another view.</EmptyState>
+            <EmptyState
+              icon="search"
+              title="No runs match"
+              line="Remove a filter or pick another view."
+              action={{
+                label: "Show every run",
+                onClick: () => apply({}),
+                testId: "ops-runs-clear",
+              }}
+            />
           ) : (
             <div className="flex flex-col gap-3">
               {/* The list starts with its column heads; the bulk actions show once runs are picked. */}
@@ -410,9 +426,9 @@ export function OpsRunsScreen() {
 }
 
 /** The columns the runs list sorts by (in the browser, over the runs loaded). */
-type SortKey = "run" | "client" | "agent" | "status" | "started" | "took" | "cost";
+type SortKey = "run" | "client" | "agent" | "status" | "owner" | "started" | "took" | "cost";
 /** Words sort A to Z first; times, durations and cost largest first. */
-const TEXT_KEYS = new Set<SortKey>(["run", "client", "agent", "status"]);
+const TEXT_KEYS = new Set<SortKey>(["run", "client", "agent", "status", "owner"]);
 
 function RunsTable({
   runs,
@@ -436,13 +452,15 @@ function RunsTable({
     const value = (r: Run): string | number => {
       switch (sort.key) {
         case "run":
-          return opsRunTitle(r.subject, shortRunId(r.id)).toLowerCase();
+          return opsRunShortTitle(r.subject, shortRunId(r.id)).toLowerCase();
         case "client":
           return (clients.get(r.tenantId) ?? "").toLowerCase();
         case "agent":
           return (agents.get(r.agentId)?.name ?? "").toLowerCase();
         case "status":
           return runChip(r).words.toLowerCase();
+        case "owner":
+          return r.waiting ? waitOnWords(r.waiting).toLowerCase() : "\uffff";
         case "started":
           return new Date(r.startedAt ?? r.createdAt).getTime();
         case "took":
@@ -494,6 +512,7 @@ function RunsTable({
             {head("client", "Client")}
             {head("agent", "Agent")}
             {head("status", "Status")}
+            {head("owner", "Owner")}
             {head("started", "Started")}
             {head("took", "Took")}
             <th>Error</th>
@@ -529,54 +548,81 @@ function RunsTable({
                   />
                 </td>
                 <td>
-                  {/* Titled by what the run is about: its invoice or its first change. */}
-                  <Link
-                    to={`/ops/runs/${r.id}`}
-                    data-testid={`ops-run-${r.id}-open`}
-                    className="text-link hover:underline"
+                  {/* Titled by what the run is about: its invoice or its first change. The
+                      vendor or customer is left to the tooltip; the table has the client. */}
+                  <Clamp
+                    tip={
+                      opsRunTitle(r.subject, short) === opsRunShortTitle(r.subject, short)
+                        ? null
+                        : opsRunTitle(r.subject, short)
+                    }
                   >
-                    {opsRunTitle(r.subject, short)}
-                  </Link>
+                    <Link
+                      to={`/ops/runs/${r.id}`}
+                      data-testid={`ops-run-${r.id}-open`}
+                      className="text-link hover:underline"
+                    >
+                      {opsRunShortTitle(r.subject, short)}
+                    </Link>
+                  </Clamp>
                   {r.subject ? (
                     <span className="block reference text-xs text-ink-muted">{short}</span>
                   ) : null}
                 </td>
-                <td className="text-sm">{clients.get(r.tenantId) ?? "Client"}</td>
                 <td className="text-sm">
-                  {agents.get(r.agentId)?.name ?? "Agent"}
-                  {r.workflowName ? (
-                    <span className="block text-xs text-ink-muted">{r.workflowName}</span>
-                  ) : null}
+                  <Clamp>{clients.get(r.tenantId) ?? "Client"}</Clamp>
+                </td>
+                <td className="text-sm">
+                  {/* The name only; what the agent was doing (its workflow) is in the tooltip. */}
+                  <Clamp tip={r.workflowName} testId={`ops-run-${r.id}-agent`}>
+                    {agents.get(r.agentId)?.name ?? "Agent"}
+                  </Clamp>
                 </td>
                 <td>
                   <span className="flex flex-wrap items-center gap-1.5">
+                    {/* The state alone ("Waiting for approval"); who it waits on is the Owner. */}
                     <StatusChip state={chip.state} testId={`ops-run-${r.id}-status`}>
-                      {chip.words}
+                      {chip.words.split(" · ")[0]}
                     </StatusChip>
                     {r.mode === "test" ? (
                       <span className="text-xs text-ink-muted">Test</span>
                     ) : null}
                   </span>
+                </td>
+                <td className="text-sm" data-testid={`ops-run-${r.id}-owner`}>
                   {wait ? (
-                    <span
-                      className="block text-xs text-ink-muted"
-                      data-testid={`ops-run-${r.id}-wait`}
+                    <Clamp
+                      onlyWhenCut
+                      tip={[
+                        `${capitalize(waitOnWords(wait))}, for ${age(wait.since)}`,
+                        wait.nobodyToAct ? NOBODY_TO_ACT_WORDS[wait.nobodyToAct] : null,
+                      ]
+                        .filter(Boolean)
+                        .join(". ")}
                     >
-                      For {age(wait.since)}
-                      {wait.nobodyToAct ? (
-                        <span className="ui-tone-risk">
-                          {" "}
-                          · {NOBODY_TO_ACT_WORDS[wait.nobodyToAct]}
-                        </span>
-                      ) : null}
-                    </span>
+                      <span className="block whitespace-nowrap">
+                        {capitalize(waitOnWords(wait))}
+                      </span>
+                      <span
+                        className="block text-xs text-ink-muted"
+                        data-testid={`ops-run-${r.id}-wait`}
+                      >
+                        For {age(wait.since)}
+                        {wait.nobodyToAct ? (
+                          <span className="ui-tone-risk">
+                            {" "}
+                            · {NOBODY_TO_ACT_WORDS[wait.nobodyToAct]}
+                          </span>
+                        ) : null}
+                      </span>
+                    </Clamp>
                   ) : null}
                 </td>
                 <td className="text-sm figures">{shortTime(r.startedAt ?? r.createdAt)}</td>
                 <td className="text-sm figures">{duration(r.startedAt, r.finishedAt)}</td>
                 <td className="text-sm" data-testid={`ops-run-${r.id}-error`}>
                   {r.status === "failed" ? (
-                    <span className="ui-tone-risk">{runErrorLine(r.error, r.errorStep)}</span>
+                    <Clamp className="ui-tone-risk">{runErrorLine(r.error, r.errorStep)}</Clamp>
                   ) : null}
                 </td>
                 <td className="n">{usd(r.costUsd)}</td>
@@ -601,7 +647,13 @@ function ErrorGroups({
   onPick: (key: string) => void;
 }) {
   if (groups.length === 0) {
-    return <EmptyState>No failed runs match, so there is nothing to group.</EmptyState>;
+    return (
+      <EmptyState
+        tone="done"
+        title="No failures to group"
+        line="No failed runs match these filters."
+      />
+    );
   }
   return (
     <div className="ops-tiles" data-testid="ops-runs-errors">

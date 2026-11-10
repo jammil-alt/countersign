@@ -25,6 +25,7 @@ import { type ApiState, useApi } from "../../api/useApi";
 import { OpsChannelsSection, OpsPeopleSection } from "../../people/PeoplePanel";
 import { HeaderSwitcher } from "../../shell/HeaderSwitcher";
 import { AgentBadge } from "../../ui/badges";
+import { Icon } from "../../ui/icons";
 import {
   Badge,
   Button,
@@ -38,6 +39,8 @@ import {
 } from "../../ui/primitives";
 import { StatusChip, serviceChipState } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
+import { labPath } from "../lab/back";
+import { AssignToClient } from "../lab/TemplateParts";
 import { OPS_PATHS } from "../paths";
 import { TriggersPanel } from "../triggers/TriggersScreen";
 import { liveAndDraft, parseBundle, versionBadges } from "../versions";
@@ -498,58 +501,70 @@ function AgentBar({
       ? plural(bundle.definition.skills.length, "skill")
       : null,
   ].filter(Boolean);
+  const client = view.kind === "client" && view.tenantId ? view.tenantId : null;
   return (
-    <Card testId="agent-bar">
-      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-6 pt-5 pb-1">
-        <div className="flex min-w-0 items-start gap-4">
-          <AgentBadge name={title} seed={view.id} size="lg" />
-          <div className="min-w-0">
-            {/* Where it is (its client, or the lab) and the switcher to the client's others. */}
-            <div className="ui-crumbs mb-1.5" data-testid="agent-bar-crumbs">
-              <p className="eyebrow text-ink-muted">
-                {view.kind === "client" && view.tenantId ? (
-                  <Link to={OPS_PATHS.client(view.tenantId)} className="hover:underline">
-                    {clientName ?? "Client"}
-                  </Link>
-                ) : (
-                  <Link to={OPS_PATHS.lab} className="hover:underline">
-                    Agent lab
-                  </Link>
-                )}
-              </p>
-              <HeaderSwitcher />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="type-heading text-ink">{title}</h1>
-              <span className="flex flex-wrap gap-1.5" data-testid="agent-version-badges">
-                <Badge tone={kind.tone} testId="agent-kind">
-                  {kind.label}
-                </Badge>
-                {versionBadges(live, draft).map((b) => (
-                  <Badge key={b.label} tone={b.tone}>
-                    {b.label}
+    <div className="flex flex-col gap-3">
+      {/* Back to the list this agent came from: the lab's view as left, or its client's agents. */}
+      <Link
+        to={client ? `${OPS_PATHS.client(client)}/agents` : labPath()}
+        className="ui-back"
+        data-testid="agent-back"
+      >
+        <Icon name="arrow" size={14} className="rotate-180" />
+        {client ? `All ${clientName ?? "client"} agents` : "All agents"}
+      </Link>
+      <Card testId="agent-bar">
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-6 pt-5 pb-1">
+          <div className="flex min-w-0 items-start gap-4">
+            <AgentBadge name={title} seed={view.id} size="lg" />
+            <div className="min-w-0">
+              {/* Where it is (its client, or the lab) and the switcher to the client's others. */}
+              <div className="ui-crumbs mb-1.5" data-testid="agent-bar-crumbs">
+                <p className="eyebrow text-ink-muted">
+                  {view.kind === "client" && view.tenantId ? (
+                    <Link to={OPS_PATHS.client(view.tenantId)} className="hover:underline">
+                      {clientName ?? "Client"}
+                    </Link>
+                  ) : (
+                    <Link to={OPS_PATHS.lab} className="hover:underline">
+                      Agent lab
+                    </Link>
+                  )}
+                </p>
+                <HeaderSwitcher />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="type-heading text-ink">{title}</h1>
+                <span className="flex flex-wrap gap-1.5" data-testid="agent-version-badges">
+                  <Badge tone={kind.tone} testId="agent-kind">
+                    {kind.label}
                   </Badge>
-                ))}
-                {view.status === "disabled" ? <Badge tone="neutral">Discarded</Badge> : null}
-              </span>
-              {view.kind === "client" && !view.testCopy ? (
-                <StatusChip state={serviceChipState(status)} testId="agent-bar-status">
-                  {RUN_STATUS_WORDS[status] ?? status}
-                </StatusChip>
+                  {versionBadges(live, draft).map((b) => (
+                    <Badge key={b.label} tone={b.tone}>
+                      {b.label}
+                    </Badge>
+                  ))}
+                  {view.status === "disabled" ? <Badge tone="neutral">Discarded</Badge> : null}
+                </span>
+                {view.kind === "client" && !view.testCopy ? (
+                  <StatusChip state={serviceChipState(status)} testId="agent-bar-status">
+                    {RUN_STATUS_WORDS[status] ?? status}
+                  </StatusChip>
+                ) : null}
+              </div>
+              {line.length > 0 ? (
+                <p className="mt-1 text-sm text-ink-muted" data-testid="agent-bar-line">
+                  {line.join(" · ")}
+                </p>
               ) : null}
+              <div className="mt-1">{lineage}</div>
             </div>
-            {line.length > 0 ? (
-              <p className="mt-1 text-sm text-ink-muted" data-testid="agent-bar-line">
-                {line.join(" · ")}
-              </p>
-            ) : null}
-            <div className="mt-1">{lineage}</div>
           </div>
+          {actions}
         </div>
-        {actions}
-      </div>
-      <div className="overflow-x-auto px-6 [&>nav]:border-b-0">{children}</div>
-    </Card>
+        <div className="overflow-x-auto px-6 [&>nav]:border-b-0">{children}</div>
+      </Card>
+    </div>
   );
 }
 
@@ -605,6 +620,9 @@ function AgentActions({
         >
           Test run
         </Link>
+        {view.kind === "template" && live && view.status === "active" ? (
+          <AssignToClient templateId={view.id} version={live.version} />
+        ) : null}
         {/* Only a draft newer than the live version publishes; a live version says Live. */}
         {draft && draft.id !== live?.id && view.status === "active" ? (
           <Button

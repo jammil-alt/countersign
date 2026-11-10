@@ -810,3 +810,96 @@ a.ui-stat--link:focus-visible {
   font-size: 9px;
   letter-spacing: 0.06em;
 }
+
+/* ── Empty states (EmptyState): centred, an icon in a soft tile, a title, a line and the next
+ * step. A solid hairline on the surface, not the pattern's dashed box; inside a card, compact
+ * and borderless. Good news (nothing waits) takes the positive tint. ── */
+.ds-empty.ui-empty {
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-10) var(--space-6);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  text-align: center;
+}
+.ui-empty__icon {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--slate-tint);
+  color: var(--slate);
+}
+.ui-empty--done .ui-empty__icon {
+  background: var(--positive-tint);
+  color: var(--positive);
+}
+.ui-empty__text {
+  display: flex;
+  max-width: 46ch;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.ui-empty__title {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 22px;
+  color: var(--ink);
+}
+.ui-empty__line {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ink-muted);
+}
+.ds-empty.ui-empty--compact {
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  border: 0;
+  background: transparent;
+}
+.ui-empty--compact .ui-empty__icon {
+  width: 36px;
+  height: 36px;
+}
+.ui-empty--compact .ui-empty__title {
+  font-size: 14px;
+}
+.ui-empty--compact .ui-empty__line {
+  font-size: 13px;
+}
+
+/* A cut cell's full words (Clamp): on the page, beside the cell, wrapping at a reading width. */
+.ds-tooltip.ui-tip {
+  position: fixed;
+  z-index: 60;
+  max-width: 320px;
+  white-space: normal;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.ds-tooltip.ui-tip--above {
+  transform: translateY(-100%);
+}
+
+/* The agent lab's gallery (LabScreen): cards at a readable width, as many to a row as fit. */
+.ui-labgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: var(--space-4);
+}
+
+/* "All agents": back to the list a page came from, over its header (AgentScreen). */
+.ui-back {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: var(--space-1-5, 6px);
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+.ui-back:hover {
+  color: var(--slate);
+}

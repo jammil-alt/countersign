@@ -321,16 +321,27 @@ function NeedsUs({ escalations, count }: { escalations: Escalation[]; count: num
       }
     >
       {escalations.length === 0 ? (
-        <div className="ui-card__body">
-          <p className="text-ink-muted" data-testid="ops-command-clear">
-            Nothing needs us. Failed runs, broken connections, low-confidence readings, items for us
-            and approvals stuck at a client show here.
-          </p>
-        </div>
+        <EmptyState
+          compact
+          tone="done"
+          testId="ops-command-clear"
+          title="Nothing needs us."
+          line="Failed runs, broken connections, low-confidence readings and approvals stuck at a client show here."
+        />
       ) : filtered.length === 0 ? (
-        <p className="ui-card__body text-ink-muted" data-testid="ops-needs-none">
-          Nothing needs us here. Pick another client or type.
-        </p>
+        <EmptyState
+          compact
+          icon="filter"
+          testId="ops-needs-none"
+          line="Nothing needs us here. Pick another client or type."
+          action={{
+            label: "Show all",
+            onClick: () => {
+              setClient("");
+              setKind("");
+            },
+          }}
+        />
       ) : (
         shown.map((e) => {
           const chip = escalationChip(e);
@@ -455,11 +466,13 @@ function AllAgents({ agents, behind }: { agents: Agent[]; behind: Map<string, nu
       }
     >
       {agents.length === 0 ? (
-        <div className="ui-card__body">
-          <EmptyState>
-            No client agents yet. Fork a template into a client from the agent lab.
-          </EmptyState>
-        </div>
+        <EmptyState
+          compact
+          icon="team"
+          title="No client agents yet"
+          line="Fork a template into a client from the agent lab."
+          action={{ label: "Open agent lab", to: OPS_PATHS.lab }}
+        />
       ) : (
         <div className="dt dt-ana overflow-x-auto rounded-none border-0">
           <table>
@@ -672,9 +685,22 @@ function RecentRuns() {
           const agents = new Map(data.agents.map((a) => [a.id, a.name]));
           if (data.runs.length === 0) {
             return (
-              <p className="ui-card__body text-ink-muted">
-                {client || statuses ? "No runs match these filters." : "No runs yet."}
-              </p>
+              <EmptyState
+                compact
+                icon={client || statuses ? "filter" : "table"}
+                line={client || statuses ? "No runs match these filters." : "No runs yet."}
+                action={
+                  client || statuses
+                    ? {
+                        label: "Show all",
+                        onClick: () => {
+                          setClient("");
+                          setState("all");
+                        },
+                      }
+                    : undefined
+                }
+              />
             );
           }
           return (

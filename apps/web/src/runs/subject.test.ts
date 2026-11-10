@@ -5,7 +5,7 @@ import { createI18n } from "../i18n/i18n";
 import { runWaiting } from "../ops/run/waiting";
 import { money } from "./format";
 import { eventLabel, qualifiedToolLabel } from "./labels";
-import { opsRunTitle, subjectTitle } from "./subject";
+import { opsRunShortTitle, opsRunTitle, subjectTitle } from "./subject";
 
 describe("run titles", () => {
   const doc = {
@@ -42,6 +42,21 @@ describe("run titles", () => {
     );
     expect(opsRunTitle({ ...trigger, startedBy: "schedule" })).toBe("Scheduled run");
     expect(opsRunTitle(undefined, "Fix a record")).toBe("Fix a record");
+  });
+
+  it("in the runs table, without the vendor or customer, which the tooltip keeps", () => {
+    expect(opsRunShortTitle(doc)).toBe("Invoice 20418");
+    expect(opsRunShortTitle({ ...doc, number: null })).toBe("Northline Panel Supply");
+    const change = {
+      kind: "change" as const,
+      name: { en: "QuickBooks bill" },
+      number: "20418",
+      with: "Northline Panel Supply",
+    };
+    expect(opsRunShortTitle(change)).toBe("QuickBooks bill 20418");
+    expect(opsRunShortTitle({ kind: "trigger", startedBy: "schedule", event: null })).toBe(
+      "Scheduled run",
+    );
   });
 });
 
