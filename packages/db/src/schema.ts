@@ -3726,6 +3726,92 @@ export const qboWebhookEvent = pgTable(
   ],
 );
 
+// ── Wave 4: recorded browser scripts (migration 0045; docs/plan.md §1.86 "Scripts (wave 4)") ──────
+
+/** Who recorded a script version: the operator (back office) or the client admin (portal). */
+export const SCRIPT_SIDES = ["operator", "client"] as const;
+
+/**
+ * A client's scripted site tool on one of its browser logins (ARCHITECTURE v0.16 §10.14 "Browser
+ * connectors"): its name and slug on the site, the recording being made (core's `ScriptRecording`,
+ * the working copy edited in place while someone records), and the version the operator
+ * published. Only a published version runs; a client admin's recording stays a draft until the
+ * operator publishes it (invariant 11). Per client, never shared (invariant 1).
+ */
+export const browserScript = pgTable(
+  "browser_script",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    /** The client's browser login the script runs through (connector `browser`). */
+    connectionId: uuid("connection_id").notNull(),
+    /** The login's site slug (`connection.config.site`), kept so tools find the script by it. */
+    site: text("site").notNull(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    recording: json("recording").notNull(),
+    /** The version that runs as a tool; null: none yet (drafts never run). */
+    publishedVersion: integer("published_version"),
+    publishedBy: uuid("published_by").references(() => appUser.id),
+    publishedAt: ts("published_at"),
+    /** The script-draft offer (an operator inbox item) it was started from, if any. */
+    offerItemId: uuid("offer_item_id"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdSide: text("created_side").$type<(typeof SCRIPT_SIDES)[number]>().notNull(),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("browser_script_id_tenant_key").on(t.id, t.tenantId),
+    unique("browser_script_slug_key").on(t.tenantId, t.site, t.slug),
+    check("browser_script_slug_check", sql`${t.slug} ~ '^[a-z0-9][a-z0-9-]{0,62}$'`),
+    check("browser_script_created_side_check", oneOf(t.createdSide, SCRIPT_SIDES)),
+    check(
+      "browser_script_published_version_check",
+      sql`${t.publishedVersion} is null or ${t.publishedVersion} >= 1`,
+    ),
+    foreignKey({
+      name: "browser_script_connection_fk",
+      columns: [t.connectionId, t.tenantId],
+      foreignColumns: [connection.id, connection.tenantId],
+    }),
+  ],
+);
+
+/**
+ * One saved version of a script: its definition (core's `BrowserScriptDefinition`) and the
+ * evidence screenshots of its recording by step id (storage keys on the connection's log).
+ * Immutable and never deleted (trigger, invariant 3); publishing points the script at one.
+ */
+export const browserScriptVersion = pgTable(
+  "browser_script_version",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    scriptId: uuid("script_id").notNull(),
+    version: integer("version").notNull(),
+    definition: json("definition").notNull(),
+    evidence: json("evidence").notNull().default({}),
+    recordedBy: uuid("recorded_by").references(() => appUser.id),
+    recordedSide: text("recorded_side").$type<(typeof SCRIPT_SIDES)[number]>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("browser_script_version_id_tenant_key").on(t.id, t.tenantId),
+    unique("browser_script_version_script_version_key").on(t.scriptId, t.version),
+    check("browser_script_version_version_check", sql`${t.version} >= 1`),
+    check("browser_script_version_recorded_side_check", oneOf(t.recordedSide, SCRIPT_SIDES)),
+    foreignKey({
+      name: "browser_script_version_script_fk",
+      columns: [t.scriptId, t.tenantId],
+      foreignColumns: [browserScript.id, browserScript.tenantId],
+    }),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -3806,6 +3892,9 @@ export const TENANT_TABLES = [
   "ledger_dimension",
   // 0041: Intuit's webhook notifications, one row per entity change (docs/plan.md §1.81).
   "qbo_webhook_event",
+  // 0045: recorded browser scripts (docs/plan.md §1.86 "Scripts (wave 4)").
+  "browser_script",
+  "browser_script_version",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
