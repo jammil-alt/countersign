@@ -261,11 +261,12 @@ export function scriptResult(def: BrowserScriptDefinition, run: ScriptRun): Json
 }
 
 /**
- * The help request for a step that couldn't find its element: the executor asks the lead with what
- * was tried and the screenshots, as a browsing skill's (`needsHelp`, ./scope.ts).
+ * The help request for a step that couldn't find its element: the executor asks the operator with
+ * what was tried and the screenshots (`needsHelp`, as a browsing skill's, ./scope.ts).
  */
-// DECISION: no `remember` tag: an answer can't change a script's fixed steps, so it is kept as an
-// ordinary note on the step (the executor's default) and the operator re-records the script.
+// DECISION: no `remember` tag, and the executor keeps no note of the answer: no answer changes a
+// script's fixed steps. The operator records the script again and publishes it, then answers, and
+// the step runs once more on the published version (packages/workflows' `needsHelp`).
 export function scriptNeedsHelp(
   def: Pick<BrowserScriptDefinition, "name" | "site">,
   missing: ScriptStepMissing,
@@ -274,7 +275,7 @@ export function scriptNeedsHelp(
   const shots = done.map((s) => s.screenshot).filter((s): s is string => s !== null);
   return {
     question:
-      `The script "${def.name}" couldn't find ${missing.what} on ${missing.url}. The page may have changed: can you check it, or have us record the script again?`.slice(
+      `The script "${def.name}" couldn't find ${missing.what} on ${missing.url}. The page may have changed: record the script again and publish it, then answer here to run the step once more.`.slice(
         0,
         500,
       ),
