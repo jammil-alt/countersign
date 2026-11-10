@@ -69,9 +69,11 @@ import {
 } from "@countersign/db";
 import {
   anthropicTransport,
+  geminiTransport,
   type LlmTransport,
   openaiTransport,
   routingTransport,
+  xaiTransport,
 } from "@countersign/llm";
 import { type EventRow, emit } from "@countersign/senses";
 import {
@@ -155,19 +157,24 @@ export interface RunDeps {
 
 /**
  * The model transport for a deployed Worker: Anthropic models with ANTHROPIC_API_KEY, OpenAI models
- * (`openai:` ids) with OPENAI_API_KEY.
+ * (`openai:` ids) with OPENAI_API_KEY, xAI's (`xai:`) with XAI_API_KEY and Google's Gemini
+ * (`google:`) with GEMINI_API_KEY.
  */
 // DECISION: the Worker calls the model live or not at all: record/replay needs the fixture files,
 // which only tests (Node) have. A model whose provider has no key fails with an error naming the
 // missing key, so a run without a model still runs its tool-mode skills and actions.
 export function workerTransport(
-  env: Pick<Bindings, "ANTHROPIC_API_KEY" | "OPENAI_API_KEY">,
+  env: Pick<Bindings, "ANTHROPIC_API_KEY" | "OPENAI_API_KEY" | "XAI_API_KEY" | "GEMINI_API_KEY">,
 ): LlmTransport {
   const anthropicKey = env.ANTHROPIC_API_KEY?.trim();
   const openaiKey = env.OPENAI_API_KEY?.trim();
+  const xaiKey = env.XAI_API_KEY?.trim();
+  const geminiKey = env.GEMINI_API_KEY?.trim();
   return routingTransport({
     ...(anthropicKey ? { anthropic: anthropicTransport({ apiKey: anthropicKey }) } : {}),
     ...(openaiKey ? { openai: openaiTransport({ apiKey: openaiKey }) } : {}),
+    ...(xaiKey ? { xai: xaiTransport({ apiKey: xaiKey }) } : {}),
+    ...(geminiKey ? { google: geminiTransport({ apiKey: geminiKey }) } : {}),
   });
 }
 

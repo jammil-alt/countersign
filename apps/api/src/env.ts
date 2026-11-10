@@ -10,6 +10,10 @@ export interface Secrets {
   ANTHROPIC_API_KEY?: string;
   /** Loaded by deploy.yml; OpenAI models (`openai:` ids) in packages/llm. */
   OPENAI_API_KEY?: string;
+  /** Loaded by deploy.yml; xAI models (`xai:` ids, Grok) in packages/llm. Unset: those models are off. */
+  XAI_API_KEY?: string;
+  /** Loaded by deploy.yml; Google's Gemini models (`google:` ids) in packages/llm. Unset: off. */
+  GEMINI_API_KEY?: string;
   /** 32 bytes, base64: connection credentials at rest (ARCHITECTURE §17). */
   ENCRYPTION_KEY?: string;
   ENCRYPTION_KEY_PREVIOUS?: string;

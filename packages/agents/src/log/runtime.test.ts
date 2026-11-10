@@ -836,6 +836,72 @@ describe.skipIf(!harness)("runtime", () => {
     expect(result.status === "escalated" && result.reason).toBe("max_cost");
   });
 
+  // Models: xAI and Gemini. A call to a model with no price would be counted at $0 and never
+  // reach the budget, so an agent can't be published on one; a priced one counts like any other.
+  it("never lets a model without a price run past the cost cap", async () => {
+    const onModel = (id: string) => {
+      const b = makeBundle({ maxCostUsd: "0.0001" });
+      return { ...b, definition: { ...b.definition, model: { id, maxTokens: 1024 } } };
+    };
+    const refused = await h.ops(async (tx) => {
+      const { agent: tpl, version } = await createTemplate(tx, {
+        slug: "unpriced-grok",
+        bundle: onModel("xai:grok-0"),
+      });
+      return publish(tx, { agentId: tpl.id, versionId: version.id, ctx: h.ctx }).then(
+        () => null,
+        (e: unknown) => e as AgentsError,
+      );
+    });
+    expect(refused?.code).toBe("invalid_bundle");
+    expect(JSON.stringify(refused?.details)).toContain(
+      'no priced model \\"xai:grok-0\\": its cost could not be counted against the limits',
+    );
+
+    // On a priced Gemini model the same budget is spent by the first call (100 in, 20 out).
+    const a = await h.ops(async (tx) => {
+      const { agent: tpl, version } = await createTemplate(tx, {
+        slug: "priced-gemini",
+        bundle: onModel("google:gemini-3.1-pro"),
+      });
+      await publish(tx, { agentId: tpl.id, versionId: version.id, ctx: h.ctx });
+      const f = await fork(tx, {
+        tenantId: h.A.tenantId,
+        slug: "priced-gemini",
+        templateVersionId: version.id,
+      });
+      await updateOperational(tx, {
+        agentId: f.agent.id,
+        patch: { bindings: { testkit: h.A.connectionId } },
+      });
+      await publish(tx, { agentId: f.agent.id, versionId: f.version.id, ctx: h.ctx });
+      await tx.update(agent).set({ runStatus: "active" }).where(eq(agent.id, f.agent.id));
+      return f;
+    });
+    const r = await h.client(h.A, (tx) =>
+      createRun(tx, {
+        tenantId: h.A.tenantId,
+        agentId: a.agent.id,
+        workflowSlug: "check-record",
+        mode: "live",
+      }),
+    );
+    const model = new FakeModel([
+      { toolUse: { name: "testkit__record__query", input: {} } },
+      { toolUse: { name: "testkit__record__query", input: {} } },
+    ]);
+    const result = await runAgent(h.deps(model), {
+      tenantId: h.A.tenantId,
+      agentVersionId: a.version.id,
+      skill: "test.lookup",
+      input: { name: "Oak" },
+      runId: r.id,
+      stepId: LOOKUP_STEP,
+    });
+    expect(model.requests.map((q) => q.model)).toEqual(["google:gemini-3.1-pro"]);
+    expect(result.status === "escalated" && result.reason).toBe("max_cost");
+  });
+
   // §1.77: the monthly cap per client agent.
   it("escalates when the client agent's month is spent, counting this month's runs only", async () => {
     const pinned = makeBundle({ maxMonthlyCostUsd: "0.0100" });
