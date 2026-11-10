@@ -355,6 +355,15 @@ const HELP_DEADLINE: processes.Deadline = {
   ifNoAnswer: "stop",
 };
 
+/**
+ * Wave 5 review: a v4 notice's durable step, retried as skill and action steps are (apps/api's
+ * step config) rather than on the platform's defaults, so its last try is known: only that try's
+ * failure is final (`notice`).
+ */
+const NOTICE_STEP_CONFIG = {
+  retries: { limit: 3, delay: "10 seconds", backoff: "exponential" },
+} as const satisfies StepConfig;
+
 /** A person conferee's quick answers. */
 const CONFER_CHOICES: NonNullable<PersonStep["choices"]> = [
   { value: "agree", label: "Agree" },
@@ -2093,81 +2102,88 @@ class Executor {
       urgent: string | null;
       skipped?: boolean;
       failed?: string;
-    } = await this.runner.do(nodeName, async () => {
-      if (n.when && !evaluateRules(n.when, scope)) {
-        return { sent: false, ack: null, urgent: null, skipped: true };
-      }
-      const text = renderTemplate(n.message, scope);
-      const sources = noticeSources(n.sources, scope);
-      const channel = n.channel ?? "inbox";
-      const id = await log.start({
-        runId: run.id,
-        nodeId: nodeName,
-        nodeType: "notify",
-        input: { channel, to: n.to, text, ...(sources.length ? { sources } : {}) },
-      });
-      if (this.testRun) {
-        await log.update(id, {
-          status: "succeeded",
-          output: { sent: false },
-          summary: this.words.wouldSend(label),
+    } = await this.runner.do(
+      nodeName,
+      async (attempt) => {
+        if (n.when && !evaluateRules(n.when, scope)) {
+          return { sent: false, ack: null, urgent: null, skipped: true };
+        }
+        const text = renderTemplate(n.message, scope);
+        const sources = noticeSources(n.sources, scope);
+        const channel = n.channel ?? "inbox";
+        const id = await log.start({
+          runId: run.id,
+          nodeId: nodeName,
+          nodeType: "notify",
+          input: { channel, to: n.to, text, ...(sources.length ? { sources } : {}) },
         });
-        return { sent: false, ack: null, urgent: null };
-      }
-      try {
-        const urgent = n.urgent && (!n.urgent.when || evaluateRules(n.urgent.when, scope));
-        const urgentDue = urgent
-          ? new Date(Date.now() + parseDuration(n.urgent?.ackWithin ?? "1 hour")).toISOString()
-          : null;
-        let ack: string | null = null;
-        if (notify.notify) {
-          const r = await notify.notify({
-            run,
-            nodeId: nodeName,
-            to: [...n.to],
-            channel,
-            text,
-            sources,
-            ...(urgentDue ? { urgent: { dueAt: urgentDue } } : {}),
+        if (this.testRun) {
+          await log.update(id, {
+            status: "succeeded",
+            output: { sent: false },
+            summary: this.words.wouldSend(label),
           });
-          ack = r.ackItemId ?? null;
-        } else {
-          // DECISION: without the port's v4 notify, each recipient gets the v3 notice (an inbox
-          // notice as a thread message, sms as one too); an urgent one isn't waited on.
-          const v3: NotifyStep = {
-            id: nodeName,
-            name: label,
-            kind: "notify",
-            channel: channel === "email" ? "email" : "thread",
-            message: n.message,
-            ...(n.sources ? { sources: n.sources } : {}),
-          };
-          for (const to of n.to) {
-            await notify.send({
+          return { sent: false, ack: null, urgent: null };
+        }
+        try {
+          const urgent = n.urgent && (!n.urgent.when || evaluateRules(n.urgent.when, scope));
+          const urgentDue = urgent
+            ? new Date(Date.now() + parseDuration(n.urgent?.ackWithin ?? "1 hour")).toISOString()
+            : null;
+          let ack: string | null = null;
+          if (notify.notify) {
+            const r = await notify.notify({
               run,
-              step: v3,
               nodeId: nodeName,
-              channel: v3.channel,
-              to,
+              to: [...n.to],
+              channel,
               text,
               sources,
+              ...(urgentDue ? { urgent: { dueAt: urgentDue } } : {}),
             });
+            ack = r.ackItemId ?? null;
+          } else {
+            // DECISION: without the port's v4 notify, each recipient gets the v3 notice (an inbox
+            // notice as a thread message, sms as one too); an urgent one isn't waited on.
+            const v3: NotifyStep = {
+              id: nodeName,
+              name: label,
+              kind: "notify",
+              channel: channel === "email" ? "email" : "thread",
+              message: n.message,
+              ...(n.sources ? { sources: n.sources } : {}),
+            };
+            for (const to of n.to) {
+              await notify.send({
+                run,
+                step: v3,
+                nodeId: nodeName,
+                channel: v3.channel,
+                to,
+                text,
+                sources,
+              });
+            }
           }
+          await log.update(id, { status: "succeeded", summary: `${label}: ${this.words.sent}` });
+          return { sent: true, ack, urgent: urgentDue };
+        } catch (error) {
+          // DECISION (wave 5 review): the send is retried per `NOTICE_STEP_CONFIG`, like any durable
+          // step; only its last try's failure is final. With `onError: continue` that one is the
+          // step's stored result (never sent again on replay); an earlier one throws to be retried.
+          // A runner that can't say which try it is (no `attempt`) has no retries to wait for.
+          const last = !attempt || attempt.attempt > NOTICE_STEP_CONFIG.retries.limit;
+          if (!continues || !last) throw error;
+          await log.update(id, {
+            status: "failed",
+            error: message(error),
+            summary: `${label}: ${this.words.failed}`,
+          });
+          return { sent: false, ack: null, urgent: null, failed: message(error) };
         }
-        await log.update(id, { status: "succeeded", summary: `${label}: ${this.words.sent}` });
-        return { sent: true, ack, urgent: urgentDue };
-      } catch (error) {
-        // DECISION (wave 5): this durable step has no retries of its own, so a send that throws
-        // is final: with `onError: continue` it is the step's stored result, never sent again.
-        if (!continues) throw error;
-        await log.update(id, {
-          status: "failed",
-          error: message(error),
-          summary: `${label}: ${this.words.failed}`,
-        });
-        return { sent: false, ack: null, urgent: null, failed: message(error) };
-      }
-    });
+      },
+      NOTICE_STEP_CONFIG,
+    );
     if (typeof sent.failed === "string") return { outcome: "failed", error: sent.failed };
     // A test run's notice reads as sent, so it takes the path the live run would.
     if (!sent.sent) return { outcome: sent.skipped || !this.testRun ? "skipped" : "sent" };

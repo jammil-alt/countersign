@@ -447,9 +447,36 @@ describe("onError: continue", () => {
     expect(first.status).toBe("succeeded");
     expect(h.row("tell")?.status).toBe("failed");
     expect(pathOf(h)).toBe("yes");
+    // Retried as any durable step (a first try and three more); only the last try's failure is
+    // the step's result.
+    expect(tries).toBe(4);
     runner.replay();
     await executeWorkflow(runner, h.context(), proc(steps), {});
-    expect(tries).toBe(1);
+    expect(tries).toBe(4);
+  });
+
+  it("on a notify step: a send that fails once and then works is sent, not failed", async () => {
+    const h = new Harness();
+    let tries = 0;
+    h.notify.send = async (m) => {
+      if (m.nodeId === "tell" && ++tries === 1) throw new Error("the mail service blinked");
+      h.sent.push(m);
+    };
+    const steps = [
+      {
+        id: "tell",
+        kind: "notify",
+        name: "Tell",
+        onError: "continue",
+        notify: { to: ["lead"], message: "hi" },
+      },
+      routeOn("steps.tell.outcome", "sent", "=", "x"),
+    ];
+    const result = await executeWorkflow(new FakeStepRunner(), h.context(), proc(steps), {});
+    expect(result.status).toBe("succeeded");
+    expect(tries).toBe(2);
+    expect(h.row("tell")?.status).toBe("succeeded");
+    expect(pathOf(h)).toBe("yes");
   });
 
   it("on a write the provider turned down without making it: goes on, the action failed unwritten", async () => {
