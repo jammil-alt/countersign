@@ -2875,7 +2875,10 @@ function approvalApplies(rules: Rules, scope: unknown): boolean {
     const path = singleRef(ref);
     if (!path) return true;
     const source = path[0] === "steps" ? path.slice(0, 2) : path.slice(0, 1);
-    return resolvePath(scope, leaf ? path : source) !== undefined;
+    const value = resolvePath(scope, leaf ? path : source);
+    // DECISION: a compared value that is null or empty counts as unresolved too, so the approval
+    // applies: `null < 100` is true in JavaScript and must never switch an approval off.
+    return leaf ? value !== undefined && value !== null && value !== "" : value !== undefined;
   };
   for (const rule of rules.rules) {
     if (!resolves(rule.field, rule.op !== "exists")) return true;

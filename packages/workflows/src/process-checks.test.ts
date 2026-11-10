@@ -605,6 +605,17 @@ describe("an approval's `when` on a writing skill (wave 2c)", () => {
     expect((await gateFor(flagged, {}, false)).gates).toEqual([
       expect.objectContaining({ required: "required" }),
     ]);
+    // A value that is there but null or empty doesn't decide either (`null < 100` is true).
+    const under = { match: "all", rules: [{ field: "{{trigger.amount}}", op: "<", value: 100 }] };
+    const unless = { match: "all", rules: [{ field: "{{trigger.amount}}", op: ">", value: 100 }] };
+    for (const amount of [null, ""]) {
+      expect((await gateFor(under, { amount }, false)).gates).toEqual([
+        expect.objectContaining({ required: "required" }),
+      ]);
+      expect((await gateFor(unless, { amount }, false)).gates).toEqual([
+        expect.objectContaining({ required: "required" }),
+      ]);
+    }
     // Resolved, it still decides.
     expect((await gateFor(over, { amount: 50 }, false)).gates).toEqual([
       expect.objectContaining({ required: "not_required" }),
