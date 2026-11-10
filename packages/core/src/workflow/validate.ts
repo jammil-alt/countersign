@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { modelProvider } from "../api/models";
 // P-4
 import { CONVERSE_SKILL, converseProblems } from "../converse";
 import { localizedVersions } from "../i18n/locale";
@@ -877,6 +878,36 @@ export function validateWorkflow(
 }
 
 /**
+ * The agent's own models, its definition's and its oversight's: when the caller lists the priced
+ * models, an id whose prefix names a provider other than Anthropic (`openai:`, `xai:`,
+ * `google:`) must be one of them.
+ */
+// DECISION (Models: xAI and Gemini): a call to a model with no price is recorded at no cost, so
+// the run's and the owner's cost limits would never stop it. Step, skill and reviewer models are
+// already checked against the priced list; the agent's own model was not, so a provider-prefixed
+// id with no price is refused here too (and by packages/llm's client before it calls). Anthropic
+// ids without a price are left as they were (older bundles and tests name such ids).
+export function definitionModelErrors(
+  definition: Pick<AgentDefinition, "model" | "oversight">,
+  models: readonly string[] | undefined,
+): ValidationError[] {
+  if (!models) return [];
+  const errors: ValidationError[] = [];
+  const check = (id: string | undefined, at: string) => {
+    if (!id || modelProvider(id) === "anthropic" || models.includes(id)) return;
+    errors.push({
+      stepId: null,
+      field: at,
+      code: "unknown_model",
+      message: `no priced model "${id}": its cost could not be counted against the limits`,
+    });
+  };
+  check(definition.model.id, "definition.model.id");
+  check(definition.oversight?.model?.id, "definition.oversight.model.id");
+  return errors;
+}
+
+/**
  * Validates a whole bundle: its schema, ids unique across every workflow, unique workflow slugs and
  * skills, and each workflow against the bundle's own agent definition.
  */
@@ -948,6 +979,7 @@ export function validateBundle(
     roles.add(p.role);
   });
   errors.push(...duplicateIds(bundle.workflows));
+  errors.push(...definitionModelErrors(bundle.definition, ctx.models));
   const full: ValidationContext = { ...ctx, agent: bundle.definition };
   for (const w of bundle.workflows) errors.push(...semantic(w.workflow, full, w.slug));
   // v0.12 W2-G: the client view's KPIs and panels (ARCHITECTURE §9.9).

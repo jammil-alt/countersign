@@ -8,11 +8,14 @@ import {
   type AnyAgentBundle,
   AnyAgentBundle as AnyAgentBundleSchema,
   DECIMAL_RE,
+  MODEL_PROVIDER_NAMES,
+  modelProvider,
   // v0.13 W2-I
   NEW_AGENT_OVERSIGHT,
   type OversightReview,
   OversightSettings,
   parseSkillRef,
+  providerModelName,
   type SkillOption,
   uuidv7,
 } from "@countersign/core";
@@ -51,14 +54,23 @@ export type FormErrors = Record<string, string>;
  * The models offered by default.
  */
 // DECISION: the editor offers the models packages/llm names (opus, the platform default; sonnet;
-// haiku; OpenAI's GPT-5.5, routed by its `openai:` prefix) and keeps any other id a bundle already
-// has; apps/web can't import packages/llm.
+// haiku; OpenAI's GPT-5.5, xAI's Grok 4.7 and Google's Gemini 3.1 Pro and 3.5 Flash-Lite, each
+// routed by its prefix) and keeps any other id a bundle already has; apps/web can't import
+// packages/llm. Each is shown with its provider (`modelOptionLabel`).
 export const MODEL_OPTIONS = [
   "claude-opus-5-5",
   "claude-sonnet-5-5",
   "claude-haiku-5-5",
   "openai:gpt-5.5",
+  "xai:grok-4.7",
+  "google:gemini-3.1-pro",
+  "google:gemini-3.5-flash-lite",
 ] as const;
+
+/** A model as the pickers show it: its provider, then the provider's name for it. */
+export function modelOptionLabel(id: string): string {
+  return `${MODEL_PROVIDER_NAMES[modelProvider(id)]} · ${providerModelName(id)}`;
+}
 export const DEFAULT_MODEL = "claude-opus-5-5";
 
 /** Approvers the editor offers besides a user id. */

@@ -1,0 +1,12 @@
+{
+  "handWritten": true,
+  "about": "Gemini API: the model is overloaded (503, status UNAVAILABLE), in Google's error shape",
+  "status": 503,
+  "body": {
+    "error": {
+      "code": 503,
+      "message": "The model is overloaded. Please try again later.",
+      "status": "UNAVAILABLE"
+    }
+  }
+}

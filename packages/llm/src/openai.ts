@@ -4,13 +4,24 @@
 // message. So the client, `callTool`, the agent runtime, cost tracking and record/replay work the
 // same whichever provider answers, and nothing above the transport knows which one did.
 //
-// Plain fetch, no SDK: the Worker stays light and a test can pass its own fetch.
+// The translation is shared with xAI (./xai.ts), whose Responses API takes the same requests and
+// gives the same answers apart from a few parameters, named in `ResponsesDialect`. The HTTP side
+// (retries, time limits, errors) is ./provider.ts, shared with every provider but Anthropic.
 
 import type Anthropic from "@anthropic-ai/sdk";
+import { MODEL_PREFIXES, providerModelName } from "@countersign/core";
+import {
+  type HttpTransportOptions,
+  httpTransport,
+  ProviderError,
+  type ProviderErrorClass,
+  type ProviderErrorKind,
+  ProviderRequestError,
+} from "./provider";
 import type { LlmMessage, LlmRequest, LlmTransport } from "./transport";
 
 /** Model ids that start with this go to OpenAI: `openai:gpt-5.5`. */
-export const OPENAI_PREFIX = "openai:";
+export const OPENAI_PREFIX = MODEL_PREFIXES.openai;
 
 export function isOpenAIModel(model: string): boolean {
   return model.startsWith(OPENAI_PREFIX);
@@ -30,6 +41,7 @@ type OAInputContent =
   | { type: "input_file"; filename: string; file_data: string };
 
 export type OAInputItem =
+  | { type: "message"; role: "system"; content: string }
   | { type: "message"; role: "user"; content: OAInputContent[] }
   | { type: "message"; role: "assistant"; content: string }
   | { type: "function_call"; call_id: string; name: string; arguments: string }
@@ -87,22 +99,45 @@ export interface OAResponse {
   } | null;
 }
 
-/** A request the translation can't express. A programming error, not a model failure. */
-export class OpenAIRequestError extends Error {
+/** A request the translation can't express for OpenAI. */
+export class OpenAIRequestError extends ProviderRequestError {
   override name = "OpenAIRequestError";
 }
 
 /** OpenAI answered with an error, or the answer was a failed response. */
-export class OpenAIError extends Error {
+export class OpenAIError extends ProviderError {
   override name = "OpenAIError";
-  readonly status: number | null;
-  readonly code: string | null;
-  constructor(message: string, status: number | null, code: string | null = null) {
-    super(message);
-    this.status = status;
-    this.code = code;
+  constructor(
+    message: string,
+    status: number | null,
+    code: string | null = null,
+    kind?: ProviderErrorKind,
+  ) {
+    super(message, status, code, kind);
   }
 }
+
+/** What differs between the providers that speak the Responses API. */
+export interface ResponsesDialect {
+  /** As people see it: `OpenAI`, `xAI`. */
+  readonly vendor: string;
+  readonly defaultBaseURL: string;
+  /** Where the system prompt goes: OpenAI's `instructions`, or a system message first in `input`. */
+  readonly system: "instructions" | "message";
+  /** Whether a request's effort is sent as `reasoning.effort`. */
+  readonly reasoning: boolean;
+  readonly errorClass: ProviderErrorClass;
+  readonly requestError: new (message: string) => ProviderRequestError;
+}
+
+export const OPENAI_DIALECT: ResponsesDialect = {
+  vendor: "OpenAI",
+  defaultBaseURL: "https://api.openai.com/v1",
+  system: "instructions",
+  reasoning: true,
+  errorClass: OpenAIError,
+  requestError: OpenAIRequestError,
+};
 
 // ---------------------------------------------------------------------------------------------
 // Request: Anthropic Messages → Responses.
@@ -113,7 +148,11 @@ function systemText(system: LlmRequest["system"]): string | undefined {
   return system.map((b) => b.text).join("\n\n");
 }
 
-function toolResultText(block: Anthropic.ToolResultBlockParam): string {
+/** A tool result's text; an error result is marked in it, since neither API has a flag for it. */
+export function toolResultText(
+  block: Anthropic.ToolResultBlockParam,
+  refuse: (what: string) => Error,
+): string {
   const { content } = block;
   let text: string;
   if (content === undefined) text = "";
@@ -122,7 +161,7 @@ function toolResultText(block: Anthropic.ToolResultBlockParam): string {
     text = content
       .map((c) => {
         if (c.type === "text") return c.text;
-        throw new OpenAIRequestError(`a tool result with ${c.type} content can't go to OpenAI`);
+        throw refuse(`a tool result with ${c.type} content`);
       })
       .join("\n");
   }
@@ -131,7 +170,10 @@ function toolResultText(block: Anthropic.ToolResultBlockParam): string {
   return block.is_error ? `Error: ${text}` : text;
 }
 
-function userContent(block: Anthropic.ContentBlockParam): OAInputContent {
+function userContent(
+  block: Anthropic.ContentBlockParam,
+  refuse: (what: string) => Error,
+): OAInputContent {
   switch (block.type) {
     case "text":
       return { type: "input_text", text: block.text };
@@ -160,11 +202,19 @@ function userContent(block: Anthropic.ContentBlockParam): OAInputContent {
       break;
     }
   }
-  throw new OpenAIRequestError(`a ${block.type} block can't go to OpenAI`);
+  throw refuse(`a ${block.type} block`);
+}
+
+function refuser(dialect: ResponsesDialect) {
+  return (what: string) => new dialect.requestError(`${what} can't go to ${dialect.vendor}`);
 }
 
 /** The Responses `input` for a list of Anthropic messages, in order. */
-export function toOpenAIInput(messages: readonly Anthropic.MessageParam[]): OAInputItem[] {
+export function toResponsesInput(
+  messages: readonly Anthropic.MessageParam[],
+  dialect: ResponsesDialect,
+): OAInputItem[] {
+  const refuse = refuser(dialect);
   const items: OAInputItem[] = [];
   for (const m of messages) {
     if (typeof m.content === "string") {
@@ -189,10 +239,10 @@ export function toOpenAIInput(messages: readonly Anthropic.MessageParam[]): OAIn
           items.push({
             type: "function_call_output",
             call_id: block.tool_use_id,
-            output: toolResultText(block),
+            output: toolResultText(block, refuse),
           });
         } else {
-          pending.push(userContent(block));
+          pending.push(userContent(block, refuse));
         }
       }
       flush();
@@ -219,17 +269,23 @@ export function toOpenAIInput(messages: readonly Anthropic.MessageParam[]): OAIn
       // (store is off and their ids would point at nothing), so each turn reasons afresh from the
       // transcript; Anthropic thinking blocks, if a transcript has any, are dropped the same way.
       else if (block.type === "thinking" || block.type === "redacted_thinking") continue;
-      else throw new OpenAIRequestError(`an assistant ${block.type} block can't go to OpenAI`);
+      else throw refuse(`an assistant ${block.type} block`);
     }
     flush();
   }
   return items;
 }
 
-function toOpenAITool(tool: NonNullable<LlmRequest["tools"]>[number]): OAFunctionTool {
-  if (!("input_schema" in tool)) {
-    throw new OpenAIRequestError(`the server tool ${tool.type} can't go to OpenAI`);
-  }
+/** The Responses `input` OpenAI gets for a list of Anthropic messages. */
+export function toOpenAIInput(messages: readonly Anthropic.MessageParam[]): OAInputItem[] {
+  return toResponsesInput(messages, OPENAI_DIALECT);
+}
+
+function toResponsesTool(
+  tool: NonNullable<LlmRequest["tools"]>[number],
+  refuse: (what: string) => Error,
+): OAFunctionTool {
+  if (!("input_schema" in tool)) throw refuse(`the server tool ${tool.type}`);
   return {
     type: "function",
     name: tool.name,
@@ -241,7 +297,7 @@ function toOpenAITool(tool: NonNullable<LlmRequest["tools"]>[number]): OAFunctio
   };
 }
 
-function toOpenAIToolChoice(choice: LlmRequest["tool_choice"]): {
+function toResponsesToolChoice(choice: LlmRequest["tool_choice"]): {
   tool_choice?: OAToolChoice;
   parallel_tool_calls?: boolean;
 } {
@@ -272,16 +328,26 @@ const EFFORT: Record<string, "low" | "medium" | "high"> = {
   max: "high",
 };
 
-export function toOpenAIRequest(request: LlmRequest): OAResponsesRequest {
-  const instructions = systemText(request.system);
-  const effort = request.output_config?.effort;
+export function toResponsesRequest(
+  request: LlmRequest,
+  dialect: ResponsesDialect,
+): OAResponsesRequest {
+  const refuse = refuser(dialect);
+  const system = systemText(request.system);
+  const effort = dialect.reasoning ? request.output_config?.effort : undefined;
   const format = request.output_config?.format;
+  const input = toResponsesInput(request.messages, dialect);
   return {
-    model: openAIModelName(request.model),
-    ...(instructions ? { instructions } : {}),
-    input: toOpenAIInput(request.messages),
-    ...(request.tools?.length ? { tools: request.tools.map(toOpenAITool) } : {}),
-    ...toOpenAIToolChoice(request.tool_choice),
+    model: providerModelName(request.model),
+    ...(system && dialect.system === "instructions" ? { instructions: system } : {}),
+    input:
+      system && dialect.system === "message"
+        ? [{ type: "message", role: "system", content: system }, ...input]
+        : input,
+    ...(request.tools?.length
+      ? { tools: request.tools.map((t) => toResponsesTool(t, refuse)) }
+      : {}),
+    ...toResponsesToolChoice(request.tool_choice),
     max_output_tokens: request.max_tokens,
     ...(effort ? { reasoning: { effort: EFFORT[effort] ?? "medium" } } : {}),
     ...(format
@@ -291,9 +357,14 @@ export function toOpenAIRequest(request: LlmRequest): OAResponsesRequest {
           },
         }
       : {}),
-    // Nothing is kept at OpenAI: every request carries its whole transcript, as with Anthropic.
+    // Nothing is kept at the provider: every request carries its whole transcript, as with
+    // Anthropic.
     store: false,
   };
+}
+
+export function toOpenAIRequest(request: LlmRequest): OAResponsesRequest {
+  return toResponsesRequest(request, OPENAI_DIALECT);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -313,12 +384,17 @@ function parseArguments(args: string | undefined): unknown {
  * The answer as an Anthropic message. `model` is the platform id that was asked for (with its
  * prefix), so pricing and logs name the model the way definitions do.
  */
-export function fromOpenAIResponse(response: OAResponse, request: LlmRequest): LlmMessage {
+export function fromResponsesAnswer(
+  response: OAResponse,
+  request: LlmRequest,
+  dialect: ResponsesDialect,
+): LlmMessage {
   if (response.status === "failed" || response.status === "cancelled") {
-    throw new OpenAIError(
-      `OpenAI response ${response.status}: ${response.error?.message ?? "no detail"}`,
+    const code = response.error?.code ?? null;
+    throw new dialect.errorClass(
+      `${dialect.vendor} response ${response.status}: ${response.error?.message ?? "no detail"}`,
       null,
-      response.error?.code ?? null,
+      code,
     );
   }
   const content: Anthropic.ContentBlock[] = [];
@@ -342,7 +418,7 @@ export function fromOpenAIResponse(response: OAResponse, request: LlmRequest): L
         caller: { type: "direct" },
       } as Anthropic.ToolUseBlock);
     }
-    // Reasoning items are not kept (see toOpenAIInput); their tokens are in usage.
+    // Reasoning items are not kept (see toResponsesInput); their tokens are in usage.
   }
   const incomplete =
     response.status === "incomplete" ? response.incomplete_details?.reason : undefined;
@@ -368,10 +444,10 @@ export function fromOpenAIResponse(response: OAResponse, request: LlmRequest): L
     stop_sequence: null,
     stop_details: null,
     usage: {
-      // Anthropic counts cached input apart from fresh input; OpenAI's input total includes it.
+      // Anthropic counts cached input apart from fresh input; the Responses total includes it.
       input_tokens: Math.max(0, (u.input_tokens ?? 0) - cached),
       output_tokens: u.output_tokens ?? 0,
-      // OpenAI caches automatically and does not charge for writing.
+      // Both providers cache automatically and do not charge for writing.
       cache_creation_input_tokens: 0,
       cache_read_input_tokens: cached,
       cache_creation: null,
@@ -383,77 +459,34 @@ export function fromOpenAIResponse(response: OAResponse, request: LlmRequest): L
   } as LlmMessage;
 }
 
+export function fromOpenAIResponse(response: OAResponse, request: LlmRequest): LlmMessage {
+  return fromResponsesAnswer(response, request, OPENAI_DIALECT);
+}
+
 // ---------------------------------------------------------------------------------------------
 // The transport.
 
-export interface OpenAITransportOptions {
-  readonly apiKey: string;
-  /** Injected so a Worker, a test or a proxy decides how requests leave. Defaults to global fetch. */
-  readonly fetch?: typeof fetch;
-  /** Defaults to https://api.openai.com/v1. */
-  readonly baseURL?: string;
-  /** Per attempt. Defaults to 10 minutes: agent calls with reasoning can run long. */
-  readonly timeoutMs?: number;
-  /** Retries after a rate limit, overload, server error or dropped connection. Defaults to 2. */
-  readonly maxRetries?: number;
-  /** Waits between retries; tests pass one that doesn't. */
-  readonly sleep?: (ms: number) => Promise<void>;
-}
+export type OpenAITransportOptions = HttpTransportOptions;
 
-const RETRY_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
-
-function retryDelayMs(attempt: number, retryAfter: string | null): number {
-  const seconds = retryAfter === null ? Number.NaN : Number(retryAfter);
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 60_000);
-  return Math.min(500 * 2 ** attempt, 8_000);
+/** A transport for a provider that speaks the Responses API in the given dialect. */
+export function responsesTransport(
+  dialect: ResponsesDialect,
+  options: HttpTransportOptions,
+): LlmTransport {
+  return httpTransport(
+    {
+      vendor: dialect.vendor,
+      defaultBaseURL: dialect.defaultBaseURL,
+      errorClass: dialect.errorClass,
+      url: (base) => `${base}/responses`,
+      headers: (apiKey) => ({ authorization: `Bearer ${apiKey}` }),
+      body: (request) => toResponsesRequest(request, dialect),
+      answer: (json, request) => fromResponsesAnswer(json as OAResponse, request, dialect),
+    },
+    options,
+  );
 }
 
 export function openaiTransport(options: OpenAITransportOptions): LlmTransport {
-  const doFetch = options.fetch ?? ((input, init) => fetch(input, init));
-  const url = `${(options.baseURL ?? "https://api.openai.com/v1").replace(/\/+$/, "")}/responses`;
-  const timeoutMs = options.timeoutMs ?? 600_000;
-  const maxRetries = options.maxRetries ?? 2;
-  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-
-  return {
-    async create(request, opts) {
-      const body = JSON.stringify(toOpenAIRequest(request));
-      for (let attempt = 0; ; attempt += 1) {
-        const signals = [AbortSignal.timeout(timeoutMs)];
-        if (opts?.signal) signals.push(opts.signal);
-        let res: Response;
-        try {
-          res = await doFetch(url, {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${options.apiKey}`,
-              "content-type": "application/json",
-            },
-            body,
-            signal: AbortSignal.any(signals),
-          });
-        } catch (error) {
-          if (opts?.signal?.aborted || attempt >= maxRetries) throw error;
-          await sleep(retryDelayMs(attempt, null));
-          continue;
-        }
-        if (res.ok) return fromOpenAIResponse((await res.json()) as OAResponse, request);
-        if (RETRY_STATUS.has(res.status) && attempt < maxRetries) {
-          await sleep(retryDelayMs(attempt, res.headers.get("retry-after")));
-          continue;
-        }
-        const text = await res.text();
-        let message = text.slice(0, 500);
-        let code: string | null = null;
-        try {
-          const parsed = JSON.parse(text) as { error?: { message?: string; code?: string } };
-          message = parsed.error?.message ?? message;
-          code = parsed.error?.code ?? null;
-        } catch {
-          // Not JSON; keep the start of the body.
-        }
-        throw new OpenAIError(`OpenAI ${res.status}: ${message}`, res.status, code);
-      }
-    },
-  };
+  return responsesTransport(OPENAI_DIALECT, options);
 }

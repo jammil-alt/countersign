@@ -17,6 +17,7 @@
 // the same Search Console account by Google sign-in, is not a processor either (§1.78).
 
 import { z } from "zod";
+import { modelProvider } from "../api/models";
 
 export const PROCESSORS = [
   // Infrastructure: every request and every stored record goes through these.
@@ -26,6 +27,9 @@ export const PROCESSORS = [
   // Models.
   "anthropic",
   "openai",
+  // Models: xAI (Grok) for `xai:` ids, Google (the Gemini API) for `google:` ids.
+  "xai",
+  "google",
   // Messaging and calls on Mezonas' accounts.
   "twilio",
   "meta_whatsapp",
@@ -49,6 +53,8 @@ export const PROCESSOR_NAMES: Record<Processor, string> = {
   workos: "WorkOS",
   anthropic: "Anthropic",
   openai: "OpenAI",
+  xai: "xAI",
+  google: "Google (Gemini API)",
   twilio: "Twilio",
   meta_whatsapp: "WhatsApp (Meta)",
   elevenlabs: "ElevenLabs",
@@ -70,9 +76,15 @@ export function parseCoveredProcessors(raw: string | null | undefined): Readonly
   );
 }
 
-/** A model id's provider: `openai:` ids go to OpenAI, everything else to Anthropic. */
+/**
+ * A model id's provider: `openai:` ids go to OpenAI, `xai:` ids to xAI, `google:` ids to Google,
+ * everything else to Anthropic. Each provider is its own processor, so a client in HIPAA mode is
+ * refused a model until that provider's BAA is recorded in `BAA_PROCESSORS`.
+ */
+// DECISION: `google` is the Gemini API on Mezonas' own key, a vendor of ours. It is not the
+// client's own Google account (Gmail, Drive, Sheets, Search Console), which needs no listing.
 export function processorForModel(modelId: string): Processor {
-  return modelId.startsWith("openai:") ? "openai" : "anthropic";
+  return modelProvider(modelId);
 }
 
 // DECISION: connectors are named here by id rather than each manifest declaring its processors:

@@ -1,0 +1,35 @@
+{
+  "handWritten": true,
+  "about": "xAI Responses API: the answer after the function's output was sent back (200)",
+  "status": 200,
+  "body": {
+    "id": "resp_xai_tool_0002",
+    "object": "response",
+    "created_at": 1794321602,
+    "model": "grok-4.7",
+    "status": "completed",
+    "store": false,
+    "output": [
+      {
+        "type": "message",
+        "id": "msg_xai_tool_0002",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "INV-1 totals $12.50.",
+            "annotations": []
+          }
+        ]
+      }
+    ],
+    "usage": {
+      "input_tokens": 980,
+      "input_tokens_details": { "cached_tokens": 896 },
+      "output_tokens": 12,
+      "output_tokens_details": { "reasoning_tokens": 0 },
+      "total_tokens": 992
+    }
+  }
+}

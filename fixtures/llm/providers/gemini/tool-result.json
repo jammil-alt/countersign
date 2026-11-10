@@ -1,0 +1,25 @@
+{
+  "handWritten": true,
+  "about": "Gemini API generateContent: the answer after the function response was sent back (200)",
+  "status": 200,
+  "body": {
+    "candidates": [
+      {
+        "content": {
+          "parts": [{ "text": "INV-1 totals " }, { "text": "$12.50." }],
+          "role": "model"
+        },
+        "finishReason": "STOP",
+        "index": 0
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 980,
+      "candidatesTokenCount": 12,
+      "cachedContentTokenCount": 896,
+      "totalTokenCount": 992
+    },
+    "modelVersion": "gemini-3.1-pro",
+    "responseId": "gem-tool-0002"
+  }
+}

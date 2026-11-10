@@ -5,7 +5,7 @@ import { type AnyAgentBundle, allTriggers } from "@countersign/core";
 import type { ReactNode } from "react";
 import { Badge, Card, cx, SectionLabel, StepKindTag } from "../../ui/primitives";
 import { KIND_LABEL, PROCESS_KIND_LABEL, triggerTitle } from "../workflow/describe";
-import { MODEL_OPTIONS, type NewAgentFields } from "./definition-form";
+import { MODEL_OPTIONS, modelOptionLabel, type NewAgentFields } from "./definition-form";
 import { Field, Select, TextArea, TextInput } from "./ui";
 
 export type JobErrors = Partial<Record<keyof NewAgentFields | "slug", string>>;
@@ -78,7 +78,7 @@ export function JobFields({
         >
           {MODEL_OPTIONS.map((m) => (
             <option key={m} value={m}>
-              {m}
+              {modelOptionLabel(m)}
             </option>
           ))}
         </Select>

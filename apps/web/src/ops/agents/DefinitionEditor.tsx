@@ -20,6 +20,7 @@ import {
   type DefinitionForm,
   formFromBundle,
   MODEL_OPTIONS,
+  modelOptionLabel,
   optionFor,
   type SettingValue,
   validateForm,
@@ -120,7 +121,7 @@ export function DefinitionEditor({
             >
               {[...new Set([...MODEL_OPTIONS, form.modelId])].filter(Boolean).map((m) => (
                 <option key={m} value={m}>
-                  {m}
+                  {modelOptionLabel(m)}
                 </option>
               ))}
             </Select>

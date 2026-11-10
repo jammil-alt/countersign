@@ -16,12 +16,12 @@ import {
   COST_PLACES,
   createLlmClient,
   DEFAULT_MODELS,
-  isOpenAIModel,
   type LlmCallRecord,
   type LlmExchange,
   type LlmMessage,
   type LlmTransport,
   type ModelId,
+  providerOf,
   serverToolCostOf,
 } from "@countersign/llm";
 import { z } from "zod";
@@ -353,16 +353,16 @@ export function fetchedPageOf(response: LlmMessage, url: string, maxChars: numbe
 
 // DECISION (§1.77): the server-side tools run in a request of their own inside a client tool,
 // not in the agent's loop: the runtime's loop hands only client tools to the model, the agent's
-// own model may be any (an `openai:` one too), and the results are read by code, not by the
-// model that searched.
+// own model may be any (an `openai:`, `xai:` or `google:` one too), and the results are read
+// by code, not by the model that searched.
 /**
  * Web research on the vendor's server-side tools (D10). Each search or fetch is one request with
- * that one tool, on the research model (Anthropic's: OpenAI's models can't take these tools, so an
- * `openai:` model is refused here).
+ * that one tool, on the research model (Anthropic's: the other providers' models can't take these
+ * tools, so an `openai:`, `xai:` or `google:` model is refused here).
  */
 export function llmWebResearch(options: LlmWebResearchOptions): WebResearchPort {
   const model = options.model ?? DEFAULT_MODELS.research;
-  if (isOpenAIModel(model)) {
+  if (providerOf(model) !== "anthropic") {
     throw new WebResearchError("web research runs only on the model vendor's server-side tools");
   }
   const used = new Map<string, { search: number; fetch: number }>();

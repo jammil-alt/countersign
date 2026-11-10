@@ -152,3 +152,52 @@ describe("processPathsAt", () => {
     expect(processPathsAt(process as never, "missing", CTX)).toEqual([]);
   });
 });
+
+// Models: xAI and Gemini. A model with no price is counted at $0, so it could never reach a cost
+// limit: the agent's own model and its owner's are checked against the priced list too.
+describe("the agent's own models", () => {
+  const MODELS = ["claude-opus-5-5", "openai:gpt-5.5", "xai:grok-4.7", "google:gemini-3.1-pro"];
+  const withModels = (model: string, oversight?: string): AgentBundleInput => ({
+    ...v3,
+    definition: {
+      ...definition,
+      model: { id: model },
+      ...(oversight
+        ? { oversight: { review: "failures" as const, model: { id: oversight } } }
+        : {}),
+    },
+  });
+  const unknown = (b: AgentBundleInput) =>
+    [
+      validateBundle(b, { ...CTX, models: MODELS }),
+      validateAnyBundle(b, { ...CTX, models: MODELS }),
+    ]
+      .flatMap((r) => r.errors)
+      .filter((e) => e.code === "unknown_model")
+      .map((e) => e.field);
+
+  it("refuses an unpriced xai: or google: id, for the agent and its owner", () => {
+    expect(unknown(withModels("xai:grok-9"))).toEqual([
+      "definition.model.id",
+      "definition.model.id",
+    ]);
+    expect(unknown(withModels("google:gemini-9-ultra"))).toEqual([
+      "definition.model.id",
+      "definition.model.id",
+    ]);
+    expect(unknown(withModels("xai:grok-4.7", "google:gemini-0"))).toEqual([
+      "definition.oversight.model.id",
+      "definition.oversight.model.id",
+    ]);
+    const [error] = validateBundle(withModels("xai:grok-9"), { ...CTX, models: MODELS }).errors;
+    expect(error?.message).toBe(
+      'no priced model "xai:grok-9": its cost could not be counted against the limits',
+    );
+  });
+
+  it("takes priced ids, and leaves Anthropic ids and an unlisted context as they were", () => {
+    expect(unknown(withModels("xai:grok-4.7", "google:gemini-3.1-pro"))).toEqual([]);
+    expect(unknown(withModels("m"))).toEqual([]);
+    expect(validateBundle(withModels("xai:grok-9"), CTX).errors).toEqual([]);
+  });
+});

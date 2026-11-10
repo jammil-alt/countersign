@@ -696,7 +696,7 @@ export const modelCall = pgTable(
     runId: uuid("run_id").notNull(),
     stepRunId: uuid("step_run_id").notNull(),
     agentVersionId: uuid("agent_version_id").references(() => agentVersion.id),
-    /** `anthropic` | `openai`. */
+    /** `anthropic` | `openai` | `xai` | `google` (core's `modelProvider`). */
     provider: text("provider").notNull(),
     model: text("model").notNull(),
     tokensIn: integer("tokens_in").notNull(),
