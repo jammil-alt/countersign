@@ -7,7 +7,8 @@
 // read only), `gsheets` (Google Sheets, only the sheets the client picks), `gchat` (Google Chat, posts
 // to the spaces a client binds; v0.14 W4-E), `gsc` and `bing_webmaster` (search figures, read only;
 // M45; `gsc_oauth`, Search Console by Google sign-in, M50), `website` (guides published to a client's own site; M46), `hackernews` (read only) and
-// `linkedin` (company page posts, always signed; §1.77), and `testkit`, the test connector. Also
+// `linkedin` (company page posts, always signed; §1.77), `billcom` (BILL: vendors, bills, payments
+// read only, signed in with a login the client enters; §1.87), and `testkit`, the test connector. Also
 // `stripe/`, Mezonas' own billing client (not a connector: no manifest, no agent tools).
 // No Workers, DOM or Node types: Web APIs are reached through ./runtime, R2 through a structural type.
 // Allowed workspace dependencies: db core. See docs/plan.md §2.
@@ -18,6 +19,8 @@ export * from "./attachments";
 export * from "./attempts";
 // v0.12 bankfeed: bank and card feeds through Plaid (docs/plan.md §1.52).
 export * from "./bankfeed/index";
+// §1.87: BILL (Bill.com), accounts payable.
+export * from "./billcom/index";
 // M45: Bing Webmaster Tools, read only (docs/plan.md §1.75).
 export * from "./bing_webmaster/index";
 export * from "./browser/index";

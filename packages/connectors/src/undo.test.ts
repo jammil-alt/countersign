@@ -4,6 +4,7 @@ import { processes, type ToolUndo } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { createBankfeedConnector } from "./bankfeed/index";
+import { createBillcomConnector } from "./billcom/index";
 import { createBingWebmasterConnector } from "./bing_webmaster/index";
 import { createBrowserConnector } from "./browser/index";
 import {
@@ -62,6 +63,8 @@ const ALL: Connector[] = [
   createBingWebmasterConnector(),
   createHackerNewsConnector(),
   createLinkedInConnector(),
+  // §1.87
+  createBillcomConnector(),
   createTestkitConnector(),
 ];
 
@@ -119,6 +122,8 @@ describe("undo on connector writes", () => {
       "sheets.range.update",
       "website.meta",
       "testkit.record.update",
+      "billcom.vendor.update",
+      "billcom.bill.update",
     ]) {
       expect(undoOf(id), id).toEqual({ kind: "restore" });
     }
@@ -134,6 +139,11 @@ describe("undo on connector writes", () => {
     for (const id of ["qbo.bill.create", "qbo.vendor.create", "qbo.purchaseorder.create"]) {
       expect(undoOf(id), id).toEqual({ kind: "none" });
     }
+    // §1.87: a BILL bill is taken back by archiving it, BILL's own void.
+    expect(undoOf("billcom.bill.create")).toEqual({
+      kind: "reverse",
+      tool: "billcom.bill.archive",
+    });
   });
 
   it("gives the builder its warning for every write that can't be taken back", () => {
