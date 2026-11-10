@@ -20,6 +20,7 @@ import {
 import { z } from "zod";
 import type { ToolContext } from "../connector";
 import type { BrowserCookie, BrowserDownload, BrowserTable } from "./driver";
+import { checkBrowsePage } from "./scope";
 import type { BrowserServices, BrowserSessionRecord } from "./services";
 import {
   BrowserRefused,
@@ -59,7 +60,20 @@ export interface SignedInPage {
   download(url: string): Promise<BrowserDownload>;
   /** Notes an action for the session's record. */
   note(action: BrowserSessionRecord["actions"][number]): void;
+  /** The storage key of the last screenshot taken (after the last page opened), if any. */
+  lastScreenshot(): string | null;
   site: PinnedBrowserSite;
+}
+
+/**
+ * One tool call's browser session. `within` (a browsing skill's pages, ./scope.ts) narrows the
+ * site's allowed pages further; with it, `url` is checked before anything opens.
+ */
+export interface BrowserCall {
+  tool: string;
+  site: string;
+  url?: string | undefined;
+  within?: readonly string[] | undefined;
 }
 
 const today = (at: Date) => at.toISOString().slice(0, 10);
@@ -113,7 +127,7 @@ async function rolledState(services: BrowserServices, at: Date): Promise<Browser
  */
 export async function withBrowserSession<T>(
   ctx: ToolContext,
-  call: { tool: string; site: string },
+  call: BrowserCall,
   options: BrowserSessionOptions,
   work: (page: SignedInPage) => Promise<T>,
 ): Promise<T> {
@@ -124,6 +138,22 @@ export async function withBrowserSession<T>(
   }
   const site = await services.site({ slug: config.site, versionId: config.siteVersionId });
   if (!site) throw new BrowserRefused("this site is no longer in our catalogue");
+  const rules = { allow: site.profile.allow, block: site.profile.block };
+  // The site's rules, then a browsing skill's own pages (the intersection, docs/plan.md §1.86).
+  const allowed = (url: string): { ok: true; url: string } | { ok: false; reason: string } => {
+    const onSite = checkBrowserUrl(url, rules);
+    if (!onSite.ok || !call.within) return onSite;
+    // The address as written, so traversal the URL parser would resolve is still seen.
+    const listed = checkBrowsePage(url, call.within);
+    return listed.ok ? onSite : listed;
+  };
+  // A browsing skill's address is refused before a browser opens or a sign-in is spent on it.
+  // DECISION: only with `within`: without it a refused page still signs in and out as it always
+  // has (the connector's own tests hold that behaviour).
+  if (call.within && call.url !== undefined) {
+    const first = allowed(call.url);
+    if (!first.ok) throw new BrowserRefused(`${call.url}: ${first.reason}`);
+  }
   const decision = signInDecision(site.tier, config.stricter);
   if (!decision.ok) throw new BrowserRefused(decision.reason);
   const stored = StoredLogin.safeParse(await ctx.credentials.get());
@@ -232,14 +262,13 @@ export async function withBrowserSession<T>(
     await shot();
     for (const c of await tab.cookies()) redact.add(c.value, 8);
 
-    const rules = { allow: site.profile.allow, block: site.profile.block };
     const page: SignedInPage = {
       site,
       async open(url) {
-        const before = checkBrowserUrl(url, rules);
+        const before = allowed(url);
         if (!before.ok) throw new BrowserRefused(`${url}: ${before.reason}`);
         await tab.goto(before.url);
-        const after = checkBrowserUrl(tab.url(), rules);
+        const after = allowed(tab.url());
         if (!after.ok) {
           // Redirected somewhere agents may not go: leave without reading it.
           throw new BrowserRefused(`${url} went to a page agents may not open: ${after.reason}`);
@@ -252,10 +281,10 @@ export async function withBrowserSession<T>(
       readText: async () => redact.text(await tab.readText()),
       readTables: async () => redact.deep(await tab.readTables()),
       async download(url) {
-        const before = checkBrowserUrl(url, rules);
+        const before = allowed(url);
         if (!before.ok) throw new BrowserRefused(`${url}: ${before.reason}`);
         const file = await tab.download(before.url);
-        const after = checkBrowserUrl(file.finalUrl, rules);
+        const after = allowed(file.finalUrl);
         if (!after.ok) {
           throw new BrowserRefused(`${url} went to a file agents may not open: ${after.reason}`);
         }
@@ -265,6 +294,7 @@ export async function withBrowserSession<T>(
         return file;
       },
       note: (action) => record.actions.push(action),
+      lastScreenshot: () => record.screenshots.at(-1) ?? null,
     };
     const result = await work(page);
     record.outcome = "done";

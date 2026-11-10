@@ -308,6 +308,11 @@ export class FakeSupplierPortal {
         return { redirect: "https://elsewhere.test/invoices" };
       case "/invoices/old-link":
         return { redirect: `${this.origin}/account/settings` };
+      // A redirect that stays on the site's allowed pages but leaves a browsing skill's.
+      case "/invoices/to-statements":
+        return { redirect: `${this.origin}/statements` };
+      case "/statements":
+        return { page: { text: "Statements\nMarch 2026", selectors: ["#account"] } };
       case "/account/settings":
         return { page: { text: "Change password, users and billing", selectors: [] } };
       default:

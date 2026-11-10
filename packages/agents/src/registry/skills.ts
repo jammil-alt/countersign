@@ -5,6 +5,7 @@
 
 import {
   type AgentBundle,
+  type BrowserTier,
   hashJson,
   isToolWrapper,
   parseSkillRef,
@@ -14,9 +15,9 @@ import {
   skillTools,
   walkSteps,
 } from "@countersign/core";
-import { skill, skillVersion, type Tx } from "@countersign/db";
+import { browserSite, skill, skillVersion, type Tx } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 import type { ToolRegistry } from "./tools";
 
@@ -108,6 +109,48 @@ export function convertLookup(
   };
 }
 
+// ── v0.16: browsing skills' sites (docs/plan.md §1.86) ──────────────────────────────────────────
+
+/**
+ * A browsing skill's sites must be in the operator's catalogue and not blocked tier (agents never
+ * sign in to those, invariant 13). `tiers` holds each known slug's live tier.
+ */
+export function browseProblems(
+  def: Pick<SkillDefinition, "browse">,
+  tiers: ReadonlyMap<string, BrowserTier>,
+): string[] {
+  const problems: string[] = [];
+  for (const slug of def.browse?.sites ?? []) {
+    const tier = tiers.get(slug);
+    if (tier === undefined) problems.push(`no browser site ${slug} in the catalogue`);
+    else if (tier === "blocked") {
+      problems.push(`browser site ${slug} is blocked tier: agents never sign in to it`);
+    }
+  }
+  return problems;
+}
+
+/**
+ * Refuses a skill whose `browse` names a site that doesn't exist or is blocked, when it is saved
+ * (created, a new version, a rollback). Sites are the operator's catalogue (`browser_site`, readable
+ * in operator sessions only), so outside one every site reads as missing and the skill is refused.
+ */
+// DECISION: checked at save, not at publish or run: a draft naming a missing site is wrong already,
+// and the runtime refuses a blocked site on every call anyway (the connector checks the live tier).
+// A site that turns blocked after the save is refused at run time, not by rewriting the version.
+async function assertBrowseSites(tx: Tx, def: SkillDefinition): Promise<void> {
+  const slugs = def.browse?.sites ?? [];
+  if (slugs.length === 0) return;
+  const rows = await tx
+    .select({ slug: browserSite.slug, tier: browserSite.tier })
+    .from(browserSite)
+    .where(inArray(browserSite.slug, [...slugs]));
+  const problems = browseProblems(def, new Map(rows.map((r) => [r.slug, r.tier])));
+  if (problems.length > 0) {
+    throw new AgentsError("invalid_definition", problems.join("; "), problems);
+  }
+}
+
 // ── Operator-written skills (rows) ───────────────────────────────────────────────────────────────
 
 export const CUSTOM_PREFIX = "custom:";
@@ -189,6 +232,7 @@ export async function createSkill(
   input: CreateSkillInput,
 ): Promise<{ skill: SkillRow; version: SkillVersionRow }> {
   const def = parseOperatorSkill(input.definition, input.tools);
+  await assertBrowseSites(tx, def);
   const [row] = await tx
     .insert(skill)
     .values({ tenantId: input.tenantId, slug: customSlug(def.id), name: def.name })
@@ -225,6 +269,7 @@ export async function createSkillVersion(
 ): Promise<SkillVersionRow> {
   const row = await lockSkill(tx, input.skillId);
   const def = parseOperatorSkill(input.definition, input.tools);
+  await assertBrowseSites(tx, def);
   if (customSlug(def.id) !== row.slug) {
     throw new AgentsError("invalid_definition", `a version of ${row.slug} can't be ${def.id}`);
   }

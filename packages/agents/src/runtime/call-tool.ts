@@ -29,6 +29,7 @@ import {
   routeApproval,
 } from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
+import { memoryScope } from "../tools/memory-scope";
 import { executeAction } from "./actions";
 import { noteReconnect } from "./attention";
 import { carryApproval } from "./carry";
@@ -84,6 +85,38 @@ export interface CallToolInput {
   input: unknown;
   /** The tools this call may use (the skill's tools plus extraTools); absent = any registered. */
   allowed?: ReadonlySet<string>;
+  /**
+   * v0.16 (docs/plan.md §1.86): what this skill run may reach, narrower than its tools: a browsing
+   * skill's sites and pages (connectors' `BrowseScope`). Checked before the gate; never loosens it.
+   */
+  scope?: ToolCallScope | undefined;
+}
+
+/**
+ * A narrowing of one skill run's tool calls, kept across its calls. Generic: the runtime names no
+ * connector; a browsing skill's is `BrowseScope` (packages/connectors/src/browser/scope.ts).
+ */
+export interface ToolCallScope {
+  /** Refuse the call, or the input to call with (only ever narrowed). Before the gate. */
+  check(
+    toolId: string,
+    input: unknown,
+  ): { ok: true; input: unknown } | { ok: false; reason: string };
+  /** After the call, refusals included (the scope's own, the gate's, the tool's). */
+  observe?(toolId: string, input: unknown, outcome: ToolOutcome): void;
+  /**
+   * Once the skill run finished with an answer: what to keep, given the agent's live memory notes
+   * (applied by `finishScope`).
+   */
+  finish?(notes: readonly string[]): Promise<ScopeEffects> | ScopeEffects;
+}
+
+/** What a scope asks the platform to keep after a skill run (`finishScope` applies it). */
+export interface ScopeEffects {
+  /** Memory notes for the agent (`memory.write`'s path: a test run's stay in the run's scope). */
+  memory?: string[] | undefined;
+  /** An operator `review` item, such as a script draft; never from a test run. */
+  operatorItem?: { title: string; subjectType: string; payload: JsonObject } | undefined;
 }
 
 /** Calls a tool for a step, logging a `tool_call` row whatever happens. */
@@ -103,17 +136,25 @@ export async function callTool(
   if (step.readOnly && tool.spec.sideEffect !== "none") {
     return { status: "refused", reason: `${call.toolId} writes, and an asked agent only reads` };
   }
+  // v0.16: the skill run's scope (a browsing skill's sites and pages), before anything else runs.
+  const scoped = call.scope ? call.scope.check(call.toolId, call.input) : null;
+  const input = scoped?.ok ? scoped.input : call.input;
   const started = Date.now();
   const toolCallId = await log.startToolCall(step.tenantId, {
     stepRunId: step.stepRunId,
     tool: call.toolId,
-    input: call.input,
+    input,
   });
   let outcome: ToolOutcome;
   try {
     // v0.14 W4-A: a shared id (`whatsapp.send`) goes to the connector this agent is bound to.
+    // Logged like any refused call: an attempt to leave the skill's pages is evidence.
     const resolved =
-      tool.kind === "connector" ? deps.tools.resolve(call.toolId, step.agent, call.input) : tool;
+      scoped && !scoped.ok
+        ? { refused: scoped.reason }
+        : tool.kind === "connector"
+          ? deps.tools.resolve(call.toolId, step.agent, input)
+          : tool;
     if ("refused" in resolved) {
       outcome = { status: "refused", reason: resolved.refused };
     } else {
@@ -125,11 +166,12 @@ export async function callTool(
       });
       outcome = refusal
         ? { status: "refused", reason: refusal }
-        : await dispatch(deps, step, resolved, call.input);
+        : await dispatch(deps, step, resolved, input);
     }
   } catch (error) {
     outcome = { status: "failed", error: errorText(error) };
   }
+  call.scope?.observe?.(call.toolId, input, outcome);
   const actionId = "actionId" in outcome ? outcome.actionId : undefined;
   await log.finishToolCall(step.tenantId, toolCallId, {
     status: LOG_STATUS[outcome.status],
@@ -530,4 +572,46 @@ async function settle(
       };
     }
   }
+}
+
+/**
+ * v0.16: once a scoped skill run finished with an answer, keeps what its scope asks: memory notes
+ * for the agent (as `memory.write` writes them: a test run's stay in the run's own scope, which no
+ * live run reads) and, from a live run only, an operator `review` item (a browsing path that worked
+ * twice, offered as a script draft). Reads the agent's live notes itself, whether or not the agent
+ * shows memory to its model.
+ */
+// DECISION: a draft is an inbox item for the operator, as the owner's proposals are (kind
+// `review`), not a new table: scripts are R9's, and the operator reviews the draft there.
+export async function finishScope(
+  deps: RuntimeDeps,
+  step: StepContext,
+  scope: ToolCallScope,
+): Promise<ScopeEffects> {
+  if (!scope.finish) return {};
+  const notes = await deps.ports.store.memoryNotes(step.tenantId, step.agent.agentId, 50);
+  const effects = await scope.finish(notes.map((n) => n.note));
+  for (const note of effects.memory ?? []) {
+    await deps.ports.platform.writeMemory(step.tenantId, {
+      agentId: step.agent.agentId,
+      note,
+      scope: memoryScope(step.mode, step.runId),
+    });
+  }
+  if (effects.operatorItem && step.mode !== "test") {
+    await deps.ports.platform.createInboxItem(step.tenantId, {
+      kind: "review",
+      title: effects.operatorItem.title,
+      payload: {
+        ...effects.operatorItem.payload,
+        stepId: step.stepId,
+        agentVersionId: step.agent.agentVersionId,
+      },
+      agentId: step.agent.agentId,
+      runId: step.runId,
+      subjectType: effects.operatorItem.subjectType,
+      assigneeRole: "operator",
+    });
+  }
+  return effects;
 }
