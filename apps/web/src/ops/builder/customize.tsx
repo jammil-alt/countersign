@@ -23,6 +23,7 @@ import type { ReactNode } from "react";
 import { TextArea } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
 import { Badge, Button } from "../../ui/primitives";
+import { ruleRowText } from "../skills/rule-rows";
 import { rulesText } from "../workflow/describe";
 import {
   type FieldErrors,
@@ -463,8 +464,18 @@ function RulesPart(
                   </Row>
                 </>
               ) : (
-                <p className="reference text-ink-muted">
-                  if {rulesText(when)} then {JSON.stringify(set)}
+                <p className="reference text-ink-muted" data-testid={`builder-rule-${row.id}-text`}>
+                  {/* Skill model (2026-11-10): a row with typed conditions or outputs in words. */}
+                  {row.conditions?.length || row.compute
+                    ? ruleRowText(row, {
+                        inputs: [],
+                        parameters: (skill.parameters ?? []).map((p) => ({
+                          name: p.name,
+                          label: p.label,
+                          type: p.type,
+                        })),
+                      })
+                    : `if ${rulesText(when)} then ${JSON.stringify(set)}`}
                 </p>
               )}
             </li>
