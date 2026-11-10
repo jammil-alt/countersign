@@ -75,7 +75,7 @@ function Breadcrumb() {
   return (
     <p className="mb-2 text-sm text-ink-muted">
       <Link to={SKILLS_PATH} className="hover:underline">
-        Skills and automations
+        Library · Skills
       </Link>{" "}
       / New skill
     </p>

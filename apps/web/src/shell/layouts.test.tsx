@@ -130,8 +130,8 @@ describe("back office layout", () => {
       "Runs",
       "Clients",
       "Agent lab",
-      "Skills",
-      "Connectors",
+      // R8: skills, tools, connectors and the other banks are in the Library.
+      "Library",
       "Packs",
       "Usage and billing",
       "Marketing",
@@ -139,7 +139,6 @@ describe("back office layout", () => {
       "Feedback",
       "Audit log",
       "Requests",
-      "Website logins",
     ]);
     // Billing is under Usage and billing, not More.
     expect(within(nav).queryByText("Billing")).toBeNull();

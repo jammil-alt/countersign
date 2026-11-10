@@ -256,9 +256,10 @@ function renderAt(path: string, routes: Parameters<typeof fakeApi>[0]) {
 }
 
 describe("skills and automations library", () => {
-  it("shows automations with their chain and clean rate, and skills as cards", async () => {
-    const { user } = renderAt("/ops/skills", {
-      "GET /api/ops/skills": () => LIBRARY,
+  // R8: the skills are the Library's Skills bank; automations are processes, in the Processes bank.
+  it("shows automations with their chain and clean rate in the Processes bank", async () => {
+    renderAt("/ops/library/processes", {
+      "GET /api/ops/library/processes": () => ({ processes: [] }),
       "GET /api/ops/automations": () => ({ automations: [AUTOMATION] }),
       [`GET /api/ops/automations/${AUTO_ID}`]: () => ({
         automation: AUTOMATION,
@@ -273,8 +274,17 @@ describe("skills and automations library", () => {
     expect(await within(row).findByText("Person: Client signs")).toBeInTheDocument();
     expect(within(row).getByText("Draft in owner's voice")).toBeInTheDocument();
     expect(within(row).getByText("v2")).toBeInTheDocument();
+    expect(screen.getByTestId("automations")).toHaveTextContent("Used inside other processes");
+  });
 
-    const card = screen.getByTestId("skills-card-custom:match-card-charge");
+  it("shows skills as cards, by category, from /ops/skills too", async () => {
+    const { api, user } = renderAt("/ops/skills", {
+      "GET /api/ops/skills": () => LIBRARY,
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent("/ops/library/skills"),
+    );
+    const card = await screen.findByTestId("skills-card-custom:match-card-charge");
     expect(within(card).getByText("amount, receipts")).toBeInTheDocument();
     expect(within(card).getByText("Draft")).toBeInTheDocument();
     expect(within(card).getByRole("link", { name: "Match card charge" })).toHaveAttribute(
@@ -290,15 +300,16 @@ describe("skills and automations library", () => {
       "Bill clerk · Demo client\nMaterial costs · Harbor Millwork",
     );
     expect(within(builtin).queryByRole("link")).toBeNull();
+    // In the Library the automations are the Processes bank's: none here, not even asked for.
+    expect(screen.queryByTestId("automations")).toBeNull();
+    expect(screen.queryByTestId("skills-tab-automations")).toBeNull();
+    expect(api.calls).not.toContain("GET /api/ops/automations");
 
-    // The Documents tab shows only that category, without automations.
+    // The Documents tab shows only that category.
     await user.click(screen.getByTestId("skills-tab-documents"));
     expect(screen.queryByTestId("skills-card-custom:match-card-charge")).toBeNull();
-    expect(screen.queryByTestId("automations")).toBeNull();
     expect(screen.getByTestId("skills-tab-documents")).toHaveTextContent("Documents · 1");
-    await user.click(screen.getByTestId("skills-tab-automations"));
-    expect(screen.getByTestId("automations")).toBeInTheDocument();
-    expect(screen.queryByTestId("skills-card-docs.extract")).toBeNull();
+    expect(screen.getByTestId("skills-card-docs.extract")).toBeInTheDocument();
   });
 });
 

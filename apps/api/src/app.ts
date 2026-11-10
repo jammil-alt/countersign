@@ -73,6 +73,8 @@ import { knowledgeRouteHandlers } from "./routes/knowledge";
 import { labRoutes } from "./routes/lab";
 import { languageRouteHandlers } from "./routes/language";
 import { ledgerRoutes } from "./routes/ledger";
+// R8: the Library's banks (docs/plan.md §1.86)
+import { libraryRoutes } from "./routes/library";
 import { lifecycleRoutes } from "./routes/lifecycle";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 import { notifyRouteHandlers } from "./routes/notify";
@@ -252,6 +254,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // R4: business hours, person hours and channels (docs/plan.md §1.86)
   hoursRoutes(app);
   channelRoutes(app);
+  // R8: the Library's banks (docs/plan.md §1.86)
+  libraryRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));

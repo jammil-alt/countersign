@@ -3,6 +3,8 @@
 // R8: a whole bundle that may hold processes, and the builder's field picker.
 export * from "./bundle";
 export * from "./clock";
+// R8: the conditions a process uses (the Library's condition sets).
+export * from "./conditions";
 // R7: the conversation step.
 export * from "./conversation";
 export * from "./convert";

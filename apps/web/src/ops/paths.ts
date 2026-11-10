@@ -15,15 +15,17 @@ export const OPS_PATHS = {
     `/ops/clients/${clientId}/agents/${slug}/workflow`,
   agentTriggers: (clientId: string, slug: string) =>
     `/ops/clients/${clientId}/agents/${slug}/triggers`,
-  skills: "/ops/skills",
-  connectors: "/ops/connectors",
+  // R8: the Library holds the banks the operator builds from (./library/paths.ts has each bank's).
+  library: "/ops/library",
+  skills: "/ops/library/skills",
+  connectors: "/ops/library/connectors",
   packs: "/ops/packs",
   usage: "/ops/usage",
   billing: "/ops/billing",
   feedback: "/ops/feedback",
   requests: "/ops/requests",
   audit: "/ops/audit",
-  browserSites: "/ops/browser-sites",
+  browserSites: "/ops/library/browser-sites",
   // §1.73: the Marketing area's entry; a client's marketing pages are in packs/marketing/ops/paths.ts.
   marketing: "/ops/marketing",
 } as const;

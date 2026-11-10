@@ -5,6 +5,8 @@
 // the tier is set on its own, with a note, and applies to every login on the site at once.
 // Drafted in the prototype's back-office style (no prototype screen; docs/ui-plan.md): the sites
 // per tier as stat tiles, then each site as a card with its tier in the head and actions in the foot.
+// R8: in the Library, beside the connectors (`/ops/library/browser-sites`): a site is a
+// connector too (ARCHITECTURE §10.14), with a search over its name, address and pages.
 import {
   BROWSER_DEFAULT_BLOCKED,
   BrowserSiteProfile,
@@ -20,6 +22,8 @@ import { Field, Select, TextArea, TextInput } from "../../ui/forms";
 import { Columns, Loaded, Page, Section } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
 import { Notice } from "../agents/ui";
+import { BankSearch } from "../library/LibraryFrame";
+import { matches } from "../library/paths";
 
 type Site = ResponseOf<typeof apiRoutes.opsBrowserSites>["sites"][number];
 
@@ -122,6 +126,7 @@ function TierFigures({ sites }: { sites: readonly Site[] }) {
 export function OpsBrowserSitesScreen() {
   const sites = useApi(apiRoutes.opsBrowserSites);
   const [adding, setAdding] = useState(false);
+  const [search, setSearch] = useState("");
   return (
     <Page testId="ops-browser-sites">
       <PageHeader
@@ -155,12 +160,32 @@ export function OpsBrowserSitesScreen() {
             <Section
               title="Sites"
               meta={data.sites.length === 1 ? "1 site" : `${data.sites.length} sites`}
+              action={
+                data.sites.length > 0 ? (
+                  <BankSearch
+                    value={search}
+                    onChange={setSearch}
+                    label="Search sites"
+                    testId="sites-search"
+                  />
+                ) : null
+              }
             >
               {data.sites.length === 0 && !adding ? <EmptyState>No sites yet.</EmptyState> : null}
               <div className="flex flex-col gap-4">
-                {data.sites.map((s) => (
-                  <SiteCard key={s.slug} site={s} onChanged={sites.reload} />
-                ))}
+                {data.sites
+                  .filter((s) =>
+                    matches(
+                      search,
+                      s.name,
+                      s.slug,
+                      s.current.profile.login.url,
+                      ...s.current.profile.allow,
+                    ),
+                  )
+                  .map((s) => (
+                    <SiteCard key={s.slug} site={s} onChanged={sites.reload} />
+                  ))}
               </div>
             </Section>
           </>
