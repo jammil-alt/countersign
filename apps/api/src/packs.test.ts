@@ -48,7 +48,9 @@ import { cloudflareStepRunner } from "./runs/step-runner";
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 type J = any;
 
-const h = await createApiHarness();
+// A Worker's pool of one (`appDbMax: 1`): a route that opened a transaction beside the request's
+// would wait on itself (a pack's action, a review's decision).
+const h = await createApiHarness({ appDbMax: 1 });
 afterAll(() => h?.close());
 
 const FIXTURES = resolve(DEFAULT_FIXTURE_DIR, "..");

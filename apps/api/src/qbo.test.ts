@@ -82,6 +82,9 @@ const h = await createApiHarness({
     QBO_WEBHOOK_VERIFIER: VERIFIER,
   },
   qboSync: syncs,
+  // A Worker's pool of one: the ledger's signed change and the sign-in's exchange hold no
+  // transaction of the request's while they open their own.
+  appDbMax: 1,
 });
 afterAll(() => h?.close());
 

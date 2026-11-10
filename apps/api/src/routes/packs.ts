@@ -24,8 +24,10 @@ import {
   HttpError,
   mount,
   mountFile,
+  mountLong,
   notFound,
   type Services,
+  txOnly,
 } from "../http";
 import type { PackReportHandler, RegisteredPack } from "../packs";
 import { signedWriteFor } from "../signed-writes";
@@ -351,28 +353,35 @@ async function reviewView(
   };
 }
 
+/**
+ * A review's decision: the item is read and checked in one short transaction, the pack's handler
+ * decides in its own (it records the match and learns the alias), and the view is read in a third.
+ * No transaction is held across the handler's (`mountLong`: a Worker has one pooled connection).
+ */
 async function decide(
-  tx: Tx,
+  inTx: <T>(work: (tx: Tx) => Promise<T>) => Promise<T>,
   services: Services,
-  item: InboxRow,
+  find: (tx: Tx) => Promise<InboxRow>,
   who: { userId: string; role: Role },
   body: PackReviewDecision,
 ) {
-  const key = reviewKey(item);
-  const handler = key ? reviewHandler(services, key) : null;
-  if (!key || !handler) throw notFound("review");
-  if (item.status !== "open") throw new HttpError(409, "not_open", "this item is closed");
-  if (!mayResolve(item, who)) {
-    throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
-  }
-  let testRun = false;
-  if (item.runId) {
-    const [r] = await tx.select({ mode: run.mode }).from(run).where(eq(run.id, item.runId));
-    testRun = r?.mode === "test";
-  }
+  const { item, handler, testRun } = await inTx(async (tx) => {
+    const item = await find(tx);
+    const key = reviewKey(item);
+    const handler = key ? reviewHandler(services, key) : null;
+    if (!key || !handler) throw notFound("review");
+    if (item.status !== "open") throw new HttpError(409, "not_open", "this item is closed");
+    if (!mayResolve(item, who)) {
+      throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
+    }
+    let testRun = false;
+    if (item.runId) {
+      const [r] = await tx.select({ mode: run.mode }).from(run).where(eq(run.id, item.runId));
+      testRun = r?.mode === "test";
+    }
+    return { item, handler, testRun };
+  });
   try {
-    // The decision commits in its own transaction (it records the match and learns the alias);
-    // this request's transaction only read the item.
     await handler.decide(services.db, {
       tenantId: item.tenantId,
       userId: who.userId,
@@ -386,7 +395,7 @@ async function decide(
     }
     throw error;
   }
-  return reviewView(tx, services, item, who);
+  return inTx(async (tx) => reviewView(tx, services, await find(tx), who));
 }
 
 export function packRouteHandlers(app: Hono<AppEnv>): void {
@@ -488,11 +497,13 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
     return reportCsv(tx, services, params.id, params.pack, params.report, query);
   });
 
-  mount(app, routes.opsClientPackAction, async (ctx) => {
-    const { tx, params, services, session, body } = ctx;
+  // The pack's action opens its own transaction (and a signed write reaches the client's tool):
+  // none is held across it (`mountLong`; a Worker's database has one pooled connection).
+  mountLong(app, routes.opsClientPackAction, async (ctx) => {
+    const { params, services, session, body } = ctx;
     ensureClient(ctx, params.id);
     const pack = packOf(services, params.pack);
-    const on = await enabledPacks(tx, params.id);
+    const on = await ctx.inTx(({ tx }) => enabledPacks(tx, params.id));
     if (!on.some((e) => e.pack === pack.manifest.id)) throw notFound("pack");
     const handler = pack.actions?.[params.action];
     if (!handler) throw notFound("action");
@@ -533,10 +544,15 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
     }),
   );
 
-  mount(app, routes.opsPackReviewDecide, async (ctx) => {
-    const { tx, tenantIds, params, services, session, role, body } = ctx;
-    const item = await opsItem(tx, tenantIds, params.id);
-    return decide(tx, services, item, { userId: session.user.id, role }, body);
+  mountLong(app, routes.opsPackReviewDecide, async (ctx) => {
+    const { tenantIds, params, services, session, role, body } = ctx;
+    return decide(
+      txOnly(ctx.inTx),
+      services,
+      (tx) => opsItem(tx, tenantIds, params.id),
+      { userId: session.user.id, role },
+      body,
+    );
   });
 
   // ── Portal ─────────────────────────────────────────────────────────────────────────────────────
@@ -605,9 +621,14 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
     },
   );
 
-  mount(app, routes.portalPackReviewDecide, async (ctx) => {
-    const { tx, tenantIds, params, services, session, role, body } = ctx;
-    const item = await portalItem(tx, tenantIds[0] as string, role, session.user.id, params.id);
-    return decide(tx, services, item, { userId: session.user.id, role }, body);
+  mountLong(app, routes.portalPackReviewDecide, async (ctx) => {
+    const { tenantIds, params, services, session, role, body } = ctx;
+    return decide(
+      txOnly(ctx.inTx),
+      services,
+      (tx) => portalItem(tx, tenantIds[0] as string, role, session.user.id, params.id),
+      { userId: session.user.id, role },
+      body,
+    );
   });
 }

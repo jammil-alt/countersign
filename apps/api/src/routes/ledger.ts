@@ -16,7 +16,7 @@ import {
 } from "@countersign/db";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
-import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
+import { type AppEnv, ensureClient, HttpError, mount, mountLong, notFound } from "../http";
 import { signedWriteFor } from "../signed-writes";
 import { qboSyncFor, startQboSync } from "./qbo";
 
@@ -126,13 +126,17 @@ export function ledgerRoutes(app: Hono<AppEnv>): void {
     };
   });
 
-  mount(app, routes.opsClientLedgerChange, async (ctx) => {
-    const { tx, params, body, services, session } = ctx;
+  // The signed write opens its own transactions and reaches the client's tool: no transaction is
+  // held across it (`mountLong`; a Worker's database has one pooled connection).
+  mountLong(app, routes.opsClientLedgerChange, async (ctx) => {
+    const { params, body, services, session } = ctx;
     ensureClient(ctx, params.id);
-    const [conn] = await tx
-      .select({ id: connection.id, connector: connection.connector, status: connection.status })
-      .from(connection)
-      .where(and(eq(connection.tenantId, params.id), eq(connection.id, body.connectionId)));
+    const [conn] = await ctx.inTx(({ tx }) =>
+      tx
+        .select({ id: connection.id, connector: connection.connector, status: connection.status })
+        .from(connection)
+        .where(and(eq(connection.tenantId, params.id), eq(connection.id, body.connectionId))),
+    );
     if (!conn) throw notFound("connection");
     if (conn.status !== "connected") {
       throw new HttpError(
