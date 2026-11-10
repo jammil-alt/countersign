@@ -284,6 +284,24 @@ export const fr: Messages = {
   "inbox.undo": "Annuler",
   "inbox.undoWindow":
     "Approuvé. Nous faisons le changement dans une minute ; vous pouvez encore l'annuler.",
+  // R5: an answer after the run went ahead, and the undo a late no is offered (§1.86)
+  "inbox.late.answeredYes": "Réponse oui à {time}, après que nous avions continué.",
+  "inbox.late.answeredNo": "Réponse non à {time}, après que nous avions continué.",
+  "inbox.late.yes": "Rien d'autre à faire.",
+  "inbox.late.offer": "Nous pouvons annuler le changement, si personne ne l'a modifié depuis.",
+  "inbox.late.undo": "Annuler ce changement",
+  "inbox.late.done": "Annulé. Nous avons remis les choses comme avant.",
+  "inbox.late.failed":
+    "Nous n'avons pas pu annuler le changement. Votre responsable Mezonas va s'en occuper.",
+  "inbox.late.none":
+    "Ceci ne peut pas être annulé. Un message envoyé ne peut pas être repris, ce changement non plus.",
+  "inbox.late.nothing": "Rien n'a changé dans vos outils : il n'y a rien à annuler.",
+  "inbox.late.refused.changed_since":
+    "Quelqu'un l'a modifié après nous : nous l'avons laissé tel quel.",
+  "inbox.late.refused.record_gone": "L'enregistrement n'existe plus.",
+  "inbox.late.refused.already_undone": "C'est déjà revenu comme avant.",
+  "inbox.late.refused.other":
+    "Nous n'avons pas pu l'annuler. Votre responsable Mezonas va s'en occuper.",
   "inbox.reject": "Refuser",
   "inbox.sign": "Approuver",
   "inbox.findingSteps": "Que faire",

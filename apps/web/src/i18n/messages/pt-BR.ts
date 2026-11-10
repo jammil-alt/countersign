@@ -280,6 +280,22 @@ export const ptBR: Messages = {
   "inbox.sendAnswer": "Enviar resposta",
   "inbox.undo": "Desfazer",
   "inbox.undoWindow": "Aprovado. Fazemos a mudança em um minuto; você ainda pode desfazer.",
+  // R5: an answer after the run went ahead, and the undo a late no is offered (§1.86)
+  "inbox.late.answeredYes": "Respondeu sim às {time}, depois que já tínhamos seguido.",
+  "inbox.late.answeredNo": "Respondeu não às {time}, depois que já tínhamos seguido.",
+  "inbox.late.yes": "Não há mais nada a fazer.",
+  "inbox.late.offer": "Podemos desfazer a mudança, se ninguém a alterou desde então.",
+  "inbox.late.undo": "Desfazer esta mudança",
+  "inbox.late.done": "Desfeito. Voltamos ao que era.",
+  "inbox.late.failed":
+    "Não conseguimos desfazer a mudança. Seu responsável na Mezonas vai verificar.",
+  "inbox.late.none":
+    "Isto não pode ser desfeito. Mensagens enviadas não podem ser retiradas, e esta mudança também não.",
+  "inbox.late.nothing": "Nada mudou nas suas ferramentas, então não há nada a desfazer.",
+  "inbox.late.refused.changed_since": "Alguém alterou depois de nós, então deixamos como está.",
+  "inbox.late.refused.record_gone": "O registro não existe mais.",
+  "inbox.late.refused.already_undone": "Já está como era.",
+  "inbox.late.refused.other": "Não conseguimos desfazer. Seu responsável na Mezonas vai verificar.",
   "inbox.reject": "Rejeitar",
   "inbox.sign": "Aprovar",
   "inbox.findingSteps": "O que fazer",

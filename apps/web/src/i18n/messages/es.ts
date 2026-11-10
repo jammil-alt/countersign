@@ -279,6 +279,22 @@ export const es: Messages = {
   "inbox.sendAnswer": "Enviar respuesta",
   "inbox.undo": "Deshacer",
   "inbox.undoWindow": "Aprobado. Hacemos el cambio en un minuto; todavía puede deshacerlo.",
+  // R5: an answer after the run went ahead, and the undo a late no is offered (§1.86)
+  "inbox.late.answeredYes": "Respondió que sí a las {time}, después de que ya habíamos seguido.",
+  "inbox.late.answeredNo": "Respondió que no a las {time}, después de que ya habíamos seguido.",
+  "inbox.late.yes": "No hay nada más que hacer.",
+  "inbox.late.offer": "Podemos deshacer el cambio, si nadie lo ha modificado desde entonces.",
+  "inbox.late.undo": "Deshacer este cambio",
+  "inbox.late.done": "Deshecho. Volvimos a dejarlo como estaba.",
+  "inbox.late.failed": "No pudimos deshacer el cambio. Su responsable en Mezonas lo revisará.",
+  "inbox.late.none":
+    "Esto no se puede deshacer. Los mensajes enviados no se pueden retirar, y este cambio tampoco.",
+  "inbox.late.nothing": "No cambió nada en sus herramientas, así que no hay nada que deshacer.",
+  "inbox.late.refused.changed_since":
+    "Alguien lo cambió después de nosotros, así que lo dejamos como está.",
+  "inbox.late.refused.record_gone": "El registro ya no existe.",
+  "inbox.late.refused.already_undone": "Ya está como estaba.",
+  "inbox.late.refused.other": "No pudimos deshacerlo. Su responsable en Mezonas lo revisará.",
   "inbox.reject": "Rechazar",
   "inbox.sign": "Aprobar",
   "inbox.findingSteps": "Qué hacer",

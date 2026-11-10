@@ -291,6 +291,27 @@ export const de: Messages = {
   "inbox.undo": "Rückgängig",
   "inbox.undoWindow":
     "Freigegeben. Wir nehmen die Änderung in einer Minute vor; Sie können sie noch rückgängig machen.",
+  // R5: an answer after the run went ahead, and the undo a late no is offered (§1.86)
+  "inbox.late.answeredYes": "Um {time} mit Ja beantwortet, nachdem wir schon weitergemacht hatten.",
+  "inbox.late.answeredNo":
+    "Um {time} mit Nein beantwortet, nachdem wir schon weitergemacht hatten.",
+  "inbox.late.yes": "Es ist nichts mehr zu tun.",
+  "inbox.late.offer":
+    "Wir können die Änderung zurücknehmen, wenn sie seitdem niemand geändert hat.",
+  "inbox.late.undo": "Diese Änderung zurücknehmen",
+  "inbox.late.done": "Zurückgenommen. Es ist wieder wie vorher.",
+  "inbox.late.failed":
+    "Wir konnten die Änderung nicht zurücknehmen. Ihre Ansprechperson bei Mezonas kümmert sich darum.",
+  "inbox.late.none":
+    "Das lässt sich nicht zurücknehmen. Gesendete Nachrichten lassen sich nicht zurückholen, und diese Änderung auch nicht.",
+  "inbox.late.nothing":
+    "In Ihren Tools hat sich nichts geändert, es gibt also nichts zurückzunehmen.",
+  "inbox.late.refused.changed_since":
+    "Jemand hat es nach uns geändert, deshalb haben wir es so gelassen.",
+  "inbox.late.refused.record_gone": "Der Datensatz ist nicht mehr da.",
+  "inbox.late.refused.already_undone": "Es ist schon wieder wie vorher.",
+  "inbox.late.refused.other":
+    "Wir konnten es nicht zurücknehmen. Ihre Ansprechperson bei Mezonas kümmert sich darum.",
   "inbox.reject": "Ablehnen",
   "inbox.sign": "Freigeben", // fluent review
   "inbox.findingSteps": "Was zu tun ist",

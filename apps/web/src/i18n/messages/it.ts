@@ -283,6 +283,25 @@ export const it: Messages = {
   "inbox.sendAnswer": "Invia la risposta",
   "inbox.undo": "Annulla",
   "inbox.undoWindow": "Approvato. Facciamo la modifica tra un minuto; puoi ancora annullarla.",
+  // R5: an answer after the run went ahead, and the undo a late no is offered (§1.86)
+  "inbox.late.answeredYes": "Risposta sì alle {time}, dopo che eravamo già andati avanti.",
+  "inbox.late.answeredNo": "Risposta no alle {time}, dopo che eravamo già andati avanti.",
+  "inbox.late.yes": "Non c'è altro da fare.",
+  "inbox.late.offer": "Possiamo annullare la modifica, se nessuno l'ha cambiata da allora.",
+  "inbox.late.undo": "Annulla questa modifica",
+  "inbox.late.done": "Annullata. Abbiamo rimesso tutto com'era.",
+  "inbox.late.failed":
+    "Non siamo riusciti ad annullare la modifica. Il tuo referente Mezonas se ne occuperà.",
+  "inbox.late.none":
+    "Non si può annullare. I messaggi inviati non si possono ritirare, e nemmeno questa modifica.",
+  "inbox.late.nothing":
+    "Non è cambiato nulla nei tuoi strumenti, quindi non c'è niente da annullare.",
+  "inbox.late.refused.changed_since":
+    "Qualcuno l'ha cambiata dopo di noi, quindi l'abbiamo lasciata così.",
+  "inbox.late.refused.record_gone": "Il record non esiste più.",
+  "inbox.late.refused.already_undone": "È già tornata com'era.",
+  "inbox.late.refused.other":
+    "Non siamo riusciti ad annullarla. Il tuo referente Mezonas se ne occuperà.",
   "inbox.reject": "Rifiuta",
   "inbox.sign": "Approva",
   "inbox.findingSteps": "Cosa fare",
