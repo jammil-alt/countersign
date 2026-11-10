@@ -267,6 +267,149 @@ describe("addRouteAfter", () => {
   });
 });
 
+describe("a failure route opens the step's other failures, and stops the run on them", () => {
+  // Each step, then a payment the connection lets run unsigned. A route on one failure sets
+  // onError: continue, which opens every failure of the step; none may go on to the payment.
+  const pay: Step = {
+    id: "pay",
+    kind: "write",
+    name: "Pay",
+    tool: "testkit.record.update",
+    input: {},
+  };
+  const withPay = (first: Step): Process => ({
+    schemaVersion: 4,
+    triggers: [{ id: "t1", on: { type: "manual", input: { type: "object" } } }],
+    steps: [first, pay],
+  });
+  const check: Step = {
+    id: "check",
+    kind: "process",
+    name: "Check the bill",
+    process: "check-the-bill@1",
+    input: {},
+  };
+  const draft: Step = {
+    id: "draft",
+    kind: "skill",
+    name: "Draft the bill",
+    skill: "testkit.draft",
+    input: {},
+  };
+  const each: Step = {
+    id: "each",
+    kind: "for_each",
+    name: "Each line",
+    over: "{{trigger.lines}}",
+    concurrency: 1,
+    steps: [{ id: "line", kind: "read", name: "Line", tool: "testkit.record.query", input: {} }],
+  };
+
+  /** The added if, and the steps a run takes after the step ended with this record. */
+  function routed(first: Step, word: string, record: Record<string, unknown>) {
+    const process = withPay(first);
+    const option = routeOptions(first).find((o) => o.key === word);
+    if (!option) throw new Error(`no route on ${word}`);
+    const out = addRouteAfter(process, first.id, option, newId);
+    if (!out) throw new Error("not added");
+    const [changed, route, next] = out.process.steps;
+    expect(changed?.onError).toBe("continue");
+    expect(next?.id).toBe("pay");
+    if (route?.kind !== "if") throw new Error("no if");
+    return {
+      option,
+      route,
+      process: out.process,
+      taken(rec: Record<string, unknown>) {
+        const scope = { steps: { [first.id]: { output: null, ...record, ...rec } } };
+        const path = route.paths.find((p) => evaluateRules(p.when, scope));
+        return { path, scope };
+      },
+    };
+  }
+
+  /** How the path ends the run: its last stop's status, through an if on how a stop ended. */
+  function endOf(steps: readonly Step[] | undefined, scope: Record<string, unknown>): string {
+    const last = steps?.at(-1);
+    if (last?.kind === "stop") return last.status;
+    if (last?.kind === "if") {
+      const inner = last.paths.find((p) => evaluateRules(p.when, scope));
+      return endOf(inner ? inner.steps : last.otherwise.steps, scope);
+    }
+    return "goes on";
+  }
+
+  it("a process routed on failed stops the run when it stopped, as the stop inside did", () => {
+    const { option, taken, process } = routed(check, "failed", {});
+    expect(option.others).toEqual(["stopped"]);
+    expect(option.change?.says).toMatch(/also lets it carry on when it stopped/);
+    expect(option.change?.says).toMatch(/“Stopped”/);
+    const failed = taken({ outcome: "failed" });
+    expect(failed.path?.name).toBe("Failed");
+    expect(endOf(failed.path?.steps, failed.scope)).toBe("failed");
+    // "Amount over limit" ended the sub-process with a cancelling stop: the run ends cancelled,
+    // and the payment never runs.
+    for (const status of ["cancelled", "succeeded", "failed"]) {
+      const stopped = taken({ outcome: "stopped", stopStatus: status });
+      expect(stopped.path?.name).toBe("Stopped");
+      expect(endOf(stopped.path?.steps, stopped.scope)).toBe(status);
+    }
+    // A run stored before the detail was kept still stops, as a failure.
+    const old = taken({ outcome: "stopped" });
+    expect(endOf(old.path?.steps, old.scope)).toBe("failed");
+    // A completed process takes otherwise and goes on to pay, as before.
+    expect(taken({ outcome: "completed" }).path).toBeUndefined();
+    const mine = (e: { stepId: string | null }) => !!e.stepId?.startsWith("id-");
+    const result = processes.validateProcess(process, {});
+    expect(result.errors.filter(mine)).toEqual([]);
+    expect(result.warnings.filter(mine)).toEqual([]);
+  });
+
+  it("a process routed on stopped ends the run as the stop inside did, and stops on failed", () => {
+    const { option, taken } = routed(check, "stopped", {});
+    expect(option.stop).toBe("as_inside");
+    expect(option.others).toEqual(["failed"]);
+    const stopped = taken({ outcome: "stopped", stopStatus: "cancelled" });
+    expect(stopped.path?.name).toBe("Stopped");
+    expect(endOf(stopped.path?.steps, stopped.scope)).toBe("cancelled");
+    const failed = taken({ outcome: "failed" });
+    expect(failed.path?.name).toBe("Failed");
+    expect(endOf(failed.path?.steps, failed.scope)).toBe("failed");
+  });
+
+  it("a skill routed on failed stops the run when it needed help", () => {
+    const { option, taken, process } = routed(draft, "failed", {});
+    expect(option.others).toEqual(["needs_help"]);
+    const helped = taken({ outcome: "needs_help" });
+    expect(helped.path?.name).toBe("Needed help");
+    expect(helped.path?.when.rules).toEqual([
+      { field: "{{steps.draft.outcome}}", op: "in", value: ["needs_help"] },
+    ]);
+    expect(endOf(helped.path?.steps, helped.scope)).toBe("failed");
+    expect(taken({ outcome: "done" }).path).toBeUndefined();
+    const mine = (e: { stepId: string | null }) => !!e.stepId?.startsWith("id-");
+    expect(processes.validateProcess(process, {}).errors.filter(mine)).toEqual([]);
+  });
+
+  it("a loop routed on some failed stops the run when all failed, and the reverse", () => {
+    const some = routed(each, "some_failed", {});
+    expect(some.option.others).toEqual(["all_failed"]);
+    const all = some.taken({ outcome: "all_failed", counts: { items: 2, failed: 2 } });
+    expect(all.path?.name).toBe("All failed");
+    expect(endOf(all.path?.steps, all.scope)).toBe("failed");
+    const reverse = routed(each, "all_failed", {});
+    const someFailed = reverse.taken({ outcome: "some_failed", counts: { items: 2, failed: 1 } });
+    expect(someFailed.path?.name).toBe("Some failed");
+    expect(endOf(someFailed.path?.steps, someFailed.scope)).toBe("failed");
+    expect(reverse.taken({ outcome: "done" }).path).toBeUndefined();
+  });
+
+  it("opens nothing more where the step already goes on past a failure", () => {
+    const failed = routeOptions({ ...check, onError: "continue" }).find((o) => o.key === "failed");
+    expect(failed).toMatchObject({ change: null, stop: null, others: [] });
+  });
+});
+
 describe("test runs and routes on an approval", () => {
   it("names the ifs that read an approval, which reads “needed no approval” in a test", () => {
     expect(approvalRouteNames(PROCESS)).toEqual([]);

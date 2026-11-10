@@ -88,6 +88,12 @@ const ROUTE_NAME: Record<string, string> = {
   stopped: "Stopped",
 };
 
+const STOP_STATUS_PHRASE: Record<processes.StopStatus, string> = {
+  succeeded: "would have ended the run as done",
+  failed: "would have ended the run as failed",
+  cancelled: "would have ended the run as cancelled",
+};
+
 const APPROVAL_PHRASE: Record<processes.ApprovalOutcome, string> = {
   approved: "was approved",
   rejected: "was rejected",
@@ -135,6 +141,8 @@ export function fieldPhrase(field: string): string {
       return "why it failed (a code)";
     case "error.message":
       return "why it failed";
+    case "stopStatus":
+      return "how the stop inside it ended";
     default:
       return field;
   }
@@ -149,6 +157,8 @@ function valuePhrases(step: Step, field: string): Record<string, string> | undef
     if (field === "outcome") out[w] = outcomePhrase(step.kind, w);
     else if (field === "approval.outcome") {
       out[w] = APPROVAL_PHRASE[w as processes.ApprovalOutcome] ?? w;
+    } else if (field === "stopStatus") {
+      out[w] = STOP_STATUS_PHRASE[w as processes.StopStatus] ?? w;
     } else if (field === "choice" && step.kind === "person") {
       const choice = step.choices?.find((c) => c.value === w);
       out[w] = choice ? `“${pickLocalized(choice.label)}”` : w;
@@ -231,10 +241,16 @@ export interface RouteOption {
   change: RouteChange | null;
   /**
    * How the new route's stop step ends the run, where the run used to stop with this outcome
-   * (`change` set): a no ends it `cancelled`, nobody answering or a failure `failed`, as before.
-   * Null: the route ends with nothing and the run carries on below it.
+   * (`change` set): a no ends it `cancelled`, nobody answering or a failure `failed`, as before;
+   * a process's `stopped` (`as_inside`) as the stop inside it would have (its `stopStatus`). Null:
+   * the route ends with nothing and the run carries on below it.
    */
-  stop: "cancelled" | "failed" | null;
+  stop: RouteStop | null;
+  /**
+   * The step's other failures the change opens beside this one (`onError: continue` opens them
+   * all): a second path on them ends the run as before, so none goes on to the steps below.
+   */
+  others: string[];
   /** The step as it must be for the route (itself when nothing changes). */
   apply(step: Step): Step;
 }
@@ -243,8 +259,15 @@ export interface RouteOption {
 export const ROUTE_STOP_SAYS =
   "The route ends with a stop step, so nothing below it runs, as before. Remove that stop to carry on below.";
 
-/** The run's end a route's stop step keeps: a no is `cancelled`, anything else `failed`. */
-function stopFor(word: string): "cancelled" | "failed" {
+/** How a route's stop ends the run (`RouteOption.stop`). */
+export type RouteStop = "cancelled" | "failed" | "as_inside";
+
+/**
+ * The run's end a route's stop step keeps: a no is `cancelled`, a process's `stopped` as the stop
+ * inside it would have (`as_inside`), anything else `failed`.
+ */
+function stopFor(step: Pick<Step, "kind">, word: string): RouteStop {
+  if (step.kind === "process" && word === "stopped") return "as_inside";
   return word === "rejected" || word === "declined" || word === "said_no" ? "cancelled" : "failed";
 }
 
@@ -254,6 +277,25 @@ export function takesOnError(step: Pick<Step, "kind">): boolean {
 }
 
 const FAILURES = new Set(["failed", "needs_help", "some_failed", "all_failed", "stopped"]);
+
+/**
+ * The step's other failure words that setting `onError: continue` for a route on `word` opens:
+ * a process's `stopped` beside its `failed`, a skill's `needs_help` beside its `failed`, a loop's
+ * `all_failed` beside its `some_failed`. None when the step already goes on past a failure.
+ */
+export function alsoOpens(step: Step, word: string): string[] {
+  if (!FAILURES.has(word) || step.onError === "continue" || !takesOnError(step)) return [];
+  if (!processes.hasOutcome(step.kind)) return [];
+  const words = processes.STEP_OUTCOMES[step.kind] as readonly string[];
+  return words.filter((w) => w !== word && FAILURES.has(w));
+}
+
+/** The second path's name for the other failures a route opens: "Needed help", "All failed". */
+function otherPathName(words: readonly string[]): string {
+  const names = words.map((w) => ROUTE_NAME[w] ?? w);
+  if (names.length < 2) return names[0] ?? "Other failures";
+  return `${names.slice(0, -1).join(", ")} or ${(names.at(-1) ?? "").toLowerCase()}`;
+}
 
 /**
  * A deadline's "nobody answered" that goes on: `stop` becomes `skip` (the step is skipped, nothing
@@ -280,14 +322,19 @@ const same = (s: Step) => s;
 
 function onErrorContinue(step: Step, word: string): Pick<RouteOption, "change" | "apply"> {
   if (step.onError === "continue") return { change: null, apply: same };
+  const others = alsoOpens(step, word);
+  const lead =
+    word === "needs_help"
+      ? "When nobody gives it the help it asks for, the run now carries on to the route."
+      : word === "stopped"
+        ? "When a stop inside it ends it, the run now carries on to the route."
+        : "When it fails, the run now carries on to the route instead of stopping.";
+  const also =
+    others.length > 0
+      ? ` That also lets it carry on when it ${others.map((w) => outcomePhrase(step.kind, w)).join(" or ")}, so a second path, “${otherPathName(others)}”, stops the run there, as before.`
+      : "";
   return {
-    change: {
-      setting: "If this step fails",
-      says:
-        word === "needs_help"
-          ? "When nobody gives it the help it asks for, the run now carries on to the route."
-          : "When it fails, the run now carries on to the route instead of stopping.",
-    },
+    change: { setting: "If this step fails", says: `${lead}${also}` },
     apply: (s) => ({ ...s, onError: "continue" }),
   };
 }
@@ -409,7 +456,8 @@ export function routeOptions(step: Step): RouteOption[] {
       pathName: ROUTE_NAME[word] ?? word,
       rule: { field: `{{steps.${step.id}.outcome}}`, op: "=", value: word },
       ...needs,
-      stop: needs.change ? stopFor(word) : null,
+      stop: needs.change ? stopFor(step, word) : null,
+      others: needs.change ? alsoOpens(step, word) : [],
     });
   }
   if (step.kind === "person") {
@@ -422,6 +470,7 @@ export function routeOptions(step: Step): RouteOption[] {
         rule: { field: `{{steps.${step.id}.choice}}`, op: "=", value: c.value },
         change: null,
         stop: null,
+        others: [],
         apply: same,
       });
     }
@@ -438,7 +487,8 @@ export function routeOptions(step: Step): RouteOption[] {
                 setting: "If rejected",
                 says: "When they say no, the run goes on to the route instead of stopping.",
               },
-        stop: step.onReject === "continue" ? null : stopFor("said_no"),
+        stop: step.onReject === "continue" ? null : stopFor(step, "said_no"),
+        others: [],
         apply: (s) => (s.kind === "person" ? { ...s, onReject: "continue" } : s),
       });
     }
@@ -446,11 +496,50 @@ export function routeOptions(step: Step): RouteOption[] {
   return out;
 }
 
+type IfPath = Extract<Step, { kind: "if" }>["paths"][number];
+
+/**
+ * The steps that end the run as it used to end: a stop step with the route's status, or for a
+ * process's `stopped` an if on how the stop inside it ended (`steps.<id>.stopStatus`), each path
+ * a stop with that status (otherwise `failed`, as for a run stored before the detail was kept).
+ */
+// DECISION (wave 5 re-review): a stop step's status is fixed, so a stopped process keeps how its
+// inner stop would have ended the run as a record detail (`stopStatus`) and the route ends in an
+// if on it: an inner "cancelled" or "succeeded" stop ends the run the same way, as before.
+function endSteps(stepId: string, stop: RouteStop, newId: NewId): Step[] {
+  const stopStep = (status: processes.StopStatus): Step => ({
+    id: newId(),
+    kind: "stop",
+    name: "Stop the run",
+    status,
+  });
+  if (stop !== "as_inside") return [stopStep(stop)];
+  const on = (status: processes.StopStatus, name: string): IfPath => ({
+    id: newId(),
+    name,
+    when: {
+      match: "all",
+      rules: [{ field: `{{steps.${stepId}.stopStatus}}`, op: "=", value: status }],
+    },
+    steps: [stopStep(status)],
+  });
+  return [
+    {
+      id: newId(),
+      kind: "if",
+      name: "End as the stop inside it",
+      paths: [on("cancelled", "Cancelled"), on("succeeded", "Done")],
+      otherwise: { id: newId(), steps: [stopStep("failed")] },
+    },
+  ];
+}
+
 /**
  * Puts an `if` right after the step, with one path for the route (its condition the step's
  * outcome) and an empty otherwise, and sets on the step what the route needs. The if sits in the
  * step's own list, so it reads only steps before it (the validator's rule). Where the run used to
- * stop with this outcome, the path holds a stop step that ends it the same way (`option.stop`).
+ * stop with this outcome, the path ends the run the same way (`option.stop`), and the other
+ * failures the change opens (`option.others`) get a second path that ends it too.
  */
 // DECISION (wave 5 review): paths rejoin after an `if`, so a route that turns a stop into "go on"
 // (a no, nobody answering, a failure) would otherwise let every later step run after it: a
@@ -464,24 +553,43 @@ export function addRouteAfter(
 ): { process: Process; ifId: string } | null {
   const loc = locate(process, stepId);
   if (!loc) return null;
+  const ifId = newId();
+  const paths: IfPath[] = [
+    {
+      id: newId(),
+      name: option.pathName,
+      when: { match: "all", rules: [option.rule] },
+      steps: option.stop ? endSteps(stepId, option.stop, newId) : [],
+    },
+  ];
+  // DECISION (wave 5 re-review): `onError: continue` opens every failure of the step, not only
+  // the routed one (a process's `stopped` with its `failed`, a skill's `needs_help`, a loop's
+  // `all_failed`), and paths rejoin after the if: one more path, on the step's outcome in the
+  // others, ends the run as it used to end, so none of them goes on to a write below.
+  if (option.others.length > 0) {
+    paths.push({
+      id: newId(),
+      name: otherPathName(option.others),
+      when: {
+        match: "all",
+        rules: [{ field: `{{steps.${stepId}.outcome}}`, op: "in", value: [...option.others] }],
+      },
+      steps: endSteps(
+        stepId,
+        option.others.includes("stopped") ? stopFor(loc.step, "stopped") : "failed",
+        newId,
+      ),
+    });
+  }
   const route: Step = {
-    id: newId(),
+    id: ifId,
     kind: "if",
     name: `If ${option.pathName.charAt(0).toLowerCase()}${option.pathName.slice(1)}`,
-    paths: [
-      {
-        id: newId(),
-        name: option.pathName,
-        when: { match: "all", rules: [option.rule] },
-        steps: option.stop
-          ? [{ id: newId(), kind: "stop", name: "Stop the run", status: option.stop }]
-          : [],
-      },
-    ],
+    paths,
     otherwise: { id: newId(), steps: [] },
   };
   const changed = updateStep(process, stepId, option.apply);
-  return { process: insertStep(changed, loc.container, loc.index + 1, route), ifId: route.id };
+  return { process: insertStep(changed, loc.container, loc.index + 1, route), ifId };
 }
 
 // ── Test runs ────────────────────────────────────────────────────────────────────────────────────
