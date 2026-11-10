@@ -80,7 +80,9 @@ async function stepOf(
   const wf = v?.bundle.workflows.find((w) => w.slug === r.workflowSlug)?.workflow;
   // Inside a for_each the node is `<step>:<index>:<child>`: the step id is its last part.
   const id = s?.nodeId.split(":").at(-1);
-  return { step: wf && id ? (findStep(wf, id)?.step ?? null) : null, nodeId: s?.nodeId ?? null };
+  // Wave 3b: only a v3 step carries the `approval` read here; a v4 step has none (as before).
+  const v3 = wf?.schemaVersion === 3 ? wf : undefined;
+  return { step: v3 && id ? (findStep(v3, id)?.step ?? null) : null, nodeId: s?.nodeId ?? null };
 }
 
 const approvalOf = (step: Step | null) =>
