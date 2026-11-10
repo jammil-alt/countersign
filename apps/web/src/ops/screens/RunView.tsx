@@ -255,7 +255,10 @@ export function OpsRunScreen() {
             />
             {run.status === "failed" ? <NextStep run={run} /> : null}
             {run.status === "failed" ? <SameError run={run} /> : null}
-            <RunAuditCard runId={run.id} audit={data.audit} finished={!going} onMarked={reload} />
+            {/* Wave 6 review: only live runs are audited (the API refuses a test run's mark). */}
+            {run.mode === "live" ? (
+              <RunAuditCard runId={run.id} audit={data.audit} finished={!going} onMarked={reload} />
+            ) : null}
             <RunExportCard runId={run.id} />
           </>
         }

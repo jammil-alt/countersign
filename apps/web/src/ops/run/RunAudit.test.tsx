@@ -67,6 +67,7 @@ function check(
     reason: null,
     cause: null,
     verdict: null,
+    reviewDue: null,
     decisionId: null,
     createdAt: "2026-11-03T10:00:12.000Z",
     ...over,
@@ -111,7 +112,7 @@ const mark = (
   createdAt: at,
 });
 
-function runDetail(audit: RunAuditState, status = "succeeded") {
+function runDetail(audit: RunAuditState, status = "succeeded", mode = "live") {
   return {
     run: {
       id: RUN_ID,
@@ -119,7 +120,7 @@ function runDetail(audit: RunAuditState, status = "succeeded") {
       agentId: AGENT,
       agentVersionId: VERSION,
       workflowSlug: "post-bill",
-      mode: "live",
+      mode,
       status,
       trigger: { by: "operator" },
       costUsd: "0.0100",
@@ -271,6 +272,18 @@ describe("run view: the audit and the export", () => {
       "You can mark it once it is over.",
     );
     expect(screen.queryByTestId("ops-run-audit-form")).toBeNull();
+  });
+
+  it("offers no audit on a test run, only its export", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: () =>
+        runDetail({ queued: null, marks: [], latest: null }, "succeeded", "test"),
+      [`GET /api/ops/runs/${RUN_ID}/model-calls`]: () => ({ modelCalls: [], unrecorded: 0 }),
+    });
+    renderRun(api);
+    expect(await screen.findByTestId("ops-run-export")).toBeInTheDocument();
+    expect(screen.queryByTestId("ops-run-audit")).toBeNull();
   });
 
   it("downloads the trail as HTML or JSON, with AI calls only when ticked", async () => {
