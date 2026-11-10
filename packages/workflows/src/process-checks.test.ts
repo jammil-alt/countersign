@@ -4,7 +4,7 @@
 // approvers skipped only for native v4 checks; customizations checked and never dropped
 // silently; a sign-off nobody answered is a timeout; the lead's help only for native skills.
 import { processes, type SkillDefinition } from "@countersign/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
 import { Harness, SKILL, WRITE_TOOL, wf } from "./fakes.test-helper";
@@ -430,5 +430,325 @@ describe("the owner (R6)", () => {
     );
     expect(reviews[0]).toMatchObject({ cause: "failed", step: { kind: "write" } });
     expect(reviews[0]?.errorKey).toMatch(/^testkit\.thing\.update:/);
+  });
+});
+
+// ── Wave 2c: the executor's review findings ─────────────────────────────────────────────────────
+
+describe("an automation's approval override (wave 2c)", () => {
+  const SEND = {
+    schemaVersion: 1,
+    slug: "s",
+    name: "S",
+    description: "",
+    input: {},
+    output: {},
+    steps: [
+      {
+        id: "send",
+        kind: "action",
+        name: "Send",
+        tool: WRITE_TOOL.id,
+        input: {},
+        approval: { required: "required", onReject: "stop" },
+      },
+    ],
+    requires: { connectors: [], packs: [] },
+  } as never;
+
+  it("on a stored v3 use_automation is decided as v3 did: an away approver is waited for", async () => {
+    const h = new Harness();
+    const item = h.approvalItem({ approved: true, by: "dana" });
+    h.handlers.send = (req) => {
+      expect(req.approval).toMatchObject({ required: "required", approver: "dana" });
+      return { kind: "approval", pending: { inboxItemId: item } };
+    };
+    const runner = new FakeStepRunner();
+    const result = await executeWorkflow(
+      runner,
+      h.context({ hours: awayToday("dana"), automations: { "s@1": SEND } }),
+      wf([
+        {
+          id: "u",
+          kind: "use_automation",
+          name: "Use",
+          automation: "s@1",
+          input: {},
+          approvals: { send: { required: "required", approver: "dana", onReject: "stop" } },
+        },
+      ]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.items.get(item)?.expired).toBe(false);
+    expect(h.resumeCalls[0]?.resolution).toMatchObject({ approved: true, by: "dana" });
+    expect(runner.names()).not.toContain("u/send:approvers");
+  });
+
+  it("set by a native v4 process step is a v4 check: an away approver is skipped", async () => {
+    const h = new Harness();
+    const item = h.approvalItem();
+    h.handlers.send = () => ({ kind: "approval", pending: { inboxItemId: item } });
+    const result = await executeWorkflow(
+      new FakeStepRunner({ onWait: "block" }),
+      h.context({ hours: awayToday("dana"), automations: { "s@1": SEND } }),
+      proc([
+        {
+          id: "u",
+          kind: "process",
+          name: "Use",
+          process: "s@1",
+          input: {},
+          approvals: { send: { approvers: [{ who: "dana" }], ifNoAnswer: "skip" } },
+        },
+      ]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.items.get(item)?.expired).toBe(true);
+  });
+});
+
+describe("an approval's `when` on a writing skill (wave 2c)", () => {
+  const writer = { ...SKILL, id: "test.post-bill", tools: [WRITE_TOOL.id] } as SkillDefinition;
+  const catalog = { skills: { [writer.id]: writer }, tools: { [WRITE_TOOL.id]: WRITE_TOOL } };
+  const post = (when: unknown, confer = true) => ({
+    id: "post",
+    kind: "skill",
+    name: "Post the bill",
+    skill: writer.id,
+    input: {},
+    checks: {
+      ...(confer ? { confer: { with: [{ ai: { focus: "f" } }] } } : {}),
+      approval: { approvers: [{ who: "amy" }], when },
+    },
+  });
+  const onVerdict = {
+    match: "all",
+    rules: [{ field: "{{confer.0.verdict}}", op: "=", value: "disagree" }],
+  };
+
+  async function gateFor(when: unknown, trigger: unknown, confer = true) {
+    const h = new Harness();
+    const item = h.approvalItem({ approved: true, by: "amy" });
+    const gates: unknown[] = [];
+    h.handlers.post = (req) => {
+      gates.push(req.approval);
+      return { kind: "approval", pending: { inboxItemId: item }, output: { total: "1" } };
+    };
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({
+        catalog,
+        confer: { ai: async () => ({ verdict: "disagree", note: "wrong total" }) },
+      }),
+      proc([post(when, confer)]),
+      trigger,
+    );
+    return { result, gates, h };
+  }
+
+  it("never reads its verdicts before the confer: the gate keeps the approval required", async () => {
+    const { result, gates, h } = await gateFor(onVerdict, {});
+    expect(result.status).toBe("succeeded");
+    expect(gates).toEqual([expect.objectContaining({ required: "required", approver: "amy" })]);
+    // The confer ran on the proposal, and the write was signed.
+    expect(h.row("post:confer:0")?.output).toMatchObject({ verdict: "disagree" });
+    expect(h.resumeCalls[0]?.resolution).toMatchObject({ approved: true, by: "amy" });
+  });
+
+  it("treats a reference that doesn't resolve as approval required", async () => {
+    const over = { match: "all", rules: [{ field: "{{trigger.amount}}", op: ">", value: 100 }] };
+    const flagged = {
+      match: "all",
+      rules: [{ field: "{{steps.check.output.flagged}}", op: "is", value: true }],
+    };
+    // `null > 100` would say the approval is off: a missing amount never loosens it, nor a step
+    // that never ran.
+    expect((await gateFor(over, {}, false)).gates).toEqual([
+      expect.objectContaining({ required: "required" }),
+    ]);
+    expect((await gateFor(flagged, {}, false)).gates).toEqual([
+      expect.objectContaining({ required: "required" }),
+    ]);
+    // Resolved, it still decides.
+    expect((await gateFor(over, { amount: 50 }, false)).gates).toEqual([
+      expect.objectContaining({ required: "not_required" }),
+    ]);
+    expect((await gateFor(over, { amount: 500 }, false)).gates).toEqual([
+      expect.objectContaining({ required: "required" }),
+    ]);
+  });
+});
+
+describe("a native skill's confer (wave 2c)", () => {
+  const writer = { ...SKILL, id: "test.post-bill", tools: [WRITE_TOOL.id] } as SkillDefinition;
+  const catalog = { skills: { [writer.id]: writer }, tools: { [WRITE_TOOL.id]: WRITE_TOOL } };
+  const post = {
+    id: "post",
+    kind: "skill",
+    name: "Post the bill",
+    skill: writer.id,
+    input: { bill: "b-1" },
+    checks: {
+      confer: { with: [{ ai: { focus: "does it add up" } }] },
+      approval: { approvers: [{ who: "amy" }] },
+    },
+  };
+
+  it("runs on each write the skill proposes, before that write's approval", async () => {
+    const h = new Harness();
+    const order: string[] = [];
+    h.handlers.post = () => {
+      order.push("propose 1");
+      return {
+        kind: "approval",
+        pending: { inboxItemId: h.approvalItem({ approved: true, by: "amy" }) },
+        output: { line: 1 },
+      };
+    };
+    let resumes = 0;
+    h.resumeHandler = () => {
+      order.push(`write ${++resumes}`);
+      if (resumes === 1) {
+        order.push("propose 2");
+        return {
+          kind: "approval",
+          pending: { inboxItemId: h.approvalItem({ approved: true, by: "amy" }) },
+          output: { line: 2 },
+        };
+      }
+      return { kind: "done", output: { posted: true } };
+    };
+    const reviewed: unknown[] = [];
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({
+        catalog,
+        confer: {
+          ai: async (req) => {
+            order.push("confer");
+            reviewed.push(req.output);
+            return { verdict: "agree", note: "" };
+          },
+        },
+      }),
+      proc([post]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(order).toEqual(["propose 1", "confer", "write 1", "propose 2", "confer", "write 2"]);
+    expect(reviewed).toEqual([{ line: 1 }, { line: 2 }]);
+    expect(h.row("post:confer:0")).toBeDefined();
+    expect(h.row("post:approval:2:confer:0")).toBeDefined();
+  });
+
+  it("runs again on the write a corrected retry proposes, with the corrected input", async () => {
+    const h = new Harness();
+    let runs = 0;
+    h.handlers.post = () =>
+      ++runs === 1
+        ? { kind: "failed", error: "bad vendor" }
+        : {
+            kind: "approval",
+            pending: { inboxItemId: h.approvalItem({ approved: true, by: "amy" }) },
+            output: { line: 1 },
+          };
+    const inputs: unknown[] = [];
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({
+        catalog,
+        confer: {
+          ai: async (req) => {
+            inputs.push(req.input);
+            return { verdict: "agree", note: "" };
+          },
+        },
+        oversight: {
+          port: {
+            review: async () => ({ action: "retry_with", input: { bill: "b-2" }, note: "" }),
+          },
+          settings: { review: "failures", maxPerRun: 5, maxCostUsd: "1" } as never,
+        },
+      }),
+      proc([post]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(inputs).toEqual([{ bill: "b-2" }]);
+    expect(h.row("post:retry:1:approval:1:confer:0")).toBeDefined();
+  });
+});
+
+describe("the owner's ask on a native step (wave 2c)", () => {
+  const settings = { review: "failures", maxPerRun: 5, maxCostUsd: "1" } as never;
+  const read = (approvers: unknown) => ({
+    id: "get",
+    kind: "read",
+    name: "Get the bill",
+    tool: "testkit.thing.get",
+    checks: { approval: { approvers } },
+  });
+
+  async function ask(approvers: unknown, hours?: HoursPort) {
+    const h = new Harness();
+    h.handlers.get = () => ({ kind: "failed", error: "not found" });
+    const item = h.approvalItem();
+    const reviews: OversightRequest[] = [];
+    const runner = new FakeStepRunner();
+    await executeWorkflow(
+      runner,
+      h.context({
+        ...(hours ? { hours } : {}),
+        oversight: {
+          port: {
+            review: async (req) => {
+              reviews.push(req);
+              return { action: "ask", inboxItemId: item, note: "" };
+            },
+          },
+          settings,
+        },
+      }),
+      proc([read(approvers)]),
+      {},
+    );
+    const wait = runner.calls.find((c) => c.name === "get:oversee:1:ask:wait") as
+      | { timeout: string }
+      | undefined;
+    return { reviews, timeout: wait?.timeout };
+  }
+
+  it("waits on the first approver's business-hours deadline, on their hours", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      // Friday 5pm UTC: four business hours (8 to 6, Monday to Friday) end Monday at 11am.
+      vi.setSystemTime(new Date("2026-11-06T17:00:00Z"));
+      const { timeout } = await ask([
+        { who: "amy", deadline: { after: "4 hours", hours: "business" } },
+      ]);
+      expect(timeout).toBe(`${66 * 3600} seconds`);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks the first approver present, on their deadline", async () => {
+    const { reviews, timeout } = await ask(
+      [
+        { who: "amy", deadline: { after: "1 hour" } },
+        { who: "ben", deadline: { after: "3 hours" } },
+      ],
+      awayToday("amy"),
+    );
+    const step = reviews[0]?.step as { checks?: { approval?: { approvers?: unknown[] } } };
+    expect(step.checks?.approval?.approvers).toEqual([
+      expect.objectContaining({
+        who: "ben",
+        deadline: expect.objectContaining({ after: "3 hours" }),
+      }),
+    ]);
+    expect(timeout).toBe("3 hours");
   });
 });

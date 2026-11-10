@@ -36,6 +36,7 @@ import {
   type PersonStep,
   parseDuration,
   processes,
+  type Rules,
   type RunContext,
   renderSummary,
   renderTemplate,
@@ -43,6 +44,7 @@ import {
   resolveTemplate,
   runErrorKey,
   type SkillStep,
+  singleRef,
   stepStateLabel,
   TIMELINE_WORDS,
   type TimelineWords,
@@ -209,8 +211,11 @@ interface WorkOptions {
   // R6
   /** The native v4 step the owner watches (absent: the port view, a converted step's v3 step). */
   watched?: OwnerWatchedStep;
-  /** Before the first approval of a write the step proposes: its confer (a native skill). */
-  beforeApproval?: (proposed: unknown) => Promise<void>;
+  /**
+   * Before the approval of each write the step proposes: its confer (a native skill), under `at`
+   * (the step's own name for the first attempt's first proposal, else the approval's name).
+   */
+  beforeApproval?: (proposal: { at: string; input: unknown; output: unknown }) => Promise<void>;
   /** After an attempt that did its work, before the owner reviews it: a read's or skill's confer. */
   afterRun?: (output: unknown) => Promise<void>;
   /** The confer verdicts so far, for the owner's watch. */
@@ -919,20 +924,27 @@ class Executor {
         ? keptFields(output, custom.definition.output)
         : output;
 
-    // Confer, once per step: before a write is proposed, or on a read's or skill's output.
+    // Confer: before a write step's write is proposed (once), before each write a skill proposes
+    // (its own durable names), or else once on a read's or skill's output. `conferred` is the
+    // latest verdicts, which the approval's and notifications' conditions read.
     let conferred: ConferEntry[] | undefined;
-    let conferDone = false;
-    const conferOn = async (data: {
-      input: unknown;
-      output?: unknown;
-      own?: { id: string; output: unknown };
-    }) => {
-      if (conferDone || !checks?.confer) return;
-      conferDone = true;
-      conferred = await this.confer(step, name, frame.scope, checks.confer, data);
+    let outputConferred = false;
+    let proposalConferred = false;
+    const conferOn = async (
+      at: string,
+      data: { input: unknown; output?: unknown; own?: { id: string; output: unknown } },
+    ) => {
+      if (!checks?.confer) return;
+      conferred = await this.confer(step, at, frame.scope, checks.confer, data);
     };
     const input = () => resolveTemplate(step.input, frame.scope);
-    if (step.kind === "write") await conferOn({ input: input() });
+    if (step.kind === "write") await conferOn(name, { input: input() });
+    const conferOutput = async (output: unknown) => {
+      // A skill whose proposed writes were conferred on isn't conferred on again.
+      if (outputConferred || proposalConferred) return;
+      outputConferred = true;
+      await conferOn(name, { input: input(), output, own: { id: step.id, output } });
+    };
 
     // A native approval is planned (who is away known); a converted one goes to the gate as v3's.
     const plan =
@@ -941,10 +953,16 @@ class Executor {
     let gate = gateApproval(check, plan ? firstWho : undefined);
     // An approval limited to some runs (`when`) doesn't apply on the others: the gate decides
     // those as `not_required` (still held to the matrix, the grant and the mode, §9.5). A sign-off's
-    // `when` reads the step's own output, after it runs (below).
+    // `when` reads the step's own output, after it runs (below). Before the run, a `when` that
+    // reads what isn't there yet (a skill's verdicts, which come after its proposal) applies.
+    // DECISION: the gate takes a write's approval before the skill runs, so a `when` that reads
+    // the verdicts of the confer on a skill's proposed write keeps the approval required: once
+    // the write is proposed, only the gate could loosen it, and it has already decided. Where the
+    // `when` can still decide after the confer (the sign-off of a skill that proposed no write),
+    // it is read there. A verdict never loosens a write.
     if (gate && check?.when && !(plan && readLike)) {
       const applies = await this.runner.do(`${name}:approval:when`, async () =>
-        evaluateRules(
+        approvalApplies(
           check.when as NonNullable<typeof check.when>,
           checkScope(frame.scope, undefined, conferred),
         ),
@@ -966,14 +984,16 @@ class Executor {
       verdicts: () => conferred,
     };
     if (step.kind === "skill" && checks?.confer) {
-      opts.beforeApproval = (proposed) => conferOn({ input: input(), output: proposed });
+      opts.beforeApproval = async (proposal) => {
+        proposalConferred = true;
+        await conferOn(proposal.at, { input: proposal.input, output: proposal.output });
+      };
     }
     if (step.kind !== "write" && checks?.confer) {
       opts.afterRun = async (output) => {
         // A request for help isn't the step's result: it is conferred on once answered.
         if (needsHelpOf(output, !origin && view.kind === "skill")) return;
-        const shaped = shape(output);
-        await conferOn({ input: input(), output: shaped, own: { id: step.id, output: shaped } });
+        await conferOutput(shape(output));
       };
     }
     const done = await this.work(view, name, frame, approval, opts);
@@ -992,9 +1012,7 @@ class Executor {
     }
     output = shape(output);
 
-    if (step.kind !== "write" && checks?.confer) {
-      await conferOn({ input: input(), output, own: { id: step.id, output } });
-    }
+    if (step.kind !== "write" && checks?.confer) await conferOutput(output);
     // The sign-off: a read's, or a skill's that proposed no write (a proposed write was signed
     // through the gate above, in the check's mode). A write step's approval is only ever the
     // gate's.
@@ -1004,7 +1022,7 @@ class Executor {
       gate?.required !== "not_required" &&
       (!check?.when ||
         (await this.runner.do(`${name}:signoff:when`, async () =>
-          evaluateRules(
+          approvalApplies(
             check.when as NonNullable<typeof check.when>,
             checkScope(frame.scope, { id: step.id, output }, conferred),
           ),
@@ -1240,9 +1258,16 @@ class Executor {
       }
       proposed = true;
       const pending = outcome.pending;
-      // R3: a native skill's confer comes before the approval of the write it proposes.
-      if (opts.beforeApproval) await opts.beforeApproval(outcome.output);
       const base = `${at}:approval:${n}`;
+      // R3: a native skill's confer comes before the approval of each write it proposes: a later
+      // proposal, a corrected retry's or the re-run after the lead's help, has its own.
+      if (opts.beforeApproval) {
+        await opts.beforeApproval({
+          at: at === name && n === 1 ? name : base,
+          input: retry ? retry.input : resolveTemplate(step.input, frame.scope),
+          output: outcome.output,
+        });
+      }
       const decided = await this.decideApproval(step, base, stepRunId, pending, approval, opts);
       const resolution = decided.resolution;
       // P-6: a withdrawn item (a conversation taken over) is no decision: the port goes on (§1.68).
@@ -2209,7 +2234,7 @@ class Executor {
             ? this.words.waitingForApproval
             : on === "answer"
               ? this.words.waitingForAnswer
-              : "waiting for a reply"
+              : this.words.waitingForReply
         }`,
       });
     };
@@ -2246,20 +2271,24 @@ class Executor {
     );
     let result: ConversationResult = started.result;
     for (let n = 1; result.status === "pending"; n++) {
+      // Check before waiting, as for an inbox item: it may have moved on while the run wasn't
+      // listening (a replay after a restart reads the stored result above). A call without a
+      // wake only reports where the conversation is; still pending, it is what the run waits on
+      // (its event, its wake time) and what the step's row says it waits for.
+      result = await this.runner.do(
+        `${name}:check:${n}`,
+        async () => {
+          const now = await port.conversation(started.request);
+          await waiting(started.stepRunId, now);
+          return now;
+        },
+        this.ctx.stepConfig,
+      );
+      if (result.status !== "pending") break;
       const type =
         result.waitFor ??
         (result.conversationId ? conversationEventType(result.conversationId) : null);
       if (!type) throw new Error("the conversation has nothing to wait on");
-      // Check before waiting, as for an inbox item: it may have moved on while the run wasn't
-      // listening (a replay after a restart reads the stored result above). A call without a
-      // wake only reports where the conversation is.
-      const now = await this.runner.do(`${name}:check:${n}`, () =>
-        port.conversation(started.request),
-      );
-      if (now.status !== "pending") {
-        result = now;
-        break;
-      }
       // The deadline, or the engine's own wake time if sooner (a reply's wait).
       const wakeAt = result.wakeAt ?? null;
       const deadlineFirst = wakeAt === null || Date.parse(started.dueAt) <= Date.parse(wakeAt);
@@ -2655,6 +2684,9 @@ class Executor {
     const maxPerRun = oversight.settings?.maxPerRun ?? OVERSIGHT_DEFAULT_MAX_PER_RUN;
     // R6: the owner reviews the native v4 step; a converted step as its stored v3 step, as before.
     const watched = opts.watched ?? step;
+    // As the owner is shown it: a native check's approvers who are away left out, so an ask goes
+    // to the first approver present, as the step's own approval does.
+    const reviewed = opts.watched && opts.plan ? presentFirst(opts.watched, opts.plan) : watched;
     const nodeType = opts.nodeType ?? step.kind;
     let current = await this.tryAttempt(step, name, frame, approval, undefined, opts);
     let input: unknown;
@@ -2714,7 +2746,7 @@ class Executor {
                 : failed.stepRunId;
             return oversight.port.review({
               run,
-              step: watched,
+              step: reviewed,
               nodeId: name,
               stepRunId,
               seq,
@@ -2746,14 +2778,16 @@ class Executor {
       }
       if (verdict.action === "ask") {
         // R6: an ask follows the step's approval (core `ownerStepApproval`): a v3 step's own, a v4
-        // step's first approver's deadline and its `onReject`.
-        const owned = ownerStepApproval(watched);
-        const timeout = owned.timeout ?? this.ctx.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
-        const answer = await this.awaitResolution(
-          `${name}:oversee:${seq}:ask`,
-          verdict.inboxItemId,
-          timeout,
-        );
+        // step's first approver's deadline and its `onReject`. A native check's first approver
+        // present (the plan knows who is away) is asked, on their deadline in its own hours.
+        const owned = ownerStepApproval(reviewed);
+        const fallback = this.ctx.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
+        const askName = `${name}:oversee:${seq}:ask`;
+        const present = opts.plan?.approvers.find((a) => !a.away);
+        const timeout = present
+          ? await this.firstTimeout(askName, present, fallback)
+          : (owned.timeout ?? fallback);
+        const answer = await this.awaitResolution(askName, verdict.inboxItemId, timeout);
         // v0.13 M32: approved at a checkpoint, the run goes on with the output as it is.
         if (answer?.approved === true && !failing) break;
         if (answer?.approved !== true) {
@@ -2817,6 +2851,45 @@ function checkScope(
     steps: own ? { ...base.steps, [own.id]: { output: own.output } } : base.steps,
     ...(confer ? { confer } : {}),
   };
+}
+
+/**
+ * Whether an approval's `when` applies, on the safe side: a rule that reads something the run
+ * doesn't have yet (a step that hasn't run, verdicts before the confer, a field the data lacks)
+ * can't say the approval is off, so the approval applies. Only a `when` whose every reference
+ * resolves is evaluated. An `exists` rule's own field may be absent (that is its answer), so only
+ * what it reads from (the trigger, the step, the verdicts) must be there.
+ */
+// DECISION: an unresolved reference in an approval's `when` means "approval required", never a
+// value of null compared (`null < 100` is true), so a missing value can't switch an approval off
+// (invariant 8).
+function approvalApplies(rules: Rules, scope: unknown): boolean {
+  const resolves = (ref: string, leaf: boolean): boolean => {
+    const path = singleRef(ref);
+    if (!path) return true;
+    const source = path[0] === "steps" ? path.slice(0, 2) : path.slice(0, 1);
+    return resolvePath(scope, leaf ? path : source) !== undefined;
+  };
+  for (const rule of rules.rules) {
+    if (!resolves(rule.field, rule.op !== "exists")) return true;
+    if (typeof rule.value === "string" && rule.value.startsWith("{{")) {
+      if (!resolves(rule.value, true)) return true;
+    }
+  }
+  return evaluateRules(rules, scope);
+}
+
+/**
+ * A native step as the owner reviews it: its approval's approvers who are away left out (when
+ * someone is present), so the owner's ask (`ownerStepApproval`, by the first approver) goes to the
+ * first approver present.
+ */
+function presentFirst(step: OwnerWatchedStep, plan: ApprovalPlan): OwnerWatchedStep {
+  const check = "checks" in step ? step.checks?.approval : undefined;
+  if (!check?.approvers || !("checks" in step)) return step;
+  const present = plan.approvers.filter((a) => !a.away).map(({ away: _, ...a }) => a);
+  if (present.length === 0 || present.length === check.approvers.length) return step;
+  return { ...step, checks: { ...step.checks, approval: { ...check, approvers: present } } };
 }
 
 /** A person conferee's answer as a verdict: one of the quick answers, else `unsure`. */

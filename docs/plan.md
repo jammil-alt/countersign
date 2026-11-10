@@ -2471,6 +2471,30 @@ tools, is the owner's doc "Mezonas process model"; milestones are §9.
   `messages.first: not_required` to invariant 8: allowed at publish only where every bound
   connection able to carry the channel allows `auto` for `create`; with none bound, refused.
 
+**Executor (wave 2c, `wave2c/executor`):**
+- // DECISION: only the approval overrides a native v4 `process` step sets are native v4 checks
+  (away approvers skipped). A stored v3 `use_automation`'s overrides, converted to a process step's
+  `approvals`, stay v3 approvals: the stored approver is waited for, as v3 did.
+- // DECISION: an approval's `when` that reads something the run doesn't have yet (a step that
+  hasn't run, a field the data lacks, verdicts before the confer) applies: an unresolved reference
+  is "approval required", never a null compared. An `exists` rule's own field may be absent; what
+  it reads from must be there.
+- // DECISION: the gate takes a write's approval before a skill runs, so a skill's `when` that
+  reads the verdicts of the confer on its proposed write keeps the approval required (the gate has
+  decided before the confer, and only it may loosen a write). Where the `when` can still decide
+  after the confer, a skill's sign-off when it proposed no write, it is read there.
+- // DECISION: a native skill confers on each write it proposes, before that write's approval: the
+  first attempt's first proposal under the step's name (`<step>:confer:<n>`, as before), every
+  other under its approval's (`<attempt>:approval:<k>:confer:<n>`), so a second proposal, a
+  corrected retry's (with the corrected input) and the re-run after the lead's help each have
+  their own. A skill whose proposals were conferred on isn't conferred on again on its output.
+- // DECISION: a conversation's check before each wait is the result the run waits on: its
+  `waitFor` and `wakeAt`, and the step's row says what it now waits for (a reply in the
+  client's language, `TimelineWords.waitingForReply`).
+- // DECISION: the owner's ask on a native step goes to the check's first approver present (the
+  step is shown to the owner without the approvers who are away) and waits on that approver's
+  deadline, in business hours on their hours when it says so (`firstTimeout`).
+
 **Runtime (wave 2b, `wave2b/runtime`):**
 - // DECISION: a write's further signers (`AgentPort.askApprover`) each get an `external_action`
   item for the same change (its subject the action; the gate's card copied), idempotent per
