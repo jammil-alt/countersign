@@ -48,7 +48,8 @@ const script = (over: Record<string, unknown> = {}) => ({
   state: "recording",
   createdSide: "client",
   recording: recording(),
-  problems: ["nothing is recorded yet"],
+  problems: [{ code: "empty", params: {}, text: "nothing is recorded yet" }],
+  recordingDiffers: false,
   versions: [],
   published: null,
   offerItemId: null,
@@ -94,6 +95,7 @@ const page = (over: Record<string, unknown> = {}) => ({
     { selector: "#place", kind: "button", label: "Place order" },
   ],
   screenshotUrl: "https://app.test/api/files/shot.png",
+  screenshotWithheld: false,
   ...over,
 });
 
@@ -293,6 +295,7 @@ describe("where a script stands, and what stops it, in the client's words", () =
 });
 
 describe("scripts in the back office", () => {
+  // The back office's versions carry their stored definitions (the portal's never do).
   const draft = script({
     state: "draft",
     problems: [],
@@ -305,21 +308,13 @@ describe("scripts in the back office", () => {
         sideEffect: "external",
         recordedSide: "client",
         createdAt: "2026-11-10T10:00:00.000Z",
+        definition: ORDER_DEFINITION,
       },
     ],
   });
 
   it("lists every client's scripts, tests a version as a dry run and publishes it", async () => {
-    // The stored definition and `recordingDiffers` come with the API's wave 4 review fields; the
-    // response is parsed with the route's contract, so they reach the screen once it has them.
-    let current: Record<string, unknown> = {
-      ...draft,
-      recordingDiffers: true,
-      versions: draft.versions.map((v: Record<string, unknown>) => ({
-        ...v,
-        definition: ORDER_DEFINITION,
-      })),
-    };
+    let current: Record<string, unknown> = { ...draft, recordingDiffers: true };
     const calls: string[] = [];
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
@@ -329,7 +324,8 @@ describe("scripts in the back office", () => {
         calls.push(`test ${String(init.body)}`);
         return {
           outcome: "done",
-          outputs: { price: "1212.50", submitted: true, url: "x" },
+          dryRun: true,
+          outputs: { price: "1212.50", submitted: false, url: null },
           reason: null,
           steps: [
             {
@@ -363,15 +359,10 @@ describe("scripts in the back office", () => {
     const result = await within(recorder).findByTestId("script-test-result");
     expect(result).toHaveTextContent("Test passed · nothing was submitted");
     expect(calls[0]).toBe('test {"version":1}');
-    const steps = within(recorder).queryByTestId("script-version-steps");
-    if (!steps) {
-      // Without the version's steps on screen, nothing is published from here.
-      expect(within(recorder).getByTestId("script-version-unseen")).toHaveTextContent(
-        "can't show version 1's steps",
-      );
-      expect(within(recorder).getByTestId("script-publish")).toBeDisabled();
-      return;
-    }
+    // With the version's stored steps on screen, Publish is on.
+    const steps = within(recorder).getByTestId("script-version-steps");
+    expect(within(recorder).queryByTestId("script-version-unseen")).toBeNull();
+    expect(within(recorder).getByTestId("script-publish")).toBeEnabled();
     expect(steps).toHaveTextContent("the fixed text “OAK-1”");
     expect(within(recorder).getByTestId("script-version-submit-s6")).toHaveTextContent(
       "Sends the form",

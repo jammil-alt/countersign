@@ -4,10 +4,10 @@
 // in our browser that never submits and keeps no file) and publish a version: it is then a browser
 // tool for that client alone. A script-draft offer (a browsing path that worked twice, from the
 // Escalations) opens here with `?offer=<item>&client=<client>`, its pages already open steps.
-import { BrowserScriptDefinition, type ScriptStep } from "@countersign/core";
+import type { BrowserScriptDefinition, ScriptStep } from "@countersign/core";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { type Script, ScriptRecorder, ScriptRows, StartScriptForm } from "../../accounts/scripts";
+import { ScriptRecorder, ScriptRows, StartScriptForm } from "../../accounts/scripts";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
@@ -109,29 +109,17 @@ export function OpsScriptsSection() {
   );
 }
 
-/**
- * What the API may add to a script (wave 4 review): each version's stored definition, and whether
- * the working recording differs from the newest version. Read as optional: an older API has
- * neither.
- */
-type VersionIn = Script["versions"][number] & { definition?: unknown };
-type ScriptIn = Script & { recordingDiffers?: unknown };
-
-/** The newest version's stored script, checked; null when the API didn't send it or it's not one. */
-function newestDefinition(script: Script): BrowserScriptDefinition | null {
-  const newest = script.versions.at(-1) as VersionIn | undefined;
-  const parsed = BrowserScriptDefinition.safeParse(newest?.definition);
-  return parsed.success ? parsed.data : null;
-}
+/** A script as the back office reads it: each saved version with its stored definition. */
+type OpsScript = ResponseOf<typeof apiRoutes.opsBrowserScripts>["scripts"][number];
 
 /** Test the newest version (a dry run that never submits), then publish it, its steps shown. */
-// DECISION: publishing needs the version's steps on screen: without the stored definition (an
-// older API) the button stays off, so nothing is published that the operator hasn't seen.
-function TestAndPublish({ script, onChanged }: { script: Script; onChanged: () => void }) {
+// DECISION: publishing needs the version's steps on screen: without the stored definition the
+// button stays off, so nothing is published that the operator hasn't seen.
+function TestAndPublish({ script, onChanged }: { script: OpsScript; onChanged: () => void }) {
   const api = useApiClient();
   const newest = script.versions.at(-1)?.version ?? null;
-  const definition = newestDefinition(script);
-  const differs = (script as ScriptIn).recordingDiffers === true;
+  const definition = script.versions.at(-1)?.definition ?? null;
+  const differs = script.recordingDiffers;
   const [result, setResult] = useState<TestResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
