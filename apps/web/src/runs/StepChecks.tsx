@@ -6,7 +6,9 @@
 // on, or stopped, because nobody answered says so; an urgent notice says whether it was seen.
 // Colours by meaning: people copper, waiting on someone signal with a word, errors risk, done
 // positive.
-import type { ConferView, TimelineChecks } from "@countersign/core";
+// Wave 5: the route an if took and why ("Took the route “Rejected”: Approve the bill was
+// rejected"), and a step that failed and the run carried on past, in risk.
+import type { ConferView, RouteView, TimelineChecks } from "@countersign/core";
 import type { PlainKey } from "../i18n/catalog";
 import { type I18n, useI18n } from "../i18n/i18n";
 import { shortTime } from "./format";
@@ -53,7 +55,20 @@ export function conferTitle(
   return t("run.confer.person", { who, verdict: t(VERDICT[c.verdict]) });
 }
 
-/** A confer's tone: a person's answer is copper; a disagreement a person must look at is signal. */
+/**
+ * Wave 5: the route an if took and why, in the reader's words: "Took the route “Rejected”: Approve
+ * the bill was rejected"; "None of the routes matched…" when it took the otherwise.
+ */
+export function routeWords({ t }: Pick<I18n, "t">, route: RouteView): string {
+  if (route.path === null) return t("run.route.otherwise");
+  if (route.because.length === 0) return t("run.route.took", { path: route.path });
+  const reasons = route.because
+    .map((b) => t("run.route.reason", { step: b.label, outcome: t(`run.outcome.${b.outcome}`) }))
+    .join(", ");
+  return t("run.route.because", { path: route.path, reasons });
+}
+
+/** A confer's tone:a person's answer is copper; a disagreement a person must look at is signal. */
 export function conferTone(c: NonNullable<TimelineChecks["confer"]>): "person" | "ink" {
   return c.reviewer === "person" ? "person" : "ink";
 }
@@ -68,10 +83,20 @@ export function StepChecks({
   const i18n = useI18n();
   const { t } = i18n;
   const time = (iso: string | null) => shortTime(iso, undefined, i18n);
-  const { confer, approval, noAnswer, urgent } = checks;
-  if (!confer && !approval && !noAnswer && !urgent) return null;
+  const { confer, approval, noAnswer, urgent, route } = checks;
+  if (!confer && !approval && !noAnswer && !urgent && !route && !checks.carriedOn) return null;
   return (
     <div className="flex flex-col gap-1 text-sm" data-testid={testId}>
+      {route ? (
+        <p className="text-ink" data-testid={`${testId}-route`}>
+          {routeWords(i18n, route)}
+        </p>
+      ) : null}
+      {checks.carriedOn ? (
+        <p className="ui-tone-risk" data-testid={`${testId}-carried-on`}>
+          {t(checks.outcome === "some_failed" ? "run.carriedOn.some" : "run.carriedOn")}
+        </p>
+      ) : null}
       {confer?.note ? (
         <p className="text-ink" data-testid={`${testId}-note`}>
           “{confer.note}”

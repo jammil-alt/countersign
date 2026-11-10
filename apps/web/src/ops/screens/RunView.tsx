@@ -10,11 +10,13 @@
 
 import {
   approvalOf,
+  carriedOn,
   checkKindOf,
   conferOf,
   errorGroupKey,
   noAnswerOf,
   processes,
+  routeOfRow,
   runErrorCode,
   runStartedBy,
   shortRunId,
@@ -440,6 +442,7 @@ function checksFor(
   s: RunDetail["steps"][number],
   data: RunDetail,
   workflow: RanWorkflow | null,
+  outcomes: ReadonlyMap<string, NonNullable<TimelineChecks["outcome"]>> = new Map(),
 ): TimelineChecks {
   const out: TimelineChecks = {};
   const named = (who: string | null) =>
@@ -461,6 +464,18 @@ function checksFor(
         })),
       };
     }
+    // Wave 5: the route an if took and why (by step name), and a failure the run carried on past.
+    if (step && workflow?.schemaVersion === 4) {
+      const route = routeOfRow(
+        step,
+        s,
+        (nodeId) => outcomes.get(nodeId),
+        (sid) => processes.findStep(workflow, sid)?.step.name,
+      );
+      if (route) out.route = route;
+      if (carriedOn(step, s.outcome)) out.carriedOn = true;
+    }
+    if (s.outcome) out.outcome = s.outcome;
   }
   const urgent = urgentOf(s, data.inbox);
   if (urgent) out.urgent = urgent;
@@ -492,10 +507,14 @@ function Timeline({
   const { run } = data;
   const i18n = useI18n();
   const steps = new Map(data.steps.map((s) => [s.id, s]));
+  // Wave 5: each row's outcome by node id, for the routes the run's ifs took.
+  const outcomes = new Map(
+    data.steps.flatMap((s) => (s.outcome ? [[s.nodeId, s.outcome] as const] : [])),
+  );
   const done = rows.filter((r) => r.status === "succeeded").length;
   const items: StepItem[] = rows.map((r, i) => {
     const s = r.stepRunId ? steps.get(r.stepRunId) : undefined;
-    const checks = s ? checksFor(s, data, workflow) : {};
+    const checks = s ? checksFor(s, data, workflow, outcomes) : {};
     const meta = [
       s ? duration(s.startedAt, s.finishedAt) : null,
       isZero(r.costUsd) ? null : usd(r.costUsd),

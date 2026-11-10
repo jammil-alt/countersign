@@ -366,4 +366,68 @@ describe("portal run timeline: checks", () => {
       "Consultado con Dana: no está de acuerdo",
     );
   });
+
+  // Wave 5: the route an if took and why; a step that failed and the run carried on past.
+  const FORKED = {
+    ...LEAKY_TIMELINE,
+    steps: [
+      step(1, { label: "Approve the bill", status: "skipped", outcome: "rejected" }),
+      step(2, {
+        label: "Look the PO up",
+        status: "failed",
+        outcome: "failed",
+        carriedOn: true,
+      }),
+      step(3, {
+        label: "Pick the way",
+        summary: "Pick the way: Rejected",
+        route: {
+          path: "Rejected",
+          because: [
+            { label: "Approve the bill", outcome: "rejected" },
+            { label: "Look the PO up", outcome: "failed" },
+          ],
+        },
+      }),
+      step(4, { label: "Pick again", route: { path: null, because: [] } }),
+    ],
+  };
+
+  it("says which route an if took and why, and a failure the run carried on past", async () => {
+    renderTimeline(FORKED);
+    const fork = await screen.findByTestId(`portal-run-step-${S(3)}`);
+    expect(within(fork).getByTestId("portal-run-step-checks-route")).toHaveTextContent(
+      "Took the route “Rejected”: Approve the bill was rejected, Look the PO up failed",
+    );
+    expect(
+      within(screen.getByTestId(`portal-run-step-${S(4)}`)).getByTestId(
+        "portal-run-step-checks-route",
+      ),
+    ).toHaveTextContent("None of the routes matched, so it went on the usual way");
+    const look = screen.getByTestId(`portal-run-step-${S(2)}`);
+    const carried = within(look).getByTestId("portal-run-step-checks-carried-on");
+    expect(carried).toHaveTextContent("Failed, and the run carried on");
+    expect(carried).toHaveClass("ui-tone-risk");
+    expect(
+      within(screen.getByTestId(`portal-run-step-${S(1)}`)).queryByTestId(
+        "portal-run-step-checks-carried-on",
+      ),
+    ).toBeNull();
+  });
+
+  it("says the route in the client's language", async () => {
+    renderTimeline(FORKED, {
+      "GET /api/session": () => ({
+        ...CLIENT_SESSION,
+        language: { effective: "de", user: "de", client: null },
+      }),
+    });
+    expect(
+      within(await screen.findByTestId(`portal-run-step-${S(3)}`)).getByTestId(
+        "portal-run-step-checks-route",
+      ),
+    ).toHaveTextContent(
+      "Weg „Rejected“ genommen: Approve the bill: abgelehnt, Look the PO up: fehlgeschlagen",
+    );
+  });
 });

@@ -305,6 +305,96 @@ describe("back-office run view: a v4 process", () => {
       ),
     ).toHaveTextContent(/^Urgent: waiting for Seen until /);
   });
+
+  // Wave 5: the route an if took and why, by step name; a failure the run carried on past.
+  it("says which route an if took and why, and a step that failed and carried on", async () => {
+    const forked = {
+      schemaVersion: 4,
+      triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+      steps: [
+        {
+          id: "look",
+          name: "Look the PO up",
+          kind: "read",
+          tool: "testkit.record.query",
+          input: {},
+          onError: "continue",
+        },
+        {
+          id: "post",
+          name: "Approve the bill",
+          kind: "write",
+          tool: "testkit.record.update",
+          input: {},
+          checks: {
+            approval: {
+              required: "required",
+              mode: "in_turn",
+              ifNoAnswer: "stop",
+              onReject: "continue",
+            },
+          },
+        },
+        {
+          id: "route",
+          name: "If rejected",
+          kind: "if",
+          paths: [
+            {
+              id: "p-rej",
+              name: "Rejected",
+              when: {
+                match: "all",
+                rules: [{ field: "{{steps.post.outcome}}", op: "=", value: "rejected" }],
+              },
+              steps: [],
+            },
+          ],
+          otherwise: { id: "p-else", steps: [] },
+        },
+      ],
+    };
+    const runData = {
+      ...data,
+      steps: [
+        step(R(31), "look", "read", "failed", {
+          error: "The record service didn't answer",
+          outcome: "failed",
+        }),
+        step(R(32), "post", "write", "skipped", { outcome: "rejected" }),
+        step(R(33), "route", "if", "succeeded", {
+          output: { pathId: "p-rej", pathName: "Rejected" },
+        }),
+      ],
+      inbox: [],
+      oversight: [],
+      workflow: { slug: "fix-record", name: "Fix a record", definition: forked },
+    };
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: () => runData,
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/runs/${RUN_ID}?tab=timeline`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const fork = await screen.findByTestId(`ops-run-step-${R(33)}`);
+    expect(within(fork).getByTestId(`ops-run-step-checks-${R(33)}-route`)).toHaveTextContent(
+      "Took the route “Rejected”: Approve the bill was rejected",
+    );
+    const look = screen.getByTestId(`ops-run-step-${R(31)}`);
+    expect(within(look).getByTestId(`ops-run-step-checks-${R(31)}-carried-on`)).toHaveTextContent(
+      "Failed, and the run carried on",
+    );
+    expect(
+      within(screen.getByTestId(`ops-run-step-${R(32)}`)).queryByTestId(
+        `ops-run-step-checks-${R(32)}-carried-on`,
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("back-office run view", () => {
