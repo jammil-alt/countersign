@@ -18,7 +18,7 @@ import { z } from "zod";
 import { SkillCatalog } from "../registry/skills";
 import { ToolRegistry } from "../registry/tools";
 import { PLATFORM_TOOLS } from "../tools/platform";
-import { executeAction, restoreInput, type UndoInputHook, undoAction, undoKey } from "./actions";
+import { executeAction, restoreInput, undoAction, undoKey } from "./actions";
 import type { RuntimeDeps } from "./context";
 import type { ExternalActionRecord, ExternalActionStore, ProposeUndoInput } from "./ports";
 
@@ -55,6 +55,8 @@ function flagsConnector() {
         input: z.object({ name: z.string() }),
         output: z.object({ id: z.string() }),
         beforeSchema: FlagShape,
+        // R5: the create says how it is taken back: its update makes the new flag inactive.
+        undoInput: ({ output }) => ({ id: output.id, active: false }),
         async before(input) {
           return [...flags.values()].find((f) => f.name === input.name) ?? null;
         },
@@ -100,12 +102,6 @@ function flagsConnector() {
       }),
     ],
   });
-  // R5: the create says how it is taken back: its update makes the new flag inactive.
-  const hook: UndoInputHook = ({ output }) => ({
-    id: (output as { id: string }).id,
-    active: false,
-  });
-  Object.assign(connector.tools["flags.flag.create"] as object, { undoInput: hook });
   return { connector, flags, sent };
 }
 

@@ -9,8 +9,8 @@ import {
   captureBefore,
   executeWrite,
   ToolCallError,
-  type ToolHandler,
   UnconfirmedWriteError,
+  type UndoInputHook,
 } from "@countersign/connectors";
 import {
   canonicalJson,
@@ -361,31 +361,15 @@ export function undoKey(actionId: string): string {
   return `undo:${actionId}`;
 }
 
-/** What a connector may give a write tool to build its undo's input (R5). */
-export interface UndoInputArgs {
-  /** What the write wrote (the signer's edit when there was one). */
-  input: JsonObject;
-  /** The record before the write (`external_action.before`). */
-  before: unknown;
-  /** What the write returned (`external_action.result`), e.g. a created record's id. */
-  output: unknown;
-  /** The record now, read with the write's own `before` and input. */
-  current: unknown;
-}
-
-/**
- * A write handler's own undo input: the input of its `undo.tool` (or of itself, for a restore)
- * that takes the write back, or null when it can't say.
- */
-export type UndoInputHook = (args: UndoInputArgs) => unknown;
+/** What a connector may give a write tool to build its undo's input (R5): connectors' own types. */
+export type { UndoInputArgs, UndoInputHook } from "@countersign/connectors";
 
 // DECISION: a connector says how its write is taken back with an optional `undoInput` on the
-// write's handler, read here; packages/connectors adds it to `defineWriteTool` (R5 follow-up).
-// Until a tool has one, a restore by the same tool uses `restoreInput` below and a reverse is
-// refused (`no_undo_input`).
+// write's handler (WriteToolHandler, set by `defineWriteTool`). Without one, a restore by the same
+// tool uses `restoreInput` below and a reverse is refused (`no_undo_input`).
 function undoInputHook(connector: Connector, toolId: string): UndoInputHook | null {
-  const handler = connector.tools[toolId] as (ToolHandler & { undoInput?: unknown }) | undefined;
-  return typeof handler?.undoInput === "function" ? (handler.undoInput as UndoInputHook) : null;
+  const handler = connector.tools[toolId];
+  return handler?.kind === "write" ? (handler.undoInput ?? null) : null;
 }
 
 function same(a: unknown, b: unknown): boolean {
