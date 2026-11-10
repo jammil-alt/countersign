@@ -41,6 +41,8 @@ describe("connectorBrand", () => {
     const qbo = connectorBrand("qbo");
     expect(qbo?.kind).toBe("logo");
     if (qbo?.kind === "logo") expect(qbo.path).toMatch(/^M/);
+    // Zoho's logo is a wordmark, unreadable on a tile: its letter instead.
+    expect(connectorBrand("zoho_crm")).toEqual({ kind: "monogram", fill: "#E42527", letters: "Z" });
     expect(connectorBrand("bankfeed")).toEqual({ kind: "icon", icon: "bank" });
     expect(connectorBrand("nope")).toBeNull();
     expect(connectorBrand(undefined)).toBeNull();

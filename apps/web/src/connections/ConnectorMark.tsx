@@ -28,14 +28,14 @@ export function ConnectorMark({
 
   if (brand?.kind === "logo") {
     return (
-      <span aria-hidden data-mark="logo" className={cx(tile, neutral)}>
-        <svg
-          width={glyph}
-          height={glyph}
-          viewBox="0 0 24 24"
-          fill={brand.fill ?? "currentColor"}
-          aria-hidden
-        >
+      <span
+        aria-hidden
+        data-mark="logo"
+        className={cx(tile, "border border-line")}
+        // A solid white ground in both themes, so the logo's cut-outs read as the provider draws them.
+        style={{ backgroundColor: "#fff" }}
+      >
+        <svg width={glyph} height={glyph} viewBox="0 0 24 24" fill={brand.fill} aria-hidden>
           <path d={brand.path} />
         </svg>
       </span>

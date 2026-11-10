@@ -2366,7 +2366,8 @@ and audit.
 Every connector tile (back-office Connectors and Connections, the vault, the portal's Accounts)
 shows the connector's mark from one map, `apps/web/src/connections/brands.ts`, instead of its
 initials. A provider whose logo Simple Icons publishes under CC0 (16.37.0) gets that logo in the
-provider's colour on the hairline tile; a black logo is drawn in ink so it turns in dark mode. A
+provider's colour on a solid white tile with a hairline border, in both themes, so the logo's
+cut-outs show white as the provider draws them, never the tile behind. A
 provider whose logo is not there (Slack, LinkedIn, Outlook, Bing, Ramp, Podio; most were removed at
 the brand's request) or reads badly small (Zoho's wordmark) gets its letters on its colour, or ink
 when we are not sure of the colour, rather than a copied logo. Connectors we build ourselves (bank
