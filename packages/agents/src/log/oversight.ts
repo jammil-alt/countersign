@@ -91,6 +91,29 @@ async function proposalItem(
 
 export function dbOversightStore(db: Db): OversightStore {
   return {
+    // R6 (docs/plan.md §1.86): the owner's watch compares a total with this agent's earlier ones:
+    // its live runs' succeeded steps of the same workflow, newest first, this client only.
+    recentOutputs(tenantId, input) {
+      return withTenant(db, tenantId, async (tx) => {
+        const rows = await tx
+          .select({ nodeId: stepRun.nodeId, output: stepRun.output })
+          .from(stepRun)
+          .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
+          .where(
+            and(
+              eq(stepRun.tenantId, tenantId),
+              eq(run.tenantId, tenantId),
+              eq(run.agentId, input.agentId),
+              eq(run.workflowSlug, input.workflowSlug),
+              eq(run.mode, "live"),
+              eq(stepRun.status, "succeeded"),
+            ),
+          )
+          .orderBy(desc(stepRun.finishedAt))
+          .limit(input.limit);
+        return rows.map((r) => ({ nodeId: r.nodeId, output: r.output ?? null }));
+      });
+    },
     existing(tenantId, key) {
       return withTenant(db, tenantId, async (tx) => {
         const [row] = await tx
