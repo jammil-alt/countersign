@@ -28,6 +28,7 @@ import {
 import { agent, event, inboxItem, type Tx } from "@countersign/db";
 import { and, desc, eq, isNull, ne, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { installPlatformTemplate, latestSeededVersion } from "../account/templates";
 import { type AppEnv, ensureClient, HttpError, iso, mount } from "../http";
 import type { Platform } from "../platform";
 import { portalInboxFilter } from "./portal";
@@ -180,10 +181,28 @@ export async function addSupervisor(
 ): Promise<{ agent: AgentRow; created: boolean }> {
   const existing = await supervisorOf(tx, input.tenantId);
   if (existing) return { agent: existing, created: false };
-  const [template] = await tx
-    .select()
-    .from(agent)
-    .where(and(isNull(agent.tenantId), eq(agent.slug, SUPERVISOR_SLUG)));
+  const templateRow = () =>
+    tx
+      .select()
+      .from(agent)
+      .where(and(isNull(agent.tenantId), eq(agent.slug, SUPERVISOR_SLUG)))
+      .then((rows) => rows[0]);
+  let template = await templateRow();
+  if (!template?.liveVersionId) {
+    // DECISION (2026-11-10): where the seed never runs (production), adding the supervisor
+    // installs its seeded template first, newest version, as `POST /api/ops/platform-templates/
+    // supervisor/install` would; until then the new-client form failed with `no_template`.
+    const version = latestSeededVersion(SUPERVISOR_SLUG);
+    if (version !== null) {
+      await installPlatformTemplate(tx, {
+        slug: SUPERVISOR_SLUG,
+        version,
+        actorId: input.actorId,
+        platform: input.platform,
+      });
+      template = await templateRow();
+    }
+  }
   if (!template?.liveVersionId) {
     throw new HttpError(409, "no_template", "the supervisor template is not installed");
   }

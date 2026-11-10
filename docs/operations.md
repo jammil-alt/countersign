@@ -834,7 +834,8 @@ Locally the MCP server is off (`WORKOS_AUTHKIT_DOMAIN` is empty in `wrangler.jso
 ## 1.1 Onboarding a client (managed service)
 
 Done by the operator in the back office once M5–M6 ship: create the client → invite the client admin
-(WorkOS invitation) → offer the QuickBooks and Gmail connectors and set their permission matrices; the
+(WorkOS invitation) → build their agents, and offer each tool an agent needs (QuickBooks, Gmail) on the
+client's Setup → Connections page and set its permission matrix (the new-client form offers none); the
 client admin signs in to each from the portal's Connections page (we never handle their credentials) →
 set the Gmail ingestion query → enable packs → fork templates into the client (e.g. Pia) and customize them for the client's data and
 flows, bind the client's connections → test-run on the client's data → publish and activate → choose who
@@ -850,12 +851,9 @@ The supervisor (`docs/plan.md` §1.28) watches one client's runs, connections, w
 and waiting items, and tells the client admin in plain steps and us with the details. It changes
 nothing itself.
 
-1. **The template must be installed.** It is the platform template `supervisor`
-   (`packages/db/seed/agents/supervisor.v1.json`). On staging, run the seed again (Actions → **Add
-   operator** with "Run the seed first", or `pnpm --filter @countersign/db run db:seed`); it adds
-   templates that are missing and changes nothing else. The seed never runs on production, so there
-   the template is created by hand until a template-only install exists: back office → Templates →
-   new template `supervisor` with that file's bundle, then publish it.
+1. **The template** is the platform template `supervisor` (`packages/db/seed/agents/`). Where it
+   isn't installed yet (production, where the seed never runs), adding the supervisor installs its
+   newest seeded version first, so nothing is done by hand.
 2. **Add it.** New clients: "Add the supervisor" is ticked on the new-client form. Existing clients:
    the client page → Health → **Add the supervisor**. Either way it is forked from the template's
    live version and published as the client's agent `supervisor` ("Account check"); a client that

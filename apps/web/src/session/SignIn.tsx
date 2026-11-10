@@ -1,9 +1,10 @@
 // `/sign-in`. The API says which sign-in this environment uses (plan §1.1 "Auth provider"):
-// - WorkOS (staging, production): one button that goes to WorkOS and comes back signed in, and the
-//   reason when a sign-in did not complete (`?error=<code>`, set by the API's sign-in routes);
+// - WorkOS (staging, production): straight on to WorkOS, which comes back signed in; the card shows
+//   only when a sign-in did not complete (`?error=<code>`, set by the API's sign-in routes), with
+//   the reason and a button to start again;
 // - the dev adapter (local, e2e): pick a seeded user, or type a seeded user's email when the API
 //   does not list them.
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
@@ -36,7 +37,12 @@ export function signInErrorText(code: string | null, { t }: Pick<I18n, "t"> = EN
   return t(SIGN_IN_ERRORS[code] ?? "signin.error.default");
 }
 
-export function SignInScreen() {
+/** Leaves the app for the API's sign-in route, without a history entry (Back skips this page). */
+function leave(url: string) {
+  window.location.replace(url);
+}
+
+export function SignInScreen({ go = leave }: { go?: (url: string) => void } = {}) {
   const { t } = useI18n();
   const provider = useApi(apiRoutes.authProvider);
   if (provider.loading) {
@@ -46,7 +52,7 @@ export function SignInScreen() {
       </SignInFrame>
     );
   }
-  if (provider.data?.provider === "workos") return <WorkOSSignIn />;
+  if (provider.data?.provider === "workos") return <WorkOSSignIn go={go} />;
   if (provider.data?.provider === "unavailable") {
     return (
       <SignInFrame>
@@ -78,7 +84,7 @@ function SignInFrame({ children }: { children: ReactNode }) {
   );
 }
 
-function WorkOSSignIn() {
+function WorkOSSignIn({ go }: { go: (url: string) => void }) {
   const i18n = useI18n();
   const { t } = i18n;
   const location = useLocation();
@@ -88,6 +94,20 @@ function WorkOSSignIn() {
   // `next` is only ever a path inside this app; the API checks `return_to` again.
   const target = next?.startsWith("/") && !next.startsWith("//") ? next : null;
   const href = `/api/auth/sign-in${target ? `?return_to=${encodeURIComponent(target)}` : ""}`;
+  // DECISION (2026-11-10): with nothing to say, this page is skipped: the browser goes straight to
+  // WorkOS's sign-in. A sign-in that did not complete comes back with `?error=`, and only then
+  // does the card show (the reason and a way to start again), so a refusal never loops.
+  const straight = !error;
+  useEffect(() => {
+    if (straight) go(href);
+  }, [straight, go, href]);
+  if (straight) {
+    return (
+      <SignInFrame>
+        <Loading />
+      </SignInFrame>
+    );
+  }
   return (
     <SignInFrame>
       <h1 className="type-heading text-ink">{t("signin.title", { product: PRODUCT_NAME })}</h1>

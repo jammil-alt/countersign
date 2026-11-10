@@ -42,6 +42,14 @@ const SEEDED: Readonly<Record<string, Readonly<Record<number, unknown>>>> = {
   supervisor: { 1: supervisorV1, 2: supervisorV2, 3: supervisorV3, 4: supervisorV4 },
 };
 
+/** The newest seeded version of a platform template, or null when the seed has none. */
+export function latestSeededVersion(slug: string): number | null {
+  const versions = Object.hasOwn(SEEDED, slug) ? SEEDED[slug] : undefined;
+  if (!versions) return null;
+  const numbers = Object.keys(versions).map(Number);
+  return numbers.length > 0 ? Math.max(...numbers) : null;
+}
+
 function seeded(slug: string, version: number): unknown {
   // Own keys only: a slug like `__proto__` or `constructor` finds nothing.
   const versions = Object.hasOwn(SEEDED, slug) ? SEEDED[slug] : undefined;
