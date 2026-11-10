@@ -410,27 +410,31 @@ export interface OutgoingTranslation {
  * Translates a person's words for the contact a waiting message (a `reach_out` row) goes to, into
  * that contact's language (theirs, their organization's, the client's). Card numbers are cut
  * first, so no model sees them. A limit, a refusal or a failure is an error: nothing is saved.
+ * Who it goes to is read in a short transaction (`inTx`); the translation stores its own row
+ * outside it (a Worker's database has one pooled connection).
  */
 export async function translateForContact(
-  tx: Tx,
+  inTx: <T>(work: (tx: Tx) => Promise<T>) => Promise<T>,
   deps: TranslationDeps,
   input: { tenantId: string; reachOutId: string; text: string; by: string },
 ): Promise<OutgoingTranslation> {
-  const { settings } = await clientTranslation(tx, input.tenantId);
-  const [ro] = await tx
-    .select({ contactId: reachOut.contactId })
-    .from(reachOut)
-    .where(and(eq(reachOut.tenantId, input.tenantId), eq(reachOut.id, input.reachOutId)));
-  if (!ro) throw notFound("message");
-  const [who] = await tx
-    .select()
-    .from(contact)
-    .where(and(eq(contact.tenantId, input.tenantId), eq(contact.id, ro.contactId)));
-  if (!who) throw notFound("contact");
-  if (!translationWanted(settings, who.translation, "outgoing")) {
-    throw new HttpError(409, "translation_off", "translation is off for this person");
-  }
-  const to = (await contactLanguage(tx, who)).language as Locale;
+  const { settings, to } = await inTx(async (tx) => {
+    const { settings } = await clientTranslation(tx, input.tenantId);
+    const [ro] = await tx
+      .select({ contactId: reachOut.contactId })
+      .from(reachOut)
+      .where(and(eq(reachOut.tenantId, input.tenantId), eq(reachOut.id, input.reachOutId)));
+    if (!ro) throw notFound("message");
+    const [who] = await tx
+      .select()
+      .from(contact)
+      .where(and(eq(contact.tenantId, input.tenantId), eq(contact.id, ro.contactId)));
+    if (!who) throw notFound("contact");
+    if (!translationWanted(settings, who.translation, "outgoing")) {
+      throw new HttpError(409, "translation_off", "translation is off for this person");
+    }
+    return { settings, to: (await contactLanguage(tx, who)).language as Locale };
+  });
   const original = redactCardNumbers(input.text);
   const row = await translateAndStore(deps.db, deps.transport(input.tenantId), {
     tenantId: input.tenantId,

@@ -2936,6 +2936,180 @@ runtime (wave 2c):
   contract (`packages/core/src/api/undo.ts`); apps/api mounts it and the web calls it from
   `apiRoutes`, replacing both copies. The Library uses the step lists' `PROCESS_KIND_LABEL`.
 
+**Scripts (wave 4)** (R9's second half: scripted site tools; `packages/core/src/browser/script.ts`,
+`packages/connectors/src/browser/script.ts`, `apps/api/src/browser/scripts.ts`,
+`apps/api/src/routes/browser-scripts.ts`, migration 0045, `apps/web/src/accounts/scripts.tsx`, the
+Websites screen's Scripts, the Library's and the builder's listings):
+- DECISION: a script is data per client site: `browser_script` (its name, the recording being made,
+  edited in place, and the published version) and `browser_script_version` (each saved definition
+  with its evidence screenshots by step id; immutable, never deleted). Migration 0045, forced RLS on
+  `tenant_id`; publishing points the script at a version (`published_version`), it never changes
+  one.
+- DECISION: two static tools on the browser connector run every client's scripts, naming the
+  script in their input (`{ site, script, inputs }`): `browser.script.read` (a script that only
+  reads) and `browser.script.submit` (one that submits). The script is looked up at call time
+  through `BrowserServices.script`, inside the connection's own client (and on its own login), so a
+  script exists for that client alone and the platform's tool registry stays the same for everyone
+  (no per-client tools in `packages/agents`). Inputs and outputs are checked with Zod built from the
+  script's declarations, both ways (invariant 5).
+- DECISION: `browser.script.submit` is `approval: "always"`, verb `create` on a new `form` entity:
+  a person signs every script write on every tier, through the gate and `external_action` (executed
+  once by its key). The tier table's low-tier `auto` is not offered for scripts yet. Its `before`
+  reads nothing from the site (that would spend a sign-in): it checks the script is published, the
+  inputs, and the connection's write ceiling (`browserWriteCeiling`: blocked or the client's "no
+  writes" refuse before a card is made).
+- DECISION: the tool's undo is `none`. R5's Undo reads the record now and compares it with the state
+  the write left; a script has no record to read without a sign-in. A script's own undo (a named
+  reverse script with its inputs from this script's inputs or outputs) is kept on the version and
+  named in the write's output (`reverse`), for a person to run.
+- DECISION: the submit is a write script's last step, and its output is `{ submitted, url }` plus
+  what it read before submitting: a recording never clicks the submit (nothing reaches the
+  client's tool outside `external_action`, invariant 8), so a page after it was never seen.
+  Steps: open, fill, click (one may submit), read a field, read a table (by its place on the page),
+  download a file (into documents, as `browser.file.download`). Addresses may hold `{{input}}`,
+  filled percent-encoded and checked against the site's pages on every run.
+- DECISION: recording is one action per request, each in a browser session our code signs in to
+  (`withBrowserSession`): the steps so far are replayed as a dry run, then the new action is done
+  and kept with its screenshot. No live view and no session held across requests: a Worker can't
+  keep a browser between requests without a Durable Object or Browser Run's reconnect (unchecked).
+  Each action spends a sign-in against the connection's daily cap (a low-tier site that keeps its
+  session spends none). The recorder shows the page after each action: its address, some text,
+  its tables, its fields and buttons with selectors (`BrowserTab.controls`), and the screenshot.
+- DECISION: a typed value marked `as` becomes an input (the value its example); a read marked `as`
+  an output. The review edits names, labels, types and which steps stay; saving checks the
+  definition (`scriptProblems`) and every address against the site's pages with the examples, and
+  refuses one that is the same as the last version.
+- DECISION: only the operator tests and publishes. A client admin records, reviews and saves; the
+  version stays a draft (state "Waiting for us to publish") until the operator publishes it
+  (invariant 11). A test is a dry run of a version (or the recording) with given inputs or the
+  examples: the submit is never clicked and a download is fetched and not kept (test runs never
+  write, not even our own records). Publishing writes a line on the login's log
+  (`browser_script_published`).
+- DECISION: an element that isn't there stops the script (nothing after it runs, so a write submits
+  nothing) and the tool answers `{ needsHelp }` (a write's with `submitted: false`). The executor
+  now asks the lead for any native v4 read or write step whose output says so, as for a native
+  skill, and runs it once more with the answer (`help` in the input, data only; a converted v3
+  step never asks). The answer is an ordinary note: it can't change a script's fixed steps, so the
+  operator re-records and republishes, and the re-run takes the version published then.
+- DECISION: the script-draft offer (a browsing path that worked twice, §1.86 browse) has "Record it
+  as a script" in the Escalations, opening the Websites screen's recorder with
+  `?offer=<item>&client=<client>`; starting from it prefills the path's pages as open steps (a
+  download as a download step with an output of its own).
+- DECISION: the Library's Tools bank lists the picked client's published scripts under the browser
+  connector; a client agent's builder palette offers them in the browser connector's section as read
+  and write steps with the script named in the input (a write starting with its approval on). The
+  builder change is a preset `input` on palette read and write items and three small hooks
+  (`WorkflowBuilder.tsx`, `catalog.ts`, `model.ts`); the rest is `builder/scripts.ts`.
+- DECISION: the page scripts behind `BrowserTab.textOf` and `controls` (Playwright, evaluated in the
+  page like `readText`) are checked against the fake browser only here: real Chromium and Browser
+  Run are unchecked (CI's Chromium job covers the Playwright adapter).
+- DECISION (review fix): no transaction is held across a browser or the runtime. A Worker's
+  database has one pooled connection, so recording an action, testing a script and pressing R5's
+  Undo run on `mountLong` (`apps/api/src/http.ts`): the same sign-in, roles, scope and audit as
+  `mount`, with short `inTx` transactions in the request's scope and the ok audit row written alone
+  after them. A recorded action reads in one, runs the browser outside any, and writes its step in a
+  second; the pinned site is read inside the request's transaction (`pinnedSiteIn`). The API tests
+  build the app on `{ max: 1 }` (`appDbMax`) for these routes and the undo tests.
+- DECISION (review fix, replaces "each action spends a sign-in against the connection's daily cap"
+  above): recording and tests sign in against an allowance of their own, 30 a day per connection
+  (`RECORDER_SIGN_INS_PER_DAY`, the connection's `recorderState`), never the agents' daily cap;
+  failures and the stop stay shared (the same account). A held session lives inside one run's step,
+  and a Worker can't keep one between requests. Recording is refused (`code_every_sign_in`) on a
+  login whose site asks for a second factor at every sign-in and doesn't keep its session.
+- DECISION (review fix): the back office's script view carries each saved version's definition
+  (`versions[i].definition`) and `recordingDiffers` (the recording against the newest version, by
+  canonical JSON; with none saved, whether anything is recorded); the portal's view leaves the
+  definitions out (no portal response carries one). Publishing publishes the version number given.
+- DECISION (review fix): a recorded page that showed a vault value (the connector's `[hidden]` marker
+  in its text, tables, fields or the value read) has its screenshot neither linked nor kept as the
+  step's evidence (`screenshotWithheld: true`). A recorded action whose script changed while its
+  browser ran is refused with 409 (the row re-read `for update`), never merged. A test's result says
+  `dryRun: true`, and a write's outputs `submitted: false`.
+- DECISION (review): every script step runs with the page read only (`BrowserTab.readOnly`): only
+  GET and HEAD leave the browser, so a navigation, fetch, XHR or beacon with any other method is
+  aborted where it starts and the page stays as it was. This holds for recordings' replays, tests,
+  read scripts and a write's steps before its submit (they are what its test ran); only the marked
+  submit, in a run that isn't dry, lets the browser post. The Playwright adapter does it with one
+  `page.route` for the page's life; a browser without `readOnly` is refused; it is lifted before
+  sign-out, which may post. The fake browser mirrors it (its form and posting buttons do nothing).
+- DECISION (review): a click on a button that sends a form (a submit-type button or image input, or
+  any button inside a form: `BrowserControl.submits`, `BrowserTab.sendsForm`) that isn't the marked
+  submit is refused at run time (a refusal, not a request for help: the script is wrong, not the
+  page). Saving can't tell, having no page. A `<button>` with no type outside any form doesn't
+  count: it posts nothing by itself, and read only stops whatever its script sends.
+- DECISION (review): a submit whose landing page is off the allowed pages or a stop page is
+  reported as sent, `{ submitted: true, url: null, landing: <reason> }`, without reading or
+  photographing that page (`SignedInPage.submit`), so the `external_action` is recorded as done.
+  `landing` is a reserved output name.
+- DECISION (review): `browser.script.submit`'s before state is the published version and its steps
+  in words (`{ versionId, version, name, steps }`), so the approval card shows what will be sent;
+  the write is refused when the version approved (`proposedBefore`) is no longer the published one.
+  The runtime always passes the action's before (null when none was kept, never absent), so every
+  write it runs is checked, and a null before (an older card, or a before that failed) is refused,
+  to be approved again. A caller that leaves `proposedBefore` out would run the published version
+  unchecked; the platform has no such caller (only the connector's tests).
+- DECISION (review, replaces "the answer is an ordinary note" above): a `browser.script.*` step
+  that needs help asks the operator (the `operator` role, as an escalation's `to` names it), not
+  the lead, and its answer is not written to memory: no answer changes a script's fixed steps. The
+  operator records the script again and publishes it, then answers; the step runs once more on the
+  version published then, and fails if it still needs help. Unanswered within the help deadline,
+  the step fails as needing a new recording.
+- DECISION (review): script problems carry a code and its names (`scriptProblemList`, with the
+  English text beside them; `scriptProblems` keeps the text). The portal says a problem with a code
+  it knows through `scripts.problem.<code>` in the client's language, else the server's words (also
+  when a name is missing). The portal shows "Published · v1, v2 waiting" when an older version
+  runs while a newer saved one waits.
+- DECISION (review): the Websites screen shows the exact stored steps of the version it publishes
+  (each element or address, fixed text, inputs, outputs, every click and the one that submits, the
+  side effect and the undo) and a signal note when the working recording differs. Without the
+  version's stored definition from the API, publishing stays off.
+- DECISION (review): a script step placed from the builder's palette starts with every declared
+  input, each an empty string for the operator to fill or point at an earlier output. Typing the
+  placed step's output per script (`scriptJsonSchemas`) needs the builder's typing context to know
+  scripts and is left to the builder's own branch.
+- DECISION (integration): a script's problems are `{ code, params, text }` with one code list:
+  core's `SCRIPT_PROBLEM_CODES` (a definition's own, from `scriptProblemList`) and the API's four
+  that need the recording or the site (`empty`, `invalid`, `site_gone`, `off_site`, made with their
+  codes in `apps/api/src/browser/problems.ts`); no catch-all. The contract's type is
+  `ScriptProblemView` (core's `ScriptProblem` is the definition's own). The portal words every code
+  but `empty` (never shown: nothing is recorded) through `scripts.problem.<code>`.
+- DECISION (integration, replaces "one `page.route` for the page's life" above): read-only mode's
+  route is on the page's context (`page.context().route`), so a popup or a new page the site opens
+  is held as the page is; the openers make the context with `{ acceptDownloads: false,
+  serviceWorkers: "block" }`, since a service worker's requests pass no route. WebSockets are not
+  covered: no route sees a frame sent on one. Browser Run's support for `context.route` and
+  `serviceWorkers` is unchecked until staging.
+- DECISION (integration): a test is held to the recorder's rules. It is refused
+  (`code_every_sign_in`) on a login whose site asks for a code at every sign-in and doesn't keep its
+  session, and it runs its steps one at a time, each page after it checked for a vault value as a
+  recorded page is; once one is seen, none of the test's screenshots is linked
+  (`screenshotWithheld: true` on the result).
+- DECISION (integration): the recorder's page carries each control's `submits` (the contract's
+  `RecorderControl`), and the recorder marks such a button "sends the form". An unmarked click on
+  one is refused before any call, in the reader's words (`error.sends_form`); the server's own
+  refusal (`ScriptClickSendsForm`) answers 422 `sends_form`, worded the same in the portal.
+- DECISION (integration): a script's own errors (`ScriptStepMissing`, `ScriptClickSendsForm`) keep
+  their class through the browser session's cleaning (`KeepsClassWhenCleaned`, the message still
+  redacted), so the API tells them apart after the session: a recorded element that isn't there
+  answers 422 `not_found` and a test that meets one answers `needs_help` (both had become a 500).
+- DECISION (integration): a saved version whose stored definition no longer parses stays in the
+  script's view with `definition: null` (its side effect as stored, else a write), and counts for
+  the state and `recordingDiffers` as the newest; the Websites screen keeps Publish off for it and
+  the publish route refuses it (409 `invalid_state`): it can't be shown, so it isn't sent.
+- DECISION (integration): the executor names no tool for help. A tool step's `needsHelp` may say
+  who answers (`to: "operator"`, else the lead) and that the answer isn't kept (`keep: false`); the
+  browser connector's `scriptNeedsHelp` says both. Read only from a tool step's output (our code
+  wrote it), never a skill's, whose output may come from a model: a skill always asks the lead.
+- DECISION (integration): the same rule for every route that waits on its own transactions or on
+  something outside: on `mountLong`, reads and writes in short `inTx` transactions, nothing held
+  across the wait. Moved: the ledger's signed change (`opsClientLedgerChange`), a pack's action
+  (`opsClientPackAction`), a pack review's decision (`opsPackReviewDecide`,
+  `portalPackReviewDecide`), editing before signing (`portalEditInbox`: the runtime's check and a
+  translation; a change someone else edited meanwhile is refused with 409 `conflict`), and the
+  OAuth callbacks (`portalAuthorizeCallback`, `opsSandboxAuthorizeCallback`: the provider's
+  exchange, WhatsApp's "number taken" check, and the vault's cipher in transactions of its own).
+  Their API tests run on `appDbMax: 1` (desk, packs, qbo, whatsapp-meta).
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
@@ -4133,7 +4307,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0041 | §1.81 | `qbo_webhook_event`: Intuit's webhook notifications, one row per change |
 | 0043 | R4 (§1.86) | `membership.hours`, `contact.hours`: a person's own week and away dates, nullable `jsonb` |
 | 0044 | R5 (§1.86) | `external_action.after`: the state a write left, for undo, nullable `jsonb` |
-| 0045 | R9 (§1.86) | Recorded browser scripts (scripted site tools), if they need their own table |
+| 0045 | R9 (§1.86) | `browser_script`, `browser_script_version`: a client's recorded scripts (scripted site tools), forced RLS on `tenant_id`, versions immutable |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
@@ -4398,4 +4572,7 @@ Status (2026-11-10): wave 1 (R1, R2's schema, R5's declarations, ARCHITECTURE v0
 v4 validator, executor, owner, conversation step, hours and channels storage, the undo path and
 site-scoped browsing) are merged on `claude/busy-euler-cgu5kr`. Wave 2b wires them end to end in
 apps/api and fixes wave 2's review findings; wave 3 is R8 and R9's templates. Migrations 0043 and
-0044 are their own commits, for their own PRs.
+0044 are their own commits, for their own PRs. Wave 4 (`wave4/scripts`) is R9's scripted site
+tools: recorded, reviewed, tested and published scripts run as `browser.script.read` and
+`browser.script.submit` (decisions in §1.86 "Scripts (wave 4)"), with migration 0045 in its own
+commit.

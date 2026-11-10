@@ -119,6 +119,7 @@ import {
   workflowCounts,
 } from "./model";
 import { type Member, type People, personName } from "./people";
+import { useClientScriptTools } from "./scripts";
 
 type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
 
@@ -165,6 +166,7 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
       ? { params: { id: props.agent.tenantId } }
       : null,
   );
+  const scripts = useClientScriptTools(props.agent); // Wave 4: the client's recorded scripts
   const people = useMemo<People>(
     () => ({
       members: props.members ?? [],
@@ -197,7 +199,7 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
   return (
     <BuilderBody
       {...props}
-      data={{ catalog: catalog.data, events: events.data.events }}
+      data={{ catalog: catalog.data, events: events.data.events, scripts }}
       template={template}
       people={people}
     />

@@ -19,6 +19,7 @@ export * from "./api/automations";
 export * from "./api/bankfeed";
 export * from "./api/billing";
 export * from "./api/browser";
+export * from "./api/browser-scripts";
 // v0.12 W3-A: the Builder as a conversation
 export * from "./api/builder";
 export * from "./api/calls";
@@ -101,6 +102,7 @@ export * from "./approvals/rules";
 // P-3: attachments both ways
 export * from "./attachments";
 export * from "./billing";
+export * from "./browser/script";
 export * from "./browser/site";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";

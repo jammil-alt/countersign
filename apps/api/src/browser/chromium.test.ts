@@ -231,7 +231,7 @@ function setUp() {
   const services: BrowserServices = {
     site: async () => site,
     async open() {
-      const context = await browser.newContext();
+      const context = await browser.newContext({ acceptDownloads: false, serviceWorkers: "block" });
       const p = await context.newPage();
       return playwrightTab(p as unknown as PlaywrightPageLike, {
         close: () => context.close(),

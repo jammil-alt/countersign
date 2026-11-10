@@ -47,7 +47,9 @@ describe("undo routes (static)", () => {
   });
 });
 
-const h = await createApiHarness();
+// The app on one pooled connection, as a Worker has it: the undo runs outside the request's
+// transaction, so it can't wait on itself.
+const h = await createApiHarness({ appDbMax: 1 });
 afterAll(() => h?.close());
 
 describe.skipIf(!h)("a late answer and its undo", () => {

@@ -45,6 +45,8 @@ const CODE_KEYS: Record<string, PlainKey> = {
   no_address: "error.no_address",
   // R8: hours the hours routes refuse (no open hours, away for over a year, a date that isn't one).
   invalid_hours: "error.invalid_hours",
+  // Wave 4: a recorded click on a button that sends a form, not marked as the one that does.
+  sends_form: "error.sends_form",
 };
 
 /**

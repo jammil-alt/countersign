@@ -22,6 +22,8 @@ import {
   billingStatement,
   billingStatementLine,
   billingUsageReport,
+  browserScript,
+  browserScriptVersion,
   builderSession,
   builderTurn,
   connection,
@@ -757,6 +759,27 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     operation: "Update",
     lastUpdated: new Date("2026-11-09T12:00:00Z"),
     acted: true,
+  });
+  // 0045: a recorded browser script and its first version.
+  const [script] = await db
+    .insert(browserScript)
+    .values({
+      tenantId,
+      connectionId: c.id,
+      site: "supplier",
+      slug: "check-stock",
+      name: "Check stock",
+      recording: { steps: [] },
+      createdSide: "client",
+    })
+    .returning();
+  if (!script) throw new Error("no browser script");
+  await db.insert(browserScriptVersion).values({
+    tenantId,
+    scriptId: script.id,
+    version: 1,
+    definition: { schemaVersion: 1, site: "supplier", name: "Check stock" },
+    recordedSide: "client",
   });
   await db.insert(ledgerAccountNote).values({
     tenantId,

@@ -15,7 +15,7 @@ import { leadOf } from "@countersign/threads";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { auditInTx } from "../audit";
-import { type AppEnv, HttpError, mount, notFound, type Services } from "../http";
+import { type AppEnv, HttpError, mountLong, notFound, type Services, txOnly } from "../http";
 import { withCanSign } from "../inbox";
 import { operatorApprovers } from "../routes/ops-clients";
 import { portalInboxFilter } from "../routes/portal";
@@ -40,24 +40,33 @@ async function mayPress(tx: Tx, tenantId: string, offer: UndoOffer, by: Approver
   return offer.lead && by.role === "operator" && (await leadOf(tx, tenantId))?.userId === by.userId;
 }
 
+/**
+ * The press, in three parts: who may press and what is offered, read in a short transaction; the
+ * undo itself outside any (the runtime opens its own, and the Worker's database has one pooled
+ * connection, so it must never run inside the request's); then every item carrying the offer and
+ * the undo's audit row, in a second short transaction (the routes use `mountLong`).
+ */
 async function pressUndo(
-  ctx: { tx: Tx; services: Services },
-  item: typeof inboxItem.$inferSelect,
-  who: Approver,
+  ctx: { inTx: <T>(work: (tx: Tx) => Promise<T>) => Promise<T>; services: Services },
+  find: (tx: Tx) => Promise<{ item: typeof inboxItem.$inferSelect; who: Approver }>,
   side: "portal" | "ops",
 ): Promise<UndoChangeResult> {
-  const { tx, services } = ctx;
+  const { services } = ctx;
+  const { item, offer, by } = await ctx.inTx(async (tx) => {
+    const { item, who } = await find(tx);
+    const offer = undoOfferOf(item.payload);
+    if (!offer) throw new HttpError(409, "no_undo", "there's no undo offered on this item");
+    const by = await withCanSign(tx, item.tenantId, who);
+    if (!(await mayPress(tx, item.tenantId, offer, by))) {
+      throw new HttpError(
+        403,
+        "not_yours",
+        "only the person who said no, a client admin, or the lead can undo this",
+      );
+    }
+    return { item, offer, by };
+  });
   const tenantId = item.tenantId;
-  const offer = undoOfferOf(item.payload);
-  if (!offer) throw new HttpError(409, "no_undo", "there's no undo offered on this item");
-  const by = await withCanSign(tx, tenantId, who);
-  if (!(await mayPress(tx, tenantId, offer, by))) {
-    throw new HttpError(
-      403,
-      "not_yours",
-      "only the person who said no, a client admin, or the lead can undo this",
-    );
-  }
   const runtime = runtimeFor(
     forClient(
       runDepsFromEnv(services.env, {
@@ -69,7 +78,7 @@ async function pressUndo(
     ),
   );
   const out = await undoAction(runtime, { tenantId, actionId: offer.actionId, by: by.userId });
-  const audit = (outcome: "ok" | "refused" | "error", extra: Record<string, string>) =>
+  const audit = (tx: Tx, outcome: "ok" | "refused" | "error", extra: Record<string, string>) =>
     auditInTx(tx, null, {
       tenantId,
       actorKind: "user",
@@ -80,7 +89,7 @@ async function pressUndo(
       target: { item: item.id, action: offer.actionId, ...extra },
     });
   if (out.status === "refused") {
-    await audit("refused", { code: out.code });
+    await ctx.inTx((tx) => audit(tx, "refused", { code: out.code }));
     return { itemId: item.id, undo: { status: "refused", code: out.code, reason: out.reason } };
   }
   // Every item carrying this offer (the person's and the lead's) shows what came of it.
@@ -91,18 +100,20 @@ async function pressUndo(
     at: new Date().toISOString(),
     ...(out.status === "failed" ? { reason: out.error } : {}),
   };
-  await tx
-    .update(inboxItem)
-    .set({
-      payload: sql`jsonb_set(${inboxItem.payload}, '{undo}', (${inboxItem.payload}->'undo') || ${JSON.stringify(patch)}::jsonb)`,
-    })
-    .where(
-      and(
-        eq(inboxItem.tenantId, tenantId),
-        sql`${inboxItem.payload}->'undo'->>'actionId' = ${offer.actionId}`,
-      ),
-    );
-  await audit(out.status === "done" ? "ok" : "error", { undoAction: out.undo.id });
+  await ctx.inTx(async (tx) => {
+    await tx
+      .update(inboxItem)
+      .set({
+        payload: sql`jsonb_set(${inboxItem.payload}, '{undo}', (${inboxItem.payload}->'undo') || ${JSON.stringify(patch)}::jsonb)`,
+      })
+      .where(
+        and(
+          eq(inboxItem.tenantId, tenantId),
+          sql`${inboxItem.payload}->'undo'->>'actionId' = ${offer.actionId}`,
+        ),
+      );
+    await audit(tx, out.status === "done" ? "ok" : "error", { undoAction: out.undo.id });
+  });
   return {
     itemId: item.id,
     undo:
@@ -118,37 +129,45 @@ async function pressUndo(
 }
 
 export function undoRouteHandlers(app: Hono<AppEnv>): void {
-  mount(app, undoRoutes.portalUndoChange, async (ctx) => {
+  mountLong(app, undoRoutes.portalUndoChange, async (ctx) => {
     const tenantId = ctx.tenantIds[0] as string;
-    // Only an item the portal's inbox shows this person, in their one client (invariant 1).
-    const [item] = await ctx.tx
-      .select()
-      .from(inboxItem)
-      .where(
-        and(
-          eq(inboxItem.id, ctx.params.id),
-          eq(inboxItem.tenantId, tenantId),
-          portalInboxFilter(ctx.role, ctx.session.user.id),
-        ),
-      );
-    if (!item) throw notFound("inbox item");
-    const who: Approver = {
-      userId: ctx.session.user.id,
-      role: ctx.role as Approver["role"],
+    const find = async (tx: Tx) => {
+      // Only an item the portal's inbox shows this person, in their one client (invariant 1).
+      const [item] = await tx
+        .select()
+        .from(inboxItem)
+        .where(
+          and(
+            eq(inboxItem.id, ctx.params.id),
+            eq(inboxItem.tenantId, tenantId),
+            portalInboxFilter(ctx.role, ctx.session.user.id),
+          ),
+        );
+      if (!item) throw notFound("inbox item");
+      const who: Approver = {
+        userId: ctx.session.user.id,
+        role: ctx.role as Approver["role"],
+      };
+      return { item, who };
     };
-    return pressUndo(ctx, item, who, "portal");
+    return pressUndo({ inTx: txOnly(ctx.inTx), services: ctx.services }, find, "portal");
   });
 
-  mount(app, undoRoutes.opsUndoChange, async (ctx) => {
-    // Only an item of a client this operator serves.
-    const [item] = await ctx.tx
-      .select()
-      .from(inboxItem)
-      .where(and(eq(inboxItem.id, ctx.params.id), inArray(inboxItem.tenantId, [...ctx.tenantIds])));
-    if (!item) throw notFound("inbox item");
-    const who = (await operatorApprovers(ctx.tx, ctx.session.user.id, [item.tenantId]))(
-      item.tenantId,
-    );
-    return pressUndo(ctx, item, who, "ops");
+  mountLong(app, undoRoutes.opsUndoChange, async (ctx) => {
+    const find = async (tx: Tx) => {
+      // Only an item of a client this operator serves.
+      const [item] = await tx
+        .select()
+        .from(inboxItem)
+        .where(
+          and(eq(inboxItem.id, ctx.params.id), inArray(inboxItem.tenantId, [...ctx.tenantIds])),
+        );
+      if (!item) throw notFound("inbox item");
+      const who = (await operatorApprovers(tx, ctx.session.user.id, [item.tenantId]))(
+        item.tenantId,
+      );
+      return { item, who };
+    };
+    return pressUndo({ inTx: txOnly(ctx.inTx), services: ctx.services }, find, "ops");
   });
 }

@@ -23,6 +23,7 @@ import { automationRoutes, BuilderAutomation } from "./automations";
 import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
+import { browserScriptRoutes } from "./browser-scripts";
 // v0.12 W3-A: the Builder as a conversation
 import { builderRoutes } from "./builder";
 import { callRoutes } from "./calls";
@@ -2020,6 +2021,8 @@ export const routes = {
   ...reachRoutes,
   ...accessRoutes,
   ...browserRoutes,
+  // Wave 4 (docs/plan.md §1.86 "Scripts (wave 4)")
+  ...browserScriptRoutes,
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,

@@ -24,6 +24,7 @@ import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader } from "../../
 import { Notice } from "../agents/ui";
 import { BankSearch } from "../library/LibraryFrame";
 import { matches } from "../library/paths";
+import { OpsScriptsSection } from "./BrowserScripts";
 
 type Site = ResponseOf<typeof apiRoutes.opsBrowserSites>["sites"][number];
 
@@ -191,6 +192,8 @@ export function OpsBrowserSitesScreen() {
           </>
         )}
       </Loaded>
+      {/* Wave 4 (docs/plan.md §1.86): the clients' recorded scripts on these sites. */}
+      <OpsScriptsSection />
     </Page>
   );
 }

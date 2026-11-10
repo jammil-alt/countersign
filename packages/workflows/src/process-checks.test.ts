@@ -372,6 +372,163 @@ describe("needs help", () => {
       { note: 'Asked "Where is the list?", the lead answered: Under Reports' },
     ]);
   });
+
+  it("a skill's output can't name the operator or drop the note: it asks the lead and keeps it", async () => {
+    const h = new Harness();
+    let runs = 0;
+    h.handlers.find = () =>
+      ++runs === 1
+        ? {
+            kind: "done",
+            output: { needsHelp: { question: "Where is the list?", to: "operator", keep: false } },
+          }
+        : { kind: "done", output: { ok: true } };
+    const notes: unknown[] = [];
+    const original = h.agent.runAction;
+    h.agent.runAction = async (req) => {
+      if (req.step.tool !== "memory.write") return original(req);
+      notes.push(req.input);
+      return { kind: "done", output: { memoryNoteId: "m-1" } };
+    };
+    const runner = new FakeStepRunner({ onWait: "block" });
+    runner.onWaitStarted = (_name, type) => runner.deliver(type, { answer: "Under Reports" });
+    const result = await executeWorkflow(
+      runner,
+      h.context(),
+      proc([{ id: "find", kind: "skill", name: "Find", skill: "web.browse", input: {} }]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect([...h.items.values()][0]?.item?.step).toMatchObject({ assignee: "lead" });
+    expect(notes).toHaveLength(1);
+  });
+
+  // Wave 4 (docs/plan.md §1.86 "Scripts (wave 4)"): a recorded script whose page changed.
+  // The browser connector's request (`scriptNeedsHelp`): the operator answers, nothing is kept.
+  const scriptHelp = {
+    kind: "done" as const,
+    output: {
+      needsHelp: {
+        question: "The script couldn't find #stock on /orders/lookup",
+        tried: [],
+        to: "operator",
+        keep: false,
+      },
+    },
+  };
+  /** The same question with neither: another tool's request asks the lead and keeps the answer. */
+  const plainHelp = {
+    kind: "done" as const,
+    output: {
+      needsHelp: { question: "The script couldn't find #stock on /orders/lookup", tried: [] },
+    },
+  };
+
+  it("is a native read step's too: a script asks the operator, keeps no note, and runs again", async () => {
+    const h = new Harness();
+    let runs = 0;
+    h.handlers.stock = () => (++runs === 1 ? scriptHelp : { kind: "done", output: { stock: 42 } });
+    const runner = new FakeStepRunner({ onWait: "block" });
+    runner.onWaitStarted = (_name, type) => runner.deliver(type, { answer: "Re-recorded it" });
+    const result = await executeWorkflow(
+      runner,
+      h.context(),
+      proc([
+        {
+          id: "stock",
+          kind: "read",
+          name: "Check stock",
+          tool: "browser.script.read",
+          input: { site: "supplier", script: "stock", inputs: { sku: "OAK-1" } },
+        },
+      ]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    // A script's answer is never written to memory: no answer changes its fixed steps.
+    expect(h.agentCalls).toHaveLength(2);
+    expect(h.agentCalls.some((c) => "tool" in c.step && c.step.tool === "memory.write")).toBe(
+      false,
+    );
+    expect(h.agentCalls[1]?.input).toMatchObject({ script: "stock", help: "Re-recorded it" });
+    const asked = [...h.items.values()][0]?.item;
+    expect(asked?.title).toMatch(/couldn.t find #stock/);
+    expect(asked?.step).toMatchObject({ kind: "person", assignee: "operator" });
+  });
+
+  it("fails a script's step when we don't answer in time, and runs nothing again", async () => {
+    const h = new Harness();
+    let runs = 0;
+    h.handlers.stock = () => {
+      runs += 1;
+      return scriptHelp;
+    };
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context(),
+      proc([
+        {
+          id: "stock",
+          kind: "read",
+          name: "Check stock",
+          tool: "browser.script.read",
+          input: { site: "supplier", script: "stock", inputs: { sku: "OAK-1" } },
+        },
+      ]),
+      {},
+    );
+    expect(result.status).toBe("failed");
+    expect(runs).toBe(1);
+    expect(h.row("stock")?.error).toMatch(/needs our work first, and we didn't answer in time/);
+  });
+
+  it("another tool's native read still asks the lead and keeps the answer", async () => {
+    const h = new Harness();
+    let runs = 0;
+    h.handlers.stock = () => (++runs === 1 ? plainHelp : { kind: "done", output: { stock: 42 } });
+    const runner = new FakeStepRunner({ onWait: "block" });
+    runner.onWaitStarted = (_name, type) => runner.deliver(type, { answer: "Under Reports" });
+    const result = await executeWorkflow(
+      runner,
+      h.context(),
+      proc([
+        {
+          id: "stock",
+          kind: "read",
+          name: "Check stock",
+          tool: "browser.page.read",
+          input: { site: "supplier", url: "https://portal.supplier.test/orders" },
+        },
+      ]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.agentCalls).toHaveLength(3);
+    expect(h.agentCalls[1]).toMatchObject({ step: { tool: "memory.write" } });
+    expect([...h.items.values()][0]?.item?.step).toMatchObject({ assignee: "lead" });
+  });
+
+  it("is never a converted v3 action's", async () => {
+    const h = new Harness();
+    h.handlers.stock = () => scriptHelp;
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context(),
+      wf([
+        {
+          id: "stock",
+          kind: "action",
+          name: "Check stock",
+          tool: "browser.script.read",
+          input: {},
+          approval: { required: "not_required" },
+        },
+      ]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.items.size).toBe(0);
+  });
 });
 
 describe("the owner (R6)", () => {

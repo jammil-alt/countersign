@@ -992,7 +992,7 @@ class Executor {
     if (step.kind !== "write" && checks?.confer) {
       opts.afterRun = async (output) => {
         // A request for help isn't the step's result: it is conferred on once answered.
-        if (needsHelpOf(output, !origin && view.kind === "skill")) return;
+        if (needsHelpOf(output, !origin)) return;
         await conferOutput(shape(output));
       };
     }
@@ -1005,7 +1005,10 @@ class Executor {
     let proposed = done.proposed;
 
     // R3: a native skill that couldn't do it asks the lead, then runs once more with the answer.
-    if (view.kind === "skill" && !origin) {
+    // Wave 4: so does a native read or write step whose tool asked (a recorded script whose page
+    // changed answers `needsHelp`, docs/plan.md §1.86 "Scripts (wave 4)").
+    // DECISION: any native work step's `needsHelp` output asks; a converted v3 step's never does.
+    if (!origin) {
       const helped = await this.needsHelp(view, name, frame, approval, done, opts);
       output = helped.output;
       proposed = helped.proposed;
@@ -1950,10 +1953,19 @@ class Executor {
    * R3: a native skill's output said it needs help (`needsHelp`): the lead is asked with what it
    * tried, the answer is kept (`memory.write`) and the step runs once more with `help` in its
    * input, as data. Still stuck after that, the step fails. A converted v3 skill's output is its
-   * output, whatever it holds (it never asked before).
+   * output, whatever it holds (it never asked before). A tool step's request may name the
+   * operator (`to`) and say its answer isn't kept (`keep: false`): a recorded script's does.
    */
+  // DECISION (wave 4 review): a script's fixed steps can't change with anyone's answer, so its
+  // request for help goes to the operator (the `operator` role, as an escalation's `to` names it),
+  // who records the script again and publishes it; once answered the step runs once more, on
+  // whatever version is published then, and is failed if it still needs help. The answer is not
+  // written to memory: it says what we did to the script, not how to do the work.
+  // DECISION (wave 4 integration): the connector says so in the request (`to: "operator"`,
+  // `keep: false`, its `scriptNeedsHelp`); the executor names no tool. Both are read only from a
+  // tool step's output (code wrote it), never a skill's, whose output may come from a model.
   async needsHelp(
-    view: SkillStep,
+    view: SkillStep | ActionStep,
     name: string,
     frame: Frame,
     approval: Approval,
@@ -1981,6 +1993,10 @@ class Executor {
       },
     });
     const b = `${name}:help`;
+    // What a tool step asks for: who answers, and whether the answer is kept as a note.
+    const fromTool = "tool" in view;
+    const toOperator = fromTool && need.to === "operator";
+    const keep = !fromTool || need.keep !== false;
     await this.runner.do(`${b}:waiting`, async () => {
       await log.update(done.stepRunId, {
         status: "waiting",
@@ -1988,13 +2004,15 @@ class Executor {
       });
       return null;
     });
-    const asked = await ask(b, LEAD_ASSIGNEE, HELP_DEADLINE);
+    const asked = await ask(b, toOperator ? "operator" : LEAD_ASSIGNEE, HELP_DEADLINE);
     const answer = await this.awaitResolution(b, asked.item, asked.timeout);
     if (!answer || answer.approved === false || answer.answer === undefined) {
       await this.runner.do(`${b}:done`, async () => {
         await log.update(done.stepRunId, {
           status: "failed",
-          error: "needs help: no answer from the lead",
+          error: toOperator
+            ? "needs help: it needs our work first, and we didn't answer in time"
+            : "needs help: no answer from the lead",
           summary: `${label}: ${this.words.noAnswerInTime}`,
         });
         return null;
@@ -2003,55 +2021,58 @@ class Executor {
     }
     const help = answer.answer;
     // Kept for next time. A note that fails to save never fails the step, but its row says so.
-    await this.runner.do(`${b}:memory`, async () => {
-      const text = typeof help === "string" ? help : JSON.stringify(help);
-      // DECISION: a browsing skill's answer (one with `remember`) is kept by the port, as the
-      // platform's own note in the browse scope, so the same skill on the same sites gets it back
-      // and nothing the model writes reads as the lead's answer (invariant 9). Any other answer,
-      // or a port without `keepHelp`, is an ordinary memory note.
-      const note = `Asked "${need.question}", the lead answered: ${text}`.slice(0, 2000);
-      let problem: string | null = null;
-      try {
-        if (need.remember && agent.keepHelp) {
-          await agent.keepHelp({
+    // An answer the request says not to keep (a script's: what we did to it) is not.
+    if (keep) {
+      await this.runner.do(`${b}:memory`, async () => {
+        const text = typeof help === "string" ? help : JSON.stringify(help);
+        // DECISION: a browsing skill's answer (one with `remember`) is kept by the port, as the
+        // platform's own note in the browse scope, so the same skill on the same sites gets it back
+        // and nothing the model writes reads as the lead's answer (invariant 9). Any other answer,
+        // or a port without `keepHelp`, is an ordinary memory note.
+        const note = `Asked "${need.question}", the lead answered: ${text}`.slice(0, 2000);
+        let problem: string | null = null;
+        try {
+          if (need.remember && agent.keepHelp) {
+            await agent.keepHelp({
+              run,
+              stepRunId: done.stepRunId,
+              nodeId: `${b}:memory`,
+              remember: need.remember,
+              question: need.question,
+              answer: text,
+            });
+            return null;
+          }
+          const kept = await agent.runAction({
             run,
-            stepRunId: done.stepRunId,
+            step: {
+              id: view.id,
+              name: view.name,
+              kind: "action",
+              tool: "memory.write",
+              input: { note },
+              approval: DEFAULT_APPROVAL,
+            },
             nodeId: `${b}:memory`,
-            remember: need.remember,
-            question: need.question,
-            answer: text,
-          });
-          return null;
-        }
-        const kept = await agent.runAction({
-          run,
-          step: {
-            id: view.id,
-            name: view.name,
-            kind: "action",
-            tool: "memory.write",
+            stepRunId: done.stepRunId,
             input: { note },
             approval: DEFAULT_APPROVAL,
-          },
-          nodeId: `${b}:memory`,
-          stepRunId: done.stepRunId,
-          input: { note },
-          approval: DEFAULT_APPROVAL,
-        });
-        if (kept.kind === "failed") problem = kept.error;
-        else if (kept.kind === "escalated") problem = kept.reason;
-        else if (kept.kind !== "done") problem = "it wasn't written at once";
-      } catch (error) {
-        problem = message(error);
-      }
-      if (problem !== null) {
-        await log.update(done.stepRunId, {
-          status: "waiting",
-          error: `the lead's answer wasn't kept: ${problem}`,
-        });
-      }
-      return null;
-    });
+          });
+          if (kept.kind === "failed") problem = kept.error;
+          else if (kept.kind === "escalated") problem = kept.reason;
+          else if (kept.kind !== "done") problem = "it wasn't written at once";
+        } catch (error) {
+          problem = message(error);
+        }
+        if (problem !== null) {
+          await log.update(done.stepRunId, {
+            status: "waiting",
+            error: `the lead's answer wasn't kept: ${problem}`,
+          });
+        }
+        return null;
+      });
+    }
     const input = { ...base, help };
     // DECISION: the re-run has its own durable name and its own idempotency keys (`${name}:h1`):
     // its input changed, so any write it proposes is decided afresh.

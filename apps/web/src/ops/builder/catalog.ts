@@ -5,6 +5,7 @@ import {
   type AgentBundle,
   type AnyAgentBundle,
   allSteps,
+  type BrowserScriptTool,
   type BuilderCatalog,
   // P-4
   CONVERSE_SKILL,
@@ -32,6 +33,7 @@ import {
   whenEvent,
 } from "../workflow/labels";
 import type { LogicKind, PaletteItem } from "./model";
+import { scriptPaletteItems } from "./scripts";
 
 export interface CatalogEvent {
   type: string;
@@ -46,6 +48,8 @@ export interface CatalogEvent {
 export interface BuilderData {
   catalog: BuilderCatalog;
   events: CatalogEvent[];
+  /** Wave 4: a client agent's client's published scripts (./scripts.ts). */
+  scripts?: readonly BrowserScriptTool[] | undefined;
 }
 
 /** The typing and validation context: skills by the reference bundles use, tools, event types. */
@@ -399,6 +403,7 @@ export function paletteSections(
       group,
     });
   }
+  if (connectors.has("browser")) for (const s of scriptPaletteItems(data)) add("browser", s);
   const order = (i: PaletteItem) => (i.type === "read" ? 1 : i.type === "write" ? 2 : 0);
   const connectorSections: PaletteSection[] = [...perConnector]
     .map(([id, items]) => ({

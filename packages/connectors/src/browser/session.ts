@@ -21,7 +21,7 @@ import {
 } from "@countersign/core";
 import { z } from "zod";
 import type { HeldSession, ToolContext } from "../connector";
-import type { BrowserCookie, BrowserDownload, BrowserTable } from "./driver";
+import type { BrowserControl, BrowserCookie, BrowserDownload, BrowserTable } from "./driver";
 import { checkBrowsePage } from "./scope";
 import type { BrowserServices, BrowserSessionRecord } from "./services";
 import {
@@ -63,6 +63,39 @@ export interface SignedInPage {
   readTables(): Promise<BrowserTable[]>;
   /** Fetches an allowed file; the address it ends at is checked again. */
   download(url: string): Promise<BrowserDownload>;
+  /** Whether an element `selector` names is on the page. */
+  has(selector: string): Promise<boolean>;
+  /** Types into an element (a script's or a recording's fill; never a login: that is sign-in's). */
+  fill(selector: string, value: string): Promise<void>;
+  /**
+   * Clicks an element; the page it lands on is checked like an opened one (allowed, no stop page)
+   * and photographed. Answers the address it ends at.
+   */
+  click(selector: string): Promise<string>;
+  /**
+   * A script's submitting click: as `click`, but the form was sent once the element was clicked,
+   * so a landing page agents may not open, or a stop page, is reported (`landing`, the reason)
+   * rather than thrown, and nothing on it is read or photographed.
+   */
+  submit(
+    selector: string,
+  ): Promise<{ url: string; landing: null } | { url: null; landing: string }>;
+  /** Whether clicking the element sends a form (a submit-type button, a button in a form). */
+  sendsForm(selector: string): Promise<boolean>;
+  /**
+   * Holds the page read only (on) or lets it change things again (off): while on, the browser
+   * refuses any request that could change something (driver.ts `readOnly`). Turning it on in a
+   * browser that can't throws BrowserRefused. It is lifted before sign-out.
+   */
+  readOnly(on: boolean): Promise<void>;
+  /** One element's text (a field's value); null when nothing matches. */
+  textOf(selector: string): Promise<string | null>;
+  /** The page's fields, lists, buttons and links, for the recorder; [] where the driver can't. */
+  controls(): Promise<BrowserControl[]>;
+  /** The address the page is on now. */
+  url(): string;
+  /** A screenshot of the page now, kept as evidence: its storage key, or null when it failed. */
+  shoot(): Promise<string | null>;
   /** Notes an action for the session's record. */
   note(action: BrowserSessionRecord["actions"][number]): void;
   /**
@@ -166,6 +199,18 @@ async function siteOf(ctx: ToolContext, call: BrowserCall) {
 }
 
 /**
+ * The connection's pinned site and its setup, checked as a session checks them (the site named is
+ * the connection's, still in the catalogue), without opening a browser: a write's before state.
+ */
+export async function browserConnectionSite(
+  ctx: ToolContext,
+  site: string,
+): Promise<{ site: PinnedBrowserSite; config: BrowserConnectionConfig }> {
+  const checked = await siteOf(ctx, { tool: "", site });
+  return { site: checked.site, config: checked.config };
+}
+
+/**
  * Runs `work` in a signed-in browser on the connection's site. Throws BrowserRefused, BrowserStop
  * or SignInFailed (or the work's own error) with messages that carry no secret.
  */
@@ -219,6 +264,8 @@ export async function withBrowserSession<T>(
   if (!tab) throw new BrowserRefused("browser sessions are not available in this deployment");
   let signedIn = false;
   let tried = false;
+  /** Whether the work left the page read only: lifted before sign-out (a sign-out may post). */
+  let heldReadOnly = false;
   try {
     if (reuse && login.session) {
       tried = true;
@@ -292,6 +339,20 @@ export async function withBrowserSession<T>(
 
     // The last opened page's own screenshot: never an earlier page's when this one's failed.
     let pageShot: string | null = null;
+    /** Where a click landed: an allowed page with no stop on it, or a refusal or stop thrown. */
+    const landed = async (selector: string): Promise<string> => {
+      const after = allowed(tab.url());
+      if (!after.ok) {
+        // A click that leaves the allowed pages: stop there, read nothing.
+        throw new BrowserRefused(
+          `clicking ${selector} went to a page agents may not open: ${after.reason}`,
+        );
+      }
+      await checkForStops(tab, site.profile.login);
+      if (after.url !== record.pages.at(-1)) record.pages.push(after.url);
+      pageShot = await shot();
+      return after.url;
+    };
     const page: SignedInPage = {
       site,
       async open(url) {
@@ -324,6 +385,53 @@ export async function withBrowserSession<T>(
         }
         return file;
       },
+      has: (selector) => tab.has(selector),
+      async fill(selector, value) {
+        await tab.fill(selector, value);
+        // The value is the client's data: the record names the element only.
+        record.actions.push({ kind: "fill", url: tab.url(), selector });
+      },
+      async click(selector) {
+        pageShot = null;
+        const from = tab.url();
+        await tab.click(selector);
+        record.actions.push({ kind: "click", url: from, selector });
+        return landed(selector);
+      },
+      async submit(selector) {
+        pageShot = null;
+        const from = tab.url();
+        await tab.click(selector);
+        record.actions.push({ kind: "click", url: from, selector });
+        try {
+          return { url: await landed(selector), landing: null };
+        } catch (error) {
+          // The form went: the write happened, wherever the site sent the browser after it.
+          if (!(error instanceof BrowserRefused) && !(error instanceof BrowserStop)) throw error;
+          return { url: null, landing: redact.text(error.message) };
+        }
+      },
+      async sendsForm(selector) {
+        if (tab.sendsForm) return tab.sendsForm(selector);
+        const controls = tab.controls ? await tab.controls() : [];
+        return controls.some((c) => c.selector === selector && c.submits === true);
+      },
+      async readOnly(on) {
+        if (!tab.readOnly) {
+          if (on) throw new BrowserRefused("this browser can't hold a page read only");
+          return;
+        }
+        await tab.readOnly(on);
+        heldReadOnly = on;
+      },
+      async textOf(selector) {
+        if (!tab.textOf) throw new BrowserRefused("this browser can't read single fields");
+        const text = await tab.textOf(selector);
+        return text === null ? null : redact.text(text);
+      },
+      controls: async () => redact.deep(tab.controls ? await tab.controls() : []),
+      url: () => tab.url(),
+      shoot: () => shot(),
       note: (action) => record.actions.push(action),
       lastScreenshot: () => pageShot,
       redact: (value) => redact.deep(value),
@@ -340,6 +448,7 @@ export async function withBrowserSession<T>(
   } finally {
     // Always: keep the session (low tier, a clean finish) or sign out; then destroy the browser.
     try {
+      if (heldReadOnly) await tab.readOnly?.(false).catch(() => undefined);
       if (keep && signedIn && record.outcome === "done") {
         const cookies = await tab.cookies();
         await ctx.credentials.set({
@@ -364,10 +473,29 @@ export async function withBrowserSession<T>(
   }
 }
 
+/**
+ * An error that keeps its own class and fields through a session's cleaning (a script's missing
+ * step, its refused click: ./script.ts), remade with the cleaned message. Its fields hold nothing
+ * the page didn't give through the redacting page.
+ */
+export interface KeepsClassWhenCleaned {
+  withMessage(message: string): Error;
+}
+
+function keepsClass(error: unknown): error is Error & KeepsClassWhenCleaned {
+  return (
+    error instanceof Error &&
+    typeof (error as Partial<KeepsClassWhenCleaned>).withMessage === "function"
+  );
+}
+
 /** The same error class, secrets removed: what reaches the model and the logs. */
+// DECISION: a script's own errors keep their class (they say how to remake themselves), so the
+// API can tell a missing element from a refused click after the session (wave 4 integration).
 function cleanError(error: unknown, redact: { text(value: string): string }): Error {
   const message = redact.text(error instanceof Error ? error.message : String(error));
   if (error instanceof BrowserCapReached) return new BrowserCapReached(error.code, message);
+  if (keepsClass(error)) return error.withMessage(message);
   const Clean =
     error instanceof BrowserGone
       ? BrowserGone
