@@ -1,5 +1,5 @@
 import { deepEqual, isPlainObject, toPointer } from "../json";
-import type { AgentBundle } from "../schemas/agent";
+import type { AgentBundle, AnyAgentBundle } from "../schemas/agent";
 import {
   ancestors,
   buildEntity,
@@ -12,6 +12,7 @@ import {
   ROOT,
   unflattenBundle,
 } from "./flatten";
+import { type BundleReadOptions, readBundles } from "./normalize";
 
 /**
  * Three-way merge of agent bundles (ARCHITECTURE §9.3, docs/plan.md §1.2): template updates merge
@@ -25,6 +26,11 @@ import {
  * - A list's order merges as a sequence: inserts stay next to their neighbours; two different
  *   reorders of one list, or one step moved to two different places, conflict.
  * - Ids are never generated: every id in the result comes from an input.
+ * - R1 (docs/plan.md §1.86): bundles holding v4 processes merge the same way. When any side holds
+ *   one, all three are read as v4 first (the converter keeps every id, so a v3 base still lines
+ *   up with a v4 side); `if` paths merge like fork paths, a v4 process's triggers by id, step
+ *   config field by field, and checks (confer, approval, notify) field by field too (lists in
+ *   them, such as `notify` or an approval's `approvers`, are whole values).
  *
  * Unresolved conflicts leave ours in place, so the result is always a complete bundle; a merge
  * draft can be saved only when `conflicts` is empty and the bundle passes validateBundle.
@@ -47,8 +53,9 @@ export type Resolution =
   | { path: string; choice: "ours" | "theirs" | "base" }
   | { path: string; choice: "value"; value: unknown };
 
-export interface MergeResult {
-  bundle: AgentBundle;
+/** The merged bundle: a v3 `AgentBundle` when every input was v3 (the default type). */
+export interface MergeResult<B extends AnyAgentBundle = AgentBundle> {
+  bundle: B;
   conflicts: MergeConflict[];
   /** True when nothing is left to resolve. */
   clean: boolean;
@@ -361,16 +368,39 @@ function mergeFlat(
   return { flat: { root, entities, lists }, conflicts: m.conflicts, unused: m.unused() };
 }
 
-/** Three-way merge; `resolutions` (from the merge view) settle conflicts by path. */
+/**
+ * Three-way merge; `resolutions` (from the merge view) settle conflicts by path. Three v3 bundles
+ * merge as v3. When any side holds a v4 process, every side is read as v4 first and the result is
+ * v4; `options.lookup` reads the v3 sides (required when the sides mix v3 and v4).
+ */
 export function mergeBundles(
   base: AgentBundle,
   ours: AgentBundle,
   theirs: AgentBundle,
+  resolutions?: readonly Resolution[],
+): MergeResult;
+export function mergeBundles(
+  base: AnyAgentBundle,
+  ours: AnyAgentBundle,
+  theirs: AnyAgentBundle,
+  resolutions?: readonly Resolution[],
+  options?: BundleReadOptions,
+): MergeResult<AnyAgentBundle>;
+export function mergeBundles(
+  base: AnyAgentBundle,
+  ours: AnyAgentBundle,
+  theirs: AnyAgentBundle,
   resolutions: readonly Resolution[] = [],
-): MergeResult {
-  const r = mergeFlat(flattenBundle(base), flattenBundle(ours), flattenBundle(theirs), resolutions);
+  options: BundleReadOptions = {},
+): MergeResult<AnyAgentBundle> {
+  const [b, o, t] = readBundles([base, ours, theirs], options).bundles as [
+    AnyAgentBundle,
+    AnyAgentBundle,
+    AnyAgentBundle,
+  ];
+  const r = mergeFlat(flattenBundle(b), flattenBundle(o), flattenBundle(t), resolutions);
   return {
-    bundle: unflattenBundle(r.flat),
+    bundle: unflattenBundle<AnyAgentBundle>(r.flat),
     conflicts: r.conflicts,
     clean: r.conflicts.length === 0,
     unusedResolutions: r.unused,
@@ -384,6 +414,16 @@ export function mergeBundles(
 export function applyResolutions(
   inputs: { base: AgentBundle; ours: AgentBundle; theirs: AgentBundle },
   resolutions: readonly Resolution[],
-): MergeResult {
-  return mergeBundles(inputs.base, inputs.ours, inputs.theirs, resolutions);
+): MergeResult;
+export function applyResolutions(
+  inputs: { base: AnyAgentBundle; ours: AnyAgentBundle; theirs: AnyAgentBundle },
+  resolutions: readonly Resolution[],
+  options?: BundleReadOptions,
+): MergeResult<AnyAgentBundle>;
+export function applyResolutions(
+  inputs: { base: AnyAgentBundle; ours: AnyAgentBundle; theirs: AnyAgentBundle },
+  resolutions: readonly Resolution[],
+  options: BundleReadOptions = {},
+): MergeResult<AnyAgentBundle> {
+  return mergeBundles(inputs.base, inputs.ours, inputs.theirs, resolutions, options);
 }

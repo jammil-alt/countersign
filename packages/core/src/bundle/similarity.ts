@@ -5,10 +5,11 @@
 // template instead. Pure: no model, no clock, no randomness, so the same bundles always score the
 // same.
 
-import type { AgentBundle } from "../schemas/agent";
+import type { AnyAgentBundle } from "../schemas/agent";
 import { parseSkillRef } from "../schemas/common";
 import { walkSteps } from "../workflow/walk";
 import { lcs } from "./diff";
+import { eachProcessStep } from "./normalize";
 
 export const SIMILARITY_WEIGHTS = { skills: 0.4, tools: 0.3, triggers: 0.1, steps: 0.2 } as const;
 
@@ -34,7 +35,7 @@ export interface BundleFeatures {
   steps: string[];
 }
 
-export function bundleFeatures(bundle: AgentBundle): BundleFeatures {
+export function bundleFeatures(bundle: AnyAgentBundle): BundleFeatures {
   const skills = new Set<string>();
   const tools = new Set<string>();
   const triggers = new Set<string>();
@@ -42,6 +43,17 @@ export function bundleFeatures(bundle: AgentBundle): BundleFeatures {
   for (const s of bundle.definition.skills) skills.add(parseSkillRef(s.skill).id);
   for (const t of bundle.definition.extraTools) tools.add(t);
   for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion === 4) {
+      // R1: a v4 process, as it is. DECISION: its read and write steps count as tools (each calls
+      // one); step kinds are its own, so a v3 bundle and its v4 reading score below 1 on steps.
+      for (const t of w.workflow.triggers) triggers.add(t.on.type);
+      eachProcessStep(w.workflow.steps, (step) => {
+        steps.push(step.kind);
+        if (step.kind === "skill") skills.add(parseSkillRef(step.skill).id);
+        if (step.kind === "read" || step.kind === "write") tools.add(step.tool);
+      });
+      continue;
+    }
     triggers.add(w.workflow.trigger.on.type);
     for (const t of w.workflow.moreTriggers ?? []) triggers.add(t.on.type);
     walkSteps(w.workflow, ({ step }) => {
@@ -79,7 +91,7 @@ export function sequenceScore(a: readonly string[], b: readonly string[]): numbe
 const round = (n: number) => Math.round(n * 10_000) / 10_000;
 
 /** How alike `a` and `b` are: symmetric, 1 for bundles that use and run the same things. */
-export function bundleSimilarity(a: AgentBundle, b: AgentBundle): BundleSimilarity {
+export function bundleSimilarity(a: AnyAgentBundle, b: AnyAgentBundle): BundleSimilarity {
   const fa = bundleFeatures(a);
   const fb = bundleFeatures(b);
   const skills = jaccard(fa.skills, fb.skills);
@@ -100,8 +112,8 @@ export function bundleSimilarity(a: AgentBundle, b: AgentBundle): BundleSimilari
  * The candidates most like `bundle`, best first (ties by key, so the order is stable), those
  * scoring at least `min`, at most `limit`.
  */
-export function closestBundles<T extends { key: string; bundle: AgentBundle }>(
-  bundle: AgentBundle,
+export function closestBundles<T extends { key: string; bundle: AnyAgentBundle }>(
+  bundle: AnyAgentBundle,
   candidates: readonly T[],
   options: { limit?: number; min?: number } = {},
 ): (T & { similarity: BundleSimilarity })[] {
