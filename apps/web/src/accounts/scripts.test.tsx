@@ -413,6 +413,26 @@ describe("scripts in the back office", () => {
     );
   });
 
+  it("keeps Publish off for a version whose definition no longer reads", async () => {
+    const unreadable = {
+      ...draft,
+      versions: draft.versions.map((v: Record<string, unknown>) => ({ ...v, definition: null })),
+    };
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/browser-sites": () => ({ sites: [] }),
+      "GET /api/ops/browser-scripts": () => ({ scripts: [unreadable], logins: [login] }),
+    });
+    renderAt("/ops/library/browser-sites", api);
+    const row = await screen.findByTestId("script-row-place-order");
+    await userEvent.click(within(row).getByTestId("script-row-place-order-open"));
+    const recorder = await screen.findByTestId("script-place-order");
+    expect(within(recorder).getByTestId("script-version-unseen")).toHaveTextContent(
+      "can't show version 1's steps",
+    );
+    expect(within(recorder).getByTestId("script-publish")).toBeDisabled();
+  });
+
   it("shows the exact steps of the version it publishes", () => {
     render(
       <VersionSteps version={2} definition={BrowserScriptDefinition.parse(ORDER_DEFINITION)} />,

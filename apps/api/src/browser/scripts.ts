@@ -150,11 +150,14 @@ export async function scriptViews(tx: Tx, rows: ScriptRow[]): Promise<BrowserScr
   );
   return rows.map((row) => {
     const recording = recordingOf(row);
-    // Saved versions were parsed when saved (invariant 3: never changed since).
+    // Saved versions were parsed when saved (invariant 3: never changed since); one that no
+    // longer parses is listed with no definition, and can't be published.
     const own = versions.flatMap((v) => {
       if (v.scriptId !== row.id) return [];
       const definition = BrowserScriptDefinition.safeParse(v.definition);
-      return definition.success ? [{ ...v, definition: definition.data }] : [];
+      return [
+        { ...v, stored: v.definition, definition: definition.success ? definition.data : null },
+      ];
     });
     const newest = own.at(-1) ?? null;
     const state =
@@ -169,7 +172,7 @@ export async function scriptViews(tx: Tx, rows: ScriptRow[]): Promise<BrowserScr
     const recordingDiffers =
       newest === null
         ? recording.steps.length > 0
-        : !current.ok || canonicalJson(current.definition) !== canonicalJson(newest.definition);
+        : !current.ok || canonicalJson(current.definition) !== canonicalJson(newest.stored);
     return {
       id: row.id,
       clientId: row.tenantId,
@@ -186,7 +189,7 @@ export async function scriptViews(tx: Tx, rows: ScriptRow[]): Promise<BrowserScr
       recordingDiffers,
       versions: own.map((v) => ({
         version: v.version,
-        sideEffect: v.definition.sideEffect,
+        sideEffect: v.definition?.sideEffect ?? storedSideEffect(v.stored),
         recordedSide: v.recordedSide,
         createdAt: v.createdAt.toISOString(),
         definition: v.definition,
@@ -199,6 +202,12 @@ export async function scriptViews(tx: Tx, rows: ScriptRow[]): Promise<BrowserScr
       updatedAt: row.updatedAt.toISOString(),
     };
   });
+}
+
+/** A stored definition's side effect when it no longer parses: a write unless it says it reads. */
+function storedSideEffect(stored: unknown): "none" | "external" {
+  const said = (stored as { sideEffect?: unknown } | null)?.sideEffect;
+  return said === "none" ? "none" : "external";
 }
 
 /** The portal's view: no version's definition (no portal response carries one, invariant 11). */
@@ -697,6 +706,17 @@ export async function versionRow(tx: Tx, row: ScriptRow, version: number): Promi
     );
   if (!found) throw notFound("version");
   return found;
+}
+
+/** A version that may be published: its stored definition still parses (it can be shown). */
+export function publishable(version: VersionRow): void {
+  if (!BrowserScriptDefinition.safeParse(version.definition).success) {
+    throw new HttpError(
+      409,
+      "invalid_state",
+      `version ${version.version} can't be read any more: record the script again and save a new version`,
+    );
+  }
 }
 
 /** Whether the script's site may still be signed in to by agents (never a blocked one). */

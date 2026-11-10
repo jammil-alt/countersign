@@ -20,6 +20,7 @@ import {
   loginSite,
   oneView,
   portalView,
+  publishable,
   recordAction,
   type ScriptSide,
   saveVersion,
@@ -194,6 +195,7 @@ export function browserScriptRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsPublishBrowserScript, async ({ tx, tenantIds, params, session }) => {
     const row = await scriptRow(tx, tenantIds, params.id);
     const version = await versionRow(tx, row, params.version);
+    publishable(version);
     await siteAllowsScripts(tx, row);
     await tx
       .update(browserScript)

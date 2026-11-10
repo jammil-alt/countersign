@@ -3088,6 +3088,10 @@ Websites screen's Scripts, the Library's and the builder's listings):
   their class through the browser session's cleaning (`KeepsClassWhenCleaned`, the message still
   redacted), so the API tells them apart after the session: a recorded element that isn't there
   answers 422 `not_found` and a test that meets one answers `needs_help` (both had become a 500).
+- DECISION (integration): a saved version whose stored definition no longer parses stays in the
+  script's view with `definition: null` (its side effect as stored, else a write), and counts for
+  the state and `recordingDiffers` as the newest; the Websites screen keeps Publish off for it and
+  the publish route refuses it (409 `invalid_state`): it can't be shown, so it isn't sent.
 
 ## 2. Package layering
 

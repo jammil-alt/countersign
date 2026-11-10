@@ -20,6 +20,7 @@ import { type BrowserSiteProfileInput, bundleHash } from "@countersign/core";
 import {
   agent,
   agentVersion,
+  browserScriptVersion,
   browserSite,
   connection,
   externalAction,
@@ -498,6 +499,37 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
     expect(test.status, JSON.stringify(test.json)).toBe(200);
     expect(j(test.json)).toMatchObject({ outcome: "needs_help", dryRun: true });
     expect(j(test.json).steps.map((x: { id: string }) => x.id)).toEqual(["s1"]);
+  });
+
+  it("lists a version that no longer reads, with no definition, and never publishes it", async () => {
+    const start = await H.call(OPERATOR, "POST", "/api/ops/browser-scripts", {
+      connectionId: logins.a,
+      slug: "unreadable",
+      name: "Unreadable",
+    });
+    const id = j(start.json).script.id;
+    // A version stored under an older schema (invariant 3: it stays as it was stored).
+    await H.t.db.insert(browserScriptVersion).values({
+      tenantId: A(),
+      scriptId: id,
+      version: 1,
+      definition: { schemaVersion: 0, steps: "from an older schema" },
+      recordedSide: "operator",
+    });
+    const list = await H.call(OPERATOR, "GET", "/api/ops/browser-scripts");
+    expect(list.status, JSON.stringify(list.json)).toBe(200);
+    const view = j(list.json).scripts.find((s: { id: string }) => s.id === id);
+    expect(view).toMatchObject({ state: "draft" });
+    expect(view.versions).toEqual([
+      expect.objectContaining({ version: 1, sideEffect: "external", definition: null }),
+    ]);
+    const published = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/browser-scripts/${id}/versions/1/publish`,
+    );
+    expect(published.status, JSON.stringify(published.json)).toBe(409);
+    expect(j(published.json).error.code).toBe("invalid_state");
   });
 
   it("refuses an action when the recording changed while the browser ran", async () => {

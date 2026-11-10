@@ -41,8 +41,11 @@ export const PortalBrowserScriptVersionView = z.object({
 /** A saved version as the back office reviews it before publishing: the whole stored script. */
 // DECISION: the back office's view carries each version's definition (what publishing runs); the
 // portal's leaves it out, as no portal response carries a definition (invariant 11's contract).
+// DECISION: a stored version whose definition no longer parses (core's schema moved on) is still
+// listed, its `definition` null: it can't be shown, so it can't be published (invariant 3 keeps
+// the row as it is).
 export const BrowserScriptVersionView = PortalBrowserScriptVersionView.extend({
-  definition: BrowserScriptDefinition,
+  definition: BrowserScriptDefinition.nullable(),
 });
 
 /**
