@@ -3520,6 +3520,55 @@ builder catalog without tool wrappers, and `POST /api/ops/agents/:id/skill-move`
   supervisor's, the packs' AI templates' skills); they keep running as stored, and their split into
   AI skills plus write steps is a later stream's.
 
+**Skill model (2026-11-10), wave A: the back office** (branch `skills/web`). Labels everywhere: a
+skill reads Deterministic or AI on Library cards (with an All / Deterministic / AI filter), its page,
+the builder's palette, canvas and inspector, the read-only step list and the run view's rows; a
+write step reads "Save to records" or "Change in <connector>" in the palette, canvas, inspector, run
+view and (in six languages) the client's timeline ("Changed in QuickBooks Online", "Saved to your
+records"). The skill editor makes an AI skill (instructions, a recommended model, read-only tools)
+or a deterministic one (rule rows), both with parameters; the owner's aging example is built from
+the screen in a test. The agent's Settings have a section per skill (its parameters, and an AI
+skill's model); a skill step's inspector says "Runs on: <model> (<where from>)", takes a step's own
+model and parameter values, shows the version it pins and moves it ("Move to vN"). API additions,
+all optional fields: `SkillOption.kind`, `.parameters`, `.recommendedModel`;
+`opsRun.stepFacts` (by step id: `skillKind`, `write: {kind, text}`); `TimelineStep.write` (`kind`,
+`connector`, the connector's name only). No migration.
+- // DECISION (web): the palette offers the server's `stepTools` when the catalog has them (else
+  derives them from wrappers, as before), and never a skill the catalog marks `palette: false`. A
+  write item's line is its label ("Save to records", "Change in Testkit"); its tag stays "Write".
+- // DECISION (web): a stored agent-mode or rules-then-AI operator skill opens in the editor as AI and
+  saves as an AI skill (`mode: "task"`, its recommended model, rule rows and write tools dropped); a
+  new AI skill recommends Haiku (packages/llm's classification default). The editor shows what
+  would stop the server from saving (the schema, `skillRuleProblems`, `newSkillVersionProblems`) as
+  it is typed.
+- // DECISION (web): rule rows the editor adds are `row-<n>` (the first free n); a version replaces
+  its rows whole, so ids need only be unique in it. A step's own added rows keep their uuid ids.
+  The editor lists a row's outputs in the order of the skill's output fields.
+- // DECISION (web): the agent's per-skill section writes `parameters` and `model` onto the agent's
+  `skills[]` entry only when set, so an entry the editor didn't change saves as stored. A parameter
+  with no default must be set before the editor saves (publish refuses it anyway).
+- // DECISION (web): the step inspector's model picker sets the step's own `model` (the most
+  specific); "Runs on" names the model `effectiveModel` resolves and core's
+  `MODEL_SOURCE_WORDS`. A code skill shows no picker: it runs no model, or its tool picks its own.
+- // DECISION (web): "Move to vN" lists every other version of an operator skill (drafts marked); a
+  built-in "moves with the platform". The move asks the server, pre-picks a renamed field
+  (`renamedTo`), and is applied only once each reference to a removed output field has a field to
+  read; a reference to the whole output and the step's own input are fixed by hand after. The moved
+  version joins the builder's catalog as a `pinned` entry for the session, so the step types; the
+  agent's `skills[]` keeps naming the skill by id.
+- // DECISION (web): a Save to records step's approval empty state says approval is off by default;
+  "Add an approval" turns it on (unchanged control). The canvas line of a skill step ends "runs on
+  <model id>".
+- // DECISION (API): `stepFacts` resolves an operator skill in the run's client; the client's timeline
+  gets a write's kind and the connector's manifest name only (null for our own records or an unknown
+  tool, worded "your tool").
+- Left as they are (owner question pending): the client admin's recording of browser scripts on
+  the portal's Accounts page, and the client's tightening of approver rules (Settings → Approvals).
+  The portal offers no agent or skill setup (a web test pins its routes).
+- Open question: the conversation skill's per-step model picker is gone with the old model row
+  (`comms.converse` declares `usesModel`, so the step shows "its built-in code calls a model"); a
+  conversation step of its own kind is unchanged.
+
 ### 1.87 BILL connector (owner: "bill.com integrated", 2026-11-10; no migration)
 
 Connector `billcom` in `packages/connectors/src/billcom/` against a fake (`fakeBillcom` in
