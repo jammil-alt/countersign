@@ -317,3 +317,105 @@ describe("C4 Accounts and vault", () => {
     );
   });
 });
+
+// R8 (docs/plan.md §1.86; ARCHITECTURE §10.14 "Connections"): the tools still to connect, grouped
+// by kind, each saying how it connects; the websites an agent may be given a login for, with them.
+describe("the tools to connect, grouped", () => {
+  const offered = (connector: string, name: string, over: Record<string, unknown> = {}) => ({
+    connector,
+    name,
+    description: `${name}, for your agents.`,
+    icon: null,
+    available: true,
+    credentialForm: false,
+    personal: false,
+    connection: null,
+    ...over,
+  });
+  const LIST = [
+    offered("zoho_crm", "Zoho CRM"),
+    offered("gsheets", "Google Sheets"),
+    offered("bankfeed", "Bank feed"),
+    offered("ramp", "Ramp", { credentialForm: true }),
+    offered("slack", "Slack", { available: false }),
+    offered("mystery", "Something new"),
+  ];
+
+  it("lists them by kind with how each connects, and website logins open the vault", async () => {
+    renderAs("client_admin", { "GET /api/connections": () => ({ connections: LIST }) });
+    const add = await screen.findByTestId("portal-connections-available");
+    expect(
+      within(add)
+        .getAllByRole("heading", { level: 3 })
+        .map((h) => h.textContent),
+    ).toEqual([
+      "Add another tool",
+      "Accounting and money",
+      "Messages and calls",
+      "Files and sheets",
+      "Customers and sales",
+      "Other tools",
+      "Website logins",
+    ]);
+    const money = within(add).getByTestId("portal-connections-group-money");
+    expect(within(money).getByTestId("portal-connection-bankfeed")).toBeInTheDocument();
+    // You sign in, or you enter a key: each says which.
+    expect(
+      within(within(money).getByTestId("portal-connection-bankfeed")).getByTestId(
+        "portal-connection-how",
+      ),
+    ).toHaveTextContent("You sign in to it. We never see your password.");
+    expect(
+      within(within(money).getByTestId("portal-connection-ramp")).getByTestId(
+        "portal-connection-how",
+      ),
+    ).toHaveTextContent("You enter its key in your vault.");
+    // Not offered yet: no how.
+    const slack = within(add).getByTestId("portal-connection-slack");
+    expect(within(slack).getByTestId("portal-connection-unavailable")).toBeInTheDocument();
+    expect(within(slack).queryByTestId("portal-connection-how")).toBeNull();
+    expect(within(add).getByTestId("portal-connections-group-other")).toHaveTextContent(
+      "Something new",
+    );
+    // A website: the login of an account made for the agents, into the vault.
+    const logins = within(add).getByTestId("portal-connections-group-logins");
+    expect(logins).toHaveTextContent("You enter the login of an account made for your agents.");
+    await userEvent.click(within(logins).getByTestId("portal-connections-site-rugby-login"));
+    expect(
+      within(screen.getByTestId("vault-add-panel")).getByTestId("vault-browser-offer-rugby"),
+    ).toBeInTheDocument();
+  });
+
+  it("offers a client user no website logins, in their language", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => ({
+        ...CLIENT_SESSION,
+        tenants: [{ id: TENANT, name: "Harbor Millwork", role: "client_user" }],
+        language: { effective: "fr", user: "fr", client: null },
+      }),
+      "GET /api/overview": () => new Reply(404, {}),
+      "GET /api/connections": () => ({ connections: LIST }),
+      "GET /api/access": () => ({
+        items: [],
+        setup: [],
+        browserSites: [
+          { slug: "rugby", name: "Rugby Architectural", tier: "low", secondFactor: "email" },
+        ],
+        canEdit: false,
+        people: [],
+      }),
+    });
+    render(
+      <MemoryRouter initialEntries={["/accounts"]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const add = await screen.findByTestId("portal-connections-available");
+    expect(within(add).getByTestId("portal-connections-group-sales")).toHaveTextContent(
+      "Clients et ventes",
+    );
+    expect(within(add).queryByTestId("portal-connections-group-logins")).toBeNull();
+  });
+});
