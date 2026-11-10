@@ -13,8 +13,8 @@ import { StatusChip } from "../../ui/status";
 import { agentPath } from "../agents/BuilderParts";
 import { errorText, Notice, plural, useAction } from "../agents/ui";
 import { toolTitle } from "../builder/model";
+import { LIBRARY_PATHS } from "../library/paths";
 import { Chain, percent, SchemaCard, stepChain } from "./parts";
-import { SKILLS_PATH } from "./SkillsLibrary";
 
 export function AutomationPage() {
   const { id = "" } = useParams();
@@ -54,8 +54,8 @@ export function AutomationPage() {
           <Page testId="automation-page">
             <div>
               <p className="mb-2 text-sm text-ink-muted">
-                <Link to={SKILLS_PATH} className="hover:underline">
-                  Skills and automations
+                <Link to={LIBRARY_PATHS.processes} className="hover:underline">
+                  Library · Processes
                 </Link>{" "}
                 / {a.name}
               </p>

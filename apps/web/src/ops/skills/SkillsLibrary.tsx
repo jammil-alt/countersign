@@ -1,8 +1,14 @@
-// O4 Skills and automations (`#O4-Skills` → `/ops/skills`; ARCHITECTURE §9.2, §10.7): the steps
-// agents are built from. Automations first (reusable step chains, versioned, with their clean-run
-// rate in live runs), then the skills as cards (category, version, what it does, in → out, how
-// many agents use it). Built-in skills come with the platform and packs; operator skills and
-// automations open their own pages for versions, publish, rollback and tests.
+// O4 Skills and automations (`#O4-Skills`; ARCHITECTURE §9.2, §10.7): the steps agents are built
+// from. Automations first (reusable step chains, versioned, with their clean-run rate in live
+// runs), then the skills as cards (category, version, what it does, in → out, how many agents use
+// it). Built-in skills come with the platform and packs; operator skills and automations open
+// their own pages for versions, publish, rollback and tests.
+//
+// R8 (docs/plan.md §1.86): the Library's Skills bank (`/ops/library/skills`; `/ops/skills`
+// redirects there). Each card says the skill's method (rules, AI, or rules then AI), what it reads
+// and the sites it browses. Tool-mode skills that only wrap one tool are retiring: they leave the
+// other tabs for a Retired tab, each saying the tool a read or write step uses instead. In the
+// Library the automations are processes, so they show in the Processes bank (`automations` off).
 import type { AutomationListItem, SkillListItem, ToolSpec } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -24,26 +30,31 @@ import {
 } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
 import { plural } from "../agents/ui";
+import { METHOD_LABEL, METHOD_LINE } from "../library/words";
 import { Chain, inOut, percent, stepChain, versionText } from "./parts";
 import { CATEGORIES, categoryLabel } from "./skill-form";
 
-export const SKILLS_PATH = "/ops/skills";
+export const SKILLS_PATH = "/ops/library/skills";
 export const skillPath = (id: string) => `/ops/skills/${id}`;
 export const automationPath = (id: string) => `/ops/skills/automations/${id}`;
 
 const AUTOMATIONS = "automations";
+const RETIRED = "retired";
 
 function matches(q: string, ...texts: (string | null)[]): boolean {
   return !q || texts.some((t) => t?.toLowerCase().includes(q));
 }
 
-export function SkillsScreen() {
+export function SkillsScreen({ automations: withAutomations = true }: { automations?: boolean }) {
   const library = useApi(apiRoutes.opsSkills);
-  const automations = useApi(apiRoutes.opsAutomations);
+  const automations = useApi(apiRoutes.opsAutomations, withAutomations ? {} : null);
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
-  const skills = library.data?.skills ?? [];
-  const autos = automations.data?.automations ?? [];
+  const all = library.data?.skills ?? [];
+  // R8: tool wrappers are retiring; they show on their own tab only.
+  const skills = all.filter((s) => s.retired !== true);
+  const retired = all.filter((s) => s.retired === true);
+  const autos = withAutomations ? (automations.data?.automations ?? []) : [];
   const q = search.trim().toLowerCase();
 
   const categories = [
@@ -52,10 +63,10 @@ export function SkillsScreen() {
   const shownSkills =
     tab === AUTOMATIONS
       ? []
-      : skills.filter(
+      : (tab === RETIRED ? retired : skills).filter(
           (s) =>
-            (tab === "all" || s.category === tab) &&
-            matches(q, s.name, s.description, s.ref, s.clientName),
+            (tab === "all" || tab === RETIRED || s.category === tab) &&
+            matches(q, s.name, s.description, s.ref, s.clientName, s.wraps ?? null),
         );
   const shownAutos =
     tab === "all" || tab === AUTOMATIONS
@@ -68,14 +79,23 @@ export function SkillsScreen() {
       c,
       `${categoryLabel(c)} · ${skills.filter((s) => s.category === c).length}`,
     ]),
-    [AUTOMATIONS, `Automations · ${autos.length}`],
+    ...(withAutomations
+      ? [[AUTOMATIONS, `Automations · ${autos.length}`] as [string, string]]
+      : []),
+    ...(retired.length > 0
+      ? [[RETIRED, `Retired tool wrappers · ${retired.length}`] as [string, string]]
+      : []),
   ];
 
   return (
     <Page testId="skills-library">
       <PageHeader
-        title="Skills and automations"
-        subtitle="The steps agents are built from. A skill does one thing; an automation chains steps you reuse across agents."
+        title={withAutomations ? "Skills and automations" : "Skills"}
+        subtitle={
+          withAutomations
+            ? "The steps agents are built from. A skill does one thing; an automation chains steps you reuse across agents."
+            : "Skills think, tools act: data in, data out, by rules, by AI, or rules then AI. A skill may read; a write step after it makes the change."
+        }
         actions={
           <Link to="/ops/skills/new" className={buttonClass("primary")} data-testid="skills-new">
             Make a skill
@@ -107,8 +127,14 @@ export function SkillsScreen() {
         </div>
       </div>
 
-      {tab === "all" || tab === AUTOMATIONS ? (
+      {withAutomations && (tab === "all" || tab === AUTOMATIONS) ? (
         <AutomationsCard state={automations} shown={shownAutos} />
+      ) : null}
+      {tab === RETIRED ? (
+        <p className="text-sm text-ink-muted" data-testid="skills-retired-note">
+          Each of these only wraps one tool. Stored versions keep running them; a process reads or
+          writes through the tool with a read or write step instead.
+        </p>
       ) : null}
 
       {tab !== AUTOMATIONS ? (
@@ -134,22 +160,25 @@ export function SkillsScreen() {
   );
 }
 
-function AutomationsCard({
+/** The automations as rows; the Library's Processes bank shows it as processes used in others. */
+export function AutomationsCard({
   state,
   shown,
+  title = "Automations",
+  line = "Step chains, versioned, dropped into a workflow as one block",
 }: {
   state: ApiState<ResponseOf<typeof apiRoutes.opsAutomations>>;
   shown: AutomationListItem[];
+  title?: string;
+  line?: string;
 }) {
   return (
     <Card
       testId="automations"
       title={
         <span className="flex flex-col">
-          Automations
-          <span className="text-sm font-normal text-ink-muted">
-            Step chains, versioned, dropped into a workflow as one block
-          </span>
+          {title}
+          <span className="text-sm font-normal text-ink-muted">{line}</span>
         </span>
       }
     >
@@ -224,6 +253,39 @@ function writes(skill: SkillListItem, tools: readonly ToolSpec[]): boolean {
   return skill.tools.some((id) => tools.find((t) => t.id === id)?.sideEffect === "external");
 }
 
+/** R8: what the skill reads and browses, or, retiring, the tool a step uses instead. */
+function SkillReach({ skill: s }: { skill: SkillListItem }) {
+  if (s.retired && s.wraps) {
+    return (
+      <p className="text-sm text-ink" data-testid={`skills-card-${s.ref}-wraps`}>
+        Use a step on <span className="reference">{s.wraps}</span> instead
+      </p>
+    );
+  }
+  const reads = s.reads ?? [];
+  const browse = s.browse ?? null;
+  if (reads.length === 0 && !browse) return null;
+  return (
+    <dl className="flex flex-col gap-1 text-sm" data-testid={`skills-card-${s.ref}-reach`}>
+      {reads.length > 0 ? (
+        <div className="flex flex-wrap gap-x-2">
+          <dt className="text-ink-muted">Reads</dt>
+          <dd className="reference text-ink">{reads.join(", ")}</dd>
+        </div>
+      ) : null}
+      {browse ? (
+        <div className="flex flex-wrap gap-x-2">
+          <dt className="text-ink-muted">Browses</dt>
+          <dd className="text-ink">
+            {browse.sites.join(", ")} · {browse.pages.length}{" "}
+            {browse.pages.length === 1 ? "page" : "pages"}
+          </dd>
+        </div>
+      ) : null}
+    </dl>
+  );
+}
+
 function sourceText(s: SkillListItem): string {
   return s.source === "builtin"
     ? "Built in"
@@ -238,7 +300,16 @@ function SkillCard({ skill: s, tools }: { skill: SkillListItem; tools: readonly 
     <Card dashed={draft} testId={`skills-card-${s.ref}`} className="flex flex-col">
       <div className="flex flex-1 flex-col gap-3 px-6 pt-5 pb-4">
         <div className="flex items-center justify-between gap-3">
-          <Tag>{categoryLabel(s.category)}</Tag>
+          <span className="flex flex-wrap gap-1.5">
+            <Tag>{categoryLabel(s.category)}</Tag>
+            {s.retired ? (
+              <Tag testId={`skills-card-${s.ref}-retired`}>Retired</Tag>
+            ) : s.method ? (
+              <Tag testId={`skills-card-${s.ref}-method`}>
+                <span title={METHOD_LINE[s.method]}>{METHOD_LABEL[s.method]}</span>
+              </Tag>
+            ) : null}
+          </span>
           {draft ? (
             <Tag>Draft</Tag>
           ) : s.liveVersion !== null ? (
@@ -256,6 +327,7 @@ function SkillCard({ skill: s, tools }: { skill: SkillListItem; tools: readonly 
         </h3>
         <p className="text-sm text-ink-muted">{s.description}</p>
         <Chain items={inOut(s.inputs, s.outputs)} />
+        <SkillReach skill={s} />
       </div>
       <div
         className={cx(
