@@ -29,14 +29,14 @@ export interface PlaywrightPageLike {
   waitForEvent(event: "framenavigated", options?: { timeout?: number }): Promise<unknown>;
   locator(selector: string): { count(): Promise<number> };
   evaluate<T>(script: string): Promise<T>;
-  /** Read-only mode's request filter (`page.route`). */
-  route(url: string, handler: (route: PlaywrightRouteLike) => unknown): Promise<void>;
   screenshot(options?: { type?: "png"; fullPage?: boolean }): Promise<Uint8Array>;
   /** True once the page, its context or its browser closed (or the connection to it dropped). */
   isClosed?(): boolean;
   context(): {
     cookies(): Promise<BrowserCookie[]>;
     addCookies(cookies: BrowserCookie[]): Promise<void>;
+    /** Read-only mode's request filter, on the context: its popups and new pages too. */
+    route(url: string, handler: (route: PlaywrightRouteLike) => unknown): Promise<void>;
   };
 }
 
@@ -249,7 +249,7 @@ export function playwrightTab(page: PlaywrightPageLike, options: PlaywrightTabOp
   const timeout = options.timeoutMs ?? 20_000;
   const navWait = options.navigationWaitMs ?? 3_000;
   let closed = false;
-  // Read only: one route for the page's life, reading the flag on every request.
+  // Read only: one route on the page's context for its life, reading the flag on every request.
   let holding = false;
   let routed = false;
   return {
@@ -285,8 +285,13 @@ export function playwrightTab(page: PlaywrightPageLike, options: PlaywrightTabOp
       routed = true;
       // DECISION: only GET and HEAD leave the browser while read only. A navigation, fetch, XHR or
       // beacon with any other method is aborted where it starts, so a click that would post a
-      // form goes nowhere and the page stays as it was.
-      await page.route("**/*", (route) => {
+      // form goes nowhere and the page stays as it was. The route is the context's, so a popup or
+      // a new page the site opens is held too; service workers (whose requests no route sees) are
+      // blocked where the opener makes the context (`serviceWorkers: "block"`, apps/api's
+      // driver.ts). WebSockets are not covered: a route sees no frame sent on one, so a site that
+      // writes over a socket is not held by this. Browser Run's support for `context.route` is
+      // unchecked until staging.
+      await page.context().route("**/*", (route) => {
         const method = route.request().method().toUpperCase();
         const go =
           holding && method !== "GET" && method !== "HEAD"

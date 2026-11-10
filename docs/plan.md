@@ -3067,6 +3067,12 @@ Websites screen's Scripts, the Library's and the builder's listings):
   codes in `apps/api/src/browser/problems.ts`); no catch-all. The contract's type is
   `ScriptProblemView` (core's `ScriptProblem` is the definition's own). The portal words every code
   but `empty` (never shown: nothing is recorded) through `scripts.problem.<code>`.
+- DECISION (integration, replaces "one `page.route` for the page's life" above): read-only mode's
+  route is on the page's context (`page.context().route`), so a popup or a new page the site opens
+  is held as the page is; the openers make the context with `{ acceptDownloads: false,
+  serviceWorkers: "block" }`, since a service worker's requests pass no route. WebSockets are not
+  covered: no route sees a frame sent on one. Browser Run's support for `context.route` and
+  `serviceWorkers` is unchecked until staging.
 
 ## 2. Package layering
 

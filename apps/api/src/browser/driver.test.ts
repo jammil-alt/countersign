@@ -6,13 +6,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const launched: Record<string, unknown>[] = [];
+const contexts: Record<string, unknown>[] = [];
 const page = { isClosed: () => false, context: () => ({ cookies: async () => [] }) };
 
 vi.mock("@cloudflare/playwright", () => ({
   launch: async (_binding: unknown, options: Record<string, unknown>) => {
     launched.push(options);
     return {
-      newContext: async () => ({ newPage: async () => page }),
+      newContext: async (options: Record<string, unknown>) => {
+        contexts.push(options);
+        return { newPage: async () => page };
+      },
       close: async () => undefined,
     };
   },
@@ -23,6 +27,14 @@ const { BROWSER_RUN_KEEP_ALIVE, browserRunKeepAlive, browserRunOpener } = await 
 describe("Browser Run opener", () => {
   beforeEach(() => {
     launched.length = 0;
+    contexts.length = 0;
+  });
+
+  it("makes a context with no downloads and no service workers (read only can't see theirs)", async () => {
+    const open = browserRunOpener({ BROWSER: {} as never });
+    if (!open) throw new Error("no opener");
+    await open({ hosts: ["portal.supplier.test"] });
+    expect(contexts).toEqual([{ acceptDownloads: false, serviceWorkers: "block" }]);
   });
 
   it("keeps a held session's browser for its run's wait, within Browser Run's range", async () => {

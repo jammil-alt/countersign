@@ -48,7 +48,12 @@ export function browserRunOpener(
       guardrails: { allowedDomains: hosts.slice(0, 50), allowedDomainSets: ["common-cdns"] },
     });
     try {
-      const context = await browser.newContext({ acceptDownloads: false });
+      // DECISION: no downloads to disk and no service workers: a service worker's requests pass
+      // no route, so read-only mode (the connector's playwrightTab) couldn't hold them. Its route
+      // is on this context, so the site's popups and new pages are held too; WebSockets are not
+      // (docs/plan.md §1.86 "Scripts (wave 4)"). Browser Run's support for `context.route` and
+      // `serviceWorkers` is unchecked until staging.
+      const context = await browser.newContext({ acceptDownloads: false, serviceWorkers: "block" });
       const page = await context.newPage();
       return playwrightTab(page as unknown as PlaywrightPageLike, {
         close: async () => {
