@@ -496,6 +496,7 @@ describe.skipIf(!online)("seed", () => {
     expect(validateBundle(version.bundle).valid).toBe(true);
     expect(version.bundle.definition.permissions.mode).toBe("suggest_only");
     for (const w of version.bundle.workflows) {
+      if (w.workflow.schemaVersion !== 3) throw new Error("v1 holds v3 workflows");
       expect(w.workflow.trigger.on.type).toBe("manual");
       for (const s of w.workflow.steps) {
         if (s.kind === "action") {

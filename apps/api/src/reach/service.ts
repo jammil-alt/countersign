@@ -16,8 +16,8 @@ import {
   type StepContext,
 } from "@countersign/agents";
 import {
-  type AgentBundle,
   type AgentMode,
+  type AnyAgentBundle,
   type ApprovalRequirement,
   type ApprovalSource,
   // P-3: attachments both ways
@@ -352,7 +352,7 @@ async function wake(
 
 interface Loaded {
   agentRow: typeof agent.$inferSelect;
-  bundle: AgentBundle;
+  bundle: AnyAgentBundle;
   tenantRow: typeof tenant.$inferSelect;
   trigger: unknown;
   candidates: ContactRow[];

@@ -44,10 +44,12 @@ import {
 import {
   type AgentBundle,
   AgentBundle as AgentBundleSchema,
+  type AnyAgentBundle,
   type BuilderChange,
   type ClosestTemplate,
   closestBundles,
   diffBundles,
+  holdsProcess,
   parseCommand,
   routes,
   stepsToAutomation,
@@ -306,7 +308,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
     const bctx = await builderContext(ctx, row.tenantId, row);
     const result = await reviseAgent(
       {
-        source: from.bundle,
+        source: v3Source(from.bundle),
         ...(body.instruction ? { instruction: body.instruction } : {}),
         ...(request ? { request } : {}),
         ctx: bctx,
@@ -408,8 +410,25 @@ async function sessionAgent(
 /** The operator's version the conversation started from (its rules hold across turns). */
 async function originOf(ctx: SessionCtx, s: SessionRow): Promise<AgentBundle | null> {
   return s.kind === "agent" && s.baseVersionId
-    ? (await getVersion(ctx.tx, s.baseVersionId)).bundle
+    ? v3Source((await getVersion(ctx.tx, s.baseVersionId)).bundle)
     : null;
+}
+
+/**
+ * A stored version as the Builder reads it: v3 workflows only. Wave 3b: a version of v4 processes
+ * (what the workflow builder saves) is refused in plain words, never parsed as v3 into a 500.
+ */
+// DECISION (wave 3b): until the Builder drafts and revises processes, it starts only from a
+// version of v3 workflows; the workflow builder edits the rest.
+function v3Source(bundle: AnyAgentBundle): AgentBundle {
+  if (holdsProcess(bundle)) {
+    throw new HttpError(
+      422,
+      "holds_processes",
+      "this version holds processes, which the Builder chat doesn't edit yet: use the workflow builder",
+    );
+  }
+  return bundle as AgentBundle;
 }
 
 /** Live templates like the draft, best first (core's bundleSimilarity). */
@@ -420,7 +439,7 @@ async function closestTemplates(
 ): Promise<ClosestTemplate[]> {
   const candidates: {
     key: string;
-    bundle: AgentBundle;
+    bundle: AnyAgentBundle;
     id: string;
     name: string;
     version: number;
@@ -540,7 +559,7 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
         tenantId = row.tenantId;
         agentId = row.id;
         baseVersionId = from.id;
-        bundle = from.bundle;
+        bundle = v3Source(from.bundle);
         text = `Started from ${row.name} v${from.version}.`;
       } else {
         bundle = blankAgentDraft({

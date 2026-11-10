@@ -14,7 +14,6 @@ import {
   schemaFields,
 } from "@countersign/agents";
 import {
-  type AgentBundle,
   isToolWrapper,
   parseSkillRef,
   routes,
@@ -106,7 +105,7 @@ async function agentUses(ctx: Scope) {
         agent: a,
         clientName: a.tenantId ? (clients.get(a.tenantId) ?? null) : null,
         version: v.version,
-        refs: bundleSkillRefs(v.bundle as AgentBundle),
+        refs: bundleSkillRefs(v.bundle),
       },
     ];
   });

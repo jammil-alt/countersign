@@ -84,16 +84,16 @@ export function parseBundle(input: unknown): AgentBundle {
  * (what the workflow builder saves) or both. A v3 bundle parses to the same value, so the same
  * canonical JSON and hash, as `parseBundle` gives it.
  */
-// DECISION: the version row's `bundle` column stays typed as the v3 `AgentBundle` (changing it
-// reaches every reader); a bundle that holds processes is stored through it as it is, and its
-// readers check `schemaVersion` (`AnyAgentBundle` is the true shape). Stored versions are never
-// rewritten (invariant 3): a v3 version stays v3, and the builder's next save is a new version.
-export function parseVersionBundle(input: unknown): AgentBundle {
+// DECISION (wave 3b): the version row's `bundle` column is typed `AnyAgentBundle`, its true shape;
+// every reader checks `schemaVersion` or reads through core (`allTriggers`, `toProcessBundle`).
+// Stored versions are never rewritten (invariant 3): a v3 version stays v3, and the builder's next
+// save is a new version.
+export function parseVersionBundle(input: unknown): AnyAgentBundle {
   const parsed = AnyAgentBundleSchema.safeParse(input);
   if (!parsed.success) {
     throw new AgentsError("invalid_bundle", parsed.error.message, parsed.error.issues);
   }
-  return parsed.data as AgentBundle;
+  return parsed.data;
 }
 
 async function lockAgent(tx: Tx, agentId: string): Promise<AgentRow> {
@@ -312,7 +312,7 @@ export async function validateForPublish(
   // v0.12 W2-D: `slug`, for the account agent's guard (rows without one skip it).
   // v0.14 W4-B: `id`, for the agent's grants (a row without one, a draft not yet saved, has none).
   row: Pick<AgentRow, "tenantId" | "kind" | "bindings"> & { slug?: string; id?: string },
-  bundle: AgentBundle,
+  bundle: AnyAgentBundle,
   ctx: RegistryContext,
 ): Promise<ValidationError[]> {
   const { skills, missing } = await skillContext(tx, {
@@ -328,7 +328,7 @@ export async function validateForPublish(
   });
   // R8: a bundle that holds v4 processes is validated as one (core's `validateAnyBundle`, which
   // validates an all-v3 bundle exactly as `validateBundle` does).
-  const validate = holdsProcess(bundle as AnyAgentBundle)
+  const validate = holdsProcess(bundle)
     ? (b: unknown, c: Parameters<typeof validateBundle>[1]) => processes.validateAnyBundle(b, c)
     : validateBundle;
   const result = validate(bundle, {
@@ -531,7 +531,7 @@ async function insertClientAgent(
     templateId: string | null;
     testCopy?: boolean;
   },
-  bundle: AgentBundle,
+  bundle: AnyAgentBundle,
 ): Promise<AgentRow> {
   const [row] = await tx
     .insert(agent)
@@ -837,10 +837,10 @@ export async function relink(
 
 /**
  * The connectors a bundle needs bound: those its skills require, and the connectors of every
- * connector tool it can call (skills' tools, extra tools, action steps).
+ * connector tool it can call (skills' tools, extra tools, action steps; v4: read and write steps).
  */
 export function requiredConnectors(
-  bundle: AgentBundle,
+  bundle: AnyAgentBundle,
   skills: Record<string, SkillDefinition>,
   tools: ToolRegistry,
   // v0.12 W2-B: the automations its use steps pin (their `requires.connectors` count too).
@@ -852,7 +852,12 @@ export function requiredConnectors(
   const out = new Set<string>();
   for (const w of bundle.workflows) {
     if (!w.enabled) continue;
-    for (const ref of automationRefs([w.workflow])) {
+    // Wave 3b: a v4 process pins its automations on `process` steps.
+    const refs =
+      w.workflow.schemaVersion === 4
+        ? processes.subProcessRefs([w.workflow])
+        : automationRefs([w.workflow]);
+    for (const ref of refs) {
       for (const c of automations[ref]?.requires.connectors ?? []) out.add(c);
     }
   }
@@ -866,6 +871,14 @@ export function requiredConnectors(
   for (const s of bundle.definition.skills) addSkill(s.skill);
   for (const w of bundle.workflows) {
     if (!w.enabled) continue;
+    // Wave 3b: a v4 process's read and write steps name their tool, as an action step does.
+    if (w.workflow.schemaVersion === 4) {
+      processes.walkSteps(w.workflow, ({ step }) => {
+        if (step.kind === "skill") addSkill(step.skill);
+        if (step.kind === "read" || step.kind === "write") toolIds.add(step.tool);
+      });
+      continue;
+    }
     walkSteps(w.workflow, ({ step }) => {
       if (step.kind === "skill") addSkill(step.skill);
       if (step.kind === "action") toolIds.add(step.tool);

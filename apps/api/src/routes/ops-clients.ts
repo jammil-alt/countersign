@@ -6,7 +6,7 @@ import { applyMatrixChange } from "@countersign/connectors";
 import {
   complianceOf,
   connectorShown,
-  findStep,
+  findAnyStep,
   type OpsAgentActivity,
   parseCoveredProcessors,
   processingRefusal,
@@ -330,7 +330,7 @@ export async function opsRunViews(
         : undefined;
     // A step in a loop runs as `<loop>:<index>:<step>`: its own id is the last part.
     const stepId = typeof nodeId === "string" ? (nodeId.split(":").at(-1) ?? nodeId) : null;
-    const step = wf && stepId ? findStep(wf.workflow, stepId)?.step : undefined;
+    const step = wf && stepId ? findAnyStep(wf.workflow, stepId) : undefined;
     return {
       ...opsRun(r),
       waiting: waits.get(r.id) ?? null,

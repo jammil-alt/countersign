@@ -3,8 +3,8 @@
 // last fired, answered from `run.trigger` (no new table). The operator's only.
 
 import {
-  type AgentBundle,
   type AgentTriggers,
+  type AnyAgentBundle,
   agentAddress,
   agentCommandNames,
   allTriggers,
@@ -82,7 +82,7 @@ export async function agentTriggers(
     .where(where)
     .orderBy(desc(agentVersion.version))
     .limit(1);
-  const bundle: AgentBundle | null = v?.bundle ?? null;
+  const bundle: AnyAgentBundle | null = v?.bundle ?? null;
 
   const fired = await tx.execute<{
     trigger_id: string;

@@ -574,9 +574,9 @@ export function requestRun(input: {
 
 // ── R3: v4 processes (docs/plan.md §1.86, §9) ───────────────────────────────────────────────────
 
-/** Every trigger of a workflow: a v3 workflow's `trigger` and `moreTriggers`, a process's list. */
+/** Every trigger of a workflow: a v3 workflow's `trigger` and `moreTriggers`, a process's list (core). */
 export function triggersOfWorkflow(workflow: AnyBundleWorkflow["workflow"]): Trigger[] {
-  return workflow.schemaVersion === 4 ? workflow.triggers : allTriggers(workflow);
+  return allTriggers(workflow);
 }
 
 /** The workflow's first trigger (a process has at least one). */

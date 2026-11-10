@@ -41,17 +41,14 @@ export interface ResolvedAutomation {
   status: AutomationVersionRow["status"];
 }
 
-/**
- * A bundle's workflows split by schema. R8: the builder saves v4 processes, so a stored bundle may
- * hold them though the column is typed v3 (`AnyAgentBundle` is the true shape).
- */
-function bySchema(bundle: AgentBundle): {
+/** A bundle's workflows split by schema. R8: the builder saves v4 processes. */
+function bySchema(bundle: AnyAgentBundle): {
   v3: AgentBundle["workflows"][number]["workflow"][];
   v4: processes.Process[];
 } {
   const v3: AgentBundle["workflows"][number]["workflow"][] = [];
   const v4: processes.Process[] = [];
-  for (const w of (bundle as AnyAgentBundle).workflows) {
+  for (const w of bundle.workflows) {
     if (w.workflow.schemaVersion === 4) v4.push(w.workflow);
     else v3.push(w.workflow);
   }
@@ -59,7 +56,7 @@ function bySchema(bundle: AgentBundle): {
 }
 
 /** The automation versions a bundle's use steps (v4: process steps) pin, each once. */
-export function bundleAutomationRefs(bundle: AgentBundle): string[] {
+export function bundleAutomationRefs(bundle: AnyAgentBundle): string[] {
   const { v3, v4 } = bySchema(bundle);
   return [...new Set([...automationRefs(v3), ...processes.subProcessRefs(v4)])];
 }
@@ -400,7 +397,7 @@ export async function resolveAutomation(
  */
 export async function automationContext(
   tx: Tx,
-  input: { tenantId: string | null; bundle: AgentBundle; catalog: RegistryContext["catalog"] },
+  input: { tenantId: string | null; bundle: AnyAgentBundle; catalog: RegistryContext["catalog"] },
 ): Promise<{
   automations: Record<string, AutomationDefinition>;
   skills: Record<string, SkillDefinition>;
@@ -427,11 +424,11 @@ export async function automationContext(
 // DECISION: an agent publishes only on published automation versions (live or retired): a pinned
 // draft could still change meaning, and only a valid version publishes.
 export function automationPublishErrors(
-  bundle: AgentBundle,
+  bundle: AnyAgentBundle,
   found: { drafts: string[] },
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const w of (bundle as AnyAgentBundle).workflows) {
+  for (const w of bundle.workflows) {
     // R8: a v4 process pins its processes on `process` steps.
     const pinned =
       w.workflow.schemaVersion === 4
@@ -464,7 +461,7 @@ export function automationPublishErrors(
  */
 export async function snapshotSharedAutomations(
   tx: Tx,
-  input: { tenantId: string; bundle: AgentBundle; catalog?: RegistryContext["catalog"] },
+  input: { tenantId: string; bundle: AnyAgentBundle; catalog?: RegistryContext["catalog"] },
 ): Promise<{ ref: string; versionId: string }[]> {
   const made: { ref: string; versionId: string }[] = [];
   const copiedDefs: AutomationDefinition[] = [];

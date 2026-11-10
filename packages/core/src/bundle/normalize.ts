@@ -5,13 +5,16 @@
 import { cloneJson } from "../json";
 import { type ConvertLookup, fromWorkflowV3 } from "../process/convert";
 import { Process, type Step as ProcessStep, Step } from "../process/schema";
+import { findStep as findProcessStep } from "../process/walk";
 import {
   type AnyAgentBundle,
+  type AnyBundleWorkflow,
   holdsProcess,
   type ProcessAgentBundle,
   type ProcessBundleWorkflow,
 } from "../schemas/agent";
-import { Trigger, WorkflowHandoff } from "../schemas/workflow";
+import { Trigger, type Step as V3Step, type Workflow, WorkflowHandoff } from "../schemas/workflow";
+import { findStep as findV3Step, walkSteps as walkV3Steps } from "../workflow/walk";
 
 /** How diff, merge and select read bundles that hold v4 processes. */
 export interface BundleReadOptions {
@@ -147,4 +150,46 @@ export function eachProcessStep(steps: readonly ProcessStep[], visit: (step: Pro
       eachProcessStep(step.steps, visit);
     }
   }
+}
+
+/** A step of a bundle's workflow: a stored v3 step or a v4 process step (`kind` tells which). */
+export type AnyStep = V3Step | ProcessStep;
+
+/**
+ * Wave 3b: visits every step of a bundle's workflows, v3 workflows and v4 processes alike, depth
+ * first in run order, with the workflow entry that holds it. Readers that only need each step (the
+ * tools, skills and automations a bundle uses, the values promotion strips) share this rather than
+ * switching on `schemaVersion` themselves. `enabledOnly` skips disabled workflows.
+ */
+export function eachBundleStep(
+  bundle: Pick<AnyAgentBundle, "workflows">,
+  visit: (step: AnyStep, workflow: AnyBundleWorkflow) => void,
+  options: { enabledOnly?: boolean } = {},
+): void {
+  for (const w of bundle.workflows) {
+    if (options.enabledOnly && !w.enabled) continue;
+    if (w.workflow.schemaVersion === 4) eachProcessStep(w.workflow.steps, (step) => visit(step, w));
+    else walkV3Steps(w.workflow, ({ step }) => visit(step, w));
+  }
+}
+
+/**
+ * Wave 3b: the step a `step_run`'s node id names, in a v3 workflow or a v4 process: the id, or the
+ * last part of `${loop}:${index}:${childId}` inside a loop.
+ */
+export function findNodeStep(
+  workflow: Pick<Workflow, "schemaVersion" | "steps"> | Pick<Process, "schemaVersion" | "steps">,
+  nodeId: string,
+): AnyStep | undefined {
+  return findAnyStep(workflow, nodeId) ?? findAnyStep(workflow, nodeId.split(":").at(-1) ?? nodeId);
+}
+
+/** Wave 3b: a step of a v3 workflow or a v4 process by id, nested ones included. */
+export function findAnyStep(
+  workflow: Pick<Workflow, "schemaVersion" | "steps"> | Pick<Process, "schemaVersion" | "steps">,
+  id: string,
+): AnyStep | undefined {
+  return workflow.schemaVersion === 4
+    ? findProcessStep(workflow, id)?.step
+    : findV3Step(workflow, id)?.step;
 }

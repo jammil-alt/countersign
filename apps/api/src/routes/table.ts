@@ -5,17 +5,17 @@
 // routes: the lead's edits in the back office, sent tables and their PDF in the portal.
 
 import {
+  type AnyBundleWorkflow,
+  type AnyStep,
   addDays,
   clientLabel,
   clientLanguage,
-  findStep,
-  isClientVisible,
+  findNodeStep,
   type Locale,
   routes,
-  type Step,
+  shownOnTimeline,
   type TableView,
   userLanguage,
-  type Workflow,
   weekBounds,
   weekStartOf,
 } from "@countersign/core";
@@ -62,10 +62,12 @@ async function clientOf(tx: Tx, tenantId: string): Promise<TenantRow> {
   return t;
 }
 
+type AnyWorkflow = AnyBundleWorkflow["workflow"];
+
 /** Workflows of the versions asked for, by version id and slug (read once per request). */
 function workflowCache(tx: Tx, tenantId: string) {
-  const cache = new Map<string, Promise<Map<string, Workflow>>>();
-  return (versionId: string, slug: string): Promise<Workflow | undefined> => {
+  const cache = new Map<string, Promise<Map<string, AnyWorkflow>>>();
+  return (versionId: string, slug: string): Promise<AnyWorkflow | undefined> => {
     let v = cache.get(versionId);
     if (!v) {
       v = tx
@@ -77,13 +79,6 @@ function workflowCache(tx: Tx, tenantId: string) {
     }
     return v.then((m) => m.get(slug));
   };
-}
-
-/** A step_run's node names its step: the id, or `${loop}:${index}:${childId}` inside a loop. */
-function stepOf(workflow: Workflow, nodeId: string): Step | undefined {
-  return (
-    findStep(workflow, nodeId)?.step ?? findStep(workflow, nodeId.split(":").at(-1) ?? nodeId)?.step
-  );
 }
 
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
@@ -178,9 +173,11 @@ async function buildTable(
           .limit(1);
         if (workflow && current) {
           const top = current.nodeId.split(":")[0] ?? current.nodeId;
-          const index = workflow.steps.findIndex((s) => s.id === top);
-          const s = workflow.steps[index];
-          if (s) step = { index: index + 1, total: workflow.steps.length, label: clientLabel(s) };
+          // Wave 3b: a v3 workflow's or a v4 process's top-level steps alike.
+          const steps: readonly AnyStep[] = workflow.steps;
+          const index = steps.findIndex((s) => s.id === top);
+          const s = steps[index];
+          if (s) step = { index: index + 1, total: steps.length, label: clientLabel(s) };
           since = iso(current.startedAt) ?? since;
         }
         if (waiting?.since) since = waiting.since.toISOString();
@@ -239,8 +236,8 @@ async function buildTable(
   for (const { s, r } of steps) {
     if (recent.length >= 5) break;
     const workflow = await workflows(r.agentVersionId, r.workflowSlug);
-    const step = workflow ? stepOf(workflow, s.nodeId) : undefined;
-    if (!step || !isClientVisible(step)) continue;
+    const step = workflow ? findNodeStep(workflow, s.nodeId) : undefined;
+    if (!step || !shownOnTimeline(step)) continue;
     recent.push({
       runId: r.id,
       service: { id: r.agentId, name: names.get(r.agentId) ?? "" },

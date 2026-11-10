@@ -1,7 +1,14 @@
 // Template updates (three-way merge into a client draft) and promotion (into a template draft,
 // client-specific values stripped), against a real database as cs_worker.
 
-import { type AgentBundle, cloneJson, selectableBetween, uuidv7 } from "@countersign/core";
+import {
+  type AgentBundle,
+  type AnyAgentBundle,
+  cloneJson,
+  holdsProcess,
+  selectableBetween,
+  uuidv7,
+} from "@countersign/core";
 import { afterAll, describe, expect, it } from "vitest";
 import type { AgentsError } from "../errors";
 import {
@@ -33,14 +40,20 @@ import {
 const harness = await createHarness();
 afterAll(() => harness?.close());
 
-function step(bundle: AgentBundle, id: string) {
-  const s = bundle.workflows[0]?.workflow.steps.find((x) => x.id === id);
+/** A stored bundle these fixtures made of v3 workflows (the column holds v3 or v4). */
+function v3(bundle: AnyAgentBundle): AgentBundle {
+  if (holdsProcess(bundle)) throw new Error("fixture: expected v3 workflows");
+  return bundle as AgentBundle;
+}
+
+function step(bundle: AnyAgentBundle, id: string) {
+  const s = v3(bundle).workflows[0]?.workflow.steps.find((x) => x.id === id);
   if (!s) throw new Error(`no step ${id}`);
   return s;
 }
 
-function edit(bundle: AgentBundle, fn: (b: AgentBundle) => void): AgentBundle {
-  const out = cloneJson(bundle);
+function edit(bundle: AnyAgentBundle, fn: (b: AgentBundle) => void): AgentBundle {
+  const out = cloneJson(v3(bundle));
   fn(out);
   return out;
 }

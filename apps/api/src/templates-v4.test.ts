@@ -6,7 +6,7 @@
 // platform-template route adds the seeded v4 versions with the seed's hash, once; switching a pack
 // on installs its templates' v2 where v1 is installed already and on a fresh install, once.
 
-import { convertLookup } from "@countersign/agents";
+import { convertLookup, createTemplate, createVersion, publish } from "@countersign/agents";
 import {
   createBankfeedConnector,
   createQboConnector,
@@ -16,12 +16,14 @@ import { FAKE_PLAID, FAKE_QBO_CLIENT, fakePlaid, fakeQbo } from "@countersign/co
 import {
   type AgentBundle,
   type AnyAgentBundle,
+  cloneJson,
   isToolWrapper,
   parseSkillRef,
   processes,
+  toProcessBundle,
   type Workflow,
 } from "@countersign/core";
-import { agent, agentVersion } from "@countersign/db";
+import { agent, agentVersion, withOperator } from "@countersign/db";
 import {
   loadDemoAgent,
   loadDemoAgentVersions,
@@ -33,8 +35,11 @@ import { bookkeepingManifest } from "@countersign/pack-bookkeeping";
 import { marketingManifest } from "@countersign/pack-marketing";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
-import { type ApiHarness, createApiHarness, OPERATOR } from "./api.test-helper";
+import { type ApiHarness, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
+import type { Services } from "./http";
+import type { RegisteredPack } from "./packs";
 import { createPlatform, deploymentConnectors } from "./platform";
+import { updatePackTemplates } from "./routes/packs";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -245,51 +250,134 @@ describe.skipIf(!h)("installing the v4 versions", () => {
     }
   });
 
-  it("adds the Bookkeeper's v2 where its v1 is installed already, and live", async () => {
-    // As the pack's first install left it: v1 only, published.
+  // Wave 3b: switching a pack on never changes an installed template; "Update templates" gives it
+  // the pack's later versions, and each fork is offered the update, reviewed as a merge.
+  it("gives the Bookkeeper its v2 by Update templates where v1 is installed, and offers it to forks", async () => {
+    // As the pack's first install left it on staging: the pack's v1 only, published.
     const v1 = bookkeepingManifest.templates[0];
     if (!v1) throw new Error("no bookkeeper");
-    const made = await H.call(OPERATOR, "POST", "/api/ops/templates", {
-      slug: v1.slug,
-      bundle: v1.bundle,
+    const tpl = await withOperator(H.db, [H.A.tenantId], async (tx) => {
+      const made = await createTemplate(tx, {
+        slug: v1.slug,
+        bundle: v1.bundle,
+        authorType: "pack",
+      });
+      await publish(tx, {
+        agentId: made.agent.id,
+        versionId: made.version.id,
+        ctx: H.platform.ctx,
+      });
+      return made.agent;
     });
-    expect(made.status, JSON.stringify(made.json)).toBe(200);
-    const pub = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/agents/${j(made.json).agent.id}/versions/${j(made.json).version.id}/publish`,
-    );
-    expect(pub.status, JSON.stringify(pub.json)).toBe(200);
-
     const enable = await H.call(
       OPERATOR,
       "POST",
       `/api/ops/clients/${H.A.tenantId}/packs/bookkeeping/enable`,
     );
     expect(enable.status, JSON.stringify(enable.json)).toBe(200);
-    expect(j(enable.json).installed).toEqual([
-      { slug: "bookkeeper", templateId: j(made.json).agent.id },
+    // Switching it on changes no installed template.
+    expect(j(enable.json).installed).toEqual([]);
+    expect((await versionsOf("bookkeeper")).versions).toHaveLength(1);
+    // A client agent forked from v1 before the update.
+    const fork = await H.call(OPERATOR, "POST", `/api/ops/templates/${tpl.id}/fork`, {
+      clientId: H.A.tenantId,
+      slug: "bookkeeper-v1",
+    });
+    expect(fork.status, JSON.stringify(fork.json)).toBe(200);
+    const forkId = j(fork.json).agent.id as string;
+
+    const packs = await H.call(OPERATOR, "GET", "/api/ops/packs");
+    const listed = j(packs.json).packs.find((p: { id: string }) => p.id === "bookkeeping");
+    expect(listed.templates).toEqual([
+      expect.objectContaining({ slug: "bookkeeper", templateId: tpl.id, newVersions: 1 }),
+    ]);
+
+    const update = await H.call(OPERATOR, "POST", "/api/ops/packs/bookkeeping/templates/update");
+    expect(update.status, JSON.stringify(update.json)).toBe(200);
+    expect(j(update.json).updated).toEqual([
+      { slug: "bookkeeper", templateId: tpl.id, version: 2, published: true },
     ]);
     const { live, versions } = await versionsOf("bookkeeper");
     expect(versions.map((v) => [v.version, v.status, v.authorType])).toEqual([
-      [1, "retired", "operator"],
+      [1, "retired", "pack"],
       [2, "live", "pack"],
     ]);
     expect(live).toBe(versions[1]?.id);
-    const v2 = versions[1]?.bundle as AnyAgentBundle | undefined;
+    const v2 = versions[1]?.bundle;
     expect(v2?.workflows.map((w) => w.workflow.schemaVersion)).toEqual([4, 4, 4, 4]);
 
-    // Switching it on again (or for another client) adds nothing.
-    for (const client of [H.A.tenantId, H.B.tenantId]) {
-      const again = await H.call(
-        OPERATOR,
-        "POST",
-        `/api/ops/clients/${client}/packs/bookkeeping/enable`,
-      );
-      expect(again.status, JSON.stringify(again.json)).toBe(200);
-      expect(j(again.json).installed).toEqual([]);
-    }
+    // The fork is offered the v4 version as an update (one version behind); nothing of it moved:
+    // it changes only by its own reviewed merge (packages/agents readers-v4.test.ts takes one).
+    const usedBy = await H.call(OPERATOR, "GET", `/api/ops/templates/${tpl.id}/used-by`);
+    expect(usedBy.status, JSON.stringify(usedBy.json)).toBe(200);
+    const entry = j(usedBy.json).agents.find(
+      (x: { agent: { id: string } }) => x.agent.id === forkId,
+    );
+    expect(entry).toMatchObject({ baseVersion: 1, behind: 1 });
+    const [forkVersion] = await H.t.db
+      .select()
+      .from(agentVersion)
+      .where(eq(agentVersion.agentId, forkId));
+    expect(forkVersion?.bundle.workflows.map((w) => w.workflow.schemaVersion)).toEqual([
+      3, 3, 3, 3,
+    ]);
+
+    // Nothing more to add: again, and for another client, adds nothing.
+    const again = await H.call(OPERATOR, "POST", "/api/ops/packs/bookkeeping/templates/update");
+    expect(j(again.json).updated).toEqual([]);
+    const other = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/clients/${H.B.tenantId}/packs/bookkeeping/enable`,
+    );
+    expect(j(other.json).installed).toEqual([]);
     expect((await versionsOf("bookkeeper")).versions).toHaveLength(2);
+  });
+
+  it("never retires an operator's own live version: the pack's later version waits as a draft", async () => {
+    const v1 = testBundle("Held clerk");
+    const v2 = toProcessBundle(v1, convertLookup(H.platform.catalog, H.platform.tools));
+    const pack = {
+      manifest: {
+        id: "held",
+        name: "Held",
+        version: "1.0.0",
+        templates: [{ slug: "held-clerk", bundle: v1, versions: [v2] }],
+      },
+    } as unknown as RegisteredPack;
+    const out = await withOperator(H.db, [H.A.tenantId], async (tx) => {
+      const made = await createTemplate(tx, { slug: "held-clerk", bundle: v1, authorType: "pack" });
+      await publish(tx, {
+        agentId: made.agent.id,
+        versionId: made.version.id,
+        ctx: H.platform.ctx,
+      });
+      // The operator's own edit goes live.
+      const own = cloneJson(v1);
+      own.definition.instructions = "Our own way.";
+      const mine = await createVersion(tx, {
+        agentId: made.agent.id,
+        bundle: own,
+        authorType: "operator",
+      });
+      await publish(tx, { agentId: made.agent.id, versionId: mine.id, ctx: H.platform.ctx });
+      const services = { platform: H.platform } as unknown as Services;
+      return {
+        id: made.agent.id,
+        mine: mine.id,
+        updated: await updatePackTemplates(tx, services, pack, H.operator),
+      };
+    });
+    expect(out.updated).toEqual([
+      { slug: "held-clerk", templateId: out.id, version: 3, published: false },
+    ]);
+    const { live, versions } = await versionsOf("held-clerk");
+    expect(live).toBe(out.mine);
+    expect(versions.map((v) => [v.version, v.status, v.authorType])).toEqual([
+      [1, "retired", "pack"],
+      [2, "live", "operator"],
+      [3, "draft", "pack"],
+    ]);
   });
 
   it("installs the marketing agents fresh as v1 then v2, v2 live", async () => {

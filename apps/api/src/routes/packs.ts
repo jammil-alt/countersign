@@ -7,9 +7,11 @@
 
 import { createTemplate, createVersion, mayResolve, publish } from "@countersign/agents";
 import {
+  type AnyAgentBundle,
   bundleHash,
   type ClientPack,
   type PackReviewDecision,
+  type PackTemplateUpdate,
   type Role,
   routes,
 } from "@countersign/core";
@@ -71,18 +73,79 @@ async function installedTemplates(tx: Tx, slugs: string[]) {
     .where(and(isNull(agent.tenantId), eq(agent.kind, "template"), inArray(agent.slug, slugs)));
 }
 
+/** The pack's later versions of a template it doesn't hold yet (by bundle hash), in order. */
+async function missingVersions(
+  tx: Tx,
+  templateId: string,
+  t: RegisteredPack["manifest"]["templates"][number],
+): Promise<{ n: number; bundle: AnyAgentBundle }[]> {
+  const later = t.versions ?? [];
+  if (later.length === 0) return [];
+  const held = new Set(
+    (
+      await tx
+        .select({ hash: agentVersion.bundleHash })
+        .from(agentVersion)
+        .where(eq(agentVersion.agentId, templateId))
+    ).map((r) => r.hash),
+  );
+  const out: { n: number; bundle: AnyAgentBundle }[] = [];
+  for (const [i, bundle] of later.entries()) {
+    if (!held.has(await bundleHash(bundle))) out.push({ n: i + 2, bundle });
+  }
+  return out;
+}
+
+/**
+ * Adds a template's missing later versions as new versions by the pack. Each is published when
+ * `publishOver` allows it (a fresh install; or the live version is the pack's own), else it waits
+ * as a draft beside the operator's live version. Publishing a template changes no client agent
+ * (invariant 11): each fork is offered the update and moves only by its reviewed merge.
+ */
+async function addLaterVersions(
+  tx: Tx,
+  services: Services,
+  pack: RegisteredPack,
+  templateId: string,
+  t: RegisteredPack["manifest"]["templates"][number],
+  actorId: string,
+  publishOver: boolean,
+): Promise<PackTemplateUpdate[]> {
+  const from = `the ${pack.manifest.name} pack ${pack.manifest.version}`;
+  const out: PackTemplateUpdate[] = [];
+  for (const { n, bundle } of await missingVersions(tx, templateId, t)) {
+    const draft = await createVersion(tx, {
+      agentId: templateId,
+      bundle,
+      authorType: "pack",
+      authorId: actorId,
+      changeNote: `Installed with ${from}: its v${n}`,
+      releaseNote: `The pack's v${n}`,
+    });
+    if (publishOver) {
+      await publish(tx, {
+        agentId: templateId,
+        versionId: draft.id,
+        actorId,
+        ctx: services.platform.ctx,
+      });
+    }
+    out.push({ slug: t.slug, templateId, version: draft.version, published: publishOver });
+  }
+  return out;
+}
+
 /**
  * Installs the pack's templates that aren't there yet: a template v1 by the pack, published so it
- * can be forked. A template with the same slug already there counts as installed. R9: then each of
- * a template's later versions it doesn't hold yet (by bundle hash), in order, as a new version,
- * published: the Bookkeeper's and the marketing agents' v2, their v4 processes. Publishing a
- * template changes no client agent (invariant 11): each fork moves by the usual reviewed update.
+ * can be forked, then its later versions (R9: the Bookkeeper's and the marketing agents' v2, their
+ * v4 processes), published in order. A template with the same slug already there counts as
+ * installed and is left as it is: its later versions come with `updatePackTemplates`.
  */
 // DECISION: a pack's templates are installed the first time the pack is switched on for any client
 // (not at deploy), so a deployment that never uses a pack has none of its templates.
-// DECISION (R9): a later version is added whenever the pack is switched on for a client (switching
-// it on again is how the operator upgrades), the same way the seed and the platform-template
-// install add theirs: idempotent by hash, numbered after the template's own versions.
+// DECISION (wave 3b, replacing R9's): switching a pack on for a client never changes a template
+// that is already installed; "Update templates" (opsUpdatePackTemplates) adds its later versions,
+// so a routine per-client action never publishes a template version for every client.
 async function installTemplates(
   tx: Tx,
   services: Services,
@@ -96,57 +159,68 @@ async function installTemplates(
   const installed: { slug: string; templateId: string }[] = [];
   const from = `the ${pack.manifest.name} pack ${pack.manifest.version}`;
   for (const t of pack.manifest.templates) {
-    let templateId = have.find((h) => h.slug === t.slug)?.id;
-    let changed = false;
-    if (!templateId) {
-      const made = await createTemplate(tx, {
-        slug: t.slug,
-        bundle: t.bundle,
-        authorType: "pack",
-        authorId: actorId,
-        changeNote: `Installed with ${from}`,
-        releaseNote: "First version",
-      });
-      await publish(tx, {
-        agentId: made.agent.id,
-        versionId: made.version.id,
-        actorId,
-        ctx: services.platform.ctx,
-      });
-      templateId = made.agent.id;
-      changed = true;
-    }
-    for (const [i, later] of (t.versions ?? []).entries()) {
-      const [same] = await tx
-        .select({ id: agentVersion.id })
-        .from(agentVersion)
-        .where(
-          and(
-            eq(agentVersion.agentId, templateId),
-            eq(agentVersion.bundleHash, await bundleHash(later)),
-          ),
-        )
-        .limit(1);
-      if (same) continue;
-      const draft = await createVersion(tx, {
-        agentId: templateId,
-        bundle: later,
-        authorType: "pack",
-        authorId: actorId,
-        changeNote: `Installed with ${from}: its v${i + 2}`,
-        releaseNote: `The pack's v${i + 2}`,
-      });
-      await publish(tx, {
-        agentId: templateId,
-        versionId: draft.id,
-        actorId,
-        ctx: services.platform.ctx,
-      });
-      changed = true;
-    }
-    if (changed) installed.push({ slug: t.slug, templateId });
+    if (have.some((h) => h.slug === t.slug)) continue;
+    const made = await createTemplate(tx, {
+      slug: t.slug,
+      bundle: t.bundle,
+      authorType: "pack",
+      authorId: actorId,
+      changeNote: `Installed with ${from}`,
+      releaseNote: "First version",
+    });
+    await publish(tx, {
+      agentId: made.agent.id,
+      versionId: made.version.id,
+      actorId,
+      ctx: services.platform.ctx,
+    });
+    await addLaterVersions(tx, services, pack, made.agent.id, t, actorId, true);
+    installed.push({ slug: t.slug, templateId: made.agent.id });
   }
   return installed;
+}
+
+/**
+ * Wave 3b: gives the pack's installed templates the later versions the pack carries (the v4
+ * processes), so clients that already have the pack are offered them: each client agent forked
+ * from the template sees the update and takes it only by a reviewed merge (invariant 11).
+ */
+// DECISION (wave 3b): a later version is published over a live version the pack made (or when the
+// template has none live); over a live version the operator made, it is saved as a draft for the
+// operator to review and publish, so their own edits are never retired by an update.
+export async function updatePackTemplates(
+  tx: Tx,
+  services: Services,
+  pack: RegisteredPack,
+  actorId: string,
+): Promise<PackTemplateUpdate[]> {
+  const rows = await tx
+    .select({ id: agent.id, slug: agent.slug, liveVersionId: agent.liveVersionId })
+    .from(agent)
+    .where(
+      and(
+        isNull(agent.tenantId),
+        eq(agent.kind, "template"),
+        inArray(
+          agent.slug,
+          pack.manifest.templates.map((t) => t.slug),
+        ),
+      ),
+    );
+  const out: PackTemplateUpdate[] = [];
+  for (const t of pack.manifest.templates) {
+    const row = rows.find((r) => r.slug === t.slug);
+    if (!row) continue;
+    const [live] = row.liveVersionId
+      ? await tx
+          .select({ authorType: agentVersion.authorType })
+          .from(agentVersion)
+          .where(eq(agentVersion.id, row.liveVersionId))
+      : [];
+    const publishOver = !live || live.authorType === "pack";
+    out.push(...(await addLaterVersions(tx, services, pack, row.id, t, actorId, publishOver)));
+  }
+  return out;
 }
 
 /**
@@ -344,11 +418,17 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
         name: p.manifest.name,
         version: p.manifest.version,
         description: p.manifest.description,
-        templates: p.manifest.templates.map((t) => ({
-          slug: t.slug,
-          name: t.bundle.definition.identity.name,
-          templateId: have.find((h) => h.slug === t.slug)?.id ?? null,
-        })),
+        templates: await Promise.all(
+          p.manifest.templates.map(async (t) => {
+            const templateId = have.find((h) => h.slug === t.slug)?.id ?? null;
+            return {
+              slug: t.slug,
+              name: t.bundle.definition.identity.name,
+              templateId,
+              newVersions: templateId ? (await missingVersions(tx, templateId, t)).length : 0,
+            };
+          }),
+        ),
         screens: screensOf(p),
         clients: clients.map((c) => {
           const row = on.find((r) => r.tenantId === c.id && r.pack === p.manifest.id);
@@ -382,6 +462,11 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
     const view = packs.find((p) => p.id === pack.manifest.id);
     if (!view) throw notFound("pack");
     return { pack: view, installed };
+  });
+
+  mount(app, routes.opsUpdatePackTemplates, async ({ tx, params, services, session }) => {
+    const pack = packOf(services, params.pack);
+    return { updated: await updatePackTemplates(tx, services, pack, session.user.id) };
   });
 
   mount(app, routes.opsClientPackReport, async (ctx) => {

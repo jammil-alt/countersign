@@ -21,10 +21,13 @@ import {
   DESK_WORDS,
   type DeskItemState,
   EditedMessage,
-  findStep,
+  findNodeStep,
   isPlainObject,
   type JsonObject,
   type Locale,
+  type OwnerWatchedStep,
+  ownerStepApproval,
+  ownerWatches,
   pickLocalized,
   readApproverRuleSet,
   routeApproval,
@@ -227,9 +230,10 @@ async function routeFor(
   const payload = isPlainObject(input.item.payload) ? input.item.payload : {};
   const leaf = typeof payload.stepId === "string" ? (payload.stepId.split(":").at(-1) ?? "") : "";
   const workflow = v?.bundle.workflows.find((w) => w.slug === r.slug)?.workflow;
-  const step = workflow ? findStep(workflow, leaf)?.step : undefined;
+  // Wave 3b: a v3 step's own approver, or a v4 step's first approver (core's rule for both).
+  const step = workflow ? findNodeStep(workflow, leaf) : undefined;
   const stepApprover =
-    step && (step.kind === "skill" || step.kind === "action") ? step.approval?.approver : undefined;
+    step && ownerWatches(step) ? ownerStepApproval(step as OwnerWatchedStep).approver : undefined;
   const [t] = await tx
     .select({ settings: tenant.settings })
     .from(tenant)

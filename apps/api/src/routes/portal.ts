@@ -15,7 +15,6 @@ import {
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
 import {
-  type AnyAgentBundle,
   checkKindOf,
   clientLabel,
   connectionLabel,
@@ -442,9 +441,7 @@ export async function portalRunView(
     : [];
   // R8: the workflow that ran may be a v4 process (§1.86); a check row (`:confer:`…) names the
   // step it checks.
-  const workflow = (v?.bundle as AnyAgentBundle | undefined)?.workflows.find(
-    (w) => w.slug === r?.slug,
-  )?.workflow;
+  const workflow = v?.bundle.workflows.find((w) => w.slug === r?.slug)?.workflow;
   const lookup = stepFinder(workflow);
 
   const steps = await tx
@@ -462,14 +459,8 @@ export async function portalRunView(
     ? await leadFirstName(tx, tenantId)
     : null;
   // v0.13 W2-I: run oversight in the platform's words only, never the agent's note (§10.11).
-  // R8: the oversight words read a v3 workflow's steps; a v4 process's read without them.
-  const oversight = await timelineOversight(
-    tx,
-    tenantId,
-    runId,
-    platform,
-    workflow?.schemaVersion === 4 ? undefined : workflow,
-  );
+  // Wave 3b: the oversight words read a v3 workflow's or a v4 process's steps alike.
+  const oversight = await timelineOversight(tx, tenantId, runId, platform, workflow);
   // P-4: the client's side of each conversation step, never a prompt, model or cost (§1.66).
   const conversations = await runConversations(tx, tenantId, runId);
   // P-6: which live conversations this person approves, so may take over or end (§1.68).

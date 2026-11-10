@@ -9,9 +9,10 @@
 // automatically (DECISION in plan §1.2).
 
 import {
-  type AgentBundle,
   type AnyAgentBundle,
+  type AnyStep,
   cloneJson,
+  eachBundleStep,
   holdsProcess,
   isPlainObject,
   type MergeResult,
@@ -20,10 +21,8 @@ import {
   processes,
   type Resolution,
   type SkillDefinition,
-  type Step,
   selectChanges,
   validateBundle,
-  walkSteps,
 } from "@countersign/core";
 import { agent, agentVersion, type Tx } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
@@ -120,7 +119,7 @@ export interface MergePreview {
   base: AgentVersionRow;
   ours: AgentVersionRow;
   theirs: AgentVersionRow;
-  result: MergeResult;
+  result: MergeResult<AnyAgentBundle>;
 }
 
 /**
@@ -155,20 +154,19 @@ export async function previewUpdate(
   }
   if (!info.available) throw new AgentsError("no_update", `${row.slug} is up to date`);
   const result = mergeBundles(
-    info.base.bundle as AnyAgentBundle,
-    ours.bundle as AnyAgentBundle,
-    info.templateLive.bundle as AnyAgentBundle,
+    info.base.bundle,
+    ours.bundle,
+    info.templateLive.bundle,
     input.resolutions ?? [],
     input.ctx ? lineageReadOptions(input.ctx) : {},
   );
-  // The version column is typed v3; a merged bundle that holds processes is saved as it is.
-  return { base: info.base, ours, theirs: info.templateLive, result: result as MergeResult };
+  return { base: info.base, ours, theirs: info.templateLive, result };
 }
 
 async function requireMergeable(
   tx: Tx,
   tenantId: string | null,
-  result: MergeResult,
+  result: MergeResult<AnyAgentBundle>,
   ctx: RegistryContext,
 ): Promise<void> {
   if (!result.clean) {
@@ -185,9 +183,7 @@ async function requireMergeable(
   });
   // R9: a merge with a template's v4 version is all v4, validated as such (an all-v3 one exactly
   // as before).
-  const validate = holdsProcess(result.bundle as AnyAgentBundle)
-    ? processes.validateAnyBundle
-    : validateBundle;
+  const validate = holdsProcess(result.bundle) ? processes.validateAnyBundle : validateBundle;
   const valid = validate(result.bundle, {
     skills,
     tools: ctx.tools.specs(),
@@ -259,23 +255,25 @@ function scrub(bag: Bag | undefined, base: Bag | undefined, clientSpecific: Set<
   }
 }
 
-function stepsById(bundle: AgentBundle): Map<string, Step> {
-  const out = new Map<string, Step>();
-  for (const w of bundle.workflows) walkSteps(w.workflow, ({ step }) => out.set(step.id, step));
+function stepsById(bundle: AnyAgentBundle): Map<string, AnyStep> {
+  const out = new Map<string, AnyStep>();
+  eachBundleStep(bundle, (step) => out.set(step.id, step));
   return out;
 }
 
 /**
  * A client version as it may go into a template: settings marked `clientSpecific` and literal
  * record ids are replaced by the base template's value where it has one (so promotion doesn't
- * delete them from the template), else removed. Bindings never are in a bundle.
+ * delete them from the template), else removed. Bindings never are in a bundle. Wave 3b: a v4
+ * process's steps the same way (a skill step's `customize.settings` too); the client and base
+ * versions may be v3 and v4 apiece, and their steps line up by id (the converter keeps them).
  */
-export function stripForPromotion(
-  client: AgentBundle,
+export function stripForPromotion<B extends AnyAgentBundle>(
+  client: B,
   /** The base template version's bundle; null (no template) drops every such value. */
-  base: AgentBundle | null,
+  base: AnyAgentBundle | null,
   skills: Record<string, Pick<SkillDefinition, "settings">>,
-): AgentBundle {
+): B {
   // Same rule as core's stripClientSpecificSettings, but the base's value is kept where it has one.
   const out = cloneJson(client);
   const specificKeys = (ref: string) =>
@@ -290,19 +288,28 @@ export function stripForPromotion(
   for (const s of out.definition.skills) {
     scrub(s.settings, baseSkills.get(parseSkillRef(s.skill).id)?.settings, specificKeys(s.skill));
   }
-  const baseSteps = base ? stepsById(base) : new Map<string, Step>();
-  for (const w of out.workflows) {
-    walkSteps(w.workflow, ({ step }) => {
-      const b = baseSteps.get(step.id) as (Step & Bag) | undefined;
-      if (step.kind === "skill") {
-        scrub(step.settings, b?.settings as Bag | undefined, specificKeys(step.skill));
-      }
-      const s = step as Step & Bag;
-      for (const field of ["input", "payload"] as const) {
-        scrub(s[field] as Bag | undefined, b?.[field] as Bag | undefined, new Set());
-      }
-    });
-  }
+  const baseSteps = base ? stepsById(base) : new Map<string, AnyStep>();
+  /** A step's settings wherever they live: v3's `settings`, v4's and `customize.settings`. */
+  const settingsOf = (step: AnyStep | undefined): Bag | undefined => {
+    if (step?.kind !== "skill") return undefined;
+    const own = step.settings as Bag | undefined;
+    const customized = (step as { customize?: { settings?: Bag } }).customize?.settings;
+    return own || customized ? { ...customized, ...own } : undefined;
+  };
+  eachBundleStep(out, (step) => {
+    const b = baseSteps.get(step.id);
+    const bag = b as (AnyStep & Bag) | undefined;
+    if (step.kind === "skill") {
+      const keys = specificKeys(step.skill);
+      scrub(step.settings as Bag | undefined, settingsOf(b), keys);
+      const customize = (step as { customize?: { settings?: Bag } }).customize;
+      scrub(customize?.settings, settingsOf(b), keys);
+    }
+    const s = step as AnyStep & Bag;
+    for (const field of ["input", "payload"] as const) {
+      scrub(s[field] as Bag | undefined, bag?.[field] as Bag | undefined, new Set());
+    }
+  });
   return out;
 }
 
@@ -310,9 +317,9 @@ export interface PromotionPreview extends MergePreview {
   /** The client version promoted (before stripping). */
   client: AgentVersionRow;
   /** The client version's bundle with client-specific values stripped (every change offered). */
-  stripped: AgentBundle;
+  stripped: AnyAgentBundle;
   /** The "theirs" side merged: `stripped` with only the selected changes (all when none given). */
-  selected: AgentBundle;
+  selected: AnyAgentBundle;
 }
 
 /**
@@ -348,20 +355,9 @@ export async function previewPromotion(
   // R9: a client version and a template version may be v3 and v4 apiece.
   const read = lineageReadOptions(input.ctx);
   const selected = input.changes
-    ? (selectChanges(
-        base.bundle as AnyAgentBundle,
-        stripped as AnyAgentBundle,
-        input.changes,
-        read,
-      ) as AgentBundle)
+    ? selectChanges(base.bundle, stripped, input.changes, read)
     : stripped;
-  const result = mergeBundles(
-    base.bundle as AnyAgentBundle,
-    ours.bundle as AnyAgentBundle,
-    selected as AnyAgentBundle,
-    input.resolutions ?? [],
-    read,
-  ) as MergeResult;
+  const result = mergeBundles(base.bundle, ours.bundle, selected, input.resolutions ?? [], read);
   // The "theirs" side is the stripped client bundle; report it against the client version row.
   return { base, ours, theirs: client, client, stripped, selected, result };
 }

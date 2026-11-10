@@ -8,7 +8,7 @@
 // This file imports only drizzle-orm at runtime, so drizzle-kit can load it on its own.
 
 import type {
-  AgentBundle,
+  AnyAgentBundle,
   AutomationDefinition,
   PermissionMatrix,
   processes,
@@ -524,7 +524,9 @@ export const agentVersion = pgTable(
     tenantId: optionalTenantId(),
     agentId: uuid("agent_id").notNull(),
     version: integer("version").notNull(),
-    bundle: json<AgentBundle>("bundle").notNull(),
+    // R8/wave 3b: a stored v3 bundle or one that holds v4 processes; readers check
+    // `schemaVersion` (or read through core's `readConverted` / `toProcessBundle`).
+    bundle: json<AnyAgentBundle>("bundle").notNull(),
     /** sha256 of the canonical JSON of the parsed bundle (core's bundleHash). */
     bundleHash: text("bundle_hash").notNull(),
     status: text("status").$type<(typeof VERSION_STATUSES)[number]>().notNull().default("draft"),

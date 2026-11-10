@@ -2744,6 +2744,42 @@ Contacts and Accounts, the back office's client settings; no migration, no contr
   own (contacts can run to thousands); the account's channels are bound there with the agent
   page's channel editor, now shared, where unbound reads "The default".
 
+**readers (wave 3b)** (the server's readers of `agent_version.bundle`; `packages/db`, `core`,
+`packages/agents/src/registry`, `apps/api`; no migration):
+- DECISION: the `agent_version.bundle` column is typed `AnyAgentBundle`, its true shape, replacing
+  the builder's "stays typed v3"; the compiler now finds every reader, and each checks
+  `schemaVersion` or reads through core. Stored versions are untouched (invariant 3); a v3 version
+  reads exactly as before. The runtime's `PinnedAgent` stays typed v3 (the executor reads each
+  workflow by its `schemaVersion`), cast once where the registry loads it.
+- DECISION: readers share core helpers rather than per-site walks: `eachBundleStep` (every step of
+  both schemas, `enabledOnly`), `findAnyStep` and `findNodeStep` (a step by id, or by a step run's
+  `<loop>:<i>:<child>` node), and `allTriggers`/`messageTriggersOn` taking a process
+  (`TriggerHolder`). The timeline's readers (the Table, the client export) use `shownOnTimeline`.
+- DECISION: the account agent's guard opens a v4 `process` step's pinned automation as it opens
+  `use_automation`, and refuses a `conversation` step (it messages someone outside); Sloan never
+  reaches a client's tool by either (invariant 11).
+- DECISION: `requiredConnectors` and `bundleWrites` count a v4 read's and write's tool as an
+  action's, a `process` step's automation as a use step's, and a conversation as reaching people.
+- DECISION: Run now refuses a workflow with no trigger with 422 `no_trigger` (`startable`),
+  never a run with an empty trigger id; it still starts on the first trigger, as for v3.
+- DECISION: inbound calls are answered by an enabled workflow with a `call.received` trigger among
+  any of its triggers and a top-level `call.answer` action (v3) or write (v4); a v4 write's approval
+  is its `checks.approval` (absent: required), and one with a `when` counts as required, since a
+  ringing call has no run data to test it against.
+- DECISION: promotion's stripping (and so a client agent's copy) reads v4 steps too: a skill step's
+  `customize.settings` is scrubbed like its `settings`; the base's value is kept by step id.
+- DECISION: the Builder chat (session start, revise) and "Save as automation" read v3 workflows
+  only for now; a version that holds processes is refused with 422 (`holds_processes`,
+  `process_steps`) and plain words, never parsed as v3 into a 500. Porting them is the Builder's own
+  stream.
+- DECISION (replacing wave 3 templates' "switching it on again is how the operator upgrades"):
+  switching a pack on for a client never changes an installed template. "Update templates"
+  (`POST /api/ops/packs/:pack/templates/update`, a button on the Packs page when a template has
+  newer versions) adds the pack's later versions by bundle hash. Each is published when the live
+  version is the pack's own (or none is live); over a live version the operator made it is saved
+  as a draft for them to publish. Publishing changes no client agent: each fork is then offered the
+  update and takes it only by its reviewed merge (invariant 11).
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

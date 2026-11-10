@@ -115,7 +115,7 @@ describe.skipIf(!harness)("agent registry", () => {
       expect(stored.workflows.map((w) => w.workflow.schemaVersion)).toEqual([4]);
       const process = stored.workflows[0]?.workflow;
       const before = v1.bundle.workflows[0]?.workflow;
-      if (process?.schemaVersion !== 4 || !before) throw new Error("fixture");
+      if (process?.schemaVersion !== 4 || before?.schemaVersion !== 3) throw new Error("fixture");
       expect(processes.nodeIds(process)).toEqual(nodeIds(before));
       // The v3 version is as it was.
       expect(v1.bundle.workflows[0]?.workflow.schemaVersion).toBe(3);
@@ -170,7 +170,10 @@ describe.skipIf(!harness)("agent registry", () => {
     expect(forked.version.basedOnTemplateVersionId).toBe(tv.id);
     expect(forked.version.bundle).toEqual(tv.bundle);
     expect(forked.version.bundleHash).toBe(tv.bundleHash);
-    const ids = (b: typeof tv.bundle) => b.workflows.flatMap((w) => nodeIds(w.workflow));
+    const ids = (b: typeof tv.bundle) =>
+      b.workflows.flatMap((w) =>
+        w.workflow.schemaVersion === 4 ? processes.nodeIds(w.workflow) : nodeIds(w.workflow),
+      );
     expect(ids(forked.version.bundle)).toEqual(ids(tv.bundle));
     expect(ids(forked.version.bundle)).toContain(LOOKUP_STEP);
 
