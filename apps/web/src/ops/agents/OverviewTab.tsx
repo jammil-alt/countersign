@@ -1,7 +1,7 @@
 // The agent Overview tab (design screen 7, without pack KPIs): how it works as step chips from the
 // version shown, its mission, the tools it works in, the skills it uses, and its latest runs.
 // Connections, tools and skills read by their names, never their ids; empty parts are left out.
-import type { AgentBundle, SkillOption } from "@countersign/core";
+import { type AnyAgentBundle, allTriggers, type SkillOption } from "@countersign/core";
 import { Link } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -11,7 +11,7 @@ import { Card, ErrorNotice, Loading, SectionLabel, StepKindTag, Tag } from "../.
 import { StatusChip } from "../../ui/status";
 import { toolTitle } from "../builder/model";
 import { runChip } from "../run/words";
-import { KIND_LABEL, triggerTitle, workflowStats } from "../workflow/describe";
+import { KIND_LABEL, PROCESS_KIND_LABEL, triggerTitle, workflowStats } from "../workflow/describe";
 import { optionFor } from "./definition-form";
 import { useConnectorNames } from "./OperationPanel";
 import { plural } from "./ui";
@@ -23,7 +23,7 @@ export function OverviewTab({
   skills,
 }: {
   agent: AgentSummary;
-  bundle: AgentBundle;
+  bundle: AnyAgentBundle;
   /** The agent page's URL. */
   base: string;
   skills: readonly SkillOption[];
@@ -99,8 +99,22 @@ export function OverviewTab({
   );
 }
 
-function StepChips({ workflow }: { workflow: AgentBundle["workflows"][number] }) {
+/**
+ * A workflow's first trigger and its top-level steps as chips. R8: a v4 process too, its steps in
+ * the builder's words (an `if`, a write).
+ */
+function StepChips({ workflow }: { workflow: AnyAgentBundle["workflows"][number] }) {
   const w = workflow.workflow;
+  const first = allTriggers(w)[0];
+  const steps =
+    w.schemaVersion === 4
+      ? w.steps.map((s) => ({
+          id: s.id,
+          kind: s.kind,
+          label: PROCESS_KIND_LABEL[s.kind],
+          name: s.name,
+        }))
+      : w.steps.map((s) => ({ id: s.id, kind: s.kind, label: KIND_LABEL[s.kind], name: s.name }));
   return (
     <div className="mb-3 last:mb-0" data-testid={`agent-chips-${workflow.slug}`}>
       <p className="mb-2 text-sm font-medium text-ink">
@@ -108,9 +122,11 @@ function StepChips({ workflow }: { workflow: AgentBundle["workflows"][number] })
         {workflow.enabled ? "" : <span className="ml-2 text-ink-muted">off</span>}
       </p>
       <ol className="flex flex-wrap items-center gap-2">
-        <Chip kindId="trigger" kind={KIND_LABEL.trigger} label={triggerTitle(w.trigger)} />
-        {w.steps.map((s) => (
-          <Chip key={s.id} kindId={s.kind} kind={KIND_LABEL[s.kind]} label={s.name} />
+        {first ? (
+          <Chip kindId="trigger" kind={KIND_LABEL.trigger} label={triggerTitle(first)} />
+        ) : null}
+        {steps.map((s) => (
+          <Chip key={s.id} kindId={s.kind} kind={s.label} label={s.name} />
         ))}
       </ol>
     </div>

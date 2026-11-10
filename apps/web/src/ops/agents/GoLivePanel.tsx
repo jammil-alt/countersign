@@ -2,7 +2,7 @@
 // trial, sign-off, live), the trial's days and runs against its minimums, the client's sign-off,
 // skips and rejections; the operator moves it with a reason, changes the trial's minimums, and runs
 // it live on one of the client's past events. Minimal by design: the owner's redesign replaces it.
-import type { AgentBundle, AgentStage } from "@countersign/core";
+import type { AgentStage, AnyAgentBundle } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
@@ -36,7 +36,7 @@ export function GoLivePanel({
   onChanged,
 }: {
   agent: AgentSummary;
-  liveBundle: AgentBundle | null;
+  liveBundle: AnyAgentBundle | null;
   onChanged(): void;
 }) {
   const state = useApi(apiRoutes.opsAgentGoLive, { params: { id: agent.id } });
@@ -238,7 +238,7 @@ function PastEventRun({
   liveBundle,
 }: {
   agent: AgentSummary;
-  liveBundle: AgentBundle | null;
+  liveBundle: AnyAgentBundle | null;
 }) {
   const workflows = (liveBundle?.workflows ?? []).filter(
     (w) => w.enabled && triggerEventType(w.workflow),

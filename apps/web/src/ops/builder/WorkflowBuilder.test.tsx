@@ -333,6 +333,8 @@ interface Setup {
   catalog?: BuilderCatalog;
   /** Whether the agent's client is the Sandbox (the Testkit is offered only there). */
   sandbox?: boolean;
+  /** The client's People list (GET /api/ops/clients/:id/hours). */
+  people?: { kind: "user" | "contact"; id: string; name: string; hours: null }[];
 }
 
 function setup(options: Setup = {}) {
@@ -345,6 +347,17 @@ function setup(options: Setup = {}) {
   const api = fakeApi({
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => options.catalog ?? CATALOG,
     "GET /api/ops/catalog/events": () => EVENTS,
+    ...(options.people
+      ? {
+          [`GET /api/ops/clients/${CLIENT_ID}/hours`]: () => ({
+            business: {
+              hours: { tz: "UTC", week: { mon: [{ from: "08:00", to: "18:00" }] } },
+              isDefault: true,
+            },
+            people: options.people,
+          }),
+        }
+      : {}),
     "GET /api/ops/clients": () => ({
       clients: [
         {
@@ -1450,6 +1463,120 @@ describe("WorkflowBuilder on processes", () => {
     expect(BUNDLE.workflows[0]?.workflow.schemaVersion).toBe(3);
   });
 
+  // Wave 3b: Publish sends the stored v3 version while nothing changed, and the server validates
+  // it as v3; the builder's problem list and Publish button follow what would be sent.
+  it("validates an unchanged stored v3 version as v3, as its publish will, and the edited process as v4", async () => {
+    const suggesting = AgentBundle.parse({
+      ...BUNDLE_INPUT,
+      definition: { ...BUNDLE_INPUT.definition, permissions: { mode: "suggest_only" } },
+      workflows: [
+        {
+          slug: "new-bill",
+          name: "New bill",
+          workflow: {
+            schemaVersion: 3,
+            trigger: { id: "t1", on: { type: "event", event: "transaction.created" } },
+            steps: [
+              {
+                id: "update",
+                kind: "action",
+                name: "Update the record",
+                tool: "testkit.record.update",
+                input: { id: "{{trigger.billId}}" },
+                approval: { required: "not_required" },
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const { sent } = setup({ bundle: suggesting });
+    await ready();
+    const user = userEvent.setup();
+    // v3 doesn't hold a suggest-only agent's loosened action at publish (the gate still asks).
+    expect(screen.getByTestId("builder-valid")).toBeInTheDocument();
+    expect(screen.getByTestId("builder-publish")).toBeEnabled();
+    await user.click(screen.getByTestId("builder-publish"));
+    await waitFor(() => expect(sent.map((s) => s.path)).toEqual([`publish ${V1}`]));
+    // Once edited, the next save is a process, which v4 holds to an agent that acts.
+    await select(user, "update");
+    await user.type(screen.getByTestId("builder-inspector-name"), "!");
+    expect(screen.getByTestId("builder-problems")).toHaveTextContent("1 problem");
+    expect(screen.getByTestId("builder-publish")).toBeDisabled();
+  });
+
+  it("says a process step's changes are approved inside it, and offers a conversation no approval", async () => {
+    setup({
+      catalog: {
+        ...CATALOG,
+        automations: [
+          {
+            ref: "correct@1",
+            slug: "correct",
+            version: 1,
+            name: "Correct the record",
+            description: "Corrects a record",
+            source: "shared",
+            status: "live",
+            definition: {
+              schemaVersion: 1 as const,
+              slug: "correct",
+              name: "Correct the record",
+              description: "Corrects a record",
+              input: { type: "object", properties: {} },
+              output: {},
+              steps: [
+                {
+                  id: "u",
+                  kind: "action" as const,
+                  name: "Update",
+                  tool: "testkit.record.update",
+                  input: { id: "x" },
+                  approval: { required: "required" as const, onReject: "stop" as const },
+                },
+              ],
+              requires: { skills: [], tools: ["testkit.record.update"], connectors: ["testkit"] },
+            },
+            outputSchema: { type: "object", properties: {} },
+          },
+        ],
+      },
+    });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-process:correct@1-add"));
+    expect(screen.getByTestId("builder-approval-none")).toHaveTextContent(
+      "approved inside that process",
+    );
+    expect(screen.getByTestId("builder-approval-none")).not.toHaveTextContent("changes nothing");
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-conversation-add"));
+    expect(screen.getByTestId("builder-approval-conversation")).toHaveTextContent(
+      "signed under its message settings",
+    );
+    expect(screen.queryByTestId("builder-approval-add")).toBeNull();
+  });
+
+  it("offers the client's team as person reviewers, never a directory contact", async () => {
+    const DANA = "00000000-0000-4000-8000-0000000c0001";
+    const NORTHLINE = "00000000-0000-4000-8000-0000000c0002";
+    setup({
+      people: [
+        { kind: "user", id: DANA, name: "Dana Reyes", hours: null },
+        { kind: "contact", id: NORTHLINE, name: "Northline Supply", hours: null },
+      ],
+    });
+    const user = userEvent.setup();
+    await select(user, "update");
+    await user.click(screen.getByTestId("builder-confer-add"));
+    await user.click(screen.getByTestId("builder-confer-add-person"));
+    const picker = screen.getByTestId("builder-confer-1-person");
+    await waitFor(() => expect(within(picker).getByText("Dana Reyes")).toBeInTheDocument());
+    // A conferee sees the step's result: a vendor is outside the team, so never offered.
+    expect(within(picker).queryByText("Northline Supply")).toBeNull();
+  });
+
   it("adds a second opinion: a model with a focus, then a person if it disagreed, in business hours", async () => {
     const { sent } = setup();
     const user = userEvent.setup();
@@ -1664,17 +1791,30 @@ describe("WorkflowBuilder on processes", () => {
     const set = screen.getByTestId("builder-rule-added-0-set");
     fireEvent.change(set, { target: { value: '{"confidence": 1}' } });
     expect(screen.getByTestId("builder-customize-problems")).toHaveTextContent(
-      "rule step-rule-1 sets confidence, not an output field",
+      "rule “Rule 2” sets confidence, not an output field",
     );
     fireEvent.change(set, { target: { value: '{"account": "Tools"}' } });
     expect(screen.queryByTestId("builder-customize-problems")).toBeNull();
     await save(user, sent);
     const step = savedLast(sent);
+    // Wave 3b: an added row's id is a uuidv7 (merged three-way by id, never a counter that a
+    // template's and a client's rows could both take); its name is what people read.
+    const added = step?.kind === "skill" ? step.customize?.rules?.add?.[0] : undefined;
+    expect(added?.id).toMatch(
+      /^rule-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
     expect(step?.kind === "skill" ? step.customize : null).toEqual({
       settings: { threshold: 0.9 },
       addInstructions: "Prefer Materials.",
       rules: {
-        add: [{ id: "step-rule-1", when: { match: "all", rules: [] }, set: { account: "Tools" } }],
+        add: [
+          {
+            id: added?.id,
+            name: "Rule 2",
+            when: { match: "all", rules: [] },
+            set: { account: "Tools" },
+          },
+        ],
         edit: [{ id: "home-depot", when, set: { account: "Materials" } }],
       },
       keep: ["account"],

@@ -1,6 +1,6 @@
 // Who a step asks or tells (ARCHITECTURE §10.14 "Checks", "The Library and the client's settings"):
-// a role (the client admin, a client user, the lead, us), or someone on the client's People list,
-// a user of the client or a directory contact, by id. Approvers, conferees and notice recipients
+// a role (the client admin, a client user, the lead, us), or someone on the client's team, by id
+// (never a directory contact: see `teamChoices`). Approvers, conferees and notice recipients
 // are picked here. The list is the client's own (GET /api/ops/clients/:id/hours, which lists the
 // People with their hours); a template has only the roles.
 import { cx } from "../../ui/primitives";
@@ -44,13 +44,16 @@ export function personName(people: People, id: string): string | undefined {
   return people.people.find((p) => p.id === id)?.name;
 }
 
-/** The team (users) and, where allowed, the directory's contacts, each once. */
-function choices(people: People, contacts: boolean) {
+/** The client's team (users), each once. */
+// DECISION (web, wave 3b): directory contacts are never offered, to approvers, recipients or
+// conferees alike. A conferee is shown the step's result, so asking a vendor or a customer is a
+// message outside the client's team: a write, behind approval, as the notice editor already says
+// (§10.14 "Checks"). A contact already stored on a step still reads by name.
+function teamChoices(people: People): [string, string][] {
   const users = new Map<string, string>();
   for (const m of people.members) users.set(m.userId, m.name ?? m.email);
   for (const p of people.people) if (p.kind === "user" && !users.has(p.id)) users.set(p.id, p.name);
-  const others = contacts ? people.people.filter((p) => p.kind === "contact") : [];
-  return { users: [...users], contacts: others };
+  return [...users];
 }
 
 /** A role or one of the client's people. */
@@ -62,7 +65,6 @@ export function PersonPicker({
   testId,
   allowDefault,
   allowLead,
-  allowContacts,
   invalid,
   className,
   label,
@@ -76,20 +78,17 @@ export function PersonPicker({
   allowDefault?: string | undefined;
   /** v0.12 W1-C: a person step may be a lead check, for the client's lead. */
   allowLead?: boolean | undefined;
-  /** Directory contacts (a conferee may be one); approvers and recipients are the team. */
-  allowContacts?: boolean | undefined;
   invalid?: boolean | undefined;
   className?: string | undefined;
   label?: string | undefined;
 }) {
-  const { users, contacts } = choices(people, allowContacts === true);
+  const users = teamChoices(people);
   const known =
     value === undefined ||
     value === "" ||
     ROLES.some((r) => r.value === value) ||
     (allowLead === true && value === "lead") ||
-    users.some(([id]) => id === value) ||
-    contacts.some((c) => c.id === value);
+    users.some(([id]) => id === value);
   return (
     <SmallSelect
       aria-label={label}
@@ -118,16 +117,7 @@ export function PersonPicker({
           ))}
         </optgroup>
       ) : null}
-      {contacts.length ? (
-        <optgroup label="Contacts">
-          {contacts.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </optgroup>
-      ) : null}
-      {known ? null : <option value={value}>{value}</option>}
+      {known ? null : <option value={value}>{personName(people, value) ?? value}</option>}
     </SmallSelect>
   );
 }

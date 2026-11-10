@@ -7,14 +7,7 @@
 // and going ahead with no answer are loosening, offered only where the operator may loosen a
 // write (a client agent, a connection that allows `auto`, an agent that acts), with the reason
 // the Approval control has always given.
-import {
-  lookupSkill,
-  type PathOption,
-  parseSkillRef,
-  processes,
-  REACH_OUT_SKILL,
-  type Rules,
-} from "@countersign/core";
+import { type PathOption, processes, type Rules } from "@countersign/core";
 import type { ReactNode } from "react";
 import { TextArea } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
@@ -461,7 +454,6 @@ function ConferPart(
                       value={c.person}
                       people={people}
                       allowLead
-                      allowContacts
                       onChange={(v) => setOne(i, "person", { ...c, person: v ?? "client_admin" })}
                     />
                   </Row>
@@ -528,11 +520,9 @@ function ApprovalPart(
   const option = approvalOption(step, env);
   const writes = option !== null;
   // A skill that contacts people (a reach-out) is held to approval as a write is (invariant 8).
-  const reaches =
-    !writes &&
-    step.kind === "skill" &&
-    (lookupSkill(step.skill, env.ctx)?.reachesPeople === true ||
-      parseSkillRef(step.skill).id === REACH_OUT_SKILL);
+  // Core's rule (`stepReaches`), as the validator holds it. A conversation's messages are signed
+  // under its own message settings, so it is not offered an approval here.
+  const reaches = !writes && step.kind === "skill" && processes.stepReaches(step, env.ctx);
   const guarded = writes || reaches;
   // A write with no approval check waits for the default approver (invariant 8).
   const current: ApprovalCheck | undefined = approval ?? (guarded ? defaultApproval() : undefined);
@@ -549,11 +539,25 @@ function ApprovalPart(
     : null;
 
   if (!current) {
+    // DECISION (web, wave 3b): the empty state says what this kind of step changes. A process
+    // step's writes are approved inside its process; a conversation's messages are signed under
+    // its message settings, which already do approval's job, so it isn't offered one here.
+    if (step.kind === "conversation") {
+      return (
+        <Part title="Approval" testId="builder-approval">
+          <p className="text-xs text-ink-muted" data-testid="builder-approval-conversation">
+            This conversation's messages are signed under its message settings above: who says yes
+            to the first message, and to the ones after it.
+          </p>
+        </Part>
+      );
+    }
     return (
       <Part title="Approval" testId="builder-approval">
-        <p className="text-xs text-ink-muted">
-          This step changes nothing in the client's tools. Add an approval if someone should say yes
-          before the run goes on.
+        <p className="text-xs text-ink-muted" data-testid="builder-approval-none">
+          {step.kind === "process"
+            ? "This step runs another process. Its changes to the client's tools are approved inside that process, by its own steps' approvals. Add an approval if someone should say yes before it starts."
+            : "This step changes nothing in the client's tools. Add an approval if someone should say yes before the run goes on."}
         </p>
         <Button
           size="sm"

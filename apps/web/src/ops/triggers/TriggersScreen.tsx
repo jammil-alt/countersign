@@ -5,7 +5,7 @@
 // and message triggers, their settings. "Add a trigger" opens a dialog that explains the six kinds
 // and saves the new trigger as a new draft version. The hook's URL and secret are the client's
 // (their admin keeps them in Accounts), so this panel never shows them.
-import type { AgentBundle, Trigger, TriggerOn } from "@countersign/core";
+import type { AnyAgentBundle, Trigger, TriggerOn } from "@countersign/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -82,7 +82,7 @@ export function TriggersPanel({
   agent: AgentSummary;
   /** The agent's latest version, which the list reads and new triggers are added to. */
   latest: VersionDetail | null;
-  bundle: AgentBundle | null;
+  bundle: AnyAgentBundle | null;
   /** After a save, with the new draft version's id. */
   onChanged(versionId: string): void;
 }) {
@@ -100,7 +100,7 @@ export function TriggersPanel({
   const labels = eventLabels(events.data?.events);
   const manyWorkflows = bundle.workflows.length > 1;
 
-  async function saveBundle(next: AgentBundle, what: string) {
+  async function saveBundle(next: AnyAgentBundle, what: string) {
     if (!latest) return false;
     setSaved(null);
     const res = await action.call(apiRoutes.opsSaveVersion, {
@@ -322,7 +322,7 @@ function AddTriggerDialog({
   onAdd,
   onClose,
 }: {
-  bundle: AgentBundle;
+  bundle: AnyAgentBundle;
   clientId: string | null;
   agentSlug: string;
   busy: boolean;

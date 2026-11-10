@@ -19,9 +19,11 @@ import { type ConvertLookup, fromWorkflowV3 } from "./convert";
 import type { Process, Step } from "./schema";
 import {
   approvalLoosenings,
+  outputBeforeChecks,
   type ProcessValidationCode,
   type ProcessValidationContext,
   SPLIT_MAX_STEPS,
+  stepReaches,
   validateProcess,
 } from "./validate";
 
@@ -1020,6 +1022,40 @@ describe("invariant 8: loosening a write's approval", () => {
     expect(publish({}, reaching, { ...asMode("act", [reach.id]), skills })).toEqual([]);
     // A template or draft: not checked; and it is a step with an approval setting.
     expect(codes(edit(processInput(), reaching), { ...ctx, skills })).toEqual([]);
+  });
+
+  // Wave 3b (web): the builder's field picker, checks panel and createStep read these, not copies.
+  it("says which steps contact people and which have their output before their checks", () => {
+    const reach = {
+      ...(ctx.skills?.["test.summarize"] as SkillDefinition),
+      id: "test.reach",
+      reachesPeople: true,
+    } as SkillDefinition;
+    const typing = { ...ctx, skills: { ...ctx.skills, [reach.id]: reach } };
+    const skill = (id: string) =>
+      ({ id: "x", kind: "skill", name: "x", skill: id, input: {} }) as Step;
+    const conversation = {
+      id: "c",
+      kind: "conversation",
+      name: "c",
+      with: "client_admin",
+      channel: "email",
+      goal: "g",
+      deadline: { after: "1 day" },
+    } as unknown as Step;
+    expect(stepReaches(skill(reach.id), typing)).toBe(true);
+    expect(stepReaches(conversation, typing)).toBe(true);
+    expect(stepReaches(skill("test.summarize"), typing)).toBe(false);
+    expect(outputBeforeChecks(skill("test.summarize"), typing)).toBe(true);
+    expect(outputBeforeChecks(skill(reach.id), typing)).toBe(false);
+    // A skill nobody registered counts as writing: no output before its checks.
+    expect(outputBeforeChecks(skill("nobody.knows"), typing)).toBe(false);
+    expect(
+      outputBeforeChecks(
+        { id: "r", kind: "read", name: "r", tool: "qbo.bill.query", input: {} },
+        typing,
+      ),
+    ).toBe(true);
   });
 
   it("holds a conversation's messages without a person's yes to an agent that acts", () => {

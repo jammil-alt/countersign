@@ -14,6 +14,7 @@ import {
   type SkillSetting,
   skillMethod,
   type TypingContext,
+  uuidv7,
 } from "@countersign/core";
 import type { ReactNode } from "react";
 import { TextArea } from "../../ui/forms";
@@ -35,6 +36,17 @@ type SkillStep = Extract<Step, { kind: "skill" }>;
 type Customization = processes.SkillCustomization;
 type RuleEdit = processes.SkillRuleEdit;
 type SetStep = (key: string, fn: (s: Step) => Step) => void;
+
+/**
+ * A new rule row's id. Customizations are versioned with the agent and merged three-way by id
+ * (invariant 3), so an added row gets a uuidv7 like every other id the builder makes; its `name`
+ * is what people read. A rule id starts with a letter, hence the prefix.
+ */
+// DECISION (web, wave 3b): `rule-<uuidv7>`, not a per-step counter: a template's and a client
+// agent's independently added rows can't share an id and be lined up as one in an update merge.
+export function newRuleId(newId: () => string = uuidv7): string {
+  return `rule-${newId()}`;
+}
 
 const METHOD_LABEL: Record<string, string> = {
   rules: "Rules",
@@ -143,7 +155,18 @@ export function CustomizeSection(props: CustomizeProps) {
       return next ? { ...rest, customize: next } : rest;
     });
   const method = skillMethod(skill);
-  const problems = step.customize ? processes.customizationProblems(skill, step.customize) : [];
+  // Core names a rule by its id; an added row reads by its name (its id is a uuid).
+  const addedNames = new Map(
+    (step.customize?.rules?.add ?? []).flatMap((r) => (r.name ? [[r.id, r.name] as const] : [])),
+  );
+  const problems = (
+    step.customize ? processes.customizationProblems(skill, step.customize) : []
+  ).map((p) =>
+    p.replace(/\brule ([a-z][a-z0-9_-]*)/g, (whole, id: string) => {
+      const name = addedNames.get(id);
+      return name ? `rule “${name}”` : whole;
+    }),
+  );
   const fields = Object.keys(
     (skill.output.properties as Record<string, unknown> | undefined) ?? {},
   );
@@ -500,12 +523,15 @@ function RulesPart(
         className="self-start"
         data-testid="builder-rule-add"
         onClick={() =>
-          setAdded("add", (a) => {
-            const taken = new Set([...own.map((r) => r.id), ...a.map((r) => r.id)]);
-            let n = a.length + 1;
-            while (taken.has(`step-rule-${n}`)) n += 1;
-            return [...a, { id: `step-rule-${n}`, when: { match: "all", rules: [] }, set: {} }];
-          })
+          setAdded("add", (a) => [
+            ...a,
+            {
+              id: newRuleId(),
+              name: `Rule ${own.length + a.length + 1}`,
+              when: { match: "all", rules: [] },
+              set: {},
+            },
+          ])
         }
       >
         <Icon name="add" />

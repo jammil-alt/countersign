@@ -5,7 +5,7 @@
 // the panels it adds to the client's agent page, and its test bench. Publishing a template
 // changes no client agent: each takes the new version as a reviewed update merge (invariant 11).
 import {
-  type AgentBundle,
+  type AnyAgentBundle,
   type LabResponse,
   type LabTemplate,
   pickLocalized,
@@ -34,7 +34,7 @@ import { StepList } from "../../ui/steps";
 import { SuiteSummary } from "../agents/TestsTab";
 import { errorText, Notice, notifyAgentsChanged, plural, Select, useAction } from "../agents/ui";
 import type { AgentLinkState } from "../screens/AgentPage";
-import { parseBundle } from "../versions";
+import { parseAnyBundle } from "../versions";
 import { workflowStats } from "../workflow/describe";
 import { workflowStepItems } from "./steps";
 
@@ -302,7 +302,7 @@ function TemplateDetail({
   const a = entry.agent;
   const detail = useApi(apiRoutes.opsAgent, { params: { id: a.id } });
   const latest = detail.data?.latest ?? null;
-  const parsed = latest ? parseBundle(latest) : null;
+  const parsed = latest ? parseAnyBundle(latest) : null;
   const bundle = parsed?.ok ? parsed.bundle : null;
   const stats = bundle ? workflowStats(bundle) : null;
   const base = templatePath(a.slug);
@@ -440,7 +440,13 @@ function TemplateDetail({
   );
 }
 
-function LabWorkflow({ bundle, version }: { bundle: AgentBundle | null; version: number | null }) {
+function LabWorkflow({
+  bundle,
+  version,
+}: {
+  bundle: AnyAgentBundle | null;
+  version: number | null;
+}) {
   const first = bundle?.workflows[0];
   if (!bundle || !first) {
     return <p className="px-6 py-5 text-sm text-ink-muted">No workflows yet.</p>;

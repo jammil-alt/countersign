@@ -1,6 +1,6 @@
 // Plain labels for workflow parts, shared by the step list and the agent overview's chips.
 import {
-  type AgentBundle,
+  type AnyAgentBundle,
   allSteps,
   processes,
   type Rule,
@@ -122,6 +122,11 @@ export interface StepLabels {
   automation?(ref: string): string | undefined;
   connector?(toolId: string): string | undefined;
   person?(id: string): string | undefined;
+  /**
+   * Whether a tool changes a client's tool (an external side effect); undefined when unknown.
+   * A v4 write with no approval check reads "needs approval" unless this says false.
+   */
+  changesClientTool?(toolId: string): boolean | undefined;
 }
 
 /** The second line under a step's name: what it does in words, never its ids. */
@@ -252,11 +257,17 @@ export function processStepDetail(step: ProcessStep, labels: StepLabels = {}): s
       return [labels.connector?.(step.tool), toolLabel(step.tool)].filter(Boolean).join(" · ");
     case "write": {
       const approval = step.checks?.approval;
-      return [
-        labels.connector?.(step.tool),
-        toolLabel(step.tool),
-        approval ? (approval.required === "required" ? "needs approval" : "on its own") : null,
-      ]
+      // A write with no approval check waits for the default approver (invariant 8; the gate
+      // asks for writes to a client's tool), so it reads "needs approval" unless the labels know
+      // the tool only writes our own records.
+      // DECISION (web, wave 3b): without a tool registry at hand (the read-only step lists), an
+      // unchecked write reads "needs approval": the safe side, as core counts an unknown tool as
+      // an external write.
+      const waits = approval
+        ? approval.required === "required"
+        : labels.changesClientTool?.(step.tool) !== false;
+      const words = waits ? "needs approval" : approval ? "on its own" : null;
+      return [labels.connector?.(step.tool), toolLabel(step.tool), words]
         .filter(Boolean)
         .join(" · ");
     }
@@ -302,14 +313,24 @@ export function processStepNames(process: Pick<processes.Process, "steps">): Ste
   return names;
 }
 
-/** "6 steps, 2 forks": counted across nested paths and loops. */
-export function workflowStats(bundle: AgentBundle): { steps: number; forks: number } {
+/**
+ * "6 steps, 2 forks": counted across nested paths and loops. A v4 process's `if` counts as a
+ * fork (it is laid out as one).
+ */
+export function workflowStats(bundle: Pick<AnyAgentBundle, "workflows">): {
+  steps: number;
+  forks: number;
+} {
   let steps = 0;
   let forks = 0;
   for (const w of bundle.workflows) {
-    for (const { step } of allSteps(w.workflow)) {
+    const kinds =
+      w.workflow.schemaVersion === 4
+        ? processes.allSteps(w.workflow).map((l) => l.step.kind as string)
+        : allSteps(w.workflow).map((l) => l.step.kind as string);
+    for (const kind of kinds) {
       steps += 1;
-      if (step.kind === "fork") forks += 1;
+      if (kind === "fork" || kind === "if") forks += 1;
     }
   }
   return { steps, forks };

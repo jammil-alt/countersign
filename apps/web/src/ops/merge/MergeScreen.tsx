@@ -15,10 +15,8 @@ import {
   AnyAgentBundle as AnyAgentBundleSchema,
   diffBundles,
   holdsProcess,
-  lookupSkill,
   type MergeConflict,
   mergeBundles,
-  processes,
   type Resolution,
   readBundles,
   selectableBetween,
@@ -53,7 +51,7 @@ import {
   TextInput,
   useAction,
 } from "../agents/ui";
-import { typingContext, validateLikeServer } from "../builder/catalog";
+import { typingContext, validateLikeServer, validateProcessesLikeServer } from "../builder/catalog";
 
 import { JsonInput } from "../builder/fields";
 import { usePageClient } from "../pickedClient";
@@ -104,33 +102,18 @@ interface Problem {
 
 /**
  * The server's check of the merged agent, in the browser. All v3: `validateLikeServer` as before.
- * Holding processes: each process through core's `processes.validateProcess` with the agent's
- * skills and tools, plus the agent skills the catalog can't resolve.
+ * Holding processes: the builder's `validateProcessesLikeServer` (core's whole-bundle
+ * `validateAnyBundle`, so slugs and ids across workflows are checked too), as the agent it lands
+ * on: an update lands on the client agent, a promotion on the template.
  */
-// DECISION: until the builder stream's whole-bundle v4 check (`validateAnyBundle`) is in core, the
-// merge view validates process by process; the server's save decides either way.
 export function validateMerged(
   bundle: AnyAgentBundle,
   ctx: TypingContext,
+  clientAgent: boolean,
 ): { valid: boolean; errors: Problem[] } {
   if (!holdsProcess(bundle)) return validateLikeServer(bundle as AgentBundle, ctx);
-  const errors: Problem[] = [];
-  for (const w of bundle.workflows) {
-    if (w.workflow.schemaVersion !== 4) continue;
-    const r = processes.validateProcess(w.workflow, { ...ctx, agent: bundle.definition });
-    for (const e of r.errors) errors.push({ ...e, workflow: w.slug });
-  }
-  for (const s of bundle.definition.skills) {
-    if (!lookupSkill(s.skill, ctx)) {
-      errors.push({
-        stepId: null,
-        field: "definition.skills",
-        code: "unknown_skill",
-        message: `skill ${s.skill} not found`,
-      });
-    }
-  }
-  return { valid: errors.length === 0, errors };
+  const r = validateProcessesLikeServer(bundle, ctx, { clientAgent });
+  return { valid: r.valid, errors: r.errors };
 }
 
 // DECISION: the merge view merges and validates in the browser with core's shared code on every
@@ -323,7 +306,10 @@ function MergeBody({
     () => mergeBundles(base, ours, theirs, resolutions),
     [base, ours, theirs, resolutions],
   );
-  const validation = useMemo(() => validateMerged(result.bundle, ctx), [result.bundle, ctx]);
+  const validation = useMemo(
+    () => validateMerged(result.bundle, ctx, mode === "update"),
+    [result.bundle, ctx, mode],
+  );
   const open = result.conflicts.length;
 
   const oursChanges = useMemo(() => diffBundles(base, ours), [base, ours]);

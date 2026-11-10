@@ -2,7 +2,7 @@
 // first the Builder conversation (NewAgentConversation), then the other ways to start: a template
 // version (fork: ids and base version kept), from scratch, or copied from another client's agent
 // (its live bundle without that client's values or bindings).
-import type { AgentBundle } from "@countersign/core";
+import type { AnyAgentBundle } from "@countersign/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
@@ -17,7 +17,7 @@ import {
   PageHeader,
   SectionLabel,
 } from "../../ui/primitives";
-import { parseBundle } from "../versions";
+import { parseAnyBundle } from "../versions";
 import {
   blankBundle,
   DEFAULT_MODEL,
@@ -126,15 +126,15 @@ export function NewClientAgentScreen() {
   if (start.kind === "copy" && !copySource) errors.source = "Choose the agent to copy.";
   const shown = touched ? errors : {};
 
-  let preview: AgentBundle | null = null;
+  let preview: AnyAgentBundle | null = null;
   if (start.kind === "blank")
     preview = blankBundle({ ...fields, name: fields.name.trim() || "New agent" }, () => "preview");
   if (start.kind === "template" && templateVersion.data) {
-    const p = parseBundle(templateVersion.data.version);
+    const p = parseAnyBundle(templateVersion.data.version);
     preview = p.ok ? p.bundle : null;
   }
   if (start.kind === "copy" && copyDetail.data?.live) {
-    const p = parseBundle(copyDetail.data.live);
+    const p = parseAnyBundle(copyDetail.data.live);
     preview = p.ok ? p.bundle : null;
   }
 

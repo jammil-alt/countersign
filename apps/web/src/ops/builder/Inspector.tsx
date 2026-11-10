@@ -225,18 +225,6 @@ function stepNumber(workflow: Process, id: string): string {
 
 type SetStep = (key: string, fn: (s: Step) => Step) => void;
 
-/** Whether the step's own output exists when its confer and approval run (core's rule). */
-function outputBeforeChecks(step: Step, ctx: TypingContext): boolean {
-  if (step.kind === "read") return true;
-  if (step.kind !== "skill") return false;
-  const writes = processes.stepWrites(step, ctx);
-  return (
-    writes !== undefined &&
-    writes.length === 0 &&
-    lookupSkill(step.skill, ctx)?.reachesPeople !== true
-  );
-}
-
 function StepInspector(props: InspectorProps & { step: Step }) {
   const { step, workflow, errors, onStep, onDelete, ctx } = props;
   const fieldErrors = errorsFor(errors, step.id);
@@ -289,7 +277,7 @@ function StepInspector(props: InspectorProps & { step: Step }) {
           errors={fieldErrors}
           pathsBefore={(confer) =>
             processes.processPathsAt(workflow, step.id, ctx, {
-              own: outputBeforeChecks(step, ctx),
+              own: processes.outputBeforeChecks(step, ctx),
               confer,
             })
           }

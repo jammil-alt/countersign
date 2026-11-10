@@ -5,6 +5,8 @@ import {
   type AgentBundle,
   type AgentBundleInput,
   AgentBundle as AgentBundleSchema,
+  type AnyAgentBundle,
+  AnyAgentBundle as AnyAgentBundleSchema,
   DECIMAL_RE,
   // v0.13 W2-I
   NEW_AGENT_OVERSIGHT,
@@ -58,7 +60,7 @@ export const DEFAULT_MODEL = "claude-opus-5-5";
 /** Approvers the editor offers besides a user id. */
 export const APPROVER_ROLES = ["client_admin", "operator"] as const;
 
-export function formFromBundle(bundle: AgentBundle): DefinitionForm {
+export function formFromBundle(bundle: Pick<AnyAgentBundle, "definition">): DefinitionForm {
   const d = bundle.definition;
   return {
     name: d.identity.name,
@@ -146,11 +148,11 @@ function settingValue(
  * (extra tools, agents it may ask, avatar) are kept as they were. Overrides left empty are
  * dropped, so the skill's default applies.
  */
-export function applyForm(
-  bundle: AgentBundle,
+export function applyForm<B extends AnyAgentBundle>(
+  bundle: B,
   form: DefinitionForm,
   options: readonly SkillOption[],
-): AgentBundle {
+): B {
   const d = bundle.definition;
   const skills = form.skills.map((entry) => {
     const option = optionFor(entry.skill, options);
@@ -186,8 +188,8 @@ export function applyForm(
 }
 
 /** The applied bundle checked against core's schema (the last guard before saving). */
-export function checkBundle(bundle: AgentBundle): string | null {
-  const parsed = AgentBundleSchema.safeParse(bundle);
+export function checkBundle(bundle: AnyAgentBundle): string | null {
+  const parsed = AnyAgentBundleSchema.safeParse(bundle);
   if (parsed.success) return null;
   const first = parsed.error.issues[0];
   return first ? `${first.path.join(".") || "bundle"}: ${first.message}` : "invalid bundle";
