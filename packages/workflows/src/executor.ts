@@ -1953,8 +1953,14 @@ class Executor {
    * R3: a native skill's output said it needs help (`needsHelp`): the lead is asked with what it
    * tried, the answer is kept (`memory.write`) and the step runs once more with `help` in its
    * input, as data. Still stuck after that, the step fails. A converted v3 skill's output is its
-   * output, whatever it holds (it never asked before).
+   * output, whatever it holds (it never asked before). Wave 4: a recorded script's step
+   * (`browser.script.*`) asks the operator instead, and its answer is not kept.
    */
+  // DECISION (wave 4 review): a script's fixed steps can't change with anyone's answer, so its
+  // request for help goes to the operator (the `operator` role, as an escalation's `to` names it),
+  // who records the script again and publishes it; once answered the step runs once more, on
+  // whatever version is published then, and is failed if it still needs help. The answer is not
+  // written to memory: it says what we did to the script, not how to do the work.
   async needsHelp(
     view: SkillStep | ActionStep,
     name: string,
@@ -1984,6 +1990,8 @@ class Executor {
       },
     });
     const b = `${name}:help`;
+    // A recorded script's steps are fixed: no answer changes them, only a new recording does.
+    const scripted = isScriptTool(view);
     await this.runner.do(`${b}:waiting`, async () => {
       await log.update(done.stepRunId, {
         status: "waiting",
@@ -1991,13 +1999,15 @@ class Executor {
       });
       return null;
     });
-    const asked = await ask(b, LEAD_ASSIGNEE, HELP_DEADLINE);
+    const asked = await ask(b, scripted ? "operator" : LEAD_ASSIGNEE, HELP_DEADLINE);
     const answer = await this.awaitResolution(b, asked.item, asked.timeout);
     if (!answer || answer.approved === false || answer.answer === undefined) {
       await this.runner.do(`${b}:done`, async () => {
         await log.update(done.stepRunId, {
           status: "failed",
-          error: "needs help: no answer from the lead",
+          error: scripted
+            ? "needs help: the script needs recording again, and we didn't answer in time"
+            : "needs help: no answer from the lead",
           summary: `${label}: ${this.words.noAnswerInTime}`,
         });
         return null;
@@ -2006,55 +2016,58 @@ class Executor {
     }
     const help = answer.answer;
     // Kept for next time. A note that fails to save never fails the step, but its row says so.
-    await this.runner.do(`${b}:memory`, async () => {
-      const text = typeof help === "string" ? help : JSON.stringify(help);
-      // DECISION: a browsing skill's answer (one with `remember`) is kept by the port, as the
-      // platform's own note in the browse scope, so the same skill on the same sites gets it back
-      // and nothing the model writes reads as the lead's answer (invariant 9). Any other answer,
-      // or a port without `keepHelp`, is an ordinary memory note.
-      const note = `Asked "${need.question}", the lead answered: ${text}`.slice(0, 2000);
-      let problem: string | null = null;
-      try {
-        if (need.remember && agent.keepHelp) {
-          await agent.keepHelp({
+    // A script's answer is not: it says what we did to the script, not how to do the work.
+    if (!scripted) {
+      await this.runner.do(`${b}:memory`, async () => {
+        const text = typeof help === "string" ? help : JSON.stringify(help);
+        // DECISION: a browsing skill's answer (one with `remember`) is kept by the port, as the
+        // platform's own note in the browse scope, so the same skill on the same sites gets it back
+        // and nothing the model writes reads as the lead's answer (invariant 9). Any other answer,
+        // or a port without `keepHelp`, is an ordinary memory note.
+        const note = `Asked "${need.question}", the lead answered: ${text}`.slice(0, 2000);
+        let problem: string | null = null;
+        try {
+          if (need.remember && agent.keepHelp) {
+            await agent.keepHelp({
+              run,
+              stepRunId: done.stepRunId,
+              nodeId: `${b}:memory`,
+              remember: need.remember,
+              question: need.question,
+              answer: text,
+            });
+            return null;
+          }
+          const kept = await agent.runAction({
             run,
-            stepRunId: done.stepRunId,
+            step: {
+              id: view.id,
+              name: view.name,
+              kind: "action",
+              tool: "memory.write",
+              input: { note },
+              approval: DEFAULT_APPROVAL,
+            },
             nodeId: `${b}:memory`,
-            remember: need.remember,
-            question: need.question,
-            answer: text,
-          });
-          return null;
-        }
-        const kept = await agent.runAction({
-          run,
-          step: {
-            id: view.id,
-            name: view.name,
-            kind: "action",
-            tool: "memory.write",
+            stepRunId: done.stepRunId,
             input: { note },
             approval: DEFAULT_APPROVAL,
-          },
-          nodeId: `${b}:memory`,
-          stepRunId: done.stepRunId,
-          input: { note },
-          approval: DEFAULT_APPROVAL,
-        });
-        if (kept.kind === "failed") problem = kept.error;
-        else if (kept.kind === "escalated") problem = kept.reason;
-        else if (kept.kind !== "done") problem = "it wasn't written at once";
-      } catch (error) {
-        problem = message(error);
-      }
-      if (problem !== null) {
-        await log.update(done.stepRunId, {
-          status: "waiting",
-          error: `the lead's answer wasn't kept: ${problem}`,
-        });
-      }
-      return null;
-    });
+          });
+          if (kept.kind === "failed") problem = kept.error;
+          else if (kept.kind === "escalated") problem = kept.reason;
+          else if (kept.kind !== "done") problem = "it wasn't written at once";
+        } catch (error) {
+          problem = message(error);
+        }
+        if (problem !== null) {
+          await log.update(done.stepRunId, {
+            status: "waiting",
+            error: `the lead's answer wasn't kept: ${problem}`,
+          });
+        }
+        return null;
+      });
+    }
     const input = { ...base, help };
     // DECISION: the re-run has its own durable name and its own idempotency keys (`${name}:h1`):
     // its input changed, so any write it proposes is decided afresh.
@@ -2938,6 +2951,11 @@ function keptFields(output: unknown, schema: Record<string, unknown>): unknown {
   if (!isPlainObject(output) || !isPlainObject(schema.properties)) return output;
   const props = schema.properties;
   return Object.fromEntries(Object.entries(output).filter(([k]) => Object.hasOwn(props, k)));
+}
+
+/** Whether a step runs a client's recorded script (`browser.script.read` / `.submit`). */
+function isScriptTool(view: SkillStep | ActionStep): boolean {
+  return "tool" in view && typeof view.tool === "string" && view.tool.startsWith("browser.script.");
 }
 
 /** A native skill's request for help in its output (`needsHelp`), else null. */

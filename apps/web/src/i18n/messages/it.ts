@@ -708,6 +708,29 @@ export const it: Messages = {
   "scripts.valueType.date": "Data",
   "scripts.valueType.table": "Tabella",
   "scripts.valueType.document": "Documento",
+  "scripts.state.waiting":
+    "Pubblicato · v{version}, v{newest} in attesa della nostra pubblicazione",
+  "scripts.problem.duplicate_input": "due input si chiamano {name}",
+  "scripts.problem.duplicate_output": "due output si chiamano {name}",
+  "scripts.problem.duplicate_step": "due passaggi si chiamano {name}",
+  "scripts.problem.reserved_output": "“{name}” non può essere il nome di un output",
+  "scripts.problem.unknown_input": "il passaggio {step} usa {name}, che non è un input",
+  "scripts.problem.unknown_output": "il passaggio {step} legge {name}, che non è un output",
+  "scripts.problem.wrong_output_type": "il passaggio {step} non può leggere {name} come {type}",
+  "scripts.problem.unused_input": "nessun passaggio usa l’input {name}",
+  "scripts.problem.unread_output": "nessun passaggio legge l’output {name}",
+  "scripts.problem.output_read_twice": "più di un passaggio legge {name}",
+  "scripts.problem.read_submits": "uno script che invia un modulo cambia qualcosa: è una scrittura",
+  "scripts.problem.write_without_submit":
+    "una scrittura invia un modulo: segni il clic che lo invia",
+  "scripts.problem.submits_twice": "uno script invia un modulo una sola volta",
+  "scripts.problem.submit_not_last": "l’invio del modulo è l’ultimo passaggio dello script",
+  "scripts.problem.reverse_on_read":
+    "solo uno script che invia un modulo ne nomina uno che lo annulla",
+  "scripts.problem.reverse_unknown_input":
+    "{name} dello script di annullamento viene da {from}, che non è un input",
+  "scripts.problem.reverse_unknown_output":
+    "{name} dello script di annullamento viene da {from}, che non è un output",
 
   // ── Webhooks ──
   "webhook.section": "Webhook · configurazione",

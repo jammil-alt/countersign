@@ -3,12 +3,16 @@
 // its screenshot come back; a submit is recorded, never clicked), in the client's language; the
 // back office's Websites screen lists every client's scripts, tests a version and publishes it;
 // a script-draft offer in the Escalations opens the recorder with its path.
+import { BrowserScriptDefinition } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
+import { createTranslator } from "../i18n/catalog";
+import { VersionSteps } from "../ops/screens/BrowserScripts";
 import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION } from "../test/fixtures";
+import { problemWords } from "./scripts";
 
 const DEMO = CLIENT_SESSION.activeTenantId as string;
 const LOGIN = "00000000-0000-4000-8000-0000000c0001";
@@ -51,6 +55,26 @@ const script = (over: Record<string, unknown> = {}) => ({
   updatedAt: "2026-11-10T10:00:00.000Z",
   ...over,
 });
+
+/** A write version as stored: fixed text, an input, a read, a plain click and the submit. */
+const ORDER_DEFINITION = {
+  schemaVersion: 1,
+  site: "supplier",
+  name: "Place an order",
+  description: "",
+  inputs: [{ name: "qty", label: "Quantity", type: "text" }],
+  outputs: [{ name: "price", label: "Unit price", type: "decimal" }],
+  steps: [
+    { id: "s1", op: "open", url: "https://portal.supplier.test/orders/new" },
+    { id: "s2", op: "fill", selector: "#sku", value: { text: "OAK-1" } },
+    { id: "s3", op: "fill", selector: "#qty", value: { input: "qty" } },
+    { id: "s4", op: "read_field", selector: "#price", output: "price" },
+    { id: "s5", op: "click", selector: "#details", submits: false },
+    { id: "s6", op: "click", selector: "#place", submits: true },
+  ],
+  sideEffect: "external",
+  undo: { kind: "reverse", script: "cancel-order", inputs: { order: { output: "price" } } },
+};
 
 const login = {
   clientId: DEMO,
@@ -210,6 +234,64 @@ describe("scripts in the portal", () => {
   });
 });
 
+describe("where a script stands, and what stops it, in the client's words", () => {
+  it("says an older version runs while a newer one waits for us", async () => {
+    const version = (n: number) => ({
+      version: n,
+      sideEffect: "none",
+      recordedSide: "client",
+      createdAt: "2026-11-10T10:00:00.000Z",
+    });
+    const api = portalApi(
+      {
+        "GET /api/access/browser-scripts": () => ({
+          scripts: [
+            script({
+              state: "draft",
+              versions: [version(1), version(2)],
+              published: { version: 1, publishedAt: "2026-11-10T11:00:00.000Z" },
+            }),
+          ],
+          logins: [login],
+        }),
+      },
+      { ...CLIENT_SESSION, language: { effective: "fr", user: "fr", client: null } },
+    );
+    renderAt("/accounts", api);
+    const card = await screen.findByTestId("portal-scripts");
+    expect(within(card).getByTestId("script-row-place-order")).toHaveTextContent(
+      "Publié · v1, v2 en attente de notre publication",
+    );
+  });
+
+  it("translates a problem with a code, and keeps the server's words otherwise", () => {
+    const de = createTranslator("de");
+    expect(
+      problemWords(
+        {
+          code: "unknown_input",
+          params: { step: "s2", name: "sku" },
+          text: "step s2 uses sku, which isn't an input",
+        },
+        de,
+      ),
+    ).toBe("Schritt s2 verwendet sku, das keine Eingabe ist");
+    expect(problemWords("nothing is recorded yet", de)).toBe("nothing is recorded yet");
+    expect(problemWords({ code: "something_new", text: "a new problem" }, de)).toBe(
+      "a new problem",
+    );
+    // A name the server didn't send: its own words, never a sentence with a gap.
+    expect(
+      problemWords({ code: "unused_input", params: {}, text: "no step uses the input note" }, de),
+    ).toBe("no step uses the input note");
+    for (const locale of ["en", "es", "fr", "it", "pt-BR", "de"] as const) {
+      expect(
+        problemWords({ code: "submit_not_last", text: "x" }, createTranslator(locale)),
+      ).not.toBe("x");
+    }
+  });
+});
+
 describe("scripts in the back office", () => {
   const draft = script({
     state: "draft",
@@ -228,7 +310,16 @@ describe("scripts in the back office", () => {
   });
 
   it("lists every client's scripts, tests a version as a dry run and publishes it", async () => {
-    let current: Record<string, unknown> = draft;
+    // The stored definition and `recordingDiffers` come with the API's wave 4 review fields; the
+    // response is parsed with the route's contract, so they reach the screen once it has them.
+    let current: Record<string, unknown> = {
+      ...draft,
+      recordingDiffers: true,
+      versions: draft.versions.map((v: Record<string, unknown>) => ({
+        ...v,
+        definition: ORDER_DEFINITION,
+      })),
+    };
     const calls: string[] = [];
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
@@ -272,10 +363,57 @@ describe("scripts in the back office", () => {
     const result = await within(recorder).findByTestId("script-test-result");
     expect(result).toHaveTextContent("Test passed · nothing was submitted");
     expect(calls[0]).toBe('test {"version":1}');
+    const steps = within(recorder).queryByTestId("script-version-steps");
+    if (!steps) {
+      // Without the version's steps on screen, nothing is published from here.
+      expect(within(recorder).getByTestId("script-version-unseen")).toHaveTextContent(
+        "can't show version 1's steps",
+      );
+      expect(within(recorder).getByTestId("script-publish")).toBeDisabled();
+      return;
+    }
+    expect(steps).toHaveTextContent("the fixed text “OAK-1”");
+    expect(within(recorder).getByTestId("script-version-submit-s6")).toHaveTextContent(
+      "Sends the form",
+    );
+    expect(within(recorder).getByTestId("script-recording-differs")).toHaveTextContent(
+      "Not saved yet",
+    );
     await userEvent.click(within(recorder).getByTestId("script-publish"));
     await waitFor(() => expect(calls).toContain("publish"));
     await waitFor(() =>
       expect(screen.getByTestId("script-row-place-order")).toHaveTextContent("Published · v1"),
+    );
+  });
+
+  it("shows the exact steps of the version it publishes", () => {
+    render(
+      <VersionSteps version={2} definition={BrowserScriptDefinition.parse(ORDER_DEFINITION)} />,
+    );
+    const steps = screen.getByTestId("script-version-steps");
+    expect(steps).toHaveTextContent("Version 2 · what publishing sends");
+    expect(screen.getByTestId("script-version-effect")).toHaveTextContent(
+      "Sends a form on the site: a write, approved by a person every time. Undone by the script cancel-order with order from the output price.",
+    );
+    expect(steps).toHaveTextContent("qty (Quantity, text)");
+    expect(steps).toHaveTextContent("price (Unit price, decimal)");
+    expect(screen.getByTestId("script-version-step-s1")).toHaveTextContent(
+      "Open https://portal.supplier.test/orders/new",
+    );
+    expect(screen.getByTestId("script-version-step-s2")).toHaveTextContent(
+      "#sku with the fixed text “OAK-1”",
+    );
+    expect(screen.getByTestId("script-version-step-s4")).toHaveTextContent(
+      "#price as the output price",
+    );
+    expect(screen.getByTestId("script-version-step-s5")).toHaveTextContent(
+      "#details doesn't send anything",
+    );
+    expect(screen.getByTestId("script-version-step-s3")).toHaveTextContent(
+      "#qty with the input qty",
+    );
+    expect(screen.getByTestId("script-version-step-s6")).toHaveTextContent(
+      "#place Sends the form · the write",
     );
   });
 

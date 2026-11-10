@@ -5,12 +5,17 @@
 // to first: whoever records sees the page and its screenshot, never the login. A click that sends a
 // form is recorded and never clicked. Words through t(): the portal reads them in the client's
 // language, the back office in English.
-import type { RecorderActionInput, ScriptStep } from "@countersign/core";
+import {
+  type RecorderActionInput,
+  SCRIPT_PROBLEM_CODES,
+  type ScriptProblemCode,
+  type ScriptStep,
+} from "@countersign/core";
 import { type ReactNode, useState } from "react";
 import type { ResponseOf } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
-import type { PlainKey } from "../i18n/catalog";
+import type { MessageKey, PlainKey, Translate } from "../i18n/catalog";
 import { useI18n } from "../i18n/i18n";
 import { Field, Select, TextInput } from "../ui/forms";
 import { Badge, Button, Card, EmptyState, ErrorNotice } from "../ui/primitives";
@@ -39,6 +44,15 @@ export function ScriptStateBadge({ script }: { script: Script }) {
       </Badge>
     );
   }
+  const newest = script.versions.at(-1)?.version;
+  if (script.state === "draft" && script.published && newest !== undefined) {
+    // An older version runs while a newer saved one waits for us.
+    return (
+      <Badge tone="warning" testId="script-state">
+        {t("scripts.state.waiting", { version: script.published.version, newest })}
+      </Badge>
+    );
+  }
   if (script.state === "draft") {
     return (
       <Badge tone="warning" testId="script-state">
@@ -51,6 +65,39 @@ export function ScriptStateBadge({ script }: { script: Script }) {
       {t("scripts.state.recording")}
     </Badge>
   );
+}
+
+/**
+ * A problem as the API gives it: the English text, or (wave 4 review) an object with a code and
+ * its names (core's `scriptProblemList`) beside that text. Read defensively: either may come.
+ */
+type ProblemIn = string | { code?: unknown; params?: unknown; text?: unknown };
+
+const PROBLEM_KEYS = Object.fromEntries(
+  SCRIPT_PROBLEM_CODES.map((code) => [code, `scripts.problem.${code}` as MessageKey]),
+) as Record<ScriptProblemCode, MessageKey>;
+
+/** A problem in the reader's language when it has a code we know, else the server's words. */
+export function problemWords(problem: ProblemIn, t: Translate): string {
+  if (typeof problem === "string") return problem;
+  const text = typeof problem.text === "string" ? problem.text : "";
+  const code = typeof problem.code === "string" ? problem.code : null;
+  const key =
+    code && Object.hasOwn(PROBLEM_KEYS, code) ? PROBLEM_KEYS[code as ScriptProblemCode] : null;
+  if (!key) return text;
+  const params: Record<string, string> = {};
+  if (problem.params && typeof problem.params === "object") {
+    for (const [k, v] of Object.entries(problem.params)) {
+      if (typeof v === "string" || typeof v === "number") params[k] = String(v);
+    }
+  }
+  // The key is one of ours, with its names from the server: a typed call can't name it statically.
+  const said = (t as unknown as (key: MessageKey, params: Record<string, string>) => string)(
+    key,
+    params,
+  );
+  // A name the server didn't send leaves a gap: its own words then, never a sentence with a hole.
+  return /\{\w+\}/.test(said) ? text || said : said;
 }
 
 /** A step in plain words. */
@@ -387,7 +434,11 @@ export function ScriptRecorder({
           </p>
         ) : script.problems.length > 0 && rec.steps.length > 0 ? (
           <p className="text-sm text-ink-muted" data-testid="script-problems">
-            {t("scripts.problems", { problems: script.problems.join("; ") })}
+            {t("scripts.problems", {
+              problems: (script.problems as readonly ProblemIn[])
+                .map((p) => problemWords(p, t))
+                .join("; "),
+            })}
           </p>
         ) : null}
         <div className="flex flex-wrap gap-2">

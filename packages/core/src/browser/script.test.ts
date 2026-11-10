@@ -6,6 +6,7 @@ import {
   scriptFieldValue,
   scriptInputSchema,
   scriptOutputSchema,
+  scriptProblemList,
   scriptProblems,
 } from "./script";
 
@@ -79,6 +80,15 @@ describe("a script's problems", () => {
     expect(p).toContain("only a write names a reverse script");
     expect(p).toContain("the reverse script's order comes from number, which isn't an output");
   });
+
+  it("gives each problem a code and its names, with the same words in English", () => {
+    const list = scriptProblemList(
+      def({ inputs: [...(ORDER.inputs ?? []), { name: "note", label: "Note", type: "text" }] }),
+    );
+    expect(list).toEqual([
+      { code: "unused_input", params: { name: "note" }, text: "no step uses the input note" },
+    ]);
+  });
 });
 
 describe("a script's values", () => {
@@ -97,6 +107,11 @@ describe("a script's values", () => {
     const out = scriptOutputSchema(def());
     expect(out.safeParse({ price: "1212.50", submitted: true, url: "x" }).success).toBe(true);
     expect(out.safeParse({ price: "about", submitted: true, url: "x" }).success).toBe(false);
+    // Sent, but the page after it was off limits: no address, and why.
+    expect(
+      out.safeParse({ price: "1212.50", submitted: true, url: null, landing: "a stop page" })
+        .success,
+    ).toBe(true);
   });
 
   it("fills an address's inputs percent-encoded, so a value never climbs out of its path", () => {

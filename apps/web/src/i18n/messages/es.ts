@@ -704,6 +704,28 @@ export const es: Messages = {
   "scripts.valueType.date": "Fecha",
   "scripts.valueType.table": "Tabla",
   "scripts.valueType.document": "Documento",
+  "scripts.state.waiting": "Publicado · v{version}, v{newest} esperando a que lo publiquemos",
+  "scripts.problem.duplicate_input": "dos entradas se llaman {name}",
+  "scripts.problem.duplicate_output": "dos salidas se llaman {name}",
+  "scripts.problem.duplicate_step": "dos pasos se llaman {name}",
+  "scripts.problem.reserved_output": "“{name}” no puede ser el nombre de una salida",
+  "scripts.problem.unknown_input": "el paso {step} usa {name}, que no es una entrada",
+  "scripts.problem.unknown_output": "el paso {step} lee {name}, que no es una salida",
+  "scripts.problem.wrong_output_type": "el paso {step} no puede leer {name} como {type}",
+  "scripts.problem.unused_input": "ningún paso usa la entrada {name}",
+  "scripts.problem.unread_output": "ningún paso lee la salida {name}",
+  "scripts.problem.output_read_twice": "más de un paso lee {name}",
+  "scripts.problem.read_submits": "un script que envía un formulario cambia algo: es una escritura",
+  "scripts.problem.write_without_submit":
+    "una escritura envía un formulario: marque el clic que lo envía",
+  "scripts.problem.submits_twice": "un script envía un formulario una sola vez",
+  "scripts.problem.submit_not_last": "enviar el formulario es el último paso del script",
+  "scripts.problem.reverse_on_read":
+    "solo un script que envía un formulario nombra otro que lo deshace",
+  "scripts.problem.reverse_unknown_input":
+    "{name} del script que deshace viene de {from}, que no es una entrada",
+  "scripts.problem.reverse_unknown_output":
+    "{name} del script que deshace viene de {from}, que no es una salida",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · configuración",
