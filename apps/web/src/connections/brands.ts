@@ -73,6 +73,8 @@ const MONOGRAMS: Record<string, { fill: string | null; letters: string }> = {
   outlook: { fill: "#0078D4", letters: "O" },
   bing_webmaster: { fill: "#258FFA", letters: "B" },
   ramp: { fill: null, letters: "R" },
+  // §1.87: BILL's logo isn't in Simple Icons; ink, as we aren't sure of its colour.
+  billcom: { fill: null, letters: "B" },
   podio: { fill: null, letters: "P" },
 };
 
