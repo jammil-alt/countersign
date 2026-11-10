@@ -95,6 +95,8 @@ import { PortalLead, threadRoutes } from "./threads";
 // P-7: message translation
 import { translationRoutes } from "./translation";
 import { triggerRoutes } from "./triggers";
+// R5: take back a change that went ahead before a late no
+import { undoRoutes } from "./undo";
 import { AgentRunsNow, DayRuns, usageRoutes } from "./usage";
 // v0.14 W4-A: WhatsApp through Meta
 import { whatsappMetaRoutes } from "./whatsapp-meta";
@@ -2083,5 +2085,7 @@ export const routes = {
   ...hoursRoutes,
   // R8: the Library (docs/plan.md §1.86).
   ...libraryRoutes,
+  // R5: the Undo a late no is offered (docs/plan.md §1.86).
+  ...undoRoutes,
 } as const;
 export type Routes = typeof routes;

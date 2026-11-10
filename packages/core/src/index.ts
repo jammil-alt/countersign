@@ -90,6 +90,8 @@ export * from "./api/threads";
 export * from "./api/translation";
 // v0.12 W2-E
 export * from "./api/triggers";
+// R5: the Undo a late no is offered
+export * from "./api/undo";
 export * from "./api/usage";
 // v0.14 W4-A: WhatsApp through Meta
 export * from "./api/whatsapp-meta";

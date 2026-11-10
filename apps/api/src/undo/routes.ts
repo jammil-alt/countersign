@@ -9,12 +9,11 @@
 // takes back a write that already ran.
 
 import { type Approver, undoAction } from "@countersign/agents";
-import { defineRoute, isUuid } from "@countersign/core";
+import { type UndoChangeResult, undoRoutes } from "@countersign/core";
 import { inboxItem, type Tx } from "@countersign/db";
 import { leadOf } from "@countersign/threads";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
-import { z } from "zod";
 import { auditInTx } from "../audit";
 import { type AppEnv, HttpError, mount, notFound, type Services } from "../http";
 import { withCanSign } from "../inbox";
@@ -22,44 +21,6 @@ import { operatorApprovers } from "../routes/ops-clients";
 import { portalInboxFilter } from "../routes/portal";
 import { forClient, runDepsFromEnv, runtimeFor } from "../runs/execute";
 import { type UndoOffer, undoOfferOf } from "./offer";
-
-const IdParams = z.object({ id: z.string().refine((v) => isUuid(v), "not an id") });
-
-export const UndoChangeResult = z.object({
-  itemId: z.string(),
-  undo: z.discriminatedUnion("status", [
-    z.object({ status: z.literal("done"), undoActionId: z.string() }),
-    z.object({ status: z.literal("failed"), undoActionId: z.string(), reason: z.string() }),
-    z.object({ status: z.literal("refused"), code: z.string(), reason: z.string() }),
-  ]),
-});
-export type UndoChangeResult = z.infer<typeof UndoChangeResult>;
-
-// DECISION: the specs live here until they move into core's route contract (packages/core/src/api,
-// with `routes`), so the web client and the contract tests see them; undo.test.ts runs the
-// contract's checks on them meanwhile.
-export const undoRoutes = {
-  portalUndoChange: defineRoute({
-    method: "POST",
-    path: "/api/inbox/:id/undo-change",
-    auth: "session",
-    roles: ["client_admin", "client_user"] as const,
-    summary:
-      "Take back a change that went ahead before a no: whoever said no, or a client admin, from the item",
-    params: IdParams,
-    response: UndoChangeResult,
-  }),
-  opsUndoChange: defineRoute({
-    method: "POST",
-    path: "/api/ops/inbox/:id/undo-change",
-    auth: "session",
-    roles: ["operator"] as const,
-    summary:
-      "Take back a change that went ahead before a late no: the client's lead, from its item",
-    params: IdParams,
-    response: UndoChangeResult,
-  }),
-} as const;
 
 const PORTAL_FAILED = "we couldn't put the change back; your Mezonas lead will look at it";
 

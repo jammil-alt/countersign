@@ -3,8 +3,9 @@
 // can be taken back offers "Undo this change", which calls the surface's undo route; only that
 // press runs the undo, never anything by itself. A write that can't be taken back (a sent message)
 // says so. The back office also shows the tool's own undo line and the server's reasons as they are.
+
+import type { UndoChangeResult } from "@countersign/core";
 import { useState } from "react";
-import type { UndoChangeResult } from "../api/routes";
 import type { PlainKey } from "../i18n/catalog";
 import { useI18n } from "../i18n/i18n";
 import { shortTime } from "../runs/format";

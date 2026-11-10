@@ -12,7 +12,7 @@ import {
 } from "@countersign/core";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { apiRoutes, undoChangeRoutes } from "../api/routes";
+import { apiRoutes } from "../api/routes";
 import { useApiClient } from "../api/useApi";
 import type { PlainKey } from "../i18n/catalog";
 import { type I18n, useI18n } from "../i18n/i18n";
@@ -302,7 +302,7 @@ export function DeskDetail({
             onUndo={
               canSign
                 ? async () => {
-                    const out = await api.call(undoChangeRoutes.portalUndoChange, {
+                    const out = await api.call(apiRoutes.portalUndoChange, {
                       params: { id: lead.id },
                     });
                     onChanged();
