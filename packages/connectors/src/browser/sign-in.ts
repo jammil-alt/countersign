@@ -11,6 +11,7 @@ import {
   urlHost,
   urlMatches,
 } from "@countersign/core";
+import { ToolRefused } from "../connector";
 import type { BrowserTab } from "./driver";
 import type { BrowserCodesPort } from "./services";
 
@@ -29,8 +30,22 @@ export class SignInFailed extends Error {
 }
 
 /** Refused before anything was typed or opened (tier, caps, rules, setup). */
-export class BrowserRefused extends Error {
+export class BrowserRefused extends ToolRefused {
   override name = "BrowserRefused";
+}
+
+/**
+ * Refused by the connection's sign-in caps (core's `signInAllowed`): stopped, outside its hours or
+ * at its daily limit. A browsing skill asks for help on it rather than fail (./scope.ts).
+ */
+export class BrowserCapReached extends BrowserRefused {
+  override name = "BrowserCapReached";
+  constructor(
+    readonly code: "stopped" | "hours" | "daily_cap",
+    message: string,
+  ) {
+    super(message);
+  }
 }
 
 // DECISION: the platform's own stop checks, on every site beside the profile's `stopSelectors`:

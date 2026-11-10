@@ -8,22 +8,26 @@
 // navigates and on the address it lands on (./session.ts). Never a form, never a sign-in by the
 // model: sign-in stays code on pinned origins (./sign-in.ts).
 //
-// Per skill run the scope counts pages, time and cost. At a limit without an answer the skill asks
+// Per skill run the scope counts pages and time; its cost limit joins the runtime's own budgets
+// (the smaller of the agent's and this). It keeps one signed-in session per site for the run
+// (`sessions`, closed by `close`). At a limit, or at the connection's sign-in caps, the skill asks
 // for help (`needsHelp`: the question, what it tried, its screenshots) instead of failing; the
-// executor asks the lead and runs the step again with the answer as data. Answers and paths that
-// worked are kept as the agent's memory notes (no new table): answers come back as data the next
-// time the same skill browses that site, and a path that worked twice is offered to the operator
-// as a script draft (an operator `review` inbox item, like the owner's proposals).
+// executor asks the lead and runs the step again with the answer as data. Answers are the agent's
+// memory notes and come back as data the next time the same skill browses that site; paths that
+// worked are notes in the scope's own memory scope (`browse`, never shown to the model as memory),
+// and a path that worked twice is offered to the operator as a script draft (an operator `review`
+// inbox item, like the owner's proposals). No new table.
 
 import {
-  Decimal,
   hashJson,
   type JsonObject,
   parseSkillRef,
   type SkillBrowse,
   urlMatches,
 } from "@countersign/core";
+import { type HeldSession, RunSessionPool, type RunSessions } from "../connector";
 import { BROWSER_FILE_DOWNLOAD_TOOL, BROWSER_PAGE_READ_TOOL } from "./ids";
+import { BrowserCapReached } from "./sign-in";
 
 // ── Pages ────────────────────────────────────────────────────────────────────────────────────────
 
@@ -106,22 +110,29 @@ export interface BrowseLimits {
   pages: number;
   /** Minutes from the skill run's start. */
   minutes: number;
-  /** The skill run's model spend, in USD (a decimal string, invariant 6). */
+  /**
+   * The skill run's model spend, in USD (a decimal string, invariant 6). Not counted here: the
+   * runtime takes the smaller of this and the agent's own cost budget.
+   */
   costUsd: string;
 }
 
 // DECISION: 15 pages, 5 minutes and $0.50 of model spend per skill run. Enough to find an invoice
 // or an order's status on a portal by following its own links; past that a person who knows the
-// site answers faster than more browsing. Each tool call is one browser (./index.ts), so the time
-// limit also bounds sign-ins.
+// site answers faster than more browsing. A run signs in once per site (./session.ts), and the
+// time limit bounds how long it stays signed in.
 export const BROWSE_LIMITS: Readonly<BrowseLimits> = { pages: 15, minutes: 5, costUsd: "0.50" };
 
-export type BrowseLimit = "pages" | "time" | "cost";
+/**
+ * What stopped a browsing run: its pages or time (counted here), its budget (the runtime's model
+ * calls or cost) or the connection's sign-in caps.
+ */
+export type BrowseLimit = "pages" | "time" | "budget" | "sign_in";
 
-const LIMIT_WORDS: Record<BrowseLimit, (l: BrowseLimits) => string> = {
+const LIMIT_WORDS: Record<Exclude<BrowseLimit, "sign_in">, (l: BrowseLimits) => string> = {
   pages: (l) => `${l.pages} pages`,
   time: (l) => `${l.minutes} minutes`,
-  cost: (l) => `$${l.costUsd} of model time`,
+  budget: () => "its budget",
 };
 
 // ── Asking for help ──────────────────────────────────────────────────────────────────────────────
@@ -139,6 +150,8 @@ export interface NeedsHelp {
    * The evidence screenshots of the pages it read: storage keys on the connection's log (the
    * session record's `screenshots`), not new documents.
    */
+  // DECISION: storage keys, not copies in the client's documents: a help request makes no new copy
+  // of the client's data, and the evidence stays where the connection's log keeps it.
   screenshots?: string[];
   /**
    * The tag to keep the answer under: write `browseHelpNote(remember, question, answer)` (or
@@ -198,14 +211,29 @@ export interface BrowsePathStep {
 
 /** What a skill run asks the platform to keep once it is done (call-tool's `finishScope`). */
 export interface BrowseEffects {
-  /** Memory notes to write for the agent (test runs keep theirs in the run's own scope). */
+  /**
+   * Notes to write in the scope's memory scope (`noteScope`; a test run's stay in the run's own
+   * scope).
+   */
   memory?: string[];
-  /** A review item for the operator (never written by a test run). */
-  operatorItem?: { title: string; subjectType: string; payload: JsonObject };
+  /**
+   * A review item for the operator (never from a test run), offered once: `once` is the note that
+   * marks it offered, written first, and only the earliest such note's run creates the item.
+   */
+  operatorItem?: { title: string; subjectType: string; payload: JsonObject; once?: string };
 }
 
 /** The inbox subject of a script draft the operator reviews (docs/plan.md §9 R9). */
 export const BROWSE_SCRIPT_DRAFT_SUBJECT = "browse_script_draft";
+
+/**
+ * The memory scope of the paths that worked and the drafts offered: the platform's own record,
+ * never read into the model's memory or the client's knowledge (they read scope `agent`).
+ */
+// DECISION: a memory scope of its own rather than the tool_call log or a new table: no migration,
+// the bookkeeping never pushes the agent's real notes out of its prompt, and the paths are still
+// in the agent's memory rows for an export or a deletion.
+export const BROWSE_NOTE_SCOPE = "browse";
 
 // ── The scope ────────────────────────────────────────────────────────────────────────────────────
 
@@ -230,17 +258,23 @@ const obj = (v: unknown): Record<string, unknown> =>
 
 /**
  * One run of a browsing skill: confines its browser calls, counts its limits, and keeps what it
- * tried and the path that worked. Implements call-tool's `ToolCallScope` (check, observe, finish).
+ * tried and the path that worked. Implements call-tool's `ToolCallScope` (check, observe, finish,
+ * its sessions and close).
  */
 export class BrowseScope {
   readonly skill: string;
   readonly browse: SkillBrowse;
   readonly limits: BrowseLimits;
   readonly goal: string;
+  /** Where its paths and offered drafts are kept (call-tool's `finishScope` reads and writes it). */
+  readonly noteScope = BROWSE_NOTE_SCOPE;
   readonly #now: () => Date;
   readonly #startedAt: number;
+  readonly #pool = new RunSessionPool();
   #opened = 0;
   #hit: BrowseLimit | null = null;
+  /** Why the connection would not sign in (its caps), for the help request. */
+  #signInReason: string | null = null;
   #question: string | null = null;
   readonly #tried: string[] = [];
   readonly #path: BrowsePathStep[] = [];
@@ -294,10 +328,11 @@ export class BrowseScope {
     }
     const limit = this.#limitNow();
     if (limit) {
-      return {
-        ok: false,
-        reason: `this skill's limit of ${LIMIT_WORDS[limit](this.limits)} is reached: finish with what you found, or ask for help`,
-      };
+      const why =
+        limit === "sign_in"
+          ? `the site can't be signed in to now (${this.#signInReason})`
+          : `this skill's limit of ${LIMIT_WORDS[limit](this.limits)} is reached`;
+      return { ok: false, reason: `${why}: finish with what you found, or ask for help` };
     }
     const args = obj(input);
     const site = str(args.site);
@@ -310,16 +345,22 @@ export class BrowseScope {
     const url = str(args.url) ?? "";
     const page = checkBrowsePage(url, this.browse.pages);
     if (!page.ok) return { ok: false, reason: `${url}: ${page.reason}` };
-    this.#opened += 1;
     return { ok: true, input: { ...args, url: page.url, within: [...this.browse.pages] } };
   }
 
-  /** After the call (refusals included): what was tried, the path, the screenshots. */
+  /**
+   * After the call (refusals included): what was tried, the path, the screenshots. A page counts
+   * toward the limit only once the gate and the connector let it be opened: read, or tried and
+   * failed on the site. A refusal (the scope's, the gate's or the connector's) opens nothing.
+   */
+  // DECISION: a failure counts (the site was reached and may have navigated); a refusal doesn't,
+  // so a model that probes refused addresses is bounded by its time and budget, not its pages.
   observe(toolId: string, input: unknown, outcome: ObservedOutcome): void {
     if (!isBrowserTool(toolId)) return;
     const args = obj(input);
     const site = str(args.site) ?? "";
     const url = str(args.url) ?? "";
+    if (outcome.status === "done" || outcome.status === "failed") this.#opened += 1;
     if (outcome.status === "done") {
       const out = obj(outcome.output);
       const landed = str(out.url) ?? url;
@@ -337,16 +378,14 @@ export class BrowseScope {
   }
 
   /**
-   * The limit a run is over, if any: time and cost from now, or pages once a call past the page
-   * limit was refused. The runtime checks it before each model call; over a limit, the step
-   * returns `needsHelp` rather than going on.
+   * The limit a run is over, if any: its time, the connection's sign-in caps, or its pages once a
+   * call past the page limit was refused. The runtime checks it before each model call; over a
+   * limit, the step returns `needsHelp` rather than going on.
    */
-  overLimit(costUsd?: string): BrowseLimit | null {
+  overLimit(): BrowseLimit | null {
     if (this.#hit) return this.#hit;
-    const time = this.#now().getTime() - this.#startedAt >= this.limits.minutes * 60_000;
-    if (time) this.#hit = "time";
-    else if (costUsd !== undefined && new Decimal(costUsd).gte(this.limits.costUsd)) {
-      this.#hit = "cost";
+    if (this.#now().getTime() - this.#startedAt >= this.limits.minutes * 60_000) {
+      this.#hit = "time";
     }
     return this.#hit;
   }
@@ -355,6 +394,36 @@ export class BrowseScope {
     if (this.#hit) return this.#hit;
     if (this.#opened >= this.limits.pages) this.#hit = "pages";
     return this.overLimit();
+  }
+
+  /** The runtime's budget for the run ran out (model calls or cost): the help request. */
+  budgetReached(): NeedsHelp {
+    this.#hit ??= "budget";
+    return this.needsHelp();
+  }
+
+  /**
+   * The run's sessions: one signed-in browser per site (./session.ts `inBrowserSession`). A
+   * sign-in refused by the connection's caps stops the run's browsing with a help request.
+   */
+  readonly sessions: RunSessions = {
+    hold: <T>(key: string, open: () => Promise<HeldSession<T>>): Promise<T> =>
+      this.#pool.hold(key, async () => {
+        try {
+          return await open();
+        } catch (error) {
+          if (error instanceof BrowserCapReached) {
+            this.#hit = "sign_in";
+            this.#signInReason = error.message;
+          }
+          throw error;
+        }
+      }),
+  };
+
+  /** Closes the run's sessions (signs out); the runtime calls it when the skill run ends. */
+  close(): Promise<void> {
+    return this.#pool.closeAll();
   }
 
   /** The model asked for help (`need_help`): its question, kept for `needsHelp`. */
@@ -367,11 +436,15 @@ export class BrowseScope {
   /** The help request: the model's question, else one made from the goal and the limit. */
   needsHelp(question?: string): NeedsHelp {
     const where = this.browse.sites.join(", ");
-    const limit = this.#hit ? ` within ${LIMIT_WORDS[this.#hit](this.limits)}` : "";
+    const hit = this.#hit;
     const q =
       question?.trim() ||
       this.#question ||
-      `We looked for "${this.goal}" on ${where} and didn't find it${limit}. Where on the site should we look?`;
+      (hit === "sign_in"
+        ? `We couldn't sign in to ${where} to look for "${this.goal}": ${this.#signInReason}. Can you find it, or tell us when to try again?`
+        : `We looked for "${this.goal}" on ${where} and didn't find it${
+            hit ? ` within ${LIMIT_WORDS[hit](this.limits)}` : ""
+          }. Where on the site should we look?`);
     return {
       question: q.slice(0, 500),
       tried: [`Looked for: ${this.goal}`, ...this.#tried].slice(0, 50),
@@ -414,12 +487,12 @@ export class BrowseScope {
   }
 
   /**
-   * Once the skill finished with an answer: keep the path that worked as a memory note; when the
-   * same path (same pages, other records) worked before, offer it to the operator as a script
-   * draft, once. `notes` are the agent's live memory notes.
+   * Once the skill finished with an answer: keep the path that worked as a note; when the same
+   * path (same pages, other records) worked before, offer it to the operator as a script draft,
+   * once. `notes` are the agent's notes in `noteScope` (the newest 50).
    */
-  // DECISION: counted in the agent's memory notes (the newest 50 the runtime reads): no new table.
-  // A path that scrolled out of them counts from one again, which only delays the offer.
+  // DECISION: counted in the agent's `browse` notes (the newest 50): no new table. A path that
+  // scrolled out of them counts from one again, which only delays the offer.
   async finish(notes: readonly string[]): Promise<BrowseEffects> {
     const steps = this.path();
     if (steps.length === 0) return {};
@@ -442,8 +515,8 @@ export class BrowseScope {
     if (offered) return {};
     const sites = [...new Set(steps.map((s) => s.site))];
     return {
-      memory: [`[browse-script-offered skill=${this.skill} fp=${fp}]`],
       operatorItem: {
+        once: `[browse-script-offered skill=${this.skill} fp=${fp}]`,
         title:
           `A browsing path worked twice: "${this.goal}" on ${sites.join(", ")}. Review it as a script`.slice(
             0,

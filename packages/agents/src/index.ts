@@ -4,6 +4,9 @@
 // Only src/registry/ and src/log/ import @countersign/db (CLAUDE.md invariant 2): the runtime reaches
 // storage through the ports in src/runtime/ports.ts, and agent reasoning reaches data only through tools.
 
+// v0.16: a browsing skill's help request, for the executor (workflows can't import connectors):
+// keep the lead's answer as `browseHelpNote(needsHelp.remember, question, answer)`.
+export { browseHelpNote, NEEDS_HELP_KEY } from "@countersign/connectors";
 // v0.12 W3-A: the Builder as a conversation
 export * from "./builder/aliases";
 export * from "./builder/builder";

@@ -72,8 +72,17 @@ export interface RuntimeStore {
   loadAgentVersion(tenantId: string, agentVersionId: string): Promise<PinnedAgent>;
   /** A `custom:` skill reference, resolved for this client. Built-ins come from the catalog. */
   resolveCustomSkill(tenantId: string, ref: string): Promise<ResolvedSkill | null>;
-  /** The client agent's live memory notes (never another agent's or client's; no test notes). */
-  memoryNotes(tenantId: string, agentId: string, limit: number): Promise<MemoryNoteRecord[]>;
+  /**
+   * The client agent's live memory notes, newest first (never another agent's or client's; no
+   * test notes): its own (`agent`, what the model reads as memory), or those of another scope the
+   * runtime keeps for itself (v0.16: a browsing skill's paths, `browse`).
+   */
+  memoryNotes(
+    tenantId: string,
+    agentId: string,
+    limit: number,
+    scope?: string,
+  ): Promise<MemoryNoteRecord[]>;
   connection(tenantId: string, connectionId: string): Promise<ConnectionRef | null>;
   /**
    * The client agent's grant on a connection (docs/plan.md §1.26), read fresh for every call so a

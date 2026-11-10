@@ -110,8 +110,10 @@ function setUp(mode: "live" | "test" = "live") {
       store: {
         connection: async () => conn,
         grant: async () => null,
-        // The live notes only, as the store answers (a test run's are not read back).
-        memoryNotes: async () => notes.filter((n) => n.scope === "agent"),
+        // One scope's live notes, newest first, as the store answers (a test run's are not read
+        // back: their scope is the run's own).
+        memoryNotes: async (_t: string, _a: string, _n: number, scope = "agent") =>
+          notes.filter((n) => n.scope === scope).reverse(),
       },
       platform: {
         writeMemory: async (_t: string, n: { note: string; scope: string }) => {
@@ -171,13 +173,19 @@ describe("callTool with a browsing skill's scope", () => {
     expect(t.logged.finish).toHaveLength(4);
     expect(t.logged.finish.every((f) => (f as { status: string }).status === "refused")).toBe(true);
     // Another host on a listed path: the scope can't know the site's hosts, so the connector
-    // refuses it with the site's rules, still before a browser opens or a sign-in is spent.
+    // refuses it with the site's rules, still before a browser opens or a sign-in is spent. A
+    // connector's refusal is a refusal, logged as one.
     expect(await t.read("https://elsewhere.test/invoices")).toMatchObject({
-      status: "failed",
-      error: expect.stringMatching(/not one agents may open/),
+      status: "refused",
+      reason: expect.stringMatching(/not one agents may open/),
     });
+    expect(t.logged.finish.at(-1)).toMatchObject({ status: "refused" });
     expect(t.driver.opened).toBe(0);
     expect(t.portal.signIns).toBe(0);
+    // None of the refusals used up a page.
+    expect(await t.read(`${ORIGIN}/invoices`)).toMatchObject({ status: "done" });
+    expect(await t.read(`${ORIGIN}/invoices/INV-1001`)).toMatchObject({ status: "done" });
+    await t.scope.close();
   });
 
   it("reads a listed page with the skill's pages as `within`, then asks for help at the limit", async () => {
@@ -188,24 +196,30 @@ describe("callTool with a browsing skill's scope", () => {
     expect(t.logged.start[0]).toMatchObject({
       input: { site: "supplier", url: `${ORIGIN}/invoices`, within: ["/invoices", "/invoices/*"] },
     });
-    // A redirect off the skill's pages fails in the connector and counts as tried.
+    // A redirect off the skill's pages is refused by the connector and counts as tried.
     expect(await t.read(`${ORIGIN}/invoices/to-statements`)).toMatchObject({
-      status: "failed",
-      error: expect.stringMatching(/not one of this skill's pages/),
+      status: "refused",
+      reason: expect.stringMatching(/not one of this skill's pages/),
     });
+    expect(await t.read(`${ORIGIN}/invoices/INV-1001`)).toMatchObject({ status: "done" });
     expect(await t.read(`${ORIGIN}/invoices/INV-1002`)).toMatchObject({
       status: "refused",
       reason: expect.stringMatching(/limit of 2 pages/),
     });
-    expect(t.scope.overLimit("0.02")).toBe("pages");
+    expect(t.scope.overLimit()).toBe("pages");
     const help = t.scope.needsHelp();
     expect(help.tried).toEqual([
       "Looked for: Find the invoice for PO-77",
       `Read ${ORIGIN}/invoices`,
-      expect.stringMatching(/^Could not open .*to-statements: .*not one of this skill's pages/),
+      expect.stringMatching(/^Refused .*to-statements: .*not one of this skill's pages/),
+      `Read ${ORIGIN}/invoices/INV-1001`,
       expect.stringMatching(/^Refused .*INV-1002/),
     ]);
-    expect(help.screenshots).toEqual(["shot-2"]);
+    // Each page read's own screenshot (shot-1 is the signed-in page), from one session.
+    expect(help.screenshots).toEqual(["shot-2", "shot-3"]);
+    expect(t.portal.signIns).toBe(1);
+    await t.scope.close();
+    expect(t.driver.closed).toBe(1);
   });
 
   it("keeps a path that worked, and offers a script draft to the operator the second time", async () => {
@@ -242,6 +256,42 @@ describe("callTool with a browsing skill's scope", () => {
     // Offered once.
     await finishScope(t.deps, t.step, again);
     expect(t.items).toHaveLength(1);
+    // The path and the offer are the scope's own notes, never the agent's (what its model reads).
+    expect(t.notes.map((n) => n.scope)).toEqual(["browse", "browse"]);
+    expect(t.notes[1]?.note).toMatch(/^\[browse-script-offered skill=custom:find-invoice fp=/);
+    // Each write is on the step's log, as the platform tool that writes it.
+    const writes = t.logged.start.filter(
+      (c) => !(c as { tool: string }).tool.startsWith("browser"),
+    );
+    expect(writes).toEqual([
+      expect.objectContaining({ stepRunId: "s1", tool: "memory.write" }),
+      expect.objectContaining({ stepRunId: "s1", tool: "memory.write" }),
+      expect.objectContaining({ stepRunId: "s1", tool: "inbox.create" }),
+    ]);
+    expect(t.logged.finish.at(-1)).toMatchObject({
+      status: "succeeded",
+      output: { inboxItemId: "i1" },
+    });
+    await t.scope.close();
+    await again.close();
+  });
+
+  it("two runs that finish together offer the draft at most once", async () => {
+    const t = setUp();
+    const run = async () => {
+      const s = new BrowseScope({
+        skill: "custom:find-invoice",
+        browse: { sites: ["supplier"], pages: ["/invoices"] },
+        goal: "Find it",
+      });
+      await t.read(`${ORIGIN}/invoices`, s);
+      await s.close();
+      return s;
+    };
+    await finishScope(t.deps, t.step, await run());
+    const [a, b] = [await run(), await run()];
+    await Promise.all([finishScope(t.deps, t.step, a), finishScope(t.deps, t.step, b)]);
+    expect(t.items.length).toBeLessThanOrEqual(1);
   });
 
   it("a test run keeps its notes in its own scope and never offers a draft", async () => {

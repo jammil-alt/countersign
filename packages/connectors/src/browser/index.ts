@@ -12,7 +12,7 @@ import { z } from "zod";
 import { type Connector, defineConnector, defineReadTool } from "../connector";
 import { isDocumentType } from "../upload/forwarding";
 import { BROWSER_CONNECTOR_ID, BROWSER_FILE_DOWNLOAD_TOOL, BROWSER_PAGE_READ_TOOL } from "./ids";
-import { type BrowserSessionOptions, withBrowserSession } from "./session";
+import { type BrowserSessionOptions, inBrowserSession } from "./session";
 import { BrowserRefused } from "./sign-in";
 
 export * from "./driver";
@@ -23,11 +23,15 @@ export * from "./scope";
 export * from "./services";
 export {
   type BrowserCall,
+  type HeldBrowserSession,
+  holdBrowserSession,
+  inBrowserSession,
   Redactor,
   type SignedInPage,
   withBrowserSession,
 } from "./session";
 export {
+  BrowserCapReached,
   BrowserRefused,
   BrowserStop,
   checkForStops,
@@ -83,6 +87,8 @@ export interface BrowserConnectorOptions {
 // DECISION: one browser per tool call, signed in and out within the call (or, low tier, keeping
 // the session): tool calls have no step-end hook to close a browser kept across a step's calls, and
 // a session left open is a risk for nothing. Each call that signs in counts toward the daily cap.
+// v0.16: except a browsing skill's calls, which the run's scope closes at its end: those share
+// one session per site for the skill run (./session.ts `inBrowserSession`).
 export function createBrowserConnector(options: BrowserConnectorOptions = {}): Connector {
   const session: BrowserSessionOptions = {
     codePoll: options.codePoll ?? { intervalMs: 2_000, attempts: 45 },
@@ -125,7 +131,7 @@ export function createBrowserConnector(options: BrowserConnectorOptions = {}): C
         input: PageReadInput,
         output: PageReadOutput,
         run: (input, ctx) =>
-          withBrowserSession(
+          inBrowserSession(
             ctx,
             {
               tool: BROWSER_PAGE_READ_TOOL,
@@ -159,7 +165,7 @@ export function createBrowserConnector(options: BrowserConnectorOptions = {}): C
         input: DownloadInput,
         output: DownloadOutput,
         run: (input, ctx) =>
-          withBrowserSession(
+          inBrowserSession(
             ctx,
             {
               tool: BROWSER_FILE_DOWNLOAD_TOOL,

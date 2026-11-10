@@ -6,7 +6,9 @@ import {
   bindingKeyFor,
   type ConnectionRef,
   captureBefore,
+  type RunSessions,
   runReadTool,
+  ToolRefused,
 } from "@countersign/connectors";
 import {
   autonomyMessage,
@@ -105,18 +107,33 @@ export interface ToolCallScope {
   /** After the call, refusals included (the scope's own, the gate's, the tool's). */
   observe?(toolId: string, input: unknown, outcome: ToolOutcome): void;
   /**
-   * Once the skill run finished with an answer: what to keep, given the agent's live memory notes
-   * (applied by `finishScope`).
+   * Once the skill run finished with an answer: what to keep, given the agent's live notes in
+   * `noteScope` (applied by `finishScope`).
    */
   finish?(notes: readonly string[]): Promise<ScopeEffects> | ScopeEffects;
+  /**
+   * The memory scope the scope keeps its own notes in (read and written by `finishScope`), apart
+   * from the agent's notes the model reads (`agent`). Absent: `agent`.
+   */
+  noteScope?: string | undefined;
+  /** What connectors may keep open across the run's calls (a signed-in browser per site). */
+  sessions?: RunSessions | undefined;
+  /** Closes what `sessions` holds; the runtime calls it once the run ends, however it ends. */
+  close?(): Promise<void>;
 }
 
 /** What a scope asks the platform to keep after a skill run (`finishScope` applies it). */
 export interface ScopeEffects {
-  /** Memory notes for the agent (`memory.write`'s path: a test run's stay in the run's scope). */
+  /** Notes in the scope's `noteScope` (a test run's stay in the run's own scope). */
   memory?: string[] | undefined;
-  /** An operator `review` item, such as a script draft; never from a test run. */
-  operatorItem?: { title: string; subjectType: string; payload: JsonObject } | undefined;
+  /**
+   * An operator `review` item, such as a script draft; never from a test run. With `once`, a note
+   * that marks it offered: written first, and the item is created only by the run whose note is
+   * the earliest such one, so two runs finishing together offer it once.
+   */
+  operatorItem?:
+    | { title: string; subjectType: string; payload: JsonObject; once?: string | undefined }
+    | undefined;
 }
 
 /** Calls a tool for a step, logging a `tool_call` row whatever happens. */
@@ -166,10 +183,15 @@ export async function callTool(
       });
       outcome = refusal
         ? { status: "refused", reason: refusal }
-        : await dispatch(deps, step, resolved, input);
+        : await dispatch(deps, step, resolved, input, call.scope?.sessions);
     }
   } catch (error) {
-    outcome = { status: "failed", error: errorText(error) };
+    // DECISION (v0.16): a connector's own refusal (a site's pages, its sign-in caps) is a refusal,
+    // as the gate's are, for every caller: nothing was done.
+    outcome =
+      error instanceof ToolRefused
+        ? { status: "refused", reason: error.message }
+        : { status: "failed", error: errorText(error) };
   }
   call.scope?.observe?.(call.toolId, input, outcome);
   const actionId = "actionId" in outcome ? outcome.actionId : undefined;
@@ -199,6 +221,7 @@ async function dispatch(
   step: StepContext,
   tool: RegisteredTool,
   input: unknown,
+  sessions: RunSessions | undefined,
 ): Promise<ToolOutcome> {
   // A retry finds its first try's action before any check, the fixed-input check included.
   if (tool.kind === "connector" && tool.spec.sideEffect === "external") {
@@ -364,8 +387,10 @@ async function dispatch(
   if (waiting) return waiting;
   const ctx = connectionContext(deps, step.tenantId, conn);
   if (tool.spec.sideEffect !== "external") {
+    // v0.16: a scoped run's reads may share what the connector keeps open (one browser per site).
+    const readCtx = sessions ? { ...ctx, sessions } : ctx;
     try {
-      const r = await runReadTool(tool.connector, tool.spec.id, input, ctx);
+      const r = await runReadTool(tool.connector, tool.spec.id, input, readCtx);
       return { status: "done", output: r.output, summary: r.summary };
     } catch (error) {
       await noteReconnect(deps, step.tenantId, conn, error);
@@ -575,43 +600,102 @@ async function settle(
 }
 
 /**
- * v0.16: once a scoped skill run finished with an answer, keeps what its scope asks: memory notes
- * for the agent (as `memory.write` writes them: a test run's stay in the run's own scope, which no
- * live run reads) and, from a live run only, an operator `review` item (a browsing path that worked
- * twice, offered as a script draft). Reads the agent's live notes itself, whether or not the agent
- * shows memory to its model.
+ * A platform write the runtime makes itself, logged as the platform tool that makes it would be
+ * (a `tool_call` row on the step run, its input and what it wrote), so the step's log shows it.
+ * Best effort: a write that fails is logged as failed and answers null.
+ */
+async function loggedWrite<T extends JsonObject>(
+  deps: RuntimeDeps,
+  step: StepContext,
+  tool: "memory.write" | "inbox.create",
+  input: JsonObject,
+  write: () => Promise<T>,
+): Promise<T | null> {
+  const { log } = deps.ports;
+  const started = Date.now();
+  const id = await log.startToolCall(step.tenantId, { stepRunId: step.stepRunId, tool, input });
+  try {
+    const output = await write();
+    await log.finishToolCall(step.tenantId, id, {
+      status: "succeeded",
+      output,
+      durationMs: Date.now() - started,
+    });
+    return output;
+  } catch (error) {
+    await log.finishToolCall(step.tenantId, id, {
+      status: "failed",
+      output: { error: errorText(error) },
+      durationMs: Date.now() - started,
+    });
+    return null;
+  }
+}
+
+/**
+ * v0.16: once a scoped skill run finished with an answer, keeps what its scope asks: notes in the
+ * scope's own memory scope (`noteScope`; a test run's stay in the run's own scope, which no live
+ * run reads) and, from a live run only, an operator `review` item (a browsing path that worked
+ * twice, offered as a script draft), offered once. Reads the notes itself, whether or not the
+ * agent shows memory to its model. Each write is logged on the step run like a platform tool's.
  */
 // DECISION: a draft is an inbox item for the operator, as the owner's proposals are (kind
 // `review`), not a new table: scripts are R9's, and the operator reviews the draft there.
+// DECISION: offered once without a lock or a unique key (no migration): the run writes the
+// offer's note first, reads the notes back, and creates the item only when its note is the only
+// one. Of two runs that finish together, the later reader always sees the other's note, so they
+// never both offer; at worst both step back and the draft is not offered.
 export async function finishScope(
   deps: RuntimeDeps,
   step: StepContext,
   scope: ToolCallScope,
 ): Promise<ScopeEffects> {
   if (!scope.finish) return {};
-  const notes = await deps.ports.store.memoryNotes(step.tenantId, step.agent.agentId, 50);
-  const effects = await scope.finish(notes.map((n) => n.note));
-  for (const note of effects.memory ?? []) {
-    await deps.ports.platform.writeMemory(step.tenantId, {
-      agentId: step.agent.agentId,
-      note,
-      scope: memoryScope(step.mode, step.runId),
+  const { store, platform } = deps.ports;
+  const noteScope = scope.noteScope ?? "agent";
+  const test = step.mode === "test";
+  const notes = () => store.memoryNotes(step.tenantId, step.agent.agentId, 50, noteScope);
+  const writeNote = (note: string) =>
+    loggedWrite(deps, step, "memory.write", { note, scope: noteScope }, async () => {
+      const saved = await platform.writeMemory(step.tenantId, {
+        agentId: step.agent.agentId,
+        note,
+        scope: test ? memoryScope(step.mode, step.runId) : noteScope,
+      });
+      return { memoryNoteId: saved.id };
     });
+  const effects = await scope.finish((await notes()).map((n) => n.note));
+  for (const note of effects.memory ?? []) await writeNote(note);
+  const item = effects.operatorItem;
+  if (!item || test) return effects;
+  if (item.once !== undefined) {
+    const mine = await writeNote(item.once);
+    if (!mine) return effects;
+    const marks = (await notes()).filter((n) => n.note === item.once);
+    if (marks.length !== 1 || marks[0]?.id !== mine.memoryNoteId) return effects;
   }
-  if (effects.operatorItem && step.mode !== "test") {
-    await deps.ports.platform.createInboxItem(step.tenantId, {
-      kind: "review",
-      title: effects.operatorItem.title,
-      payload: {
-        ...effects.operatorItem.payload,
-        stepId: step.stepId,
-        agentVersionId: step.agent.agentVersionId,
-      },
-      agentId: step.agent.agentId,
-      runId: step.runId,
-      subjectType: effects.operatorItem.subjectType,
-      assigneeRole: "operator",
-    });
-  }
+  const payload: JsonObject = {
+    ...item.payload,
+    stepId: step.stepId,
+    agentVersionId: step.agent.agentVersionId,
+  };
+  await loggedWrite(
+    deps,
+    step,
+    "inbox.create",
+    { kind: "review", title: item.title, subjectType: item.subjectType, assignee: "operator" },
+    async () => {
+      const created = await platform.createInboxItem(step.tenantId, {
+        kind: "review",
+        title: item.title,
+        payload,
+        agentId: step.agent.agentId,
+        runId: step.runId,
+        subjectType: item.subjectType,
+        assigneeRole: "operator",
+      });
+      return { inboxItemId: created.id, title: item.title };
+    },
+  );
   return effects;
 }

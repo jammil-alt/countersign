@@ -113,10 +113,10 @@ describe("BrowseScope.check", () => {
     });
   });
 
-  it("stops at the time limit and at the cost limit", () => {
+  it("stops at the time limit; the runtime's budget asks for help too", () => {
     const clock = { t: Date.parse("2026-11-10T15:00:00Z") };
     const s = scope({ clock });
-    expect(s.overLimit("0.49")).toBeNull();
+    expect(s.overLimit()).toBeNull();
     clock.t += 5 * 60_000;
     expect(
       s.check(BROWSER_PAGE_READ_TOOL, { site: "supplier", url: `${ORIGIN}/orders/7` }),
@@ -124,9 +124,24 @@ describe("BrowseScope.check", () => {
     expect(s.overLimit()).toBe("time");
     expect(s.needsHelp().question).toMatch(/within 5 minutes/);
 
+    // Cost is the runtime's budget (the smaller of the agent's and the browse limit's).
     const c = scope();
-    expect(c.overLimit("0.50")).toBe("cost");
-    expect(c.needsHelp().question).toMatch(/within \$0\.50 of model time/);
+    expect(c.limits.costUsd).toBe("0.50");
+    expect(c.budgetReached().question).toMatch(/within its budget/);
+    expect(c.overLimit()).toBe("budget");
+  });
+
+  it("counts a page only once it was opened, not when it was refused", () => {
+    const s = scope({ limits: { pages: 1 } });
+    const input = { site: "supplier", url: `${ORIGIN}/orders/7` };
+    expect(s.check(BROWSER_PAGE_READ_TOOL, input).ok).toBe(true);
+    s.observe(BROWSER_PAGE_READ_TOOL, input, { status: "refused", reason: "no connection" });
+    expect(s.check(BROWSER_PAGE_READ_TOOL, input).ok).toBe(true);
+    s.observe(BROWSER_PAGE_READ_TOOL, input, { status: "failed", error: "the site answered 500" });
+    expect(s.check(BROWSER_PAGE_READ_TOOL, input)).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/limit of 1 pages/),
+    });
   });
 
   it("asks the model's own question when it asked for help", () => {
@@ -188,10 +203,9 @@ describe("help answers and paths in memory", () => {
     const notes = [...(first.memory ?? [])];
     // Another record, the same pages: the same path.
     const second = await run().finish(notes);
-    expect(second.memory).toEqual([
-      expect.stringMatching(/^\[browse-script-offered skill=custom:order-status fp=/),
-    ]);
+    expect(second.memory).toBeUndefined();
     expect(second.operatorItem).toMatchObject({
+      once: expect.stringMatching(/^\[browse-script-offered skill=custom:order-status fp=/),
       subjectType: BROWSE_SCRIPT_DRAFT_SUBJECT,
       title: expect.stringMatching(/worked twice: "Find the order's delivery date" on supplier/),
       payload: {
@@ -208,7 +222,7 @@ describe("help answers and paths in memory", () => {
         },
       },
     });
-    notes.push(...(second.memory ?? []));
+    notes.push(second.operatorItem?.once ?? "");
     expect(await run().finish(notes)).toEqual({});
     expect(scope().data(notes).knownPaths).toEqual(["supplier/orders/* > supplier/invoices"]);
     // Nothing read: nothing kept.

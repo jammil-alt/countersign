@@ -115,7 +115,7 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
       return withTenant(db, tenantId, (tx) => resolveCustomSkill(tx, { tenantId, ref }));
     },
 
-    memoryNotes(tenantId, agentId, limit): Promise<MemoryNoteRecord[]> {
+    memoryNotes(tenantId, agentId, limit, scope = "agent"): Promise<MemoryNoteRecord[]> {
       return withTenant(db, tenantId, (tx) =>
         tx
           .select({
@@ -129,11 +129,14 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
             and(
               eq(memoryNote.tenantId, tenantId),
               eq(memoryNote.agentId, agentId),
+              // v0.16: one scope: the agent's own (`agent`, as knowledge search reads it), or one
+              // the runtime keeps for itself (`browse`), which the model never gets as memory.
+              eq(memoryNote.scope, scope),
               // Notes written by test runs are tagged and never read back.
               not(like(memoryNote.scope, `${MEMORY_TEST_SCOPE_PREFIX}%`)),
             ),
           )
-          .orderBy(desc(memoryNote.createdAt))
+          .orderBy(desc(memoryNote.createdAt), desc(memoryNote.id))
           .limit(limit),
       );
     },

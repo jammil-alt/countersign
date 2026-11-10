@@ -2517,6 +2517,30 @@ tools, is the owner's doc "Mezonas process model"; milestones are §9.
   agent's earlier live outputs once (`run:owner-history`, `dbOversightStore.recentOutputs`), and
   the watch's signals reach `overseeStep`. Deadlines read `hoursFor(db)`.
 
+Stream browse (wave 2b):
+- DECISION: a browsing skill's run signs in once per site. Its calls share one session, held in the
+  run's `sessions` (connectors' `RunSessionPool`) and closed when runAgent ends however it ends.
+  Each call's work runs through `withBrowserSession`'s own `work(page)`. A failed sign-in is not
+  retried within the run. A bad first address is refused before the session opens.
+- DECISION: the browse cost limit ($0.50) joins runAgent's budgets: the smaller of it and the
+  agent's own, as an ask's budget does. A browsing run that hits its pages, its time, its step or
+  cost budget, or the connection's sign-in caps (`BrowserCapReached`) returns `{ needsHelp }`
+  (succeeded). It never escalates for these. The monthly cap still escalates.
+- DECISION: a connector's refusal (`ToolRefused`, which `BrowserRefused` extends) is reported as
+  `refused`, not `failed`, for every caller of callTool.
+- DECISION: a page counts toward the limit only once it was opened (read, or failed on the site).
+  Refusals by the scope, the gate or the connector don't count.
+- DECISION: paths that worked and offered drafts are memory notes in their own scope, `browse`.
+  The model's memory, knowledge search and the knowledge screen read `agent` only. The lead's
+  answers stay in `agent`. No migration.
+- DECISION: finishScope logs each write as a `tool_call` row on the step run (`memory.write`,
+  `inbox.create`). A draft is offered once: the offered note is written first and read back, and
+  the item is created only when that note is the only one.
+- DECISION: help screenshots stay the connection log's evidence storage keys. They are not copied
+  into the client's documents: no new copy of client data.
+- DECISION: page limits are not set per skill yet (SkillBrowse has no `limits`), and the save-time
+  check stays site-level. The runtime checks every page.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
