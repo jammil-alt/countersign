@@ -2400,6 +2400,25 @@ feeds, upload, email sending, texts, webhooks, website, website logins) take a M
 website login keeps the site's initials. These colours are the providers' and are used nowhere
 else, so the palette rule (no new colours) holds for our own UI.
 
+### 1.86 The client's MCP: the portal as a Claude connector (owner, 2026-11-10)
+
+Owner, 2026-11-10: "create an MCP for both Staging and Prod that has access to their account
+information, so that clients can connect to their account and see their information and we can
+use the same for the ops". §1.34's "client-facing MCP server, later" is built on its plumbing, on
+the same URL: `https://staging.mezonas.com/mcp` and `https://app.mezonas.com/mcp`. Code:
+`apps/api/src/mcp/client-tools.ts`, the sign-in and dispatch in `routes.ts`.
+
+| Topic | Decision |
+|---|---|
+| One URL | One `/mcp` per environment for everyone, so there is one connector to add. Who signs in decides the tools: an operator gets §1.34's back-office tools, even where they also hold a client role (the back office already reaches the clients they serve); anyone else with a client role (`client_admin`, `client_user`) gets the client tools. A member of no client: 403. Sign-in is §1.34's (AuthKit, the same WorkOS environment as the portal); the person must have signed in to Mezonas in a browser once, and membership is read on every call, so removing someone cuts the connector off at once. // DECISION |
+| What it shows | Read only: `whoami`, `overview`, `inbox_list`, `runs_list`, `run_get`, `connections_list`, `requests_list`, `records_search`, `record_get`, `documents_list`, `document_get`, `reports_list`, `report_get`. Each runs a portal route's own handler through `invokeRoute` (its roles, so a client user sees what the portal shows them; its schemas; its response contract, which carries no agent bundle, instruction, prompt or cost: invariant 11). A back-office route (`routeFamily` `ops`) is refused in the client tools' `route()` before it runs. Approving, answering and every change stay in the portal, where a person signs (invariant 8). // DECISION |
+| One client per call | Each call narrows the session to one client (`buildSession` with the client asked for), so every read runs in `withTenant` for exactly one client, as a portal request does (invariant 1). Someone in one client never names it; someone in several passes `client` (whoami lists them) on each call, and leaving it out is the tool error `choose_client`. Nothing is remembered between calls. // DECISION |
+| Documents | `document_get` leaves out the file's 5-minute link: anyone holding it can download the file for those minutes, and a chat transcript is kept far longer. The portal opens the file. // DECISION |
+| Fence, audit, limits | As §1.34: every result in one `<untrusted-data>` block, secret-named fields replaced; one log line per call (`event: "mcp.tool_call"`, now with `audience` `ops` or `client`, and the client as `target`); each portal read is also an `audit_event` row (`mcp GET /api/…`, the client, the person and their role, §1.35); 120 calls a minute per person. The client tools' instructions say what the fence is and that the tools only read. |
+| HIPAA mode | Not refused: the client signs in and connects its own MCP client (claude.ai or another) to its own data, so that client is the client's vendor, not a processor of ours (`packages/core/src/compliance/processors.ts`). T1 (the operator's connector and HIPAA clients) is unchanged. // DECISION |
+| Metadata | The protected resource's `resource_name` is now "Mezonas (<environment>)"; the back-office server info stays `mezonas-ops`, the client's is `mezonas` / "Mezonas". No new var, secret, binding or migration: staging and production already have `WORKOS_AUTHKIT_DOMAIN`. |
+| Not built | Client writes through the connector (approve or answer an inbox item, raise a request), each two-step as §1.34's; a per-client switch to turn the connector off; a portal page that says how to connect. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
