@@ -9,6 +9,8 @@
 // the Approval control has always given.
 import { type PathOption, processes, type Rules } from "@countersign/core";
 import type { ReactNode } from "react";
+import { apiRoutes } from "../../api/routes";
+import { useApi } from "../../api/useApi";
 import { TextArea } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
 import { Badge, Button } from "../../ui/primitives";
@@ -321,6 +323,56 @@ export function ChecksPanel(props: ChecksPanelProps) {
 
 type SetChecks = (key: string, fn: (c: Checks) => Checks) => void;
 
+/**
+ * Models: xAI and Gemini. The AI reviewer's model, from GET /api/ops/models (each with its
+ * provider in its label), over the default: a model other than the step's.
+ */
+function ReviewerModel({
+  field,
+  testId,
+  errors,
+  value,
+  onChange,
+}: {
+  field: string;
+  testId: string;
+  errors: FieldErrors;
+  value: string;
+  onChange(id: string): void;
+}) {
+  const models = useApi(apiRoutes.opsModels, {});
+  const options = models.data?.models ?? [];
+  return (
+    <Row
+      label="Model"
+      field={`${field}.id`}
+      errors={errors}
+      hint={
+        models.error
+          ? "Couldn't load the models; the reviewer keeps its own."
+          : "Price per million tokens, in and out."
+      }
+    >
+      <SmallSelect
+        data-field={`${field}.id`}
+        data-testid={testId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">A different model from the step's</option>
+        {value && !options.some((m) => m.id === value) ? (
+          <option value={value}>A model no longer offered</option>
+        ) : null}
+        {options.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.label} · ${m.inputPerMtok} / ${m.outputPerMtok}
+          </option>
+        ))}
+      </SmallSelect>
+    </Row>
+  );
+}
+
 function ConferPart(
   props: ChecksPanelProps & { confer: ConferCheck | undefined; setChecks: SetChecks },
 ) {
@@ -427,24 +479,36 @@ function ConferPart(
                 </button>
               </div>
               {"ai" in c ? (
-                <Row
-                  label="What it checks"
-                  field={`${at}.ai.focus`}
-                  errors={errors}
-                  hint="Written here, not from a template: it becomes the reviewer's instructions."
-                >
-                  <TextArea
-                    rows={2}
-                    data-field={`${at}.ai.focus`}
-                    data-testid={`${t}-focus`}
-                    value={c.ai.focus}
-                    placeholder="Do these lines add up to the bill's total?"
-                    invalid={errors.at(`${at}.ai.focus`).length > 0}
-                    onChange={(e) =>
-                      setOne(i, "focus", { ...c, ai: { ...c.ai, focus: e.target.value } })
-                    }
+                <>
+                  <Row
+                    label="What it checks"
+                    field={`${at}.ai.focus`}
+                    errors={errors}
+                    hint="Written here, not from a template: it becomes the reviewer's instructions."
+                  >
+                    <TextArea
+                      rows={2}
+                      data-field={`${at}.ai.focus`}
+                      data-testid={`${t}-focus`}
+                      value={c.ai.focus}
+                      placeholder="Do these lines add up to the bill's total?"
+                      invalid={errors.at(`${at}.ai.focus`).length > 0}
+                      onChange={(e) =>
+                        setOne(i, "focus", { ...c, ai: { ...c.ai, focus: e.target.value } })
+                      }
+                    />
+                  </Row>
+                  <ReviewerModel
+                    field={`${at}.ai.model`}
+                    testId={`${t}-model`}
+                    errors={errors}
+                    value={c.ai.model?.id ?? ""}
+                    onChange={(id) => {
+                      const { model: _m, ...ai } = c.ai;
+                      setOne(i, "model", { ...c, ai: id ? { ...ai, model: { id } } : ai });
+                    }}
                   />
-                </Row>
+                </>
               ) : (
                 <>
                   <Row label="Person" field={`${at}.person`} errors={errors}>

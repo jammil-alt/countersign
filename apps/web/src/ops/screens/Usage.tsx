@@ -5,7 +5,15 @@
 // its usage. Drafted in the prototype's back-office style (no prototype screen; docs/ui-plan.md):
 // the period's figures as stat tiles, the cost as a bar chart, the chosen grouping (rows with
 // nothing in them hidden until "Show all"), the split by vendor and model, then the months.
-import { dec, type UsageFigures, type UsageReport, type UsageVendorRow } from "@countersign/core";
+import {
+  dec,
+  MODEL_PROVIDER_NAMES,
+  type ModelProvider,
+  providerModelName,
+  type UsageFigures,
+  type UsageReport,
+  type UsageVendorRow,
+} from "@countersign/core";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -604,10 +612,10 @@ function UsageSplits({ data }: { data: UsageReport }) {
                   <td>
                     <span className="flex flex-col py-1">
                       <span className="text-ink">
-                        {label(m.model) ?? m.model.replace(/^openai:/, "")}
+                        {label(m.model) ?? providerModelName(m.model)}
                       </span>
                       <span className="text-sm text-ink-muted">
-                        {m.provider === "openai" ? "OpenAI" : "Anthropic"}
+                        {MODEL_PROVIDER_NAMES[m.provider as ModelProvider] ?? m.provider}
                       </span>
                     </span>
                   </td>

@@ -1621,6 +1621,47 @@ describe("WorkflowBuilder on processes", () => {
     });
   });
 
+  it("runs the AI reviewer on a model picked from the models served, with its provider", async () => {
+    const { api, sent } = setup();
+    api.on("GET /api/ops/models", () => ({
+      models: [
+        {
+          id: "claude-haiku-5-5",
+          label: "Fast (Haiku)",
+          inputPerMtok: "0.10",
+          outputPerMtok: "0.50",
+        },
+        {
+          id: "xai:grok-4.7",
+          label: "xAI (Grok 4.7)",
+          inputPerMtok: "2.00",
+          outputPerMtok: "6.00",
+        },
+        {
+          id: "google:gemini-3.1-pro",
+          label: "Google (Gemini 3.1 Pro)",
+          inputPerMtok: "2.00",
+          outputPerMtok: "12.00",
+        },
+      ],
+    }));
+    const user = userEvent.setup();
+    await select(user, "update");
+    await user.click(screen.getByTestId("builder-confer-add"));
+    await user.type(screen.getByTestId("builder-confer-0-focus"), "Do the amounts match?");
+    const picker = screen.getByTestId("builder-confer-0-model");
+    await within(picker).findByText("xAI (Grok 4.7) · $2.00 / $6.00");
+    expect(
+      within(picker).getByText("Google (Gemini 3.1 Pro) · $2.00 / $12.00"),
+    ).toBeInTheDocument();
+    expect(picker).toHaveValue("");
+    await user.selectOptions(picker, "google:gemini-3.1-pro");
+    await save(user, sent);
+    expect(savedStep(sent, "update")?.checks?.confer).toEqual({
+      with: [{ ai: { focus: "Do the amounts match?", model: { id: "google:gemini-3.1-pro" } } }],
+    });
+  });
+
   it("names approvers who all must approve, with a deadline, and escalates when nobody answers", async () => {
     const { sent } = setup();
     const user = userEvent.setup();
