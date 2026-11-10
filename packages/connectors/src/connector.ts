@@ -119,9 +119,65 @@ export interface ConnectionContext {
   logger: Logger;
   now: () => Date;
   services?: ConnectorServices;
+  /**
+   * v0.16 (docs/plan.md §1.86): what a connector may keep open across one skill run's calls (a
+   * signed-in browser), closed by the runtime when the run ends. Absent: each call stands alone.
+   */
+  sessions?: RunSessions | undefined;
 }
 
 export type ToolContext = ConnectionContext;
+
+/** Something a connector opened and keeps for the rest of a skill run, and how to close it. */
+export interface HeldSession<T> {
+  value: T;
+  close(): Promise<void>;
+}
+
+/**
+ * One skill run's open sessions, by key: the first call opens one, later calls reuse it, and the
+ * runtime closes them all when the run ends. A session that failed to open stays failed for the
+ * run (its error again), so a failed sign-in is never retried call after call.
+ */
+export interface RunSessions {
+  hold<T>(key: string, open: () => Promise<HeldSession<T>>): Promise<T>;
+}
+
+/** RunSessions kept in memory for one skill run; `closeAll` when it ends (never throws). */
+export class RunSessionPool implements RunSessions {
+  readonly #open = new Map<string, Promise<HeldSession<unknown>>>();
+
+  hold<T>(key: string, open: () => Promise<HeldSession<T>>): Promise<T> {
+    let held = this.#open.get(key) as Promise<HeldSession<T>> | undefined;
+    if (!held) {
+      held = open();
+      // A rejection is answered to every caller; this keeps it from being unhandled meanwhile.
+      held.catch(() => undefined);
+      this.#open.set(key, held as Promise<HeldSession<unknown>>);
+    }
+    return held.then((h) => h.value);
+  }
+
+  async closeAll(): Promise<void> {
+    const all = [...this.#open.values()];
+    this.#open.clear();
+    for (const held of all) {
+      try {
+        await (await held).close();
+      } catch {
+        // Failed to open, or to close: nothing more to do here.
+      }
+    }
+  }
+}
+
+/**
+ * A connector's refusal: the call was not made, by the connector's own rules (a site's pages, its
+ * sign-in caps, its setup). The runtime reports it as `refused`, like the gate's refusals.
+ */
+export class ToolRefused extends Error {
+  override name = "ToolRefused";
+}
 
 /** A write runs with the external action's idempotency key (`<run id>:<step id>:<index>`). */
 export interface WriteContext extends ToolContext {

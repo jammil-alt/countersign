@@ -594,13 +594,13 @@ describe("browser connector: a browsing skill's pages", () => {
     });
     await call(BROWSER_PAGE_READ_TOOL, { site: "supplier", url: `${ORIGIN}/invoices` });
     await call(BROWSER_PAGE_READ_TOOL, { site: "supplier", url: `${ORIGIN}/invoices/INV-1001` });
-    expect(scope.overLimit("0.01")).toBeNull();
+    expect(scope.overLimit()).toBeNull();
     const third = await call(BROWSER_PAGE_READ_TOOL, {
       site: "supplier",
       url: `${ORIGIN}/invoices/INV-1002`,
     });
     expect(third).toMatchObject({ ok: false, reason: expect.stringMatching(/limit of 2 pages/) });
-    expect(scope.overLimit("0.01")).toBe("pages");
+    expect(scope.overLimit()).toBe("pages");
     expect(s.driver.opened).toBe(2);
     expect(scope.needsHelp()).toEqual({
       question:
@@ -615,5 +615,112 @@ describe("browser connector: a browsing skill's pages", () => {
       screenshots: ["shot-2", "shot-4"],
       remember: "[browse-help skill=custom:find-invoice sites=supplier]",
     });
+  });
+});
+
+// v0.16: a browsing skill's calls share one signed-in session per site for the skill run.
+describe("browser connector: one session for a browsing skill's run", () => {
+  const SKILL_PAGES = ["/invoices/*", "/invoices"];
+  const scopeOf = () =>
+    new BrowseScope({
+      skill: "custom:find-invoice",
+      browse: { sites: ["supplier"], pages: SKILL_PAGES },
+      goal: "Find the invoice for PO-77",
+    });
+  const inRun = (s: S, scope: BrowseScope) => ({ ...s.ctx, sessions: scope.sessions });
+  const read = (s: S, scope: BrowseScope, url: string) =>
+    runReadTool(
+      s.connector,
+      BROWSER_PAGE_READ_TOOL,
+      { site: "supplier", url, within: SKILL_PAGES },
+      inRun(s, scope),
+    );
+
+  it("signs in once for many pages and a download, and signs out when the run closes", async () => {
+    const s = setUp({ tier: "medium" });
+    await s.identify();
+    const scope = scopeOf();
+    const first = await read(s, scope, `${ORIGIN}/invoices`);
+    const second = await read(s, scope, `${ORIGIN}/invoices/INV-1001`);
+    const file = await runReadTool(
+      s.connector,
+      BROWSER_FILE_DOWNLOAD_TOOL,
+      { site: "supplier", url: `${ORIGIN}/invoices/INV-1001.pdf`, within: SKILL_PAGES },
+      inRun(s, scope),
+    );
+    expect(file.output).toMatchObject({ documentId: "doc-1" });
+    // Each page's own evidence: the screenshot after it, never the sign-in's or another page's.
+    expect(first.output).toMatchObject({ screenshot: "shot-2" });
+    expect(second.output).toMatchObject({ screenshot: "shot-3" });
+    expect(s.portal.signIns).toBe(1);
+    expect(s.state.value?.signIns).toBe(1);
+    expect(s.driver.opened).toBe(1);
+    expect(s.portal.signOuts).toBe(0);
+    await scope.close();
+    expect(s.portal.signOuts).toBe(1);
+    expect(s.driver.closed).toBe(1);
+    // One record for the session, with every page it opened.
+    expect(s.records).toHaveLength(1);
+    expect(s.records[0]).toMatchObject({
+      outcome: "done",
+      signedOut: true,
+      pages: [`${ORIGIN}/invoices`, `${ORIGIN}/invoices/INV-1001`],
+      actions: [
+        { kind: "read", url: `${ORIGIN}/invoices` },
+        { kind: "read", url: `${ORIGIN}/invoices/INV-1001` },
+        { kind: "download", url: `${ORIGIN}/invoices/INV-1001.pdf`, documentId: "doc-1" },
+      ],
+    });
+  });
+
+  it("refuses a bad first address without spending a sign-in or spoiling the session", async () => {
+    const s = setUp({
+      tier: "medium",
+      profile: { allow: [`${ORIGIN}/invoices*`, `${ORIGIN}/statements*`] },
+    });
+    await s.identify();
+    const scope = scopeOf();
+    expect(await failure(read(s, scope, "https://elsewhere.test/invoices"))).toMatch(
+      /^BrowserRefused: .*not one agents may open/,
+    );
+    expect(s.driver.opened).toBe(0);
+    // A redirect off the skill's pages is refused inside the session, which stays open.
+    expect(await failure(read(s, scope, `${ORIGIN}/invoices/to-statements`))).toMatch(
+      /^BrowserRefused: .*went to a page agents may not open/,
+    );
+    expect(await read(s, scope, `${ORIGIN}/invoices`)).toMatchObject({
+      output: { url: `${ORIGIN}/invoices` },
+    });
+    expect(s.portal.signIns).toBe(1);
+    await scope.close();
+    expect(s.portal.signOuts).toBe(1);
+  });
+
+  it("at the daily sign-in cap: refused as a cap, and the scope asks for help", async () => {
+    const s = setUp({ tier: "medium", caps: { signInsPerDay: 1, hours: null } });
+    await s.identify();
+    await s.read(`${ORIGIN}/invoices`);
+    const scope = scopeOf();
+    expect(await failure(read(s, scope, `${ORIGIN}/invoices`))).toMatch(
+      /^BrowserCapReached: .*signed in 1 times today/,
+    );
+    expect(scope.overLimit()).toBe("sign_in");
+    expect(scope.needsHelp().question).toMatch(/^We couldn't sign in to supplier/);
+    expect(
+      scope.check(BROWSER_PAGE_READ_TOOL, { site: "supplier", url: `${ORIGIN}/invoices` }),
+    ).toMatchObject({ ok: false, reason: expect.stringMatching(/can't be signed in to now/) });
+    await scope.close();
+  });
+
+  it("a failed sign-in is not retried within the run", async () => {
+    const s = setUp({ tier: "medium", password: "wrong-password" });
+    await s.identify();
+    const scope = scopeOf();
+    expect(await failure(read(s, scope, `${ORIGIN}/invoices`))).toMatch(/^SignInFailed/);
+    expect(await failure(read(s, scope, `${ORIGIN}/invoices/INV-1001`))).toMatch(/^SignInFailed/);
+    expect(s.state.value?.signIns).toBe(1);
+    expect(s.state.value?.failures).toBe(1);
+    await scope.close();
+    expect(s.driver.closed).toBe(s.driver.opened);
   });
 });
