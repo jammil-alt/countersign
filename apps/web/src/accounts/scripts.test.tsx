@@ -92,7 +92,7 @@ const page = (over: Record<string, unknown> = {}) => ({
   tables: [],
   controls: [
     { selector: "#sku", kind: "field", label: "SKU" },
-    { selector: "#place", kind: "button", label: "Place order" },
+    { selector: "#place", kind: "button", label: "Place order", submits: true },
   ],
   screenshotUrl: "https://app.test/api/files/shot.png",
   screenshotWithheld: false,
@@ -215,6 +215,41 @@ describe("scripts in the portal", () => {
     expect(sent.at(-1)).toEqual({ action: { op: "click", selector: "#place", submits: true } });
     // Nothing is recorded after the submit.
     expect(within(recorder).queryByTestId("script-action")).toBeNull();
+  });
+
+  it("says which button sends the form, and refuses an unmarked click on it in the client's words", async () => {
+    let current = script();
+    const sent: unknown[] = [];
+    const api = portalApi(
+      {
+        "GET /api/access/browser-scripts": () => ({ scripts: [current], logins: [login] }),
+        [`POST /api/access/browser-scripts/${SCRIPT}/actions`]: ({ init }) => {
+          sent.push(JSON.parse(String(init.body)));
+          const step = { id: "s1", op: "open", url: "https://portal.supplier.test/orders/new" };
+          current = script({ recording: recording({ steps: [step] }) });
+          return { script: current, step, page: page() };
+        },
+      },
+      { ...CLIENT_SESSION, language: { effective: "de", user: "de", client: null } },
+    );
+    renderAt("/accounts", api);
+    const card = await screen.findByTestId("portal-scripts");
+    await userEvent.click(within(card).getByTestId("script-row-place-order-open"));
+    const recorder = await screen.findByTestId("script-place-order");
+    await userEvent.type(within(recorder).getByTestId("script-action-url"), "/orders/new");
+    await userEvent.click(within(recorder).getByTestId("script-action-do"));
+    const controls = await within(recorder).findByTestId("script-controls");
+    expect(within(controls).getByTitle("#place")).toHaveTextContent(
+      "Place order · sendet das Formular",
+    );
+    expect(within(controls).getByTitle("#sku")).not.toHaveTextContent("sendet");
+    await userEvent.selectOptions(within(recorder).getByTestId("script-action-op"), "click");
+    await userEvent.click(within(controls).getByTitle("#place"));
+    await userEvent.click(within(recorder).getByTestId("script-action-do"));
+    expect(await within(recorder).findByRole("alert")).toHaveTextContent(
+      "Diese Schaltfläche sendet das Formular",
+    );
+    expect(sent).toHaveLength(1);
   });
 
   it("reads in the client's language", async () => {

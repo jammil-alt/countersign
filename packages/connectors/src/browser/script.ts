@@ -21,11 +21,27 @@ import { z } from "zod";
 import type { ToolContext } from "../connector";
 import { isDocumentType } from "../upload/forwarding";
 import { BROWSER_SCRIPT_READ_TOOL, BROWSER_SCRIPT_SUBMIT_TOOL } from "./ids";
-import { type BrowserSessionOptions, type SignedInPage, withBrowserSession } from "./session";
+import {
+  type BrowserSessionOptions,
+  type KeepsClassWhenCleaned,
+  type SignedInPage,
+  withBrowserSession,
+} from "./session";
 import { BrowserRefused } from "./sign-in";
 
+/**
+ * A click on a button that sends a form, not marked as the script's submit: refused (the script is
+ * wrong, not the page). Its own class so the API can say it in the reader's language.
+ */
+export class ScriptClickSendsForm extends BrowserRefused implements KeepsClassWhenCleaned {
+  override name = "ScriptClickSendsForm";
+  withMessage(message: string): ScriptClickSendsForm {
+    return new ScriptClickSendsForm(message);
+  }
+}
+
 /** A step's element (or table) isn't on the page: the run stops and asks for help. */
-export class ScriptStepMissing extends Error {
+export class ScriptStepMissing extends Error implements KeepsClassWhenCleaned {
   override name = "ScriptStepMissing";
   /** The steps done before it, with their evidence (set by `runScriptSteps`). */
   done: ScriptStepResult[] = [];
@@ -35,6 +51,12 @@ export class ScriptStepMissing extends Error {
     readonly what: string,
   ) {
     super(`step ${step.id}: ${what} isn't on ${url}`);
+  }
+  withMessage(message: string): ScriptStepMissing {
+    const again = new ScriptStepMissing(this.step, this.url, this.what);
+    again.message = message;
+    again.done = this.done;
+    return again;
   }
 }
 
@@ -143,7 +165,7 @@ async function runSteps(
         await need(step, step.selector);
         if (!step.submits) {
           if (await page.sendsForm(step.selector)) {
-            throw new BrowserRefused(
+            throw new ScriptClickSendsForm(
               `step ${step.id} clicks ${step.selector}, which sends a form: only the click marked as the script's submit may, and only when the script runs for real`,
             );
           }

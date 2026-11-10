@@ -62,6 +62,8 @@ export const ptBR: Messages = {
   "error.no_address": "Não sabemos o endereço desta conta. Conecte-a de novo.",
   "error.invalid_hours":
     "Não é possível salvar esses horários. Informe o horário de pelo menos um dia e mantenha cada ausência abaixo de um ano.",
+  "error.sends_form":
+    "Este botão envia o formulário. Marque o clique como o que o envia ou escolha outro botão.",
 
   // ── Shell ──
   "shell.navigation": "Navegação",
@@ -681,6 +683,7 @@ export const ptBR: Messages = {
   "scripts.page": "A página agora",
   "scripts.screenshot": "A página depois deste passo",
   "scripts.controls": "Nesta página",
+  "scripts.control.submits": "envia o formulário",
   "scripts.read": "Lido: {value}",
   "scripts.inputs": "Entradas",
   "scripts.outputs": "Saídas",

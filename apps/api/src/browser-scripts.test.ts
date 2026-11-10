@@ -452,6 +452,54 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
     expect(JSON.stringify(test.json)).not.toContain(PASSWORD);
   });
 
+  it("marks a button that sends the form, and refuses an unmarked click on it by its code", async () => {
+    const start = await H.call(OPERATOR, "POST", "/api/ops/browser-scripts", {
+      connectionId: logins.a,
+      slug: "unmarked",
+      name: "Unmarked",
+    });
+    const id = j(start.json).script.id;
+    const [opened] = await record(OPERATOR, "ops", id, [{ op: "open", url: "/orders/new" }]);
+    expect(opened.page.controls).toContainEqual(
+      expect.objectContaining({ selector: "#place", submits: true }),
+    );
+    const res = await H.call(OPERATOR, "POST", `/api/ops/browser-scripts/${id}/actions`, {
+      action: { op: "click", selector: "#place", submits: false },
+    });
+    expect(res.status, JSON.stringify(res.json)).toBe(422);
+    expect(j(res.json).error.code).toBe("sends_form");
+    expect(portal.orders).toEqual([]);
+  });
+
+  it("says an element that isn't there, recording or testing, and the test would ask for help", async () => {
+    const start = await H.call(OPERATOR, "POST", "/api/ops/browser-scripts", {
+      connectionId: logins.a,
+      slug: "missing",
+      name: "Missing",
+    });
+    const id = j(start.json).script.id;
+    await record(OPERATOR, "ops", id, [{ op: "open", url: "/orders/new" }]);
+    const res = await H.call(OPERATOR, "POST", `/api/ops/browser-scripts/${id}/actions`, {
+      action: { op: "click", selector: "#nope", submits: false },
+    });
+    expect(res.status, JSON.stringify(res.json)).toBe(422);
+    expect(j(res.json).error.code).toBe("not_found");
+    const edit = await H.call(OPERATOR, "PUT", `/api/ops/browser-scripts/${id}`, {
+      name: "Missing",
+      inputs: [],
+      outputs: [{ name: "x", label: "X", type: "text" }],
+      steps: [
+        { id: "s1", op: "open", url: `${ORIGIN}/orders/new` },
+        { id: "s2", op: "read_field", selector: "#nope", output: "x" },
+      ],
+    });
+    expect(edit.status, JSON.stringify(edit.json)).toBe(200);
+    const test = await H.call(OPERATOR, "POST", `/api/ops/browser-scripts/${id}/test`, {});
+    expect(test.status, JSON.stringify(test.json)).toBe(200);
+    expect(j(test.json)).toMatchObject({ outcome: "needs_help", dryRun: true });
+    expect(j(test.json).steps.map((x: { id: string }) => x.id)).toEqual(["s1"]);
+  });
+
   it("refuses an action when the recording changed while the browser ran", async () => {
     const start = await H.call(OPERATOR, "POST", "/api/ops/browser-scripts", {
       connectionId: logins.a,

@@ -63,6 +63,8 @@ export const es: Messages = {
   "error.no_address": "No sabemos la dirección de esta cuenta. Vuelva a conectarla.",
   "error.invalid_hours":
     "No se puede guardar este horario. Indique el horario de al menos un día y que cada ausencia dure menos de un año.",
+  "error.sends_form":
+    "Este botón envía el formulario. Marque el clic como el que lo envía o elija otro botón.",
 
   // ── Shell ──
   "shell.navigation": "Navegación",
@@ -681,6 +683,7 @@ export const es: Messages = {
   "scripts.page": "La página ahora",
   "scripts.screenshot": "La página después de este paso",
   "scripts.controls": "En esta página",
+  "scripts.control.submits": "envía el formulario",
   "scripts.read": "Leído: {value}",
   "scripts.inputs": "Entradas",
   "scripts.outputs": "Salidas",

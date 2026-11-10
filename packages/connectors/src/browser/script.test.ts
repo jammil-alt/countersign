@@ -309,7 +309,7 @@ describe("a script's page is read only but for its submit", () => {
           }),
         ),
       );
-      expect(why).toMatch(/BrowserRefused: step s3 clicks #place, which sends a form/);
+      expect(why).toMatch(/ScriptClickSendsForm: step s3 clicks #place, which sends a form/);
     }
     expect(s.portal.orders).toEqual([]);
     expect(s.driver.events.some((e) => e.op === "click" && e.selector === "#place")).toBe(false);

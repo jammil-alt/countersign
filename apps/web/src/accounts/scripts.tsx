@@ -316,6 +316,14 @@ export function ScriptRecorder({
   }
 
   async function act() {
+    // A click on a button the page says sends the form, not marked as the one that does: the
+    // server would refuse it after a sign-in, so it is refused here first, in the reader's words.
+    const selector = draft.selector.trim();
+    const sends = last?.page.controls.some((c) => c.selector === selector && c.submits === true);
+    if (draft.op === "click" && !draft.submits && sends) {
+      setError(new Error(t("error.sends_form")));
+      return;
+    }
     await run(async () => {
       const body = { action: actionOf(draft) };
       const params = { id: script.id };
@@ -607,6 +615,12 @@ function LastPage({
                 onClick={() => onPick(c.selector)}
               >
                 {c.label || c.selector}
+                {c.submits ? (
+                  <span className="text-ink-muted" data-testid="script-control-submits">
+                    {" · "}
+                    {t("scripts.control.submits")}
+                  </span>
+                ) : null}
               </Button>
             ))}
           </div>

@@ -148,6 +148,11 @@ export const RecorderControl = z.object({
   selector: z.string(),
   kind: z.enum(["field", "select", "button", "link"]),
   label: z.string(),
+  /**
+   * A button that sends a form (the connector's `BrowserControl.submits`): only the click marked
+   * as the script's submit may click it.
+   */
+  submits: z.boolean().optional(),
 });
 
 /** The page after an action: its address, some of its text, its tables and what may be used. */

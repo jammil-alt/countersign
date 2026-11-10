@@ -62,6 +62,8 @@ export const it: Messages = {
   "error.no_address": "Non conosciamo l'indirizzo di questo account. Collegalo di nuovo.",
   "error.invalid_hours":
     "Questi orari non possono essere salvati. Indica l'orario di almeno un giorno e tieni ogni assenza sotto un anno.",
+  "error.sends_form":
+    "Questo pulsante invia il modulo. Segna il clic come quello che lo invia, oppure scegli un altro pulsante.",
 
   // ── Shell ──
   "shell.navigation": "Navigazione",
@@ -685,6 +687,7 @@ export const it: Messages = {
   "scripts.page": "La pagina adesso",
   "scripts.screenshot": "La pagina dopo questo passo",
   "scripts.controls": "In questa pagina",
+  "scripts.control.submits": "invia il modulo",
   "scripts.read": "Letto: {value}",
   "scripts.inputs": "Input",
   "scripts.outputs": "Output",

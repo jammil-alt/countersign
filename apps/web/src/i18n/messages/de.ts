@@ -63,6 +63,8 @@ export const de: Messages = {
   "error.no_address": "Wir kennen die Adresse dieses Kontos nicht. Verbinden Sie es erneut.",
   "error.invalid_hours":
     "Diese Zeiten können nicht gespeichert werden. Geben Sie mindestens einem Tag Öffnungszeiten und halten Sie jede Abwesenheit unter einem Jahr.",
+  "error.sends_form":
+    "Diese Schaltfläche sendet das Formular. Markieren Sie den Klick als den, der es sendet, oder wählen Sie eine andere Schaltfläche.",
 
   // ── Shell ──
   "shell.navigation": "Navigation",
@@ -706,6 +708,7 @@ export const de: Messages = {
   "scripts.page": "Die Seite jetzt",
   "scripts.screenshot": "Die Seite nach diesem Schritt",
   "scripts.controls": "Auf dieser Seite",
+  "scripts.control.submits": "sendet das Formular",
   "scripts.read": "Gelesen: {value}",
   "scripts.inputs": "Eingaben",
   "scripts.outputs": "Ausgaben",

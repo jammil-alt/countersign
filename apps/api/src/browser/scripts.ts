@@ -25,6 +25,7 @@ import {
   credentialKeysFromEnv,
   noopLogger,
   runScriptSteps,
+  ScriptClickSendsForm,
   type ScriptRun,
   ScriptStepMissing,
   type SignedInPage,
@@ -416,6 +417,10 @@ function browserFailure(error: unknown): never {
   }
   if (error instanceof BrowserStop) throw new HttpError(409, "stopped", error.message);
   if (error instanceof SignInFailed) throw new HttpError(422, "sign_in_failed", error.message);
+  // A click on a button that sends a form, not marked as the submit: worded by the portal.
+  if (error instanceof ScriptClickSendsForm) {
+    throw new HttpError(422, "sends_form", error.message);
+  }
   if (error instanceof BrowserRefused) throw new HttpError(422, "refused", error.message);
   throw error;
 }

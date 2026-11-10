@@ -59,6 +59,8 @@ export const en = {
   "error.no_address": "We don't know this account's address. Connect it again.",
   "error.invalid_hours":
     "These hours can't be saved. Give at least one day its hours, and keep each time away under a year.",
+  "error.sends_form":
+    "This button sends the form. Mark the click as the one that sends it, or pick another button.",
 
   // ── Shell ──
   "shell.navigation": "Navigation",
@@ -662,6 +664,7 @@ export const en = {
   "scripts.page": "The page now",
   "scripts.screenshot": "The page after this step",
   "scripts.controls": "On this page",
+  "scripts.control.submits": "sends the form",
   "scripts.read": "Read: {value}",
   "scripts.inputs": "Inputs",
   "scripts.outputs": "Outputs",

@@ -3080,6 +3080,14 @@ Websites screen's Scripts, the Library's and the builder's listings):
   session, and it runs its steps one at a time, each page after it checked for a vault value as a
   recorded page is; once one is seen, none of the test's screenshots is linked
   (`screenshotWithheld: true` on the result).
+- DECISION (integration): the recorder's page carries each control's `submits` (the contract's
+  `RecorderControl`), and the recorder marks such a button "sends the form". An unmarked click on
+  one is refused before any call, in the reader's words (`error.sends_form`); the server's own
+  refusal (`ScriptClickSendsForm`) answers 422 `sends_form`, worded the same in the portal.
+- DECISION (integration): a script's own errors (`ScriptStepMissing`, `ScriptClickSendsForm`) keep
+  their class through the browser session's cleaning (`KeepsClassWhenCleaned`, the message still
+  redacted), so the API tells them apart after the session: a recorded element that isn't there
+  answers 422 `not_found` and a test that meets one answers `needs_help` (both had become a 500).
 
 ## 2. Package layering
 

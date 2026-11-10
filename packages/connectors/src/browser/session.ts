@@ -473,10 +473,29 @@ export async function withBrowserSession<T>(
   }
 }
 
+/**
+ * An error that keeps its own class and fields through a session's cleaning (a script's missing
+ * step, its refused click: ./script.ts), remade with the cleaned message. Its fields hold nothing
+ * the page didn't give through the redacting page.
+ */
+export interface KeepsClassWhenCleaned {
+  withMessage(message: string): Error;
+}
+
+function keepsClass(error: unknown): error is Error & KeepsClassWhenCleaned {
+  return (
+    error instanceof Error &&
+    typeof (error as Partial<KeepsClassWhenCleaned>).withMessage === "function"
+  );
+}
+
 /** The same error class, secrets removed: what reaches the model and the logs. */
+// DECISION: a script's own errors keep their class (they say how to remake themselves), so the
+// API can tell a missing element from a refused click after the session (wave 4 integration).
 function cleanError(error: unknown, redact: { text(value: string): string }): Error {
   const message = redact.text(error instanceof Error ? error.message : String(error));
   if (error instanceof BrowserCapReached) return new BrowserCapReached(error.code, message);
+  if (keepsClass(error)) return error.withMessage(message);
   const Clean =
     error instanceof BrowserGone
       ? BrowserGone
