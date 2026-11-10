@@ -12,6 +12,7 @@ import {
   type AnyAgentBundle,
   canonicalJson,
   isToolWrapper,
+  type JsonObject,
   levelFor,
   type PermissionMatrix,
   type ProcessAgentBundle,
@@ -309,6 +310,8 @@ export type PaletteItem =
       detail: string;
       tool: ToolSpec;
       group: string;
+      /** Wave 4: the step's input as placed (a client's recorded script names itself). */
+      input?: JsonObject;
     }
   // A process (today's automation, a pinned `slug@version`), placed as one step.
   | { type: "process"; key: string; title: string; detail: string; ref: string }
@@ -359,14 +362,14 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
         : step;
     }
     case "read":
-      return { id, kind: "read", name: item.title, tool: item.tool.id, input: {} };
+      return { id, kind: "read", name: item.title, tool: item.tool.id, input: item.input ?? {} };
     case "write":
       return {
         id,
         kind: "write",
         name: item.title,
         tool: item.tool.id,
-        input: {},
+        input: item.input ?? {},
         ...(item.tool.sideEffect === "external" ? { checks: { approval: defaultApproval() } } : {}),
       };
     case "process":

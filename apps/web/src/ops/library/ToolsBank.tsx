@@ -11,6 +11,7 @@ import { useApi } from "../../api/useApi";
 import { ConnectorMark } from "../../connections/ConnectorMark";
 import { Loaded } from "../../ui/page";
 import { Card, EmptyState, PageHeader, Tag } from "../../ui/primitives";
+import { ClientScriptTools } from "./ClientScripts";
 import { BankSearch, LibraryFrame } from "./LibraryFrame";
 import { counted, LIBRARY_PATHS, matches } from "./paths";
 import { sideEffectWords, undoWords } from "./words";
@@ -82,6 +83,8 @@ export function ToolsBank() {
                   <ToolGroup key={source} source={source} tools={tools} />
                 ))
               )}
+              {/* Wave 4: the picked client's published scripts, under the browser connector. */}
+              <ClientScriptTools />
             </>
           );
         }}

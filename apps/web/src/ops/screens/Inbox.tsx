@@ -33,6 +33,7 @@ import {
 } from "../command/escalations";
 import { age, NOBODY_TO_ACT_WORDS, plural } from "../run/words";
 // P-6
+import { SCRIPT_DRAFT_SUBJECT, ScriptOfferLink } from "./BrowserScripts";
 import { StepIn } from "./StepIn";
 
 type Item = ResponseOf<typeof apiRoutes.opsInbox>["items"][number];
@@ -179,6 +180,15 @@ export function OpsInboxScreen() {
       />
     );
     // P-6: a client's own item: theirs to answer, ours to step into when we must (§1.68).
+    // Wave 4: a script-draft offer opens the recorder with its path.
+    if (item.subjectType === SCRIPT_DRAFT_SUBJECT) {
+      return (
+        <div key={item.id} className="flex flex-col gap-2">
+          {shown}
+          <ScriptOfferLink item={item} />
+        </div>
+      );
+    }
     if (mine || item.status !== "open") return shown;
     return (
       <div key={item.id} className="flex flex-col gap-2">

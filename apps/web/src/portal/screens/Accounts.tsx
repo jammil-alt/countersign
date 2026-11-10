@@ -15,6 +15,7 @@
 // may be given a login for are listed with them; the login goes into the vault, never to us.
 import { useEffect, useState } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
+import { PortalScriptsCard } from "../../accounts/scripts";
 import { AgentsLine, LoginEditor, VaultCard, VaultDetails } from "../../accounts/vault";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
@@ -231,6 +232,8 @@ export function AccountsScreen() {
                 )}
               </Loaded>
             </div>
+            {/* Wave 4: scripts on the website logins (the client admin records; we publish). */}
+            {isAdmin ? <PortalScriptsCard /> : null}
             <div id="add-tool" className="scroll-mt-24">
               <Loaded state={connections}>
                 {() => (
