@@ -284,12 +284,18 @@ async function routeFor(
  * again (checkEditedInput), and the approver rules route it again: 409 `reroute` when it would go
  * to someone else. `external_action.input` stays the agent's; `edited_input` holds the person's,
  * and execution uses it. The item's payload keeps `edited` for the card (both versions show).
+ *
+ * No transaction is held across the runtime's check or a translation (each opens its own, and a
+ * Worker's database has one pooled connection): the item is read and checked in one short
+ * transaction (`inTx`), checked outside any, and written in a second that locks it again.
  */
 // DECISION: the edit also lands on the item's payload as `edited: {input, by, at}` (a copy of the
 // action's `edited_input`), so today's approval card shows both versions without a join; the
 // action's column is what executes.
+// DECISION (wave 4 integration): a change edited by someone else while this edit was checked is
+// refused with 409 `conflict` (the action's `edited_input` re-read under the lock), never merged.
 export async function editItem(
-  tx: Tx,
+  inTx: <T>(work: (tx: Tx) => Promise<T>) => Promise<T>,
   runtime: RuntimeDeps,
   platform: Platform,
   input: {
@@ -306,26 +312,40 @@ export async function editItem(
   at: Date;
   translation?: OutgoingTranslation["outcome"];
 }> {
-  const by = await signer(tx, input.tenantId, input.by);
-  const item = await lockItem(tx, input.tenantId, input.itemId);
-  // P-6: a message waiting for approval (a conversation's or a reach-out's): its approver may
-  // give the text to send instead, as `input.message` (docs/plan.md §1.68).
-  if (isMessageItem(item)) {
-    if (!mayResolve(item, by)) {
-      throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
-    }
-    const { message, translate, ...rest } = input.edited;
-    if (
-      typeof message !== "string" ||
-      Object.keys(rest).length !== 0 ||
-      (translate !== undefined && typeof translate !== "boolean")
-    ) {
-      throw new HttpError(422, "invalid_edit", "send the message's new text as input.message");
-    }
-    // P-7: with `translate`, the person's words go in the contact's language: the translation is
-    // the message signed and sent, and the card keeps both (docs/plan.md §1.69).
-    let out: OutgoingTranslation | null = null;
-    if (translate === true) {
+  // 1. The item and who edits it, read and checked in a short transaction.
+  const first = await inTx(async (tx) => {
+    const by = await signer(tx, input.tenantId, input.by);
+    const item = await lockItem(tx, input.tenantId, input.itemId);
+    // P-6: a message waiting for approval (a conversation's or a reach-out's): its approver may
+    // give the text to send instead, as `input.message` (docs/plan.md §1.68).
+    if (isMessageItem(item)) {
+      if (!mayResolve(item, by)) {
+        throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
+      }
+      const { message, translate, ...rest } = input.edited;
+      if (
+        typeof message !== "string" ||
+        Object.keys(rest).length !== 0 ||
+        (translate !== undefined && typeof translate !== "boolean")
+      ) {
+        throw new HttpError(422, "invalid_edit", "send the message's new text as input.message");
+      }
+      if (translate !== true) {
+        // No translation: nothing outside the database, so it is written here at once.
+        const done = await editMessage(tx, {
+          tenantId: input.tenantId,
+          item,
+          text: message,
+          by: { userId: by.userId, byUs: false },
+          now: new Date(),
+        });
+        return {
+          kind: "done" as const,
+          out: { row: done.item, edited: { message: done.text }, at: done.at },
+        };
+      }
+      // P-7: with `translate`, the person's words go in the contact's language: the translation
+      // is the message signed and sent, and the card keeps both (docs/plan.md §1.69).
       if (item.status !== "open") {
         throw new HttpError(
           409,
@@ -343,82 +363,124 @@ export async function editItem(
       if (!input.translate)
         throw new HttpError(409, "translation_off", "translation isn't available here");
       const reachOutId = (item.payload as { reachOutId: string }).reachOutId;
-      out = await input.translate(message, reachOutId, by.userId);
+      return { kind: "translate" as const, by, message, reachOutId };
     }
-    const done = await editMessage(tx, {
-      tenantId: input.tenantId,
-      item,
-      text: out ? out.text : message,
-      by: { userId: by.userId, byUs: false },
-      now: new Date(),
-      ...(out?.translated ? { translated: out.translated } : {}),
+    if (item.kind !== "external_action") {
+      throw new HttpError(409, "not_a_change", "only a drafted change can be edited");
+    }
+    if (item.status !== "open") {
+      throw new HttpError(409, "already_resolved", "this change was already approved or rejected");
+    }
+    if (!mayResolve(item, by)) {
+      throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
+    }
+    const action = await proposedActionTx(tx, input.tenantId, item.id);
+    return { kind: "change" as const, by, action };
+  });
+  if (first.kind === "done") return first.out;
+  const { by } = first;
+
+  if (first.kind === "translate") {
+    // 2. The translation, outside any transaction (it stores its own row).
+    const translate = input.translate as NonNullable<typeof input.translate>;
+    const out = await translate(first.message, first.reachOutId, by.userId);
+    // 3. The message, written under the item's lock (editMessage checks it is still waiting).
+    return inTx(async (tx) => {
+      const item = await lockItem(tx, input.tenantId, input.itemId);
+      if (!mayResolve(item, by)) {
+        throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
+      }
+      const done = await editMessage(tx, {
+        tenantId: input.tenantId,
+        item,
+        text: out.text,
+        by: { userId: by.userId, byUs: false },
+        now: new Date(),
+        ...(out.translated ? { translated: out.translated } : {}),
+      });
+      return {
+        row: done.item,
+        edited: { message: done.text },
+        at: done.at,
+        translation: out.outcome,
+      };
     });
-    return {
-      row: done.item,
-      edited: { message: done.text },
-      at: done.at,
-      ...(out ? { translation: out.outcome } : {}),
-    };
   }
-  if (item.kind !== "external_action") {
-    throw new HttpError(409, "not_a_change", "only a drafted change can be edited");
-  }
-  if (item.status !== "open") {
-    throw new HttpError(409, "already_resolved", "this change was already approved or rejected");
-  }
-  if (!mayResolve(item, by)) {
-    throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
-  }
-  const action = await proposedActionTx(tx, input.tenantId, item.id);
+
+  // 2. The edit checked by the runtime (the tool's schema, the connector, the gate), outside any
+  // transaction: it reads the connection and the vault in its own.
   const checked = await checkEditedInput(runtime, {
     tenantId: input.tenantId,
-    action,
+    action: first.action,
     edited: input.edited,
   });
   if (!checked.ok) {
     throw new HttpError(checked.code === "refused" ? 409 : 422, checked.code, checked.message);
   }
-  const routes = await routeFor(tx, platform, {
-    tenantId: input.tenantId,
-    item,
-    toolId: action.tool,
-    runId: action.runId,
-    edited: checked.input,
-    connectionId: action.connectionId,
-  });
-  const stays = (routes ?? []).some(
-    (route) =>
-      route.assignee.assigneeRole === item.assigneeRole &&
-      route.assignee.assigneeUserId === item.assigneeUserId,
-  );
-  if (!stays) {
-    throw new HttpError(
-      409,
-      "reroute",
-      "with this edit the change would go to someone else to sign; reject it and ask instead",
+
+  // 3. Routed and written under the item's lock, on the change as it was checked.
+  return inTx(async (tx) => {
+    const item = await lockItem(tx, input.tenantId, input.itemId);
+    if (item.status !== "open") {
+      throw new HttpError(409, "already_resolved", "this change was already approved or rejected");
+    }
+    if (!mayResolve(item, by)) {
+      throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
+    }
+    const action = await proposedActionTx(tx, input.tenantId, item.id);
+    if (
+      action.id !== first.action.id ||
+      JSON.stringify(action.editedInput ?? null) !==
+        JSON.stringify(first.action.editedInput ?? null)
+    ) {
+      throw new HttpError(
+        409,
+        "conflict",
+        "someone else edited this change while yours was checked: reload it and edit again",
+      );
+    }
+    const routes = await routeFor(tx, platform, {
+      tenantId: input.tenantId,
+      item,
+      toolId: action.tool,
+      runId: action.runId,
+      edited: checked.input,
+      connectionId: action.connectionId,
+    });
+    const stays = (routes ?? []).some(
+      (route) =>
+        route.assignee.assigneeRole === item.assigneeRole &&
+        route.assignee.assigneeUserId === item.assigneeUserId,
     );
-  }
-  const at = new Date();
-  await recordEditTx(tx, {
-    tenantId: input.tenantId,
-    inboxItemId: item.id,
-    edited: checked.input,
-    by: by.userId,
-    at,
+    if (!stays) {
+      throw new HttpError(
+        409,
+        "reroute",
+        "with this edit the change would go to someone else to sign; reject it and ask instead",
+      );
+    }
+    const at = new Date();
+    await recordEditTx(tx, {
+      tenantId: input.tenantId,
+      inboxItemId: item.id,
+      edited: checked.input,
+      by: by.userId,
+      at,
+    });
+    const payload = isPlainObject(item.payload) ? item.payload : {};
+    const [row] = await tx
+      .update(inboxItem)
+      .set({
+        payload: {
+          ...payload,
+          edited: { input: checked.input, by: by.userId, at: at.toISOString() },
+        },
+      })
+      .where(and(eq(inboxItem.id, item.id), eq(inboxItem.tenantId, input.tenantId)))
+      .returning();
+    if (!row) throw notFound("inbox item");
+    return { row, edited: checked.input, at };
   });
-  const payload = isPlainObject(item.payload) ? item.payload : {};
-  const [row] = await tx
-    .update(inboxItem)
-    .set({
-      payload: {
-        ...payload,
-        edited: { input: checked.input, by: by.userId, at: at.toISOString() },
-      },
-    })
-    .where(and(eq(inboxItem.id, item.id), eq(inboxItem.tenantId, input.tenantId)))
-    .returning();
-  if (!row) throw notFound("inbox item");
-  return { row, edited: checked.input, at };
 }
 
 // ── Batches ──────────────────────────────────────────────────────────────────────────────────────
