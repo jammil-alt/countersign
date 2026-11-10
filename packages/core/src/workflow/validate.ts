@@ -33,6 +33,8 @@ import {
   type Workflow,
   Workflow as WorkflowSchema,
 } from "../schemas/workflow";
+// Skill model (2026-11-10): parameters and models per agent per skill.
+import { parameterValueProblems } from "../skills/parameters";
 import { collectRefs, hasTemplate, singleRef } from "../template/template";
 import {
   automationEndScope,
@@ -120,7 +122,11 @@ export type ValidationCode =
   // v0.14 W4-B: an entity the client's connection or the agent's grant turned off.
   | "entity_off"
   // P-4: a conversation step's settings (docs/plan.md §1.66).
-  | "converse_invalid";
+  | "converse_invalid"
+  // Skill model (2026-11-10): an agent's parameter values for a skill, and a retired kind of
+  // skill (`rules_then_ai`, agent mode) placed in a new step.
+  | "parameter_invalid"
+  | "skill_retired";
 
 export interface ValidationError {
   /** The step, fork path or trigger id; null for workflow- or bundle-level errors. */
@@ -888,7 +894,9 @@ export function validateWorkflow(
 // id with no price is refused here too (and by packages/llm's client before it calls). Anthropic
 // ids without a price are left as they were (older bundles and tests name such ids).
 export function definitionModelErrors(
-  definition: Pick<AgentDefinition, "model" | "oversight">,
+  definition: Pick<AgentDefinition, "model" | "oversight"> & {
+    skills?: readonly { model?: { id: string } | undefined }[] | undefined;
+  },
   models: readonly string[] | undefined,
 ): ValidationError[] {
   if (!models) return [];
@@ -904,6 +912,59 @@ export function definitionModelErrors(
   };
   check(definition.model.id, "definition.model.id");
   check(definition.oversight?.model?.id, "definition.oversight.model.id");
+  // Skill model (2026-11-10): the model the agent sets per skill is held to the same list.
+  (definition.skills ?? []).forEach((s, i) => {
+    check(s.model?.id, `definition.skills.${i}.model.id`);
+  });
+  return errors;
+}
+
+/**
+ * Skill model (2026-11-10): the agent's settings per skill (`definition.skills[]`). Its
+ * parameter values fit the skill's declared parameters (and, at publish, every parameter without
+ * a default has one); its model is one the platform knows, and only for a skill that runs a model.
+ * A skill the context doesn't know is skipped (`unknown_skill` is reported elsewhere).
+ */
+export function definitionSkillErrors(
+  definition: Pick<AgentDefinition, "skills">,
+  ctx: Pick<ValidationContext, "skills" | "models">,
+  options: { complete?: boolean } = {},
+): ValidationError[] {
+  const errors: ValidationError[] = [];
+  definition.skills.forEach((entry, i) => {
+    const skill = lookupSkill(entry.skill, ctx);
+    if (!skill) return;
+    const at = `definition.skills.${i}`;
+    // Only a skill that declares parameters needs them set; one with none takes none.
+    const values = entry.parameters;
+    if (values !== undefined || (skill.parameters?.length ?? 0) > 0) {
+      for (const p of parameterValueProblems(skill, values, options)) {
+        errors.push({
+          stepId: null,
+          field: p.name ? `${at}.parameters.${p.name}` : `${at}.parameters`,
+          code: "parameter_invalid",
+          message: p.message,
+        });
+      }
+    }
+    if (entry.model !== undefined) {
+      if (skill.mode === "tool") {
+        errors.push({
+          stepId: null,
+          field: `${at}.model`,
+          code: "model_not_allowed",
+          message: `"${skill.id}" runs as code, so it has no model to choose`,
+        });
+      } else if (ctx.models && !ctx.models.includes(entry.model.id)) {
+        errors.push({
+          stepId: null,
+          field: `${at}.model.id`,
+          code: "unknown_model",
+          message: `no model "${entry.model.id}"`,
+        });
+      }
+    }
+  });
   return errors;
 }
 
@@ -980,6 +1041,9 @@ export function validateBundle(
   });
   errors.push(...duplicateIds(bundle.workflows));
   errors.push(...definitionModelErrors(bundle.definition, ctx.models));
+  errors.push(
+    ...definitionSkillErrors(bundle.definition, ctx, { complete: ctx.publish !== undefined }),
+  );
   const full: ValidationContext = { ...ctx, agent: bundle.definition };
   for (const w of bundle.workflows) errors.push(...semantic(w.workflow, full, w.slug));
   // v0.12 W2-G: the client view's KPIs and panels (ARCHITECTURE §9.9).

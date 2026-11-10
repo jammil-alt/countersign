@@ -11,6 +11,7 @@ import { AgentBundle, AnyAgentBundle, holdsProcess } from "../schemas/agent";
 import { parseSkillRef } from "../schemas/common";
 import {
   definitionModelErrors,
+  definitionSkillErrors,
   type ValidationContext,
   type ValidationError,
   validateBundle as validateV3Bundle,
@@ -116,6 +117,9 @@ export function validateAnyBundle(
   });
 
   errors.push(...definitionModelErrors(bundle.definition, ctx.models));
+  errors.push(
+    ...definitionSkillErrors(bundle.definition, ctx, { complete: ctx.publish !== undefined }),
+  );
 
   // Ids unique across workflows (each workflow's own duplicates are its validator's).
   const seen = new Set<string>();

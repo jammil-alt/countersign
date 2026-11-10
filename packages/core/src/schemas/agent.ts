@@ -9,6 +9,7 @@ import { Process } from "../process/schema";
 import { PersonRole } from "../reach/rules";
 import { SkillRef, Slug, ToolId } from "./common";
 import { AgentMode } from "./permissions";
+import { ModelChoice } from "./skill";
 import { Workflow } from "./workflow";
 
 /** ARCHITECTURE §9.1. */
@@ -33,6 +34,16 @@ export const AgentDefinition = z
         skill: SkillRef,
         /** Overrides the skill's settings defaults. */
         settings: z.record(z.string(), z.unknown()).default({}),
+        // Skill model (2026-11-10): the agent's own values for the skill's parameters, and the
+        // model every use of an AI skill runs on in this agent (a step may still override it).
+        // Optional with no default, so stored bundles parse and hash as they were.
+        // DECISION: on the agent's existing `skills[]` entry, beside `settings`, rather than a
+        // new `skillSettings` map: one place per skill the agent uses, and a merge of two
+        // versions lines the values up with the skill they belong to.
+        /** Parameter name to value: the skill's parameters as this agent uses them. */
+        parameters: z.record(z.string(), z.unknown()).optional(),
+        /** The model this agent runs an AI skill on, over the skill's recommended model. */
+        model: ModelChoice.optional(),
       }),
     ),
     /** Tools beyond those its skills bring. */

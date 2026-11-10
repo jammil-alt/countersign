@@ -85,6 +85,8 @@ import {
   RunStatusSchema,
   RunsPerDay,
 } from "./runs-filter";
+// The skill model (owner, 2026-11-10)
+import { SkillKindSchema, SkillModelFacts, skillModelRoutes } from "./skill-model";
 // v0.14 W4-C: the Slack channel picker
 import { slackRoutes } from "./slack";
 // P-6
@@ -874,10 +876,22 @@ export const BuilderCatalog = z.object({
       source: z.enum(["builtin", "client", "shared", "pinned"]),
       version: z.number().int().nullable(),
       definition: SkillDefinition,
+      // Skill model (2026-11-10): deterministic or AI (derived; a tool that calls a model makes
+      // a code skill AI), and whether the palette offers it for a new step. A tool wrapper, an
+      // agent-mode or a `rules_then_ai` skill is listed only where the agent already uses it, so
+      // stored steps still type; `palette: false` says not to offer it.
+      kind: SkillKindSchema.optional(),
+      palette: z.boolean().optional(),
     }),
   ),
   tools: z.array(ToolSpec),
   connectors: z.array(z.object({ id: z.string(), name: z.string(), icon: z.string().nullable() })),
+  /**
+   * Skill model (2026-11-10): the platform's and packs' tools a process may use directly as a
+   * read or write step (those the retired tool-wrapper skills wrapped). The palette offers these,
+   * not the wrappers, which are no longer in `skills` unless the agent already uses one.
+   */
+  stepTools: z.array(z.string()).default([]),
   // v0.12 W2-B: the automations a use step can pin (live versions, and those the agent pins).
   automations: z.array(BuilderAutomation).default([]),
 });
@@ -926,6 +940,13 @@ export const SkillListItem = z.object({
    */
   retired: z.boolean().optional(),
   wraps: z.string().nullable().optional(),
+  // Skill model (2026-11-10): kind, its label, parameters, recommended model. Optional, so a list
+  // without them still reads. Tool-wrapper skills are no longer listed at all.
+  kind: SkillModelFacts.shape.kind.optional(),
+  kindLabel: z.string().optional(),
+  modelTools: z.array(z.string()).optional(),
+  parameters: SkillModelFacts.shape.parameters.optional(),
+  recommendedModel: SkillModelFacts.shape.recommendedModel.optional(),
 });
 export type SkillListItem = z.infer<typeof SkillListItem>;
 
@@ -2192,5 +2213,7 @@ export const routes = {
   ...undoRoutes,
   // Wave 6: the audit queue, marks, stats and sampling settings (docs/plan.md §1.86).
   ...runAuditRoutes,
+  // The skill model (owner, 2026-11-10): moving a step to another version of its skill.
+  ...skillModelRoutes,
 } as const;
 export type Routes = typeof routes;

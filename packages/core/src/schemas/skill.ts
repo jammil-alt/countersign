@@ -2,6 +2,15 @@ import { z } from "zod";
 import { BrowserSiteSlug } from "../browser/site";
 import { JsonSchema, LocalizedTemplate, SkillId, ToolId } from "./common";
 import { Rules } from "./rules";
+// The skill model (owner, 2026-11-10): parameters and the rule rows' typed values.
+import {
+  computeParameters,
+  conditionParameters,
+  parameterValueProblem,
+  SkillCompute,
+  SkillCondition,
+  SkillParameter,
+} from "./skill-model";
 
 export const SkillSetting = z.object({
   key: z.string().regex(/^[a-z][a-z0-9_]*$/, "snake_case"),
@@ -84,12 +93,32 @@ export const SkillRuleId = z
  */
 // DECISION: a rule row sets output fields to fixed values (`set`), never templates or code, so a
 // customized row is data the builder can show and the client's timeline can quote.
-export const SkillRule = z.strictObject({
-  id: SkillRuleId,
-  name: z.string().max(200).optional(),
-  when: Rules,
-  set: z.record(z.string().min(1), z.unknown()),
-});
+// Skill model (2026-11-10): a row may also hold typed `conditions` (input fields, parameters and
+// today's date compared, between, in a list, days between two dates) and `compute` its outputs
+// (a copied field, a sum, a difference, a percent change, a parameter's bucket). Still data: no
+// code and no template that executes. `when` and `set` stay as they were, now optional, so stored
+// rows parse unchanged.
+export const SkillRule = z
+  .strictObject({
+    id: SkillRuleId,
+    name: z.string().max(200).optional(),
+    /** Plain rules over `{{input.…}}`, `{{parameters.…}}` and `{{today}}`; absent holds always. */
+    when: Rules.optional(),
+    /** Typed conditions, all of which must hold (with `when`). */
+    conditions: z.array(SkillCondition).max(20).optional(),
+    /** Output fields set to fixed values. */
+    set: z.record(z.string().min(1), z.unknown()).optional(),
+    /** Output fields worked out from the input, the parameters and today. */
+    compute: z.record(z.string().min(1), SkillCompute).optional(),
+  })
+  .refine((r) => Object.keys(r.set ?? {}).length + Object.keys(r.compute ?? {}).length > 0, {
+    message: "a rule row sets at least one output field",
+    path: ["set"],
+  })
+  .refine((r) => Object.keys(r.set ?? {}).every((k) => !Object.hasOwn(r.compute ?? {}, k)), {
+    message: "a rule row sets a field once: a fixed value or a calculation",
+    path: ["compute"],
+  });
 export type SkillRule = z.infer<typeof SkillRule>;
 
 /** ARCHITECTURE §9.2. */
@@ -148,9 +177,13 @@ export const SkillDefinition = z
     browse: SkillBrowse.optional(),
     /** A `rules` or `rules_then_ai` skill's rule rows, tried before any model. */
     rules: z.array(SkillRule).max(500).optional(),
+    // Skill model (2026-11-10): named, typed values the agent sets for its use of the skill.
+    /** The skill version's parameters; values are set per agent and per step. */
+    parameters: z.array(SkillParameter).max(30).optional(),
   })
-  .refine((s) => s.mode !== "tool" || s.handler !== undefined, {
-    message: "a tool-mode skill needs a handler",
+  // Skill model (2026-11-10): a deterministic skill is code (a handler, built-ins only) or rule rows.
+  .refine((s) => s.mode !== "tool" || s.handler !== undefined || (s.rules?.length ?? 0) > 0, {
+    message: "a deterministic skill needs a handler (built-in code) or rule rows",
     path: ["handler"],
   })
   .refine((s) => s.mode === "tool" || s.handler === undefined, {
@@ -195,8 +228,45 @@ export const SkillDefinition = z
     message: "each read tool is listed once",
     path: ["reads"],
   })
+  .refine(
+    (s) => new Set((s.parameters ?? []).map((p) => p.name)).size === (s.parameters ?? []).length,
+    { message: "parameter names must be unique", path: ["parameters"] },
+  )
+  .refine(
+    (s) =>
+      (s.parameters ?? []).every(
+        (p) => p.default === undefined || parameterValueProblem(p, p.default) === null,
+      ),
+    { message: "a parameter's default must be a value of its type", path: ["parameters"] },
+  )
+  .refine((s) => ruleParameterProblem(s) === null, {
+    message: "rule rows name only the skill's parameters, and bucket only by a buckets parameter",
+    path: ["rules"],
+  })
   .meta({ id: "SkillDefinition" });
 export type SkillDefinition = z.infer<typeof SkillDefinition>;
+
+/** Why a rule row names a parameter the skill doesn't declare (or buckets by a non-bucket one). */
+export function ruleParameterProblem(def: {
+  rules?: readonly SkillRule[] | undefined;
+  parameters?: readonly SkillParameter[] | undefined;
+}): string | null {
+  const types = new Map((def.parameters ?? []).map((p) => [p.name, p.type]));
+  for (const row of def.rules ?? []) {
+    const named = [
+      ...(row.conditions ?? []).flatMap(conditionParameters),
+      ...Object.values(row.compute ?? {}).flatMap(computeParameters),
+    ];
+    for (const n of named) {
+      const type = types.get(n.name);
+      if (type === undefined) return `rule ${row.id} names no parameter ${n.name}`;
+      if (n.bucket && type !== "buckets") {
+        return `rule ${row.id} buckets by ${n.name}, which is not a list of buckets`;
+      }
+    }
+  }
+  return null;
+}
 
 /**
  * The skill's method: its own, else derived from `mode` (stored rows): `tool` is code, so `rules`;

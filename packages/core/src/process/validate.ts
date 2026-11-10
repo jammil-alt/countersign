@@ -21,6 +21,7 @@ import type { AgentMode } from "../schemas/permissions";
 import type { Rules } from "../schemas/rules";
 import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
 import type { Trigger, Step as V3Step } from "../schemas/workflow";
+import { retiredSkillReason } from "../skills/kind";
 import { collectRefs, hasTemplate, singleRef } from "../template/template";
 import {
   automationOutputSchema,
@@ -187,6 +188,12 @@ export interface ProcessValidationContext extends TypingContext {
   // live). Until a caller passes one, `{{settings.…}}` is in scope and untyped, like an unknown
   // trigger payload: any path reads.
   settings?: JsonSchema;
+  /**
+   * Skill model (2026-11-10): the step ids of the version this one was made from. A skill step
+   * whose id isn't among them is new, and a new step may not use a retired kind of skill
+   * (`rules_then_ai`, agent mode). Absent: no step counts as new (stored versions, templates).
+   */
+  existingStepIds?: ReadonlySet<string>;
 }
 
 // ── Schema errors, located ───────────────────────────────────────────────────────────────────
@@ -966,6 +973,11 @@ function checkSkillStep(c: Checker, step: Extract<Step, { kind: "skill" }>, scop
     c.add(step.id, "agent", "agent_not_commandable", `the agent may not ask "${step.agent}"`);
   }
   if (skill) checkInput(c, step.id, step.input, skill.input, scope);
+  // Skill model (2026-11-10): a new step uses a deterministic or an AI skill, never a retired kind.
+  const retired = skill ? retiredSkillReason(skill) : null;
+  if (retired && ctx.existingStepIds && !ctx.existingStepIds.has(step.id)) {
+    c.add(step.id, "skill", "skill_retired", retired);
+  }
   checkStepModel(c, step, skill);
   // A built-in skill's own fixed inputs, and (until R2) a skill whose model could call a tool that
   // runs only from fixed text.
