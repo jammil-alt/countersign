@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Workflow } from "../schemas/workflow";
-import { type ConvertLookup, fromWorkflowV3 } from "./convert";
+import { type ConvertLookup, fromWorkflowV3, upgradeWorkflowV3 } from "./convert";
 import { defaultBusinessHours } from "./hours";
 import { Process, type Step } from "./schema";
 
@@ -282,5 +282,129 @@ describe("business hours", () => {
     expect(Object.keys(h.week)).toEqual(["mon", "tue", "wed", "thu", "fri"]);
     expect(h.week.mon).toEqual([{ from: "08:00", to: "18:00" }]);
     expect(h.week.sat).toBeUndefined();
+  });
+});
+
+// R7: conversations (ARCHITECTURE §10.14).
+describe("v3 conversations and reach-outs", () => {
+  // As the real registries answer: both built-ins are tool-mode skills with a handler.
+  const real: ConvertLookup = {
+    wrappedTool: (id) =>
+      ({ "comms.converse": "comms.converse", "comms.reach-out": "comms.reach_out" })[id] ?? null,
+    sideEffect: (id) => (id === "comms.converse" || id === "comms.reach_out" ? "internal" : null),
+  };
+  const talk = {
+    id: "talk",
+    name: "Clarify the request",
+    kind: "skill",
+    skill: "comms.converse",
+    input: {
+      to: { contactId: "{{trigger.contactId}}" },
+      channel: "whatsapp",
+      goal: "Get the exact item list and the date needed.",
+      result: {
+        type: "object",
+        properties: {
+          items: {
+            type: "array",
+            items: { type: "object", properties: { name: { type: "string" } } },
+          },
+          neededBy: { type: "string", format: "date" },
+          qty: { type: "number", description: "how many" },
+          note: { type: "string" },
+        },
+        required: ["items", "neededBy", "qty"],
+      },
+      opening: "Thank them and ask which items and by when.",
+      about: ["{{trigger.request}}"],
+      limits: { maxMessages: 5, deadline: "2 days" },
+    },
+    approval: { required: "required" },
+    client: { visible: true, label: "Clarified the request" },
+  };
+  const reach = {
+    id: "nudge",
+    name: "Nudge",
+    kind: "skill",
+    skill: "comms.reach-out",
+    input: { to: { role: "purchaser" }, purpose: "Remind them", message: { compose: true } },
+  };
+  const wf = Workflow.parse({
+    schemaVersion: 3,
+    trigger: { id: "t", on: { type: "manual", input: {} } },
+    steps: [talk, reach],
+  });
+
+  it("reads stored conversations and reach-outs as skill steps, never a write on their tool", () => {
+    const p = fromWorkflowV3(wf, real);
+    expect(p.steps.map((s) => [s.id, s.kind])).toEqual([
+      ["talk", "skill"],
+      ["nudge", "skill"],
+    ]);
+    expect(p.steps[0]).toMatchObject({
+      skill: "comms.converse",
+      input: talk.input,
+      checks: { approval: { required: "required" } },
+    });
+    expect(fromWorkflowV3(wf, real, { conversations: "keep" })).toEqual(p);
+  });
+
+  it("upgrades a conversation to a conversation step on request, keeping its id", () => {
+    const { process, dropped } = upgradeWorkflowV3(wf, real);
+    expect(() => Process.parse(process)).not.toThrow();
+    expect(process.steps[0]).toEqual({
+      id: "talk",
+      name: "Clarify the request",
+      client: { visible: true, label: "Clarified the request" },
+      kind: "conversation",
+      with: "{{trigger.contactId}}",
+      channel: "whatsapp",
+      goal: "Get the exact item list and the date needed.\n\nFirst message: Thank them and ask which items and by when.",
+      mayShare: ["{{trigger.request}}"],
+      find: { items: "text", neededBy: "date", qty: "number", note: "text?" },
+      maxTurns: 5,
+      messages: { first: "required", later: "within_goal" },
+      deadline: { after: "2 days", hours: "clock", ifNoAnswer: "stop" },
+    });
+    // A reach-out has no v4 shape of its own: it stays a skill step.
+    expect(process.steps[1]).toMatchObject({ id: "nudge", kind: "skill" });
+    expect(dropped).toEqual({ talk: ["the shape of result field items (now text)"] });
+  });
+
+  it("keeps a portal conversation a skill step, and lists what an upgrade drops", () => {
+    const portal = Workflow.parse({
+      schemaVersion: 3,
+      trigger: { id: "t", on: { type: "manual", input: {} } },
+      steps: [
+        { ...talk, input: { ...talk.input, to: { userId: "u1" }, channel: "portal" } },
+        {
+          ...talk,
+          id: "talk2",
+          model: { id: "claude-haiku-4-5" },
+          approval: { required: "not_required", approver: "client_admin" },
+          input: {
+            ...talk.input,
+            confirm: false,
+            limits: { maxMessages: 3, waitPerReply: "2 hours", maxCostUsd: "1.00" },
+          },
+        },
+      ],
+    });
+    const { process, dropped } = upgradeWorkflowV3(portal, real);
+    expect(process.steps[0]).toMatchObject({ kind: "skill", skill: "comms.converse" });
+    expect(process.steps[1]).toMatchObject({
+      kind: "conversation",
+      messages: { first: "not_required", later: "within_goal" },
+      maxTurns: 3,
+      deadline: { after: "3 days" },
+    });
+    expect(dropped.talk2).toEqual([
+      "the shape of result field items (now text)",
+      "confirm off (a conversation always confirms)",
+      "the wait for each reply",
+      "the spending limit",
+      "its model",
+      "its approver",
+    ]);
   });
 });

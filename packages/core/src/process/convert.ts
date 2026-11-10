@@ -1,10 +1,19 @@
 // R1 (docs/plan.md §1.86): read a stored v3 workflow as a v4 process. Pure: nothing stored
 // changes (invariant 3), and every step, path and trigger id is kept, so merges still line up.
 
+import { CONVERSE_SKILL } from "../converse";
+import { REACH_OUT_SKILL } from "../reach/rules";
 import type { Approval } from "../schemas/approval";
 import { parseSkillRef } from "../schemas/common";
 import type { Step as V3Step, Workflow } from "../schemas/workflow";
+import { conversationFromConverse } from "./conversation";
 import type { ApprovalCheck, Deadline, DeadlineThen, Process, Step } from "./schema";
+
+// R7: the conversation step's contract, reachable as `processes.*` with the converter that reads
+// v3 conversations.
+// DECISION: re-exported here because `process/index.ts` belongs to another stream in wave 2; move
+// it to `index.ts` (`export * from "./conversation"`) when the streams merge.
+export * from "./conversation";
 
 /** A tool's side effect, as the tool registry knows it. */
 export type SideEffect = "none" | "internal" | "external";
@@ -26,6 +35,31 @@ function deadlineOf(after: string, then: DeadlineThen = "stop", remind?: string)
   return d;
 }
 
+/**
+ * How the converter treats v3 `comms.converse` steps. `keep` (reading stored versions): they stay
+ * skill steps and run on P-4's engine exactly as before (ARCHITECTURE §10.14: "Stored
+ * `comms.converse` steps keep running as skill steps"). `upgrade` (the operator asks the builder to
+ * move a workflow to v4, saved as a new version they review): each becomes a `conversation` step
+ * where it can (`conversationFromConverse`), and `onDropped` hears what didn't carry over.
+ */
+// DECISION: reading never upgrades. v4 has no field for a v3 conversation's opening, its `about`
+// and `data`, confirm off, a WhatsApp template, the reply wait or the spending limit, and the
+// step's deadline (not a hand-over) decides what happens when nobody answers, so a stored
+// conversation read as a v4 step would run differently; invariant 3 keeps its behaviour.
+export interface ConvertOptions {
+  conversations?: "keep" | "upgrade";
+  onDropped?: (stepId: string, dropped: string[]) => void;
+}
+
+/**
+ * Built-in skills that run only as workflow steps (apps/api carries them out): never a read or a
+ * write on their handler tool, which refuses to run anywhere else.
+ */
+// DECISION: `comms.reach-out` stays a skill step even on upgrade: its plan approval, urgency,
+// message template, attachments and the role's conditions have no v4 field; a one-off message
+// with a reply is the reach-out it already is.
+export const STEP_ONLY_SKILLS: readonly string[] = [CONVERSE_SKILL, REACH_OUT_SKILL];
+
 function approvalOf(a: Approval): ApprovalCheck {
   const check: ApprovalCheck = {
     required: a.required,
@@ -42,7 +76,7 @@ function approvalOf(a: Approval): ApprovalCheck {
   return check;
 }
 
-function stepOf(s: V3Step, lookup: ConvertLookup): Step {
+function stepOf(s: V3Step, lookup: ConvertLookup, options: ConvertOptions = {}): Step {
   const common = {
     id: s.id,
     name: s.name,
@@ -51,7 +85,23 @@ function stepOf(s: V3Step, lookup: ConvertLookup): Step {
   switch (s.kind) {
     case "skill": {
       const review = s.review ? { review: s.review } : {};
-      const tool = lookup.wrappedTool(parseSkillRef(s.skill).id);
+      const skillId = parseSkillRef(s.skill).id;
+      if (skillId === CONVERSE_SKILL && options.conversations === "upgrade") {
+        const up = conversationFromConverse(s.input, s.approval?.required ?? "required");
+        if (up) {
+          const dropped = [...up.dropped];
+          if (s.agent) dropped.push("the agent that ran it");
+          if (s.model) dropped.push("its model");
+          if (s.settings) dropped.push("its settings");
+          if (s.approval?.approver) dropped.push("its approver");
+          if (s.approval?.timeout) dropped.push("its approval's timeout");
+          if (s.approval?.onReject === "continue") dropped.push("going on when rejected");
+          if (dropped.length) options.onDropped?.(s.id, dropped);
+          return { ...common, ...review, ...up.step };
+        }
+      }
+      // A step-only skill wraps no tool a step could call: it stays a skill step.
+      const tool = STEP_ONLY_SKILLS.includes(skillId) ? null : lookup.wrappedTool(skillId);
       if (tool && !s.agent && !s.model && !s.settings) {
         const effect = lookup.sideEffect(tool) ?? "external";
         if (effect === "none") return { ...common, ...review, kind: "read", tool, input: s.input };
@@ -123,11 +173,11 @@ function stepOf(s: V3Step, lookup: ConvertLookup): Step {
           id: p.id,
           name: p.name,
           when: p.when,
-          steps: p.steps.map((c) => stepOf(c, lookup)),
+          steps: p.steps.map((c) => stepOf(c, lookup, options)),
         })),
         otherwise: {
           id: s.otherwise.id,
-          steps: s.otherwise.steps.map((c) => stepOf(c, lookup)),
+          steps: s.otherwise.steps.map((c) => stepOf(c, lookup, options)),
         },
       };
     case "for_each":
@@ -136,7 +186,7 @@ function stepOf(s: V3Step, lookup: ConvertLookup): Step {
         kind: "for_each",
         over: s.over,
         concurrency: s.concurrency,
-        steps: s.steps.map((c) => stepOf(c, lookup)),
+        steps: s.steps.map((c) => stepOf(c, lookup, options)),
       };
     case "wait":
       return { ...common, kind: "wait", for: s.for };
@@ -158,11 +208,34 @@ function stepOf(s: V3Step, lookup: ConvertLookup): Step {
 }
 
 /** A stored v3 workflow, read as a v4 process. */
-export function fromWorkflowV3(w: Workflow, lookup: ConvertLookup): Process {
+export function fromWorkflowV3(
+  w: Workflow,
+  lookup: ConvertLookup,
+  options: ConvertOptions = {},
+): Process {
   return {
     schemaVersion: 4,
     triggers: [w.trigger, ...(w.moreTriggers ?? [])],
-    steps: w.steps.map((s) => stepOf(s, lookup)),
+    steps: w.steps.map((s) => stepOf(s, lookup, options)),
     ...(w.handoff ? { handoff: w.handoff } : {}),
   };
+}
+
+/**
+ * A v3 workflow moved to v4 at the operator's request (the builder's upgrade, saved as a new
+ * version): conversations become `conversation` steps where they can, and `dropped` lists, by step
+ * id, what didn't carry over for the operator to review.
+ */
+export function upgradeWorkflowV3(
+  w: Workflow,
+  lookup: ConvertLookup,
+): { process: Process; dropped: Record<string, string[]> } {
+  const dropped: Record<string, string[]> = {};
+  const process = fromWorkflowV3(w, lookup, {
+    conversations: "upgrade",
+    onDropped: (id, what) => {
+      dropped[id] = what;
+    },
+  });
+  return { process, dropped };
 }
