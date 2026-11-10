@@ -2890,6 +2890,46 @@ Websites screen's Scripts, the Library's and the builder's listings):
 - DECISION: the page scripts behind `BrowserTab.textOf` and `controls` (Playwright, evaluated in the
   page like `readText`) are checked against the fake browser only here: real Chromium and Browser
   Run are unchecked (CI's Chromium job covers the Playwright adapter).
+- DECISION (review): every script step runs with the page read only (`BrowserTab.readOnly`): only
+  GET and HEAD leave the browser, so a navigation, fetch, XHR or beacon with any other method is
+  aborted where it starts and the page stays as it was. This holds for recordings' replays, tests,
+  read scripts and a write's steps before its submit (they are what its test ran); only the marked
+  submit, in a run that isn't dry, lets the browser post. The Playwright adapter does it with one
+  `page.route` for the page's life; a browser without `readOnly` is refused; it is lifted before
+  sign-out, which may post. The fake browser mirrors it (its form and posting buttons do nothing).
+- DECISION (review): a click on a button that sends a form (a submit-type button or image input, or
+  any button inside a form: `BrowserControl.submits`, `BrowserTab.sendsForm`) that isn't the marked
+  submit is refused at run time (a refusal, not a request for help: the script is wrong, not the
+  page). Saving can't tell, having no page. A `<button>` with no type outside any form doesn't
+  count: it posts nothing by itself, and read only stops whatever its script sends.
+- DECISION (review): a submit whose landing page is off the allowed pages or a stop page is
+  reported as sent, `{ submitted: true, url: null, landing: <reason> }`, without reading or
+  photographing that page (`SignedInPage.submit`), so the `external_action` is recorded as done.
+  `landing` is a reserved output name.
+- DECISION (review): `browser.script.submit`'s before state is the published version and its steps
+  in words (`{ versionId, version, name, steps }`), so the approval card shows what will be sent;
+  the write is refused when the version approved (`proposedBefore`) is no longer the published one.
+  A direct call with no proposal runs the published version, as Sheets' write does; a proposal that
+  kept no version (an older card, before null) is refused, to be approved again.
+- DECISION (review, replaces "the answer is an ordinary note" above): a `browser.script.*` step
+  that needs help asks the operator (the `operator` role, as an escalation's `to` names it), not
+  the lead, and its answer is not written to memory: no answer changes a script's fixed steps. The
+  operator records the script again and publishes it, then answers; the step runs once more on the
+  version published then, and fails if it still needs help. Unanswered within the help deadline,
+  the step fails as needing a new recording.
+- DECISION (review): script problems carry a code and its names (`scriptProblemList`, with the
+  English text beside them; `scriptProblems` keeps the text). The portal says a problem with a code
+  it knows through `scripts.problem.<code>` in the client's language, else the server's words (also
+  when a name is missing). The portal shows "Published · v1, v2 waiting" when an older version
+  runs while a newer saved one waits.
+- DECISION (review): the Websites screen shows the exact stored steps of the version it publishes
+  (each element or address, fixed text, inputs, outputs, every click and the one that submits, the
+  side effect and the undo) and a signal note when the working recording differs. Without the
+  version's stored definition from the API, publishing stays off.
+- DECISION (review): a script step placed from the builder's palette starts with every declared
+  input, each an empty string for the operator to fill or point at an earlier output. Typing the
+  placed step's output per script (`scriptJsonSchemas`) needs the builder's typing context to know
+  scripts and is left to the builder's own branch.
 
 ## 2. Package layering
 
