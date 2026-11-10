@@ -17,6 +17,8 @@ export interface PlaywrightPageLike {
   locator(selector: string): { count(): Promise<number> };
   evaluate<T>(script: string): Promise<T>;
   screenshot(options?: { type?: "png"; fullPage?: boolean }): Promise<Uint8Array>;
+  /** True once the page, its context or its browser closed (or the connection to it dropped). */
+  isClosed?(): boolean;
   context(): {
     cookies(): Promise<BrowserCookie[]>;
     addCookies(cookies: BrowserCookie[]): Promise<void>;
@@ -191,6 +193,17 @@ export function playwrightTab(page: PlaywrightPageLike, options: PlaywrightTabOp
     setCookies: (cookies) => page.context().addCookies(cookies),
     async screenshot() {
       return new Uint8Array(await page.screenshot({ type: "png" }));
+    },
+    async alive() {
+      if (closed || page.isClosed?.()) return false;
+      try {
+        // A round trip to the browser, not the page's scripts (a page mid-navigation still
+        // answers): a browser Browser Run closed doesn't.
+        await page.context().cookies();
+        return true;
+      } catch {
+        return false;
+      }
     },
     async close() {
       if (closed) return;

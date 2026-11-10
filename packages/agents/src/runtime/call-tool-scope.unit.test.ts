@@ -90,6 +90,11 @@ function setUp(mode: "live" | "test" = "live") {
   const logged: { start: unknown[]; finish: unknown[] } = { start: [], finish: [] };
   const notes: { id: string; note: string; scope: string; createdAt: Date }[] = [];
   const items: unknown[] = [];
+  /** Test hooks: hold a note's write before it returns, or fail creating inbox items. */
+  const hooks: {
+    afterWrite?: (note: string) => Promise<void>;
+    inboxFails?: boolean;
+  } = {};
   const deps = {
     tools: new ToolRegistry({
       platform: PLATFORM_TOOLS,
@@ -117,10 +122,13 @@ function setUp(mode: "live" | "test" = "live") {
       },
       platform: {
         writeMemory: async (_t: string, n: { note: string; scope: string }) => {
-          notes.push({ id: `m${notes.length + 1}`, createdAt: new Date(), ...n });
-          return { id: `m${notes.length}` };
+          const id = `m${notes.length + 1}`;
+          notes.push({ id, createdAt: new Date(), ...n });
+          await hooks.afterWrite?.(n.note);
+          return { id };
         },
         createInboxItem: async (_t: string, item: unknown) => {
+          if (hooks.inboxFails) throw new Error("the inbox is down");
           items.push(item);
           return { id: `i${items.length}` };
         },
@@ -156,7 +164,7 @@ function setUp(mode: "live" | "test" = "live") {
       allowed: new Set([BROWSER_PAGE_READ_TOOL]),
       scope: s,
     });
-  return { deps, step, scope, read, driver, portal, logged, notes, items };
+  return { deps, step, scope, read, driver, portal, logged, notes, items, hooks };
 }
 
 describe("callTool with a browsing skill's scope", () => {
@@ -294,7 +302,68 @@ describe("callTool with a browsing skill's scope", () => {
     expect(t.items.length).toBeLessThanOrEqual(1);
   });
 
-  it("a test run keeps its notes in its own scope and never offers a draft", async () => {
+  it("two runs that both mark the offer before either reads back: exactly one offers it", async () => {
+    const t = setUp();
+    const run = async () => {
+      const s = new BrowseScope({
+        skill: "custom:find-invoice",
+        browse: { sites: ["supplier"], pages: ["/invoices"] },
+        goal: "Find it",
+      });
+      await t.read(`${ORIGIN}/invoices`, s);
+      await s.close();
+      return s;
+    };
+    await finishScope(t.deps, t.step, await run());
+    const [a, b] = [await run(), await run()];
+    // Each run's marker write returns only once both markers are written.
+    let release: () => void = () => undefined;
+    const both = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let marks = 0;
+    t.hooks.afterWrite = async (note) => {
+      if (!note.startsWith("[browse-script-offered")) return;
+      marks += 1;
+      if (marks === 2) release();
+      await both;
+    };
+    await Promise.all([finishScope(t.deps, t.step, a), finishScope(t.deps, t.step, b)]);
+    expect(marks).toBe(2);
+    expect(t.items).toHaveLength(1);
+    // A later run sees it offered.
+    delete t.hooks.afterWrite;
+    await finishScope(t.deps, t.step, await run());
+    expect(t.items).toHaveLength(1);
+  });
+
+  it("an offer whose inbox item fails is recorded as failed and not made again", async () => {
+    const t = setUp();
+    const run = async () => {
+      const s = new BrowseScope({
+        skill: "custom:find-invoice",
+        browse: { sites: ["supplier"], pages: ["/invoices"] },
+        goal: "Find it",
+      });
+      await t.read(`${ORIGIN}/invoices`, s);
+      await s.close();
+      return s;
+    };
+    await finishScope(t.deps, t.step, await run());
+    t.hooks.inboxFails = true;
+    await finishScope(t.deps, t.step, await run());
+    expect(t.items).toEqual([]);
+    expect(t.logged.start.at(-1)).toMatchObject({ tool: "inbox.create" });
+    expect(t.logged.finish.at(-1)).toMatchObject({
+      status: "failed",
+      output: { error: expect.stringMatching(/inbox is down/) },
+    });
+    t.hooks.inboxFails = false;
+    await finishScope(t.deps, t.step, await run());
+    expect(t.items).toEqual([]);
+  });
+
+  it("a test run keeps no notes, offers no draft and logs no writes", async () => {
     const t = setUp("test");
     for (let i = 0; i < 2; i++) {
       const s = new BrowseScope({
@@ -303,9 +372,13 @@ describe("callTool with a browsing skill's scope", () => {
         goal: "Find it",
       });
       await t.read(`${ORIGIN}/invoices`, s);
-      await finishScope(t.deps, t.step, s);
+      expect(await finishScope(t.deps, t.step, s)).toEqual({});
+      await s.close();
     }
-    expect(t.notes.map((n) => n.scope)).toEqual(["test-run:r1", "test-run:r1"]);
+    expect(t.notes).toEqual([]);
     expect(t.items).toEqual([]);
+    expect(
+      t.logged.start.filter((c) => !(c as { tool: string }).tool.startsWith("browser")),
+    ).toEqual([]);
   });
 });

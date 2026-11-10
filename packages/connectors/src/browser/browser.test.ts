@@ -27,6 +27,7 @@ import {
   FakeCodesService,
   FakeSupplierPortal,
   fakeCodesPort,
+  HELD_SESSION_REOPENS,
 } from "./index";
 
 const TENANT = "0190f5e8-8a3c-7d6e-8f00-00000000aaaa";
@@ -77,6 +78,7 @@ function setUp(opts: Setup = {}) {
   const documents: { filename: string; mimeType: string; sourceUrl: string; bytes: Uint8Array }[] =
     [];
   const screenshots: string[] = [];
+  const opens: { hosts: string[]; keepAliveMs?: number | undefined }[] = [];
   const profile = BrowserSiteProfile.parse({
     ...PROFILE,
     ...opts.profile,
@@ -95,7 +97,10 @@ function setUp(opts: Setup = {}) {
             profile,
           } satisfies PinnedBrowserSite)
         : null,
-    open: () => driver.open(),
+    open: (options) => {
+      opens.push(options);
+      return driver.open();
+    },
     codes: opts.codes === false ? null : fakeCodesPort(codes, TENANT),
     state: {
       get: async () => state.value,
@@ -158,6 +163,7 @@ function setUp(opts: Setup = {}) {
     records,
     documents,
     screenshots,
+    opens,
     connection,
     credentials,
     connector,
@@ -712,7 +718,7 @@ describe("browser connector: one session for a browsing skill's run", () => {
     await scope.close();
   });
 
-  it("a failed sign-in is not retried within the run", async () => {
+  it("a failed sign-in is not retried within the run, and the scope asks for help", async () => {
     const s = setUp({ tier: "medium", password: "wrong-password" });
     await s.identify();
     const scope = scopeOf();
@@ -720,6 +726,99 @@ describe("browser connector: one session for a browsing skill's run", () => {
     expect(await failure(read(s, scope, `${ORIGIN}/invoices/INV-1001`))).toMatch(/^SignInFailed/);
     expect(s.state.value?.signIns).toBe(1);
     expect(s.state.value?.failures).toBe(1);
+    // Every later read would fail the same way: the run asks for help instead.
+    expect(scope.overLimit()).toBe("session");
+    expect(scope.needsHelp().question).toMatch(/^We couldn't go on browsing supplier/);
+    expect(
+      scope.check(BROWSER_PAGE_READ_TOOL, { site: "supplier", url: `${ORIGIN}/invoices` }),
+    ).toMatchObject({ ok: false, reason: expect.stringMatching(/session ended/) });
+    await scope.close();
+    expect(s.driver.closed).toBe(s.driver.opened);
+  });
+
+  it("asks Browser Run to keep a held browser as long as the run may wait; one call keeps its default", async () => {
+    const s = setUp({ tier: "medium" });
+    await s.identify();
+    await s.read(`${ORIGIN}/invoices`);
+    const scope = scopeOf();
+    await read(s, scope, `${ORIGIN}/invoices`);
+    await scope.close();
+    expect(s.opens.map((o) => o.keepAliveMs)).toEqual([undefined, 5 * 60_000]);
+  });
+
+  it("a browser closed between calls is opened again and signed in again, within the caps", async () => {
+    const s = setUp({ tier: "medium" });
+    await s.identify();
+    const scope = scopeOf();
+    await read(s, scope, `${ORIGIN}/invoices`);
+    // The model took its time: Browser Run closed the idle browser.
+    s.driver.killOpen();
+    expect(await read(s, scope, `${ORIGIN}/invoices/INV-1001`)).toMatchObject({
+      output: { url: `${ORIGIN}/invoices/INV-1001` },
+    });
+    expect(await read(s, scope, `${ORIGIN}/invoices`)).toMatchObject({
+      output: { url: `${ORIGIN}/invoices` },
+    });
+    // The second sign-in counts against the connection's daily cap.
+    expect(s.portal.signIns).toBe(2);
+    expect(s.state.value?.signIns).toBe(2);
+    expect(s.driver.opened).toBe(2);
+    expect(scope.overLimit()).toBeNull();
+    await scope.close();
+    expect(s.driver.closed).toBe(2);
+    // One record per browser; the closed one couldn't sign out.
+    expect(s.records.map((r) => [r.outcome, r.signedOut])).toEqual([
+      ["failed", false],
+      ["done", true],
+    ]);
+  });
+
+  it("a browser closed between calls at the daily cap: the run asks for help", async () => {
+    const s = setUp({ tier: "medium", caps: { signInsPerDay: 1, hours: null } });
+    await s.identify();
+    const scope = scopeOf();
+    await read(s, scope, `${ORIGIN}/invoices`);
+    s.driver.killOpen();
+    expect(await failure(read(s, scope, `${ORIGIN}/invoices/INV-1001`))).toMatch(
+      /^BrowserCapReached: .*signed in 1 times today/,
+    );
+    expect(scope.overLimit()).toBe("sign_in");
+    expect(s.portal.signIns).toBe(1);
+    await scope.close();
+    expect(s.driver.closed).toBe(s.driver.opened);
+  });
+
+  it("a browser that keeps closing ends the session after two fresh ones", async () => {
+    const s = setUp({ tier: "medium" });
+    await s.identify();
+    const scope = scopeOf();
+    await read(s, scope, `${ORIGIN}/invoices`);
+    for (let i = 0; i < HELD_SESSION_REOPENS; i++) {
+      s.driver.killOpen();
+      await read(s, scope, `${ORIGIN}/invoices`);
+    }
+    s.driver.killOpen();
+    expect(await failure(read(s, scope, `${ORIGIN}/invoices`))).toMatch(
+      /browser closed between pages/,
+    );
+    expect(scope.overLimit()).toBe("session");
+    expect(s.portal.signIns).toBe(1 + HELD_SESSION_REOPENS);
+    await scope.close();
+    expect(s.driver.closed).toBe(s.driver.opened);
+  });
+
+  it("a stop page mid-session ends it, and the run asks for help before its next call", async () => {
+    const s = setUp({ tier: "medium" });
+    await s.identify();
+    const scope = scopeOf();
+    await read(s, scope, `${ORIGIN}/invoices`);
+    expect(await failure(read(s, scope, `${ORIGIN}/invoices/check`))).toMatch(
+      /^BrowserStop: .*CAPTCHA/,
+    );
+    // Told before the failed call came back.
+    expect(scope.overLimit()).toBe("session");
+    expect(scope.needsHelp().question).toMatch(/CAPTCHA/);
+    expect(s.portal.signOuts).toBe(1);
     await scope.close();
     expect(s.driver.closed).toBe(s.driver.opened);
   });

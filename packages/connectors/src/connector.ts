@@ -141,6 +141,16 @@ export interface HeldSession<T> {
  */
 export interface RunSessions {
   hold<T>(key: string, open: () => Promise<HeldSession<T>>): Promise<T>;
+  /**
+   * The longest a held session may wait between the run's calls (the run's own time limit), so a
+   * connector keeps what it holds open that long; absent, its own default.
+   */
+  readonly heldForMs?: number | undefined;
+  /**
+   * A held session ended before the run closed it (a stop page, a failed sign-in, a browser that
+   * could not be opened again): its calls fail from now on, and the run should stop using it.
+   */
+  ended?(key: string, error: Error): void;
 }
 
 /** RunSessions kept in memory for one skill run; `closeAll` when it ends (never throws). */

@@ -57,6 +57,12 @@ export interface BrowserTab {
   setCookies(cookies: BrowserCookie[]): Promise<void>;
   /** A PNG of the visible page, for evidence (taken only after sign-in). */
   screenshot(): Promise<Uint8Array>;
+  /**
+   * Whether the browser behind the tab still answers. Browser Run closes a browser left idle past
+   * its keep-alive; a session held across a run's model calls asks before it reopens. Absent: the
+   * tab is taken to be alive.
+   */
+  alive?(): Promise<boolean>;
   /** Closes the tab and destroys its browser; never throws. */
   close(): Promise<void>;
 }

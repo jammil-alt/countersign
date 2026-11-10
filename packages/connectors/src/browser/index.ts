@@ -23,6 +23,7 @@ export * from "./scope";
 export * from "./services";
 export {
   type BrowserCall,
+  HELD_SESSION_REOPENS,
   type HeldBrowserSession,
   holdBrowserSession,
   inBrowserSession,

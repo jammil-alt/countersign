@@ -214,6 +214,26 @@ export interface AgentPort {
    * without them, silently.
    */
   appliesCustomization?: boolean;
+  /**
+   * Keeps the lead's answer to a skill's help request that carries `remember` (a browsing skill's,
+   * docs/plan.md §1.86) where the next run of that skill gets it back as data: the platform's own
+   * note, which the model's memory never reaches. Throws when it wasn't kept. Ports without it:
+   * the answer is kept as an ordinary memory note (`memory.write`), never read back as an answer.
+   */
+  keepHelp?(request: KeepHelpRequest): Promise<void>;
+}
+
+/** The lead's answer to a help request, to keep (`AgentPort.keepHelp`). */
+export interface KeepHelpRequest {
+  run: RunInfo;
+  /** The step's row, where the write is logged. */
+  stepRunId: string;
+  /** Durable name of this keep (`${step}:help:memory`). */
+  nodeId: string;
+  /** `NeedsHelp.remember`: the request's tag. */
+  remember: string;
+  question: string;
+  answer: string;
 }
 
 /** One more approver for a write that waits (`AgentPort.askApprover`). */

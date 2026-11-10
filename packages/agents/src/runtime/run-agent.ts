@@ -21,8 +21,9 @@
 // browser reads are offered on its sites and pages only, in one signed-in session per site for the
 // run; `need_help` sits beside `finish`; answers the lead gave before and paths that worked come in
 // the user turn as data. Its page and time limits, its cost limit (folded into the budgets above)
-// and the connection's sign-in caps end the run with `{ needsHelp }` (succeeded, for the executor
-// to ask the lead) instead of an escalation.
+// the connection's sign-in caps and a session that ended early end the run with `{ needsHelp }`
+// (succeeded, or waiting on a write it proposed, for the executor to ask the lead) instead of an
+// escalation.
 
 import {
   BrowseScope,
@@ -481,9 +482,11 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       pending.push({ actionId: o.actionId, inboxItemId: null, status: o.status });
     }
   };
+  // Some of the step's writes wait for a person: the step waits with them.
+  const waitingOnApproval = () => pending.some((p) => p.status === "awaiting_approval");
   const finish = async (output: unknown, fallbackSummary?: string): Promise<AgentResult> => {
     const summary = summarize(def, output, input.language, fallbackSummary);
-    const waiting = pending.some((p) => p.status === "awaiting_approval");
+    const waiting = waitingOnApproval();
     await log.finishStepRun(input.tenantId, stepRunId, {
       status: waiting ? "waiting" : "succeeded",
       output,
@@ -593,15 +596,14 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
 
   const showMemory = definition.memory.enabled && !isTask;
   const memory = showMemory ? await store.memoryNotes(input.tenantId, agent.agentId, 50) : [];
-  // v0.16: what a browsing skill learned before, as data: the lead's answers (the agent's notes,
-  // read even when its memory is off or the skill is a task) and the paths that worked (the
-  // scope's own notes, never the model's memory).
+  // v0.16: what a browsing skill learned before, as data, even when the agent's memory is off or
+  // the skill is a task: the lead's answers and the paths that worked. Both are the scope's own
+  // notes, which only the platform writes; never the agent's notes, which its model can write.
   const browse = scope
     ? scope.data(
-        [
-          ...(showMemory ? memory : await store.memoryNotes(input.tenantId, agent.agentId, 50)),
-          ...(await store.memoryNotes(input.tenantId, agent.agentId, 50, scope.noteScope)),
-        ].map((n) => n.note),
+        (await store.memoryNotes(input.tenantId, agent.agentId, 50, scope.noteScope)).map(
+          (n) => n.note,
+        ),
       )
     : null;
   const language = languageInstruction(input.language);
@@ -719,17 +721,19 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   };
 
   // v0.16: a browsing run that can't go on asks the lead (the executor's contract): its output is
-  // `{ needsHelp }`, never checked against the skill's output schema, and the step succeeded.
+  // `{ needsHelp }`, never checked against the skill's output schema, and the step succeeded, or
+  // waits as `finish` does while a write it proposed waits for a person.
   const helpNeeded = async (help: NeedsHelp): Promise<AgentResult> => {
     const output = { [NEEDS_HELP_KEY]: help };
+    const waiting = waitingOnApproval();
     await log.finishStepRun(input.tenantId, stepRunId, {
-      status: "succeeded",
+      status: waiting ? "waiting" : "succeeded",
       output,
       summary: null,
     });
     return {
       ...totals(),
-      status: "succeeded",
+      status: waiting ? "awaiting_approval" : "succeeded",
       output,
       summary: null,
       sources: [],
