@@ -3145,8 +3145,9 @@ executor, the run views' `outcome`; no migration):
   Never past a person's no (`onReject: stop`), nobody answering with `stop`, an exception (a
   durable step that threw would run again on replay), or a write whose error says it may have
   happened (`UnconfirmedWriteError`, `processes.writeMayHaveHappened`): that stays with the
-  operator to check. A failed write wrote nothing (its `external_action` failed) and is never
-  retried; the error is the row's line, first line, at most 200 characters, key-like runs hidden.
+  operator to check. (Corrected by the review, below: a skill's or write's failure is gone on past
+  only when none of its writes was made or may have been.) A failed write is never retried; the
+  error is the row's line, first line, at most 200 characters, key-like runs hidden.
 - DECISION: invariant 8 holds: no outcome changes an approval. `proceed` on a write's approval is
   held by the validator as before (the write is `done`, its `approval.outcome` `no_answer`);
   `onError: continue` never sends a write unsigned; `ifNoAnswer: skip` keeps its meaning and reads
@@ -3157,7 +3158,8 @@ executor, the run views' `outcome`; no migration):
 - DECISION: durable replay: every outcome is derived from results the runner already stored (the
   attempt's and resume's `do`, the inbox waits, the help loop's, the notice's); a notice that fails
   with `onError: continue` stores its failure as its `do`'s result, so a replay never sends it
-  again. A retry's reused steps read their outcome back from their stored rows.
+  again (corrected by the review: only its last try's failure, below). A retry's reused steps read
+  their whole record back from the run retried's rows and items (corrected by the review, below).
 - DECISION: `empty` is decided on a read's output shape alone (`isEmptyOutput`: nothing, `null`,
   `""`, `[]`, `{}`, or an object whose every field is `null` or an empty list); the combined
   verdict is the most cautious one given (disagree, then unsure, then agree, else no_answer); several
@@ -3166,7 +3168,9 @@ executor, the run views' `outcome`; no migration):
 - DECISION: the run views carry the outcome per step row (`OpsStep.outcome`,
   `TimelineChecks.outcome`), read back from what the rows and inbox items already hold
   (`outcomeOfStepRow`), so no column or migration is added. A sub-process gone on past a stop has
-  its row `skipped`; a for each gone on past failures says `failed` in its row's output.
+  its row `skipped` (one gone on past a failure keeps its error on its row since the review); a
+  for each gone on past failures says `failed` in its row's output; a notify row `skipped` reads
+  `skipped`.
 - DECISION (web half, `wave5/builder`): the builder words every outcome field
   (`apps/web/src/ops/builder/outcomes.ts`): the picker shows "Approve the bill: how it ended" over
   the path, a field with a closed set of values picks its value from a dropdown in words ("was
@@ -3175,7 +3179,8 @@ executor, the run views' `outcome`; no migration):
   the plain `{{steps.<id>.outcome}} = <word>` the validator and the executor already read.
 - DECISION (web): "Add a route for this" on a step's inspector puts an `if` right after the step,
   in its own list (so it reads only earlier steps), with one path named for the outcome ("If
-  rejected" / "Rejected") holding no steps and an empty otherwise. Where the run would stop before
+  rejected" / "Rejected") and an empty otherwise; the path holds no steps where the run already
+  went on with that outcome, else a stop step (corrected by the review, below). Where the run would stop before
   the route, it sets what the route needs and the inspector says so: an approval's `onReject:
   continue` (rejected, a conversation turned down), a deadline's `stop` becoming `skip`, an
   escalation's own deadline likewise (nobody answered, an urgent notice not seen), `onError:
@@ -3189,7 +3194,8 @@ executor, the run views' `outcome`; no migration):
 - DECISION (web): the run views say which route an `if` took and why: core's `routeOfRow` (the
   row's `pathId`, and each `steps.<id>.outcome` rule of the taken path that held, by the reader's
   label for the step; a rule over data adds nothing, so no field or value is shown) and
-  `carriedOn` (a step whose `onError: continue` went on past its failure, shown in risk). The
+  `carriedOn` (a step whose `onError: continue` went on past its failure, shown in risk; since the
+  review a sub-process a stop step ended reads "Stopped, and the run carried on", in ink). The
   portal gets them from the server on `TimelineChecks` (`route`, `carriedOn`), naming only steps
   the client sees, by their client labels, in six languages; the back office works them out from
   the definition it already has, by step name. An `if` stays hidden from the client by default;
@@ -3197,6 +3203,44 @@ executor, the run views' `outcome`; no migration):
 - DECISION (web): the validator's `outcome_unknown` and `outcome_unreachable` read in the
   builder's words (`plainOutcomeProblem`), the second as advice of its own, with how to reach the
   outcome where a setting does ("set 'If this step fails' to carry on").
+- DECISION (review fixes, `wave5/fix`): a retry reuses a step that failed and the run carried on
+  past (`onError: continue`): it is never run again (`RunResume.reused` holds `failed`). Each
+  reused step's whole record is rebuilt from the run retried's rows and inbox items (core's
+  `reusedStepOf`, `recordOfStoredStep`): the outcome, a read's, skill's or write's approval (one
+  decision per asking, the gate's item the n-th proposal's), its latest confer, a person's quick
+  answer, a loop's counts, the plain error; and the output later steps read (a failed row's
+  without its merged `error`, a sign-off's turned-down output null). apps/api's `resumeOf` reads
+  them in the load step; no column or migration. The executor's record and the rows agree kind by
+  kind (`forks-retry.test.ts`).
+- DECISION (review): a retry never carries a failed write its run went on past: the carried-actions
+  port marks it `carriedOn` (its run's error names another step, `wentOnPast`) and
+  `carryDecision` proposes it again for a new signature.
+- DECISION (review): a step with `onError: continue` goes on past a skill's or write's failure only
+  when none of its writes was made or may have been: the agent port's `stepWrites` reads the
+  step's `external_action` rows in a durable step (`actionWrote`: done, executing, or failed
+  without `notWritten`); otherwise the run ends there, for the step and for a loop or sub-process
+  around it. The runtime marks `notWritten` only where nothing was written for sure: the handler
+  never reached (release, unknown tool, connection, the connector's checks, invalid input, the
+  before read) or the provider's no (`NotWrittenError`, or an error marked `notWritten: true`; the
+  testkit marks its not-found and stale record). An answer that doesn't parse after the handler
+  ran, or a write made but not recorded (`complete` throwing), is unconfirmed with a review for the
+  operator, never failed as if nothing happened. Ports without `stepWrites` fall back to
+  `writeMayHaveHappened`. Left: a carried write executed again in a retry that fails is read by
+  its own error only (its action belongs to the run retried).
+- DECISION (review, web): a route that turns a stop into "go on" (an approval's `onReject`, a
+  deadline's `stop`, `onError`, a person's no) ends its new path with a stop step that ends the run
+  as before (a no `cancelled`, nobody answering or a failure `failed`): paths rejoin, so an empty
+  path would let every later step run after a no. The inspector says "The route ends with a stop
+  step, so nothing below it runs, as before. Remove that stop to carry on below."
+- DECISION (review): a notice's durable step has explicit retries (`NOTICE_STEP_CONFIG`, three
+  with backoff, as skill and action steps); with `onError: continue` only the last try's failure is
+  stored as its result, an earlier one throws to be retried.
+- DECISION (review): `steps.<id>.error.message` (or the whole `error`) reads only in conditions
+  and in notices to the inbox; the validator refuses it in a write's input, a conversation's
+  `with`, and an email or text notice (`error_message_not_here`); `error.code` goes anywhere.
+- DECISION (review, web): a test run signs nothing, so a write's approval reads `not_needed` and a
+  route on `approval.outcome` goes the no-approval way; the builder's test-run panel names such
+  routes and says so (`approvalRouteNames`), rather than recording a pretend answer.
 
 ## 2. Package layering
 
