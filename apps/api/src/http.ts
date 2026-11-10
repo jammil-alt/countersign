@@ -530,6 +530,18 @@ export function mountFile<R extends RouteSpec>(
   mountWith(app, spec, handler, sendFile);
 }
 
+/**
+ * Wave 6: a file route whose handler reads slow things outside a transaction (object storage):
+ * `mountLong`'s short `inTx` transactions and its audit row, answered as `mountFile` answers.
+ */
+export function mountLongFile<R extends RouteSpec>(
+  app: Hono<AppEnv>,
+  spec: R,
+  handler: (ctx: LongHandlerCtx<R>) => Promise<Result<R> & FileResult>,
+): void {
+  mountWith(app, spec, handler, sendFile, "long");
+}
+
 function sendFile<R extends RouteSpec>(c: AppContext, spec: R, result: unknown) {
   const out = spec.response.safeParse(result);
   if (!out.success) {

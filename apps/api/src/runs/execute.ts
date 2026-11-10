@@ -108,6 +108,8 @@ import { dbDocumentServices } from "../qbo/documents";
 import { dbSyncedRecords } from "../qbo/receivables";
 import { type ReachDeps, reachPort } from "../reach/service";
 import { tenantLocale } from "../routes/language";
+// Wave 6: the owner's check on every step, and the audit queue (docs/plan.md §1.86)
+import { dbOwnerCheckLog, queueFinishedRun } from "../run-audit/store";
 import { signerFor } from "../storage";
 import { createRunRow, dispatchEvents, dispatchingRunner, senseEmitter } from "./dispatch";
 import type { RunInstances, RunParams } from "./instances";
@@ -482,6 +484,8 @@ export async function executeRun(
                 },
               }),
         });
+        // Wave 6: queued for a person's audit by the client's rule, as it finishes (live only).
+        await queueFinishedRun(tx, info);
         // `run.failed` (docs/plan.md §1.28), in the transaction that records the failure, so it
         // exists exactly when the run is failed. A test run emits nothing (ARCHITECTURE §10.4).
         if (result.status === "failed") {
@@ -599,6 +603,8 @@ export async function executeRun(
       settings: loaded.oversight,
       ...(history ? { watch: { history } } : {}),
     },
+    // Wave 6: the owner's check on every attempt at a v4 step, recorded (none for a v3 run).
+    ownerChecks: dbOwnerCheckLog(db, info),
     // R4: deadlines on business hours and away dates, as stored.
     hours: { hoursFor: hoursFor(db) },
     // R7: conversation steps, through P-4's service.
