@@ -3167,6 +3167,36 @@ executor, the run views' `outcome`; no migration):
   `TimelineChecks.outcome`), read back from what the rows and inbox items already hold
   (`outcomeOfStepRow`), so no column or migration is added. A sub-process gone on past a stop has
   its row `skipped`; a for each gone on past failures says `failed` in its row's output.
+- DECISION (web half, `wave5/builder`): the builder words every outcome field
+  (`apps/web/src/ops/builder/outcomes.ts`): the picker shows "Approve the bill: how it ended" over
+  the path, a field with a closed set of values picks its value from a dropdown in words ("was
+  rejected", "nobody answered", "found nothing", "timed out"), and an if's path adds such a
+  condition in one pick. The words are the builder's (English, the back office); the stored rule is
+  the plain `{{steps.<id>.outcome}} = <word>` the validator and the executor already read.
+- DECISION (web): "Add a route for this" on a step's inspector puts an `if` right after the step,
+  in its own list (so it reads only earlier steps), with one path named for the outcome ("If
+  rejected" / "Rejected") holding no steps and an empty otherwise. Where the run would stop before
+  the route, it sets what the route needs and the inspector says so: an approval's `onReject:
+  continue` (rejected, a conversation turned down), a deadline's `stop` becoming `skip`, an
+  escalation's own deadline likewise (nobody answered, an urgent notice not seen), `onError:
+  continue` (a failure). Never `proceed` and never `required: not_required`: approval stays on
+  (invariant 8). A person's quick answers and an approve step's no are routes too; the owner's
+  skip has no one-click route. The step stays selected so its inspector can say what was set.
+- DECISION (web): "If this step fails: stop the run (default) / carry on" is offered where the
+  validator allows `onError` (not on `if`, `stop`, `wait`, `person`); setting it back to stop
+  removes the field, so the step saves as stored. The inspector lists the outcomes later steps can
+  route on as set up.
+- DECISION (web): the run views say which route an `if` took and why: core's `routeOfRow` (the
+  row's `pathId`, and each `steps.<id>.outcome` rule of the taken path that held, by the reader's
+  label for the step; a rule over data adds nothing, so no field or value is shown) and
+  `carriedOn` (a step whose `onError: continue` went on past its failure, shown in risk). The
+  portal gets them from the server on `TimelineChecks` (`route`, `carriedOn`), naming only steps
+  the client sees, by their client labels, in six languages; the back office works them out from
+  the definition it already has, by step name. An `if` stays hidden from the client by default;
+  the operator may now show one.
+- DECISION (web): the validator's `outcome_unknown` and `outcome_unreachable` read in the
+  builder's words (`plainOutcomeProblem`), the second as advice of its own, with how to reach the
+  outcome where a setting does ("set 'If this step fails' to carry on").
 
 ## 2. Package layering
 

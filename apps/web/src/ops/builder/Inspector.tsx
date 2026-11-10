@@ -301,7 +301,9 @@ function StepInspector(props: InspectorProps & { step: Step }) {
       {props.onAddRoute ? (
         <RoutesSection step={step} onAdd={(option) => props.onAddRoute?.(step.id, option)} />
       ) : null}
-      {/* Wave 5: an if may be shown to the client too, with the route it took and why. */}
+      {/* DECISION (wave 5, web): an if is hidden from the client by default, as before; the operator
+          may show it, and its row then says the route it took and why, naming only steps the
+          client sees. */}
       {LOGIC.has(step.kind) && step.kind !== "if" ? null : (
         <TimelineSection step={step} set={set} />
       )}
@@ -732,8 +734,9 @@ function OnErrorSection({ step, set }: { step: Step; set: SetStep }) {
         value={step.onError === "continue" ? "continue" : "fail"}
         onChange={(e) =>
           set("onError", (s) => {
+            // DECISION (wave 5, web): "Stop the run" removes the field (absent is `fail`), so a step
+            // set back to the default saves as it was stored, with nothing new in diffs and merges.
             const { onError: _old, ...rest } = s;
-            // Stopping is the default: the field is left out, as a step that never said it.
             return (
               e.target.value === "continue" ? { ...rest, onError: "continue" } : rest
             ) as Step;

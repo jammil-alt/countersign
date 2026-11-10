@@ -329,7 +329,8 @@ function needsFor(step: Step, word: string): Pick<RouteOption, "change" | "apply
     case "write":
       if (word === "rejected") return approvalOnReject(step);
       if (word === "no_answer") return approvalNoAnswer(step);
-      // The owner's skip is theirs to make; a route on it is set in the condition editor.
+      // DECISION (wave 5, web): no one-click route on the owner's skip: it is theirs to make, and
+      // a route on it can still be written in the condition editor.
       if (word === "skipped") return null;
       return { change: null, apply: same };
     case "person":

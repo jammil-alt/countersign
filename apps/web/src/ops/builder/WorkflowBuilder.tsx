@@ -1126,7 +1126,8 @@ function BuilderBody(
                       setSelection(null);
                     }}
                     onDelete={remove}
-                    // Wave 5: the step stays selected, so its inspector says what was set.
+                    // DECISION (wave 5, web): the step stays selected after "Add a route", so its
+                    // inspector says what was set; the new if waits on the canvas for its steps.
                     onAddRoute={(id, option) =>
                       edit((w) => addRouteAfter(w, id, option)?.process ?? w)
                     }
