@@ -53,13 +53,29 @@ function v3Ids(
 }
 
 /**
+ * Every trigger, step and path id in a bundle's workflows (v3 or v4): what a version made from it
+ * already has, so a step not among them is new (`ProcessValidationContext.existingStepIds`).
+ */
+export function bundleNodeIds(bundle: Pick<AnyAgentBundle, "workflows">): Set<string> {
+  const out = new Set<string>();
+  for (const w of bundle.workflows) {
+    const ids = w.workflow.schemaVersion === 4 ? nodeIds(w.workflow) : v3Ids(w.workflow);
+    for (const id of ids) out.add(id);
+  }
+  return out;
+}
+
+/**
  * Validates a bundle that may hold v4 processes. All v3: `validateBundle`, unchanged. Schema
  * errors inside one workflow are reported by that workflow's own validator (so they name its
  * step and field); the other checks need a parsed bundle.
  */
 export function validateAnyBundle(
   input: unknown,
-  ctx: Omit<ValidationContext, "agent"> = {},
+  ctx: Omit<ValidationContext, "agent"> & {
+    /** Skill model (2026-11-10): the node ids of the version this one was made from. */
+    existingStepIds?: ReadonlySet<string>;
+  } = {},
 ): AnyBundleValidationResult {
   const v3 = AgentBundle.safeParse(input);
   if (v3.success && !holdsProcess(v3.data)) {

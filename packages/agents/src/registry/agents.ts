@@ -314,6 +314,9 @@ export async function validateForPublish(
   row: Pick<AgentRow, "tenantId" | "kind" | "bindings"> & { slug?: string; id?: string },
   bundle: AnyAgentBundle,
   ctx: RegistryContext,
+  // Skill model (2026-11-10): the version this one was made from. A skill step it doesn't have is
+  // new, and a new step may not use a retired kind of skill (`rules_then_ai`, agent mode).
+  options: { previous?: AnyAgentBundle | null } = {},
 ): Promise<ValidationError[]> {
   const { skills, missing } = await skillContext(tx, {
     tenantId: row.tenantId,
@@ -328,8 +331,10 @@ export async function validateForPublish(
   });
   // R8: a bundle that holds v4 processes is validated as one (core's `validateAnyBundle`, which
   // validates an all-v3 bundle exactly as `validateBundle` does).
+  const existing = options.previous ? processes.bundleNodeIds(options.previous) : undefined;
   const validate = holdsProcess(bundle)
-    ? (b: unknown, c: Parameters<typeof validateBundle>[1]) => processes.validateAnyBundle(b, c)
+    ? (b: unknown, c: Parameters<typeof validateBundle>[1]) =>
+        processes.validateAnyBundle(b, { ...c, ...(existing ? { existingStepIds: existing } : {}) })
     : validateBundle;
   const result = validate(bundle, {
     skills: { ...used.skills, ...skills },
@@ -395,6 +400,25 @@ export async function validateForPublish(
 }
 
 /**
+ * Skill model (2026-11-10): the bundle of the version this one was edited from, which says which
+ * of its steps are new (`validateForPublish`'s `previous`).
+ */
+// DECISION: a version's steps are new when its parent version (the one it was edited from) lacks
+// them; a first version (a template's, a fork's, a seed's) has none, so nothing in it counts as
+// new: its steps come from code or a template already published.
+export async function parentBundle(
+  tx: Tx,
+  v: Pick<AgentVersionRow, "parentVersionId">,
+): Promise<AnyAgentBundle | null> {
+  if (!v.parentVersionId) return null;
+  const [parent] = await tx
+    .select({ bundle: agentVersion.bundle })
+    .from(agentVersion)
+    .where(eq(agentVersion.id, v.parentVersionId));
+  return parent ? parseVersionBundle(parent.bundle) : null;
+}
+
+/**
  * Publishes a version: validation must pass (§10.2), the previous live version is retired, the new
  * one goes live and becomes `live_version_id`, all in the caller's transaction. Publishing a
  * template changes no client agent (invariant 11). Client agents also snapshot the shared skills
@@ -411,7 +435,9 @@ export async function publish(
   if (row.status === "disabled") {
     throw new AgentsError("invalid_state", "it was discarded: restore it before publishing");
   }
-  const errors = await validateForPublish(tx, row, v.bundle, input.ctx);
+  const errors = await validateForPublish(tx, row, v.bundle, input.ctx, {
+    previous: await parentBundle(tx, v),
+  });
   if (errors.length > 0) {
     throw new AgentsError("invalid_bundle", `v${v.version} does not validate`, errors);
   }

@@ -63,7 +63,7 @@ const DraftDefinition = z.object({
   mode: z
     .enum(["task", "agent"])
     .describe(
-      "task: a typed job on its own model with no agent voice or memory; agent: the agent's own reasoning",
+      "task: an AI skill, a typed job on its own model (agent mode is retired and drafted as task)",
     ),
   model: ModelChoice.optional().describe("task mode only: the model it runs on"),
   instructions: z.string().min(1).max(20_000),
@@ -134,7 +134,8 @@ const SKILL_RULES = `You are the Builder for Mezonas, a managed-agents service f
 
 Rules:
 - Use only tools in the catalog, by their exact ids. If the job needs something the catalog doesn't have, say so in "gaps".
-- Choose "task" mode for a typed job that needs no agent voice or memory (reading a document into fields, matching one record to another, classifying), with a model from the catalog; else "agent" mode, which runs on the agent's own model.
+- Write an AI skill: "task" mode, a typed job on a model from the catalog (reading a document into fields, matching one record to another, classifying, drafting). Its output is checked against its output schema and handed to the next step.
+- A skill never writes or messages anyone. List only tools that read; a change is a write step after the skill, which the operator adds.
 - Write the input and output as JSON Schemas with typed, named fields. A skill that raises alerts has a "sources" output (record ids).
 - Write "instructions" as plain steps the skill follows; prefer firm rules before judgment.
 - For each example attached to this turn, write one test case by its number: a short name, the expected output when the example has none, and how to compare it (money within a cent, a label field for "same or not").
@@ -173,21 +174,30 @@ export function guardSkill(
   const connectorIds = new Set(ctx.connectors.map((c) => c.id));
   const kept: string[] = [];
   for (const t of answer.tools) {
-    if (!tools.has(t)) gaps.push(`There is no tool "${t}"; it was left out.`);
-    else if (!kept.includes(t)) kept.push(t);
+    const spec = tools.get(t);
+    if (!spec) gaps.push(`There is no tool "${t}"; it was left out.`);
+    // Skill model (2026-11-10): skills think, tools act. A write is a write step of its own.
+    else if (spec.sideEffect !== "none") {
+      notes.push(`A skill never writes: "${t}" was left out. Add a write step after the skill.`);
+    } else if (!kept.includes(t)) kept.push(t);
   }
   // The id is fixed once: a revision keeps it, a new skill's comes from its slug or name.
   const id = current?.id ?? `custom:${builderSlug(answer.slug ?? answer.name) || "skill"}`;
-  const mode: "task" | "agent" = answer.mode;
+  // Skill model (2026-11-10): agent-mode skills are retired for new use; the Builder drafts AI
+  // skills (`task`, on their own model).
+  // DECISION: an answer asking for agent mode is drafted as an AI skill with a note, rather than
+  // refused, so the operator keeps the draft.
+  const mode = "task" as const;
+  if (answer.mode === "agent") {
+    notes.push(
+      "Skills that run the agent's own reasoning are retired: this is an AI skill on its own model.",
+    );
+  }
   let model = answer.model;
   const priced = ctx.models ? new Set(ctx.models) : null;
-  if (mode === "task" && (!model || (priced !== null && !priced.has(model.id)))) {
+  if (!model || (priced !== null && !priced.has(model.id))) {
     if (model) notes.push(`There is no model "${model.id}"; it runs on the fast model.`);
     model = { id: DEFAULT_MODELS.classification };
-  }
-  if (mode === "agent" && model) {
-    notes.push("An agent-mode skill runs on the agent's model; the model asked for was left out.");
-    model = undefined;
   }
   let producesAlerts = answer.producesAlerts;
   const outputProps = isPlainObject(answer.output) ? answer.output.properties : undefined;

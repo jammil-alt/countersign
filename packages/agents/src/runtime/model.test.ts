@@ -48,19 +48,39 @@ describe("operator skills", () => {
     output: { type: "object" },
   };
 
-  it("may be task skills on a model the platform prices, or agent skills", () => {
+  // Skill model (2026-11-10): a new operator skill is AI (`task`, on its recommended model) or
+  // deterministic (rule rows); agent mode and `rules_then_ai` are retired for new versions, and a
+  // rollback restoring a stored one keeps working.
+  it("may be task skills on a model the platform prices, or rule rows; never agent skills", () => {
     expect(
       parseOperatorSkill({ ...base, mode: "task", model: { id: "claude-haiku-5-5" } }).mode,
     ).toBe("task");
-    expect(parseOperatorSkill({ ...base, mode: "agent" }).mode).toBe("agent");
+    const { instructions: _i, ...plain } = base;
+    expect(
+      parseOperatorSkill({ ...plain, mode: "tool", rules: [{ id: "a", set: { x: 1 } }] }).mode,
+    ).toBe("tool");
+    expect(() => parseOperatorSkill({ ...base, mode: "agent" })).toThrow(/write step/);
+    expect(
+      parseOperatorSkill({ ...base, mode: "agent" }, undefined, { restoring: true }).mode,
+    ).toBe("agent");
+    expect(() =>
+      parseOperatorSkill({
+        ...base,
+        mode: "task",
+        method: "rules_then_ai",
+        model: { id: "claude-haiku-5-5" },
+        rules: [{ id: "a", set: { x: 1 } }],
+      }),
+    ).toThrow(/two skills/);
   });
 
-  it("refuses a task skill on an unknown model, and tool mode", () => {
+  it("refuses a task skill on an unknown model, and built-in code", () => {
     expect(() =>
       parseOperatorSkill({ ...base, mode: "task", model: { id: "claude-nonesuch" } }),
     ).toThrow(/unknown model claude-nonesuch/);
-    expect(() => parseOperatorSkill({ ...base, mode: "tool", handler: "docs.extract" })).toThrow(
-      /task or agent mode/,
+    const { instructions: _i, ...plain } = base;
+    expect(() => parseOperatorSkill({ ...plain, mode: "tool", handler: "docs.extract" })).toThrow(
+      /never built-in code/,
     );
   });
 });

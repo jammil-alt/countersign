@@ -35,13 +35,17 @@ import {
 import {
   type Approval,
   Decimal,
+  evaluateSkillRules,
+  isoToday,
   type JsonSchema,
   LOCALE_ENGLISH_NAMES,
   type Locale,
   type ModelChoice,
+  parameterValueProblems,
   parseSkillRef,
   processes,
   renderSummary,
+  resolveSkillParameters,
   resolveSkillSettings,
   type SkillDefinition,
   skillTools,
@@ -201,9 +205,9 @@ export function toolName(toolId: string): string {
 
 /**
  * The skill as a v4 step runs it: its added instructions after the skill's own, checked as the
- * Library's customization rules check them. Rule rows a step adds or edits are refused here: the
- * runtime doesn't evaluate a skill's rule rows yet, and a step must never run without the rows it
- * was published with.
+ * Library's customization rules check them. Rule rows a step adds or edits run for a deterministic
+ * rule skill (skill model, 2026-11-10); for any other they are refused: only a rule skill's rows
+ * are evaluated, and a step must never run without the rows it was published with.
  */
 // DECISION: settings, model and `keep` are the executor's (it layers the first two into the
 // request and keeps the fields after the run), so only the instructions are applied here; the
@@ -212,16 +216,32 @@ function customizedSkill(
   def: SkillDefinition,
   c: processes.SkillCustomization,
 ): { ok: true; def: SkillDefinition } | { ok: false; error: string } {
-  if ((c.rules?.add?.length ?? 0) > 0 || (c.rules?.edit?.length ?? 0) > 0) {
+  const rows = (c.rules?.add?.length ?? 0) > 0 || (c.rules?.edit?.length ?? 0) > 0;
+  if (rows && !isRuleSkill(def)) {
     return { ok: false, error: "the step changes its skill's rule rows, which can't run yet" };
   }
-  if (c.addInstructions === undefined) return { ok: true, def };
+  if (c.addInstructions === undefined && !rows) return { ok: true, def };
   try {
-    const applied = processes.applyCustomization(def, { addInstructions: c.addInstructions });
-    return { ok: true, def: { ...def, instructions: applied.instructions } };
+    const applied = processes.applyCustomization(def, {
+      ...(c.addInstructions !== undefined ? { addInstructions: c.addInstructions } : {}),
+      ...(rows && c.rules ? { rules: c.rules } : {}),
+    });
+    return {
+      ok: true,
+      def: {
+        ...def,
+        ...(applied.instructions !== undefined ? { instructions: applied.instructions } : {}),
+        ...(rows ? { rules: applied.rules } : {}),
+      },
+    };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+/** Skill model (2026-11-10): a deterministic skill whose work is its rule rows (no built-in code). */
+function isRuleSkill(def: SkillDefinition): boolean {
+  return def.mode === "tool" && def.handler === undefined && (def.rules?.length ?? 0) > 0;
 }
 
 /** A synthetic skill for free-form tasks: the agent's extra tools, an answer with sources. */
@@ -411,6 +431,10 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   // 1. The skill, its settings and its input.
   let def: SkillDefinition;
   let settings: Record<string, unknown> = {};
+  // Skill model (2026-11-10): the parameter values this use runs with, and the agent's model for
+  // the skill (`definition.skills[].model`).
+  let parameters: Record<string, unknown> = {};
+  let agentSkillModel: ModelChoice | undefined;
   if (skillRef !== null) {
     const resolved = await resolveSkill(deps, input.tenantId, skillRef);
     if (!resolved) return fail(`skill ${skillRef} is not available to this agent`);
@@ -424,6 +448,16 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       return fail(`agent ${agent.slug} has no skill ${id}`);
     }
     settings = resolveSkillSettings(def, { ...own?.settings, ...input.settings });
+    // The skill's defaults, under the agent's values, under the step's (its customization's).
+    parameters = resolveSkillParameters(def, {
+      agent: own?.parameters,
+      step: input.customize?.parameters,
+    });
+    const missing = parameterValueProblems(def, parameters, { complete: true });
+    if (missing.length > 0) {
+      return fail(`parameters: ${missing.map((p) => p.message).join("; ")}`);
+    }
+    agentSkillModel = own?.model;
     // R3: a v4 step's customization, applied to the skill this agent resolved.
     if (input.customize) {
       const customized = customizedSkill(def, input.customize);
@@ -523,6 +557,24 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     };
   };
 
+  // 2a. Skill model (2026-11-10): a deterministic rule skill runs its rule rows: the same input,
+  // parameters and day give the same output, with no tool and no model.
+  // DECISION: today is the run clock's date in UTC: the runtime doesn't know the client's zone
+  // here, and a row comparing dates reads whole days, so a run near midnight UTC may count one
+  // day off the client's calendar.
+  if (isRuleSkill(def)) {
+    const result = evaluateSkillRules(def.rules ?? [], {
+      input: checkedInput.value,
+      parameters,
+      today: isoToday(deps.now?.() ?? new Date()),
+    });
+    if (!result) return fail("no rule row matched this input");
+    const out = checkOutput(def, result.output);
+    if (!out.ok) return fail(`invalid output: ${out.message}`);
+    const row = (def.rules ?? []).find((r) => r.id === result.ruleId);
+    return finish(out.value, `Rule: ${row?.name ?? row?.id ?? result.ruleId}`);
+  }
+
   // 2. Tool mode: the handler, through the gate.
   if (def.mode === "tool") {
     if (!def.handler) return fail(`skill ${def.id} has no handler`);
@@ -556,7 +608,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   // v0.13 W2-H: a task skill is the same job in any agent: its own model, no identity, agent
   // instructions or memory (ARCHITECTURE §9.2).
   const isTask = def.mode === "task";
-  const model = resolveModel(definition.model, def, input.model);
+  const model = resolveModel(definition.model, def, input.model, agentSkillModel);
   // v0.16: a skill that browses runs within its scope; its reads need not be listed.
   const scope = BrowseScope.of(def, { now: deps.now });
   if (scope) for (const t of BrowseScope.tools) allowed.add(t);
@@ -618,6 +670,10 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     `## This task: ${def.name}\n${def.instructions ?? def.description}`,
     ...(Object.keys(settings).length > 0
       ? [`## Settings for this task\n${JSON.stringify(settings, null, 2)}`]
+      : []),
+    // Skill model (2026-11-10): the operator's parameter values for this use of the skill.
+    ...(Object.keys(parameters).length > 0
+      ? [`## Parameters for this task\n${JSON.stringify(parameters, null, 2)}`]
       : []),
     ...(language ? [language] : []),
   ].join("\n\n");
