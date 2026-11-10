@@ -4,14 +4,22 @@
 // withTenant() transaction for the run's own client (invariant 1).
 
 import {
+  // R3
+  addSignerItemTx,
+  approveForRunTx,
   callTool,
   executeAction,
   type RuntimeDeps,
   resolveApprover,
   runAgent,
   type StepContext,
+  signerItemsTx,
+  unsignedRefusal,
 } from "@countersign/agents";
 import {
+  type ApprovalAssignee,
+  approverFromSetting,
+  assigneeOf,
   // P-4
   CONVERSE_SKILL,
   DEFAULT_APPROVAL,
@@ -21,7 +29,7 @@ import {
   parseSkillRef,
   REACH_OUT_SKILL,
 } from "@countersign/core";
-import { type Db, inboxItem, stepRun, withTenant } from "@countersign/db";
+import { type Db, inboxItem, membership, stepRun, type Tx, withTenant } from "@countersign/db";
 import { leadOf } from "@countersign/threads";
 import type {
   AgentPort,
@@ -30,6 +38,7 @@ import type {
   RunInfo,
   StepLog,
   StepOutcome,
+  StepRunUpdate,
 } from "@countersign/workflows";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -99,11 +108,13 @@ export function dbStepLog(db: Db, run: RunInfo): StepLog {
           ? u.output
           : { ...(isPlainObject(u.output) ? u.output : {}), error: u.error };
       return withTenant(db, run.tenantId, async (tx) => {
+        // R3: a write that went ahead with nobody's answer says so on its row (R5's late answers).
+        const marked = u.proceededWithoutAnswer ? await proceededMark(tx, run, u, output) : output;
         await tx
           .update(stepRun)
           .set({
             status: u.status,
-            ...(output === undefined ? {} : { output: output as Record<string, unknown> | null }),
+            ...(marked === undefined ? {} : { output: marked as Record<string, unknown> | null }),
             ...(u.summary === undefined ? {} : { summary: u.summary }),
             ...(TERMINAL.has(u.status) ? { finishedAt: new Date() } : {}),
           })
@@ -111,6 +122,61 @@ export function dbStepLog(db: Db, run: RunInfo): StepLog {
       });
     },
   };
+}
+
+/**
+ * The mark a write that went ahead with nobody's answer leaves on its step's row, R5's contract
+ * (packages/agents `proceededWriteTx`): `proceededWithoutAnswer`, the write's `externalActionId`
+ * and every approval item that asked for it (`inboxItemIds`), beside what the step put out.
+ */
+// DECISION: the mark goes in `step_run.output` (no new column, as R5 reads it); an output that
+// isn't an object is kept under `output`, as an error is kept beside it.
+async function proceededMark(
+  tx: Tx,
+  run: RunInfo,
+  u: StepRunUpdate,
+  output: unknown,
+): Promise<unknown> {
+  const base = isPlainObject(output) ? output : output === undefined ? {} : { output };
+  const actionId = u.externalActionId;
+  const items = actionId
+    ? await signerItemsTx(tx, run.tenantId, { id: actionId, inboxItemId: null })
+    : [];
+  return {
+    ...base,
+    proceededWithoutAnswer: true,
+    ...(actionId ? { externalActionId: actionId } : {}),
+    ...(items.length ? { inboxItemIds: items.map((i) => i.id) } : {}),
+  };
+}
+
+/**
+ * Who an item asked of `who` goes to: a role, the client's lead (as an operator's item), or a
+ * person of this client by user id. A test run's items go to the operator (test runs are hidden
+ * from the portal).
+ */
+// DECISION: an id that isn't a member of this client (a directory contact, who can't sign in to
+// the portal, or anyone else) is the client admin's, as the approver rules send a rule naming a
+// non-member: an item is never left with nobody able to answer it.
+export async function personAssignee(
+  tx: Tx,
+  run: Pick<RunInfo, "tenantId" | "mode">,
+  who: string,
+): Promise<ApprovalAssignee> {
+  if (run.mode === "test") return { assigneeRole: "operator", assigneeUserId: null };
+  if (who === LEAD_ASSIGNEE) {
+    const lead = await leadOf(tx, run.tenantId);
+    return { assigneeRole: "operator", assigneeUserId: lead?.userId ?? null };
+  }
+  const target = approverFromSetting(who);
+  if (target?.kind === "user") {
+    const [m] = await tx
+      .select({ userId: membership.userId })
+      .from(membership)
+      .where(and(eq(membership.tenantId, run.tenantId), eq(membership.userId, target.userId)));
+    if (!m) return { assigneeRole: "client_admin", assigneeUserId: null };
+  }
+  return assigneeOf(target ?? { kind: "client_admin" });
 }
 
 /** What a step waiting on approvals carries between durable steps. Small: ids only. */
@@ -122,8 +188,12 @@ type PendingState = z.infer<typeof PendingState>;
 
 function firstWaiting(state: PendingState, after = -1): StepOutcome | null {
   const next = state.actions.slice(after + 1).find((a) => a.inboxItemId);
+  // R3: the action the item signs, so the step's row can name a write that went ahead unsigned.
   return next?.inboxItemId
-    ? { kind: "approval", pending: { inboxItemId: next.inboxItemId, state } }
+    ? {
+        kind: "approval",
+        pending: { inboxItemId: next.inboxItemId, state, actionId: next.actionId },
+      }
     : null;
 }
 
@@ -137,7 +207,10 @@ function firstWaiting(state: PendingState, after = -1): StepOutcome | null {
 export function agentPort(
   deps: RuntimeDeps,
   reach?: ReachPort,
-  /** The database, for steps that wait on a person's release (docs/plan.md §1.26). */
+  /**
+   * The database, for steps that wait on a person's release (docs/plan.md §1.26), and (R3) for a
+   * write's further signers and the run's decision on it.
+   */
   release?: { db: Db },
   // P-4: conversations (docs/plan.md §1.66)
   converse?: ConversePort,
@@ -174,6 +247,8 @@ export function agentPort(
         ...(run.retryOf ? { retryOf: run.retryOf } : {}),
         // v0.12 W2-B: a step of an automation runs with the automation's skills.
         ...(request.automation ? { automation: request.automation } : {}),
+        // R3: a v4 step's customization of its skill (its added instructions).
+        ...(request.customize ? { customize: request.customize } : {}),
       });
       switch (r.status) {
         case "succeeded":
@@ -295,6 +370,27 @@ export function agentPort(
       const state = PendingState.parse(pending.state ?? { actions: [] });
       const index = state.actions.findIndex((a) => a.inboxItemId === pending.inboxItemId);
       const current = state.actions[index];
+      if (current && resolution.approved === true && release) {
+        // R3: the run's decision on a change several people (or, in time, nobody) were asked to
+        // sign. Nobody answering goes ahead only where the gate, asked again now, would let the
+        // write run unsigned (invariant 8); then the change is approved by its deadline.
+        if (resolution.proceeded === true) {
+          const refused = await unsignedRefusal(deps, {
+            tenantId: run.tenantId,
+            actionId: current.actionId,
+          });
+          if (refused) {
+            return { kind: "failed", error: `nobody answered in time, and ${refused}` };
+          }
+        }
+        await withTenant(release.db, run.tenantId, (tx) =>
+          approveForRunTx(tx, run.tenantId, {
+            actionId: current.actionId,
+            by: resolution.by,
+            proceeded: resolution.proceeded === true,
+          }),
+        );
+      }
       if (current && resolution.approved === true) {
         // Executed once by its idempotency key, in this durable step (docs/plan.md §1.2).
         const r = await executeAction(deps, { tenantId: run.tenantId, actionId: current.actionId });
@@ -306,6 +402,37 @@ export function agentPort(
       }
       return firstWaiting(state, index) ?? { kind: "done", output: state.output ?? null };
     },
+
+    // R3 (docs/plan.md §1.86): approval modes and escalation on a write.
+    async askApprover(request) {
+      const { run, pending, who } = request;
+      if (!release) throw new Error("asking another approver needs the database");
+      if (converseState(pending.state) || reachOutState(pending.state)) {
+        // DECISION: a conversation's or a reach-out's signature is one person's (its own card and
+        // route); asking more people to sign it is refused, so the step fails closed.
+        throw new Error("a message's signature can't be asked of more than one person");
+      }
+      const state = PendingState.parse(pending.state ?? { actions: [] });
+      const actionId =
+        pending.actionId ??
+        state.actions.find((a) => a.inboxItemId === pending.inboxItemId)?.actionId;
+      if (!actionId) throw new Error("the approval names no change to sign");
+      return withTenant(release.db, run.tenantId, async (tx) => {
+        const assignee = await personAssignee(tx, run, who);
+        const item = await addSignerItemTx(tx, run.tenantId, {
+          actionId,
+          runId: run.id,
+          nodeId: request.nodeId,
+          ...assignee,
+          dueAt: new Date(request.dueAt),
+          remindAt: request.remindAt,
+        });
+        return { inboxItemId: item.id };
+      });
+    },
+    // R3: runSkill passes `customize` on to runAgent, which applies its added instructions (and
+    // refuses rule rows it can't run yet), so a customized step never runs without them.
+    appliesCustomization: true,
   };
   return port;
 }
@@ -418,9 +545,13 @@ export function dbInboxPort(db: Db, run: RunInfo): InboxPort {
  */
 // DECISION: until Resend is configured, `email` and `digest` notices are thread messages for the
 // operator; only `thread` notices of live runs are client-facing. Test runs never message clients.
-export function threadNotifyPort(deps: RuntimeDeps): NotifyPort {
+export function threadNotifyPort(
+  deps: RuntimeDeps,
+  /** R3: the database, for a v4 notice's "Seen" item and a deadline's `tell` (who is who). */
+  db?: Db,
+): NotifyPort {
   const { platform } = deps.ports;
-  return {
+  const port: NotifyPort = {
     async send({ run, nodeId, channel, to, text, sources }) {
       await platform.postMessage(run.tenantId, {
         subject: { type: "run", id: run.id, title: `Run of ${run.workflowSlug}` },
@@ -441,4 +572,94 @@ export function threadNotifyPort(deps: RuntimeDeps): NotifyPort {
       });
     },
   };
+  if (!db) return port;
+
+  // ── R3 (docs/plan.md §1.86): v4 notifications and deadlines' `tell` ──────────────────────────
+
+  // DECISION: a v4 notice is one message on the run's thread naming who it is for and how (the
+  // channel), as v3's notices are until free text goes out by email or text: client-facing when a
+  // live run's notice is for anyone on the client's side. An urgent one also opens a "Seen" item
+  // (a request) for its first recipient, due by `dueAt`, which the run waits on; the outbox's
+  // items-waiting pass tells that person by email or text on its own schedule.
+  port.notify = async ({ run, nodeId, to, channel, text, sources, urgent }) => {
+    const ours = to.every((w) => w === "operator" || w === LEAD_ASSIGNEE);
+    await platform.postMessage(run.tenantId, {
+      subject: { type: "run", id: run.id, title: `Run of ${run.workflowSlug}` },
+      agentVersionId: run.agentVersionId,
+      body: { text, channel, to: [...to], nodeId, ...(urgent ? { urgent: true } : {}) },
+      sources,
+      audience: run.mode === "live" && !ours ? "client" : "operator",
+    });
+    const first = to[0];
+    if (!urgent || !first) return { ackItemId: null };
+    const ackItemId = await withTenant(db, run.tenantId, async (tx) => {
+      const [existing] = await tx
+        .select({ id: inboxItem.id })
+        .from(inboxItem)
+        .where(
+          and(
+            eq(inboxItem.tenantId, run.tenantId),
+            eq(inboxItem.runId, run.id),
+            sql`${inboxItem.payload}->>'nodeId' = ${nodeId}`,
+          ),
+        )
+        .limit(1);
+      if (existing) return existing.id;
+      const [row] = await tx
+        .insert(inboxItem)
+        .values({
+          tenantId: run.tenantId,
+          kind: "request",
+          agentId: run.agentId,
+          subjectType: "run",
+          subjectId: run.id,
+          runId: run.id,
+          ...(await personAssignee(tx, run, first)),
+          title: text.slice(0, 200),
+          payload: {
+            nodeId,
+            mode: "ask",
+            question: "Seen?",
+            notice: { text, channel, urgent: true },
+            sources,
+            ...(run.mode === "test" ? { testRun: true } : {}),
+          },
+          dueAt: new Date(urgent.dueAt),
+        })
+        .returning({ id: inboxItem.id });
+      if (!row) throw new Error("inbox item insert returned nothing");
+      return row.id;
+    });
+    return { ackItemId };
+  };
+
+  // DECISION: a deadline's `tell` is a `review` item for each person or role it names (the
+  // operator's as `notifyOperator` makes it), saying what passed; a test run's tell only us.
+  port.tell = async ({ run, nodeId, to, inboxItemId, reason }) => {
+    const told = run.mode === "test" ? ["operator"] : [...new Set(to)];
+    await withTenant(db, run.tenantId, async (tx) => {
+      for (const who of told) {
+        const assignee =
+          who === "operator"
+            ? { assigneeRole: "operator" as const, assigneeUserId: null }
+            : await personAssignee(tx, run, who);
+        await tx.insert(inboxItem).values({
+          tenantId: run.tenantId,
+          kind: "review",
+          agentId: run.agentId,
+          runId: run.id,
+          ...assignee,
+          title: reason.slice(0, 200),
+          payload: {
+            nodeId,
+            inboxItemId,
+            reason,
+            told: who,
+            ...(run.mode === "test" ? { testRun: true } : {}),
+          },
+        });
+      }
+    });
+  };
+  return port;
 }
