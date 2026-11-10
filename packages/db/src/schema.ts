@@ -142,6 +142,85 @@ export const appUser = pgTable("app_user", {
   createdAt: createdAt(),
 });
 
+// ── A person's second factor (docs/plan.md §1.83) ─────────────────────────────────────────────────
+// Per person, not per client: row-level security on `app.user_id` (the person signing in, set by
+// withUser) or an operator session (resets, Claude connection approvals). Twilio Verify holds every
+// code and authenticator secret; these rows only say which methods a person has.
+
+export const SECOND_FACTOR_KINDS = ["totp", "sms", "whatsapp"] as const;
+
+export const userFactor = pgTable(
+  "user_factor",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => appUser.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<(typeof SECOND_FACTOR_KINDS)[number]>().notNull(),
+    /** E.164, for `sms` and `whatsapp`. */
+    phone: text("phone"),
+    /** Twilio Verify's TOTP factor (`YF…`), for `totp`. */
+    twilioFactorSid: text("twilio_factor_sid"),
+    /** Null while being set up: the first code proves it. */
+    verifiedAt: ts("verified_at"),
+    lastUsedAt: ts("last_used_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("user_factor_user_kind_key").on(t.userId, t.kind),
+    check("user_factor_kind_check", oneOf(t.kind, SECOND_FACTOR_KINDS)),
+    check(
+      "user_factor_shape_check",
+      sql`(${t.kind} = 'totp' and ${t.twilioFactorSid} is not null and ${t.phone} is null)
+        or (${t.kind} in ('sms', 'whatsapp') and ${t.phone} is not null and ${t.twilioFactorSid} is null)`,
+    ),
+  ],
+);
+
+/** One-time recovery codes, as HMACs; a used one keeps its row with `used_at`. */
+export const userRecoveryCode = pgTable(
+  "user_recovery_code",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => appUser.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull(),
+    usedAt: ts("used_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("user_recovery_code_user_idx").on(t.userId)],
+);
+
+/**
+ * A Claude connection to the Ops MCP server (§1.34), tied to its AuthKit session: refused until an
+ * operator who passed the second step in the browser approves it with the link's code.
+ */
+export const mcpSessionApproval = pgTable(
+  "mcp_session_approval",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => appUser.id, { onDelete: "cascade" }),
+    /** AuthKit's session id (`sid` in the access token). */
+    workosSessionId: text("workos_session_id").notNull(),
+    /** HMAC of the approval link's code. */
+    codeHash: text("code_hash").notNull(),
+    approvedAt: ts("approved_at"),
+    /** The link stops working, or the approval ends, at this time. */
+    expiresAt: ts("expires_at").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("mcp_session_approval_session_key").on(t.workosSessionId, t.userId),
+    unique("mcp_session_approval_code_key").on(t.codeHash),
+  ],
+);
+
+/** Global tables keyed by person, readable by that person (`app.user_id`) or an operator session. */
+export const USER_TABLES = ["user_factor", "user_recovery_code", "mcp_session_approval"] as const;
+
 // ── Tenant tables ────────────────────────────────────────────────────────────────────────────────
 
 const tenantId = () =>
