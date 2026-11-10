@@ -52,6 +52,7 @@ const AGE: SkillDefinition = {
   rules: [
     {
       id: "not_due",
+      when: { match: "all", rules: [] },
       name: "Not due yet",
       conditions: [{ left: { input: "dueDate" }, op: ">", right: { today: true } }],
       set: { bucket: "Not due", daysOverdue: 0 },
@@ -59,6 +60,7 @@ const AGE: SkillDefinition = {
     },
     {
       id: "aged",
+      when: { match: "all", rules: [] },
       name: "Aged",
       compute: {
         daysOverdue: { daysBetween: { from: { input: "dueDate" }, to: { today: true } } },

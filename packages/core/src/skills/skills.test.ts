@@ -69,6 +69,7 @@ const AGING = [
 const agingRows: SkillRule[] = [
   {
     id: "not_due",
+    when: { match: "all", rules: [] },
     name: "Not due yet",
     conditions: [{ left: { input: "dueDate" }, op: ">", right: { today: true } }],
     set: { bucket: "Not due" },
@@ -76,6 +77,7 @@ const agingRows: SkillRule[] = [
   },
   {
     id: "aged",
+    when: { match: "all", rules: [] },
     name: "Aged by the agent's buckets",
     compute: {
       daysOverdue: { daysBetween: { from: { input: "dueDate" }, to: { today: true } } },
@@ -353,19 +355,34 @@ describe("the skill definition: parameters and rule rows", () => {
 
   it("a deterministic skill without code needs rule rows", () => {
     expect(rulesSkill({}).success).toBe(false);
-    expect(rulesSkill({ rules: [{ id: "a", set: { x: 1 } }] }).success).toBe(true);
+    expect(
+      rulesSkill({ rules: [{ id: "a", when: { match: "all", rules: [] }, set: { x: 1 } }] })
+        .success,
+    ).toBe(true);
   });
 
   it("refuses a row that sets nothing, or sets a field twice", () => {
-    expect(rulesSkill({ rules: [{ id: "a" }] }).success).toBe(false);
+    expect(rulesSkill({ rules: [{ id: "a", when: { match: "all", rules: [] } }] }).success).toBe(
+      false,
+    );
     expect(
-      rulesSkill({ rules: [{ id: "a", set: { x: 1 }, compute: { x: { value: 2 } } }] }).success,
+      rulesSkill({
+        rules: [
+          {
+            id: "a",
+            when: { match: "all", rules: [] },
+            set: { x: 1 },
+            compute: { x: { value: 2 } },
+          },
+        ],
+      }).success,
     ).toBe(false);
   });
 
   it("refuses a row naming a parameter the skill lacks, or bucketing by a number", () => {
     const row = {
       id: "a",
+      when: { match: "all", rules: [] },
       compute: { b: { bucket: { value: { input: "days" }, by: "aging" } } },
     };
     expect(rulesSkill({ rules: [row] }).success).toBe(false);
@@ -382,7 +399,7 @@ describe("the skill definition: parameters and rule rows", () => {
   it("checks a parameter's default against its type, and buckets for order and overlap", () => {
     expect(
       rulesSkill({
-        rules: [{ id: "a", set: { x: 1 } }],
+        rules: [{ id: "a", when: { match: "all", rules: [] }, set: { x: 1 } }],
         parameters: [{ name: "n", label: "N", type: "number", default: "5" }],
       }).success,
     ).toBe(false);
@@ -459,7 +476,13 @@ describe("kinds: deterministic or AI", () => {
     ]);
     expect(newSkillVersionProblems(task, TOOLS)).toEqual([]);
     expect(
-      newSkillVersionProblems({ ...code("docs.get"), rules: [{ id: "a", set: { x: 1 } }] }, TOOLS),
+      newSkillVersionProblems(
+        {
+          ...code("docs.get"),
+          rules: [{ id: "a", when: { match: "all", rules: [] }, set: { x: 1 } }],
+        },
+        TOOLS,
+      ),
     ).toEqual(["A deterministic skill runs its rule rows or its built-in code, not both."]);
   });
 });

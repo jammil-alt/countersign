@@ -974,8 +974,13 @@ function checkSkillStep(c: Checker, step: Extract<Step, { kind: "skill" }>, scop
   }
   if (skill) checkInput(c, step.id, step.input, skill.input, scope);
   // Skill model (2026-11-10): a new step uses a deterministic or an AI skill, never a retired kind.
+  // DECISION: held to operator-written skills (`custom:`) only. The platform's own agent-mode
+  // built-ins (Sloan's, the supervisor's, the packs' templates') are still installed from code,
+  // with new steps in their seeded versions; they are left off the builder's palette instead, and
+  // their split into AI skills and write steps is a later stream's.
   const retired = skill ? retiredSkillReason(skill) : null;
-  if (retired && ctx.existingStepIds && !ctx.existingStepIds.has(step.id)) {
+  const operatorSkill = parseSkillRef(step.skill).id.startsWith("custom:");
+  if (retired && operatorSkill && ctx.existingStepIds && !ctx.existingStepIds.has(step.id)) {
     c.add(step.id, "skill", "skill_retired", retired);
   }
   checkStepModel(c, step, skill);

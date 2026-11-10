@@ -96,14 +96,14 @@ export const SkillRuleId = z
 // Skill model (2026-11-10): a row may also hold typed `conditions` (input fields, parameters and
 // today's date compared, between, in a list, days between two dates) and `compute` its outputs
 // (a copied field, a sum, a difference, a percent change, a parameter's bucket). Still data: no
-// code and no template that executes. `when` and `set` stay as they were, now optional, so stored
-// rows parse unchanged.
+// code and no template that executes. `when` stays required (empty rules hold always) and `set` is
+// now optional, so stored rows parse unchanged.
 export const SkillRule = z
   .strictObject({
     id: SkillRuleId,
     name: z.string().max(200).optional(),
-    /** Plain rules over `{{input.…}}`, `{{parameters.…}}` and `{{today}}`; absent holds always. */
-    when: Rules.optional(),
+    /** Plain rules over `{{input.…}}`, `{{parameters.…}}` and `{{today}}`; empty holds always. */
+    when: Rules,
     /** Typed conditions, all of which must hold (with `when`). */
     conditions: z.array(SkillCondition).max(20).optional(),
     /** Output fields set to fixed values. */

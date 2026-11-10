@@ -891,7 +891,7 @@ export const BuilderCatalog = z.object({
    * read or write step (those the retired tool-wrapper skills wrapped). The palette offers these,
    * not the wrappers, which are no longer in `skills` unless the agent already uses one.
    */
-  stepTools: z.array(z.string()).default([]),
+  stepTools: z.array(z.string()).optional(),
   // v0.12 W2-B: the automations a use step can pin (live versions, and those the agent pins).
   automations: z.array(BuilderAutomation).default([]),
 });

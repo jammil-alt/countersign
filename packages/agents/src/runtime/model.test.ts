@@ -57,7 +57,11 @@ describe("operator skills", () => {
     ).toBe("task");
     const { instructions: _i, ...plain } = base;
     expect(
-      parseOperatorSkill({ ...plain, mode: "tool", rules: [{ id: "a", set: { x: 1 } }] }).mode,
+      parseOperatorSkill({
+        ...plain,
+        mode: "tool",
+        rules: [{ id: "a", when: { match: "all", rules: [] }, set: { x: 1 } }],
+      }).mode,
     ).toBe("tool");
     expect(() => parseOperatorSkill({ ...base, mode: "agent" })).toThrow(/write step/);
     expect(
@@ -69,7 +73,7 @@ describe("operator skills", () => {
         mode: "task",
         method: "rules_then_ai",
         model: { id: "claude-haiku-5-5" },
-        rules: [{ id: "a", set: { x: 1 } }],
+        rules: [{ id: "a", when: { match: "all", rules: [] }, set: { x: 1 } }],
       }),
     ).toThrow(/two skills/);
   });
