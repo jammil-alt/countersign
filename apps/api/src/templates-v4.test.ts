@@ -181,9 +181,27 @@ describe("R2: the skills the latest seeds and templates name", () => {
 
   // DECISION (R2): every tool-mode built-in only wraps its tool, so `isToolWrapper` is the mark the
   // builder and the Library read a retired skill by; no field of its own is needed.
+  // Skill model (2026-11-10): the splits' built-in code skills (Check totals, Look up existing,
+  // Check matches, Compare to historicals) are tool mode too, and list their handler in `tools`,
+  // which is what tells them from a wrapper; they stay in the Library.
   it("mark every tool-mode skill as retired by `isToolWrapper`, and nothing else", () => {
     const builtins = platform.catalog.list();
-    expect(builtins.filter((s) => s.mode === "tool")).toEqual(builtins.filter(isToolWrapper));
+    const code = (s: (typeof builtins)[number]) =>
+      s.handler !== undefined && s.tools.includes(s.handler);
+    expect(builtins.filter((s) => s.mode === "tool" && !code(s))).toEqual(
+      builtins.filter(isToolWrapper),
+    );
+    expect(
+      builtins
+        .filter((s) => s.mode === "tool" && code(s))
+        .map((s) => s.id)
+        .sort(),
+    ).toEqual([
+      "docs.check-totals",
+      "materials.check-matches",
+      "materials.compare-prices",
+      "materials.lookup-existing",
+    ]);
   });
 });
 

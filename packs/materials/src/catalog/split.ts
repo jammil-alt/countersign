@@ -248,6 +248,9 @@ export function checkMatches(
   return lines.map((line) => checkLine(line, byLine.get(line.lineNo), threshold));
 }
 
+// DECISION: Check matches keeps every rule of match_line and adds two: the model may match only a
+// candidate Look up existing offered, and a new item needs every required key attribute stated
+// (with what the model read). A vetoed answer's confidence is capped at VETOED_CONFIDENCE.
 function checkLine(
   line: LookedUpLine,
   answer: MatchAnswer | undefined,

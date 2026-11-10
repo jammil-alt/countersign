@@ -3520,6 +3520,84 @@ builder catalog without tool wrappers, and `POST /api/ops/agents/:id/skill-move`
   supervisor's, the packs' AI templates' skills); they keep running as stored, and their split into
   AI skills plus write steps is a later stream's.
 
+**Skill model (2026-11-10): the splits** (Wave B, branch `skills/splits`). The hidden AI split into
+Deterministic and AI skills, and writes moved out of skills into write steps. New built-ins with new
+ids (the old ones stay registered and unchanged for stored agents, their hashes pinned; 123
+built-ins, 92 wrappers): `docs.read-document` (AI) and `docs.check-totals`;
+`materials.lookup-existing`, `materials.match-unmatched` (AI), `materials.check-matches`,
+`materials.compare-prices`, `materials.read-quote-document` (AI), `materials.choose-merges` (AI);
+`bookkeeping.propose-accounts`, `bookkeeping.suggest-matches`, `bookkeeping.read-statement-document`
+(AI); `marketing.write-report`, `-titles`, `-article`, `-forum-reply`, `-post` (AI). New tools:
+`docs.totals.check` (read), `docs.reading.record` (Save to records), `materials.lines.lookup`,
+`materials.matches.check`, `materials.prices.compare` (reads), `materials.matches.record` (Save to
+records). Step patterns for the template stream: `vendorInvoiceProcess`, `readInvoiceSteps`,
+`matchLinesSteps`, `priceSteps`, `readQuoteSteps`, `reviewMergeSteps` (Materials),
+`categorizeSteps`, `leftoverSteps` (Bookkeeping), `weeklyReportSteps`, `forumReplySteps`,
+`socialPostSteps` (Marketing). No migration.
+- // DECISION: an AI skill reads a document through its input: a field marked `x-document: true`
+  names one of the client's documents, and the runtime attaches its file (a PDF as a `document`
+  block, an image as an `image` block) before the input JSON, as data (invariant 9), through the
+  run's documents port (one client, invariant 1). Only `task` skills attach; a field left empty
+  attaches nothing; a document that can't be read fails the step in plain words.
+- // DECISION: an AI skill reads a document whole, in one call: a PDF over 100 pages (or 22 MB) is
+  refused with a pointer to `docs.extract`, which still reads long PDFs in parts.
+- // DECISION: "Save to records: the reading" (`docs.reading.record`) writes the extraction exactly
+  as `docs.extract` does (shared `writeReading`), with `model` the skill that read it and tokens and
+  cost 0 (the model call is the Read document step's, counted there once). Totals that don't add up
+  mark the document `needs_review` but raise no inbox item: the process routes it (If, then a
+  person).
+- // DECISION: a built-in deterministic code skill lists its handler in `tools` too, which tells it
+  from a tool wrapper (`isToolWrapper`: a handler and no tools): it stays in the Library and the
+  palette, and `isToolWrapper` keeps meaning the 92 skills that are only a tool.
+- // DECISION: a built-in code skill's parameters reach its handler with its settings
+  (`ctx.settings`, a parameter over a setting of the same name), so Check matches' threshold and
+  Compare to historicals' price rules are parameters.
+- // DECISION: an AI skill's declared `reads` are tools its model may call (retrieval); an AI
+  (`task`) skill's model is offered only the agent's extra tools that read, never one that writes
+  (agent-mode skills keep them all, gated as before).
+- // DECISION: Match the unmatched names lines by their number on the document (`lineNo`), not
+  their id: a shorter request, and the same request (so the same recorded answer) for the same
+  document. Check matches maps the answers back by `lineNo`.
+- // DECISION: Check matches keeps every rule of `match_line` and adds two: the model may match only
+  a candidate Look up existing offered, and a new item needs every required attribute (the model's
+  reading fills only attributes the parsers left unstated, never changes a stated one). A vetoed
+  answer's confidence is capped at 0.5; below the threshold (`match_confidence_auto`, 0.90) a person
+  decides. In category `other` there are no key attributes to veto on (the golden set's two worst-
+  case false positives are freight and fuel surcharge lines).
+- // DECISION: Look up existing recalls a line already decided (as `match_lines`), and Save to records
+  skips a line whose latest decision is matched or new item, so a retried step adds nothing.
+- // DECISION: retrieval is the catalog's trigram search (`materials.catalog.search`); there is no
+  vector search: `catalog_item.embedding` exists but nothing writes it.
+- // DECISION: Compare to historicals is the price check run as a test reading (it records nothing);
+  the alerts are then raised by a write step calling `materials.prices.check`, which works them out
+  again from the recorded prices (a step's output never becomes an alert's content).
+- // DECISION: `materials.match_lines` declares `usesModel` (it matches each line as `match_line`
+  does): undeclared, the core stream's pack adapter handed it no model, so every close call went to
+  review. A source-scan test (`apps/api/src/model-tools.test.ts`) inventories each file of tool
+  code that reaches a model and checks the declarations match it, both ways.
+- // DECISION: the matching golden set runs through the chain pairwise (the line, and the one item it
+  could be): Look up existing decides exactly what the old rules did, and the chain holds 95%
+  precision on "same" with a model that always says matched (97.1%), one never sure (100%, the old
+  result) and one that agrees with the labels (100%). Those answers are written by hand. The model
+  skills' own requests replay hand-written, provider-shaped answers (`fixtures/llm`, marked
+  `handWritten`): no API key here.
+- // DECISION: the patterns are code (functions returning v4 steps with fixed ids and an optional
+  prefix), not stored automations: the template stream copies them into templates, and apps/api's
+  `skill-splits.test.ts` validates each against the platform's registries.
+- // DECISION: the platform's agent-mode built-ins are documented, not rebuilt here: Sloan's
+  `account.chat` is a conversation (it stays one); `supervisor.triage`, `writing.draft-in-voice` and
+  `qbo.map-invoice-lines` write nothing (each becomes an AI task skill over read steps when its
+  template moves: for the Bill clerk, reads → Map lines (AI) → `docs.bill_lines` (a read) →
+  Change in QuickBooks: `qbo.bill.update_lines`, approval on).
+- Open question: the builder catalog's `stepTools` lists only tools a wrapper wrapped, so the new
+  tools (`docs.reading.record`, `materials.matches.record`, `materials.lines.lookup`, …) aren't
+  offered as read or write steps in the palette; `stepTools` should list every non-hidden platform
+  and pack tool that isn't a conversation's or a reach-out's handler.
+- Open question: whether an AI skill should read a PDF over 100 pages in parts (several calls,
+  merged as `docs.extract` does) rather than refuse it.
+- Open question: whether a model match in category `other` (no key attributes) should always go to
+  a person.
+
 ### 1.87 BILL connector (owner: "bill.com integrated", 2026-11-10; no migration)
 
 Connector `billcom` in `packages/connectors/src/billcom/` against a fake (`fakeBillcom` in

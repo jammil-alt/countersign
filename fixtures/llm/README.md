@@ -44,6 +44,15 @@ WRITE_SKILL_FIXTURES=1 COUNTERSIGN_REQUIRE_DB=1 \
   pnpm --filter @countersign/agents exec vitest run src/log/docs-split.test.ts
 ```
 
+The `materials.match-unmatched` answer for the same golden invoice (apps/api's
+`skill-splits.test.ts`, the whole "Process a vendor invoice" pattern) is hand-written the same way:
+each open line matched to its first candidate at 0.95. Rebuild it with:
+
+```sh
+WRITE_SKILL_FIXTURES=1 COUNTERSIGN_REQUIRE_DB=1 \
+  pnpm --filter @countersign/api exec vitest run src/skill-splits.test.ts
+```
+
 ## xAI and Gemini (hand-written, in each provider's own format)
 
 `providers/xai/*.json` and `providers/gemini/*.json` are answers as xAI's Responses API and the

@@ -11,6 +11,9 @@ import type { DocumentsPort } from "../tools/types";
 
 export type AttachedBlock = ReturnType<typeof documentBlock>;
 
+// DECISION: a document reaches an AI skill through its input: a top-level field marked
+// `x-document: true` in the input schema (a JSON Schema extension keyword, so no stored skill
+// changes and the field stays a plain id for typing); only task skills attach.
 /** The top-level input fields an AI skill marks as documents (`x-document: true`). */
 export function documentInputFields(def: Pick<SkillDefinition, "input">): string[] {
   const props = (def.input as JsonSchema & { properties?: Record<string, unknown> }).properties;
