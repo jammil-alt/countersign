@@ -118,6 +118,7 @@ import {
   updateStep,
   workflowCounts,
 } from "./model";
+import { addRouteAfter } from "./outcomes";
 import { type Member, type People, personName } from "./people";
 import { useClientScriptTools } from "./scripts";
 
@@ -1111,6 +1112,10 @@ function BuilderBody(
                       setSelection(null);
                     }}
                     onDelete={remove}
+                    // Wave 5: the step stays selected, so its inspector says what was set.
+                    onAddRoute={(id, option) =>
+                      edit((w) => addRouteAfter(w, id, option)?.process ?? w)
+                    }
                   />
                 </div>
               ) : null}

@@ -8,6 +8,7 @@ import { type ReactNode, useId, useState } from "react";
 import { cx } from "../../ui/primitives";
 import { Select, TextArea, TextInput } from "../agents/ui";
 import { eventKind, TRIGGER_KINDS, whenEvent } from "../workflow/labels";
+import type { PickPath } from "./outcomes";
 
 type Schema = Record<string, unknown>;
 
@@ -76,7 +77,10 @@ export function TemplateInput({
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const listId = useId();
-  const shown = paths.filter((p) => p.path.toLowerCase().includes(filter.toLowerCase()));
+  const f = filter.toLowerCase();
+  const shown = (paths as readonly PickPath[]).filter(
+    (p) => p.path.toLowerCase().includes(f) || (p.label?.toLowerCase().includes(f) ?? false),
+  );
   const insert = (path: string) => {
     onChange(`${value}{{${path}}}`);
     setOpen(false);
@@ -147,7 +151,15 @@ export function TemplateInput({
                     onClick={() => insert(p.path)}
                     className="flex w-full items-baseline justify-between gap-2 rounded-sm px-1.5 py-1 text-left hover:bg-surface-subtle"
                   >
-                    <span className="truncate reference text-ink">{p.path}</span>
+                    {/* Wave 5: how an earlier step ended, in words, its path under it. */}
+                    {p.label ? (
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate text-sm text-ink">{p.label}</span>
+                        <span className="truncate reference text-xs text-ink-muted">{p.path}</span>
+                      </span>
+                    ) : (
+                      <span className="truncate reference text-ink">{p.path}</span>
+                    )}
                     <span className="shrink-0 text-xs text-ink-muted">{typeLabel(p.schema)}</span>
                   </button>
                 </li>

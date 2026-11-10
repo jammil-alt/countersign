@@ -21,7 +21,7 @@ import {
   type TypingContext,
   triggerOnSchema,
 } from "@countersign/core";
-import { type ReactNode, useEffect, useMemo, useRef } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { Icon } from "../../ui/icons";
@@ -53,6 +53,7 @@ import {
   type Process,
   type Step,
 } from "./model";
+import { labelPaths, outcomeRules, type RouteOption, routeOptions, takesOnError } from "./outcomes";
 import { type People, PersonPicker } from "./people";
 import { ReachOutFields } from "./ReachOutFields";
 import { RulesEditor } from "./rules";
@@ -90,6 +91,8 @@ export interface InspectorProps {
   onAddTrigger(on: TriggerOn): void;
   onRemoveTrigger(id: string): void;
   onDelete(id: string): void;
+  /** Wave 5: put an `if` right after the step, routed on how it ended ("Add a route for this"). */
+  onAddRoute?(stepId: string, option: RouteOption): void;
 }
 
 function errorsFor(errors: readonly BuilderProblem[], node: string): FieldErrors {
@@ -228,8 +231,9 @@ type SetStep = (key: string, fn: (s: Step) => Step) => void;
 function StepInspector(props: InspectorProps & { step: Step }) {
   const { step, workflow, errors, onStep, onDelete, ctx } = props;
   const fieldErrors = errorsFor(errors, step.id);
+  // Wave 5: earlier steps' outcomes come with their words ("Approve the bill: how it ended").
   const paths = useMemo(
-    () => processes.processPathsAt(workflow, step.id, ctx),
+    () => labelPaths(workflow, processes.processPathsAt(workflow, step.id, ctx)),
     [workflow, step.id, ctx],
   );
   const set: SetStep = (key, fn) => onStep(step.id, fn, `${step.id}:${key}`);
@@ -276,18 +280,31 @@ function StepInspector(props: InspectorProps & { step: Step }) {
           data={props.data}
           errors={fieldErrors}
           pathsBefore={(confer) =>
-            processes.processPathsAt(workflow, step.id, ctx, {
-              own: processes.outputBeforeChecks(step, ctx),
-              confer,
-            })
+            labelPaths(
+              workflow,
+              processes.processPathsAt(workflow, step.id, ctx, {
+                own: processes.outputBeforeChecks(step, ctx),
+                confer,
+              }),
+            )
           }
-          pathsAfter={processes.processPathsAt(workflow, step.id, ctx, {
-            own: true,
-            confer: step.checks?.confer?.with.length ?? 0,
-          })}
+          pathsAfter={labelPaths(
+            workflow,
+            processes.processPathsAt(workflow, step.id, ctx, {
+              own: true,
+              confer: step.checks?.confer?.with.length ?? 0,
+            }),
+          )}
         />
       )}
-      {LOGIC.has(step.kind) ? null : <TimelineSection step={step} set={set} />}
+      {takesOnError(step) ? <OnErrorSection step={step} set={set} /> : null}
+      {props.onAddRoute ? (
+        <RoutesSection step={step} onAdd={(option) => props.onAddRoute?.(step.id, option)} />
+      ) : null}
+      {/* Wave 5: an if may be shown to the client too, with the route it took and why. */}
+      {LOGIC.has(step.kind) && step.kind !== "if" ? null : (
+        <TimelineSection step={step} set={set} />
+      )}
 
       <div className="flex justify-end border-t border-line pt-4">
         {step.kind === "if" ? null : (
@@ -702,6 +719,99 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+// ── Forks on how a step ended (wave 5) ───────────────────────────────────────────────────────────
+
+/** "If this step fails": stop the run (the default, the field left out) or carry on. */
+function OnErrorSection({ step, set }: { step: Step; set: SetStep }) {
+  return (
+    <Section title="If this step fails">
+      <SmallSelect
+        aria-label="If this step fails"
+        data-field="onError"
+        data-testid="builder-on-error"
+        value={step.onError === "continue" ? "continue" : "fail"}
+        onChange={(e) =>
+          set("onError", (s) => {
+            const { onError: _old, ...rest } = s;
+            // Stopping is the default: the field is left out, as a step that never said it.
+            return (
+              e.target.value === "continue" ? { ...rest, onError: "continue" } : rest
+            ) as Step;
+          })
+        }
+      >
+        <option value="fail">Stop the run (default)</option>
+        <option value="continue">Carry on</option>
+      </SmallSelect>
+      <p className="text-xs text-ink-muted">
+        {step.onError === "continue"
+          ? "The run goes on and a later if can route on “failed”. A change that didn't go through is never tried again on its own, and approvals stay as they are."
+          : "A failure ends the run here, as always."}
+      </p>
+    </Section>
+  );
+}
+
+/**
+ * The outcomes later steps can route on, each with "Add a route for this": an `if` right after the
+ * step. A route that needs the step to go on (an approval's "if rejected", "if nobody answers",
+ * "if this step fails") sets that, and the inspector says so; approval stays on.
+ */
+function RoutesSection({ step, onAdd }: { step: Step; onAdd(option: RouteOption): void }) {
+  const options = routeOptions(step);
+  const [added, setAdded] = useState<{ name: string; change: RouteOption["change"] } | null>(null);
+  if (options.length === 0) return null;
+  const now = options.filter((o) => o.change === null);
+  return (
+    <Section title="Routes after this step">
+      <p className="text-sm text-ink" data-testid="builder-routes-now">
+        {now.length > 0
+          ? `Later steps can route on: ${now.map((o) => o.label).join(", ")}.`
+          : "As set up, the run stops before a later step could see how this one ended. Each route below sets what it needs."}
+      </p>
+      {added ? (
+        <div className="ds-banner flex-col gap-1 text-sm" data-testid="builder-route-added">
+          <p>Added “If {added.name.toLowerCase()}” right after this step. Add its steps there.</p>
+          {added.change ? (
+            <p data-testid="builder-route-added-change">
+              {added.change.setting}: {added.change.says}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      <ul className="flex flex-col gap-1.5">
+        {options.map((o) => (
+          <li
+            key={o.key}
+            className="flex items-start justify-between gap-2"
+            data-testid={`builder-route-${o.key}`}
+          >
+            <span className="flex min-w-0 flex-col text-sm">
+              <span className="text-ink">{o.label}</span>
+              {o.change ? (
+                <span className="text-xs text-ink-muted">
+                  Sets {o.change.setting.toLowerCase()}
+                </span>
+              ) : null}
+            </span>
+            <Button
+              variant="ghost"
+              data-testid={`builder-route-${o.key}-add`}
+              onClick={() => {
+                onAdd(o);
+                setAdded({ name: o.pathName, change: o.change });
+              }}
+            >
+              <Icon name="add" />
+              Add a route for this
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
 // ── Client timeline ──────────────────────────────────────────────────────────────────────────────
 
 function TimelineSection({ step, set }: { step: Step; set: SetStep }) {
@@ -755,6 +865,8 @@ function IfEditor(
   },
 ) {
   const { step, paths, set, errors, onDelete } = props;
+  // Wave 5: "Approve the bill: was rejected" in one pick.
+  const quick = useMemo(() => outcomeRules(paths), [paths]);
   const setPaths = (key: string, fn: (paths: IfPath[]) => IfPath[]) =>
     set(key, (s) => (s.kind === "if" ? { ...s, paths: fn(s.paths) } : s));
   const setPath = (id: string, key: string, fn: (p: IfPath) => IfPath) =>
@@ -805,6 +917,7 @@ function IfEditor(
             <RulesEditor
               rules={p.when}
               paths={paths}
+              quick={quick}
               errors={pathErrors}
               prefix="when"
               testPrefix={`builder-path-${p.id}`}
@@ -864,7 +977,8 @@ function IfEditor(
       </div>
       <p className="text-xs text-ink-muted">
         Fields come from earlier steps' outputs and the trigger, such as a total, a vendor or a
-        person's answer.
+        person's answer, and from how earlier steps ended: rejected, nobody answered, found nothing,
+        failed.
       </p>
     </div>
   );
