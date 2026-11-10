@@ -210,6 +210,25 @@ export interface ExternalActionRecord {
   // v0.12 W1-D: the signer's edit before signing (ARCHITECTURE §11.1). `input` stays the agent's;
   // execution uses the edit when there is one.
   editedInput?: JsonObject | null;
+  // R5 (docs/plan.md §1.86, §9): the record as the write left it, read with the tool's own `before`
+  // right after writing, so an undo can tell whether anyone changed it since. Absent or null: not
+  // kept (the store doesn't keep it, the tool can't be taken back, or the read failed).
+  after?: unknown;
+}
+
+/** R5: a person's undo of a done write, recorded approved by them (ExternalActionStore.proposeUndo). */
+export interface ProposeUndoInput {
+  /** The write being taken back. */
+  original: ExternalActionRecord;
+  /** The tool that takes it back: the write's own (restore) or its declared reverse. */
+  tool: string;
+  input: JsonObject;
+  /** The record as it is now, read right before the undo (what the undo replaces). */
+  before: unknown;
+  /** The person whose press approves it. */
+  approvedBy: string;
+  /** The undo's own key (`undoKey(original.id)`): one undo per write. */
+  idempotencyKey: string;
 }
 
 export interface ProposeActionInput {
@@ -263,8 +282,24 @@ export interface ExternalActionStore {
   complete(
     tenantId: string,
     actionId: string,
-    result: { output: unknown; before: unknown },
+    // R5: `after`, the record as the write left it, where the store keeps it (`keepsAfter`).
+    result: { output: unknown; before: unknown; after?: unknown },
   ): Promise<ExternalActionRecord>;
+  /**
+   * R5: whether `complete` keeps the after state. Only then does a write read its record again
+   * after writing (one more read of the client's tool), since an undo needs it to run.
+   */
+  keepsAfter?: boolean;
+  /**
+   * R5: records a person's undo of a done write as an approved action under its own key
+   * (`input.idempotencyKey`), no run and no agent (a person's write, like a signed write), unless
+   * one exists under that key: then that one is returned unchanged, so a second press never
+   * writes twice. Absent: this store records no undo.
+   */
+  proposeUndo?(
+    tenantId: string,
+    input: ProposeUndoInput,
+  ): Promise<{ action: ExternalActionRecord; created: boolean }>;
   /**
    * Marks the action failed. With `inbox`, an item for a person to look at is opened in the same
    * transaction (a write that may have happened: UnconfirmedWriteError).

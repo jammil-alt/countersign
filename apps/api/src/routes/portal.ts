@@ -652,6 +652,8 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
       body,
       registry: services.platform.events,
       collect,
+      // R5: a late no is offered an undo when its write's tool says how.
+      tools: services.platform.tools,
     });
     const { resume } = outcome;
     if (resume) {

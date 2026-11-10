@@ -4,17 +4,26 @@
 
 import {
   bindingKeyFor,
+  type ConnectionRef,
+  type Connector,
   captureBefore,
   executeWrite,
+  ToolCallError,
+  type ToolHandler,
   UnconfirmedWriteError,
 } from "@countersign/connectors";
 import {
+  canonicalJson,
   decideToolCall,
   editablePaths,
   editProblem,
   grantAllowsTool,
+  isPlainObject,
   type JsonObject,
+  type JsonValue,
+  processes,
   releaseOf,
+  type ToolSpec,
 } from "@countersign/core";
 import { AgentsError, notFound } from "../errors";
 import { noteReconnect } from "./attention";
@@ -137,9 +146,14 @@ export async function executeAction(
         proposedBefore: action.before,
       },
     );
+    // R5: the record as this write left it, for an undo to check that nobody changed it since.
+    const after = actions.keepsAfter
+      ? await readAfter(deps, input.tenantId, own, conn, action)
+      : undefined;
     const done = await actions.complete(input.tenantId, action.id, {
       output: written.output,
       before: written.before,
+      ...(after === undefined ? {} : { after }),
     });
     return { status: "done", action: done, output: written.output, summary: written.summary };
   } catch (error) {
@@ -238,25 +252,14 @@ export async function checkEditedInput(
   if (own?.kind !== "connector") {
     return { ok: false, code: "refused", message: "the connection is gone" };
   }
-  const grant = await deps.ports.store.grant(tenantId, owner.agentId, conn.id);
-  // DECISION: the gate is asked again with the strictest mode: an edit can't make a change run
-  // without its signature, only show whether the connection or grant now refuses the tool.
-  const decision = decideToolCall({
-    sideEffect: tool.spec.sideEffect,
-    verb: tool.spec.verb,
-    matrix: conn.permissions,
-    grant,
-    agentMode: "suggest_only",
-    // v0.12 W2-A: the edited input's entity and scope count too.
-    entity: {
-      tool: own.spec,
-      input: edited,
-      declared: own.connector.manifest.permissionEntities,
-    },
+  const refused = await signedGateRefusal(deps, tenantId, {
+    spec: own.spec,
+    connector: own.connector,
+    conn,
+    agentId: owner.agentId,
+    input: edited,
   });
-  if (!grantAllowsTool(grant, tool.spec.id) || decision === "refused") {
-    return { ok: false, code: "refused", message: `${tool.spec.verb} is off for this change now` };
-  }
+  if (refused) return { ok: false, code: "refused", message: refused };
   try {
     const captured = await captureBefore(
       own.connector,
@@ -267,5 +270,340 @@ export async function checkEditedInput(
     return { ok: true, input: captured.input as JsonObject, before: captured.before };
   } catch (error) {
     return { ok: false, code: "invalid_input", message: message(error) };
+  }
+}
+
+/**
+ * Why the gate refuses a write a person signs (an edit before signing, an undo), or null. Asked
+ * with the strictest mode: a person's signature never lets a change through a connection or grant
+ * that is off for it, and the gate is never asked whether it may run unsigned.
+ */
+// DECISION: shared by the edit before signing (v0.12 W1-D) and R5's undo, so both read the
+// connection's matrix, the agent's grant and the entity's level the same way. A write with no
+// agent (a signed write's undo) has no grant to narrow it.
+async function signedGateRefusal(
+  deps: RuntimeDeps,
+  tenantId: string,
+  call: {
+    spec: ToolSpec;
+    connector: Connector;
+    conn: ConnectionRef;
+    agentId: string | null;
+    input: unknown;
+  },
+): Promise<string | null> {
+  const { spec, conn } = call;
+  const grant = call.agentId ? await deps.ports.store.grant(tenantId, call.agentId, conn.id) : null;
+  const decision = decideToolCall({
+    sideEffect: spec.sideEffect,
+    verb: spec.verb,
+    matrix: conn.permissions,
+    grant,
+    agentMode: "suggest_only",
+    // v0.12 W2-A: the input's entity and scope count too.
+    entity: {
+      tool: spec,
+      input: call.input,
+      declared: call.connector.manifest.permissionEntities,
+    },
+  });
+  if (!grantAllowsTool(grant, spec.id) || decision === "refused") {
+    return `${spec.verb} is off for this change now`;
+  }
+  return null;
+}
+
+// ── R5: undo (docs/plan.md §1.86, §9; ARCHITECTURE §10.14 "Undo") ────────────────────────────────
+
+/** A connector tool as the registry hands it out. */
+type ConnectorTool = { kind: "connector"; spec: ToolSpec; connector: Connector };
+
+/** The context a write ran with, for reading its record the same way (its key included). */
+function writeContext(
+  deps: RuntimeDeps,
+  tenantId: string,
+  conn: ConnectionRef,
+  idempotencyKey: string,
+) {
+  return { ...connectionContext(deps, tenantId, conn), idempotencyKey };
+}
+
+/**
+ * The record as a write left it: the tool's own `before`, read again right after writing with the
+ * same input and key, so it has the shape of `before` and of an undo's current read. Undefined for
+ * a write that can't be taken back (nothing to read for); null when the read fails, which never
+ * fails the write (an undo then refuses: `after_unknown`).
+ */
+async function readAfter(
+  deps: RuntimeDeps,
+  tenantId: string,
+  own: ConnectorTool,
+  conn: ConnectionRef,
+  action: ExternalActionRecord,
+): Promise<unknown> {
+  const undo = processes.undoOf(own.spec);
+  if (!undo || undo.kind === "none") return undefined;
+  try {
+    const read = await captureBefore(
+      own.connector,
+      action.tool,
+      action.editedInput ?? action.input,
+      writeContext(deps, tenantId, conn, action.idempotencyKey),
+    );
+    return read.before ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The key of a write's undo: one undo per write, so a second press never writes twice. */
+export function undoKey(actionId: string): string {
+  return `undo:${actionId}`;
+}
+
+/** What a connector may give a write tool to build its undo's input (R5). */
+export interface UndoInputArgs {
+  /** What the write wrote (the signer's edit when there was one). */
+  input: JsonObject;
+  /** The record before the write (`external_action.before`). */
+  before: unknown;
+  /** What the write returned (`external_action.result`), e.g. a created record's id. */
+  output: unknown;
+  /** The record now, read with the write's own `before` and input. */
+  current: unknown;
+}
+
+/**
+ * A write handler's own undo input: the input of its `undo.tool` (or of itself, for a restore)
+ * that takes the write back, or null when it can't say.
+ */
+export type UndoInputHook = (args: UndoInputArgs) => unknown;
+
+// DECISION: a connector says how its write is taken back with an optional `undoInput` on the
+// write's handler, read here; packages/connectors adds it to `defineWriteTool` (R5 follow-up).
+// Until a tool has one, a restore by the same tool uses `restoreInput` below and a reverse is
+// refused (`no_undo_input`).
+function undoInputHook(connector: Connector, toolId: string): UndoInputHook | null {
+  const handler = connector.tools[toolId] as (ToolHandler & { undoInput?: unknown }) | undefined;
+  return typeof handler?.undoInput === "function" ? (handler.undoInput as UndoInputHook) : null;
+}
+
+function same(a: unknown, b: unknown): boolean {
+  return canonicalJson(a ?? null) === canonicalJson(b ?? null);
+}
+
+/**
+ * A restore's input when the write's own tool puts the before state back: each field the write
+ * set takes its value from before the write; a field the write only named as it was (an id, a
+ * version it was read at) takes its value from now, so the restore is made against the record as
+ * it is. Null when a field's value is neither, or nothing would change.
+ */
+// DECISION: written for the common shape (the before state names the fields the write sets, as
+// the testkit, website and HubSpot updates do); a tool whose before state is shaped otherwise
+// gives its own `undoInput`, and an input that doesn't parse for the tool is refused before
+// anything is recorded.
+export function restoreInput(
+  input: JsonObject,
+  before: unknown,
+  current: unknown,
+): JsonObject | null {
+  if (!isPlainObject(before) || !isPlainObject(current)) return null;
+  const out: JsonObject = {};
+  let changes = false;
+  for (const [key, value] of Object.entries(input)) {
+    if (!(key in before)) {
+      out[key] = value;
+      continue;
+    }
+    const was = before[key];
+    const now = current[key];
+    if (same(value, was)) {
+      // Named as it was: an id, or the version the write was read at (now the record's latest).
+      out[key] = (key in current ? now : value) as JsonValue;
+    } else if (same(value, now)) {
+      out[key] = (was ?? null) as JsonValue;
+      changes = true;
+    } else {
+      return null;
+    }
+  }
+  return changes ? out : null;
+}
+
+export const UNDO_OUTCOME_REFUSALS = [
+  ...processes.UNDO_REFUSALS,
+  /** The write didn't go through (proposed, rejected, failed or still running). */
+  "not_done",
+  /** Test runs never write (ARCHITECTURE §10.4). */
+  "test_run",
+  /** The tool or its connection is gone, or this store records no undo. */
+  "unavailable",
+  /** We couldn't read the record just now. */
+  "read_failed",
+  /** No input that takes the write back: the tool doesn't say how, and it can't be worked out. */
+  "no_undo_input",
+  /** The connection's matrix or the agent's grant is off for the undo. */
+  "refused",
+] as const;
+export type UndoOutcomeRefusal = (typeof UNDO_OUTCOME_REFUSALS)[number];
+
+export type UndoOutcome =
+  | { status: "done"; original: ExternalActionRecord; undo: ExternalActionRecord; output: unknown }
+  | { status: "failed"; original: ExternalActionRecord; undo: ExternalActionRecord; error: string }
+  | {
+      status: "refused";
+      original: ExternalActionRecord;
+      code: UndoOutcomeRefusal;
+      reason: string;
+    };
+
+/**
+ * Takes a done write back, as a person asked (R5): the person's press approves the undo, which is
+ * a write of its own through the external-action path (its own key, `undoKey(original.id)`, its
+ * before state, executed once by `executeAction`). It first reads the record and runs
+ * `processes.canUndo` against the saved before and after states: anything changed since our write
+ * refuses, with a plain reason. Never a delete (undoProblems in packages/connectors refuses one
+ * when the connector is defined); test runs never write. Who may press is the caller's to check.
+ */
+export async function undoAction(
+  deps: RuntimeDeps,
+  input: { tenantId: string; actionId: string; by: string },
+): Promise<UndoOutcome> {
+  const { actions, store } = deps.ports;
+  const { tenantId } = input;
+  const original = await actions.get(tenantId, input.actionId);
+  if (!original) throw notFound(`external action ${input.actionId}`);
+  const refuse = (code: UndoOutcomeRefusal, reason: string): UndoOutcome => ({
+    status: "refused",
+    original,
+    code,
+    reason,
+  });
+  const run = original.runId ? await store.run(tenantId, original.runId) : null;
+  if (run?.mode === "test") return refuse("test_run", "test runs never change a client's tools");
+  // A second press: the first undo stands, whatever happened to it (never written twice).
+  const earlier = await actions.byKey(tenantId, undoKey(original.id));
+  if (earlier) return finishUndo(deps, tenantId, original, earlier);
+  if (original.status !== "done") {
+    return refuse("not_done", "this change didn't go through, so there's nothing to take back");
+  }
+  if (!actions.proposeUndo) return refuse("unavailable", "undo isn't available here");
+  const conn = await store.connection(tenantId, original.connectionId);
+  const own = conn ? deps.tools.forConnector(original.tool, conn.connector) : undefined;
+  if (!conn || own?.kind !== "connector") {
+    return refuse("unavailable", "the connection this change went through is gone");
+  }
+  const undo = processes.undoOf(own.spec);
+  if (!undo || undo.kind === "none") {
+    const verdict = processes.canUndo(own.spec, original.before, null, null);
+    return verdict.ok
+      ? refuse("cannot_undo", "this change can't be taken back")
+      : refuse(verdict.code, verdict.reason);
+  }
+  const written = original.editedInput ?? original.input;
+  let current: unknown;
+  try {
+    const read = await captureBefore(
+      own.connector,
+      original.tool,
+      written,
+      writeContext(deps, tenantId, conn, original.idempotencyKey),
+    );
+    current = read.before;
+  } catch (error) {
+    const why = readRefusal(error, own.spec);
+    return refuse(why.code, why.reason);
+  }
+  const verdict = processes.canUndo(own.spec, original.before, current, original.after);
+  if (!verdict.ok) return refuse(verdict.code, verdict.reason);
+
+  const undoTool = undo.tool ?? original.tool;
+  const target = deps.tools.forConnector(undoTool, conn.connector);
+  if (target?.kind !== "connector" || target.spec.sideEffect !== "external") {
+    return refuse("unavailable", `${undoTool} isn't supplied by the ${conn.connector} connection`);
+  }
+  // Belt and braces: the connector already refuses a delete as an undo when it is defined.
+  if (target.spec.verb === "delete") return refuse("cannot_undo", "an undo never deletes");
+  const hook = undoInputHook(own.connector, original.tool);
+  const planned = hook
+    ? hook({ input: written, before: original.before, output: original.result, current })
+    : undo.kind === "restore" && undoTool === original.tool
+      ? restoreInput(written, original.before, current)
+      : null;
+  if (!isPlainObject(planned)) {
+    return refuse("no_undo_input", "we can't work out how to put this back on our own");
+  }
+  // Checked as the connector will check it, and what the undo replaces read, before anything is
+  // recorded: an input that doesn't parse, or a record that refuses, records nothing.
+  let undoInput: JsonObject;
+  let replaces: unknown;
+  try {
+    const read = await captureBefore(
+      target.connector,
+      undoTool,
+      planned,
+      connectionContext(deps, tenantId, conn),
+    );
+    undoInput = read.input as JsonObject;
+    replaces = read.before;
+  } catch {
+    return refuse("no_undo_input", "we can't work out how to put this back on our own");
+  }
+  const gate = await signedGateRefusal(deps, tenantId, {
+    spec: target.spec,
+    connector: target.connector,
+    conn,
+    agentId: run?.agentId ?? null,
+    input: undoInput,
+  });
+  if (gate) return refuse("refused", gate);
+  const { action } = await actions.proposeUndo(tenantId, {
+    original,
+    tool: undoTool,
+    input: undoInput,
+    before: replaces,
+    approvedBy: input.by,
+    idempotencyKey: undoKey(original.id),
+  });
+  return finishUndo(deps, tenantId, original, action);
+}
+
+/** Why the record couldn't be read for an undo, in the person's words. */
+function readRefusal(error: unknown, spec: ToolSpec): { code: UndoOutcomeRefusal; reason: string } {
+  if (error instanceof ToolCallError) {
+    if (error.code === "permission_off") {
+      return { code: "refused", reason: `${spec.verb} is off on this connection now` };
+    }
+    if (error.code === "not_connected" || error.code === "wrong_connection") {
+      return { code: "unavailable", reason: "the connection needs signing in again first" };
+    }
+  }
+  return {
+    code: "read_failed",
+    reason: "we couldn't read the record just now; try again in a minute",
+  };
+}
+
+/** Runs (or reports) the undo action once: executeAction keys it, so a retry never writes twice. */
+async function finishUndo(
+  deps: RuntimeDeps,
+  tenantId: string,
+  original: ExternalActionRecord,
+  undo: ExternalActionRecord,
+): Promise<UndoOutcome> {
+  const out = await executeAction(deps, { tenantId, actionId: undo.id });
+  switch (out.status) {
+    case "done":
+      return { status: "done", original, undo: out.action, output: out.output };
+    case "failed":
+      return { status: "failed", original, undo: out.action, error: out.error };
+    default:
+      // An undo is recorded approved; anything else is not ours to run.
+      return {
+        status: "failed",
+        original,
+        undo: out.action,
+        error: `the undo is ${out.action.status}`,
+      };
   }
 }

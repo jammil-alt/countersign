@@ -3,8 +3,16 @@
 // by a person through the inbox. Never deleted.
 
 import type { JsonObject } from "@countersign/core";
-import { type Db, externalAction, inboxItem, run, type Tx, withTenant } from "@countersign/db";
-import { and, eq, sql } from "drizzle-orm";
+import {
+  type Db,
+  externalAction,
+  inboxItem,
+  run,
+  stepRun,
+  type Tx,
+  withTenant,
+} from "@countersign/db";
+import { and, eq, or, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 import type { ExternalActionRecord, ExternalActionStore } from "../runtime/ports";
 
@@ -176,6 +184,49 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
         const row = await byId(tx, tenantId, actionId);
         if (!row) throw notFound(`external action ${actionId}`);
         return { action: toRecord(row), claimed: false };
+      });
+    },
+
+    // R5: a person's undo of a done write: approved by their press, no run and no agent (like a
+    // signed write), under its own key. The original's id is in the key.
+    // DECISION: `keepsAfter` stays unset here until external_action has an `after` column (a
+    // migration in its own PR): `complete` can't keep the after state yet, so writes don't read
+    // their record again, and an undo is refused as `after_unknown` (a person decides instead).
+    proposeUndo(tenantId, input) {
+      return withTenant(db, tenantId, async (tx) => {
+        const now = new Date();
+        const [inserted] = await tx
+          .insert(externalAction)
+          .values({
+            tenantId,
+            connectionId: input.original.connectionId,
+            tool: input.tool,
+            runId: null,
+            stepRunId: null,
+            agentVersionId: null,
+            input: input.input,
+            idempotencyKey: input.idempotencyKey,
+            status: "approved",
+            approvedBy: input.approvedBy,
+            approvedAt: now,
+            before: (input.before ?? null) as Record<string, unknown> | null,
+          })
+          .onConflictDoNothing({
+            target: [externalAction.tenantId, externalAction.idempotencyKey],
+          })
+          .returning();
+        if (inserted) return { action: toRecord(inserted), created: true };
+        const [existing] = await tx
+          .select()
+          .from(externalAction)
+          .where(
+            and(
+              eq(externalAction.tenantId, tenantId),
+              eq(externalAction.idempotencyKey, input.idempotencyKey),
+            ),
+          );
+        if (!existing) throw new Error("external action vanished during proposeUndo");
+        return { action: toRecord(existing), created: false };
       });
     },
 
@@ -446,4 +497,145 @@ export async function reopenApprovedTx(
     .set({ status: "proposed", approvedBy: null, approvedAt: null })
     .where(and(eq(externalAction.id, action.id), eq(externalAction.status, "approved")));
   return true;
+}
+
+// ── R5: an answer after the run went ahead (docs/plan.md §1.86, §9) ──────────────────────────────
+
+type ItemRow = typeof inboxItem.$inferSelect;
+
+/** A write that went ahead without this item's answer (`ifNoAnswer: proceed`). */
+export interface ProceededWrite {
+  /** The step the executor marked `proceededWithoutAnswer`; null when found by the action alone. */
+  stepRunId: string | null;
+  nodeId: string | null;
+  /** The write that went ahead, when there is one. */
+  action: ExternalActionRecord | null;
+}
+
+/**
+ * Whether the run went ahead without this item's answer: the executor's step_run, whose output
+ * says `proceededWithoutAnswer: true` and names the item (`inboxItemId` or `inboxItemIds`) or its
+ * write (`externalActionId`), or, for an approval of a change, the change itself no longer waiting
+ * though nobody signed it while the item is still open.
+ */
+// DECISION: the step_run's output is the contract with the executor (R3); the action's own state
+// is the fallback, since an open item whose change has gone ahead unsigned can only have been
+// passed by a deadline.
+export async function proceededWriteTx(
+  tx: Tx,
+  tenantId: string,
+  item: Pick<ItemRow, "id" | "runId" | "kind" | "status">,
+): Promise<ProceededWrite | null> {
+  if (!item.runId || item.status === "resolved") return null;
+  const [own] =
+    item.kind === "external_action"
+      ? await tx
+          .select()
+          .from(externalAction)
+          .where(
+            and(eq(externalAction.tenantId, tenantId), eq(externalAction.inboxItemId, item.id)),
+          )
+      : [];
+  const output = sql`${stepRun.output}`;
+  const [marked] = await tx
+    .select({ id: stepRun.id, nodeId: stepRun.nodeId, output: stepRun.output })
+    .from(stepRun)
+    .where(
+      and(
+        eq(stepRun.tenantId, tenantId),
+        eq(stepRun.runId, item.runId),
+        sql`${output}->>'proceededWithoutAnswer' = 'true'`,
+        or(
+          sql`${output}->>'inboxItemId' = ${item.id}`,
+          sql`jsonb_typeof(${output}->'inboxItemIds') = 'array' and jsonb_exists(${output}->'inboxItemIds', ${item.id})`,
+          ...(own ? [sql`${output}->>'externalActionId' = ${own.id}`] : []),
+        ),
+      ),
+    )
+    .limit(1);
+  if (marked) {
+    const named = (marked.output as { externalActionId?: unknown } | null)?.externalActionId;
+    const actionId = typeof named === "string" ? named : (own?.id ?? null);
+    const row =
+      actionId === own?.id ? own : actionId ? await byId(tx, tenantId, actionId) : undefined;
+    return { stepRunId: marked.id, nodeId: marked.nodeId, action: row ? toRecord(row) : null };
+  }
+  if (own && !own.approvedBy && ["approved", "executing", "done", "failed"].includes(own.status)) {
+    return { stepRunId: own.stepRunId, nodeId: null, action: toRecord(own) };
+  }
+  return null;
+}
+
+export interface LateAnswerInput {
+  tenantId: string;
+  /** The item, locked by the caller. */
+  item: ItemRow;
+  proceeded: ProceededWrite;
+  decision?: "approve" | "reject" | undefined;
+  /** What the answer means: a yes, or a no (a reject; for a question, a decline). */
+  approved: boolean;
+  answer?: unknown;
+  note?: string | undefined;
+  by: Approver;
+  emit?: Emit;
+}
+
+export interface LateAnswer {
+  approved: boolean;
+  at: Date;
+  /** The write that went ahead, as it stands; null when the step wrote nothing. */
+  action: ExternalActionRecord | null;
+}
+
+/**
+ * Records an answer that came after the run went ahead without it (R5): the item is resolved with
+ * who answered, when, and that it was late; the write's own record is left as it is (it ran, or
+ * failed, on its own); the run is not told (it isn't waiting), so the item is marked received;
+ * `inbox.resolved` is emitted. A late no is never applied by itself: an undo is offered (by the
+ * caller), and only a person's press runs it.
+ */
+export async function resolveLateAnswerTx(tx: Tx, input: LateAnswerInput): Promise<LateAnswer> {
+  const { item, proceeded, by } = input;
+  if (!mayResolve(item, by)) {
+    throw new AgentsError("not_assignee", "this approval is assigned to someone else");
+  }
+  const at = new Date();
+  const action = proceeded.action;
+  const resolution = {
+    ...(input.decision === undefined ? {} : { decision: input.decision }),
+    approved: input.approved,
+    answer: (input.answer ?? null) as JsonObject[string],
+    by: by.userId,
+    ...(input.note === undefined ? {} : { note: input.note }),
+    late: {
+      proceededWithoutAnswer: true,
+      externalActionId: action?.id ?? null,
+      actionStatus: action?.status ?? null,
+      stepRunId: proceeded.stepRunId,
+    },
+  };
+  await tx
+    .update(inboxItem)
+    .set({
+      status: "resolved",
+      resolution,
+      resolvedBy: by.userId,
+      resolvedAt: at,
+      // The run went ahead and waits for nothing here: nothing is delivered to it.
+      runReceivedAt: at,
+    })
+    .where(and(eq(inboxItem.id, item.id), eq(inboxItem.tenantId, input.tenantId)));
+  await input.emit?.(tx, input.tenantId, {
+    type: "inbox.resolved",
+    subjectType: "inbox_item",
+    subjectId: item.id,
+    payload: {
+      inboxItemId: item.id,
+      kind: item.kind,
+      runId: item.runId,
+      approved: input.approved,
+      resolvedBy: by.userId,
+    },
+  });
+  return { approved: input.approved, at, action };
 }

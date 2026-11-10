@@ -134,6 +134,8 @@ import {
   translationDepsFor,
   translationSweep,
 } from "./translate/service";
+// R5: the undo a late no is offered (docs/plan.md §9)
+import { undoRouteHandlers } from "./undo/routes";
 import { vaultTick } from "./vault/upkeep";
 import { zohoCronTick } from "./zoho/sync";
 
@@ -160,6 +162,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // v0.12 W1-D: before the portal's routes, so `/api/inbox/batch/resolve` is not read as an item
   // id by `/api/inbox/:id/resolve` (Hono runs handlers in the order they were added).
   deskRoutes(app);
+  undoRouteHandlers(app);
   portalRouteHandlers(app);
   // P-1: packs: enable per client, reports, review cards, actions.
   packRouteHandlers(app);
