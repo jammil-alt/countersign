@@ -56,7 +56,11 @@ export function processAutomationRequires(
         for (const t of skillTools(def)) tools.add(t);
         for (const c of def.requiresConnectors) connectors.add(c);
       }
-    } else if (step.kind === "read" || step.kind === "write") tools.add(step.tool);
+    } else if (step.kind === "read" || (step.kind === "write" && step.tool !== undefined)) {
+      tools.add(step.tool as string);
+    }
+    // DECISION (skill model): an action write step requires no tool or connector here: it resolves
+    // from the using agent's bindings when it runs, and publish checks those (`checkWriteAction`).
   });
   for (const id of tools) {
     const spec = ctx.tools?.[id];

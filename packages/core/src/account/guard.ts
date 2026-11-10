@@ -120,8 +120,18 @@ export function accountAgentProblems(input: {
     at?: { id: string; field: string },
   ) => {
     const id = at?.id ?? step.id;
-    if (step.kind === "read" || step.kind === "write")
-      refuse(step.tool, at?.field ?? "tool", id, slug);
+    // Skill model (2026-11-10): an action write step always writes to a client's tool or messages
+    // someone (every action is external), which the account agent never does.
+    if (step.kind === "write" && step.action !== undefined) {
+      errors.push({
+        stepId: id,
+        field: at?.field ?? "action",
+        code: "tool_not_allowed",
+        message: `the account agent only reads what the portal shows: "${step.action}" writes to a client's tool`,
+        workflow: slug,
+      });
+    } else if (step.kind === "read" || step.kind === "write")
+      refuse(step.tool as string, at?.field ?? "tool", id, slug);
     else if (step.kind === "skill") {
       const skill = input.skills[step.skill] ?? input.skills[parseSkillRef(step.skill).id];
       for (const t of skill ? skillTools(skill) : []) refuse(t, at?.field ?? "skill", id, slug);
