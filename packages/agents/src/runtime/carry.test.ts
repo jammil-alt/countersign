@@ -91,6 +91,20 @@ describe("carried approvals and the gate", () => {
     expect(other.reopened).toEqual([]);
   });
 
+  it("never carries a signed write that failed and its run went on past (onError: continue)", async () => {
+    const { deps, step, reopened } = setup({ carriedOn: true });
+    const r = await carryApproval(
+      deps,
+      step,
+      "testkit.record.update",
+      { id: "r1", amount: "12.00" },
+      "approval",
+    );
+    // Proposed again for a new signature: no reopen, nothing executed.
+    expect(r).toBeNull();
+    expect(reopened).toEqual([]);
+  });
+
   it("returns a done write's result without running it", async () => {
     const { deps, step, reopened } = setup({ status: "done", result: { id: "r1" } });
     const r = await carryApproval(

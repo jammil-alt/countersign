@@ -11,6 +11,7 @@ import {
   runErrorKey,
   shortRunId,
   shortRunIdTail,
+  wentOnPast,
 } from "./run-controls";
 
 describe("short ids", () => {
@@ -78,6 +79,26 @@ describe("carried approvals", () => {
     for (const status of ["proposed", "rejected"]) {
       expect(carryDecision({ status, approvedAt: signed(1), error: null }, now)).toBe("propose");
     }
+  });
+
+  it("asks again for a failed write its run went on past (onError: continue)", () => {
+    expect(
+      carryDecision({ status: "failed", approvedAt: signed(1), error: null, carriedOn: true }, now),
+    ).toBe("propose");
+    // A write that never failed is carried as before.
+    expect(
+      carryDecision(
+        { status: "approved", approvedAt: signed(1), error: null, carriedOn: false },
+        now,
+      ),
+    ).toBe("execute");
+    // Where the run ended says whether it went on past the write.
+    expect(wentOnPast("save", { nodeId: "save", reason: "x" })).toBe(false);
+    expect(wentOnPast("save:o1", { nodeId: "save" })).toBe(false);
+    expect(wentOnPast("save", { nodeId: "save:signoff" })).toBe(false);
+    expect(wentOnPast("save", { nodeId: "boom" })).toBe(true);
+    expect(wentOnPast("each:0:save", { nodeId: "each:1:save" })).toBe(true);
+    expect(wentOnPast("save", null)).toBe(true);
   });
 });
 
