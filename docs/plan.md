@@ -2398,6 +2398,31 @@ feeds, upload, email sending, texts, webhooks, website, website logins) take a M
 website login keeps the site's initials. These colours are the providers' and are used nowhere
 else, so the palette rule (no new colours) holds for our own UI.
 
+### 1.86 The process model (owner, 2026-11-10)
+
+The owner found skills, tools, workflows, automations and agents too many overlapping words. The
+model is now: **connector** (a client's account in a system: read tools, write tools, events),
+**tool** (one fixed action that reads or writes, never decides), **skill** (data in, data out, by
+`rules`, `ai` or `rules_then_ai`; may read through connectors, never writes), **trigger**,
+**process** (triggers plus steps: `read`, `skill`, `write`, `person`, `conversation`, `notify`, and
+logic `if`, `for_each`, `wait`, `stop`, `process`) and **person**. Skills think, tools act. An agent
+is one process plus its **owner**, the AI that watches every step and fixes within limits (retry,
+correct input, ask the lead, stop), never changing the plan. Any step carries **checks**: confer (AI,
+a person from the client's People list, or AI then person; advice only), approval (`in_turn`,
+`any`, `all`) and notify (urgent ones send at once and need a "Seen"), each with plain-rule
+conditions. Everything that waits has one deadline shape with `ifNoAnswer`: `stop` (the default),
+`proceed`, `skip` or `escalate`; `proceed` on a write's approval is loosening (invariant 8).
+Business hours per client (default Mon to Fri 8 to 6) and per person, with away dates. Write tools
+declare their undo; a late reject is offered an undo, never applied by itself. Every account has a
+number and an email; some agents have their own. Skills in the Library are templates a step
+customizes, with update and promote. The design, with the inventory of today's 100 skills and 188
+tools, is the owner's doc "Mezonas process model"; milestones are §9.
+// DECISION: the property is `ifNoAnswer`, not `then`: an object with `then` is a thenable, and
+// awaiting a step's config would call it (Biome noThenProperty).
+// DECISION: stored v3 workflows are never rewritten; `processes.fromWorkflowV3` reads them as v4,
+// keeping every id, and a skill that only wraps one tool becomes a `read` step (side effect `none`)
+// or a `write` step (anything else; an unknown tool counts as external, so approval stays on).
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
@@ -3829,3 +3854,26 @@ from a space unbinds it. Against a fake. Owner: the Chat API configured on the G
 name, avatar, HTTP endpoint), the service account and its key as a secret, and the app published to
 the Google Workspace Marketplace (each client's Workspace admin must allow it). Done when an approved
 post goes once to a bound space, an unbound space is refused, and a space is bound only by its code.
+
+## 9. The process model refactor (§1.86)
+
+Each milestone ends green. Stored versions are never edited (invariant 3).
+
+- **R0 Design in the repo.** §1.86; ARCHITECTURE v0.16 written from the owner's doc before R3.
+- **R1 Process schema.** `packages/core/src/process`: workflow `schemaVersion: 4`, checks,
+  deadlines, business hours, the v3 converter. Done: schema, converter and tests. Next: the v4
+  validator (ids, template typing, invariant 8 on `required: not_required`, `when` and `proceed`).
+- **R2 Skills.** `method: rules | ai | rules_then_ai`, declared read tools; tool-mode skills retire
+  (85 of 100); the seeds' four unregistered skill names removed or registered.
+- **R3 Executor.** Runs v4: read and write steps, checks in order, deadlines, approval modes, urgent
+  notifications.
+- **R4 Business hours and channels.** Client and person hours, the business-hours clock, due times;
+  a number and email per account, optional per agent. Migration in its own PR.
+- **R5 Undo.** Write tools declare `undo`; the late-answer path through the external-action path.
+- **R6 The owner.** Agent = owner plus one process; `oversight` becomes the owner's watch and fix.
+- **R7 Conversation step.** P-4 conversations and calls as one step kind.
+- **R8 Builder and portal.** The Library (banks of processes, skills, tools, connectors, triggers,
+  record types, condition sets); skill templates customized per step; the checks panel; the
+  client's Connections (sign in, or a login into the vault), People, Business hours, Channels.
+- **R9 Templates and browser scripts.** Seeds and pack templates saved as v4 versions; recorded
+  scripted site tools.
