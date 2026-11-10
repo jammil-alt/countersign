@@ -72,6 +72,22 @@ export interface SignedInPage {
    * and photographed. Answers the address it ends at.
    */
   click(selector: string): Promise<string>;
+  /**
+   * A script's submitting click: as `click`, but the form was sent once the element was clicked,
+   * so a landing page agents may not open, or a stop page, is reported (`landing`, the reason)
+   * rather than thrown, and nothing on it is read or photographed.
+   */
+  submit(
+    selector: string,
+  ): Promise<{ url: string; landing: null } | { url: null; landing: string }>;
+  /** Whether clicking the element sends a form (a submit-type button, a button in a form). */
+  sendsForm(selector: string): Promise<boolean>;
+  /**
+   * Holds the page read only (on) or lets it change things again (off): while on, the browser
+   * refuses any request that could change something (driver.ts `readOnly`). Turning it on in a
+   * browser that can't throws BrowserRefused. It is lifted before sign-out.
+   */
+  readOnly(on: boolean): Promise<void>;
   /** One element's text (a field's value); null when nothing matches. */
   textOf(selector: string): Promise<string | null>;
   /** The page's fields, lists, buttons and links, for the recorder; [] where the driver can't. */
@@ -248,6 +264,8 @@ export async function withBrowserSession<T>(
   if (!tab) throw new BrowserRefused("browser sessions are not available in this deployment");
   let signedIn = false;
   let tried = false;
+  /** Whether the work left the page read only: lifted before sign-out (a sign-out may post). */
+  let heldReadOnly = false;
   try {
     if (reuse && login.session) {
       tried = true;
@@ -321,6 +339,20 @@ export async function withBrowserSession<T>(
 
     // The last opened page's own screenshot: never an earlier page's when this one's failed.
     let pageShot: string | null = null;
+    /** Where a click landed: an allowed page with no stop on it, or a refusal or stop thrown. */
+    const landed = async (selector: string): Promise<string> => {
+      const after = allowed(tab.url());
+      if (!after.ok) {
+        // A click that leaves the allowed pages: stop there, read nothing.
+        throw new BrowserRefused(
+          `clicking ${selector} went to a page agents may not open: ${after.reason}`,
+        );
+      }
+      await checkForStops(tab, site.profile.login);
+      if (after.url !== record.pages.at(-1)) record.pages.push(after.url);
+      pageShot = await shot();
+      return after.url;
+    };
     const page: SignedInPage = {
       site,
       async open(url) {
@@ -364,17 +396,33 @@ export async function withBrowserSession<T>(
         const from = tab.url();
         await tab.click(selector);
         record.actions.push({ kind: "click", url: from, selector });
-        const after = allowed(tab.url());
-        if (!after.ok) {
-          // A click that leaves the allowed pages: stop there, read nothing.
-          throw new BrowserRefused(
-            `clicking ${selector} went to a page agents may not open: ${after.reason}`,
-          );
+        return landed(selector);
+      },
+      async submit(selector) {
+        pageShot = null;
+        const from = tab.url();
+        await tab.click(selector);
+        record.actions.push({ kind: "click", url: from, selector });
+        try {
+          return { url: await landed(selector), landing: null };
+        } catch (error) {
+          // The form went: the write happened, wherever the site sent the browser after it.
+          if (!(error instanceof BrowserRefused) && !(error instanceof BrowserStop)) throw error;
+          return { url: null, landing: redact.text(error.message) };
         }
-        await checkForStops(tab, site.profile.login);
-        if (after.url !== record.pages.at(-1)) record.pages.push(after.url);
-        pageShot = await shot();
-        return after.url;
+      },
+      async sendsForm(selector) {
+        if (tab.sendsForm) return tab.sendsForm(selector);
+        const controls = tab.controls ? await tab.controls() : [];
+        return controls.some((c) => c.selector === selector && c.submits === true);
+      },
+      async readOnly(on) {
+        if (!tab.readOnly) {
+          if (on) throw new BrowserRefused("this browser can't hold a page read only");
+          return;
+        }
+        await tab.readOnly(on);
+        heldReadOnly = on;
       },
       async textOf(selector) {
         if (!tab.textOf) throw new BrowserRefused("this browser can't read single fields");
@@ -400,6 +448,7 @@ export async function withBrowserSession<T>(
   } finally {
     // Always: keep the session (low tier, a clean finish) or sign out; then destroy the browser.
     try {
+      if (heldReadOnly) await tab.readOnly?.(false).catch(() => undefined);
       if (keep && signedIn && record.outcome === "done") {
         const cookies = await tab.cookies();
         await ctx.credentials.set({

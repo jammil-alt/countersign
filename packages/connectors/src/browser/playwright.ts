@@ -12,6 +12,13 @@ import type {
   BrowserTable,
 } from "./driver";
 
+/** The part of Playwright's `Route` read-only mode uses. */
+export interface PlaywrightRouteLike {
+  request(): { method(): string };
+  abort(errorCode?: string): Promise<void>;
+  continue(): Promise<void>;
+}
+
 /** The part of Playwright's `Page` this adapter uses. */
 export interface PlaywrightPageLike {
   url(): string;
@@ -22,6 +29,8 @@ export interface PlaywrightPageLike {
   waitForEvent(event: "framenavigated", options?: { timeout?: number }): Promise<unknown>;
   locator(selector: string): { count(): Promise<number> };
   evaluate<T>(script: string): Promise<T>;
+  /** Read-only mode's request filter (`page.route`). */
+  route(url: string, handler: (route: PlaywrightRouteLike) => unknown): Promise<void>;
   screenshot(options?: { type?: "png"; fullPage?: boolean }): Promise<Uint8Array>;
   /** True once the page, its context or its browser closed (or the connection to it dropped). */
   isClosed?(): boolean;
@@ -92,6 +101,14 @@ function cellText(el) { const out = []; textOf(el, out); return out.join("").rep
 function visibleAncestors(el) {
   for (let p = el; p; p = p.parentElement) if (removed(p)) return false;
   return true;
+}
+function sendsForm(el) {
+  const b = el.closest("button,input");
+  if (!b) return false;
+  const t = (b.getAttribute("type") || "").toLowerCase();
+  if (b.tagName === "INPUT" && !["submit", "image", "button", "reset"].includes(t)) return false;
+  if (t === "submit" || t === "image") return true;
+  return !!(b.form || b.closest("form"));
 }
 `;
 
@@ -179,10 +196,24 @@ for (const el of Array.from(document.querySelectorAll("input,select,textarea,but
     if (t === "submit" || t === "button" || t === "reset" || t === "image") kind = "button";
     if (t === "file") continue;
   }
-  out.push({ selector: sel(el), kind, label: labelOf(el).slice(0, 120) });
+  out.push({ selector: sel(el), kind, label: labelOf(el).slice(0, 120), submits: kind === "button" && sendsForm(el) });
 }
 return out;
 })()`;
+
+/**
+ * Whether clicking the element a selector names sends a form; false when nothing matches. A
+ * submit-type button (an explicit `type="submit"`, an image input), or any button inside a form.
+ */
+// DECISION: a `<button>` with no type outside any form is not one: it posts nothing by itself, and
+// single-page sites use them for everything. Read-only mode still stops whatever its script sends.
+function sendsFormScript(selector: string): string {
+  return `(() => { ${WALK}
+  let el = null;
+  try { el = document.querySelector(${JSON.stringify(selector)}); } catch { return false; }
+  return el ? sendsForm(el) : false;
+})()`;
+}
 
 /** Fetches with the page's cookies; the address it ends at after redirects comes back too. */
 function downloadScript(url: string): string {
@@ -218,6 +249,9 @@ export function playwrightTab(page: PlaywrightPageLike, options: PlaywrightTabOp
   const timeout = options.timeoutMs ?? 20_000;
   const navWait = options.navigationWaitMs ?? 3_000;
   let closed = false;
+  // Read only: one route for the page's life, reading the flag on every request.
+  let holding = false;
+  let routed = false;
   return {
     url: () => page.url(),
     async goto(url) {
@@ -244,6 +278,23 @@ export function playwrightTab(page: PlaywrightPageLike, options: PlaywrightTabOp
     readTables: () => page.evaluate<BrowserTable[]>(READ_TABLES),
     textOf: (selector) => page.evaluate<string | null>(textOfScript(selector)),
     controls: () => page.evaluate<BrowserControl[]>(CONTROLS),
+    sendsForm: (selector) => page.evaluate<boolean>(sendsFormScript(selector)),
+    async readOnly(on) {
+      holding = on;
+      if (!on || routed) return;
+      routed = true;
+      // DECISION: only GET and HEAD leave the browser while read only. A navigation, fetch, XHR or
+      // beacon with any other method is aborted where it starts, so a click that would post a
+      // form goes nowhere and the page stays as it was.
+      await page.route("**/*", (route) => {
+        const method = route.request().method().toUpperCase();
+        const go =
+          holding && method !== "GET" && method !== "HEAD"
+            ? route.abort("blockedbyclient")
+            : route.continue();
+        return go.catch(() => undefined);
+      });
+    },
     async download(url): Promise<BrowserDownload> {
       const r = await page.evaluate<{
         status: number;
