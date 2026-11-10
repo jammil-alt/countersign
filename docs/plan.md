@@ -3623,6 +3623,9 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0039 | M51 (§1.79) | `ledger_account`, `ledger_account_note`, `ledger_dimension`; the Bookkeeping pack's `bank_account_link`, `bank_feed_cursor`, `bank_txn`, `booking_rule`, `booking`, `booking_line` |
 | 0040 | M57 (§1.80) | The Bookkeeping pack's `reconciliation`, `reconciliation_item`, `reconciliation_match` |
 | 0041 | §1.81 | `qbo_webhook_event`: Intuit's webhook notifications, one row per change |
+| 0043 | R4 (§1.86) | `membership.hours`, `contact.hours`: a person's own week and away dates, nullable `jsonb` |
+| 0044 | R5 (§1.86) | `external_action.after`: the state a write left, for undo, nullable `jsonb` |
+| 0045 | R9 (§1.86) | Recorded browser scripts (scripted site tools), if they need their own table |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
@@ -3882,3 +3885,9 @@ Each milestone ends green. Stored versions are never edited (invariant 3).
   client's Connections (sign in, or a login into the vault), People, Business hours, Channels.
 - **R9 Templates and browser scripts.** Seeds and pack templates saved as v4 versions; recorded
   scripted site tools.
+
+Status (2026-11-10): wave 1 (R1, R2's schema, R5's declarations, ARCHITECTURE v0.16) and wave 2 (the
+v4 validator, executor, owner, conversation step, hours and channels storage, the undo path and
+site-scoped browsing) are merged on `claude/busy-euler-cgu5kr`. Wave 2b wires them end to end in
+apps/api and fixes wave 2's review findings; wave 3 is R8 and R9's templates. Migrations 0043 and
+0044 are their own commits, for their own PRs.
