@@ -42,16 +42,78 @@ const STEP_KIND: Record<string, string> = {
   wait: "wait",
   notify: "notify step",
   stop: "stop",
+  // R8: v4 processes (ARCHITECTURE §10.14).
+  read: "read step",
+  write: "write step",
+  conversation: "conversation",
+  if: "if",
+  process: "process step",
 };
 
+// R8: the words for a v4 step's checks and deadlines (ARCHITECTURE §10.14 "Checks", "Deadlines"),
+// segment by segment: `/checks/approval/approvers/0/deadline/after` → "approval: approver 1:
+// deadline: time to answer". A numbered list's index reads from 1.
+const V4_SEGMENT: Record<string, string> = {
+  confer: "confer",
+  approval: "approval",
+  notify: "notify",
+  approvers: "approver",
+  with: "conferee",
+  deadline: "deadline",
+  after: "time to answer",
+  hours: "hours",
+  ifNoAnswer: "if nobody answers",
+  onReject: "if rejected",
+  remind: "reminders",
+  tell: "who is told",
+  escalate: "ask next",
+  who: "who",
+  person: "person",
+  ai: "second check",
+  focus: "what to check",
+  mode: "mode",
+  required: "approval",
+  when: "rules",
+  urgent: "urgent",
+  ackWithin: "time to say Seen",
+  to: "to",
+  channel: "channel",
+  message: "message",
+};
+const NUMBERED = new Set(["approvers", "with", "notify", "remind"]);
+
+function v4Pointer(parts: readonly string[]): string {
+  const out: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const seg = parts[i] as string;
+    const next = parts[i + 1];
+    if (NUMBERED.has(seg) && next !== undefined && /^\d+$/.test(next)) {
+      out.push(`${V4_SEGMENT[seg] ?? seg} ${Number(next) + 1}`);
+      i++;
+      continue;
+    }
+    out.push(V4_SEGMENT[seg] ?? seg.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase());
+  }
+  return out.join(": ");
+}
+
 /** `/approval/required` → "approval required"; `/settings/threshold_pct` → "setting threshold_pct". */
-function humanPointer(pointer: string): string {
+function humanPointer(pointer: string, labels: Record<string, string> = {}): string {
   const parts = pointer
     .split("/")
     .filter(Boolean)
     .map((p) => p.replace(/~1/g, "/").replace(/~0/g, "~"));
   if (parts[0] === "settings" && parts[1]) return `setting ${parts.slice(1).join(".")}`;
   if (parts[0] === "workflow" && parts[1] === "trigger") return "trigger";
+  // R8: a v4 process's triggers, by id, and their order (`workflow:<slug>#/workflow/triggerOrder`).
+  if (parts[0] === "workflow" && parts[1] === "triggerOrder") return "order of its triggers";
+  if (parts[0] === "workflow" && parts[1] === "triggers" && parts[2]) {
+    const name = labels[`trigger:${parts[2]}`];
+    const rest = parts.slice(3).join(" ");
+    return `trigger${name ? ` “${name}”` : ""}${rest ? ` ${rest}` : ""}`;
+  }
+  if (parts[0] === "checks") return v4Pointer(parts.slice(1));
+  if (parts[0] === "deadline") return v4Pointer(parts);
   if (parts[0] === "when") return "rules";
   return parts
     .join(" ")
@@ -161,7 +223,7 @@ export function describeChange(c: BundleChangeView, labels: Record<string, strin
     }
     default: {
       const name = entityName(c.entity, labels);
-      const what = humanPointer(pointer);
+      const what = humanPointer(pointer, labels);
       return withValues(
         { key, kind: c.kind, subject: name, text: `${name}: ${what || "changed"} changed` },
         c,
