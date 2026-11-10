@@ -8,8 +8,10 @@ import type {
   Approval,
   Duration,
   Locale,
+  ModelChoice,
   NotifyStep,
   PersonStep,
+  processes,
   SkillDefinition,
   SkillStep,
   StepKind,
@@ -38,6 +40,12 @@ export interface RunInfo {
    * approved, not-done writes with the same input under their original idempotency keys.
    */
   retryOf?: string | undefined;
+  // R3 (docs/plan.md §1.86, §9)
+  /**
+   * The client's time zone (IANA), for business-hours deadlines when no hours port is wired (the
+   * default week, `processes.defaultBusinessHours`). Absent: UTC.
+   */
+  timeZone?: string | undefined;
 }
 
 /** Step-run statuses (packages/db STEP_RUN_STATUSES) the executor writes. */
@@ -51,6 +59,9 @@ export interface PendingApproval {
   // P-4: conversations (docs/plan.md §1.66)
   /** What the person is asked for: a signature (default), or an answer (a hand-over). */
   waitingFor?: "approval" | "answer";
+  // R3 (docs/plan.md §1.86): a write that went ahead on `ifNoAnswer: proceed` names its action.
+  /** The proposed external action the item signs, when the port knows it (`external_action.id`). */
+  actionId?: string;
 }
 
 /** What a skill or action step came to. Small JSON: it is stored as a durable step result. */
@@ -131,6 +142,14 @@ export interface SkillStepRequest {
    * corrected input (run oversight) uses `${nodeId}:o${seq}`, so the gate decides it afresh.
    */
   keyNode?: string;
+  // R3 (docs/plan.md §1.86): a v4 skill step's customization of its Library skill.
+  /**
+   * What the step changes about its skill (`processes.applyCustomization`): the runtime applies
+   * the added instructions and rule rows. The executor has already merged its settings into
+   * `step.settings` and its model into `step.model`, checked it against the catalog's definition,
+   * and keeps only the `keep` fields of the output.
+   */
+  customize?: processes.SkillCustomization;
 }
 
 export interface ActionStepRequest {
@@ -175,6 +194,33 @@ export interface AgentPort {
   waitDone?(request: WaitRequest): Promise<boolean>;
   /** After the wait (its event, or the timeout): what the step came to, or a further wait. */
   afterWait?(request: WaitRequest & { timedOut: boolean }): Promise<StepOutcome>;
+  // R3 (docs/plan.md §1.86): approval modes and escalation on a write.
+  /**
+   * Asks one more person to sign the write `pending` waits on: another approval item for the same
+   * proposed external action (the next approver `in_turn`, every approver at once for `any` and
+   * `all`, or the person an unanswered approval escalates to). Resolving it signs the action as
+   * the gate's own item does. Idempotent per `nodeId`. Ports without it ask only the approver the
+   * gate asked: further approvers and escalations are not asked, and the approval's `ifNoAnswer`
+   * applies when that one doesn't answer.
+   */
+  askApprover?(request: AskApproverRequest): Promise<{ inboxItemId: string }>;
+}
+
+/** One more approver for a write that waits (`AgentPort.askApprover`). */
+export interface AskApproverRequest {
+  run: RunInfo;
+  step: SkillStep | ActionStep;
+  /** Durable name of this ask (`${step}:approval:<n>:a<k>` or `…:esc<d>`): its idempotency key. */
+  nodeId: string;
+  stepRunId: string;
+  /** The write it signs: the gate's pending approval. */
+  pending: PendingApproval;
+  /** Who is asked: a role, a user id or a contact id. */
+  who: string;
+  /** When the asking ends (ISO instant). */
+  dueAt: string;
+  /** When to remind them (ISO instants), from the approver's deadline. */
+  remindAt?: string[];
 }
 
 /** How an inbox item was resolved: the payload of its event and of `POST /api/inbox/:id/resolve`. */
@@ -189,6 +235,13 @@ export const InboxResolution = z.object({
    * approval nor a rejection. The port says what comes next; nothing is written on it.
    */
   withdrawn: z.boolean().optional(),
+  // R3 (docs/plan.md §1.86)
+  /**
+   * Nobody answered and the approval's `ifNoAnswer` is `proceed`: the executor goes on as if
+   * approved. Set only by the executor, never by a person, on a write the validator let proceed
+   * (invariant 8); the port signs the action as approved by its deadline.
+   */
+  proceeded: z.boolean().optional(),
 });
 export type InboxResolution = z.infer<typeof InboxResolution>;
 
@@ -203,6 +256,9 @@ export interface CreatePersonItem {
   payload: unknown;
   /** When the step times out (ISO instant). */
   dueAt: string;
+  // R3 (docs/plan.md §1.86): the deadline's reminders, on the asked person's clock.
+  /** When to remind the person (ISO instants), from the deadline's `remind`. */
+  remindAt?: string[];
 }
 
 export interface InboxPort {
@@ -241,12 +297,48 @@ export interface NotifyPort {
     inboxItemId: string;
     reason: string;
   }): Promise<void>;
+  // R3 (docs/plan.md §1.86): v4 notifications (notify steps and checks) and deadlines' `tell`.
+  /**
+   * A v4 notification to the client's team or ours (`processes.NotifyCheck`), rendered. Urgent
+   * ones go at once whatever the hours (by text too) and return the item a "Seen" resolves.
+   * Never called for a test run. Ports without it get each recipient through `send` (an inbox
+   * notice as a thread message), and an urgent one is not waited on.
+   */
+  notify?(message: V4Notice): Promise<{ ackItemId?: string | null }>;
+  /**
+   * A deadline passed: its `tell` people are told, whatever `ifNoAnswer` does. Ports without it
+   * tell only `operator` (through `notifyOperator`).
+   */
+  tell?(notice: {
+    run: RunInfo;
+    nodeId: string;
+    to: string[];
+    inboxItemId: string | null;
+    reason: string;
+  }): Promise<void>;
+}
+
+/** A v4 notification, rendered (`NotifyPort.notify`). */
+export interface V4Notice {
+  run: RunInfo;
+  nodeId: string;
+  to: string[];
+  channel: "inbox" | "email" | "sms";
+  text: string;
+  /** Resolved record ids, deduplicated (invariant 10). */
+  sources: string[];
+  /** Urgent: sent at once, by text too; a "Seen" is due by `dueAt` (ISO instant). */
+  urgent?: { dueAt: string };
 }
 
 export interface StepRunStart {
   runId: string;
   nodeId: string;
-  nodeType: StepKind;
+  /**
+   * A v3 step's kind (a converted step keeps its stored kind); R3: a v4 step's kind, or `confer`
+   * for one reviewer's check of a step (`${step}:confer:<n>`).
+   */
+  nodeType: StepKind | processes.StepKind | "confer";
   skillRef?: string;
   input?: unknown;
   // v0.13 W2-I
@@ -272,6 +364,11 @@ export interface StepRunUpdate {
   costUsd?: string;
   tokensIn?: number;
   tokensOut?: number;
+  // R3 (docs/plan.md §1.86): the late-answer path (R5) reads these.
+  /** The write went ahead on its approval's `ifNoAnswer: proceed`, nobody having answered. */
+  proceededWithoutAnswer?: boolean;
+  /** That write's external action, when the port named it (`PendingApproval.actionId`). */
+  externalActionId?: string;
 }
 
 /** Writes `step_run` rows. Both calls may repeat on a retry, so they must be idempotent. */
@@ -341,3 +438,102 @@ export type OversightVerdict =
 export interface OversightPort {
   review(request: OversightRequest): Promise<OversightVerdict>;
 }
+
+// ── R3: the process model's ports (ARCHITECTURE §10.14; docs/plan.md §1.86, §9) ─────────────────
+
+/** What a conversation step came to (`ConversationPort.conversation`). */
+export interface ConversationResult {
+  /**
+   * `pending`: the conversation is under way; the executor waits for `conversationEventType(id)`
+   * (or the step's deadline), then asks the port again. The rest are final.
+   */
+  status: "done" | "not_found" | "no_answer" | "failed" | "pending";
+  /** What it found out, by the step's `find` fields. */
+  found: Record<string, unknown>;
+  conversationId: string | null;
+  /** One plain line for the client's timeline. */
+  summary: string;
+}
+
+export interface ConversationRequest {
+  runId: string;
+  /** The step's durable name. */
+  stepId: string;
+  /** The step with its templates (`with`, `goal`) resolved. */
+  step: processes.ConversationStep;
+  tenantId: string;
+  agentVersionId: string;
+  mode: RunMode;
+}
+
+/**
+ * Conversation steps (packages/agents implements it; the conversation stream, R7). Idempotent per
+ * (runId, stepId): a second call returns the conversation's current state, so the executor calls
+ * it again after each wake to learn what came of it (the port's record is the truth).
+ */
+export interface ConversationPort {
+  conversation(input: ConversationRequest): Promise<ConversationResult>;
+}
+
+// DECISION (R3): a conversation that is under way returns `pending` with its id and the executor
+// waits durably on this event (as person steps wait on their inbox item), rather than the port
+// blocking: a conversation can take days.
+/** The event type a run waits on for one conversation; the service sends it when it ends. */
+export function conversationEventType(conversationId: string): string {
+  return `conversation:${conversationId}`;
+}
+
+/** Whose hours a deadline runs on (`HoursPort.hoursFor`). */
+export interface HoursAnswer {
+  client: processes.BusinessHours;
+  /** The person asked, when `who` is one person. */
+  person?: processes.PersonHours;
+  /** The people of a role, when `who` is a role: the clock runs while any one is working. */
+  people?: { businessHours: processes.BusinessHours; away: processes.AwayRange[] }[];
+}
+
+/** Stored business hours and away dates (apps/api implements it from settings; R4). */
+export interface HoursPort {
+  hoursFor(input: { tenantId: string; who: string }): Promise<HoursAnswer>;
+}
+
+/** One AI reviewer's check of a step (`ConferPort.ai`). */
+export interface ConferAiRequest {
+  run: RunInfo;
+  /** The reviewer's durable name, `${step}:confer:<n>`. */
+  nodeId: string;
+  stepRunId: string;
+  /** The step's own id and name, for the record. */
+  stepId: string;
+  stepName: string;
+  /** The reviewer's fixed focus, rendered ("do these lines add up to the bill's total"). */
+  focus: string;
+  /** The reviewer's model; absent: a model other than the step's (`stepModel`). */
+  model?: ModelChoice;
+  stepModel?: ModelChoice;
+  /** The step's input and, for a read or a skill, its output: data, never instructions. */
+  input: unknown;
+  output?: unknown;
+}
+
+export interface ConferAiAnswer {
+  verdict: "agree" | "disagree" | "unsure";
+  /** Its reasons, in a sentence or two. */
+  note: string;
+}
+
+/** AI reviewers (packages/agents: one model call with the focus fixed and the step as data). */
+export interface ConferPort {
+  ai(request: ConferAiRequest): Promise<ConferAiAnswer>;
+}
+
+/**
+ * A skill that couldn't do its work (a browsing skill that didn't find it within its limits) says
+ * so in its output, and the executor asks the lead (docs/plan.md §1.86).
+ */
+export const NeedsHelp = z.object({
+  question: z.string().min(1),
+  tried: z.array(z.string()).default([]),
+  screenshots: z.array(z.string()).optional(),
+});
+export type NeedsHelp = z.infer<typeof NeedsHelp>;
