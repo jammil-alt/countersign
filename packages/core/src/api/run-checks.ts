@@ -17,8 +17,10 @@ import {
   outcomeOfRow,
   plainError,
   STEP_OUTCOMES,
+  STOP_STATUSES,
   type StepOutcomeWord,
   type StepRecord,
+  type StopStatus,
   scopeOutputOfRow,
 } from "../process/outcomes";
 import {
@@ -580,10 +582,26 @@ export function recordOfStoredStep(
     const count = typeof out.count === "number" ? out.count : 0;
     rec.counts = { items: count, failed: typeof out.failed === "number" ? out.failed : 0 };
   }
+  if (step.kind === "process" && outcome === "stopped") {
+    const stopStatus = stopStatusOf(row.nodeId, rows);
+    if (stopStatus) rec.stopStatus = stopStatus;
+  }
   if (step.onError === "continue" && row.status === "failed" && outcome) {
     rec.error = plainError(error ?? "", outcome === "needs_help" ? "needs_help" : undefined);
   }
   return rec;
+}
+
+/**
+ * How the stop that ended a stopped process would have ended the run: the last stop row inside it
+ * (`<process>/…`), whose output keeps its status. Null for a run stored before stop rows kept it.
+ */
+function stopStatusOf(processNode: string, rows: readonly RowLike[]): StopStatus | null {
+  const stop = rows
+    .filter((r) => r.nodeType === "stop" && r.nodeId.startsWith(`${processNode}/`))
+    .at(-1);
+  const status = stop && isPlainObject(stop.output) ? stop.output.status : undefined;
+  return STOP_STATUSES.includes(status as StopStatus) ? (status as StopStatus) : null;
 }
 
 /** A step a retry reuses: its row as stored, and its record (`recordOfStoredStep`). */

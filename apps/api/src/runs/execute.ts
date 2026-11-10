@@ -82,7 +82,7 @@ import {
   type RunResume,
   type StepRunner,
 } from "@countersign/workflows";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { dbReleasePort, type ReleaseDeps, releaseDepsFromEnv } from "../access/release";
 // v0.12 W2-D
 import { accountViews } from "../account/views";
@@ -760,7 +760,9 @@ async function resumeOf(
       output: stepRun.output,
     })
     .from(stepRun)
-    .where(and(eq(stepRun.runId, params.retryOf), eq(stepRun.tenantId, params.tenantId)));
+    .where(and(eq(stepRun.runId, params.retryOf), eq(stepRun.tenantId, params.tenantId)))
+    // In the order they ran: the last stop inside a stopped process is the one that ended it.
+    .orderBy(asc(stepRun.startedAt), asc(stepRun.id));
   const items = (
     await tx
       .select()

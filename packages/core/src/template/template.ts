@@ -184,6 +184,7 @@ export interface StepScope {
   error?: { code: string; message: string };
   choice?: string;
   counts?: { items: number; failed: number };
+  stopStatus?: string;
 }
 
 /** Whether a value fills a slot in a sentence: not missing, null or blank. */

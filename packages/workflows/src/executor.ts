@@ -2974,9 +2974,13 @@ class Executor {
     if (ended && !goesOn) throw ended;
     if (ended) {
       const stopped = ended.result.reason === "stop";
+      // Wave 5 review: a stop inside keeps how it would have ended the run (`stopStatus`), so a
+      // route that ends the run after it ends it the same way.
       this.record(frame, step, null, {
         outcome: stopped ? "stopped" : "failed",
-        ...(stopped ? {} : { error: processes.plainError(carriedError(ended)) }),
+        ...(stopped
+          ? { stopStatus: ended.result.status }
+          : { error: processes.plainError(carriedError(ended)) }),
       });
       return;
     }
@@ -3208,6 +3212,9 @@ class Executor {
       const id = await log.start({ runId: run.id, nodeId: name, nodeType: "stop" });
       await log.update(id, {
         status: "succeeded",
+        // Wave 5 review: how it ends the run, which a retry reads back as a stopped process's
+        // `stopStatus` (core's `recordOfStoredStep`).
+        output: { status: step.status },
         summary: `${clientLabel(asLabelled(step))}: ${this.words.stopped[step.status]}`,
       });
       return null;

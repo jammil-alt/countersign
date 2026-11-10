@@ -105,9 +105,14 @@ export const FOR_EACH_OUTCOMES = ["done", "some_failed", "all_failed"] as const;
 
 /**
  * A process step: `completed`, or with `onError: continue`, `stopped` (a stop step inside ended the
- * sub-process alone) or `failed` (a step inside failed).
+ * sub-process alone; `steps.<id>.stopStatus` is how that stop would have ended the run) or
+ * `failed` (a step inside failed).
  */
 export const PROCESS_OUTCOMES = ["completed", "stopped", "failed"] as const;
+
+/** How a stop step ends the run (its `status`), and a stopped process's `stopStatus`. */
+export const STOP_STATUSES = ["succeeded", "failed", "cancelled"] as const;
+export type StopStatus = (typeof STOP_STATUSES)[number];
 
 /** Every kind's vocabulary. `if` and `stop` have none (an `if`'s output says its path). */
 export const STEP_OUTCOMES = {
@@ -146,6 +151,11 @@ export interface StepRecord {
   choice?: string;
   /** A for each's items and how many failed. */
   counts?: { items: number; failed: number };
+  /**
+   * A process that `stopped`: the status the stop step inside had, which would have ended the run
+   * that way without `onError: continue` (a route keeps it: `succeeded`, `failed`, `cancelled`).
+   */
+  stopStatus?: StopStatus;
 }
 
 /** Whether a step kind records an outcome. */
@@ -241,6 +251,9 @@ export function stepRecordSchema(step: Step): JsonSchema | undefined {
       additionalProperties: false,
     };
   }
+  if (step.kind === "process" && step.onError === "continue") {
+    properties.stopStatus = { type: "string", enum: [...STOP_STATUSES] };
+  }
   if (step.onError === "continue") {
     properties.error = {
       type: "object",
@@ -272,7 +285,8 @@ export interface OutcomeField {
 /**
  * The routable fields a step records, leaves only, relative to `steps.<id>.`, with their types:
  * `outcome`, `approval.outcome`, `approval.by`, `confer.verdict`, `confer.<n>.verdict`,
- * `confer.<n>.by`, `choice`, `counts.items`, `counts.failed`, `error.code`, `error.message`. The
+ * `confer.<n>.by`, `choice`, `counts.items`, `counts.failed`, `stopStatus`, `error.code`,
+ * `error.message`. The
  * builder's field picker lists them for earlier steps (`processPathsAt`) as `steps.<id>.<path>`.
  */
 export function stepOutcomeFields(step: Step): OutcomeField[] {
@@ -315,6 +329,9 @@ export function outcomeVocabulary(step: Step, field: readonly string[]): readonl
   }
   if (head === "choice" && second === undefined && step.kind === "person") {
     return step.choices?.map((c) => c.value) ?? null;
+  }
+  if (head === "stopStatus" && second === undefined && step.kind === "process") {
+    return STOP_STATUSES;
   }
   return null;
 }

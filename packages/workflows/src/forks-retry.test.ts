@@ -443,6 +443,15 @@ const CASES: Case[] = [
     outcome: "stopped",
   },
   {
+    // Wave 5 re-review: the stop's status is kept (`stopStatus`) and read back on a retry.
+    name: "process stopped by a cancelling stop",
+    step: sub(),
+    extra: () => ({
+      automations: automation([{ id: "end", kind: "stop", name: "End", status: "cancelled" }]),
+    }),
+    outcome: "stopped",
+  },
+  {
     name: "process failed",
     step: sub(),
     setup: (h) => {
@@ -476,6 +485,9 @@ describe("the executor's record and what its rows read back agree", () => {
     const recorded = (probe.input as { rec: Record<string, unknown> }).rec;
     const { output, ...record } = recorded;
     expect(record.outcome).toBe(c.outcome);
+    if (c.outcome === "stopped") {
+      expect(record.stopStatus).toBe(c.name.includes("cancelling") ? "cancelled" : "succeeded");
+    }
 
     const rows = storedRows(h);
     const items = storedItems(h, extra);
