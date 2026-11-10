@@ -128,8 +128,9 @@ describe("carried approvals and the gate", () => {
   });
 
   it("says a carried write that failed after it may have reached the provider may have happened", async () => {
-    // Wave 5 re-review: the carried write runs on the run retried's action, which the retry's
-    // own `stepWrites` never sees; its error must stop an `onError: continue` going on past it.
+    // Wave 5 re-review: the carried write runs on the run retried's action; its error must stop
+    // an `onError: continue` going on past it. Fix 3: and it names the action, so the retry's tool
+    // call logs it and `stepWrites` finds it however the step ends.
     const run = vi.mocked(executeAction);
     const failed = (error: Record<string, unknown>) => ({
       status: "failed" as const,
@@ -149,6 +150,7 @@ describe("carried approvals and the gate", () => {
     const error = r?.status === "failed" ? r.error : "";
     expect(error).toMatch(/^Error: HTTP 500/);
     expect(processes.writeMayHaveHappened(error)).toBe(true);
+    expect(r).toMatchObject({ actionId: "action-1" });
     // One that never reached the provider keeps its error, and a route may go on past it.
     run.mockResolvedValueOnce(failed({ message: "Error: HTTP 500", notWritten: true }));
     const before = setup({}, true);
@@ -159,6 +161,6 @@ describe("carried approvals and the gate", () => {
       { id: "r1", amount: "12.00" },
       "approval",
     );
-    expect(r2).toEqual({ status: "failed", error: "Error: HTTP 500" });
+    expect(r2).toEqual({ status: "failed", error: "Error: HTTP 500", actionId: "action-1" });
   });
 });
