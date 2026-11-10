@@ -3225,22 +3225,56 @@ executor, the run views' `outcome`; no migration):
   testkit marks its not-found and stale record). An answer that doesn't parse after the handler
   ran, or a write made but not recorded (`complete` throwing), is unconfirmed with a review for the
   operator, never failed as if nothing happened. Ports without `stepWrites` fall back to
-  `writeMayHaveHappened`. Left: a carried write executed again in a retry that fails is read by
-  its own error only (its action belongs to the run retried).
+  `writeMayHaveHappened`. A carried write executed again in a retry runs on the run retried's
+  action, which `stepWrites` doesn't read; since the re-review its failure says the write may have
+  happened unless its action is `notWritten` (below).
 - DECISION (review, web): a route that turns a stop into "go on" (an approval's `onReject`, a
   deadline's `stop`, `onError`, a person's no) ends its new path with a stop step that ends the run
   as before (a no `cancelled`, nobody answering or a failure `failed`): paths rejoin, so an empty
   path would let every later step run after a no. The inspector says "The route ends with a stop
-  step, so nothing below it runs, as before. Remove that stop to carry on below."
+  step, so nothing below it runs, as before. Remove that stop to carry on below." (Widened by the
+  re-review: the other failures `onError: continue` opens get a path of their own, and a process's
+  `stopped` ends the run as the stop inside it did, below.)
 - DECISION (review): a notice's durable step has explicit retries (`NOTICE_STEP_CONFIG`, three
   with backoff, as skill and action steps); with `onError: continue` only the last try's failure is
   stored as its result, an earlier one throws to be retried.
 - DECISION (review): `steps.<id>.error.message` (or the whole `error`) reads only in conditions
   and in notices to the inbox; the validator refuses it in a write's input, a conversation's
   `with`, and an email or text notice (`error_message_not_here`); `error.code` goes anywhere.
+  (Widened by the re-review to a skill's and a sub-process's input, a loop's list and the whole
+  step, below.)
 - DECISION (review, web): a test run signs nothing, so a write's approval reads `not_needed` and a
   route on `approval.outcome` goes the no-approval way; the builder's test-run panel names such
   routes and says so (`approvalRouteNames`), rather than recording a pretend answer.
+- DECISION (re-review, web, `wave5/fix2`): `onError: continue` opens every failure of a step, not
+  only the one routed on (a process's `stopped` with its `failed`, a skill's, read's or write's
+  `needs_help` with its `failed`, a loop's `some_failed` with its `all_failed`), and paths rejoin
+  after the if. So "Add a route for this" on a failure that sets it adds a second path, named for
+  the others ("Stopped", "Needed help", "All failed"), on `{{steps.<id>.outcome}} in [the others]`,
+  ending with a stop step that ends the run as before; the inspector's "If this step fails" line
+  says so (`alsoOpens`, `RouteOption.others`). Nothing below runs after the others unless the
+  operator removes that stop. A step already at `continue` opens nothing new and gets neither.
+- DECISION (re-review): a stopped process keeps how the stop inside it would have ended the run,
+  `steps.<id>.stopStatus` (`succeeded | failed | cancelled`, typed with `onError: continue`, in the
+  picker as "how the stop inside it ended"); a stop step's row keeps its status in its output
+  (`{ status }`), and a retry reads it back from the last stop row under the process's node (rows
+  in the order they ran). A stop step's status is fixed, so a route that stops the run after a
+  process's `stopped` ends in an if on it ("End as the stop inside it": cancelled, done, otherwise
+  failed), and an inner "cancelled" or "succeeded" stop ends the run the same way it did before
+  the route. A run stored before the detail ends `failed`, as before.
+- DECISION (re-review): a carried write that fails in a retry without `notWritten` on its action
+  fails with " (the change may have happened: check before trying again)" after its error, which
+  `writeMayHaveHappened` reads: the executor never goes on past it (`onError: continue`), as for a
+  write of the retry's own. The smallest fix: `stepWrites` still reads only the run's own actions.
+- DECISION (re-review): the error-message check (`error_message_not_here`) also covers a skill's
+  input (the model reads it, and the writes it proposes carry it), a process step's input (a write
+  inside reads it as `{{input...}}`) and a for each's `over` (`{{item}}`), and everywhere it runs
+  it refuses a whole step (`{{steps.<id>}}`, which holds the error) whatever its `onError`: name
+  the field it needs (`steps.<id>.output…`). Conditions and inbox notices still read anything.
+- DECISION (re-review): the database ports are tested against Postgres
+  (`apps/api/src/forks-runtime.test.ts`): `stepWrites` before and after sending, `carriedOn` from
+  where each run ended, a retry whose carried write fails after sending again, and a retry routing
+  on a quick answer and a rejection (and who made it) read back from real step and inbox rows.
 
 ## 2. Package layering
 
