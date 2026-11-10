@@ -2428,6 +2428,37 @@ tools, is the owner's doc "Mezonas process model"; milestones are §9.
 // keeping every id, and a skill that only wraps one tool becomes a `read` step (side effect `none`)
 // or a `write` step (anything else; an unknown tool counts as external, so approval stays on).
 
+Wave 3, builder (R8; `apps/web/src/ops/builder`):
+- DECISION: opening a stored v3 version converts it (`fromWorkflowV3`, `readConverted`) as the
+  builder's starting point, not an edit: nothing is unsaved, publishing it unchanged publishes the
+  stored v3 version, and the first save after an edit writes the whole bundle as v4, a new version.
+- DECISION: the builder validates with core's `processes.validateAnyBundle` (new), which validates
+  an all-v3 bundle exactly as `validateBundle` does; the server's save and publish checks use the
+  same function, so both say the same thing.
+- DECISION: the `agent_version.bundle` column stays typed as the v3 `AgentBundle`; `createVersion`
+  parses with `AnyAgentBundle` (a v3 bundle parses and hashes as before) and stores a bundle that
+  holds processes as it is. Readers check `schemaVersion`.
+- DECISION: the palette offers a connector's tools as read and write steps, and the platform's and
+  packs' own tools only where a tool-mode skill wrapped them (never a step-only skill's handler);
+  tool-mode skills and `comms.converse` are no longer offered (a conversation is its own step).
+- DECISION: a new write step starts with an approval check when its tool is external; a write to
+  a platform record runs as the skill that wrote it did. A write with no approval check shows and
+  counts as needing the default approver (invariant 8).
+- DECISION: loosening (approval off, `when` on a write's approval, `proceed` anywhere in it, a
+  conversation's unsigned messages) is offered only where `looseningBlocked` finds no reason:
+  a client agent, the bound connection's matrix `auto` for every verb written, the agent acting.
+  Templates keep everything signed.
+- DECISION: approvers and notice recipients are picked from the roles and the client's team (the
+  People list's users); a conferee may also be a directory contact. The People list is read from
+  GET /api/ops/clients/:id/hours; a template has the roles only.
+- DECISION: a step's own `settings` (v3) move into `customize.settings` when the operator changes
+  one in the builder, so a step's setting lives in one place; `customize` is shown against the
+  skill's defaults (and, on a client agent, the template step's value).
+- DECISION: the builder offers two levels of "ask someone else" (escalate); a longer chain written
+  in the bundle is shown, never cut. A test run starts from the first trigger's sample payload.
+- DECISION: logic steps (if, for each, wait, stop) carry no checks in the builder and never show
+  on the client's timeline; work steps show by default.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
