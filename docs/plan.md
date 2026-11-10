@@ -3299,13 +3299,14 @@ marks, and one run's whole trail as a file. Migration 0046 (`owner_check`, `run_
 `run_audit_mark`); core `oversight/check.ts`, `run-audit/sampling.ts`, `api/run-audit.ts`;
 packages/workflows `recordCheck`; apps/api `run-audit/` and `routes/run-audit.ts`.
 - DECISION: the owner's check is recorded per attempt at a native v4 `read`, `skill` or `write`
-  step (one `owner_check` row per run, node and attempt): `clean` (the cheap watch saw nothing),
-  `flagged` (signals, or a failure, with why no review followed: `limit`, `review_failed`,
-  `no_decision`, `input_unresolved`), `reviewed` (the cause, the verdict's action and the
-  `oversight_decision` of the same run, node and seq) or `not_watched` (`owner_off`, `step_off`).
-  It is written through an optional port (`ExecutorContext.ownerChecks`) in a durable step of its
-  own, `${name}:owner:${attempt}`, after the attempt and its review (before an `ask` waits), and
-  the insert is `on conflict do nothing`, so a replay never duplicates it. No model call.
+  step (one `owner_check` row per run, node and attempt): `clean` (the cheap watch saw nothing
+  off), `flagged` (signals, or a failure or escalation, with why no review followed: `limit`,
+  `review_failed`, `no_decision`, `input_unresolved`), `reviewed` (the cause, the verdict's action
+  and the `oversight_decision` of the same run, node and seq) or `not_watched` (`owner_off`,
+  `step_off`). It is written through an optional port (`ExecutorContext.ownerChecks`) in a durable
+  step of its own, `${name}:owner:${attempt}`, after the attempt and its review (before an `ask`
+  waits), and the insert is `on conflict do nothing`, so a replay never duplicates it. No model
+  call. Inside a for each, see the batching row below.
 - DECISION: converted v3 workflows record nothing: a v3 run keeps exactly the durable steps it had
   (as R6 kept the watch's history step for v4 runs only), and v3 has no cheap watch, so "clean"
   would claim a look that never happened. Conversation steps record nothing either: the owner's
@@ -3317,15 +3318,16 @@ packages/workflows `recordCheck`; apps/api `run-audit/` and `routes/run-audit.ts
   review limit"); core `OWNER_REVIEW_CHOICES` words all four. The back office's agent settings
   don't offer the setting yet (only the builder's draft default sets it): the web stream adds the
   control from these words.
-- DECISION: sampling is on by default: every live run that wrote to a client's tool (an
-  `external_action` done) plus 5% of the rest. The rule is `tenant.settings.runAudit`
+- DECISION: sampling is on by default: every live run that wrote to a client's tool plus 5% of
+  the rest. "Wrote" is core's `actionWrote` (see the review row below), not only an action done. The rule is `tenant.settings.runAudit`
   (`{ rule?, agents?: { <agent id>: rule } }`, set in place with `jsonb_set`, logged in
   `tenant_change`), an agent's override first; no column. A run's 5% is its bucket, FNV-1a of
   its id modulo 10,000 (`auditBucket`), so the choice is stable and a replay agrees. It is applied
-  in `run:finish`'s transaction, under a savepoint that never fails the finish; the rule as
-  applied (with the bucket) is kept on the `run_audit` row. Test runs are never queued.
-- DECISION: a run marked without being queued joins the queue `by_hand`; only finished runs take
-  a mark (409 otherwise). A mark is insert only; the newest is the run's state, every mark is
+  in `run:finish`'s transaction, under a savepoint that never fails the finish (and in a back
+  office cancel's, which never reaches `run:finish`); the rule as applied (with the bucket) is kept
+  on the `run_audit` row. Test runs are never queued.
+- DECISION: a run marked without being queued joins the queue `by_hand`; only finished live runs
+  take a mark (409 `run_not_finished`, or 409 `test_run` for a test run). A mark is insert only; the newest is the run's state, every mark is
   kept. Each mark writes an `audit_event` (`run.audit_mark`, ids and the verdict, never the note).
 - DECISION: a "problem" mark needs a note and opens a `review` inbox item for us (operator, on the
   run as its subject, no `run_id`: an item with one is read as something the run waits on or must
@@ -3342,6 +3344,50 @@ packages/workflows `recordCheck`; apps/api `run-audit/` and `routes/run-audit.ts
   calls were included), besides the route's own row.
 - DECISION: back office only. No portal route returns the owner's checks, the queue, marks or the
   export (invariant 11: prompts, bundles and cost never reach the portal).
+- DECISION (review): a check is `flagged` only when the attempt failed or escalated, or the cheap
+  watch saw a signal. A clean step whose routine review was due (a checkpoint under
+  `checkpoints`, `all`, a step's `always`) and wasn't made stays `clean`, with the reason (`limit`,
+  `review_failed`, `no_decision`, `input_unresolved`), the cause and why it was due: "Owner checked:
+  nothing off → every-step review not made: the review gave no decision".
+- DECISION (review): why a review was due on a step that succeeded is kept on the check
+  (`owner_check.review_due`: `checkpoint`, `all`, `always`; core `successReviewDue`, the
+  workflows `AfterSuccess.why`), so the line tells them apart: "Reviewed (every step) → carried
+  on", "Reviewed (always for this step) → …", "Checkpoint before a write → reviewed → …"; a
+  signal still reads "Flagged: … → reviewed → …".
+- DECISION (review): how the attempt ended is `succeeded`, `failed`, `escalated` (a budget was
+  reached; flagged, "Escalated to us: a budget was reached → not reviewed"), `rejected` (a person
+  turned the write down, whatever its `onReject`) or `unanswered` (nobody answered in time); the
+  last two are `clean`, "Turned down by a person → nothing for the owner to review".
+- DECISION (review): when a person ends the run in the middle of an attempt (a confer reviewer
+  nobody answered with `stop`, before the write's approval or after a read or skill ran), the
+  check is still recorded before the run ends: `ended_by_person`, the outcome `rejected` or
+  `unanswered` ("Nobody answered in time → not reviewed: the run ended there"); a step the owner
+  doesn't watch records its `not_watched` check the same way.
+- DECISION (review): inside a for each, an attempt's check is kept on the loop's frame and the
+  outermost loop writes all of them in one durable step, `${loop}:owner`, when it ends, finished
+  or not (the store's `recordMany`, one transaction). Cloudflare Workflows' per-instance step
+  limit isn't recorded anywhere here (§5 lists step count limits as unchecked); the documented
+  default is 1,024 steps an instance on the Paid plan, so that is the ceiling we keep under. One
+  durable step per attempt would have doubled a loop's steps (a 500-item loop of one read: about
+  1,000 steps rather than about 500); now a 50-item loop of one read is 53 steps (start, 50
+  attempts, the checks, done; a test counts them). Folding the check into the attempt's own step
+  isn't replay-safe (the check is known only after the watch, the confer and any review), so
+  outside a loop it keeps its own step. The cost: a run waiting on an `ask` inside a loop shows
+  that loop's checks only once the loop ends.
+- DECISION (review): "wrote" counts a run's external actions done, executing, or failed after
+  reaching the provider (core `actionWrote`: a failure without the runtime's `notWritten`), its own
+  or a carried one its tool calls name: a write that failed part-way may be in the client's books.
+- DECISION (review): a run cancelled from the back office (`POST /api/ops/runs/:id/cancel`) is
+  queued in the cancel's own transaction (`queueFinishedRun`, the same savepoint), so a run that
+  wrote and was then cancelled is in the queue as "wrote". It is the only path that sets a
+  terminal status outside `run:finish` (ask runs are test runs).
+- DECISION (review): only live runs are audited: a mark on a test run is refused (409 `test_run`)
+  and the run view shows no Audit card for one; an agent's sampling rule can't be set for a
+  template's test copy (422 `unknown_agent`, as for an agent that isn't the client's).
+- DECISION (review): `owner_check.decision_id` references `oversight_decision(id)` alone, not
+  `(id, tenant_id)`: 0029 gave that table no unique `(id, tenant_id)`, and adding one would alter a
+  table the previous Worker writes. The store reads the decision inside the run's own client
+  (`withTenant`, filtered by `tenant_id`), so a check never names another client's decision.
 - Open question (owner): may the client see any of this (a run's audit marks, or an export without
   prompts and cost)? Today, no.
 - Open question: whether "clean" should also be recorded for conversation steps once the owner
