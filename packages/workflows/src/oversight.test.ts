@@ -1,11 +1,29 @@
 // v0.13 W2-I: run oversight in the executor (ARCHITECTURE §10.11; docs/plan.md §1.54, M31). The
 // executor applies the agent's verdicts on the fake runner; it never calls a model.
 
-import { OversightSettings } from "@countersign/core";
+import {
+  ActionStep,
+  OVERSIGHT_REVIEWS,
+  OversightSettings,
+  type OwnerWatchedStep,
+  processes,
+  reviewsAfterSuccess,
+  reviewsFailures,
+  SkillStep,
+  STEP_REVIEWS,
+} from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
-import { Harness, SKILL, WRITE_TOOL, wf } from "./fakes.test-helper";
+import { Harness, RUN, SKILL, WRITE_TOOL, wf } from "./fakes.test-helper";
+// R6
+import {
+  ownerAfterSuccess,
+  ownerErrorKey,
+  ownerReviewRequest,
+  ownerReviewsFailureOf,
+  ownerStepInput,
+} from "./oversight";
 import type { OversightPort, OversightRequest, OversightVerdict } from "./ports";
 import { inboxEventType } from "./runner";
 
@@ -347,5 +365,169 @@ describe("run oversight on failures", () => {
     );
     expect(result).toMatchObject({ status: "failed", reason: "escalated: max_cost" });
     expect(o.requests).toEqual([]);
+  });
+});
+
+// ── R6: the owner's watch (docs/plan.md §1.86, §9; ARCHITECTURE §10.14) ─────────────────────────
+
+const v3Skill = SkillStep.parse(lookup());
+const v3Action = ActionStep.parse(write());
+
+/** A v4 process's watched steps, parsed (defaults applied). */
+const v4 = processes.Process.parse({
+  schemaVersion: 4,
+  triggers: [{ id: "t", on: { type: "manual", input: {} } }],
+  steps: [
+    { id: "find", kind: "read", name: "Find", tool: "testkit.thing.read", input: { q: "x" } },
+    { id: "think", kind: "skill", name: "Think", skill: SKILL.id },
+    {
+      id: "each",
+      kind: "for_each",
+      name: "Each",
+      over: "{{steps.find.output.items}}",
+      steps: [{ id: "put", kind: "write", name: "Put", tool: WRITE_TOOL.id, input: { a: "1" } }],
+    },
+    {
+      id: "talk",
+      kind: "conversation",
+      name: "Talk",
+      with: "{{trigger.vendor}}",
+      channel: "email",
+      goal: "Get the price",
+      deadline: { after: "1 day" },
+    },
+  ],
+}).steps;
+
+function step(id: string): OwnerWatchedStep {
+  const all = [...v4, ...v4.flatMap((x) => (x.kind === "for_each" ? x.steps : []))];
+  const s = all.find((x) => x.id === id);
+  if (!s || s.kind === "for_each" || s.kind === "if") throw new Error(id);
+  return s as OwnerWatchedStep;
+}
+
+describe("the owner's watch", () => {
+  it("decides v3 steps exactly as the executor's v0.13 rule does (the regression guard)", () => {
+    for (const review of OVERSIGHT_REVIEWS) {
+      const s = settings({ review });
+      for (const stepReview of [undefined, ...STEP_REVIEWS]) {
+        for (const base of [v3Skill, v3Action]) {
+          const st = stepReview ? { ...base, review: stepReview } : base;
+          // The executor: a port, and the step's failures reviewed.
+          expect(ownerReviewsFailureOf({ settings: s }, st)).toBe(reviewsFailures(s, st));
+          expect(ownerReviewsFailureOf(undefined, st)).toBe(false);
+          for (const checkpoint of [false, true]) {
+            // No watch on a v3 run: an empty output asks for nothing.
+            expect(
+              ownerAfterSuccess({ settings: s }, st, { name: st.id, checkpoint, output: {} }),
+            ).toEqual({ review: reviewsAfterSuccess(s, st, checkpoint), signals: [] });
+          }
+        }
+      }
+    }
+  });
+
+  it("watches v4 read, skill, write and conversation steps like v3 skill and action steps", () => {
+    const owner = { settings: settings() };
+    for (const id of ["find", "think", "put", "talk"]) {
+      expect(ownerReviewsFailureOf(owner, step(id))).toBe(true);
+      expect(ownerReviewsFailureOf(owner, { ...step(id), review: "off" })).toBe(false);
+      const always = { ...step(id), review: "always" as const };
+      expect(
+        ownerAfterSuccess(owner, always, { name: id, checkpoint: false, output: { ok: true } })
+          .review,
+      ).toBe(true);
+    }
+    // Person, notify and logic steps are never the owner's.
+    expect(ownerReviewsFailureOf(owner, { kind: "person" })).toBe(false);
+    expect(ownerReviewsFailureOf(owner, { kind: "for_each", review: "always" })).toBe(false);
+  });
+
+  it("asks for a review of a v4 result that is plainly off, under failures, with the signals", () => {
+    const owner = { settings: settings(), watch: {} };
+    const at = (output: unknown) => ({ name: "find", checkpoint: false, output });
+    expect(ownerAfterSuccess(owner, step("find"), at([]))).toEqual({
+      review: true,
+      signals: [{ kind: "empty_output" }],
+    });
+    expect(ownerAfterSuccess(owner, step("find"), at({ items: [1] }))).toEqual({
+      review: false,
+      signals: [],
+    });
+    // A confer that disagreed, on a conversation.
+    expect(
+      ownerAfterSuccess(owner, step("talk"), {
+        name: "talk",
+        checkpoint: false,
+        output: { price: "4.00" },
+        confer: ["disagree"],
+      }),
+    ).toEqual({ review: true, signals: [{ kind: "confer_disagreed", count: 1 }] });
+    // Never under off, nor on a step set to off.
+    for (const o of [{ settings: settings({ review: "off" }), watch: {} }, { watch: {} }]) {
+      expect(ownerAfterSuccess(o, step("find"), at([])).review).toBe(false);
+    }
+    const off = { ...step("find"), review: "off" as const };
+    expect(ownerAfterSuccess(owner, off, { ...at([]), checkpoint: true }).review).toBe(false);
+  });
+
+  it("compares a loop's write with that step's history, whatever the iteration", () => {
+    const usual = ["100", "100", "100", "100", "100"].map((amount) => ({ amount, currency: null }));
+    const owner = { settings: settings(), watch: { history: { "each:put": usual } } };
+    expect(
+      ownerAfterSuccess(owner, step("put"), {
+        name: "each:7:put",
+        checkpoint: false,
+        output: { total: "5000" },
+      }),
+    ).toEqual({
+      review: true,
+      signals: [
+        {
+          kind: "total_outlier",
+          field: "total",
+          amount: "5000",
+          currency: null,
+          median: "100",
+          runs: 5,
+        },
+      ],
+    });
+    expect(
+      ownerAfterSuccess(owner, step("put"), {
+        name: "each:8:put",
+        checkpoint: false,
+        output: { total: "120" },
+      }).review,
+    ).toBe(false);
+  });
+
+  it("builds the review request: v4 reads and writes key errors by tool, signals only after success", () => {
+    expect(ownerErrorKey(step("put"), "rate limited")).toBe(`${WRITE_TOOL.id}:rate_limited`);
+    expect(ownerErrorKey(step("think"), "rate limited")).toBe("skill:rate_limited");
+    expect(ownerErrorKey(v3Action, "rate limited")).toBe(`${WRITE_TOOL.id}:rate_limited`);
+    expect(ownerStepInput(step("talk"))).toEqual({
+      with: "{{trigger.vendor}}",
+      goal: "Get the price",
+    });
+    expect(ownerStepInput(step("find"))).toEqual({ q: "x" });
+    const base = {
+      run: RUN,
+      step: step("put"),
+      nodeId: "each:0:put",
+      stepRunId: "sr",
+      seq: 1,
+      input: { a: "1" },
+      attempts: 1,
+    };
+    const empty = [{ kind: "empty_output" as const }];
+    const failed = ownerReviewRequest({ ...base, cause: "failed", error: "rate limited" }, empty);
+    expect(failed).toMatchObject({ errorKey: `${WRITE_TOOL.id}:rate_limited` });
+    expect(failed).not.toHaveProperty("signals");
+    const watched = ownerReviewRequest(
+      { ...base, cause: "checkpoint", error: "", output: {} },
+      empty,
+    );
+    expect(watched).toMatchObject({ errorKey: "", signals: empty });
   });
 });

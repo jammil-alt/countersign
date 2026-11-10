@@ -9,7 +9,19 @@
 import { z } from "zod";
 import { Duration, parseDuration } from "../duration";
 import { DecimalString } from "../money";
+import type {
+  ConversationStep,
+  SkillStep as ProcessSkillStep,
+  ReadStep,
+  WriteStep,
+} from "../process/schema";
+import { type Approval, DEFAULT_APPROVAL } from "../schemas/approval";
 import { ModelChoice } from "../schemas/skill";
+import type { ActionStep, SkillStep } from "../schemas/workflow";
+import type { AnomalySignal } from "./watch";
+
+// R6: the owner's cheap watch (its anomaly signals), exported with the decisions.
+export * from "./watch";
 
 // ── Settings ────────────────────────────────────────────────────────────────────────────────────
 
@@ -206,6 +218,102 @@ export function oversightFinishSchema(
     },
     required: ["action", "note", "sources"],
   };
+}
+
+// ── R6: the owner (ARCHITECTURE §10.14 "Agents and their owner"; docs/plan.md §1.86, §9) ──────
+//
+// The owner is v0.13's oversight under its proper name: the same settings, the same decisions and
+// the same review. R6 adds which v4 steps it watches and the cheap watch's signals (watch.ts).
+
+/**
+ * The steps the owner watches: v3's skill and action steps, and v4's read, skill, write and
+ * conversation steps (a v4 step's checks run inside it, so they are watched with it). Person,
+ * notify and logic steps are a person's or the plan's, never the owner's.
+ */
+export const OWNER_WATCHED_KINDS = ["skill", "action", "read", "write", "conversation"] as const;
+export type OwnerWatchedKind = (typeof OWNER_WATCHED_KINDS)[number];
+
+/** A step the owner watches, v3 or v4. */
+export type OwnerWatchedStep =
+  | SkillStep
+  | ActionStep
+  | ReadStep
+  | ProcessSkillStep
+  | WriteStep
+  | ConversationStep;
+
+export function ownerWatches(step: { kind: string }): boolean {
+  return (OWNER_WATCHED_KINDS as readonly string[]).includes(step.kind);
+}
+
+/** Whether a failure of the step goes to the owner: a watched step whose failures are reviewed. */
+export function ownerReviewsFailure(
+  settings: Pick<OversightSettings, "review"> | undefined,
+  step: { kind: string; review?: StepReview | undefined },
+): boolean {
+  return ownerWatches(step) && reviewsFailures(settings, step);
+}
+
+/**
+ * Whether a step that succeeded goes to the owner: v0.13's rule (`reviewsAfterSuccess`), or a
+ * signal from the cheap watch while the owner reviews anything at all. `off` on the step wins.
+ * With no signals this is exactly `reviewsAfterSuccess` for a watched step.
+ */
+// DECISION: a signal is reviewed under `failures` too (the cheap watch is there so that an owner
+// set to review failures still notices a result that is plainly off); never under `off`.
+export function ownerReviewsSuccess(
+  settings: Pick<OversightSettings, "review"> | undefined,
+  step: { kind: string; review?: StepReview | undefined },
+  checkpoint: boolean,
+  signals: readonly AnomalySignal[] = [],
+): boolean {
+  if (!ownerWatches(step)) return false;
+  if (reviewsAfterSuccess(settings, step, checkpoint)) return true;
+  if (signals.length === 0 || step.review === "off") return false;
+  return settings !== undefined && settings.review !== "off";
+}
+
+/**
+ * A conversation never runs again with a new input: that would start over with the person
+ * (docs/plan.md §1.66). Its failed turn may be retried: each message it sent is keyed.
+ */
+export const OWNER_CONVERSATION_ALLOWED: Record<OversightCause, readonly OversightActionName[]> = {
+  failed: ["retry", "ask", "stop"],
+  checkpoint: ["continue", "ask", "stop"],
+};
+
+/** The decisions the owner may make about this step for this cause. */
+export function ownerAllowedActions(
+  step: { kind: string },
+  cause: OversightCause,
+): readonly OversightActionName[] {
+  return step.kind === "conversation"
+    ? OWNER_CONVERSATION_ALLOWED[cause]
+    : OVERSIGHT_ALLOWED[cause];
+}
+
+/**
+ * The approval an owner's `ask` follows: who is asked, how long they have, what a "no" does. A
+ * v3 step's own `approval`; a v4 step's `checks.approval`, by its first approver.
+ */
+// DECISION: an ask is one question, so it goes to the first approver and waits on that approver's
+// deadline (clock time); `in_turn`, `any` and `all` belong to the step's own approval.
+export function ownerStepApproval(step: OwnerWatchedStep): Approval {
+  if (step.kind === "action") return step.approval;
+  if ("approval" in step && step.approval) return step.approval;
+  const check = "checks" in step ? step.checks?.approval : undefined;
+  const first = check?.approvers?.[0];
+  return {
+    required: check?.required ?? DEFAULT_APPROVAL.required,
+    ...(first?.who ? { approver: first.who } : {}),
+    ...(first?.deadline ? { timeout: first.deadline.after } : {}),
+    onReject: check?.onReject ?? DEFAULT_APPROVAL.onReject,
+  };
+}
+
+/** The step's words for people: its client label, else its name (`clientLabel`'s rule, any step). */
+export function ownerStepLabel(step: Pick<OwnerWatchedStep, "name" | "client">): string {
+  return step.client?.label ?? step.name;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────────────────────
