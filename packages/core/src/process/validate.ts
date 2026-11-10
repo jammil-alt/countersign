@@ -52,6 +52,13 @@ import {
   valueTypes,
 } from "../workflow/validate";
 import { walkSteps as walkV3Steps } from "../workflow/walk";
+// R7: the conversation step's own checks, output and send tools (one copy, invariant 4).
+import {
+  CONVERSATION_SEND_VERB,
+  conversationOutputSchema,
+  conversationProblems,
+  conversationSendTools,
+} from "./conversation";
 import {
   type ApprovalCheck,
   CONFER_VERDICTS,
@@ -82,7 +89,23 @@ export type ProcessValidationCode =
   // An urgent notice without the time it must be seen in.
   | "urgent_needs_ack"
   // Invariant 8: a loosened approval on a write whose agent doesn't act on its own.
-  | "approval_needs_act";
+  | "approval_needs_act"
+  // R7: what the schema can't check about a conversation step (`conversationProblems`).
+  | ConversationProblemCode;
+
+/**
+ * `conversationProblems`' codes. A templated goal is reported as `input_not_fixed`, as every other
+ * text that becomes instructions is, so `conversation_goal_template` never appears here.
+ */
+export type ConversationProblemCode =
+  | "conversation_goal_empty"
+  | "conversation_with_team"
+  | "conversation_find_type"
+  | "conversation_find_too_many"
+  | "conversation_too_many_turns"
+  | "conversation_too_long"
+  | "conversation_call_goal_long"
+  | "conversation_call_opening_long";
 
 export interface ProcessValidationError {
   /** The step, if path, otherwise branch or trigger id; null for process-level errors. */
@@ -267,10 +290,9 @@ export function stepOutputSchema(step: Step, ctx: TypingContext): JsonSchema | u
       const def = ctx.automations?.[step.process];
       return def ? automationOutputSchema(def, ctx) : undefined;
     }
-    // DECISION: a conversation's output is typed when R7 builds the step (what `find` returns);
-    // until then it is unknown, so later steps may read any field of it.
+    // R7: `{ status, found, conversationId, summary }`, `found` typed by the step's `find`.
     case "conversation":
-      return undefined;
+      return conversationOutputSchema(step);
     default:
       return NO_OUTPUT;
   }
@@ -622,6 +644,61 @@ function checkApproval(c: Checker, step: Step) {
     ...((writes?.length ?? 0) > 0 || reaches ? loose : []),
     ...(step.kind === "conversation" ? conversationLoosenings(step) : []),
   ]);
+  if (step.kind === "conversation") checkFirstMessage(c, step);
+}
+
+/**
+ * A conversation's first message sent without a person's yes (`messages.first: not_required`) is a
+ * write to a contact with no signature, so it is held to invariant 8 as a write's `not_required`
+ * is: never for a send tool a person always signs, and at publish only where every bound
+ * connection that can carry the channel allows `auto` for `create`.
+ */
+// DECISION: the agent's channel binding picks the one connection at run time, which core can't
+// see, so the first message may go unsigned only if every bound connection able to carry the
+// channel allows it; with none bound (the account's line, Mezonas' own sender) it may not. The gate
+// still holds each message to its connection's matrix when it is sent.
+function checkFirstMessage(c: Checker, step: ConversationStep) {
+  if (step.messages.first !== "not_required") return;
+  const f = "messages.first";
+  const sends = conversationSendTools(step.channel);
+  for (const s of sends) {
+    const tool = c.ctx.tools?.[s.tool];
+    if (tool && isAlwaysSigned(tool)) {
+      c.add(step.id, f, "approval_always", `"${tool.id}" always needs a person to sign it`);
+      return;
+    }
+  }
+  const matrices = c.ctx.publish?.matrices;
+  if (!matrices) return;
+  const bound = sends.filter((s) => matrices[s.connector] !== undefined);
+  if (bound.length === 0) {
+    c.add(
+      step.id,
+      f,
+      "approval_required_by_connection",
+      "no connection bound for this channel allows it: the first message needs a person's yes",
+    );
+    return;
+  }
+  for (const s of bound) {
+    if (levelFor(matrices[s.connector], CONVERSATION_SEND_VERB) !== "auto") {
+      c.add(
+        step.id,
+        f,
+        "approval_required_by_connection",
+        `this connection requires approval for ${VERB_NOUN[CONVERSATION_SEND_VERB]} ("${s.tool}"): the first message needs a person's yes`,
+      );
+      return;
+    }
+  }
+}
+
+/** `conversationProblems` as validation errors (a templated goal is `checkFixedText`'s). */
+function checkConversation(c: Checker, step: ConversationStep) {
+  for (const p of conversationProblems(step)) {
+    if (p.code === "conversation_goal_template") continue;
+    c.add(step.id, p.field, p.code as ConversationProblemCode, p.message);
+  }
 }
 
 // ── Steps ────────────────────────────────────────────────────────────────────────────────────
@@ -910,6 +987,7 @@ function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<str
     case "conversation":
       checkRefs(c, step.id, step.with, ["with"], scope);
       checkFixedText(c, step.id, step.goal, "goal", "goal");
+      checkConversation(c, step);
       break;
     case "notify":
       checkNotify(c, step.id, step.notify, ["notify"], scope);

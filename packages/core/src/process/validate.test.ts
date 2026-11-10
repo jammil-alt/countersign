@@ -1039,13 +1039,81 @@ describe("invariant 8: loosening a write's approval", () => {
     expect(publish({}, loose, asMode("suggest_only"))).toEqual([
       { code: "approval_needs_act", stepId: "c1", field: "messages.first" },
       { code: "approval_needs_act", stepId: "c1", field: "messages.later" },
+      { code: "approval_required_by_connection", stepId: "c1", field: "messages.first" },
     ]);
     expect(publish({}, talking({ later: "within_goal" }), asMode("suggest_only"))).toEqual([
       { code: "approval_needs_act", stepId: "c1", field: "messages.later" },
     ]);
-    expect(publish({}, loose, asMode("act"))).toEqual([]);
+    // R7: an unsigned first message is a write: no bound email connection allows it here.
+    expect(publish({}, loose, asMode("act"))).toEqual([
+      { code: "approval_required_by_connection", stepId: "c1", field: "messages.first" },
+    ]);
+    expect(publish({}, talking({ later: "within_goal" }), asMode("act"))).toEqual([]);
     expect(publish({}, talking({}), asMode("suggest_only"))).toEqual([]);
     expect(codes(edit(processInput(), loose), full)).toEqual([]);
+  });
+
+  it("holds a conversation's unsigned first message to its channel's connections (R7)", () => {
+    const loose = (d: Raw) => {
+      d.steps.push({
+        id: "c1",
+        name: "Text the vendor",
+        kind: "conversation",
+        with: "{{trigger.vendor}}",
+        channel: "sms",
+        goal: "Confirm the delivery date",
+        messages: { first: "not_required" },
+        deadline: { after: "2 days" },
+      });
+    };
+    const withTwilio = (twilio: Record<string, string>) =>
+      codes(edit(processInput(), loose), {
+        ...ctx,
+        ...asMode("act"),
+        publish: { matrices: { qbo: {} as never, twilio: twilio as never } },
+      });
+    expect(withTwilio({ create: "auto" })).toEqual([]);
+    expect(withTwilio({ create: "approve" })).toEqual([
+      { code: "approval_required_by_connection", stepId: "c1", field: "messages.first" },
+    ]);
+  });
+
+  it("reports a conversation's own problems, and types its output for later steps (R7)", () => {
+    const p = edit(processInput(), (d) => {
+      d.steps.push(
+        {
+          id: "c1",
+          name: "Ask",
+          kind: "conversation",
+          with: "lead",
+          channel: "email",
+          goal: "Find the price",
+          find: { price: "money", when: "nonsense type!" },
+          maxTurns: 15,
+          deadline: { after: "30 days" },
+        },
+        {
+          id: "n1",
+          name: "Tell",
+          kind: "notify",
+          notify: {
+            to: ["lead"],
+            message: "{{steps.c1.output.found.price}} {{steps.c1.output.found.nope}}",
+          },
+        },
+      );
+    });
+    const found = codes(p, ctx).filter((e) => e.stepId === "c1" || e.stepId === "n1");
+    expect(found).toEqual(
+      expect.arrayContaining([
+        { code: "conversation_with_team", stepId: "c1", field: "with" },
+        { code: "conversation_find_type", stepId: "c1", field: "find.when" },
+        { code: "conversation_too_many_turns", stepId: "c1", field: "maxTurns" },
+        { code: "conversation_too_long", stepId: "c1", field: "deadline.after" },
+      ]),
+    );
+    // `found.price` reads; a field the step doesn't find doesn't.
+    expect(found.filter((e) => e.stepId === "n1").map((e) => e.field)).toEqual(["notify.message"]);
   });
 
   it("lists the loosenings of an approval", () => {

@@ -218,9 +218,47 @@ export function conversationId(runId: string, nodeId: string): string {
   return `${runId}:${nodeId}`;
 }
 
-/** The event that wakes a step waiting on its conversation. */
+/** The longest event type a run waits on (Workflows' limit, as for instance ids). */
+export const EVENT_TYPE_MAX = 100;
+
+/**
+ * The event that wakes a step waiting on its conversation: `conversation-` and the id, written in
+ * letters, digits, `-` and `_` only (`_` is `__`, `:` is `_c`, `/` is `_s`, anything else
+ * `_x<hex>_`), so two ids never share one. An id too long for the limit keeps its start and a
+ * digest of all of it.
+ */
+// DECISION: the run's other event types (`inbox-<hex>`, `reachout-<hex>`) use letters, digits and
+// dashes, and Workflows ids take letters, digits, `-` and `_` (docs/plan.md §1.86): a
+// conversation's follows them rather than relying on a colon being accepted.
 export function conversationEventType(id: string): string {
-  return `conversation:${id}`;
+  let out = "";
+  for (const c of id) {
+    if ((c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9") || c === "-") {
+      out += c;
+    } else if (c === "_") out += "__";
+    else if (c === ":") out += "_c";
+    else if (c === "/") out += "_s";
+    else out += `_x${(c.codePointAt(0) ?? 0).toString(16)}_`;
+  }
+  const type = `conversation-${out}`;
+  if (type.length <= EVENT_TYPE_MAX) return type;
+  const digest = idDigest(id);
+  const room = EVENT_TYPE_MAX - "conversation-".length - digest.length - 1;
+  return `conversation-${out.slice(0, room)}-${digest}`;
+}
+
+/** A short, stable digest of a string (two 32-bit lanes, hex): only to keep a long type unique. */
+function idDigest(text: string): string {
+  let a = 0xdeadbeef;
+  let b = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 2654435761);
+    b = Math.imul(b ^ c, 1597334677);
+  }
+  a = Math.imul(a ^ (a >>> 16), 2246822507) ^ Math.imul(b ^ (b >>> 13), 3266489909);
+  b = Math.imul(b ^ (b >>> 16), 2246822507) ^ Math.imul(a ^ (a >>> 13), 3266489909);
+  return (b >>> 0).toString(16).padStart(8, "0") + (a >>> 0).toString(16).padStart(8, "0");
 }
 
 /** The conversation id of an engine row's subject (`converse:<runId>:<key>`), or null. */
