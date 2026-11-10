@@ -96,12 +96,12 @@ export class MatchError extends Error {
   }
 }
 
-interface Prepared {
+export interface Prepared {
   line: { raw: string; normalized: string; sku: string | null; hash: string };
   vendorId: string;
 }
 
-async function prepare(
+export async function prepare(
   tx: Tx,
   input: { tenantId: string; docLineId: string; vendorId?: string | undefined },
 ): Promise<Prepared> {
@@ -138,7 +138,7 @@ function view(c: Candidate, parsed: ParsedLine): CandidateView {
   };
 }
 
-interface Verdict {
+export interface Verdict {
   decision: MatchDecision;
   item: CatalogItemRow | null;
   confidence: number;
@@ -168,7 +168,7 @@ export async function matchLine(deps: MatchDeps, input: MatchLineInput): Promise
       method: "alias",
       hinge: null,
     };
-    const result = await record(
+    const result = await recordVerdict(
       tx,
       input,
       prepared,
@@ -261,7 +261,7 @@ export async function matchLine(deps: MatchDeps, input: MatchLineInput): Promise
 
   // 6–7. Route and record.
   return withTenant(deps.db, input.tenantId, (tx) =>
-    record(tx, input, prepared, parsed, verdict, views, true, threshold, registry),
+    recordVerdict(tx, input, prepared, parsed, verdict, views, true, threshold, registry),
   );
 }
 
@@ -334,7 +334,7 @@ async function adjudicateLine(
   };
 }
 
-async function record(
+export async function recordVerdict(
   tx: Tx,
   input: MatchLineInput,
   prepared: Prepared,

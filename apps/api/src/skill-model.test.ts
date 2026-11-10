@@ -49,7 +49,12 @@ describe("kinds of the built-in skills", () => {
     }
     // DECISION: Materials' create-item (reading a name its rules can't parse) and line matching
     // (the attribute fallback and the close-match adjudication) are the packs' hidden AI.
-    expect(declared.sort()).toEqual(["materials.catalog.create_item", "materials.match_line"]);
+    // Splits (2026-11-10): `match_lines` matches each line as `match_line` does, so it says so too.
+    expect(declared.sort()).toEqual([
+      "materials.catalog.create_item",
+      "materials.match_line",
+      "materials.match_lines",
+    ]);
   });
 });
 

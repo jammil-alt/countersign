@@ -293,6 +293,10 @@ export const matchLineTool = defineTool({
 
 export const matchLinesTool = defineTool({
   id: "materials.match_lines",
+  // Skill model (2026-11-10): it matches each line as match_line does, model included; undeclared,
+  // it was handed no model and sent every close call to review.
+  usesModel:
+    "falls back to a model to read a line's attributes, and to adjudicate a close match; the hard rules veto it",
   description:
     "Matches every line of a document's latest extraction to the client's catalog, and lists the lines a person needs to review.",
   sideEffect: "internal",
@@ -412,7 +416,7 @@ export const catalogDuplicates = defineTool({
 
 // ── Prices and alerts (ARCHITECTURE §12.4) ───────────────────────────────────────────────────────
 
-const pricingContext = (ctx: PackToolContext) => ({
+export const pricingContext = (ctx: PackToolContext) => ({
   tenantId: ctx.tenantId,
   agentVersionId: ctx.agentVersionId,
   runId: ctx.runId,
@@ -457,7 +461,7 @@ export const pricesRecord = defineTool({
   run: (input, ctx) => recordPrices(ctx.db, pricingContext(ctx), input),
 });
 
-const AlertOut = z.object({
+export const AlertOut = z.object({
   id: z.string().nullable(),
   kind: z.string(),
   severity: z.string(),

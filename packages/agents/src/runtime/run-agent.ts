@@ -485,8 +485,11 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     mode,
     approval: input.approval,
     threadId: input.threadId,
-    // P-1: the skill's resolved settings, for its tools (a pack's thresholds).
-    settings,
+    // P-1: the skill's resolved settings, for its tools (a pack's thresholds). Skill model
+    // (2026-11-10): a built-in code skill's handler reads its parameter values here too.
+    // DECISION: parameters go to the skill's tools with its settings, a parameter over a setting
+    // of the same name, so a built-in code skill reads both one way (`ctx.settings`).
+    settings: { ...settings, ...parameters },
     externalIndex: { next: 0 },
     language: input.language,
     readOnly: asked !== undefined,
@@ -506,7 +509,17 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   const allowed = new Set(
     asked
       ? skillTools(def).filter((t) => deps.tools.get(t)?.spec.sideEffect === "none")
-      : [...skillTools(def), ...agent.bundle.definition.extraTools],
+      : // Skill model (2026-11-10): a skill's declared reads (side effect `none`, checked when
+        // it is registered or saved) are tools its model may call, e.g. retrieval.
+        [
+          ...skillTools(def),
+          ...(def.reads ?? []),
+          // DECISION: an AI (task) skill never writes, so its model is offered only the agent's
+          // extra tools that read; an agent-mode skill keeps them all (its writes are gated).
+          ...agent.bundle.definition.extraTools.filter(
+            (t) => def.mode !== "task" || deps.tools.get(t)?.spec.sideEffect === "none",
+          ),
+        ],
   );
   const pending: PendingAction[] = [];
   const track = (o: ToolOutcome) => {
