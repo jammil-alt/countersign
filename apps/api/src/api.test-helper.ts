@@ -21,12 +21,24 @@ import {
   AgentBundle,
   type AgentBundleInput,
   FORBIDDEN_PORTAL_FIELD,
+  hashJson,
   type SkillDefinition,
+  SkillDefinition as SkillDefinitionSchema,
 } from "@countersign/core";
-import { appUser, connection, createDb, type Db, membership, tenant } from "@countersign/db";
+import {
+  appUser,
+  connection,
+  createDb,
+  type Db,
+  membership,
+  skill,
+  skillVersion,
+  tenant,
+} from "@countersign/db";
 import { createTestDatabase, type TestDatabase } from "@countersign/db/testing";
 import { type LlmTransport, withRecording } from "@countersign/llm";
 import { fileFixtureStore } from "@countersign/llm/node";
+import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { createApp } from "./app";
 // v0.12 W2-C
@@ -287,6 +299,38 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
 
 export const OPERATOR = "operator@example.com";
 export const OTHER_OPERATOR = "other-operator@example.com";
+/**
+ * Skill model (2026-11-10): an operator skill version as it was stored before the skill model (an
+ * agent-mode skill, say), written straight to its rows and made live. A new version of that kind is
+ * refused; a stored one keeps running (invariant 3), which is what tests of stored skills need.
+ */
+export async function storedSkill(
+  h: Pick<ApiHarness, "t">,
+  definition: { id: string; name: string } & Record<string, unknown>,
+  tenantId: string | null = null,
+): Promise<{ skillId: string; versionId: string }> {
+  const def = SkillDefinitionSchema.parse(definition);
+  const [row] = await h.t.db
+    .insert(skill)
+    .values({ tenantId, slug: def.id.replace(/^custom:/, ""), name: def.name })
+    .returning();
+  if (!row) throw new Error("no skill");
+  const [v] = await h.t.db
+    .insert(skillVersion)
+    .values({
+      tenantId,
+      skillId: row.id,
+      version: 1,
+      definition: def,
+      definitionHash: await hashJson(def),
+      status: "live",
+    })
+    .returning();
+  if (!v) throw new Error("no skill version");
+  await h.t.db.update(skill).set({ liveVersionId: v.id }).where(eq(skill.id, row.id));
+  return { skillId: row.id, versionId: v.id };
+}
+
 export const admin = (c: "a" | "b" | "c") => `admin@${c}.example.com`;
 export const user = (c: "a" | "b" | "c") => `user@${c}.example.com`;
 

@@ -21,7 +21,9 @@ import {
   type SkillListItem,
   type SkillUse,
   skillMethod,
+  skillModelFacts,
   skillTools,
+  toolLookup,
 } from "@countersign/core";
 import { agent, agentVersion, skill, skillVersion, tenant } from "@countersign/db";
 import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
@@ -208,6 +210,9 @@ function listItem(
     browse: def.browse ?? null,
     retired: isToolWrapper(def),
     wraps: isToolWrapper(def) ? (def.handler ?? null) : null,
+    // Skill model (2026-11-10): deterministic or AI (a code skill whose tool calls a model is
+    // AI), its parameters and its recommended model.
+    ...skillModelFacts(def, toolLookup(platform.tools.specs())),
   };
 }
 
@@ -307,6 +312,9 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
     const shadowed = await shadowingClients(ctx);
     const items: SkillListItem[] = [];
     for (const def of platform.catalog.list()) {
+      // Skill model (2026-11-10): a skill that is only a tool by another name leaves the Library;
+      // a process uses the tool as a read or write step (stored references still resolve).
+      if (isToolWrapper(def)) continue;
       items.push(
         listItem(
           {

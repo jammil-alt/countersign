@@ -27,6 +27,7 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  storedSkill,
   testBundle,
 } from "./api.test-helper";
 import { executeRun } from "./runs/execute";
@@ -302,30 +303,23 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
   it("ends a retry at a model skill that asked for help after its carried write failed after sending", async () => {
     // A model-mode skill that pays: it makes the write itself, then asks for help, and nobody
     // answers. The route goes on past `failed` or `needs_help`.
-    const created = await H.call(OPERATOR, "POST", "/api/ops/skills", {
-      definition: {
-        schemaVersion: 1,
-        id: "custom:pay-vendor",
-        name: "Pay vendor",
-        description: "Pays the vendor's record",
-        category: "writing",
-        mode: "agent",
-        instructions: "Update the record to pay it.",
-        tools: [TESTKIT_UPDATE_TOOL],
-        input: { type: "object", properties: { id: { type: "string" } } },
-        output: {
-          type: "object",
-          properties: { paid: { type: "boolean" }, needsHelp: { type: "object" } },
-        },
+    // Skill model (2026-11-10): a new agent-mode skill is refused; this one was stored before,
+    // and a stored version keeps running (invariant 3).
+    await storedSkill(H, {
+      schemaVersion: 1,
+      id: "custom:pay-vendor",
+      name: "Pay vendor",
+      description: "Pays the vendor's record",
+      category: "writing",
+      mode: "agent",
+      instructions: "Update the record to pay it.",
+      tools: [TESTKIT_UPDATE_TOOL],
+      input: { type: "object", properties: { id: { type: "string" } } },
+      output: {
+        type: "object",
+        properties: { paid: { type: "boolean" }, needsHelp: { type: "object" } },
       },
     });
-    expect(created.status, JSON.stringify(created.json)).toBe(200);
-    const published = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/skills/${j(created.json).skill.id}/versions/${j(created.json).version.id}/publish`,
-    );
-    expect(published.status, JSON.stringify(published.json)).toBe(200);
     const update = H.backend.update.bind(H.backend);
     H.backend.update = () => {
       throw new Error("HTTP 502 from the provider");

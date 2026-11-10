@@ -84,7 +84,9 @@ describe.skipIf(!h)("lineage API: updates, promotion, rollback, detach", () => {
           name: "Merge watch",
           description: "Watches merges",
           category: "custom",
-          mode: "agent",
+          // Skill model (2026-11-10): new operator skills are AI skills (agent mode retired).
+          mode: "task",
+          model: { id: "claude-haiku-5-5" },
           instructions: "Watch.",
           tools: [],
           input: { type: "object" },
