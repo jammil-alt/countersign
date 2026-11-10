@@ -718,6 +718,29 @@ export const fr: Messages = {
   "scripts.valueType.date": "Date",
   "scripts.valueType.table": "Tableau",
   "scripts.valueType.document": "Document",
+  "scripts.state.waiting": "Publié · v{version}, v{newest} en attente de notre publication",
+  "scripts.problem.duplicate_input": "deux entrées s’appellent {name}",
+  "scripts.problem.duplicate_output": "deux sorties s’appellent {name}",
+  "scripts.problem.duplicate_step": "deux étapes s’appellent {name}",
+  "scripts.problem.reserved_output": "« {name} » ne peut pas être le nom d’une sortie",
+  "scripts.problem.unknown_input": "l’étape {step} utilise {name}, qui n’est pas une entrée",
+  "scripts.problem.unknown_output": "l’étape {step} lit {name}, qui n’est pas une sortie",
+  "scripts.problem.wrong_output_type": "l’étape {step} ne peut pas lire {name} comme {type}",
+  "scripts.problem.unused_input": "aucune étape n’utilise l’entrée {name}",
+  "scripts.problem.unread_output": "aucune étape ne lit la sortie {name}",
+  "scripts.problem.output_read_twice": "plusieurs étapes lisent {name}",
+  "scripts.problem.read_submits":
+    "un script qui envoie un formulaire modifie quelque chose : c’est une écriture",
+  "scripts.problem.write_without_submit":
+    "une écriture envoie un formulaire : marquez le clic qui l’envoie",
+  "scripts.problem.submits_twice": "un script n’envoie un formulaire qu’une fois",
+  "scripts.problem.submit_not_last": "l’envoi du formulaire est la dernière étape du script",
+  "scripts.problem.reverse_on_read":
+    "seul un script qui envoie un formulaire nomme celui qui l’annule",
+  "scripts.problem.reverse_unknown_input":
+    "{name} du script d’annulation vient de {from}, qui n’est pas une entrée",
+  "scripts.problem.reverse_unknown_output":
+    "{name} du script d’annulation vient de {from}, qui n’est pas une sortie",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · configuration",

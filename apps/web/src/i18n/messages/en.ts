@@ -683,6 +683,26 @@ export const en = {
   "scripts.valueType.date": "Date",
   "scripts.valueType.table": "Table",
   "scripts.valueType.document": "Document",
+  "scripts.state.waiting": "Published · v{version}, v{newest} waiting for us",
+  "scripts.problem.duplicate_input": "two inputs are called {name}",
+  "scripts.problem.duplicate_output": "two outputs are called {name}",
+  "scripts.problem.duplicate_step": "two steps are called {name}",
+  "scripts.problem.reserved_output": "“{name}” can't be an output's name",
+  "scripts.problem.unknown_input": "step {step} uses {name}, which isn't an input",
+  "scripts.problem.unknown_output": "step {step} reads {name}, which isn't an output",
+  "scripts.problem.wrong_output_type": "step {step} can't read {name} as {type}",
+  "scripts.problem.unused_input": "no step uses the input {name}",
+  "scripts.problem.unread_output": "no step reads the output {name}",
+  "scripts.problem.output_read_twice": "more than one step reads {name}",
+  "scripts.problem.read_submits": "a script that sends a form changes something: it is a write",
+  "scripts.problem.write_without_submit": "a write sends a form: mark the click that sends it",
+  "scripts.problem.submits_twice": "a script sends a form once",
+  "scripts.problem.submit_not_last": "sending the form is the script's last step",
+  "scripts.problem.reverse_on_read": "only a script that sends a form names one that undoes it",
+  "scripts.problem.reverse_unknown_input":
+    "the undo script's {name} comes from {from}, which isn't an input",
+  "scripts.problem.reverse_unknown_output":
+    "the undo script's {name} comes from {from}, which isn't an output",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · set up",

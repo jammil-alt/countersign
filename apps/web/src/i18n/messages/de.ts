@@ -727,6 +727,30 @@ export const de: Messages = {
   "scripts.valueType.date": "Datum",
   "scripts.valueType.table": "Tabelle",
   "scripts.valueType.document": "Dokument",
+  "scripts.state.waiting":
+    "Veröffentlicht · v{version}, v{newest} wartet auf unsere Veröffentlichung",
+  "scripts.problem.duplicate_input": "zwei Eingaben heißen {name}",
+  "scripts.problem.duplicate_output": "zwei Ausgaben heißen {name}",
+  "scripts.problem.duplicate_step": "zwei Schritte heißen {name}",
+  "scripts.problem.reserved_output": "„{name}“ kann kein Name einer Ausgabe sein",
+  "scripts.problem.unknown_input": "Schritt {step} verwendet {name}, das keine Eingabe ist",
+  "scripts.problem.unknown_output": "Schritt {step} liest {name}, das keine Ausgabe ist",
+  "scripts.problem.wrong_output_type": "Schritt {step} kann {name} nicht als {type} lesen",
+  "scripts.problem.unused_input": "kein Schritt verwendet die Eingabe {name}",
+  "scripts.problem.unread_output": "kein Schritt liest die Ausgabe {name}",
+  "scripts.problem.output_read_twice": "mehr als ein Schritt liest {name}",
+  "scripts.problem.read_submits":
+    "ein Skript, das ein Formular sendet, ändert etwas: es ist ein Schreibvorgang",
+  "scripts.problem.write_without_submit":
+    "ein Schreibvorgang sendet ein Formular: Markieren Sie den Klick, der es sendet",
+  "scripts.problem.submits_twice": "ein Skript sendet ein Formular nur einmal",
+  "scripts.problem.submit_not_last": "das Senden des Formulars ist der letzte Schritt des Skripts",
+  "scripts.problem.reverse_on_read":
+    "nur ein Skript, das ein Formular sendet, nennt eines, das es rückgängig macht",
+  "scripts.problem.reverse_unknown_input":
+    "{name} des Rückgängig-Skripts kommt aus {from}, das keine Eingabe ist",
+  "scripts.problem.reverse_unknown_output":
+    "{name} des Rückgängig-Skripts kommt aus {from}, das keine Ausgabe ist",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · Einrichtung",

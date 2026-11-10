@@ -702,6 +702,28 @@ export const ptBR: Messages = {
   "scripts.valueType.date": "Data",
   "scripts.valueType.table": "Tabela",
   "scripts.valueType.document": "Documento",
+  "scripts.state.waiting": "Publicado · v{version}, v{newest} aguardando nossa publicação",
+  "scripts.problem.duplicate_input": "duas entradas se chamam {name}",
+  "scripts.problem.duplicate_output": "duas saídas se chamam {name}",
+  "scripts.problem.duplicate_step": "duas etapas se chamam {name}",
+  "scripts.problem.reserved_output": "“{name}” não pode ser o nome de uma saída",
+  "scripts.problem.unknown_input": "a etapa {step} usa {name}, que não é uma entrada",
+  "scripts.problem.unknown_output": "a etapa {step} lê {name}, que não é uma saída",
+  "scripts.problem.wrong_output_type": "a etapa {step} não pode ler {name} como {type}",
+  "scripts.problem.unused_input": "nenhuma etapa usa a entrada {name}",
+  "scripts.problem.unread_output": "nenhuma etapa lê a saída {name}",
+  "scripts.problem.output_read_twice": "mais de uma etapa lê {name}",
+  "scripts.problem.read_submits": "um script que envia um formulário muda algo: é uma escrita",
+  "scripts.problem.write_without_submit":
+    "uma escrita envia um formulário: marque o clique que o envia",
+  "scripts.problem.submits_twice": "um script envia um formulário uma só vez",
+  "scripts.problem.submit_not_last": "enviar o formulário é a última etapa do script",
+  "scripts.problem.reverse_on_read":
+    "só um script que envia um formulário indica outro que o desfaz",
+  "scripts.problem.reverse_unknown_input":
+    "{name} do script que desfaz vem de {from}, que não é uma entrada",
+  "scripts.problem.reverse_unknown_output":
+    "{name} do script que desfaz vem de {from}, que não é uma saída",
 
   // ── Webhooks ──
   "webhook.section": "Webhooks · configuração",
