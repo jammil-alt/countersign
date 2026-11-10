@@ -4,16 +4,29 @@
 // database: the portal reads, the operator binds the account's, an agent's own stays the existing
 // route's, and which agents listen on a number.
 
-import type { ChannelBindings } from "@countersign/core";
-import { agent, connection, withTenant } from "@countersign/db";
+import { agentAddress, type ChannelBindings, INBOUND_MESSAGE_EVENT } from "@countersign/core";
+import {
+  agent,
+  agentVersion,
+  connection,
+  contact,
+  rawRecord,
+  tenant,
+  tenantChange,
+  withTenant,
+} from "@countersign/db";
+import type { EventRow } from "@countersign/senses";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { admin, createApiHarness, OPERATOR, user } from "./api.test-helper";
+import { admin, createApiHarness, OPERATOR, testBundle, user } from "./api.test-helper";
 import {
   agentsListeningOn,
   type ChannelConnection,
   channelFor,
   pickChannel,
+  sendingChannels,
 } from "./channels/resolve";
+import { routeInboundText } from "./triggers/inbound-text";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 type J = any;
@@ -112,9 +125,46 @@ describe("pickChannel (no database)", () => {
     // A Gmail mailbox is never the account's email by default.
     expect(pickChannel({ kind: "email", account: none, connections: [gmail] })).toBeNull();
   });
+
+  it("sends an agent's reach-outs on its own channel, else the account's, at that connection's level", () => {
+    const automatic = { ...twilio2, permissions: { create: "auto" } };
+    const sending = sendingChannels({ sms: "t1" }, { whatsapp: "t22" }, [
+      twilio,
+      automatic,
+      resend,
+    ]);
+    expect(Object.fromEntries(sending)).toEqual({
+      email: { id: "r1", connector: "resend", create: "approval" },
+      sms: { id: "t1", connector: "twilio", create: "approval" },
+      whatsapp: { id: "t22", connector: "twilio", create: "auto" },
+      voice: { id: "t1", connector: "twilio", create: "approval" },
+    });
+    // An agent with none of its own sends on the account's.
+    expect(sendingChannels(null, none, [twilio]).get("sms")).toMatchObject({ id: "t1" });
+  });
+
+  it("names an agent's own email address on Mezonas' sending, never on a bound mailbox", () => {
+    const emails = { agentEmail: "remy.acme-x@in.test", accountEmail: "acme-y@in.test" };
+    expect(pickChannel({ kind: "email", account: none, connections, ...emails })).toMatchObject({
+      connectionId: "r1",
+      address: "remy.acme-x@in.test",
+      source: "agent",
+    });
+    expect(
+      pickChannel({ kind: "email", account: none, connections, accountEmail: emails.accountEmail }),
+    ).toMatchObject({ connectionId: "r1", address: "acme-y@in.test", source: "default" });
+    expect(
+      pickChannel({ kind: "email", account: { email: "g1" }, connections, ...emails }),
+    ).toMatchObject({ connectionId: "g1", address: "pat@client.example.com", source: "account" });
+    // Texts are untouched by email addresses.
+    expect(pickChannel({ kind: "sms", account: none, connections, ...emails })).toMatchObject({
+      address: "+15550000001",
+    });
+  });
 });
 
-const h = await createApiHarness();
+const DOMAIN = "in.mezonas.test";
+const h = await createApiHarness({ env: { EMAIL_FORWARDING_DOMAIN: DOMAIN } });
 afterAll(() => h?.close());
 
 describe.skipIf(!h)("channels through the API", () => {
@@ -127,6 +177,7 @@ describe.skipIf(!h)("channels through the API", () => {
   let otherClients = "";
   let pia = "";
   let remy = "";
+  let dana = "";
 
   async function addConnection(tenantId: string, connector: string, config: object) {
     const [row] = await H.t.db
@@ -170,6 +221,41 @@ describe.skipIf(!h)("channels through the API", () => {
     );
     pia = await addAgent("pia", { sms: second });
     remy = await addAgent("remy", {});
+    const [c] = await H.t.db
+      .insert(contact)
+      .values({ tenantId: A(), name: "Dana", phone: "+15557770001" })
+      .returning();
+    dana = c?.id as string;
+    // Remy starts on a text from Dana.
+    const remyBundle = testBundle("Remy Records");
+    const [wf] = remyBundle.workflows;
+    if (!wf) throw new Error("no workflow");
+    remyBundle.workflows = [
+      {
+        ...wf,
+        workflow: {
+          ...wf.workflow,
+          trigger: {
+            id: "msg",
+            on: { type: "message", channels: ["sms"], from: { contactIds: [dana] } },
+          },
+        },
+      },
+    ];
+    // Remy is live, so it has its own email address (§10.8); Pia isn't yet.
+    const [v] = await H.t.db
+      .insert(agentVersion)
+      .values({
+        tenantId: A(),
+        agentId: remy,
+        version: 1,
+        bundle: remyBundle,
+        bundleHash: "h",
+        status: "live",
+        authorType: "operator",
+      })
+      .returning();
+    await H.t.db.update(agent).set({ liveVersionId: v?.id }).where(eq(agent.id, remy));
   });
 
   it("the portal reads the account's number and email and each service's", async () => {
@@ -186,6 +272,27 @@ describe.skipIf(!h)("channels through the API", () => {
     expect(piaLines.channels.find((l: J) => l.kind === "sms")).toMatchObject({
       address: "+15550000102",
       source: "agent",
+    });
+    // An agent's email is its own address (§10.8), sent through the account's connection; an
+    // agent without one (not live) shows the account's.
+    const [t] = await H.t.db.select({ name: tenant.name }).from(tenant).where(eq(tenant.id, A()));
+    const remyLines = body.agents.find((a: J) => a.agentId === remy);
+    expect(remyLines.channels.find((l: J) => l.kind === "email")).toEqual({
+      kind: "email",
+      connectionId: mail,
+      connector: "resend",
+      address: agentAddress({
+        commandName: "remy",
+        clientName: t?.name ?? "",
+        tenantId: A(),
+        domain: DOMAIN,
+      }),
+      source: "agent",
+    });
+    expect(piaLines.channels.find((l: J) => l.kind === "email")).toMatchObject({
+      connectionId: mail,
+      address: "office@mail.mezonas.test",
+      source: "default",
     });
     // Client B sees none of client A's.
     const b = await call(admin("b"), "GET", "/api/settings/channels");
@@ -207,11 +314,21 @@ describe.skipIf(!h)("channels through the API", () => {
       source: "account",
     });
     expect(body.options.map((o: J) => o.connectionId).sort()).toEqual([main, mail, second].sort());
+    // The change is recorded with what it was and what it is, as an agent's channels are.
+    const changes = await H.t.db.select().from(tenantChange).where(eq(tenantChange.tenantId, A()));
+    expect(changes.map((c) => c.change)).toEqual([
+      { setting: "channels", from: {}, to: { sms: second } },
+    ]);
+    expect(changes[0]?.actorId).toBe(H.operator);
 
     for (const channels of [{ sms: otherClients }, { sms: mail }, { email: H.A.connectionId }]) {
       const bad = await call(OPERATOR, "PUT", `/api/ops/clients/${A()}/channels`, { channels });
       expect(bad.status, JSON.stringify(channels)).toBe(422);
     }
+    // A refused change records nothing.
+    expect(
+      await H.t.db.select().from(tenantChange).where(eq(tenantChange.tenantId, A())),
+    ).toHaveLength(1);
     expect(
       (await call(admin("a"), "PUT", `/api/ops/clients/${A()}/channels`, { channels: {} })).status,
     ).toBe(403);
@@ -241,5 +358,48 @@ describe.skipIf(!h)("channels through the API", () => {
     ]);
     expect(onMain).toEqual([remy]);
     expect(onSecond).toEqual([pia]);
+  });
+
+  it("a text to the account's number starts the agents listening on it, not those with their own", async () => {
+    await call(OPERATOR, "PUT", `/api/ops/clients/${A()}/channels`, { channels: { sms: main } });
+    const [who] = await H.t.db.select().from(contact).where(eq(contact.id, dana));
+    const textOn = async (connectionId: string, sid: string) => {
+      const collect: EventRow[] = [];
+      await withTenant(H.db, A(), async (tx) => {
+        const [raw] = await tx
+          .insert(rawRecord)
+          .values({
+            tenantId: A(),
+            connectionId,
+            connector: "twilio",
+            entityType: "Message",
+            externalId: sid,
+            externalVersion: null,
+            payload: {},
+          })
+          .returning();
+        await routeInboundText(tx, {
+          tenantId: A(),
+          connectionId,
+          channel: "sms",
+          sid,
+          contact: who as NonNullable<typeof who>,
+          knownContact: true,
+          rawRecordId: raw?.id as string,
+          from: "+15557770001",
+          to: "+15550000101",
+          now: new Date(),
+          registry: H.platform.events,
+          collect,
+        });
+      });
+      return collect.filter((e) => e.type === INBOUND_MESSAGE_EVENT).map((e) => e.payload);
+    };
+    // Remy has no number of its own: it listens on the account's.
+    expect(await textOn(main, "SM-main")).toEqual([
+      expect.objectContaining({ agentId: remy, channel: "sms", contactId: dana }),
+    ]);
+    // Pia's own number isn't the account's: Remy doesn't hear what comes in there.
+    expect(await textOn(second, "SM-second")).toEqual([]);
   });
 });

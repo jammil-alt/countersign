@@ -677,6 +677,20 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
           updatedAt: z.string().nullable(),
           properties: z.record(z.string(), z.string().nullable()),
         }),
+        // R5: the properties it set go back to their values before, guarded by the record's
+        // `updatedAt` now (the undo runs only when nobody changed it since our write); the before
+        // state holds HubSpot's text values, not the input's, and its own `updatedAt`.
+        undoInput: ({ input, before, current }) =>
+          before && current
+            ? {
+                objectType: input.objectType,
+                id: input.id,
+                properties: Object.fromEntries(
+                  Object.keys(input.properties).map((k) => [k, before.properties[k] ?? null]),
+                ),
+                ...(current.updatedAt === null ? {} : { expectedUpdatedAt: current.updatedAt }),
+              }
+            : null,
         async before(input, ctx) {
           const current = await getRecord(
             ctx,

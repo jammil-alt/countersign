@@ -2,7 +2,8 @@
 // proceed`), and the undo a late no is offered. The executor marks the step it passed on
 // (`step_run.output.proceededWithoutAnswer`, with the write's `externalActionId`); here the rows
 // are seeded as it leaves them. Contract: the portal reaches only its own client's items and
-// changes, only the people the offer names may press, the back office's route is the operator's.
+// changes, only the people the offer names or a client admin may press, the back office's route
+// is the operator's.
 
 import { checkRouteContract, forbiddenPortalFields, type RouteSpec } from "@countersign/core";
 import {
@@ -302,9 +303,7 @@ describe.skipIf(!h)("a late answer and its undo", () => {
     });
 
     it("is pressed only by the people it names", async () => {
-      // Client A's admin sees the item, but it wasn't their no.
-      const notTheirs = await H.call(admin("a"), "POST", `/api/inbox/${w.itemId}/undo-change`);
-      expect(notTheirs.status).toBe(403);
+      // (Client A's admin may press it too, though it wasn't their no: see below.)
       // The portal's card names nobody of ours: the lead is a flag, not an id.
       const card = await H.call(user("a"), "GET", "/api/inbox?status=resolved");
       expect(card.status).toBe(200);
@@ -357,7 +356,8 @@ describe.skipIf(!h)("a late answer and its undo", () => {
     });
 
     it("refuses with a plain reason when it can't tell the record is as we left it", async () => {
-      // Production keeps no after state until external_action has its column: a person decides.
+      // A write recorded without its after state (as every write was before migration 0044): a
+      // person decides.
       const res = await H.call(user("a"), "POST", `/api/inbox/${w.itemId}/undo-change`);
       expect(res.status).toBe(200);
       expect(res.json).toMatchObject({
@@ -367,6 +367,10 @@ describe.skipIf(!h)("a late answer and its undo", () => {
       const lead = await H.call(OPERATOR, "POST", `/api/ops/inbox/${leadItem}/undo-change`);
       expect(lead.status).toBe(200);
       expect(lead.json).toMatchObject({ undo: { status: "refused", code: "after_unknown" } });
+      // Client A's admin may press it though it wasn't their no (owner, wave 2b).
+      const byAdmin = await H.call(admin("a"), "POST", `/api/inbox/${w.itemId}/undo-change`);
+      expect(byAdmin.status).toBe(200);
+      expect(byAdmin.json).toMatchObject({ undo: { status: "refused", code: "after_unknown" } });
       // Nothing written, nothing recorded, the offer still open; the refusal audited.
       expect(H.backend.get(A.connectionId, "r1")?.amount).toBe("12.00");
       const undos = await H.t.db
@@ -379,7 +383,7 @@ describe.skipIf(!h)("a late answer and its undo", () => {
         .select()
         .from(auditEvent)
         .where(eq(auditEvent.action, "external_action.undo"));
-      expect(audits.filter((a) => a.target.action === w.actionId)).toHaveLength(2);
+      expect(audits.filter((a) => a.target.action === w.actionId)).toHaveLength(3);
       expect(audits.every((a) => a.outcome === "refused")).toBe(true);
     });
 
@@ -411,6 +415,45 @@ describe.skipIf(!h)("a late answer and its undo", () => {
         .where(eq(inboxItem.id, t.itemId));
       const res = await H.call(admin("a"), "POST", `/api/inbox/${t.itemId}/undo-change`);
       expect(res.json).toMatchObject({ undo: { status: "refused", code: "test_run" } });
+    });
+
+    it("takes the change back when the record is as the write left it, on the write's run", async () => {
+      const kept = await proceeded(A, { assigneeRole: "client_user" });
+      // The record as the write left it (migration 0044): what an undo compares with now.
+      const now = H.backend.get(A.connectionId, "r1");
+      expect(now?.amount).toBe("12.00");
+      await H.t.db
+        .update(externalAction)
+        .set({ after: now as unknown as Record<string, unknown> })
+        .where(eq(externalAction.id, kept.actionId));
+      const no = await H.call(user("a"), "POST", `/api/inbox/${kept.itemId}/resolve`, {
+        decision: "reject",
+      });
+      expect(no.status).toBe(200);
+      // Pressed by a client admin, who didn't say no.
+      const res = await H.call(admin("a"), "POST", `/api/inbox/${kept.itemId}/undo-change`);
+      expect(res.status).toBe(200);
+      expect(res.json).toMatchObject({ itemId: kept.itemId, undo: { status: "done" } });
+      expect(H.backend.get(A.connectionId, "r1")?.amount).toBe("10.00");
+      // The undo is a write of its own, approved by the press, on the original's run (so it shows
+      // on that run's timeline), with the record as it left it kept for its own undo.
+      const [undo] = await H.t.db
+        .select()
+        .from(externalAction)
+        .where(eq(externalAction.idempotencyKey, `undo:${kept.actionId}`));
+      expect(undo).toMatchObject({
+        runId: kept.runId,
+        stepRunId: null,
+        agentVersionId: null,
+        status: "done",
+        approvedBy: A.admin,
+        tool: "testkit.record.update",
+      });
+      expect(undo?.after).toMatchObject({ id: "r1", amount: "10.00" });
+      // A second press writes nothing more.
+      const again = await H.call(admin("a"), "POST", `/api/inbox/${kept.itemId}/undo-change`);
+      expect(again.json).toMatchObject({ undo: { status: "done", undoActionId: undo?.id } });
+      expect(H.backend.get(A.connectionId, "r1")?.amount).toBe("10.00");
     });
   });
 });

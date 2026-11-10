@@ -210,9 +210,34 @@ export interface WriteToolHandler {
   beforeSchema: z.ZodType;
   before(input: unknown, ctx: ToolContext): Promise<unknown>;
   run(input: unknown, ctx: WriteContext, before: unknown): Promise<unknown>;
+  /**
+   * R5: the input of the tool that takes this write back (its `undo.tool`, or itself for a
+   * restore), or null when it can't say. Absent: a restore by the same tool puts back the before
+   * state field by field (agents' `restoreInput`), and a reverse is refused.
+   */
+  undoInput?: UndoInputHook;
 }
 
 export type ToolHandler = ReadToolHandler | WriteToolHandler;
+
+/** What a write's `undoInput` is given, as stored with the write (R5, docs/plan.md §1.86). */
+export interface UndoInputArgs {
+  /** What the write wrote (the signer's edit when there was one). */
+  input: JsonObject;
+  /** The record before the write (`external_action.before`). */
+  before: unknown;
+  /** What the write returned (`external_action.result`), e.g. a created record's id. */
+  output: unknown;
+  /** The record now, read with the write's own `before` and input. */
+  current: unknown;
+}
+
+/**
+ * A write handler's own undo input: the input of its `undo.tool` (or of itself, for a restore)
+ * that takes the write back, or null when it can't say. The runtime checks it against that tool's
+ * input schema and `before` before anything is recorded, and the gate decides the undo again.
+ */
+export type UndoInputHook = (args: UndoInputArgs) => unknown;
 
 /** A tool as a connector defines it: its spec (without `source`/`connector`) and handler. */
 export interface ToolDefinition {
@@ -325,7 +350,20 @@ export function defineWriteTool<
   beforeSchema: B;
   before(input: z.output<I>, ctx: ToolContext): Promise<z.input<B> | null>;
   run(input: z.output<I>, ctx: WriteContext, before: z.output<B> | null): Promise<z.input<O>>;
+  /**
+   * R5: the input of the tool that takes this write back (WriteToolHandler `undoInput`), for a
+   * `reverse`, or a `restore` whose before state isn't shaped like the input. It gets the stored
+   * write parsed with this tool's own schemas; anything stored that no longer parses gives null.
+   */
+  undoInput?(args: {
+    input: z.output<I>;
+    before: z.output<B> | null;
+    output: z.output<O>;
+    current: z.output<B> | null;
+  }): unknown;
 }): ToolDefinition {
+  const undoInput = def.undoInput;
+  const beforeSchema = def.beforeSchema.nullable();
   return {
     spec: {
       id: def.id,
@@ -348,9 +386,30 @@ export function defineWriteTool<
       kind: "write",
       input: def.input,
       output: def.output,
-      beforeSchema: def.beforeSchema.nullable(),
+      beforeSchema,
       before: (input, ctx) => def.before(input as z.output<I>, ctx),
       run: (input, ctx, before) => def.run(input as z.output<I>, ctx, before as z.output<B> | null),
+      ...(undoInput
+        ? {
+            undoInput: (args: UndoInputArgs) => {
+              // Validated at the boundary (invariant 5): what was stored is read back with the
+              // tool's own schemas, never trusted as typed.
+              const input = def.input.safeParse(args.input);
+              const output = def.output.safeParse(args.output);
+              const before = beforeSchema.safeParse(args.before ?? null);
+              const current = beforeSchema.safeParse(args.current ?? null);
+              if (!input.success || !output.success || !before.success || !current.success) {
+                return null;
+              }
+              return undoInput({
+                input: input.data as z.output<I>,
+                before: before.data as z.output<B> | null,
+                output: output.data as z.output<O>,
+                current: current.data as z.output<B> | null,
+              });
+            },
+          }
+        : {}),
     },
   };
 }

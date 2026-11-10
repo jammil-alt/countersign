@@ -94,15 +94,66 @@ export function normalizePersonHours(
   return value.hours ? { hours: value.hours, away } : { away };
 }
 
+/** The longest a person may be away in one stretch, in days (touching ranges count as one). */
+export const MAX_AWAY_DAYS = 366;
+const DAY_MS = 86_400_000;
+
+/** Days since the epoch of an ISO date, or null when it isn't a real date. */
+function dayOf(date: string): number | null {
+  const ms = Date.parse(`${date}T00:00:00Z`);
+  return Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== date ? null : ms / DAY_MS;
+}
+
 /**
- * What a hours body may not say, in plain words, or null: an away range that ends before it
- * starts, or a zone the clock can't read.
+ * Why a week can't be anyone's hours, or null: a week with no open stretch would never let a
+ * deadline in business time come due (the clock gives up after five years and fails the run).
  */
+// DECISION: refused where it is written (422), as the review asked, rather than in core's schema:
+// stored weeks keep parsing as they did, and a week that no longer would still reads as the default.
+export function weekProblem(week: processes.BusinessHours["week"]): string | null {
+  return Object.values(week).some((stretches) => (stretches?.length ?? 0) > 0)
+    ? null
+    : "the week has no open hours: give at least one day its hours";
+}
+
+/**
+ * What a hours body may not say, in plain words, or null: a week with no open hours, a zone the
+ * clock can't read, a date that isn't one, an away range that ends before it starts, or away for
+ * more than MAX_AWAY_DAYS in a row (ranges that overlap or touch count as one).
+ */
+// DECISION: away is capped per stretch, not per range, so ranges laid end to end can't add up to
+// years away (which would fail every deadline asked of the person, as an all-closed week would).
 export function personHoursProblem(value: processes.PersonHours | null): string | null {
   if (!value) return null;
   if (value.hours && !validTimezone(value.hours.tz)) return `unknown time zone ${value.hours.tz}`;
-  const bad = value.away.find((r) => r.to < r.from);
-  return bad ? `away from ${bad.from} to ${bad.to}: the end is before the start` : null;
+  if (value.hours) {
+    const week = weekProblem(value.hours.week);
+    if (week) return week;
+  }
+  const ranges: { from: number; to: number; text: string }[] = [];
+  for (const r of value.away) {
+    const from = dayOf(r.from);
+    const to = dayOf(r.to);
+    if (from === null || to === null) return `away from ${r.from} to ${r.to}: not a date`;
+    if (to < from) return `away from ${r.from} to ${r.to}: the end is before the start`;
+    ranges.push({ from, to, text: r.from });
+  }
+  ranges.sort((a, b) => a.from - b.from);
+  // One stretch at a time: ranges that overlap or touch the one before join it.
+  let from = Number.NEGATIVE_INFINITY;
+  let to = Number.NEGATIVE_INFINITY;
+  let text = "";
+  for (const r of ranges) {
+    if (r.from > to + 1) {
+      from = r.from;
+      text = r.text;
+    }
+    to = Math.max(to, r.to);
+    if (to - from + 1 > MAX_AWAY_DAYS) {
+      return `away for more than ${MAX_AWAY_DAYS} days in a row from ${text}`;
+    }
+  }
+  return null;
 }
 
 // ── The executor's port ─────────────────────────────────────────────────────────────────────────

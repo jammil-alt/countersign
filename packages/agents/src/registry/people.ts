@@ -108,13 +108,18 @@ export async function setPeople(
   return updated;
 }
 
-/** Binds the agent's channels to connections of its client that can carry them. Operator only. */
-export async function setChannels(
+/**
+ * Checks channel bindings against a client's connections: each must be one of its own and able to
+ * carry the kind. Returns the bindings as stored (kind → connection id, empty kinds left out), or
+ * throws `invalid_state` with a plain reason. An agent's own channels and the account's (apps/api,
+ * R4) are checked the same way.
+ */
+export async function checkChannelBindings(
   tx: Tx,
-  input: { agentId: string; actorId: string | null; channels: ChannelBindings },
-): Promise<AgentRow> {
-  const row = await lockClientAgent(tx, input.agentId);
-  const entries = Object.entries(input.channels).filter(
+  tenantId: string,
+  bindings: ChannelBindings,
+): Promise<Record<string, string>> {
+  const entries = Object.entries(bindings).filter(
     (e): e is [ReachChannel, string] => typeof e[1] === "string",
   );
   const ids = [...new Set(entries.map(([, id]) => id))];
@@ -122,7 +127,7 @@ export async function setChannels(
     ? await tx
         .select({ id: connection.id, connector: connection.connector })
         .from(connection)
-        .where(and(eq(connection.tenantId, row.tenantId as string), inArray(connection.id, ids)))
+        .where(and(eq(connection.tenantId, tenantId), inArray(connection.id, ids)))
     : [];
   const channels: Record<string, string> = {};
   for (const [channel, id] of entries) {
@@ -140,6 +145,16 @@ export async function setChannels(
     }
     channels[channel] = id;
   }
+  return channels;
+}
+
+/** Binds the agent's channels to connections of its client that can carry them. Operator only. */
+export async function setChannels(
+  tx: Tx,
+  input: { agentId: string; actorId: string | null; channels: ChannelBindings },
+): Promise<AgentRow> {
+  const row = await lockClientAgent(tx, input.agentId);
+  const channels = await checkChannelBindings(tx, row.tenantId as string, input.channels);
   const [updated] = await tx
     .update(agent)
     .set({ channels })

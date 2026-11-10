@@ -42,7 +42,6 @@ import {
   type JsonObject,
   type JsonSchema,
   type Locale,
-  levelFor,
   type PeopleBinding,
   parseDuration,
   pickMessage,
@@ -73,6 +72,7 @@ import type {
   WaitRequest,
 } from "@countersign/workflows";
 import { and, asc, eq, gte, ne, sql } from "drizzle-orm";
+import { accountBindings, channelFor, sendingChannels } from "../channels/resolve";
 import { type ContactRow, contactLanguage, reachContactOf } from "../messaging/contacts";
 import { lastInboundAt } from "../messaging/services";
 import {
@@ -1472,18 +1472,13 @@ export function conversePort(deps: ConverseDeps): ConversePort {
       }
     }
     if (candidates.length === 0) return "no contact to talk with";
-    const bound = (agentRow.channels ?? {}) as Record<string, string>;
+    // R4: the agent's own channels, else the account's (../channels/resolve.ts), as the portal shows.
     const conns = await tx.select().from(connection).where(eq(connection.tenantId, info.tenantId));
-    const channels = new Map<ReachChannel, { id: string; connector: string; create: string }>();
-    for (const [ch, id] of Object.entries(bound)) {
-      const c = conns.find((x) => x.id === id);
-      if (c?.status !== "connected" || !channelTool(c.connector, ch as ReachChannel)) continue;
-      channels.set(ch as ReachChannel, {
-        id: c.id,
-        connector: c.connector,
-        create: levelFor(c.permissions, "create"),
-      });
-    }
+    const channels = sendingChannels(
+      agentRow.channels as Record<string, string> | null,
+      accountBindings(tenantRow.settings),
+      conns,
+    );
     return {
       agentRow,
       bundle,
@@ -1519,20 +1514,18 @@ export async function conversationRoute(
   stepApprover: string | undefined,
 ) {
   const [a] = await tx
-    .select({ approver: agent.approver, channels: agent.channels })
+    .select({ approver: agent.approver })
     .from(agent)
     .where(and(eq(agent.id, info.agentId), eq(agent.tenantId, info.tenantId)));
   const [v] = await tx
     .select({ bundle: agentVersion.bundle })
     .from(agentVersion)
     .where(and(eq(agentVersion.id, info.agentVersionId), eq(agentVersion.tenantId, info.tenantId)));
-  const connId = ((a?.channels ?? {}) as Record<string, string>)[channel];
-  const [conn] = connId
-    ? await tx
-        .select({ connector: connection.connector })
-        .from(connection)
-        .where(and(eq(connection.id, connId), eq(connection.tenantId, info.tenantId)))
-    : [];
+  // R4: the channel the conversation is held on (the agent's own, else the account's), so the
+  // approver rules see the connection the messages go through.
+  const conn = a
+    ? await channelFor(tx, info.tenantId, info.agentId, channel as ReachChannel)
+    : null;
   const route = routeApproval({
     rules: routing.rules,
     facts: {

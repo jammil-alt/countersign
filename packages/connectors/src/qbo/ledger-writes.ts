@@ -416,6 +416,19 @@ function createTool(
       const { parent } = await check(await clientFor(ctx), i as In, ctx);
       return { parent: parent ? { id: parent.id, name: parent.name } : null };
     },
+    // R5: the update that reverses it makes the new record inactive, at the version the create
+    // left it. DECISION: that version is the create's own answer (`syncToken`), so a record
+    // anyone changed since is refused by the update as stale and nothing is written; a create's
+    // before state (its parent) can't show such a change itself.
+    ...(reversedBy
+      ? {
+          undoInput: ({ output }: { output: z.infer<typeof Created> }) => ({
+            id: output.id,
+            syncToken: output.syncToken,
+            active: false,
+          }),
+        }
+      : {}),
     async run(i, ctx) {
       const client = await clientFor(ctx);
       const v = i as In;
@@ -496,6 +509,36 @@ function alreadyAs(c: Current, i: UpdateIn): boolean {
   );
 }
 
+/**
+ * R5: the update that puts back what a ledger update changed: each field it set takes its value
+ * from before the change, at the version the record is at now (the undo runs only when nobody
+ * changed it since our write). Null when a field can't be put back (QuickBooks had no type or
+ * detail type to return to) or nothing would change.
+ */
+export function ledgerRestoreInput(
+  input: UpdateIn,
+  before: { current: Current } | null,
+  now: { current: Current } | null,
+): Record<string, unknown> | null {
+  if (!before || !now) return null;
+  const was = before.current;
+  const out: Record<string, unknown> = { id: input.id, syncToken: now.current.syncToken };
+  if (input.name !== undefined) out.name = was.name;
+  if (input.parentId !== undefined) out.parentId = was.parent?.id ?? null;
+  if (input.active !== undefined) out.active = was.active;
+  if (input.accountType !== undefined) {
+    if (was.accountType === null) return null;
+    out.accountType = was.accountType;
+  }
+  if (input.accountSubType !== undefined) {
+    if (was.accountSubType === null) return null;
+    out.accountSubType = was.accountSubType;
+  }
+  if (input.number !== undefined) out.number = was.number;
+  if (input.description !== undefined) out.description = was.description;
+  return Object.keys(out).length > 2 ? out : null;
+}
+
 function updateTool(
   entity: LedgerEntity,
   id: string,
@@ -522,6 +565,9 @@ function updateTool(
       current: Current,
       newParent: z.object({ id: z.string(), name: z.string() }).nullable(),
     }),
+    // R5: the before state is the whole record, not the input's shape (ledgerRestoreInput).
+    undoInput: ({ input: i, before, current: now }) =>
+      ledgerRestoreInput(i as UpdateIn, before, now),
     async before(raw, ctx) {
       const i = raw as UpdateIn;
       const client = await clientFor(ctx);

@@ -301,9 +301,9 @@ export interface ExternalActionStore {
   keepsAfter?: boolean;
   /**
    * R5: records a person's undo of a done write as an approved action under its own key
-   * (`input.idempotencyKey`), no run and no agent (a person's write, like a signed write), unless
-   * one exists under that key: then that one is returned unchanged, so a second press never
-   * writes twice. Absent: this store records no undo.
+   * (`input.idempotencyKey`), on the original's run but with no step and no agent version (a
+   * person's write, like a signed write), unless one exists under that key: then that one is
+   * returned unchanged, so a second press never writes twice. Absent: this store records no undo.
    */
   proposeUndo?(
     tenantId: string,

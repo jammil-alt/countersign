@@ -37,7 +37,6 @@ import {
   isPlainObject,
   isSendableType,
   type JsonObject,
-  levelFor,
   type ModelChoice,
   nextEscalation,
   type PeopleBinding,
@@ -82,6 +81,7 @@ import type {
   WaitRequest,
 } from "@countersign/workflows";
 import { and, eq, gte, inArray, isNull, lte, ne, sql } from "drizzle-orm";
+import { accountBindings, pickChannel, sendingChannels } from "../channels/resolve";
 // R7
 import { conversationEventOfSubject, sendWithConversation } from "../converse/wake";
 import {
@@ -424,24 +424,13 @@ async function load(tx: Tx, req: SkillStepRequest, input: ReachOutInput): Promis
     }
   }
 
-  const bound = (agentRow.channels ?? {}) as Record<string, string>;
-  const ids = [...new Set(Object.values(bound))];
-  const conns = ids.length
-    ? await tx
-        .select()
-        .from(connection)
-        .where(and(eq(connection.tenantId, info.tenantId), inArray(connection.id, ids)))
-    : [];
-  const channels = new Map<ReachChannel, { id: string; connector: string; create: string }>();
-  for (const [ch, id] of Object.entries(bound)) {
-    const c = conns.find((x) => x.id === id);
-    if (c?.status !== "connected" || !channelTool(c.connector, ch as ReachChannel)) continue;
-    channels.set(ch as ReachChannel, {
-      id: c.id,
-      connector: c.connector,
-      create: levelFor(c.permissions, "create"),
-    });
-  }
+  // R4: the agent's own channels, else the account's (../channels/resolve.ts), as the portal shows.
+  const conns = await tx.select().from(connection).where(eq(connection.tenantId, info.tenantId));
+  const channels = sendingChannels(
+    agentRow.channels as Record<string, string> | null,
+    accountBindings(tenantRow.settings),
+    conns,
+  );
   return {
     agentRow,
     bundle: v.bundle,
@@ -1219,7 +1208,13 @@ export async function attemptFrom(
       );
       return sentNow;
     }
-    const connectionId = state.channels[channel];
+    // R4: resolved again when sent (the agent's own, else the account's), as when it was planned.
+    const connectionId = pickChannel({
+      kind: channel,
+      agent: state.channels,
+      account: accountBindings(state.t.settings),
+      connections: state.conns,
+    })?.connectionId;
     const conn = state.conns.find((c) => c.id === connectionId);
     const toolId = conn ? channelTool(conn.connector, channel) : null;
     if (!conn || !toolId) {

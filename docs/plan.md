@@ -2541,6 +2541,33 @@ Stream browse (wave 2b):
 - DECISION: page limits are not set per skill yet (SkillBrowse has no `limits`), and the save-time
   check stays site-level. The runtime checks every page.
 
+Stream channels, hours and undo storage (wave 2b):
+- DECISION: hours are checked where they are written (422 `invalid_hours`), not in core's schema:
+  a week with no open stretch, a date that isn't one, and away ranges that overlap or touch for
+  more than 366 days in a row are refused. Stored weeks keep parsing as before.
+- DECISION: on Mezonas' sending (Resend) an agent's email line names its §10.8 address
+  (`agentAddress`, live agents only, source `agent`) and the account's names the forwarding
+  address; the sending connection is the same. A bound mailbox (Gmail, Outlook) names its own.
+- DECISION: an agent with no channel of its own sends on the account's (`sendingChannels`) and
+  listens on the account's number (`agentsListeningOn`); the account connection's matrix decides
+  approval as an own binding's does. Messages nobody takes still go to Sloan and the Desk.
+- DECISION: a change of the account's channels writes a `tenant_change`
+  (`{ setting: "channels", from, to }`, fixed reason) and is checked by agents'
+  `checkChannelBindings`, shared with an agent's own `setChannels`.
+- DECISION: migration 0044 adds `external_action.after` (nullable, no backfill); the db store keeps
+  it (`keepsAfter`), so an undoable write reads its record once more after writing. Writes before
+  0044 have none and their undo is refused (`after_unknown`).
+- DECISION (owner's safe choice): Undo is pressed by the person who said no, the client's lead or a
+  client admin (the Sandbox operator stands in for the Sandbox's admin). The undo carries the
+  original's `runId` (no step, no agent version) so it shows on the run's timeline.
+- DECISION: write tools give their undo's input with `undoInput` on `defineWriteTool`, fed the
+  stored write parsed by the tool's own schemas (null when it no longer parses). QuickBooks' new
+  accounts, classes and locations are reversed by making them inactive at the version the create
+  returned (on a record changed since, the update fails as stale and writes nothing); ledger
+  updates and itemized lines put back what they changed (put-back lines go last); HubSpot updates
+  are guarded by `updatedAt` now; a Sheets cell that held a formula is never put back as text.
+  Bills, vendors and purchase orders stay `none`: QuickBooks' NOTES list no void we use.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

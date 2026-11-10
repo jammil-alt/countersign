@@ -1,6 +1,6 @@
 // R5 (docs/plan.md §1.86, §9; ARCHITECTURE §10.14 "Undo"): the Undo a late no is offered. The
-// person who said no (in the portal) or the client's lead (in the back office) presses it on the
-// item; their press approves the undo, which packages/agents runs as a write of its own through
+// person who said no or a client admin (in the portal), or the client's lead (in the back office),
+// presses it on the item; their press approves the undo, which packages/agents runs as a write of its own through
 // the external-action path (`undoAction`: re-reads the record, `processes.canUndo` against the
 // saved before and after states, its own key, never a delete, never for a test run). A refusal
 // comes back with its plain reason and leaves the offer open; nothing is ever applied by itself.
@@ -45,7 +45,7 @@ export const undoRoutes = {
     auth: "session",
     roles: ["client_admin", "client_user"] as const,
     summary:
-      "Take back a change that went ahead before your no: offered on the item to whoever said no",
+      "Take back a change that went ahead before a no: whoever said no, or a client admin, from the item",
     params: IdParams,
     response: UndoChangeResult,
   }),
@@ -64,13 +64,18 @@ export const undoRoutes = {
 const PORTAL_FAILED = "we couldn't put the change back; your Mezonas lead will look at it";
 
 /**
- * Who may press: the person who said no, if they still sign for the client, or the client's lead
- * as it is now (an operator); in the Sandbox, the operator.
+ * Who may press: the person who said no, a client admin of the client, or the client's lead as it
+ * is now (an operator), each only while they sign for the client; in the Sandbox, the operator.
  */
+// DECISION (owner's safe choice, wave 2b): only the rejecter, the client's lead or a client admin
+// presses Undo. An operator who serves the client but isn't its lead, a client user who didn't say
+// no, and a viewer may not. The Sandbox operator stands in for the Sandbox's client admin (it has
+// no client people), as `mayResolve` has it.
 async function mayPress(tx: Tx, tenantId: string, offer: UndoOffer, by: Approver) {
   if (by.canSign === false) return false;
   if (by.role === "operator" && by.sandbox === true) return true;
   if (offer.for.includes(by.userId)) return true;
+  if (by.role === "client_admin") return true;
   return offer.lead && by.role === "operator" && (await leadOf(tx, tenantId))?.userId === by.userId;
 }
 
@@ -89,7 +94,7 @@ async function pressUndo(
     throw new HttpError(
       403,
       "not_yours",
-      "only the person who said no, or the lead, can undo this",
+      "only the person who said no, a client admin, or the lead can undo this",
     );
   }
   const runtime = runtimeFor(
