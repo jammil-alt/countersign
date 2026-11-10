@@ -10,6 +10,7 @@ import {
   agent,
   agentVersion,
   auditEvent,
+  externalAction,
   inboxItem,
   modelCall,
   ownerCheck,
@@ -521,5 +522,98 @@ describe.skipIf(!h)("the run audit (wave 6)", () => {
     expect((await H.call(OTHER_OPERATOR, "GET", `/api/ops/runs/${wroteRun}/export`)).status).toBe(
       404,
     );
+  });
+
+  // ── Wave 6 review ───────────────────────────────────────────────────────────────────────────
+
+  /** A live run of the v4 version, as the Worker left it, with its writes as given. */
+  async function runWith(
+    status: "waiting" | "succeeded",
+    actions: { status: string; error?: unknown }[],
+    mode: "live" | "test" = "live",
+  ): Promise<string> {
+    const [r] = await H.t.db
+      .insert(run)
+      .values({
+        tenantId: H.A.tenantId,
+        agentId,
+        agentVersionId: v4Version,
+        workflowSlug: "fix-record",
+        status,
+        mode,
+      })
+      .returning({ id: run.id });
+    const runId = r?.id ?? "";
+    for (const [i, a] of actions.entries()) {
+      await H.t.db.insert(externalAction).values({
+        tenantId: H.A.tenantId,
+        connectionId: H.A.connectionId,
+        tool: TESTKIT_UPDATE_TOOL,
+        runId,
+        idempotencyKey: `${runId}:update:${i}`,
+        status: a.status as never,
+        error: (a.error ?? null) as Record<string, unknown> | null,
+        ...(a.status === "proposed" ? {} : { before: { amount: "10.00" } }),
+      });
+    }
+    return runId;
+  }
+
+  const queuedOf = async (runId: string) =>
+    (await H.t.db.select().from(runAudit).where(eq(runAudit.runId, runId)))[0];
+
+  it("queues a run cancelled from the back office, as 'wrote' when it had written", async () => {
+    const runId = await runWith("waiting", [{ status: "done" }, { status: "proposed" }]);
+    const res = await H.call(OPERATOR, "POST", `/api/ops/runs/${runId}/cancel`);
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const [r] = await H.t.db.select({ status: run.status }).from(run).where(eq(run.id, runId));
+    expect(r?.status).toBe("cancelled");
+    expect(await queuedOf(runId)).toMatchObject({ reason: "wrote", agentId });
+  });
+
+  it("counts a write that failed part-way as 'wrote', and one never made as not", async () => {
+    const partWay = await runWith("waiting", [
+      { status: "failed", error: { message: "timed out after sending" } },
+    ]);
+    await H.call(OPERATOR, "POST", `/api/ops/runs/${partWay}/cancel`);
+    expect(await queuedOf(partWay)).toMatchObject({ reason: "wrote" });
+
+    const refused = await runWith("waiting", [
+      { status: "failed", error: { message: "turned down", notWritten: true } },
+    ]);
+    await H.call(OPERATOR, "POST", `/api/ops/runs/${refused}/cancel`);
+    // Not a write: at most sampled by the client's 5%.
+    expect((await queuedOf(refused))?.reason ?? "not queued").not.toBe("wrote");
+  });
+
+  it("never audits a test run, nor takes a sampling rule for a test copy", async () => {
+    const testRun = await runWith("succeeded", [], "test");
+    const refused = await H.call(OPERATOR, "POST", `/api/ops/runs/${testRun}/audit-marks`, {
+      verdict: "looks_right",
+    });
+    expect(refused.status).toBe(409);
+    expect(j(refused.json).error.code).toBe("test_run");
+    expect(await queuedOf(testRun)).toBeUndefined();
+
+    const [forked] = await H.t.db
+      .select({ templateId: agent.templateId })
+      .from(agent)
+      .where(eq(agent.id, agentId));
+    const [copy] = await H.t.db
+      .insert(agent)
+      .values({
+        tenantId: H.A.tenantId,
+        kind: "client",
+        slug: "audited-clerk-test",
+        name: "Audited clerk (test)",
+        templateId: forked?.templateId ?? null,
+        testCopy: true,
+      })
+      .returning({ id: agent.id });
+    const res = await H.call(OPERATOR, "PUT", `/api/ops/clients/${H.A.tenantId}/run-audit`, {
+      agents: { [copy?.id ?? ""]: { writes: true, percent: 100 } },
+    });
+    expect(res.status).toBe(422);
+    expect(j(res.json).error.code).toBe("unknown_agent");
   });
 });

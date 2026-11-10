@@ -272,6 +272,10 @@ export function runAuditRouteHandlers(app: Hono<AppEnv>): void {
       .from(run)
       .where(and(eq(run.id, params.id), inArray(run.tenantId, [...tenantIds])));
     if (!r) throw notFound("run");
+    // DECISION (wave 6 review): only live runs are audited; a test run never joins the queue.
+    if (r.mode !== "live") {
+      throw new HttpError(409, "test_run", "a test run isn't audited; only live runs are");
+    }
     if (!FINISHED.has(r.status)) {
       throw new HttpError(409, "run_not_finished", "a run is audited once it has finished");
     }
@@ -358,7 +362,13 @@ export function runAuditRouteHandlers(app: Hono<AppEnv>): void {
         .select({ id: agent.id })
         .from(agent)
         .where(
-          and(eq(agent.tenantId, params.id), eq(agent.kind, "client"), inArray(agent.id, agentIds)),
+          and(
+            eq(agent.tenantId, params.id),
+            eq(agent.kind, "client"),
+            // A test copy only ever has test runs, which are never queued.
+            eq(agent.testCopy, false),
+            inArray(agent.id, agentIds),
+          ),
         );
       const known = new Set(found.map((a) => a.id));
       const unknown = agentIds.filter((id) => !known.has(id));

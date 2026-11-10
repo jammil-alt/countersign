@@ -5,8 +5,10 @@
 import {
   AppliedAuditRule,
   type AuditMarkView,
+  actionWrote,
   chooseForAudit,
   effectiveAuditRule,
+  type OwnerCheckEntry,
   type OwnerCheckView,
   ownerCheckWords,
   type RunAuditState,
@@ -22,8 +24,10 @@ import {
   type run,
   runAudit,
   runAuditMark,
+  stepRun,
   type Tx,
   tenant,
+  toolCall,
   withTenant,
 } from "@countersign/db";
 import type { OwnerCheckLog, RunInfo } from "@countersign/workflows";
@@ -34,29 +38,41 @@ import { reportHandled } from "../observability/report";
 
 /**
  * The executor's `OwnerCheckLog` on the run's client: one row per run, node and attempt (a repeat
- * is a no-op), with the decision a review recorded for the same run, node and seq.
+ * is a no-op), with the decision a review recorded for the same run, node and seq. A loop's checks
+ * come at once (`recordMany`), in one transaction and one insert.
  */
 export function dbOwnerCheckLog(db: Db, info: RunInfo): OwnerCheckLog {
-  return {
-    record(entry) {
-      return withTenant(db, info.tenantId, async (tx) => {
-        const [decision] =
-          entry.result === "reviewed"
-            ? await tx
-                .select({ id: oversightDecision.id })
-                .from(oversightDecision)
-                .where(
-                  and(
-                    eq(oversightDecision.tenantId, info.tenantId),
-                    eq(oversightDecision.runId, entry.runId),
-                    eq(oversightDecision.nodeId, entry.nodeId),
-                    eq(oversightDecision.seq, entry.attempt),
-                  ),
-                )
-            : [];
-        await tx
-          .insert(ownerCheck)
-          .values({
+  const recordMany = (entries: readonly OwnerCheckEntry[]) =>
+    withTenant(db, info.tenantId, async (tx) => {
+      if (entries.length === 0) return;
+      const reviewed = entries.filter((e) => e.result === "reviewed");
+      const decisions = reviewed.length
+        ? await tx
+            .select({
+              id: oversightDecision.id,
+              runId: oversightDecision.runId,
+              nodeId: oversightDecision.nodeId,
+              seq: oversightDecision.seq,
+            })
+            .from(oversightDecision)
+            .where(
+              and(
+                eq(oversightDecision.tenantId, info.tenantId),
+                inArray(oversightDecision.runId, [...new Set(reviewed.map((e) => e.runId))]),
+                inArray(oversightDecision.nodeId, [...new Set(reviewed.map((e) => e.nodeId))]),
+              ),
+            )
+        : [];
+      const decisionOf = (e: OwnerCheckEntry) =>
+        e.result === "reviewed"
+          ? (decisions.find(
+              (d) => d.runId === e.runId && d.nodeId === e.nodeId && d.seq === e.attempt,
+            )?.id ?? null)
+          : null;
+      await tx
+        .insert(ownerCheck)
+        .values(
+          entries.map((entry) => ({
             tenantId: info.tenantId,
             runId: entry.runId,
             nodeId: entry.nodeId,
@@ -67,14 +83,18 @@ export function dbOwnerCheckLog(db: Db, info: RunInfo): OwnerCheckLog {
             reason: entry.reason ?? null,
             cause: entry.cause ?? null,
             verdict: entry.verdict ?? null,
-            decisionId: decision?.id ?? null,
+            reviewDue: entry.reviewDue ?? null,
+            decisionId: decisionOf(entry),
             agentVersionId: info.agentVersionId,
-          })
-          .onConflictDoNothing({
-            target: [ownerCheck.runId, ownerCheck.nodeId, ownerCheck.attempt],
-          });
-      });
-    },
+          })),
+        )
+        .onConflictDoNothing({
+          target: [ownerCheck.runId, ownerCheck.nodeId, ownerCheck.attempt],
+        });
+    });
+  return {
+    record: (entry) => recordMany([entry]),
+    recordMany,
   };
 }
 
@@ -93,6 +113,7 @@ export function ownerCheckView(row: CheckRow): OwnerCheckView {
     reason: row.reason ?? null,
     cause: row.cause ?? null,
     verdict: verdict ?? null,
+    reviewDue: row.reviewDue ?? null,
     decisionId: row.decisionId,
     words: ownerCheckWords({ ...row, signals, verdict }),
     createdAt: row.createdAt.toISOString(),
@@ -116,9 +137,10 @@ export async function runOwnerChecks(
 // ── The queue ───────────────────────────────────────────────────────────────────────────────────
 
 /**
- * When a live run finishes, in the transaction that finishes it: queue it for audit by its
- * client's rule (the agent's override first). A run that wrote is one with a change done in the
- * client's tools. Idempotent (one row per run), and never fails the finish: a savepoint holds it,
+ * When a live run finishes, in the transaction that finishes it (`run:finish`, or a cancel from
+ * the back office): queue it for audit by its client's rule (the agent's override first). A run
+ * that wrote is one with a change done in the client's tools, or one that may have been made
+ * (`runWrote`). Idempotent (one row per run), and never fails the finish: a savepoint holds it,
  * and a failure is reported.
  */
 // DECISION (wave 6): applied in `run:finish`'s own transaction, so a run is queued exactly when it
@@ -136,18 +158,8 @@ export async function queueFinishedRun(
         .from(tenant)
         .where(eq(tenant.id, info.tenantId));
       const { rule, source } = effectiveAuditRule(runAuditSettingsOf(t?.settings), info.agentId);
-      const [wrote] = await sp
-        .select({ id: externalAction.id })
-        .from(externalAction)
-        .where(
-          and(
-            eq(externalAction.tenantId, info.tenantId),
-            eq(externalAction.runId, info.id),
-            eq(externalAction.status, "done"),
-          ),
-        )
-        .limit(1);
-      const choice = chooseForAudit({ runId: info.id, wrote: !!wrote, rule, source });
+      const wrote = await runWrote(sp, info);
+      const choice = chooseForAudit({ runId: info.id, wrote, rule, source });
       if (!choice.queued || !choice.reason) return;
       await sp
         .insert(runAudit)
@@ -163,6 +175,51 @@ export async function queueFinishedRun(
   } catch (error) {
     reportHandled("run audit queue failed", error, { kind: "run_audit" });
   }
+}
+
+/**
+ * Whether a run wrote to a client's tool, or may have: any of its external actions, or a carried
+ * one its retry's tool calls name, done, executing, or failed after it reached the provider (core
+ * `actionWrote`: a failure without the runtime's `notWritten` mark).
+ */
+// DECISION (wave 6 review): "wrote" is core's `actionWrote`, the rule `onError: continue` already
+// goes by, not only `done`: a write that failed part-way may be in the client's books, and is
+// exactly what a person should look at.
+export async function runWrote(tx: Tx, info: Pick<RunInfo, "id" | "tenantId">): Promise<boolean> {
+  const maybe = ["done", "executing", "failed"] as const;
+  const own = await tx
+    .select({ status: externalAction.status, error: externalAction.error })
+    .from(externalAction)
+    .where(
+      and(
+        eq(externalAction.tenantId, info.tenantId),
+        eq(externalAction.runId, info.id),
+        inArray(externalAction.status, [...maybe]),
+      ),
+    );
+  if (own.some((a) => actionWrote(a))) return true;
+  const carried = await tx
+    .select({ status: externalAction.status, error: externalAction.error })
+    .from(toolCall)
+    .innerJoin(
+      stepRun,
+      and(eq(stepRun.id, toolCall.stepRunId), eq(stepRun.tenantId, toolCall.tenantId)),
+    )
+    .innerJoin(
+      externalAction,
+      and(
+        eq(externalAction.id, toolCall.externalActionId),
+        eq(externalAction.tenantId, toolCall.tenantId),
+      ),
+    )
+    .where(
+      and(
+        eq(toolCall.tenantId, info.tenantId),
+        eq(stepRun.runId, info.id),
+        inArray(externalAction.status, [...maybe]),
+      ),
+    );
+  return carried.some((a) => actionWrote(a));
 }
 
 /** Adds a run to the queue by hand (a reviewer marked one that wasn't queued). */
