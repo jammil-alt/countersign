@@ -1,12 +1,13 @@
 // The frame both surfaces share (docs/design/prototype.html, `.hdr` and `.side`, on the Mezonas
 // AppHeader and Sidebar): a top bar with the logo, a context slot (the client's name in the portal;
 // "Back office" and the client switcher in the back office), the ⌘K search box, the portal's Ask
-// Sloan button, the Inbox or Escalations with its count, and Feedback, and the avatar menu
-// (theme, language, sign out); a sidebar; the page. At phone width the sidebar folds behind a menu button
+// Sloan button, the Inbox or Escalations with its count, and the avatar menu (theme, language,
+// sign out); a sidebar; the page. At phone width the sidebar folds behind a menu button
 // and the top bar compacts; where a surface keeps its inbox out of the top bar (`inHeader: false`),
-// the menu button carries its count.
+// the menu button carries its count. Feedback floats at the bottom right.
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
+import { FEEDBACK_LAYER_ATTR } from "../feedback/capture";
 import { useFeedbackStarter } from "../feedback/Feedback";
 import type { MessageKey } from "../i18n/catalog";
 import { useI18n } from "../i18n/i18n";
@@ -142,9 +143,9 @@ export function AppShell({
             ) : null}
           </NavLink>
         ) : null}
-        <FeedbackButton />
         <UserMenu surface={surface} extra={menu} />
       </header>
+      <FeedbackButton />
       <div className="ui-shell__body">
         {menuOpen ? (
           <button
@@ -179,9 +180,11 @@ const THEME_LABEL = {
 } as const satisfies Record<Theme, MessageKey>;
 
 /**
- * Feedback in the top bar, beside the avatar (2026-11-10, the owner: it belonged outside the
- * menu). Only where feedback is on for the session (always in the back office; per client in the
- * portal). Its accessible name says what it is for: problems with the app (Sloan takes other asks).
+ * Feedback: floating at the bottom right of every screen, as in Plenary Labs (2026-11-10, the
+ * owner: back out of the avatar menu, where QA round 1 had put it). An icon and "Feedback"; the icon
+ * alone at phone width. Only where feedback is on for the session (always in the back office; per
+ * client in the portal). Its name says what it is for: problems with the app (Sloan takes other
+ * asks).
  */
 function FeedbackButton() {
   const { t } = useI18n();
@@ -194,10 +197,12 @@ function FeedbackButton() {
       aria-label={t("feedback.button")}
       title={t("feedback.button")}
       onClick={() => startFeedback()}
-      className="ui-topbar__desk ui-topbar__feedback"
+      className="ui-feedback-fab"
+      // Part of the feedback layer: left out of the picture and never the pinned element.
+      {...{ [FEEDBACK_LAYER_ATTR]: "" }}
     >
       <Icon name="message" size={20} />
-      <span className="ui-topbar__desklabel">{t("feedback.short")}</span>
+      <span className="ui-feedback-fab__label">{t("feedback.short")}</span>
     </button>
   );
 }

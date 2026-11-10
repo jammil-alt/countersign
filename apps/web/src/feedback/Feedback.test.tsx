@@ -61,7 +61,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-/** Feedback is in the top bar beside the avatar (2026-11-10), never a button over the page. */
+/** Feedback floats at the bottom right of every screen, as in Plenary Labs (2026-11-10). */
 async function openFeedback() {
   await userEvent.click(await screen.findByTestId("feedback-button"));
 }
@@ -78,7 +78,7 @@ describe("Feedback button", () => {
   it("pins, shows the picture, sends the comment then the JPEG", async () => {
     const { api, sent } = portal(true);
     renderAt("/inbox?status=open", api);
-    // It is for problems with the app (Sloan takes every other ask), in the top bar.
+    // It is for problems with the app (Sloan takes every other ask), on every screen.
     const button = await screen.findByTestId("feedback-button");
     expect(within(screen.getByTestId("shell-portal")).getByTestId("feedback-button")).toBe(button);
     expect(button).toHaveAccessibleName("Report a problem with the app");

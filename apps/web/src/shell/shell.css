@@ -73,20 +73,6 @@
 .ui-topbar__deskicon {
   display: none;
 }
-/* Feedback: a button dressed as the Inbox link. */
-.ui-topbar__feedback {
-  border: 0;
-  background: transparent;
-  color: var(--ink-muted);
-  cursor: pointer;
-}
-.ui-topbar__feedback:hover {
-  color: var(--ink);
-}
-.ui-topbar__feedback:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
 
 /* The search box: a button dressed as the prototype's `.ask` field. */
 .ui-searchbox {
@@ -127,6 +113,37 @@
   border-radius: 4px;
   font: 500 11px / 16px var(--font-mono);
   color: var(--ink-muted);
+}
+
+/* Feedback, floating at the bottom right of every screen (as Plenary Labs): a pill with an icon and
+ * its word, the icon alone at phone width. It floats over the page, so it lifts like a menu. Above
+ * the page, the drawer and ⌘K (40); under dialogs and the feedback layer itself (50). */
+.ui-feedback-fab {
+  position: fixed;
+  right: calc(var(--space-4) + env(safe-area-inset-right, 0px));
+  bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  z-index: 45;
+  display: inline-flex;
+  min-width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) 0 var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  color: var(--ink);
+  font: 500 14px / 20px var(--font-sans);
+  cursor: pointer;
+}
+.ui-feedback-fab:hover {
+  border-color: var(--slate);
+}
+.ui-feedback-fab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 /* The avatar menu. */
@@ -421,8 +438,12 @@
   .ui-searchbox__text,
   .ui-searchbox .ui-kbd,
   .ui-topbar__desklabel,
-  .ui-topbar__asklabel {
+  .ui-topbar__asklabel,
+  .ui-feedback-fab__label {
     display: none;
+  }
+  .ui-feedback-fab {
+    padding: 0;
   }
   .ui-topbar__ask {
     padding: 0 var(--space-1);
