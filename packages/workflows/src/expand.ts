@@ -161,8 +161,11 @@ function withApprovalChecks(
  * Expands every `process` step of a v4 process against the pinned automation versions, as
  * `expandAutomations` does for v3: the version's (v3) steps read as v4 with their origins paired,
  * the step's approval overrides applied. Throws `ExpandError` for a version that isn't loaded, or
- * one that uses another automation. `overrides` collects the override checks: they are native v4
- * approvals (modes, deadlines, away approvers), though the steps they sit on were converted.
+ * one that uses another automation. `overrides` collects the override checks a native v4 `process`
+ * step sets: they are native v4 approvals (modes, deadlines, away approvers), though the steps they
+ * sit on were converted. A converted v3 `use_automation` step's overrides are its stored v3
+ * approvals (the converter's `approvalOf`), so they are not collected: they are decided exactly as
+ * v3 decided them (the approver waited for, never skipped as away).
  */
 // DECISION (R3): overrides are applied to the v4 steps' `checks.approval`, and the gate's approval
 // is read back from it (`gateApproval`); for a converted v3 override that is the stored v3 approval
@@ -188,7 +191,9 @@ export function expandProcesses(
         stepsFromV3(def.steps, convert, origins),
         use.approvals ?? {},
         origins,
-        overrides,
+        // DECISION (wave 2c): a step with an origin is a converted v3 use step, whose overrides
+        // stay v3 approvals; only a native process step's are collected as native checks.
+        origins.has(use) ? undefined : overrides,
       ),
       output: def.output,
     };

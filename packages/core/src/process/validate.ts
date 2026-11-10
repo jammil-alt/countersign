@@ -637,9 +637,11 @@ function checkApproval(c: Checker, step: Step) {
   // DECISION: the agent's mode is checked at publish only, with the connection (as v3 checks the
   // matrix): a draft or a template may hold a loosened step that its client agent can't use yet.
   // A conversation's channel connection is the agent's bound number or address, picked at run
-  // time, so for its messages only the mode is checked here; the gate holds each message to the
-  // connection's matrix when it is sent (invariant 8). A reaching skill's own tools, when they
-  // write, were held to their matrix above.
+  // time: `messages.later: not_required` is checked against the mode only here, and
+  // `messages.first: not_required` is also held to every bound send connection's matrix
+  // (`checkFirstMessage`, below); the gate holds each message to its connection's matrix when it is
+  // sent (invariant 8). A reaching skill's own tools, when they write, were held to their matrix
+  // above.
   needsAct(c, step.id, [
     ...((writes?.length ?? 0) > 0 || reaches ? loose : []),
     ...(step.kind === "conversation" ? conversationLoosenings(step) : []),

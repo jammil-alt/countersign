@@ -850,6 +850,52 @@ describe("conversation steps", () => {
     expect(Number.parseInt(wait.timeout, 10)).toBeLessThanOrEqual(60);
   });
 
+  it("waits on the check's own waitFor and wakeAt, and its row says what it waits for", async () => {
+    // Wave 2c: stored waiting on a signature (no wake time); by the check before the wait, the
+    // message was signed and sent, and the engine waits on the reply until its own wake time.
+    const calls: ConversationRequest[] = [];
+    const h = new Harness({ ...RUN, language: "es" });
+    const p = {
+      conversation: async (req: ConversationRequest): Promise<ConversationResult> => {
+        calls.push(req);
+        if (req.wake) return { status: "done", found: {}, conversationId: "c", summary: "" };
+        return calls.length === 1
+          ? {
+              status: "pending",
+              found: {},
+              conversationId: "c",
+              summary: "",
+              waitFor: "conversation-c_csigned",
+              wakeAt: null,
+              waitingOn: "signature",
+            }
+          : {
+              status: "pending",
+              found: {},
+              conversationId: "c",
+              summary: "",
+              waitFor: "conversation-c_creply",
+              wakeAt: new Date(Date.now() + 60_000).toISOString(),
+              waitingOn: "reply",
+            };
+      },
+    };
+    const runner = new FakeStepRunner({ onWait: "timeout" });
+    const result = await executeWorkflow(runner, h.context({ conversation: p }), proc([talk()]), {
+      vendor: "v",
+    });
+    expect(result.status).toBe("succeeded");
+    const wait = runner.calls.find((c) => c.kind === "wait") as { type: string; timeout: string };
+    expect(wait.type).toBe("conversation-c_creply");
+    expect(Number.parseInt(wait.timeout, 10)).toBeLessThanOrEqual(60);
+    expect(calls.at(-1)?.wake).toEqual({ timedOut: true });
+    expect(h.row("ask")?.updates.map((u) => u.summary)).toEqual([
+      "Ask the vendor: esperando aprobación",
+      "Ask the vendor: esperando una contestación",
+      expect.anything(),
+    ]);
+  });
+
   it("a conversation turned down takes the approval's onReject", async () => {
     for (const onReject of ["stop", "continue"] as const) {
       const p = port(() => ({
