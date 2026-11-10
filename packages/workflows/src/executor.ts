@@ -874,9 +874,13 @@ class Executor {
     const plan = check ? await this.approverPlan(name, check) : undefined;
     const firstWho = plan?.approvers.find((a) => !a.away)?.who ?? null;
     let gate = gateApproval(check, plan ? firstWho : undefined);
+    // A native read or skill's approval is a sign-off of its result, after it runs (below); the
+    // gate gets it too, for any write a skill proposes. Its `when` reads the step's own output.
+    const signOff =
+      !origin && (step.kind === "read" || step.kind === "skill") && plan ? plan : undefined;
     // An approval limited to some runs (`when`) doesn't apply on the others: the gate decides
     // those as `not_required` (still held to the matrix, the grant and the mode, §9.5).
-    if (gate && check?.when) {
+    if (gate && check?.when && !signOff) {
       const applies = await this.runner.do(`${name}:approval:when`, async () =>
         evaluateRules(
           check.when as NonNullable<typeof check.when>,
@@ -888,12 +892,6 @@ class Executor {
     const view = workView(runs, origin, gate);
     const approval: Approval =
       view.kind === "action" ? view.approval : (view.approval ?? DEFAULT_APPROVAL);
-    // A native read or skill's approval is a sign-off of its result, after it runs (below); the
-    // gate gets it too, for any write a skill proposes.
-    const signOff =
-      !origin && (step.kind === "read" || step.kind === "skill") && check && plan
-        ? plan
-        : undefined;
     const done = await this.work(view, name, frame, approval, {
       ...(plan && !signOff ? { plan } : {}),
       ...(customize ? { customize } : {}),
@@ -922,7 +920,17 @@ class Executor {
         own: { id: step.id, output },
       });
     }
-    if (signOff && gate?.required !== "not_required") {
+    const signs =
+      signOff &&
+      gate?.required !== "not_required" &&
+      (!check?.when ||
+        (await this.runner.do(`${name}:signoff:when`, async () =>
+          evaluateRules(
+            check.when as NonNullable<typeof check.when>,
+            checkScope(frame.scope, { id: step.id, output }, conferred),
+          ),
+        )));
+    if (signOff && signs) {
       const decided = await this.signOff(step, name, done.stepRunId, signOff, output);
       if (decided === "stop") {
         throw new RunEnd({ status: "cancelled", reason: "rejected", nodeId: name });
@@ -1675,27 +1683,19 @@ class Executor {
     nodeName: string,
     scope: unknown,
     label: string,
-    rowOwn?: string,
   ): Promise<void> {
     const { run, log, notify } = this.ctx;
     const sent = await this.runner.do(nodeName, async () => {
-      if (n.when && !evaluateRules(n.when, scope)) {
-        if (rowOwn) {
-          await log.update(rowOwn, { status: "skipped", summary: `${label}: ${this.words.done}` });
-        }
-        return { sent: false, ack: null, urgent: null };
-      }
+      if (n.when && !evaluateRules(n.when, scope)) return { sent: false, ack: null, urgent: null };
       const text = renderTemplate(n.message, scope);
       const sources = noticeSources(n.sources, scope);
       const channel = n.channel ?? "inbox";
-      const id =
-        rowOwn ??
-        (await log.start({
-          runId: run.id,
-          nodeId: nodeName,
-          nodeType: "notify",
-          input: { channel, to: n.to, text, ...(sources.length ? { sources } : {}) },
-        }));
+      const id = await log.start({
+        runId: run.id,
+        nodeId: nodeName,
+        nodeType: "notify",
+        input: { channel, to: n.to, text, ...(sources.length ? { sources } : {}) },
+      });
       if (this.testRun) {
         await log.update(id, {
           status: "succeeded",

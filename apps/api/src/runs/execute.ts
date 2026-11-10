@@ -3,6 +3,8 @@
 // ports, records how it ended on `run`, rolls usage up, and dispatches the events it emitted.
 
 import {
+  // R3: v3 workflows read as v4 with the registries' view (docs/plan.md §1.86).
+  convertLookup,
   createDbPorts,
   dbModelCalls,
   finishRun,
@@ -23,6 +25,7 @@ import {
   type UrlSigner,
 } from "@countersign/connectors";
 import {
+  type AnyBundleWorkflow,
   type AutomationDefinition,
   automationRefs,
   // v0.12 W2-E
@@ -34,12 +37,12 @@ import {
   type OversightSettings,
   type Processor,
   parseCoveredProcessors,
+  processes,
   RUN_SUCCEEDED_EVENT,
   type RunSucceededPayload,
   resolveTemplate,
   runErrorKey,
   shortRunId,
-  type Workflow,
 } from "@countersign/core";
 import {
   agent,
@@ -49,6 +52,7 @@ import {
   run,
   stepRun,
   type Tx,
+  tenant,
   withTenant,
 } from "@countersign/db";
 import {
@@ -223,11 +227,17 @@ const STEP_CONFIG = {
   timeout: "15 minutes",
 } as const;
 
+/** A stored workflow entry: a v3 workflow or (R3) a v4 process. */
+type StoredWorkflow = AnyBundleWorkflow["workflow"];
+
 type Loaded =
   | {
       ok: true;
-      workflow: Workflow;
+      // R3: stored as it is in the version; the executor reads a v3 one as v4 (ids kept).
+      workflow: StoredWorkflow;
       language: Locale;
+      // R3: the client's zone, for business-hours deadlines without stored hours.
+      timeZone?: string;
       resume: RunResume | null;
       // v0.12 W2-B: the automation versions its use steps pin.
       automations?: Record<string, AutomationDefinition>;
@@ -245,10 +255,14 @@ type Loaded =
 async function automationsOf(
   tx: Tx,
   tenantId: string,
-  workflow: Workflow,
+  workflow: StoredWorkflow,
 ): Promise<Record<string, AutomationDefinition>> {
   const out: Record<string, AutomationDefinition> = {};
-  for (const ref of automationRefs([workflow])) {
+  const refs =
+    workflow.schemaVersion === 4
+      ? processes.subProcessRefs([workflow])
+      : automationRefs([workflow]);
+  for (const ref of refs) {
     const found = await resolveAutomation(tx, { tenantId, ref });
     if (found) out[ref] = found.definition;
   }
@@ -394,14 +408,21 @@ export async function executeRun(
         .where(
           and(eq(agentVersion.id, info.agentVersionId), eq(agentVersion.tenantId, info.tenantId)),
         );
-      const wf = v?.bundle.workflows.find((w) => w.slug === info.workflowSlug);
+      // R3: a version's entries may be v3 workflows or v4 processes (AnyAgentBundle).
+      const workflows = (v?.bundle.workflows ?? []) as AnyBundleWorkflow[];
+      const wf = workflows.find((w) => w.slug === info.workflowSlug);
       if (!wf) return { ok: false, reason: `no workflow ${info.workflowSlug} in that version` };
+      const [client] = await tx
+        .select({ timeZone: tenant.timezone })
+        .from(tenant)
+        .where(eq(tenant.id, info.tenantId));
       // DECISION: the run reads the client's language once, inside this durable step, so a replay
       // writes in the same language even if the client changed it meanwhile (plan §1.18).
       return {
         ok: true,
         workflow: wf.workflow,
         language: await tenantLocale(tx, info.tenantId),
+        ...(client?.timeZone ? { timeZone: client.timeZone } : {}),
         resume: await resumeOf(tx, params, wf.workflow),
         // v0.12 W2-B
         automations: await automationsOf(tx, info.tenantId, wf.workflow),
@@ -507,6 +528,7 @@ export async function executeRun(
     testRun: info.mode === "test",
   });
   info.language = loaded.language;
+  if (loaded.timeZone) info.timeZone = loaded.timeZone;
   const ctx: ExecutorContext = {
     run: info,
     agent: agentPort(
@@ -530,6 +552,9 @@ export async function executeRun(
     ...(loaded.resume ? { resume: loaded.resume } : {}),
     // v0.12 W2-B
     ...(loaded.automations ? { automations: loaded.automations } : {}),
+    // R3 (docs/plan.md §1.86): v3 workflows are read as v4 with the registries' view, the
+    // converter `toProcessBundle` uses; each converted step still runs as its stored v3 step.
+    lookup: convertLookup(deps.platform.catalog, deps.platform.tools),
     // v0.13 W2-I: run oversight; the executor asks only for steps whose failures are reviewed.
     oversight: {
       port: oversightPort(runtime, db, info, loaded.oversight),
@@ -567,7 +592,7 @@ export async function executeRun(
 async function runSucceededPayload(
   tx: Tx,
   params: RunParams,
-  workflow: Workflow,
+  workflow: StoredWorkflow,
 ): Promise<RunSucceededPayload> {
   const [a] = await tx
     .select({ slug: agent.slug })
@@ -644,7 +669,11 @@ async function runSucceededPayload(
  * succeeded (or were skipped), with their outputs. Read once, inside the run's load step, so a
  * replay of the instance reuses the same outputs.
  */
-async function resumeOf(tx: Tx, params: RunParams, workflow: Workflow): Promise<RunResume | null> {
+async function resumeOf(
+  tx: Tx,
+  params: RunParams,
+  workflow: StoredWorkflow,
+): Promise<RunResume | null> {
   if (!params.retryOf || !params.resumeFrom) return null;
   const index = workflow.steps.findIndex((s) => s.id === params.resumeFrom);
   if (index <= 0) return null;

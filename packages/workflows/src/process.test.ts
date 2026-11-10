@@ -527,6 +527,59 @@ describe("approval modes", () => {
     expect(h.resumeCalls[0]?.resolution).toMatchObject({ approved: true, by: "boss" });
   });
 
+  it("a replay of approvals, checks and an escalation repeats nothing", async () => {
+    const h = new Harness();
+    const asked = withApprovers(h);
+    const first = h.approvalItem();
+    h.handlers.write = () => ({ kind: "approval", pending: { inboxItemId: first } });
+    const reviews: unknown[] = [];
+    const ctx = h.context({
+      confer: {
+        ai: async (req) => {
+          reviews.push(req);
+          return { verdict: "agree", note: "" };
+        },
+      },
+    });
+    const process = proc([
+      write({
+        checks: {
+          confer: { with: [{ ai: { focus: "f" } }] },
+          approval: {
+            mode: "any",
+            approvers: [{ who: "amy" }, { who: "ben" }],
+            ifNoAnswer: { escalate: { to: "boss", deadline: { after: "1 hour" } } },
+          },
+          notify: [{ to: ["lead"], message: "done" }],
+        },
+      }),
+    ]);
+    const runner = new FakeStepRunner({ onWait: "timeout" });
+    runner.onWaitStarted = (name, type) => {
+      if (name.includes(":esc1")) {
+        runner.setOnWait("block");
+        runner.deliver(type, { approved: true, by: "boss" });
+      }
+    };
+    const once = await executeWorkflow(runner, ctx, process, { what: "x" });
+    expect(once.status).toBe("succeeded");
+    const counts = () => [
+      h.agentCalls.length,
+      asked.length,
+      h.resumeCalls.length,
+      reviews.length,
+      h.sent.length,
+    ];
+    const before = counts();
+    expect(before).toEqual([1, 2, 1, 1, 1]);
+    runner.replay();
+    runner.setOnWait("timeout");
+    const again = await executeWorkflow(runner, ctx, process, { what: "x" });
+    expect(again).toEqual(once);
+    expect(counts()).toEqual(before);
+    expect(runner.calls.every((c) => c.kind !== "do" || c.cached)).toBe(true);
+  });
+
   it("skips an approver who is away and asks the next one first", async () => {
     const h = new Harness();
     const item = h.approvalItem({ approved: true, by: "ben" });
@@ -550,6 +603,51 @@ describe("approval modes", () => {
     );
     expect(result.status).toBe("succeeded");
     expect(runner.names()).toContain("write:approvers");
+  });
+});
+
+describe("sign-off of a read or a skill", () => {
+  const signed = (when?: unknown) => ({
+    id: "get",
+    kind: "read",
+    name: "Get the bill",
+    tool: READ_TOOL.id,
+    checks: { approval: { approvers: [{ who: "amy" }], ...(when ? { when } : {}) } },
+  });
+
+  it("asks the approver to sign the result; a reject cancels the run", async () => {
+    for (const approved of [true, false]) {
+      const h = new Harness();
+      h.handlers.get = () => ({ kind: "done", output: { total: 9000 } });
+      const runner = new FakeStepRunner({ onWait: "block" });
+      runner.onWaitStarted = (_name, type) => runner.deliver(type, { approved, by: "amy" });
+      const result = await executeWorkflow(runner, h.context(), proc([signed()]), {});
+      const asked = [...h.items.values()].find((v) => v.item?.nodeId === "get:signoff:a0")?.item;
+      expect(asked).toMatchObject({
+        kind: "approval",
+        payload: { value: { total: 9000 } },
+        step: { assignee: "amy", mode: "approve" },
+      });
+      if (approved) expect(result.status).toBe("succeeded");
+      else expect(result).toMatchObject({ status: "cancelled", reason: "rejected" });
+    }
+  });
+
+  it("asks only when its condition, over the step's own output, holds", async () => {
+    const h = new Harness();
+    h.handlers.get = () => ({ kind: "done", output: { total: 12 } });
+    const when = {
+      match: "all",
+      rules: [{ field: "{{steps.get.output.total}}", op: ">", value: 5000 }],
+    };
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context(),
+      proc([signed(when)]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.items.size).toBe(0);
   });
 });
 
