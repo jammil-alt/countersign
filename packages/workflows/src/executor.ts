@@ -149,8 +149,22 @@ export interface RunResume {
   from: string;
   /** The run retried, as people see it (`R-1a2b3c`), for the reused steps' summaries. */
   of: string;
-  /** Top-level step id → its row in the run retried (succeeded or skipped), output as stored. */
-  reused: Record<string, { status: "succeeded" | "skipped"; output: unknown }>;
+  /**
+   * Top-level step id → its row in the run retried (succeeded or skipped, or wave 5: failed and
+   * carried on past with `onError: continue`), output as stored. `record`: how it ended, rebuilt
+   * from the run retried's rows and items (core's `reusedStepOf`), for a later `if` to route on
+   * as the run retried did; absent, its outcome word is read from the row alone.
+   */
+  reused: Record<
+    string,
+    {
+      status: "succeeded" | "skipped" | "failed";
+      output: unknown;
+      /** What later steps read as its output (absent: `processes.scopeOutputOfRow`). */
+      stepOutput?: unknown;
+      record?: processes.StepRecord;
+    }
+  >;
 }
 
 export type RunEndStatus = "succeeded" | "failed" | "cancelled";
@@ -370,6 +384,11 @@ class RunEnd extends Error {
   ) {
     super(`run ended: ${result.status}${result.reason ? ` (${result.reason})` : ""}`);
   }
+}
+
+/** The error of a failure a step went on past, as its row keeps it. */
+function carriedError(ended: RunEnd | undefined): string {
+  return ended?.continued?.error ?? ended?.result.reason ?? "";
 }
 
 /** A RunEnd a step with `onError: continue` may go on past. */
@@ -624,6 +643,7 @@ class Executor {
       });
       // DECISION: a step skipped in the run retried (a write a person turned down, a person step
       // that timed out with `continue`) stays skipped: copying it as succeeded would misreport it.
+      // Wave 5 review: one failed and carried on past stays failed, its error kept in its output.
       await this.ctx.log.update(id, {
         status: row.status,
         output: row.output,
@@ -631,9 +651,17 @@ class Executor {
       });
       return null;
     });
-    // Wave 5: a reused step's outcome is read from its stored row as the run view reads it.
+    // Wave 5: a reused step records how it ended in the run retried, whole (outcome, approval,
+    // confer, quick answer, counts, error), so a later `if` routes as it did there, and its
+    // output as later steps read it there (a failed row's output holds its error, which is the
+    // record's: `scopeOutputOfRow`).
     const outcome = processes.outcomeOfStoredRow(step, row);
-    this.record(frame, step, row.output, outcome ? { outcome } : {});
+    this.record(
+      frame,
+      step,
+      "stepOutput" in row ? row.stepOutput : processes.scopeOutputOfRow(row.status, row.output),
+      row.record ?? (outcome ? { outcome } : {}),
+    );
   }
 
   async runStep(step: processes.Step, frame: Frame): Promise<void> {
@@ -2885,6 +2913,9 @@ class Executor {
                 ? "skipped"
                 : "succeeded",
         ...(ended ? {} : { output }),
+        // Wave 5 review: a failure gone on past keeps its error on the row, where a retry that
+        // reuses the step reads it back (`steps.<id>.error`).
+        ...(goesOn && ended?.result.reason !== "stop" ? { error: carriedError(ended) } : {}),
         summary: `${label}: ${
           status === undefined
             ? this.words.done
@@ -2900,9 +2931,7 @@ class Executor {
       const stopped = ended.result.reason === "stop";
       this.record(frame, step, null, {
         outcome: stopped ? "stopped" : "failed",
-        ...(stopped
-          ? {}
-          : { error: processes.plainError(ended.continued?.error ?? ended.result.reason ?? "") }),
+        ...(stopped ? {} : { error: processes.plainError(carriedError(ended)) }),
       });
       return;
     }
