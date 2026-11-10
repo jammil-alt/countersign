@@ -112,6 +112,12 @@ describe("processors", () => {
     expect(processorsForTool("hackernews.search", "hackernews")).toEqual(["hackernews"]);
     expect(processorsForOffer("hackernews")).toEqual(["hackernews"]);
     expect(processorsForOffer("linkedin")).toEqual([]);
+    // §1.87: BILL goes out under our developer key, so it is a processor of ours.
+    expect(processorsForOffer("billcom")).toEqual(["billcom"]);
+    expect(processorsForTool("billcom.bill.create", "billcom")).toEqual(["billcom"]);
+    expect(processingRefusal({ hipaa: true }, all, ["billcom"], "billcom.bill.create")).toBe(
+      "billcom.bill.create sends data to BILL, which has no signed BAA; this client is in HIPAA mode",
+    );
     expect(processingRefusal({ hipaa: true }, all, ["anthropic_web"], "web.search")).toBe(
       "web.search sends data to Anthropic web search and fetch, which has no signed BAA; this client is in HIPAA mode",
     );
@@ -133,6 +139,7 @@ describe("processors", () => {
       "plaid",
       "anthropic_web",
       "hackernews",
+      "billcom",
     ]);
     expect(hipaaReadiness(parseCoveredProcessors("cloudflare neon workos"), ["bankfeed"])).toEqual([
       "The bankfeed connector is offered and sends data to Plaid, with no signed BAA. Withdraw it first.",

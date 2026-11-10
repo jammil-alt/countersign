@@ -22,10 +22,13 @@ import {
   TRANSLATE_SKILLS,
 } from "@countersign/agents";
 import {
+  // §1.87
+  billcomEnvironment,
   type Connector,
   ConnectorRegistry,
   // v0.12 bankfeed
   createBankfeedConnector,
+  createBillcomConnector,
   // M45 (docs/plan.md §1.75)
   createBingWebmasterConnector,
   createBrowserConnector,
@@ -248,7 +251,10 @@ type OAuthEnvKey =
   | "INDEXNOW_KEY"
   // §1.77: our LinkedIn app.
   | "LINKEDIN_CLIENT_ID"
-  | "LINKEDIN_CLIENT_SECRET";
+  | "LINKEDIN_CLIENT_SECRET"
+  // §1.87: our BILL developer key and which BILL.
+  | "BILL_DEV_KEY"
+  | "BILL_ENV";
 
 export function platformFor(
   env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey | "BROWSER">,
@@ -287,6 +293,9 @@ export function platformFor(
     // §1.77: LinkedIn's app id, and whether its secret is set (never the secret).
     env.LINKEDIN_CLIENT_ID ?? "-",
     env.LINKEDIN_CLIENT_SECRET ? "linkedin" : "-",
+    // §1.87: whether BILL's developer key is set (never the key), and which BILL.
+    env.BILL_DEV_KEY ? "billcom" : "-",
+    billcomEnvironment(env.BILL_ENV),
   ].join(":");
   if (cached?.key !== key) {
     cached = {
@@ -428,6 +437,13 @@ export function deploymentConnectors(
     // §1.77 (M49): LinkedIn company page posts, always signed; like Outlook, registered everywhere
     // and signing in once LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET and OAUTH_STATE_SECRET are set.
     createLinkedInConnector(oauthClient(env.LINKEDIN_CLIENT_ID, env.LINKEDIN_CLIENT_SECRET, env)),
+    // §1.87: BILL (Bill.com), registered everywhere so it can be offered and built with; the client
+    // admin enters a BILL user's login in the vault, and every tool refuses until BILL_DEV_KEY is
+    // set. BILL_ENV picks the sandbox or production host (the key must be that environment's).
+    createBillcomConnector({
+      devKey: env.BILL_DEV_KEY,
+      environment: billcomEnvironment(env.BILL_ENV),
+    }),
     ...(production
       ? []
       : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))]),

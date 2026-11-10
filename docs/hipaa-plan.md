@@ -66,6 +66,7 @@ Two directions:
 | Twilio | Texts and calls | Not started | `twilio` |
 | ElevenLabs | Live calls | Not started | `elevenlabs` |
 | Resend | Our sending email | Not started | `resend` |
+| BILL | The BILL connector (plan §1.87), on our developer key | Not started | `billcom` |
 | Meta (WhatsApp) | WhatsApp | Meta doesn't sign BAAs as far as we know; keep WhatsApp off for HIPAA clients | none |
 
 Each signed BAA becomes a one-line pull request to `apps/api/wrangler.jsonc`. Keep the signed copy

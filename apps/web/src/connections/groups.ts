@@ -23,6 +23,7 @@ const GROUP_OF: Record<string, ConnectorGroup> = {
   qbo: "money",
   bankfeed: "money",
   ramp: "money",
+  billcom: "money",
   stripe: "money",
   gmail: "email",
   outlook: "email",

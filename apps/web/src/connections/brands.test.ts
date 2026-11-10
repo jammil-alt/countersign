@@ -21,6 +21,7 @@ const CONNECTORS = [
   "outlook",
   "bing_webmaster",
   "ramp",
+  "billcom",
   "podio",
   "bankfeed",
   "upload",

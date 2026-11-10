@@ -83,6 +83,9 @@ jobs:
       HUBSPOT_CLIENT_SECRET: ${{ secrets.HUBSPOT_CLIENT_SECRET }}
       PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
       PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
+      # BILL (plan §1.87): our developer key for the environment BILL_ENV names. Without it BILL's
+      # tools refuse; clients' own BILL logins are in the vault, never here.
+      BILL_DEV_KEY: ${{ secrets.BILL_DEV_KEY }}
       # Wave 4 (plan §1.52, §1.56, §1.60): Slack, Google Sheets' picker (public values) and the
       # Google Chat app. Each stays "Not available yet" until its keys exist.
       SLACK_CLIENT_ID: ${{ secrets.SLACK_CLIENT_ID }}
@@ -264,7 +267,7 @@ jobs:
             ZOHO_CLIENT_ID ZOHO_CLIENT_SECRET PODIO_CLIENT_ID PODIO_CLIENT_SECRET \
             GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET QBO_CLIENT_ID QBO_CLIENT_SECRET QBO_WEBHOOK_VERIFIER \
             OUTLOOK_CLIENT_ID OUTLOOK_CLIENT_SECRET RAMP_CLIENT_ID RAMP_CLIENT_SECRET \
-            HUBSPOT_CLIENT_ID HUBSPOT_CLIENT_SECRET PLAID_CLIENT_ID PLAID_SECRET \
+            HUBSPOT_CLIENT_ID HUBSPOT_CLIENT_SECRET PLAID_CLIENT_ID PLAID_SECRET BILL_DEV_KEY \
             SLACK_CLIENT_ID SLACK_CLIENT_SECRET GOOGLE_PICKER_API_KEY GOOGLE_PROJECT_NUMBER \
             GOOGLE_CHAT_SERVICE_ACCOUNT GOOGLE_CHAT_PROJECT_NUMBER \
             META_APP_ID META_APP_SECRET META_WEBHOOK_VERIFY_TOKEN META_CONFIG_ID; do
