@@ -177,7 +177,9 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
               eq(externalAction.status, "approved"),
               // v0.12 W1-D: never inside the undo window. The database's clock decides, as it
               // does for undo and for delivery, so the three agree (ARCHITECTURE §11.1).
-              sql`not exists (select 1 from ${inboxItem} where ${inboxItem.id} = ${externalAction.inboxItemId} and ${inboxItem.tenantId} = ${externalAction.tenantId} and ${inboxItem.deliverAfter} > now())`,
+              // Wave 2c: the window of whichever item approved it, the gate's own or one more
+              // signer's (R3, `addSignerItemTx`): any of them still held keeps the change.
+              sql`not exists (select 1 from ${inboxItem} where ${inboxItem.tenantId} = ${externalAction.tenantId} and (${inboxItem.id} = ${externalAction.inboxItemId} or (${inboxItem.subjectType} = 'external_action' and ${inboxItem.subjectId} = ${externalAction.id})) and ${inboxItem.deliverAfter} > now())`,
             ),
           )
           .returning();
@@ -693,7 +695,15 @@ async function lockedAction(tx: Tx, tenantId: string, inboxItemId: string): Prom
   return action;
 }
 
-/** The proposed action behind an open inbox item, locked for an edit. */
+/**
+ * The proposed action behind an open inbox item, locked for an edit. Refused once more than one
+ * person signs it (R3, an approval in mode `all` or `any`): every signature must be on exactly
+ * the input that is written.
+ */
+// DECISION (wave 2c): an edit is refused while a change has more than one approval item (the
+// gate's and a further signer's), rather than clearing the others' answers and asking them again:
+// one signer's yes then never stands for an input they didn't see, and nothing reopens items a
+// person already answered. To change it, they reject it and the run asks again.
 export async function proposedActionTx(
   tx: Tx,
   tenantId: string,
@@ -703,24 +713,32 @@ export async function proposedActionTx(
   if (action.status !== "proposed") {
     throw new AgentsError("invalid_state", `this change was already ${action.status}`);
   }
+  if ((await signerItemsTx(tx, tenantId, action)).length > 1) {
+    throw new AgentsError(
+      "invalid_state",
+      "others are signing this change too, so it can't be edited; reject it and ask again",
+    );
+  }
   return toRecord(action);
 }
 
 /**
  * Stores a person's checked edit of a proposed action (checkEditedInput first): `edited_input`,
- * who and when; `input` stays the agent's version. The caller has locked the open item.
+ * who and when; `input` stays the agent's version. The caller has locked the open item. The item
+ * is the change's approval item as `proposedActionTx` finds it, refused the same way.
  */
 export async function recordEditTx(
   tx: Tx,
   input: { tenantId: string; inboxItemId: string; edited: JsonObject; by: string; at: Date },
 ): Promise<ExternalActionRecord> {
+  const action = await proposedActionTx(tx, input.tenantId, input.inboxItemId);
   const [row] = await tx
     .update(externalAction)
     .set({ editedInput: input.edited, editedBy: input.by, editedAt: input.at })
     .where(
       and(
         eq(externalAction.tenantId, input.tenantId),
-        eq(externalAction.inboxItemId, input.inboxItemId),
+        eq(externalAction.id, action.id),
         eq(externalAction.status, "proposed"),
       ),
     )

@@ -2768,6 +2768,34 @@ Contacts and Accounts, the back office's client settings; no migration, no contr
   own (contacts can run to thousands); the account's channels are bound there with the agent
   page's channel editor, now shared, where unbound reads "The default".
 
+runtime (wave 2c):
+- DECISION: a reach-out's plan or a conversation's message that nobody signed, with `ifNoAnswer:
+  proceed`, is decided again by the gate before it goes (`unsignedSendRefusal`, reach/service.ts):
+  step `not_required`, every planned channel's `create` at `auto`, the agent's own mode `act` at
+  `live`, no planned channel the person set to `approval`, all read now, the inputs a plan's own
+  decision uses (`planWhyApproval`). Otherwise the row ends `declined` with the reason and the step
+  fails ("nobody answered in time, and …"), as an external action does. A conversation whose every
+  message is signed never sends one on a deadline.
+- DECISION: an edit is refused while a change has more than one approval item (`proposedActionTx`,
+  409 `invalid_state`: "others are signing this change too … reject it and ask again"), through
+  the gate's card or a signer's alike; `recordEditTx` finds the change the same way. Chosen over
+  clearing the others' answers and asking again: nothing reopens a card a person already answered.
+- DECISION: a change a person edited and left unsigned never goes ahead on a deadline
+  (`unsignedRefusal`); the gate reads the input that would be written (`editedInput ?? input`).
+- DECISION: `claim` waits out the undo window of every approval item of the change (the gate's and
+  each signer's), so the yes that approved it can still be taken back.
+- DECISION: an urgent notice's Seen item is made before its message is posted and found again by
+  run, step, kind `request` and `payload.notice`; a deadline's `tell` makes one item per (run, step,
+  who told). Supersedes wave 2b's "the outbox's items-waiting pass tells them": the person is told
+  at once (notify/urgent.ts), whatever their quiet hours and their own switches, by email and by
+  text where they have a number that may be texted (consent, no STOP), with the items-waiting
+  sentence (one item) and one link, never the notice's words; each person and channel once
+  (`payload.toldAt`); never for a test run. Sent through the outbox's senders, not as a
+  `notification` row: a kind of its own needs a migration (docs/open.md).
+- DECISION: every resolve path sends what resolving sends (`sendResolution`: the item's event and
+  the conversation's beside it): the Desk's batch, stepping in, directory suggestions, and taking a
+  conversation over or ending it (an open message's end sends its conversation event too).
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

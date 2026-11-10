@@ -52,6 +52,8 @@ import {
 // P-4
 import { type ConversePort, converseState } from "../converse/service";
 import { toRunResolution } from "../inbox";
+import type { NotifyDeps } from "../notify/outbox";
+import { tellUrgentNow } from "../notify/urgent";
 import { type ReachPort, reachOutState } from "../reach/service";
 
 const TERMINAL = new Set(["succeeded", "failed", "skipped", "cancelled"]);
@@ -549,6 +551,8 @@ export function threadNotifyPort(
   deps: RuntimeDeps,
   /** R3: the database, for a v4 notice's "Seen" item and a deadline's `tell` (who is who). */
   db?: Db,
+  /** Wave 2c: email and texts, so an urgent notice's person is told at once. */
+  notifyDeps?: NotifyDeps,
 ): NotifyPort {
   const { platform } = deps.ports;
   const port: NotifyPort = {
@@ -579,10 +583,18 @@ export function threadNotifyPort(
   // DECISION: a v4 notice is one message on the run's thread naming who it is for and how (the
   // channel), as v3's notices are until free text goes out by email or text: client-facing when a
   // live run's notice is for anyone on the client's side. An urgent one also opens a "Seen" item
-  // (a request) for its first recipient, due by `dueAt`, which the run waits on; the outbox's
-  // items-waiting pass tells that person by email or text on its own schedule.
+  // (a request) for its first recipient, due by `dueAt`, which the run waits on.
+  // DECISION (wave 2c): the Seen item is made before the message is posted, and found again by
+  // its run, step and kind (`payload.notice`), so a retried step neither posts twice after a
+  // failed insert nor takes another item of the same step for its own. Its person is told at once
+  // (notify/urgent.ts), whatever the hours, by text too; never for a test run.
   port.notify = async ({ run, nodeId, to, channel, text, sources, urgent }) => {
     const ours = to.every((w) => w === "operator" || w === LEAD_ASSIGNEE);
+    const first = to[0];
+    const seen =
+      urgent && first
+        ? await seenItem(run, nodeId, first, { text, channel, sources, dueAt: urgent.dueAt })
+        : null;
     await platform.postMessage(run.tenantId, {
       subject: { type: "run", id: run.id, title: `Run of ${run.workflowSlug}` },
       agentVersionId: run.agentVersionId,
@@ -590,9 +602,27 @@ export function threadNotifyPort(
       sources,
       audience: run.mode === "live" && !ours ? "client" : "operator",
     });
-    const first = to[0];
-    if (!urgent || !first) return { ackItemId: null };
-    const ackItemId = await withTenant(db, run.tenantId, async (tx) => {
+    if (seen && notifyDeps && run.mode !== "test") {
+      const deliver = notifyDeps;
+      await withTenant(db, run.tenantId, async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(inboxItem)
+          .where(and(eq(inboxItem.id, seen), eq(inboxItem.tenantId, run.tenantId)));
+        if (row?.status === "open") await tellUrgentNow(tx, deliver, row, new Date());
+      });
+    }
+    return { ackItemId: seen };
+  };
+
+  /** The urgent notice's Seen item for this step: found again on a retry, else made. */
+  const seenItem = (
+    run: RunInfo,
+    nodeId: string,
+    who: string,
+    notice: { text: string; channel: string; sources: readonly string[]; dueAt: string },
+  ) =>
+    withTenant(db, run.tenantId, async (tx) => {
       const [existing] = await tx
         .select({ id: inboxItem.id })
         .from(inboxItem)
@@ -600,7 +630,9 @@ export function threadNotifyPort(
           and(
             eq(inboxItem.tenantId, run.tenantId),
             eq(inboxItem.runId, run.id),
+            eq(inboxItem.kind, "request"),
             sql`${inboxItem.payload}->>'nodeId' = ${nodeId}`,
+            sql`${inboxItem.payload}->'notice' is not null`,
           ),
         )
         .limit(1);
@@ -614,31 +646,44 @@ export function threadNotifyPort(
           subjectType: "run",
           subjectId: run.id,
           runId: run.id,
-          ...(await personAssignee(tx, run, first)),
-          title: text.slice(0, 200),
+          ...(await personAssignee(tx, run, who)),
+          title: notice.text.slice(0, 200),
           payload: {
             nodeId,
             mode: "ask",
             question: "Seen?",
-            notice: { text, channel, urgent: true },
-            sources,
+            notice: { text: notice.text, channel: notice.channel, urgent: true },
+            sources: [...notice.sources],
             ...(run.mode === "test" ? { testRun: true } : {}),
           },
-          dueAt: new Date(urgent.dueAt),
+          dueAt: new Date(notice.dueAt),
         })
         .returning({ id: inboxItem.id });
       if (!row) throw new Error("inbox item insert returned nothing");
       return row.id;
     });
-    return { ackItemId };
-  };
 
   // DECISION: a deadline's `tell` is a `review` item for each person or role it names (the
   // operator's as `notifyOperator` makes it), saying what passed; a test run's tell only us.
+  // DECISION (wave 2c): one per (run, step, who told), so a retried step tells nobody twice.
   port.tell = async ({ run, nodeId, to, inboxItemId, reason }) => {
     const told = run.mode === "test" ? ["operator"] : [...new Set(to)];
     await withTenant(db, run.tenantId, async (tx) => {
       for (const who of told) {
+        const [already] = await tx
+          .select({ id: inboxItem.id })
+          .from(inboxItem)
+          .where(
+            and(
+              eq(inboxItem.tenantId, run.tenantId),
+              eq(inboxItem.runId, run.id),
+              eq(inboxItem.kind, "review"),
+              sql`${inboxItem.payload}->>'nodeId' = ${nodeId}`,
+              sql`${inboxItem.payload}->>'told' = ${who}`,
+            ),
+          )
+          .limit(1);
+        if (already) continue;
         const assignee =
           who === "operator"
             ? { assigneeRole: "operator" as const, assigneeUserId: null }

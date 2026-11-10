@@ -14,10 +14,11 @@ import {
   generateEncryptionKey,
 } from "@countersign/connectors";
 import { FAKE_TWILIO_MAIN, fakeTwilio } from "@countersign/connectors/testing";
-import { AgentBundle, type AgentBundleInput } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, type SkillStep } from "@countersign/core";
 import {
   agent,
   agentVersion,
+  connection,
   contact,
   externalAction,
   inboxItem,
@@ -37,6 +38,7 @@ import {
   FakeWorkflowStep,
   OPERATOR,
 } from "./api.test-helper";
+import { conversePort } from "./converse/service";
 import { quietNever } from "./quiet-hours.test-helper";
 import { reachOutTick } from "./reach/service";
 import { credentialsFor, executeRun, reachDepsFor } from "./runs/execute";
@@ -838,6 +840,105 @@ describe.skipIf(!h)("conversations through the API", () => {
     await H.call(OPERATOR, "PUT", `/api/ops/clients/${A()}/contacts/${sam}/autonomy`, {
       autonomy: {},
     });
+  });
+
+  it("a message nobody signed goes on its deadline only where the gate would send it unsigned now", async () => {
+    // Live, in act mode, on a connection whose `create` is `auto`: only the step asks to sign.
+    const { agentId } = await makeAgent("purchasing-proceed", talkStep(), {
+      permissions: { mode: "act" },
+    });
+    const [conn] = await H.t.db.select().from(connection).where(eq(connection.id, twilioConn));
+    await H.t.db
+      .update(connection)
+      .set({ permissions: { ...j(conn?.permissions), create: "auto" } })
+      .where(eq(connection.id, twilioConn));
+    const autonomy = (id: string, value: Record<string, string>) =>
+      H.call(OPERATOR, "PUT", `/api/ops/clients/${A()}/contacts/${id}/autonomy`, {
+        autonomy: value,
+      });
+
+    /** Starts a conversation whose first message waits, then resumes it as nobody answered. */
+    async function proceedUnanswered(
+      who: string,
+      phone: string,
+      request: string,
+      between = () => {},
+    ) {
+      await textIn(phone, "About my request");
+      const params = await startRun(agentId, who, request);
+      model = new FakeModel([turn({ action: "ask", message: "Which items, and by when?" })]);
+      let resumed: { kind: string; error?: string } | null = null;
+      const step = new FakeWorkflowStep(async (_name, type) => {
+        if (type.startsWith("inbox-") && !resumed) {
+          await between();
+          const port = conversePort(reachDepsFor(deps()));
+          const info = {
+            id: params.runId,
+            tenantId: A(),
+            agentId,
+            agentVersionId: params.agentVersionId,
+            workflowSlug: "main",
+            mode: "live" as const,
+          };
+          const there = await port.peek(info, "talk");
+          if (there?.kind !== "item") throw new Error("the first message doesn't wait");
+          const [sr] = await H.t.db
+            .select()
+            .from(stepRun)
+            .where(and(eq(stepRun.runId, params.runId), eq(stepRun.nodeId, "talk")));
+          resumed = (await port.resume({
+            run: info,
+            step: talkStep() as unknown as SkillStep,
+            nodeId: "talk",
+            stepRunId: sr?.id ?? "",
+            pending: { inboxItemId: there.inboxItemId, state: there.state },
+            resolution: { approved: true, by: null, proceeded: true },
+          })) as { kind: string; error?: string };
+        }
+        throw Object.assign(new Error("Execution timed out after 1ms"), {
+          name: "WorkflowTimeoutError",
+        });
+      });
+      await executeRun(deps(), params, cloudflareStepRunner(step));
+      return {
+        resumed: resumed as unknown as { kind: string; error?: string },
+        rows: await rowsOf(params.runId),
+      };
+    }
+
+    try {
+      // Rae's WhatsApp is set to "needs approval" while the first message waits: it never goes.
+      const RAE = "+15555550176";
+      const rae = await newContact({
+        name: "Rae Moss",
+        whatsapp: RAE,
+        consent: { channels: ["whatsapp"], source: "signed the service agreement" },
+      });
+      const held = await proceedUnanswered(rae, RAE, "REQ-31", async () => {
+        expect((await autonomy(rae, { whatsapp: "approval" })).status).toBe(200);
+      });
+      expect(held.resumed).toMatchObject({ kind: "failed" });
+      expect(held.resumed.error).toMatch(/nobody answered in time, and a message to Rae Moss/);
+      expect(sentTo(RAE)).toHaveLength(0);
+      expect(held.rows[0]).toMatchObject({ status: "ended", outcome: "declined" });
+
+      // Nothing asks for a signature now: it goes with nobody's.
+      const ZED = "+15555550177";
+      const zed = await newContact({
+        name: "Zed Hale",
+        whatsapp: ZED,
+        consent: { channels: ["whatsapp"], source: "signed the service agreement" },
+      });
+      const sent = await proceedUnanswered(zed, ZED, "REQ-32");
+      expect(sent.resumed.kind).not.toBe("failed");
+      expect(sentTo(ZED).map((m) => m.body)).toEqual(["Which items, and by when?"]);
+      expect(j(sent.rows[0]?.plan).approvedBy).toBeNull();
+    } finally {
+      await H.t.db
+        .update(connection)
+        .set({ permissions: conn?.permissions })
+        .where(eq(connection.id, twilioConn));
+    }
   });
 
   it("oversight retries a failed turn, and the conversation goes on where it stopped", async () => {

@@ -24,10 +24,12 @@ import {
   fakeResend,
   fakeTwilio,
 } from "@countersign/connectors/testing";
-import { AgentBundle, type AgentBundleInput } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, bundleHash, type SkillStep } from "@countersign/core";
 import {
   agent,
   agentChange,
+  agentVersion,
+  connection,
   contactChange,
   externalAction,
   inboxItem,
@@ -49,7 +51,7 @@ import {
 import { handleEmail } from "./email";
 import { defaultDeps } from "./http";
 import { quietNever } from "./quiet-hours.test-helper";
-import { planWhyApproval, reachOutTick } from "./reach/service";
+import { planWhyApproval, reachOutTick, reachPort } from "./reach/service";
 import { credentialsFor, executeRun, reachDepsFor } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
 
@@ -702,6 +704,120 @@ describe.skipIf(!h)("reach out through the API", () => {
       reason: "Back to the default",
     });
     expect(cleared.status, JSON.stringify(cleared.json)).toBe(200);
+  });
+
+  it("a plan nobody signed goes out on its deadline only where the gate would send it unsigned now", async () => {
+    // A live agent in act mode, on a connection whose `create` is `auto`: as published, the plan
+    // could go out unsigned, so `ifNoAnswer: proceed` was allowed.
+    const [v] = await H.t.db.select().from(agentVersion).where(eq(agentVersion.id, versionId));
+    const actBundle = j(structuredClone(v?.bundle));
+    actBundle.definition.permissions.mode = "act";
+    const versions = await H.t.db
+      .select({ version: agentVersion.version })
+      .from(agentVersion)
+      .where(eq(agentVersion.agentId, agentId));
+    const [actVersion] = await H.t.db
+      .insert(agentVersion)
+      .values({
+        tenantId: A(),
+        agentId,
+        version: Math.max(...versions.map((x) => x.version)) + 1,
+        bundle: actBundle,
+        bundleHash: await bundleHash(actBundle),
+        authorType: "operator",
+      })
+      .returning({ id: agentVersion.id });
+    const [conn] = await H.t.db.select().from(connection).where(eq(connection.id, twilioConn));
+    const [before] = await H.t.db.select().from(agent).where(eq(agent.id, agentId));
+    await H.t.db
+      .update(connection)
+      .set({ permissions: { ...j(conn?.permissions), create: "auto" } })
+      .where(eq(connection.id, twilioConn));
+    await H.t.db.update(agent).set({ stage: "live" }).where(eq(agent.id, agentId));
+    // Kim, the purchaser for this test (Pat keeps today's count for the tests below).
+    const KIM = "+15555550178";
+    const made = await H.call(admin("a"), "POST", "/api/contacts", {
+      name: "Kim Vale",
+      phone: KIM,
+      roles: ["purchaser"],
+      consent: { channels: ["sms"], source: "signed the service agreement" },
+    });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    const kim = j(made.json).contact.id;
+    const bind = (id: string) =>
+      H.call(admin("a"), "PUT", `/api/people/${agentId}`, {
+        people: { purchaser: { contactIds: [id], conditions: { escalateAfter: "1 hour" } } },
+      });
+    expect((await bind(kim)).status).toBe(200);
+    const autonomy = (value: Record<string, string>) =>
+      H.call(OPERATOR, "PUT", `/api/ops/clients/${A()}/contacts/${kim}/autonomy`, {
+        autonomy: value,
+      });
+
+    /** Runs a reach-out whose plan waits, and resumes it as the executor does when nobody answered. */
+    async function proceedUnanswered(order: string) {
+      const params = { ...(await startRun(order)), agentVersionId: actVersion?.id ?? "" };
+      let resumed: Awaited<ReturnType<ReturnType<typeof reachPort>["resume"]>> | null = null;
+      const step = new FakeWorkflowStep(async (_name, type) => {
+        if (type.startsWith("inbox-") && !resumed) {
+          const [row] = await H.t.db
+            .select()
+            .from(reachOut)
+            .where(eq(reachOut.runId, params.runId));
+          if (!row?.inboxItemId) throw new Error("no plan waits");
+          resumed = await reachPort(reachDepsFor(deps())).resume({
+            run: {
+              id: params.runId,
+              tenantId: A(),
+              agentId,
+              agentVersionId: params.agentVersionId,
+              workflowSlug: "main",
+              mode: "live",
+            },
+            step: reachStep() as unknown as SkillStep,
+            nodeId: "reach",
+            stepRunId: row.stepRunId ?? "",
+            pending: { inboxItemId: row.inboxItemId, state: { reachOutId: row.id } },
+            resolution: { approved: true, by: null, proceeded: true },
+          });
+        }
+        throw Object.assign(new Error("Execution timed out after 1ms"), {
+          name: "WorkflowTimeoutError",
+        });
+      });
+      await executeRun(deps(), params, cloudflareStepRunner(step));
+      const [row] = await H.t.db.select().from(reachOut).where(eq(reachOut.runId, params.runId));
+      return { resumed: resumed as unknown as { kind: string; error?: string }, row };
+    }
+
+    try {
+      // Kim set texts to "needs approval": nothing goes out on the deadline.
+      expect((await autonomy({ sms: "approval" })).status).toBe(200);
+      const texts = textsTo(KIM).length;
+      const held = await proceedUnanswered("PO-5005");
+      expect(held.resumed).toMatchObject({ kind: "failed" });
+      expect(held.resumed.error).toMatch(/nobody answered in time, and a message to Kim Vale/);
+      expect(textsTo(KIM)).toHaveLength(texts);
+      expect(held.row).toMatchObject({ status: "ended", outcome: "declined", attempts: [] });
+
+      // With nothing asking for a signature now, it goes out with nobody's.
+      expect((await autonomy({})).status).toBe(200);
+      const sent = await proceedUnanswered("PO-5006");
+      expect(sent.resumed.kind).not.toBe("failed");
+      expect(textsTo(KIM)).toHaveLength(texts + 1);
+      expect(j(sent.row?.plan).approvedBy).toBeNull();
+    } finally {
+      // Pat is the purchaser again for the tests below.
+      expect((await bind(pat)).status).toBe(200);
+      await H.t.db
+        .update(connection)
+        .set({ permissions: conn?.permissions })
+        .where(eq(connection.id, twilioConn));
+      await H.t.db
+        .update(agent)
+        .set({ stage: before?.stage ?? null })
+        .where(eq(agent.id, agentId));
+    }
   });
 
   it("keeps one open reach-out per contact and subject; STOP and opt-outs stop everything", async () => {

@@ -25,9 +25,16 @@ import { inboxEventType } from "@countersign/workflows";
 import { and, eq, inArray } from "drizzle-orm";
 import { refuseGenericResolve } from "../access/release";
 import { plainTitle } from "../change-display";
+import { conversationEventOfItem, itemWakePayload } from "../converse/wake";
 import { isDirectorySuggestion } from "../directory/suggestions";
 import { HttpError, notFound } from "../http";
-import { type InboxRow, type ResolveOutcome, resolveInboxItem, toRunResolution } from "../inbox";
+import {
+  type InboxRow,
+  type ResolveOutcome,
+  type RunWake,
+  resolveInboxItem,
+  toRunResolution,
+} from "../inbox";
 import { isGoLiveItem } from "../lifecycle/stages";
 import { editMessage } from "./messages";
 
@@ -87,6 +94,8 @@ async function assigneeFor(tx: Tx, tenantId: string, to: ReassignTarget) {
 export interface StepInOutcome {
   item: InboxRow;
   resume: ResolveOutcome["resume"];
+  /** Wave 2c: a conversation's own event, sent beside `resume` (`sendResolution`). */
+  conversation: RunWake | null;
 }
 
 /**
@@ -134,6 +143,7 @@ export async function stepIn(
   const by = steppingIn(input.userId);
   const before = { role: item.assigneeRole, userId: item.assigneeUserId };
   let resume: ResolveOutcome["resume"] = null;
+  let conversation: RunWake | null = null;
 
   if (body.action === "reassign") {
     const assignee = await assigneeFor(tx, tenantId, body.to);
@@ -183,6 +193,7 @@ export async function stepIn(
       collect: input.collect,
     });
     resume = outcome.resume;
+    conversation = outcome.conversation ?? null;
     const resolved = outcome.item;
     const resolution = (
       isPlainObject(resolved.resolution) ? resolved.resolution : {}
@@ -206,7 +217,7 @@ export async function stepIn(
     .from(inboxItem)
     .where(and(eq(inboxItem.id, item.id), eq(inboxItem.tenantId, tenantId)));
   if (!row) throw notFound("inbox item");
-  return { item: row, resume };
+  return { item: row, resume, conversation };
 }
 
 // DECISION: the existing path that reaches the person an item waited on is the lead thread's
@@ -272,7 +283,7 @@ export async function closeItem(
     collect: EventRow[];
     now: Date;
   },
-): Promise<ResolveOutcome["resume"]> {
+): Promise<{ resume: ResolveOutcome["resume"]; conversation: RunWake | null }> {
   const { item } = input;
   if (item.kind === "external_action") throw new Error("a change is resolved through the gate");
   const resolution = {
@@ -313,7 +324,14 @@ export async function closeItem(
     { registry: input.registry },
   );
   if (event) input.collect.push(event);
-  return item.runId
-    ? { runId: item.runId, type: inboxEventType(item.id), payload: toRunResolution(row) }
-    : null;
+  if (!item.runId) return { resume: null, conversation: null };
+  const taken = toRunResolution(row);
+  // Wave 2c: a conversation's item wakes a v4 conversation step at once, as every resolve does.
+  const type = await conversationEventOfItem(tx, item);
+  return {
+    resume: { runId: item.runId, type: inboxEventType(item.id), payload: taken },
+    conversation: type
+      ? { runId: item.runId, type, payload: itemWakePayload(item.id, taken) }
+      : null,
+  };
 }

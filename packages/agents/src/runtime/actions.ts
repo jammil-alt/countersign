@@ -353,6 +353,11 @@ export async function unsignedRefusal(
   const { store } = deps.ports;
   const action = await deps.ports.actions.get(tenantId, input.actionId);
   if (!action) throw notFound(`external action ${input.actionId}`);
+  // DECISION (wave 2c): a change a person edited and left unsigned never goes ahead on a
+  // deadline: the edit was theirs, the signature never came. The gate below reads the input that
+  // would be written all the same.
+  if (action.editedInput) return "a person edited this change and never signed it";
+  const written = action.editedInput ?? action.input;
   const conn = await store.connection(tenantId, action.connectionId);
   const owner = action.runId ? await store.run(tenantId, action.runId) : null;
   if (!conn || !owner || !action.agentVersionId) return "the change has no agent to go ahead for";
@@ -360,7 +365,7 @@ export async function unsignedRefusal(
   if (own?.kind !== "connector") return "the connection is gone";
   const pinned = await store.loadAgentVersion(tenantId, action.agentVersionId);
   const stage = await store.agentStage(tenantId, owner.agentId);
-  const recipient = recipientOf(own.spec, action.input);
+  const recipient = recipientOf(own.spec, written);
   const autonomy =
     recipient && store.contactAutonomy ? await store.contactAutonomy(tenantId, recipient) : null;
   const refused = await signedGateRefusal(deps, tenantId, {
@@ -368,7 +373,7 @@ export async function unsignedRefusal(
     connector: own.connector,
     conn,
     agentId: owner.agentId,
-    input: action.input,
+    input: written,
     unsigned: {
       mode: effectiveMode(pinned.bundle.definition, stage),
       ...(autonomy ? { ceilings: [autonomy] } : {}),

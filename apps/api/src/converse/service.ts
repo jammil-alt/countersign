@@ -83,6 +83,7 @@ import {
   type ReachOutRow,
   reachOutEventType,
   type StoredPlan,
+  unsignedSendRefusal,
 } from "../reach/service";
 import type { StoredEvent } from "./views";
 
@@ -1372,6 +1373,19 @@ export function conversePort(deps: ConverseDeps): ConversePort {
             endReachOut(tx, row, { outcome: "declined", reason: "not approved" }, t),
           );
           return advance(place);
+        }
+        if (req.resolution.proceeded === true) {
+          // Wave 2c: nobody answered and `ifNoAnswer` is proceed: the gate decides the message
+          // again (reach/service.ts `unsignedSendRefusal`); a conversation whose every message is
+          // signed never sends one on a deadline (invariant 8).
+          const refused = await withTenant(db, tenantId, async (tx) => {
+            const why = setupOf(rows).perMessage
+              ? "each of its messages needs a person's signature"
+              : await unsignedSendRefusal(tx, row);
+            if (why) await endReachOut(tx, row, { outcome: "declined", reason: why }, t);
+            return why;
+          });
+          if (refused) return { kind: "failed", error: `nobody answered in time, and ${refused}` };
         }
         const plan = planOf(row);
         const [opened] = await withTenant(db, tenantId, (tx) =>

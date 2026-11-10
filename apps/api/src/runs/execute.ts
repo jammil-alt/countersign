@@ -95,6 +95,8 @@ import type { Bindings } from "../env";
 // R4: stored business hours and away dates, for deadlines.
 import { hoursFor } from "../hours/hours";
 import { connectorServicesFor } from "../messaging/services";
+import { mailerFromEnv, texterFromEnv } from "../notify/mailer";
+import { type NotifyDeps, originOf } from "../notify/outbox";
 // v0.13 W2-I
 import { oversightPort } from "../oversight/port";
 import type { Platform } from "../platform";
@@ -140,6 +142,9 @@ export interface RunDeps {
   // §1.77
   /** Web research for `web.search` and `web.fetch` (MARKETING_RESEARCH=on); absent: off. */
   webResearch?: boolean;
+  // Wave 2c
+  /** Email and texts, so an urgent notice's person is told at once; absent: the outbox's pass. */
+  notify?: NotifyDeps;
 }
 
 /**
@@ -224,6 +229,8 @@ export function runDepsFromEnv(
     modelCallBodies: new R2ObjectStore(env.ARTIFACTS),
     // §1.77: off unless the owner sets MARKETING_RESEARCH=on (docs/marketing-plan.md §11.5).
     webResearch: researchOn(env),
+    // Wave 2c: the outbox's own senders, for an urgent notice's person (notify/urgent.ts).
+    notify: { mailer: mailerFromEnv(env), texter: texterFromEnv(env), origin: originOf(env) },
   };
 }
 
@@ -565,7 +572,7 @@ export async function executeRun(
     ),
     inbox: dbInboxPort(db, info),
     // R3: v4 notices and deadlines' `tell` read who is who in the database.
-    notify: threadNotifyPort(runtime, db),
+    notify: threadNotifyPort(runtime, db, deps.notify),
     log: dbStepLog(db, info),
     catalog: {
       skills: Object.fromEntries(deps.platform.catalog.list().map((s) => [s.id, s])),

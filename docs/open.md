@@ -165,6 +165,15 @@ bring this forward.
 - **Smaller defaults** (§7 item 10): the 60 s undo window, US federal holidays only, notification
   texts only from the client's own number, replay as a test run in the same client.
 
+### The process model's urgent notices (code; `docs/plan.md` §1.86, runtime wave 2c)
+
+- An urgent notice's person is told at once by email and text from the notify step itself
+  (`apps/api/src/notify/urgent.ts`), not through the `notification` outbox, so those sends have no
+  `notification` row (no retries after a failed send, no line in the notification counts; a failed
+  send is reported and the card waits for the items-waiting pass). Making it an outbox kind of its
+  own (`urgent`, never held for quiet hours) needs a migration of `notification_kind_check`; do it
+  in its own PR, then send from the outbox.
+
 ### Language and legal
 
 - A **fluent speaker's review** of the five translations (Spanish, French, Portuguese, Italian,
