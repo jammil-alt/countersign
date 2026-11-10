@@ -7,10 +7,18 @@
 // decision is still `run`: an agent in trial or signoff has every write signed.
 // Otherwise the write is proposed again, for a new approval.
 
-import { carryDecision, hashJson, type WriteDecision } from "@countersign/core";
+import { carryDecision, hashJson, isPlainObject, type WriteDecision } from "@countersign/core";
 import { executeAction } from "./actions";
 import type { ToolOutcome } from "./call-tool";
 import { asJsonObject, idempotencyKey, type RuntimeDeps, type StepContext } from "./context";
+
+/** Said of a carried write that failed after it may have reached the provider. */
+export const MAY_HAVE_HAPPENED = " (the change may have happened: check before trying again)";
+
+/** Whether a failed action's error says nothing was written (`notWritten`, `executeAction`). */
+function notWritten(error: unknown): boolean {
+  return isPlainObject(error) && error.notWritten === true;
+}
 
 /** A carried write's outcome, or null to propose it as any other. Live retries only. */
 export async function carryApproval(
@@ -54,7 +62,14 @@ export async function carryApproval(
       case "done":
         return { status: "done", output: r.output, summary: r.summary, actionId: c.id, carried };
       case "failed":
-        return { status: "failed", error: r.error };
+        // DECISION (wave 5 re-review): the carried write runs on the run retried's action (its
+        // run id and key), which this run's `stepWrites` never finds; so a failure not known to
+        // have written nothing says the write may have happened, and the executor never goes on
+        // past it (`onError: continue`, `writeMayHaveHappened`): a person checks it.
+        return {
+          status: "failed",
+          error: notWritten(r.action.error) ? r.error : `${r.error}${MAY_HAVE_HAPPENED}`,
+        };
       default:
         return { status: "refused", reason: `the carried change is ${r.action.status}` };
     }
