@@ -12,6 +12,8 @@ import { z } from "zod";
 import { isPlainObject } from "../json";
 import { outcomeOfRow, STEP_OUTCOMES, type StepOutcomeWord } from "../process/outcomes";
 import { APPROVAL_MODES, CONFER_VERDICTS, type ConferVerdict } from "../process/schema";
+import type { Rules } from "../schemas/rules";
+import { singleRef } from "../template/template";
 
 // ── Durable names ───────────────────────────────────────────────────────────────────────────────
 
@@ -263,6 +265,101 @@ export function outcomeOfStepRow(
   });
 }
 
+// ── The route an if took (wave 5, web) ──────────────────────────────────────────────────────────
+
+/**
+ * Which path an `if` took and the earlier steps' outcomes its rules matched on ("Took the route
+ * 'Rejected': Approve the bill was rejected"). `path` is null when no path matched (otherwise).
+ * `because` holds only the `steps.<id>.outcome` rules that held, each step by the label the reader
+ * may see: a rule over data, or over a step the reader doesn't see, adds nothing.
+ */
+export const RouteView = z.object({
+  path: z.string().nullable(),
+  because: z.array(z.object({ label: z.string(), outcome: z.enum(OUTCOME_WORDS) })),
+});
+export type RouteView = z.infer<typeof RouteView>;
+
+interface IfLike {
+  id: string;
+  kind: string;
+  paths?: readonly { id: string; name: string; when: Rules }[];
+}
+
+/** `{{steps.<id>.outcome}}` → the step id, else null. */
+function outcomeRefOf(field: string): string | null {
+  let path: string[] | null;
+  try {
+    path = singleRef(field);
+  } catch {
+    return null;
+  }
+  return path && path.length === 3 && path[0] === "steps" && path[2] === "outcome"
+    ? (path[1] as string)
+    : null;
+}
+
+/** Whether a rule `=`, `is` or `in` holds for the outcome word (other operators explain nothing). */
+function ruleHolds(op: string, value: unknown, outcome: string): boolean {
+  if (op === "=" || op === "is") return value === outcome;
+  if (op === "in") return Array.isArray(value) && value.includes(outcome);
+  return false;
+}
+
+/**
+ * The route an `if`'s row took (its output's `pathId`), and why in outcome words: for each rule of
+ * the taken path on an earlier step's `outcome` that held, that step's label (`labelOf`; null
+ * leaves it out) and outcome (`outcomeAt`, by node id: a step in the same loop item reads that
+ * item's row). Null for a row that isn't an ended `if`'s.
+ */
+// DECISION (wave 5, web): the "why" names outcome rules only, words a reader can follow; a rule over
+// a field of the data shows the path's name alone, never the field or its value.
+export function routeOfRow(
+  step: IfLike,
+  row: { nodeId: string; output?: unknown },
+  outcomeAt: (nodeId: string) => StepOutcomeWord | null | undefined,
+  labelOf: (stepId: string) => string | null | undefined,
+): RouteView | null {
+  if (step.kind !== "if") return null;
+  if (!isPlainObject(row.output) || typeof row.output.pathId !== "string") return null;
+  const pathId = row.output.pathId;
+  const taken = step.paths?.find((p) => p.id === pathId);
+  if (!taken) return { path: null, because: [] };
+  const { node } = stepNodeOf(row.nodeId);
+  const prefix = node.endsWith(step.id) ? node.slice(0, node.length - step.id.length) : "";
+  const because: RouteView["because"] = [];
+  for (const rule of taken.when.rules) {
+    const id = outcomeRefOf(rule.field);
+    if (!id) continue;
+    const outcome = outcomeAt(`${prefix}${id}`) ?? (prefix ? outcomeAt(id) : null);
+    if (!outcome || !ruleHolds(rule.op, rule.value, outcome)) continue;
+    const label = labelOf(id);
+    if (label && !because.some((b) => b.label === label && b.outcome === outcome)) {
+      because.push({ label, outcome });
+    }
+  }
+  return { path: taken.name, because };
+}
+
+/** The outcomes of a failure that a step's `onError: continue` went on past. */
+const CARRIED_ON = new Set<string>([
+  "failed",
+  "needs_help",
+  "some_failed",
+  "all_failed",
+  "stopped",
+]);
+
+/**
+ * Whether a step failed and the run carried on past it (`onError: continue`): the run views say
+ * so, in risk, rather than reading it as the run's failure.
+ */
+export function carriedOn(
+  step: { onError?: string | undefined } | undefined,
+  outcome: string | null | undefined,
+): boolean {
+  return step?.onError === "continue" && !!outcome && CARRIED_ON.has(outcome);
+}
+
 // ── Which steps the client sees ─────────────────────────────────────────────────────────────────
 
 /** Kinds only v4 has that the client sees by default: the work, never the logic. */
@@ -297,5 +394,8 @@ export const TimelineChecks = z.object({
   urgent: UrgentView.optional(),
   // Wave 5: how the step ended (`outcomeOfStepRow`), the word a later `if` routes on.
   outcome: z.enum(OUTCOME_WORDS).optional(),
+  // Wave 5 (web): an `if`'s route and why (`routeOfRow`); a failure the run carried on past.
+  route: RouteView.optional(),
+  carriedOn: z.literal(true).optional(),
 });
 export type TimelineChecks = z.infer<typeof TimelineChecks>;

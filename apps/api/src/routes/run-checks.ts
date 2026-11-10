@@ -6,13 +6,17 @@
 
 import {
   approvalOf,
+  carriedOn,
   checkKindOf,
+  clientLabel,
   conferOf,
   findStep,
   noAnswerOf,
   outcomeOfStepRow,
   processes,
+  routeOfRow,
   type Step,
+  shownOnTimeline,
   stepNodeOf,
   type TimelineChecks,
   urgentOf,
@@ -111,6 +115,12 @@ export async function timelineChecks(
   const asItems = itemsOf(items);
   const out = new Map<string, TimelineChecks>();
   const userIds = new Set<string>();
+  // Each step row's outcome by node id, for the routes the run's `if`s took.
+  const outcomes = new Map<string, NonNullable<TimelineChecks["outcome"]>>();
+  for (const r of rows) {
+    const outcome = outcomeOfStepRow(r, asItems);
+    if (outcome) outcomes.set(r.nodeId, outcome);
+  }
   for (const r of rows) {
     const checks: TimelineChecks = {};
     const confer = conferOf(r);
@@ -140,8 +150,23 @@ export async function timelineChecks(
     const urgent = urgentOf(r, asItems);
     if (urgent) checks.urgent = urgent;
     // Wave 5: how the step ended, in the words a later `if` routes on.
-    const outcome = outcomeOfStepRow(r, asItems);
+    const outcome = outcomes.get(r.nodeId);
     if (outcome) checks.outcome = outcome;
+    if (!checkKindOf(r.nodeId) && step) {
+      // Wave 5 (web): the route an `if` took and why, naming only steps the client sees; a
+      // failure the run carried on past (`onError: continue`).
+      const route = routeOfRow(
+        step,
+        r,
+        (nodeId) => outcomes.get(nodeId),
+        (id) => {
+          const s = find(id);
+          return s && shownOnTimeline(s) ? clientLabel(s) : null;
+        },
+      );
+      if (route) checks.route = route;
+      if ("onError" in step && carriedOn(step, outcome)) checks.carriedOn = true;
+    }
     if (Object.keys(checks).length > 0) out.set(r.id, checks);
   }
   const ids = [...userIds].filter((id) => /^[0-9a-f-]{36}$/i.test(id));
