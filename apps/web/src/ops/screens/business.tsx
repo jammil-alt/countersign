@@ -25,6 +25,7 @@ export function TableCard({
 }) {
   return (
     <Card
+      titleAbove
       title={title}
       meta={meta}
       footer={footer}

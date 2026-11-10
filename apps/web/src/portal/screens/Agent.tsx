@@ -513,7 +513,7 @@ function LatestWork({ name, recent }: { name: string; recent: Recent[] }) {
   const { t } = i18n;
   if (recent.length === 0) return null;
   return (
-    <Card title={t("agent.latest", { name })} testId="agent-latest">
+    <Card titleAbove title={t("agent.latest", { name })} testId="agent-latest">
       {recent.map((r) => (
         <ActivityRow
           key={`${r.runId}:${r.label}:${r.at ?? ""}`}
@@ -653,6 +653,7 @@ function Reach({ id, name }: { id: string; name: string }) {
   const items = reachOf(id, access.data);
   return (
     <Card
+      titleAbove
       title={t("agent.reach", { name })}
       testId="agent-reach"
       meta={
@@ -772,7 +773,7 @@ function RunNow({ id, name }: { id: string; name: string }) {
   });
   if (usable.length === 0) return null;
   return (
-    <Card title={t("agent.runNow")} testId="agent-run-now">
+    <Card titleAbove title={t("agent.runNow")} testId="agent-run-now">
       <div className="divide-y divide-line">
         {usable.map(({ form, fields }) => (
           <RunFormRow key={form.workflow} id={id} name={name} form={form} fields={fields} />

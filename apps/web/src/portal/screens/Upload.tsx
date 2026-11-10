@@ -362,7 +362,7 @@ export function RecentDocuments({
   const i18n = useI18n();
   const { t } = i18n;
   return (
-    <Card title={t("documents.recent")} testId="portal-recent-documents">
+    <Card titleAbove title={t("documents.recent")} testId="portal-recent-documents">
       {loading && !data ? (
         <div className="ui-card__body">
           <Loading />

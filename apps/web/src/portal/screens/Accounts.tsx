@@ -581,6 +581,7 @@ function AddToolCard({
   const { t } = useI18n();
   return (
     <Card
+      titleAbove
       testId="portal-connections-available"
       title={t("accounts.add.title")}
       footer={

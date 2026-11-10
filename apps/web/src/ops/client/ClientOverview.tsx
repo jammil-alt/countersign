@@ -382,6 +382,7 @@ function ThreadsCard({ threads }: { threads: Threads }) {
   const unread = list.reduce((n, t) => n + t.unread, 0);
   return (
     <Card
+      titleAbove
       title="Threads"
       meta={unread > 0 ? `${unread} unread` : undefined}
       testId="ops-client-threads"

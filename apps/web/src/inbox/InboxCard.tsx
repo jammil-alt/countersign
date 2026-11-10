@@ -515,7 +515,7 @@ function Actions({
   const { t } = useI18n();
   if (kind === "change_request") {
     return (
-      <Link to="/ops/requests" className="text-sm text-link underline">
+      <Link to="/ops/utilities/requests" className="text-sm text-link underline">
         {t("inbox.openRequestsQueue")}
       </Link>
     );

@@ -93,11 +93,21 @@ export function StepKindTag({ kind, label }: { kind: string; label: string }) {
  * A count badge (Inbox 5). Waiting-on-you counts use the signal tone; a zero count stays neutral,
  * since nothing waits.
  */
-export function Count({ n, tone = "neutral" }: { n: number; tone?: Tone }) {
+export function Count({
+  n,
+  tone = "neutral",
+  small = false,
+}: {
+  n: number;
+  tone?: Tone;
+  /** On an icon's corner (the folded sidebar): smaller, so the icon stays clear. */
+  small?: boolean;
+}) {
   return (
     <span
       className={cx(
-        "ds-pill min-w-6 justify-center px-1.5 py-[3px] text-xs figures",
+        "ds-pill justify-center figures",
+        small ? "h-4 min-w-4 px-1 py-0 text-[10px] leading-4" : "min-w-6 px-1.5 py-[3px] text-xs",
         PILL[n === 0 ? "neutral" : tone],
       )}
     >
@@ -140,6 +150,7 @@ export function Card({
   meta,
   footer,
   pad,
+  titleAbove,
 }: {
   children: ReactNode;
   className?: string;
@@ -149,7 +160,28 @@ export function Card({
   meta?: ReactNode;
   footer?: ReactNode;
   pad?: boolean;
+  /**
+   * A table or a list of rows: the title (and meta) sit above the card, not in a header band
+   * inside it. `testId` goes on the whole group, `className` on the card.
+   */
+  titleAbove?: boolean;
 }) {
+  // DECISION: tables and row lists carry a plain title above them, not a bordered header band
+  // (2026-11-10, the owner's call); cards about one thing keep their header inside.
+  if (titleAbove && (title || meta)) {
+    return (
+      <section data-testid={testId} className="ui-cardgroup">
+        <div className="ui-section__head">
+          {title ? <h3 className="type-subheading text-ink">{title}</h3> : <span />}
+          {meta ? <div className="ui-card__meta">{meta}</div> : null}
+        </div>
+        <div className={cx("ds-card", dashed && "border-dashed border-line-strong", className)}>
+          {pad ? <div className="ui-card__body">{children}</div> : children}
+          {footer ? <div className="ui-card__foot">{footer}</div> : null}
+        </div>
+      </section>
+    );
+  }
   return (
     <div
       data-testid={testId}

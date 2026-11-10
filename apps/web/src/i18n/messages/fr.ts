@@ -71,6 +71,8 @@ export const fr: Messages = {
   "shell.desk": "Boîte de réception", // fluent review
   "shell.menu": "Menu",
   "shell.closeMenu": "Fermer le menu",
+  "shell.collapse": "Réduire",
+  "shell.expand": "Développer",
   "shell.switchAgent": "Changer d'agent",
   "shell.theme": "Thème",
   "shell.theme.system": "Système",

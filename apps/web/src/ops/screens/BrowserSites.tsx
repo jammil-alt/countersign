@@ -20,6 +20,7 @@ import { Field, Select, TextArea, TextInput } from "../../ui/forms";
 import { Columns, Loaded, Page, Section } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
 import { Notice } from "../agents/ui";
+import { UtilitiesTabs } from "./UtilitiesTabs";
 
 type Site = ResponseOf<typeof apiRoutes.opsBrowserSites>["sites"][number];
 
@@ -125,7 +126,8 @@ export function OpsBrowserSitesScreen() {
   return (
     <Page testId="ops-browser-sites">
       <PageHeader
-        title="Website logins"
+        eyebrow="Utilities"
+        title="Websites"
         subtitle="Sites agents may sign in to as a client's agent account. We sign in by code; the agent never sees a password or a code."
         actions={
           adding ? null : (
@@ -135,6 +137,7 @@ export function OpsBrowserSitesScreen() {
           )
         }
       />
+      <UtilitiesTabs />
       <Notice tone="neutral" testId="site-default-blocked">
         Always blocked on every site: settings, password, users and permissions, billing and
         payment, and delete pages ({BROWSER_DEFAULT_BLOCKED.join(", ")}).

@@ -129,10 +129,16 @@ export const opsRoutes = (
     {/* Usage, billing, feedback, audit, website logins, requests (UI-3) */}
     <Route path="usage" element={<OpsUsageScreen />} />
     <Route path="billing" element={<OpsBillingScreen />} />
-    <Route path="feedback" element={<OpsFeedbackScreen />} />
-    <Route path="audit" element={<OpsAuditScreen />} />
-    <Route path="browser-sites" element={<OpsBrowserSitesScreen />} />
-    <Route path="requests" element={<OpsRequestsScreen />} />
+    {/* Utilities: feedback, the audit log, requests and website logins, a tab each */}
+    <Route path="utilities" element={<Redirect to="/ops/utilities/feedback" />} />
+    <Route path="utilities/feedback" element={<OpsFeedbackScreen />} />
+    <Route path="utilities/audit" element={<OpsAuditScreen />} />
+    <Route path="utilities/requests" element={<OpsRequestsScreen />} />
+    <Route path="utilities/websites" element={<OpsBrowserSitesScreen />} />
+    <Route path="feedback" element={<Redirect to="/ops/utilities/feedback" />} />
+    <Route path="audit" element={<Redirect to="/ops/utilities/audit" />} />
+    <Route path="requests" element={<Redirect to="/ops/utilities/requests" />} />
+    <Route path="browser-sites" element={<Redirect to="/ops/utilities/websites" />} />
     {/* Packs (P-1): switch a business area on per client, and a client's pack reports */}
     <Route path="packs" element={<OpsPacksScreen />} />
     <Route path="clients/:clientId/packs" element={<OpsClientPacksScreen />} />

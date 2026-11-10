@@ -78,7 +78,22 @@ describe("ops audit log", () => {
     });
     renderAt("/ops/audit", api);
     expect(await screen.findByRole("heading", { name: "Audit log" })).toBeInTheDocument();
-    expect(screen.getByTestId("ops-nav-audit")).toHaveAttribute("href", "/ops/audit");
+    // The old address lands on its Utilities tab, with the sidebar's Utilities current.
+    expect(screen.getByTestId("ops-nav-utilities")).toHaveAttribute("aria-current", "page");
+    const tabs = screen.getByTestId("utilities-tabs");
+    expect(within(tabs).getByRole("link", { name: "Audit log" })).toHaveAttribute(
+      "href",
+      "/ops/utilities/audit",
+    );
+    expect(within(tabs).getByRole("link", { name: "Audit log" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(
+      within(tabs)
+        .getAllByRole("link")
+        .map((l) => l.textContent),
+    ).toEqual(["Feedback", "Audit log", "Requests", "Websites"]);
 
     const first = await screen.findByTestId(`ops-audit-row-${id(1)}`);
     expect(within(first).getByTestId("ops-audit-who")).toHaveTextContent(

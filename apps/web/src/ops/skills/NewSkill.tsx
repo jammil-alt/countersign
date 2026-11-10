@@ -445,6 +445,7 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
             </>
           ) : tab === "tests" ? (
             <Card
+              titleAbove
               title="Tests"
               meta={`${draft.cases.length} drafted`}
               footer={

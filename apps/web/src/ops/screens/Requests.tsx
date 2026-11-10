@@ -26,6 +26,7 @@ import {
   PageHeader,
   type Tone,
 } from "../../ui/primitives";
+import { UtilitiesTabs } from "./UtilitiesTabs";
 
 type Filter = "open" | "resolved" | "all";
 
@@ -67,6 +68,7 @@ export function OpsRequestsScreen() {
   return (
     <Page testId="ops-requests">
       <PageHeader
+        eyebrow="Utilities"
         title="Requests"
         subtitle={
           requests.data
@@ -76,6 +78,7 @@ export function OpsRequestsScreen() {
             : "Clients' asks for changes and new services."
         }
       />
+      <UtilitiesTabs />
       <div className="flex flex-wrap items-center gap-3">
         <StatusFilter
           value={filter}

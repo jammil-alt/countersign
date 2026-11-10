@@ -410,6 +410,7 @@ function Latest({ recent }: { recent: TableView["recent"] }) {
   const { t } = i18n;
   return (
     <Card
+      titleAbove
       testId="table-latest"
       title={t("table.latest")}
       meta={
@@ -465,6 +466,7 @@ function NeedsYou({
   const more = Math.max(0, desk.open - rows.length);
   return (
     <Card
+      titleAbove
       testId="table-desk"
       title={t("home.needsYou")}
       footer={

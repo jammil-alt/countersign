@@ -11,6 +11,7 @@ import { PinnedPicture } from "../../feedback/Feedback";
 import { TextInput } from "../../ui/forms";
 import { Loaded, Page } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, PageHeader } from "../../ui/primitives";
+import { UtilitiesTabs } from "./UtilitiesTabs";
 
 type Filter = "open" | "resolved" | "all";
 const FILTERS: [Filter, string][] = [
@@ -37,6 +38,7 @@ export function OpsFeedbackScreen() {
   return (
     <Page testId="ops-feedback">
       <PageHeader
+        eyebrow="Utilities"
         title="Feedback"
         subtitle={
           feedback.data
@@ -61,6 +63,7 @@ export function OpsFeedbackScreen() {
           </div>
         }
       />
+      <UtilitiesTabs />
       <Loaded state={feedback}>
         {(data) =>
           data.items.length === 0 ? (

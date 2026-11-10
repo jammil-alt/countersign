@@ -1,47 +1,49 @@
 // `/ops`, O1 Command center (docs/design/prototype.html `#O1-Command`; ARCHITECTURE §13.1): every
 // agent, every client, right now. Up to four figures, each a link to its filtered list (Needs us,
 // waiting for approval, running now, failed today; a figure at 0 is left out); "Needs us", the
-// escalations sorted by how long a client has been blocked; all agents by client, template or
-// status; then lower down the live feed, client health with the supervisor's findings,
-// low-confidence readings and run oversight. Back office only: cost is shown here (invariant 11).
-// Polls every 30 s; the feed every 10 s.
+// escalations sorted by how long a client has been blocked, beside the recent runs (by client and
+// status); all agents by client, template or status; then client health with the supervisor's
+// findings, low-confidence readings and run oversight. Back office only: cost is shown here (invariant 11).
+// Polls every 30 s; the recent runs every 10 s.
 import {
   APPROVAL_OVERDUE_HOURS,
   BLOCKED_LONG_HOURS,
   type CommandCenter,
   type DayRuns,
   type Escalation,
-  type FeedItem,
   goLiveCounts,
   HEALTH_DAYS,
   KPI_DAYS,
-  newestFeed,
+  shortRunId,
 } from "@countersign/core";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
-import { useApi, useApiClient } from "../../api/useApi";
+import { useApi } from "../../api/useApi";
 import { shortTime, usd } from "../../runs/format";
-import { pageVisible, usePoll } from "../../runs/usePoll";
+import { opsRunTitle } from "../../runs/subject";
+import { usePoll } from "../../runs/usePoll";
+import { useSession } from "../../session/session";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge, AgentHuesProvider } from "../../ui/badges";
 import { hasRuns, Sparkbars, Sparkline, StatTile } from "../../ui/figures";
+import { Select } from "../../ui/forms";
 import { Columns, Loaded, Page } from "../../ui/page";
 import { Button, buttonClass, Card, EmptyState, PageHeader, Tag } from "../../ui/primitives";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { useShareCounts } from "../OpsLayout";
 import { OPS_PATHS } from "../paths";
 import { failedRunsSince, RUNNING_RUNS, runsLink, WAITING_RUNS } from "../run/links";
-import { age, oversightLine, percent, plural } from "../run/words";
+import { age, oversightLine, percent, plural, runChip } from "../run/words";
 import { escalationAction, escalationChip, escalationLine, escalationTone } from "./escalations";
 
-/** How often the figures reload, and the feed asks for what's new. */
+/** How often the figures reload, and the recent runs. */
 export const COMMAND_POLL_MS = 30_000;
-export const FEED_POLL_MS = 10_000;
+export const RUNS_POLL_MS = 10_000;
 /** The feed keeps this many items on screen. */
-export const FEED_SHOWN = 12;
+export const RECENT_RUNS_SHOWN = 8;
 /** "Needs us" shows this many before "Show all". */
-export const NEEDS_US_SHOWN = 8;
+export const NEEDS_US_SHOWN = 6;
 
 type Agent = CommandCenter["agents"][number];
 type Grouping = "client" | "template" | "status";
@@ -90,12 +92,13 @@ export function CommandCenterScreen() {
         {(data) => (
           <AgentHuesProvider agents={data.agents.map((a) => ({ id: a.id, group: a.client.id }))}>
             <Figures data={data} />
-            <NeedsUs escalations={data.escalations} count={data.needUs.count} />
-            <AllAgents agents={data.agents} behind={behind} />
+            {/* What needs us beside what just ran: the two lists read side by side. */}
             <Columns count={2}>
-              <LiveFeed />
-              <ClientHealth data={data} />
+              <NeedsUs escalations={data.escalations} count={data.needUs.count} />
+              <RecentRuns />
             </Columns>
+            <AllAgents agents={data.agents} behind={behind} />
+            <ClientHealth data={data} />
             <LowConfidence data={data} />
             <Oversight data={data.oversight} />
           </AgentHuesProvider>
@@ -233,21 +236,82 @@ function Figures({ data }: { data: CommandCenter }) {
 
 // ── Needs us ──
 
+/** The Needs us type filter: each kind of escalation in words. */
+const NEEDS_KINDS: [Escalation["kind"], string][] = [
+  ["approval", "Approvals"],
+  ["failed_run", "Failed runs"],
+  ["connection", "Connections"],
+  ["item", "Items for us"],
+  ["low_confidence", "Low confidence"],
+];
+
+/**
+ * Needs us, longest blocked first, filtered by client and by type in the browser (the list is
+ * already here, polled with the figures). Its filters match Recent runs' beside it.
+ */
 function NeedsUs({ escalations, count }: { escalations: Escalation[]; count: number }) {
   const [all, setAll] = useState(false);
-  const shown = all ? escalations : escalations.slice(0, NEEDS_US_SHOWN);
+  const [client, setClient] = useState("");
+  const [kind, setKind] = useState("");
+  const clients = useMemo(() => {
+    const byId = new Map(escalations.map((e) => [e.client.id, e.client.name]));
+    return [...byId].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [escalations]);
+  const kinds = NEEDS_KINDS.filter(([k]) => escalations.some((e) => e.kind === k));
+  const filtered = escalations.filter(
+    (e) => (!client || e.client.id === client) && (!kind || e.kind === kind),
+  );
+  const narrowed = Boolean(client || kind);
+  const shown = all ? filtered : filtered.slice(0, NEEDS_US_SHOWN);
+  const total = narrowed ? filtered.length : count;
+
+  const filters =
+    escalations.length > 0 ? (
+      <span className="flex items-center gap-2">
+        <Select
+          aria-label="Client"
+          data-testid="ops-needs-client"
+          className="h-7 w-36 text-xs"
+          value={client}
+          onChange={(e) => setClient(e.target.value)}
+        >
+          <option value="">All clients</option>
+          {clients.map(([id, name]) => (
+            <option key={id} value={id}>
+              {name}
+            </option>
+          ))}
+        </Select>
+        <Select
+          aria-label="Type"
+          data-testid="ops-needs-kind"
+          className="h-7 w-32 text-xs"
+          value={kind}
+          onChange={(e) => setKind(e.target.value)}
+        >
+          <option value="">All types</option>
+          {kinds.map(([k, words]) => (
+            <option key={k} value={k}>
+              {words}
+            </option>
+          ))}
+        </Select>
+      </span>
+    ) : undefined;
+
   return (
     <Card
+      titleAbove
       title="Needs us"
-      meta="Sorted by how long a client has been blocked"
+      meta={filters}
       testId="ops-command-needs-us"
       footer={
-        escalations.length > NEEDS_US_SHOWN || count > escalations.length ? (
+        filtered.length > NEEDS_US_SHOWN || total > filtered.length ? (
           <>
             <span className="text-sm text-ink-muted">
-              Showing {shown.length} of {count}.
+              Showing {shown.length} of {total}, longest blocked first.
             </span>
-            {escalations.length > NEEDS_US_SHOWN ? (
+            {filtered.length > NEEDS_US_SHOWN ? (
               <Button variant="link" size="sm" onClick={() => setAll(!all)}>
                 {all ? "Show fewer" : "Show all"}
               </Button>
@@ -263,6 +327,10 @@ function NeedsUs({ escalations, count }: { escalations: Escalation[]; count: num
             and approvals stuck at a client show here.
           </p>
         </div>
+      ) : filtered.length === 0 ? (
+        <p className="ui-card__body text-ink-muted" data-testid="ops-needs-none">
+          Nothing needs us here. Pick another client or type.
+        </p>
       ) : (
         shown.map((e) => {
           const chip = escalationChip(e);
@@ -271,21 +339,25 @@ function NeedsUs({ escalations, count }: { escalations: Escalation[]; count: num
           return (
             <div
               key={`${e.kind}:${e.id}`}
-              className="ops-row ui-accent ui-accent--left"
+              className="ops-row ops-row--link ops-row--compact ui-accent ui-accent--left"
               data-tone={escalationTone(chip.state)}
               data-testid={`ops-needs-${e.id}`}
             >
-              <StatusChip state={chip.state}>{chip.words}</StatusChip>
-              {who ? <AgentBadge name={who} seed={e.agent?.id} size="sm" /> : null}
+              {who ? <AgentBadge name={who} seed={e.agent?.id} size="sm" /> : <span />}
               <span className="ops-row__text">
-                <span className="font-medium text-ink">
+                <span className="truncate text-sm font-medium text-ink">
                   {[who, e.client.name].filter(Boolean).join(" · ")}
                 </span>
-                <span className="text-sm text-ink-muted">{escalationLine(e)}</span>
+                <span className="ops-row__clamp text-xs text-ink-muted" title={escalationLine(e)}>
+                  {escalationLine(e)}
+                </span>
               </span>
-              <Link to={action.to} className={buttonClass("secondary", undefined, "sm")}>
-                {action.label}
-              </Link>
+              <span className="ops-row__end">
+                <StatusChip state={chip.state}>{chip.words}</StatusChip>
+                <Link to={action.to} className="ops-row__link text-xs text-link">
+                  {action.label}
+                </Link>
+              </span>
             </div>
           );
         })
@@ -356,6 +428,7 @@ function AllAgents({ agents, behind }: { agents: Agent[]; behind: Map<string, nu
 
   return (
     <Card
+      titleAbove
       title="All agents"
       testId="ops-command-agents"
       meta={
@@ -508,115 +581,144 @@ function AgentGroup({
   );
 }
 
-// ── The live feed ──
+// ── Recent runs ──
 
-/** "17:33": the feed's narrow time column. */
-function clock(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+/** The status filter's choices and the run statuses each one stands for. */
+const RUN_STATES = [
+  ["all", "All statuses", null],
+  ["going", "In progress", ["queued", "running", "waiting"]],
+  ["succeeded", "Success", ["succeeded"]],
+  ["failed", "Failed", ["failed"]],
+] as const;
+type RunState = (typeof RUN_STATES)[number][0];
+
+/** "10 Nov" over "08:23": the date stacked on the time, so the time column stays narrow. */
+export function dayTime(iso: string): ReactNode {
+  const d = new Date(iso);
+  const day = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return (
+    <span className="ops-when" title={`${day} ${time}`}>
+      <span>{day}</span>
+      <span>{time}</span>
+    </span>
+  );
 }
 
-function feedText(item: FeedItem): ReactNode {
-  switch (item.kind) {
-    case "failure":
-      return <span className="ui-tone-risk">failed: {item.text}</span>;
-    case "signature":
-      return (
-        <>
-          <span className="text-copper-ink">signed</span> {item.text}
-        </>
-      );
-    case "write":
-      return `updated ${item.text}`;
-    case "draft":
-      return `drafted ${item.text}`;
-    default:
-      return item.text;
-  }
-}
+/**
+ * The latest live runs across the clients served, by client and by status, each a link to the run.
+ * DECISION: the Command center lists runs, not the activity feed (2026-11-10): the owner reads this
+ * card as runs; every step, write and sign-off stays on the run itself.
+ */
+function RecentRuns() {
+  const session = useSession();
+  const clients = useMemo(() => new Map(session.tenants.map((t) => [t.id, t.name])), [session]);
+  const [client, setClient] = useState("");
+  const [state, setState] = useState<RunState>("all");
+  const statuses = RUN_STATES.find(([v]) => v === state)?.[2] ?? null;
+  const runs = useApi(apiRoutes.opsRuns, {
+    query: {
+      mode: "live",
+      limit: String(RECENT_RUNS_SHOWN),
+      ...(client ? { client } : {}),
+      ...(statuses ? { status: statuses.join(",") } : {}),
+    },
+  });
+  usePoll(runs.reload, true, RUNS_POLL_MS, runs.loading);
 
-/** The feed: the last 24 hours on load, then what's new every 10 s. */
-function LiveFeed() {
-  const api = useApiClient();
-  const [items, setItems] = useState<FeedItem[]>([]);
-  const [problem, setProblem] = useState<unknown>(null);
-  const [loaded, setLoaded] = useState(false);
-  const since = useRef<string | undefined>(undefined);
-
-  useEffect(() => {
-    let stopped = false;
-    let busy = false;
-    const controller = new AbortController();
-    const load = async () => {
-      if (busy) return;
-      busy = true;
-      try {
-        const page = await api.call(apiRoutes.opsFeed, {
-          query: since.current ? { since: since.current } : {},
-          signal: controller.signal,
-        });
-        if (stopped) return;
-        since.current = page.at;
-        setItems((old) => {
-          const seen = new Set(old.map((i) => i.id));
-          return newestFeed([...page.items.filter((i) => !seen.has(i.id)), ...old], FEED_SHOWN);
-        });
-        setProblem(null);
-        setLoaded(true);
-      } catch (error) {
-        if (!stopped) {
-          setProblem(error);
-          setLoaded(true);
-        }
-      } finally {
-        busy = false;
-      }
-    };
-    void load();
-    // Not while the tab is hidden (as usePoll); back on screen, it catches up at once.
-    let missed = false;
-    const timer = setInterval(() => {
-      if (pageVisible()) void load();
-      else missed = true;
-    }, FEED_POLL_MS);
-    const onVisible = () => {
-      if (!missed || !pageVisible()) return;
-      missed = false;
-      void load();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      stopped = true;
-      controller.abort();
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [api]);
+  // Two compact dropdowns, so the heading stays one line in its half of the row (beside Needs us).
+  const filters = (
+    <span className="flex items-center gap-2">
+      <Select
+        aria-label="Client"
+        data-testid="ops-recent-client"
+        className="h-7 w-36 text-xs"
+        value={client}
+        onChange={(e) => setClient(e.target.value)}
+      >
+        <option value="">All clients</option>
+        {session.tenants.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name}
+          </option>
+        ))}
+      </Select>
+      <Select
+        aria-label="Status"
+        data-testid="ops-recent-status"
+        className="h-7 w-32 text-xs"
+        value={state}
+        onChange={(e) => setState(e.target.value as RunState)}
+      >
+        {RUN_STATES.map(([v, text]) => (
+          <option key={v} value={v}>
+            {text}
+          </option>
+        ))}
+      </Select>
+    </span>
+  );
 
   return (
-    <Card title="Live" meta="All clients" testId="ops-command-feed">
-      {!loaded ? (
-        <p className="ui-card__body text-ink-muted">Loading the feed</p>
-      ) : items.length === 0 ? (
-        <p className="ui-card__body text-ink-muted">
-          {problem
-            ? "The feed couldn't load. We try again in a moment."
-            : "Nothing in the last day."}
-        </p>
-      ) : (
-        items.map((i) => (
-          <ActivityRow
-            key={i.id}
-            time={clock(i.at)}
-            {...(i.runId ? { to: `/ops/runs/${i.runId}` } : {})}
-            testId={`ops-feed-${i.id}`}
-          >
-            <span className="text-sm">
-              {i.agent ? <b className="font-medium">{i.agent.name} · </b> : null}
-              {i.client.name} · {feedText(i)}
-            </span>
-          </ActivityRow>
-        ))
-      )}
+    <Card
+      titleAbove
+      title="Recent runs"
+      meta={filters}
+      testId="ops-command-runs"
+      className="ops-recent"
+    >
+      <Loaded state={runs}>
+        {(data) => {
+          const agents = new Map(data.agents.map((a) => [a.id, a.name]));
+          if (data.runs.length === 0) {
+            return (
+              <p className="ui-card__body text-ink-muted">
+                {client || statuses ? "No runs match these filters." : "No runs yet."}
+              </p>
+            );
+          }
+          return (
+            <>
+              {data.runs.map((r) => {
+                const chip = runChip(r);
+                return (
+                  <ActivityRow
+                    key={r.id}
+                    time={dayTime(r.startedAt ?? r.createdAt)}
+                    to={`/ops/runs/${r.id}`}
+                    testId={`ops-recent-${r.id}`}
+                    end={
+                      <StatusChip state={chip.state} testId={`ops-recent-${r.id}-status`}>
+                        {/* The status alone ("Waiting for approval"); who it waits on is on the run. */}
+                        {chip.words.split(" · ")[0]}
+                      </StatusChip>
+                    }
+                  >
+                    {/* Two short lines, as the Needs us rows beside it: who, then what. */}
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate text-sm font-medium text-ink">
+                        {agents.get(r.agentId) ?? "Agent"} · {clients.get(r.tenantId) ?? "Client"}
+                      </span>
+                      <span className="truncate text-xs text-ink-muted">
+                        {opsRunTitle(r.subject, shortRunId(r.id))}
+                      </span>
+                    </span>
+                  </ActivityRow>
+                );
+              })}
+              <div className="ui-card__body">
+                <Link
+                  to={OPS_PATHS.runs}
+                  className="text-sm text-link hover:underline"
+                  data-testid="ops-recent-all"
+                >
+                  All runs
+                </Link>
+              </div>
+            </>
+          );
+        }}
+      </Loaded>
     </Card>
   );
 }
@@ -636,6 +738,7 @@ function ClientHealth({ data }: { data: CommandCenter }) {
   const agents = new Map(data.agentsLive.clients.map((c) => [c.id, c.agents]));
   return (
     <Card
+      titleAbove
       title="Client health"
       testId="ops-command-health"
       footer={
@@ -754,7 +857,7 @@ function SupervisorFindings({ clientId }: { clientId: string }) {
 function LowConfidence({ data }: { data: CommandCenter }) {
   if (data.lowConfidence.length === 0) return null;
   return (
-    <Card title="Low confidence today" testId="ops-command-low-confidence">
+    <Card titleAbove title="Low confidence today" testId="ops-command-low-confidence">
       {data.lowConfidence.map((l) => {
         const share = percent(Number(l.threshold));
         return (
@@ -781,6 +884,7 @@ function Oversight({ data }: { data: CommandCenter["oversight"] }) {
   const { totals, decisions } = data;
   return (
     <Card
+      titleAbove
       title="Run oversight"
       meta={`${plural(totals.count, "decision", "decisions")} · ${usd(totals.costUsd)}`}
       testId="ops-command-oversight"

@@ -29,6 +29,7 @@ import {
   Tag,
 } from "../../ui/primitives";
 import { TableCard } from "./business";
+import { UtilitiesTabs } from "./UtilitiesTabs";
 
 type Outcome = AuditEventRow["outcome"];
 type View = "log" | "access";
@@ -99,6 +100,7 @@ export function OpsAuditScreen() {
   return (
     <Page testId="ops-audit">
       <PageHeader
+        eyebrow="Utilities"
         title="Audit log"
         subtitle={`Who read or changed what, newest first. We keep it for ${AUDIT_RETENTION_YEARS} years.`}
         actions={
@@ -111,6 +113,7 @@ export function OpsAuditScreen() {
           />
         }
       />
+      <UtilitiesTabs />
       {view === "log" ? (
         <AuditLog params={params} set={set} />
       ) : (
