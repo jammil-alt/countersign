@@ -16,7 +16,10 @@ type CatalogEvent = ResponseOf<typeof apiRoutes.opsEventCatalog>["events"][numbe
 export type PayloadSource = "sample" | "manual" | `event:${string}`;
 
 /** The event type a workflow's trigger waits for, or null when it isn't an event trigger. */
-export function triggerEventType(workflow: Workflow | null | undefined): string | null {
+// R8: only the trigger is read, so a v4 process passes its first trigger the same way.
+export function triggerEventType(
+  workflow: Pick<Workflow, "trigger"> | null | undefined,
+): string | null {
   const on = workflow?.trigger.on;
   return on?.type === "event" ? on.event : null;
 }
@@ -26,7 +29,7 @@ export function triggerEventType(workflow: Workflow | null | undefined): string 
  * or a blank of the input's shape.
  */
 export function samplePayload(
-  workflow: Workflow,
+  workflow: Pick<Workflow, "trigger">,
   events: readonly Pick<CatalogEvent, "type" | "sample">[],
 ): unknown {
   const on = workflow.trigger.on;

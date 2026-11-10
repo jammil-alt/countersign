@@ -1,34 +1,41 @@
-// The workflow builder's model (ARCHITECTURE §10.5, docs/plan.md §1.2 "Builder"): pure functions
-// over the bundle the builder edits. The builder's state *is* the bundle, so turning a bundle into
-// builder state and back keeps every step, path and id as it was; edits copy only what they change
-// the shape of. A step lives in a container: the workflow's top-level list, a fork path, a fork's
-// otherwise, or a for-each block. New step and path ids are generated once (core's uuidv7) and
-// never regenerated, so merges can line them up (CLAUDE.md invariant 3).
+// The workflow builder's model (ARCHITECTURE §10.5, §10.14; docs/plan.md §1.2 "Builder", §1.86):
+// pure functions over the bundle the builder edits. Since R8 the builder edits v4 processes: a
+// stored v3 workflow is read as one (`readProcessBundle`, every id kept), and the next save writes
+// schemaVersion 4 as a new version (invariant 3: the stored one is never edited). The builder's
+// state *is* the bundle, so edits copy only what they change the shape of. A step lives in a
+// container: the process's top-level list, an if path, an if's otherwise, or a for-each block.
+// New step and path ids are generated once (core's uuidv7) and never regenerated, so merges can
+// line them up (CLAUDE.md invariant 3).
 
 import {
   type AgentBundle,
-  type BundleWorkflow,
-  // P-4
-  CONVERSE_SKILL,
+  type AnyAgentBundle,
   canonicalJson,
-  DEFAULT_APPROVAL,
-  type ForkPath,
+  isToolWrapper,
   levelFor,
   type PermissionMatrix,
+  type ProcessAgentBundle,
+  type ProcessBundleWorkflow,
   parseSkillRef,
+  processes,
+  REACH_OUT_SKILL,
+  readConverted,
   type SkillDefinition,
-  type Step,
   skillTools,
-  stepWrites,
   type ToolSpec,
+  type Trigger,
   type TriggerOn,
   type TypingContext,
   uuidv7,
   type Verb,
-  type Workflow,
-  walkSteps,
 } from "@countersign/core";
 import { toolLabel } from "../workflow/labels";
+
+export type Step = processes.Step;
+export type Process = processes.Process;
+export type IfPath = processes.IfPath;
+export type ApprovalCheck = processes.ApprovalCheck;
+export type Deadline = processes.Deadline;
 
 /** `root`, `path:<path id>`, `otherwise:<otherwise id>` or `loop:<for-each step id>`. */
 export type ContainerId = string;
@@ -36,11 +43,58 @@ export const ROOT: ContainerId = "root";
 
 export type NewId = () => string;
 
+// ── Reading a stored version ─────────────────────────────────────────────────────────────────────
+
+/** What converting a v3 workflow needs from the catalog (core's `processes.ConvertLookup`). */
+export function convertLookup(ctx: TypingContext): processes.ConvertLookup {
+  return {
+    wrappedTool(skillId) {
+      const def =
+        ctx.skills?.[skillId] ??
+        Object.values(ctx.skills ?? {}).find((d) => parseSkillRef(d.id).id === skillId);
+      return def && isToolWrapper(def) ? (def.handler ?? null) : null;
+    },
+    sideEffect: (toolId) => ctx.tools?.[toolId]?.sideEffect ?? null,
+  };
+}
+
+/**
+ * A stored bundle as the builder edits it: every v3 workflow read as a v4 process with
+ * `fromWorkflowV3` and `readConverted` (every step, path and trigger id kept; nothing stored
+ * changes), every v4 process as it is.
+ */
+// DECISION: the conversion is the builder's starting point, not an edit: opening a v3 version shows
+// it converted with nothing unsaved, and publishing it unchanged publishes the stored version as
+// it is. The first save after an edit writes the whole bundle as v4, a new version.
+export function readProcessBundle(
+  bundle: AnyAgentBundle | AgentBundle,
+  ctx: TypingContext,
+): ProcessAgentBundle {
+  const lookup = convertLookup(ctx);
+  return {
+    ...bundle,
+    workflows: bundle.workflows.map(
+      (w): ProcessBundleWorkflow => ({
+        ...w,
+        workflow:
+          w.workflow.schemaVersion === 4
+            ? w.workflow
+            : readConverted(processes.fromWorkflowV3(w.workflow, lookup)),
+      }),
+    ),
+  };
+}
+
+/** Whether any workflow of the stored bundle is still v3 (it opens converted). */
+export function holdsV3(bundle: AnyAgentBundle | AgentBundle): boolean {
+  return bundle.workflows.some((w) => w.workflow.schemaVersion !== 4);
+}
+
 // ── Containers ───────────────────────────────────────────────────────────────────────────────────
 
-/** The containers directly inside a step (a fork's paths and otherwise, a for-each's block). */
+/** The containers directly inside a step (an if's paths and otherwise, a for-each's block). */
 export function childContainers(step: Step): { id: ContainerId; steps: Step[] }[] {
-  if (step.kind === "fork") {
+  if (step.kind === "if") {
     return [
       ...step.paths.map((p) => ({ id: `path:${p.id}`, steps: p.steps })),
       { id: `otherwise:${step.otherwise.id}`, steps: step.otherwise.steps },
@@ -63,10 +117,10 @@ export function containersWithin(step: Step): Set<ContainerId> {
   return out;
 }
 
-export function getContainer(workflow: Pick<Workflow, "steps">, id: ContainerId): Step[] | null {
-  if (id === ROOT) return workflow.steps;
+export function getContainer(process: Pick<Process, "steps">, id: ContainerId): Step[] | null {
+  if (id === ROOT) return process.steps;
   let found: Step[] | null = null;
-  walkSteps(workflow, ({ step }) => {
+  processes.walkSteps(process, ({ step }) => {
     if (found) return;
     for (const c of childContainers(step)) if (c.id === id) found = c.steps;
   });
@@ -74,7 +128,7 @@ export function getContainer(workflow: Pick<Workflow, "steps">, id: ContainerId)
 }
 
 function withChildren(step: Step, map: (id: ContainerId, steps: Step[]) => Step[]): Step {
-  if (step.kind === "fork") {
+  if (step.kind === "if") {
     return {
       ...step,
       paths: step.paths.map((p) => ({ ...p, steps: map(`path:${p.id}`, p.steps) })),
@@ -90,15 +144,15 @@ function withChildren(step: Step, map: (id: ContainerId, steps: Step[]) => Step[
 
 /** Replaces one container's list; every other list is kept as it is. */
 export function updateContainer(
-  workflow: Workflow,
+  process: Process,
   id: ContainerId,
   fn: (steps: Step[]) => Step[],
-): Workflow {
+): Process {
   const visit = (cid: ContainerId, steps: Step[]): Step[] => {
     const list = cid === id ? fn(steps) : steps;
     return list.map((s) => withChildren(s, visit));
   };
-  return { ...workflow, steps: visit(ROOT, workflow.steps) };
+  return { ...process, steps: visit(ROOT, process.steps) };
 }
 
 export interface Located {
@@ -107,7 +161,7 @@ export interface Located {
   index: number;
 }
 
-export function locate(workflow: Pick<Workflow, "steps">, id: string): Located | null {
+export function locate(process: Pick<Process, "steps">, id: string): Located | null {
   let found: Located | null = null;
   const visit = (cid: ContainerId, steps: Step[]) => {
     steps.forEach((s, index) => {
@@ -116,17 +170,17 @@ export function locate(workflow: Pick<Workflow, "steps">, id: string): Located |
       for (const c of childContainers(s)) visit(c.id, c.steps);
     });
   };
-  visit(ROOT, workflow.steps);
+  visit(ROOT, process.steps);
   return found;
 }
 
-/** The fork a path or otherwise id belongs to (validation names paths by their own id). */
-export function forkOfBranch(workflow: Pick<Workflow, "steps">, branchId: string): Step | null {
+/** The if a path or otherwise id belongs to (validation names paths by their own id). */
+export function ifOfBranch(process: Pick<Process, "steps">, branchId: string): Step | null {
   let found: Step | null = null;
-  walkSteps(workflow, ({ step }) => {
+  processes.walkSteps(process, ({ step }) => {
     if (
       !found &&
-      step.kind === "fork" &&
+      step.kind === "if" &&
       (step.otherwise.id === branchId || step.paths.some((p) => p.id === branchId))
     ) {
       found = step;
@@ -138,21 +192,21 @@ export function forkOfBranch(workflow: Pick<Workflow, "steps">, branchId: string
 // ── Edits ────────────────────────────────────────────────────────────────────────────────────────
 
 export function insertStep(
-  workflow: Workflow,
+  process: Process,
   container: ContainerId,
   index: number,
   step: Step,
-): Workflow {
-  return updateContainer(workflow, container, (steps) => {
+): Process {
+  return updateContainer(process, container, (steps) => {
     const at = Math.max(0, Math.min(index, steps.length));
     return [...steps.slice(0, at), step, ...steps.slice(at)];
   });
 }
 
-export function removeStep(workflow: Workflow, id: string): Workflow {
-  const loc = locate(workflow, id);
-  if (!loc) return workflow;
-  return updateContainer(workflow, loc.container, (steps) => steps.filter((s) => s.id !== id));
+export function removeStep(process: Process, id: string): Process {
+  const loc = locate(process, id);
+  if (!loc) return process;
+  return updateContainer(process, loc.container, (steps) => steps.filter((s) => s.id !== id));
 }
 
 /**
@@ -161,32 +215,32 @@ export function removeStep(workflow: Workflow, id: string): Workflow {
  * itself; that move changes nothing.
  */
 export function moveStep(
-  workflow: Workflow,
+  process: Process,
   id: string,
   container: ContainerId,
   index: number,
-): Workflow {
-  const loc = locate(workflow, id);
-  if (!loc) return workflow;
-  if (containersWithin(loc.step).has(container)) return workflow;
-  if (loc.container === container && loc.index === index) return workflow;
-  return insertStep(removeStep(workflow, id), container, index, loc.step);
+): Process {
+  const loc = locate(process, id);
+  if (!loc) return process;
+  if (containersWithin(loc.step).has(container)) return process;
+  if (loc.container === container && loc.index === index) return process;
+  return insertStep(removeStep(process, id), container, index, loc.step);
 }
 
 /** Changes one step wherever it sits. */
-export function updateStep(workflow: Workflow, id: string, fn: (step: Step) => Step): Workflow {
-  const loc = locate(workflow, id);
-  if (!loc) return workflow;
-  return updateContainer(workflow, loc.container, (steps) =>
+export function updateStep(process: Process, id: string, fn: (step: Step) => Step): Process {
+  const loc = locate(process, id);
+  if (!loc) return process;
+  return updateContainer(process, loc.container, (steps) =>
     steps.map((s) => (s.id === id ? fn(s) : s)),
   );
 }
 
 export function editWorkflow(
-  bundle: AgentBundle,
+  bundle: ProcessAgentBundle,
   slug: string,
-  fn: (workflow: Workflow) => Workflow,
-): AgentBundle {
+  fn: (process: Process) => Process,
+): ProcessAgentBundle {
   return {
     ...bundle,
     workflows: bundle.workflows.map((w) =>
@@ -195,28 +249,45 @@ export function editWorkflow(
   };
 }
 
-/** A trigger keeps its id when what starts the workflow changes. */
-export function setTrigger(workflow: Workflow, on: TriggerOn): Workflow {
-  return { ...workflow, trigger: { ...workflow.trigger, on } };
+/** A trigger keeps its id when what starts the process changes. */
+export function setTrigger(process: Process, on: TriggerOn, triggerId?: string): Process {
+  const id = triggerId ?? process.triggers[0]?.id;
+  return {
+    ...process,
+    triggers: process.triggers.map((t) => (t.id === id ? { ...t, on } : t)),
+  };
+}
+
+/** One more way to start the process (at most 10). */
+export function addTrigger(process: Process, on: TriggerOn, newId: NewId = uuidv7): Process {
+  if (process.triggers.length >= 10) return process;
+  const trigger: Trigger = { id: newId(), on };
+  return { ...process, triggers: [...process.triggers, trigger] };
+}
+
+/** Removes a trigger; the last one stays (a process starts somehow). */
+export function removeTrigger(process: Process, id: string): Process {
+  if (process.triggers.length <= 1) return process;
+  return { ...process, triggers: process.triggers.filter((t) => t.id !== id) };
 }
 
 export function addWorkflow(
-  bundle: AgentBundle,
+  bundle: ProcessAgentBundle,
   input: { slug: string; name: string; on: TriggerOn },
   newId: NewId = uuidv7,
-): AgentBundle {
-  const entry: BundleWorkflow = {
+): ProcessAgentBundle {
+  const entry: ProcessBundleWorkflow = {
     slug: input.slug,
     name: input.name,
     enabled: true,
-    workflow: { schemaVersion: 3, trigger: { id: newId(), on: input.on }, steps: [] },
+    workflow: { schemaVersion: 4, triggers: [{ id: newId(), on: input.on }], steps: [] },
   };
   return { ...bundle, workflows: [...bundle.workflows, entry] };
 }
 
 // ── New steps ────────────────────────────────────────────────────────────────────────────────────
 
-export type LogicKind = "fork" | "for_each" | "wait" | "notify" | "stop";
+export type LogicKind = "if" | "for_each" | "wait" | "stop";
 
 /** What the palette offers; each item makes one new step (or, for a trigger, a new start). */
 export type PaletteItem =
@@ -231,10 +302,19 @@ export type PaletteItem =
       /** One of the agent's own skills (listed first). */
       own: boolean;
     }
-  | { type: "action"; key: string; title: string; detail: string; tool: ToolSpec; group: string }
-  // UI-2c: an automation (a pinned `slug@version`), placed as one use step.
-  | { type: "automation"; key: string; title: string; detail: string; ref: string }
+  | {
+      type: "read" | "write";
+      key: string;
+      title: string;
+      detail: string;
+      tool: ToolSpec;
+      group: string;
+    }
+  // A process (today's automation, a pinned `slug@version`), placed as one step.
+  | { type: "process"; key: string; title: string; detail: string; ref: string }
   | { type: "person"; key: string; title: string; detail: string; mode: "approve" | "ask" }
+  | { type: "conversation"; key: string; title: string; detail: string }
+  | { type: "notify"; key: string; title: string; detail: string }
   | { type: "logic"; key: string; title: string; detail: string; logic: LogicKind };
 
 /** "testkit.record.update" → "Update a record": the tool's label (workflow/labels.ts). */
@@ -242,52 +322,56 @@ export function toolTitle(tool: Pick<ToolSpec, "id">): string {
   return toolLabel(tool.id);
 }
 
-export function newPath(n: number, newId: NewId = uuidv7): ForkPath {
+export function newPath(n: number, newId: NewId = uuidv7): IfPath {
   return { id: newId(), name: `Path ${n}`, when: { match: "all", rules: [] }, steps: [] };
 }
 
-/** A new step for a palette item. Every step that can change a client's tool starts with approval on. */
+/**
+ * Approval as every new check starts (invariant 8): required, one approver at a time, the default
+ * approver, and stop when nobody answers.
+ */
+export function defaultApproval(): ApprovalCheck {
+  return { required: "required", mode: "in_turn", ifNoAnswer: "stop", onReject: "stop" };
+}
+
+/** A deadline as new ones start: on the clock, stop when nobody answers. */
+export function defaultDeadline(after = "1 day"): Deadline {
+  return { after, hours: "clock", ifNoAnswer: "stop" };
+}
+
+/**
+ * A new step for a palette item. Every step that can change a client's tool, or reach a person
+ * outside the team, starts with approval on (invariant 8).
+ */
+// DECISION: a write step starts with an approval check when its tool is external (a client's
+// tool), as v3's action did; a write to a platform record (an alert, a price) runs as the skill
+// that wrote it did. The operator can add approval to any write in the checks panel.
 export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId = uuidv7): Step {
   const id = newId();
   switch (item.type) {
     case "skill": {
       const step: Step = { id, kind: "skill", name: item.skill.name, skill: item.ref, input: {} };
-      // P-4: a conversation starts with a person from the trigger, one field to find out, and
-      // approval on, like every step that reaches people (§1.66, invariant 8).
-      if (parseSkillRef(item.ref).id === CONVERSE_SKILL) {
-        return {
-          ...step,
-          input: {
-            to: { contactId: "" },
-            channel: "whatsapp",
-            goal: "",
-            result: {
-              type: "object",
-              properties: { answer: { type: "string" } },
-              required: ["answer"],
-            },
-            confirm: true,
-            opening: "",
-            about: [],
-          },
-          approval: { ...DEFAULT_APPROVAL },
-        };
-      }
-      const writes = stepWrites(step, ctx);
-      return writes && writes.length > 0 ? { ...step, approval: { ...DEFAULT_APPROVAL } } : step;
+      const writes = processes.stepWrites(step, ctx);
+      const reaches =
+        item.skill.reachesPeople === true || parseSkillRef(item.ref).id === REACH_OUT_SKILL;
+      return (writes && writes.length > 0) || reaches
+        ? { ...step, checks: { approval: defaultApproval() } }
+        : step;
     }
-    case "action":
+    case "read":
+      return { id, kind: "read", name: item.title, tool: item.tool.id, input: {} };
+    case "write":
       return {
         id,
-        kind: "action",
+        kind: "write",
         name: item.title,
         tool: item.tool.id,
         input: {},
-        approval: { ...DEFAULT_APPROVAL },
+        ...(item.tool.sideEffect === "external" ? { checks: { approval: defaultApproval() } } : {}),
       };
-    case "automation":
-      // Its inner steps keep their own approvals (on by default); the use step overrides none.
-      return { id, kind: "use_automation", name: item.title, automation: item.ref, input: {} };
+    case "process":
+      // Its inner steps keep their own approvals (on by default); the step overrides none.
+      return { id, kind: "process", name: item.title, process: item.ref, input: {} };
     case "person":
       return {
         id,
@@ -297,18 +381,40 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
         assignee: "client_admin",
         title: item.mode === "approve" ? "Please approve" : "A question",
         payload: {},
-        timeout: "3 days",
+        // v3's default (tell the operator when nobody answers), in the v4 shape.
+        deadline: { ...defaultDeadline("3 days"), tell: ["operator"] },
         channel: "inbox",
         onReject: "stop",
-        onTimeout: "notify_operator",
+      };
+    case "conversation":
+      // The first message (the plan) always waits for a person's yes to start with (§10.12).
+      return {
+        id,
+        kind: "conversation",
+        name: "Talk with a person",
+        with: "",
+        channel: "whatsapp",
+        goal: "",
+        mayShare: [],
+        find: { answer: "text" },
+        maxTurns: 4,
+        messages: { first: "required", later: "required" },
+        deadline: defaultDeadline("3 days"),
+      };
+    case "notify":
+      return {
+        id,
+        kind: "notify",
+        name: "Notify",
+        notify: { to: ["client_admin"], channel: "inbox", message: "" },
       };
     case "logic":
       switch (item.logic) {
-        case "fork":
+        case "if":
           return {
             id,
-            kind: "fork",
-            name: "Fork",
+            kind: "if",
+            name: "If",
             paths: [newPath(1, newId)],
             otherwise: { id: newId(), steps: [] },
           };
@@ -316,8 +422,6 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
           return { id, kind: "for_each", name: "For each", over: "", concurrency: 10, steps: [] };
         case "wait":
           return { id, kind: "wait", name: "Wait", for: "1 day" };
-        case "notify":
-          return { id, kind: "notify", name: "Notify", channel: "thread", message: "" };
         case "stop":
           return { id, kind: "stop", name: "Stop", status: "succeeded" };
       }
@@ -329,7 +433,10 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
 }
 
 /** The tools the agent may use: its extra tools and every tool its skills bring. */
-export function allowedTools(bundle: AgentBundle, ctx: TypingContext): Set<string> {
+export function allowedTools(
+  bundle: Pick<AnyAgentBundle, "definition">,
+  ctx: TypingContext,
+): Set<string> {
   const ids = new Set(bundle.definition.extraTools);
   for (const s of bundle.definition.skills) {
     const def = ctx.skills?.[s.skill] ?? ctx.skills?.[parseSkillRef(s.skill).id];
@@ -340,11 +447,15 @@ export function allowedTools(bundle: AgentBundle, ctx: TypingContext): Set<strin
 
 /**
  * The definition changes a new step needs to be allowed: a library skill joins the agent's skills,
- * an action's tool its extra tools.
+ * a read or write step's tool its extra tools.
  */
-// DECISION: placing a library skill or an action the agent can't use yet adds it to the agent's
+// DECISION: placing a library skill or a tool the agent can't use yet adds it to the agent's
 // skills or extra tools in the same edit (one undo), instead of leaving an error to fix elsewhere.
-export function allowStep(bundle: AgentBundle, step: Step, ctx: TypingContext): AgentBundle {
+export function allowStep(
+  bundle: ProcessAgentBundle,
+  step: Step,
+  ctx: TypingContext,
+): ProcessAgentBundle {
   const def = bundle.definition;
   if (step.kind === "skill" && step.agent === undefined) {
     const id = parseSkillRef(step.skill).id;
@@ -354,7 +465,10 @@ export function allowStep(bundle: AgentBundle, step: Step, ctx: TypingContext): 
       definition: { ...def, skills: [...def.skills, { skill: step.skill, settings: {} }] },
     };
   }
-  if (step.kind === "action" && !allowedTools(bundle, ctx).has(step.tool)) {
+  if (
+    (step.kind === "read" || step.kind === "write") &&
+    !allowedTools(bundle, ctx).has(step.tool)
+  ) {
     return { ...bundle, definition: { ...def, extraTools: [...def.extraTools, step.tool] } };
   }
   return bundle;
@@ -381,7 +495,7 @@ export interface ApprovalEnv {
 export interface ApprovalOption {
   /** The client tools the step can change. */
   writes: ToolSpec[];
-  /** Whether "run without approval" may be offered. */
+  /** Whether loosening (run without approval, go ahead with no answer) may be offered. */
   canSkip: boolean;
   /** Why not, in a sentence. */
   reason: string | null;
@@ -391,64 +505,69 @@ export interface ApprovalOption {
 }
 
 /**
- * The Approval control's rules (docs/plan.md §1.2 "Step approvals"): a step that changes a client's
- * tool waits for a person unless the operator switches its approval off, which is offered only on
- * a client agent whose bound connection allows `auto` for every verb the step writes and whose mode
- * is `act`. Null when the step changes no client tool.
+ * Whether the operator may loosen a write's approval (invariant 8; docs/plan.md §1.2 "Step
+ * approvals", ARCHITECTURE §10.14 "Deadlines"): only on a client agent whose bound connection
+ * allows `auto` for every verb the step writes and whose mode is `act`. Null when no reason stops
+ * it. Templates keep approval on.
+ */
+export function looseningBlocked(writes: readonly ToolSpec[], env: ApprovalEnv): string | null {
+  if (env.agentKind === "template") {
+    // DECISION: templates keep approval on for every write step; loosening is a client agent's
+    // choice, where that client's connection can allow it (invariant 8).
+    return "Templates keep approval on. Switch it off in a client's agent, where that client's connection allows it.";
+  }
+  for (const tool of writes) {
+    const connector = tool.connector ?? tool.source;
+    const matrix = env.matrices[connector];
+    const name = env.connectorName(connector);
+    if (matrix === undefined) {
+      return `Bind a ${name} connection first: its permissions decide whether this step may skip approval.`;
+    }
+    const level = levelFor(matrix, tool.verb);
+    if (level === "off") return `The ${name} connection doesn't allow ${VERB_NOUN[tool.verb]}.`;
+    if (level !== "auto")
+      return `The ${name} connection requires approval for ${VERB_NOUN[tool.verb]}.`;
+  }
+  if (env.mode !== "act") {
+    return "The agent's mode is suggest only, so every change waits for a person. Switch it to act in Settings.";
+  }
+  return null;
+}
+
+/** Whether the approval lets a write through without a person's yes on some runs. */
+export function isLoosened(approval: ApprovalCheck | undefined): boolean {
+  return processes.approvalLoosenings(approval, "a").length > 0;
+}
+
+/**
+ * The approval rules of a step that changes a client's tool: it waits for a person unless the
+ * operator loosened its approval where that may be done. Null when the step changes no client
+ * tool.
  */
 export function approvalOption(step: Step, env: ApprovalEnv): ApprovalOption | null {
-  if (step.kind !== "skill" && step.kind !== "action") return null;
-  const writes = stepWrites(step, env.ctx);
+  const writes = processes.stepWrites(step, env.ctx);
   if (!writes || writes.length === 0) return null;
-  const required = step.approval?.required !== "not_required";
-  let reason: string | null = null;
-  if (env.agentKind === "template") {
-    // DECISION: templates keep approval on for every write step; switching it off is a client
-    // agent's choice, where that client's connection can allow it (invariant 8).
-    reason =
-      "Templates keep approval on. Switch it off in a client's agent, where that client's connection allows it.";
-  } else {
-    for (const tool of writes) {
-      const connector = tool.connector ?? tool.source;
-      const matrix = env.matrices[connector];
-      const name = env.connectorName(connector);
-      if (matrix === undefined) {
-        reason = `Bind a ${name} connection first: its permissions decide whether this step may skip approval.`;
-        break;
-      }
-      const level = levelFor(matrix, tool.verb);
-      if (level === "off") {
-        reason = `The ${name} connection doesn't allow ${VERB_NOUN[tool.verb]}.`;
-        break;
-      }
-      if (level !== "auto") {
-        reason = `The ${name} connection requires approval for ${VERB_NOUN[tool.verb]}.`;
-        break;
-      }
-    }
-    if (!reason && env.mode !== "act") {
-      reason =
-        "The agent's mode is suggest only, so every change waits for a person. Switch it to act in Settings.";
-    }
-  }
+  const approval = step.checks?.approval;
+  const required = approval?.required !== "not_required";
+  const reason = looseningBlocked(writes, env);
   const canSkip = reason === null;
   return { writes, canSkip, reason, automatic: canSkip && !required, required };
 }
 
 export interface WorkflowCounts {
   steps: number;
-  forks: number;
+  ifs: number;
   /** Steps that change a client's tool. */
   writes: number;
   /** Of those, the ones that will wait for a person. */
   needApproval: number;
 }
 
-export function workflowCounts(workflow: Workflow, env: ApprovalEnv): WorkflowCounts {
-  const out: WorkflowCounts = { steps: 0, forks: 0, writes: 0, needApproval: 0 };
-  walkSteps(workflow, ({ step }) => {
+export function workflowCounts(process: Process, env: ApprovalEnv): WorkflowCounts {
+  const out: WorkflowCounts = { steps: 0, ifs: 0, writes: 0, needApproval: 0 };
+  processes.walkSteps(process, ({ step }) => {
     out.steps += 1;
-    if (step.kind === "fork") out.forks += 1;
+    if (step.kind === "if") out.ifs += 1;
     const option = approvalOption(step, env);
     if (option) {
       out.writes += 1;
@@ -462,7 +581,7 @@ export function workflowCounts(workflow: Workflow, env: ApprovalEnv): WorkflowCo
 
 /** A step with its nested steps replaced by their ids: what the step itself says. */
 function shallow(step: Step): unknown {
-  if (step.kind === "fork") {
+  if (step.kind === "if") {
     return {
       ...step,
       paths: step.paths.map((p) => ({ ...p, steps: p.steps.map((s) => s.id) })),
@@ -474,19 +593,19 @@ function shallow(step: Step): unknown {
 }
 
 /**
- * Steps of a client agent's workflow that differ from its base template version: `added` (not in
+ * Steps of a client agent's process that differ from its base template version: `added` (not in
  * the template) or `changed` (its own settings differ; moves and nested edits are the nested
  * steps' own).
  */
 export function customizedSteps(
-  workflow: Workflow,
-  template: Workflow | undefined,
+  process: Process,
+  template: Process | undefined,
 ): Map<string, "added" | "changed"> {
   const out = new Map<string, "added" | "changed">();
   if (!template) return out;
   const before = new Map<string, string>();
-  walkSteps(template, ({ step }) => before.set(step.id, canonicalJson(shallow(step))));
-  walkSteps(workflow, ({ step }) => {
+  processes.walkSteps(template, ({ step }) => before.set(step.id, canonicalJson(shallow(step))));
+  processes.walkSteps(process, ({ step }) => {
     const was = before.get(step.id);
     if (was === undefined) out.set(step.id, "added");
     else if (was !== canonicalJson(shallow(step))) out.set(step.id, "changed");
@@ -494,7 +613,7 @@ export function customizedSteps(
   return out;
 }
 
-export function findTemplateStep(template: Workflow | undefined, id: string): Step | undefined {
+export function findTemplateStep(template: Process | undefined, id: string): Step | undefined {
   if (!template) return undefined;
   return locate(template, id)?.step;
 }
@@ -502,9 +621,9 @@ export function findTemplateStep(template: Workflow | undefined, id: string): St
 // ── History ──────────────────────────────────────────────────────────────────────────────────────
 
 export interface History {
-  past: AgentBundle[];
-  present: AgentBundle;
-  future: AgentBundle[];
+  past: ProcessAgentBundle[];
+  present: ProcessAgentBundle;
+  future: ProcessAgentBundle[];
   /** Edits with the same key in quick succession (typing in one field) are one undo step. */
   lastKey: string | null;
   lastAt: number;
@@ -513,13 +632,13 @@ export interface History {
 const HISTORY_LIMIT = 100;
 const COALESCE_MS = 1000;
 
-export function startHistory(bundle: AgentBundle): History {
+export function startHistory(bundle: ProcessAgentBundle): History {
   return { past: [], present: bundle, future: [], lastKey: null, lastAt: 0 };
 }
 
 export function commit(
   h: History,
-  next: AgentBundle,
+  next: ProcessAgentBundle,
   key: string | null = null,
   now: number = Date.now(),
 ): History {

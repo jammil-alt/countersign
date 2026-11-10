@@ -1,64 +1,66 @@
-// The builder's inspector (ARCHITECTURE §10.5): the selected step's form. Inputs come from the
-// skill's or tool's input schema; template fields offer the upstream outputs valid at the step;
-// forks edit their ordered paths as rule rows; skills show their settings with defaults (and, on
-// a client agent, the template's value beside a customized one); every step has its client
-// timeline label and visibility; steps that change a client's tool have the Approval control.
+// The builder's inspector (ARCHITECTURE §10.5, §10.14): the selected step's or trigger's form. Inputs
+// come from the skill's or tool's input schema; template fields offer the upstream outputs valid
+// at the step (core's `processes.processPathsAt`, the scopes the validator types with); ifs edit
+// their ordered paths as rule rows; a skill step customizes its Library skill (settings, added
+// instructions, rule rows, the fields it passes on) against the skill's and the template's
+// values; a conversation has its own form; every step can carry checks (a second opinion,
+// approval, notices) and has its client timeline label and visibility.
 import {
-  type AgentBundle,
+  type AnyAgentBundle,
   // P-4
   CONVERSE_SKILL,
-  clientLabel,
-  type ForkPath,
-  type ForkStep,
-  isClientVisible,
   lookupSkill,
   type PathOption,
+  type ProcessAgentBundle,
   parseSkillRef,
-  pathsAt,
+  pathOptions,
+  processes,
   REACH_OUT_SKILL,
-  type Rule,
-  type RuleOp,
-  type Rules,
-  type SkillSetting,
-  type Step,
   type Trigger,
   type TriggerOn,
   type TypingContext,
-  type ValidationError,
-  type Workflow,
+  triggerOnSchema,
 } from "@countersign/core";
 import { type ReactNode, useEffect, useMemo, useRef } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { Icon } from "../../ui/icons";
-import { Badge, Button, cx } from "../../ui/primitives";
-import { KIND_LABEL } from "../workflow/describe";
+import { Button, cx } from "../../ui/primitives";
+import { PROCESS_KIND_LABEL } from "../workflow/describe";
 import { toolLabel, whenEvent } from "../workflow/labels";
+import { processClientVisible } from "./Canvas";
 // P-4
-import { ConverseFields } from "./ConverseFields";
-import { type BuilderData, connectorName } from "./catalog";
+import { ConversationFields, ConverseFields } from "./ConverseFields";
+import { type BuilderData, type BuilderProblem, connectorName } from "./catalog";
+import { ChecksPanel, NotifyEditor } from "./checks";
+import { CustomizeSection } from "./customize";
+import { DeadlineEditor } from "./deadline";
 import {
   EventOptions,
   type FieldErrors,
   JsonInput,
-  parseNumberText,
   Row,
   SchemaForm,
   SmallInput,
   SmallSelect,
   TemplateInput,
 } from "./fields";
-import { type ApprovalEnv, approvalOption, findTemplateStep, newPath } from "./model";
+import {
+  type ApprovalEnv,
+  type IfPath,
+  looseningBlocked,
+  newPath,
+  type Process,
+  type Step,
+} from "./model";
+import { type People, PersonPicker } from "./people";
 import { ReachOutFields } from "./ReachOutFields";
+import { RulesEditor } from "./rules";
 
-export type Selection = { type: "step"; id: string } | { type: "trigger" };
+export type { Member } from "./people";
+export { parseRuleValue, ruleValueText } from "./rules";
 
-export interface Member {
-  userId: string;
-  email: string;
-  name: string | null;
-  role: string;
-}
+export type Selection = { type: "step"; id: string } | { type: "trigger"; id: string };
 
 export interface FocusRequest {
   node: string;
@@ -67,27 +69,30 @@ export interface FocusRequest {
 }
 
 export interface InspectorProps {
-  workflow: Workflow;
-  bundle: AgentBundle;
+  workflow: Process;
+  bundle: ProcessAgentBundle;
   selection: Selection | null;
   data: BuilderData;
   ctx: TypingContext;
   env: ApprovalEnv;
-  /** This workflow's validation errors. */
-  errors: ValidationError[];
+  /** This process's validation errors. */
+  errors: BuilderProblem[];
   /** A client agent's base template version, for "the template's value". */
-  template: { bundle: AgentBundle; workflow: Workflow | undefined } | null;
-  members: readonly Member[];
+  template: { bundle: AnyAgentBundle | ProcessAgentBundle; workflow: Process | undefined } | null;
+  /** Who a step may ask or tell: roles, the client's team and its People list. */
+  people: People;
   focus: FocusRequest | null;
   /** The connectors the agent may use: their events are the ones a trigger offers. */
   connectors?: ReadonlySet<string> | undefined;
   /** `key` groups typing in one field into one undo step. */
   onStep(id: string, fn: (step: Step) => Step, key: string): void;
-  onTrigger(on: TriggerOn, key: string): void;
+  onTrigger(id: string, on: TriggerOn, key: string): void;
+  onAddTrigger(on: TriggerOn): void;
+  onRemoveTrigger(id: string): void;
   onDelete(id: string): void;
 }
 
-function errorsFor(errors: readonly ValidationError[], node: string): FieldErrors {
+function errorsFor(errors: readonly BuilderProblem[], node: string): FieldErrors {
   const mine = errors.filter((e) => e.stepId === node);
   return {
     at: (field) => mine.filter((e) => e.field === field).map((e) => e.message),
@@ -120,18 +125,24 @@ export function Inspector(props: InspectorProps) {
   const { selection, workflow } = props;
   const root = useRef<HTMLDivElement>(null);
   useFocus(root, props.focus);
-  const step = selection?.type === "step" ? findStep(workflow, selection.id) : undefined;
+  const step =
+    selection?.type === "step" ? processes.findStep(workflow, selection.id)?.step : undefined;
+  const trigger =
+    selection?.type === "trigger"
+      ? workflow.triggers.find((t) => t.id === selection.id)
+      : undefined;
 
   let body: ReactNode;
-  if (selection?.type === "trigger") {
-    body = <TriggerInspector {...props} trigger={workflow.trigger} />;
+  if (trigger) {
+    body = <TriggerInspector {...props} trigger={trigger} />;
   } else if (step) {
-    body = <StepInspector {...props} step={step} />;
+    // Keyed by the step: fields that keep text while it is typed start afresh for another step.
+    body = <StepInspector key={step.id} {...props} step={step} />;
   } else {
     body = (
       <div className="flex flex-col gap-2 text-sm text-ink-muted">
         <p className="eyebrow">Inspector</p>
-        <p>Click a step or the trigger to edit it. Drag steps by their handle to reorder them.</p>
+        <p>Click a step or a trigger to edit it. Drag steps by their handle to reorder them.</p>
       </div>
     );
   }
@@ -139,7 +150,7 @@ export function Inspector(props: InspectorProps) {
     <div
       ref={root}
       data-testid="builder-inspector"
-      data-node={selection?.type === "trigger" ? workflow.trigger.id : step?.id}
+      data-node={trigger?.id ?? step?.id}
       // Focused when a step is picked and the panel sits below the canvas (narrow screens).
       tabIndex={-1}
       className="outline-none"
@@ -147,22 +158,6 @@ export function Inspector(props: InspectorProps) {
       {body}
     </div>
   );
-}
-
-function findStep(workflow: Workflow, id: string): Step | undefined {
-  let found: Step | undefined;
-  const visit = (steps: Step[]) => {
-    for (const s of steps) {
-      if (found) return;
-      if (s.id === id) found = s;
-      else if (s.kind === "fork") {
-        for (const p of s.paths) visit(p.steps);
-        visit(s.otherwise.steps);
-      } else if (s.kind === "for_each") visit(s.steps);
-    }
-  };
-  visit(workflow.steps);
-  return found;
 }
 
 function Heading({
@@ -192,7 +187,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function NodeErrors({ errors, node }: { errors: readonly ValidationError[]; node: string }) {
+function NodeErrors({ errors, node }: { errors: readonly BuilderProblem[]; node: string }) {
   const mine = errors.filter((e) => e.stepId === node);
   if (mine.length === 0) return null;
   return (
@@ -210,33 +205,53 @@ function NodeErrors({ errors, node }: { errors: readonly ValidationError[]; node
 // ── Steps ────────────────────────────────────────────────────────────────────────────────────────
 
 const STEP_INTRO: Partial<Record<Step["kind"], string>> = {
-  fork: "Paths are checked top to bottom. A run takes the first path whose rules match, then continues after the fork.",
+  read: "Reads from a tool. It never changes anything.",
+  write: "Changes something through a tool, behind its checks.",
+  if: "Paths are checked top to bottom. A run takes the first path whose rules match, then continues after the if.",
   for_each: "Runs the steps inside once for each item of a list.",
-  // v0.12 W2-B
-  use_automation:
-    "Runs a saved chain of steps as one step. Its steps are edited in the automation, not here.",
+  process: "Runs a saved process as one step. Its steps are edited in that process, not here.",
   person: "Waits for a person in the inbox before the run goes on.",
+  conversation: "Talks with someone until it has what it needs, within the limits below.",
+  notify: "Tells the client's team or ours that something happened.",
 };
 
-function stepNumber(workflow: Workflow, id: string): string {
+/** Logic steps carry no checks in the builder: they do no work to check. */
+const LOGIC = new Set<Step["kind"]>(["if", "for_each", "wait", "stop"]);
+
+function stepNumber(workflow: Process, id: string): string {
   const i = workflow.steps.findIndex((s) => s.id === id);
   return i === -1 ? "Step" : `Step ${i + 1}`;
 }
 
+type SetStep = (key: string, fn: (s: Step) => Step) => void;
+
+/** Whether the step's own output exists when its confer and approval run (core's rule). */
+function outputBeforeChecks(step: Step, ctx: TypingContext): boolean {
+  if (step.kind === "read") return true;
+  if (step.kind !== "skill") return false;
+  const writes = processes.stepWrites(step, ctx);
+  return (
+    writes !== undefined &&
+    writes.length === 0 &&
+    lookupSkill(step.skill, ctx)?.reachesPeople !== true
+  );
+}
+
 function StepInspector(props: InspectorProps & { step: Step }) {
-  const { step, workflow, errors, onStep, onDelete } = props;
+  const { step, workflow, errors, onStep, onDelete, ctx } = props;
   const fieldErrors = errorsFor(errors, step.id);
   const paths = useMemo(
-    () => pathsAt(workflow, step.id, props.ctx),
-    [workflow, step.id, props.ctx],
+    () => processes.processPathsAt(workflow, step.id, ctx),
+    [workflow, step.id, ctx],
   );
-  const set = (key: string, fn: (s: Step) => Step) => onStep(step.id, fn, `${step.id}:${key}`);
+  const set: SetStep = (key, fn) => onStep(step.id, fn, `${step.id}:${key}`);
+  const label = PROCESS_KIND_LABEL[step.kind];
 
   return (
     <div className="flex flex-col gap-4">
       <Heading
-        eyebrow={`${stepNumber(workflow, step.id)} · ${KIND_LABEL[step.kind]}`}
-        title={step.name || KIND_LABEL[step.kind]}
+        eyebrow={`${stepNumber(workflow, step.id)} · ${label}`}
+        title={step.name || label}
         intro={STEP_INTRO[step.kind]}
       />
       <NodeErrors errors={errors} node={step.id} />
@@ -252,16 +267,42 @@ function StepInspector(props: InspectorProps & { step: Step }) {
       <KindFields {...props} paths={paths} fieldErrors={fieldErrors} set={set} />
 
       {step.kind === "skill" ? (
-        <ModelRow step={step} ctx={props.ctx} fieldErrors={fieldErrors} set={set} />
+        <>
+          <ModelRow step={step} ctx={ctx} fieldErrors={fieldErrors} set={set} />
+          <CustomizeSection
+            step={step}
+            ctx={ctx}
+            bundle={props.bundle}
+            template={props.template}
+            errors={fieldErrors}
+            set={set}
+          />
+        </>
       ) : null}
-      {step.kind === "skill" || step.kind === "action" ? (
-        <ApprovalSection {...props} set={set} />
-      ) : null}
-      {step.kind === "skill" ? <SettingsSection {...props} set={set} /> : null}
-      <TimelineSection step={step} set={set} />
+      {LOGIC.has(step.kind) ? null : (
+        <ChecksPanel
+          step={step}
+          set={set}
+          env={props.env}
+          people={props.people}
+          data={props.data}
+          errors={fieldErrors}
+          pathsBefore={(confer) =>
+            processes.processPathsAt(workflow, step.id, ctx, {
+              own: outputBeforeChecks(step, ctx),
+              confer,
+            })
+          }
+          pathsAfter={processes.processPathsAt(workflow, step.id, ctx, {
+            own: true,
+            confer: step.checks?.confer?.with.length ?? 0,
+          })}
+        />
+      )}
+      {LOGIC.has(step.kind) ? null : <TimelineSection step={step} set={set} />}
 
       <div className="flex justify-end border-t border-line pt-4">
-        {step.kind === "fork" ? null : (
+        {step.kind === "if" ? null : (
           <Button
             variant="ghost"
             data-testid="builder-inspector-delete"
@@ -275,10 +316,8 @@ function StepInspector(props: InspectorProps & { step: Step }) {
   );
 }
 
-type SetStep = (key: string, fn: (s: Step) => Step) => void;
-
 // v0.13 W2-H: the model a skill step runs on (ARCHITECTURE §10.11), from GET /api/ops/models,
-// over the skill's own (a task skill) or the agent's (an agent skill). A tool skill runs code and
+// over the skill's own (a task skill) or the agent's (an agent skill). A rules skill runs code and
 // takes no model, so the row isn't offered for one.
 function ModelRow({
   step,
@@ -317,8 +356,9 @@ function ModelRow({
         onChange={(e) => {
           const id = e.target.value;
           set("model", (s) => {
-            const { model: _m, ...rest } = s as Extract<Step, { kind: "skill" }>;
-            return (id ? { ...rest, model: { id } } : rest) as Step;
+            if (s.kind !== "skill") return s;
+            const { model: _m, ...rest } = s;
+            return id ? { ...rest, model: { id } } : rest;
           });
         }}
       >
@@ -336,6 +376,50 @@ function ModelRow({
   );
 }
 
+/** A read or write step's tool: what it does, through which connector, and its undo. */
+function ToolFields(
+  props: InspectorProps & {
+    step: Extract<Step, { kind: "read" | "write" }>;
+    paths: PathOption[];
+    fieldErrors: FieldErrors;
+    set: SetStep;
+  },
+) {
+  const { step, paths, fieldErrors, set, ctx, data } = props;
+  const tool = ctx.tools?.[step.tool];
+  const connector = tool ? (tool.connector ?? tool.source) : null;
+  const undo = step.kind === "write" && tool ? processes.describeUndo(tool) : null;
+  return (
+    <>
+      <Row label={step.kind === "read" ? "Reads" : "Changes"} field="tool" errors={fieldErrors}>
+        <p className="text-sm text-ink" data-field="tool" tabIndex={-1}>
+          {toolLabel(step.tool)}
+          {connector && connector !== "platform" ? (
+            <span className="text-ink-muted"> · {connectorName(data, connector)}</span>
+          ) : null}
+        </p>
+      </Row>
+      {tool?.description ? <p className="text-sm text-ink-muted">{tool.description}</p> : null}
+      {undo ? (
+        <p className="text-sm text-ink-muted" data-testid="builder-write-undo">
+          {undo.text}
+        </p>
+      ) : null}
+      <Section title="Input">
+        <SchemaForm
+          schema={tool?.input}
+          value={step.input}
+          onChange={(input) => set("input", (s) => ({ ...s, input }) as Step)}
+          paths={paths}
+          prefix="input"
+          errors={fieldErrors}
+          testPrefix="builder-input"
+        />
+      </Section>
+    </>
+  );
+}
+
 function KindFields(
   props: InspectorProps & {
     step: Step;
@@ -344,10 +428,13 @@ function KindFields(
     set: SetStep;
   },
 ) {
-  const { step, paths, fieldErrors, set, ctx, data } = props;
+  const { step, paths, fieldErrors, set, ctx } = props;
   switch (step.kind) {
     case "skill": {
       const skill = lookupSkill(step.skill, ctx);
+      const id = parseSkillRef(step.skill).id;
+      const setInput = (key: string, fn: <T extends object>(s: T) => T) =>
+        set(key, (s) => (s.kind === "skill" ? fn(s) : s));
       return (
         <>
           <Row label="Skill" field="skill" errors={fieldErrors}>
@@ -362,22 +449,22 @@ function KindFields(
             <p className="text-sm text-ink-muted">{skill.description}</p>
           ) : null}
           <Section title="Input">
-            {parseSkillRef(step.skill).id === REACH_OUT_SKILL ? (
+            {id === REACH_OUT_SKILL ? (
               <ReachOutFields
                 step={step}
                 bundle={props.bundle}
                 paths={paths}
                 fieldErrors={fieldErrors}
-                set={set}
+                set={setInput}
               />
-            ) : // P-4: a conversation's own form (§1.66).
-            parseSkillRef(step.skill).id === CONVERSE_SKILL ? (
+            ) : // P-4: a stored conversation keeps its own form (it still runs as a skill step).
+            id === CONVERSE_SKILL ? (
               <ConverseFields
                 step={step}
                 bundle={props.bundle}
                 paths={paths}
                 fieldErrors={fieldErrors}
-                set={set}
+                set={setInput}
               />
             ) : (
               <SchemaForm
@@ -394,33 +481,9 @@ function KindFields(
         </>
       );
     }
-    case "action": {
-      const tool = ctx.tools?.[step.tool];
-      return (
-        <>
-          <Row label="Changes" field="tool" errors={fieldErrors}>
-            <p className="text-sm text-ink" data-field="tool" tabIndex={-1}>
-              {toolLabel(step.tool)}
-              {tool?.connector ? (
-                <span className="text-ink-muted"> · {connectorName(data, tool.connector)}</span>
-              ) : null}
-            </p>
-          </Row>
-          {tool?.description ? <p className="text-sm text-ink-muted">{tool.description}</p> : null}
-          <Section title="Input">
-            <SchemaForm
-              schema={tool?.input}
-              value={step.input}
-              onChange={(input) => set("input", (s) => ({ ...s, input }) as Step)}
-              paths={paths}
-              prefix="input"
-              errors={fieldErrors}
-              testPrefix="builder-input"
-            />
-          </Section>
-        </>
-      );
-    }
+    case "read":
+    case "write":
+      return <ToolFields {...props} step={step} />;
     case "person":
       return (
         <>
@@ -444,7 +507,7 @@ function KindFields(
                 testId="builder-person-assignee"
                 allowLead
                 value={step.assignee}
-                members={props.members}
+                people={props.people}
                 onChange={(v) =>
                   set("assignee", (s) => ({ ...s, assignee: v ?? "client_admin" }) as Step)
                 }
@@ -460,32 +523,31 @@ function KindFields(
               onChange={(title) => set("title", (s) => ({ ...s, title }) as Step)}
             />
           </Row>
-          <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-3">
-            <Row label="Waits up to" field="timeout" errors={fieldErrors}>
-              <SmallInput
-                data-field="timeout"
-                data-testid="builder-person-timeout"
-                value={step.timeout}
-                onChange={(e) => set("timeout", (s) => ({ ...s, timeout: e.target.value }) as Step)}
-              />
-            </Row>
-            <Row label="Then" field="onTimeout" errors={fieldErrors}>
-              <SmallSelect
-                data-field="onTimeout"
-                value={step.onTimeout}
-                onChange={(e) =>
-                  set(
-                    "onTimeout",
-                    (s) => ({ ...s, onTimeout: e.target.value as typeof step.onTimeout }) as Step,
-                  )
-                }
-              >
-                <option value="notify_operator">Tell the operator</option>
-                <option value="stop">Stop the run</option>
-                <option value="continue">Go on</option>
-              </SmallSelect>
-            </Row>
-          </div>
+          <Row label="Where" field="channel" errors={fieldErrors}>
+            <SmallSelect
+              data-field="channel"
+              data-testid="builder-person-channel"
+              value={step.channel}
+              onChange={(e) =>
+                set(
+                  "channel",
+                  (s) => ({ ...s, channel: e.target.value as "inbox" | "email" }) as Step,
+                )
+              }
+            >
+              <option value="inbox">The inbox</option>
+              <option value="email">Email</option>
+            </SmallSelect>
+          </Row>
+          <DeadlineEditor
+            value={step.deadline}
+            prefix="deadline"
+            testId="builder-person-deadline"
+            errors={fieldErrors}
+            people={props.people}
+            proceedBlocked={null}
+            onChange={(deadline, key) => set(key, (s) => ({ ...s, deadline }) as Step)}
+          />
           {step.mode === "approve" ? (
             <Row label="If rejected" field="onReject" errors={fieldErrors}>
               <SmallSelect
@@ -516,8 +578,32 @@ function KindFields(
           </Row>
         </>
       );
-    case "fork":
-      return <ForkEditor {...props} step={step} />;
+    case "conversation":
+      return (
+        <ConversationFields
+          step={step}
+          bundle={props.bundle}
+          paths={paths}
+          fieldErrors={fieldErrors}
+          people={props.people}
+          messagesBlocked={looseningBlocked([], props.env)}
+          set={(key, fn) => set(key, (s) => (s.kind === "conversation" ? fn(s) : s))}
+        />
+      );
+    case "notify":
+      return (
+        <NotifyEditor
+          value={step.notify}
+          prefix="notify"
+          testId="builder-notify-step"
+          errors={fieldErrors}
+          people={props.people}
+          paths={paths}
+          onChange={(notify, key) => set(key, (s) => (s.kind === "notify" ? { ...s, notify } : s))}
+        />
+      );
+    case "if":
+      return <IfEditor {...props} step={step} />;
     case "for_each":
       return (
         <>
@@ -560,85 +646,35 @@ function KindFields(
           />
         </Row>
       );
-    case "notify":
+    // A read-only card for the process, and its input as a form from its schema (docs/plan.md
+    // §1.45). The process's own steps are not in the bundle.
+    case "process": {
+      const used = props.data.catalog.automations?.find((a) => a.ref === step.process);
       return (
         <>
-          <Row label="Where" field="channel" errors={fieldErrors}>
-            <SmallSelect
-              data-field="channel"
-              value={step.channel}
-              onChange={(e) =>
-                set(
-                  "channel",
-                  (s) => ({ ...s, channel: e.target.value as typeof step.channel }) as Step,
-                )
-              }
-            >
-              <option value="thread">The run's thread</option>
-              <option value="email">Email</option>
-              <option value="digest">The daily digest</option>
-            </SmallSelect>
-          </Row>
-          {step.channel === "thread" ? null : (
-            <Row label="To" field="to" errors={fieldErrors}>
-              <TemplateInput
-                field="to"
-                testId="builder-notify-to"
-                value={step.to ?? ""}
-                paths={paths}
-                onChange={(to) =>
-                  set("to", (s) => {
-                    const { to: _old, ...rest } = s as Extract<Step, { kind: "notify" }>;
-                    return (to ? { ...rest, to } : rest) as Step;
-                  })
-                }
-              />
-            </Row>
-          )}
-          <Row label="Message" field="message" errors={fieldErrors}>
-            <TemplateInput
-              multiline
-              field="message"
-              testId="builder-notify-message"
-              value={step.message}
-              paths={paths}
-              onChange={(message) => set("message", (s) => ({ ...s, message }) as Step)}
-            />
-          </Row>
-        </>
-      );
-    // v0.12 W2-B: a read-only card for the automation, and its input as a form from its schema
-    // (docs/plan.md §1.45). The automation's own steps are not in the bundle.
-    case "use_automation": {
-      const automation = props.data.catalog.automations?.find((a) => a.ref === step.automation);
-      return (
-        <>
-          <Row label="Automation" field="automation" errors={fieldErrors}>
+          <Row label="Process" field="process" errors={fieldErrors}>
             <p
               className="reference text-ink"
-              data-field="automation"
+              data-field="process"
               data-testid="builder-automation"
               tabIndex={-1}
             >
-              {automation ? automation.name : step.automation}
+              {used ? used.name : step.process}
               <span className="font-sans text-ink-muted">
                 {" "}
-                · v{automation ? automation.version : (step.automation.split("@")[1] ?? "?")}
+                · v{used ? used.version : (step.process.split("@")[1] ?? "?")}
               </span>
             </p>
           </Row>
-          {automation?.description ? (
-            <p className="text-sm text-ink-muted">{automation.description}</p>
-          ) : null}
-          {automation ? (
+          {used?.description ? <p className="text-sm text-ink-muted">{used.description}</p> : null}
+          {used ? (
             <p className="text-sm text-ink-muted">
-              {automation.definition.steps.length}{" "}
-              {automation.definition.steps.length === 1 ? "step" : "steps"}
+              {used.definition.steps.length} {used.definition.steps.length === 1 ? "step" : "steps"}
             </p>
           ) : null}
           <Section title="Input">
             <SchemaForm
-              schema={automation?.definition.input}
+              schema={used?.definition.input}
               value={step.input}
               onChange={(input) => set("input", (s) => ({ ...s, input }) as Step)}
               paths={paths}
@@ -678,283 +714,10 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** A role or one of the client's people. */
-function PersonPicker({
-  value,
-  onChange,
-  members,
-  field,
-  testId,
-  allowDefault,
-  allowLead,
-}: {
-  value: string | undefined;
-  onChange(value: string | undefined): void;
-  members: readonly Member[];
-  field: string;
-  testId: string;
-  allowDefault?: string;
-  /** v0.12 W1-C: a person step may be a lead check, for the client's lead. */
-  allowLead?: boolean;
-}) {
-  const known =
-    value === undefined ||
-    ["client_admin", "client_user", "operator"].includes(value) ||
-    (allowLead === true && value === "lead") ||
-    members.some((m) => m.userId === value);
-  return (
-    <SmallSelect
-      data-field={field}
-      data-testid={testId}
-      value={value ?? ""}
-      onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value)}
-    >
-      {allowDefault ? <option value="">{allowDefault}</option> : null}
-      <option value="client_admin">Client admin</option>
-      <option value="client_user">Client user</option>
-      <option value="operator">Operator</option>
-      {allowLead ? <option value="lead">The client's lead</option> : null}
-      {members.map((m) => (
-        <option key={m.userId} value={m.userId}>
-          {m.name ?? m.email}
-        </option>
-      ))}
-      {known ? null : <option value={value}>{value}</option>}
-    </SmallSelect>
-  );
-}
-
-// ── Approval ─────────────────────────────────────────────────────────────────────────────────────
-
-function ApprovalSection(props: InspectorProps & { step: Step; set: SetStep }) {
-  const { step, env, set, members, errors } = props;
-  const option = approvalOption(step, env);
-  if (!option || (step.kind !== "skill" && step.kind !== "action")) return null;
-  const approval = step.approval ?? { required: "required" as const, onReject: "stop" as const };
-  const fieldErrors = errorsFor(errors, step.id);
-  // Switching approval back on is always allowed; switching it off only where it may be skipped.
-  const locked = option.required && !option.canSkip;
-  const tools = [
-    ...new Set(
-      option.writes.map((t) =>
-        [t.connector ? connectorName(props.data, t.connector) : null, toolLabel(t.id)]
-          .filter(Boolean)
-          .join(": "),
-      ),
-    ),
-  ].join(", ");
-  return (
-    <Section title="Approval">
-      <p className="text-sm text-ink">
-        This step changes the client's tools ({tools}). It waits for someone to approve unless you
-        switch approval off.
-      </p>
-      <Row label="" field="approval.required" errors={fieldErrors}>
-        <label className="flex items-center gap-2 text-sm text-ink">
-          <input
-            className="size-4 accent-slate"
-            type="checkbox"
-            data-field="approval.required"
-            data-testid="builder-approval-toggle"
-            checked={option.required}
-            disabled={locked}
-            onChange={(e) =>
-              set(
-                "approval",
-                (s) =>
-                  ({
-                    ...s,
-                    approval: {
-                      ...approval,
-                      required: e.target.checked ? "required" : "not_required",
-                    },
-                  }) as Step,
-              )
-            }
-          />
-          Needs approval
-          {option.automatic ? <Badge tone="accent">On its own</Badge> : null}
-        </label>
-      </Row>
-      {option.reason ? (
-        <p className="text-xs text-ink-muted" data-testid="builder-approval-reason">
-          {option.required ? "Run without approval isn't available: " : "Not allowed here: "}
-          {option.reason}
-        </p>
-      ) : null}
-      {option.required ? (
-        <div className="grid grid-cols-1 gap-3">
-          <Row label="Approver" field="approval.approver" errors={fieldErrors}>
-            <PersonPicker
-              field="approval.approver"
-              testId="builder-approval-approver"
-              value={approval.approver}
-              members={members}
-              allowDefault="Agent default"
-              onChange={(v) =>
-                set("approval", (s) => {
-                  const { approver: _old, ...rest } = approval;
-                  return { ...s, approval: v ? { ...rest, approver: v } : rest } as Step;
-                })
-              }
-            />
-          </Row>
-          <Row label="If rejected" field="approval.onReject" errors={fieldErrors}>
-            <SmallSelect
-              data-field="approval.onReject"
-              value={approval.onReject}
-              onChange={(e) =>
-                set(
-                  "approval",
-                  (s) =>
-                    ({
-                      ...s,
-                      approval: { ...approval, onReject: e.target.value as "stop" | "continue" },
-                    }) as Step,
-                )
-              }
-            >
-              <option value="stop">Stop the run</option>
-              <option value="continue">Go on</option>
-            </SmallSelect>
-          </Row>
-        </div>
-      ) : null}
-    </Section>
-  );
-}
-
-// ── Settings ─────────────────────────────────────────────────────────────────────────────────────
-
-function settingText(v: unknown): string {
-  if (v === undefined || v === null || v === "") return "—";
-  return typeof v === "string" ? v : JSON.stringify(v);
-}
-
-function SettingsSection(props: InspectorProps & { step: Step; set: SetStep }) {
-  const { step, ctx, bundle, template, set } = props;
-  if (step.kind !== "skill") return null;
-  const skill = lookupSkill(step.skill, ctx);
-  if (!skill || skill.settings.length === 0) return null;
-  const agentOverrides =
-    bundle.definition.skills.find((s) => s.skill === step.skill)?.settings ?? {};
-  const templateStep = template ? findTemplateStep(template.workflow, step.id) : undefined;
-  const templateAgent =
-    template?.bundle.definition.skills.find((s) => s.skill === step.skill)?.settings ?? {};
-
-  const setValue = (key: string, value: unknown) =>
-    set(`setting:${key}`, (s) => {
-      if (s.kind !== "skill") return s;
-      const next = { ...(s.settings ?? {}) };
-      if (value === undefined) delete next[key];
-      else next[key] = value;
-      const { settings: _old, ...rest } = s;
-      return Object.keys(next).length ? { ...rest, settings: next } : rest;
-    });
-
-  return (
-    <Section title="Settings">
-      <p className="text-xs text-ink-muted">
-        Empty means the agent's setting, else the skill's default.
-      </p>
-      {skill.settings.map((setting) => {
-        const own = step.settings?.[setting.key];
-        const fallback = agentOverrides[setting.key] ?? setting.default;
-        const templateValue = template
-          ? ((templateStep?.kind === "skill" ? templateStep.settings?.[setting.key] : undefined) ??
-            templateAgent[setting.key] ??
-            setting.default)
-          : undefined;
-        const effective = own ?? fallback;
-        const customized =
-          template !== null && JSON.stringify(effective) !== JSON.stringify(templateValue);
-        return (
-          <Row
-            key={setting.key}
-            label={setting.label}
-            field={`settings.${setting.key}`}
-            errors={errorsFor(props.errors, step.id)}
-            aside={
-              customized ? (
-                <Badge tone="accent" testId={`builder-setting-${setting.key}-customized`}>
-                  Customized
-                </Badge>
-              ) : null
-            }
-            hint={
-              template ? (
-                <span data-testid={`builder-setting-${setting.key}-template`}>
-                  Template: {settingText(templateValue)}
-                </span>
-              ) : undefined
-            }
-          >
-            <SettingControl
-              setting={setting}
-              value={own}
-              placeholder={settingText(fallback)}
-              onChange={(v) => setValue(setting.key, v)}
-            />
-          </Row>
-        );
-      })}
-    </Section>
-  );
-}
-
-function SettingControl({
-  setting,
-  value,
-  placeholder,
-  onChange,
-}: {
-  setting: SkillSetting;
-  value: unknown;
-  placeholder: string;
-  onChange(v: unknown): void;
-}) {
-  const field = `settings.${setting.key}`;
-  const testId = `builder-setting-${setting.key}`;
-  if (setting.type === "boolean" || setting.type === "enum") {
-    const options = setting.type === "boolean" ? ["true", "false"] : (setting.options ?? []);
-    return (
-      <SmallSelect
-        data-field={field}
-        data-testid={testId}
-        value={value === undefined ? "" : String(value)}
-        onChange={(e) => {
-          const v = e.target.value;
-          onChange(v === "" ? undefined : setting.type === "boolean" ? v === "true" : v);
-        }}
-      >
-        <option value="">Default ({placeholder})</option>
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {setting.type === "boolean" ? (o === "true" ? "Yes" : "No") : o}
-          </option>
-        ))}
-      </SmallSelect>
-    );
-  }
-  return (
-    <SmallInput
-      data-field={field}
-      data-testid={testId}
-      value={value === undefined ? "" : String(value)}
-      placeholder={placeholder}
-      onChange={(e) => {
-        const text = e.target.value;
-        if (text === "") onChange(undefined);
-        else onChange(setting.type === "number" ? parseNumberText(text) : text);
-      }}
-    />
-  );
-}
-
 // ── Client timeline ──────────────────────────────────────────────────────────────────────────────
 
 function TimelineSection({ step, set }: { step: Step; set: SetStep }) {
-  const visible = isClientVisible(step);
+  const visible = processClientVisible(step);
   return (
     <Section title="Client timeline">
       <label className="flex items-center gap-2 text-sm text-ink">
@@ -979,7 +742,7 @@ function TimelineSection({ step, set }: { step: Step; set: SetStep }) {
             data-field="client.label"
             data-testid="builder-timeline-label"
             value={step.client?.label ?? ""}
-            placeholder={clientLabel({ ...step, client: undefined })}
+            placeholder={step.name}
             onChange={(e) =>
               set("client", (s) => {
                 const label = e.target.value;
@@ -994,196 +757,19 @@ function TimelineSection({ step, set }: { step: Step; set: SetStep }) {
   );
 }
 
-// ── Forks ────────────────────────────────────────────────────────────────────────────────────────
+// ── Ifs ──────────────────────────────────────────────────────────────────────────────────────────
 
-const OPS: { op: RuleOp; label: string }[] = [
-  { op: ">", label: ">" },
-  { op: ">=", label: "≥" },
-  { op: "<", label: "<" },
-  { op: "<=", label: "≤" },
-  { op: "=", label: "=" },
-  { op: "!=", label: "≠" },
-  { op: "contains", label: "contains" },
-  { op: "in", label: "in" },
-  { op: "is", label: "is" },
-  { op: "exists", label: "exists" },
-];
-
-/** What a rule's value box holds: numbers and true/false/null as such, lists for `in`. */
-export function parseRuleValue(text: string, op: RuleOp): unknown {
-  const one = (t: string): unknown => {
-    const s = t.trim();
-    if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
-    if (s === "true") return true;
-    if (s === "false") return false;
-    if (s === "null") return null;
-    return t;
-  };
-  if (op === "in") {
-    return text
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean)
-      .map(one);
-  }
-  return text === "" ? undefined : one(text);
-}
-
-export function ruleValueText(value: unknown): string {
-  if (value === undefined) return "";
-  if (Array.isArray(value)) return value.map((v) => String(v)).join(", ");
-  if (typeof value === "string") return value;
-  return JSON.stringify(value);
-}
-
-/** Rule rows for one path or a trigger filter: IF field op value, AND/OR, + Add condition. */
-function RulesEditor({
-  rules,
-  onChange,
-  paths,
-  errors,
-  prefix,
-  testPrefix,
-}: {
-  rules: Rules;
-  onChange(rules: Rules, key: string): void;
-  paths: readonly PathOption[];
-  errors: FieldErrors;
-  /** "when" for a path, "on.filter" for a trigger. */
-  prefix: string;
-  testPrefix: string;
-}) {
-  const setRule = (i: number, rule: Rule, key: string) =>
-    onChange({ ...rules, rules: rules.rules.map((r, j) => (j === i ? rule : r)) }, key);
-  return (
-    <div className="flex flex-col gap-2">
-      {rules.rules.map((rule, i) => {
-        const at = `${prefix}.rules.${i}`;
-        const messages = [
-          ...errors.at(`${at}.field`),
-          ...errors.at(`${at}.op`),
-          ...errors.at(`${at}.value`),
-        ];
-        return (
-          // biome-ignore lint/suspicious/noArrayIndexKey: rules have no ids; their order is their identity.
-          <div key={i} className="flex flex-col gap-1" data-testid={`${testPrefix}-rule-${i}`}>
-            <div className="flex items-center gap-1.5">
-              <span className="w-7 shrink-0 eyebrow text-ink-muted">
-                {i === 0 ? "IF" : rules.match === "any" ? "OR" : "AND"}
-              </span>
-              <div className="min-w-0 flex-1">
-                <TemplateInput
-                  field={`${at}.field`}
-                  testId={`${testPrefix}-rule-${i}-field`}
-                  value={rule.field}
-                  paths={paths}
-                  placeholder="{{steps.…}}"
-                  invalid={errors.at(`${at}.field`).length > 0}
-                  onChange={(field) => setRule(i, { ...rule, field }, `${at}.field`)}
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 pl-8">
-              <SmallSelect
-                aria-label="Operator"
-                data-field={`${at}.op`}
-                data-testid={`${testPrefix}-rule-${i}-op`}
-                value={rule.op}
-                className="w-28 shrink-0"
-                onChange={(e) => {
-                  const op = e.target.value as RuleOp;
-                  const { value: _v, ...rest } = rule;
-                  setRule(i, op === "exists" ? { ...rest, op } : { ...rule, op }, `${at}.op`);
-                }}
-              >
-                {OPS.map((o) => (
-                  <option key={o.op} value={o.op}>
-                    {o.label}
-                  </option>
-                ))}
-              </SmallSelect>
-              {rule.op === "exists" ? (
-                <span className="flex-1" />
-              ) : (
-                <SmallInput
-                  aria-label="Value"
-                  data-field={`${at}.value`}
-                  data-testid={`${testPrefix}-rule-${i}-value`}
-                  value={ruleValueText(rule.value)}
-                  invalid={errors.at(`${at}.value`).length > 0}
-                  className="min-w-0 flex-1 font-mono"
-                  onChange={(e) => {
-                    const value = parseRuleValue(e.target.value, rule.op);
-                    const { value: _v, ...rest } = rule;
-                    setRule(i, value === undefined ? rest : { ...rule, value }, `${at}.value`);
-                  }}
-                />
-              )}
-              <button
-                type="button"
-                aria-label="Remove condition"
-                data-testid={`${testPrefix}-rule-${i}-remove`}
-                onClick={() =>
-                  onChange({ ...rules, rules: rules.rules.filter((_, j) => j !== i) }, "rules")
-                }
-                className="ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm shrink-0 text-ink-muted hover:text-ink"
-              >
-                <Icon name="close" />
-              </button>
-            </div>
-            {messages.map((m) => (
-              <span key={m} className="pl-8 text-xs text-risk">
-                {m}
-              </span>
-            ))}
-          </div>
-        );
-      })}
-      {errors.at(`${prefix}.rules`).map((m) => (
-        <span key={m} className="text-xs text-risk">
-          {m}
-        </span>
-      ))}
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          data-field={`${prefix}.rules`}
-          data-testid={`${testPrefix}-add-condition`}
-          onClick={() =>
-            onChange(
-              { ...rules, rules: [...rules.rules, { field: "", op: "=", value: "" }] },
-              "rules",
-            )
-          }
-          className="ds-btn ds-btn--link text-sm"
-        >
-          <Icon name="add" />
-          Add condition
-        </button>
-        {rules.rules.length > 1 ? (
-          <SmallSelect
-            aria-label="Match"
-            data-testid={`${testPrefix}-match`}
-            value={rules.match}
-            className="w-36"
-            onChange={(e) =>
-              onChange({ ...rules, match: e.target.value as "all" | "any" }, "match")
-            }
-          >
-            <option value="all">Match all</option>
-            <option value="any">Match any</option>
-          </SmallSelect>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function ForkEditor(props: InspectorProps & { step: ForkStep; paths: PathOption[]; set: SetStep }) {
+function IfEditor(
+  props: InspectorProps & {
+    step: Extract<Step, { kind: "if" }>;
+    paths: PathOption[];
+    set: SetStep;
+  },
+) {
   const { step, paths, set, errors, onDelete } = props;
-  const setPaths = (key: string, fn: (paths: ForkPath[]) => ForkPath[]) =>
-    set(key, (s) => (s.kind === "fork" ? { ...s, paths: fn(s.paths) } : s));
-  const setPath = (id: string, key: string, fn: (p: ForkPath) => ForkPath) =>
+  const setPaths = (key: string, fn: (paths: IfPath[]) => IfPath[]) =>
+    set(key, (s) => (s.kind === "if" ? { ...s, paths: fn(s.paths) } : s));
+  const setPath = (id: string, key: string, fn: (p: IfPath) => IfPath) =>
     setPaths(`path:${id}:${key}`, (ps) => ps.map((p) => (p.id === id ? fn(p) : p)));
   const move = (i: number, by: number) =>
     setPaths("order", (ps) => {
@@ -1285,7 +871,7 @@ function ForkEditor(props: InspectorProps & { step: ForkStep; paths: PathOption[
           Add path
         </Button>
         <Button variant="ghost" data-testid="builder-fork-remove" onClick={() => onDelete(step.id)}>
-          Remove fork
+          Remove if
         </Button>
       </div>
       <p className="text-xs text-ink-muted">
@@ -1296,16 +882,7 @@ function ForkEditor(props: InspectorProps & { step: ForkStep; paths: PathOption[
   );
 }
 
-// ── Trigger ──────────────────────────────────────────────────────────────────────────────────────
-
-function triggerPaths(workflow: Workflow, ctx: TypingContext): PathOption[] {
-  // The scope at a step placed first is exactly the trigger's payload: what a filter can test.
-  const probe: Workflow = {
-    ...workflow,
-    steps: [{ id: "trigger-probe", kind: "stop", name: "", status: "succeeded" }],
-  };
-  return pathsAt(probe, "trigger-probe", ctx);
-}
+// ── Triggers ─────────────────────────────────────────────────────────────────────────────────────
 
 // v0.12 W2-E: the builder offers the first four kinds; webhook, message and handoff triggers are
 // written in the bundle for now (backend first, docs/plan.md §1.48).
@@ -1320,17 +897,24 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
   const { trigger, workflow, ctx, data, errors, onTrigger } = props;
   const on = trigger.on;
   const fieldErrors = errorsFor(errors, trigger.id);
-  const paths = useMemo(() => triggerPaths(workflow, ctx), [workflow, ctx]);
+  // A trigger's filter reads that trigger's own payload.
+  const paths = useMemo(() => pathOptions(triggerOnSchema(on, ctx), "trigger"), [on, ctx]);
+  const set = (next: TriggerOn, key: string) => onTrigger(trigger.id, next, key);
   // Events of connectors the agent may use (as the palette offers them); the platform's always.
   const events = data.events.filter(
     (e) => !e.connector || !props.connectors || props.connectors.has(e.connector),
   );
+  const many = workflow.triggers.length > 1;
   return (
     <div className="flex flex-col gap-4">
       <Heading
         eyebrow="Trigger"
         title="How it starts"
-        intro="One trigger starts each run of this workflow."
+        intro={
+          many
+            ? "Any of this process's triggers starts a run."
+            : "This trigger starts each run of this process."
+        }
       />
       <NodeErrors errors={errors} node={trigger.id} />
       <Row label="Starts" field="on.type" errors={fieldErrors}>
@@ -1345,7 +929,7 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
               type === "event" && first
                 ? { type, event: first }
                 : DEFAULT_ON[type as keyof typeof DEFAULT_ON];
-            onTrigger(next as TriggerOn, "trigger:type");
+            set(next as TriggerOn, "trigger:type");
           }}
         >
           <option value="event">When something happens</option>
@@ -1371,7 +955,7 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
               data-field="on.event"
               data-testid="builder-trigger-event"
               value={on.event}
-              onChange={(e) => onTrigger({ ...on, event: e.target.value }, "trigger:event")}
+              onChange={(e) => set({ ...on, event: e.target.value }, "trigger:event")}
             >
               {events.some((e) => e.type === on.event) ? null : (
                 <option value={on.event}>{whenEvent(on.event)}</option>
@@ -1391,10 +975,7 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
               testPrefix="builder-trigger-filter"
               onChange={(filter, key) => {
                 const { filter: _f, ...rest } = on;
-                onTrigger(
-                  filter.rules.length ? { ...rest, filter } : rest,
-                  `trigger:filter:${key}`,
-                );
+                set(filter.rules.length ? { ...rest, filter } : rest, `trigger:filter:${key}`);
               }}
             />
           </Section>
@@ -1408,7 +989,7 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
               data-testid="builder-trigger-cron"
               value={on.cron}
               className="font-mono"
-              onChange={(e) => onTrigger({ ...on, cron: e.target.value }, "trigger:cron")}
+              onChange={(e) => set({ ...on, cron: e.target.value }, "trigger:cron")}
             />
           </Row>
           <Row label="Time zone" field="on.tz" errors={fieldErrors} hint="Empty: the client's">
@@ -1417,7 +998,7 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
               value={on.tz ?? ""}
               onChange={(e) => {
                 const { tz: _tz, ...rest } = on;
-                onTrigger(e.target.value ? { ...rest, tz: e.target.value } : rest, "trigger:tz");
+                set(e.target.value ? { ...rest, tz: e.target.value } : rest, "trigger:tz");
               }}
             />
           </Row>
@@ -1430,7 +1011,7 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
             testId="builder-trigger-input"
             value={on.input}
             rows={6}
-            onChange={(v) => onTrigger({ ...on, input: isRecord(v) ? v : {} }, "trigger:input")}
+            onChange={(v) => set({ ...on, input: isRecord(v) ? v : {} }, "trigger:input")}
           />
         </Row>
       ) : null}
@@ -1441,10 +1022,31 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
             data-testid="builder-trigger-command"
             value={on.command}
             className="font-mono"
-            onChange={(e) => onTrigger({ ...on, command: e.target.value }, "trigger:command")}
+            onChange={(e) => set({ ...on, command: e.target.value }, "trigger:command")}
           />
         </Row>
       ) : null}
+      <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
+        {workflow.triggers.length < 10 ? (
+          <Button
+            variant="ghost"
+            data-testid="builder-trigger-add"
+            onClick={() => props.onAddTrigger(DEFAULT_ON.manual)}
+          >
+            <Icon name="add" />
+            Another way to start
+          </Button>
+        ) : null}
+        {many ? (
+          <Button
+            variant="ghost"
+            data-testid="builder-trigger-remove"
+            onClick={() => props.onRemoveTrigger(trigger.id)}
+          >
+            Remove this trigger
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -10,10 +10,10 @@ import {
   isTemplate,
   type PathOption,
   REACH_PURPOSE_MAX,
-  type Step,
   URGENCIES,
 } from "@countersign/core";
 import { TextArea } from "../../ui/forms";
+import { patchInput, type SetInput } from "./ConverseFields";
 import { type FieldErrors, Row, SmallInput, SmallSelect, TemplateInput } from "./fields";
 
 const LANGUAGE_LABEL: Record<(typeof CALL_LANGUAGES)[number], string> = {
@@ -44,11 +44,12 @@ export function ReachOutFields({
   fieldErrors,
   set,
 }: {
-  step: Extract<Step, { kind: "skill" }>;
-  bundle: AgentBundle;
+  /** A `comms.reach-out` skill step, v3 or v4 (R8: it stays a skill step in a process). */
+  step: { input: Record<string, unknown> };
+  bundle: Pick<AgentBundle, "people">;
   paths: readonly PathOption[];
   fieldErrors: FieldErrors;
-  set(key: string, fn: (s: Step) => Step): void;
+  set: SetInput;
 }) {
   const input = record(step.input);
   const to = record(input.to);
@@ -58,8 +59,7 @@ export function ReachOutFields({
   const roles = bundle.people ?? [];
   const purpose = typeof input.purpose === "string" ? input.purpose : "";
   const about = Array.isArray(input.about) ? (input.about as unknown[]).map(String) : [];
-  const update = (key: string, patch: Input) =>
-    set(key, (s) => ({ ...s, input: { ...record((s as typeof step).input), ...patch } }) as Step);
+  const update = (key: string, patch: Input) => patchInput(set, key, patch);
 
   return (
     <div className="flex flex-col gap-3" data-testid="builder-reach-out">
