@@ -47,6 +47,8 @@ import { bankfeedRoutes } from "./routes/bankfeed";
 import { billingRouteHandlers } from "./routes/billing";
 import { browserRoutes } from "./routes/browser";
 import { callsSetupRoutes } from "./routes/calls-setup";
+// R4: business hours, person hours and channels (docs/plan.md §1.86)
+import { channelRoutes } from "./routes/channels";
 import { clientViewRoutes } from "./routes/client-view";
 // v0.12 W2-F: the command center, search and plain-words questions
 import { commandCenterRoutes } from "./routes/command-center";
@@ -65,6 +67,7 @@ import { gchatRoutes } from "./routes/gchat";
 // v0.14 W4-D: Google Sheets' picking
 import { gsheetsRoutes } from "./routes/gsheets";
 import { hookRoutes } from "./routes/hooks";
+import { hoursRoutes } from "./routes/hours";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 // v0.12 W2-C: the test bench, skill tests and the agent lab
 import { labRoutes } from "./routes/lab";
@@ -243,6 +246,9 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   a2pRoutes(app);
   // P-7: message translation's settings (docs/plan.md §1.69)
   translationRoutes(app);
+  // R4: business hours, person hours and channels (docs/plan.md §1.86)
+  hoursRoutes(app);
+  channelRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));

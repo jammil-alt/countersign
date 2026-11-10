@@ -42,6 +42,8 @@ export * from "./api/feedback";
 export * from "./api/gchat";
 // v0.14 W4-D
 export * from "./api/gsheets";
+// R4: business hours, person hours and channels (docs/plan.md §1.86).
+export * from "./api/hours";
 export * from "./api/knowledge";
 export * from "./api/language";
 export * from "./api/ledger";

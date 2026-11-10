@@ -44,6 +44,8 @@ import { feedbackRoutes } from "./feedback";
 import { gchatRoutes } from "./gchat";
 // v0.14 W4-D: Google Sheets' picking
 import { gsheetsRoutes } from "./gsheets";
+// R4: business hours, person hours and channels
+import { hoursRoutes } from "./hours";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 import { ledgerRoutes } from "./ledger";
@@ -2050,5 +2052,7 @@ export const routes = {
   ...translationRoutes,
   // P-8: US texting registration (docs/plan.md §1.70)
   ...a2pRoutes,
+  // R4: business hours, person hours and channels (docs/plan.md §1.86).
+  ...hoursRoutes,
 } as const;
 export type Routes = typeof routes;
