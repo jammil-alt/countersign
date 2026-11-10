@@ -2625,6 +2625,23 @@ The converter is pure and adds nothing a v3 workflow didn't say: no confer, no n
 business hours. New versions are saved as v4 (seeds and pack templates in R9); old versions read as
 v4 through the converter wherever v4 is needed.
 
+#### Action write steps (skill model, owner 2026-11-10)
+
+A write step names a **tool**, or an **action**: `send_email`, `send_text`, `create_bill`,
+`create_vendor`, with a provider-neutral input (core `processes.ACTION_INPUTS`; money as decimal
+strings). The action resolves from the agent's bindings when the step runs, once, in a durable step
+(`<step>:action`), so a replay resolves the same way: an accounting action to the one accounting
+connection the agent is bound to (QuickBooks or BILL; with both the step names `via`), a message
+action to the agent's own email or text channel, else the account's (`channelFor`). It then runs
+exactly as a write step calling that tool: its input mapped to the tool's
+(`processes.actionToolInput`), one external action with its idempotency key, before state and undo,
+the gate. Every action is external, so its approval is on by default (invariant 8). Publish checks
+an action against the client agent's bindings and channels (no accounting connection, or two
+without `via`, is refused); a template checks its input only. The run view names where it went
+("Create bill · in QuickBooks"). The builder offers the actions as a palette group and, after a
+skill whose output fits an action's input, the matching write with its fields mapped. Design
+decisions: docs/plan.md §1.86 "Skill model (2026-11-10)".
+
 ---
 
 ## 11. Inbox and threads
