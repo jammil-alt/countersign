@@ -288,6 +288,13 @@
       "when": 1794195496976,
       "tag": "0041_qbo_webhook_event",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794240093692,
+      "tag": "0042_second_factor",
+      "breakpoints": true
     }
   ]
 }
