@@ -13,6 +13,8 @@
 import { type Db, inboxItem, run, withTenant } from "@countersign/db";
 import { inboxEventType } from "@countersign/workflows";
 import { and, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+// R7
+import { conversationEventOfItem, itemWakePayload } from "../converse/wake";
 import { toRunResolution } from "../inbox";
 import { reportHandled } from "../observability/report";
 import type { RunInstances } from "./instances";
@@ -39,11 +41,13 @@ export async function redeliverResolutions(
   tenantId: string,
   now: Date,
 ): Promise<{ sent: number; failed: number }> {
-  const pending = await withTenant(deps.db, tenantId, (tx) =>
-    tx
+  const pending = await withTenant(deps.db, tenantId, async (tx) => {
+    const rows = await tx
       .select({
         id: inboxItem.id,
+        tenantId: inboxItem.tenantId,
         runId: inboxItem.runId,
+        payload: inboxItem.payload,
         resolution: inboxItem.resolution,
         resolvedBy: inboxItem.resolvedBy,
       })
@@ -69,17 +73,28 @@ export async function redeliverResolutions(
           inArray(run.status, [...GOING]),
         ),
       )
-      .limit(500),
-  );
+      .limit(500);
+    // R7: a conversation's item also wakes a v4 conversation step, by the conversation's event.
+    return Promise.all(
+      rows.map(async (r) => ({ ...r, conversation: await conversationEventOfItem(tx, r) })),
+    );
+  });
   let sent = 0;
   let failed = 0;
   for (const item of pending) {
     if (!item.runId) continue;
     try {
+      const resolution = toRunResolution(item);
       await deps.instances.sendEvent(item.runId, {
         type: inboxEventType(item.id),
-        payload: toRunResolution(item),
+        payload: resolution,
       });
+      if (item.conversation) {
+        await deps.instances.sendEvent(item.runId, {
+          type: item.conversation,
+          payload: itemWakePayload(item.id, resolution),
+        });
+      }
       sent++;
     } catch (error) {
       failed++;

@@ -31,6 +31,8 @@ import { and, eq, sql } from "drizzle-orm";
 import type { z } from "zod";
 import { refuseGenericResolve } from "./access/release";
 import { auditInTx } from "./audit";
+// R7
+import { conversationEventOfItem, itemWakePayload } from "./converse/wake";
 import { applySuggestion, isDirectorySuggestion } from "./directory/suggestions";
 import { HttpError, notFound } from "./http";
 // v0.12 W1-A: go-live sign-off
@@ -60,6 +62,28 @@ export interface ResolveOutcome {
   item: InboxRow;
   /** The run to resume and the event to send it, or null (no run, or nothing changed). */
   resume: { runId: string; type: string; payload: InboxResolution } | null;
+  // R7 (docs/plan.md §1.86)
+  /**
+   * A conversation's item: the event a v4 conversation step waits on, sent beside `resume` (the
+   * cron re-sends both until the run takes the item, ./runs/resume.ts).
+   */
+  conversation?: { runId: string; type: string; payload: unknown } | null;
+}
+
+/** Sends a resolution's events to its run: the item's own, and a conversation's beside it. */
+export async function sendResolution(
+  instances: { sendEvent(runId: string, event: { type: string; payload: unknown }): Promise<void> },
+  outcome: Pick<ResolveOutcome, "resume" | "conversation">,
+): Promise<void> {
+  const { resume, conversation } = outcome;
+  if (resume)
+    await instances.sendEvent(resume.runId, { type: resume.type, payload: resume.payload });
+  if (conversation) {
+    await instances.sendEvent(conversation.runId, {
+      type: conversation.type,
+      payload: conversation.payload,
+    });
+  }
 }
 
 async function lockItem(tx: Tx, tenantId: string, itemId: string): Promise<InboxRow> {
@@ -233,12 +257,22 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
   // delivers it (runs/resume.ts), so nothing is sent now.
   const held = await holdForUndo(tx, input.tenantId, item, resolution, testRun);
   const updated = await lockItem(tx, input.tenantId, item.id);
+  const conversation = item.runId && !held ? await conversationEventOfItem(tx, item) : null;
   return {
     item: updated,
     resume:
       item.runId && !held
         ? { runId: item.runId, type: inboxEventType(item.id), payload: resolution }
         : null,
+    ...(conversation && item.runId
+      ? {
+          conversation: {
+            runId: item.runId,
+            type: conversation,
+            payload: itemWakePayload(item.id, resolution),
+          },
+        }
+      : {}),
   };
 }
 
