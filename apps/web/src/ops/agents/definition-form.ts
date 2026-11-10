@@ -14,6 +14,7 @@ import {
   NEW_AGENT_OVERSIGHT,
   type OversightReview,
   OversightSettings,
+  parameterValueProblem,
   parseSkillRef,
   providerModelName,
   type SkillOption,
@@ -27,6 +28,11 @@ export interface SkillEntry {
   skill: string;
   /** Overrides by key, as typed; a key left out takes the skill's default. */
   settings: Record<string, SettingValue>;
+  // Skill model (2026-11-10): the agent's own use of the skill.
+  /** The agent's parameter values by name, typed; a name left out takes the skill's default. */
+  parameters?: Record<string, unknown>;
+  /** The model this agent runs an AI skill on; "" = the skill's recommended model. */
+  model?: string;
 }
 
 export interface DefinitionForm {
@@ -90,6 +96,8 @@ export function formFromBundle(bundle: Pick<AnyAgentBundle, "definition">): Defi
       settings: Object.fromEntries(
         Object.entries(s.settings).map(([k, v]) => [k, typeof v === "boolean" ? v : String(v)]),
       ),
+      parameters: { ...(s.parameters ?? {}) },
+      model: s.model?.id ?? "",
     })),
     mode: d.permissions.mode,
     approver: d.permissions.approver ?? "",
@@ -159,6 +167,18 @@ export function validateForm(form: DefinitionForm, options: readonly SkillOption
         errors[field] = `${s.label} must be one of ${(s.options ?? []).join(", ")}.`;
       }
     }
+    // Skill model (2026-11-10): each value fits its parameter, and a parameter the skill gives
+    // no default must be set (publish refuses it otherwise).
+    for (const p of option.parameters ?? []) {
+      const value = entry.parameters?.[p.name];
+      const field = `skills.${i}.parameters.${p.name}`;
+      if (value === undefined) {
+        if (p.default === undefined) errors[field] = `Set ${p.label}: the skill has no default.`;
+        continue;
+      }
+      const problem = parameterValueProblem({ name: p.label, type: p.type }, value);
+      if (problem) errors[field] = problem;
+    }
   });
   return errors;
 }
@@ -192,7 +212,24 @@ export function applyForm<B extends AnyAgentBundle>(
       const type = option?.settings.find((s) => s.key === key)?.type;
       settings[key] = settingValue(raw, type);
     }
-    return { skill: entry.skill, settings };
+    // Skill model (2026-11-10): the agent's values and model, only when it sets any, so an entry
+    // the editor didn't change stays as stored.
+    const parameters = Object.fromEntries(
+      Object.entries(entry.parameters ?? {}).filter(([, v]) => v !== undefined),
+    );
+    const was = d.skills.find((s) => s.skill === entry.skill);
+    const model = entry.model?.trim()
+      ? {
+          ...(was?.model?.id === entry.model.trim() ? was.model : {}),
+          id: entry.model.trim(),
+        }
+      : undefined;
+    return {
+      skill: entry.skill,
+      settings,
+      ...(Object.keys(parameters).length ? { parameters } : {}),
+      ...(model ? { model } : {}),
+    };
   });
   const permissions: AgentBundle["definition"]["permissions"] = { mode: form.mode };
   if (form.approver) permissions.approver = form.approver;

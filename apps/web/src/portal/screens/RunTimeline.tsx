@@ -23,6 +23,7 @@ import { shortTime, stepStatusLabel } from "../../runs/format";
 import { conferTitle, StepChecks } from "../../runs/StepChecks";
 import { subjectTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
+import { writeLine } from "../../runs/write";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
 import { Loaded, Page, PageGrid } from "../../ui/page";
@@ -147,6 +148,12 @@ function RunPage({ data, onChanged }: { data: RunData; onChanged: () => void }) 
     testId: `portal-run-step-${s.id}`,
     children: (
       <>
+        {/* Skill model (2026-11-10): "Changed in QuickBooks", or "Saved to your records". */}
+        {s.write ? (
+          <p className="text-sm text-ink-muted" data-testid="portal-run-step-write">
+            {writeLine(t, s.write, s.status)}
+          </p>
+        ) : null}
         {/* R8: approvers and the mode, no-answer outcomes, an urgent notice's Seen. */}
         <StepChecks checks={s} testId="portal-run-step-checks" />
         {s.oversight && s.oversight.length > 0 ? (

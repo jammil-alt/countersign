@@ -138,6 +138,8 @@ function detail(
       name: "Records clerk",
       serviceName: "Record keeping",
     },
+    // Skill model (2026-11-10): the write reads by where it writes.
+    stepFacts: { update: { write: { kind: "change_in", text: "Change in Testkit" } } },
     version: 3,
     workflow: { slug: "fix-record", name: "Fix a record", definition: WORKFLOW },
   };
@@ -436,6 +438,11 @@ describe("back-office run view", () => {
     expect(rows[1]).toHaveTextContent("Update the record");
     expect(rows[1]).toHaveTextContent("Waiting for approval");
     expect(rows[1]).toHaveTextContent("$0.04");
+    expect(
+      within(rows[1] as HTMLElement).getByTestId(
+        "ops-run-step-00000000-0000-4000-8000-0000000f2001-kind",
+      ),
+    ).toHaveTextContent("Change in Testkit");
     expect(rows[3]).toHaveTextContent("hidden from client");
     expect(within(checklist).getByText("1 of 4 steps · $0.09")).toBeInTheDocument();
     // The wait, at the top and on the step, in the same words; the status is never "Running".

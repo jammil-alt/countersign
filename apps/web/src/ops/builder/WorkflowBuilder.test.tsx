@@ -1439,7 +1439,8 @@ describe("WorkflowBuilder on processes", () => {
     expect(screen.queryByTestId("builder-unsaved")).toBeNull();
     // The v3 fork is an if, the action a write with its approval; the canvas words follow.
     expect(screen.getByTestId("builder-step-confidence")).toHaveTextContent("If");
-    expect(screen.getByTestId("builder-step-update")).toHaveTextContent("Write");
+    // Skill model (2026-11-10): a write to a client's tool reads "Change in <its name>".
+    expect(screen.getByTestId("builder-step-update-kind")).toHaveTextContent("Change in Testkit");
     await select(user, "find");
     await user.type(screen.getByTestId("builder-inspector-name"), "!");
     await save(user, sent);

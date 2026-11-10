@@ -32,9 +32,11 @@ import {
   mergeBundles,
   parseSkillRef,
   processes,
+  recommendedModel,
   retiredSkillReason,
   routes,
   type SkillDefinition,
+  type SkillToolLookup,
   skillKind,
   skillModelFacts,
   skillMoveImpact,
@@ -178,6 +180,7 @@ function skillOption(
   def: SkillDefinition,
   source: "builtin" | "client" | "shared",
   version: number | null,
+  lookup?: SkillToolLookup,
 ) {
   return {
     id: def.id,
@@ -195,6 +198,10 @@ function skillOption(
       clientSpecific: s.clientSpecific,
     })),
     requiresConnectors: def.requiresConnectors,
+    // Skill model (2026-11-10), wave A: the agent's per-skill section (parameters, model).
+    kind: skillKind(def, lookup),
+    parameters: def.parameters ?? [],
+    recommendedModel: recommendedModel(def),
   };
 }
 
@@ -306,12 +313,13 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     const listed = new Set(
       (latest ? bundleSkillRefs(latest.bundle) : []).map((r) => parseSkillRef(r).id),
     );
+    const lookup = toolLookup(ctx.services.platform.tools.specs());
     const builtins = ctx.services.platform.catalog
       .list()
       .filter((def) => !isToolWrapper(def) || listed.has(def.id))
-      .map((def) => skillOption(def, "builtin", null));
+      .map((def) => skillOption(def, "builtin", null, lookup));
     const custom = (await operatorSkills(ctx, row.tenantId)).map((s) =>
-      skillOption(s.def, s.source, s.version),
+      skillOption(s.def, s.source, s.version, lookup),
     );
     return {
       skills: [...builtins, ...custom].sort((a, b) => a.name.localeCompare(b.name)),

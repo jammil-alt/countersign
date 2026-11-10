@@ -5,6 +5,8 @@ import {
   processes,
   type Rule,
   type Rules,
+  SKILL_KIND_LABEL,
+  type SkillKind,
   type Step,
   type StepKind,
   type Trigger,
@@ -127,6 +129,34 @@ export interface StepLabels {
    * A v4 write with no approval check reads "needs approval" unless this says false.
    */
   changesClientTool?(toolId: string): boolean | undefined;
+  /** Skill model (2026-11-10): a skill's kind by its reference; undefined when unknown. */
+  skillKind?(ref: string): SkillKind | undefined;
+  /**
+   * Skill model (2026-11-10): how a write step reads, by its tool ("Save to records", "Change in
+   * QuickBooks Online"); undefined when unknown (the step then reads "Write").
+   */
+  writeLabel?(toolId: string): string | undefined;
+  /**
+   * Skill model (2026-11-10): the model a skill step runs on, in a word ("claude-sonnet-5-5"), as
+   * core's `effectiveModel` resolves it; undefined for a step that runs none.
+   */
+  stepModel?(step: processes.Step): string | undefined;
+}
+
+/**
+ * A v4 step's kind in words, as the step list, the canvas and the inspector show it: a write by
+ * where it writes ("Save to records", "Change in QuickBooks Online"), else its kind's word.
+ */
+export function processKindLabel(step: processes.Step, labels: StepLabels = {}): string {
+  if (step.kind === "write") return labels.writeLabel?.(step.tool) ?? PROCESS_KIND_LABEL.write;
+  return PROCESS_KIND_LABEL[step.kind];
+}
+
+/** "Deterministic" or "AI" for a skill step whose skill the labels know; null otherwise. */
+export function stepSkillKindLabel(step: processes.Step, labels: StepLabels = {}): string | null {
+  if (step.kind !== "skill") return null;
+  const kind = labels.skillKind?.(step.skill);
+  return kind ? SKILL_KIND_LABEL[kind] : null;
 }
 
 /** The second line under a step's name: what it does in words, never its ids. */
@@ -251,7 +281,13 @@ export function processStepDetail(step: ProcessStep, labels: StepLabels = {}): s
     case "skill": {
       const name = labels.skill?.(step.skill);
       const what = name && name !== step.name ? name : null;
-      return [what, step.agent ? `by ${step.agent}` : null].filter(Boolean).join(" · ") || null;
+      // Skill model (2026-11-10): the model it runs on, wherever the step is shown.
+      const model = labels.stepModel?.(step);
+      return (
+        [what, step.agent ? `by ${step.agent}` : null, model ? `runs on ${model}` : null]
+          .filter(Boolean)
+          .join(" · ") || null
+      );
     }
     case "read":
       return [labels.connector?.(step.tool), toolLabel(step.tool)].filter(Boolean).join(" · ");

@@ -209,6 +209,124 @@ describe("DefinitionEditor", () => {
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ errors: [] }));
   });
 
+  // Skill model (2026-11-10): each skill the agent uses has a section with its kind, its
+  // parameters (the agent's values over the skill's defaults) and, for an AI skill, the model
+  // every use of it in this agent runs on.
+  it("sets the agent's parameters and model per skill, and needs a parameter with no default", async () => {
+    const aging: SkillOption = {
+      id: "custom:age-receivables",
+      name: "Age receivables",
+      description: "Buckets an open invoice",
+      category: "data",
+      source: "client",
+      version: 1,
+      settings: [],
+      requiresConnectors: [],
+      kind: "deterministic",
+      parameters: [
+        {
+          name: "aging",
+          label: "Aging buckets",
+          type: "buckets",
+          default: [
+            { from: 0, to: 15, label: "Current" },
+            { from: 16, label: "Late" },
+          ],
+        },
+        { name: "cutoff", label: "Cut-off", type: "date" },
+      ],
+      recommendedModel: null,
+    };
+    const ai: SkillOption = {
+      ...(SKILLS[0] as SkillOption),
+      kind: "ai",
+      parameters: [],
+      recommendedModel: { id: "claude-haiku-5-5" },
+    };
+    const sent: Record<string, unknown>[] = [];
+    const api = fakeApi({
+      "GET /api/ops/models": () => ({
+        models: [
+          {
+            id: "claude-sonnet-5-5",
+            label: "Sonnet",
+            inputPerMtok: "3",
+            outputPerMtok: "15",
+          },
+        ],
+      }),
+      [`POST ${AGENT_PATH}`]: ({ init }) => {
+        sent.push(JSON.parse(String(init.body)));
+        return saved();
+      },
+    });
+    render(
+      <MemoryRouter>
+        <ApiProvider client={api.client}>
+          <DefinitionEditor
+            agent={AGENT_SUMMARY}
+            from={AGENT_DETAIL.versions[0] as (typeof AGENT_DETAIL.versions)[number]}
+            bundle={FORK_BUNDLE}
+            skills={[ai, SKILLS[1] as SkillOption, aging]}
+            onSaved={vi.fn()}
+            onNoChange={vi.fn()}
+          />
+        </ApiProvider>
+      </MemoryRouter>,
+    );
+    const user = userEvent.setup();
+    expect(screen.getByTestId("agent-editor-skill-docs.extract-kind")).toHaveTextContent("AI");
+    const model = screen.getByTestId("agent-editor-skill-docs.extract-model");
+    expect(model).toHaveTextContent("The skill's recommendation");
+    await screen.findByRole("option", { name: /Sonnet/ });
+    await user.selectOptions(model, "claude-sonnet-5-5");
+
+    await user.selectOptions(
+      screen.getByTestId("agent-editor-skill-add-select"),
+      "custom:age-receivables",
+    );
+    await user.click(screen.getByTestId("agent-editor-skill-add"));
+    expect(screen.getByTestId("agent-editor-skill-custom:age-receivables-kind")).toHaveTextContent(
+      "Deterministic",
+    );
+    // A deterministic skill runs no model: no model picker.
+    expect(screen.queryByTestId("agent-editor-skill-custom:age-receivables-model")).toBeNull();
+    // The cut-off has no default: saving is refused until it is set.
+    await user.click(screen.getByTestId("agent-editor-save"));
+    expect(sent).toHaveLength(0);
+    expect(screen.getByText("Set Cut-off: the skill has no default.")).toBeInTheDocument();
+    await user.type(
+      screen.getByTestId("agent-editor-skill-custom:age-receivables-parameter-cutoff"),
+      "2026-12-31",
+    );
+    // The agent's own buckets, over the skill's.
+    const buckets = "agent-editor-skill-custom:age-receivables-parameter-aging";
+    await user.click(screen.getByTestId(`${buckets}-add`));
+    await user.type(screen.getByTestId(`${buckets}-0-to`), "30");
+    await user.type(screen.getByTestId(`${buckets}-0-label`), "Fine");
+    await user.click(screen.getByTestId(`${buckets}-add`));
+    await user.type(screen.getByTestId(`${buckets}-1-label`), "Late");
+    await user.click(screen.getByTestId("agent-editor-save"));
+
+    expect(sent).toHaveLength(1);
+    const body = sent[0] as { bundle: typeof FORK_BUNDLE };
+    expect(body.bundle.definition.skills).toEqual([
+      { skill: "docs.extract", settings: {}, model: { id: "claude-sonnet-5-5" } },
+      { skill: "docs.find-support", settings: {} },
+      {
+        skill: "custom:age-receivables",
+        settings: {},
+        parameters: {
+          cutoff: "2026-12-31",
+          aging: [
+            { from: 0, to: 30, label: "Fine" },
+            { from: 31, label: "Late" },
+          ],
+        },
+      },
+    ]);
+  });
+
   // Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): the owner's review, worded with its cost.
   it("offers the owner's review of every step, says what it costs, and saves it", async () => {
     const { sent, user } = setup();

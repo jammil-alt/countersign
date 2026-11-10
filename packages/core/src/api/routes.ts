@@ -86,7 +86,13 @@ import {
   RunsPerDay,
 } from "./runs-filter";
 // The skill model (owner, 2026-11-10)
-import { SkillKindSchema, SkillModelFacts, skillModelRoutes } from "./skill-model";
+import {
+  SkillKindSchema,
+  SkillModelFacts,
+  StepModelFacts,
+  skillModelRoutes,
+  TimelineWrite,
+} from "./skill-model";
 // v0.14 W4-C: the Slack channel picker
 import { slackRoutes } from "./slack";
 // P-6
@@ -601,6 +607,8 @@ export const TimelineStep = z.object({
   // cost), the approvers and the mode, a step that went on or stopped with no answer, an urgent
   // notice's "Seen". The screen words them in the client's language.
   ...TimelineChecks.shape,
+  // Skill model (2026-11-10), wave A: a write step reads "Saved" or "Changed in QuickBooks".
+  write: TimelineWrite.optional(),
 });
 
 export const PortalInboxItem = z.object({
@@ -860,6 +868,11 @@ export const SkillOption = z.object({
     }),
   ),
   requiresConnectors: z.array(z.string()),
+  // Skill model (2026-11-10), wave A: the agent's Settings show a per-skill section (its
+  // parameters, and the model an AI skill runs on). Optional, so a list without them still reads.
+  kind: SkillKindSchema.optional(),
+  parameters: SkillModelFacts.shape.parameters.optional(),
+  recommendedModel: SkillModelFacts.shape.recommendedModel.optional(),
 });
 export type SkillOption = z.infer<typeof SkillOption>;
 
@@ -1667,6 +1680,8 @@ export const opsRoutes = {
       ownerChecks: z.array(OwnerCheckView).optional(),
       /** Wave 6: the run's place in the audit queue and its marks, newest first. */
       audit: RunAuditState.optional(),
+      // Skill model (2026-11-10), wave A: each step's skill kind and write label, by step id.
+      stepFacts: z.record(z.string(), StepModelFacts).optional(),
     }),
   }),
   // Wave 6 (§1.86 "Run audit (wave 6)"): one run's whole trail as one file for an auditor.

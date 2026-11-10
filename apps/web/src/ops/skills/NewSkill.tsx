@@ -422,11 +422,10 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
               <Card
                 title="How it works"
                 meta={
-                  def.mode === "task"
-                    ? `A task on ${def.model?.id ?? "its own model"}`
-                    : def.mode === "agent"
-                      ? "On the agent's model, with its instructions"
-                      : "Code, no model"
+                  // Skill model (2026-11-10): the Builder drafts AI skills.
+                  def.mode === "tool"
+                    ? "Deterministic: rule rows, no model"
+                    : `AI: instructions on ${def.model?.id ?? "the agent's model"}`
                 }
                 pad
               >

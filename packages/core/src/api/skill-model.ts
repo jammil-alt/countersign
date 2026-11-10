@@ -29,6 +29,29 @@ export const SkillModelFacts = z.object({
 });
 export type SkillModelFacts = z.infer<typeof SkillModelFacts>;
 
+/**
+ * Skill model (2026-11-10), wave A: what the back office's run view says of a step beyond its
+ * kind: a skill step's kind (Deterministic or AI), and how a write step reads ("Save to records",
+ * "Change in QuickBooks Online"). Keyed by the step's id in the workflow that ran.
+ */
+export const StepModelFacts = z.object({
+  skillKind: SkillKindSchema.optional(),
+  write: z.object({ kind: z.enum(["save_to_records", "change_in"]), text: z.string() }).optional(),
+});
+export type StepModelFacts = z.infer<typeof StepModelFacts>;
+
+/**
+ * Skill model (2026-11-10), wave A: how a write step reads on the client's timeline: saved to
+ * our records, or changed in one of the client's own tools (by the connector's name, which the
+ * client knows). Never a tool id, a model or a cost (invariant 11).
+ */
+export const TimelineWrite = z.object({
+  kind: z.enum(["save_to_records", "change_in"]),
+  /** The connector's name for a change in a client's tool ("QuickBooks Online"); else null. */
+  connector: z.string().nullable(),
+});
+export type TimelineWrite = z.infer<typeof TimelineWrite>;
+
 export const SkillBreakView = z.object({
   kind: z.enum([
     "removed",

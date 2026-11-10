@@ -14,12 +14,19 @@ import {
   type AgentBundle,
   type AnyAgentBundle,
   AnyAgentBundle as AnyAgentBundleSchema,
+  agentSkillEntry,
+  type BuilderCatalog,
   canonicalJson,
+  effectiveModel,
+  lookupSkill,
   type ProcessAgentBundle,
   parseSkillRef,
+  providerModelName,
   Slug,
+  skillKind,
   type TriggerOn,
   type TypingContext,
+  toolLookup,
   uuidv7,
 } from "@countersign/core";
 import {
@@ -77,6 +84,7 @@ import {
   type BuilderData,
   type BuilderProblem,
   boundMatrices,
+  catalogSkillKind,
   connectorName,
   filterSections,
   paletteConnectors,
@@ -85,6 +93,7 @@ import {
   toolConnector,
   typingContext,
   validateProcessesLikeServer,
+  writeLabelOf,
 } from "./catalog";
 import { EventOptions, SmallInput, SmallSelect } from "./fields";
 import { type FocusRequest, Inspector, type Selection } from "./Inspector";
@@ -127,6 +136,7 @@ import {
 } from "./outcomes";
 import { type Member, type People, personName } from "./people";
 import { useClientScriptTools } from "./scripts";
+import { applySkillMove } from "./skill-move";
 
 type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
 
@@ -154,6 +164,9 @@ export interface WorkflowBuilderProps {
 
 export default function WorkflowBuilder(props: WorkflowBuilderProps) {
   const catalog = useApi(apiRoutes.opsBuilderCatalog, { params: { id: props.agent.id } });
+  // Skill model (2026-11-10): skill versions a step moved to in this session, so the builder
+  // types the step with the version it now names (the server resolves it the same way).
+  const [moved, setMoved] = useState<BuilderCatalog["skills"]>([]);
   const events = useApi(apiRoutes.opsEventCatalog);
   const templateVersion = useApi(
     apiRoutes.opsAgentVersion,
@@ -206,7 +219,20 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
   return (
     <BuilderBody
       {...props}
-      data={{ catalog: catalog.data, events: events.data.events, scripts }}
+      data={{
+        catalog: {
+          ...catalog.data,
+          skills: [
+            ...catalog.data.skills.filter((s) => !moved.some((m) => m.ref === s.ref)),
+            ...moved,
+          ],
+        },
+        events: events.data.events,
+        scripts,
+      }}
+      onCatalogSkill={(entry) =>
+        setMoved((list) => [...list.filter((m) => m.ref !== entry.ref), entry])
+      }
       template={template}
       people={people}
     />
@@ -327,6 +353,8 @@ function BuilderBody(
     data: BuilderData;
     template: AnyAgentBundle | null;
     people: People;
+    /** Skill model (2026-11-10): a skill version a step moved to joins the builder's catalog. */
+    onCatalogSkill?(entry: BuilderCatalog["skills"][number]): void;
   },
 ) {
   const { agent, from, data, base } = props;
@@ -477,13 +505,28 @@ function BuilderBody(
         const tool = ctx.tools?.[toolId];
         return tool ? tool.sideEffect === "external" : undefined;
       },
+      // Skill model (2026-11-10): each skill step's kind, each write by where it writes.
+      skillKind: (ref) => catalogSkillKind(data, ref),
+      writeLabel: (toolId) => writeLabelOf(data, toolId),
+      stepModel: (step) => {
+        if (step.kind !== "skill") return undefined;
+        const def = lookupSkill(step.skill, ctx);
+        if (!def) return undefined;
+        const runs = effectiveModel({
+          skill: def,
+          agentModel: bundle.definition.model,
+          agentSkill: agentSkillEntry(bundle.definition, parseSkillRef(step.skill).id)?.model,
+          step: step.model ?? step.customize?.model,
+        });
+        return runs ? providerModelName(runs.model.id) : undefined;
+      },
       person: (id) => {
         // A role reads as its own words ("client admin"); a person by their name.
         if (["client_admin", "client_user", "operator", "lead"].includes(id)) return undefined;
         return personName(props.people, id);
       },
     }),
-    [data, ctx, props.people],
+    [data, ctx, props.people, bundle],
   );
 
   // ── Edits ──
@@ -1134,6 +1177,20 @@ function BuilderBody(
                       setSelection(null);
                     }}
                     onDelete={remove}
+                    // Skill model (2026-11-10): "Move to vN", references remapped, one undo.
+                    agentId={agent.id}
+                    tenantId={agent.tenantId}
+                    onMoveSkill={(move) => {
+                      props.onCatalogSkill?.({
+                        ref: move.to,
+                        source: "pinned",
+                        version: move.version,
+                        definition: move.definition,
+                        kind: skillKind(move.definition, toolLookup(data.catalog.tools)),
+                        palette: false,
+                      });
+                      edit((w) => applySkillMove(w, move.stepId, move.to, move.remaps));
+                    }}
                     // DECISION (wave 5, web): the step stays selected after "Add a route", so its
                     // inspector says what was set; the new if waits on the canvas for its steps.
                     onAddRoute={(id, option) =>

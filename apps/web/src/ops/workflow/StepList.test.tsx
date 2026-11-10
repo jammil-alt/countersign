@@ -76,4 +76,27 @@ describe("StepList: a v4 process", () => {
     expect(screen.getByTestId("step-update-checks").textContent).toContain("Approval");
     expect(screen.getByTestId("step-ask").textContent).toContain("2 days");
   });
+
+  // Skill model (2026-11-10): with a catalog's labels, a write reads by where it writes and a
+  // skill step says its kind.
+  it("labels writes and skill kinds when the screen has a catalog", () => {
+    const withSkill: processes.Process = {
+      ...process,
+      steps: [
+        { id: "classify", name: "Classify", kind: "skill", skill: "custom:classify", input: {} },
+        ...process.steps,
+      ],
+    };
+    render(
+      <StepList
+        workflow={withSkill}
+        labels={{
+          skillKind: (ref) => (ref === "custom:classify" ? "ai" : undefined),
+          writeLabel: () => "Change in QuickBooks Online",
+        }}
+      />,
+    );
+    expect(screen.getByTestId("step-classify-skill-kind")).toHaveTextContent("AI");
+    expect(screen.getByTestId("step-update").textContent).toContain("Change in QuickBooks Online");
+  });
 });

@@ -7,17 +7,19 @@
 // each under its name ("Approval: client admin, then Dana, in turn · 2 days").
 import type { processes, Rules, Trigger, Step as V3Step, Workflow } from "@countersign/core";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
-import { cx, StepKindTag } from "../../ui/primitives";
+import { cx, StepKindTag, Tag } from "../../ui/primitives";
 import { checksLines } from "./checks";
 import {
   KIND_LABEL,
-  PROCESS_KIND_LABEL,
+  processKindLabel,
   processStepDetail,
   processStepNames,
   rulesText,
+  type StepLabels,
   type StepNames,
   stepDetail,
   stepNames,
+  stepSkillKindLabel,
   triggerDetail,
   triggerTitle,
 } from "./describe";
@@ -53,13 +55,16 @@ const IsProcess = createContext(false);
 function stepWords(
   step: Step,
   v4: boolean,
-): { kind: string; detail: string | null; checks: string[] } {
+  labels: StepLabels = {},
+): { kind: string; detail: string | null; checks: string[]; skillKind?: string | null } {
   if (v4) {
     const s = step as processes.Step;
+    // Skill model (2026-11-10): a write by where it writes, a skill step with its kind.
     return {
-      kind: PROCESS_KIND_LABEL[s.kind],
-      detail: processStepDetail(s),
+      kind: processKindLabel(s, labels),
+      detail: processStepDetail(s, labels),
       checks: checksLines(s.checks),
+      skillKind: stepSkillKindLabel(s, labels),
     };
   }
   const s = step as V3Step;
@@ -82,14 +87,19 @@ export interface StepMark {
   attention?: boolean;
 }
 const Marks = createContext<((id: string) => StepMark | undefined) | undefined>(undefined);
+/** Skill model (2026-11-10): names and kinds from a catalog, when the screen has one. */
+const Labels = createContext<StepLabels>({});
 
 export function StepList({
   workflow,
   marks,
+  labels = {},
 }: {
   workflow: Shown;
   /** By step, fork path or trigger id. */
   marks?: (id: string) => StepMark | undefined;
+  /** Names, skill kinds and write labels from a catalog, when the screen has one. */
+  labels?: StepLabels;
 }) {
   const names = useMemo(
     () => (workflow.schemaVersion === 4 ? processStepNames(workflow) : stepNames(workflow)),
@@ -99,7 +109,9 @@ export function StepList({
     <IsProcess.Provider value={workflow.schemaVersion === 4}>
       <Names.Provider value={names}>
         <Marks.Provider value={marks}>
-          <StepListItems workflow={workflow} />
+          <Labels.Provider value={labels}>
+            <StepListItems workflow={workflow} />
+          </Labels.Provider>
         </Marks.Provider>
       </Names.Provider>
     </IsProcess.Provider>
@@ -154,12 +166,13 @@ function Item({ children, connector }: { children: ReactNode; connector?: boolea
 }
 
 function StepNode({ step, number }: { step: Step; number?: number }) {
-  const words = stepWords(step, useContext(IsProcess));
+  const words = stepWords(step, useContext(IsProcess), useContext(Labels));
   const card = (
     <StepCard
       testId={`step-${step.id}`}
       number={number}
       kind={words.kind}
+      skillKind={words.skillKind ?? null}
       kindId={step.kind}
       title={step.name}
       detail={words.detail}
@@ -194,9 +207,12 @@ function StepCard({
   testId,
   compact,
   checks,
+  skillKind,
 }: {
   number?: number | undefined;
   kind: string;
+  /** Skill model (2026-11-10): a skill step's kind, "Deterministic" or "AI". */
+  skillKind?: string | null;
   title: string;
   detail: string | null;
   /** R8: a v4 step's checks, one line each. */
@@ -225,7 +241,10 @@ function StepCard({
           {number}
         </span>
       ) : null}
-      <StepKindTag kind={kindId} label={kind} />
+      <span className="flex shrink-0 flex-col items-start gap-1">
+        <StepKindTag kind={kindId} label={kind} />
+        {skillKind ? <Tag testId={`${testId}-skill-kind`}>{skillKind}</Tag> : null}
+      </span>
       <div className="min-w-0">
         <p className="font-medium text-ink">{title}</p>
         {detail ? <p className="truncate text-sm text-ink-muted">{detail}</p> : null}
@@ -264,13 +283,14 @@ function Branch({ steps }: { steps: Step[] }) {
 
 /** Steps inside a path or loop carry no number, as in the design. */
 function NestedNode({ step }: { step: Step }) {
-  const words = stepWords(step, useContext(IsProcess));
+  const words = stepWords(step, useContext(IsProcess), useContext(Labels));
   return (
     <div className="flex w-full flex-col items-center">
       <StepCard
         compact
         testId={`step-${step.id}`}
         kind={words.kind}
+        skillKind={words.skillKind ?? null}
         kindId={step.kind}
         title={step.name}
         detail={words.detail}
