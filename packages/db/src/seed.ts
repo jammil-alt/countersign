@@ -274,7 +274,7 @@ export async function seed(db: Db, options: SeedOptions = {}): Promise<SeedResul
         version: Math.max(0, ...versions.map((x) => x.version)) + 1,
         // The column is typed v3; a bundle that holds processes is stored as it is and its readers
         // check `schemaVersion` (as the agents registry's `parseVersionBundle` stores one).
-        bundle: v.bundle as AgentBundle,
+        bundle: v.bundle,
         bundleHash: v.hash,
         status: "live",
         changeNote: `Seeded platform template v${v.version}`,
@@ -476,7 +476,7 @@ async function seedDemoDesk(
       tenantId,
       agentId: ids.agentId,
       version: Math.max(0, ...versions.map((x) => x.version)) + 1,
-      bundle: v.bundle as AgentBundle,
+      bundle: v.bundle,
       bundleHash: v.hash,
       status: "live",
       changeNote: `Seeded Demo client agent v${v.version}`,

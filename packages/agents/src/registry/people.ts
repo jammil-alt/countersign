@@ -6,7 +6,6 @@
 // The operator and the client admin both bind people; only the operator binds channels.
 
 import {
-  type AgentBundle,
   type ChannelBindings,
   channelTool,
   connectorChannels,
@@ -39,7 +38,7 @@ export async function agentRoles(tx: Tx, row: AgentRow): Promise<PersonRole[]> {
       .select({ bundle: agentVersion.bundle })
       .from(agentVersion)
       .where(eq(agentVersion.id, versionId));
-    return (v?.bundle as AgentBundle | undefined)?.people ?? [];
+    return v?.bundle.people ?? [];
   }
   const [latest] = await tx
     .select({ bundle: agentVersion.bundle })
@@ -47,7 +46,7 @@ export async function agentRoles(tx: Tx, row: AgentRow): Promise<PersonRole[]> {
     .where(eq(agentVersion.agentId, row.id))
     .orderBy(desc(agentVersion.version))
     .limit(1);
-  return (latest?.bundle as AgentBundle | undefined)?.people ?? [];
+  return latest?.bundle.people ?? [];
 }
 
 /** Required roles of `roles` with nobody bound in `people`. */

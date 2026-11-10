@@ -4,7 +4,7 @@
 // is bring documents, and agents use it through their triggers on document events.
 
 import { UPLOAD_CONNECTOR_ID } from "@countersign/connectors";
-import { type AgentBundle, allTriggers } from "@countersign/core";
+import { type AnyAgentBundle, allTriggers } from "@countersign/core";
 import { agent, agentVersion, type connection, document, type Tx } from "@countersign/db";
 import { and, eq, inArray, isNotNull, max, ne } from "drizzle-orm";
 
@@ -20,7 +20,7 @@ export function isBuiltInSource(connector: string): boolean {
 /** Whether a bundle has an enabled workflow that starts on a document event. */
 // DECISION: an agent uses a built-in source when one of its enabled workflows (its live version)
 // starts on a `document.*` event: uploaded and forwarded documents are what emit them.
-export function startsOnDocuments(bundle: AgentBundle): boolean {
+export function startsOnDocuments(bundle: AnyAgentBundle): boolean {
   return bundle.workflows.some(
     (w) =>
       w.enabled !== false &&

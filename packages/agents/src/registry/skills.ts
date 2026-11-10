@@ -4,7 +4,6 @@
 // rollback rules: every edit is a new immutable version.
 
 import {
-  type AgentBundle,
   type AnyAgentBundle,
   type BrowserTier,
   hashJson,
@@ -416,10 +415,10 @@ export async function resolveCustomSkill(
 }
 
 /** Every skill reference in a bundle: the agent's skills and every skill step. */
-export function bundleSkillRefs(bundle: AgentBundle): string[] {
+export function bundleSkillRefs(bundle: AnyAgentBundle): string[] {
   const refs = new Set(bundle.definition.skills.map((s) => s.skill));
-  // R8: a bundle the builder saved holds v4 processes, though the column is typed v3.
-  for (const w of (bundle as AnyAgentBundle).workflows) {
+  // R8: a bundle the builder saved holds v4 processes.
+  for (const w of bundle.workflows) {
     if (w.workflow.schemaVersion === 4) {
       for (const { step } of processes.allSteps(w.workflow)) {
         if (step.kind === "skill") refs.add(step.skill);
@@ -439,7 +438,7 @@ export function bundleSkillRefs(bundle: AgentBundle): string[] {
  */
 export async function skillContext(
   tx: Tx,
-  input: { tenantId: string | null; bundle: AgentBundle; catalog: SkillCatalog },
+  input: { tenantId: string | null; bundle: AnyAgentBundle; catalog: SkillCatalog },
 ): Promise<{ skills: Record<string, SkillDefinition>; missing: string[] }> {
   const skills: Record<string, SkillDefinition> = {};
   const missing: string[] = [];
@@ -470,7 +469,7 @@ export async function skillContext(
  */
 export async function snapshotSharedSkills(
   tx: Tx,
-  input: { tenantId: string; bundle: AgentBundle; catalog?: SkillCatalog },
+  input: { tenantId: string; bundle: AnyAgentBundle; catalog?: SkillCatalog },
 ): Promise<{ ref: string; versionId: string }[]> {
   const made: { ref: string; versionId: string }[] = [];
   for (const ref of bundleSkillRefs(input.bundle)) {

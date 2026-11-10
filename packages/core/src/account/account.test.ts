@@ -322,6 +322,46 @@ describe("the account agent's publish guard", () => {
       ["fix", "tool", "tool_not_allowed"],
     ]);
   });
+  // Wave 3b: a v4 `process` step pins an automation as `use_automation` does; its steps are the
+  // step's own, so Sloan can't reach a client's tool through a sub-process.
+  it("opens the automation a v4 process step pins, and refuses a conversation", () => {
+    const b = bundle({});
+    const w = b.workflows[0];
+    if (!w) throw new Error("no workflow");
+    w.workflow = {
+      schemaVersion: 4,
+      triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+      steps: [
+        { id: "sub", name: "Sub", kind: "process", process: "fix-it@1", input: {} },
+        {
+          id: "talk",
+          name: "Talk",
+          kind: "conversation",
+          with: "{{trigger.vendor}}",
+          channel: "email",
+          goal: "Ask",
+          deadline: { after: "P1D", hours: "clock", ifNoAnswer: "stop" },
+        },
+      ],
+    } as never;
+    const automation = AutomationDefinition.parse({
+      schemaVersion: 1,
+      slug: "fix-it",
+      name: "Fix it",
+      steps: [{ id: "write", name: "Write", kind: "action", tool: "testkit.record.update" }],
+    });
+    const errors = accountAgentProblems({
+      slug: "supervisor",
+      bundle: b,
+      skills: SKILLS,
+      tools: TOOLS,
+      automations: { "fix-it@1": automation },
+    });
+    expect(errors.map((e) => [e.stepId, e.field, e.code])).toEqual([
+      ["sub", "process", "tool_not_allowed"],
+      ["talk", "channel", "tool_not_allowed"],
+    ]);
+  });
 });
 
 describe("what Sloan reads", () => {

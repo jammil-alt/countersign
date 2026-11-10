@@ -27,7 +27,9 @@ import {
   voiceToolName,
 } from "@countersign/connectors";
 import {
-  type AgentBundle,
+  type AnyAgentBundle,
+  type ApprovalRequirement,
+  allTriggers,
   type CallLanguage,
   decideToolCall,
   effectiveMode,
@@ -36,6 +38,7 @@ import {
   type InboundDecision,
   openingLine,
   type PermissionMatrix,
+  type processes,
   type Step,
   trimTrailingSlashes,
 } from "@countersign/core";
@@ -91,7 +94,7 @@ export function voiceAgentConfig(input: {
   tenantId: string;
   client: string;
   agentSlug: string;
-  bundle: AgentBundle;
+  bundle: Pick<AnyAgentBundle, "definition">;
   settings: VoiceSettings;
   language: CallLanguage;
   direction: "in" | "out";
@@ -181,8 +184,13 @@ export interface AnsweringStep {
   agentName: string;
   agentSlug: string;
   agentVersionId: string;
-  bundle: AgentBundle;
-  step: Step & { kind: "action" };
+  bundle: AnyAgentBundle;
+  /** The answering step: a v3 action's or a v4 write's id, input and approval. */
+  step: {
+    id: string;
+    input: Record<string, unknown>;
+    approval?: { required: ApprovalRequirement };
+  };
   // v0.12 W1-A: the go-live stage, read with the agent in this transaction (§10.9).
   stage: string | null;
 }
@@ -219,11 +227,12 @@ export async function answeringStep(
   for (const { a, v } of rows) {
     for (const wf of v.bundle.workflows) {
       if (wf.enabled === false) continue;
-      const on = wf.workflow.trigger.on;
-      if (on.type !== "event" || on.event !== CALL_RECEIVED_EVENT) continue;
-      const step = wf.workflow.steps.find(
-        (s): s is Step & { kind: "action" } => s.kind === "action" && s.tool === CALL_ANSWER_TOOL,
+      // Wave 3b: any of the workflow's triggers (a v4 process lists several), as the router reads.
+      const onCall = allTriggers(wf.workflow).some(
+        (t) => t.on.type === "event" && t.on.event === CALL_RECEIVED_EVENT,
       );
+      if (!onCall) continue;
+      const step = answerStepOf(wf.workflow);
       if (step) {
         return {
           agentId: a.id,
@@ -238,6 +247,33 @@ export async function answeringStep(
     }
   }
   return null;
+}
+
+/**
+ * A workflow's top-level step that answers calls: a v3 `call.answer` action, or a v4 write of it.
+ * A v4 write's approval is its `checks.approval`, and absent is required (invariant 8).
+ */
+// DECISION (wave 3b): a v4 write whose approval holds a `when` counts as required here: a call
+// ringing in has no run data to test the condition against, so the strictest reading applies.
+function answerStepOf(
+  workflow: AnyAgentBundle["workflows"][number]["workflow"],
+): AnsweringStep["step"] | null {
+  if (workflow.schemaVersion === 4) {
+    const w = workflow.steps.find(
+      (s): s is processes.WriteStep => s.kind === "write" && s.tool === CALL_ANSWER_TOOL,
+    );
+    if (!w) return null;
+    const check = w.checks?.approval;
+    return {
+      id: w.id,
+      input: w.input,
+      approval: { required: check && !check.when ? check.required : "required" },
+    };
+  }
+  const step = workflow.steps.find(
+    (s): s is Step & { kind: "action" } => s.kind === "action" && s.tool === CALL_ANSWER_TOOL,
+  );
+  return step ? { id: step.id, input: step.input, approval: step.approval } : null;
 }
 
 export interface InboundPlan {
@@ -270,7 +306,7 @@ export async function planInbound(
     settings: null,
   });
   if (!answering) return fallback("no agent answers this client's calls");
-  const { callSid: _ignored, ...raw } = answering.step.input as Record<string, unknown>;
+  const { callSid: _ignored, ...raw } = answering.step.input;
   const settings = VoiceSettingsSchema.safeParse(raw);
   if (!settings.success) return fallback(`${answering.agentName}'s answering step isn't complete`);
   // The step's raw input is never rendered here, but a template in what becomes the voice agent's

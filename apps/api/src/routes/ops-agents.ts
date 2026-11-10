@@ -32,8 +32,8 @@ import {
   validateForPublish,
 } from "@countersign/agents";
 import {
-  type AgentBundle,
-  AgentBundle as AgentBundleSchema,
+  type AnyAgentBundle,
+  AnyAgentBundle as AnyAgentBundleSchema,
   routes,
   type SkillDefinition,
   validateWorkflow,
@@ -56,7 +56,7 @@ async function agentInScope(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">, id
   return row;
 }
 
-function routable(row: AgentRow, liveBundle: AgentBundle | null): RoutableAgent {
+function routable(row: AgentRow, liveBundle: AnyAgentBundle | null): RoutableAgent {
   return {
     id: row.id,
     tenantId: row.tenantId,
@@ -95,7 +95,7 @@ async function sandboxClient(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">): 
 async function bindTestCopy(
   ctx: Pick<HandlerCtx<never>, "tx" | "services" | "session">,
   copy: AgentRow,
-  bundle: AgentBundle,
+  bundle: AnyAgentBundle,
 ): Promise<AgentRow> {
   const tenantId = copy.tenantId as string;
   const { skills } = await skillContext(ctx.tx, {
@@ -451,13 +451,15 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
     let skills: Record<string, SkillDefinition> = Object.fromEntries(
       platform.catalog.list().map((s) => [s.id, s]),
     );
-    let agentDef: AgentBundle["definition"] | undefined;
+    let agentDef: AnyAgentBundle["definition"] | undefined;
     if (body.agentId) {
       const row = await agentInScope(ctx, body.agentId);
       const latest = await latestVersion(tx, row.id);
       const v = row.liveVersionId ? await getVersion(tx, row.liveVersionId) : latest;
       if (v) {
-        const bundle = AgentBundleSchema.parse(v.bundle);
+        // Wave 3b: the agent's live (else latest) version may hold v4 processes; only its
+        // definition and skills are read here.
+        const bundle = AnyAgentBundleSchema.parse(v.bundle);
         agentDef = bundle.definition;
         const resolved = await skillContext(tx, {
           tenantId: row.tenantId,

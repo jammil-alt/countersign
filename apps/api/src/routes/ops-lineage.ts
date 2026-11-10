@@ -20,7 +20,6 @@ import {
   skillContext,
 } from "@countersign/agents";
 import {
-  type AgentBundle,
   type AnyAgentBundle,
   type BuilderCatalog,
   type BundleChange,
@@ -60,7 +59,7 @@ async function currentVersion(ctx: Scope, row: AgentRow): Promise<AgentVersionRo
  * A name for every entity either bundle has, so the screens can say "Step Ask Jammil changed"
  * instead of `step:9f…`. Skills are labelled by their reference; otherwise branches "Otherwise".
  */
-export function bundleLabels(...bundles: AgentBundle[]): Record<string, string> {
+export function bundleLabels(...bundles: AnyAgentBundle[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (const b of bundles) {
     for (const [key, e] of flattenBundle(b).entities) {
@@ -83,8 +82,8 @@ export function bundleLabels(...bundles: AgentBundle[]): Record<string, string> 
  * reads v3 workflows as v4 when the two versions are one of each (an agent updated to v4).
  */
 function diff(
-  a: AgentBundle,
-  b: AgentBundle,
+  a: AnyAgentBundle,
+  b: AnyAgentBundle,
   read: ReturnType<typeof lineageReadOptions>,
 ): { changes: BundleChange[] } {
   try {
@@ -98,7 +97,7 @@ function diff(
   }
 }
 
-export function labels(...bundles: AgentBundle[]): Record<string, string> {
+export function labels(...bundles: AnyAgentBundle[]): Record<string, string> {
   try {
     return bundleLabels(...bundles);
   } catch {
@@ -181,7 +180,7 @@ function skillOption(
 async function hiddenTestConnectors(
   tx: Tx,
   row: AgentRow,
-  bundle: AgentBundle | null,
+  bundle: AnyAgentBundle | null,
   platform: Platform,
 ): Promise<Set<string>> {
   const testOnly = platform.connectors.list().filter((c) => c.manifest.testOnly === true);
@@ -446,13 +445,8 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
         try {
           customizations = diffBundles(base.bundle, v.bundle, read).length;
           if (behind > 0 && templateLive) {
-            conflicts = mergeBundles(
-              base.bundle as AnyAgentBundle,
-              v.bundle as AnyAgentBundle,
-              templateLive.bundle as AnyAgentBundle,
-              [],
-              read,
-            ).conflicts.length;
+            conflicts = mergeBundles(base.bundle, v.bundle, templateLive.bundle, [], read).conflicts
+              .length;
           }
         } catch {
           // A draft with duplicate ids can't be compared; the agent page says why.

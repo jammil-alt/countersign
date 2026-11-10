@@ -13,9 +13,10 @@ import {
   skillContext,
 } from "@countersign/agents";
 import {
-  type AgentBundle,
   type AgentStage,
+  type AnyAgentBundle,
   clientLanguage,
+  eachBundleStep,
   GO_LIVE_SUBJECT,
   type GoLive,
   GoLivePayload,
@@ -80,10 +81,12 @@ export function stageOf(row: Pick<AgentRow, "kind" | "stage">): AgentStage | nul
 // DECISION: reaching people counts as a write, though `comms.reach_out` itself is `internal`: its
 // attempts are external actions on the client's own channels (docs/plan.md §1.25). Automations
 // (W2-B) join the walk: an enabled workflow's use steps bring in their automation's steps.
+// Wave 3b: a v4 process's read and write steps name their tool as an action does, its `process`
+// steps bring in their automation, and a conversation step reaches people.
 export async function bundleWrites(
   tx: Tx,
   tenantId: string,
-  bundle: AgentBundle,
+  bundle: AnyAgentBundle,
   ctx: RegistryContext,
 ): Promise<boolean> {
   const { skills } = await skillContext(tx, { tenantId, bundle, catalog: ctx.catalog });
@@ -96,13 +99,17 @@ export async function bundleWrites(
     for (const t of skillTools(def)) toolIds.add(t);
   };
   for (const s of bundle.definition.skills) addSkill(s.skill);
-  for (const w of bundle.workflows) {
-    if (!w.enabled) continue;
-    walkSteps(w.workflow, ({ step }) => {
+  eachBundleStep(
+    bundle,
+    (step) => {
       if (step.kind === "skill") addSkill(step.skill);
-      if (step.kind === "action") toolIds.add(step.tool);
-    });
-  }
+      if (step.kind === "action" || step.kind === "read" || step.kind === "write") {
+        toolIds.add(step.tool);
+      }
+      if (step.kind === "conversation") reaches = true;
+    },
+    { enabledOnly: true },
+  );
   // v0.12 W2-B: the steps of the automations enabled workflows use.
   const enabled = { ...bundle, workflows: bundle.workflows.filter((w) => w.enabled) };
   const used = await automationContext(tx, { tenantId, bundle: enabled, catalog: ctx.catalog });
@@ -124,7 +131,7 @@ export async function bundleWrites(
   return false;
 }
 
-async function liveBundle(tx: Tx, row: AgentRow): Promise<AgentBundle | null> {
+async function liveBundle(tx: Tx, row: AgentRow): Promise<AnyAgentBundle | null> {
   if (!row.liveVersionId) return null;
   const [v] = await tx
     .select({ bundle: agentVersion.bundle })

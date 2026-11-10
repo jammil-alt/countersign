@@ -32,7 +32,6 @@
 import { createHash } from "node:crypto";
 import {
   type AgentBundle,
-  type AnyAgentBundle,
   addDays,
   batchKeyOf,
   bundleHash,
@@ -1058,8 +1057,9 @@ async function seedAgents(tx: Tx, ctx: Ctx): Promise<Agents> {
         .where(eq(agentVersion.agentId, trow.id))
         .orderBy(desc(agentVersion.version));
       template = trow;
+      const v3 = vrows.find((v) => !holdsProcess(v.bundle));
       tv = must(
-        vrows.find((v) => !holdsProcess(v.bundle as AnyAgentBundle)),
+        v3 && { ...v3, bundle: v3.bundle as AgentBundle },
         `${spec.template} version of v3 workflows`,
       );
     }

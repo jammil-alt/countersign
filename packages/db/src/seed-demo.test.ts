@@ -2,7 +2,13 @@
 // nothing, it leaves the Demo client and the Sandbox as they were, its rows are its own under RLS,
 // and its versions, changes and findings keep the platform's invariants.
 
-import { bundleHash, isUuid, validateBundle } from "@countersign/core";
+import {
+  type AgentBundle,
+  bundleHash,
+  holdsProcess,
+  isUuid,
+  validateBundle,
+} from "@countersign/core";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withTenant } from "./client";
@@ -138,7 +144,9 @@ describe.skipIf(!online)("demo seed", () => {
         .select()
         .from(agentVersion)
         .where(eq(agentVersion.id, must(keeper?.liveVersionId)));
-      const bundle = must(live).bundle;
+      const stored = must(live).bundle;
+      expect(holdsProcess(stored)).toBe(false);
+      const bundle = stored as AgentBundle;
       expect(bundle.definition.extraTools).toEqual([PURCHASE_COST]);
       // Invariant 8: its one write step asks for a signature.
       const writes = bundle.workflows

@@ -5,7 +5,7 @@
 import {
   type ChangeDisplayView,
   clientLabel,
-  findStep,
+  findNodeStep,
   isPlainObject,
   type Locale,
   pickLocalized,
@@ -119,10 +119,8 @@ export async function clientTitles(
       ?.workflows.find((w) => w.slug === r.workflowSlug);
     const nodeId = (i.payload as { stepId: string }).stepId;
     // A step inside a loop is named `${loop}:${index}:${childId}`.
-    const step = workflow
-      ? (findStep(workflow.workflow, nodeId)?.step ??
-        findStep(workflow.workflow, nodeId.split(":").at(-1) ?? nodeId)?.step)
-      : undefined;
+    // Wave 3b: a v3 workflow's or a v4 process's step alike.
+    const step = workflow ? findNodeStep(workflow.workflow, nodeId) : undefined;
     if (step) out.set(i.id, clientLabel(step));
   }
   return out;

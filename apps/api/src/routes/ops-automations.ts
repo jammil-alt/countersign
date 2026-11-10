@@ -22,7 +22,7 @@ import {
   skillContext,
 } from "@countersign/agents";
 import {
-  type AgentBundle,
+  type AnyAgentBundle,
   AUTOMATION_SKILL_REF_PREFIX,
   type AutomationHealth,
   type AutomationListItem,
@@ -171,7 +171,7 @@ async function liveUses(ctx: Scope) {
   return live.flatMap((a) => {
     const v = versions.find((x) => x.id === a.liveVersionId);
     if (!v) return [];
-    return bundleAutomationRefs(v.bundle as AgentBundle).map(
+    return bundleAutomationRefs(v.bundle).map(
       (ref): AutomationUse & { tenantId: string | null } => ({
         agentId: a.id,
         kind: a.kind,
@@ -319,8 +319,11 @@ async function itemFor(ctx: Scope, row: AutomationRow) {
 }
 
 /** The workflow whose top-level steps hold the first selected id. */
-function workflowOf(bundle: AgentBundle, stepId: string) {
-  return bundle.workflows.find((w) => w.workflow.steps.some((s) => s.id === stepId));
+function workflowOf(bundle: AnyAgentBundle, stepId: string) {
+  return bundle.workflows.find((w) => {
+    const steps: readonly { id: string }[] = w.workflow.steps;
+    return steps.some((s) => s.id === stepId);
+  });
 }
 
 async function saveFromSteps(ctx: HandlerCtx<typeof routes.opsAutomationFromSteps>, row: AgentRow) {
@@ -328,13 +331,22 @@ async function saveFromSteps(ctx: HandlerCtx<typeof routes.opsAutomationFromStep
   const registry = services.platform.ctx;
   const v = await getVersion(tx, body.versionId);
   if (v.agentId !== row.id) throw notFound("version");
-  const bundle = v.bundle as AgentBundle;
+  const bundle = v.bundle;
   const holder = workflowOf(bundle, body.stepIds[0] as string);
   if (!holder) {
     throw new HttpError(
       422,
       "not_top_level",
       "only steps at the top of a workflow can become an automation",
+    );
+  }
+  // DECISION (wave 3b): "Save as automation" moves v3 steps only (core's stepsToAutomation); a
+  // version of v4 processes is refused in plain words rather than read as v3.
+  if (holder.workflow.schemaVersion === 4) {
+    throw new HttpError(
+      422,
+      "process_steps",
+      "steps of a process can't be saved as an automation yet: save them from a v3 version",
     );
   }
   const { skills } = await skillContext(tx, {
@@ -374,7 +386,7 @@ async function saveFromSteps(ctx: HandlerCtx<typeof routes.opsAutomationFromStep
     changeNote: `Saved from ${row.name} v${v.version}`,
     ctx: registry,
   });
-  const next: AgentBundle = {
+  const next: AnyAgentBundle = {
     ...bundle,
     workflows: bundle.workflows.map((w) =>
       w.slug === holder.slug ? { ...w, workflow: result.workflow } : w,
@@ -490,7 +502,7 @@ export async function builderAutomations(
   input: {
     tenantId: string | null;
     tenantIds: readonly string[];
-    bundle: AgentBundle | null;
+    bundle: AnyAgentBundle | null;
     skills: Record<string, SkillDefinition>;
     platform: Platform;
   },

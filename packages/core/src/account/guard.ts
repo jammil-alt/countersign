@@ -4,7 +4,9 @@
 // `external` tool among its extra tools, its skills' tools and its action steps, and any
 // connection binding: Sloan sees only what the portal shows and writes only internal records.
 
-import type { AgentBundle } from "../schemas/agent";
+import type { Step as ProcessStep } from "../process/schema";
+import { walkSteps as walkProcessSteps } from "../process/walk";
+import type { AnyAgentBundle } from "../schemas/agent";
 import type { AutomationDefinition } from "../schemas/automation";
 import { parseSkillRef } from "../schemas/common";
 import { type SkillDefinition, skillTools } from "../schemas/skill";
@@ -15,7 +17,10 @@ import type { ValidationError } from "../workflow/validate";
 import { walkSteps } from "../workflow/walk";
 
 /** Whether the guard applies: the account agent's slug on a `platform` definition. */
-export function isAccountAgent(slug: string | null | undefined, bundle: AgentBundle): boolean {
+export function isAccountAgent(
+  slug: string | null | undefined,
+  bundle: Pick<AnyAgentBundle, "definition">,
+): boolean {
   return slug === ACCOUNT_AGENT_SLUG && bundle.definition.kind === "platform";
 }
 
@@ -39,7 +44,7 @@ export function accountToolProblem(spec: ToolSpec | undefined, id: string): stri
  */
 export function accountAgentProblems(input: {
   slug: string | null | undefined;
-  bundle: AgentBundle;
+  bundle: AnyAgentBundle;
   skills: Readonly<Record<string, SkillDefinition>>;
   tools: Readonly<Record<string, ToolSpec>>;
   bindings?: Readonly<Record<string, string>> | undefined;
@@ -69,29 +74,52 @@ export function accountAgentProblems(input: {
       refuse(id, `definition.skills.${i}.skill`, null);
     }
   });
-  /** A step's tools: an action's, a skill's; `at` is the bundle's step that holds it. */
+  /** A v3 step's tools: an action's, a skill's; `at` is the bundle's step that holds it. */
   const check = (step: Step, at: { id: string; field: string }, slug: string) => {
     if (step.kind === "action") refuse(step.tool, at.field || "tool", at.id, slug);
-    // R9: a v4 process's read and write steps (the supervisor's v4 version) name their tool.
-    const kind = (step as { kind: string }).kind;
-    if (kind === "read" || kind === "write") {
-      refuse((step as unknown as { tool: string }).tool, at.field || "tool", at.id, slug);
-    }
     if (step.kind === "skill") {
       const skill = input.skills[step.skill] ?? input.skills[parseSkillRef(step.skill).id];
       for (const id of skill ? skillTools(skill) : []) refuse(id, at.field || "skill", at.id, slug);
     }
   };
+  /** v0.12 W2-B: an automation's steps count as the step's own that pins it. */
+  const checkPinned = (ref: string, at: { id: string; field: string }, slug: string) => {
+    const automation = input.automations?.[ref];
+    if (!automation) return;
+    walkSteps({ steps: automation.steps }, ({ step: inner }) => check(inner, at, slug));
+  };
+  /**
+   * Wave 3b: a v4 process step's tools: a read's or a write's tool, a skill's tools, and a
+   * `process` step's pinned automation, opened as `use_automation` is. A conversation messages
+   * someone outside the client's team, which the account agent never does.
+   */
+  const checkProcessStep = (step: ProcessStep, slug: string) => {
+    if (step.kind === "read" || step.kind === "write") refuse(step.tool, "tool", step.id, slug);
+    else if (step.kind === "skill") {
+      const skill = input.skills[step.skill] ?? input.skills[parseSkillRef(step.skill).id];
+      for (const id of skill ? skillTools(skill) : []) refuse(id, "skill", step.id, slug);
+    } else if (step.kind === "process") {
+      checkPinned(step.process, { id: step.id, field: "process" }, slug);
+    } else if (step.kind === "conversation") {
+      errors.push({
+        stepId: step.id,
+        field: "channel",
+        code: "tool_not_allowed",
+        message:
+          "the account agent only reads what the portal shows: a conversation messages someone outside",
+        workflow: slug,
+      });
+    }
+  };
   for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion === 4) {
+      walkProcessSteps(w.workflow, ({ step }) => checkProcessStep(step, w.slug));
+      continue;
+    }
     walkSteps(w.workflow, ({ step }) => {
       check(step, { id: step.id, field: "" }, w.slug);
-      // v0.12 W2-B: an automation's steps count as the use step's own.
       if (step.kind === "use_automation") {
-        const automation = input.automations?.[step.automation];
-        if (!automation) return;
-        walkSteps({ steps: automation.steps }, ({ step: inner }) => {
-          check(inner, { id: step.id, field: "automation" }, w.slug);
-        });
+        checkPinned(step.automation, { id: step.id, field: "automation" }, w.slug);
       }
     });
   }
