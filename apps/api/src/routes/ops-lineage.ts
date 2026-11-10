@@ -13,6 +13,7 @@ import {
   getAgent,
   getVersion,
   latestVersion,
+  lineageReadOptions,
   requiredConnectors,
   retire,
   SHARED_COPY_PREFIX,
@@ -20,6 +21,7 @@ import {
 } from "@countersign/agents";
 import {
   type AgentBundle,
+  type AnyAgentBundle,
   type BuilderCatalog,
   type BundleChange,
   connectorShown,
@@ -76,10 +78,17 @@ export function bundleLabels(...bundles: AgentBundle[]): Record<string, string> 
   return out;
 }
 
-/** diffBundles, refusing cleanly when a stored draft can't be flattened (duplicate ids). */
-function diff(a: AgentBundle, b: AgentBundle): { changes: BundleChange[] } {
+/**
+ * diffBundles, refusing cleanly when a stored draft can't be flattened (duplicate ids). R9: `read`
+ * reads v3 workflows as v4 when the two versions are one of each (an agent updated to v4).
+ */
+function diff(
+  a: AgentBundle,
+  b: AgentBundle,
+  read: ReturnType<typeof lineageReadOptions>,
+): { changes: BundleChange[] } {
   try {
-    return { changes: diffBundles(a, b) };
+    return { changes: diffBundles(a, b, read) };
   } catch (error) {
     throw new HttpError(
       422,
@@ -353,7 +362,8 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     const from = fromId ? await getVersion(tx, fromId) : null;
     if (from && from.agentId !== row.id) throw notFound("version");
     // The first version has nothing to compare against: no changes, `from` null.
-    const { changes } = from ? diff(from.bundle, to.bundle) : { changes: [] };
+    const read = lineageReadOptions(ctx.services.platform.ctx);
+    const { changes } = from ? diff(from.bundle, to.bundle, read) : { changes: [] };
     return {
       from: from ? versionSummary(from) : null,
       to: versionSummary(to),
@@ -382,7 +392,7 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     return {
       base: versionSummary(base),
       version: versionSummary(v),
-      ...diff(base.bundle, v.bundle),
+      ...diff(base.bundle, v.bundle, lineageReadOptions(ctx.services.platform.ctx)),
       labels: labels(base.bundle, v.bundle),
     };
   });
@@ -421,6 +431,8 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
       : [];
 
     const agents = [];
+    // R9: a v3 client agent against a template version of v4 processes.
+    const read = lineageReadOptions(ctx.services.platform.ctx);
     for (const row of rows) {
       const v = await currentVersion(ctx, row);
       const base = v?.basedOnTemplateVersionId
@@ -432,9 +444,15 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
       let conflicts: number | null = null;
       if (v && base) {
         try {
-          customizations = diffBundles(base.bundle, v.bundle).length;
+          customizations = diffBundles(base.bundle, v.bundle, read).length;
           if (behind > 0 && templateLive) {
-            conflicts = mergeBundles(base.bundle, v.bundle, templateLive.bundle).conflicts.length;
+            conflicts = mergeBundles(
+              base.bundle as AnyAgentBundle,
+              v.bundle as AnyAgentBundle,
+              templateLive.bundle as AnyAgentBundle,
+              [],
+              read,
+            ).conflicts.length;
           }
         } catch {
           // A draft with duplicate ids can't be compared; the agent page says why.

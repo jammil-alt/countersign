@@ -10,11 +10,14 @@
 
 import {
   type AgentBundle,
+  type AnyAgentBundle,
   cloneJson,
+  holdsProcess,
   isPlainObject,
   type MergeResult,
   mergeBundles,
   parseSkillRef,
+  processes,
   type Resolution,
   type SkillDefinition,
   type Step,
@@ -35,7 +38,7 @@ import {
   type RegistryContext,
   resolveVersion,
 } from "./agents";
-import { skillContext } from "./skills";
+import { convertLookup, skillContext } from "./skills";
 
 export interface UpdateInfo {
   linked: boolean;
@@ -120,10 +123,28 @@ export interface MergePreview {
   result: MergeResult;
 }
 
+/**
+ * R9 (docs/plan.md §1.86, §9): how a merge reads stored v3 workflows as v4 when the template's
+ * versions hold processes and the client's (or its base) don't, with the registries as they are.
+ */
+export function lineageReadOptions(ctx: Pick<RegistryContext, "catalog" | "tools">): {
+  lookup: processes.ConvertLookup;
+} {
+  return { lookup: convertLookup(ctx.catalog, ctx.tools) };
+}
+
 /** The merged result of applying the template's live version to a client agent, with conflicts. */
 export async function previewUpdate(
   tx: Tx,
-  input: { agentId: string; resolutions?: readonly Resolution[] },
+  input: {
+    agentId: string;
+    resolutions?: readonly Resolution[];
+    /**
+     * R9: the registries, for a template whose live version holds v4 processes while the client
+     * agent's are v3 workflows (the merged draft is then all v4). Without it, such a merge throws.
+     */
+    ctx?: Pick<RegistryContext, "catalog" | "tools">;
+  },
 ): Promise<MergePreview> {
   const row = await clientAgent(tx, input.agentId);
   if (!row.linked) throw new AgentsError("not_linked", `${row.slug} is detached from its template`);
@@ -134,12 +155,14 @@ export async function previewUpdate(
   }
   if (!info.available) throw new AgentsError("no_update", `${row.slug} is up to date`);
   const result = mergeBundles(
-    info.base.bundle,
-    ours.bundle,
-    info.templateLive.bundle,
+    info.base.bundle as AnyAgentBundle,
+    ours.bundle as AnyAgentBundle,
+    info.templateLive.bundle as AnyAgentBundle,
     input.resolutions ?? [],
+    input.ctx ? lineageReadOptions(input.ctx) : {},
   );
-  return { base: info.base, ours, theirs: info.templateLive, result };
+  // The version column is typed v3; a merged bundle that holds processes is saved as it is.
+  return { base: info.base, ours, theirs: info.templateLive, result: result as MergeResult };
 }
 
 async function requireMergeable(
@@ -160,7 +183,12 @@ async function requireMergeable(
     bundle: result.bundle,
     catalog: ctx.catalog,
   });
-  const valid = validateBundle(result.bundle, {
+  // R9: a merge with a template's v4 version is all v4, validated as such (an all-v3 one exactly
+  // as before).
+  const validate = holdsProcess(result.bundle as AnyAgentBundle)
+    ? processes.validateAnyBundle
+    : validateBundle;
+  const valid = validate(result.bundle, {
     skills,
     tools: ctx.tools.specs(),
     models: knownModelIds(),
@@ -317,8 +345,23 @@ export async function previewPromotion(
     catalog: input.ctx.catalog,
   });
   const stripped = stripForPromotion(client.bundle, base.bundle, skills);
-  const selected = input.changes ? selectChanges(base.bundle, stripped, input.changes) : stripped;
-  const result = mergeBundles(base.bundle, ours.bundle, selected, input.resolutions ?? []);
+  // R9: a client version and a template version may be v3 and v4 apiece.
+  const read = lineageReadOptions(input.ctx);
+  const selected = input.changes
+    ? (selectChanges(
+        base.bundle as AnyAgentBundle,
+        stripped as AnyAgentBundle,
+        input.changes,
+        read,
+      ) as AgentBundle)
+    : stripped;
+  const result = mergeBundles(
+    base.bundle as AnyAgentBundle,
+    ours.bundle as AnyAgentBundle,
+    selected as AnyAgentBundle,
+    input.resolutions ?? [],
+    read,
+  ) as MergeResult;
   // The "theirs" side is the stripped client bundle; report it against the client version row.
   return { base, ours, theirs: client, client, stripped, selected, result };
 }
