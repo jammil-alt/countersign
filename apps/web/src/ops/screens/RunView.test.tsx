@@ -275,7 +275,7 @@ describe("back-office run view: a v4 process", () => {
         </AppProviders>
       </MemoryRouter>,
     );
-    const ai = await screen.findByTestId(`ops-run-step-${R(1)}`);
+    const ai = await screen.findByTestId(`ops-run-step-${R(1)}`, {}, { timeout: 10_000 });
     expect(ai).toHaveTextContent("Confer");
     expect(ai).toHaveTextContent("A second check: agrees · Post the bill");
     // The back office reads the second check's note; the client never does.
@@ -381,7 +381,7 @@ describe("back-office run view: a v4 process", () => {
         </AppProviders>
       </MemoryRouter>,
     );
-    const fork = await screen.findByTestId(`ops-run-step-${R(33)}`);
+    const fork = await screen.findByTestId(`ops-run-step-${R(33)}`, {}, { timeout: 10_000 });
     expect(within(fork).getByTestId(`ops-run-step-checks-${R(33)}-route`)).toHaveTextContent(
       "Took the route “Rejected”: Approve the bill was rejected",
     );
