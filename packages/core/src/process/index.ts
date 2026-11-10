@@ -3,3 +3,5 @@
 export * from "./convert";
 export * from "./hours";
 export * from "./schema";
+export * from "./validate";
+export * from "./walk";
