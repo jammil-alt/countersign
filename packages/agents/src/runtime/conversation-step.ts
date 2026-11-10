@@ -96,7 +96,15 @@ export interface ConversationEngineRequest {
    * `within_goal` sends later messages under the first signature; the person's autonomy and the
    * agent's trial or sign-off stage still force a signature on each, as the engine always has.
    */
-  messages: { first: ApprovalRequirement; later: "required" | "within_goal" };
+  messages: {
+    first: ApprovalRequirement;
+    later: "required" | "within_goal";
+    /**
+     * The step's own approver: the first of its approval check's approvers, the person who may
+     * also take the conversation over (core's ownerStepApproval). Absent: the default route.
+     */
+    approver?: string;
+  };
   /** What woke the step, passed through (`ConversationStepInput.wake`), deadline aside. */
   wake?: { payload?: unknown; timedOut?: boolean | undefined } | undefined;
 }
@@ -234,7 +242,13 @@ export async function runConversationStep(
     key: input.stepId,
     conversationId: id,
     talk: talk.talk,
-    messages: { first: step.messages.first, later: step.messages.later },
+    messages: {
+      first: step.messages.first,
+      later: step.messages.later,
+      ...(step.checks?.approval?.approvers?.[0]?.who
+        ? { approver: step.checks.approval.approvers[0].who }
+        : {}),
+    },
     ...(input.wake ? { wake: { payload: input.wake.payload, timedOut: input.wake.timedOut } } : {}),
   });
   switch (progress.kind) {

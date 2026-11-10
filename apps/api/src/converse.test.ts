@@ -1176,6 +1176,10 @@ describe.skipIf(!h)("conversations through the API", () => {
         .where(and(eq(stepRun.runId, params.runId), eq(stepRun.nodeId, "talk")));
       if (!sr) throw new Error("no step run");
       const control = `/api/runs/${params.runId}/conversations/${sr.id}`;
+      // The first message waits for the same person's signature, not the default route's.
+      const cards = await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, params.runId));
+      expect(cards.length).toBeGreaterThan(0);
+      expect(cards.map((c) => c.assigneeUserId)).toEqual(cards.map(() => H.A.user));
       // The portal offers it to the step's approver only.
       const mayControl = async (who: ReturnType<typeof admin>) => {
         const res = await H.call(who, "GET", `/api/runs/${params.runId}`);

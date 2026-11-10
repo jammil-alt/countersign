@@ -172,7 +172,13 @@ export function conversationEngine(deps: ConverseDeps): ConversationEngine {
         return { kind: "failed", error: "the conversation has no step to log on" };
       const info = await runInfo(req);
       if (!info) return { kind: "failed", error: "the run is gone" };
-      const approval = { ...DEFAULT_APPROVAL, required: req.messages.first };
+      // DECISION (wave 3b follow-up): a v4 conversation's messages are signed by the step's own
+      // approver, the person who may also take it over (control.ts); none named: the default route.
+      const approval = {
+        ...DEFAULT_APPROVAL,
+        required: req.messages.first,
+        ...(req.messages.approver ? { approver: req.messages.approver } : {}),
+      };
       const step: SkillStep = {
         id: req.key,
         name: "Conversation",
