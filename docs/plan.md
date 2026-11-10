@@ -2890,9 +2890,13 @@ runtime (wave 2c):
 - DECISION: every tab of the agent page reads `AnyAgentBundle` (Overview, the bar, an older
   version's Workflow view, Settings > Definition, Versions with its test runs and go-live, the
   triggers panel), and so do the lab and the new-agent preview. A test run's input reads the
-  workflow's triggers through core's `allTriggers`: recent events of its first event trigger, the
-  sample of its first trigger. "Revise with the Builder" is offered for any readable version,
-  since the Builder's server sessions draft processes (wave 3b builder chat).
+  workflow's triggers through core's `allTriggers`, and one trigger stands for the run's payload:
+  the first event trigger, else the first trigger (`testTrigger`). Its recent events and its sample
+  are both that trigger's (wave 3c: the sample had read the first trigger, so a process started by
+  hand first and by an event second offered a blank form beside the event's recent payloads).
+  "Revise with the Builder" is offered for any readable version, since the Builder's server
+  sessions draft processes (wave 3b builder chat). The Overview's tools are the definition's extra
+  tools and every v4 read and write step's tool, nested ones too (wave 3c).
 - DECISION: the triggers panel adds a trigger to a process's `triggers` and removes any but its
   first, as it does a v3 workflow's `moreTriggers`; every id is kept (invariant 3).
 - DECISION: the builder validates what Publish would send: a stored v3 version opened and not

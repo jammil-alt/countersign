@@ -2,6 +2,8 @@
 // five tabs, the old People, Triggers and Tests addresses, Settings split into Access and
 // Definition, the triggers on the Workflow tab and the test bench on Versions (run a suite, read a
 // case's result, add a case).
+
+import { AnyAgentBundle } from "@countersign/core";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
@@ -14,7 +16,9 @@ import {
   PROCESS_BUNDLE_INPUT,
   versionId,
 } from "../../test/fixtures";
+import { toolTitle } from "../builder/model";
 import { AgentScreen } from "./AgentScreen";
+import { toolsItWorksIn } from "./OverviewTab";
 
 const ID = AGENT_SUMMARY.id;
 const CLIENT = AGENT_SUMMARY.tenantId;
@@ -147,6 +151,40 @@ describe("AgentScreen", () => {
       expect(screen.getByTestId("agent-how-it-works")).toHaveTextContent("4 steps, 1 fork");
       expect(screen.getByTestId("agent-bar-line")).toHaveTextContent("4 steps · 1 fork");
       expect(screen.queryByText(/does not match the agent bundle schema/)).toBeNull();
+    });
+
+    // Wave 3c: a process names its tools on its read and write steps, not in the definition.
+    it("lists the tools of a process's read and write steps, nested ones too, each once", async () => {
+      const workflow = structuredClone(PROCESS_BUNDLE_INPUT.workflows?.[0]?.workflow);
+      if (workflow?.schemaVersion !== 4) throw new Error("fixture");
+      const branch = workflow.steps[1];
+      if (branch?.kind !== "if") throw new Error("fixture");
+      branch.paths[0]?.steps.push(
+        { id: "look", kind: "read", name: "Look up the bill", tool: "qbo.bill.get", input: {} },
+        { id: "again", kind: "write", name: "Update again", tool: "qbo.bill.update_lines" },
+      );
+      const bundle = {
+        ...PROCESS_BUNDLE_INPUT,
+        definition: { ...PROCESS_BUNDLE_INPUT.definition, extraTools: ["gmail.message.send"] },
+        workflows: [{ slug: "new-bill", name: "New bill", workflow }],
+      };
+      expect(toolsItWorksIn(AnyAgentBundle.parse(bundle))).toEqual([
+        "gmail.message.send",
+        "qbo.bill.get",
+        "qbo.bill.update_lines",
+      ]);
+      setup(BASE, {
+        [`GET /api/ops/agents/${ID}`]: () => ({
+          ...V4_DETAIL,
+          live: { ...V4_DETAIL.live, bundle },
+          latest: { ...V4_DETAIL.latest, bundle },
+        }),
+      });
+      const tools = await screen.findByTestId("agent-tools");
+      expect(tools.children).toHaveLength(3);
+      for (const id of ["gmail.message.send", "qbo.bill.get", "qbo.bill.update_lines"]) {
+        expect(tools).toHaveTextContent(toolTitle({ id }));
+      }
     });
 
     it("shows an older version's process, and edits the definition of one", async () => {
