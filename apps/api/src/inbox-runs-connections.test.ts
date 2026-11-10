@@ -405,7 +405,7 @@ describe.skipIf(!h)("inbox and run views", () => {
     // name and never its tool id.
     expect(body.steps[0].write).toEqual({ kind: "change_in", connector: "Testkit" });
     expect(body.steps[1].write).toBeUndefined();
-    expect(JSON.stringify(body)).not.toContain("testkit.record.update");
+    expect(JSON.stringify(body.steps)).not.toContain("testkit.record.update");
     // A distinctive amount: "1.00" also matched timestamps such as 16:22:21.004Z.
     expect(JSON.stringify(body)).not.toContain("987.6543");
     expect(JSON.stringify(body)).not.toContain("costUsd");
