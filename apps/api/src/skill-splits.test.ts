@@ -135,7 +135,7 @@ function patternBundle(name: string, steps: processes.Step[]): AnyAgentBundleInp
   const tools = new Set<string>();
   processes.walkSteps({ schemaVersion: 4, triggers: [], steps } as never, ({ step }) => {
     if (step.kind === "skill") skills.add(step.skill);
-    if (step.kind === "write" || step.kind === "read") tools.add(step.tool);
+    if ((step.kind === "write" || step.kind === "read") && step.tool) tools.add(step.tool);
   });
   const bundle = clerkBundle() as J;
   bundle.definition.skills = [...skills].map((skill) => ({ skill }));

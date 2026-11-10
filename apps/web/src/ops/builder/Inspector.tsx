@@ -26,7 +26,7 @@ import {
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../../ui/icons";
 import { Button, cx } from "../../ui/primitives";
-import { PROCESS_KIND_LABEL } from "../workflow/describe";
+import { actionKindLabel, PROCESS_KIND_LABEL } from "../workflow/describe";
 import { toolLabel, whenEvent } from "../workflow/labels";
 import { processClientVisible } from "./Canvas";
 // P-4
@@ -266,12 +266,21 @@ function StepInspector(props: InspectorProps & { step: Step }) {
   const set: SetStep = (key, fn) => onStep(step.id, fn, `${step.id}:${key}`);
   // Skill model (2026-11-10): a write by where it writes, a skill step with its kind.
   const label =
-    step.kind === "write" ? writeLabelOf(props.data, step.tool) : PROCESS_KIND_LABEL[step.kind];
+    step.kind === "write"
+      ? step.action !== undefined
+        ? actionKindLabel(
+            step.action,
+            step.via
+              ? props.data.catalog.connectors.find((c) => c.id === step.via)?.name
+              : undefined,
+          )
+        : writeLabelOf(props.data, step.tool as string)
+      : PROCESS_KIND_LABEL[step.kind];
   const kind = step.kind === "skill" ? catalogSkillKind(props.data, step.skill) : undefined;
   const skill = step.kind === "skill" ? lookupSkill(step.skill, ctx) : undefined;
   const intro =
     step.kind === "write"
-      ? writesToClientTool(ctx.tools?.[step.tool])
+      ? step.action !== undefined || writesToClientTool(ctx.tools?.[step.tool as string])
         ? `${label}: it changes the client's tool behind its checks. Approval is on by default.`
         : "Saves to our own records. Approval is off by default; add one below if someone should say yes first."
       : STEP_INTRO[step.kind];

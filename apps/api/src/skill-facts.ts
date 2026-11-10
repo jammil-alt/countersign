@@ -23,7 +23,14 @@ import {
 import type { Tx } from "@countersign/db";
 import type { Platform } from "./platform";
 
-type AnyStep = { id: string; kind: string; skill?: string; tool?: string };
+type AnyStep = {
+  id: string;
+  kind: string;
+  skill?: string;
+  tool?: string;
+  action?: string;
+  via?: string;
+};
 
 /** Every step of a stored v3 workflow or v4 process, flat; none when it reads as neither. */
 function stepsOf(definition: unknown): AnyStep[] {
@@ -45,6 +52,28 @@ export function writeFacts(platform: Platform, toolId: string): StepModelFacts["
   const tool = platform.tools.get(toolId)?.spec;
   const label = writeStepLabel({ kind: "write" }, tool, connectorNameOf(platform, tool));
   return { kind: label.kind, text: label.text };
+}
+
+/**
+ * An action write step (send email, create bill, …) always changes a client's tool. Which one is
+ * the agent's binding, resolved at run time; the label names it only when the step's `via` does.
+ */
+// DECISION: an action step's facts name its `via` connector, else "the client's tool" (the run's
+// row name, "Create bill · in QuickBooks", says where it went).
+export function actionWriteFacts(
+  platform: Platform,
+  via: string | undefined,
+): StepModelFacts["write"] {
+  const name = via ? (platform.connectors.get(via)?.manifest.name ?? via) : null;
+  return { kind: "change_in", text: `Change in ${name ?? "the client's tool"}` };
+}
+
+/** How an action write step reads on the client's timeline: changed in their tool. */
+export function actionTimelineWrite(platform: Platform, via: string | undefined): TimelineWrite {
+  return {
+    kind: "change_in",
+    connector: via ? (platform.connectors.get(via)?.manifest.name ?? null) : null,
+  };
 }
 
 /** How a write reads on the client's timeline: saved, or changed in their tool (by name). */
@@ -78,6 +107,8 @@ export async function stepModelFacts(
         skills.set(step.skill, def);
       }
       if (def) out[step.id] = { skillKind: skillKind(def, lookup) };
+    } else if (step.kind === "write" && step.action) {
+      out[step.id] = { write: actionWriteFacts(platform, step.via) };
     } else if ((step.kind === "write" || step.kind === "action") && step.tool) {
       out[step.id] = { write: writeFacts(platform, step.tool) };
     }

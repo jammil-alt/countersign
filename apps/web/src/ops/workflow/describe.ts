@@ -148,8 +148,31 @@ export interface StepLabels {
  * where it writes ("Save to records", "Change in QuickBooks Online"), else its kind's word.
  */
 export function processKindLabel(step: processes.Step, labels: StepLabels = {}): string {
-  if (step.kind === "write") return labels.writeLabel?.(step.tool) ?? PROCESS_KIND_LABEL.write;
+  if (step.kind === "write") {
+    if (step.action !== undefined)
+      return actionKindLabel(step.action, step.via ? labels.connector?.(step.via) : undefined);
+    return labels.writeLabel?.(step.tool as string) ?? PROCESS_KIND_LABEL.write;
+  }
   return PROCESS_KIND_LABEL[step.kind];
+}
+
+/** Where an action write step with no `via` changes things, until the agent's bindings say. */
+const ACTION_SYSTEM_WORD: Record<processes.WriteAction, string> = {
+  send_email: "the agent's email",
+  send_text: "the agent's texts",
+  create_bill: "the agent's accounting",
+  create_vendor: "the agent's accounting",
+};
+
+/**
+ * Skill model (2026-11-10): an action write step always changes a client's tool, so it reads
+ * "Change in <system>": the system its `via` names, else the kind the agent's bindings resolve.
+ */
+// DECISION: an action step's kind label names its `via` connector when it has one, else "the
+// agent's accounting" / "email" / "texts"; the system itself is resolved per agent (the inspector's
+// "Uses" row shows which).
+export function actionKindLabel(action: processes.WriteAction, viaName?: string | null): string {
+  return `Change in ${viaName ?? ACTION_SYSTEM_WORD[action]}`;
 }
 
 /** "Deterministic" or "AI" for a skill step whose skill the labels know; null otherwise. */
