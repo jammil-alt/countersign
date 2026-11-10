@@ -3110,6 +3110,64 @@ Websites screen's Scripts, the Library's and the builder's listings):
   exchange, WhatsApp's "number taken" check, and the vault's cipher in transactions of its own).
   Their API tests run on `appDbMax: 1` (desk, packs, qbo, whatsapp-meta).
 
+**Forks (wave 5)** (the owner: "fork on more than just the approval"; the engine half,
+`wave5/engine`: `packages/core/src/process/outcomes.ts`, the validator and field picker, the
+executor, the run views' `outcome`; no migration):
+- DECISION: every step of a native v4 process records how it ended beside its output, and an `if`
+  routes on it with plain rules like any data: `steps.<id>.outcome`, plus `steps.<id>.approval`
+  (`{ outcome: approved | rejected | no_answer | not_needed, by }`, read, skill and write),
+  `steps.<id>.confer` (`verdict`, all reviewers together, and `<n>.verdict` / `<n>.by` by place),
+  `steps.<id>.error` (`{ code, message }`, with `onError: continue`), `steps.<id>.choice` (a person
+  step's quick answer) and `steps.<id>.counts` (`{ items, failed }`, a for each). One closed
+  vocabulary per kind (`processes.STEP_OUTCOMES`): read `done | empty | rejected | no_answer |
+  skipped | needs_help | failed`; skill and write `done | rejected | no_answer | skipped |
+  needs_help | failed`; person `answered | no_answer`; conversation `done | not_found | declined |
+  no_answer | failed`; notify `sent | skipped | not_seen | failed`; wait `arrived | timed_out`; for
+  each `done | some_failed | all_failed`; process `completed | stopped | failed`. `if` and `stop`
+  record none. Existing names kept: `rejected` and `no_answer` are the executor's, `skipped` the
+  owner's skip, `needs_help` its help loop, the conversation's words its output's `status`.
+- DECISION: the field picker (`processPathsAt`) lists an earlier step's fields as `steps.<id>.<path>`
+  from `processes.stepOutcomeFields(step)`, whose enums hold only what the step as set up can end
+  with (`stepOutcomes`: `failed`, `needs_help`, a loop's or a process's failures only with
+  `onError: continue`; a read's `rejected` / `no_answer` only with an approval; a notify's
+  `skipped` only with a `when`, `not_seen` only when urgent; a wait's `arrived` never yet). The
+  validator types the same fields (`stepRecordSchema`), refuses a word outside the kind's
+  vocabulary (`outcome_unknown`), warns on one the step can't reach (`outcome_unreachable`, advice),
+  and refuses a step's own outcome in its checks and a later step's anywhere (references only
+  earlier steps, as for outputs). The hand-off reads outputs only: it is resolved after the run
+  from the stored rows, which hold no outcome.
+- DECISION: `onError: fail | continue` on every step, optional with no default (absent is `fail`),
+  so nothing parsed or converted gains a field. It is refused on `if`, `stop`, `wait` and `person`
+  (`on_error_not_here`): none has a failure of its own to go on past (a person step's only failures
+  are the platform's). `continue` goes on past a failure the step reported: a failed or escalated
+  outcome, help nobody gave (`needs_help`), a failed conversation, a notice that couldn't be sent,
+  a loop item's reported failure, a step failing or a stop step inside a sub-process (`stopped`).
+  Never past a person's no (`onReject: stop`), nobody answering with `stop`, an exception (a
+  durable step that threw would run again on replay), or a write whose error says it may have
+  happened (`UnconfirmedWriteError`, `processes.writeMayHaveHappened`): that stays with the
+  operator to check. A failed write wrote nothing (its `external_action` failed) and is never
+  retried; the error is the row's line, first line, at most 200 characters, key-like runs hidden.
+- DECISION: invariant 8 holds: no outcome changes an approval. `proceed` on a write's approval is
+  held by the validator as before (the write is `done`, its `approval.outcome` `no_answer`);
+  `onError: continue` never sends a write unsigned; `ifNoAnswer: skip` keeps its meaning and reads
+  as `no_answer` (no new `continue` value). An approval's `when` can't read its own step's outcome.
+- DECISION: outcomes are recorded for native v4 processes only; a converted v3 workflow's scope
+  stays `{ output }` exactly (`fromWorkflowV3` sets nothing new), so its stored forks read what
+  they always read.
+- DECISION: durable replay: every outcome is derived from results the runner already stored (the
+  attempt's and resume's `do`, the inbox waits, the help loop's, the notice's); a notice that fails
+  with `onError: continue` stores its failure as its `do`'s result, so a replay never sends it
+  again. A retry's reused steps read their outcome back from their stored rows.
+- DECISION: `empty` is decided on a read's output shape alone (`isEmptyOutput`: nothing, `null`,
+  `""`, `[]`, `{}`, or an object whose every field is `null` or an empty list); the combined
+  verdict is the most cautious one given (disagree, then unsure, then agree, else no_answer); several
+  approvals of one step read as rejected, else no_answer, else approved, else not_needed. A v4 wait
+  waits for a duration only, so it ends `timed_out`; `arrived` waits for a wait on an event.
+- DECISION: the run views carry the outcome per step row (`OpsStep.outcome`,
+  `TimelineChecks.outcome`), read back from what the rows and inbox items already hold
+  (`outcomeOfStepRow`), so no column or migration is added. A sub-process gone on past a stop has
+  its row `skipped`; a for each gone on past failures says `failed` in its row's output.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
