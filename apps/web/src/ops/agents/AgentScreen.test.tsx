@@ -3,7 +3,6 @@
 // Definition, the triggers on the Workflow tab and the test bench on Versions (run a suite, read a
 // case's result, add a case).
 
-import { AnyAgentBundle } from "@countersign/core";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
@@ -13,6 +12,7 @@ import {
   AGENT_DETAIL,
   AGENT_SUMMARY,
   fakeApi,
+  PROCESS_BUNDLE,
   PROCESS_BUNDLE_INPUT,
   versionId,
 } from "../../test/fixtures";
@@ -155,20 +155,23 @@ describe("AgentScreen", () => {
 
     // Wave 3c: a process names its tools on its read and write steps, not in the definition.
     it("lists the tools of a process's read and write steps, nested ones too, each once", async () => {
-      const workflow = structuredClone(PROCESS_BUNDLE_INPUT.workflows?.[0]?.workflow);
+      const bundle = structuredClone(PROCESS_BUNDLE);
+      bundle.definition.extraTools = ["gmail.message.send"];
+      const workflow = bundle.workflows[0]?.workflow;
       if (workflow?.schemaVersion !== 4) throw new Error("fixture");
       const branch = workflow.steps[1];
       if (branch?.kind !== "if") throw new Error("fixture");
       branch.paths[0]?.steps.push(
         { id: "look", kind: "read", name: "Look up the bill", tool: "qbo.bill.get", input: {} },
-        { id: "again", kind: "write", name: "Update again", tool: "qbo.bill.update_lines" },
+        {
+          id: "again",
+          kind: "write",
+          name: "Update again",
+          tool: "qbo.bill.update_lines",
+          input: {},
+        },
       );
-      const bundle = {
-        ...PROCESS_BUNDLE_INPUT,
-        definition: { ...PROCESS_BUNDLE_INPUT.definition, extraTools: ["gmail.message.send"] },
-        workflows: [{ slug: "new-bill", name: "New bill", workflow }],
-      };
-      expect(toolsItWorksIn(AnyAgentBundle.parse(bundle))).toEqual([
+      expect(toolsItWorksIn(bundle)).toEqual([
         "gmail.message.send",
         "qbo.bill.get",
         "qbo.bill.update_lines",
