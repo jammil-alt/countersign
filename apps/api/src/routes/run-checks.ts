@@ -9,7 +9,6 @@ import {
   checkKindOf,
   conferOf,
   findStep,
-  isClientVisible,
   noAnswerOf,
   processes,
   type Step,
@@ -35,21 +34,6 @@ export function stepFinder(
     return (id) => processes.findStep(workflow, id)?.step;
   }
   return (id) => findStep(workflow, id)?.step;
-}
-
-/** Kinds only v4 has that the client sees by default: the work, never the logic. */
-const V4_SHOWN = new Set(["read", "write", "conversation", "process"]);
-
-/**
- * Whether the client's timeline shows a step. v3 as before (`isClientVisible`); a v4 step by its
- * `client` setting, else by kind.
- */
-// DECISION: a v4 `read` shows by default, as the tool-mode skill it replaces did (R2 turned 85
-// skills into reads and writes; their steps stay on the timeline the client already knew).
-export function shownOnTimeline(step: TimelineStepDef): boolean {
-  if (step.client) return step.client.visible;
-  if (V4_SHOWN.has(step.kind)) return true;
-  return isClientVisible(step as Step);
 }
 
 /** The step a row belongs to: its own node, or the step a check row (`:confer:`…) checks. */

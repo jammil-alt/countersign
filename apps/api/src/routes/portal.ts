@@ -28,6 +28,7 @@ import {
   type Role,
   routes,
   type Step,
+  shownOnTimeline,
   stepStateLabel,
 } from "@countersign/core";
 import {
@@ -73,7 +74,6 @@ import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
 import { matrixEdit } from "./mappers";
 import {
   isClientCheckRow,
-  shownOnTimeline,
   stepFinder,
   stepOfRow,
   type TimelineStepDef,

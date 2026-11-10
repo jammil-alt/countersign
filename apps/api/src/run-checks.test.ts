@@ -4,11 +4,16 @@
 // went ahead with nobody answering, and an urgent notice waiting for its "Seen".
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import { type AnyAgentBundle, type processes, toProcessBundle } from "@countersign/core";
+import {
+  type AnyAgentBundle,
+  type processes,
+  shownOnTimeline,
+  toProcessBundle,
+} from "@countersign/core";
 import { agent, agentVersion, inboxItem, run, stepRun } from "@countersign/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { admin, createApiHarness, testBundle } from "./api.test-helper";
-import { shownOnTimeline, stepFinder, stepOfRow } from "./routes/run-checks";
+import { stepFinder, stepOfRow } from "./routes/run-checks";
 
 const h = await createApiHarness();
 afterAll(() => h?.close());
@@ -65,7 +70,8 @@ describe("v4 steps on the timeline", () => {
     expect(stepOfRow(find, "tell")?.kind).toBe("notify");
     const write = find("update");
     expect(write && shownOnTimeline(write)).toBe(true);
-    expect(shownOnTimeline({ id: "w", name: "Wait", kind: "wait", for: "1 hour" })).toBe(false);
+    expect(shownOnTimeline({ kind: "wait" })).toBe(false);
+    expect(shownOnTimeline({ kind: "read", client: { visible: false } })).toBe(false);
   });
 });
 

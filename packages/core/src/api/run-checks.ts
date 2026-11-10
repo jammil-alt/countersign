@@ -230,6 +230,27 @@ export function urgentOf(row: RowLike, items: readonly ItemLike[]): UrgentView |
   };
 }
 
+// ── Which steps the client sees ─────────────────────────────────────────────────────────────────
+
+/** Kinds only v4 has that the client sees by default: the work, never the logic. */
+const V4_SHOWN = new Set(["read", "write", "conversation", "process"]);
+/** Kinds both schemas share that the client sees by default (v3's `isClientVisible`). */
+const SHOWN = new Set(["skill", "action", "person", "notify", "use_automation"]);
+
+/**
+ * Whether the client's timeline shows a step, v3 or v4: its `client` setting, else its kind (the
+ * work and the people; logic never). The back office marks the others "hidden from client".
+ */
+// DECISION: a v4 `read` shows by default, as the tool-mode skill it replaces did (R2 turned 85
+// skills into reads and writes; their steps stay on the timeline the client already knew).
+export function shownOnTimeline(step: {
+  kind: string;
+  client?: { visible: boolean } | undefined;
+}): boolean {
+  if (step.client) return step.client.visible;
+  return V4_SHOWN.has(step.kind) || SHOWN.has(step.kind);
+}
+
 // ── The timeline's fields ───────────────────────────────────────────────────────────────────────
 
 /** What the portal's timeline adds to a step for its checks (all optional: v3 runs have none). */

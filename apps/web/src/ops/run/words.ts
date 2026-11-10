@@ -148,6 +148,22 @@ export function oversightLine(d: Pick<OversightDecisionView, "action" | "cause">
   return `${OVERSIGHT_ACTION_WORDS[d.action]} ${OVERSIGHT_CAUSE_WORDS[d.cause]}`;
 }
 
+// R6/R8 (ARCHITECTURE §10.14 "Agents and their owner"): the oversight is the agent's owner, the AI
+// that watches every step and fixes within limits; the run view says what it did in its words.
+export const OWNER_ACTION_WORDS: Record<OversightDecisionView["action"], string> = {
+  continue: "Let it go on",
+  retry: "Tried the step again",
+  retry_with: "Corrected the input and tried again",
+  ask: "Asked the lead",
+  stop: "Stopped the run",
+};
+
+/** "The owner corrected the input and tried again after a failed step". */
+export function ownerLine(d: Pick<OversightDecisionView, "action" | "cause">): string {
+  const what = OWNER_ACTION_WORDS[d.action];
+  return `The owner ${what.charAt(0).toLowerCase()}${what.slice(1)} ${OVERSIGHT_CAUSE_WORDS[d.cause]}`;
+}
+
 /** The run's error object's parts (`{ reason, nodeId, key }`, older runs `{ code, message }`). */
 export function runErrorParts(error: unknown): {
   reason: string | null;
