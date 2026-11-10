@@ -1,0 +1,45 @@
+{
+  "extends": 1,
+  "workflows": [
+    {
+      "slug": "fix-price",
+      "name": "Fix a price",
+      "workflow": {
+        "schemaVersion": 4,
+        "triggers": [
+          {
+            "id": "trg-manual",
+            "on": {
+              "type": "manual",
+              "input": {}
+            }
+          }
+        ],
+        "steps": [
+          {
+            "id": "update",
+            "name": "Update the price",
+            "client": {
+              "visible": true,
+              "label": "Updated the price"
+            },
+            "kind": "write",
+            "tool": "testkit.record.update",
+            "input": {
+              "id": "R-1002",
+              "syncToken": "0",
+              "amount": "9.1000"
+            },
+            "checks": {
+              "approval": {
+                "required": "required",
+                "mode": "in_turn",
+                "ifNoAnswer": "stop"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
