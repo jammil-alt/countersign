@@ -8,11 +8,14 @@
 
 import { type Approver, approvalRoutingTx, mayResolve } from "@countersign/agents";
 import {
+  type Approval,
   type ConversationAction,
   type ConverseChannel,
-  findStep,
+  findNodeStep,
+  type OwnerWatchedStep,
+  ownerStepApproval,
+  ownerWatches,
   parseDuration,
-  type Step,
 } from "@countersign/core";
 import { agentVersion, inboxItem, reachOut, run, stepRun, type Tx } from "@countersign/db";
 import type { EventRow, EventTypeRegistry } from "@countersign/senses";
@@ -64,12 +67,16 @@ async function conversationRows(
   return null;
 }
 
-/** The step as the run's version has it (for its approver and its approval's timeout). */
+/**
+ * The conversation step's approval as the run's version has it (for its approver and its
+ * timeout), and the step run's node. Wave 3c: a v3 skill's `approval` or a v4 step's
+ * `checks.approval` (its first approver), read by core's rule for both, as the Desk reads it.
+ */
 async function stepOf(
   tx: Tx,
   r: RunRow,
   stepRunId: string,
-): Promise<{ step: Step | null; nodeId: string | null }> {
+): Promise<{ approval: Approval | undefined; nodeId: string | null }> {
   const [s] = await tx
     .select({ nodeId: stepRun.nodeId })
     .from(stepRun)
@@ -79,15 +86,12 @@ async function stepOf(
     .from(agentVersion)
     .where(and(eq(agentVersion.id, r.agentVersionId), eq(agentVersion.tenantId, r.tenantId)));
   const wf = v?.bundle.workflows.find((w) => w.slug === r.workflowSlug)?.workflow;
-  // Inside a for_each the node is `<step>:<index>:<child>`: the step id is its last part.
-  const id = s?.nodeId.split(":").at(-1);
-  // Wave 3b: only a v3 step carries the `approval` read here; a v4 step has none (as before).
-  const v3 = wf?.schemaVersion === 3 ? wf : undefined;
-  return { step: v3 && id ? (findStep(v3, id)?.step ?? null) : null, nodeId: s?.nodeId ?? null };
+  // Inside a for_each the node is `<step>:<index>:<child>`: findNodeStep reads its last part.
+  const step = wf && s ? findNodeStep(wf, s.nodeId) : undefined;
+  const approval =
+    step && ownerWatches(step) ? ownerStepApproval(step as OwnerWatchedStep) : undefined;
+  return { approval, nodeId: s?.nodeId ?? null };
 }
-
-const approvalOf = (step: Step | null) =>
-  step && (step.kind === "skill" || step.kind === "action") ? step.approval : undefined;
 
 /**
  * Whether this person may take the conversation over or end it: the operator stepping in, or a
@@ -104,13 +108,13 @@ async function mayControlRows(
   const who = await withCanSign(tx, r.tenantId, by);
   if (who.canSign === false) return false;
   const setup = setupOf(rows);
-  const { step } = await stepOf(tx, r, stepRunId);
+  const { approval } = await stepOf(tx, r, stepRunId);
   const { assignee } = await conversationRoute(
     tx,
     await approvalRoutingTx(tx, r.tenantId),
     r,
     setup.input.channel as ConverseChannel,
-    approvalOf(step)?.approver,
+    approval?.approver,
   );
   return mayResolve(assignee, who);
 }
@@ -235,8 +239,8 @@ export async function controlConversation(tx: Tx, input: ControlInput): Promise<
       now,
     });
   const handOverTo = async (row: ReachOutRow) => {
-    const { step, nodeId } = await stepOf(tx, r, input.stepRunId);
-    const timeout = approvalOf(step)?.timeout ?? "7 days";
+    const { approval, nodeId } = await stepOf(tx, r, input.stepRunId);
+    const timeout = approval?.timeout ?? "7 days";
     const [item] = await tx
       .insert(inboxItem)
       .values(

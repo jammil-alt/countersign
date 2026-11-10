@@ -21,25 +21,36 @@ export type Triggered =
   | { triggers: readonly Trigger[] };
 
 /**
+ * The trigger a test run's payload stands for: the first event trigger, else the first trigger
+ * (undefined when a process has none yet). The sample and the recent events both read this one, so
+ * "Sample trigger payload" and "Use a recent event" offer payloads of the same trigger.
+ */
+export function testTrigger(workflow: Triggered): Trigger | undefined {
+  const all = allTriggers(workflow);
+  return all.find((t) => t.on.type === "event") ?? all[0];
+}
+
+/**
  * The event type a workflow waits for: its first event trigger's, or null when none of its
  * triggers is an event. A v4 process reads its `triggers` (core's `allTriggers`), so a live v4
  * version's Versions tab doesn't fail on a missing `trigger`.
  */
 export function triggerEventType(workflow: Triggered | null | undefined): string | null {
   if (!workflow) return null;
-  for (const t of allTriggers(workflow)) if (t.on.type === "event") return t.on.event;
-  return null;
+  const on = testTrigger(workflow)?.on;
+  return on?.type === "event" ? on.event : null;
 }
 
 /**
- * The first trigger's sample payload: the event catalogue's sample (undefined when its type has
- * none, or the process has no trigger yet), or a blank of the input's shape.
+ * The sample payload of the trigger a test run stands for (`testTrigger`): the event catalogue's
+ * sample (undefined when its type has none, or the process has no trigger yet), or a blank of the
+ * input's shape.
  */
 export function samplePayload(
   workflow: Triggered,
   events: readonly Pick<CatalogEvent, "type" | "sample">[],
 ): unknown {
-  const first = allTriggers(workflow)[0];
+  const first = testTrigger(workflow);
   if (!first) return undefined;
   const on = first.on;
   switch (on.type) {

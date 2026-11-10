@@ -37,6 +37,7 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  user,
 } from "./api.test-helper";
 import { conversePort } from "./converse/service";
 import { quietNever } from "./quiet-hours.test-helper";
@@ -1102,6 +1103,108 @@ describe.skipIf(!h)("conversations through the API", () => {
     const rows = await rowsOf(params.runId);
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((r) => r.status !== "ended" || r.runReceivedAt !== null)).toBe(true);
+  });
+
+  // Wave 3c: who may take a live conversation over or end it reads a v4 step's approval check, as
+  // a v3 step's approval: its approver, not the client admin by default.
+  it("lets a v4 conversation's named approver end it, and nobody else of the client's", async () => {
+    const { agentId } = await makeAgent("purchasing-v4-control");
+    const IVY = "+15555550189";
+    const consent = { channels: ["whatsapp", "sms"], source: "signed the service agreement" };
+    const ivy = await newContact({ name: "Ivy Lane", phone: IVY, whatsapp: IVY, consent });
+    await textIn(IVY, "Need edge banding for the Lane job");
+    const [v1] = await H.t.db.select().from(agentVersion).where(eq(agentVersion.agentId, agentId));
+    if (!v1) throw new Error("no version");
+    const stored = {
+      ...v1.bundle,
+      workflows: [
+        {
+          slug: "main",
+          name: "Main",
+          workflow: {
+            schemaVersion: 4,
+            triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+            steps: [
+              {
+                id: "talk",
+                kind: "conversation",
+                name: "Ask Ivy",
+                with: "{{trigger.contactId}}",
+                channel: "whatsapp",
+                goal: "Find out how many metres of edge banding they need.",
+                find: { metres: "number" },
+                messages: { first: "required", later: "within_goal" },
+                deadline: { after: "3 days" },
+                checks: { approval: { approvers: [{ who: H.A.user }] } },
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const [v4] = await H.t.db
+      .insert(agentVersion)
+      .values({
+        tenantId: A(),
+        agentId,
+        version: v1.version + 1,
+        // biome-ignore lint/suspicious/noExplicitAny: a v4 process is stored as written.
+        bundle: stored as any,
+        bundleHash: "v4-process-control",
+        authorType: "operator",
+      })
+      .returning({ id: agentVersion.id });
+    const params = {
+      runId: crypto.randomUUID(),
+      tenantId: A(),
+      agentId,
+      agentVersionId: v4?.id as string,
+      workflowSlug: "main",
+      mode: "live" as const,
+      trigger: { type: "manual" as const },
+      payload: { contactId: ivy },
+    } as Parameters<typeof executeRun>[1];
+    model = new FakeModel([turn({ action: "ask", message: "How many metres do you need?" })]);
+    const conversation = `conversation-${params.runId}_ctalk`;
+    let ended = false;
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      expect(type).toBe(conversation);
+      expect(ended).toBe(false);
+      const [sr] = await H.t.db
+        .select()
+        .from(stepRun)
+        .where(and(eq(stepRun.runId, params.runId), eq(stepRun.nodeId, "talk")));
+      if (!sr) throw new Error("no step run");
+      const control = `/api/runs/${params.runId}/conversations/${sr.id}`;
+      // The portal offers it to the step's approver only.
+      const mayControl = async (who: ReturnType<typeof admin>) => {
+        const res = await H.call(who, "GET", `/api/runs/${params.runId}`);
+        expect(res.status, JSON.stringify(res.json)).toBe(200);
+        const talk = j(res.json).steps.find((s: { conversation?: unknown }) => s.conversation);
+        return talk.conversation.mayControl ?? false;
+      };
+      expect(await mayControl(user("a"))).toBe(true);
+      expect(await mayControl(admin("a"))).toBe(false);
+      const refused = await H.call(admin("a"), "POST", control, { action: "end" });
+      expect(refused.status, JSON.stringify(refused.json)).toBe(403);
+      const before = H.instances.events.length;
+      const res = await H.call(user("a"), "POST", control, { action: "end" });
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      ended = true;
+      const woke = H.instances.events.slice(before).find((e) => e.event.type === conversation);
+      if (!woke) throw new Error("the conversation's event wasn't sent");
+      return woke.event.payload;
+    });
+    const result = await executeRun(deps(), params, cloudflareStepRunner(step));
+    expect(ended).toBe(true);
+    // Nothing went: the first message waited for its signature, and ending it turned the step
+    // down (its onReject: stop).
+    expect(sentTo(IVY)).toHaveLength(0);
+    expect(result).toEqual({ status: "cancelled", reason: "rejected", nodeId: "talk" });
+    expect(await stepOutput(params.runId, "talk")).toMatchObject({
+      status: "failed",
+      summary: "The conversation was turned down before it finished.",
+    });
   });
 
   it("refuses another client's contact (invariant 1)", async () => {

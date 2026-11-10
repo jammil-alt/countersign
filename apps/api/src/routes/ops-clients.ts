@@ -6,12 +6,13 @@ import { applyMatrixChange } from "@countersign/connectors";
 import {
   complianceOf,
   connectorShown,
-  findAnyStep,
+  findNodeStep,
   type OpsAgentActivity,
   parseCoveredProcessors,
   processingRefusal,
   processorsForOffer,
   routes,
+  stepNodeOf,
 } from "@countersign/core";
 import {
   agent,
@@ -328,9 +329,12 @@ export async function opsRunViews(
       r.status === "failed" && r.error && typeof r.error === "object"
         ? (r.error as { nodeId?: unknown }).nodeId
         : undefined;
-    // A step in a loop runs as `<loop>:<index>:<step>`: its own id is the last part.
-    const stepId = typeof nodeId === "string" ? (nodeId.split(":").at(-1) ?? nodeId) : null;
-    const step = wf && stepId ? findAnyStep(wf.workflow, stepId) : undefined;
+    // A step in a loop runs as `<loop>:<index>:<step>`, and a run can stop on one of a step's
+    // checks (`<step>:confer:<n>`, `<step>:notify:<n>`…): the step is the node before the check.
+    // Wave 3c: the check's suffix was read as the step's id, so a v4 run that stopped on a confer
+    // or an urgent notice named no step.
+    const node = typeof nodeId === "string" ? stepNodeOf(nodeId).node : null;
+    const step = wf && node ? findNodeStep(wf.workflow, node) : undefined;
     return {
       ...opsRun(r),
       waiting: waits.get(r.id) ?? null,
