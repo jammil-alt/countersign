@@ -129,6 +129,8 @@ export function billCreateTool(clientFor: ClientFor): ToolDefinition {
     description:
       "Create a bill in QuickBooks from a vendor's invoice: vendor, number, dates, lines (an account, or an item with qty and unit price) and the expected total. Refused if the lines don't add up, the vendor isn't the company's, or the bill is already there.",
     verb: "create",
+    // R5: none until a qbo.bill.void tool is registered; delete stays off (docs/plan.md §9).
+    undo: { kind: "none" },
     summary: "Created bill {{docNumber}} for {{total}}",
     amount: { path: "expectedTotal", currencyPath: "currency", currency: "USD" },
     display: billCreateDisplay,

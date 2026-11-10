@@ -592,6 +592,8 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
         description:
           "Create a HubSpot contact, company or deal with the given properties (internal names, e.g. email, firstname).",
         verb: "create",
+        // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+        undo: { kind: "none" },
         summary: "Created {{objectType}} {{id}}",
         input: z.object({ objectType: HubspotObjectType, properties: Properties }),
         output: z.object({
@@ -652,6 +654,8 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
         description:
           "Change properties of a HubSpot contact, company or deal. Give the record's updatedAt as read to refuse the change if it changed since.",
         verb: "update",
+        // R5: the before state is written back with this tool, if the record hasn't changed since.
+        undo: { kind: "restore" },
         summary: "Updated {{objectType}} {{id}}",
         input: z.object({
           objectType: HubspotObjectType,
@@ -746,6 +750,8 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
         entity: "note",
         description: "Add a note to a HubSpot contact, company or deal.",
         verb: "create",
+        // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+        undo: { kind: "none" },
         summary: "Added a note to {{objectType}} {{recordId}}",
         input: Attach.extend({ text: z.string().min(1).max(10_000) }),
         output: z.object({
@@ -804,6 +810,8 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
         description:
           "Create a task in HubSpot (a to-do with a due date), optionally on a contact, company or deal.",
         verb: "create",
+        // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+        undo: { kind: "none" },
         summary: "Created task {{id}}",
         input: z
           .object({

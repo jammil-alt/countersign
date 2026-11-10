@@ -25,6 +25,13 @@ export const LEDGER_WRITE_TOOLS = {
   locationUpdate: "qbo.location.update",
 } as const;
 
+/** R5: the update that takes back each create (it makes the new record inactive). */
+const REVERSED_BY: Partial<Record<string, string>> = {
+  [LEDGER_WRITE_TOOLS.accountCreate]: LEDGER_WRITE_TOOLS.accountUpdate,
+  [LEDGER_WRITE_TOOLS.classCreate]: LEDGER_WRITE_TOOLS.classUpdate,
+  [LEDGER_WRITE_TOOLS.locationCreate]: LEDGER_WRITE_TOOLS.locationUpdate,
+};
+
 /** QuickBooks' account types, as a new account or a change of type names them. */
 export const QBO_ACCOUNT_TYPES = [
   "Bank",
@@ -388,6 +395,7 @@ function createTool(
     }
     return { parent };
   };
+  const reversedBy = REVERSED_BY[id];
   return defineWriteTool({
     id,
     entity: permissionEntity,
@@ -396,6 +404,9 @@ function createTool(
       : `Add ${A[entity]} ${WORD[entity]} to the company's books in QuickBooks, under a parent if it has one. Always signed by a person. Refused if the name is already used there.`,
     verb: "create",
     approval: "always",
+    // R5 DECISION: taken back by making the new record inactive with its update tool (QuickBooks'
+    // own "delete" for names, which keeps the record), never by a delete: that stays off.
+    undo: reversedBy ? { kind: "reverse", tool: reversedBy } : { kind: "none" },
     summary: `Added the ${WORD[entity]} {{fullName}} in QuickBooks`,
     display: createDisplay(entity),
     input,
@@ -501,6 +512,8 @@ function updateTool(
       : `Change ${A[entity]} ${WORD[entity]} in the company's books in QuickBooks: its name or parent, or make it inactive (or active again). Name the version you read (syncToken). Always signed by a person.`,
     verb: "update",
     approval: "always",
+    // R5: the before state is written back with this tool, if the record hasn't changed since.
+    undo: { kind: "restore" },
     summary: `Changed the ${WORD[entity]} {{fullName}} in QuickBooks`,
     display: updateDisplay(entity),
     input,

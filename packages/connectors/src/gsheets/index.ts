@@ -846,6 +846,9 @@ export function createGsheetsConnector(options: GsheetsOptions = {}): GsheetsCon
         description:
           "Add rows at the end of a tab in a Google Sheet the client picked, after the last row with data. Each row is a list of cells from column A: text, numbers, true/false or null. Text is written as text: nothing becomes a formula.",
         verb: "create",
+        // R5 DECISION: none for now. Clearing the appended cells with range.update would reverse
+        // it, but that maps the output's range to an input: a follow-up (docs/plan.md §9).
+        undo: { kind: "none" },
         summary: "Added {{rows}} row(s) to Google Sheets at {{range}}",
         input: SheetsAppendInput,
         output: SheetsAppendOutput,
@@ -951,6 +954,8 @@ export function createGsheetsConnector(options: GsheetsOptions = {}): GsheetsCon
         description:
           'Change cells in a Google Sheet the client picked: a tab (default the first), a range with both rows such as B2:C3, and the new values in exactly that shape (null keeps a cell, "" empties it). Refused if the cells changed since the change was proposed. Text is written as text: nothing becomes a formula.',
         verb: "update",
+        // R5: the before state is written back with this tool, if the record hasn't changed since.
+        undo: { kind: "restore" },
         summary: "Changed {{range}} in Google Sheets",
         input: SheetsUpdateInput,
         output: SheetsUpdateOutput,

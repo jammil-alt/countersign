@@ -1007,6 +1007,8 @@ export function createTwilioConnector(options: TwilioConnectorOptions = {}): Con
         description:
           "Text a contact from the client's number. Only contacts who agreed to texts, outside quiet hours.",
         verb: "create",
+        // R5: a send can't be taken back.
+        undo: { kind: "none" },
         summary: "Texted {{contactName}}",
         recipient: { path: "to", channel: "sms" },
         input: SmsSendInput,
@@ -1027,6 +1029,8 @@ export function createTwilioConnector(options: TwilioConnectorOptions = {}): Con
         description:
           "Send a contact a WhatsApp message: free text within 24 hours of their last message, else an approved template.",
         verb: "create",
+        // R5: a send can't be taken back.
+        undo: { kind: "none" },
         summary: "Sent {{contactName}} a WhatsApp message",
         recipient: { path: "to", channel: "whatsapp" },
         input: WhatsAppSendInput,

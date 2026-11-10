@@ -178,6 +178,8 @@ export function createTestkitConnector(
         entity: "record",
         description: "Change a record's name or amount.",
         verb: "update",
+        // R5: the before state is written back with this tool, if the record hasn't changed since.
+        undo: { kind: "restore" },
         summary: "Updated record {{record.id}}",
         // The testkit's company keeps US dollars.
         amount: { path: "amount", currency: "USD" },

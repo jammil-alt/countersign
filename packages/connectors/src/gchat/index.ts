@@ -337,6 +337,8 @@ export function createGchatConnector(options: GchatOptions = {}): Connector {
         description:
           "Post a plain-text message in one of the client's connected Google Chat spaces. Mentions are removed; nothing is read from the space.",
         verb: "create",
+        // R5: a post can't be taken back.
+        undo: { kind: "none" },
         summary: "Posted in {{spaceLabel}} on Google Chat",
         input: GchatPostInput,
         output: GchatPostOutput,

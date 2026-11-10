@@ -516,6 +516,8 @@ export function createSlackConnector(options: SlackOptions = {}): SlackConnector
         description:
           "Post a plain-text message to a Slack channel the client picked. Shown as written: no formatting, links or mentions.",
         verb: "create",
+        // R5: a post can't be taken back.
+        undo: { kind: "none" },
         summary: "Posted in #{{channelName}} on Slack",
         input: SlackPostInput,
         output: SlackPostOutput,
