@@ -18,6 +18,7 @@ import {
   Trigger,
   WorkflowHandoff,
 } from "../schemas/workflow";
+import { WriteAction } from "./actions";
 import { SkillCustomization } from "./customize";
 
 // ── Deadlines ────────────────────────────────────────────────────────────────────────────────
@@ -202,13 +203,33 @@ export const SkillStep = z.object({
   customize: SkillCustomization.optional(),
 });
 
-/** A write: to a client's tool (external, approval on by default) or a platform record. */
-export const WriteStep = z.object({
-  ...base,
-  kind: z.literal("write"),
-  tool: ToolId,
-  input: TemplateObject.default({}),
-});
+/**
+ * A write: to a client's tool (external, approval on by default) or a platform record. It names a
+ * `tool`, or (skill model, 2026-11-10) an `action` that resolves from the agent's bindings when it
+ * runs (`./actions`): every action is external, so its approval is on by default.
+ */
+export const WriteStep = z
+  .object({
+    ...base,
+    kind: z.literal("write"),
+    tool: ToolId.optional(),
+    action: WriteAction.optional(),
+    /** An accounting action's connector, when the agent is bound to more than one. */
+    via: z.string().min(1).max(100).optional(),
+    input: TemplateObject.default({}),
+  })
+  .superRefine((s, ctx) => {
+    if ((s.tool === undefined) === (s.action === undefined)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["tool"],
+        message: "a write step names a tool or an action, not both",
+      });
+    }
+    if (s.via !== undefined && s.action === undefined) {
+      ctx.addIssue({ code: "custom", path: ["via"], message: "only an action names via" });
+    }
+  });
 
 export const PersonStep = z.object({
   ...base,

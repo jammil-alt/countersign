@@ -32,6 +32,7 @@ import {
   channelTool,
   levelFor,
   type PermissionMatrix,
+  type processes,
   REACH_CHANNELS,
   type ReachChannel,
 } from "@countersign/core";
@@ -271,6 +272,40 @@ export async function channelFor(
     own = (a?.channels ?? null) as Record<string, string> | null;
   }
   return pickChannel({ kind, agent: own, ...state });
+}
+
+/**
+ * Skill model (2026-11-10): the channels an agent's message actions send on (`send_email`,
+ * `send_text`): `channelFor`'s line for each kind (its own, else the account's) with that
+ * connection's matrix, or null when nothing carries it. What publish checks an action against
+ * (`RegistryContext.actionChannels`); the run resolves it again when the step runs.
+ */
+export async function actionChannels(
+  tx: Tx,
+  tenantId: string,
+  agentId: string | null,
+): Promise<NonNullable<processes.ActionBindings["channels"]>> {
+  const out: NonNullable<processes.ActionBindings["channels"]> = {};
+  const state = await channelState(tx, tenantId);
+  let own: Record<string, string> | null = null;
+  if (agentId) {
+    const [a] = await tx
+      .select({ channels: agent.channels })
+      .from(agent)
+      .where(and(eq(agent.id, agentId), eq(agent.tenantId, tenantId)));
+    own = (a?.channels ?? null) as Record<string, string> | null;
+  }
+  for (const kind of ["email", "sms"] as const) {
+    const line = pickChannel({ kind, agent: own, ...state });
+    const conn = line ? state.connections.find((c) => c.id === line.connectionId) : undefined;
+    out[kind] = line
+      ? {
+          connector: line.connector,
+          ...(conn?.permissions ? { matrix: conn.permissions as Partial<PermissionMatrix> } : {}),
+        }
+      : null;
+  }
+  return out;
 }
 
 /**

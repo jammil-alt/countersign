@@ -3598,6 +3598,46 @@ records). Step patterns for the template stream: `vendorInvoiceProcess`, `readIn
 - Open question: whether a model match in category `other` (no key attributes) should always go to
   a person.
 
+**Skill model (2026-11-10)** (owner, 2026-11-10; ARCHITECTURE §10.14 "Action write steps"). Wave B
+item 9, action write steps (`skills/actions`; no migration):
+- DECISION: a v4 write step names `tool` or `action` (`send_email`, `send_text`, `create_bill`,
+  `create_vendor`), never both, with `via` (a connector id) on an accounting action only. The
+  actions, their inputs, their tools per connector and the mapping to each tool's input are one
+  module, core `processes` (`packages/core/src/process/actions.ts`): `WRITE_ACTIONS`,
+  `ACTION_SPECS`, `ACTION_INPUTS`, `actionInputSchema`, `actionTool`, `resolveActionConnector`,
+  `actionToolInput`, `actionStepLabel`, `actionFits`.
+- DECISION: what a provider can't take is refused before anything is sent, never guessed (core
+  `ActionInputError`, the step's row failed "refused: …", nothing written): a vendor named without
+  its id (QuickBooks and BILL take vendors by id; look it up in a read step first), a BILL bill
+  without a due date or with an item line, an email with `cc` (no email tool sends one yet).
+- DECISION: `via` is for accounting actions only; a message goes on the channel `channelFor`
+  resolves (the agent's own, else the account's), never picked per step. Two bindings of one
+  accounting connector (`qbo`, `qbo:2`) count as one connector.
+- DECISION: at publish a client agent's actions are checked against its bound connectors and, for
+  messages, the channels `RegistryContext.actionChannels` resolves (apps/api `actionChannels`, each
+  with its connection's matrix). A loosened approval is held to the resolved connection's matrix
+  and the agent's mode; where the connection can't be resolved at publish, a loosening is refused
+  (approval stays on). Templates check the input shape only.
+- DECISION: an action brings its resolved tool in, as a conversation's channel brings its send
+  tool: the agent needn't list the tool. The gate still holds the call to the connection's matrix,
+  the agent's grant, its mode and the go-live stage (invariants 8, 13).
+- DECISION: the executor resolves the action once per step in a durable step (`<step>:action`,
+  `AgentPort.resolveAction`), then runs a write step on the resolved tool, its input mapped when
+  each attempt starts (an oversight retry's corrected input is the tool's). A resolution that is
+  refused, or names a tool the action doesn't run with, fails the step before anything is
+  proposed; the run ends there (it is not a failure `onError: continue` goes on past).
+- DECISION: a message action's channel connection goes to the gate as the agent's binding for that
+  connector for this one call (`ActionStepRequest.binding`): the account's channel is the agent's
+  when it has none (§10.14), and its matrix decides, as for a reach-out.
+- DECISION: an action's output is its tool's, known only at run time, so later steps read it
+  untyped. The run's rows name where it went: the step's name with "· in QuickBooks" (core
+  `actionStepLabel`), which is also what its approval card and timeline line show.
+- DECISION: the builder's offer after a skill is by field names and JSON types only (or the skill
+  output schema's `x-action` and `x-action-fields` hints), never a decision; the operator reviews
+  the pre-mapped input and the validator types it.
+- Open question: a vendor by name. Resolving `vendorName` to an id needs a read inside the write
+  step; today a read step does it first.
+
 ### 1.87 BILL connector (owner: "bill.com integrated", 2026-11-10; no migration)
 
 Connector `billcom` in `packages/connectors/src/billcom/` against a fake (`fakeBillcom` in

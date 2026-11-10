@@ -68,6 +68,28 @@ export interface RegistryContext {
   tools: ToolRegistry;
   catalog: SkillCatalog;
   events?: Record<string, EventTypeSpec>;
+  /**
+   * Skill model (2026-11-10): the email and text channels a client agent's actions send on (its
+   * own, else the account's: apps/api's `channelFor`), each with its connection's matrix. Absent:
+   * a message action's channel isn't checked at publish, and its approval can't be loosened.
+   */
+  actionChannels?: (
+    tx: Tx,
+    tenantId: string,
+    agentId: string | null,
+  ) => Promise<processes.ActionBindings["channels"]>;
+}
+
+/** Whether a bundle holds an action write step (a v4 process's). */
+function holdsAction(bundle: AnyAgentBundle): boolean {
+  let found = false;
+  for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion !== 4) continue;
+    processes.walkSteps(w.workflow, ({ step }) => {
+      if (step.kind === "write" && step.action !== undefined) found = true;
+    });
+  }
+  return found;
 }
 
 /** Parses a bundle (schema only: drafts may be saved with semantic errors, §10.2). */
@@ -351,6 +373,17 @@ export async function validateForPublish(
             grants: await boundGrants(tx, row),
             entities: boundEntities(row.bindings, ctx.tools),
           },
+          // Skill model (2026-11-10): action write steps resolve from the bindings and channels.
+          ...(holdsAction(bundle)
+            ? {
+                actions: {
+                  bound: Object.keys(row.bindings),
+                  ...(ctx.actionChannels && row.tenantId
+                    ? { channels: await ctx.actionChannels(tx, row.tenantId, row.id ?? null) }
+                    : {}),
+                },
+              }
+            : {}),
         }
       : {}),
     // v0.12 W2-G: a client agent's pack panels must name packs its client has enabled.
@@ -901,7 +934,10 @@ export function requiredConnectors(
     if (w.workflow.schemaVersion === 4) {
       processes.walkSteps(w.workflow, ({ step }) => {
         if (step.kind === "skill") addSkill(step.skill);
-        if (step.kind === "read" || step.kind === "write") toolIds.add(step.tool);
+        // Skill model: an action write step's tool is resolved from the bindings when it runs.
+        if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
+          toolIds.add(step.tool);
+        }
       });
       continue;
     }

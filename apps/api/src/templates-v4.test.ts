@@ -137,7 +137,7 @@ describe("the v4 versions of the seeds and pack templates", () => {
         const loose = processes.approvalLoosenings(step.checks?.approval, "checks.approval");
         expect(loose, step.id).toEqual([]);
         // A write to a client's tool says so, with approval required (invariant 8).
-        if (step.kind === "write" && ctx.tools[step.tool]?.sideEffect === "external") {
+        if (step.kind === "write" && ctx.tools[step.tool ?? ""]?.sideEffect === "external") {
           expect(step.checks?.approval?.required, step.id).toBe("required");
         }
         // A skill step thinks: it never names a skill that only wraps a tool (R2 retires them).

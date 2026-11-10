@@ -18,7 +18,12 @@ import {
   validateWorkflow,
 } from "../workflow/validate";
 import { walkSteps as walkV3Steps } from "../workflow/walk";
-import { type ProcessValidationCode, type ProcessWarning, validateProcess } from "./validate";
+import {
+  type ProcessValidationCode,
+  type ProcessValidationContext,
+  type ProcessWarning,
+  validateProcess,
+} from "./validate";
 import { nodeIds } from "./walk";
 
 /** A bundle error: v3's shape, with v4's codes. */
@@ -72,10 +77,12 @@ export function bundleNodeIds(bundle: Pick<AnyAgentBundle, "workflows">): Set<st
  */
 export function validateAnyBundle(
   input: unknown,
-  ctx: Omit<ValidationContext, "agent"> & {
-    /** Skill model (2026-11-10): the node ids of the version this one was made from. */
-    existingStepIds?: ReadonlySet<string>;
-  } = {},
+  // Skill model (2026-11-10): what a client agent's action write steps resolve from at publish.
+  ctx: Omit<ValidationContext, "agent"> &
+    Pick<ProcessValidationContext, "actions"> & {
+      /** Skill model (2026-11-10): the node ids of the version this one was made from. */
+      existingStepIds?: ReadonlySet<string>;
+    } = {},
 ): AnyBundleValidationResult {
   const v3 = AgentBundle.safeParse(input);
   if (v3.success && !holdsProcess(v3.data)) {

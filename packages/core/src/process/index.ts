@@ -2,6 +2,8 @@
 // `processes` namespace, so its step names don't collide with the v3 workflow schema's.
 // R8: a whole bundle that may hold processes, and the builder's field picker.
 // Wave 3b: v4 automations and "Save as automation" on a process.
+// Skill model (2026-11-10): action write steps.
+export * from "./actions";
 export * from "./automation";
 export * from "./bundle";
 export * from "./clock";

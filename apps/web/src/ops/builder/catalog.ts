@@ -32,7 +32,7 @@ import {
   toolLabel,
   whenEvent,
 } from "../workflow/labels";
-import type { LogicKind, PaletteItem } from "./model";
+import { actionItem, type LogicKind, type PaletteItem } from "./model";
 import { scriptPaletteItems } from "./scripts";
 
 export interface CatalogEvent {
@@ -235,7 +235,9 @@ export function bundleConnectors(
     if (w.workflow.schemaVersion === 4) {
       for (const { step } of processes.allSteps(w.workflow)) {
         if (step.kind === "skill") addSkill(step.skill);
-        if (step.kind === "read" || step.kind === "write") addTool(step.tool);
+        if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
+          addTool(step.tool);
+        }
       }
       continue;
     }
@@ -429,6 +431,12 @@ export function paletteSections(
     { key: "triggers", label: "Triggers", items: groups.flatMap((g) => g.items), groups },
     { key: "processes", label: "Processes", items: used },
     { key: "skills", label: "Skills", items: platformSkills },
+    // Skill model (2026-11-10): what to do, resolved from the agent's connections when it runs.
+    {
+      key: "actions",
+      label: "Actions",
+      items: processes.WRITE_ACTIONS.map((a) => actionItem(a)),
+    },
     ...connectorSections,
     {
       key: "people",

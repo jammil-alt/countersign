@@ -90,6 +90,7 @@ import { EventOptions, SmallInput, SmallSelect } from "./fields";
 import { type FocusRequest, Inspector, type Selection } from "./Inspector";
 import {
   type ApprovalEnv,
+  addActionAfter,
   addTrigger,
   addWorkflow,
   allowStep,
@@ -1138,6 +1139,13 @@ function BuilderBody(
                     onAddRoute={(id, option) =>
                       edit((w) => addRouteAfter(w, id, option)?.process ?? w)
                     }
+                    // Skill model (2026-11-10): the write a skill's output fits, selected once
+                    // added so its inspector shows the tool it will use.
+                    onAddAction={(id, fit) => {
+                      const newId = uuidv7();
+                      edit((w) => addActionAfter(w, id, fit, ctx, () => newId)?.process ?? w);
+                      setSelection({ type: "step", id: newId });
+                    }}
                   />
                 </div>
               ) : null}

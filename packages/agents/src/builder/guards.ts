@@ -345,7 +345,8 @@ export function guardBundle(
         removed += 1;
         return false;
       }
-      if ((s.kind === "read" || s.kind === "write") && !tools.has(s.tool)) {
+      // Skill model: an action write step names no tool; it resolves from the agent's bindings.
+      if ((s.kind === "read" || s.kind === "write") && s.tool !== undefined && !tools.has(s.tool)) {
         gap(`No connected tool can "${s.name}" (asked for "${s.tool}").`);
         removed += 1;
         return false;
@@ -380,7 +381,11 @@ export function guardBundle(
           def.skills.push({ skill: step.skill, settings: {} });
         }
       }
-      if ((step.kind === "read" || step.kind === "write") && !allowedTools.has(step.tool)) {
+      if (
+        (step.kind === "read" || step.kind === "write") &&
+        step.tool !== undefined &&
+        !allowedTools.has(step.tool)
+      ) {
         allowedTools.add(step.tool);
         def.extraTools.push(step.tool);
       }

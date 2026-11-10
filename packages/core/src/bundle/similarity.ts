@@ -50,7 +50,9 @@ export function bundleFeatures(bundle: AnyAgentBundle): BundleFeatures {
       eachProcessStep(w.workflow.steps, (step) => {
         steps.push(step.kind);
         if (step.kind === "skill") skills.add(parseSkillRef(step.skill).id);
-        if (step.kind === "read" || step.kind === "write") tools.add(step.tool);
+        // An action write step counts by its action (its tool is resolved at run time).
+        if (step.kind === "read") tools.add(step.tool);
+        if (step.kind === "write") tools.add(step.tool ?? `action:${step.action}`);
       });
       continue;
     }
