@@ -39,6 +39,7 @@ import {
   membership,
   stepRun,
   type Tx,
+  toolCall,
   withTenant,
 } from "@countersign/db";
 import { leadOf } from "@countersign/threads";
@@ -51,7 +52,7 @@ import type {
   StepOutcome,
   StepRunUpdate,
 } from "@countersign/workflows";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   afterReleaseWait,
@@ -442,7 +443,34 @@ export function agentPort(
                     sql`starts_with(${externalAction.idempotencyKey}, ${prefix})`,
                   ),
                 );
-              return rows.some((r) => actionWrote(r));
+              if (rows.some((r) => actionWrote(r))) return true;
+              // Fix 3: a retry's carried writes run on the run retried's actions (their run id and
+              // key), so they are found by this run's tool calls at the step, which name them.
+              const carried = await tx
+                .select({ status: externalAction.status, error: externalAction.error })
+                .from(toolCall)
+                .innerJoin(
+                  stepRun,
+                  and(eq(stepRun.id, toolCall.stepRunId), eq(stepRun.tenantId, toolCall.tenantId)),
+                )
+                .innerJoin(
+                  externalAction,
+                  and(
+                    eq(externalAction.id, toolCall.externalActionId),
+                    eq(externalAction.tenantId, toolCall.tenantId),
+                  ),
+                )
+                .where(
+                  and(
+                    eq(toolCall.tenantId, run.tenantId),
+                    eq(stepRun.runId, run.id),
+                    or(
+                      eq(stepRun.nodeId, nodeId),
+                      sql`starts_with(${stepRun.nodeId}, ${`${nodeId}:`})`,
+                    ),
+                  ),
+                );
+              return carried.some((r) => actionWrote(r));
             });
           },
         }

@@ -63,12 +63,16 @@ export async function carryApproval(
         return { status: "done", output: r.output, summary: r.summary, actionId: c.id, carried };
       case "failed":
         // DECISION (wave 5 re-review): the carried write runs on the run retried's action (its
-        // run id and key), which this run's `stepWrites` never finds; so a failure not known to
-        // have written nothing says the write may have happened, and the executor never goes on
-        // past it (`onError: continue`, `writeMayHaveHappened`): a person checks it.
+        // run id and key); a failure not known to have written nothing says the write may have
+        // happened, and the executor never goes on past it (`onError: continue`,
+        // `writeMayHaveHappened`): a person checks it.
+        // DECISION (wave 5, fix 3): and the failure names the carried action, so this run's tool
+        // call logs it and `stepWrites` finds it however the step then ends (a model-mode skill's
+        // own failure or request for help carries another error than this one).
         return {
           status: "failed",
           error: notWritten(r.action.error) ? r.error : `${r.error}${MAY_HAVE_HAPPENED}`,
+          actionId: c.id,
         };
       default:
         return { status: "refused", reason: `the carried change is ${r.action.status}` };

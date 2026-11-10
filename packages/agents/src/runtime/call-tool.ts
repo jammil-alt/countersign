@@ -67,7 +67,8 @@ export type ToolOutcome =
    */
   | { status: "awaiting_release"; releaseId: string; inboxItemId: string; connectionId: string }
   | { status: "refused"; reason: string }
-  | { status: "failed"; error: string };
+  /** `actionId`: a carried write that failed (its tool call names the action, `stepWrites`). */
+  | { status: "failed"; error: string; actionId?: string };
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

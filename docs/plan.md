@@ -3275,6 +3275,13 @@ executor, the run views' `outcome`; no migration):
   (`apps/api/src/forks-runtime.test.ts`): `stepWrites` before and after sending, `carriedOn` from
   where each run ended, a retry whose carried write fails after sending again, and a retry routing
   on a quick answer and a rejection (and who made it) read back from real step and inbox rows.
+- DECISION (`wave5/fix3`): `stepWrites` also reads the actions this run's tool calls at the step
+  name (`tool_call.external_action_id` on the step's rows, the node or `<node>:…`), so a carried
+  write counts as the step's own: a carried write that fails names its action (`carryApproval`), and
+  one carried as done already does. A model-mode skill whose carried write failed after sending,
+  then failed or asked for help nobody gave, ends the run there, whatever its own error says. A
+  carried write the model never repeats isn't the step's and doesn't count. No new column: the
+  tool call already ties the action to this run's step.
 
 ## 2. Package layering
 

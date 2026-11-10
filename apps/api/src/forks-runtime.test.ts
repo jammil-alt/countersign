@@ -2,7 +2,8 @@
 // or an answer reads, against a real database as cs_worker. `stepWrites` (whether a failed write's
 // external actions say it was made), `dbCarriedActions` (`carriedOn`, from where each run ended),
 // and a retry's `resumeOf` reading real `step_run` and `inbox_item` rows (who answered, the item's
-// step and node) so an `if` routes in the retry as it did in the run retried.
+// step and node) so an `if` routes in the retry as it did in the run retried. Fix 3: a model-mode
+// skill's carried write, read by `stepWrites` through this run's tool calls.
 
 import { dbCarriedActions } from "@countersign/agents";
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
@@ -14,6 +15,7 @@ import {
   externalAction,
   inboxItem,
   stepRun,
+  toolCall,
 } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { inboxEventType } from "@countersign/workflows";
@@ -43,17 +45,22 @@ afterAll(() => h?.close());
 describe.skipIf(!h)("forks on a failure or an answer, against the database", () => {
   const H = h as ApiHarness;
   let agentId = "";
-  const deps = () => ({
+  const deps = (transport = new FakeModel()) => ({
     db: H.db,
     platform: H.platform,
-    transport: new FakeModel(),
+    transport,
     instances: H.instances,
   });
 
   /** A new client version of the agent whose one workflow is `steps`, as stored. */
-  async function processVersion(steps: unknown[], mode: "act" | "suggest_only"): Promise<string> {
+  async function processVersion(
+    steps: unknown[],
+    mode: "act" | "suggest_only",
+    skills: string[] = [],
+  ): Promise<string> {
     const bundle = testBundle();
     bundle.definition.permissions.mode = mode;
+    for (const skill of skills) bundle.definition.skills.push({ skill, settings: {} });
     const stored = {
       ...bundle,
       workflows: [
@@ -285,6 +292,133 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
       expect(second).toMatchObject({ status: "failed", nodeId: "update" });
       expect(processes.writeMayHaveHappened(second.reason ?? "")).toBe(true);
       expect(await actions(again.params.runId)).toEqual([]);
+      expect((await rows(again.params.runId)).some((r) => r.nodeId === "route")).toBe(false);
+      expect(H.backend.writes).toEqual([]);
+    } finally {
+      H.backend.update = update;
+    }
+  });
+
+  it("ends a retry at a model skill that asked for help after its carried write failed after sending", async () => {
+    // A model-mode skill that pays: it makes the write itself, then asks for help, and nobody
+    // answers. The route goes on past `failed` or `needs_help`.
+    const created = await H.call(OPERATOR, "POST", "/api/ops/skills", {
+      definition: {
+        schemaVersion: 1,
+        id: "custom:pay-vendor",
+        name: "Pay vendor",
+        description: "Pays the vendor's record",
+        category: "writing",
+        mode: "agent",
+        instructions: "Update the record to pay it.",
+        tools: [TESTKIT_UPDATE_TOOL],
+        input: { type: "object", properties: { id: { type: "string" } } },
+        output: {
+          type: "object",
+          properties: { paid: { type: "boolean" }, needsHelp: { type: "object" } },
+        },
+      },
+    });
+    expect(created.status, JSON.stringify(created.json)).toBe(200);
+    const published = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/skills/${j(created.json).skill.id}/versions/${j(created.json).version.id}/publish`,
+    );
+    expect(published.status, JSON.stringify(published.json)).toBe(200);
+    const update = H.backend.update.bind(H.backend);
+    H.backend.update = () => {
+      throw new Error("HTTP 502 from the provider");
+    };
+    /** The model pays the record, sees the write fail, and asks for help. */
+    const model = () =>
+      new FakeModel().push(
+        {
+          toolUse: {
+            name: TESTKIT_UPDATE_TOOL.replaceAll(".", "__"),
+            input: { id: "r1", amount: "12.00" },
+          },
+        },
+        {
+          toolUse: {
+            name: "finish",
+            input: { needsHelp: { question: "Did the payment go out?", tried: ["paid it"] } },
+          },
+        },
+      );
+    try {
+      const version = await processVersion(
+        [
+          {
+            id: "pay",
+            kind: "skill",
+            name: "Pay vendor",
+            skill: "custom:pay-vendor",
+            input: { id: "r1" },
+            onError: "continue",
+            checks: { approval: { required: "not_required" } },
+          },
+          {
+            id: "route",
+            kind: "if",
+            name: "If it didn't pay",
+            paths: [
+              {
+                id: "yes",
+                name: "Didn't pay",
+                when: {
+                  match: "any",
+                  rules: [
+                    { field: "{{steps.pay.outcome}}", op: "=", value: "failed" },
+                    { field: "{{steps.pay.outcome}}", op: "=", value: "needs_help" },
+                  ],
+                },
+                steps: [],
+              },
+            ],
+            otherwise: { id: "no", steps: [] },
+          },
+        ],
+        "act",
+        ["custom:pay-vendor"],
+      );
+      // Publishing copies the shared skill into the client, where its runs read it.
+      const pub = await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/agents/${agentId}/versions/${version}/publish`,
+      );
+      expect(pub.status, JSON.stringify(pub.json)).toBe(200);
+      // Nobody answers the request for help (the default wait times out).
+      const first = params(version);
+      const result = await executeRun(
+        deps(model()),
+        first,
+        cloudflareStepRunner(new FakeWorkflowStep()),
+      );
+      expect(result).toMatchObject({ status: "failed", nodeId: "pay" });
+      const [action] = await actions(first.runId);
+      expect(action).toMatchObject({ status: "failed", idempotencyKey: `${first.runId}:pay:0` });
+      expect(action?.error).not.toMatchObject({ notWritten: true });
+      expect((await rows(first.runId)).some((r) => r.nodeId === "route")).toBe(false);
+
+      // The retry's model makes the same write: the first run's action is carried, and fails
+      // after sending again. The skill asks for help, nobody answers: the run still ends there.
+      const again = await retry(first.runId);
+      expect(again.resumeFrom).toBe("pay");
+      const second = await executeRun(
+        deps(model()),
+        again.params,
+        cloudflareStepRunner(new FakeWorkflowStep()),
+      );
+      expect(second).toMatchObject({ status: "failed", nodeId: "pay" });
+      expect(await actions(again.params.runId)).toEqual([]);
+      const calls = await H.t.db
+        .select({ actionId: toolCall.externalActionId, status: toolCall.status })
+        .from(toolCall)
+        .innerJoin(stepRun, eq(stepRun.id, toolCall.stepRunId))
+        .where(eq(stepRun.runId, again.params.runId));
+      expect(calls).toEqual([{ actionId: action?.id, status: "failed" }]);
       expect((await rows(again.params.runId)).some((r) => r.nodeId === "route")).toBe(false);
       expect(H.backend.writes).toEqual([]);
     } finally {
