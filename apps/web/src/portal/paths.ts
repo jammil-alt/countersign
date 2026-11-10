@@ -21,6 +21,9 @@ export const PORTAL_PATHS = {
   settings: "/settings",
   approvals: "/settings/approvals",
   team: "/settings/team",
+  // R8 (docs/plan.md §1.86): the client's week, zone and closed dates; numbers and addresses.
+  businessHours: "/settings/hours",
+  channels: "/settings/channels",
   billing: "/settings/billing",
   exports: "/settings/exports",
   conversations: "/settings/conversations",

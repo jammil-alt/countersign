@@ -9,6 +9,10 @@
 // loosen); a client user sees it all read-only, except a person's own account (Gmail), which they
 // may connect themselves and disconnect if they connected it. Whoever may disconnect a connected
 // Gmail may also send a test email from it to itself (plan §1.31). The API enforces the same rules.
+//
+// R8 (plan §1.86, ARCHITECTURE §10.14 "Connections"): the tools still to connect are grouped by
+// kind, each saying how it connects (you sign in, or you enter a key), and the websites an agent
+// may be given a login for are listed with them; the login goes into the vault, never to us.
 import { useEffect, useState } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { AgentsLine, LoginEditor, VaultCard, VaultDetails } from "../../accounts/vault";
@@ -20,6 +24,8 @@ import { accessLabel, ConnectorMark, connectionStatusLabel } from "../../connect
 import { GchatSetup } from "../../connections/GchatSetup";
 // v0.14 W4-D
 import { GsheetsSetup } from "../../connections/GsheetsSetup";
+// R8: the tools to connect, grouped by kind
+import { GROUP_KEY, groupByConnector } from "../../connections/groups";
 import { MatrixTable } from "../../connections/MatrixTable";
 import { openPlaidLink } from "../../connections/plaidLink";
 // v0.14 W4-C
@@ -39,6 +45,7 @@ import { WHATSAPP_META_SIGNUP_PATH } from "./WhatsappMetaSignup";
 
 type Offered = ResponseOf<typeof apiRoutes.portalConnections>["connections"][number];
 type Vault = ResponseOf<typeof apiRoutes.portalAccess>;
+type SiteOffer = Vault["browserSites"][number];
 
 // Website logins are connections of the browser connector (packages/connectors/src/browser): one
 // per site, so they live in the vault, never as a tool row. Upload is built in: it lives on the
@@ -229,6 +236,7 @@ export function AccountsScreen() {
                 {() => (
                   <AddToolCard
                     items={toAdd}
+                    sites={vault.data?.canEdit ? vault.data.browserSites : []}
                     isAdmin={isAdmin}
                     onEnterLogin={openVault}
                     onConnect={(c) => act(() => connect(c))}
@@ -566,19 +574,28 @@ function ConnectionActions({
   );
 }
 
-/** "Add another tool": the offered tools not connected yet, each with how to connect it. */
+/**
+ * "Add another tool": the offered tools not connected yet, grouped by what they are (accounting,
+ * email, messages, …), then the websites the client admin may give an agent a login for. Each says
+ * how it connects: you sign in to it, you enter its key, or you enter an agent account's login into
+ * the vault (R8, ARCHITECTURE §10.14). We never see a password, key or login.
+ */
 function AddToolCard({
   items,
+  sites,
   isAdmin,
   onEnterLogin,
   onConnect,
 }: {
   items: Offered[];
+  /** Websites a browser login can be set up on (the client admin's view; else empty). */
+  sites: SiteOffer[];
   isAdmin: boolean;
   onEnterLogin: () => void;
   onConnect: (item: Offered) => Promise<void>;
 }) {
   const { t } = useI18n();
+  const groups = groupByConnector(items);
   return (
     <Card
       testId="portal-connections-available"
@@ -592,20 +609,61 @@ function AddToolCard({
         </p>
       }
     >
-      {items.length === 0 ? (
+      {items.length === 0 && sites.length === 0 ? (
         <p className="ui-card__body text-sm text-ink-muted">{t("accounts.add.none")}</p>
       ) : (
-        <ul>
-          {items.map((c) => (
-            <AddToolRow
-              key={c.connector}
-              item={c}
-              isAdmin={isAdmin}
-              onEnterLogin={onEnterLogin}
-              onConnect={() => onConnect(c)}
-            />
+        <div>
+          {groups.map(({ group, items: inGroup }) => (
+            <section
+              key={group}
+              data-testid={`portal-connections-group-${group}`}
+              className="border-b border-line last:border-b-0"
+            >
+              <h3 className="eyebrow px-6 pt-4 text-ink-muted">{t(GROUP_KEY[group])}</h3>
+              <ul>
+                {inGroup.map((c) => (
+                  <AddToolRow
+                    key={c.connector}
+                    item={c}
+                    isAdmin={isAdmin}
+                    onEnterLogin={onEnterLogin}
+                    onConnect={() => onConnect(c)}
+                  />
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+          {sites.length > 0 ? (
+            <section
+              data-testid="portal-connections-group-logins"
+              className="border-b border-line last:border-b-0"
+            >
+              <h3 className="eyebrow px-6 pt-4 text-ink-muted">{t("accounts.group.logins")}</h3>
+              <p className="px-6 pt-1 text-sm text-ink-muted">{t("accounts.how.login")}</p>
+              <ul>
+                {sites.map((s) => (
+                  <li
+                    key={s.slug}
+                    data-testid={`portal-connections-site-${s.slug}`}
+                    className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-4 last:border-b-0"
+                  >
+                    <span className="flex min-w-0 items-center gap-3">
+                      <ConnectorMark name={s.name} connector={BROWSER_CONNECTOR} />
+                      <span className="font-medium text-ink">{s.name}</span>
+                    </span>
+                    <Button
+                      size="sm"
+                      onClick={onEnterLogin}
+                      data-testid={`portal-connections-site-${s.slug}-login`}
+                    >
+                      {t("accounts.add.enterLogin")}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+        </div>
       )}
     </Card>
   );
@@ -637,7 +695,7 @@ function AddToolRow({
           <p className="text-sm text-ink-muted">{descriptionOf(item, i18n)}</p>
         </div>
       </div>
-      <div>
+      <div className="flex flex-col items-start gap-1">
         {!item.available ? (
           <Badge testId="portal-connection-unavailable">{t("connections.notAvailable")}</Badge>
         ) : item.credentialForm ? (
@@ -665,6 +723,11 @@ function AddToolRow({
         ) : (
           <p className="text-sm text-ink-muted">{t("connections.adminCanConnect")}</p>
         )}
+        {item.available ? (
+          <p className="text-sm text-ink-muted" data-testid="portal-connection-how">
+            {item.credentialForm ? t("accounts.how.key") : t("accounts.how.signIn")}
+          </p>
+        ) : null}
       </div>
     </li>
   );

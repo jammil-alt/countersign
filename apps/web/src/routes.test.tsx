@@ -72,6 +72,8 @@ describe("the portal's routes", () => {
       "/settings",
       "/settings/approvals",
       "/settings/team",
+      "/settings/hours",
+      "/settings/channels",
       "/settings/billing",
       "/settings/exports",
       "/settings/conversations",

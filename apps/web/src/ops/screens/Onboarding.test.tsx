@@ -308,6 +308,9 @@ describe("client settings", () => {
       "General",
       "Approvals",
       "People",
+      // R8 (plan §1.86)
+      "Business hours",
+      "Channels",
       "Billing",
       "Compliance",
       "Exports",
