@@ -10,6 +10,8 @@ import {
   listOwner,
   PEOPLE_LIST,
   ROOT,
+  TRIGGER_ORDER,
+  triggerOrderOf,
   unflattenBundle,
 } from "./flatten";
 import { type BundleReadOptions, readBundles } from "./normalize";
@@ -28,9 +30,10 @@ import { type BundleReadOptions, readBundles } from "./normalize";
  * - Ids are never generated: every id in the result comes from an input.
  * - R1 (docs/plan.md §1.86): bundles holding v4 processes merge the same way. When any side holds
  *   one, all three are read as v4 first (the converter keeps every id, so a v3 base still lines
- *   up with a v4 side); `if` paths merge like fork paths, a v4 process's triggers by id, step
- *   config field by field, and checks (confer, approval, notify) field by field too (lists in
- *   them, such as `notify` or an approval's `approvers`, are whole values).
+ *   up with a v4 side); `if` paths merge like fork paths, a v4 process's triggers by id (their
+ *   order as a sequence, like a list's), step config field by field, and checks (confer,
+ *   approval, notify) field by field too (lists in them, such as `notify` or an approval's
+ *   `approvers`, are whole values).
  *
  * Unresolved conflicts leave ours in place, so the result is always a complete bundle; a merge
  * draft can be saved only when `conflicts` is empty and the bundle passes validateBundle.
@@ -239,14 +242,48 @@ class Merger {
     const ct = this.t.entities.get(k)?.content;
     if (co === undefined) return ct as Record<string, unknown>;
     if (ct === undefined) return co;
-    return this.value(k, cb, co, ct, []) as Record<string, unknown>;
+    const orders = [cb, co, ct].map(triggerOrderOf);
+    if (orders.every((o) => o === undefined)) {
+      return this.value(k, cb, co, ct, []) as Record<string, unknown>;
+    }
+    // R1: a v4 workflow's trigger order merges as a sequence over the triggers kept, so one side
+    // adding a trigger and the other adding or reordering another doesn't conflict.
+    const [ob, oo, ot] = orders;
+    const merged = this.value(k, withoutOrder(cb), withoutOrder(co), withoutOrder(ct), []) as {
+      workflow?: Record<string, unknown>;
+    } & Record<string, unknown>;
+    const wf = merged.workflow ?? {};
+    const members = new Set(Object.keys((wf.triggers ?? {}) as Record<string, unknown>));
+    const proj = (o: string[] | undefined) => (o ?? []).filter((id) => members.has(id));
+    const order = this.sequence(
+      `${k}#/workflow/${TRIGGER_ORDER}`,
+      k,
+      proj(ob),
+      proj(oo),
+      proj(ot),
+      members,
+    );
+    return { ...merged, workflow: { ...wf, [TRIGGER_ORDER]: order } };
   }
 
   order(list: string, members: Set<string>): string[] {
     const proj = (flat: FlatBundle) => (flat.lists.get(list) ?? []).filter((k) => members.has(k));
-    const bs = proj(this.b);
-    const os = proj(this.o);
-    const ts = proj(this.t);
+    return this.sequence(`${list}#@order`, list, proj(this.b), proj(this.o), proj(this.t), members);
+  }
+
+  /**
+   * One ordered sequence, three ways (`bs`, `os`, `ts` already hold only the kept `members`): a
+   * reorder on one side is taken, two different reorders conflict (at `path`), inserts stay next
+   * to their neighbours.
+   */
+  sequence(
+    path: string,
+    entity: string,
+    bs: string[],
+    os: string[],
+    ts: string[],
+    members: Set<string>,
+  ): string[] {
     const common = (xs: string[], ys: string[]) => xs.filter((x) => ys.includes(x));
     const oMoved = !deepEqual(common(bs, os), common(os, bs));
     const tMoved = !deepEqual(common(bs, ts), common(ts, bs));
@@ -259,9 +296,9 @@ class Merger {
         skeleton = os;
       } else {
         const c: MergeConflict = {
-          path: `${list}#@order`,
+          path,
           kind: "order",
-          entity: list,
+          entity,
           base: bs,
           ours: os,
           theirs: ts,
@@ -304,6 +341,13 @@ class Merger {
     for (const k of members) if (!result.includes(k)) result.push(k);
     return result;
   }
+}
+
+/** A workflow entity's content without its trigger order (merged apart, as a sequence). */
+function withoutOrder(content: Record<string, unknown> | undefined) {
+  if (!content || !isPlainObject(content.workflow)) return content;
+  const { [TRIGGER_ORDER]: _order, ...workflow } = content.workflow;
+  return { ...content, workflow };
 }
 
 function mergeFlat(
