@@ -1,7 +1,10 @@
-// `/ops/clients/new`: onboarding a client (ARCHITECTURE §15): its name, timezone and language, the tools it
-// is offered, who approves changes to its tools, its admin, invited in the same step, and the
-// supervisor (docs/plan.md §1.28), offered by default. Then the client's settings page, which says
-// what became of the invitation email.
+// `/ops/clients/new`: onboarding a client (ARCHITECTURE §15): its name, timezone and language, who
+// approves changes to its tools, its admin, invited in the same step, and the supervisor
+// (docs/plan.md §1.28), offered by default. Then the client's settings page, which says what became
+// of the invitation email.
+// DECISION (2026-11-10, the owner): no tools are offered here. Nothing is self-service: we sign the
+// client up, then build their agents, and offer each tool on the client's Connections page when an
+// agent needs it (the client still signs in to it themselves).
 import {
   type ExternalApprover,
   type InviteResult,
@@ -14,20 +17,12 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
-import { useApi, useApiClient } from "../../api/useApi";
+import { useApiClient } from "../../api/useApi";
 import { inviteProblem } from "../../people/People";
 import { useSessionState } from "../../session/session";
 import { Field, Select, TextInput } from "../../ui/forms";
 import { Page } from "../../ui/page";
-import {
-  Button,
-  buttonClass,
-  Card,
-  cx,
-  ErrorNotice,
-  Loading,
-  PageHeader,
-} from "../../ui/primitives";
+import { Button, buttonClass, Card, cx, PageHeader } from "../../ui/primitives";
 import { OPS_PATHS } from "../paths";
 
 /** What the settings page shows after onboarding. */
@@ -110,16 +105,10 @@ export function NewClientScreen() {
   const client = useApiClient();
   const { refresh } = useSessionState();
   const navigate = useNavigate();
-  // The catalog is the back office's own route: the portal's `/api/connectors` acts in one client,
-  // and a client being made has none yet (it answered 403 tenant_forbidden here).
-  const connectors = useApi(apiRoutes.opsConnectors);
-  // Test-only connectors (the testkit) are never offered to a real client.
-  const offerable = connectors.data?.connectors.filter((c) => !c.testOnly) ?? null;
   const [name, setName] = useState("");
   const [timezone, setTimezone] = useState(browserTimezone);
   // DECISION: English unless the operator picks another; the client admin can change it later.
   const [language, setLanguage] = useState<Locale>("en");
-  const [offered, setOffered] = useState<string[]>([]);
   const [approvals, setApprovals] = useState<ExternalApprover>("client_admin");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminName, setAdminName] = useState("");
@@ -145,7 +134,6 @@ export function NewClientScreen() {
         body: {
           name: name.trim(),
           timezone: timezone.trim(),
-          connectorsOffered: offered,
           approvals,
           language,
           supervisor,
@@ -172,11 +160,6 @@ export function NewClientScreen() {
         ["already_member", "other_client", "is_operator", "invalid_request"].includes(code)
       ) {
         setProblems({ admin: inviteProblem(error, "ops") });
-      } else if (code === "no_template") {
-        // The supervisor is forked from a platform template; a new environment may not have it.
-        setProblems({
-          form: "The supervisor template isn't installed here. Install it, or untick the supervisor, then create the client.",
-        });
       } else setProblems({ form: "We couldn't create the client. Try again." });
     } finally {
       setBusy(false);
@@ -257,53 +240,6 @@ export function NewClientScreen() {
               </Select>
             </Field>
           </div>
-        </Card>
-
-        <Card
-          title="Tools to offer"
-          testId="new-client-connectors"
-          footer={
-            <span className="text-sm text-ink-muted">
-              The client signs in to each tool from their portal. We never hold their passwords.
-            </span>
-          }
-        >
-          {connectors.loading && !connectors.data ? (
-            <div className="ui-card__body">
-              <Loading />
-            </div>
-          ) : null}
-          {connectors.error ? (
-            <div className="ui-card__body">
-              <ErrorNotice error={connectors.error} onRetry={connectors.reload} />
-            </div>
-          ) : null}
-          {offerable ? (
-            <ul>
-              {offerable.map((c) => {
-                const on = offered.includes(c.id);
-                return (
-                  <li key={c.id} className="border-b border-line last:border-b-0">
-                    <label className="flex cursor-pointer items-start gap-3 px-6 py-3">
-                      <input
-                        type="checkbox"
-                        className="mt-1 size-4 accent-slate"
-                        data-testid={`new-client-offer-${c.id}`}
-                        checked={on}
-                        onChange={() =>
-                          setOffered((o) => (on ? o.filter((x) => x !== c.id) : [...o, c.id]))
-                        }
-                      />
-                      <span className="min-w-0">
-                        <span className="block font-medium text-ink">{c.name}</span>
-                        <span className="block text-sm text-ink-muted">{c.description}</span>
-                      </span>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
         </Card>
 
         <Card title="Approvals" pad>

@@ -66,81 +66,19 @@ const connections = {
   sandbox: false,
 };
 
-/** One connector of the back office's catalog (`GET /api/ops/connectors`). */
-function catalogConnector(
-  id: string,
-  name: string,
-  description: string,
-  over: Record<string, unknown> = {},
-) {
-  return {
-    id,
-    name,
-    description,
-    icon: id,
-    auth: "none",
-    status: "live",
-    statusSource: "deployment",
-    testOnly: false,
-    note: "",
-    available: true,
-    clientsConnected: 0,
-    tools: [],
-    permissionEntities: [],
-    errors: { toolCalls: 0, connections: 0 },
-    defaultAccess: {
-      matrix: { read: "auto", create: "approval", update: "approval", delete: "off" },
-      source: "platform",
-    },
-    waiting: [],
-    updatedAt: null,
-    ...over,
-  };
-}
-
 describe("new client", () => {
-  it("lists the tools to offer without the testkit, and a failure in plain words only", async () => {
-    let fail = true;
-    const api = fakeApi({
-      "GET /api/session": () => OPERATOR_SESSION,
-      "GET /api/ops/connectors": () =>
-        fail
-          ? new Reply(403, {
-              error: { code: "tenant_forbidden", message: "choose a client first" },
-            })
-          : {
-              connectors: [
-                catalogConnector("zoho_crm", "Zoho CRM", "Leads and deals"),
-                catalogConnector("testkit", "Testkit", "For tests", { testOnly: true }),
-              ],
-            },
-    });
+  it("offers no tools: they're offered later, when an agent needs one", async () => {
+    const api = fakeApi({ "GET /api/session": () => OPERATOR_SESSION });
     renderAt("/ops/clients/new", api);
-    const card = await screen.findByTestId("new-client-connectors");
-    const alert = await within(card).findByRole("alert");
-    expect(alert).toHaveTextContent("You don't have access to this.");
-    // The server's code is for support, never part of the words.
-    expect(alert).not.toHaveTextContent("tenant_forbidden");
-    expect(alert).toHaveAttribute("data-error-code", "tenant_forbidden");
-    fail = false;
-    await userEvent.click(within(card).getByRole("button", { name: "Try again" }));
-    expect(await screen.findByTestId("new-client-offer-zoho_crm")).toBeInTheDocument();
-    expect(screen.queryByTestId("new-client-offer-testkit")).toBeNull();
+    expect(await screen.findByTestId("new-client-name")).toBeInTheDocument();
+    expect(screen.queryByTestId("new-client-connectors")).toBeNull();
+    expect(api.calls).not.toContain("GET /api/ops/connectors");
   });
 
-  it("creates the client with its offer, approvals and admin, then shows the invite", async () => {
+  it("creates the client with its approvals and admin, then shows the invite", async () => {
     const bodies: unknown[] = [];
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
-      // The back office's catalog: the portal's /api/connectors needs a client, which a new one
-      // doesn't have yet. The testkit is never offered to a real client.
-      "GET /api/ops/connectors": () => ({
-        connectors: [
-          catalogConnector("upload", "Upload", "Files you upload or forward"),
-          catalogConnector("zoho_crm", "Zoho CRM", "Leads and deals"),
-          catalogConnector("testkit", "Testkit", "For tests", { testOnly: true }),
-        ],
-      }),
       "POST /api/ops/clients": ({ init }) => {
         bodies.push(JSON.parse(String(init.body)));
         return {
@@ -195,7 +133,6 @@ describe("new client", () => {
     const tz = screen.getByTestId("new-client-timezone");
     await userEvent.clear(tz);
     await userEvent.type(tz, "America/Chicago");
-    await userEvent.click(await screen.findByTestId("new-client-offer-upload"));
     await userEvent.click(screen.getByTestId("new-client-approvals-operator"));
     // The client's language: English unless chosen; the six are offered by their own names.
     const language = screen.getByTestId("new-client-language");
@@ -217,7 +154,6 @@ describe("new client", () => {
       {
         name: "Cabinet shop",
         timezone: "America/Chicago",
-        connectorsOffered: ["upload"],
         approvals: "operator",
         language: "es",
         supervisor: true,
@@ -244,19 +180,6 @@ describe("new client", () => {
       "That address belongs to another client.",
     );
     expect(screen.getByTestId("new-client-name")).toHaveValue("Shop");
-  });
-
-  it("says when the supervisor template is missing", async () => {
-    const api = fakeApi({
-      "GET /api/session": () => OPERATOR_SESSION,
-      "GET /api/ops/connectors": () => ({ connectors: [] }),
-      "POST /api/ops/clients": () =>
-        new Reply(409, { error: { code: "no_template", message: "x" } }),
-    });
-    renderAt("/ops/clients/new", api);
-    await userEvent.type(await screen.findByTestId("new-client-name"), "Shop");
-    await userEvent.click(screen.getByTestId("new-client-create"));
-    expect(await screen.findByText(/supervisor template isn't installed here/)).toBeInTheDocument();
   });
 });
 
