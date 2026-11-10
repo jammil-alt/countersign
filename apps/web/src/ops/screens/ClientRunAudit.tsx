@@ -39,6 +39,9 @@ export function parsePercent(text: string): number | null {
   return n >= 0 && n <= 100 ? n : null;
 }
 
+// DECISION (wave 6): the rule is a section of its own in the client's settings ("Run audit",
+// after Compliance), with each agent's override in a table under it; an agent shows its own rule
+// or "the client's rule", and "Use the client's rule" clears its override (null).
 export function ClientRunAuditSection({ clientId }: { clientId: string }) {
   const state = useApi(apiRoutes.opsAuditSettings, { params: { id: clientId } });
   const api = useApiClient();

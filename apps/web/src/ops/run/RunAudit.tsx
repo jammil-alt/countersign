@@ -111,6 +111,9 @@ export function reviewerName(m: AuditMarkView): string {
  * first, and the reviewer's mark once the run is over. A mark is never edited: a new one supersedes
  * it for display and both are kept.
  */
+// DECISION (wave 6): the audit card sits on the run view's rail, under About this run, for
+// every run; the mark form shows once the run is over (the API answers 409 before). A problem's
+// note is required before Save is enabled, as the API requires it.
 export function RunAuditCard({
   runId,
   audit,
@@ -253,6 +256,9 @@ export function runExportHref(runId: string, format: "html" | "json", modelCalls
 }
 
 /** Two downloads for an auditor; each is logged in the audit log. */
+// DECISION (wave 6): two plain download links (the session cookie goes with them; the browser
+// saves the file the route names), offered on every run, a running one too: the trail so far.
+// "Include AI calls" is off by default, so a full prompt leaves only when someone ticks it.
 export function RunExportCard({ runId }: { runId: string }) {
   const [modelCalls, setModelCalls] = useState(false);
   return (

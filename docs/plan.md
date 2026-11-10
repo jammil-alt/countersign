@@ -3346,6 +3346,29 @@ packages/workflows `recordCheck`; apps/api `run-audit/` and `routes/run-audit.ts
   prompts and cost)? Today, no.
 - Open question: whether "clean" should also be recorded for conversation steps once the owner
   reviews them.
+- Screens (`wave6/screens`): apps/web `ops/run/RunAudit.tsx` (the run view's parts),
+  `ops/screens/RunAuditQueue.tsx` (`/ops/run-audit`), `ops/screens/ClientRunAudit.tsx` (the client
+  settings' Run audit section) and the definition editor's owner card. No core or API change.
+- DECISION: the run view shows each step's owner checks under it, one line per attempt (the API's
+  `words`; "Attempt N:" when a step had more than one), quieter for clean and not watched; a
+  reviewed check links to the owner's note in Details.
+- DECISION: the run view's rail has an Audit card (why the run was queued, or that it wasn't; its
+  marks newest first, earlier ones "superseded"; the mark form once the run is over, a problem's
+  note required before Save) and an Export card: two download links, HTML and JSON, on every run
+  (a running one gives the trail so far), with "Include AI calls" off by default.
+- DECISION: the Audit queue is its own page beside the audit log (sidebar, More), with client,
+  agent and state filters in the URL and counts on the state filter; a run is marked in the run
+  view, not from the list. The agent filter lists the agents the stats name (those with queued
+  runs). Per client and per agent stats sit under the list; a client's line opens its rule.
+- DECISION: the sampling rule is a client settings section of its own, "Run audit" (after
+  Compliance): the client's rule (writes tick and a percent, "Use our default" to clear it) and a
+  table of agents, each with its own rule or "the client's rule" ("Use the client's rule" clears
+  an override).
+- DECISION: the owner's review is now in the agent's Settings, Definition (it is
+  `definition.oversight`, so a change makes a draft version): four choices with core's
+  `OWNER_REVIEW_CHOICES` words and cost, "Review every step" among them. Only `review` changes;
+  the owner's model and limits are kept, and an agent with no owner settings stays with none while
+  it is off.
 
 ## 2. Package layering
 

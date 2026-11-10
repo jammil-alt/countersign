@@ -335,6 +335,9 @@ function ModeOption({
  * in plain words with what it costs (core's `OWNER_REVIEW_CHOICES`). "Review every step" is a full
  * AI review of every read, skill and write step; the others check every step by rules, free.
  */
+// DECISION (wave 6): the setting is in Settings, Definition (it is `definition.oversight`, so a
+// change makes a new draft version, as every definition change does), as four radio choices with
+// core's words and cost. Only `review` is edited here; the owner's model and limits are kept.
 function OwnerReviewCard({
   value,
   onChange,

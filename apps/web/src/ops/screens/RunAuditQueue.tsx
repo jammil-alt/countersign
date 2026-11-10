@@ -47,6 +47,9 @@ const REASON_WORDS: Record<AuditQueueRun["reason"], string> = {
   by_hand: "Marked by hand",
 };
 
+// DECISION (wave 6): a run is marked in the run view, where its whole trail is, not from a row
+// here: the queue lists and filters; each row opens the run. The agent filter lists the agents
+// the stats name (those with queued runs), so no other agents list is fetched.
 export function OpsRunAuditScreen() {
   const [params, setParams] = useSearchParams();
   const session = useSession();
