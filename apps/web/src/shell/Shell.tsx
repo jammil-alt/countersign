@@ -5,7 +5,7 @@
 // sign out); a sidebar; the page. At phone width the sidebar folds behind a menu button
 // and the top bar compacts; where a surface keeps its inbox out of the top bar (`inHeader: false`),
 // the menu button carries its count. Feedback floats at the bottom right.
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { FEEDBACK_LAYER_ATTR } from "../feedback/capture";
 import { useFeedbackStarter } from "../feedback/Feedback";
@@ -81,9 +81,15 @@ export function AppShell({
 }) {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
+  const wide = useWide();
+  const [collapsed, setCollapsed] = useSidebarCollapsed();
   const { pathname } = useLocation();
   const deskInHeader = desk.inHeader ?? true;
+  // Folded on a wide screen: a rail of icons, the words for screen readers and in tooltips.
+  const rail = wide && collapsed;
   const menuCount = !deskInHeader && desk.count ? desk.count : 0;
+  const asideRef = useRef<HTMLElement>(null);
+  const tip = useRailTip(asideRef, rail, pathname);
   useEffect(() => {
     document.title = tabTitle(place, desk.count);
   }, [place, desk.count]);
@@ -157,20 +163,156 @@ export function AppShell({
           />
         ) : null}
         <aside
+          ref={asideRef}
           id="shell-sidebar"
           aria-label={t("shell.navigation")}
           data-open={menuOpen ? "true" : undefined}
+          data-collapsed={rail ? "true" : undefined}
           className="ds-sidebar ui-sidebar"
         >
-          <div className="ui-sidebar__nav">{sidebar}</div>
-          {sidebarFooter ? <div className="ui-sidebar__foot">{sidebarFooter}</div> : null}
+          <SidebarRail.Provider value={{ rail }}>
+            <div className="ui-sidebar__nav">{sidebar}</div>
+            {sidebarFooter || wide ? (
+              <div className="ui-sidebar__foot">
+                {sidebarFooter}
+                {/* On a wide screen, Collapse (or Expand) closes the sidebar's foot, as in Anchor. */}
+                {wide ? (
+                  <button
+                    type="button"
+                    data-testid="sidebar-collapse"
+                    aria-expanded={!collapsed}
+                    aria-controls="shell-sidebar"
+                    data-tip={collapsed ? t("shell.expand") : undefined}
+                    onClick={() => setCollapsed(!collapsed)}
+                    className="ds-navitem ui-navitem ui-sidebar__collapse"
+                  >
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <Icon name="chevron-right" className="ui-navitem__icon ui-sidebar__chev" />
+                      <span className="ui-navitem__label">
+                        {t(collapsed ? "shell.expand" : "shell.collapse")}
+                      </span>
+                    </span>
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </SidebarRail.Provider>
         </aside>
+        {tip ? (
+          // The rail's names, as the design system's tooltip. Drawn outside the sidebar (fixed), which
+          // scrolls and would clip it; screen readers already have each name, so it is hidden.
+          <span
+            aria-hidden
+            data-testid="sidebar-tip"
+            className="ds-tooltip ui-railtip"
+            style={{ top: tip.top, left: tip.left }}
+          >
+            {tip.text}
+          </span>
+        ) : null}
         <main className="ui-main">
           <HeaderSwitcherProvider switcher={switcher ?? null}>{children}</HeaderSwitcherProvider>
         </main>
       </div>
     </div>
   );
+}
+
+/**
+ * The rail's tooltip: the name of the row under the pointer or keyboard focus (its `data-tip`),
+ * placed beside it. Gone when the pointer leaves, focus moves on, the sidebar scrolls, Escape is
+ * pressed, the page changes or the rail opens.
+ */
+function useRailTip(
+  asideRef: { current: HTMLElement | null },
+  rail: boolean,
+  pathname: string,
+): { text: string; top: number; left: number } | null {
+  const [tip, setTip] = useState<{ text: string; top: number; left: number } | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: cleared on each page change too.
+  useEffect(() => {
+    setTip(null);
+    const aside = asideRef.current;
+    if (!rail || !aside) return;
+    const show = (e: Event) => {
+      const row = (e.target as Element | null)?.closest?.<HTMLElement>("[data-tip]");
+      const text = row?.dataset.tip;
+      if (!row || !text) return setTip(null);
+      const r = row.getBoundingClientRect();
+      setTip({ text, top: r.top + r.height / 2, left: r.right + 8 });
+    };
+    const hide = () => setTip(null);
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") hide();
+    };
+    aside.addEventListener("pointerover", show);
+    aside.addEventListener("focusin", show);
+    aside.addEventListener("pointerleave", hide);
+    aside.addEventListener("focusout", hide);
+    aside.addEventListener("scroll", hide);
+    aside.addEventListener("keydown", esc);
+    return () => {
+      aside.removeEventListener("pointerover", show);
+      aside.removeEventListener("focusin", show);
+      aside.removeEventListener("pointerleave", hide);
+      aside.removeEventListener("focusout", hide);
+      aside.removeEventListener("scroll", hide);
+      aside.removeEventListener("keydown", esc);
+    };
+  }, [asideRef, rail, pathname]);
+  return tip;
+}
+
+/** Whether the sidebar is folded to its rail of icons. */
+const SidebarRail = createContext<{ rail: boolean }>({ rail: false });
+
+/** Wider than a phone: the sidebar sits beside the page (shell.css's 767.98px breakpoint). */
+const WIDE_QUERY = "(min-width: 768px)";
+
+function wideQuery(): MediaQueryList | null {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia(WIDE_QUERY)
+    : null;
+}
+
+/** Whether the screen is wider than a phone. Without matchMedia (tests), a phone. */
+function useWide(): boolean {
+  const [wide, setWide] = useState(() => wideQuery()?.matches ?? false);
+  useEffect(() => {
+    const mq = wideQuery();
+    if (!mq) return;
+    const update = () => setWide(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return wide;
+}
+
+const SIDEBAR_KEY = "mezonas.sidebar";
+
+/**
+ * Whether the person folded the sidebar away on a wide screen. This browser's choice, kept in
+ * localStorage like the theme; it may be unavailable (private windows), so it's guarded.
+ */
+function useSidebarCollapsed(): [boolean, (collapsed: boolean) => void] {
+  const [collapsed, set] = useState(() => {
+    try {
+      return globalThis.localStorage?.getItem(SIDEBAR_KEY) === "collapsed";
+    } catch {
+      return false;
+    }
+  });
+  const choose = (next: boolean) => {
+    try {
+      if (next) globalThis.localStorage?.setItem(SIDEBAR_KEY, "collapsed");
+      else globalThis.localStorage?.removeItem(SIDEBAR_KEY);
+    } catch {
+      // Kept for this page only.
+    }
+    set(next);
+  };
+  return [collapsed, choose];
 }
 
 const THEME_LABEL = {
@@ -321,19 +463,30 @@ export function SidebarLink({
   testId?: string;
   children?: ReactNode;
 }) {
+  const { rail } = useContext(SidebarRail);
   return (
     <NavLink
       to={to}
       end={end ?? false}
       data-testid={testId}
+      data-tip={rail ? label : undefined}
       // ds-navitem draws the current page from the aria-current NavLink sets.
       className="ds-navitem ui-navitem"
     >
       <span className="flex min-w-0 items-center gap-2.5">
         {icon ? <Icon name={icon} className="ui-navitem__icon" /> : null}
-        {children ?? <span className="truncate">{label}</span>}
+        <span className="ui-navitem__label min-w-0">
+          {children ?? <span className="block truncate">{label}</span>}
+        </span>
       </span>
-      {count !== undefined ? (
+      {rail ? (
+        // On the rail a count rides on the icon's corner, and only while something waits.
+        count ? (
+          <span className="ui-navitem__count">
+            <Count n={count} tone={countTone} small />
+          </span>
+        ) : null
+      ) : count !== undefined ? (
         <Count n={count} tone={countTone} />
       ) : reserveCount ? (
         <CountSlot />
@@ -353,43 +506,20 @@ export function SidebarSection({
   children: ReactNode;
   testId?: string;
 }) {
+  const { rail } = useContext(SidebarRail);
   return (
-    <section className="mt-5" data-testid={testId}>
-      <div className="mb-1.5 flex items-center justify-between px-2.5">
-        <h2 className="eyebrow text-ink-muted">{label}</h2>
-        {action}
-      </div>
+    // Utilities outrank shell.css, so the rail's spacing is chosen here rather than overridden.
+    <section className={cx("ui-navsection", !rail && "mt-5")} data-testid={testId}>
+      {rail ? (
+        <h2 className="sr-only">{label}</h2>
+      ) : (
+        <div className="mb-1.5 flex items-center justify-between px-2.5">
+          <h2 className="eyebrow text-ink-muted">{label}</h2>
+          {action}
+        </div>
+      )}
       <div className="flex flex-col gap-0.5">{children}</div>
     </section>
-  );
-}
-
-/** A folded group of the pages that aren't in the prototype's sidebar, so none is lost. */
-export function SidebarMore({
-  label,
-  children,
-  testId,
-}: {
-  label: string;
-  children: ReactNode;
-  testId?: string;
-}) {
-  const { pathname } = useLocation();
-  const ref = useRef<HTMLDetailsElement>(null);
-  // Open while one of its pages is the current one.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: rechecks on each page change.
-  useEffect(() => {
-    const el = ref.current;
-    if (el?.querySelector('[aria-current="page"]')) el.open = true;
-  }, [pathname]);
-  return (
-    <details ref={ref} className="ui-more mt-5" data-testid={testId}>
-      <summary className="ui-more__summary">
-        <span className="eyebrow text-ink-muted">{label}</span>
-        <Icon name="chevron-down" size={14} className="ui-more__chev text-ink-muted" />
-      </summary>
-      <div className="mt-1.5 flex flex-col gap-0.5">{children}</div>
-    </details>
   );
 }
 
@@ -416,7 +546,7 @@ export function SidebarAgentSkeleton({ rows }: { rows: number }) {
         >
           <span className="flex min-w-0 items-center gap-2.5">
             <span className="ui-agentbadge ui-agentbadge--sm ui-navskel__badge" />
-            <span className="flex min-w-0 flex-col gap-1">
+            <span className="ui-navitem__label flex min-w-0 flex-col gap-1">
               <span className="ui-navskel__bar ui-navskel__bar--name" />
               <span className="ui-navskel__bar ui-navskel__bar--line" />
             </span>
@@ -441,11 +571,17 @@ export function SidebarAgent({
   badge: ReactNode;
   testId?: string;
 }) {
+  const { rail } = useContext(SidebarRail);
   return (
-    <NavLink to={to} data-testid={testId} className="ds-navitem ui-navitem ui-navagent">
+    <NavLink
+      to={to}
+      data-testid={testId}
+      data-tip={rail ? name : undefined}
+      className="ds-navitem ui-navitem ui-navagent"
+    >
       <span className="flex min-w-0 items-center gap-2.5">
         {badge}
-        <span className="min-w-0">
+        <span className="ui-navitem__label min-w-0">
           <span className="block truncate text-ink">{name}</span>
           {line ? <span className="block truncate text-xs text-ink-muted">{line}</span> : null}
         </span>

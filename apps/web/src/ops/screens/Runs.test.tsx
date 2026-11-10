@@ -145,7 +145,8 @@ describe("ops runs", () => {
       "href",
       `/ops/runs/${FAILED}`,
     );
-    expect(screen.getByTestId("ops-runs-retry")).toBeDisabled();
+    // The list starts with its column heads: the bulk actions show once a run is picked.
+    expect(screen.queryByTestId("ops-runs-retry")).toBeNull();
     await userEvent.click(screen.getByTestId(`ops-run-${FAILED}-select`));
     expect(screen.getByTestId("ops-runs-selected")).toHaveTextContent("1 selected");
     // A running run can be cancelled, not retried.
@@ -219,6 +220,27 @@ describe("ops runs", () => {
       "For 39 h · Everyone who may approve it is still invited and hasn't signed in.",
     );
     expect(screen.getByTestId(`ops-run-${RUNNING}-status`)).toHaveTextContent("Running");
+  });
+
+  it("sorts by a column and opens a run from anywhere on its row", async () => {
+    const { api } = setup();
+    renderAt(api);
+    await screen.findByTestId(`ops-run-row-${FAILED}`);
+    const firstRow = () => within(screen.getByTestId("ops-runs")).getAllByRole("row")[1];
+    await userEvent.click(screen.getByTestId("ops-runs-sort-status"));
+    expect(screen.getByTestId("ops-runs-sort-status").closest("th")).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+    expect(firstRow()).toHaveAttribute("data-testid", `ops-run-row-${FAILED}`);
+    await userEvent.click(screen.getByTestId("ops-runs-sort-status"));
+    expect(firstRow()).toHaveAttribute("data-testid", `ops-run-row-${WAITING}`);
+
+    // The check box keeps its own click; the rest of the row opens the run.
+    await userEvent.click(screen.getByTestId(`ops-run-${FAILED}-select`));
+    expect(screen.getByTestId("ops-runs-selected")).toHaveTextContent("1 selected");
+    await userEvent.click(screen.getByTestId(`ops-run-${FAILED}-error`));
+    await waitFor(() => expect(api.calls).toContain(`GET /api/ops/runs/${FAILED}`));
   });
 
   it("opens filtered from its address, as the command center links to it", async () => {

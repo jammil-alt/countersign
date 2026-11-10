@@ -21,6 +21,7 @@ import { OPEN_RESOLVED, StatusFilter } from "../../inbox/StatusFilter";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { AgentBadge } from "../../ui/badges";
+import { KpiStrip, StatTile } from "../../ui/figures";
 import { Icon } from "../../ui/icons";
 import { Loaded, Page, Section } from "../../ui/page";
 import { buttonClass, Card, EmptyState, PageHeader } from "../../ui/primitives";
@@ -30,6 +31,10 @@ import {
   escalationChip,
   escalationLine,
   escalationTone,
+  sinceDate,
+  URGENCY,
+  type Urgency,
+  urgencyOf,
 } from "../command/escalations";
 import { age, NOBODY_TO_ACT_WORDS, plural } from "../run/words";
 // P-6
@@ -103,12 +108,23 @@ export function OpsInboxScreen() {
   const clients = new Map(session.tenants.map((t) => [t.id, t.name]));
   const agents = new Map<string, OpsAgentRef>((data?.agents ?? []).map((a) => [a.id, a]));
   const recentIds = new Set(recent.map((i) => i.id));
-  const items = (data?.items ?? []).filter(
-    (i) => !recentIds.has(i.id) && (view === "us" || i.assigneeRole !== "operator"),
-  );
   // Needs us beyond our own items (those are the cards): rows that open their run or page.
   const escalations = needs.data?.escalations ?? [];
-  const rows = escalations.filter((e) => e.kind !== "item");
+  // `?urgency=` narrows Needs us (the rows and our own items) to one level of urgency.
+  const urgencyParam = params.get("urgency");
+  const urgency = URGENCY.some((u) => u.id === urgencyParam) ? (urgencyParam as Urgency) : null;
+  const now = new Date();
+  const inLevel = (e: Escalation) => !urgency || urgencyOf(e, now) === urgency;
+  const rows = escalations.filter((e) => e.kind !== "item" && inLevel(e));
+  const itemLevel = new Map(
+    escalations.filter((e) => e.kind === "item").map((e) => [e.id, urgencyOf(e, now)]),
+  );
+  const items = (data?.items ?? []).filter(
+    (i) =>
+      !recentIds.has(i.id) &&
+      (view === "us" || i.assigneeRole !== "operator") &&
+      (!urgency || view !== "us" || itemLevel.get(i.id) === urgency),
+  );
   const stuckByRun = new Map(
     escalations.filter((e) => e.kind === "approval" && e.runId).map((e) => [e.runId, e]),
   );
@@ -201,6 +217,19 @@ export function OpsInboxScreen() {
                 : `${plural(needsCount, "thing needs", "things need")} us.`
         }
       />
+      {view === "us" && status === "open" && escalations.length > 0 ? (
+        <UrgencyFigures
+          escalations={escalations}
+          now={now}
+          hrefFor={(u) => {
+            const next = new URLSearchParams(params);
+            if (u && u !== urgency) next.set("urgency", u);
+            else next.delete("urgency");
+            const q = next.toString();
+            return q ? `?${q}` : "?";
+          }}
+        />
+      ) : null}
       <div className="flex flex-wrap items-center gap-3">
         <StatusFilter
           value={view}
@@ -225,6 +254,18 @@ export function OpsInboxScreen() {
           label="Status"
           options={OPEN_RESOLVED}
         />
+        {urgency ? (
+          <span className="ops-chip" data-testid="ops-inbox-urgency">
+            <b>urgency</b> {URGENCY.find((u) => u.id === urgency)?.label}
+            <button
+              type="button"
+              aria-label="Show every level"
+              onClick={() => setParam("urgency", null)}
+            >
+              <Icon name="close" size={14} />
+            </button>
+          </span>
+        ) : null}
         {client ? (
           <span className="ops-chip" data-testid="ops-inbox-client">
             <b>client</b> {clients.get(client) ?? "One client"}
@@ -251,11 +292,13 @@ export function OpsInboxScreen() {
           items.length === 0 ? (
             view === "us" && status === "open" && rows.length > 0 ? null : (
               <EmptyState>
-                {status === "open"
-                  ? view === "us"
-                    ? "Nothing needs us. Approvals delegated to us, escalations and stuck approvals show here."
-                    : "Nothing is waiting in your clients' inboxes."
-                  : "Nothing resolved yet."}
+                {status === "open" && view === "us" && urgency
+                  ? "Nothing at this level of urgency. Pick another, or show every level."
+                  : status === "open"
+                    ? view === "us"
+                      ? "Nothing needs us. Approvals delegated to us, escalations and stuck approvals show here."
+                      : "Nothing is waiting in your clients' inboxes."
+                    : "Nothing resolved yet."}
               </EmptyState>
             )
           ) : (
@@ -272,7 +315,7 @@ export function OpsInboxScreen() {
 /** Needs us that isn't an item for us: what waits, on whom, how long, and a link to it. */
 function NeedsUsRows({ rows }: { rows: Escalation[] }) {
   return (
-    <Card title="Needs us" testId="ops-inbox-needs-us">
+    <Card titleAbove title="Needs us" testId="ops-inbox-needs-us">
       {rows.map((e) => {
         const action = escalationAction(e);
         const chip = escalationChip(e);
@@ -280,24 +323,71 @@ function NeedsUsRows({ rows }: { rows: Escalation[] }) {
         return (
           <div
             key={`${e.kind}:${e.id}`}
-            className="ops-row ui-accent ui-accent--left"
+            className="ops-row ops-row--link ops-row--avatar ui-accent ui-accent--left"
             data-tone={escalationTone(chip.state)}
             data-testid={`ops-inbox-needs-${e.id}`}
           >
-            <StatusChip state={chip.state}>{chip.words}</StatusChip>
-            {who ? <AgentBadge name={who} seed={e.agent?.id} size="sm" /> : null}
+            {who ? <AgentBadge name={who} seed={e.agent?.id} size="sm" /> : <span />}
             <span className="ops-row__text">
               <span className="font-medium text-ink">
                 {[who, e.client.name].filter(Boolean).join(" · ")}
               </span>
               <span className="text-sm text-ink-muted">{escalationLine(e)}</span>
             </span>
-            <Link to={action.to} className={buttonClass("secondary", undefined, "sm")}>
+            <span className="ops-row__when">
+              <StatusChip state={chip.state}>{chip.words}</StatusChip>
+              <span
+                className="text-xs text-ink-muted"
+                data-testid={`ops-inbox-needs-${e.id}-since`}
+              >
+                Since {sinceDate(e.blockedSince)}
+              </span>
+            </span>
+            <Link to={action.to} className={buttonClass("secondary", "ops-row__link", "sm")}>
               {action.label}
             </Link>
           </div>
         );
       })}
     </Card>
+  );
+}
+
+/**
+ * Needs us by urgency: a figure per level with its count and since when its oldest has waited,
+ * each a link that narrows the list to that level (and back).
+ */
+function UrgencyFigures({
+  escalations,
+  now,
+  hrefFor,
+}: {
+  escalations: Escalation[];
+  now: Date;
+  /** The link for a level: to it, or back to every level when it is the one shown. */
+  hrefFor(u: Urgency): string;
+}) {
+  return (
+    <KpiStrip testId="ops-inbox-urgency-figures">
+      {URGENCY.map((u) => {
+        const mine = escalations.filter((e) => urgencyOf(e, now) === u.id);
+        const oldest = mine.reduce<string | null>(
+          (min, e) => (min === null || e.blockedSince < min ? e.blockedSince : min),
+          null,
+        );
+        return (
+          <StatTile
+            key={u.id}
+            label={`${u.label} · ${u.range}`}
+            value={mine.length}
+            note={oldest ? `Oldest since ${sinceDate(oldest)}` : "None waiting"}
+            tone={mine.length > 0 ? u.tone : undefined}
+            alert={u.id === "urgent" && mine.length > 0}
+            to={hrefFor(u.id)}
+            testId={`ops-inbox-urgency-${u.id}`}
+          />
+        );
+      })}
+    </KpiStrip>
   );
 }

@@ -20,10 +20,13 @@ export const OPS_PATHS = {
   packs: "/ops/packs",
   usage: "/ops/usage",
   billing: "/ops/billing",
-  feedback: "/ops/feedback",
-  requests: "/ops/requests",
-  audit: "/ops/audit",
-  browserSites: "/ops/browser-sites",
+  // Utilities: one sidebar entry, a tab each (./screens/UtilitiesTabs.tsx). The old addresses
+  // (/ops/feedback, /ops/audit, /ops/requests, /ops/browser-sites) redirect here.
+  utilities: "/ops/utilities",
+  feedback: "/ops/utilities/feedback",
+  requests: "/ops/utilities/requests",
+  audit: "/ops/utilities/audit",
+  browserSites: "/ops/utilities/websites",
   // §1.73: the Marketing area's entry; a client's marketing pages are in packs/marketing/ops/paths.ts.
   marketing: "/ops/marketing",
 } as const;

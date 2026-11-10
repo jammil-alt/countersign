@@ -241,7 +241,7 @@ function TemplateCard({
 
 function DiscardedList({ agents }: { agents: AgentSummary[] }) {
   return (
-    <Card title="Discarded drafts" testId="lab-discarded">
+    <Card titleAbove title="Discarded drafts" testId="lab-discarded">
       <ul className="flex flex-col divide-y divide-line">
         {agents.map((a) => (
           <li key={a.id} className="px-6 py-2.5">

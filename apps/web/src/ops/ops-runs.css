@@ -23,6 +23,40 @@
 .ops-row + .ops-row {
   border-top: 1px solid var(--line);
 }
+/* A row that is one link: its button's hit area covers the row (one link, named by the button). */
+.ops-row--link {
+  cursor: pointer;
+  transition: background 160ms;
+}
+.ops-row--link:hover {
+  background: var(--surface-subtle);
+}
+.ops-row__link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+/* A compact row (Needs us beside Recent runs): badge, two lines of text, and the chip over the
+ * action at the end; the reason is cut at two lines (in full on hover). */
+.ops-row--compact {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2-5) var(--space-4);
+}
+.ops-row__end {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+}
+.ops-row__clamp {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
 .ops-row__text {
   display: flex;
   min-width: 0;
@@ -154,4 +188,44 @@ a.ops-pick:hover .ui-stat {
   .ops-tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* Recent runs on the Command center: rows as compact as the Needs us rows beside them. */
+.ops-recent .ui-activity {
+  padding: var(--space-2-5) var(--space-4);
+}
+.ops-recent .ui-activity__text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.ops-recent .ui-activity__text > a {
+  display: block;
+  min-width: 0;
+}
+/* Its time column: the date over the time, narrow. */
+.ops-recent .ui-activity__time {
+  min-width: 6ch;
+}
+.ops-when {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  line-height: 14px;
+}
+
+/* An Escalations row: the avatar first, then the text, the chip over its "since" date, the action. */
+.ops-row--avatar {
+  flex-wrap: nowrap;
+}
+@media (max-width: 640px) {
+  .ops-row--avatar {
+    flex-wrap: wrap;
+  }
+}
+.ops-row__when {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
 }

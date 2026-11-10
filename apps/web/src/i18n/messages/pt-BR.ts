@@ -71,6 +71,8 @@ export const ptBR: Messages = {
   "shell.desk": "Caixa de entrada", // fluent review
   "shell.menu": "Menu",
   "shell.closeMenu": "Fechar o menu",
+  "shell.collapse": "Recolher",
+  "shell.expand": "Expandir",
   "shell.switchAgent": "Trocar de agente",
   "shell.theme": "Tema",
   "shell.theme.system": "Sistema",

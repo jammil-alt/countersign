@@ -312,7 +312,7 @@ function RunPage({ data, onChanged }: { data: RunData; onChanged: () => void }) 
 
         <WaitingChanges items={mine.filter((i) => i.kind === "external_action")} />
 
-        <Card title={t("run.changes")} meta={data.actions.length || null}>
+        <Card titleAbove title={t("run.changes")} meta={data.actions.length || null}>
           {data.actions.length === 0 ? (
             <p className="ui-card__body text-ink-muted">{t("run.noChanges")}</p>
           ) : (
@@ -341,7 +341,7 @@ function RunPage({ data, onChanged }: { data: RunData; onChanged: () => void }) 
           )}
         </Card>
 
-        <Card title={t("run.approvals")}>
+        <Card titleAbove title={t("run.approvals")}>
           {data.approvals.length === 0 ? (
             <p className="ui-card__body text-ink-muted">{t("run.noApprovals")}</p>
           ) : (
@@ -452,6 +452,7 @@ function OtherRuns({
   const state = useApi(apiRoutes.portalRuns, { query: { agents: serviceId, limit: 6 } });
   return (
     <Card
+      titleAbove
       title={t("runDetail.otherRuns", { name })}
       meta={
         <Link to={PORTAL_PATHS.runs} className="text-link hover:underline">
@@ -504,6 +505,7 @@ function WaitingChanges({ items }: { items: InboxItem[] }) {
   if (!first) return null;
   return (
     <Card
+      titleAbove
       title={t("runDetail.waitingChanges")}
       meta={<StatusChip state="waiting">{t("common.waitingOnYou")}</StatusChip>}
       footer={
@@ -555,7 +557,12 @@ function AuditTrail({ runId }: { runId: string }) {
   const { t } = i18n;
   const state = useApi(apiRoutes.portalRunAudit, { params: { id: runId } });
   return (
-    <Card title={t("runDetail.audit")} meta={t("runDetail.audit.meta")} testId="portal-run-audit">
+    <Card
+      titleAbove
+      title={t("runDetail.audit")}
+      meta={t("runDetail.audit.meta")}
+      testId="portal-run-audit"
+    >
       {state.error ? (
         <div className="ui-card__body">
           <ErrorNotice error={state.error} onRetry={state.reload} />

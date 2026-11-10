@@ -7,11 +7,11 @@
 import type { Step } from "@countersign/core";
 
 /** The narrowest a step card may get inside a fork path or a loop. */
-export const CARD_MIN = 200;
-/** A path's or loop's own padding and border, both sides (p-3 and 1px). */
-const BOX = 2 * 12 + 2;
-/** The gap between fork paths (gap-3). */
-const GAP = 12;
+export const CARD_MIN = 180;
+/** A path's or loop's own padding and border, both sides (p-2 and 1px). */
+const BOX = 2 * 8 + 2;
+/** The gap between fork paths (gap-2). */
+const GAP = 8;
 
 /** The width a list of steps needs: its widest step, at least a card's. */
 export function listMinWidth(steps: readonly Step[]): number {

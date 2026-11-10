@@ -24,7 +24,7 @@ import { usePoll } from "../runs/usePoll";
 import { useSession } from "../session/session";
 import { AgentSwitcher, canSwitch } from "../shell/AgentSwitcher";
 import type { SearchRun } from "../shell/Search";
-import { AppShell, SidebarLink, SidebarMore, SidebarSection } from "../shell/Shell";
+import { AppShell, SidebarLink, SidebarSection } from "../shell/Shell";
 import { opsSearchGroups } from "../shell/searchGroups";
 import { Icon } from "../ui/icons";
 import { useAgentsChanged } from "./agents/ui";
@@ -247,17 +247,17 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 testId="ops-nav-marketing"
               />
             </SidebarSection>
-            <SidebarMore label="More" testId="ops-nav-more">
-              <SidebarLink to={OPS_PATHS.feedback} label="Feedback" testId="ops-nav-feedback" />
-              <SidebarLink to={OPS_PATHS.audit} label="Audit log" testId="ops-nav-audit" />
-              <SidebarLink to={OPS_PATHS.requests} label="Requests" testId="ops-nav-requests" />
-              <SidebarLink
-                to={OPS_PATHS.browserSites}
-                label="Website logins"
-                testId="ops-nav-browser-sites"
-              />
-            </SidebarMore>
           </nav>
+        }
+        // Feedback, the audit log, requests and website logins: one page, a tab each, pinned to
+        // the sidebar's foot above Collapse (as Admin is in Anchor).
+        sidebarFooter={
+          <SidebarLink
+            to={OPS_PATHS.utilities}
+            icon="settings"
+            label="Utilities"
+            testId="ops-nav-utilities"
+          />
         }
       >
         <OpsClientsContext.Provider value={clientRows}>

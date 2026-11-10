@@ -20,6 +20,7 @@ import {
   Loading,
   Tag,
 } from "../../ui/primitives";
+import { useRowLink } from "../../ui/rows";
 import { documentStatus, dropReason, money, sourceLabel } from "../documents";
 
 type Result = UploadResponse["results"][number];
@@ -361,8 +362,9 @@ export function RecentDocuments({
   const { data, error, loading, reload } = state;
   const i18n = useI18n();
   const { t } = i18n;
+  const rowLink = useRowLink();
   return (
-    <Card title={t("documents.recent")} testId="portal-recent-documents">
+    <Card titleAbove title={t("documents.recent")} testId="portal-recent-documents">
       {loading && !data ? (
         <div className="ui-card__body">
           <Loading />
@@ -394,7 +396,7 @@ export function RecentDocuments({
               {data.documents.map((d) => {
                 const s = documentStatus(d.status, i18n);
                 return (
-                  <tr key={d.id}>
+                  <tr key={d.id} {...rowLink(`/documents/${d.id}`)}>
                     <td>
                       <Link
                         to={`/documents/${d.id}`}

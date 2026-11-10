@@ -36,6 +36,20 @@
   color: var(--ink-muted);
   font-size: 13px;
 }
+/* A table or row list with its title above it (Card titleAbove), not in a header band. */
+.ui-cardgroup {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.ui-cardgroup > .ds-card {
+  flex: 1;
+}
+/* Headings above cards are one height (a compact control's), so cards side by side start level. */
+.ui-cardgroup > .ui-section__head {
+  min-height: 28px;
+}
 .ui-split {
   display: flex;
   flex-wrap: wrap;
@@ -593,4 +607,206 @@ a.ui-stat--link:focus-visible {
     flex-direction: row;
     flex-wrap: wrap;
   }
+}
+
+/* A side sheet (ui/sheet.tsx) on the design system's ds-sheet: over the page, beside its scrim. */
+.ui-sheetlayer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+}
+.ui-sheet {
+  display: flex;
+  width: 420px;
+  flex-direction: column;
+}
+.ui-sheet__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-5) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+.ui-sheet__body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-5);
+  overflow-y: auto;
+  padding: var(--space-5);
+}
+.ui-sheet__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 767.98px) {
+  .ui-sheet {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* A category tile: the area's icon in slate on its tint (skill cards and sheets). */
+/* A workflow step's tooltip on the canvas: what it does, beside its card (Canvas). */
+.ui-steptip {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  max-width: 300px;
+  flex-direction: column;
+  gap: var(--space-1);
+  line-height: 1.45;
+  pointer-events: none;
+}
+.ui-steptip__line {
+  font-weight: 400;
+  opacity: 0.85;
+}
+/* A {{reference}} in a builder field, by name: slate, as what a step reads from another. */
+.ui-refchip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  padding: 0 var(--space-1-5);
+  border-radius: var(--radius-sm);
+  background: var(--slate-tint);
+  color: var(--slate);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  margin: 0 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+.ui-skilltile {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--slate-tint);
+  color: var(--slate);
+}
+
+/* ── Client cards (`/ops/clients`): the client's state as the top accent beside its chip, then one
+ * strip of figures split by light dividers, each opening its list. The whole card opens the client; the
+ * figures sit above that link. Radius and borders are the card's own (ds-card, --radius-md). ── */
+/* A card stops shrinking at 440px (five figures at their smallest); below that the grid has one
+ * column, and only a screen narrower than the card puts the figures in two rows (never clipping a label). */
+.ui-clientgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
+  gap: var(--space-4);
+}
+.ui-clientcard {
+  display: flex;
+  flex-direction: column;
+  container-type: inline-size;
+}
+/* Narrower than its smallest size (a phone): three figures a row, the same light dividers. */
+@container (max-width: 439px) {
+  .ui-clientcard .ui-clientkpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .ui-clientcard .ui-clientkpi:nth-child(3n + 1) {
+    border-left: 0;
+  }
+  .ui-clientcard .ui-clientkpi:nth-child(n + 4) {
+    border-top: 1px solid var(--surface-subtle);
+  }
+}
+.ui-clientcard:hover {
+  border-color: var(--line-strong);
+}
+.ui-clientcard__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+}
+.ui-clientcard__link {
+  font-size: 15px;
+  line-height: 22px;
+  text-decoration: none;
+}
+.ui-clientcard__link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.ui-clientcard__link:focus-visible {
+  outline: none;
+}
+.ui-clientcard:has(.ui-clientcard__link:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.ui-clientkpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.ui-clientkpi {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  color: var(--ink-muted);
+  text-decoration: none;
+}
+/* Light dividers between the figures (the subtle surface tone, lighter than --line in both themes). */
+.ui-clientkpi + .ui-clientkpi {
+  border-left: 1px solid var(--surface-subtle);
+}
+.ui-clientkpi:hover {
+  background: var(--surface-subtle);
+}
+.ui-clientkpi:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.ui-clientkpi__value {
+  font: 500 18px / 24px var(--font-sans);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.ui-clientkpi__label {
+  font-size: 11px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+.ui-clientkpi--risk {
+  background: var(--risk-tint);
+}
+.ui-clientkpi--risk .ui-clientkpi__value,
+.ui-clientkpi--risk .ui-clientkpi__label {
+  color: var(--risk-ink);
+}
+.ui-clientkpi--signal {
+  background: var(--signal-tint);
+}
+.ui-clientkpi--signal .ui-clientkpi__value,
+.ui-clientkpi--signal .ui-clientkpi__label {
+  color: var(--signal-ink);
+}
+
+/* The clients table: smaller, tighter column heads, so its figures' short labels fit one screen. */
+.dt.ui-clientstable thead th,
+.dt.ui-clientstable thead th.n {
+  font-size: 9px;
+  letter-spacing: 0.06em;
 }
