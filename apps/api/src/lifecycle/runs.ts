@@ -8,7 +8,7 @@
 // Writes behave as in any live run: behind approval, and in trial or signoff every one is signed.
 
 import { checkAgainst } from "@countersign/agents";
-import { type AgentBundle, type Role, type RunForm, uuidv7 } from "@countersign/core";
+import { type AgentBundle, allTriggers, type Role, type RunForm, uuidv7 } from "@countersign/core";
 import { agent, agentChange, agentVersion, event, run, type Tx } from "@countersign/db";
 import { type RoutableAgent, type RunRequest, routeEvent } from "@countersign/workflows";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -141,13 +141,19 @@ export async function runOnEvent(
   return requests;
 }
 
+/**
+ * A workflow's first trigger. R9: a v4 process (a template's v4 version, or its fork) lists its
+ * triggers in `triggers`, so its first is read the same way.
+ */
+const firstTrigger = (w: AgentBundle["workflows"][number]) => allTriggers(w.workflow)[0];
+
 /** The workflows of the agent's live version the client may start, with their forms. */
 function clientRunnable(bundle: AgentBundle | null): RunForm[] {
   const out: RunForm[] = [];
   for (const w of bundle?.workflows ?? []) {
     if (!w.enabled) continue;
-    const on = w.workflow.trigger.on;
-    if (on.type !== "manual" || on.client?.canRun !== true) continue;
+    const on = firstTrigger(w)?.on;
+    if (on?.type !== "manual" || on.client?.canRun !== true) continue;
     out.push({ workflow: w.slug, label: on.client.label ?? w.name, input: on.input });
   }
   return out;
@@ -159,8 +165,8 @@ function clientRunnable(bundle: AgentBundle | null): RunForm[] {
  */
 export function readsDocuments(bundle: AgentBundle | null): boolean {
   return (bundle?.workflows ?? []).some((w) => {
-    const on = w.workflow.trigger.on;
-    return w.enabled && on.type === "event" && on.event.startsWith("document.");
+    const on = firstTrigger(w)?.on;
+    return w.enabled && on?.type === "event" && on.event.startsWith("document.");
   });
 }
 
@@ -211,7 +217,7 @@ export async function runNow(
     workflowSlug: wf.slug,
     mode: "live",
     trigger: {
-      triggerId: wf.workflow.trigger.id,
+      triggerId: firstTrigger(wf)?.id ?? "",
       type: "manual",
       startedBy: { userId: input.userId },
     },
