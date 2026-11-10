@@ -1,0 +1,11 @@
+{
+  "handWritten": true,
+  "about": "Gemini API: the prompt was blocked, so there is no candidate (200 with promptFeedback.blockReason)",
+  "status": 200,
+  "body": {
+    "promptFeedback": { "blockReason": "PROHIBITED_CONTENT" },
+    "usageMetadata": { "promptTokenCount": 30, "totalTokenCount": 30 },
+    "modelVersion": "gemini-3.1-pro",
+    "responseId": "gem-blocked-0001"
+  }
+}

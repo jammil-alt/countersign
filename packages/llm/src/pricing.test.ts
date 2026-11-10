@@ -69,6 +69,34 @@ describe("knownModels", () => {
     expect(knownModelIds()).toEqual(Object.keys(PRICES).sort());
   });
 
+  it("lists xAI's and Google's models with their provider in the label", () => {
+    const models = knownModels();
+    expect(models.find((m) => m.id === "xai:grok-4.7")).toMatchObject({
+      label: "xAI (Grok 4.7)",
+      inputPerMtok: "2.00",
+      outputPerMtok: "6.00",
+    });
+    expect(models.find((m) => m.id === "google:gemini-3.1-pro")).toMatchObject({
+      label: "Google (Gemini 3.1 Pro)",
+      outputPerMtok: "12.00",
+    });
+    expect(models.find((m) => m.id === "google:gemini-3.5-flash-lite")?.label).toBe(
+      "Google (Gemini 3.5 Flash-Lite)",
+    );
+    // Every priced model has a label of its own.
+    for (const m of models) expect(m.label).not.toBe(m.id);
+  });
+
+  it("prices long Grok and Gemini Pro prompts at their higher rate above 200K", () => {
+    expect(costOf(MODELS.grok, usage({ inputTokens: 200_000 }))).toBe("0.400000");
+    expect(costOf(MODELS.grok, usage({ inputTokens: 200_001, outputTokens: 1_000 }))).toBe(
+      "0.812004",
+    );
+    expect(costOf(MODELS.geminiPro, usage({ inputTokens: 150_000, cacheReadTokens: 60_000 }))).toBe(
+      "0.624000",
+    );
+  });
+
   it("names only models with a price", () => {
     const one = { [MODELS.haiku]: PRICES[MODELS.haiku] as (typeof PRICES)[string] };
     expect(knownModelIds(one)).toEqual([MODELS.haiku]);

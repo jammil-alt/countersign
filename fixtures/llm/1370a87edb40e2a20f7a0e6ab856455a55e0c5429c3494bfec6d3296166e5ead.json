@@ -1,0 +1,43 @@
+{
+  "hash": "1370a87edb40e2a20f7a0e6ab856455a55e0c5429c3494bfec6d3296166e5ead",
+  "recordedAt": "2026-11-10T12:00:00.000Z",
+  "request": {
+    "model": "xai:grok-4.7",
+    "system": "You check invoices for a client. Use the tools to read them.",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Who is INV-1 from, and what does it total?"
+      }
+    ]
+  },
+  "response": {
+    "id": "resp_xai_plain_0001",
+    "type": "message",
+    "role": "assistant",
+    "model": "xai:grok-4.7",
+    "content": [
+      {
+        "type": "text",
+        "text": "Invoice INV-1 is from Acme Supply and totals $12.50.",
+        "citations": null
+      }
+    ],
+    "container": null,
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 1000,
+      "output_tokens": 60,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 200,
+      "cache_creation": null,
+      "inference_geo": null,
+      "output_tokens_details": null,
+      "server_tool_use": null,
+      "service_tier": "standard"
+    }
+  },
+  "handWritten": true
+}

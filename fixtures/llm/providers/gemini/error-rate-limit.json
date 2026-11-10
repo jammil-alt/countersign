@@ -1,0 +1,12 @@
+{
+  "handWritten": true,
+  "about": "Gemini API: a rate limit or quota (429, status RESOURCE_EXHAUSTED)",
+  "status": 429,
+  "body": {
+    "error": {
+      "code": 429,
+      "message": "Resource has been exhausted (e.g. check quota).",
+      "status": "RESOURCE_EXHAUSTED"
+    }
+  }
+}

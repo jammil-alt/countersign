@@ -1,0 +1,75 @@
+{
+  "hash": "48ee408131c8ceb790e22dad59fafd145946350a1addf6d9720aeef8dd0ff58b",
+  "recordedAt": "2026-11-10T12:00:00.000Z",
+  "request": {
+    "model": "google:gemini-3.1-pro",
+    "system": "You check invoices for a client. Use the tools to read them.",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What does INV-1 total?"
+      }
+    ],
+    "tools": [
+      {
+        "name": "get_invoice",
+        "description": "Read one invoice by its number",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "tool_choice": {
+      "type": "auto"
+    }
+  },
+  "response": {
+    "id": "gem-tool-0001",
+    "type": "message",
+    "role": "assistant",
+    "model": "google:gemini-3.1-pro",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "",
+        "signature": "gemini:EqYCAdHtim9toolCallSignatureForFixtureOnly"
+      },
+      {
+        "type": "tool_use",
+        "id": "gemini_call_gem-tool-0001_0",
+        "name": "get_invoice",
+        "input": {
+          "id": "INV-1"
+        },
+        "caller": {
+          "type": "direct"
+        }
+      }
+    ],
+    "container": null,
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 900,
+      "output_tokens": 35,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": null,
+      "inference_geo": null,
+      "output_tokens_details": null,
+      "server_tool_use": null,
+      "service_tier": "standard"
+    }
+  },
+  "handWritten": true
+}

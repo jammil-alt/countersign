@@ -1,0 +1,41 @@
+{
+  "handWritten": true,
+  "about": "xAI Responses API: a plain answer (POST https://api.x.ai/v1/responses, 200)",
+  "status": 200,
+  "body": {
+    "id": "resp_xai_plain_0001",
+    "object": "response",
+    "created_at": 1794321600,
+    "model": "grok-4.7",
+    "status": "completed",
+    "store": false,
+    "output": [
+      {
+        "type": "reasoning",
+        "id": "rs_xai_plain_0001",
+        "summary": [],
+        "status": "completed"
+      },
+      {
+        "type": "message",
+        "id": "msg_xai_plain_0001",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "Invoice INV-1 is from Acme Supply and totals $12.50.",
+            "annotations": []
+          }
+        ]
+      }
+    ],
+    "usage": {
+      "input_tokens": 1200,
+      "input_tokens_details": { "cached_tokens": 200 },
+      "output_tokens": 60,
+      "output_tokens_details": { "reasoning_tokens": 40 },
+      "total_tokens": 1260
+    }
+  }
+}

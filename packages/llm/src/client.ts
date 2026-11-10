@@ -5,7 +5,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { DEFAULT_MODEL, type ModelId } from "./models";
-import { costOf, type ModelPrice, PRICES } from "./pricing";
+import { costOf, type ModelPrice, PRICES, priceFor } from "./pricing";
+import { providerOf } from "./route";
 import type { LlmMessage, LlmRequest, LlmTransport } from "./transport";
 import { type LlmUsage, usageOf, ZERO_USAGE } from "./usage";
 
@@ -123,6 +124,20 @@ export function toolInputSchema(schema: z.ZodType): Anthropic.Tool.InputSchema {
   return json as Anthropic.Tool.InputSchema;
 }
 
+/**
+ * A call to a model of another provider than Anthropic's that has no price. Refused before it is
+ * made: its cost would be recorded as nothing, so no run, owner or monthly cost limit could stop
+ * it.
+ */
+export class UnpricedModelError extends Error {
+  override name = "UnpricedModelError";
+  readonly model: ModelId;
+  constructor(model: ModelId) {
+    super(`no price for ${model}: add it to packages/llm/src/pricing.ts before using it`);
+    this.model = model;
+  }
+}
+
 export function createLlmClient(options: LlmClientOptions): LlmClient {
   const { transport } = options;
   const prices = options.prices ?? PRICES;
@@ -143,6 +158,12 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
       model: input.model ?? defaultModel,
       max_tokens: input.max_tokens ?? defaultMaxTokens,
     } as LlmRequest;
+    // DECISION (Models: xAI and Gemini): an unpriced Anthropic id still runs and is recorded with
+    // no cost, as before; an unpriced id of a prefixed provider is refused here, as validation
+    // refuses it in a definition (core's `definitionModelErrors`).
+    if (providerOf(request.model) !== "anthropic" && !priceFor(request.model, prices)) {
+      throw new UnpricedModelError(request.model);
+    }
     const started = clock();
     const label = opts.label === undefined ? {} : { label: opts.label };
     let response: LlmMessage;

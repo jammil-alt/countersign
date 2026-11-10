@@ -29,3 +29,20 @@ hand-written too, for a fixed client and day. Rebuild them after changing the qu
 ```sh
 WRITE_ASK_FIXTURES=1 pnpm --filter @countersign/api exec vitest run src/runs-ask/ask.test.ts
 ```
+
+## xAI and Gemini (hand-written, in each provider's own format)
+
+`providers/xai/*.json` and `providers/gemini/*.json` are answers as xAI's Responses API and the
+Gemini API's generateContent send them (a plain answer, a tool call, the answer after its result,
+and errors), **written by hand** from the official formats: there are no keys here. Each carries
+`"handWritten": true`. `packages/llm/src/providers.fixtures.test.ts` puts them through the real
+transports and replays the translated answers from six `<hash>.json` files here, also marked
+`"handWritten": true`. Rebuild those after changing the test's requests or a translation, then
+delete the files whose hashes no longer appear:
+
+```sh
+WRITE_PROVIDER_FIXTURES=1 pnpm --filter @countersign/llm exec vitest run src/providers.fixtures.test.ts
+```
+
+What is unchecked about each provider is in `packages/llm/NOTES.md`. Once a key exists, replace
+the provider-format answers with real ones from a live call.

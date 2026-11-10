@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createLlmClient, type LlmCallRecord, LlmToolError, toolInputSchema } from "./client";
+import {
+  createLlmClient,
+  type LlmCallRecord,
+  LlmToolError,
+  toolInputSchema,
+  UnpricedModelError,
+} from "./client";
 import { FakeModel, type FakeTurn } from "./fake";
 
 const Verdict = z.object({
@@ -97,6 +103,35 @@ describe("message", () => {
     await llm.message({ messages: [{ role: "user", content: "hi" }] }, { label: "skill:x" });
     expect(model.requests[0]?.model).toBe("claude-sonnet-5-5");
     expect(records[0]?.label).toBe("skill:x");
+  });
+});
+
+// Models: xAI and Gemini. A call with no price would count as $0 against every cost limit.
+describe("unpriced models", () => {
+  it("refuses an unpriced xai: or google: id before calling, so no limit sees it as free", async () => {
+    for (const id of ["xai:grok-9", "google:gemini-9-ultra", "openai:gpt-9"]) {
+      const { llm, model, records } = setup({ text: "should not be asked" });
+      const error = await llm
+        .message({ model: id, messages: [{ role: "user", content: "hi" }] })
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(UnpricedModelError);
+      expect((error as Error).message).toBe(
+        `no price for ${id}: add it to packages/llm/src/pricing.ts before using it`,
+      );
+      expect(model.requests).toHaveLength(0);
+      expect(records).toHaveLength(0);
+      await expect(
+        llm.callTool({ model: id, messages: [{ role: "user", content: "hi" }], tool }),
+      ).rejects.toBeInstanceOf(UnpricedModelError);
+    }
+  });
+
+  it("runs the priced ones, and an unpriced Anthropic id as before (recorded with no cost)", async () => {
+    const { llm, records } = setup({ text: "a" }, { text: "b" });
+    await llm.message({ model: "xai:grok-4.7", messages: [{ role: "user", content: "hi" }] });
+    await llm.message({ model: "claude-unknown-1", messages: [{ role: "user", content: "hi" }] });
+    expect(records[0]?.costUsd).not.toBeNull();
+    expect(records[1]?.costUsd).toBeNull();
   });
 });
 

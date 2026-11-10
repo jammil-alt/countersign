@@ -1,0 +1,90 @@
+{
+  "hash": "30b1f6cdf4aad32762e559a34f37de5d7d1fa1368bfa1d0c031aa1b2558cdbd7",
+  "recordedAt": "2026-11-10T12:00:00.000Z",
+  "request": {
+    "model": "xai:grok-4.7",
+    "system": "You check invoices for a client. Use the tools to read them.",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What does INV-1 total?"
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_xai_0001",
+            "name": "get_invoice",
+            "input": {
+              "id": "INV-1"
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "call_xai_0001",
+            "content": "{\"id\":\"INV-1\",\"vendor\":\"Acme Supply\",\"total\":\"12.50\",\"currency\":\"USD\"}"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "get_invoice",
+        "description": "Read one invoice by its number",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "tool_choice": {
+      "type": "auto"
+    }
+  },
+  "response": {
+    "id": "resp_xai_tool_0002",
+    "type": "message",
+    "role": "assistant",
+    "model": "xai:grok-4.7",
+    "content": [
+      {
+        "type": "text",
+        "text": "INV-1 totals $12.50.",
+        "citations": null
+      }
+    ],
+    "container": null,
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 84,
+      "output_tokens": 12,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 896,
+      "cache_creation": null,
+      "inference_geo": null,
+      "output_tokens_details": null,
+      "server_tool_use": null,
+      "service_tier": "standard"
+    }
+  },
+  "handWritten": true
+}
