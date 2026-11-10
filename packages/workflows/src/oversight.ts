@@ -120,13 +120,8 @@ export function ownerErrorKey(step: OwnerWatchedStep, reason: string | undefined
  * The review request for any watched step: `OversightRequest` with the step widened to v4 kinds
  * and the watch's signals. packages/agents' `OverseeRequest` takes exactly these fields.
  */
-// DECISION: a widened request type here, not an edit of `OversightRequest` (ports.ts): v3's port
-// keeps its type until the v4 executor (R3) widens `OversightRequest.step` to `OwnerWatchedStep`
-// and adds `signals`, when this becomes an alias of it.
-export type OwnerReviewRequest = Omit<OversightRequest, "step"> & {
-  step: OwnerWatchedStep;
-  signals?: readonly AnomalySignal[];
-};
+// R3 widened `OversightRequest.step` to `OwnerWatchedStep` and added `signals`: this is it.
+export type OwnerReviewRequest = OversightRequest;
 
 /** Builds the owner's review request; signals ride only on a review of a step that succeeded. */
 export function ownerReviewRequest(

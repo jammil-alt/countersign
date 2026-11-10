@@ -3,19 +3,21 @@
 // pass fakes. Keeping them injected is what lets the executor run on a fake StepRunner with no
 // database and no model.
 
-import type {
-  ActionStep,
-  Approval,
-  Duration,
-  Locale,
-  ModelChoice,
-  NotifyStep,
-  PersonStep,
+import {
+  type ActionStep,
+  type AnomalySignal,
+  type Approval,
+  type Duration,
+  type Locale,
+  type ModelChoice,
+  type NotifyStep,
+  type OwnerWatchedStep,
+  type PersonStep,
   processes,
-  SkillDefinition,
-  SkillStep,
-  StepKind,
-  ToolSpec,
+  type SkillDefinition,
+  type SkillStep,
+  type StepKind,
+  type ToolSpec,
 } from "@countersign/core";
 import { z } from "zod";
 
@@ -144,10 +146,12 @@ export interface SkillStepRequest {
   keyNode?: string;
   // R3 (docs/plan.md §1.86): a v4 skill step's customization of its Library skill.
   /**
-   * What the step changes about its skill (`processes.applyCustomization`): the runtime applies
-   * the added instructions and rule rows. The executor has already merged its settings into
-   * `step.settings` and its model into `step.model`, checked it against the catalog's definition,
-   * and keeps only the `keep` fields of the output.
+   * What the step changes about its skill (`processes.customizeSkill`): the runtime applies the
+   * added instructions and rule rows. The executor has already checked it against the catalog's
+   * definition, layered the step's and the customization's settings into `step.settings`
+   * (`processes.stepSkillSettings`; the skill's defaults and the agent's own settings for the skill
+   * stay the runtime's, beneath them), put its model in `step.model` when the step names none, and
+   * keeps only the customized output's fields. Sent only to a port that `appliesCustomization`.
    */
   customize?: processes.SkillCustomization;
 }
@@ -204,6 +208,12 @@ export interface AgentPort {
    * applies when that one doesn't answer.
    */
   askApprover?(request: AskApproverRequest): Promise<{ inboxItemId: string }>;
+  /**
+   * The port applies `SkillStepRequest.customize`: the added instructions and rule rows reach the
+   * skill's run. Without it, a step that adds either fails before it runs: it would otherwise run
+   * without them, silently.
+   */
+  appliesCustomization?: boolean;
 }
 
 /** One more approver for a write that waits (`AgentPort.askApprover`). */
@@ -386,10 +396,14 @@ export interface StepCatalog {
 
 // ── v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54) ─────────────────────────
 
-/** A step for the run's own agent to review. */
+/** A step for the run's own agent (its owner, R6) to review. */
 export interface OversightRequest {
   run: RunInfo;
-  step: SkillStep | ActionStep;
+  /**
+   * The step as stored: a v3 skill or action (a converted step's stored v3 step, as before), or
+   * R6: a native v4 read, skill, write or conversation step.
+   */
+  step: OwnerWatchedStep;
   /** The step's durable name. */
   nodeId: string;
   stepRunId: string;
@@ -409,6 +423,9 @@ export interface OversightRequest {
   attempts: number;
   /** Inside a use step: the automation (`slug@version`) the step comes from. */
   automation?: string;
+  // R6: the owner's cheap watch (core `anomalySignals`), v4 processes only.
+  /** A checkpoint review the watch asked for: why (an empty result, an outlier total, a "no"). */
+  signals?: readonly AnomalySignal[];
 }
 
 /**
@@ -444,44 +461,65 @@ export interface OversightPort {
 /** What a conversation step came to (`ConversationPort.conversation`). */
 export interface ConversationResult {
   /**
-   * `pending`: the conversation is under way; the executor waits for `conversationEventType(id)`
-   * (or the step's deadline), then asks the port again. The rest are final.
+   * `pending`: the conversation is under way; the executor waits for `waitFor` (or the step's
+   * deadline, or `wakeAt`), then asks the port again with what woke it. The rest are final:
+   * `no_answer` takes the step's `deadline.ifNoAnswer`, `declined` its `checks.approval.onReject`.
    */
   status: "done" | "not_found" | "no_answer" | "failed" | "pending";
-  /** What it found out, by the step's `find` fields. */
+  /** What it found out, by the step's `find` fields: the person's words, data only. */
   found: Record<string, unknown>;
   conversationId: string | null;
   /** One plain line for the client's timeline. */
   summary: string;
+  /** `pending`: the event that wakes the step, `processes.conversationEventType(id)`. */
+  waitFor?: string;
+  /** `pending`: wake the step by then even with no event (a reply's own wait), ISO; null: none. */
+  wakeAt?: string | null;
+  /** `pending`: what it waits for, for the timeline. */
+  waitingOn?: "reply" | "signature" | "answer";
+  /** A message wasn't approved, or a person ended it: `checks.approval.onReject` applies. */
+  declined?: true;
+  /** The records it rests on: its messages and replies (invariant 10). */
+  sources?: string[];
 }
 
 export interface ConversationRequest {
   runId: string;
-  /** The step's durable name. */
+  /** The step's durable name: its id, or the loop's node name inside a `for_each`. */
   stepId: string;
-  /** The step with its templates (`with`, `goal`) resolved. */
+  /** The step with `with` resolved (its goal is fixed text, invariant 9). */
   step: processes.ConversationStep;
   tenantId: string;
   agentVersionId: string;
   mode: RunMode;
+  /** The step's row, so the engine logs its turns on it. */
+  stepRunId?: string;
+  /**
+   * What woke a waiting step: its event's payload (an inbox resolution, a reply), `wakeAt`
+   * passing (`timedOut`), or the step's deadline (`deadlinePassed`: the port ends the
+   * conversation and answers `no_answer` unless it had already ended). Absent: the first call,
+   * or a check before waiting.
+   */
+  wake?: { payload?: unknown; timedOut?: boolean; deadlinePassed?: boolean };
 }
 
 /**
- * Conversation steps (packages/agents implements it; the conversation stream, R7). Idempotent per
- * (runId, stepId): a second call returns the conversation's current state, so the executor calls
- * it again after each wake to learn what came of it (the port's record is the truth).
+ * Conversation steps (packages/agents `conversationRunner`; R7). Idempotent per (runId, stepId):
+ * a second call returns the conversation's current state, so the executor calls it again after
+ * each wake to learn what came of it (the port's record is the truth).
  */
 export interface ConversationPort {
   conversation(input: ConversationRequest): Promise<ConversationResult>;
 }
 
 // DECISION (R3): a conversation that is under way returns `pending` with its id and the executor
-// waits durably on this event (as person steps wait on their inbox item), rather than the port
+// waits durably on its event (as person steps wait on their inbox item), rather than the port
 // blocking: a conversation can take days.
-/** The event type a run waits on for one conversation; the service sends it when it ends. */
-export function conversationEventType(conversationId: string): string {
-  return `conversation:${conversationId}`;
-}
+/**
+ * The event type a run waits on for one conversation; the service sends it when it moves on.
+ * Core's (`processes.conversationEventType`): letters, digits, `-` and `_` only.
+ */
+export const conversationEventType = processes.conversationEventType;
 
 /** Whose hours a deadline runs on (`HoursPort.hoursFor`). */
 export interface HoursAnswer {
@@ -489,7 +527,7 @@ export interface HoursAnswer {
   /** The person asked, when `who` is one person. */
   person?: processes.PersonHours;
   /** The people of a role, when `who` is a role: the clock runs while any one is working. */
-  people?: { businessHours: processes.BusinessHours; away: processes.AwayRange[] }[];
+  people?: processes.Schedule[];
 }
 
 /** Stored business hours and away dates (apps/api implements it from settings; R4). */
@@ -506,8 +544,18 @@ export interface ConferAiRequest {
   /** The step's own id and name, for the record. */
   stepId: string;
   stepName: string;
-  /** The reviewer's fixed focus, rendered ("do these lines add up to the bill's total"). */
+  /**
+   * The reviewer's fixed focus, as written in the step ("do these lines add up to the bill's
+   * total"): the instruction side. Never rendered with run data (invariant 9).
+   */
   focus: string;
+  /**
+   * The values the focus's `{{…}}` references stand for, by reference (`steps.get.output.total`),
+   * resolved in the run: data, never instructions. The port puts them in the data part of its
+   * request, with `input` and `output`. Absent when the focus references nothing (the validator
+   * holds it to fixed text, so a stored one normally doesn't).
+   */
+  references?: Record<string, unknown>;
   /** The reviewer's model; absent: a model other than the step's (`stepModel`). */
   model?: ModelChoice;
   stepModel?: ModelChoice;
@@ -534,6 +582,9 @@ export interface ConferPort {
 export const NeedsHelp = z.object({
   question: z.string().min(1),
   tried: z.array(z.string()).default([]),
+  /** Evidence screenshots: storage keys on the connection's log (the browse stream's scope). */
   screenshots: z.array(z.string()).optional(),
+  /** The tag the lead's answer is kept under (`[browse-help skill=… sites=…]`). */
+  remember: z.string().min(1).max(500).optional(),
 });
 export type NeedsHelp = z.infer<typeof NeedsHelp>;

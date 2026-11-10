@@ -121,6 +121,7 @@ function withApprovalChecks(
   steps: readonly processes.Step[],
   approvals: Record<string, processes.ApprovalCheck>,
   origins: Origins,
+  overrides?: WeakSet<object>,
 ): processes.Step[] {
   return steps.map((step): processes.Step => {
     const keep = (next: processes.Step): processes.Step => {
@@ -130,6 +131,7 @@ function withApprovalChecks(
     };
     const own = Object.hasOwn(approvals, step.id) ? approvals[step.id] : undefined;
     if ((step.kind === "skill" || step.kind === "write" || step.kind === "read") && own) {
+      overrides?.add(own);
       return keep({ ...step, checks: { ...step.checks, approval: own } });
     }
     if (step.kind === "if") {
@@ -137,16 +139,19 @@ function withApprovalChecks(
         ...step,
         paths: step.paths.map((p) => ({
           ...p,
-          steps: withApprovalChecks(p.steps, approvals, origins),
+          steps: withApprovalChecks(p.steps, approvals, origins, overrides),
         })),
         otherwise: {
           ...step.otherwise,
-          steps: withApprovalChecks(step.otherwise.steps, approvals, origins),
+          steps: withApprovalChecks(step.otherwise.steps, approvals, origins, overrides),
         },
       });
     }
     if (step.kind === "for_each") {
-      return keep({ ...step, steps: withApprovalChecks(step.steps, approvals, origins) });
+      return keep({
+        ...step,
+        steps: withApprovalChecks(step.steps, approvals, origins, overrides),
+      });
     }
     return step;
   });
@@ -156,7 +161,8 @@ function withApprovalChecks(
  * Expands every `process` step of a v4 process against the pinned automation versions, as
  * `expandAutomations` does for v3: the version's (v3) steps read as v4 with their origins paired,
  * the step's approval overrides applied. Throws `ExpandError` for a version that isn't loaded, or
- * one that uses another automation.
+ * one that uses another automation. `overrides` collects the override checks: they are native v4
+ * approvals (modes, deadlines, away approvers), though the steps they sit on were converted.
  */
 // DECISION (R3): overrides are applied to the v4 steps' `checks.approval`, and the gate's approval
 // is read back from it (`gateApproval`); for a converted v3 override that is the stored v3 approval
@@ -166,6 +172,7 @@ export function expandProcesses(
   resolve: AutomationResolver,
   convert: processes.ConvertLookup,
   origins: Origins,
+  overrides?: WeakSet<object>,
 ): ProcessExpansions {
   const out: ProcessExpansions = {};
   for (const use of processes.subProcessSteps([process])) {
@@ -181,6 +188,7 @@ export function expandProcesses(
         stepsFromV3(def.steps, convert, origins),
         use.approvals ?? {},
         origins,
+        overrides,
       ),
       output: def.output,
     };

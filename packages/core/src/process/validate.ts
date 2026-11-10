@@ -476,7 +476,7 @@ function stepReaches(step: Step, ctx: TypingContext): boolean {
  */
 // DECISION: a skill the registries don't know counts as writing (no output before its checks), the
 // safe side, as the converter counts an unknown tool as an external write.
-function outputBeforeChecks(step: Step, ctx: TypingContext): boolean {
+export function outputBeforeChecks(step: Step, ctx: TypingContext): boolean {
   if (step.kind === "read") return true;
   if (step.kind !== "skill") return false;
   const writes = stepWrites(step, ctx);

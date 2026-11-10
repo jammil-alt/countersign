@@ -150,6 +150,7 @@ describe("skill steps", () => {
 
   it("layers the customization's settings over the step's and keeps only its fields", async () => {
     const h = new Harness();
+    h.agent.appliesCustomization = true;
     h.handlers.s = () => ({ kind: "done", output: { text: "hi", debug: "x" } });
     const result = await executeWorkflow(
       new FakeStepRunner(),
@@ -262,8 +263,10 @@ describe("checks", () => {
     );
     expect(result.status).toBe("succeeded");
     expect(order).toEqual(["confer", "propose", "write", "notify"]);
+    // The focus is the instruction, as written; what it references goes beside it as data.
     expect(reviews[0]).toMatchObject({
-      focus: "do the lines add up for bill 7",
+      focus: "do the lines add up for {{trigger.what}}",
+      references: { "trigger.what": "bill 7" },
       input: { name: "bill 7" },
       stepId: "write",
     });
@@ -1025,7 +1028,7 @@ describe("logic", () => {
       ]),
       { who: "dana" },
     );
-    expect(result.status).toBe("succeeded");
+    expect(result).toEqual({ status: "succeeded" });
     expect(h.agentCalls[0]).toMatchObject({
       nodeId: "use/send",
       automation: "follow-up@1",

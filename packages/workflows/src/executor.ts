@@ -15,6 +15,7 @@
 
 import {
   type ActionStep,
+  type AnomalySignal,
   type Approval,
   automationSkillRef,
   clientLabel,
@@ -29,17 +30,17 @@ import {
   // v0.13 W2-I
   OVERSIGHT_DEFAULT_MAX_PER_RUN,
   OVERSIGHT_MAX_PER_STEP,
-  type OversightSettings,
+  // R6
+  type OwnerWatchedStep,
+  ownerStepApproval,
   type PersonStep,
   parseDuration,
   processes,
   type RunContext,
   renderSummary,
   renderTemplate,
+  resolvePath,
   resolveTemplate,
-  // v0.13 M32
-  reviewsAfterSuccess,
-  reviewsFailures,
   runErrorKey,
   type SkillStep,
   stepStateLabel,
@@ -57,6 +58,13 @@ import {
   expandProcesses,
   type ProcessExpansions,
 } from "./expand";
+// R6: the owner's watch over the v0.13 loop (one loop, one port).
+import {
+  type OwnerWatch,
+  ownerAfterSuccess,
+  ownerErrorKey,
+  ownerReviewsFailureOf,
+} from "./oversight";
 import {
   type AgentPort,
   type ConferPort,
@@ -158,11 +166,11 @@ export interface RunResult {
   diagnosis?: string;
 }
 
-// v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54).
-export interface ExecutorOversight {
+// v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54). R6: the owner, whose
+// `settings` are the agent's `definition.oversight` (absent: `off`, a step may still say `always`)
+// and whose `watch` (v4 processes) adds the cheap watch's signals.
+export interface ExecutorOversight extends OwnerWatch {
   port: OversightPort;
-  /** The agent's `definition.oversight`; absent means `off` (a step may still say `always`). */
-  settings?: OversightSettings | undefined;
 }
 
 /** How one attempt at a skill or action step ended. */
@@ -173,6 +181,8 @@ interface Attempt {
   // R3
   /** Nobody answered its approval and `ifNoAnswer` is `skip`: skipped whatever `onReject` says. */
   skipped?: boolean;
+  /** It proposed a write (an approval was asked, or a test run's write was recorded unmade). */
+  proposed?: boolean;
 }
 
 /** An oversight retry (or R3: the re-run after the lead's help): its place, input and keys. */
@@ -186,12 +196,25 @@ interface AttemptRetry {
 
 // R3: what a v4 work step adds to an attempt.
 interface WorkOptions {
-  /** The step's approval check and its approvers, who is away already known. */
+  /**
+   * A native v4 approval check on the writes the step proposes, its approvers (who is away
+   * already known): its mode, deadlines and `ifNoAnswer`. Absent (a converted v3 step), the gate's
+   * approval is decided exactly as v3 decided it.
+   */
   plan?: ApprovalPlan;
   /** A skill step's customization, for the runtime (instructions, rule rows). */
   customize?: processes.SkillCustomization;
   /** The step's row kind when not its port view's: a native `read` or `write`. */
   nodeType?: "read" | "write";
+  // R6
+  /** The native v4 step the owner watches (absent: the port view, a converted step's v3 step). */
+  watched?: OwnerWatchedStep;
+  /** Before the first approval of a write the step proposes: its confer (a native skill). */
+  beforeApproval?: (proposed: unknown) => Promise<void>;
+  /** After an attempt that did its work, before the owner reviews it: a read's or skill's confer. */
+  afterRun?: (output: unknown) => Promise<void>;
+  /** The confer verdicts so far, for the owner's watch. */
+  verdicts?: () => ConferEntry[] | undefined;
 }
 
 /** One approver of an approval check, planned before the step runs. */
@@ -213,10 +236,32 @@ interface Decided {
   proceeded?: boolean;
   /** Nobody answered; `ifNoAnswer: skip`. */
   skip?: boolean;
+  /** Nobody answered; `ifNoAnswer: stop` (the resolution reads as not approved). */
+  unanswered?: boolean;
+}
+
+/** How one approval is asked (`Executor.approve`): a write's gate approval or a sign-off. */
+interface ApprovalAsking {
+  /** Asks one more approver; null when the port can't (only the gate's item is asked). */
+  ask: Asker | null;
+  /** The item the gate made for the first approver present (a write); absent: asked here. */
+  first?: string;
+  /** How long the first approver has when their deadline isn't set. */
+  fallback: Duration;
+  /** Approver k's durable name. */
+  nameOf: (k: number) => string;
 }
 
 /** One confer reviewer's answer, as checks read it (`confer.<n>.verdict`); null: not asked. */
 type ConferEntry = { verdict: processes.ConferVerdict; note: string; by: string } | null;
+
+/** One confer reviewer's verdict, as the owner's watch reads it. */
+function verdictsOf(entries: readonly ConferEntry[] | undefined): processes.ConferVerdict[] {
+  return (entries ?? []).flatMap((e) => (e ? [e.verdict] : []));
+}
+
+/** Who an approver without a `who` is: the client's admin, as the gate's default asks. */
+const DEFAULT_APPROVER = "client_admin";
 
 /** Asks one more person (an approver, an escalation): creates the item, says how long to wait. */
 type Asker = (
@@ -316,12 +361,15 @@ export async function executeWorkflow(
   // DECISION: a pinned version the run can't load fails the run at its use step before any step
   // runs, rather than part-way through.
   let expansions: ProcessExpansions;
+  // R3: the approval checks a v4 process step sets on its automation's steps (native v4 checks).
+  const overrides = new WeakSet<object>();
   try {
     expansions = expandProcesses(
       loaded.process,
       ctx.automations ?? {},
       ctx.lookup ?? NO_LOOKUP,
       loaded.origins,
+      overrides,
     );
   } catch (error) {
     if (!(error instanceof ExpandError)) throw error;
@@ -335,7 +383,7 @@ export async function executeWorkflow(
       ),
     };
   }
-  const ex = new Executor(runner, ctx, expansions, loaded.origins);
+  const ex = new Executor(runner, ctx, expansions, loaded.origins, overrides);
   // v0.13 M32: checkpoints, from the version's steps and the automations they expand to. Pure over
   // immutable versions, so a replay computes the same set.
   if (ctx.oversight) ex.checkpoints = checkpointsOf(loaded, ctx, expansions);
@@ -354,7 +402,8 @@ export async function executeWorkflow(
 
 /**
  * v0.13 M32: a stored v3 workflow's checkpoints as they always were (core's v3
- * `workflowCheckpoints`); a v4 process's by the same rule over v4 steps.
+ * `workflowCheckpoints`); R6: a v4 process's by core's v4 rule (`processes.processCheckpoints`),
+ * its process steps' inner checkpoints as `${processStepId}/${innerId}`.
  */
 function checkpointsOf(
   loaded: LoadedProcess,
@@ -374,42 +423,13 @@ function checkpointsOf(
       }),
     );
   }
-  const out = processCheckpoints(loaded.process.steps, typing);
-  for (const [useId, e] of Object.entries(expansions)) {
-    for (const id of processCheckpoints(e.steps, typing)) out.add(`${useId}/${id}`);
-  }
-  return out;
-}
-
-/**
- * The checkpoints of v4 steps (R3), v3's rule over v4 steps: every read, skill or write step whose
- * output a writing step's input references, and every one with `review: 'always'`.
- */
-// DECISION: a step whose skill or tool the catalog doesn't know counts as not writing, as in v3.
-function processCheckpoints(
-  steps: readonly processes.Step[],
-  typing: Parameters<typeof lookupSkill>[1],
-): Set<string> {
-  const all = processes.allSteps({ steps: [...steps] }).map((l) => l.step);
-  const writes = (s: processes.Step): boolean => {
-    if (s.kind === "skill" && lookupSkill(s.skill, typing)?.reachesPeople === true) return true;
-    return (processes.stepWrites(s, typing)?.length ?? 0) > 0;
-  };
-  const fed = new Set<string>();
-  for (const s of all) {
-    if (s.kind !== "write" && s.kind !== "skill") continue;
-    if (!writes(s)) continue;
-    for (const r of collectRefs(s.input).refs) {
-      const [root, id] = r.path;
-      if (root === "steps" && id !== undefined) fed.add(id);
-    }
-  }
-  const out = new Set<string>();
-  for (const s of all) {
-    if (s.kind !== "read" && s.kind !== "skill" && s.kind !== "write") continue;
-    if (s.review === "always" || fed.has(s.id)) out.add(s.id);
-  }
-  return out;
+  return new Set(
+    processes.processCheckpoints(loaded.process, {
+      ...typing,
+      // The pinned versions as the run reads them (v4, with the step's approval overrides).
+      processes: Object.fromEntries(Object.values(expansions).map((e) => [e.ref, e])),
+    }),
+  );
 }
 
 function message(error: unknown): string {
@@ -439,6 +459,8 @@ class Executor {
     readonly expansions: ProcessExpansions = {},
     // R3
     readonly origins: Origins = new WeakMap(),
+    /** Approval checks a v4 process step set on its automation's (converted) steps. */
+    readonly overrides: WeakSet<object> = new WeakSet(),
   ) {}
 
   // v0.13 W2-I
@@ -461,6 +483,16 @@ class Executor {
 
   origin(step: processes.Step): V3Step | undefined {
     return this.origins.get(step);
+  }
+
+  /**
+   * Whether the step's approval is a native v4 check (modes, deadlines, `ifNoAnswer`, away
+   * approvers skipped): a native step's, or one a v4 process step set on its automation's step. A
+   * converted v3 step's approval is decided exactly as v3 decided it.
+   */
+  nativeApproval(step: processes.Step): boolean {
+    const check = step.checks?.approval;
+    return !this.origin(step) || (check !== undefined && this.overrides.has(check));
   }
 
   async runList(steps: readonly processes.Step[], frame: Frame): Promise<void> {
@@ -614,15 +646,25 @@ class Executor {
       return { dueAt: at(deadline.after), remindAt: offsets.map(at) };
     }
     const h = await this.hoursOf(who);
-    const at = (d: Duration) =>
-      (h.people && h.people.length > 0
-        ? processes.dueAtForMany(start, d, { hours: "business", people: h.people })
-        : processes.dueAt(start, d, {
-            hours: "business",
-            businessHours: processes.effectiveHours(h.client, h.person),
-            away: h.person?.away,
-          })
-      ).toISOString();
+    // DECISION: hours with no open time for five years (an all-closed week, an away range years
+    // long) count the deadline in clock time rather than failing the run: it still comes due, and
+    // its `ifNoAnswer` still applies, so nothing is loosened (R4's "never as always closed").
+    const at = (d: Duration) => {
+      try {
+        return (
+          h.people && h.people.length > 0
+            ? processes.dueAtForMany(start, d, { hours: "business", people: h.people })
+            : processes.dueAt(start, d, {
+                hours: "business",
+                businessHours: processes.effectiveHours(h.client, h.person),
+                away: h.person?.away,
+              })
+        ).toISOString();
+      } catch (error) {
+        if (!(error instanceof processes.NoOpenTimeError)) throw error;
+        return new Date(start.getTime() + parseDuration(d)).toISOString();
+      }
+    };
     return { dueAt: at(deadline.after), remindAt: offsets.map(at) };
   }
 
@@ -633,7 +675,7 @@ class Executor {
     const now = new Date();
     if (h.people && h.people.length > 0) {
       return h.people.every((p) =>
-        processes.isAway(now, { hours: p.businessHours, away: p.away }, h.client),
+        processes.isAway(now, { hours: p.businessHours, away: [...(p.away ?? [])] }, h.client),
       );
     }
     return h.person ? processes.isAway(now, h.person, h.client) : false;
@@ -840,47 +882,67 @@ class Executor {
 
   /**
    * R3: a read, skill or write step, with its checks in order: confer, then approval, then the
-   * step's write, then notify. A write confers on its input before it is proposed; a read or a
-   * skill runs first and confers on its output. Converted v3 steps carry only an approval, which
-   * the gate takes exactly as before.
+   * step's write, then notify. A write confers on its input before it is proposed. A skill that
+   * proposes a write confers on it before its approval is decided (the gate's approval, in the
+   * check's mode, deadlines and `ifNoAnswer`), so the write follows both. A read, or a skill that
+   * proposed no write, runs first, confers on its output, and its approval is a sign-off of that
+   * output. Converted v3 steps carry only an approval, which the gate takes exactly as before.
    */
   async workStep(step: WorkStep, name: string, frame: Frame): Promise<void> {
     const origin = this.origin(step);
     const checks = step.checks;
     const check = checks?.approval;
+    // A read, or a skill the catalog knows writes nothing and contacts nobody: its output exists
+    // when its approval is asked (the validator's rule), so the approval signs off that output.
+    const readLike = processes.outputBeforeChecks(step, this.typing());
     let runs: WorkStep = step;
-    let customize: processes.SkillCustomization | undefined;
+    let custom: processes.CustomizedSkill | undefined;
     if (step.kind === "skill" && step.customize) {
-      customize = step.customize;
-      // Throws naming every problem: the step fails before it runs.
-      const def = lookupSkill(step.skill, this.ctx.catalog ?? {});
-      if (def) processes.applyCustomization(def, customize);
-      // DECISION: settings layer as agent < step `settings` < the customization's; a step `model`
-      // beats the customization's.
-      const settings = customize.settings
-        ? { ...(step.settings ?? {}), ...customize.settings }
-        : step.settings;
-      const model = step.model ?? customize.model;
-      runs = { ...step, ...(settings ? { settings } : {}), ...(model ? { model } : {}) };
+      custom = this.customized(step, step.customize);
+      // The step's two layers; the skill's defaults and the agent's own settings for the skill
+      // are the runtime's, beneath them (run-agent's `resolveSkillSettings`).
+      const settings = processes.stepSkillSettings(
+        { settings: [] },
+        { step: step.settings, customization: custom.settings },
+      );
+      // DECISION: a step `model` beats the customization's.
+      const model = step.model ?? step.customize.model;
+      runs = {
+        ...step,
+        ...(Object.keys(settings).length > 0 ? { settings } : {}),
+        ...(model ? { model } : {}),
+      };
     }
+    // Only the customized output's fields, when the customization keeps some.
+    const shape = (output: unknown): unknown =>
+      custom && step.kind === "skill" && step.customize?.keep
+        ? keptFields(output, custom.definition.output)
+        : output;
 
-    // Confer on a write's input, before it is proposed.
+    // Confer, once per step: before a write is proposed, or on a read's or skill's output.
     let conferred: ConferEntry[] | undefined;
-    if (step.kind === "write" && checks?.confer) {
-      const input = resolveTemplate(step.input, frame.scope);
-      conferred = await this.confer(step, name, frame.scope, checks.confer, { input });
-    }
+    let conferDone = false;
+    const conferOn = async (data: {
+      input: unknown;
+      output?: unknown;
+      own?: { id: string; output: unknown };
+    }) => {
+      if (conferDone || !checks?.confer) return;
+      conferDone = true;
+      conferred = await this.confer(step, name, frame.scope, checks.confer, data);
+    };
+    const input = () => resolveTemplate(step.input, frame.scope);
+    if (step.kind === "write") await conferOn({ input: input() });
 
-    const plan = check ? await this.approverPlan(name, check) : undefined;
+    // A native approval is planned (who is away known); a converted one goes to the gate as v3's.
+    const plan =
+      check && this.nativeApproval(step) ? await this.approverPlan(name, check) : undefined;
     const firstWho = plan?.approvers.find((a) => !a.away)?.who ?? null;
     let gate = gateApproval(check, plan ? firstWho : undefined);
-    // A native read or skill's approval is a sign-off of its result, after it runs (below); the
-    // gate gets it too, for any write a skill proposes. Its `when` reads the step's own output.
-    const signOff =
-      !origin && (step.kind === "read" || step.kind === "skill") && plan ? plan : undefined;
     // An approval limited to some runs (`when`) doesn't apply on the others: the gate decides
-    // those as `not_required` (still held to the matrix, the grant and the mode, §9.5).
-    if (gate && check?.when && !signOff) {
+    // those as `not_required` (still held to the matrix, the grant and the mode, §9.5). A sign-off's
+    // `when` reads the step's own output, after it runs (below).
+    if (gate && check?.when && !(plan && readLike)) {
       const applies = await this.runner.do(`${name}:approval:when`, async () =>
         evaluateRules(
           check.when as NonNullable<typeof check.when>,
@@ -892,34 +954,51 @@ class Executor {
     const view = workView(runs, origin, gate);
     const approval: Approval =
       view.kind === "action" ? view.approval : (view.approval ?? DEFAULT_APPROVAL);
-    const done = await this.work(view, name, frame, approval, {
-      ...(plan && !signOff ? { plan } : {}),
-      ...(customize ? { customize } : {}),
+    const opts: WorkOptions = {
+      // Any write the step proposes is signed in the native check's mode (a read-like skill's too,
+      // should it propose one after all).
+      ...(plan ? { plan } : {}),
+      ...(step.kind === "skill" && step.customize ? { customize: step.customize } : {}),
       // A converted step's row keeps its stored kind; a native read or write is named as such.
       ...(!origin && step.kind !== "skill" ? { nodeType: step.kind } : {}),
-    });
+      // R6: the owner watches the native step itself (a converted step as its stored v3 step).
+      ...(!origin ? { watched: step } : {}),
+      verdicts: () => conferred,
+    };
+    if (step.kind === "skill" && checks?.confer) {
+      opts.beforeApproval = (proposed) => conferOn({ input: input(), output: proposed });
+    }
+    if (step.kind !== "write" && checks?.confer) {
+      opts.afterRun = async (output) => {
+        // A request for help isn't the step's result: it is conferred on once answered.
+        if (needsHelpOf(output, !origin && view.kind === "skill")) return;
+        const shaped = shape(output);
+        await conferOn({ input: input(), output: shaped, own: { id: step.id, output: shaped } });
+      };
+    }
+    const done = await this.work(view, name, frame, approval, opts);
     if (!done.ran) {
       frame.scope.steps[step.id] = { output: done.output };
       return;
     }
     let output = done.output;
+    let proposed = done.proposed;
 
-    // R3: a skill that couldn't do it asks the lead, then runs once more with the answer.
-    if (view.kind === "skill") {
-      output = await this.needsHelp(view, name, frame, approval, done, customize);
+    // R3: a native skill that couldn't do it asks the lead, then runs once more with the answer.
+    if (view.kind === "skill" && !origin) {
+      const helped = await this.needsHelp(view, name, frame, approval, done, opts);
+      output = helped.output;
+      proposed = helped.proposed;
     }
-    if (customize?.keep && view.kind === "skill") {
-      output = kept(output, customize.keep, this.ctx.catalog, view);
-    }
+    output = shape(output);
 
-    if ((step.kind === "read" || step.kind === "skill") && checks?.confer) {
-      const input = resolveTemplate(step.input, frame.scope);
-      conferred = await this.confer(step, name, frame.scope, checks.confer, {
-        input,
-        output,
-        own: { id: step.id, output },
-      });
+    if (step.kind !== "write" && checks?.confer) {
+      await conferOn({ input: input(), output, own: { id: step.id, output } });
     }
+    // The sign-off: a read's, or a skill's that proposed no write (a proposed write was signed
+    // through the gate above, in the check's mode). A write step's approval is only ever the
+    // gate's.
+    const signOff = plan && step.kind !== "write" && !proposed ? plan : undefined;
     const signs =
       signOff &&
       gate?.required !== "not_required" &&
@@ -932,9 +1011,6 @@ class Executor {
         )));
     if (signOff && signs) {
       const decided = await this.signOff(step, name, done.stepRunId, signOff, output);
-      if (decided === "stop") {
-        throw new RunEnd({ status: "cancelled", reason: "rejected", nodeId: name });
-      }
       if (decided === "skip") {
         frame.scope.steps[step.id] = { output: null };
         return;
@@ -949,9 +1025,48 @@ class Executor {
     frame.scope.steps[step.id] = { output };
   }
 
+  /** What the catalog says about skills and tools, as core's typing reads it. */
+  typing(): Parameters<typeof lookupSkill>[1] {
+    const catalog = this.ctx.catalog ?? {};
+    return {
+      ...(catalog.skills ? { skills: catalog.skills } : {}),
+      ...(catalog.tools ? { tools: catalog.tools } : {}),
+    };
+  }
+
   /**
-   * The approval's approvers, who is away known before the step runs (a durable step, only when
-   * stored hours can say so): an away approver is skipped at once, never waited for.
+   * A skill step's customization, checked against the catalog's definition
+   * (`processes.customizeSkill`, which throws naming every problem): the step fails before it runs.
+   */
+  // DECISION: a customization the executor can't check (the skill isn't in the catalog), or one
+  // that adds instructions or rule rows for a port that doesn't apply them, fails the step: it
+  // would otherwise run without what the step says, silently.
+  customized(
+    step: processes.SkillStep,
+    customization: processes.SkillCustomization,
+  ): processes.CustomizedSkill {
+    const def = lookupSkill(step.skill, this.ctx.catalog ?? {});
+    if (!def) {
+      throw new Error(
+        `the skill ${step.skill} isn't in the catalog, so the step's changes to it can't be checked`,
+      );
+    }
+    const custom = processes.customizeSkill(def, customization);
+    if (
+      (customization.addInstructions !== undefined || customization.rules !== undefined) &&
+      this.ctx.agent.appliesCustomization !== true
+    ) {
+      throw new Error(
+        "the step adds instructions or rule rows to its skill, but the agent port doesn't apply them",
+      );
+    }
+    return custom;
+  }
+
+  /**
+   * A native approval's approvers, who is away known before the step runs (a durable step, only
+   * when stored hours can say so): an away approver is skipped at once, never waited for. Only
+   * for native v4 checks: a converted v3 approver is waited for as v3 did.
    */
   async approverPlan(name: string, check: processes.ApprovalCheck): Promise<ApprovalPlan> {
     const list: NonNullable<processes.ApprovalCheck["approvers"]> =
@@ -976,11 +1091,12 @@ class Executor {
     approval: Approval,
     opts: WorkOptions = {},
   ): Promise<
-    { ran: true; output: unknown; stepRunId: string } | { ran: false; output: unknown | null }
+    | { ran: true; output: unknown; stepRunId: string; proposed: boolean }
+    | { ran: false; output: unknown | null }
   > {
     // v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54). Without a port, or when
     // this step's failures aren't reviewed, the first attempt is the only one, exactly as before.
-    if (this.oversees(step)) {
+    if (this.oversees(step, opts)) {
       const done = await this.overseen(step, name, frame, approval, opts);
       if (done.kind === "thrown") {
         if (done.diagnosis === undefined) throw done.error;
@@ -990,10 +1106,7 @@ class Executor {
           status: "failed",
           reason,
           nodeId: name,
-          errorKey: runErrorKey(
-            { tool: step.kind === "action" ? step.tool : null, kind: step.kind },
-            reason,
-          ),
+          errorKey: ownerErrorKey(opts.watched ?? step, reason),
           diagnosis: done.diagnosis,
         });
       }
@@ -1020,9 +1133,11 @@ class Executor {
   finishWork(
     name: string,
     approval: Approval,
-    { outcome, rejected, skipped, stepRunId }: Attempt,
+    { outcome, rejected, skipped, stepRunId, proposed }: Attempt,
     diagnosis?: string,
-  ): { ran: true; output: unknown; stepRunId: string } | { ran: false; output: unknown } {
+  ):
+    | { ran: true; output: unknown; stepRunId: string; proposed: boolean }
+    | { ran: false; output: unknown } {
     if (outcome.kind === "escalated") {
       throw new RunEnd({ status: "failed", reason: `escalated: ${outcome.reason}`, nodeId: name });
     }
@@ -1041,7 +1156,7 @@ class Executor {
       throw new RunEnd({ status: "cancelled", reason: "rejected", nodeId: name });
     }
     if (rejected) return { ran: false, output: outcome.output };
-    return { ran: true, output: outcome.output, stepRunId };
+    return { ran: true, output: outcome.output, stepRunId, proposed: proposed === true };
   }
 
   /**
@@ -1106,6 +1221,9 @@ class Executor {
     let outcome = first.outcome;
     let rejected = false;
     let skipped = false;
+    // A test run's write comes back as done, recorded unmade.
+    let proposed =
+      outcome.kind === "approval" || (outcome.kind === "done" && outcome.notWritten === true);
     for (let n = 1; outcome.kind === "approval" || outcome.kind === "waiting"; n++) {
       if (outcome.kind === "waiting") {
         outcome = await this.awaitStep(
@@ -1120,7 +1238,10 @@ class Executor {
         );
         continue;
       }
+      proposed = true;
       const pending = outcome.pending;
+      // R3: a native skill's confer comes before the approval of the write it proposes.
+      if (opts.beforeApproval) await opts.beforeApproval(outcome.output);
       const base = `${at}:approval:${n}`;
       const decided = await this.decideApproval(step, base, stepRunId, pending, approval, opts);
       const resolution = decided.resolution;
@@ -1151,14 +1272,19 @@ class Executor {
     }
     // P-6: a step a person ended outside an approval takes its onReject (§1.68).
     if (outcome.kind === "done" && outcome.declined === true) rejected = true;
-    return { stepRunId, outcome, rejected, ...(skipped ? { skipped } : {}) };
+    return {
+      stepRunId,
+      outcome,
+      rejected,
+      ...(skipped ? { skipped } : {}),
+      ...(proposed ? { proposed } : {}),
+    };
   }
 
   /**
-   * Who signs a write and what came of it. Without a v4 plan (a v3 caller), or with one approver
-   * and `ifNoAnswer: stop` (every converted step), exactly as before: the gate's item, its
-   * timeout, and no answer counts as not approved. Otherwise the plan's mode, each approver's
-   * deadline, away approvers skipped, and `ifNoAnswer` at the end.
+   * Who signs a write and what came of it. Without a native v4 plan (every converted v3 step),
+   * exactly as before: the gate's item, its timeout, and no answer counts as not approved. With
+   * one, the approval engine (`approve`), the gate's item asking the first approver present.
    */
   async decideApproval(
     step: SkillStep | ActionStep,
@@ -1168,26 +1294,11 @@ class Executor {
     approval: Approval,
     opts: WorkOptions,
   ): Promise<Decided> {
-    const plan = opts.plan;
-    const noAnswer: Decided = { resolution: { approved: false, by: null } };
     const fallback = approval.timeout ?? this.ctx.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
-    const present: PlannedApprover[] = plan
-      ? plan.approvers.filter((a) => !a.away)
-      : [{ away: false }];
-    const first = present[0];
-    if (!plan || !first) {
-      if (plan && !first) {
-        // Everyone is away: nobody is waited for, and the approval's `ifNoAnswer` applies.
-        await this.runner.do(`${base}:expire`, async () => {
-          await this.ctx.inbox.expire(pending.inboxItemId);
-          return null;
-        });
-        return this.noAnswer(base, plan.check, null, noAnswer);
-      }
+    if (!opts.plan) {
       const resolution = await this.awaitResolution(base, pending.inboxItemId, fallback);
-      return resolution ? { resolution } : noAnswer;
+      return resolution ? { resolution } : { resolution: { approved: false, by: null } };
     }
-
     const { agent, run } = this.ctx;
     const ask: Asker | null = agent.askApprover
       ? async (b, who, deadline) => {
@@ -1210,59 +1321,101 @@ class Executor {
           return { item: asked.item, timeout: timeoutOf(d, asked.dueAt) };
         }
       : null;
-    // The gate asked the first approver; how long they have.
-    const firstTimeout = async (): Promise<Duration> => {
-      const d = first.deadline;
-      if (!d) return fallback;
-      if (d.hours !== "business") return d.after;
-      const { dueAt } = await this.runner.do(`${base}:due`, () =>
-        this.dueOf(first.who ?? "client_admin", d),
-      );
-      return untilDue(dueAt);
-    };
-    const tellPassed = async (b: string, a: PlannedApprover, item: string) => {
-      if (!a.deadline?.tell?.length) return;
-      await this.runner.do(`${b}:tell`, async () => {
-        await this.tell(a.deadline?.tell, {
-          nodeId: b,
-          inboxItemId: item,
-          reason: `no answer from ${a.who ?? "the approver"} within ${a.deadline?.after}`,
-        });
+    return this.approve(base, opts.plan, {
+      ask,
+      first: pending.inboxItemId,
+      fallback,
+      nameOf: (k) => (k === 0 ? base : `${base}:a${k}`),
+    });
+  }
+
+  /**
+   * The approval engine, for a write's gate approval and a read's or skill's sign-off alike: the
+   * check's mode over the approvers present (away ones skipped), each on their own deadline, then
+   * `ifNoAnswer` (an escalation asked first). `in_turn`: one at a time, the first answer decides.
+   * `any`: everyone at once, the first answer decides. `all`: everyone at once, everyone's yes or
+   * the first no. A reject is an answer: it ends the asking at once.
+   */
+  // DECISION: `all` with more than one approver present and no way to ask more than the gate's
+  // one item (a port without `askApprover`) fails the step, the gate's item expired: one signature
+  // must never stand for several (invariant 8). `in_turn` and `any` need one answer, so they ask
+  // the gate's approver alone and `ifNoAnswer` applies when nobody answers.
+  async approve(base: string, plan: ApprovalPlan, how: ApprovalAsking): Promise<Decided> {
+    const present = plan.approvers.filter((a) => !a.away);
+    const expireFirst = async () => {
+      const first = how.first;
+      if (!first) return;
+      await this.runner.do(`${base}:expire`, async () => {
+        await this.ctx.inbox.expire(first);
         return null;
       });
     };
-
+    if (present.length === 0) {
+      // Everyone is away: nobody is waited for, and the approval's `ifNoAnswer` applies.
+      await expireFirst();
+      return this.noAnswer(base, plan.check, how.ask);
+    }
     const mode = plan.check.mode ?? "in_turn";
+    const { ask } = how;
+    if (mode === "all" && present.length > 1 && !ask) {
+      await expireFirst();
+      throw new Error(
+        `the approval needs all ${present.length} approvers to sign, but the agent port can ask only one`,
+      );
+    }
+    const askOne = async (
+      k: number,
+      a: PlannedApprover,
+    ): Promise<{ b: string; item: string; timeout: Duration }> => {
+      const b = how.nameOf(k);
+      if (k === 0 && how.first) {
+        return { b, item: how.first, timeout: await this.firstTimeout(base, a, how.fallback) };
+      }
+      if (!ask) throw new Error("the agent port can't ask another approver");
+      return { b, ...(await ask(b, a.who ?? DEFAULT_APPROVER, a.deadline)) };
+    };
     if (mode === "in_turn" || present.length === 1 || !ask) {
       // One at a time, in order; the next once the one before's deadline passes.
       for (const [k, a] of present.entries()) {
         if (k > 0 && !ask) break;
-        const b = k === 0 ? base : `${base}:a${k}`;
-        const asked =
-          k === 0 || !ask
-            ? { item: pending.inboxItemId, timeout: await firstTimeout() }
-            : await ask(b, a.who ?? "client_admin", a.deadline);
-        const resolution = await this.awaitResolution(b, asked.item, asked.timeout);
+        const asked = await askOne(k, a);
+        const resolution = await this.awaitResolution(asked.b, asked.item, asked.timeout);
         if (resolution) return { resolution };
-        await tellPassed(b, a, asked.item);
+        await this.tellPassed(asked.b, a, asked.item);
       }
-      return this.noAnswer(base, plan.check, ask, noAnswer);
+      return this.noAnswer(base, plan.check, ask);
     }
-
     // `any` and `all`: everyone at once.
     const entries: { b: string; item: string; timeout: Duration; a: PlannedApprover }[] = [];
-    for (const [k, a] of present.entries()) {
-      const b = k === 0 ? base : `${base}:a${k}`;
-      const asked =
-        k === 0
-          ? { item: pending.inboxItemId, timeout: await firstTimeout() }
-          : await ask(b, a.who ?? "client_admin", a.deadline);
-      entries.push({ b, item: asked.item, timeout: asked.timeout, a });
-    }
+    for (const [k, a] of present.entries()) entries.push({ ...(await askOne(k, a)), a });
     const resolution = await this.awaitGroup(base, entries, mode);
     if (resolution) return { resolution };
-    for (const e of entries) await tellPassed(e.b, e.a, e.item);
-    return this.noAnswer(base, plan.check, ask, noAnswer);
+    for (const e of entries) await this.tellPassed(e.b, e.a, e.item);
+    return this.noAnswer(base, plan.check, ask);
+  }
+
+  /** How long the approver the gate asked has: their deadline (business: on their hours). */
+  async firstTimeout(base: string, a: PlannedApprover, fallback: Duration): Promise<Duration> {
+    const d = a.deadline;
+    if (!d) return fallback;
+    if (d.hours !== "business") return d.after;
+    const { dueAt } = await this.runner.do(`${base}:due`, () =>
+      this.dueOf(a.who ?? DEFAULT_APPROVER, d),
+    );
+    return untilDue(dueAt);
+  }
+
+  /** An approver's deadline passed: whoever it tells is told. */
+  async tellPassed(b: string, a: PlannedApprover, item: string): Promise<void> {
+    if (!a.deadline?.tell?.length) return;
+    await this.runner.do(`${b}:tell`, async () => {
+      await this.tell(a.deadline?.tell, {
+        nodeId: b,
+        inboxItemId: item,
+        reason: `no answer from ${a.who ?? "the approver"} within ${a.deadline?.after}`,
+      });
+      return null;
+    });
   }
 
   /** The approval's `ifNoAnswer` once nobody has answered (an escalation asked first). */
@@ -1270,14 +1423,15 @@ class Executor {
     base: string,
     check: processes.ApprovalCheck,
     ask: Asker | null,
-    rejected: Decided,
   ): Promise<Decided> {
+    const notApproved: InboxResolution = { approved: false, by: null };
     const end = await this.escalate(base, check.ifNoAnswer ?? "stop", ask);
     if ("resolution" in end) return { resolution: end.resolution };
-    // DECISION: `stop` on an approval is what a timeout always was: not approved, so the step's
-    // `onReject` applies (a converted step behaves exactly as before).
-    if (end.ended === "stop") return rejected;
-    if (end.ended === "skip") return { ...rejected, skip: true };
+    // DECISION: `stop` on a write's approval is what a timeout always was: not approved, so the
+    // step's `onReject` applies (a converted step behaves exactly as before). A sign-off that
+    // nobody answered ends the run as a timeout (`signOff`).
+    if (end.ended === "stop") return { resolution: notApproved, unanswered: true };
+    if (end.ended === "skip") return { resolution: notApproved, skip: true };
     return { resolution: { approved: true, by: null, proceeded: true }, proceeded: true };
   }
 
@@ -1488,7 +1642,15 @@ class Executor {
               nodeType: "confer",
               input: { reviewer: "ai" },
             });
-            const focus = renderTemplate(reviewer.ai.focus, scopeWith([...verdicts]));
+            // The focus is the reviewer's instruction: sent as written, never rendered with run
+            // data (invariant 9). What its references stand for goes as data beside it.
+            const focus = reviewer.ai.focus;
+            const scope = scopeWith([...verdicts]);
+            const refs = collectRefs(focus).refs;
+            const references =
+              refs.length > 0
+                ? Object.fromEntries(refs.map((r) => [r.expr, resolvePath(scope, r.path)]))
+                : undefined;
             const port = this.ctx.confer;
             // DECISION: without an AI reviewer wired, the verdict is `no_answer`: advice that never
             // came, which conditions can test; the step goes on (confer never blocks a step).
@@ -1500,6 +1662,7 @@ class Executor {
                   stepId: step.id,
                   stepName: step.name,
                   focus,
+                  ...(references ? { references } : {}),
                   ...(reviewer.ai.model ? { model: reviewer.ai.model } : {}),
                   ...(step.kind === "skill" && step.model ? { stepModel: step.model } : {}),
                   input: data.input,
@@ -1616,9 +1779,11 @@ class Executor {
   }
 
   /**
-   * A native read or skill step's approval: its result signed off before the run goes on, by the
-   * approvers in the check's mode (people asked through the inbox). `stop` turned down (or no
-   * answer, `stop`), `skip`, or `go`.
+   * A native read's or skill's approval when it proposed no write: its result signed off before
+   * the run goes on, on the approval engine (`approve`), people asked through the inbox. `go`, or
+   * `skip` (turned down with `onReject: continue`, or nobody answered with `ifNoAnswer: skip`).
+   * Turned down with `onReject: stop` cancels the run (`rejected`); nobody answering with
+   * `ifNoAnswer: stop` fails it (`timeout`), as a person step that nobody answered does.
    */
   async signOff(
     step: WorkStep,
@@ -1626,7 +1791,7 @@ class Executor {
     stepRunId: string,
     plan: ApprovalPlan,
     output: unknown,
-  ): Promise<"go" | "stop" | "skip"> {
+  ): Promise<"go" | "skip"> {
     const base = `${name}:signoff`;
     const label = clientLabel(asLabelled(step));
     const ask = this.personAsker(stepRunId, {
@@ -1636,41 +1801,28 @@ class Executor {
       payload: { value: output },
       mode: "approve",
     });
-    const present = plan.approvers.filter((a) => !a.away);
-    const asked: { b: string; item: string; timeout: Duration; a: PlannedApprover }[] = [];
-    let resolution: InboxResolution | null = null;
-    const mode = plan.check.mode ?? "in_turn";
-    if (mode === "in_turn" || present.length <= 1) {
-      for (const [k, a] of present.entries()) {
-        const b = `${base}:a${k}`;
-        const one = await ask(b, a.who ?? "client_admin", a.deadline);
-        resolution = await this.awaitResolution(b, one.item, one.timeout);
-        if (resolution) break;
-      }
-    } else {
-      for (const [k, a] of present.entries()) {
-        const b = `${base}:a${k}`;
-        const one = await ask(b, a.who ?? "client_admin", a.deadline);
-        asked.push({ b, item: one.item, timeout: one.timeout, a });
-      }
-      resolution = await this.awaitGroup(base, asked, mode);
-    }
-    if (!resolution) {
-      const end = await this.escalate(base, plan.check.ifNoAnswer ?? "stop", ask);
-      if ("resolution" in end) resolution = end.resolution;
-      else if (end.ended === "proceed") return "go";
-      else if (end.ended === "skip") return "skip";
-      else return plan.check.onReject === "continue" ? "skip" : "stop";
-    }
-    if (resolution.approved === true || resolution.withdrawn === true) return "go";
+    const decided = await this.approve(base, plan, {
+      ask,
+      fallback: DEFAULT_APPROVAL_TIMEOUT,
+      nameOf: (k) => `${base}:a${k}`,
+    });
+    if (decided.proceeded) return "go";
+    const { resolution } = decided;
+    const answered = !decided.skip && !decided.unanswered;
+    if (answered && (resolution.approved === true || resolution.withdrawn === true)) return "go";
     await this.runner.do(`${base}:done`, async () => {
       await this.ctx.log.update(stepRunId, {
-        status: "skipped",
-        summary: `${stepStateLabel(asLabelled(step), false)}: ${this.words.notApproved}`,
+        status: decided.unanswered ? "failed" : "skipped",
+        ...(decided.unanswered ? { error: "no answer to the sign-off in time" } : {}),
+        summary: answered
+          ? `${stepStateLabel(asLabelled(step), false)}: ${this.words.notApproved}`
+          : `${label}: ${this.words.noAnswerInTime}`,
       });
       return null;
     });
-    return plan.check.onReject === "continue" ? "skip" : "stop";
+    if (decided.unanswered) throw new RunEnd({ status: "failed", reason: "timeout", nodeId: name });
+    if (decided.skip || plan.check.onReject === "continue") return "skip";
+    throw new RunEnd({ status: "cancelled", reason: "rejected", nodeId: name });
   }
 
   /**
@@ -1770,29 +1922,37 @@ class Executor {
   }
 
   /**
-   * R3: a skill's output said it needs help (`needsHelp`): the lead is asked with what it tried,
-   * the answer is kept (`memory.write`) and the step runs once more with `help` in its input, as
-   * data. Still stuck after that, the step fails.
+   * R3: a native skill's output said it needs help (`needsHelp`): the lead is asked with what it
+   * tried, the answer is kept (`memory.write`) and the step runs once more with `help` in its
+   * input, as data. Still stuck after that, the step fails. A converted v3 skill's output is its
+   * output, whatever it holds (it never asked before).
    */
   async needsHelp(
     view: SkillStep,
     name: string,
     frame: Frame,
     approval: Approval,
-    done: { output: unknown; stepRunId: string },
-    customize: processes.SkillCustomization | undefined,
-  ): Promise<unknown> {
-    const need = isPlainObject(done.output) ? NeedsHelp.safeParse(done.output.needsHelp) : null;
-    if (!need?.success) return done.output;
+    done: { output: unknown; stepRunId: string; proposed: boolean },
+    opts: WorkOptions,
+  ): Promise<{ output: unknown; proposed: boolean }> {
+    const need = needsHelpOf(done.output, true);
+    if (!need) return { output: done.output, proposed: done.proposed };
     const { run, log, agent } = this.ctx;
     const label = clientLabel(view);
+    // The answer goes into the input as one more field: an input that isn't an object can't hold it.
+    const base = resolveTemplate(view.input, frame.scope);
+    if (!isPlainObject(base)) {
+      throw new Error(
+        "the skill needs help, but its input isn't an object the answer can be added to",
+      );
+    }
     const ask = this.personAsker(done.stepRunId, {
       stepId: view.id,
       name: view.name,
-      title: need.data.question,
+      title: need.question,
       payload: {
-        tried: need.data.tried,
-        ...(need.data.screenshots ? { screenshots: need.data.screenshots } : {}),
+        tried: need.tried,
+        ...(need.screenshots ? { screenshots: need.screenshots } : {}),
       },
     });
     const b = `${name}:help`;
@@ -1817,13 +1977,21 @@ class Executor {
       throw new RunEnd({ status: "failed", reason: "needs_help", nodeId: name });
     }
     const help = answer.answer;
-    // Kept for next time; a note that fails to save never fails the step.
+    // Kept for next time. A note that fails to save never fails the step, but its row says so.
     await this.runner.do(`${b}:memory`, async () => {
-      const note = `Asked "${need.data.question}", the lead answered: ${
-        typeof help === "string" ? help : JSON.stringify(help)
-      }`.slice(0, 2000);
+      const text = typeof help === "string" ? help : JSON.stringify(help);
+      // DECISION: a browsing skill's answer is kept under its tag in the browse stream's format
+      // (connectors' `browseHelpNote`: "<tag> Asked: <question> Answer: <answer>"), so the same
+      // skill on the same sites gets it back; written here because workflows can't import
+      // connectors (docs/plan.md §2).
+      const note = (
+        need.remember
+          ? `${need.remember} Asked: ${need.question.trim()} Answer: ${text.trim()}`
+          : `Asked "${need.question}", the lead answered: ${text}`
+      ).slice(0, 2000);
+      let problem: string | null = null;
       try {
-        await agent.runAction({
+        const kept = await agent.runAction({
           run,
           step: {
             id: view.id,
@@ -1838,12 +2006,21 @@ class Executor {
           input: { note },
           approval: DEFAULT_APPROVAL,
         });
-      } catch {
-        // Best effort.
+        if (kept.kind === "failed") problem = kept.error;
+        else if (kept.kind === "escalated") problem = kept.reason;
+        else if (kept.kind !== "done") problem = "it wasn't written at once";
+      } catch (error) {
+        problem = message(error);
+      }
+      if (problem !== null) {
+        await log.update(done.stepRunId, {
+          status: "waiting",
+          error: `the lead's answer wasn't kept: ${problem}`,
+        });
       }
       return null;
     });
-    const input = { ...(resolveTemplate(view.input, frame.scope) as object), help };
+    const input = { ...base, help };
     // DECISION: the re-run has its own durable name and its own idempotency keys (`${name}:h1`):
     // its input changed, so any write it proposes is decided afresh.
     const again = this.finishWork(
@@ -1855,14 +2032,13 @@ class Executor {
         frame,
         approval,
         { seq: 1, input, keyNode: `${name}:h1`, at: `${b}:run` },
-        customize ? { customize } : {},
+        opts,
       ),
     );
-    if (!again.ran) return again.output;
-    const still =
-      isPlainObject(again.output) && NeedsHelp.safeParse(again.output.needsHelp).success;
-    if (still) throw new Error("still needs help after the lead's answer");
-    return again.output;
+    if (!again.ran) return { output: again.output, proposed: done.proposed };
+    if (needsHelpOf(again.output, true))
+      throw new Error("still needs help after the lead's answer");
+    return { output: again.output, proposed: done.proposed || again.proposed };
   }
 
   // ── person steps ─────────────────────────────────────────────────────────────────────────────
@@ -2338,24 +2514,36 @@ class Executor {
 
   // ── v0.13 W2-I: run oversight (ARCHITECTURE §10.11; docs/plan.md §1.54) ──────────────────────
 
-  /** Whether a failure of this step goes to the run's own agent for review. */
-  oversees(step: SkillStep | ActionStep): boolean {
-    const oversight = this.ctx.oversight;
-    return oversight !== undefined && reviewsFailures(oversight.settings, step);
+  /**
+   * Whether a failure of this step goes to the run's own agent (its owner, R6): the native v4
+   * step it runs for when there is one, else the port view (a converted step's stored v3 step).
+   */
+  oversees(step: SkillStep | ActionStep, opts: WorkOptions = {}): boolean {
+    return ownerReviewsFailureOf(this.ctx.oversight, opts.watched ?? step);
   }
 
   /**
    * v0.13 M32: whether an attempt that succeeded is reviewed before the run goes on: done (not a
    * write a person turned down), and a checkpoint under `checkpoints`, any step under `all`, or a
-   * step with `review: 'always'`.
+   * step with `review: 'always'`. R6: or (v4, with the owner's watch) a signal that its result is
+   * plainly off, which rides on the review.
    */
-  checksAfter(step: SkillStep | ActionStep, name: string, attempt: Attempt | { thrown: unknown }) {
-    if ("thrown" in attempt || attempt.outcome.kind !== "done" || attempt.rejected) return false;
-    return reviewsAfterSuccess(
-      this.ctx.oversight?.settings,
-      step,
-      this.checkpoints.has(checkpointKey(name, step.id)),
-    );
+  afterSuccess(
+    step: SkillStep | ActionStep,
+    name: string,
+    attempt: Attempt | { thrown: unknown },
+    opts: WorkOptions,
+  ): { review: boolean; signals: AnomalySignal[] } {
+    if ("thrown" in attempt || attempt.outcome.kind !== "done" || attempt.rejected) {
+      return { review: false, signals: [] };
+    }
+    const verdicts = verdictsOf(opts.verdicts?.());
+    return ownerAfterSuccess(this.ctx.oversight, opts.watched ?? step, {
+      name,
+      checkpoint: this.checkpoints.has(checkpointKey(name, step.id)),
+      output: attempt.outcome.output,
+      ...(verdicts.length > 0 ? { confer: verdicts } : {}),
+    });
   }
 
   /** The first attempt and its thrown error, if any: a review never hides the step's own error. */
@@ -2399,6 +2587,9 @@ class Executor {
     if (!oversight) throw new Error("unreachable");
     const { run, log } = this.ctx;
     const maxPerRun = oversight.settings?.maxPerRun ?? OVERSIGHT_DEFAULT_MAX_PER_RUN;
+    // R6: the owner reviews the native v4 step; a converted step as its stored v3 step, as before.
+    const watched = opts.watched ?? step;
+    const nodeType = opts.nodeType ?? step.kind;
     let current = await this.tryAttempt(step, name, frame, approval, undefined, opts);
     let input: unknown;
     let keyNode = name;
@@ -2409,10 +2600,16 @@ class Executor {
         : { kind: "attempt" as const, attempt: current, ...withDiagnosis(diagnosis) };
 
     // A failed attempt is reviewed when the step's failures are; one that succeeded (v0.13 M32)
-    // when it is a checkpoint under `checkpoints`, under `all`, or with `review: 'always'`.
+    // when it is a checkpoint under `checkpoints`, under `all`, or with `review: 'always'`; R6:
+    // or when the owner's watch sees a signal (a v4 read's or skill's confer runs first, so a
+    // "no" from it is one).
     for (let seq = 1; ; seq++) {
       const failing = failedAttempt(current);
-      if (!failing && !this.checksAfter(step, name, current)) break;
+      if (!failing && opts.afterRun && !("thrown" in current) && !current.rejected) {
+        if (current.outcome.kind === "done") await opts.afterRun(current.outcome.output);
+      }
+      const after = failing ? null : this.afterSuccess(step, name, current, opts);
+      if (after && !after.review) break;
       // DECISION: the executor counts interventions per step and per run (a replay counts the same
       // stored verdicts again); the port holds the cost limit, from the decisions' recorded cost.
       if (seq > OVERSIGHT_MAX_PER_STEP || this.interventions >= maxPerRun) break;
@@ -2445,26 +2642,22 @@ class Executor {
                 ? await log.start({
                     runId: run.id,
                     nodeId: name,
-                    nodeType: step.kind,
+                    nodeType,
                     ...(step.kind === "skill" ? { skillRef: step.skill } : {}),
                   })
                 : failed.stepRunId;
             return oversight.port.review({
               run,
-              step,
+              step: watched,
               nodeId: name,
               stepRunId,
               seq,
               cause,
               input,
               error,
-              errorKey: failing
-                ? runErrorKey(
-                    { tool: step.kind === "action" ? step.tool : null, kind: step.kind },
-                    error,
-                  )
-                : "",
+              errorKey: failing ? ownerErrorKey(watched, error) : "",
               ...(failing ? {} : { output }),
+              ...(after && after.signals.length > 0 ? { signals: after.signals } : {}),
               attempts: seq,
               ...(frame.automation ? { automation: frame.automation } : {}),
             });
@@ -2486,7 +2679,10 @@ class Executor {
         break;
       }
       if (verdict.action === "ask") {
-        const timeout = approval.timeout ?? this.ctx.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
+        // R6: an ask follows the step's approval (core `ownerStepApproval`): a v3 step's own, a v4
+        // step's first approver's deadline and its `onReject`.
+        const owned = ownerStepApproval(watched);
+        const timeout = owned.timeout ?? this.ctx.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
         const answer = await this.awaitResolution(
           `${name}:oversee:${seq}:ask`,
           verdict.inboxItemId,
@@ -2498,14 +2694,14 @@ class Executor {
           // DECISION: a person who declines (or doesn't answer) is the step's `onReject`:
           // `continue` skips the step and the run goes on; `stop` fails it with its own error
           // (a failure) or cancels the run (a checkpoint, as a rejected write does).
-          if (approval.onReject !== "continue") {
+          if (owned.onReject !== "continue") {
             if (!failing) return { kind: "cancelled", reason: "rejected", diagnosis };
             break;
           }
           await this.runner.do(`${name}:oversee:${seq}:skipped`, async () => {
             const stepRunId =
               "thrown" in failed
-                ? await log.start({ runId: run.id, nodeId: name, nodeType: step.kind })
+                ? await log.start({ runId: run.id, nodeId: name, nodeType })
                 : failed.stepRunId;
             await log.update(stepRunId, {
               status: "skipped",
@@ -2582,17 +2778,21 @@ function decideGroup(
   return null;
 }
 
-/** A skill step's output with only the fields its customization keeps (`sources` for alerts). */
-function kept(
-  output: unknown,
-  keep: readonly string[],
-  catalog: StepCatalog | undefined,
-  step: SkillStep,
-): unknown {
-  if (!isPlainObject(output)) return output;
-  const alerts = lookupSkill(step.skill, catalog ?? {})?.producesAlerts === true;
-  const fields = new Set([...keep, ...(alerts ? ["sources"] : [])]);
-  return Object.fromEntries(Object.entries(output).filter(([k]) => fields.has(k)));
+/**
+ * A skill step's output with only the fields of its customized output schema
+ * (`processes.customizeSkill`'s definition: the `keep` fields, and an alert skill's `sources`).
+ */
+function keptFields(output: unknown, schema: Record<string, unknown>): unknown {
+  if (!isPlainObject(output) || !isPlainObject(schema.properties)) return output;
+  const props = schema.properties;
+  return Object.fromEntries(Object.entries(output).filter(([k]) => Object.hasOwn(props, k)));
+}
+
+/** A native skill's request for help in its output (`needsHelp`), else null. */
+function needsHelpOf(output: unknown, native: boolean): NeedsHelp | null {
+  if (!native || !isPlainObject(output)) return null;
+  const need = NeedsHelp.safeParse(output.needsHelp);
+  return need.success ? need.data : null;
 }
 
 /**
