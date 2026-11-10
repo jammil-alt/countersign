@@ -1,5 +1,6 @@
-// The Feedback button (docs/plan.md §1.10): an item in the avatar menu (QA round 1: it floated
-// over the page and covered content, such as a bill's Total row). Choose it and the page dims
+// The Feedback button (docs/plan.md §1.10): floating at the bottom right of every screen, as in
+// Plenary Labs (2026-11-10, the owner; QA round 1 had moved it into the avatar menu). Choose it
+// and the page dims
 // ("Tap where the problem is"); a tap drops a pin and records what was under it, the path and the
 // viewport, and takes a picture of the page without this layer. A sheet shows the picture with the
 // pin, a comment box, "Leave the picture off" and Send. "No particular spot" skips the pin;
@@ -45,8 +46,8 @@ function elementAt(x: number, y: number): Element | null {
   return all.find((el) => !el.closest(`[${FEEDBACK_LAYER_ATTR}]`)) ?? null;
 }
 
-// The shell's avatar menu starts it: FeedbackButton (where it is on) registers how to start, and
-// the menu shows "Feedback" only while one is registered.
+// The shell's floating button starts it: FeedbackButton (where it is on) registers how to start,
+// and the shell shows the button only while one is registered.
 let starter: (() => void) | null = null;
 const listeners = new Set<() => void>();
 function setStarter(next: (() => void) | null) {
@@ -78,8 +79,8 @@ export function FeedbackButton({ surface }: { surface: "ops" | "portal" }) {
 
   const cancel = useCallback(() => setPhase({ kind: "idle" }), []);
 
-  // DECISION (QA round 1): no floating button; the avatar menu holds "Feedback", so nothing sits
-  // over a page's content on any screen width.
+  // DECISION (2026-11-10, the owner): the shell's floating button at the bottom right starts it,
+  // as in Plenary Labs; it replaced QA round 1's avatar-menu item.
   useEffect(() => {
     const start = () => setPhase({ kind: "picking" });
     setStarter(start);

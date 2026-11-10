@@ -794,6 +794,7 @@ export const fr: Messages = {
 
   // ── Feedback ──
   "feedback.button": "Signaler un problème dans l'app",
+  "feedback.short": "Avis",
   "feedback.tapWhere": "Touchez l'endroit du problème",
   "feedback.noSpot": "Pas d'endroit précis",
   "feedback.capturing": "Capture de l'image…",

@@ -2,11 +2,12 @@
 // AppHeader and Sidebar): a top bar with the logo, a context slot (the client's name in the portal;
 // "Back office" and the client switcher in the back office), the ⌘K search box, the portal's Ask
 // Sloan button, the Inbox or Escalations with its count, and the avatar menu (theme, language,
-// Feedback, sign out); a sidebar; the page. At phone width the sidebar folds behind a menu button
+// sign out); a sidebar; the page. At phone width the sidebar folds behind a menu button
 // and the top bar compacts; where a surface keeps its inbox out of the top bar (`inHeader: false`),
-// the menu button carries its count.
+// the menu button carries its count. Feedback floats at the bottom right.
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
+import { FEEDBACK_LAYER_ATTR } from "../feedback/capture";
 import { useFeedbackStarter } from "../feedback/Feedback";
 import type { MessageKey } from "../i18n/catalog";
 import { useI18n } from "../i18n/i18n";
@@ -144,6 +145,7 @@ export function AppShell({
         ) : null}
         <UserMenu surface={surface} extra={menu} />
       </header>
+      <FeedbackButton />
       <div className="ui-shell__body">
         {menuOpen ? (
           <button
@@ -177,12 +179,39 @@ const THEME_LABEL = {
   dark: "shell.theme.dark",
 } as const satisfies Record<Theme, MessageKey>;
 
+/**
+ * Feedback: floating at the bottom right of every screen, as in Plenary Labs (2026-11-10, the
+ * owner: back out of the avatar menu, where QA round 1 had put it). An icon and "Feedback"; the icon
+ * alone at phone width. Only where feedback is on for the session (always in the back office; per
+ * client in the portal). Its name says what it is for: problems with the app (Sloan takes other
+ * asks).
+ */
+function FeedbackButton() {
+  const { t } = useI18n();
+  const startFeedback = useFeedbackStarter();
+  if (!startFeedback) return null;
+  return (
+    <button
+      type="button"
+      data-testid="feedback-button"
+      aria-label={t("feedback.button")}
+      title={t("feedback.button")}
+      onClick={() => startFeedback()}
+      className="ui-feedback-fab"
+      // Part of the feedback layer: left out of the picture and never the pinned element.
+      {...{ [FEEDBACK_LAYER_ATTR]: "" }}
+    >
+      <Icon name="message" size={20} />
+      <span className="ui-feedback-fab__label">{t("feedback.short")}</span>
+    </button>
+  );
+}
+
 function UserMenu({ surface, extra }: { surface: "ops" | "portal"; extra?: ReactNode }) {
   const { t } = useI18n();
   const session = useSession();
   const { signOut } = useSessionState();
   const [theme, setTheme] = useTheme();
-  const startFeedback = useFeedbackStarter();
   // The operator is Mezonas staff, a person on the client's account: copper, like the lead. A
   // client user is the signed-in self: ink.
   const operator = session.operator;
@@ -254,20 +283,6 @@ function UserMenu({ surface, extra }: { surface: "ops" | "portal"; extra?: React
           </div>
           {/* The back office stays in English (plan §1.18): only the portal offers languages. */}
           {surface === "portal" ? <LanguageMenu /> : null}
-          {startFeedback ? (
-            <button
-              type="button"
-              data-testid="feedback-button"
-              onClick={() => {
-                setOpen(false);
-                startFeedback();
-              }}
-              className="ds-btn ds-btn--link mt-3 flex items-center gap-1.5"
-            >
-              <Icon name="message" size={16} />
-              {t("feedback.button")}
-            </button>
-          ) : null}
           <button
             type="button"
             data-testid="shell-sign-out"
