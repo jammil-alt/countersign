@@ -452,6 +452,13 @@ export const en = {
   "run.confer.second": "A second check: {verdict}",
   "run.confer.away": "{who} was away, so we didn't ask",
   "run.confer.on": "Checked: {step}",
+  // Skill model (2026-11-10), wave A: a write step on the client's timeline.
+  "run.write.saved": "Saved to your records",
+  "run.write.saves": "Saves to your records",
+  "run.write.changedIn": "Changed in {connector}",
+  "run.write.changesIn": "Changes {connector}",
+  "run.write.changedInTool": "Changed in your tool",
+  "run.write.changesInTool": "Changes your tool",
   "run.confer.verdict.agree": "agrees",
   "run.confer.verdict.disagree": "disagrees",
   "run.confer.verdict.unsure": "isn't sure",
