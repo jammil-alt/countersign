@@ -138,6 +138,7 @@ then one pass of its "To verify" list against the real service.
 | Access | Browser logins (`browser`) | Turn on Browser Run; then merge the `BROWSER` binding PR (`claude/browser-binding`, jammil-alt/countersign#55); the first real low-tier site; legal review of agent accounts. |
 | Finance | Plaid (`bankfeed`) | §1b above (K1–K3): keys, sandbox checks, production review and OAuth banks; price per bank; BAA (until then not offered to HIPAA clients). Several banks per client is built. |
 | Finance | Ramp (`ramp`) | Developer app, `RAMP_*`. |
+| Finance | BILL (`billcom`, plan §1.87) | A BILL developer key, sandbox first (`BILL_DEV_KEY`; `docs/operations.md`), a dedicated BILL user's login entered by the client admin, then `NOTES.md`'s "To verify"; production after BILL's review. Decide: which BILL role our user gets; whether BILL goes on the site's subprocessors page (it is a processor, as Plaid is); BILL's BAA (until then not offered to HIPAA clients). **Code still needed for payments:** `billcom.payment.create` is defined, off and refused until BILL's MFA-trusted session can be reached through the code service (`apps/mfa`). |
 | Finance | Stripe (billing) | Account and keys; the open prices (§4). |
 | CRM | HubSpot, Zoho CRM, Podio | A developer app each (`HUBSPOT_*`, `ZOHO_*`, `PODIO_*`). |
 | Google | Drive, Sheets | `drive.file` on the consent screen (with S4); `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER`. |

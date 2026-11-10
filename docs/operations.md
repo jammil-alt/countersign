@@ -552,6 +552,21 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   `<APP_ORIGIN>/api/connections/bankfeed/webhook/<client id>`. Until both secrets and
   `OAUTH_STATE_SECRET` are set, the feed shows "Not available yet". What to check in Plaid's
   sandbox first: `packages/connectors/src/bankfeed/NOTES.md`.
+- Needed by the BILL connector (`billcom`, plan §1.87): `BILL_DEV_KEY`, Mezonas' BILL developer
+  key, copied like the API keys when set; `BILL_ENV` is a var in `wrangler.jsonc` (`sandbox`
+  locally and on staging, `production` in production) and picks the host, so the key must be that
+  environment's. The owner's steps, sandbox first: (1) sign up at BILL's developer portal
+  (`developer.bill.com`) and ask for a sandbox developer key; BILL gives a sandbox organization with
+  it. (2) In that organization make a user for our agents with the smallest role that reads and
+  enters bills and vendors (not an administrator), and note the organization id (it starts with
+  `008`). (3) Add `BILL_DEV_KEY` as a secret of the GitHub `staging` environment and redeploy. (4)
+  Offer BILL to the Sandbox client, enter the user's login on its portal's Accounts page, and walk
+  "To verify" in `packages/connectors/src/billcom/NOTES.md`. (5) Production: BILL's review of the
+  app and a production key, as `BILL_DEV_KEY` in the `production` environment. Without the key BILL
+  can be offered and its login entered, but every tool refuses ("BILL isn't set up here yet"). A
+  client's own BILL login is never a Worker secret: the client admin enters it in the vault.
+  Payments stay off until a second-factor path exists (plan §1.87). BILL is a processor: a client
+  in HIPAA mode can't use it until `billcom` is in `BAA_PROCESSORS`.
 - Needed by the Slack connector (W4-C, plan §1.56), the same way: `SLACK_CLIENT_ID` and
   `SLACK_CLIENT_SECRET` (our Slack app's client id and secret, redirect URL
   `<APP_ORIGIN>/connections/slack/callback`; see "Slack" above). Until both and `OAUTH_STATE_SECRET` are set, Slack shows "Not available yet".
@@ -636,7 +651,7 @@ What to check against Stripe's docs and a test-mode account before the first rea
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
-| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta) |
+| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `BILL_DEV_KEY` (BILL, plan §1.87), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta) |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 
