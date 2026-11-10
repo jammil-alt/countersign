@@ -2817,7 +2817,7 @@ Portal (client)
 Shared         GET  /api/connections/qbo/callback         GET  /api/connections/gmail/callback
                POST /api/connections/qbo/webhook      (Intuit's webhook; plan §1.30)
 
-MCP (operators; plan §1.34; outside /api)
+MCP (operators: plan §1.34; clients' admins and users: plan §1.86; outside /api)
                POST /mcp                             (Streamable HTTP; bearer token from WorkOS AuthKit)
                GET  /.well-known/oauth-protected-resource[/mcp]   GET /.well-known/oauth-authorization-server
 ```
@@ -2895,7 +2895,9 @@ setting refuses the attachment is 409 `capture_off`. The portal's answers carry 
 prompt, cost or Twilio link.
 
 The MCP server's tools read through the back office's own route handlers, scoped to the clients the
-operator serves; its one write (`feedback_resolve`) takes a preview call and a confirm call.
+operator serves; its one write (`feedback_resolve`) takes a preview call and a confirm call. A
+client's admin or user signing in to the same `/mcp` gets read-only tools over the portal's route
+handlers instead, for one of their own clients per call (plan §1.86).
 All bodies validated with Zod. The route contract declares each route's roles; middleware sets
 `app.tenant_ids` (and `app.operator` for operator sessions) from the session (§4). No portal route
 returns an agent bundle, instructions, prompts, model output outside `summary`, or cost; a contract test

@@ -1,9 +1,10 @@
-// The back office's MCP server (docs/plan.md §1.34) against a real database as cs_worker, with a
-// fake AuthKit (a local key set): the protocol, sign-in (no token, bad, expired, wrong audience or
-// issuer, unknown user, not an operator), the operator's client scope, each tool's shape, the
-// screenshot as an image block, the untrusted-data fence, the two-step resolve and the audit trail.
+// The MCP server (docs/plan.md §1.34, §1.86) against a real database as cs_worker, with a fake
+// AuthKit (a local key set): the protocol, sign-in (no token, bad, expired, wrong audience or
+// issuer, unknown user, no membership), the operator's client scope, each tool's shape, the
+// screenshot as an image block, the untrusted-data fence, the two-step resolve, the audit trail,
+// and the client's own tools: the portal's reads, one client per call, nothing of the back office.
 
-import { appUser, auditEvent, feedback } from "@countersign/db";
+import { appUser, auditEvent, feedback, membership } from "@countersign/db";
 import { eq } from "drizzle-orm";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -273,7 +274,7 @@ describe.skipIf(!h)("MCP server", () => {
           resource: RESOURCE,
           authorization_servers: [ISSUER],
           bearer_methods_supported: ["header"],
-          resource_name: "Mezonas back office (staging)",
+          resource_name: "Mezonas (staging)",
         });
       }
     });
@@ -352,13 +353,23 @@ describe.skipIf(!h)("MCP server", () => {
       }
     });
 
-    it("refuses a WorkOS user who is not a Mezonas user, and a client user, with 403", async () => {
+    it("refuses a WorkOS user who is not a Mezonas user, or a member of no client, with 403", async () => {
       const stranger = await post(await token("user_nobody"), ping);
       expect(stranger.status).toBe(403);
-      expect(stranger.json.error.message).toContain("sign in to the Mezonas back office");
-      const client = await post(await token(WORKOS.adminA), ping);
-      expect(client.status).toBe(403);
-      expect(client.json.error.message).toContain("for operators");
+      expect(stranger.json.error.message).toContain("sign in to Mezonas in a browser once");
+      const [lonely] = await H.t.db
+        .insert(appUser)
+        .values({ email: "lonely@example.com", name: "No client", workosUserId: "user_lonely" })
+        .returning();
+      expect(lonely).toBeTruthy();
+      const none = await post(await token("user_lonely"), ping);
+      expect(none.status).toBe(403);
+      expect(none.json.error.message).toContain("not a member of any business");
+    });
+
+    it("lets a client's admin in, with the portal's tools", async () => {
+      const res = await post(await token(WORKOS.adminA), ping);
+      expect(res.status).toBe(200);
     });
 
     it("still says where to sign in while AuthKit is down, and answers 503 to a token", async () => {
@@ -863,7 +874,13 @@ describe.skipIf(!h)("MCP server", () => {
     await tool(opToken, "whoami");
     await tool(opToken, "client_get", { client: H.C.tenantId });
     expect(audit).toEqual([
-      expect.objectContaining({ tool: "whoami", outcome: "ok", userId: H.operator, args: {} }),
+      expect.objectContaining({
+        tool: "whoami",
+        audience: "ops",
+        outcome: "ok",
+        userId: H.operator,
+        args: {},
+      }),
       expect.objectContaining({
         tool: "client_get",
         outcome: "error",
@@ -886,6 +903,165 @@ describe.skipIf(!h)("MCP server", () => {
       actorRole: "operator",
       outcome: "ok",
       target: { id: H.A.tenantId },
+    });
+  });
+  // ── The client's tools (§1.86) ──────────────────────────────────────────────────────────────
+
+  describe("client tools", () => {
+    let adminA = "";
+    let twoClients = "";
+    let twoClientsUser = "";
+
+    beforeAll(async () => {
+      adminA = await token(WORKOS.adminA);
+      // Someone who belongs to two clients (A and B) as a client user.
+      const [u] = await H.t.db
+        .insert(appUser)
+        .values({ email: "both@example.com", name: "In two", workosUserId: "user_two_clients" })
+        .returning();
+      if (!u) throw new Error("no user");
+      twoClientsUser = u.id;
+      await H.t.db.insert(membership).values([
+        { tenantId: H.A.tenantId, userId: u.id, role: "client_user" },
+        { tenantId: H.B.tenantId, userId: u.id, role: "client_user" },
+      ]);
+      twoClients = await token("user_two_clients");
+    });
+
+    /** Every key at any depth: what a result must never carry (invariant 11). */
+    function keysOf(value: unknown, out = new Set<string>()): Set<string> {
+      if (Array.isArray(value)) for (const v of value) keysOf(v, out);
+      else if (value && typeof value === "object") {
+        for (const [k, v] of Object.entries(value)) {
+          out.add(k);
+          keysOf(v, out);
+        }
+      }
+      return out;
+    }
+    const NEVER = ["bundle", "instructions", "prompt", "systemPrompt", "costUsd", "cost"];
+
+    it("initializes as Mezonas, read only, with its own instructions", async () => {
+      const res = await rpc(adminA, "initialize", { protocolVersion: "2025-06-18" });
+      expect(res.json.result.serverInfo).toMatchObject({ name: "mezonas", title: "Mezonas" });
+      const text = res.json.result.instructions as string;
+      expect(text).toContain("staging");
+      expect(text).toContain("portal");
+      expect(text).toContain("<untrusted-data>");
+      expect(text).not.toContain("confirm_token");
+    });
+
+    it("lists only the portal's read tools", async () => {
+      const res = await rpc(adminA, "tools/list");
+      const tools = res.json.result.tools as {
+        name: string;
+        annotations: { readOnlyHint: boolean };
+      }[];
+      expect(tools.map((t) => t.name)).toEqual([
+        "whoami",
+        "overview",
+        "inbox_list",
+        "runs_list",
+        "run_get",
+        "connections_list",
+        "requests_list",
+        "records_search",
+        "record_get",
+        "documents_list",
+        "document_get",
+        "reports_list",
+        "report_get",
+      ]);
+      for (const t of tools) expect(t.annotations.readOnlyHint).toBe(true);
+      // The back office's tools are not there to call.
+      const ops = await rpc(adminA, "tools/call", { name: "clients_list", arguments: {} });
+      expect(ops.json.error.code).toBe(-32602);
+      const resolve = await rpc(adminA, "tools/call", {
+        name: "feedback_resolve",
+        arguments: { id: ids.feedbackA },
+      });
+      expect(resolve.json.error.code).toBe(-32602);
+    });
+
+    it("whoami: the person, the environment and only their own client", async () => {
+      const out = (await tool(adminA, "whoami")).data();
+      expect(out.user.id).toBe(H.A.admin);
+      expect(out.environment).toBe("staging");
+      expect(out.clients).toEqual([
+        { id: H.A.tenantId, name: expect.any(String), role: "client_admin" },
+      ]);
+    });
+
+    it("reads what the portal shows, with no bundles, prompts or cost", async () => {
+      for (const [name, args] of [
+        ["overview", {}],
+        ["inbox_list", {}],
+        ["runs_list", {}],
+        ["connections_list", {}],
+        ["requests_list", {}],
+        ["records_search", {}],
+        ["documents_list", {}],
+        ["reports_list", {}],
+      ] as const) {
+        const out = await tool(adminA, name, args);
+        expect(out.isError, `${name}: ${out.text}`).toBe(false);
+        const keys = keysOf(out.data());
+        for (const k of NEVER) expect(keys.has(k), `${name} carries ${k}`).toBe(false);
+      }
+      const conns = (await tool(adminA, "connections_list")).data();
+      expect(conns.connections.length).toBeGreaterThan(0);
+    });
+
+    it("never shows a test run", async () => {
+      const list = (await tool(adminA, "runs_list")).data();
+      expect(list.runs.map((r: { id: string }) => r.id)).not.toContain(ids.runId);
+      const one = await tool(adminA, "run_get", { id: ids.runId });
+      expect(one.isError).toBe(true);
+      expect(one.text).toMatch(/^not_found/);
+    });
+
+    it("keeps to the person's own client: another client is not found", async () => {
+      const other = await tool(adminA, "overview", { client: H.C.tenantId });
+      expect(other.isError).toBe(true);
+      expect(other.text).toMatch(/^not_found/);
+    });
+
+    it("asks someone in two clients to choose, then reads the one they name", async () => {
+      const unnamed = await tool(twoClients, "overview");
+      expect(unnamed.isError).toBe(true);
+      expect(unnamed.text).toMatch(/^choose_client/);
+      const who = (await tool(twoClients, "whoami")).data();
+      expect(who.clients.map((c: { id: string }) => c.id).sort()).toEqual(
+        [H.A.tenantId, H.B.tenantId].sort(),
+      );
+      const b = (await tool(twoClients, "overview", { client: H.B.tenantId })).data();
+      expect(b.client.id).toBe(H.B.tenantId);
+      const c = await tool(twoClients, "overview", { client: H.C.tenantId });
+      expect(c.text).toMatch(/^not_found/);
+    });
+
+    it("records each call under the person's name and client, in the log and the audit table", async () => {
+      audit.length = 0;
+      await tool(twoClients, "overview", { client: H.B.tenantId });
+      expect(audit).toEqual([
+        expect.objectContaining({
+          tool: "overview",
+          audience: "client",
+          outcome: "ok",
+          userId: twoClientsUser,
+          target: { client: H.B.tenantId },
+        }),
+      ]);
+      const rows = await H.t.db
+        .select()
+        .from(auditEvent)
+        .where(eq(auditEvent.action, "mcp GET /api/overview"));
+      expect(rows.at(-1)).toMatchObject({
+        tenantId: H.B.tenantId,
+        actorUserId: twoClientsUser,
+        actorRole: "client_user",
+        outcome: "ok",
+      });
     });
   });
 });
