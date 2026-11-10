@@ -83,12 +83,27 @@ export function accountAgentProblems(input: {
     }
   };
   /** v0.12 W2-B: an automation's steps count as the step's own that pins it. */
+  const opening = new Set<string>();
   const checkPinned = (ref: string, at: { id: string; field: string }, slug: string) => {
     const automation = input.automations?.[ref];
-    if (!automation) return;
+    // A v4 automation can pin another through a process step; one that comes back round is
+    // already being checked.
+    if (!automation || opening.has(ref)) return;
+    opening.add(ref);
+    try {
+      checkPinnedSteps(automation, at, slug);
+    } finally {
+      opening.delete(ref);
+    }
+  };
+  const checkPinnedSteps = (
+    automation: AnyAutomationDefinition,
+    at: { id: string; field: string },
+    slug: string,
+  ) => {
     // Wave 3b: a v4 automation (schemaVersion 2) holds process steps, checked as a process's are.
     if (automation.schemaVersion === 2) {
-      walkProcessSteps(automation, ({ step: inner }) => checkProcessStep(inner, slug));
+      walkProcessSteps(automation, ({ step: inner }) => checkProcessStep(inner, slug, at));
       return;
     }
     walkSteps({ steps: automation.steps }, ({ step: inner }) => check(inner, at, slug));
@@ -96,19 +111,26 @@ export function accountAgentProblems(input: {
   /**
    * Wave 3b: a v4 process step's tools: a read's or a write's tool, a skill's tools, and a
    * `process` step's pinned automation, opened as `use_automation` is. A conversation messages
-   * someone outside the client's team, which the account agent never does.
+   * someone outside the client's team, which the account agent never does. Inside a pinned
+   * automation, `at` is the pinning step: problems are reported there, as for a v3 automation.
    */
-  const checkProcessStep = (step: ProcessStep, slug: string) => {
-    if (step.kind === "read" || step.kind === "write") refuse(step.tool, "tool", step.id, slug);
+  const checkProcessStep = (
+    step: ProcessStep,
+    slug: string,
+    at?: { id: string; field: string },
+  ) => {
+    const id = at?.id ?? step.id;
+    if (step.kind === "read" || step.kind === "write")
+      refuse(step.tool, at?.field ?? "tool", id, slug);
     else if (step.kind === "skill") {
       const skill = input.skills[step.skill] ?? input.skills[parseSkillRef(step.skill).id];
-      for (const id of skill ? skillTools(skill) : []) refuse(id, "skill", step.id, slug);
+      for (const t of skill ? skillTools(skill) : []) refuse(t, at?.field ?? "skill", id, slug);
     } else if (step.kind === "process") {
-      checkPinned(step.process, { id: step.id, field: "process" }, slug);
+      checkPinned(step.process, at ?? { id: step.id, field: "process" }, slug);
     } else if (step.kind === "conversation") {
       errors.push({
-        stepId: step.id,
-        field: "channel",
+        stepId: id,
+        field: at?.field ?? "channel",
         code: "tool_not_allowed",
         message:
           "the account agent only reads what the portal shows: a conversation messages someone outside",
