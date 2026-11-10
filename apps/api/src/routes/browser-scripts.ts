@@ -7,7 +7,6 @@
 
 import { BROWSE_SCRIPT_DRAFT_SUBJECT, BROWSER_CONNECTOR_ID } from "@countersign/connectors";
 import {
-  BrowserConnectionConfig,
   type EditBrowserScript,
   routes,
   ScriptRecording,
@@ -18,7 +17,9 @@ import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import type { z } from "zod";
 import {
+  loginSite,
   oneView,
+  portalView,
   recordAction,
   type ScriptSide,
   saveVersion,
@@ -29,7 +30,13 @@ import {
   testScript,
   versionRow,
 } from "../browser/scripts";
-import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
+import { type AppEnv, ensureClient, HttpError, mount, mountLong, notFound, txOnly } from "../http";
+
+/** A script as the portal sees it. */
+async function forPortal<T extends { script: Parameters<typeof portalView>[0] }>(out: Promise<T>) {
+  const answer = await out;
+  return { ...answer, script: portalView(answer.script) };
+}
 
 /** The pages of a script-draft offer (a browsing path that worked twice) as open steps. */
 async function offerSteps(
@@ -72,21 +79,21 @@ async function startScript(
   const [conn] = await tx.select().from(connection).where(eq(connection.id, body.connectionId));
   if (!conn || conn.connector !== BROWSER_CONNECTOR_ID) throw notFound("website login");
   ensureClient({ tenantIds }, conn.tenantId);
-  const config = BrowserConnectionConfig.safeParse(conn.config);
-  if (!config.success) throw new HttpError(409, "invalid_state", "this login is not set up");
+  // A site our code may not sign in to on its own (blocked, a person signs in) records nothing.
+  const { config } = await loginSite(tx, conn);
   const [taken] = await tx
     .select({ id: browserScript.id })
     .from(browserScript)
     .where(
       and(
         eq(browserScript.tenantId, conn.tenantId),
-        eq(browserScript.site, config.data.site),
+        eq(browserScript.site, config.site),
         eq(browserScript.slug, body.slug),
       ),
     );
   if (taken) throw new HttpError(409, "conflict", `a script called ${body.slug} already exists`);
   const prefill = body.fromOffer
-    ? await offerSteps(tx, conn.tenantId, body.fromOffer, config.data.site)
+    ? await offerSteps(tx, conn.tenantId, body.fromOffer, config.site)
     : { steps: [], outputs: [] };
   const recording = ScriptRecording.parse(prefill);
   const [row] = await tx
@@ -94,7 +101,7 @@ async function startScript(
     .values({
       tenantId: conn.tenantId,
       connectionId: conn.id,
-      site: config.data.site,
+      site: config.site,
       slug: body.slug,
       name: body.name,
       recording,
@@ -150,13 +157,15 @@ export function browserScriptRoutes(app: Hono<AppEnv>): void {
     startScript(tx, tenantIds, body, { userId: session.user.id, side: "operator" }),
   );
 
-  mount(app, routes.opsBrowserScriptAction, async ({ c, tx, tenantIds, params, body, services }) =>
+  // A browser between two short transactions: never inside the request's (../browser/scripts.ts).
+  mountLong(app, routes.opsBrowserScriptAction, async (ctx) =>
     recordAction(
-      services,
-      tx,
-      await scriptRow(tx, tenantIds, params.id),
-      body.action,
-      originOf(c.req.url),
+      ctx.services,
+      txOnly(ctx.inTx),
+      ctx.tenantIds,
+      ctx.params.id,
+      ctx.body.action,
+      originOf(ctx.c.req.url),
     ),
   );
 
@@ -164,15 +173,22 @@ export function browserScriptRoutes(app: Hono<AppEnv>): void {
     editScript(tx, tenantIds, params.id, body),
   );
 
-  mount(app, routes.opsSaveBrowserScript, async ({ tx, tenantIds, params, session, services }) =>
-    saveVersion(services, tx, await scriptRow(tx, tenantIds, params.id), {
+  mount(app, routes.opsSaveBrowserScript, async ({ tx, tenantIds, params, session }) =>
+    saveVersion(tx, await scriptRow(tx, tenantIds, params.id), {
       userId: session.user.id,
       side: "operator",
     }),
   );
 
-  mount(app, routes.opsTestBrowserScript, async ({ c, tx, tenantIds, params, body, services }) =>
-    testScript(services, tx, await scriptRow(tx, tenantIds, params.id), body, originOf(c.req.url)),
+  mountLong(app, routes.opsTestBrowserScript, async (ctx) =>
+    testScript(
+      ctx.services,
+      txOnly(ctx.inTx),
+      ctx.tenantIds,
+      ctx.params.id,
+      ctx.body,
+      originOf(ctx.c.req.url),
+    ),
   );
 
   mount(app, routes.opsPublishBrowserScript, async ({ tx, tenantIds, params, session }) => {
@@ -204,33 +220,38 @@ export function browserScriptRoutes(app: Hono<AppEnv>): void {
   });
 
   // ── The portal: the client admin records; we publish ──
-  mount(app, routes.portalBrowserScripts, async ({ tx, tenantIds }) => scriptList(tx, tenantIds));
+  mount(app, routes.portalBrowserScripts, async ({ tx, tenantIds }) => {
+    const list = await scriptList(tx, tenantIds);
+    return { ...list, scripts: list.scripts.map(portalView) };
+  });
 
   mount(app, routes.portalStartBrowserScript, async ({ tx, tenantIds, body, session }) =>
-    startScript(tx, tenantIds, body, { userId: session.user.id, side: "client" }),
+    forPortal(startScript(tx, tenantIds, body, { userId: session.user.id, side: "client" })),
   );
 
-  mount(
-    app,
-    routes.portalBrowserScriptAction,
-    async ({ c, tx, tenantIds, params, body, services }) =>
+  mountLong(app, routes.portalBrowserScriptAction, async (ctx) =>
+    forPortal(
       recordAction(
-        services,
-        tx,
-        await scriptRow(tx, tenantIds, params.id),
-        body.action,
-        originOf(c.req.url),
+        ctx.services,
+        txOnly(ctx.inTx),
+        ctx.tenantIds,
+        ctx.params.id,
+        ctx.body.action,
+        originOf(ctx.c.req.url),
       ),
+    ),
   );
 
   mount(app, routes.portalEditBrowserScript, async ({ tx, tenantIds, params, body }) =>
-    editScript(tx, tenantIds, params.id, body),
+    forPortal(editScript(tx, tenantIds, params.id, body)),
   );
 
-  mount(app, routes.portalSaveBrowserScript, async ({ tx, tenantIds, params, session, services }) =>
-    saveVersion(services, tx, await scriptRow(tx, tenantIds, params.id), {
-      userId: session.user.id,
-      side: "client",
-    }),
+  mount(app, routes.portalSaveBrowserScript, async ({ tx, tenantIds, params, session }) =>
+    forPortal(
+      saveVersion(tx, await scriptRow(tx, tenantIds, params.id), {
+        userId: session.user.id,
+        side: "client",
+      }),
+    ),
   );
 }

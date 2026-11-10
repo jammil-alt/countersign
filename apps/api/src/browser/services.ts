@@ -15,6 +15,7 @@ import type {
 import {
   BrowserConnectionState,
   BrowserScriptDefinition,
+  emptyBrowserState,
   FINGERPRINT_KEY,
   findingFingerprint,
   type JsonObject,
@@ -32,6 +33,7 @@ import {
 import { storeDocument } from "@countersign/documents";
 import { emit } from "@countersign/senses";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { z } from "zod";
 import type { CodesClient } from "../codes/client";
 import { pinnedSite } from "./sites";
 
@@ -183,6 +185,70 @@ export function dbBrowserServices(db: Db, conn: ConnectionRef, deps: BrowserDeps
     script: publishedScriptFor(db, conn),
   };
 }
+
+// ── Recording and testing scripts: a sign-in allowance of their own ───────────────────────────────
+
+/**
+ * Sign-ins a day for recording and testing scripts on one connection, counted apart from the
+ * agents' (the connection's caps), so a recording never uses up what the agents may spend.
+ */
+// DECISION: 30 a day, apart from the agents' allowance (docs/plan.md §1.86 "Scripts (wave 4)").
+// A recording can't hold one browser across requests (a Worker keeps nothing between them; the
+// held session lives inside one run's step), so each recorded action signs in again unless the
+// site keeps its session (low tier). The failure count and the stop stay the connection's own: it
+// is the same account, and two failed sign-ins in a row stop it for agents and recordings alike.
+export const RECORDER_SIGN_INS_PER_DAY = 30;
+
+const RecorderCount = z.object({ day: z.string(), signIns: z.number().int().min(0) });
+
+/**
+ * dbBrowserServices for a recording or a test: the day's sign-ins are counted under the
+ * connection's `recorderState`, never its `browserState`; failures and the stop are shared.
+ */
+export function recorderBrowserServices(
+  db: Db,
+  conn: ConnectionRef,
+  deps: BrowserDeps,
+): BrowserServices {
+  const base = dbBrowserServices(db, conn, deps);
+  const tenantId = conn.tenantId;
+  const mine = and(eq(connection.id, conn.id), eq(connection.tenantId, tenantId));
+  return {
+    ...base,
+    state: {
+      get: () =>
+        withTenant(db, tenantId, async (tx) => {
+          const [row] = await tx.select({ config: connection.config }).from(connection).where(mine);
+          const config = (row?.config ?? {}) as Record<string, unknown>;
+          const agents = BrowserConnectionState.safeParse(config.browserState);
+          const own = RecorderCount.safeParse(config.recorderState);
+          return {
+            day: own.success ? own.data.day : "",
+            signIns: own.success ? own.data.signIns : 0,
+            failures: agents.success ? agents.data.failures : 0,
+            stopped: agents.success ? agents.data.stopped : null,
+          };
+        }),
+      put: (state) =>
+        withTenant(db, tenantId, async (tx) => {
+          const count = JSON.stringify({ day: state.day, signIns: state.signIns });
+          const shared = JSON.stringify({ failures: state.failures, stopped: state.stopped });
+          const empty = JSON.stringify(emptyBrowserState(state.day));
+          await tx
+            .update(connection)
+            .set({
+              config: sql`${connection.config} || jsonb_build_object(
+                'recorderState', ${count}::jsonb,
+                'browserState', coalesce(${connection.config}->'browserState', ${empty}::jsonb) || ${shared}::jsonb
+              )`,
+            })
+            .where(mine);
+        }),
+      stop: base.state.stop,
+    },
+  };
+}
+
 // ── The tools' port: a client's published script, inside its own transaction ──────────────────────
 
 /**
