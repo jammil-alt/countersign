@@ -291,6 +291,27 @@ export const de: Messages = {
   "inbox.undo": "Rückgängig",
   "inbox.undoWindow":
     "Freigegeben. Wir nehmen die Änderung in einer Minute vor; Sie können sie noch rückgängig machen.",
+  // R5: an answer after the run went ahead, and the undo a late no is offered (§1.86)
+  "inbox.late.answeredYes": "Um {time} mit Ja beantwortet, nachdem wir schon weitergemacht hatten.",
+  "inbox.late.answeredNo":
+    "Um {time} mit Nein beantwortet, nachdem wir schon weitergemacht hatten.",
+  "inbox.late.yes": "Es ist nichts mehr zu tun.",
+  "inbox.late.offer":
+    "Wir können die Änderung zurücknehmen, wenn sie seitdem niemand geändert hat.",
+  "inbox.late.undo": "Diese Änderung zurücknehmen",
+  "inbox.late.done": "Zurückgenommen. Es ist wieder wie vorher.",
+  "inbox.late.failed":
+    "Wir konnten die Änderung nicht zurücknehmen. Ihre Ansprechperson bei Mezonas kümmert sich darum.",
+  "inbox.late.none":
+    "Das lässt sich nicht zurücknehmen. Gesendete Nachrichten lassen sich nicht zurückholen, und diese Änderung auch nicht.",
+  "inbox.late.nothing":
+    "In Ihren Tools hat sich nichts geändert, es gibt also nichts zurückzunehmen.",
+  "inbox.late.refused.changed_since":
+    "Jemand hat es nach uns geändert, deshalb haben wir es so gelassen.",
+  "inbox.late.refused.record_gone": "Der Datensatz ist nicht mehr da.",
+  "inbox.late.refused.already_undone": "Es ist schon wieder wie vorher.",
+  "inbox.late.refused.other":
+    "Wir konnten es nicht zurücknehmen. Ihre Ansprechperson bei Mezonas kümmert sich darum.",
   "inbox.reject": "Ablehnen",
   "inbox.sign": "Freigeben", // fluent review
   "inbox.findingSteps": "Was zu tun ist",
@@ -457,6 +478,33 @@ export const de: Messages = {
   "run.approvals": "Freigaben",
   "run.noApprovals": "In diesem Ablauf keine Freigaben.",
   "run.openInbox": "Posteingang öffnen",
+  // R8: what a step's checks did, on the run's timeline (§1.86)
+  "run.confer.person": "Mit {who} abgestimmt: {verdict}",
+  "run.confer.second": "Eine zweite Prüfung: {verdict}",
+  "run.confer.away": "{who} war abwesend, deshalb haben wir nicht gefragt",
+  "run.confer.on": "Geprüft: {step}",
+  "run.confer.verdict.agree": "stimmt zu",
+  "run.confer.verdict.disagree": "stimmt nicht zu",
+  "run.confer.verdict.unsure": "ist sich nicht sicher",
+  "run.confer.verdict.no_answer": "keine Antwort",
+  "run.approval.mode.in_turn": "Nacheinander gefragt, der Reihe nach",
+  "run.approval.mode.any": "Alle zugleich gefragt; die erste Antwort entscheidet",
+  "run.approval.mode.all": "Alle zugleich gefragt; alle müssen freigeben",
+  "run.approval.approver.waiting": "{who}: wartet",
+  "run.approval.approver.approved": "{who}: freigegeben",
+  "run.approval.approver.rejected": "{who}: abgelehnt",
+  "run.approval.approver.no_answer": "{who}: keine Antwort rechtzeitig",
+  "run.noAnswer.proceeded": "Weitergemacht: niemand hat rechtzeitig geantwortet",
+  "run.noAnswer.stopped": "Angehalten: niemand hat rechtzeitig geantwortet",
+  "run.urgent.waiting": "Dringend: wartet bis {time} auf „Gesehen“",
+  "run.urgent.waitingNoTime": "Dringend: wartet auf „Gesehen“",
+  "run.urgent.seen": "Dringend: um {time} gesehen",
+  "run.urgent.notSeen": "Dringend: nicht rechtzeitig gesehen",
+  "run.who.client_admin": "Ihr Admin",
+  "run.who.client_user": "Ihr Team",
+  "run.who.lead": "Ihre Ansprechperson bei Mezonas",
+  "run.who.operator": "Mezonas",
+  "run.who.someone": "jemand aus Ihrem Team",
   "action.status.proposed": "Wartet auf Freigabe",
   "action.status.approved": "Freigegeben",
   "action.status.executing": "Wird ausgeführt",

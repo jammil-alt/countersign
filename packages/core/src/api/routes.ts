@@ -67,6 +67,8 @@ import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
+// R8: the timeline's check fields
+import { TimelineChecks } from "./run-checks";
 import { runControlRoutes } from "./run-controls";
 // UI cleanup (stream A)
 import { RunWait } from "./run-state";
@@ -506,6 +508,10 @@ export const TimelineStep = z.object({
   oversight: z.array(z.string()).optional(),
   // P-4: the client's side of a conversation step; never a prompt, a model or a cost (§1.66).
   conversation: ConversePortalView.optional(),
+  // R8 (§1.86): what the step's checks did: a confer (its own step, never a model, prompt or
+  // cost), the approvers and the mode, a step that went on or stopped with no answer, an urgent
+  // notice's "Seen". The screen words them in the client's language.
+  ...TimelineChecks.shape,
 });
 
 export const PortalInboxItem = z.object({

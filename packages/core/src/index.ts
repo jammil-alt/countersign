@@ -65,6 +65,8 @@ export * from "./api/reach";
 export * from "./api/records";
 export * from "./api/requests";
 export * from "./api/routes";
+// R8: what a run's rows say about a step's checks (docs/plan.md §1.86).
+export * from "./api/run-checks";
 // v0.12 W1-E
 export * from "./api/run-controls";
 // UI cleanup (stream A)

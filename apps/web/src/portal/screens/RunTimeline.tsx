@@ -20,6 +20,7 @@ import { SourceLinks } from "../../records/SourceLinks";
 // P-6
 import { ConversationControls } from "../../runs/ConversationControls";
 import { shortTime, stepStatusLabel } from "../../runs/format";
+import { conferTitle, StepChecks } from "../../runs/StepChecks";
 import { subjectTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { ActivityRow } from "../../ui/activity";
@@ -136,12 +137,18 @@ function RunPage({ data, onChanged }: { data: RunData; onChanged: () => void }) 
 
   const steps: StepItem[] = data.steps.map((s) => ({
     key: s.id,
-    state: stepState(s.status),
+    // R8: a confer is a step of its own: a person's answer in copper (§1.86).
+    state: s.confer ? (s.confer.reviewer === "person" ? "person" : "done") : stepState(s.status),
     time: s.startedAt ? time(s.startedAt) : "",
-    title: s.label,
-    detail: s.summary ?? stepStatusLabel(s.status, i18n),
+    title: s.confer ? conferTitle(i18n, s.confer) : s.label,
+    detail: s.confer
+      ? t("run.confer.on", { step: s.label })
+      : (s.summary ?? stepStatusLabel(s.status, i18n)),
+    testId: `portal-run-step-${s.id}`,
     children: (
       <>
+        {/* R8: approvers and the mode, no-answer outcomes, an urgent notice's Seen. */}
+        <StepChecks checks={s} testId="portal-run-step-checks" />
         {s.oversight && s.oversight.length > 0 ? (
           <ul className="text-sm text-ink-muted" data-testid="portal-run-step-oversight">
             {s.oversight.map((line) => (

@@ -6,6 +6,7 @@ import {
   type AgentBundleInput,
   type BuilderCatalog,
   cloneJson,
+  toProcessBundle,
 } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -197,6 +198,79 @@ describe("merge view: template update", () => {
         new Reply(409, { error: { code: "no_update", message: "material-costs is up to date" } }),
     });
     expect(await screen.findByText(/up to date/)).toBeTruthy();
+  });
+});
+
+// R8 (ARCHITECTURE §10.14 "v3 compatibility"): the client's version saved as v4, the template's
+// update still v3. Every side reads as v4 in the browser; checks, deadlines and triggers read in
+// words, and the conflict sits on the v4 deadline's path.
+describe("merge view: v4 process and a v3 template update", () => {
+  const lookup = { wrappedTool: () => null, sideEffect: () => null };
+  const CLIENT_V4 = (() => {
+    const b = toProcessBundle(CLIENT, lookup);
+    const p = b.workflows[0]?.workflow;
+    if (p?.schemaVersion !== 4) throw new Error("fixture");
+    p.triggers.push({ id: "t2", on: { type: "manual", input: { type: "object" } } });
+    const ask = p.steps[0];
+    if (ask?.kind !== "person") throw new Error("fixture");
+    ask.deadline = { ...ask.deadline, after: "2 days", hours: "business" };
+    const tell = p.steps[1];
+    if (tell) {
+      tell.checks = {
+        approval: {
+          required: "required",
+          mode: "any",
+          approvers: [{ who: "client_admin" }, { who: "lead" }],
+          ifNoAnswer: "stop",
+          onReject: "stop",
+        },
+      };
+    }
+    return b;
+  })();
+  const TEMPLATE_V3 = edit((b) => {
+    const ask = b.workflows[0]?.workflow.steps[0];
+    if (ask?.kind === "person") ask.timeout = "3 days";
+  });
+
+  it("merges into one v4 process, words the conflict and sends its resolution", async () => {
+    const sent: unknown[] = [];
+    setup("update", {
+      [`GET /api/ops/agents/${ID}/update-preview`]: () => ({
+        template: TEMPLATE,
+        base: detail(vid(1), TEMPLATE_ID, 1, BASE),
+        ours: detail(vid(11), ID, 2, CLIENT_V4 as unknown as AgentBundle),
+        theirs: detail(vid(2), TEMPLATE_ID, 2, TEMPLATE_V3),
+        conflicts: [],
+        labels: { "step:ask": "Ask Jammil", "step:tell": "Tell the team" },
+      }),
+      [`POST /api/ops/agents/${ID}/update`]: ({ init }) => {
+        sent.push(JSON.parse(String(init.body)));
+        return { version: { ...detail(vid(12), ID, 3, BASE), status: "draft", bundle: undefined } };
+      },
+    });
+    await screen.findByTestId("merge-view");
+    // The process's second trigger reads as "or", with the client's mark.
+    expect(screen.getByTestId("step-t2").textContent).toContain("Started by hand");
+    expect(screen.getByTestId("step-t2-marks").textContent).toContain("This client: changed");
+    // The step's approval reads in words.
+    expect(screen.getByTestId("step-tell-checks").textContent).toBe(
+      "Approval: client admin, the client's lead, any one of them · if nobody answers, it stops",
+    );
+    // The deadline both sides changed is the conflict, in words.
+    const row = screen.getByTestId("merge-conflict-0");
+    expect(row.textContent).toContain("Step “Ask Jammil”: deadline: time to answer");
+    expect(row.textContent).toContain("2 days");
+    expect(row.textContent).toContain("3 days");
+    await userEvent.click(screen.getByTestId("merge-conflict-0-theirs"));
+    expect(screen.getByTestId("step-ask").textContent).toContain("3 days in business hours");
+    const save = screen.getByTestId("merge-save-button") as HTMLButtonElement;
+    await waitFor(() => expect(save.disabled).toBe(false));
+    await userEvent.click(save);
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toEqual({
+      resolutions: [{ path: "step:ask#/deadline/after", choice: "theirs" }],
+    });
   });
 });
 

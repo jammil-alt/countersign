@@ -253,3 +253,117 @@ describe("portal run timeline", () => {
     expect(screen.queryByTestId("portal-run-approve")).toBeNull();
   });
 });
+
+// R8 (ARCHITECTURE §10.14 "Checks", "Deadlines"): a step's checks on the client's timeline.
+describe("portal run timeline: checks", () => {
+  const S = (n: number) => `00000000-0000-4000-8000-0000000f6${String(n).padStart(3, "0")}`;
+  const step = (n: number, over: Record<string, unknown>) => ({
+    id: S(n),
+    label: "Read the invoice",
+    status: "succeeded",
+    summary: null,
+    sources: [],
+    startedAt: "2026-11-10T10:00:00.000Z",
+    finishedAt: "2026-11-10T10:01:00.000Z",
+    ...over,
+  });
+  const CHECKED = {
+    ...LEAKY_TIMELINE,
+    steps: [
+      step(1, {
+        label: "Read the invoice",
+        confer: {
+          reviewer: "ai",
+          who: null,
+          verdict: "agree",
+          note: null,
+          name: null,
+        },
+      }),
+      step(2, {
+        label: "Read the invoice",
+        confer: {
+          reviewer: "person",
+          who: CLIENT_SESSION.user.id,
+          name: "Dana",
+          verdict: "disagree",
+          note: "The freight line is missing",
+        },
+      }),
+      step(3, {
+        label: "Updated the bill",
+        noAnswer: "proceeded",
+        approval: {
+          mode: "in_turn",
+          approvers: [
+            {
+              itemId: S(11),
+              role: "client_admin",
+              userId: null,
+              name: null,
+              state: "no_answer",
+              at: null,
+            },
+            {
+              itemId: S(12),
+              role: null,
+              userId: CLIENT_SESSION.user.id,
+              name: "Dana",
+              state: "no_answer",
+              at: null,
+            },
+          ],
+        },
+      }),
+      step(4, {
+        label: "Told the team",
+        urgent: { dueAt: "2026-11-10T11:00:00.000Z", state: "waiting", seenAt: null },
+      }),
+      step(5, { label: "Asked for the PO", status: "failed", noAnswer: "stopped" }),
+    ],
+  };
+
+  it("shows confers as their own steps, approvers in their mode, and no-answer outcomes", async () => {
+    renderTimeline(CHECKED);
+    const ai = await screen.findByTestId(`portal-run-step-${S(1)}`);
+    expect(ai).toHaveTextContent("A second check: agrees");
+    expect(ai).toHaveTextContent("Checked: Read the invoice");
+    const dana = screen.getByTestId(`portal-run-step-${S(2)}`);
+    expect(dana).toHaveTextContent("Checked with Dana: disagrees");
+    expect(dana).toHaveTextContent("“The freight line is missing”");
+    // A person's answer is a person's step.
+    expect(dana).toHaveAttribute("data-state", "person");
+
+    const write = screen.getByTestId(`portal-run-step-${S(3)}`);
+    const approval = within(write).getByTestId("portal-run-step-checks-approval");
+    expect(approval).toHaveTextContent("Asked one at a time, in order");
+    expect(
+      within(approval)
+        .getAllByTestId("portal-run-step-checks-approver")
+        .map((a) => a.textContent),
+    ).toEqual(["your admin: no answer in time", "Dana: no answer in time"]);
+    expect(within(write).getByTestId("portal-run-step-checks-no-answer")).toHaveTextContent(
+      "Went ahead: nobody answered in time",
+    );
+    expect(
+      screen.getByTestId(`portal-run-step-${S(4)}`).querySelector("[data-state=waiting]"),
+    ).toHaveTextContent(/^Urgent: waiting for Seen until /);
+    expect(
+      within(screen.getByTestId(`portal-run-step-${S(5)}`)).getByTestId(
+        "portal-run-step-checks-no-answer",
+      ),
+    ).toHaveTextContent("Stopped: nobody answered in time");
+  });
+
+  it("reads in the client's language", async () => {
+    renderTimeline(CHECKED, {
+      "GET /api/session": () => ({
+        ...CLIENT_SESSION,
+        language: { effective: "es", user: "es", client: null },
+      }),
+    });
+    expect(await screen.findByTestId(`portal-run-step-${S(2)}`)).toHaveTextContent(
+      "Consultado con Dana: no está de acuerdo",
+    );
+  });
+});
