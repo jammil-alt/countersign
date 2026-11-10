@@ -359,6 +359,22 @@ export function pathsAt(
   return out;
 }
 
+/** The JSON type of a literal value (`integer` for a whole number). */
+export function jsonTypeOf(v: unknown): string {
+  if (v === null) return "null";
+  if (Array.isArray(v)) return "array";
+  if (typeof v === "number") return Number.isInteger(v) ? "integer" : "number";
+  return typeof v;
+}
+
+/** Whether a value of the `actual` types fits a field of the `accepted` (unknown fits anything). */
+export function typesCompatible(accepted: string[], actual: string[]): boolean {
+  if (accepted.length === 0 || actual.length === 0) return true;
+  return actual.some(
+    (t) => accepted.includes(t) || (t === "integer" && accepted.includes("number")),
+  );
+}
+
 /** JSON type names a value or schema can take, for compatibility checks. */
 export function schemaTypes(schema: JsonSchema | undefined): string[] {
   if (!schema) return [];

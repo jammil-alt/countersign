@@ -9,7 +9,6 @@ import { validateClientView } from "../kpi/validate";
 import { levelFor } from "../permissions/decide";
 // v0.14 W4-B
 import { type EntityGrant, entityOffBy, publishEntity } from "../permissions/entities";
-import { jsonTypeOf, typesCompatible } from "../process/customize";
 import { compileRule, RuleCompileError } from "../rules/compile";
 import {
   type AgentBundle,
@@ -37,6 +36,7 @@ import { collectRefs, hasTemplate, singleRef } from "../template/template";
 import {
   automationEndScope,
   automationScopes,
+  jsonTypeOf,
   lookupSkill,
   outputSchemaOf,
   type PathType,
@@ -46,6 +46,7 @@ import {
   type TypingContext,
   triggerOnSchema,
   triggerSchema,
+  typesCompatible,
   typeTemplatePath,
 } from "../template/typer";
 import { allTriggers } from "../triggers/kinds";
@@ -258,9 +259,8 @@ function schemaErrors(
   });
 }
 
-// The JSON type helpers live with the skill customization (process/customize.ts), which checks a
-// rule row's values with them; it can't import this file (schemas/agent → process/schema →
-// customize → here → schemas/agent would be a cycle).
+// The JSON type helpers live with the template typer (template/typer.ts), which the skill
+// customization (process/customize.ts) imports too; re-exported here for the v3 checks' callers.
 export { jsonTypeOf, typesCompatible };
 
 const compatible = typesCompatible;
