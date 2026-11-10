@@ -8,7 +8,7 @@ import { isApiError } from "../api/client";
 import { errorText } from "../i18n/errors";
 import { useI18n } from "../i18n/i18n";
 import { cx } from "./cx";
-import { Icon } from "./icons";
+import { Icon, type IconName } from "./icons";
 
 export { cx } from "./cx";
 
@@ -417,28 +417,53 @@ export type EmptyAction =
   | { label: string; onClick: () => void; testId?: string };
 
 /**
- * Says what will appear here and how it fills (EmptyState): an optional `title`, the line (`line`
- * or `children`), and an optional `action`, a link or a button. `<EmptyState>No runs yet.</EmptyState>`
- * still works as before.
+ * Says what will appear here and how it fills (EmptyState): an icon in a soft tile, an optional
+ * `title`, the line (`line` or `children`), and an optional `action` (a link or a button), all
+ * centred. `tone="done"` is good news (nothing waits: a check in the positive tint); `compact`
+ * fits inside a card or a side panel. `<EmptyState>No runs yet.</EmptyState>` still works.
+ * DECISION: one empty state for the app (2026-11-10): centred, with an icon tile and a solid
+ * hairline instead of the pattern's dashed box, which read as "drop something here".
  */
 export function EmptyState({
   title,
   line,
   action,
+  icon,
+  tone = "neutral",
+  compact = false,
   testId,
   children,
 }: {
   title?: ReactNode;
   line?: ReactNode;
   action?: EmptyAction | undefined;
+  /** The tile's icon: what would be here (runs, clients, documents…). Defaults to info, or a check when done. */
+  icon?: IconName;
+  tone?: "neutral" | "done";
+  /** Inside a card or panel: no border of its own, less room. */
+  compact?: boolean;
   testId?: string;
   children?: ReactNode;
 }) {
   const text = line ?? children;
   return (
-    <div className="ds-empty" data-testid={testId}>
-      {title ? <p className="font-medium text-ink">{title}</p> : null}
-      {text ? <div className="text-ink-muted">{text}</div> : null}
+    <div
+      className={cx(
+        "ds-empty ui-empty",
+        tone === "done" && "ui-empty--done",
+        compact && "ui-empty--compact",
+      )}
+      data-testid={testId}
+    >
+      <span className="ui-empty__icon" aria-hidden="true">
+        <Icon name={icon ?? (tone === "done" ? "check" : "info")} size={compact ? 16 : 20} />
+      </span>
+      {title || text ? (
+        <div className="ui-empty__text">
+          {title ? <p className="ui-empty__title">{title}</p> : null}
+          {text ? <div className="ui-empty__line">{text}</div> : null}
+        </div>
+      ) : null}
       {action ? (
         "to" in action ? (
           <Link

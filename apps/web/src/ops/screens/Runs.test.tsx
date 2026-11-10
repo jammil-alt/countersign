@@ -134,8 +134,12 @@ describe("ops runs", () => {
     expect(row).toHaveTextContent("R-0f1001");
     expect(row).toHaveTextContent("Demo client");
     expect(row).toHaveTextContent("Cole");
-    expect(row).toHaveTextContent("Weekly reminders");
-    expect(row).not.toHaveTextContent("weekly-reminders");
+    // The agent's name only; what it was doing is the tooltip.
+    expect(row).not.toHaveTextContent("Weekly reminders");
+    expect(screen.getByTestId(`ops-run-${FAILED}-agent`)).toHaveAttribute(
+      "data-tip",
+      "Weekly reminders",
+    );
     // The error in plain words, at the step's name (not "unknown · at send").
     expect(screen.getByTestId(`ops-run-${FAILED}-error`)).toHaveTextContent(
       "HTTP 401 · at Send the reminder",
@@ -214,8 +218,10 @@ describe("ops runs", () => {
     const { api } = setup();
     renderAt(api);
     const status = await screen.findByTestId(`ops-run-${WAITING}-status`);
-    expect(status).toHaveTextContent("Waiting for approval · client admin");
+    // The state alone; whom it waits on is its own column.
+    expect(status).toHaveTextContent(/^Waiting for approval$/);
     expect(status).toHaveAttribute("data-state", "waiting");
+    expect(screen.getByTestId(`ops-run-${WAITING}-owner`)).toHaveTextContent(/^Client admin/);
     expect(screen.getByTestId(`ops-run-${WAITING}-wait`)).toHaveTextContent(
       "For 39 h · Everyone who may approve it is still invited and hasn't signed in.",
     );

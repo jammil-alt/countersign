@@ -290,16 +290,30 @@ export function OpsInboxScreen() {
       <Loaded state={state}>
         {() =>
           items.length === 0 ? (
-            view === "us" && status === "open" && rows.length > 0 ? null : (
-              <EmptyState>
-                {status === "open" && view === "us" && urgency
-                  ? "Nothing at this level of urgency. Pick another, or show every level."
-                  : status === "open"
-                    ? view === "us"
-                      ? "Nothing needs us. Approvals delegated to us, escalations and stuck approvals show here."
-                      : "Nothing is waiting in your clients' inboxes."
-                    : "Nothing resolved yet."}
-              </EmptyState>
+            view === "us" && status === "open" && rows.length > 0 ? null : status === "open" &&
+              view === "us" &&
+              urgency ? (
+              <EmptyState
+                icon="filter"
+                title="Nothing at this level"
+                line="Pick another level of urgency, or show every level."
+              />
+            ) : status === "open" ? (
+              <EmptyState
+                tone="done"
+                title={view === "us" ? "Nothing needs us" : "Your clients' inboxes are clear"}
+                line={
+                  view === "us"
+                    ? "Approvals delegated to us, escalations and stuck approvals show here."
+                    : "Approvals and questions waiting on a client's team show here."
+                }
+              />
+            ) : (
+              <EmptyState
+                icon="check"
+                title="Nothing resolved yet"
+                line="What we and your clients resolve shows here."
+              />
             )
           ) : (
             <div data-testid="ops-inbox-list" className="flex flex-col gap-4">

@@ -184,10 +184,18 @@ export function SkillsScreen() {
           {library.error ? <ErrorNotice error={library.error} onRetry={library.reload} /> : null}
           {!library.data && !library.error ? <Loading /> : null}
           {library.data && skills.length === 0 ? (
-            <EmptyState>No skills yet. Make one with the Builder.</EmptyState>
+            <EmptyState
+              icon="worksheet"
+              title="No skills yet"
+              line="A skill is one job an agent can do, such as reading an invoice. Make one with the Builder."
+            />
           ) : null}
           {library.data && skills.length > 0 && shownSkills.length === 0 ? (
-            <EmptyState>No skill matches.</EmptyState>
+            <EmptyState
+              icon="search"
+              title="No skill matches"
+              line="Try another word or category."
+            />
           ) : null}
           {shownSkills.length > 0 && view === "cards" ? (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
