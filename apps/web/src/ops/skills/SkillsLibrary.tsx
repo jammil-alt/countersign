@@ -9,7 +9,17 @@
 // and the sites it browses. Tool-mode skills that only wrap one tool are retiring: they leave the
 // other tabs for a Retired tab, each saying the tool a read or write step uses instead. In the
 // Library the automations are processes, so they show in the Processes bank (`automations` off).
-import type { AutomationListItem, SkillListItem, ToolSpec } from "@countersign/core";
+//
+// The skill model (owner, 2026-11-10; ARCHITECTURE §10.14): two kinds of skill, Deterministic and
+// AI, each card labelled with its kind and the list filtered by it. Skills that only wrap a tool
+// are no longer listed (the API leaves them out): a process uses the tool as a read or write step.
+import {
+  type AutomationListItem,
+  SKILL_KIND_LABEL,
+  type SkillKind,
+  type SkillListItem,
+  type ToolSpec,
+} from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -30,7 +40,7 @@ import {
 } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
 import { plural } from "../agents/ui";
-import { METHOD_LABEL, METHOD_LINE } from "../library/words";
+import { KIND_LINE } from "../library/words";
 import { Chain, inOut, percent, stepChain, versionText } from "./parts";
 import { CATEGORIES, categoryLabel } from "./skill-form";
 
@@ -39,7 +49,14 @@ export const skillPath = (id: string) => `/ops/skills/${id}`;
 export const automationPath = (id: string) => `/ops/skills/automations/${id}`;
 
 const AUTOMATIONS = "automations";
-const RETIRED = "retired";
+
+/** The kind filter: every skill, or one kind. */
+export const KIND_FILTERS = [
+  ["all", "All"],
+  ["deterministic", "Deterministic"],
+  ["ai", "AI"],
+] as const;
+type KindFilter = (typeof KIND_FILTERS)[number][0];
 
 function matches(q: string, ...texts: (string | null)[]): boolean {
   return !q || texts.some((t) => t?.toLowerCase().includes(q));
@@ -49,13 +66,12 @@ export function SkillsScreen({ automations: withAutomations = true }: { automati
   const library = useApi(apiRoutes.opsSkills);
   const automations = useApi(apiRoutes.opsAutomations, withAutomations ? {} : null);
   const [tab, setTab] = useState("all");
+  const [kind, setKind] = useState<KindFilter>("all");
   const [search, setSearch] = useState("");
   const all = library.data?.skills ?? [];
-  // R8: tool wrappers are retiring; they show on their own tab only.
-  // DECISION (library): a Retired tab, not hidden: stored versions still run them, and the operator
-  // can see what a read or write step replaces.
+  // Skill model (2026-11-10): tool wrappers leave the Library (the API no longer lists them; a
+  // list from before still hides them). A process reads through the tool directly.
   const skills = all.filter((s) => s.retired !== true);
-  const retired = all.filter((s) => s.retired === true);
   const autos = withAutomations ? (automations.data?.automations ?? []) : [];
   const q = search.trim().toLowerCase();
 
@@ -65,10 +81,11 @@ export function SkillsScreen({ automations: withAutomations = true }: { automati
   const shownSkills =
     tab === AUTOMATIONS
       ? []
-      : (tab === RETIRED ? retired : skills).filter(
+      : skills.filter(
           (s) =>
-            (tab === "all" || tab === RETIRED || s.category === tab) &&
-            matches(q, s.name, s.description, s.ref, s.clientName, s.wraps ?? null),
+            (tab === "all" || s.category === tab) &&
+            (kind === "all" || kindOf(s) === kind) &&
+            matches(q, s.name, s.description, s.ref, s.clientName),
         );
   const shownAutos =
     tab === "all" || tab === AUTOMATIONS
@@ -84,9 +101,6 @@ export function SkillsScreen({ automations: withAutomations = true }: { automati
     ...(withAutomations
       ? [[AUTOMATIONS, `Automations · ${autos.length}`] as [string, string]]
       : []),
-    ...(retired.length > 0
-      ? [[RETIRED, `Retired tool wrappers · ${retired.length}`] as [string, string]]
-      : []),
   ];
 
   return (
@@ -96,7 +110,7 @@ export function SkillsScreen({ automations: withAutomations = true }: { automati
         subtitle={
           withAutomations
             ? "The steps agents are built from. A skill does one thing; an automation chains steps you reuse across agents."
-            : "Skills think, tools act: data in, data out, by rules, by AI, or rules then AI. A skill may read; a write step after it makes the change."
+            : "Skills think, tools act. A deterministic skill works by rules, the same every time; an AI skill by instructions and a model. A skill may read; a write step after it makes the change."
         }
         actions={
           <Link to="/ops/skills/new" className={buttonClass("primary")} data-testid="skills-new">
@@ -118,6 +132,19 @@ export function SkillsScreen({ automations: withAutomations = true }: { automati
             </button>
           ))}
         </div>
+        <div className="ds-seg" data-testid="skills-kind">
+          {KIND_FILTERS.map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={kind === id}
+              data-testid={`skills-kind-${id}`}
+              onClick={() => setKind(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <div className="w-full sm:w-64">
           <TextInput
             aria-label="Search skills"
@@ -131,12 +158,6 @@ export function SkillsScreen({ automations: withAutomations = true }: { automati
 
       {withAutomations && (tab === "all" || tab === AUTOMATIONS) ? (
         <AutomationsCard state={automations} shown={shownAutos} />
-      ) : null}
-      {tab === RETIRED ? (
-        <p className="text-sm text-ink-muted" data-testid="skills-retired-note">
-          Each of these only wraps one tool. Stored versions keep running them; a process reads or
-          writes through the tool with a read or write step instead.
-        </p>
       ) : null}
 
       {tab !== AUTOMATIONS ? (
@@ -255,15 +276,17 @@ function writes(skill: SkillListItem, tools: readonly ToolSpec[]): boolean {
   return skill.tools.some((id) => tools.find((t) => t.id === id)?.sideEffect === "external");
 }
 
-/** R8: what the skill reads and browses, or, retiring, the tool a step uses instead. */
+/**
+ * Skill model (2026-11-10): the skill's kind as the API derives it; a list without it reads by
+ * its method (a rules skill is deterministic, anything with a model AI).
+ */
+export function kindOf(s: Pick<SkillListItem, "kind" | "method">): SkillKind {
+  if (s.kind) return s.kind;
+  return s.method === "rules" ? "deterministic" : "ai";
+}
+
+/** R8: what the skill reads and browses. */
 function SkillReach({ skill: s }: { skill: SkillListItem }) {
-  if (s.retired && s.wraps) {
-    return (
-      <p className="text-sm text-ink" data-testid={`skills-card-${s.ref}-wraps`}>
-        Use a step on <span className="reference">{s.wraps}</span> instead
-      </p>
-    );
-  }
   const reads = s.reads ?? [];
   const browse = s.browse ?? null;
   if (reads.length === 0 && !browse) return null;
@@ -304,13 +327,9 @@ function SkillCard({ skill: s, tools }: { skill: SkillListItem; tools: readonly 
         <div className="flex items-center justify-between gap-3">
           <span className="flex flex-wrap gap-1.5">
             <Tag>{categoryLabel(s.category)}</Tag>
-            {s.retired ? (
-              <Tag testId={`skills-card-${s.ref}-retired`}>Retired</Tag>
-            ) : s.method ? (
-              <Tag testId={`skills-card-${s.ref}-method`}>
-                <span title={METHOD_LINE[s.method]}>{METHOD_LABEL[s.method]}</span>
-              </Tag>
-            ) : null}
+            <Tag testId={`skills-card-${s.ref}-kind`}>
+              <span title={KIND_LINE[kindOf(s)]}>{SKILL_KIND_LABEL[kindOf(s)]}</span>
+            </Tag>
           </span>
           {draft ? (
             <Tag>Draft</Tag>

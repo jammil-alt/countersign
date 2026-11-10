@@ -77,6 +77,7 @@ import {
   type BuilderData,
   type BuilderProblem,
   boundMatrices,
+  catalogSkillKind,
   connectorName,
   filterSections,
   paletteConnectors,
@@ -85,6 +86,7 @@ import {
   toolConnector,
   typingContext,
   validateProcessesLikeServer,
+  writeLabelOf,
 } from "./catalog";
 import { EventOptions, SmallInput, SmallSelect } from "./fields";
 import { type FocusRequest, Inspector, type Selection } from "./Inspector";
@@ -476,6 +478,9 @@ function BuilderBody(
         const tool = ctx.tools?.[toolId];
         return tool ? tool.sideEffect === "external" : undefined;
       },
+      // Skill model (2026-11-10): each skill step's kind, each write by where it writes.
+      skillKind: (ref) => catalogSkillKind(data, ref),
+      writeLabel: (toolId) => writeLabelOf(data, toolId),
       person: (id) => {
         // A role reads as its own words ("client admin"); a person by their name.
         if (["client_admin", "client_user", "operator", "lead"].includes(id)) return undefined;

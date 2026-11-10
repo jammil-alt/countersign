@@ -9,6 +9,7 @@
 // within its list, into and out of if paths and for-each blocks, with the pointer or the keyboard
 // (Space, arrows, Space).
 
+import { SKILL_KIND_LABEL } from "@countersign/core";
 import {
   type CollisionDetection,
   closestCenter,
@@ -25,10 +26,12 @@ import { Icon } from "../../ui/icons";
 import { Badge, cx, StepKindTag, Tag } from "../../ui/primitives";
 import {
   PROCESS_KIND_LABEL,
+  processKindLabel,
   processStepDetail,
   processStepNames,
   rulesText,
   type StepLabels,
+  stepSkillKindLabel,
   triggerDetail,
   triggerTitle,
 } from "../workflow/describe";
@@ -298,9 +301,31 @@ function StepNode(
 }
 
 /** The kind tag: people's steps (a person, a conversation) in copper, the rest ink. */
-function KindTag({ step }: { step: Step }) {
+// Skill model (2026-11-10): a write reads by where it writes ("Save to records", "Change in
+// QuickBooks Online"), and a skill step carries its kind ("Deterministic", "AI") beside its tag.
+function KindTag({
+  step,
+  labels,
+  testId,
+}: {
+  step: Step;
+  labels?: StepLabels | undefined;
+  testId?: string;
+}) {
   const people = step.kind === "person" || step.kind === "conversation";
-  return <StepKindTag kind={people ? "person" : step.kind} label={PROCESS_KIND_LABEL[step.kind]} />;
+  const kind = stepSkillKindLabel(step, labels);
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <Tag
+        tone={people ? "person" : "neutral"}
+        className="whitespace-normal"
+        {...(testId ? { testId: `${testId}-kind` } : {})}
+      >
+        {processKindLabel(step, labels)}
+      </Tag>
+      {kind ? <Tag {...(testId ? { testId: `${testId}-skill-kind` } : {})}>{kind}</Tag> : null}
+    </span>
+  );
 }
 
 /** What the step's checks add, as badges: a second check, notices (approval has its own). */
@@ -351,8 +376,8 @@ function StepCard(
   const testId = `builder-step-${step.id}`;
   const nested = number === undefined;
   const detail = processStepDetail(step, props.labels);
-  const label = PROCESS_KIND_LABEL[step.kind];
-  const kindTag = <KindTag step={step} />;
+  const label = processKindLabel(step, props.labels);
+  const kindTag = <KindTag step={step} labels={props.labels} testId={testId} />;
   const hasBadges =
     invalid > 0 ||
     approval !== null ||
@@ -741,7 +766,9 @@ function PaletteCard({
     data,
   });
   const own = item.type === "skill" && item.own;
-  const kind = ITEM_KIND[item.type];
+  // Skill model (2026-11-10): a skill says its kind, Deterministic or AI.
+  const kind =
+    item.type === "skill" && item.kind ? SKILL_KIND_LABEL[item.kind] : ITEM_KIND[item.type];
   return (
     <li
       ref={setNodeRef}
@@ -762,7 +789,7 @@ function PaletteCard({
         <span className="min-w-0">
           <span className="flex items-center gap-1.5 text-sm font-medium [overflow-wrap:anywhere] text-ink">
             <span>{item.title}</span>
-            {kind ? <Tag>{kind}</Tag> : null}
+            {kind ? <Tag testId={`builder-palette-item-${item.key}-kind`}>{kind}</Tag> : null}
           </span>
           <span className="line-clamp-2 text-xs text-ink-muted" title={item.detail}>
             {own ? "This agent's · " : ""}

@@ -18,11 +18,15 @@ import {
   parseSkillRef,
   processes,
   type SkillDefinition,
+  type SkillKind,
+  skillKind,
   type ToolSpec,
   type TriggerOn,
   type TypingContext,
+  toolLookup,
   type ValidationError,
   validateBundle,
+  writeStepLabel,
 } from "@countersign/core";
 import type { z } from "zod";
 import {
@@ -136,6 +140,32 @@ export function validateProcessesLikeServer(
 
 export function connectorName(data: BuilderData, id: string): string {
   return data.catalog.connectors.find((c) => c.id === id)?.name ?? id;
+}
+
+// ── The skill model (owner, 2026-11-10; ARCHITECTURE §10.14) ─────────────────────────────────────
+
+/**
+ * A skill's kind, Deterministic or AI: the catalog's (the server derives it with every tool's
+ * `usesModel`), else derived here from the catalog's tools. Undefined for a skill it doesn't list.
+ */
+export function catalogSkillKind(data: BuilderData, ref: string): SkillKind | undefined {
+  const s =
+    data.catalog.skills.find((x) => x.ref === ref) ??
+    data.catalog.skills.find((x) => parseSkillRef(x.ref).id === parseSkillRef(ref).id);
+  if (!s) return undefined;
+  return s.kind ?? skillKind(s.definition, toolLookup(data.catalog.tools));
+}
+
+/**
+ * How a write step on this tool reads: "Save to records" (our own records) or "Change in
+ * QuickBooks Online" (a client's tool, by its connector's name). Core's rule, so the run view and
+ * the builder say the same.
+ */
+export function writeLabelOf(data: BuilderData, toolId: string): string {
+  const tool = data.catalog.tools.find((t) => t.id === toolId);
+  const c = tool ? (tool.connector ?? tool.source) : null;
+  const name = c ? (data.catalog.connectors.find((x) => x.id === c)?.name ?? null) : null;
+  return writeStepLabel({ kind: "write" }, tool, name).text;
 }
 
 type Connection = z.infer<typeof OpsConnection>;
@@ -288,6 +318,8 @@ export function paletteConnectors(input: {
 // them: those are built to run as a step on their own. Tools a skill calls inside its own work,
 // and the handlers of step-only skills (a conversation, a reach-out), are not steps.
 function wrappedTools(data: BuilderData): Set<string> {
+  // Skill model (2026-11-10): the server lists them (`stepTools`), now the wrappers are gone.
+  if (data.catalog.stepTools) return new Set(data.catalog.stepTools);
   const out = new Set<string>();
   for (const s of data.catalog.skills) {
     if (isToolWrapper(s.definition) && s.definition.handler) out.add(s.definition.handler);
@@ -365,6 +397,9 @@ export function paletteSections(
     // R2: a skill that only wraps a tool is offered as that tool's read or write step; a
     // conversation is its own step kind (R7).
     if (isToolWrapper(s.definition) || parseSkillRef(s.ref).id === CONVERSE_SKILL) continue;
+    // Skill model (2026-11-10): a retired kind (agent mode, rules then AI) is listed only so the
+    // steps already using it type; it is never offered for a new step.
+    if (s.palette === false) continue;
     const mine = own.has(parseSkillRef(s.ref).id);
     const through = skillConnectors(s.definition, data);
     // An agent's own skill stays offered; another needs every connector it reaches.
@@ -377,6 +412,7 @@ export function paletteSections(
       ref: s.ref,
       skill: s.definition,
       own: mine,
+      kind: s.kind ?? skillKind(s.definition, toolLookup(data.catalog.tools)),
     };
     const home = through[0];
     if (home && through.length === 1) add(home, item);
@@ -398,7 +434,8 @@ export function paletteSections(
       type: reads ? "read" : "write",
       key: `${reads ? "read" : "write"}:${t.id}`,
       title: toolLabel(t.id),
-      detail: reads ? `Reads ${group}` : `Changes ${group}`,
+      // Skill model (2026-11-10): "Save to records" or "Change in QuickBooks Online".
+      detail: reads ? `Reads ${group}` : writeLabelOf(data, t.id),
       tool: t,
       group,
     });

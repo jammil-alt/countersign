@@ -11,6 +11,7 @@ import {
   type AgentBundle,
   type AnyAgentBundle,
   canonicalJson,
+  defaultWriteApproval,
   isToolWrapper,
   type JsonObject,
   levelFor,
@@ -21,6 +22,7 @@ import {
   processes,
   readConverted,
   type SkillDefinition,
+  type SkillKind,
   skillTools,
   type ToolSpec,
   type Trigger,
@@ -301,6 +303,8 @@ export type PaletteItem =
       skill: SkillDefinition;
       /** One of the agent's own skills (listed first). */
       own: boolean;
+      /** Skill model (2026-11-10): Deterministic or AI, shown on the item. */
+      kind?: SkillKind | undefined;
     }
   | {
       type: "read" | "write";
@@ -369,7 +373,9 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
         name: item.title,
         tool: item.tool.id,
         input: item.input ?? {},
-        ...(item.tool.sideEffect === "external" ? { checks: { approval: defaultApproval() } } : {}),
+        // Skill model (2026-11-10): "Change in <tool>" starts with approval on, "Save to records"
+        // off (core's `defaultWriteApproval`; the operator may turn it on in the inspector).
+        ...(defaultWriteApproval(item.tool) ? { checks: { approval: defaultApproval() } } : {}),
       };
     case "process":
       // Its inner steps keep their own approvals (on by default); the step overrides none.
