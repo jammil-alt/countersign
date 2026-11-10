@@ -472,6 +472,7 @@ export function outcomeOfRow(row: RowOutcomeInput): StepOutcomeWord | null {
     }
     case "notify":
       if (row.status === "failed") return "failed";
+      if (row.status === "skipped") return "skipped";
       return row.urgent === "not_seen" ? "not_seen" : "sent";
     case "wait":
       return row.status === "succeeded" ? "timed_out" : null;
@@ -487,10 +488,26 @@ export function outcomeOfRow(row: RowOutcomeInput): StepOutcomeWord | null {
   }
 }
 
-/** A retry's reused step (succeeded or skipped in the run retried), as its stored row reads. */
+/**
+ * A retry's reused step, as its stored row reads, when nothing else was kept of it: its outcome
+ * word alone (`reusedStepOf` in `api/run-checks` rebuilds the whole record from the run's rows and
+ * inbox items, which apps/api hands the executor).
+ */
 export function outcomeOfStoredRow(
   step: Pick<Step, "kind">,
   row: { status: string; output: unknown },
 ): StepOutcomeWord | null {
   return outcomeOfRow({ kind: step.kind, status: row.status, output: row.output });
+}
+
+/**
+ * What a later step reads as `steps.<id>.output` of a reused row: the row's output, except a
+ * failed row's, which the step log stored with its error merged in (`{ ..., error }`): that
+ * error is the record's `error`, not output, so it is taken out, and nothing left reads as null,
+ * as the run that failed recorded it.
+ */
+export function scopeOutputOfRow(status: string, output: unknown): unknown {
+  if (status !== "failed" || !isPlainObject(output)) return output ?? null;
+  const { error: _error, ...rest } = output;
+  return Object.keys(rest).length === 0 ? null : rest;
 }
