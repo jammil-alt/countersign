@@ -22,6 +22,8 @@ export {
   FakeStepRunner,
   type FakeStepRunnerOptions,
 } from "./fake-runner";
+// R6: what the owner watches.
+export * from "./oversight";
 export * from "./ports";
 // R3: v3 workflows read as v4 processes, with their stored steps kept for the ports.
 export {

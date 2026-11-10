@@ -52,6 +52,7 @@ export * from "./runtime/call-tool";
 export * from "./runtime/carry";
 export * from "./runtime/context";
 // P-4: conversations
+export * from "./runtime/conversation-step";
 export * from "./runtime/converse";
 export * from "./runtime/json-schema";
 export * from "./runtime/model";

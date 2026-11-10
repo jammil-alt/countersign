@@ -9,12 +9,6 @@ import type { Step as V3Step, Workflow } from "../schemas/workflow";
 import { conversationFromConverse } from "./conversation";
 import type { ApprovalCheck, Deadline, DeadlineThen, Process, Step } from "./schema";
 
-// R7: the conversation step's contract, reachable as `processes.*` with the converter that reads
-// v3 conversations.
-// DECISION: re-exported here because `process/index.ts` belongs to another stream in wave 2; move
-// it to `index.ts` (`export * from "./conversation"`) when the streams merge.
-export * from "./conversation";
-
 /** A tool's side effect, as the tool registry knows it. */
 export type SideEffect = "none" | "internal" | "external";
 
