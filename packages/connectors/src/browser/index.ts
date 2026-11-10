@@ -287,8 +287,10 @@ export function createBrowserConnector(options: BrowserConnectorOptions = {}): C
         },
         // DECISION: the version approved (the proposal's before) must still be the published one
         // when the write runs; another version published in between is refused, to be approved
-        // again. A direct call with no proposal (`proposedBefore` absent) runs the published one,
-        // as Sheets' write does; a proposal that kept no version (an older card) is refused.
+        // again. The runtime always passes the action's before (`proposedBefore: action.before`,
+        // null when none was kept, never absent), so every write it runs is checked and a null
+        // before is refused, to be approved again. Only a caller that leaves `proposedBefore` out
+        // runs the published one unchecked, and the platform has none (only tests call so).
         async run(input, ctx) {
           await mayWrite(ctx, input.site);
           return runPublishedScript(ctx, input, "external", session, ctx.proposedBefore);

@@ -3040,8 +3040,10 @@ Websites screen's Scripts, the Library's and the builder's listings):
 - DECISION (review): `browser.script.submit`'s before state is the published version and its steps
   in words (`{ versionId, version, name, steps }`), so the approval card shows what will be sent;
   the write is refused when the version approved (`proposedBefore`) is no longer the published one.
-  A direct call with no proposal runs the published version, as Sheets' write does; a proposal that
-  kept no version (an older card, before null) is refused, to be approved again.
+  The runtime always passes the action's before (null when none was kept, never absent), so every
+  write it runs is checked, and a null before (an older card, or a before that failed) is refused,
+  to be approved again. A caller that leaves `proposedBefore` out would run the published version
+  unchecked; the platform has no such caller (only the connector's tests).
 - DECISION (review, replaces "the answer is an ordinary note" above): a `browser.script.*` step
   that needs help asks the operator (the `operator` role, as an escalation's `to` names it), not
   the lead, and its answer is not written to memory: no answer changes a script's fixed steps. The

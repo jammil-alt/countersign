@@ -386,8 +386,9 @@ function reverseOf(
  * checked, sign-out and the session's record). A step whose element isn't there answers
  * `{ needsHelp }` (a write's with `submitted: false`: the submit is its last step, so nothing was
  * sent); the executor asks the operator and runs the step once more. A write names the version
- * a person approved (`approved`, its before state): another version published since is refused
- * before a browser opens.
+ * a person approved (`approved`, its before state): another version published since, or a
+ * before that kept no version (null: the runtime passes the action's before as it is), is refused
+ * before a browser opens. `approved` left out (no caller in the platform) skips the check.
  */
 export async function runPublishedScript(
   ctx: ToolContext,
