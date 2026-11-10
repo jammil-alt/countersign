@@ -160,18 +160,27 @@ export async function operatorSkills(
 
 /**
  * Skill model (2026-11-10): the platform's and packs' tools a process may call directly as a read
- * or write step: those a retired tool-wrapper skill wrapped, less the handlers of skills that are
- * steps of their own (a conversation, a reach-out).
+ * or write step: those a retired tool-wrapper skill wrapped, and every other platform or pack tool
+ * (the splits' and the templates' reads and Save to records writes: `docs.reading.record`,
+ * `bookkeeping.booking.propose`, …), less the handlers of skills that are steps of their own (a
+ * conversation, a reach-out). A connector's tools are offered under the connector, as before.
  */
+// DECISION (templates): every platform and pack tool is a step tool, not only what a wrapper
+// wrapped, so the operator can build what the new template versions are built from.
 export function stepTools(platform: Platform): string[] {
   const stepOnly = new Set(
     processes.STEP_ONLY_SKILLS.map((id) => platform.catalog.get(id)?.handler).filter(
       (h): h is string => h !== undefined,
     ),
   );
+  const connectors = new Set(platform.connectors.list().map((c) => c.manifest.id));
   const out = new Set<string>();
   for (const def of platform.catalog.list()) {
     if (isToolWrapper(def) && def.handler && !stepOnly.has(def.handler)) out.add(def.handler);
+  }
+  for (const t of Object.values(platform.tools.specs())) {
+    if (stepOnly.has(t.id) || connectors.has(t.connector ?? t.source)) continue;
+    out.add(t.id);
   }
   return [...out].sort();
 }
