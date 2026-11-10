@@ -484,6 +484,43 @@ export function addRouteAfter(
   return { process: insertStep(changed, loc.container, loc.index + 1, route), ifId: route.id };
 }
 
+// ── Test runs ────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The ifs (by name) whose routes read a step's approval (`steps.<id>.approval…`). A test run signs
+ * nothing: every write's approval reads `not_needed` there, so such a route goes the way it would
+ * with no approval, and the test-run panel says so.
+ */
+// DECISION (wave 5 review): the simplest honest option: the run records what happened (nobody was
+// asked) and the builder's test-run panel names the routes that read it, rather than recording a
+// pretend answer a test run never had.
+export function approvalRouteNames(process: Pick<Process, "steps">): string[] {
+  const names: string[] = [];
+  processes.walkSteps(process, ({ step }) => {
+    if (step.kind !== "if") return;
+    const reads = step.paths.some((p) =>
+      p.when.rules.some((r) => {
+        let ref: string[] | null = null;
+        try {
+          ref = typeof r.field === "string" ? singleRef(r.field) : null;
+        } catch {
+          ref = null;
+        }
+        return ref?.[0] === "steps" && ref[2] === "approval";
+      }),
+    );
+    if (reads) names.push(step.name || "An if");
+  });
+  return names;
+}
+
+/** What the test-run panel says when routes read an approval (`approvalRouteNames`). */
+export function testRunApprovalNote(names: readonly string[]): string | null {
+  if (names.length === 0) return null;
+  const list = names.map((n) => `“${n}”`).join(", ");
+  return `${list} ${names.length === 1 ? "routes" : "route"} on an approval. In a test run nobody signs, so each write's approval reads “needed no approval” and the route goes the way it would with none.`;
+}
+
 // ── The validator's outcome problems, in words ───────────────────────────────────────────────────
 
 /** An if path or a step by id, as a validation problem names it. */

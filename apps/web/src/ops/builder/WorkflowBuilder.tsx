@@ -118,7 +118,12 @@ import {
   updateStep,
   workflowCounts,
 } from "./model";
-import { addRouteAfter, plainOutcomeProblem } from "./outcomes";
+import {
+  addRouteAfter,
+  approvalRouteNames,
+  plainOutcomeProblem,
+  testRunApprovalNote,
+} from "./outcomes";
 import { type Member, type People, personName } from "./people";
 import { useClientScriptTools } from "./scripts";
 
@@ -864,6 +869,8 @@ function BuilderBody(
           // DECISION: a test run starts from the first trigger's sample, as v3 had one trigger.
           sample={samplePayload(workflow, data.events)}
           eventType={triggerEventType(workflow)}
+          // Wave 5 review: routes on an approval go the no-approval way in a test run.
+          approvalNote={testRunApprovalNote(approvalRouteNames(workflow))}
           busy={action.busy}
           onClose={() => setPanel(null)}
           run={async (payload, clientId) => {
@@ -1499,6 +1506,7 @@ function TestRunPanel({
   slug,
   sample,
   eventType,
+  approvalNote,
   busy,
   run,
   onClose,
@@ -1510,6 +1518,8 @@ function TestRunPanel({
   sample: unknown;
   /** The trigger's event type, for "Use a recent event"; null for other triggers. */
   eventType: string | null;
+  /** Wave 5 review: routes that read an approval, which reads "needed no approval" in a test. */
+  approvalNote?: string | null;
   busy: boolean;
   /** `clientId`: a template's chosen client (none: the Sandbox). */
   run(payload: unknown, clientId: string | null): Promise<string | null>;
@@ -1553,6 +1563,11 @@ function TestRunPanel({
           : "It runs on this client's data."}{" "}
         Unsaved changes are saved as a draft first.
       </p>
+      {approvalNote ? (
+        <p className="text-sm text-ink" data-testid="builder-test-approval-note">
+          {approvalNote}
+        </p>
+      ) : null}
       {isTemplate ? (
         <SmallSelect
           aria-label="Client"

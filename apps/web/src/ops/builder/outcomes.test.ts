@@ -5,12 +5,14 @@ import { describe, expect, it } from "vitest";
 import type { Process, Step } from "./model";
 import {
   addRouteAfter,
+  approvalRouteNames,
   goOnWhenNoAnswer,
   labelPaths,
   outcomeRules,
   plainOutcomeProblem,
   routeOptions,
   takesOnError,
+  testRunApprovalNote,
 } from "./outcomes";
 
 const approval = {
@@ -262,6 +264,29 @@ describe("addRouteAfter", () => {
     const yes = { steps: { ok: { output: { approved: true }, outcome: "answered" } } };
     expect(route.paths.find((p) => evaluateRules(p.when, yes))).toBeUndefined();
     expect(processes.validateProcess(out.process, {}).errors).toEqual([]);
+  });
+});
+
+describe("test runs and routes on an approval", () => {
+  it("names the ifs that read an approval, which reads “needed no approval” in a test", () => {
+    expect(approvalRouteNames(PROCESS)).toEqual([]);
+    expect(testRunApprovalNote([])).toBeNull();
+    const approved = routeOptions(step("approve")).find((o) => o.key === "done");
+    if (!approved) throw new Error("no route");
+    const withRoute = addRouteAfter(
+      PROCESS,
+      "approve",
+      {
+        ...approved,
+        rule: { field: "{{steps.approve.approval.outcome}}", op: "=", value: "approved" },
+      },
+      newId,
+    );
+    if (!withRoute) throw new Error("not added");
+    expect(approvalRouteNames(withRoute.process)).toEqual(["If done"]);
+    expect(testRunApprovalNote(["If done"])).toBe(
+      "“If done” routes on an approval. In a test run nobody signs, so each write's approval reads “needed no approval” and the route goes the way it would with none.",
+    );
   });
 });
 
