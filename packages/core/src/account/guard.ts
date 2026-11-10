@@ -7,7 +7,7 @@
 import type { Step as ProcessStep } from "../process/schema";
 import { walkSteps as walkProcessSteps } from "../process/walk";
 import type { AnyAgentBundle } from "../schemas/agent";
-import type { AutomationDefinition } from "../schemas/automation";
+import type { AnyAutomationDefinition } from "../schemas/automation";
 import { parseSkillRef } from "../schemas/common";
 import { type SkillDefinition, skillTools } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
@@ -48,8 +48,8 @@ export function accountAgentProblems(input: {
   skills: Readonly<Record<string, SkillDefinition>>;
   tools: Readonly<Record<string, ToolSpec>>;
   bindings?: Readonly<Record<string, string>> | undefined;
-  /** The automations its use steps pin, by reference (W2-B). */
-  automations?: Readonly<Record<string, AutomationDefinition>> | undefined;
+  /** The automations its use steps pin, by reference (W2-B); wave 3b: v3 or v4 steps. */
+  automations?: Readonly<Record<string, AnyAutomationDefinition>> | undefined;
 }): ValidationError[] {
   const { bundle, tools } = input;
   if (!isAccountAgent(input.slug, bundle)) return [];
@@ -86,6 +86,11 @@ export function accountAgentProblems(input: {
   const checkPinned = (ref: string, at: { id: string; field: string }, slug: string) => {
     const automation = input.automations?.[ref];
     if (!automation) return;
+    // Wave 3b: a v4 automation (schemaVersion 2) holds process steps, checked as a process's are.
+    if (automation.schemaVersion === 2) {
+      walkProcessSteps(automation, ({ step: inner }) => checkProcessStep(inner, slug));
+      return;
+    }
     walkSteps({ steps: automation.steps }, ({ step: inner }) => check(inner, at, slug));
   };
   /**

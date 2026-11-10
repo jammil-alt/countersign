@@ -1,5 +1,6 @@
 // The Builder against scripted model answers (FakeModel): its guards hold whatever the model
-// says, and it repairs once what fails the schema or validation.
+// says, and it repairs once what fails the schema or validation. Wave 3b: it drafts and revises
+// v4 processes (docs/plan.md §1.86).
 
 import {
   ConnectorRegistry,
@@ -7,13 +8,11 @@ import {
   TESTKIT_UPDATE_TOOL,
 } from "@countersign/connectors";
 import {
-  type AgentBundle,
   type AgentBundleInput,
-  AgentBundle as AgentBundleSchema,
+  type ProcessAgentBundle,
+  ProcessAgentBundle as ProcessAgentBundleSchema,
+  processes,
   type SkillDefinition,
-  type Step,
-  validateBundle,
-  walkSteps,
 } from "@countersign/core";
 import { createLlmClient, FakeModel, type FakeTurn } from "@countersign/llm";
 import { describe, expect, it } from "vitest";
@@ -22,6 +21,8 @@ import { PLATFORM_TOOLS } from "../tools/platform";
 import { BuilderError, draftAgent, reviseAgent } from "./builder";
 import type { BuilderContext } from "./context";
 import { guardBundle, replaceTemplates } from "./guards";
+
+type Step = processes.Step;
 
 const registry = new ToolRegistry({
   platform: PLATFORM_TOOLS,
@@ -75,8 +76,9 @@ const ctxSkills = (ctx: BuilderContext) =>
   Object.fromEntries(ctx.skills.map((s) => [s.ref, s.definition]));
 
 /** Validation as a template's publish: skills and tools from the context. */
-const validateWith = (ctx: BuilderContext) => async (bundle: AgentBundle) =>
-  validateBundle(bundle, { skills: ctxSkills(ctx), tools: registry.specs() }).errors;
+const validateWith = (ctx: BuilderContext) => async (bundle: ProcessAgentBundle) =>
+  processes.validateAnyBundle(bundle, { skills: ctxSkills(ctx), tools: registry.specs() })
+    .errors as never;
 
 function counter(prefix = "n") {
   let i = 0;
@@ -98,9 +100,9 @@ function definition(over: Partial<AgentBundleInput["definition"]> = {}) {
   };
 }
 
-const steps = (b: AgentBundle) => {
+const steps = (b: ProcessAgentBundle) => {
   const out: Step[] = [];
-  for (const w of b.workflows) walkSteps(w.workflow, ({ step }) => out.push(step));
+  for (const w of b.workflows) processes.walkSteps(w.workflow, ({ step }) => out.push(step));
   return out;
 };
 
@@ -130,8 +132,8 @@ const cardChargesAnswer = {
         slug: "weekly",
         name: "Weekly check",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: "t1", on: { type: "manual", input: { type: "object" } } },
+          schemaVersion: 4,
+          triggers: [{ id: "t1", on: { type: "manual", input: { type: "object" } } }],
           steps: [
             {
               id: "find",
@@ -154,20 +156,19 @@ const cardChargesAnswer = {
               mode: "ask",
               assignee: "client_admin",
               title: "Receipts needed: {{steps.summary.output.summary}}",
-              timeout: "3 days",
-              onTimeout: "notify_operator",
+              deadline: { after: "3 days", tell: ["operator"] },
             },
             {
               id: "mark",
-              kind: "action",
+              kind: "write",
               name: "Mark the record",
               tool: TESTKIT_UPDATE_TOOL,
               input: { id: "r1", name: "Needs receipt" },
-              approval: { required: "not_required" },
+              checks: { approval: { required: "not_required", ifNoAnswer: "proceed" } },
             },
             {
               id: "flag",
-              kind: "action",
+              kind: "write",
               name: "Flag the charge in the card feed",
               tool: "card.charge.flag",
               input: {},
@@ -180,7 +181,7 @@ const cardChargesAnswer = {
 };
 
 describe("draftAgent", () => {
-  it("drafts a valid agent with gaps for 'flag card charges over $500 missing receipts'", async () => {
+  it("drafts a valid v4 agent with gaps for 'flag card charges over $500 missing receipts'", async () => {
     const ctx = context();
     const model = new FakeModel([{ toolUse: { name: "submit_draft", input: cardChargesAnswer } }]);
     const result = await draftAgent(
@@ -189,6 +190,7 @@ describe("draftAgent", () => {
     );
 
     expect(result.errors).toEqual([]);
+    expect(result.bundle.workflows[0]?.workflow.schemaVersion).toBe(4);
     const def = result.bundle.definition;
     expect(def.kind).toBe("functional");
     expect(def.permissions.mode).toBe("suggest_only");
@@ -202,8 +204,8 @@ describe("draftAgent", () => {
       "Ask for receipts",
       "Mark the record",
     ]);
-    const mark = all.find((s) => s.kind === "action");
-    expect(mark?.kind === "action" && mark.approval.required).toBe("required");
+    const mark = all.find((s) => s.kind === "write");
+    expect(mark?.checks?.approval).toMatchObject({ required: "required", ifNoAnswer: "stop" });
     // Ids are made by the server, once, and references follow them.
     expect(all.map((s) => s.id)).toEqual(["n2", "n3", "n4"]);
     const ask = all.find((s) => s.kind === "person");
@@ -225,10 +227,12 @@ describe("draftAgent", () => {
     expect(result.slug).toBe("card-receipts");
     expect(result.calls).toHaveLength(1);
 
-    // The model saw the catalog and the bundle's schema as the answer tool's input.
+    // The model saw the catalog, the v4 rules, and the bundle's schema as the answer tool's input.
     const req = model.requests[0];
     expect(JSON.stringify(req?.messages)).toContain("custom:summarize-records");
+    expect(JSON.stringify(req?.system)).toContain("Each workflow is a process");
     expect(req?.tools?.[0]).toMatchObject({ name: "submit_draft" });
+    expect(JSON.stringify(req?.tools?.[0])).toContain("triggers");
     expect(req?.model).toBe("claude-sonnet-5-5");
   });
 
@@ -248,16 +252,8 @@ describe("draftAgent", () => {
   it("repairs once when the bundle does not validate", async () => {
     const ctx = context();
     const broken = structuredClone(cardChargesAnswer);
-    const fork: Record<string, unknown> = {
-      id: "split",
-      kind: "fork",
-      name: "Split",
-      paths: [],
-      otherwise: { id: "else", steps: [] },
-    };
-    const wf = broken.bundle.workflows[0];
-    if (!wf) throw new Error("no workflow");
-    (wf.workflow.steps as unknown[]).push(fork);
+    const ask = broken.bundle.workflows[0]?.workflow.steps[2] as { title: string };
+    ask.title = "{{steps.nowhere.output.x}}";
     const model = new FakeModel([
       { toolUse: { name: "submit_draft", input: broken } },
       { toolUse: { name: "submit_draft", input: cardChargesAnswer } },
@@ -268,7 +264,7 @@ describe("draftAgent", () => {
     );
     expect(result.errors).toEqual([]);
     expect(result.calls).toHaveLength(2);
-    expect(JSON.stringify(model.requests[1]?.messages)).toContain("fork_no_paths");
+    expect(JSON.stringify(model.requests[1]?.messages)).toContain("template_scope");
   });
 
   it("returns what still fails after the repair, for the operator to fix", async () => {
@@ -287,11 +283,19 @@ describe("draftAgent", () => {
     expect(result.errors.map((e) => e.code)).toContain("template_scope");
   });
 
-  it("repairs an answer that fails the schema, then gives up", async () => {
+  it("repairs an answer that fails the schema (a v3 workflow included), then gives up", async () => {
     const ctx = context();
     const noDefinition = { ...cardChargesAnswer, bundle: { schemaVersion: 1, workflows: [] } };
+    const v3 = structuredClone(cardChargesAnswer) as unknown as {
+      bundle: { workflows: { workflow: unknown }[] };
+    };
+    (v3.bundle.workflows[0] as { workflow: unknown }).workflow = {
+      schemaVersion: 3,
+      trigger: { id: "t1", on: { type: "manual", input: {} } },
+      steps: [],
+    };
     const ok = new FakeModel([
-      { toolUse: { name: "submit_draft", input: noDefinition } },
+      { toolUse: { name: "submit_draft", input: v3 } },
       { toolUse: { name: "submit_draft", input: cardChargesAnswer } },
     ]);
     const fixed = await draftAgent(
@@ -325,7 +329,7 @@ describe("draftAgent", () => {
 });
 
 // A client agent (mode act) whose approval on one step the operator already switched off.
-const source = AgentBundleSchema.parse({
+const source: ProcessAgentBundle = ProcessAgentBundleSchema.parse({
   schemaVersion: 1,
   definition: definition({
     identity: { name: "Invoice clerk", role: "Payables", mission: "File invoices" },
@@ -338,40 +342,41 @@ const source = AgentBundleSchema.parse({
       slug: "file",
       name: "File an invoice",
       workflow: {
-        schemaVersion: 3,
-        trigger: { id: "trg", on: { type: "manual", input: { type: "object" } } },
+        schemaVersion: 4,
+        triggers: [{ id: "trg", on: { type: "manual", input: { type: "object" } } }],
         steps: [
           {
             id: "s-update",
-            kind: "action",
+            kind: "write",
             name: "Update the record",
             tool: TESTKIT_UPDATE_TOOL,
             input: { id: "{{trigger.id}}" },
+            checks: { approval: { required: "required" } },
           },
           {
             id: "s-tidy",
-            kind: "action",
+            kind: "write",
             name: "Tidy the name",
             tool: TESTKIT_UPDATE_TOOL,
             input: { id: "{{trigger.id}}", name: "Tidy" },
-            approval: { required: "not_required" },
+            checks: { approval: { required: "not_required" } },
           },
         ],
       },
     },
   ],
-});
+}) as ProcessAgentBundle;
 
 /** The model's answer to "skip approval for invoices under $200". */
 function skipApprovalAnswer() {
-  const b = structuredClone(source) as AgentBundle;
+  const b = structuredClone(source);
   const wf = b.workflows[0]?.workflow;
   if (!wf) throw new Error("no workflow");
   const update = wf.steps[0] as Step;
   wf.steps = [
     {
       id: "under-200",
-      kind: "fork",
+      kind: "if",
       name: "Invoice under $200?",
       paths: [
         {
@@ -381,11 +386,18 @@ function skipApprovalAnswer() {
           steps: [
             {
               id: "s-update-small",
-              kind: "action",
+              kind: "write",
               name: "Update the record without approval",
               tool: TESTKIT_UPDATE_TOOL,
               input: { id: "{{trigger.id}}" },
-              approval: { required: "not_required", onReject: "stop" },
+              checks: {
+                approval: {
+                  required: "not_required",
+                  mode: "in_turn",
+                  ifNoAnswer: "stop",
+                  onReject: "stop",
+                },
+              },
             },
           ],
         },
@@ -421,8 +433,7 @@ describe("reviseAgent", () => {
     );
     expect(result.errors).toEqual([]);
     const byName = Object.fromEntries(steps(result.bundle).map((s) => [s.name, s]));
-    const approval = (s: Step | undefined) =>
-      s?.kind === "action" ? s.approval.required : undefined;
+    const approval = (s: Step | undefined) => s?.checks?.approval?.required;
     expect(approval(byName["Update the record without approval"])).toBe("required");
     expect(approval(byName["Update the record"])).toBe("required");
     // The operator's own choice on an unchanged step stays.
@@ -457,17 +468,91 @@ describe("reviseAgent", () => {
 describe("guardBundle", () => {
   it("keeps pinned references the source already makes and unpins new ones", () => {
     const ctx = context();
-    const pinned = AgentBundleSchema.parse({
+    const pinned = ProcessAgentBundleSchema.parse({
       ...source,
       definition: {
         ...source.definition,
         skills: [{ skill: "custom:summarize-records@2", settings: {} }],
       },
-    });
+    }) as ProcessAgentBundle;
     const kept = guardBundle(pinned, ctx, { mode: "revise", source: pinned });
     expect(kept.bundle.definition.skills[0]?.skill).toBe("custom:summarize-records@2");
     const fresh = guardBundle(pinned, ctx, { mode: "draft" });
     expect(fresh.bundle.definition.skills[0]?.skill).toBe("custom:summarize-records");
+  });
+
+  // Wave 3b (invariant 8): every v4 way to let a write through without a person's yes is held
+  // unless the operator had that same loosening on that same step.
+  it("holds loosened approvals, sub-process overrides and conversation messages", () => {
+    const ctx = context();
+    const origin = structuredClone(source);
+    const answer = structuredClone(source);
+    const wf = answer.workflows[0]?.workflow;
+    if (!wf) throw new Error("no workflow");
+    const loose = {
+      required: "required" as const,
+      when: { match: "all" as const, rules: [] },
+      mode: "in_turn" as const,
+      ifNoAnswer: "proceed" as const,
+      onReject: "stop" as const,
+      approvers: [
+        {
+          who: "client_admin",
+          deadline: { after: "1 day", hours: "clock" as const, ifNoAnswer: "proceed" as const },
+        },
+      ],
+    };
+    wf.steps = [
+      { ...(wf.steps[0] as Step), checks: { approval: loose } },
+      wf.steps[1] as Step,
+      {
+        id: "use",
+        kind: "process",
+        name: "Follow up",
+        process: "follow-up@1",
+        input: {},
+        approvals: {
+          send: { required: "not_required", mode: "in_turn", ifNoAnswer: "stop", onReject: "stop" },
+        },
+      },
+      {
+        id: "talk",
+        kind: "conversation",
+        name: "Ask the vendor",
+        with: "{{trigger.vendor}}",
+        channel: "email",
+        goal: "Get the invoice number",
+        mayShare: [],
+        find: {},
+        maxTurns: 4,
+        messages: { first: "not_required", later: "within_goal" },
+        deadline: { after: "2 days", hours: "clock", ifNoAnswer: "stop" },
+      },
+      { id: "new-write", kind: "write", name: "Note it", tool: TESTKIT_UPDATE_TOOL, input: {} },
+    ];
+    const r = guardBundle(answer, ctx, {
+      mode: "revise",
+      source: origin,
+      origin,
+      newId: counter(),
+    });
+    const byId = new Map(steps(r.bundle).map((s) => [s.id, s]));
+    const held = byId.get("s-update")?.checks?.approval;
+    expect(processes.approvalLoosenings(held, "a")).toEqual([]);
+    expect(held?.approvers?.[0]?.who).toBe("client_admin");
+    // The operator's own switch-off on an unchanged step stays.
+    expect(byId.get("s-tidy")?.checks?.approval?.required).toBe("not_required");
+    const use = [...byId.values()].find((s) => s.kind === "process");
+    expect(use?.kind === "process" && use.approvals).toBeUndefined();
+    const talk = [...byId.values()].find((s) => s.kind === "conversation");
+    expect(talk?.kind === "conversation" && talk.messages).toEqual({
+      first: "required",
+      later: "required",
+    });
+    // A new write to a client's tool starts with approval on.
+    const note = [...byId.values()].find((s) => s.name === "Note it");
+    expect(note?.checks?.approval).toMatchObject({ required: "required" });
+    expect(r.notes.join(" ")).toMatch(/Approval stays on for 3 steps/);
   });
 });
 

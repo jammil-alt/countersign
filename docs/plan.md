@@ -2704,6 +2704,33 @@ Wave 3, builder (R8; `apps/web/src/ops/builder`):
 - DECISION: logic steps (if, for each, wait, stop) carry no checks in the builder and never show
   on the client's timeline; work steps show by default.
 
+builder-chat (wave 3b) (`packages/agents/src/builder`, `apps/api/src/routes/ops-builder.ts`):
+- DECISION: the Builder (its conversations, draft-agent and revise-agent) drafts and edits v4
+  processes. A stored v3 version, and a conversation's draft or turn saved before this, is read
+  through the converter (`toProcessBundle`, conversations kept as skill steps, every id kept) each
+  time it is read; what the Builder saves is a v4 version. Nothing stored is rewritten
+  (invariant 3), and a conversation's view answers the converted draft, so the screens read v4.
+- DECISION: the guards hold invariant 8 field by field on v4: an approval's `not_required`, `when`,
+  and every "go ahead when nobody answers" (its own and each approver's deadline), a process
+  step's loosening overrides, and a conversation's unsigned messages stay only where the
+  operator's version had that same loosening on that same step (same id, kind and, for a read or
+  write, tool); anything else is tightened (core's new `processes.tightenedApproval`). A new step
+  that writes to a client's tool or reaches people starts with an explicit approval check.
+- DECISION: an automation saved from a v4 process holds v4 process steps and is
+  `schemaVersion: 2` (`ProcessAutomationDefinition`); a stored v1 automation keeps its v3 steps and
+  runs, validates and hashes as before. A process step pins either; a v3 use step pins v1 only
+  (validation refuses a v2 pin, the run's expansion too). `automation_version.definition` is typed
+  `AnyAutomationDefinition`; no migration.
+- DECISION: "Save as automation" on a process (`processes.stepsToProcessAutomation`, shared by the
+  Builder's conversation and the workflow builder's from-steps route through
+  `bundleStepsToAutomation`) works as v3's: references to the trigger, the agent's settings and
+  earlier steps become the automation's input, later steps (and the handoff) read the process
+  step's output. Every loosened approval inside starts tightened; a client agent keeps the
+  operator's loosening of a skill, read or write step through the process step's `approvals`. A
+  conversation's message settings have no override there, so they start signed in the automation.
+- DECISION: the account agent's guard walks a v4 process as one and counts a process step's
+  automation (v3 or v4 steps) as the step's own, as it does a use step's.
+
 #### Library (wave 3, R8)
 
 - DECISION: the Library is `/ops/library`, one tab per bank (Processes, Skills, Tools, Connectors,

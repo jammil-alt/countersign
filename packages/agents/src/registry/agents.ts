@@ -13,7 +13,7 @@ import {
   AgentBundle as AgentBundleSchema,
   type AnyAgentBundle,
   AnyAgentBundle as AnyAgentBundleSchema,
-  type AutomationDefinition,
+  type AnyAutomationDefinition,
   // v0.12 W2-D: the account agent's publish guard
   accountAgentProblems,
   automationRefs,
@@ -493,7 +493,7 @@ export async function createTemplate(
   tx: Tx,
   input: NewAgentInput & { releaseNote?: string | null },
 ): Promise<{ agent: AgentRow; version: AgentVersionRow }> {
-  const bundle = parseBundle(input.bundle);
+  const bundle = parseVersionBundle(input.bundle); // Wave 3b: a Builder draft holds v4 processes.
   const [row] = await tx
     .insert(agent)
     .values({
@@ -558,7 +558,7 @@ export async function createClientAgent(
   tx: Tx,
   input: ClientAgentFields & Omit<NewAgentInput, "slug">,
 ): Promise<{ agent: AgentRow; version: AgentVersionRow }> {
-  const bundle = parseBundle(input.bundle);
+  const bundle = parseVersionBundle(input.bundle); // Wave 3b: a Builder draft holds v4 processes.
   const row = await insertClientAgent(
     tx,
     { ...input, role: input.role ?? bundle.definition.identity.role, templateId: null },
@@ -844,7 +844,7 @@ export function requiredConnectors(
   skills: Record<string, SkillDefinition>,
   tools: ToolRegistry,
   // v0.12 W2-B: the automations its use steps pin (their `requires.connectors` count too).
-  automations: Record<string, AutomationDefinition> = {},
+  automations: Record<string, AnyAutomationDefinition> = {},
   // v0.14 W4-A: a client agent's bindings, so a shared id needs the connector it is bound to
   // (Twilio or Meta for `whatsapp.send`); without them, the first that supplies it.
   bindings?: Readonly<Record<string, string>>,

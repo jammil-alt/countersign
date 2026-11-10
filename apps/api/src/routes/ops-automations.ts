@@ -7,8 +7,8 @@
 
 import {
   type AgentRow,
-  automationContext,
   bundleAutomationRefs,
+  bundleStepsToAutomation,
   createAutomation,
   createAutomationVersion,
   createVersion,
@@ -19,7 +19,6 @@ import {
   rollbackAutomation,
   SHARED_COPY_PREFIX,
   schemaFields,
-  skillContext,
 } from "@countersign/agents";
 import {
   type AnyAgentBundle,
@@ -31,9 +30,9 @@ import {
   automationRef,
   type BuilderAutomation,
   parseAutomationRef,
+  processes,
   routes,
   type SkillDefinition,
-  stepsToAutomation,
   uuidv7,
 } from "@countersign/core";
 import {
@@ -318,61 +317,22 @@ async function itemFor(ctx: Scope, row: AutomationRow) {
   return { item, entry, usedBy: usedByOf(row, c.uses, c.shadowed) };
 }
 
-/** The workflow whose top-level steps hold the first selected id. */
-function workflowOf(bundle: AnyAgentBundle, stepId: string) {
-  return bundle.workflows.find((w) => {
-    const steps: readonly { id: string }[] = w.workflow.steps;
-    return steps.some((s) => s.id === stepId);
-  });
-}
-
 async function saveFromSteps(ctx: HandlerCtx<typeof routes.opsAutomationFromSteps>, row: AgentRow) {
   const { tx, body, session, services } = ctx;
   const registry = services.platform.ctx;
   const v = await getVersion(tx, body.versionId);
   if (v.agentId !== row.id) throw notFound("version");
-  const bundle = v.bundle;
-  const holder = workflowOf(bundle, body.stepIds[0] as string);
-  if (!holder) {
-    throw new HttpError(
-      422,
-      "not_top_level",
-      "only steps at the top of a workflow can become an automation",
-    );
-  }
-  // DECISION (wave 3b): "Save as automation" moves v3 steps only (core's stepsToAutomation); a
-  // version of v4 processes is refused in plain words rather than read as v3.
-  if (holder.workflow.schemaVersion === 4) {
-    throw new HttpError(
-      422,
-      "process_steps",
-      "steps of a process can't be saved as an automation yet: save them from a v3 version",
-    );
-  }
-  const { skills } = await skillContext(tx, {
+  // Wave 3b: a v3 workflow's steps become a v3 automation as before; a v4 process's a v4 one.
+  const result = await bundleStepsToAutomation(tx, {
     tenantId: row.tenantId,
-    bundle,
-    catalog: registry.catalog,
-  });
-  const used = await automationContext(tx, {
-    tenantId: row.tenantId,
-    bundle,
-    catalog: registry.catalog,
-  });
-  const result = stepsToAutomation({
-    workflow: holder.workflow,
+    bundle: v.bundle as AnyAgentBundle,
     stepIds: body.stepIds,
     slug: body.slug,
     name: body.name,
-    ...(body.description !== undefined ? { description: body.description } : {}),
+    description: body.description,
     newId: () => uuidv7(),
-    ctx: {
-      skills: { ...used.skills, ...skills },
-      tools: registry.tools.specs(),
-      ...(registry.events ? { events: registry.events } : {}),
-      automations: used.automations,
-    },
     clientAgent: row.kind === "client",
+    ctx: registry,
   });
   if (!result.ok) throw new HttpError(422, result.code, result.message);
   // DECISION: "Save as automation" always makes a new automation (its slug must be free) at v1,
@@ -386,15 +346,9 @@ async function saveFromSteps(ctx: HandlerCtx<typeof routes.opsAutomationFromStep
     changeNote: `Saved from ${row.name} v${v.version}`,
     ctx: registry,
   });
-  const next: AnyAgentBundle = {
-    ...bundle,
-    workflows: bundle.workflows.map((w) =>
-      w.slug === holder.slug ? { ...w, workflow: result.workflow } : w,
-    ),
-  };
   const agentVersionRow = await createVersion(tx, {
     agentId: row.id,
-    bundle: next,
+    bundle: result.bundle,
     parentVersionId: v.id,
     authorType: "operator",
     authorId: session.user.id,
@@ -525,7 +479,11 @@ export async function builderAutomations(
       source: row.tenantId === null ? "shared" : "client",
       status: v.status,
       definition: def,
-      outputSchema: automationOutputSchema(def, typing),
+      // Wave 3b: typed from v3 steps or v4 process steps.
+      outputSchema:
+        def.schemaVersion === 2
+          ? processes.processAutomationOutputSchema(def, typing)
+          : automationOutputSchema(def, typing),
     });
   };
   const rows = await tx

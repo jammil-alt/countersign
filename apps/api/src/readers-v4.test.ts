@@ -263,14 +263,14 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
     expect(j(res.json).valid).toBe(true);
   });
 
-  it("refuses the Builder chat and Save as automation on a process, in plain words", async () => {
+  // Wave 3b (builder-chat): the Builder chat and Save as automation now read a process.
+  it("starts the Builder chat from a process and saves a process's steps as an automation", async () => {
     const live = await liveAgent("v4-builder", v4Clerk());
     const chat = await H.call(OPERATOR, "POST", "/api/ops/builder/sessions", {
       kind: "agent",
       agentId: live.agentId,
     });
-    expect(chat.status, JSON.stringify(chat.json)).toBe(422);
-    expect(j(chat.json).error.code).toBe("holds_processes");
+    expect(chat.status, JSON.stringify(chat.json)).toBeLessThan(300);
     const save = await H.call(OPERATOR, "POST", "/api/ops/automations/from-steps", {
       agentId: live.agentId,
       versionId: live.versionId,
@@ -278,7 +278,6 @@ describe.skipIf(!h)("readers of a published v4 version", () => {
       slug: "v4-steps",
       name: "Steps",
     });
-    expect(save.status, JSON.stringify(save.json)).toBe(422);
-    expect(j(save.json).error.code).toBe("process_steps");
+    expect(save.status, JSON.stringify(save.json)).toBeLessThan(300);
   });
 });

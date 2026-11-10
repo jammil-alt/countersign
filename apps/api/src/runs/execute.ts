@@ -33,8 +33,8 @@ import {
 import {
   // R6
   type AnyAgentBundle,
+  type AnyAutomationDefinition,
   type AnyBundleWorkflow,
-  type AutomationDefinition,
   automationRefs,
   // v0.12 W2-E
   HANDOFF_OUTPUT_MAX_BYTES,
@@ -259,7 +259,7 @@ type Loaded =
       timeZone?: string;
       resume: RunResume | null;
       // v0.12 W2-B: the automation versions its use steps pin.
-      automations?: Record<string, AutomationDefinition>;
+      automations?: Record<string, AnyAutomationDefinition>;
       // v0.13 W2-I: the agent's oversight settings, as pinned (absent: off). R6: its owner's
       // (`processes.ownerOfBundle`): a v3 agent's are exactly its stored ones.
       oversight?: OversightSettings;
@@ -278,8 +278,8 @@ async function automationsOf(
   tx: Tx,
   tenantId: string,
   workflow: StoredWorkflow,
-): Promise<Record<string, AutomationDefinition>> {
-  const out: Record<string, AutomationDefinition> = {};
+): Promise<Record<string, AnyAutomationDefinition>> {
+  const out: Record<string, AnyAutomationDefinition> = {};
   const refs =
     workflow.schemaVersion === 4
       ? processes.subProcessRefs([workflow])

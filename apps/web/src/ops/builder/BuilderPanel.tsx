@@ -23,8 +23,8 @@ import { SmallInput } from "./fields";
 
 type Detail = ResponseOf<typeof apiRoutes.opsBuilderSession>;
 
-// R8: the conversation's draft may be a v3 bundle (the Builder drafts v3 until it learns v4); it
-// comes onto the canvas read as processes (`read`), so the two compare like with like.
+// R8: the conversation's draft is a v4 process bundle (wave 3b: the server reads a v3 one through
+// the converter); `read` keeps the canvas and the draft comparing like with like either way.
 function parsed(detail: Detail | null): AnyAgentBundle | null {
   if (!detail) return null;
   const p = AnyAgentBundleSchema.safeParse(detail.session.bundle);

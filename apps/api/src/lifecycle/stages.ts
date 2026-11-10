@@ -23,6 +23,7 @@ import {
   goLiveItem,
   isExternalTool,
   NO_WRITES_REASON,
+  processes,
   readPause,
   readStageState,
   type SignoffSummary,
@@ -114,6 +115,19 @@ export async function bundleWrites(
   const enabled = { ...bundle, workflows: bundle.workflows.filter((w) => w.enabled) };
   const used = await automationContext(tx, { tenantId, bundle: enabled, catalog: ctx.catalog });
   for (const def of Object.values(used.automations)) {
+    // Wave 3b: a v4 automation's process steps (its reads, writes, skills and conversations).
+    if (def.schemaVersion === 2) {
+      processes.walkSteps(def, ({ step }) => {
+        if (step.kind === "skill") {
+          const inner = used.skills[step.skill] ?? skills[step.skill];
+          if (inner?.reachesPeople) reaches = true;
+          for (const t of inner ? skillTools(inner) : []) toolIds.add(t);
+        }
+        if (step.kind === "conversation") reaches = true;
+        if (step.kind === "write" || step.kind === "read") toolIds.add(step.tool);
+      });
+      continue;
+    }
     walkSteps(def, ({ step }) => {
       if (step.kind === "skill") {
         const inner = used.skills[step.skill] ?? skills[step.skill];

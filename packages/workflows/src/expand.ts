@@ -7,7 +7,7 @@
 // `${useNodeId}/${innerId}` (inside a loop, `${loop}:${index}:${useId}/${innerId}`).
 
 import {
-  type AutomationDefinition,
+  type AnyAutomationDefinition,
   processes,
   type Step,
   useSteps,
@@ -32,8 +32,8 @@ export type Expansions = Record<string, ExpandedAutomation>;
 
 /** Looks up a pinned automation version: a record by `slug@version`, or a function. */
 export type AutomationResolver =
-  | Readonly<Record<string, AutomationDefinition>>
-  | ((ref: string) => AutomationDefinition | undefined);
+  | Readonly<Record<string, AnyAutomationDefinition>>
+  | ((ref: string) => AnyAutomationDefinition | undefined);
 
 export class ExpandError extends Error {
   override name = "ExpandError";
@@ -46,7 +46,7 @@ export class ExpandError extends Error {
   }
 }
 
-function lookup(resolve: AutomationResolver, ref: string): AutomationDefinition | undefined {
+function lookup(resolve: AutomationResolver, ref: string): AnyAutomationDefinition | undefined {
   if (typeof resolve === "function") return resolve(ref);
   return Object.hasOwn(resolve, ref) ? resolve[ref] : undefined;
 }
@@ -85,6 +85,10 @@ export function expandAutomations(
   for (const use of useSteps([workflow])) {
     const def = lookup(resolve, use.automation);
     if (!def) throw new ExpandError(use.id, `automation ${use.automation} is not available`);
+    // Wave 3b: a v4 automation runs only inside a v4 process (validation refuses it here too).
+    if (def.schemaVersion === 2) {
+      throw new ExpandError(use.id, `automation ${use.automation} holds process steps`);
+    }
     if (useSteps([def]).length > 0) {
       throw new ExpandError(use.id, `automation ${use.automation} uses another automation`);
     }
@@ -181,14 +185,19 @@ export function expandProcesses(
   for (const use of processes.subProcessSteps([process])) {
     const def = lookup(resolve, use.process);
     if (!def) throw new ExpandError(use.id, `automation ${use.process} is not available`);
-    if (useSteps([def]).length > 0) {
+    // Wave 3b: a v4 automation's steps are process steps already, run as they are.
+    const nested =
+      def.schemaVersion === 2
+        ? processes.subProcessSteps([def]).length > 0
+        : useSteps([def]).length > 0;
+    if (nested) {
       throw new ExpandError(use.id, `automation ${use.process} uses another automation`);
     }
     out[use.id] = {
       ref: use.process,
       name: def.name,
       steps: withApprovalChecks(
-        stepsFromV3(def.steps, convert, origins),
+        def.schemaVersion === 2 ? def.steps : stepsFromV3(def.steps, convert, origins),
         use.approvals ?? {},
         origins,
         // DECISION (wave 2c): a step with an origin is a converted v3 use step, whose overrides

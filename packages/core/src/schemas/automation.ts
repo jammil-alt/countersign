@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Step as ProcessStep } from "../process/schema";
 import { JsonSchema, Slug, TemplateObject } from "./common";
 import { Step } from "./workflow";
 
@@ -32,6 +33,36 @@ export const AutomationDefinition = z
   })
   .meta({ id: "AutomationDefinition" });
 export type AutomationDefinition = z.infer<typeof AutomationDefinition>;
+
+// ── Wave 3b: automations whose steps are v4 process steps (docs/plan.md §1.86) ─────────────────
+//
+// DECISION: an automation saved from a v4 process (the Builder's and the workflow builder's "Save
+// as automation") holds v4 process steps and is `schemaVersion: 2`; a stored v1 automation keeps
+// its v3 steps and runs, validates and hashes exactly as before (invariant 3). A v4 process step
+// pins either; a v3 workflow's use step pins v1 only (its expansion runs v3 steps).
+
+/** An automation whose steps are v4 process steps (they read `{{input…}}`; no trigger). */
+export const ProcessAutomationDefinition = z
+  .object({
+    schemaVersion: z.literal(2),
+    slug: Slug,
+    name: z.string().trim().min(1).max(120),
+    description: z.string().max(2000).default(""),
+    input: JsonSchema.default({ type: "object", properties: {} }),
+    output: TemplateObject.default({}),
+    /** Any v4 kind except `process` (validation refuses nesting); no trigger. */
+    steps: z.array(ProcessStep),
+    requires: AutomationRequires.prefault({}),
+  })
+  .meta({ id: "ProcessAutomationDefinition" });
+export type ProcessAutomationDefinition = z.infer<typeof ProcessAutomationDefinition>;
+
+/** A stored automation version: v3 steps (`schemaVersion: 1`) or v4 process steps (`2`). */
+export const AnyAutomationDefinition = z.discriminatedUnion("schemaVersion", [
+  AutomationDefinition,
+  ProcessAutomationDefinition,
+]);
+export type AnyAutomationDefinition = z.infer<typeof AnyAutomationDefinition>;
 
 /** `follow-up@3` → `{ slug: "follow-up", version: 3 }`. */
 export function parseAutomationRef(ref: string): { slug: string; version: number } {

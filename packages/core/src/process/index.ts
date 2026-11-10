@@ -1,6 +1,8 @@
 // R1 (docs/plan.md §1.86): processes, workflow `schemaVersion: 4`. Exported from core as the
 // `processes` namespace, so its step names don't collide with the v3 workflow schema's.
 // R8: a whole bundle that may hold processes, and the builder's field picker.
+// Wave 3b: v4 automations and "Save as automation" on a process.
+export * from "./automation";
 export * from "./bundle";
 export * from "./clock";
 // R8: the conditions a process uses (the Library's condition sets).

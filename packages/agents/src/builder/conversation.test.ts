@@ -1,7 +1,8 @@
 // v0.12 W3-A: the Builder as a conversation against scripted model answers (FakeModel): the model
 // never sees an id it could regenerate, the guards hold across turns, commands keep a turn to what
 // they name, undo reverts one change alone or refuses with the conflict, and draft-skill turns
-// examples into test cases whose inputs come from the examples.
+// examples into test cases whose inputs come from the examples. Wave 3b: the drafts are v4 process
+// bundles (docs/plan.md §1.86).
 
 import {
   ConnectorRegistry,
@@ -10,13 +11,11 @@ import {
   TESTKIT_UPDATE_TOOL,
 } from "@countersign/connectors";
 import {
-  type AgentBundle,
+  type ProcessAgentBundle as AgentBundle,
   type AgentBundleInput,
-  AgentBundle as AgentBundleSchema,
+  ProcessAgentBundle as ProcessAgentBundleSchema,
+  processes,
   type SkillDefinition,
-  type Step,
-  validateBundle,
-  walkSteps,
 } from "@countersign/core";
 import { createLlmClient, FakeModel, type LlmRequest } from "@countersign/llm";
 import { describe, expect, it } from "vitest";
@@ -83,9 +82,16 @@ function context(): BuilderContext {
   };
 }
 
+type Step = processes.Step;
+const AgentBundleSchema = {
+  parse: (v: unknown) => ProcessAgentBundleSchema.parse(v) as AgentBundle,
+};
+
 const validate = async (bundle: AgentBundle) =>
-  validateBundle(bundle, { skills: { [matchSkill.id]: matchSkill }, tools: registry.specs() })
-    .errors;
+  processes.validateAnyBundle(bundle, {
+    skills: { [matchSkill.id]: matchSkill },
+    tools: registry.specs(),
+  }).errors as never;
 
 /** Server ids for the whole file, so turns never reuse one. */
 let made = 0;
@@ -96,7 +102,7 @@ const newId = () => {
 
 const stepsOf = (b: AgentBundle) => {
   const out: Step[] = [];
-  for (const w of b.workflows) walkSteps(w.workflow, ({ step }) => out.push(step));
+  for (const w of b.workflows) processes.walkSteps(w.workflow, ({ step }) => out.push(step));
   return out;
 };
 
@@ -129,7 +135,7 @@ const matchStep = (id: string, over: Record<string, unknown> = {}) => ({
 });
 const noteStep = (id: string, ref: string, over: Record<string, unknown> = {}) => ({
   id,
-  kind: "action",
+  kind: "write",
   name: "Note it on the record",
   tool: TESTKIT_UPDATE_TOOL,
   input: { id: `{{steps.${ref}.output.recordId}}`, name: "Receipt matched" },
@@ -183,25 +189,25 @@ describe("a conversation about a new agent", () => {
         b.definition.skills = [{ skill: matchSkill.id }];
         (b.workflows[0] as Draft["workflows"][number]).workflow.steps = [
           matchStep("s1", { model: { id: "gpt-unknown" } }),
-          noteStep("s2", "s1", { approval: { required: "not_required" } }),
+          noteStep("s2", "s1", { checks: { approval: { required: "not_required" } } }),
         ];
       }),
     );
     // The model saw no real id, not even the trigger's.
     expect(JSON.stringify(t1.model.requests[0])).not.toContain("trig-1");
-    expect(t1.bundle.workflows[0]?.workflow.trigger.id).toBe("trig-1");
+    expect(t1.bundle.workflows[0]?.workflow.triggers[0]?.id).toBe("trig-1");
     const [m1, n1] = stepsOf(t1.bundle);
     expect(m1?.id).toMatch(/^id\d+$/);
     expect(JSON.stringify(n1)).toContain(`{{steps.${m1?.id}.output.recordId}}`);
     expect(t1.bundle.definition.permissions.mode).toBe("suggest_only");
     expect(t1.bundle.definition.oversight).toMatchObject({ review: "failures" });
     expect(m1 && m1.kind === "skill" ? m1.model : "x").toBeUndefined();
-    expect(n1 && n1.kind === "action" ? n1.approval.required : null).toBe("required");
+    expect(n1?.checks?.approval?.required).toBe("required");
     expect(t1.changes.map((c) => c.label)).toEqual(
       expect.arrayContaining([
         "+1 skill · custom:match-receipt",
         "+1 skill, step 1 · Match the receipt",
-        "+1 action, step 2 · Note it on the record",
+        "+1 write, step 2 · Note it on the record",
       ]),
     );
 
@@ -212,7 +218,7 @@ describe("a conversation about a new agent", () => {
       editing((b) => {
         b.definition.permissions = { mode: "act" };
         const steps = (b.workflows[0] as Draft["workflows"][number]).workflow.steps;
-        (steps[1] as Record<string, unknown>).approval = { required: "not_required" };
+        (steps[1] as Record<string, unknown>).checks = { approval: { required: "not_required" } };
         steps.push({ id: "s1", kind: "wait", name: "Wait a day", for: "1 day" });
       }),
     );
@@ -222,7 +228,7 @@ describe("a conversation about a new agent", () => {
     expect(new Set(ids2).size).toBe(3);
     expect(t2.bundle.definition.permissions.mode).toBe("suggest_only");
     const n2 = stepsOf(t2.bundle)[1];
-    expect(n2 && n2.kind === "action" ? n2.approval.required : null).toBe("required");
+    expect(n2?.checks?.approval?.required).toBe("required");
     expect(t2.changes.map((c) => c.label)).toEqual(["+1 wait, step 3 · Wait a day"]);
   });
 
@@ -239,7 +245,10 @@ describe("a conversation about a new agent", () => {
           ...start.workflows[0],
           workflow: {
             ...start.workflows[0]?.workflow,
-            steps: [matchStep("m"), noteStep("n", "m", { approval: { required: "not_required" } })],
+            steps: [
+              matchStep("m"),
+              noteStep("n", "m", { checks: { approval: { required: "not_required" } } }),
+            ],
           },
         },
       ],
@@ -255,7 +264,7 @@ describe("a conversation about a new agent", () => {
     );
     const n = stepsOf(t.bundle)[1];
     expect(n?.name).toBe("Note the match");
-    expect(n && n.kind === "action" ? n.approval.required : null).toBe("not_required");
+    expect(n?.checks?.approval?.required).toBe("not_required");
   });
 
   it("/skill changes only that skill's steps and settings", async () => {
@@ -364,8 +373,8 @@ describe("undo by three-way merge", () => {
     expect(ok.ok).toBe(true);
     if (ok.ok) {
       expect(ok.bundle.definition.skills).toEqual([]);
-      expect(stepsOf(ok.bundle).map((s) => s.id)).toEqual(["m", "n", "w"]);
-      expect(stepsOf(ok.bundle)[1]?.name).toBe("Note the match");
+      expect(stepsOf(ok.bundle as AgentBundle).map((s) => s.id)).toEqual(["m", "n", "w"]);
+      expect(stepsOf(ok.bundle as AgentBundle)[1]?.name).toBe("Note the match");
     }
   });
 
