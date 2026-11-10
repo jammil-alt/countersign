@@ -82,7 +82,7 @@ export const USAGE_DAILY_MAX_DAYS = 92;
  * background reading when the report isn't narrowed to an agent or a template).
  */
 export const UsageModelRow = z.object({
-  /** `anthropic` | `openai`. */
+  /** `anthropic` | `openai` | `xai` | `google` (core's `modelProvider`). */
   provider: z.string(),
   model: z.string(),
   calls: z.number().int(),

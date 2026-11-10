@@ -5,6 +5,7 @@ import {
   hipaaReadiness,
   inboundHeld,
   PROCESSORS,
+  type Processor,
   parseCoveredProcessors,
   processingRefusal,
   processorForModel,
@@ -57,6 +58,11 @@ describe("processors", () => {
   it("names each feature's processors", () => {
     expect(processorForModel("claude-sonnet-5-5")).toBe("anthropic");
     expect(processorForModel("openai:gpt-5.5")).toBe("openai");
+    expect(processorForModel("xai:grok-4.7")).toBe("xai");
+    expect(processorForModel("google:gemini-3.1-pro")).toBe("google");
+    expect(processorForModel("google:gemini-3.5-flash-lite")).toBe("google");
+    // Only the prefix names a provider: an id that merely mentions one is Anthropic's.
+    expect(processorForModel("claude-grok-google")).toBe("anthropic");
     expect(processorsForTool("sms.send", "twilio")).toEqual(["twilio"]);
     expect(processorsForTool("whatsapp.send", "twilio").sort()).toEqual([
       "meta_whatsapp",
@@ -118,6 +124,8 @@ describe("processors", () => {
       "workos",
       "anthropic",
       "openai",
+      "xai",
+      "google",
       "twilio",
       "meta_whatsapp",
       "elevenlabs",
@@ -137,6 +145,29 @@ describe("processors", () => {
     expect(processingRefusal({ hipaa: true }, all, ["openai"], "The model")).toBe(
       "The model sends data to OpenAI, which has no signed BAA; this client is in HIPAA mode",
     );
+  });
+
+  it("refuses xai: and google: models in HIPAA mode until their BAA is recorded", () => {
+    const refusal = (model: string, covered: ReadonlySet<Processor>) =>
+      processingRefusal({ hipaa: true }, covered, [processorForModel(model)], "The model");
+    expect(refusal("xai:grok-4.7", all)).toBe(
+      "The model sends data to xAI, which has no signed BAA; this client is in HIPAA mode",
+    );
+    expect(refusal("google:gemini-3.1-pro", all)).toBe(
+      "The model sends data to Google (Gemini API), which has no signed BAA; this client is in HIPAA mode",
+    );
+    expect(refusal("google:gemini-3.5-flash-lite", all)).not.toBeNull();
+    // Recorded BAAs let them through, each only for its own vendor.
+    const withXai = parseCoveredProcessors("cloudflare neon workos anthropic xai");
+    expect(refusal("xai:grok-4.7", withXai)).toBeNull();
+    expect(refusal("google:gemini-3.1-pro", withXai)).not.toBeNull();
+    const withGoogle = parseCoveredProcessors("cloudflare,neon,workos,anthropic,google");
+    expect(refusal("google:gemini-3.1-pro", withGoogle)).toBeNull();
+    expect(refusal("xai:grok-4.7", withGoogle)).not.toBeNull();
+    // Outside HIPAA mode nothing is refused.
+    expect(
+      processingRefusal({ hipaa: false }, new Set(), [processorForModel("xai:grok-4.7")], "x"),
+    ).toBeNull();
   });
 
   it("reads the profile from client settings, off by default", () => {

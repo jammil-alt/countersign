@@ -10,6 +10,7 @@ import { validateClientView } from "../kpi/validate";
 import { AgentBundle, AnyAgentBundle, holdsProcess } from "../schemas/agent";
 import { parseSkillRef } from "../schemas/common";
 import {
+  definitionModelErrors,
   type ValidationContext,
   type ValidationError,
   validateBundle as validateV3Bundle,
@@ -113,6 +114,8 @@ export function validateAnyBundle(
     }
     roles.add(p.role);
   });
+
+  errors.push(...definitionModelErrors(bundle.definition, ctx.models));
 
   // Ids unique across workflows (each workflow's own duplicates are its validator's).
   const seen = new Set<string>();

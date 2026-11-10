@@ -37,6 +37,15 @@ describe("error keys", () => {
     expect(runErrorCode("ProviderNotConfiguredError: no openai model")).toBe(
       "provider_not_configured",
     );
+    // Model providers' errors, as packages/llm words them.
+    expect(runErrorCode("model call failed: xAI 429: Too many requests")).toBe("rate_limited");
+    expect(runErrorCode("model call failed: Google 503 (overloaded): try later")).toBe(
+      "overloaded",
+    );
+    expect(runErrorCode('529 {"type":"error","error":{"type":"overloaded_error"}}')).toBe(
+      "overloaded",
+    );
+    expect(runErrorCode("model call failed: Google timed out after 600 s")).toBe("timeout");
     expect(runErrorCode("something odd")).toBe("failed");
     expect(runErrorCode(null)).toBe("failed");
   });

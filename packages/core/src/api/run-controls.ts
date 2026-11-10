@@ -44,6 +44,9 @@ const ERROR_CODES: readonly [RegExp, string][] = [
   [/\b(401|unauthori[sz]ed|invalid_grant|sign-?in (has )?expired)\b/i, "unauthorized"],
   [/\b403\b|\bforbidden\b/i, "forbidden"],
   [/\b429\b|rate.?limit/i, "rate_limited"],
+  // A model provider too busy to answer: Anthropic's 529 `overloaded_error`, and the other
+  // providers' 503s, which packages/llm words as "(overloaded)".
+  [/\b529\b|overloaded/i, "overloaded"],
   [/\btimed out\b/i, "timeout"],
 ];
 
