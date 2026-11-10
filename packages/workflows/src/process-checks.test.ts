@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { executeWorkflow } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
 import { Harness, SKILL, WRITE_TOOL, wf } from "./fakes.test-helper";
-import type { AskApproverRequest, HoursPort } from "./ports";
+import type { AskApproverRequest, HoursPort, OversightRequest } from "./ports";
 
 const MANUAL = { id: "t", on: { type: "manual", input: {} } };
 
@@ -337,5 +337,98 @@ describe("needs help", () => {
     ]);
     expect(h.row("find")?.error).toMatch(/wasn't kept: memory is full/);
     expect(h.row("find")?.status).toBe("succeeded");
+  });
+});
+
+describe("the owner (R6)", () => {
+  const settings = { review: "failures", maxPerRun: 5, maxCostUsd: "1" } as never;
+
+  it("reviews a native v4 step as itself, with the watch's signals and the confer's verdicts", async () => {
+    const h = new Harness();
+    h.handlers.get = () => ({ kind: "done", output: { lines: [] } });
+    const reviews: OversightRequest[] = [];
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({
+        confer: { ai: async () => ({ verdict: "disagree", note: "nothing came back" }) },
+        oversight: {
+          port: {
+            review: async (req) => {
+              reviews.push(req);
+              return { action: "continue", note: "fine" };
+            },
+          },
+          settings,
+          watch: {},
+        },
+      }),
+      proc([
+        {
+          id: "get",
+          kind: "read",
+          name: "Get the lines",
+          tool: "testkit.thing.get",
+          checks: { confer: { with: [{ ai: { focus: "anything there" } }] } },
+        },
+      ]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]).toMatchObject({
+      cause: "checkpoint",
+      step: { id: "get", kind: "read", tool: "testkit.thing.get" },
+      errorKey: "",
+    });
+    expect(reviews[0]?.signals?.map((s) => s.kind)).toEqual(["empty_output", "confer_disagreed"]);
+    // The confer ran once, before the review.
+    expect(h.row("get:confer:0")?.status).toBe("succeeded");
+  });
+
+  it("without the watch, a v4 step that succeeded is reviewed exactly as v0.13 decides", async () => {
+    const h = new Harness();
+    h.handlers.get = () => ({ kind: "done", output: { lines: [] } });
+    const reviews: OversightRequest[] = [];
+    await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({
+        oversight: {
+          port: {
+            review: async (req) => {
+              reviews.push(req);
+              return { action: "continue", note: "" };
+            },
+          },
+          settings,
+        },
+      }),
+      proc([{ id: "get", kind: "read", name: "Get", tool: "testkit.thing.get" }]),
+      {},
+    );
+    expect(reviews).toHaveLength(0);
+  });
+
+  it("names a failed native step's error by its own kind and tool", async () => {
+    const h = new Harness();
+    h.handlers.write = () => ({ kind: "failed", error: "rate_limited" });
+    const reviews: OversightRequest[] = [];
+    await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({
+        oversight: {
+          port: {
+            review: async (req) => {
+              reviews.push(req);
+              return { action: "none", reason: "" };
+            },
+          },
+          settings,
+        },
+      }),
+      proc([write()]),
+      { what: "x" },
+    );
+    expect(reviews[0]).toMatchObject({ cause: "failed", step: { kind: "write" } });
+    expect(reviews[0]?.errorKey).toMatch(/^testkit\.thing\.update:/);
   });
 });

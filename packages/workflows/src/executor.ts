@@ -2140,10 +2140,15 @@ class Executor {
 
   /**
    * Nobody answered a person step. `stop` fails the run (`timeout`), as a timeout always has;
-   * `proceed` and `skip` go on with the step skipped and its output saying nobody answered.
+   * `skip` goes on with the step skipped and its output saying nobody answered. `proceed` goes on
+   * as §10.14's table says for a native v4 step, as if the answer were yes; a converted v3 step's
+   * (v3's `continue`) as v3 did, `approved: false`.
    */
-  // DECISION: `proceed` on a person step goes on with `approved: false`: nobody said yes, and a
-  // later `if` should see that (v3's `continue`, which converts to `proceed`, did exactly this).
+  // DECISION: `proceed` on a converted v3 person step goes on with `approved: false`, the step
+  // skipped: nobody said yes, and its stored workflow's later `if` was written for that (v3's
+  // `continue` did exactly this). On a native v4 step it reads as a yes (`approved: true`, `by`
+  // null, `proceeded: true`, the row succeeded), as §10.14's table says. A person step writes
+  // nothing itself: every write after it still has its own approval (invariant 8).
   async personNoAnswer(
     step: processes.PersonStep,
     name: string,
@@ -2154,10 +2159,13 @@ class Executor {
     told: boolean,
   ): Promise<void> {
     const label = clientLabel(asLabelled(step));
-    const output = { approved: false, answer: null, by: null };
+    const yes = then === "proceed" && !this.origin(step);
+    const output = yes
+      ? { approved: true, answer: null, by: null, proceeded: true }
+      : { approved: false, answer: null, by: null };
     await this.runner.do(`${name}:done`, async () => {
       await this.ctx.log.update(created.stepRunId, {
-        status: then === "stop" ? "failed" : "skipped",
+        status: then === "stop" ? "failed" : yes ? "succeeded" : "skipped",
         output,
         summary: `${label}: ${this.words.noAnswerInTime}`,
       });
@@ -2180,21 +2188,39 @@ class Executor {
 
   /**
    * A conversation (R7's port): started in a durable step; while under way the run waits for its
-   * event or the step's deadline, then asks the port what came of it (its record is the truth).
-   * Its output is what it found. Nobody answering in time takes the deadline's `ifNoAnswer`.
+   * event, its `wakeAt` or the step's deadline (on the hours of who it is with), whichever comes
+   * first, then asks the port again with what woke it (its record is the truth). Its output is
+   * what it found (`processes.ConversationOutput`). Nobody answering in time takes the deadline's
+   * `ifNoAnswer`; a conversation turned down (a message not approved, a person ending it) takes
+   * `checks.approval.onReject`.
    */
   async conversation(step: processes.ConversationStep, name: string, frame: Frame): Promise<void> {
     const port = this.ctx.conversation;
     if (!port) throw new Error("conversation steps need the conversation service");
     const { run, log } = this.ctx;
     const label = clientLabel(asLabelled(step));
+    const waiting = async (stepRunId: string, result: ConversationResult) => {
+      if (result.status !== "pending") return;
+      const on = result.waitingOn ?? "reply";
+      await log.update(stepRunId, {
+        status: "waiting",
+        summary: `${label}: ${
+          on === "signature"
+            ? this.words.waitingForApproval
+            : on === "answer"
+              ? this.words.waitingForAnswer
+              : "waiting for a reply"
+        }`,
+      });
+    };
     const started = await this.runner.do(
       name,
       async () => {
+        // Who it is with may be templated; the goal is fixed text, the model's instructions
+        // (invariant 9; the validator refuses a templated one), so it goes as written.
         const resolved: processes.ConversationStep = {
           ...step,
           with: renderTemplate(step.with, frame.scope),
-          goal: renderTemplate(step.goal, frame.scope),
         };
         const stepRunId = await log.start({
           runId: run.id,
@@ -2210,44 +2236,82 @@ class Executor {
           tenantId: run.tenantId,
           agentVersionId: run.agentVersionId,
           mode: run.mode,
+          stepRunId,
         };
         const result = await port.conversation(request);
-        if (result.status === "pending") {
-          await log.update(stepRunId, {
-            status: "waiting",
-            summary: `${label}: ${this.words.waitingForAnswer}`,
-          });
-        }
+        await waiting(stepRunId, result);
         return { stepRunId, dueAt, request, result };
       },
       this.ctx.stepConfig,
     );
     let result: ConversationResult = started.result;
     for (let n = 1; result.status === "pending"; n++) {
-      if (!result.conversationId) throw new Error("the conversation has no id to wait on");
-      let timedOut = false;
+      const type =
+        result.waitFor ??
+        (result.conversationId ? conversationEventType(result.conversationId) : null);
+      if (!type) throw new Error("the conversation has nothing to wait on");
+      // Check before waiting, as for an inbox item: it may have moved on while the run wasn't
+      // listening (a replay after a restart reads the stored result above). A call without a
+      // wake only reports where the conversation is.
+      const now = await this.runner.do(`${name}:check:${n}`, () =>
+        port.conversation(started.request),
+      );
+      if (now.status !== "pending") {
+        result = now;
+        break;
+      }
+      // The deadline, or the engine's own wake time if sooner (a reply's wait).
+      const wakeAt = result.wakeAt ?? null;
+      const deadlineFirst = wakeAt === null || Date.parse(started.dueAt) <= Date.parse(wakeAt);
+      let wake: NonNullable<ConversationRequest["wake"]>;
       try {
-        await this.runner.waitForEvent(`${name}:wait:${n}`, {
-          type: conversationEventType(result.conversationId),
-          timeout: untilDue(started.dueAt),
+        const event = await this.runner.waitForEvent(`${name}:wait:${n}`, {
+          type,
+          timeout: untilDue(deadlineFirst ? started.dueAt : (wakeAt as string)),
         });
+        wake = event.payload === undefined ? {} : { payload: event.payload };
       } catch (error) {
         if (!isWaitTimeout(error)) throw error;
-        timedOut = true;
+        wake = deadlineFirst ? { deadlinePassed: true } : { timedOut: true };
       }
       result = await this.runner.do(
         `${name}:result:${n}`,
-        () => port.conversation(started.request),
+        async () => {
+          const next = await port.conversation({ ...started.request, wake });
+          await waiting(started.stepRunId, next);
+          return next;
+        },
         this.ctx.stepConfig,
       );
-      if (timedOut && result.status === "pending") result = { ...result, status: "no_answer" };
+      // The deadline passed: whatever the port says, the step stops waiting.
+      if (wake.deadlinePassed && result.status === "pending") {
+        result = { ...result, status: "no_answer" };
+      }
     }
     const output = {
       status: result.status,
       found: result.found,
       summary: result.summary,
       conversationId: result.conversationId,
+      ...(result.sources?.length ? { sources: result.sources } : {}),
     };
+    if (result.declined === true) {
+      // A message wasn't approved, or a person ended it: the step's approval `onReject`.
+      const onReject = step.checks?.approval?.onReject ?? "stop";
+      await this.runner.do(`${name}:done`, async () => {
+        await log.update(started.stepRunId, {
+          status: "skipped",
+          output,
+          summary: `${label}: ${this.words.declined}`,
+        });
+        return null;
+      });
+      if (onReject === "stop") {
+        throw new RunEnd({ status: "cancelled", reason: "rejected", nodeId: name });
+      }
+      frame.scope.steps[step.id] = { output };
+      return;
+    }
     if (result.status === "failed") {
       await this.runner.do(`${name}:done`, async () => {
         await log.update(started.stepRunId, {
@@ -2272,17 +2336,19 @@ class Executor {
         const ask = this.personAsker(started.stepRunId, {
           stepId: step.id,
           name: step.name,
-          title: renderTemplate(step.goal, frame.scope),
-          payload: { with: renderTemplate(step.with, frame.scope), found: result.found },
+          title: label,
+          payload: { with: started.request.step.with, found: result.found },
         });
         end = await this.escalate(name, then, ask);
       }
       const answered = "resolution" in end ? end.resolution : null;
       const final = answered ? { ...output, answer: answered.answer ?? null } : output;
-      const stop = !answered && "ended" in end && end.ended === "stop";
+      const ended = "ended" in end ? end.ended : null;
       await this.runner.do(`${name}:done`, async () => {
         await log.update(started.stepRunId, {
-          status: answered ? "succeeded" : stop ? "failed" : "skipped",
+          // `proceed` goes on with what it found so far; `skip` skips the step.
+          status:
+            answered || ended === "proceed" ? "succeeded" : ended === "stop" ? "failed" : "skipped",
           output: final,
           summary: `${label}: ${answered ? this.words.answered : this.words.noAnswerInTime}`,
         });
@@ -2293,7 +2359,7 @@ class Executor {
         });
         return null;
       });
-      if (stop) throw new RunEnd({ status: "failed", reason: "timeout", nodeId: name });
+      if (ended === "stop") throw new RunEnd({ status: "failed", reason: "timeout", nodeId: name });
       frame.scope.steps[step.id] = { output: final };
       return;
     }
