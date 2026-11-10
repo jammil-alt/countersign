@@ -630,6 +630,8 @@ export async function executeRun(
  * For a v3 bundle the settings are exactly its stored `definition.oversight` (absent: off) and
  * there is no watch, so a stored agent is overseen as it was.
  */
+// DECISION (R6): read from the pinned version inside the run's load step, so a replay oversees with
+// the same settings; the watch's history is a durable step of its own, for v4 runs only.
 function ownerSettingsOf(bundle: unknown): { oversight?: OversightSettings; watch?: boolean } {
   if (!bundle) return {};
   const owner = processes.ownerOfBundle(bundle as AnyAgentBundle);

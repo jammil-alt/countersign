@@ -2471,6 +2471,51 @@ tools, is the owner's doc "Mezonas process model"; milestones are §9.
   `messages.first: not_required` to invariant 8: allowed at publish only where every bound
   connection able to carry the channel allows `auto` for `create`; with none bound, refused.
 
+**Runtime (wave 2b, `wave2b/runtime`):**
+- // DECISION: a write's further signers (`AgentPort.askApprover`) each get an `external_action`
+  item for the same change (its subject the action; the gate's card copied), idempotent per
+  (run, node). A yes while another signer's card is open leaves the change `proposed`; the last
+  open signer's yes approves it, a no from anyone rejects it. The run's decision is applied before
+  executing (`approveForRunTx`), checked against the signers' own cards: the run's word alone
+  never signs a change. A change approved on the gate's card alone goes back to `proposed` when
+  the run asks another signer, so it is never carried by a retry on one signature.
+- // DECISION: a write that proceeds with nobody's answer asks the gate again first
+  (`unsignedRefusal`: step `not_required`, the matrix, grant and entity, the recipient's autonomy,
+  the agent's mode at its stage, all read now). If the gate would make it wait, the step fails
+  ("nobody answered in time, and …"); otherwise the change is approved by its deadline
+  (`approvedBy` null) and the step's row carries R5's mark in `step_run.output`
+  (`proceededWithoutAnswer`, `externalActionId`, `inboxItemIds`).
+- // DECISION: an item asked of a user id that isn't a member of the client (a directory contact,
+  who can't sign in) goes to the client admin, as the approver rules send a non-member's rule;
+  `lead` is the client's lead as an operator's item; a test run's items go to the operator.
+  A conversation's or a reach-out's signature is one person's: asking more signers fails closed.
+- // DECISION: runAgent applies a v4 step's added instructions after the skill's own; rule rows a
+  step adds or edits fail the step, since the runtime doesn't evaluate rule rows yet. Settings,
+  model and `keep` stay the executor's. The agent port declares `appliesCustomization`.
+- // DECISION: a v4 notice is one thread message on the run naming its recipients and channel
+  (client-facing for a live run's notice to anyone on the client's side), as v3's notices are until
+  free text goes out by email or text. An urgent one also opens a "Seen" request for its first
+  recipient, due by its time, which the run waits on; the outbox's items-waiting pass tells them.
+  A deadline's `tell` is a `review` item for each person or role it names; a test run's tells us.
+- // DECISION: an AI reviewer runs one model call with no tool but `finish`: the focus in the
+  instructions, the step's input, output and the focus's references as data. With no model named,
+  the first of the agent's model, the reasoning default and the largest model that differs from
+  the step's. An answer that doesn't parse, or a failed call, is `unsure`.
+- // DECISION: the v4 conversation step runs on P-4's service (`converse/engine.ts` over
+  `conversePort`): the first call starts it, a call with no wake only reports where it is (an
+  answered card or an unread reply reports `wakeAt` now, so a lost event costs nothing), and a
+  wake reads the card or rows it waits on, never the event's payload. `messages.later: required`
+  signs every later message. A deadline ends it as handed over (to `ifNoAnswer`), its open message
+  ended and its cards expired. Calls aren't wired to the voice path yet: a call step fails plainly.
+- // DECISION: wherever a conversation's message wakes its run (a reply, a wait ending, a held send,
+  the cron's re-send) or its card is resolved (the portal and back-office resolve routes, the
+  cron's re-send of resolved items), core's conversation event is sent beside the v3 event; a run
+  that doesn't wait on it ignores it. The engine marks a card received once it takes it.
+- // DECISION: the owner's settings and watch come from `processes.ownerOfBundle` of the pinned
+  version (a v3 bundle's settings are exactly its stored ones, with no watch); a v4 run reads the
+  agent's earlier live outputs once (`run:owner-history`, `dbOversightStore.recentOutputs`), and
+  the watch's signals reach `overseeStep`. Deadlines read `hoursFor(db)`.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

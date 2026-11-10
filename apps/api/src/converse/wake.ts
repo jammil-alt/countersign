@@ -38,6 +38,9 @@ export async function conversationEventOfItem(
   return conversationEventOfSubject(row?.subject);
 }
 
+// DECISION (R7): the conversation's event goes beside the v3 one, always: which kind of step waits
+// isn't known where a reply lands or a card is resolved, and an event nobody waits for is never
+// read. The cron's re-sends (reach-outs not taken, resolved items not taken) carry it too.
 /** Sends `event`, and the conversation's own event beside it when there is one. */
 export async function sendWithConversation(
   instances: RunInstances,
