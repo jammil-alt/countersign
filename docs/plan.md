@@ -3096,6 +3096,15 @@ Websites screen's Scripts, the Library's and the builder's listings):
   who answers (`to: "operator"`, else the lead) and that the answer isn't kept (`keep: false`); the
   browser connector's `scriptNeedsHelp` says both. Read only from a tool step's output (our code
   wrote it), never a skill's, whose output may come from a model: a skill always asks the lead.
+- DECISION (integration): the same rule for every route that waits on its own transactions or on
+  something outside: on `mountLong`, reads and writes in short `inTx` transactions, nothing held
+  across the wait. Moved: the ledger's signed change (`opsClientLedgerChange`), a pack's action
+  (`opsClientPackAction`), a pack review's decision (`opsPackReviewDecide`,
+  `portalPackReviewDecide`), editing before signing (`portalEditInbox`: the runtime's check and a
+  translation; a change someone else edited meanwhile is refused with 409 `conflict`), and the
+  OAuth callbacks (`portalAuthorizeCallback`, `opsSandboxAuthorizeCallback`: the provider's
+  exchange, WhatsApp's "number taken" check, and the vault's cipher in transactions of its own).
+  Their API tests run on `appDbMax: 1` (desk, packs, qbo, whatsapp-meta).
 
 ## 2. Package layering
 

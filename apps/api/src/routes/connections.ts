@@ -13,6 +13,7 @@ import {
   type ConnectionRef,
   type Connector,
   completeAuthorization,
+  credentialKeysFromEnv,
   // v0.14 W4-E
   GCHAT_CONNECTOR_ID,
   GMAIL_CONNECTOR_ID,
@@ -28,6 +29,7 @@ import {
   ReconnectRequiredError,
   readOAuthState,
   SignInRefusedError,
+  tenantKeysInDb,
 } from "@countersign/connectors";
 import {
   buildPath,
@@ -45,10 +47,20 @@ import { connection, connectionChange, type Tx, tenant } from "@countersign/db";
 import { and, count, desc, eq, gt, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import type { Bindings } from "../env";
-import { type AppContext, type AppEnv, HttpError, mount, notFound, type Services } from "../http";
+import {
+  type AppContext,
+  type AppEnv,
+  HttpError,
+  mount,
+  mountLong,
+  notFound,
+  type Services,
+  txOnly,
+} from "../http";
 import { reportHandled } from "../observability/report";
 import type { Platform } from "../platform";
-import { connectionCredentials, vaultFor } from "../secrets";
+import { credentialsFor } from "../runs/execute";
+import { cipherFor, connectionCredentials } from "../secrets";
 // v0.14 W4-A
 import { accountTakenElsewhere } from "../whatsapp-meta/inbound";
 import { opsConnection } from "./mappers";
@@ -205,6 +217,24 @@ async function reconnectContext(
   };
 }
 
+/**
+ * The same, for a sign-in finished outside the request's transaction (`finishSignIn`): the
+ * credentials read and written in short transactions of their own.
+ */
+function reconnectContextOutside(
+  services: Services,
+  row: ConnectionRow | undefined,
+): ConnectionContext | undefined {
+  if (!row || row.status === "disconnected" || !row.credentialsEncrypted) return undefined;
+  return {
+    tenantId: row.tenantId,
+    connection: refOf(row),
+    credentials: credentialsFor(services.db, credentialKeysFromEnv(services.env))(refOf(row)),
+    logger: noopLogger,
+    now: () => new Date(),
+  };
+}
+
 /** The API path a provider may return to; it forwards to a callback page as it is. */
 const API_RETURN_PATH = "/api/connections/:connector/callback";
 
@@ -334,12 +364,19 @@ function oauthConnector(platform: Platform, connectorId: string): Connector {
  * connector, user and where it started), exchanges the code, and stores the credentials on the
  * client's one connection for the connector (a reconnect keeps its matrix and bindings). Records
  * the change with who made it, and starts QuickBooks' first sync. Returns the connection id.
+ *
+ * The provider's exchange runs outside any transaction (the callbacks are on `mountLong`): it
+ * waits on the provider, and a connector may ask whether the account is another client's
+ * (`accountTaken`, which reads each client in its own transaction). A Worker's database has one
+ * pooled connection, so none is held across it; the connection is written in a short one after.
  */
+// DECISION (wave 4 integration): the vault's cipher and a reconnect's credentials are the ones that
+// open their own transactions (`tenantKeysInDb`, `credentialsFor`), as a run's are.
 async function finishSignIn(
   ctx: {
     c: AppContext;
-    tx: Tx;
     services: Services;
+    inTx: <T>(work: (tx: Tx) => Promise<T>) => Promise<T>;
     defer(task: () => Promise<unknown>): void;
   },
   input: {
@@ -352,15 +389,13 @@ async function finishSignIn(
     existing: ConnectionRow | undefined;
   },
 ): Promise<string> {
-  const { c, tx, services } = ctx;
+  const { c, services } = ctx;
   const { tenantId, connector, existing } = input;
   const connectorId = connector.manifest.id;
   const id = existing?.id ?? uuidv7();
   let done: Awaited<ReturnType<typeof completeAuthorization>>;
   // v0.12 bankfeed: a link widget's reconnect keeps the same grant (Plaid's update mode).
-  const reconnect = connector.beginLink
-    ? await reconnectContext(tx, services, existing)
-    : undefined;
+  const reconnect = connector.beginLink ? reconnectContextOutside(services, existing) : undefined;
   try {
     done = await completeAuthorization({
       ...(reconnect ? { existing: reconnect } : {}),
@@ -371,7 +406,7 @@ async function finishSignIn(
       connectionId: id,
       redirectUri: oauthRedirectUri(c, services.env, connectorId),
       stateSecret: stateSecret(services.env),
-      cipher: await vaultFor(tx, services.env),
+      cipher: (await cipherFor(services.env)).forClients(tenantKeysInDb(services.db)),
       // v0.14 W4-A: one client per account where the connector asks (a WhatsApp number).
       accountTaken: (externalAccountId) =>
         accountTakenElsewhere(services.db, { tenantId, connector: connectorId, externalAccountId }),
@@ -398,33 +433,35 @@ async function finishSignIn(
     externalAccountId: done.grant.externalAccountId,
     connectedBy: input.userId,
   };
-  if (existing) {
-    await tx
-      .update(connection)
-      .set({ ...values, config: { ...existing.config, ...(done.grant.config ?? {}) } })
-      .where(and(eq(connection.id, existing.id), eq(connection.tenantId, tenantId)));
-  } else {
-    await tx.insert(connection).values({
-      id,
+  await ctx.inTx(async (tx) => {
+    if (existing) {
+      await tx
+        .update(connection)
+        .set({ ...values, config: { ...existing.config, ...(done.grant.config ?? {}) } })
+        .where(and(eq(connection.id, existing.id), eq(connection.tenantId, tenantId)));
+    } else {
+      await tx.insert(connection).values({
+        id,
+        tenantId,
+        connector: connectorId,
+        // v0.12 W2-A: the operator's default access for new clients, else the connector's.
+        permissions: await newConnectionMatrix(tx, connector.manifest),
+        config: done.grant.config ?? {},
+        ...values,
+      });
+    }
+    await tx.insert(connectionChange).values({
       tenantId,
-      connector: connectorId,
-      // v0.12 W2-A: the operator's default access for new clients, else the connector's.
-      permissions: await newConnectionMatrix(tx, connector.manifest),
-      config: done.grant.config ?? {},
-      ...values,
+      connectionId: id,
+      actorId: input.userId,
+      change: {
+        kind: "status",
+        by: input.by,
+        before: existing?.status ?? null,
+        after: "connected",
+        account: done.grant.externalAccountId,
+      },
     });
-  }
-  await tx.insert(connectionChange).values({
-    tenantId,
-    connectionId: id,
-    actorId: input.userId,
-    change: {
-      kind: "status",
-      by: input.by,
-      before: existing?.status ?? null,
-      after: "connected",
-      account: done.grant.externalAccountId,
-    },
   });
   if (connectorId === QBO_CONNECTOR_ID) {
     // The first sync starts as soon as the client is connected (then the cron and webhooks).
@@ -630,28 +667,36 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
     };
   });
 
-  mount(app, routes.portalAuthorizeCallback, async (ctx) => {
-    const { tx, tenantIds, params, body, session, services } = ctx;
+  // The provider's exchange runs outside the request's transaction (finishSignIn).
+  mountLong(app, routes.portalAuthorizeCallback, async (ctx) => {
+    const { tenantIds, params, body, session, services } = ctx;
+    const inTx = txOnly(ctx.inTx);
     const tenantId = tenantIds[0] as string;
-    await offeredTo(tx, tenantId, params.connector);
-    const connector = oauthConnector(services.platform, params.connector);
-    // B-5: the signed state says which connection this is (another one, or one signed in again);
-    // completeAuthorization checks the state in full before anything is kept.
-    const existing = await callbackTarget(tx, services, tenantId, connector, body.params.state);
-    const allowed = mayManage(ctx.role, session.user.id, params.connector, existing);
-    if (!allowed.ok) throw new HttpError(403, "forbidden", allowed.message);
-    const id = await finishSignIn(ctx, {
-      tenantId,
-      connector,
-      params: body.params,
-      userId: session.user.id,
-      origin: "portal",
-      by: "client",
-      existing,
+    const { connector, existing } = await inTx(async (tx) => {
+      await offeredTo(tx, tenantId, params.connector);
+      const connector = oauthConnector(services.platform, params.connector);
+      // B-5: the signed state says which connection this is (another one, or one signed in
+      // again); completeAuthorization checks the state in full before anything is kept.
+      const existing = await callbackTarget(tx, services, tenantId, connector, body.params.state);
+      const allowed = mayManage(ctx.role, session.user.id, params.connector, existing);
+      if (!allowed.ok) throw new HttpError(403, "forbidden", allowed.message);
+      return { connector, existing };
     });
-    return {
+    const id = await finishSignIn(
+      { c: ctx.c, services, inTx, defer: ctx.defer },
+      {
+        tenantId,
+        connector,
+        params: body.params,
+        userId: session.user.id,
+        origin: "portal",
+        by: "client",
+        existing,
+      },
+    );
+    return inTx(async (tx) => ({
       connection: await connectionOut(tx, tenantId, services.platform, id, session.user.id),
-    };
+    }));
   });
 
   mount(
@@ -736,8 +781,10 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
     return { redirectUrl };
   });
 
-  mount(app, routes.opsSandboxAuthorizeCallback, async (ctx) => {
-    const { tx, params, body, session, services } = ctx;
+  // The provider's exchange runs outside the request's transaction (finishSignIn).
+  mountLong(app, routes.opsSandboxAuthorizeCallback, async (ctx) => {
+    const { params, body, session, services } = ctx;
+    const inTx = txOnly(ctx.inTx);
     // The state names the client. Nothing in it counts until its signature holds; then it must be a
     // back-office sign-in to this connector by this operator.
     const state = body.params.state;
@@ -753,22 +800,30 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
       throw new HttpError(400, "mismatch", "invalid OAuth state: mismatch");
     }
     // A client this operator serves (404 otherwise), and the Sandbox (403 otherwise).
-    const t = await sandboxClient(ctx, claims.tenantId);
-    await offeredTo(tx, t.id, params.connector);
-    const connector = oauthConnector(services.platform, params.connector);
-    const id = await finishSignIn(ctx, {
-      tenantId: t.id,
-      connector,
-      params: body.params,
-      userId: session.user.id,
-      origin: "ops",
-      by: "operator",
-      existing: await newestConnection(tx, t.id, params.connector),
+    const { t, connector, existing } = await inTx(async (tx) => {
+      const t = await sandboxClient({ tx, tenantIds: ctx.tenantIds }, claims.tenantId);
+      await offeredTo(tx, t.id, params.connector);
+      const connector = oauthConnector(services.platform, params.connector);
+      return { t, connector, existing: await newestConnection(tx, t.id, params.connector) };
     });
-    const [row] = await tx
-      .select()
-      .from(connection)
-      .where(and(eq(connection.id, id), eq(connection.tenantId, t.id)));
+    const id = await finishSignIn(
+      { c: ctx.c, services, inTx, defer: ctx.defer },
+      {
+        tenantId: t.id,
+        connector,
+        params: body.params,
+        userId: session.user.id,
+        origin: "ops",
+        by: "operator",
+        existing,
+      },
+    );
+    const [row] = await inTx((tx) =>
+      tx
+        .select()
+        .from(connection)
+        .where(and(eq(connection.id, id), eq(connection.tenantId, t.id))),
+    );
     if (!row) throw notFound("connection");
     return { clientId: t.id, connection: opsConnection(row) };
   });
