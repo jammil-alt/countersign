@@ -4,6 +4,8 @@ import { ClientView } from "../kpi/schema";
 import { DecimalString } from "../money";
 // v0.13 W2-I
 import { OversightSettings } from "../oversight/decision";
+// R1 (docs/plan.md §1.86): a bundle entry may hold a v4 process.
+import { Process } from "../process/schema";
 import { PersonRole } from "../reach/rules";
 import { SkillRef, Slug, ToolId } from "./common";
 import { AgentMode } from "./permissions";
@@ -90,3 +92,38 @@ export const AgentBundle = z
   .meta({ id: "AgentBundle" });
 export type AgentBundle = z.infer<typeof AgentBundle>;
 export type AgentBundleInput = z.input<typeof AgentBundle>;
+
+// ── R1: bundles that may hold v4 processes (docs/plan.md §1.86, §9) ──────────────────────────
+//
+// DECISION: `AgentBundle` keeps its v3-only type and schema while the runtime, validator, Builder
+// and screens read v3 only; a bundle that may hold v4 processes is `AnyAgentBundle`, whose entries
+// are a v3 workflow or a v4 process by `schemaVersion`. Every `AgentBundle` is an
+// `AnyAgentBundle`, and a v3 bundle parses to the same value (so the same canonical JSON and
+// `bundle_hash`) under either schema. When every reader handles v4 (R3, R8), `AgentBundle` becomes
+// this schema and the v3-only one goes.
+
+/** A workflow entry whose workflow is a stored v3 workflow or a v4 process. */
+export const AnyBundleWorkflow = BundleWorkflow.extend({
+  workflow: z.discriminatedUnion("schemaVersion", [Workflow, Process]),
+});
+export type AnyBundleWorkflow = z.infer<typeof AnyBundleWorkflow>;
+
+/** An agent bundle whose workflows may be v3 workflows or v4 processes, mixed. */
+export const AnyAgentBundle = AgentBundle.extend({
+  workflows: z.array(AnyBundleWorkflow),
+}).meta({ id: "AnyAgentBundle" });
+export type AnyAgentBundle = z.infer<typeof AnyAgentBundle>;
+export type AnyAgentBundleInput = z.input<typeof AnyAgentBundle>;
+
+/** A workflow entry read as a v4 process. */
+export type ProcessBundleWorkflow = Omit<BundleWorkflow, "workflow"> & { workflow: Process };
+
+/** A bundle with every workflow read as a v4 process (core's `toProcessBundle`). */
+export type ProcessAgentBundle = Omit<AgentBundle, "workflows"> & {
+  workflows: ProcessBundleWorkflow[];
+};
+
+/** True when any of the bundle's workflows is a v4 process. */
+export function holdsProcess(bundle: Pick<AnyAgentBundle, "workflows">): boolean {
+  return bundle.workflows.some((w) => w.workflow.schemaVersion === 4);
+}

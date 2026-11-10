@@ -1,7 +1,11 @@
 import { cloneJson } from "../json";
-import type { AgentBundle } from "../schemas/agent";
+import type { Step as ProcessStep } from "../process/schema";
+import type { AgentBundle, AnyAgentBundle } from "../schemas/agent";
 import { parseSkillRef } from "../schemas/common";
-import type { Step } from "../schemas/workflow";
+import type { Trigger, Step as WorkflowStep } from "../schemas/workflow";
+
+/** A v3 workflow step or a v4 process step. */
+type Step = WorkflowStep | ProcessStep;
 
 /**
  * A bundle as a flat set of keyed entities in ordered lists, the shape diff and merge work on
@@ -15,9 +19,30 @@ import type { Step } from "../schemas/workflow";
  * when the bundle has `people`, so bundles without it rebuild unchanged), `workflow:<slug>>steps`,
  * `step:<fork>>paths`, `step:<fork>>otherwise`, `step:<for_each>>steps`, `path:<id>>steps`,
  * `otherwise:<id>>steps`.
+ *
+ * R1 (docs/plan.md §1.86): a v4 process flattens the same way, its `if` steps like forks (paths
+ * and otherwise by id). Its `triggers` stay a field of the workflow entity, as a v3 workflow's
+ * `trigger` does, but keyed by trigger id (`workflow/triggers/<id>`), so each trigger merges field
+ * by field and adding one on one side never conflicts with editing another on the other.
  */
+// DECISION: triggers are an id-keyed field of the workflow entity, not entities of their own: no
+// new entity kind (screens map every kind to a word), and trigger changes group with their
+// workflow when selected, as v3 trigger changes do. The cost: their order merges as ours, then
+// theirs' new ones, and a trigger reorder alone is not a change; a trigger id that is a plain
+// number (`"2"`) sorts before the others when rebuilt.
 
 export type EntityKind = "skill" | "workflow" | "step" | "path" | "otherwise" | "person";
+
+/** Steps whose branches flatten as paths and an otherwise: v3 `fork` and v4 `if`. */
+function isBranching(kind: unknown): boolean {
+  return kind === "fork" || kind === "if";
+}
+
+/** A workflow entity's content holds a v4 process. */
+function isProcess(content: Record<string, unknown>): boolean {
+  const wf = content.workflow as { schemaVersion?: unknown } | undefined;
+  return wf?.schemaVersion === 4;
+}
 
 /** The list of the bundle's people; present only when the bundle declares `people`. */
 export const PEOPLE_LIST = "bundle>people";
@@ -52,7 +77,9 @@ export function childLists(entity: Pick<Entity, "key" | "kind" | "content">): st
     case "otherwise":
       return [`${entity.key}>steps`];
     case "step":
-      if (entity.content.kind === "fork") return [`${entity.key}>paths`, `${entity.key}>otherwise`];
+      if (isBranching(entity.content.kind)) {
+        return [`${entity.key}>paths`, `${entity.key}>otherwise`];
+      }
       if (entity.content.kind === "for_each") return [`${entity.key}>steps`];
       return [];
     default:
@@ -60,7 +87,7 @@ export function childLists(entity: Pick<Entity, "key" | "kind" | "content">): st
   }
 }
 
-export function flattenBundle(bundle: AgentBundle): FlatBundle {
+export function flattenBundle(bundle: AnyAgentBundle): FlatBundle {
   const b = cloneJson(bundle);
   const entities = new Map<string, Entity>();
   const lists = new Map<string, string[]>();
@@ -82,7 +109,7 @@ export function flattenBundle(bundle: AgentBundle): FlatBundle {
     ensure(list);
     for (const step of items) {
       const key = `step:${step.id}`;
-      if (step.kind === "fork") {
+      if (step.kind === "fork" || step.kind === "if") {
         const { paths, otherwise, ...content } = step;
         add(key, "step", content, list);
         ensure(`${key}>paths`);
@@ -109,10 +136,23 @@ export function flattenBundle(bundle: AgentBundle): FlatBundle {
   }
   ensure(`${ROOT}>workflows`);
   for (const w of b.workflows) {
-    const { steps: inner, ...wf } = w.workflow;
     const key = `workflow:${w.slug}`;
-    add(key, "workflow", { ...w, workflow: wf }, `${ROOT}>workflows`);
-    steps(inner, `${key}>steps`);
+    if (w.workflow.schemaVersion === 4) {
+      const { steps: inner, triggers, ...wf } = w.workflow;
+      const byId: Record<string, Trigger> = {};
+      for (const t of triggers) {
+        if (Object.hasOwn(byId, t.id)) {
+          throw new Error(`duplicate trigger ${t.id} in ${key} (validate first)`);
+        }
+        byId[t.id] = t;
+      }
+      add(key, "workflow", { ...w, workflow: { ...wf, triggers: byId } }, `${ROOT}>workflows`);
+      steps(inner, `${key}>steps`);
+    } else {
+      const { steps: inner, ...wf } = w.workflow;
+      add(key, "workflow", { ...w, workflow: wf }, `${ROOT}>workflows`);
+      steps(inner, `${key}>steps`);
+    }
   }
 
   if (b.people !== undefined) {
@@ -133,12 +173,23 @@ export function buildEntity(flat: FlatBundle, key: string): Record<string, unkno
   const c = cloneJson(e.content);
   switch (e.kind) {
     case "workflow":
+      if (isProcess(c)) {
+        const wf = c.workflow as { triggers?: Record<string, unknown> };
+        return {
+          ...c,
+          workflow: {
+            ...wf,
+            triggers: Object.values(wf.triggers ?? {}),
+            steps: list(`${key}>steps`),
+          },
+        };
+      }
       return { ...c, workflow: { ...(c.workflow as object), steps: list(`${key}>steps`) } };
     case "path":
     case "otherwise":
       return { ...c, steps: list(`${key}>steps`) };
     case "step":
-      if (c.kind === "fork") {
+      if (isBranching(c.kind)) {
         const otherwise = list(`${key}>otherwise`)[0] ?? {
           id: `${String(c.id)}-otherwise`,
           steps: [],
@@ -152,7 +203,11 @@ export function buildEntity(flat: FlatBundle, key: string): Record<string, unkno
   }
 }
 
-export function unflattenBundle(flat: FlatBundle): AgentBundle {
+/**
+ * The bundle a flat bundle describes. Typed as a v3 `AgentBundle` by default; a caller that
+ * flattened a bundle holding v4 processes names `AnyAgentBundle`.
+ */
+export function unflattenBundle<B extends AnyAgentBundle = AgentBundle>(flat: FlatBundle): B {
   const root = cloneJson(flat.root) as { definition: Record<string, unknown> } & Record<
     string,
     unknown
@@ -165,7 +220,7 @@ export function unflattenBundle(flat: FlatBundle): AgentBundle {
     definition: { ...root.definition, skills },
     workflows,
     ...(people ? { people } : {}),
-  } as unknown as AgentBundle;
+  } as unknown as B;
 }
 
 /** The entity's ancestors (nearest first), following list owners up to the bundle. */
