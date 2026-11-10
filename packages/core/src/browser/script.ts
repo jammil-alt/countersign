@@ -127,10 +127,11 @@ export type BrowserScriptDefinition = z.infer<typeof BrowserScriptDefinition>;
 export type BrowserScriptDefinitionInput = z.input<typeof BrowserScriptDefinition>;
 
 /**
- * Output names the tools keep for themselves: what a submit reads back (`submitted`, `url`), the
- * reverse script's input (`reverse`) and a help request (`needsHelp`).
+ * Output names the tools keep for themselves: what a submit reads back (`submitted`, `url`, and
+ * `landing` when the page after it could not be opened), the reverse script's input (`reverse`)
+ * and a help request (`needsHelp`).
  */
-export const RESERVED_OUTPUTS = ["submitted", "url", "reverse", "needsHelp"] as const;
+export const RESERVED_OUTPUTS = ["submitted", "url", "landing", "reverse", "needsHelp"] as const;
 
 /** A client's published script as a tool runs it (BrowserServices `script`). */
 export interface PublishedBrowserScript {
@@ -161,21 +162,64 @@ export function submitStep(def: Pick<BrowserScriptDefinition, "steps">): ScriptS
 }
 
 /**
- * What is wrong with a script beyond its shape, as plain lines (empty: it may be saved). Names are
- * unique; every input a step uses is declared and every declared input is used; each output is
- * read by exactly one step of a fitting kind; a script submits exactly when it says `external`, at
- * most once and as its last step (a recording never performs the submit, so nothing after it was
- * ever seen); only a write names a reverse script.
+ * What may be wrong with a script beyond its shape, by code: the portal and the back office say it
+ * in the reader's language from `code` and `params` (apps/web's `scripts.problem.<code>`), and
+ * `text` is the same in English for logs, the API's error and older readers.
+ */
+export const SCRIPT_PROBLEM_CODES = [
+  "duplicate_input",
+  "duplicate_output",
+  "duplicate_step",
+  "reserved_output",
+  "unknown_input",
+  "unknown_output",
+  "wrong_output_type",
+  "unused_input",
+  "unread_output",
+  "output_read_twice",
+  "read_submits",
+  "write_without_submit",
+  "submits_twice",
+  "submit_not_last",
+  "reverse_on_read",
+  "reverse_unknown_input",
+  "reverse_unknown_output",
+] as const;
+export type ScriptProblemCode = (typeof SCRIPT_PROBLEM_CODES)[number];
+
+export interface ScriptProblem {
+  code: ScriptProblemCode;
+  /** The names the words need (an input's, an output's, a step's id, a type). */
+  params: Record<string, string>;
+  text: string;
+}
+
+/**
+ * What is wrong with a script beyond its shape (empty: it may be saved). Names are unique; every
+ * input a step uses is declared and every declared input is used; each output is read by exactly
+ * one step of a fitting kind; a script submits exactly when it says `external`, at most once and as
+ * its last step (a recording never performs the submit, so nothing after it was ever seen); only a
+ * write names a reverse script.
  */
 // DECISION: the submit is the last step. The recorder never clicks it (a recording writes nothing
 // to the client's tool: invariant 8), so a page after it was never seen and can't be recorded; a
 // write script's output is `{ submitted, url }` and anything it read before submitting.
-export function scriptProblems(def: BrowserScriptDefinition): string[] {
-  const problems: string[] = [];
-  const dup = (names: string[], what: string) => {
+// DECISION: problems carry a code and its names, with the English text alongside, so the portal
+// shows them in the client's language (wave 4 review); `scriptProblems` keeps the text alone.
+export function scriptProblemList(def: BrowserScriptDefinition): ScriptProblem[] {
+  const problems: ScriptProblem[] = [];
+  const add = (code: ScriptProblemCode, text: string, params: Record<string, string> = {}) =>
+    problems.push({ code, params, text });
+  const dup = (names: string[], what: "inputs" | "outputs" | "steps") => {
     const seen = new Set<string>();
+    const code =
+      what === "inputs"
+        ? "duplicate_input"
+        : what === "outputs"
+          ? "duplicate_output"
+          : "duplicate_step";
     for (const n of names) {
-      if (seen.has(n)) problems.push(`two ${what} are called ${n}`);
+      if (seen.has(n)) add(code, `two ${what} are called ${n}`, { name: n });
       seen.add(n);
     }
   };
@@ -194,24 +238,29 @@ export function scriptProblems(def: BrowserScriptDefinition): string[] {
   const inputs = new Map(def.inputs.map((i) => [i.name, i]));
   const outputs = new Map(def.outputs.map((o) => [o.name, o]));
   for (const name of RESERVED_OUTPUTS) {
-    if (outputs.has(name)) problems.push(`"${name}" can't be an output's name`);
+    if (outputs.has(name)) add("reserved_output", `"${name}" can't be an output's name`, { name });
   }
   const used = new Set<string>();
   const written = new Map<string, number>();
-  const useInput = (name: string, where: string) => {
+  const useInput = (name: string, step: string) => {
     used.add(name);
-    if (!inputs.has(name)) problems.push(`${where} uses ${name}, which isn't an input`);
+    if (!inputs.has(name)) {
+      add("unknown_input", `step ${step} uses ${name}, which isn't an input`, { step, name });
+    }
   };
   for (const s of def.steps) {
     if (s.op === "open" || s.op === "download") {
-      for (const n of urlInputs(s.url)) useInput(n, `step ${s.id}`);
+      for (const n of urlInputs(s.url)) useInput(n, s.id);
     }
-    if (s.op === "fill" && "input" in s.value) useInput(s.value.input, `step ${s.id}`);
+    if (s.op === "fill" && "input" in s.value) useInput(s.value.input, s.id);
     if (s.op === "read_field" || s.op === "read_table" || s.op === "download") {
       written.set(s.output, (written.get(s.output) ?? 0) + 1);
       const out = outputs.get(s.output);
       if (!out) {
-        problems.push(`step ${s.id} reads ${s.output}, which isn't an output`);
+        add("unknown_output", `step ${s.id} reads ${s.output}, which isn't an output`, {
+          step: s.id,
+          name: s.output,
+        });
         continue;
       }
       const fits =
@@ -220,44 +269,61 @@ export function scriptProblems(def: BrowserScriptDefinition): string[] {
           : s.op === "download"
             ? out.type === "document"
             : out.type === "text" || out.type === "decimal" || out.type === "integer";
-      if (!fits) problems.push(`step ${s.id} can't read ${s.output} as ${out.type}`);
+      if (!fits) {
+        add("wrong_output_type", `step ${s.id} can't read ${s.output} as ${out.type}`, {
+          step: s.id,
+          name: s.output,
+          type: out.type,
+        });
+      }
     }
   }
   for (const i of def.inputs) {
-    if (!used.has(i.name)) problems.push(`no step uses the input ${i.name}`);
+    if (!used.has(i.name))
+      add("unused_input", `no step uses the input ${i.name}`, { name: i.name });
   }
   for (const o of def.outputs) {
     const n = written.get(o.name) ?? 0;
-    if (n === 0) problems.push(`no step reads the output ${o.name}`);
-    if (n > 1) problems.push(`more than one step reads ${o.name}`);
+    if (n === 0) add("unread_output", `no step reads the output ${o.name}`, { name: o.name });
+    if (n > 1) add("output_read_twice", `more than one step reads ${o.name}`, { name: o.name });
   }
   const submits = def.steps.filter((s) => s.op === "click" && s.submits);
   if (def.sideEffect === "none" && submits.length > 0) {
-    problems.push("a script that submits a form is a write (side effect external)");
+    add("read_submits", "a script that submits a form is a write (side effect external)");
   }
   if (def.sideEffect === "external" && submits.length === 0) {
-    problems.push("a write script submits: mark the click that sends the form");
+    add("write_without_submit", "a write script submits: mark the click that sends the form");
   }
-  if (submits.length > 1) problems.push("a script submits once");
+  if (submits.length > 1) add("submits_twice", "a script submits once");
   if (submits.length === 1 && def.steps.at(-1) !== submits[0]) {
-    problems.push("the submit is the script's last step");
+    add("submit_not_last", "the submit is the script's last step");
   }
   if (def.undo.kind === "reverse") {
-    if (def.sideEffect !== "external") problems.push("only a write names a reverse script");
+    if (def.sideEffect !== "external")
+      add("reverse_on_read", "only a write names a reverse script");
     for (const [name, from] of Object.entries(def.undo.inputs)) {
       if ("input" in from && !inputs.has(from.input)) {
-        problems.push(
+        add(
+          "reverse_unknown_input",
           `the reverse script's ${name} comes from ${from.input}, which isn't an input`,
+          { name, from: from.input },
         );
       }
       if ("output" in from && !outputs.has(from.output)) {
-        problems.push(
+        add(
+          "reverse_unknown_output",
           `the reverse script's ${name} comes from ${from.output}, which isn't an output`,
+          { name, from: from.output },
         );
       }
     }
   }
   return problems;
+}
+
+/** What is wrong with a script beyond its shape, as plain lines (empty: it may be saved). */
+export function scriptProblems(def: BrowserScriptDefinition): string[] {
+  return scriptProblemList(def).map((p) => p.text);
 }
 
 // ── Values at the boundary (invariant 5) ─────────────────────────────────────────────────────────
@@ -316,14 +382,19 @@ function outputSchema(type: ScriptOutputType): z.ZodType {
   }
 }
 
-/** What a script reads, typed by its declarations; a write's adds `submitted` and `url`. */
+/**
+ * What a script reads, typed by its declarations; a write's adds `submitted` and `url`, and when
+ * the page the submit landed on was off limits or a stop page, `url` is null and `landing` says why
+ * (the form was sent all the same).
+ */
 export function scriptOutputSchema(def: Pick<BrowserScriptDefinition, "outputs" | "sideEffect">) {
   const fields: Record<string, z.ZodType> = Object.fromEntries(
     def.outputs.map((o) => [o.name, outputSchema(o.type)]),
   );
   if (def.sideEffect === "external") {
     fields.submitted = z.boolean();
-    fields.url = z.string();
+    fields.url = z.string().nullable();
+    fields.landing = z.string().optional();
   }
   return z.strictObject(fields);
 }
