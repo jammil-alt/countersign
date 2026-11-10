@@ -157,6 +157,8 @@ export function purchaseOrderCreateTool(clientFor: ClientFor): ToolDefinition {
     description:
       "Create a purchase order in QuickBooks: vendor, optional number, dates (the order's and when it is expected), lines (an item with qty and unit price, or an account; a class or customer per line if the company uses them), the expected total, where to ship and a memo. It stays open and isn't sent to the vendor. Refused if the lines don't add up, the vendor isn't the company's, or an order from the vendor with the same number is there.",
     verb: "create",
+    // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+    undo: { kind: "none" },
     summary: "Created purchase order {{docNumber}} for {{total}}",
     amount: { path: "expectedTotal", currencyPath: "currency", currency: "USD" },
     display: purchaseOrderCreateDisplay,

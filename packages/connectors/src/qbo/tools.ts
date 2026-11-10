@@ -224,6 +224,8 @@ function updateLinesTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefini
     entity: word,
     description: `Itemize a QuickBooks ${word}: replace lines (usually its one account line) with the invoice's item lines. The total must stay the same, or the change is refused.`,
     verb: "update",
+    // R5: the before state is written back with this tool, if the record hasn't changed since.
+    undo: { kind: "restore" },
     summary: `Itemized the ${word} into {{lineCount}} lines; total unchanged at {{total}}`,
     amount: { path: "expectedTotal", currencyPath: "currency", currency: "USD" },
     display: updateLinesDisplay(entity),
@@ -315,6 +317,8 @@ function updateMemoTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinit
     entity: word,
     description: `Set the memo of a QuickBooks ${word} (its private note). Nothing else changes.`,
     verb: "update",
+    // R5: the before state is written back with this tool, if the record hasn't changed since.
+    undo: { kind: "restore" },
     summary: `Updated the ${word}'s memo`,
     display: updateMemoDisplay(entity),
     input: z.object({ id: QboId, syncToken: SyncToken, memo: z.string().max(4000) }),
@@ -407,6 +411,8 @@ function updatePurchaseCostTool(clientFor: ClientFor): ToolDefinition {
     description:
       "Set an item's purchase cost in QuickBooks (what new purchases of it default to). Nothing else changes.",
     verb: "update",
+    // R5: the before state is written back with this tool, if the record hasn't changed since.
+    undo: { kind: "restore" },
     summary: "Set {{name}}'s purchase cost to {{purchaseCost}}",
     amount: { path: "purchaseCost", currencyPath: "currency", currency: "USD" },
     display: updatePurchaseCostDisplay,
@@ -502,6 +508,8 @@ function uploadTool(clientFor: ClientFor): ToolDefinition {
     description:
       "Attach a stored document (the invoice) to a QuickBooks bill, purchase or vendor credit.",
     verb: "create",
+    // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+    undo: { kind: "none" },
     summary: "Attached {{fileName}} to the {{entity}} in QuickBooks",
     input: z.object({
       documentId: z.uuid(),

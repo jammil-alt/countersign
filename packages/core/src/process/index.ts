@@ -2,7 +2,10 @@
 // `processes` namespace, so its step names don't collide with the v3 workflow schema's.
 export * from "./clock";
 export * from "./convert";
+export * from "./customize";
 export * from "./hours";
 export * from "./schema";
+// R5: write tools' undo.
+export * from "./undo";
 export * from "./validate";
 export * from "./walk";

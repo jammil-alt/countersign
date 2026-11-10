@@ -287,6 +287,8 @@ export function createResendConnector(options: ResendConnectorOptions = {}): Con
         description:
           "Email a contact from the client's address. Only contacts who agreed to email; plain text.",
         verb: "create",
+        // R5: a send can't be taken back.
+        undo: { kind: "none" },
         summary: "Emailed {{contactName}}",
         recipient: { path: "to", channel: "email" },
         input: EmailSendInput,

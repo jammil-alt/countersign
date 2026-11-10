@@ -405,6 +405,8 @@ export function createLinkedInConnector(options: LinkedInOptions = {}): Connecto
         description:
           "Propose a post to the client's LinkedIn company page. A person always reads and signs it first; it goes out as written, plain text.",
         verb: "create",
+        // R5: a post can't be taken back.
+        undo: { kind: "none" },
         // §1.73: a person always signs a post (no matrix, step or mode loosens it).
         approval: "always",
         summary: "Posted on LinkedIn as {{page.name}}",

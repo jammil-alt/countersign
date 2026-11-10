@@ -231,6 +231,9 @@ export function createWebsiteConnector(options: WebsiteConnectorOptions = {}): C
         // and every version is kept), not `delete`, which stays off everywhere.
         verb: "update",
         approval: "always",
+        // R5 DECISION: none. The page is public (and search engines are pinged) once it runs,
+        // and the before state keeps no earlier html to put back.
+        undo: { kind: "none" },
         summary: "{{action}}ed {{path}} on {{domain}}",
         input: PublishInput,
         output: PublishOutput,
@@ -309,6 +312,8 @@ export function createWebsiteConnector(options: WebsiteConnectorOptions = {}): C
           "Change a page's title and description as a search result shows them. A guide's change is written to the site; a change to one of the site's own pages is recorded for a person to make in the site's code. Always signed by a person.",
         verb: "update",
         approval: "always",
+        // R5: the before state is written back with this tool, if the record hasn't changed since.
+        undo: { kind: "restore" },
         summary: "New title and description for {{path}}",
         input: MetaInput,
         output: MetaOutput,

@@ -453,6 +453,8 @@ export function createOutlookConnector(options: OutlookOptions = {}): Connector 
         description:
           "Email a contact from the connected Outlook mailbox. Only contacts who agreed to email; plain text. Replies come back through the client's forwarding address.",
         verb: "create",
+        // R5: a send can't be taken back.
+        undo: { kind: "none" },
         summary: "Emailed {{contactName}} from Outlook",
         recipient: { path: "to", channel: "email" },
         input: EmailSendInput,

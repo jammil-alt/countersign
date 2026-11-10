@@ -5,6 +5,25 @@ import { JsonSchema, LocalizedTemplate, ToolId } from "./common";
 import { EntityId, SideEffect, Verb } from "./permissions";
 import { ToolDisplay } from "./tool-display";
 
+// R5 (docs/plan.md §1.86, §9): how a write is taken back. A late "no" (an approval answered after
+// its deadline let the write go ahead) is offered this undo, never applied by itself.
+/**
+ * How a write to a client's tool is taken back.
+ * - `none`: it can't be (a message sent, a post made, a call placed, or a create with no void).
+ * - `reverse`: another tool of the same connector reverses it (a void, never a delete: delete stays
+ *   off), given what the write returned.
+ * - `restore`: write the saved before state (`external_action.before`) back, with the same tool
+ *   or the named update tool.
+ */
+export const ToolUndo = z
+  .discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("none") }),
+    z.strictObject({ kind: z.literal("reverse"), tool: ToolId }),
+    z.strictObject({ kind: z.literal("restore"), tool: ToolId.optional() }),
+  ])
+  .meta({ id: "ToolUndo" });
+export type ToolUndo = z.infer<typeof ToolUndo>;
+
 /**
  * The serializable description of a tool (ARCHITECTURE §9.4): what manifests, the Builder and the
  * builder palette see. The registry in packages/agents pairs it with a handler.
@@ -62,6 +81,10 @@ export const ToolSpec = z
     // connection matrix, grant, step setting or agent mode makes it run on its own, and a step
     // using it can't be set to run without approval (workflow validation, `approval_always`).
     approval: z.literal("always").optional(),
+    // R5 (docs/plan.md §9): how the write is taken back. Writes only.
+    // DECISION: optional, so specs stored or built before R5 still parse; every connector write
+    // tool declares it (a connectors test), and a write without it is treated as `none`.
+    undo: ToolUndo.optional(),
   })
   .refine((t) => t.approval === undefined || t.sideEffect === "external", {
     message: "only external tools can always need a person's signature",
@@ -84,6 +107,14 @@ export const ToolSpec = z
   .refine((t) => t.display === undefined || t.sideEffect === "external", {
     message: "only external tools describe a change for approval",
     path: ["display"],
+  })
+  .refine((t) => t.undo === undefined || t.sideEffect === "external", {
+    message: "only external tools say how they are taken back",
+    path: ["undo"],
+  })
+  .refine((t) => t.undo?.kind !== "reverse" || t.undo.tool !== t.id, {
+    message: "a write isn't reversed by itself; use restore",
+    path: ["undo", "tool"],
   })
   .meta({ id: "ToolSpec" });
 export type ToolSpec = z.infer<typeof ToolSpec>;

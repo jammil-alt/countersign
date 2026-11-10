@@ -191,6 +191,8 @@ export function callTools(
       description:
         "Call a contact from the client's number with a voice agent, for a stated purpose. Only contacts who agreed to calls, outside quiet hours. The agent can only look things up during the call.",
       verb: "create",
+      // R5: a call can't be taken back.
+      undo: { kind: "none" },
       summary: "Called {{contactName}}",
       recipient: { path: "to", channel: "voice" },
       fixedInputs: VOICE_FIXED_INPUTS,
@@ -277,6 +279,8 @@ export function callTools(
       description:
         "Answer incoming calls with a voice agent. Answers only when this step runs without approval, the connection allows it and the agent acts; otherwise calls go to voicemail or are forwarded.",
       verb: "create",
+      // R5: a call can't be taken back.
+      undo: { kind: "none" },
       summary: "Answered a call from {{contactName}}",
       fixedInputs: VOICE_FIXED_INPUTS,
       input: CallAnswerInput,

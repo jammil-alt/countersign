@@ -7,6 +7,7 @@ import {
   type ToolDisplay,
   type ToolRecipient,
   type ToolSpec,
+  type ToolUndo,
   type Verb,
 } from "@countersign/core";
 import { z } from "zod";
@@ -168,6 +169,31 @@ function jsonSchemaOf(schema: z.ZodType): Record<string, unknown> {
 }
 
 /**
+ * R5: a write's undo names a tool of the same connector that writes: a `reverse` tool is never a
+ * delete (delete stays off), and a named `restore` tool is an update.
+ */
+export function undoProblems(specs: readonly ToolSpec[]): string[] {
+  const byId = new Map(specs.map((s) => [s.id, s]));
+  const problems: string[] = [];
+  for (const s of specs) {
+    const undo = s.undo;
+    if (!undo || undo.kind === "none" || (undo.kind === "restore" && !undo.tool)) continue;
+    const named = undo.tool ? byId.get(undo.tool) : undefined;
+    if (named?.sideEffect !== "external") {
+      problems.push(`tool ${s.id}: its undo names ${undo.tool}, not a write of this connector`);
+      continue;
+    }
+    if (undo.kind === "reverse" && named.verb === "delete") {
+      problems.push(`tool ${s.id}: its undo can't be a delete (${named.id})`);
+    }
+    if (undo.kind === "restore" && named.verb !== "update") {
+      problems.push(`tool ${s.id}: it's restored with an update, not ${named.verb} (${named.id})`);
+    }
+  }
+  return problems;
+}
+
+/**
  * Defines a read tool. The spec's JSON Schemas are generated from the Zod schemas, so the
  * Builder, the builder palette and the validator see exactly what the handler accepts.
  */
@@ -228,6 +254,15 @@ export function defineWriteTool<
   entityInput?: { field: string; values: Record<string, string> };
   /** §1.73: a verb a person always signs (publish, post): ToolSpec `approval: 'always'`. */
   approval?: "always";
+  // R5 (docs/plan.md §1.86, §9)
+  /**
+   * How the write is taken back (ToolSpec `undo`): `none` for a send, post or create with no
+   * void; `restore` for an update whose before state can be written back; `reverse` names the
+   * connector's tool that reverses it (never a delete).
+   * DECISION: optional in the type, so tests' ad hoc write tools needn't say; every connector's
+   * own write tools declare it (undo.test.ts), and a write without it counts as `none`.
+   */
+  undo?: ToolUndo;
   input: I;
   output: O;
   /** The shape of the before snapshot; nullable is added (null = nothing there yet). */
@@ -251,6 +286,7 @@ export function defineWriteTool<
       ...(def.entity === undefined ? {} : { entity: def.entity }),
       ...(def.entityInput === undefined ? {} : { entityInput: def.entityInput }),
       ...(def.approval === undefined ? {} : { approval: def.approval }),
+      ...(def.undo === undefined ? {} : { undo: def.undo }),
     },
     handler: {
       kind: "write",
@@ -535,6 +571,7 @@ export function defineConnector(
     }
     handlers[t.spec.id] = t.handler;
   }
+  problems.push(...undoProblems(specs));
   // v0.12 bankfeed: a hosted link widget (beginLink) starts a sign-in in place of a redirect.
   if (auth === "oauth2" && (!(hooks.authorize || hooks.beginLink) || !hooks.handleCallback)) {
     problems.push("oauth2 connectors need authorize and handleCallback (or beginLink for a link)");

@@ -610,6 +610,8 @@ export function createRampConnector(options: RampOptions = {}): Connector {
         description:
           "Upload a stored document (the receipt or invoice) to a Ramp card transaction as its receipt.",
         verb: "create",
+        // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+        undo: { kind: "none" },
         summary: "Added the receipt {{fileName}} to the transaction",
         input: z.object({ transactionId: RampId, documentId: z.uuid() }),
         output: z.object({
