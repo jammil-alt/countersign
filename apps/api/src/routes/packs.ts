@@ -5,9 +5,15 @@
 // for any client served, the back office, as JSON or CSV; and a pack's review card on an inbox
 // item. Nothing here names a pack: each comes from the platform's registered packs (packs.ts).
 
-import { createTemplate, mayResolve, publish } from "@countersign/agents";
-import { type ClientPack, type PackReviewDecision, type Role, routes } from "@countersign/core";
-import { agent, inboxItem, run, type Tx, tenant, tenantPack } from "@countersign/db";
+import { createTemplate, createVersion, mayResolve, publish } from "@countersign/agents";
+import {
+  bundleHash,
+  type ClientPack,
+  type PackReviewDecision,
+  type Role,
+  routes,
+} from "@countersign/core";
+import { agent, agentVersion, inboxItem, run, type Tx, tenant, tenantPack } from "@countersign/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
@@ -67,10 +73,16 @@ async function installedTemplates(tx: Tx, slugs: string[]) {
 
 /**
  * Installs the pack's templates that aren't there yet: a template v1 by the pack, published so it
- * can be forked. A template with the same slug already there counts as installed.
+ * can be forked. A template with the same slug already there counts as installed. R9: then each of
+ * a template's later versions it doesn't hold yet (by bundle hash), in order, as a new version,
+ * published: the Bookkeeper's and the marketing agents' v2, their v4 processes. Publishing a
+ * template changes no client agent (invariant 11): each fork moves by the usual reviewed update.
  */
 // DECISION: a pack's templates are installed the first time the pack is switched on for any client
 // (not at deploy), so a deployment that never uses a pack has none of its templates.
+// DECISION (R9): a later version is added whenever the pack is switched on for a client (switching
+// it on again is how the operator upgrades), the same way the seed and the platform-template
+// install add theirs: idempotent by hash, numbered after the template's own versions.
 async function installTemplates(
   tx: Tx,
   services: Services,
@@ -82,23 +94,57 @@ async function installTemplates(
     pack.manifest.templates.map((t) => t.slug),
   );
   const installed: { slug: string; templateId: string }[] = [];
+  const from = `the ${pack.manifest.name} pack ${pack.manifest.version}`;
   for (const t of pack.manifest.templates) {
-    if (have.some((h) => h.slug === t.slug)) continue;
-    const made = await createTemplate(tx, {
-      slug: t.slug,
-      bundle: t.bundle,
-      authorType: "pack",
-      authorId: actorId,
-      changeNote: `Installed with the ${pack.manifest.name} pack ${pack.manifest.version}`,
-      releaseNote: "First version",
-    });
-    await publish(tx, {
-      agentId: made.agent.id,
-      versionId: made.version.id,
-      actorId,
-      ctx: services.platform.ctx,
-    });
-    installed.push({ slug: t.slug, templateId: made.agent.id });
+    let templateId = have.find((h) => h.slug === t.slug)?.id;
+    let changed = false;
+    if (!templateId) {
+      const made = await createTemplate(tx, {
+        slug: t.slug,
+        bundle: t.bundle,
+        authorType: "pack",
+        authorId: actorId,
+        changeNote: `Installed with ${from}`,
+        releaseNote: "First version",
+      });
+      await publish(tx, {
+        agentId: made.agent.id,
+        versionId: made.version.id,
+        actorId,
+        ctx: services.platform.ctx,
+      });
+      templateId = made.agent.id;
+      changed = true;
+    }
+    for (const [i, later] of (t.versions ?? []).entries()) {
+      const [same] = await tx
+        .select({ id: agentVersion.id })
+        .from(agentVersion)
+        .where(
+          and(
+            eq(agentVersion.agentId, templateId),
+            eq(agentVersion.bundleHash, await bundleHash(later)),
+          ),
+        )
+        .limit(1);
+      if (same) continue;
+      const draft = await createVersion(tx, {
+        agentId: templateId,
+        bundle: later,
+        authorType: "pack",
+        authorId: actorId,
+        changeNote: `Installed with ${from}: its v${i + 2}`,
+        releaseNote: `The pack's v${i + 2}`,
+      });
+      await publish(tx, {
+        agentId: templateId,
+        versionId: draft.id,
+        actorId,
+        ctx: services.platform.ctx,
+      });
+      changed = true;
+    }
+    if (changed) installed.push({ slug: t.slug, templateId });
   }
   return installed;
 }

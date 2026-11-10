@@ -57,7 +57,7 @@ export type ClientPack = z.infer<typeof ClientPack>;
 
 export const EnablePackResponse = z.object({
   pack: ClientPack,
-  /** Templates installed by this call (empty when they were installed before). */
+  /** Templates installed, or given a later version, by this call (empty when nothing changed). */
   installed: z.array(z.object({ slug: z.string(), templateId: z.string() })),
 });
 

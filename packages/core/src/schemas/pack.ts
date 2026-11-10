@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Role } from "../roles";
-import { AgentBundle } from "./agent";
+import { AgentBundle, AnyAgentBundle } from "./agent";
 import { Slug } from "./common";
 import { EventTypeSpec } from "./event";
 import { SkillDefinition } from "./skill";
@@ -19,7 +19,16 @@ export const PackManifest = z
     skills: z.array(SkillDefinition),
     // DECISION: a pack's templates are whole agent bundles (definition + workflows), the unit
     // ARCHITECTURE v0.6 versions, rather than separate agent and workflow lists.
-    templates: z.array(z.object({ slug: Slug, bundle: AgentBundle })),
+    // R9 (docs/plan.md §1.86, §9): `bundle` is the template's first version, as first installed
+    // (never changed: invariant 3); `versions` are its later ones, v2 first, which may hold v4
+    // processes. Installing adds each later version the template doesn't hold yet, by bundle hash.
+    templates: z.array(
+      z.object({
+        slug: Slug,
+        bundle: AgentBundle,
+        versions: z.array(AnyAgentBundle).optional(),
+      }),
+    ),
     screens: z.array(z.object({ route: z.string(), title: z.string(), roles: z.array(Role) })),
   })
   .superRefine((p, ctx) => {
