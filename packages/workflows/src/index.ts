@@ -23,5 +23,14 @@ export {
   type FakeStepRunnerOptions,
 } from "./fake-runner";
 export * from "./ports";
+// R3: v3 workflows read as v4 processes, with their stored steps kept for the ports.
+export {
+  type AnyWorkflow,
+  gateApproval,
+  type LoadedProcess,
+  loadProcess,
+  NO_LOOKUP,
+  ProcessLoadError,
+} from "./process";
 export * from "./router";
 export * from "./runner";

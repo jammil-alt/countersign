@@ -6,7 +6,15 @@
 // expansion is the same on every replay and retry: an inner step's durable name is
 // `${useNodeId}/${innerId}` (inside a loop, `${loop}:${index}:${useId}/${innerId}`).
 
-import { type AutomationDefinition, type Step, useSteps, type Workflow } from "@countersign/core";
+import {
+  type AutomationDefinition,
+  processes,
+  type Step,
+  useSteps,
+  type Workflow,
+} from "@countersign/core";
+// R3
+import { type Origins, stepsFromV3 } from "./process";
 
 /** One use step's expansion: the steps it runs and what it outputs. */
 export interface ExpandedAutomation {
@@ -86,6 +94,94 @@ export function expandAutomations(
       // Inner write steps keep their own approval (on by default, invariant 8) unless the
       // operator set an override on this client agent's use step.
       steps: withApprovals(def.steps, use.approvals ?? {}),
+      output: def.output,
+    };
+  }
+  return out;
+}
+
+// ── R3: process steps (docs/plan.md §1.86, §9) ──────────────────────────────────────────────────
+
+/** One `process` step's expansion: the automation's steps read as v4. */
+export interface ExpandedProcess {
+  /** The pinned reference, `slug@version`. */
+  ref: string;
+  name: string;
+  /** The version's steps as v4, with the step's approval overrides on their `checks.approval`. */
+  steps: processes.Step[];
+  /** The step's output: a template over the inner steps and the resolved input. */
+  output: Record<string, unknown>;
+}
+
+/** Process step id → its expansion. */
+export type ProcessExpansions = Record<string, ExpandedProcess>;
+
+/** A deep copy of v4 `steps` with each overridden inner work step's approval replaced. */
+function withApprovalChecks(
+  steps: readonly processes.Step[],
+  approvals: Record<string, processes.ApprovalCheck>,
+  origins: Origins,
+): processes.Step[] {
+  return steps.map((step): processes.Step => {
+    const keep = (next: processes.Step): processes.Step => {
+      const origin = origins.get(step);
+      if (origin) origins.set(next, origin);
+      return next;
+    };
+    const own = Object.hasOwn(approvals, step.id) ? approvals[step.id] : undefined;
+    if ((step.kind === "skill" || step.kind === "write" || step.kind === "read") && own) {
+      return keep({ ...step, checks: { ...step.checks, approval: own } });
+    }
+    if (step.kind === "if") {
+      return keep({
+        ...step,
+        paths: step.paths.map((p) => ({
+          ...p,
+          steps: withApprovalChecks(p.steps, approvals, origins),
+        })),
+        otherwise: {
+          ...step.otherwise,
+          steps: withApprovalChecks(step.otherwise.steps, approvals, origins),
+        },
+      });
+    }
+    if (step.kind === "for_each") {
+      return keep({ ...step, steps: withApprovalChecks(step.steps, approvals, origins) });
+    }
+    return step;
+  });
+}
+
+/**
+ * Expands every `process` step of a v4 process against the pinned automation versions, as
+ * `expandAutomations` does for v3: the version's (v3) steps read as v4 with their origins paired,
+ * the step's approval overrides applied. Throws `ExpandError` for a version that isn't loaded, or
+ * one that uses another automation.
+ */
+// DECISION (R3): overrides are applied to the v4 steps' `checks.approval`, and the gate's approval
+// is read back from it (`gateApproval`); for a converted v3 override that is the stored v3 approval
+// again, so a v3 workflow's automations run with exactly the approvals they had.
+export function expandProcesses(
+  process: Pick<processes.Process, "steps">,
+  resolve: AutomationResolver,
+  convert: processes.ConvertLookup,
+  origins: Origins,
+): ProcessExpansions {
+  const out: ProcessExpansions = {};
+  for (const use of processes.subProcessSteps([process])) {
+    const def = lookup(resolve, use.process);
+    if (!def) throw new ExpandError(use.id, `automation ${use.process} is not available`);
+    if (useSteps([def]).length > 0) {
+      throw new ExpandError(use.id, `automation ${use.process} uses another automation`);
+    }
+    out[use.id] = {
+      ref: use.process,
+      name: def.name,
+      steps: withApprovalChecks(
+        stepsFromV3(def.steps, convert, origins),
+        use.approvals ?? {},
+        origins,
+      ),
       output: def.output,
     };
   }

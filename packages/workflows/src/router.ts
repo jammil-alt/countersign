@@ -7,7 +7,8 @@
 
 import {
   type AccountRequestPassedPayload,
-  type AgentBundle,
+  type AnyAgentBundle,
+  type AnyBundleWorkflow,
   allTriggers,
   evaluateRules,
   eventRunId,
@@ -25,6 +26,7 @@ import {
   type SenderFacts,
   scheduleRunId,
   type ThreadMessagePostedPayload,
+  type Trigger,
   type TriggerOn,
   uuidv7,
   webhookRunId,
@@ -41,7 +43,8 @@ export interface RoutableAgent {
   runStatus: string | null;
   liveVersionId: string | null;
   /** The bundle of `liveVersionId`. */
-  liveBundle: AgentBundle | null;
+  /** R3: its workflows may be v3 workflows or v4 processes. */
+  liveBundle: AnyAgentBundle | null;
 }
 
 export interface RoutableEvent {
@@ -144,7 +147,7 @@ export interface RouteResult {
 }
 
 interface Live {
-  agent: RoutableAgent & { tenantId: string; liveVersionId: string; liveBundle: AgentBundle };
+  agent: RoutableAgent & { tenantId: string; liveVersionId: string; liveBundle: AnyAgentBundle };
 }
 
 /**
@@ -169,7 +172,7 @@ function* triggersOf<T extends TriggerOn["type"]>(
   for (const wf of agent.liveBundle.workflows) {
     if (!wf.enabled) continue;
     // v0.12 W2-E: every trigger of the workflow, `moreTriggers` too.
-    for (const trigger of allTriggers(wf.workflow)) {
+    for (const trigger of triggersOfWorkflow(wf.workflow)) {
       if (trigger.on.type === type) {
         yield {
           slug: wf.slug,
@@ -525,7 +528,7 @@ export function requestRun(input: {
   payload: unknown;
   mode?: "live" | "test";
   versionId?: string;
-  bundle?: AgentBundle;
+  bundle?: AnyAgentBundle;
   now?: number;
 }): RunRequest {
   const { agent } = input;
@@ -547,8 +550,9 @@ export function requestRun(input: {
   if (mode === "live" && !wf.enabled) throw new Error(`workflow ${input.workflowSlug} is off`);
   // v0.12 W2-E: a manual or command trigger among `moreTriggers` lets it start by hand too.
   const byHand =
-    allTriggers(wf.workflow).find((t) => t.on.type === "manual" || t.on.type === "command") ??
-    wf.workflow.trigger;
+    triggersOfWorkflow(wf.workflow).find(
+      (t) => t.on.type === "manual" || t.on.type === "command",
+    ) ?? firstTrigger(wf.workflow);
   const type = byHand.on.type;
   if (mode === "live" && type !== "manual" && type !== "command") {
     throw new Error(`workflow ${input.workflowSlug} starts on its ${type} trigger, not by hand`);
@@ -566,4 +570,18 @@ export function requestRun(input: {
     },
     payload: input.payload,
   };
+}
+
+// ── R3: v4 processes (docs/plan.md §1.86, §9) ───────────────────────────────────────────────────
+
+/** Every trigger of a workflow: a v3 workflow's `trigger` and `moreTriggers`, a process's list. */
+export function triggersOfWorkflow(workflow: AnyBundleWorkflow["workflow"]): Trigger[] {
+  return workflow.schemaVersion === 4 ? workflow.triggers : allTriggers(workflow);
+}
+
+/** The workflow's first trigger (a process has at least one). */
+function firstTrigger(workflow: AnyBundleWorkflow["workflow"]): Trigger {
+  const first = workflow.schemaVersion === 4 ? workflow.triggers[0] : workflow.trigger;
+  if (!first) throw new Error("a process needs a trigger");
+  return first;
 }
