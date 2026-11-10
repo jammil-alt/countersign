@@ -4,12 +4,14 @@
 // that proceeds on a connection at `auto` in act mode (and refuses once the client tightened it),
 // an urgent notice that waits for its "Seen", and a converted v3 workflow running exactly as before.
 
+import type { RuntimeDeps } from "@countersign/agents";
 import { dbOversightStore } from "@countersign/agents";
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { bundleHash, processes, SkillDefinition } from "@countersign/core";
 import {
   agent,
   agentVersion,
+  appUser,
   connection,
   externalAction,
   inboxItem,
@@ -29,8 +31,11 @@ import {
   testBundle,
   user,
 } from "./api.test-helper";
+import type { Mailer, MailMessage, Texter } from "./notify/mailer";
+import { quietNow } from "./quiet-hours.test-helper";
 import { executeRun } from "./runs/execute";
 import type { RunParams } from "./runs/instances";
+import { threadNotifyPort } from "./runs/ports";
 import { cloudflareStepRunner } from "./runs/step-runner";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
@@ -495,6 +500,186 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
         .from(inboxItem)
         .where(and(eq(inboxItem.runId, p.runId), eq(inboxItem.kind, "request")));
       expect(item?.status).toBe("expired");
+    });
+  });
+
+  describe("an urgent notice's person is told at once", () => {
+    const mail: MailMessage[] = [];
+    const texts: { to: string; body: string }[] = [];
+    const mailer: Mailer = {
+      isConfigured: true,
+      async send(m) {
+        mail.push(m);
+        return `mail-${mail.length}`;
+      },
+    };
+    const texter: Texter = {
+      async from() {
+        return "+15125550101";
+      },
+      async send(_tx, _tenantId, m) {
+        texts.push(m);
+        return `SM${texts.length}`;
+      },
+    };
+    const notifyDeps = { mailer, texter, origin: "https://app.mezonas.test" };
+    const ADMIN_PHONE = "+15555550190";
+
+    it("by email and by text, in their quiet hours, once however often the step runs", async () => {
+      const [me] = await H.t.db.select().from(appUser).where(eq(appUser.id, H.A.admin));
+      // The admin's directory entry: a number that may be texted, and quiet hours now.
+      const made = await H.call(admin("a"), "POST", "/api/contacts", {
+        name: "Client A admin",
+        email: me?.email,
+        phone: ADMIN_PHONE,
+        consent: { channels: ["sms"], source: "signed the service agreement" },
+      });
+      expect(made.status, JSON.stringify(made.json)).toBe(200);
+      const quiet = await H.call(admin("a"), "PATCH", `/api/contacts/${j(made.json).contact.id}`, {
+        timezone: "UTC",
+        quietHours: quietNow(),
+      });
+      expect(quiet.status, JSON.stringify(quiet.json)).toBe(200);
+
+      const version = await processVersion(
+        proc([
+          {
+            id: "warn",
+            kind: "notify",
+            name: "Warn the admin",
+            notify: {
+              to: [H.A.admin],
+              channel: "sms",
+              message: "The record {{trigger.id}} changed",
+              urgent: { ackWithin: "15 minutes" },
+            },
+          },
+        ]),
+      );
+      const p = params(version, { id: "r9" });
+      const step = new FakeWorkflowStep(async (_name, type) => {
+        // Told before the run waits for the Seen: one email, one text, no record's words.
+        expect(mail.map((m) => m.to)).toEqual([me?.email]);
+        expect(texts.map((t) => t.to)).toEqual([ADMIN_PHONE]);
+        expect(JSON.stringify([...mail, ...texts])).not.toContain("r9");
+        return resolveAs(type, () => ({ answer: "Seen" }));
+      });
+      const result = await executeRun(
+        { ...deps(), notify: notifyDeps },
+        p,
+        cloudflareStepRunner(step),
+      );
+      expect(result).toEqual({ status: "succeeded" });
+      expect(mail).toHaveLength(1);
+      expect(texts).toHaveLength(1);
+    });
+  });
+
+  describe("the notify port", () => {
+    /** The port over a platform that records what it posts. */
+    function portOf() {
+      const posts: unknown[] = [];
+      const fake = {
+        ports: {
+          platform: {
+            async postMessage(_tenantId: string, m: unknown) {
+              posts.push(m);
+            },
+            async createInboxItem() {},
+          },
+        },
+      } as unknown as RuntimeDeps;
+      return { port: threadNotifyPort(fake, H.db), posts };
+    }
+
+    /** A live run of this client, with nothing in it yet. */
+    async function emptyRun() {
+      const version = await processVersion(proc([writeStep({})]));
+      const [r] = await H.t.db
+        .insert(run)
+        .values({
+          tenantId: H.A.tenantId,
+          agentId,
+          agentVersionId: version,
+          workflowSlug: "fix-record",
+          mode: "live",
+          status: "running",
+          trigger: { type: "manual" },
+        })
+        .returning();
+      if (!r) throw new Error("no run");
+      return {
+        id: r.id,
+        tenantId: H.A.tenantId,
+        agentId,
+        agentVersionId: version,
+        workflowSlug: "fix-record",
+        mode: "live" as const,
+      };
+    }
+
+    const notice = (info: Awaited<ReturnType<typeof emptyRun>>, dueAt: string) => ({
+      run: info,
+      nodeId: "warn",
+      to: [H.A.admin],
+      channel: "sms" as const,
+      text: "Look now",
+      sources: [],
+      urgent: { dueAt },
+    });
+
+    it("keeps an urgent notice's Seen item its own, and makes it once", async () => {
+      const info = await emptyRun();
+      // Another item of the same step (a deadline's word to the operator) is never its Seen.
+      const [other] = await H.t.db
+        .insert(inboxItem)
+        .values({
+          tenantId: H.A.tenantId,
+          kind: "review",
+          runId: info.id,
+          assigneeRole: "operator",
+          title: "No answer",
+          payload: { nodeId: "warn", reason: "No answer" },
+        })
+        .returning();
+      const { port } = portOf();
+      const due = new Date(Date.now() + 900_000).toISOString();
+      const first = await port.notify?.(notice(info, due));
+      expect(first?.ackItemId).toBeTruthy();
+      expect(first?.ackItemId).not.toBe(other?.id);
+      const again = await port.notify?.(notice(info, due));
+      expect(again?.ackItemId).toBe(first?.ackItemId);
+      const seen = await H.t.db
+        .select()
+        .from(inboxItem)
+        .where(and(eq(inboxItem.runId, info.id), eq(inboxItem.kind, "request")));
+      expect(seen).toHaveLength(1);
+    });
+
+    it("posts nothing when its Seen item can't be made", async () => {
+      const info = await emptyRun();
+      const { port, posts } = portOf();
+      await expect(port.notify?.(notice(info, "not a date"))).rejects.toThrow();
+      expect(posts).toHaveLength(0);
+    });
+
+    it("tells each person once however often the step runs", async () => {
+      const info = await emptyRun();
+      const { port } = portOf();
+      const tell = {
+        run: info,
+        nodeId: "ask:approver:0",
+        to: ["operator", "client_user"],
+        inboxItemId: null,
+        reason: "no answer from the client admin within 1 day",
+      };
+      await port.tell?.(tell);
+      await port.tell?.(tell);
+      const told = await H.t.db
+        .select()
+        .from(inboxItem)
+        .where(and(eq(inboxItem.runId, info.id), eq(inboxItem.kind, "review")));
+      expect(told.map((i) => i.assigneeRole).sort()).toEqual(["client_user", "operator"]);
     });
   });
 
