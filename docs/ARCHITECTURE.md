@@ -2589,9 +2589,19 @@ steps). A process is assembled from the banks; nothing in it is code (invariant 
 For a system with no API, **the site is the connector** (§6.10): its read and write tools are site
 tools, its tier sets what may run unsigned. A **scripted site tool** (fixed steps: open this page, read
 this table, fill this form) is preferred to letting a model browse: it is a tool, so it never decides.
-The operator **records** a script in our hosted browser (Browser Run) while **our code signs in**, so
-the operator never sees or types the client's login (invariant 13). A recorded write is a write tool
-like any other, behind approval, declaring its undo. Built in R9.
+The operator **or the client admin** records a script in our hosted browser (Browser Run) while **our
+code signs in** from the vault first, so whoever records never sees or types the client's login
+(invariant 13). A client admin's recording is a draft until **the operator publishes it** (the
+operator builds, clients use: invariant 11). A recorded write is a write tool like any other, behind
+approval, declaring its undo.
+
+Where no script covers a need, an `ai` skill **browses read-only** on the site's allowed pages (its
+declared `browse` pages, a subset of the site's; never a write, never another page). If it can't find
+what it needs within its limits, it **asks for help**: the lead or the client admin gets what it was
+looking for and what it tried (the pages it opened), and the answer is kept with the client's site
+(per client, never shared: invariant 1) for the next run to use. A path that has worked twice is
+offered to the operator as a **script draft**, to record and publish as a scripted site tool. Built
+in R9.
 
 #### v3 compatibility
 
