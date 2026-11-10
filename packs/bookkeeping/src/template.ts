@@ -14,10 +14,18 @@ import {
   type AgentBundleInput,
   AnyAgentBundle,
   type AnyAgentBundleInput,
+  processes,
 } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { ACCOUNT_QUESTIONS, BOOKINGS_REVIEW } from "./api";
 import { RECONCILIATION_REVIEW } from "./reconcile/api";
+import {
+  categorizeSteps,
+  leftoverSteps,
+  PROPOSE_ACCOUNTS_SKILL,
+  READ_STATEMENT_DOCUMENT_SKILL,
+  SUGGEST_MATCHES_SKILL,
+} from "./splits";
 
 export const BOOKKEEPER_SLUG = "bookkeeper";
 
@@ -987,5 +995,69 @@ const BOOKKEEPER_V2 = AnyAgentBundle.parse({
   ],
 } satisfies AnyAgentBundleInput);
 
-/** The Bookkeeper: v1 as first installed, and v2 (v4 processes), added where v1 is. */
-export const BOOKKEEPER_TEMPLATE = { ...BOOKKEEPER_V1, versions: [BOOKKEEPER_V2] };
+// ── Skill model (2026-11-10; docs/plan.md §1.86 "Skill model"): v3 ──────────────────────────────
+//
+// v2's processes with each model skill that acted on its own replaced by the split's steps
+// (./splits.ts): Propose accounts (AI) then a Save to records write per proposal and per note, in
+// place of `bookkeeping.categorize`; Suggest matches (AI) then a Save to records write per
+// suggestion, in place of `bookkeeping.explain-leftovers`; Read a statement document (AI, the file
+// attached) in place of `bookkeeping.read-statement`, under its id, since its answer has the same
+// fields. The tool wrappers leave the skill list: the steps call their tools, listed as the
+// agent's tools. Every other step, id and trigger is v2's (merges line up by them).
+// DECISION: the statement is read on the cheap model (extraction work) by the agent's setting for
+// the skill; Propose accounts and Suggest matches run on their recommended model (reasoning).
+// DECISION: Save to records steps start without approval (owner, 2026-11-10); every write to
+// QuickBooks keeps v2's approval. Its proposals still wait for a person: the bookings' own review.
+
+/** v2's processes with the split's steps in place of the skills that acted on their own. */
+function v3Workflows(): AnyAgentBundle["workflows"] {
+  return BOOKKEEPER_V2.workflows.map((w) => {
+    if (w.workflow.schemaVersion !== 4) throw new Error(`${w.slug}: not v4`);
+    const steps = processes.replaceSteps(w.workflow.steps, (step) => {
+      if (step.kind !== "skill") return undefined;
+      switch (step.skill) {
+        case "bookkeeping.categorize":
+          return categorizeSteps(String(step.input.bankTxnIds), "categorize-");
+        case "bookkeeping.explain-leftovers": {
+          const prefix = step.id.replace(/-explain$/, "-");
+          return leftoverSteps(String(step.input.reconciliationId), prefix);
+        }
+        case "bookkeeping.read-statement":
+          return [{ ...step, skill: READ_STATEMENT_DOCUMENT_SKILL.id }];
+        default:
+          return undefined;
+      }
+    });
+    return { ...w, workflow: { ...w.workflow, steps } };
+  });
+}
+
+const V3_WORKFLOWS = v3Workflows();
+
+const BOOKKEEPER_V3 = AnyAgentBundle.parse({
+  ...BOOKKEEPER_V2,
+  definition: {
+    ...BOOKKEEPER_V2.definition,
+    skills: [
+      { skill: PROPOSE_ACCOUNTS_SKILL.id, settings: {} },
+      { skill: SUGGEST_MATCHES_SKILL.id, settings: {} },
+      {
+        skill: READ_STATEMENT_DOCUMENT_SKILL.id,
+        settings: {},
+        model: { id: DEFAULT_MODELS.classification },
+      },
+    ],
+    extraTools: [
+      ...new Set([
+        ...processes.processTools(
+          V3_WORKFLOWS.map((w) => w.workflow as Extract<typeof w.workflow, { schemaVersion: 4 }>),
+        ),
+        ...BOOKKEEPER_V2.definition.extraTools,
+      ]),
+    ],
+  },
+  workflows: V3_WORKFLOWS,
+} satisfies AnyAgentBundleInput);
+
+/** The Bookkeeper: v1 as first installed, then v2 (v4 processes) and v3 (the skill model). */
+export const BOOKKEEPER_TEMPLATE = { ...BOOKKEEPER_V1, versions: [BOOKKEEPER_V2, BOOKKEEPER_V3] };
