@@ -377,3 +377,90 @@ export const RecorderAction = z.discriminatedUnion("op", [
 ]);
 export type RecorderAction = z.infer<typeof RecorderAction>;
 export type RecorderActionInput = z.input<typeof RecorderAction>;
+
+/**
+ * The recording being made (`browser_script.recording`): the working copy, edited in place while
+ * someone records, with each step's evidence (its screenshot's storage key and the address it was
+ * on). Saving it makes an immutable version (`recordingDefinition`).
+ */
+export const ScriptRecording = z.object({
+  description: z.string().max(1000).default(""),
+  inputs: z.array(ScriptInputDecl).max(30).default([]),
+  outputs: z.array(ScriptOutputDecl).max(30).default([]),
+  steps: z.array(ScriptStep).max(50).default([]),
+  evidence: z
+    .record(z.string(), z.object({ screenshot: z.string().nullable(), url: z.string() }))
+    .default({}),
+  undo: ScriptUndo.default({ kind: "none" }),
+});
+export type ScriptRecording = z.infer<typeof ScriptRecording>;
+
+/** A recorded action as a step: a path is on the site's own address; `as` names an input or output. */
+export function recordedStep(
+  action: RecorderAction,
+  id: string,
+  siteOrigin: string,
+): { step: ScriptStep; input?: ScriptInputDecl; output?: ScriptOutputDecl } {
+  const full = (url: string) => (url.startsWith("/") ? `${siteOrigin}${url}` : url);
+  switch (action.op) {
+    case "open":
+      return { step: { id, op: "open", url: full(action.url) } };
+    case "fill":
+      return action.as
+        ? {
+            step: { id, op: "fill", selector: action.selector, value: { input: action.as } },
+            input: { name: action.as, label: action.as, type: "text", example: action.value },
+          }
+        : { step: { id, op: "fill", selector: action.selector, value: { text: action.value } } };
+    case "click":
+      return { step: { id, op: "click", selector: action.selector, submits: action.submits } };
+    case "read_field":
+      return {
+        step: { id, op: "read_field", selector: action.selector, output: action.as },
+        output: { name: action.as, label: action.as, type: "text" },
+      };
+    case "read_table":
+      return {
+        step: { id, op: "read_table", table: action.table, output: action.as },
+        output: { name: action.as, label: action.as, type: "table" },
+      };
+    case "download":
+      return {
+        step: { id, op: "download", url: full(action.url), output: action.as },
+        output: { name: action.as, label: action.as, type: "document" },
+      };
+  }
+}
+
+/** The values a recording's replay and a test fill: each input's example. */
+export function recordingExamples(
+  recording: Pick<ScriptRecording, "inputs">,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    recording.inputs.map((i) => [
+      i.name,
+      i.type === "integer" && i.example !== undefined && /^-?\d+$/.test(i.example)
+        ? Number(i.example)
+        : (i.example ?? ""),
+    ]),
+  );
+}
+
+/** The definition a recording saves as: it submits, so it is a write, or it only reads. */
+export function recordingDefinition(
+  site: string,
+  name: string,
+  recording: ScriptRecording,
+): BrowserScriptDefinitionInput {
+  return {
+    schemaVersion: 1,
+    site,
+    name,
+    description: recording.description,
+    inputs: recording.inputs,
+    outputs: recording.outputs,
+    steps: recording.steps,
+    sideEffect: submitStep(recording) ? "external" : "none",
+    undo: recording.undo,
+  };
+}

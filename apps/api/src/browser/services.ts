@@ -3,6 +3,7 @@
 // service for this client, the connection's sign-in counters and stop, documents for downloads,
 // screenshots kept as evidence and the session log. Each database read or write is its own short
 // transaction for the connection's client; nothing here holds a transaction across a browser call.
+// Wave 4: the client's published scripts on the connection's site (docs/plan.md §1.86).
 
 import type {
   BrowserCodesPort,
@@ -13,14 +14,24 @@ import type {
 } from "@countersign/connectors";
 import {
   BrowserConnectionState,
+  BrowserScriptDefinition,
   FINGERPRINT_KEY,
   findingFingerprint,
   type JsonObject,
+  type PublishedBrowserScript,
 } from "@countersign/core";
-import { connection, connectionChange, type Db, inboxItem, withTenant } from "@countersign/db";
+import {
+  browserScript,
+  browserScriptVersion,
+  connection,
+  connectionChange,
+  type Db,
+  inboxItem,
+  withTenant,
+} from "@countersign/db";
 import { storeDocument } from "@countersign/documents";
 import { emit } from "@countersign/senses";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import type { CodesClient } from "../codes/client";
 import { pinnedSite } from "./sites";
 
@@ -169,5 +180,49 @@ export function dbBrowserServices(db: Db, conn: ConnectionRef, deps: BrowserDeps
         });
       }),
     ...(deps.sleep ? { sleep: deps.sleep } : {}),
+    script: publishedScriptFor(db, conn),
   };
+}
+// ── The tools' port: a client's published script, inside its own transaction ──────────────────────
+
+/**
+ * BrowserServices `script` for one connection: the published version of the client's script on
+ * the connection's site with this slug, or null (none, a draft, or a version that no longer parses).
+ */
+export function publishedScriptFor(
+  db: Db,
+  conn: ConnectionRef,
+): (slug: string) => Promise<PublishedBrowserScript | null> {
+  return (slug) =>
+    withTenant(db, conn.tenantId, async (tx) => {
+      const [row] = await tx
+        .select({ script: browserScript, version: browserScriptVersion })
+        .from(browserScript)
+        .innerJoin(
+          browserScriptVersion,
+          and(
+            eq(browserScriptVersion.scriptId, browserScript.id),
+            eq(browserScriptVersion.tenantId, browserScript.tenantId),
+            eq(browserScriptVersion.version, browserScript.publishedVersion),
+          ),
+        )
+        .where(
+          and(
+            eq(browserScript.tenantId, conn.tenantId),
+            eq(browserScript.connectionId, conn.id),
+            eq(browserScript.slug, slug),
+            isNotNull(browserScript.publishedVersion),
+          ),
+        );
+      if (!row) return null;
+      const definition = BrowserScriptDefinition.safeParse(row.version.definition);
+      if (!definition.success) return null;
+      return {
+        id: row.script.id,
+        slug: row.script.slug,
+        versionId: row.version.id,
+        version: row.version.version,
+        definition: definition.data,
+      };
+    });
 }

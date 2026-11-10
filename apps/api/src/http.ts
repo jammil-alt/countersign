@@ -37,6 +37,7 @@ import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import { type AuditEntry, auditAction, auditAlone, auditInTx, auditTarget } from "./audit";
 import { type AdapterChoice, authDirectory, chooseAdapter } from "./auth";
+import type { BrowserDeps } from "./browser/services";
 import type { Bindings } from "./env";
 import type { ExportJobs } from "./exports/instances";
 import type { McpDeps } from "./mcp/routes";
@@ -60,6 +61,12 @@ export interface AppDeps {
   llm?(env: Bindings): LlmTransport;
   /** Object storage for originals: the R2 binding; memory in tests. */
   objects(env: Bindings): ObjectStore;
+  // Wave 4 (docs/plan.md §1.86 "Scripts (wave 4)")
+  /**
+   * A fresh browser for a script's recording or test; default Browser Run over the `BROWSER`
+   * binding (tests pass a fake browser). Undefined: no browser here.
+   */
+  browserOpener?(env: Bindings): BrowserDeps["open"];
   /**
    * The model transport that reads uploaded and forwarded documents in the background; null when
    * no model key is configured (documents then wait for an agent's `docs.extract`).

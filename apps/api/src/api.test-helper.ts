@@ -29,6 +29,8 @@ import { type LlmTransport, withRecording } from "@countersign/llm";
 import { fileFixtureStore } from "@countersign/llm/node";
 import type { Hono } from "hono";
 import { createApp } from "./app";
+// v0.12 W2-C
+import type { BrowserDeps } from "./browser/services";
 import type { Bindings } from "./env";
 import type { ExportJobs } from "./exports/instances";
 import type { AppEnv } from "./http";
@@ -37,7 +39,6 @@ import { createPlatform, type Platform } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
 import { MemoryInstances } from "./runs/instances";
 import type { CloudflareStepConfig, WorkflowStepLike } from "./runs/step-runner";
-// v0.12 W2-C
 import type { TestSuiteJobs } from "./testbench/instances";
 
 export interface Client {
@@ -146,6 +147,9 @@ export interface HarnessOptions {
   // v0.12 W2-C
   /** Test suite jobs (in memory); none by default. */
   testSuites?: TestSuiteJobs;
+  // Wave 4
+  /** A browser for script recordings and tests (a fake); none by default. */
+  browserOpener?: NonNullable<BrowserDeps["open"]>;
 }
 
 /** null when no database is reachable (the tests then skip). */
@@ -203,6 +207,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     ...(options.mcp ? { mcp: options.mcp } : {}),
     // v0.12 W2-C
     ...(options.testSuites ? { testSuites: () => options.testSuites as TestSuiteJobs } : {}),
+    ...(options.browserOpener ? { browserOpener: () => options.browserOpener } : {}),
   });
   const env = {
     ENVIRONMENT: "development",
