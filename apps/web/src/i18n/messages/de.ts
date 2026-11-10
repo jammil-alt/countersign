@@ -512,6 +512,7 @@ export const de: Messages = {
   "run.route.reason": "{step}: {outcome}",
   "run.carriedOn": "Fehlgeschlagen, und der Lauf ging weiter",
   "run.carriedOn.some": "Einige Einträge sind fehlgeschlagen, und der Lauf ging weiter",
+  "run.carriedOn.stopped": "Angehalten, und der Lauf ging weiter",
   "run.outcome.done": "erledigt",
   "run.outcome.empty": "nichts gefunden",
   "run.outcome.rejected": "abgelehnt",

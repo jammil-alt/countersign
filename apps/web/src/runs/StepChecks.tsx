@@ -7,7 +7,8 @@
 // Colours by meaning: people copper, waiting on someone signal with a word, errors risk, done
 // positive.
 // Wave 5: the route an if took and why ("Took the route “Rejected”: Approve the bill was
-// rejected"), and a step that failed and the run carried on past, in risk.
+// rejected"), and a step that failed and the run carried on past, in risk (a sub-process a stop
+// step ended, which the run carried on past as set up, in ink).
 import type { ConferView, RouteView, TimelineChecks } from "@countersign/core";
 import type { PlainKey } from "../i18n/catalog";
 import { type I18n, useI18n } from "../i18n/i18n";
@@ -68,7 +69,7 @@ export function routeWords({ t }: Pick<I18n, "t">, route: RouteView): string {
   return t("run.route.because", { path: route.path, reasons });
 }
 
-/** A confer's tone:a person's answer is copper; a disagreement a person must look at is signal. */
+/** A confer's tone: a person's answer is copper; a disagreement a person must look at is signal. */
 export function conferTone(c: NonNullable<TimelineChecks["confer"]>): "person" | "ink" {
   return c.reviewer === "person" ? "person" : "ink";
 }
@@ -93,8 +94,18 @@ export function StepChecks({
         </p>
       ) : null}
       {checks.carriedOn ? (
-        <p className="ui-tone-risk" data-testid={`${testId}-carried-on`}>
-          {t(checks.outcome === "some_failed" ? "run.carriedOn.some" : "run.carriedOn")}
+        // Wave 5 review: a sub-process a stop step ended went on as set up: neutral, not a failure.
+        <p
+          className={checks.outcome === "stopped" ? "text-ink" : "ui-tone-risk"}
+          data-testid={`${testId}-carried-on`}
+        >
+          {t(
+            checks.outcome === "stopped"
+              ? "run.carriedOn.stopped"
+              : checks.outcome === "some_failed"
+                ? "run.carriedOn.some"
+                : "run.carriedOn",
+          )}
         </p>
       ) : null}
       {confer?.note ? (

@@ -502,6 +502,7 @@ export const fr: Messages = {
   "run.route.reason": "{step} : {outcome}",
   "run.carriedOn": "Échec, et l'exécution a continué",
   "run.carriedOn.some": "Certains éléments ont échoué, et l'exécution a continué",
+  "run.carriedOn.stopped": "Arrêté, et l'exécution a continué",
   "run.outcome.done": "fait",
   "run.outcome.empty": "rien trouvé",
   "run.outcome.rejected": "refusé",

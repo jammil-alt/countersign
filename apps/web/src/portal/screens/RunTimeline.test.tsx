@@ -390,8 +390,22 @@ describe("portal run timeline: checks", () => {
         },
       }),
       step(4, { label: "Pick again", route: { path: null, because: [] } }),
+      step(5, {
+        label: "Check the vendor",
+        status: "skipped",
+        outcome: "stopped",
+        carriedOn: true,
+      }),
     ],
   };
+
+  it("says a sub-process a stop ended went on, in ink, not as a failure", async () => {
+    renderTimeline(FORKED);
+    const sub = await screen.findByTestId(`portal-run-step-${S(5)}`);
+    const carried = within(sub).getByTestId("portal-run-step-checks-carried-on");
+    expect(carried).toHaveTextContent("Stopped, and the run carried on");
+    expect(carried).not.toHaveClass("ui-tone-risk");
+  });
 
   it("says which route an if took and why, and a failure the run carried on past", async () => {
     renderTimeline(FORKED);

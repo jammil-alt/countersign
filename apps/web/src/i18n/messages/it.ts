@@ -494,6 +494,7 @@ export const it: Messages = {
   "run.route.reason": "{step}: {outcome}",
   "run.carriedOn": "Non riuscito, e l'esecuzione è andata avanti",
   "run.carriedOn.some": "Alcuni elementi non sono riusciti, e l'esecuzione è andata avanti",
+  "run.carriedOn.stopped": "Interrotto, e l'esecuzione è andata avanti",
   "run.outcome.done": "fatto",
   "run.outcome.empty": "non ha trovato nulla",
   "run.outcome.rejected": "rifiutato",

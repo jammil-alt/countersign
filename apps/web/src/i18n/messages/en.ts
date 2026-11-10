@@ -477,6 +477,7 @@ export const en = {
   "run.route.reason": "{step} {outcome}",
   "run.carriedOn": "Failed, and the run carried on",
   "run.carriedOn.some": "Some items failed, and the run carried on",
+  "run.carriedOn.stopped": "Stopped, and the run carried on",
   "run.outcome.done": "was done",
   "run.outcome.empty": "found nothing",
   "run.outcome.rejected": "was rejected",

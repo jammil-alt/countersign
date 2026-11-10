@@ -489,6 +489,7 @@ export const ptBR: Messages = {
   "run.route.reason": "{step}: {outcome}",
   "run.carriedOn": "Falhou, e a execução continuou",
   "run.carriedOn.some": "Alguns itens falharam, e a execução continuou",
+  "run.carriedOn.stopped": "Parou, e a execução continuou",
   "run.outcome.done": "feito",
   "run.outcome.empty": "não encontrou nada",
   "run.outcome.rejected": "recusado",
