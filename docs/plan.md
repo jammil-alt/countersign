@@ -4551,8 +4551,8 @@ Each milestone ends green. Stored versions are never edited (invariant 3).
 
 - **R0 Design in the repo.** §1.86; ARCHITECTURE v0.16 written from the owner's doc before R3.
 - **R1 Process schema.** `packages/core/src/process`: workflow `schemaVersion: 4`, checks,
-  deadlines, business hours, the v3 converter. Done: schema, converter and tests. Next: the v4
-  validator (ids, template typing, invariant 8 on `required: not_required`, `when` and `proceed`).
+  deadlines, business hours, the v3 converter and the v4 validator (ids, template typing,
+  invariant 8 on `required: not_required`, `when` and `proceed`).
 - **R2 Skills.** `method: rules | ai | rules_then_ai`, declared read tools; tool-mode skills retire
   (85 of 100); the seeds' four unregistered skill names removed or registered.
 - **R3 Executor.** Runs v4: read and write steps, checks in order, deadlines, approval modes, urgent
@@ -4568,11 +4568,15 @@ Each milestone ends green. Stored versions are never edited (invariant 3).
 - **R9 Templates and browser scripts.** Seeds and pack templates saved as v4 versions; recorded
   scripted site tools.
 
-Status (2026-11-10): wave 1 (R1, R2's schema, R5's declarations, ARCHITECTURE v0.16) and wave 2 (the
-v4 validator, executor, owner, conversation step, hours and channels storage, the undo path and
-site-scoped browsing) are merged on `claude/busy-euler-cgu5kr`. Wave 2b wires them end to end in
-apps/api and fixes wave 2's review findings; wave 3 is R8 and R9's templates. Migrations 0043 and
-0044 are their own commits, for their own PRs. Wave 4 (`wave4/scripts`) is R9's scripted site
-tools: recorded, reviewed, tested and published scripts run as `browser.script.read` and
-`browser.script.submit` (decisions in §1.86 "Scripts (wave 4)"), with migration 0045 in its own
-commit.
+Status (2026-11-10): R0–R9 are built and merged on `claude/busy-euler-cgu5kr`, each wave reviewed
+and its findings fixed. Wave 1: R1, R2's schema, R5's declarations, ARCHITECTURE v0.16. Wave 2 (with
+2b and 2c): the v4 validator, executor and approval engine, the owner, the conversation step, hours
+and channels, the undo path and site-scoped browsing, wired end to end in apps/api. Wave 3 (with 3b
+and its follow-ups): R8 (the builder on processes, the Library, the portal's Connections, People,
+Business hours and Channels; the Builder chat and "Save as automation" on processes; every reader of
+a stored version reads v3 or v4) and R9's templates. Wave 4: R9's recorded scripts, run as
+`browser.script.read` and `browser.script.submit` (decisions in §1.86 "Scripts (wave 4)").
+Migrations 0043, 0044 and 0045 are each their own commit, for their own PRs; so are the routes moved
+to `mountLong` (a pool of one connection never deadlocks), which touch sign-in callbacks. Not yet
+checked on staging: Browser Run's support for a context-wide `route` and `serviceWorkers: "block"`
+(scripts are refused if it is missing). Open for the owner: the questions in §1.86's DECISION rows.
