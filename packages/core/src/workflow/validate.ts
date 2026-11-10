@@ -993,6 +993,17 @@ function checkUseStep(c: Checker, step: UseAutomationStep, scope: Scope) {
     );
   }
   if (!def) return;
+  // Wave 3b: a v4 automation (process steps) runs only inside a v4 process; a v3 workflow's use
+  // step expands v3 steps.
+  if (def.schemaVersion !== 1) {
+    c.add(
+      step.id,
+      "automation",
+      "unknown_automation",
+      `"${step.automation}" holds process steps: only a process can use it (open this workflow in the builder to move it to a process)`,
+    );
+    return;
+  }
   checkInput(c, step.id, step.input, def.input, scope);
 
   const inner = new Map(stepsOf(def.steps).map((s) => [s.id, s]));
@@ -1157,8 +1168,19 @@ export function validateAutomation(
 
 /** What checkpoint computation reads: skills and tools, and the automations use steps pin. */
 export interface CheckpointContext extends Pick<TypingContext, "skills" | "tools"> {
-  /** Automation versions by pinned reference (`slug@version`): their steps are enough. */
-  automations?: Readonly<Record<string, { steps: readonly Step[] }>>;
+  /**
+   * Automation versions by pinned reference (`slug@version`): their steps are enough. Wave 3b: a
+   * v4 automation (`schemaVersion: 2`) may be listed; a v3 use step never runs one.
+   */
+  automations?: Readonly<
+    Record<string, { schemaVersion?: 1; steps: readonly Step[] } | { schemaVersion: 2 }>
+  >;
+}
+
+/** The v3 automation a use step pins, from the checkpoint context (a v4 one is not its). */
+function v3Automation(ctx: CheckpointContext, ref: string): { steps: readonly Step[] } | undefined {
+  const def = Object.hasOwn(ctx.automations ?? {}, ref) ? ctx.automations?.[ref] : undefined;
+  return def && def.schemaVersion !== 2 && "steps" in def ? def : undefined;
 }
 
 /**
@@ -1167,9 +1189,7 @@ export interface CheckpointContext extends Pick<TypingContext, "skills" | "tools
  */
 function writesForCheckpoints(step: Step, ctx: CheckpointContext): boolean {
   if (step.kind === "use_automation") {
-    const def = Object.hasOwn(ctx.automations ?? {}, step.automation)
-      ? ctx.automations?.[step.automation]
-      : undefined;
+    const def = v3Automation(ctx, step.automation);
     return def !== undefined && stepsOf(def.steps).some((s) => writesForCheckpoints(s, ctx));
   }
   const typing: TypingContext = {
@@ -1225,9 +1245,7 @@ export function workflowCheckpoints(
   const out = [...checkpointSteps(workflow.steps, ctx)];
   for (const use of stepsOf(workflow.steps)) {
     if (use.kind !== "use_automation") continue;
-    const def = Object.hasOwn(ctx.automations ?? {}, use.automation)
-      ? ctx.automations?.[use.automation]
-      : undefined;
+    const def = v3Automation(ctx, use.automation);
     if (!def) continue;
     for (const id of checkpointSteps(def.steps, ctx)) out.push(`${use.id}/${id}`);
   }

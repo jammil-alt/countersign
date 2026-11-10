@@ -4,8 +4,9 @@
 // `external` tool among its extra tools, its skills' tools and its action steps, and any
 // connection binding: Sloan sees only what the portal shows and writes only internal records.
 
-import type { AgentBundle } from "../schemas/agent";
-import type { AutomationDefinition } from "../schemas/automation";
+import { walkSteps as walkProcessSteps } from "../process/walk";
+import type { AgentBundle, AnyAgentBundle } from "../schemas/agent";
+import type { AnyAutomationDefinition } from "../schemas/automation";
 import { parseSkillRef } from "../schemas/common";
 import { type SkillDefinition, skillTools } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
@@ -43,8 +44,8 @@ export function accountAgentProblems(input: {
   skills: Readonly<Record<string, SkillDefinition>>;
   tools: Readonly<Record<string, ToolSpec>>;
   bindings?: Readonly<Record<string, string>> | undefined;
-  /** The automations its use steps pin, by reference (W2-B). */
-  automations?: Readonly<Record<string, AutomationDefinition>> | undefined;
+  /** The automations its use steps pin, by reference (W2-B); wave 3b: v3 or v4 steps. */
+  automations?: Readonly<Record<string, AnyAutomationDefinition>> | undefined;
 }): ValidationError[] {
   const { bundle, tools } = input;
   if (!isAccountAgent(input.slug, bundle)) return [];
@@ -82,16 +83,32 @@ export function accountAgentProblems(input: {
       for (const id of skill ? skillTools(skill) : []) refuse(id, at.field || "skill", at.id, slug);
     }
   };
-  for (const w of bundle.workflows) {
+  /** Every step of a pinned automation, v3 steps or v4 process steps, as the step's own. */
+  const inside = (ref: string, at: { id: string; field: string }, slug: string) => {
+    const automation = input.automations?.[ref];
+    if (!automation) return;
+    if (automation.schemaVersion === 2) {
+      walkProcessSteps(automation, ({ step: inner }) => check(inner as never, at, slug));
+    } else {
+      walkSteps({ steps: automation.steps }, ({ step: inner }) => check(inner, at, slug));
+    }
+  };
+  for (const w of (bundle as AnyAgentBundle).workflows) {
+    // Wave 3b: a v4 process is walked as one (its `if` paths), and its process steps' automations
+    // count as the step's own, as a v3 use step's do.
+    if (w.workflow.schemaVersion === 4) {
+      walkProcessSteps(w.workflow, ({ step }) => {
+        check(step as never, { id: step.id, field: "" }, w.slug);
+        if (step.kind === "process")
+          inside(step.process, { id: step.id, field: "process" }, w.slug);
+      });
+      continue;
+    }
     walkSteps(w.workflow, ({ step }) => {
       check(step, { id: step.id, field: "" }, w.slug);
       // v0.12 W2-B: an automation's steps count as the use step's own.
       if (step.kind === "use_automation") {
-        const automation = input.automations?.[step.automation];
-        if (!automation) return;
-        walkSteps({ steps: automation.steps }, ({ step: inner }) => {
-          check(inner, { id: step.id, field: "automation" }, w.slug);
-        });
+        inside(step.automation, { id: step.id, field: "automation" }, w.slug);
       }
     });
   }

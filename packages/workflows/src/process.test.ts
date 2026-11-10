@@ -1121,6 +1121,54 @@ describe("logic", () => {
       output: { done: "dana" },
     });
   });
+
+  // Wave 3b: an automation saved from a process holds process steps; they run as they are.
+  it("runs a process step whose automation holds process steps, approval on its write", async () => {
+    const h = new Harness();
+    const automation = processes.Process.parse({
+      schemaVersion: 4,
+      triggers: [MANUAL],
+      steps: [write({ id: "send", input: { to: "{{input.who}}" } })],
+    }).steps;
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({
+        automations: {
+          "follow-up@2": {
+            schemaVersion: 2,
+            slug: "follow-up",
+            name: "Follow up",
+            description: "",
+            input: {},
+            output: { done: "{{steps.send.output.echo.to}}" },
+            steps: automation,
+            requires: { skills: [], tools: [], connectors: [] },
+          },
+        },
+      }),
+      proc([
+        {
+          id: "use",
+          kind: "process",
+          name: "Follow up",
+          process: "follow-up@2",
+          input: { who: "{{trigger.who}}" },
+        },
+      ]),
+      { who: "dana" },
+    );
+    expect(result).toEqual({ status: "succeeded" });
+    expect(h.agentCalls[0]).toMatchObject({
+      nodeId: "use/send",
+      automation: "follow-up@2",
+      approval: { required: "required" },
+    });
+    expect(h.row("use")).toMatchObject({
+      nodeType: "process",
+      skillRef: "automation:follow-up@2",
+      output: { done: "dana" },
+    });
+  });
 });
 
 describe("router", () => {

@@ -6,9 +6,15 @@
 
 import type { z } from "zod";
 import { CONVERSE_SKILL, converseProblems, typedResultOutput } from "../converse";
+import { isUuid } from "../ids";
 import { isPlainObject } from "../json";
 import { levelFor } from "../permissions/decide";
 import type { AgentDefinition } from "../schemas/agent";
+import {
+  type AnyAutomationDefinition,
+  type ProcessAutomationDefinition,
+  ProcessAutomationDefinition as ProcessAutomationDefinitionSchema,
+} from "../schemas/automation";
 import type { JsonSchema } from "../schemas/common";
 import { parseSkillRef } from "../schemas/common";
 import type { AgentMode } from "../schemas/permissions";
@@ -21,6 +27,7 @@ import {
   FORK_OUTPUT,
   lookupSkill,
   NO_OUTPUT,
+  outputTemplateSchema,
   type PathType,
   PERSON_OUTPUT,
   schemaAtPath,
@@ -266,6 +273,11 @@ export interface ProcessScope {
   loop?: { item: JsonSchema | undefined; step: ForEachStep };
   /** In a step's checks: how many of its confer reviewers' verdicts are readable. */
   confer?: number;
+  /**
+   * Wave 3b: in a v4 automation's steps, what `{{input…}}` reads; there is no trigger there. Absent
+   * in a process.
+   */
+  input?: { schema: JsonSchema | undefined };
 }
 
 /** What a v4 step outputs, for later steps' templates. Unknown (any path reads) when unknown. */
@@ -288,7 +300,11 @@ export function stepOutputSchema(step: Step, ctx: TypingContext): JsonSchema | u
       return FOR_EACH_OUTPUT;
     case "process": {
       const def = ctx.automations?.[step.process];
-      return def ? automationOutputSchema(def, ctx) : undefined;
+      if (!def) return undefined;
+      // Wave 3b: a process step pins a v3 automation or a v4 one.
+      return def.schemaVersion === 2
+        ? processAutomationOutputSchema(def, ctx)
+        : automationOutputSchema(def, ctx);
     }
     // R7: `{ status, found, conversationId, summary }`, `found` typed by the step's `find`.
     case "conversation":
@@ -311,7 +327,15 @@ export function typeProcessPath(scope: ProcessScope, path: readonly string[]): P
   const [root, ...rest] = path;
   switch (root) {
     case "trigger":
+      if (scope.input) {
+        return { ok: false, message: "an automation has no trigger: read its {{input…}}" };
+      }
       return schemaAtPath(scope.trigger, rest);
+    case "input":
+      if (!scope.input) {
+        return { ok: false, message: "{{input}} is only available inside an automation" };
+      }
+      return schemaAtPath(scope.input.schema, rest);
     case "settings":
       return schemaAtPath(scope.settings, rest);
     case "steps": {
@@ -362,7 +386,9 @@ export function typeProcessPath(scope: ProcessScope, path: readonly string[]): P
 /** Whether the reference's root is readable here (so a failure is a bad path, not a bad scope). */
 function rootInScope(scope: ProcessScope, path: readonly string[]): boolean {
   const [root, id, third] = path;
-  if (root === "trigger" || root === "settings") return true;
+  if (root === "trigger") return scope.input === undefined;
+  if (root === "input") return scope.input !== undefined;
+  if (root === "settings") return true;
   if (root === "item") return scope.loop !== undefined;
   if (root === "steps")
     return id !== undefined && scope.steps[id] !== undefined && third === "output";
@@ -394,8 +420,9 @@ function itemSchemaOf(over: string, scope: ProcessScope): JsonSchema | undefined
 function scopeList(
   process: Pick<Process, "triggers" | "steps">,
   ctx: ProcessValidationContext,
+  input?: ProcessScope["input"],
 ): { step: Step; scope: ProcessScope }[] {
-  const trigger = processTriggerSchema(process, ctx);
+  const trigger = input ? undefined : processTriggerSchema(process, ctx);
   // A duplicated id (an error anyway) reads as its last step, as v3 does.
   const byId = new Map<string, Step>();
   const locs: { step: Step; before: string[]; loop: ForEachStep | undefined }[] = [];
@@ -404,7 +431,12 @@ function scopeList(
     locs.push({ step: loc.step, before: loc.before, loop: loc.loops.at(-1) });
   });
   return locs.map((l) => {
-    const scope: ProcessScope = { trigger, settings: ctx.settings, steps: {} };
+    const scope: ProcessScope = {
+      trigger,
+      settings: ctx.settings,
+      steps: {},
+      ...(input ? { input } : {}),
+    };
     for (const id of l.before) {
       const s = byId.get(id);
       if (s) scope.steps[id] = { step: s, output: stepOutputSchema(s, ctx) };
@@ -521,6 +553,41 @@ export function approvalLoosenings(
   (approval.approvers ?? []).forEach((a, i) => {
     if (a.deadline) proceedsInDeadline(a.deadline, `${prefix}.approvers.${i}.deadline`, out);
   });
+  return out;
+}
+
+/** A deadline whose "nobody answered" never goes ahead (escalations included). */
+function holdDeadline(d: Deadline): Deadline {
+  return { ...d, ifNoAnswer: holdThen(d.ifNoAnswer) };
+}
+
+function holdThen(then: DeadlineThen): DeadlineThen {
+  if (then === "proceed") return "stop";
+  if (typeof then === "object") {
+    return {
+      escalate: { ...then.escalate, deadline: holdDeadline(then.escalate.deadline) },
+    };
+  }
+  return then;
+}
+
+/**
+ * Wave 3b: the approval with every loosening taken out (`approvalLoosenings` empty after it):
+ * required, on every run, and stopping where nobody answers instead of going ahead. Its approvers,
+ * mode and reminders stay. Invariant 8: what new steps and the Builder's drafts start with.
+ */
+export function tightenedApproval(approval: ApprovalCheck): ApprovalCheck {
+  const { when: _when, ...rest } = approval;
+  const out: ApprovalCheck = {
+    ...rest,
+    required: "required",
+    ifNoAnswer: holdThen(approval.ifNoAnswer),
+  };
+  if (approval.approvers) {
+    out.approvers = approval.approvers.map((a) =>
+      a.deadline ? { ...a, deadline: holdDeadline(a.deadline) } : a,
+    );
+  }
   return out;
 }
 
@@ -773,10 +840,54 @@ function checkNotify(
     checkRules(c, nodeId, n.urgent.when, [...where, "urgent", "when"], scope, false);
 }
 
-/** A v3 automation's steps, nested ones included (sub-process steps pin v3 automations today). */
+/** A v3 automation's steps, nested ones included. */
 function automationSteps(steps: readonly V3Step[]): V3Step[] {
   const out: V3Step[] = [];
   walkV3Steps({ steps: [...steps] }, ({ step }) => out.push(step));
+  return out;
+}
+
+/** An automation's inner step as a process step's `approvals` reads it, whichever its schema. */
+interface InnerStep {
+  id: string;
+  /** Its own approval's loosenings, as the override's fields name them (`approvals.<id>…`). */
+  ownLoose: Loosening[];
+  /** The external tools it calls (undefined: the registries don't know). */
+  writes: ToolSpec[] | undefined;
+  /** It contacts people (a skill that reaches people, a conversation). */
+  reaches: boolean;
+  /** Its kind has an approval an override can set (v3 skill or action; v4 skill, read or write). */
+  approvable: boolean;
+}
+
+/** Every inner step of a pinned automation by id: v3 steps (v1) or v4 process steps (v2). */
+function innerSteps(def: AnyAutomationDefinition, ctx: TypingContext): Map<string, InnerStep> {
+  const out = new Map<string, InnerStep>();
+  if (def.schemaVersion === 2) {
+    walkSteps(def, ({ step }) => {
+      out.set(step.id, {
+        id: step.id,
+        ownLoose: approvalLoosenings(step.checks?.approval, `approvals.${step.id}`),
+        writes: stepWrites(step, ctx),
+        reaches: stepReaches(step, ctx),
+        approvable: step.kind === "skill" || step.kind === "write" || step.kind === "read",
+      });
+    });
+    return out;
+  }
+  for (const s of automationSteps(def.steps)) {
+    const own = s.kind === "skill" || s.kind === "action" ? s.approval : undefined;
+    out.set(s.id, {
+      id: s.id,
+      ownLoose:
+        own?.required === "not_required"
+          ? [{ field: `approvals.${s.id}.required`, what: "not_required" }]
+          : [],
+      writes: v3StepWrites(s, ctx),
+      reaches: s.kind === "skill" && lookupSkill(s.skill, ctx)?.reachesPeople === true,
+      approvable: s.kind === "skill" || s.kind === "action",
+    });
+  }
   return out;
 }
 
@@ -804,7 +915,8 @@ function checkSubProcess(c: Checker, step: SubProcessStep, scope: ProcessScope) 
   if (!def) return;
   checkInput(c, step.id, step.input, def.input, scope);
 
-  const inner = new Map(automationSteps(def.steps).map((s) => [s.id, s]));
+  // Wave 3b: the pinned automation holds v3 steps or v4 process steps.
+  const inner = innerSteps(def, ctx);
   for (const [innerId, approval] of approvals) {
     const target = inner.get(innerId);
     if (!target) {
@@ -816,16 +928,10 @@ function checkSubProcess(c: Checker, step: SubProcessStep, scope: ProcessScope) 
       );
       continue;
     }
-    const writes = v3StepWrites(target, ctx);
-    const reaches =
-      target.kind === "skill" && lookupSkill(target.skill, ctx)?.reachesPeople === true;
+    const { writes, reaches } = target;
     const loose = approvalLoosenings(approval, `approvals.${innerId}`);
     const off = loose.find((l) => l.what === "not_required");
-    if (
-      off &&
-      ((writes !== undefined && writes.length === 0 && !reaches) ||
-        (target.kind !== "skill" && target.kind !== "action"))
-    ) {
+    if (off && ((writes !== undefined && writes.length === 0 && !reaches) || !target.approvable)) {
       c.add(
         step.id,
         off.field,
@@ -861,13 +967,10 @@ function checkSubProcess(c: Checker, step: SubProcessStep, scope: ProcessScope) 
   const mode = ctx.agent?.permissions?.mode;
   for (const target of inner.values()) {
     const override = step.approvals?.[target.id];
-    const own = target.kind === "skill" || target.kind === "action" ? target.approval : undefined;
     const loose: Loosening[] = override
       ? approvalLoosenings(override, `approvals.${target.id}`)
-      : own?.required === "not_required"
-        ? [{ field: `approvals.${target.id}.required`, what: "not_required" }]
-        : [];
-    const writes = v3StepWrites(target, ctx) ?? [];
+      : target.ownLoose;
+    const writes = target.writes ?? [];
     for (const tool of writes) {
       const connector = tool.connector ?? tool.source;
       const matrix = matrices[connector];
@@ -1103,6 +1206,90 @@ function splitWarnings(process: Process): ProcessWarning[] {
     }
   });
   return warnings;
+}
+
+// ── Wave 3b: v4 automations (docs/plan.md §1.86) ─────────────────────────────────────────────
+
+/** What an automation's `output` reads: its input and every top-level step. */
+function automationEndScope(
+  def: Pick<ProcessAutomationDefinition, "input" | "steps">,
+  ctx: TypingContext,
+): ProcessScope {
+  const scope: ProcessScope = {
+    trigger: undefined,
+    settings: undefined,
+    steps: {},
+    input: { schema: def.input },
+  };
+  for (const s of def.steps) scope.steps[s.id] = { step: s, output: stepOutputSchema(s, ctx) };
+  return scope;
+}
+
+/** The schema of a process step's output when it pins a v4 automation (as v3's use step's). */
+export function processAutomationOutputSchema(
+  def: Pick<ProcessAutomationDefinition, "input" | "steps" | "output">,
+  ctx: TypingContext = {},
+): JsonSchema {
+  // No nesting (validation refuses it): an inner process step is typed as unknown.
+  const scope = automationEndScope(def, { ...ctx, automations: {} });
+  return outputTemplateSchema(def.output, (path) => typeProcessPath(scope, path));
+}
+
+/**
+ * Validates one v4 automation version on its own, as v3's `validateAutomation` does: its steps as
+ * a process's with `{{input…}}` in place of the trigger, skills and tools against the context (the
+ * agent that uses it brings them in), no nesting, people by role, and an `output` over its input
+ * and top-level steps.
+ */
+export function validateProcessAutomation(
+  input: unknown,
+  ctx: Omit<ProcessValidationContext, "agent" | "publish" | "clientAgent"> = {},
+): {
+  valid: boolean;
+  errors: ProcessValidationError[];
+  value?: ProcessAutomationDefinition;
+} {
+  const parsed = ProcessAutomationDefinitionSchema.safeParse(input);
+  if (!parsed.success) {
+    return { valid: false, errors: schemaErrors(parsed.error.issues, input) };
+  }
+  const def = parsed.data;
+  const errors = duplicateIds({ schemaVersion: 4, triggers: [], steps: def.steps });
+  const c: Checker = {
+    ctx,
+    typePath: typeProcessPath,
+    inScope: rootInScope,
+    add(stepId, f, code, message) {
+      errors.push({ stepId, field: f, code, message });
+    },
+  };
+  walkSteps(def, ({ step }) => {
+    if (step.kind === "process") {
+      c.add(step.id, "", "automation_nested", "an automation can't use another automation");
+    }
+    // As v3: an automation never names a person, and its skill steps run as the using agent.
+    if (step.kind === "person" && isUuid(step.assignee)) {
+      c.add(
+        step.id,
+        "assignee",
+        "automation_named_person",
+        "an automation assigns people by role, not by name",
+      );
+    }
+    if (step.kind === "skill" && step.agent !== undefined) {
+      c.add(
+        step.id,
+        "agent",
+        "automation_agent",
+        "an automation's steps run as the agent using it",
+      );
+    }
+  });
+  const list = scopeList({ triggers: [], steps: def.steps }, ctx, { schema: def.input });
+  for (const { step, scope } of list) checkStep(c, step, scope, undefined);
+  checkRefs(c, "", def.output, ["output"], automationEndScope(def, ctx));
+  for (const e of errors) if (e.stepId === "") e.stepId = null;
+  return { valid: errors.length === 0, errors, value: def };
 }
 
 /**

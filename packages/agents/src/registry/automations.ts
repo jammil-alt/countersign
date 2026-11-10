@@ -7,18 +7,17 @@
 import {
   type AgentBundle,
   type AnyAgentBundle,
-  type AutomationDefinition,
-  AutomationDefinition as AutomationSchema,
+  type AnyAutomationDefinition,
+  AnyAutomationDefinition as AutomationSchema,
   automationRef,
   automationRefs,
-  automationRequires,
   hashJson,
   parseAutomationRef,
   processes,
   type SkillDefinition,
+  stepsToAutomation,
   useSteps,
   type ValidationError,
-  validateAutomation,
 } from "@countersign/core";
 import { automation, automationVersion, type Tx } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
@@ -34,7 +33,7 @@ export type AutomationSource = "client" | "shared";
 
 export interface ResolvedAutomation {
   ref: string;
-  definition: AutomationDefinition;
+  definition: AnyAutomationDefinition;
   source: AutomationSource;
   versionId: string;
   version: number;
@@ -79,12 +78,12 @@ function refsBundle(refs: readonly string[]): AgentBundle {
 async function innerSkills(
   tx: Tx,
   tenantId: string | null,
-  defs: readonly AutomationDefinition[],
+  defs: readonly AnyAutomationDefinition[],
   ctx: Pick<RegistryContext, "catalog">,
 ): Promise<{ skills: Record<string, SkillDefinition>; missing: string[] }> {
   const refs = new Set<string>();
   for (const d of defs) {
-    for (const s of automationRequires(d, {}).skills) refs.add(s);
+    for (const s of processes.anyAutomationRequires(d, {}).skills) refs.add(s);
   }
   if (refs.size === 0) return { skills: {}, missing: [] };
   return skillContext(tx, { tenantId, bundle: refsBundle([...refs]), catalog: ctx.catalog });
@@ -97,7 +96,7 @@ async function innerSkills(
 export async function prepareAutomation(
   tx: Tx,
   input: { tenantId: string | null; definition: unknown; ctx: RegistryContext },
-): Promise<{ definition: AutomationDefinition; errors: ValidationError[] }> {
+): Promise<{ definition: AnyAutomationDefinition; errors: ValidationError[] }> {
   const parsed = AutomationSchema.safeParse(input.definition);
   if (!parsed.success) {
     throw new AgentsError("invalid_definition", parsed.error.message, parsed.error.issues);
@@ -105,11 +104,11 @@ export async function prepareAutomation(
   const { skills } = await innerSkills(tx, input.tenantId, [parsed.data], input.ctx);
   const typing = { skills, tools: input.ctx.tools.specs(), models: knownModelIds() };
   const connectorIds = new Set(input.ctx.tools.connectors.list().map((c) => c.manifest.id));
-  const definition: AutomationDefinition = {
+  const definition: AnyAutomationDefinition = {
     ...parsed.data,
-    requires: automationRequires(parsed.data, typing, connectorIds),
+    requires: processes.anyAutomationRequires(parsed.data, typing, connectorIds),
   };
-  return { definition, errors: validateAutomation(definition, typing).errors };
+  return { definition, errors: processes.validateAnyAutomation(definition, typing).errors };
 }
 
 function tenantIs(tenantId: string | null) {
@@ -267,7 +266,7 @@ export async function publishAutomation(
   if (!v || v.automationId !== row.id) throw notFound(`automation version ${input.versionId}`);
   if (v.status === "live") throw new AgentsError("invalid_state", "that version is already live");
   const { skills, missing } = await innerSkills(tx, row.tenantId, [v.definition], input.ctx);
-  const result = validateAutomation(v.definition, {
+  const result = processes.validateAnyAutomation(v.definition, {
     skills,
     tools: input.ctx.tools.specs(),
     // v0.13 W2-H: an inner step's model is one the platform prices.
@@ -402,12 +401,12 @@ export async function automationContext(
   tx: Tx,
   input: { tenantId: string | null; bundle: AgentBundle; catalog: RegistryContext["catalog"] },
 ): Promise<{
-  automations: Record<string, AutomationDefinition>;
+  automations: Record<string, AnyAutomationDefinition>;
   skills: Record<string, SkillDefinition>;
   missing: string[];
   drafts: string[];
 }> {
-  const automations: Record<string, AutomationDefinition> = {};
+  const automations: Record<string, AnyAutomationDefinition> = {};
   const missing: string[] = [];
   const drafts: string[] = [];
   for (const ref of bundleAutomationRefs(input.bundle)) {
@@ -467,7 +466,7 @@ export async function snapshotSharedAutomations(
   input: { tenantId: string; bundle: AgentBundle; catalog?: RegistryContext["catalog"] },
 ): Promise<{ ref: string; versionId: string }[]> {
   const made: { ref: string; versionId: string }[] = [];
-  const copiedDefs: AutomationDefinition[] = [];
+  const copiedDefs: AnyAutomationDefinition[] = [];
   for (const ref of bundleAutomationRefs(input.bundle)) {
     const { slug, version } = parseAutomationRef(ref);
     const own = await bySlug(tx, input.tenantId, slug);
@@ -530,7 +529,8 @@ export async function snapshotSharedAutomations(
   }
   // The shared skills the automations' steps name reach the client as the agent's own do.
   const skillRefs = new Set<string>();
-  for (const d of copiedDefs) for (const s of automationRequires(d, {}).skills) skillRefs.add(s);
+  for (const d of copiedDefs)
+    for (const s of processes.anyAutomationRequires(d, {}).skills) skillRefs.add(s);
   if (skillRefs.size > 0) {
     await snapshotSharedSkills(tx, {
       tenantId: input.tenantId,
@@ -539,4 +539,89 @@ export async function snapshotSharedAutomations(
     });
   }
   return made;
+}
+
+// ── Save as automation (docs/plan.md §1.45; wave 3b, §1.86) ────────────────────────────────────
+
+export type BundleStepsToAutomation =
+  | {
+      ok: true;
+      /** The new automation's v1 definition (v3 steps from a v3 workflow, v4 from a process). */
+      automation: AnyAutomationDefinition;
+      /** The bundle with the selection replaced by the step that uses the automation. */
+      bundle: AnyAgentBundle;
+    }
+  | { ok: false; code: string; message: string };
+
+/**
+ * "Save as automation" on a bundle: the selected top-level steps of one of its workflows become a
+ * new automation, used in their place. A v3 workflow gives a v3 automation and a use step (core's
+ * `stepsToAutomation`, as always); a v4 process gives a v4 automation and a process step
+ * (`processes.stepsToProcessAutomation`). Shared by the workflow builder's route and the Builder's
+ * conversation; nothing is saved here.
+ */
+export async function bundleStepsToAutomation(
+  tx: Tx,
+  input: {
+    tenantId: string | null;
+    bundle: AnyAgentBundle;
+    stepIds: readonly string[];
+    slug: string;
+    name: string;
+    description?: string | undefined;
+    clientAgent: boolean;
+    newId: () => string;
+    ctx: RegistryContext;
+  },
+): Promise<BundleStepsToAutomation> {
+  const { bundle, ctx } = input;
+  const first = input.stepIds[0];
+  const holder = bundle.workflows.find((w) =>
+    (w.workflow.steps as { id: string }[]).some((s) => s.id === first),
+  );
+  if (!holder) {
+    return {
+      ok: false,
+      code: "not_top_level",
+      message: "only steps at the top of a workflow can become an automation",
+    };
+  }
+  const asV3 = bundle as AgentBundle;
+  const { skills } = await skillContext(tx, {
+    tenantId: input.tenantId,
+    bundle: asV3,
+    catalog: ctx.catalog,
+  });
+  const used = await automationContext(tx, {
+    tenantId: input.tenantId,
+    bundle: asV3,
+    catalog: ctx.catalog,
+  });
+  const typing = {
+    skills: { ...used.skills, ...skills },
+    tools: ctx.tools.specs(),
+    ...(ctx.events ? { events: ctx.events } : {}),
+    automations: used.automations,
+  };
+  const common = {
+    stepIds: input.stepIds,
+    slug: input.slug,
+    name: input.name,
+    ...(input.description !== undefined ? { description: input.description } : {}),
+    newId: input.newId,
+    ctx: typing,
+    clientAgent: input.clientAgent,
+  };
+  const replace = (workflow: AnyAgentBundle["workflows"][number]["workflow"]): AnyAgentBundle => ({
+    ...bundle,
+    workflows: bundle.workflows.map((w) => (w.slug === holder.slug ? { ...w, workflow } : w)),
+  });
+  if (holder.workflow.schemaVersion === 4) {
+    const r = processes.stepsToProcessAutomation({ ...common, process: holder.workflow });
+    if (!r.ok) return r;
+    return { ok: true, automation: r.automation, bundle: replace(r.process) };
+  }
+  const r = stepsToAutomation({ ...common, workflow: holder.workflow });
+  if (!r.ok) return r;
+  return { ok: true, automation: r.automation, bundle: replace(r.workflow) };
 }

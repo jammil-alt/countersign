@@ -123,6 +123,14 @@ export type ProcessAgentBundle = Omit<AgentBundle, "workflows"> & {
   workflows: ProcessBundleWorkflow[];
 };
 
+/**
+ * Wave 3b: the schema of a bundle whose workflows are all v4 processes: what the Builder drafts
+ * and answers (docs/plan.md §1.86). Its value is a `ProcessAgentBundle`.
+ */
+export const ProcessAgentBundle = AgentBundle.extend({
+  workflows: z.array(BundleWorkflow.extend({ workflow: Process })),
+}).meta({ id: "ProcessAgentBundle" });
+
 /** True when any of the bundle's workflows is a v4 process. */
 export function holdsProcess(bundle: Pick<AnyAgentBundle, "workflows">): boolean {
   return bundle.workflows.some((w) => w.workflow.schemaVersion === 4);

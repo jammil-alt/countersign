@@ -1,7 +1,7 @@
 // P-4
 import { typedResultOutput } from "../converse";
 import { isPlainObject } from "../json";
-import type { AutomationDefinition } from "../schemas/automation";
+import type { AnyAutomationDefinition, AutomationDefinition } from "../schemas/automation";
 import type { JsonSchema } from "../schemas/common";
 import { parseSkillRef } from "../schemas/common";
 import type { EventTypeSpec } from "../schemas/event";
@@ -25,7 +25,7 @@ export interface TypingContext {
   events?: Record<string, EventTypeSpec>;
   // v0.12 W2-B
   /** Automation versions by their pinned reference (`slug@version`). */
-  automations?: Record<string, AutomationDefinition>;
+  automations?: Record<string, AnyAutomationDefinition>;
 }
 
 export type PathType =
@@ -110,7 +110,8 @@ export function outputSchemaOf(step: Step, ctx: TypingContext): JsonSchema | und
     // v0.12 W2-B
     case "use_automation": {
       const def = ctx.automations?.[step.automation];
-      return def ? automationOutputSchema(def, ctx) : undefined;
+      // Wave 3b: a v3 use step pins v3 automations only (validation refuses a v4 one).
+      return def && def.schemaVersion === 1 ? automationOutputSchema(def, ctx) : undefined;
     }
     default:
       return NO_OUTPUT;
@@ -447,8 +448,20 @@ export function automationOutputSchema(
   // No nesting (validation refuses it): an inner use step is typed as unknown, never recursed into.
   const flat: TypingContext = { ...ctx, automations: {} };
   const scope = automationEndScope(automation, flat);
+  return outputTemplateSchema(automation.output, (path) => typeTemplatePath(scope, path));
+}
+
+/**
+ * An `output` template object typed field by field (one whole reference keeps its type; text is a
+ * string; anything else unknown), with `typePath` typing a reference. Wave 3b: shared by v3 and
+ * v4 automations.
+ */
+export function outputTemplateSchema(
+  output: Record<string, unknown>,
+  typePath: (path: string[]) => PathType,
+): JsonSchema {
   const properties: Record<string, JsonSchema> = {};
-  for (const [key, value] of Object.entries(automation.output)) {
+  for (const [key, value] of Object.entries(output)) {
     let schema: JsonSchema = {};
     if (typeof value === "string" && value.includes("{{")) {
       let path: string[] | null = null;
@@ -459,7 +472,7 @@ export function automationOutputSchema(
       }
       if (!path) schema = { type: "string" };
       else {
-        const t = typeTemplatePath(scope, path);
+        const t = typePath(path);
         schema = t.ok && t.schema ? t.schema : {};
       }
     } else if (!isPlainObject(value)) schema = literalSchema(value);

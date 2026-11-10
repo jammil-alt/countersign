@@ -1,12 +1,14 @@
 // The skills library and the Builder through the API (ARCHITECTURE §9.2, §9.6, §14): operator
 // skills are created, versioned, published, rolled back and assigned, shared or for one client;
 // the Builder drafts and revises with FakeModel answers that break its rules, and its drafts are
-// saved as drafts that keep approvals on.
+// saved as drafts that keep approvals on. Wave 3b: the Builder drafts and revises v4 processes; a
+// v3 version it revises is read through the converter, every id kept (docs/plan.md §1.86).
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import { type AgentBundle, type Step, walkSteps } from "@countersign/core";
-import { inboxItem } from "@countersign/db";
-import { FakeModel } from "@countersign/llm";
+import { type ProcessAgentBundle as AgentBundle, processes } from "@countersign/core";
+import { agentVersion, inboxItem } from "@countersign/db";
+import { FakeModel, type LlmRequest } from "@countersign/llm";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createApiHarness, OPERATOR, OTHER_OPERATOR, testBundle } from "./api.test-helper";
 
@@ -39,11 +41,19 @@ function skillDef(slug: string, over: Json = {}) {
   };
 }
 
+type Step = processes.Step;
 const stepsOf = (b: AgentBundle) => {
   const out: Step[] = [];
-  for (const w of b.workflows) walkSteps(w.workflow, ({ step }) => out.push(step));
+  for (const w of b.workflows) processes.walkSteps(w.workflow, ({ step }) => out.push(step));
   return out;
 };
+
+/** The bundle a revise request showed the model (real ids: a revision keeps them). */
+function shownSource(req: LlmRequest): AgentBundle {
+  const content = req.messages[0]?.content as string;
+  const start = content.indexOf("<current_bundle>") + "<current_bundle>".length;
+  return JSON.parse(content.slice(start, content.indexOf("</current_bundle>"))) as AgentBundle;
+}
 
 describe.skipIf(!h)("skills library", () => {
   const H = h as NonNullable<typeof h>;
@@ -177,8 +187,8 @@ function cardChargesAnswer() {
           slug: "weekly",
           name: "Weekly check",
           workflow: {
-            schemaVersion: 3,
-            trigger: { id: "t", on: { type: "schedule", cron: "0 9 * * 1" } },
+            schemaVersion: 4,
+            triggers: [{ id: "t", on: { type: "schedule", cron: "0 9 * * 1" } }],
             steps: [
               {
                 id: "find",
@@ -194,16 +204,15 @@ function cardChargesAnswer() {
                 mode: "ask",
                 assignee: "client_admin",
                 title: "Receipts needed for card charges over $500",
-                timeout: "3 days",
-                onTimeout: "notify_operator",
+                deadline: { after: "3 days", tell: ["operator"] },
               },
               {
                 id: "note",
-                kind: "action",
+                kind: "write",
                 name: "Note it on the record",
                 tool: TESTKIT_UPDATE_TOOL,
                 input: { id: "r1", name: "Receipt asked for" },
-                approval: { required: "not_required" },
+                checks: { approval: { required: "not_required" } },
               },
             ],
           },
@@ -247,8 +256,9 @@ describe.skipIf(!h)("the Builder", () => {
         expect.stringContaining("custom:find-card-charges"),
       ]),
     );
-    const action = stepsOf(out.bundle).find((s) => s.kind === "action");
-    expect(action?.kind === "action" && action.approval.required).toBe("required");
+    expect(out.bundle.workflows[0]?.workflow.schemaVersion).toBe(4);
+    const write = stepsOf(out.bundle).find((s) => s.kind === "write");
+    expect(write?.checks?.approval?.required).toBe("required");
     expect(stepsOf(out.bundle).every((s) => /^[0-9a-f-]{36}$/.test(s.id))).toBe(true);
     // It is saved: the agent page opens it.
     const page = await H.call(OPERATOR, "GET", `/api/ops/agents/${out.agent.id}`);
@@ -302,50 +312,60 @@ describe.skipIf(!h)("the Builder", () => {
       bindings: { testkit: H.A.connectionId },
     });
     const source = (created.json as { version: Json }).version;
-    const before = testBundle();
-    const update = before.workflows[0]?.workflow.steps[0] as Step;
-    const revised = structuredClone(before);
-    const wf = revised.workflows[0]?.workflow;
-    if (!wf) throw new Error("no workflow");
-    wf.steps = [
-      {
-        id: "small-or-not",
-        kind: "fork",
-        name: "Invoice under $200?",
-        paths: [
-          {
-            id: "small",
-            name: "Under $200",
-            when: {
-              match: "all",
-              rules: [{ field: "{{trigger.amount}}", op: "<", value: 200 }],
-            },
-            steps: [
-              {
-                id: "update-small",
-                kind: "action",
-                name: "Update without approval",
-                tool: TESTKIT_UPDATE_TOOL,
-                input: { id: "r1", amount: "12.00" },
-                approval: { required: "not_required", onReject: "stop" },
+    // The model is shown the stored v3 version read as a process (every id kept) and answers v4.
+    model.push((req: LlmRequest) => {
+      const revised = structuredClone(shownSource(req));
+      const wf = revised.workflows[0]?.workflow;
+      if (!wf) throw new Error("no workflow");
+      expect(wf.schemaVersion).toBe(4);
+      const update = wf.steps[0] as Step;
+      wf.steps = [
+        {
+          id: "small-or-not",
+          kind: "if",
+          name: "Invoice under $200?",
+          paths: [
+            {
+              id: "small",
+              name: "Under $200",
+              when: {
+                match: "all",
+                rules: [{ field: "{{trigger.amount}}", op: "<", value: 200 }],
               },
-            ],
-          },
-        ],
-        otherwise: { id: "big", steps: [update] },
-      },
-      ...wf.steps.slice(1),
-    ];
-    model.push({
-      toolUse: {
-        name: "submit_revision",
-        input: {
-          summary: "Invoices under $200 are updated without waiting.",
-          gaps: [],
-          changeNote: "Skip approval under $200",
-          bundle: revised,
+              steps: [
+                {
+                  id: "update-small",
+                  kind: "write",
+                  name: "Update without approval",
+                  tool: TESTKIT_UPDATE_TOOL,
+                  input: { id: "r1", amount: "12.00" },
+                  checks: {
+                    approval: {
+                      required: "not_required",
+                      mode: "in_turn",
+                      ifNoAnswer: "stop",
+                      onReject: "stop",
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+          otherwise: { id: "big", steps: [update] },
         },
-      },
+        ...wf.steps.slice(1),
+      ];
+      return {
+        toolUse: {
+          name: "submit_revision",
+          input: {
+            summary: "Invoices under $200 are updated without waiting.",
+            gaps: [],
+            changeNote: "Skip approval under $200",
+            bundle: revised,
+          },
+        },
+      };
     });
     const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/revise`, {
       instruction: "For this client, skip the approval for invoices under $200",
@@ -367,12 +387,16 @@ describe.skipIf(!h)("the Builder", () => {
       parentVersionId: source.id,
       changeNote: "Builder: Skip approval under $200",
     });
-    const actions = stepsOf(out.bundle).filter((s) => s.kind === "action");
-    expect(actions.map((s) => s.kind === "action" && s.approval.required)).toEqual([
-      "required",
-      "required",
-    ]);
+    const writes = stepsOf(out.bundle).filter((s) => s.kind === "write");
+    expect(writes.map((s) => s.checks?.approval?.required)).toEqual(["required", "required"]);
     expect(stepsOf(out.bundle).find((s) => s.name === "Update the record")?.id).toBe("update");
+    // The revision is a v4 version; the v3 version it revised is as it was (invariant 3).
+    const [v1] = await H.t.db
+      .select()
+      .from(agentVersion)
+      .where(eq(agentVersion.id, source.id as string));
+    expect(v1?.bundle.workflows[0]?.workflow.schemaVersion).toBe(3);
+    expect(out.bundle.workflows[0]?.workflow.schemaVersion).toBe(4);
     expect(out.notes.join(" ")).toMatch(/Approval stays on/);
     expect(out.diff.changes.length).toBeGreaterThan(0);
     expect(Object.values(out.diff.labels)).toContain("Invoice under $200?");
@@ -394,19 +418,21 @@ describe.skipIf(!h)("the Builder", () => {
         payload: { text: "Say 'Record checked' at the end instead." },
       })
       .returning();
-    const changed = testBundle();
-    const note = changed.workflows[0]?.workflow.steps[2];
-    if (note?.kind === "notify") note.message = "Record checked";
-    model.push({
-      toolUse: {
-        name: "submit_revision",
-        input: {
-          summary: "The note now says Record checked.",
-          gaps: [],
-          changeNote: "New note",
-          bundle: changed,
+    model.push((req: LlmRequest) => {
+      const changed = structuredClone(shownSource(req));
+      const note = changed.workflows[0]?.workflow.steps[2];
+      if (note?.kind === "notify") note.notify.message = "Record checked";
+      return {
+        toolUse: {
+          name: "submit_revision",
+          input: {
+            summary: "The note now says Record checked.",
+            gaps: [],
+            changeNote: "New note",
+            bundle: changed,
+          },
         },
-      },
+      };
     });
     const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/revise`, {
       requestId: item?.id,
