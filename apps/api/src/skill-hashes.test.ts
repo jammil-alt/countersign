@@ -19,7 +19,8 @@ const builtins = platform.catalog.list();
 // Skill model (2026-11-10): the splits add 16 that are no wrappers: Read document and Check
 // totals; Look up existing, Match the unmatched, Check matches, Compare to historicals, Read a
 // vendor's quote, Choose items to merge; Bookkeeping's three and Marketing's five AI skills.
-const BUILTINS = 123;
+// The templates add three AI skills: Choose items and accounts, Prepare bill, Explain a problem.
+const BUILTINS = 126;
 const WRAPPERS = 92;
 
 describe("built-in skills under the R2 skill schema", () => {

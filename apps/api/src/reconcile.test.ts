@@ -20,7 +20,7 @@ import {
   fakePlaidTransaction,
   fakeQbo,
 } from "@countersign/connectors/testing";
-import { agent, ledgerAccount, stepRun, withTenant } from "@countersign/db";
+import { agent, agentVersion, ledgerAccount, stepRun, withTenant } from "@countersign/db";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { reconciliation, reconciliationItem } from "@countersign/pack-bookkeeping";
 import { and, eq, sql } from "drizzle-orm";
@@ -300,9 +300,16 @@ describe.skipIf(!h)("the Bookkeeper reconciles a month", () => {
       .select()
       .from(agent)
       .where(and(eq(agent.kind, "template"), eq(agent.slug, "bookkeeper")));
+    // Skill model (2026-11-10): the scripted run is v2's (the agent-mode skills stored agents
+    // still run); v3 is held by templates-skill-model.test.ts.
+    const [v2] = await H.t.db
+      .select({ id: agentVersion.id })
+      .from(agentVersion)
+      .where(and(eq(agentVersion.agentId, tpl?.id as string), eq(agentVersion.version, 2)));
     const fork = await H.call(OPERATOR, "POST", `/api/ops/templates/${tpl?.id}/fork`, {
       clientId: A(),
       slug: "bookkeeper-a",
+      versionId: v2?.id,
     });
     expect(fork.status, JSON.stringify(fork.json)).toBe(200);
     ids.agentId = j(fork.json).agent.id;
