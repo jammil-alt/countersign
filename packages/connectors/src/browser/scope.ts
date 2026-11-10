@@ -150,6 +150,8 @@ export interface NeedsHelp {
    * The evidence screenshots of the pages it read: storage keys on the connection's log (the
    * session record's `screenshots`), not new documents.
    */
+  // DECISION: storage keys, not copies in the client's documents: a help request makes no new copy
+  // of the client's data, and the evidence stays where the connection's log keeps it.
   screenshots?: string[];
   /**
    * The tag to keep the answer under: write `browseHelpNote(remember, question, answer)` (or
@@ -351,6 +353,8 @@ export class BrowseScope {
    * toward the limit only once the gate and the connector let it be opened: read, or tried and
    * failed on the site. A refusal (the scope's, the gate's or the connector's) opens nothing.
    */
+  // DECISION: a failure counts (the site was reached and may have navigated); a refusal doesn't,
+  // so a model that probes refused addresses is bounded by its time and budget, not its pages.
   observe(toolId: string, input: unknown, outcome: ObservedOutcome): void {
     if (!isBrowserTool(toolId)) return;
     const args = obj(input);

@@ -186,8 +186,8 @@ export async function callTool(
         : await dispatch(deps, step, resolved, input, call.scope?.sessions);
     }
   } catch (error) {
-    // v0.16: a connector's own refusal (a site's pages, its sign-in caps) is a refusal, as the
-    // gate's are: nothing was done.
+    // DECISION (v0.16): a connector's own refusal (a site's pages, its sign-in caps) is a refusal,
+    // as the gate's are, for every caller: nothing was done.
     outcome =
       error instanceof ToolRefused
         ? { status: "refused", reason: error.message }
