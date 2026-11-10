@@ -72,6 +72,8 @@ export const es: Messages = {
   "shell.desk": "Bandeja", // fluent review
   "shell.menu": "Menú",
   "shell.closeMenu": "Cerrar el menú",
+  "shell.collapse": "Contraer",
+  "shell.expand": "Expandir",
   "shell.switchAgent": "Cambiar de agente",
   "shell.theme": "Tema",
   "shell.theme.system": "Sistema",

@@ -68,6 +68,8 @@ export const en = {
   "shell.desk": "Inbox",
   "shell.menu": "Menu",
   "shell.closeMenu": "Close the menu",
+  "shell.collapse": "Collapse",
+  "shell.expand": "Expand",
   "shell.switchAgent": "Switch agent",
   "shell.theme": "Theme",
   "shell.theme.system": "System",

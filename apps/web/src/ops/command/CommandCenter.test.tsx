@@ -15,6 +15,23 @@ const RUN = "00000000-0000-4000-8000-00000000f001";
 const WAITING_RUN = "00000000-0000-4000-8000-00000000f002";
 const AGENT = "00000000-0000-4000-8000-00000000b001";
 const AGENT2 = "00000000-0000-4000-8000-00000000b002";
+const RUN2 = "00000000-0000-4000-8000-00000000f002";
+const runQueries: string[] = [];
+const opsRun = (id: string, tenantId: string, agentId: string, status: string, at: string) => ({
+  id,
+  tenantId,
+  agentId,
+  agentVersionId: "v1",
+  workflowSlug: "main",
+  mode: "live",
+  status,
+  trigger: {},
+  costUsd: "0",
+  error: null,
+  startedAt: at,
+  finishedAt: at,
+  createdAt: at,
+});
 
 const demo = { id: DEMO, name: "Demo client" };
 const other = { id: OTHER, name: "Harbor Millwork" };
@@ -164,29 +181,21 @@ function routes(over: Record<string, () => unknown> = {}) {
     "GET /api/session": () => OPERATOR_SESSION,
     "GET /api/ops/clients": () => ({ clients: [] }),
     "GET /api/ops/command-center": () => center(),
-    "GET /api/ops/feed": () => ({
-      at: now.toISOString(),
-      items: [
-        {
-          id: "failure:1",
-          kind: "failure",
-          at: hoursAgo(1),
-          client: demo,
-          agent: { id: AGENT, name: "Cole", serviceName: null },
-          runId: RUN,
-          text: "Gmail 401",
-        },
-        {
-          id: "signature:2",
-          kind: "signature",
-          at: hoursAgo(2),
-          client: other,
-          agent: { id: AGENT2, name: "Pia", serviceName: null },
-          runId: null,
-          text: "4 cost updates",
-        },
-      ],
-    }),
+    "GET /api/ops/runs": ({ url }: { url: URL }) => {
+      runQueries.push(url.search);
+      const status = url.searchParams.get("status");
+      const all = [
+        opsRun(RUN, DEMO, AGENT, "failed", "2026-11-09T08:23:00.000Z"),
+        opsRun(RUN2, DEMO, AGENT2, "succeeded", "2026-11-09T07:10:00.000Z"),
+      ];
+      return {
+        runs: status ? all.filter((r) => status.split(",").includes(r.status)) : all,
+        agents: [
+          { id: AGENT, tenantId: DEMO, slug: "cole", name: "Cole", serviceName: null },
+          { id: AGENT2, tenantId: DEMO, slug: "pia", name: "Pia", serviceName: null },
+        ],
+      };
+    },
     [`GET /api/ops/clients/${DEMO}/health`]: () => ({
       supervisor: {
         id: "s1",
@@ -286,6 +295,18 @@ describe("command center", () => {
       `/ops/clients/${OTHER}/connections`,
     );
 
+    // Filtered by type, then by client: only what matches stays.
+    const needs = screen.getByTestId("ops-command-needs-us");
+    await userEvent.selectOptions(within(needs).getByTestId("ops-needs-kind"), "connection");
+    expect(
+      within(needs).getByTestId("ops-needs-00000000-0000-4000-8000-00000000c001"),
+    ).toBeVisible();
+    expect(within(needs).queryByTestId(`ops-needs-${RUN}`)).toBeNull();
+    await userEvent.selectOptions(within(needs).getByTestId("ops-needs-client"), DEMO);
+    expect(within(needs).getByTestId("ops-needs-none")).toBeInTheDocument();
+    await userEvent.selectOptions(within(needs).getByTestId("ops-needs-kind"), "");
+    expect(within(needs).getByTestId(`ops-needs-${RUN}`)).toBeInTheDocument();
+
     // Agents by client, with the template update waiting and the last runs.
     const agents = screen.getByTestId("ops-command-agents");
     expect(within(agents).getByTestId("ops-agents-group-Demo client")).toHaveTextContent("1 agent");
@@ -328,17 +349,28 @@ describe("command center", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the live feed and client health with the supervisor's findings", async () => {
+  it("shows recent runs with the date, by client and status, and client health", async () => {
     renderAt(routes());
-    const feed = await screen.findByTestId("ops-command-feed");
-    expect(await within(feed).findByTestId("ops-feed-failure:1")).toHaveTextContent(
-      "Cole · Demo client · failed: Gmail 401",
-    );
-    expect(within(feed).getByTestId("ops-feed-failure:1").querySelector("a")).toHaveAttribute(
-      "href",
-      `/ops/runs/${RUN}`,
-    );
-    expect(within(feed).getByText("signed")).toHaveClass("text-copper-ink");
+    const runs = await screen.findByTestId("ops-command-runs");
+    expect(within(runs).getByText("Recent runs")).toBeInTheDocument();
+    const row = await within(runs).findByTestId(`ops-recent-${RUN}`);
+    // The date stacked on the time.
+    expect(row.querySelector(".ops-when")).toHaveAttribute("title", "9 Nov 08:23");
+    expect(row).toHaveTextContent("9 Nov08:23");
+    expect(row).toHaveTextContent("Cole · Demo client");
+    expect(within(row).getByTestId(`ops-recent-${RUN}-status`)).toHaveTextContent("Failed");
+    expect(row.querySelector("a")).toHaveAttribute("href", `/ops/runs/${RUN}`);
+    expect(runQueries.at(-1)).toContain("mode=live");
+
+    // Failed asks for failed runs only; a client narrows it to that client.
+    await userEvent.selectOptions(within(runs).getByTestId("ops-recent-status"), "failed");
+    await waitFor(() => expect(within(runs).queryByTestId(`ops-recent-${RUN2}`)).toBeNull());
+    expect(runQueries.at(-1)).toContain("status=failed");
+    await userEvent.selectOptions(within(runs).getByTestId("ops-recent-status"), "going");
+    await waitFor(() => expect(runQueries.at(-1)).toContain("status=queued%2Crunning%2Cwaiting"));
+    await userEvent.selectOptions(within(runs).getByTestId("ops-recent-client"), DEMO);
+    await waitFor(() => expect(runQueries.at(-1)).toContain(`client=${DEMO}`));
+    expect(await within(runs).findByText("No runs match these filters.")).toBeInTheDocument();
 
     // Health is a chip with its word, whatever the clean share (a bar drew nothing at 0%).
     const health = screen.getByTestId(`ops-health-${DEMO}`);

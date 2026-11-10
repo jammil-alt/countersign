@@ -174,6 +174,7 @@ function WeeklyTable({
 
       {table.decisions.length > 0 || table.setup.items.length > 0 ? (
         <Card
+          titleAbove
           title={t("weekly.decisions")}
           meta={open > 0 ? <Count n={open} tone="warning" /> : null}
           testId="portal-weekly-decisions"
@@ -205,7 +206,7 @@ function WeeklyTable({
       ) : null}
 
       {stats.agents.length > 0 ? (
-        <Card title={t("weekly.team")} testId="portal-weekly-team">
+        <Card titleAbove title={t("weekly.team")} testId="portal-weekly-team">
           {stats.agents.map((a) => (
             <ActivityRow
               key={a.id}

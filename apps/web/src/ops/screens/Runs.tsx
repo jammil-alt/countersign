@@ -11,7 +11,7 @@ import {
   shortRunId,
 } from "@countersign/core";
 import { type FormEvent, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
@@ -19,6 +19,7 @@ import { duration, isRunGoing, shortTime, usd } from "../../runs/format";
 import { opsRunTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
+import { cx } from "../../ui/cx";
 import { StatTile } from "../../ui/figures";
 import { TextInput } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
@@ -353,14 +354,13 @@ export function OpsRunsScreen() {
           runs.length === 0 ? (
             <EmptyState>No runs match. Remove a filter or pick another view.</EmptyState>
           ) : (
-            <Card testId="ops-runs-card">
-              <div className="ui-card__head">
-                <span className="text-sm font-medium text-ink" data-testid="ops-runs-selected">
-                  {chosen.length > 0
-                    ? `${chosen.length} selected`
-                    : "Select runs to retry or cancel them."}
-                </span>
-                <span className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-3">
+              {/* The list starts with its column heads; the bulk actions show once runs are picked. */}
+              {chosen.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-2" data-testid="ops-runs-bulk">
+                  <span className="text-sm font-medium text-ink" data-testid="ops-runs-selected">
+                    {chosen.length} selected
+                  </span>
                   <Button
                     size="sm"
                     disabled={busy || retryable.length === 0}
@@ -377,27 +377,42 @@ export function OpsRunsScreen() {
                   >
                     Cancel
                   </Button>
-                </span>
-              </div>
-              <RunsTable
-                runs={runs}
-                clients={clients}
-                agents={agents}
-                selected={selected}
-                onToggle={(id) => {
-                  const next = new Set(selected);
-                  if (next.has(id)) next.delete(id);
-                  else next.add(id);
-                  setSelected(next);
-                }}
-              />
-            </Card>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setSelected(new Set())}
+                    data-testid="ops-runs-clear"
+                  >
+                    Clear
+                  </Button>
+                </div>
+              ) : null}
+              <Card testId="ops-runs-card">
+                <RunsTable
+                  runs={runs}
+                  clients={clients}
+                  agents={agents}
+                  selected={selected}
+                  onToggle={(id) => {
+                    const next = new Set(selected);
+                    if (next.has(id)) next.delete(id);
+                    else next.add(id);
+                    setSelected(next);
+                  }}
+                />
+              </Card>
+            </div>
           )
         }
       </Loaded>
     </Page>
   );
 }
+
+/** The columns the runs list sorts by (in the browser, over the runs loaded). */
+type SortKey = "run" | "client" | "agent" | "status" | "started" | "took" | "cost";
+/** Words sort A to Z first; times, durations and cost largest first. */
+const TEXT_KEYS = new Set<SortKey>(["run", "client", "agent", "status"]);
 
 function RunsTable({
   runs,
@@ -412,6 +427,61 @@ function RunsTable({
   selected: Set<string>;
   onToggle: (id: string) => void;
 }) {
+  const navigate = useNavigate();
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
+    key: "started",
+    dir: "desc",
+  });
+  const sorted = useMemo(() => {
+    const value = (r: Run): string | number => {
+      switch (sort.key) {
+        case "run":
+          return opsRunTitle(r.subject, shortRunId(r.id)).toLowerCase();
+        case "client":
+          return (clients.get(r.tenantId) ?? "").toLowerCase();
+        case "agent":
+          return (agents.get(r.agentId)?.name ?? "").toLowerCase();
+        case "status":
+          return runChip(r).words.toLowerCase();
+        case "started":
+          return new Date(r.startedAt ?? r.createdAt).getTime();
+        case "took":
+          return r.startedAt
+            ? (r.finishedAt ? new Date(r.finishedAt).getTime() : Date.now()) -
+                new Date(r.startedAt).getTime()
+            : -1;
+        case "cost":
+          return Number(r.costUsd);
+      }
+    };
+    const sign = sort.dir === "asc" ? 1 : -1;
+    return [...runs].sort((a, b) => {
+      const x = value(a);
+      const y = value(b);
+      return x < y ? -sign : x > y ? sign : 0;
+    });
+  }, [runs, sort, clients, agents]);
+  const head = (key: SortKey, label: string, className?: string) => (
+    <th
+      className={className}
+      aria-sort={sort.key === key ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        className="dt-sort"
+        data-testid={`ops-runs-sort-${key}`}
+        onClick={() =>
+          setSort((old) =>
+            old.key === key
+              ? { key, dir: old.dir === "asc" ? "desc" : "asc" }
+              : { key, dir: TEXT_KEYS.has(key) ? "asc" : "desc" },
+          )
+        }
+      >
+        {label}
+      </button>
+    </th>
+  );
   return (
     <div className="dt dt-ana overflow-x-auto rounded-none border-0">
       <table data-testid="ops-runs">
@@ -420,26 +490,34 @@ function RunsTable({
             <th>
               <span className="sr-only">Select</span>
             </th>
-            <th>Run</th>
-            <th>Client</th>
-            <th>Agent</th>
-            <th>Status</th>
-            <th>Started</th>
-            <th>Took</th>
+            {head("run", "Run")}
+            {head("client", "Client")}
+            {head("agent", "Agent")}
+            {head("status", "Status")}
+            {head("started", "Started")}
+            {head("took", "Took")}
             <th>Error</th>
-            <th className="text-right">Cost</th>
+            {head("cost", "Cost", "text-right")}
           </tr>
         </thead>
         <tbody>
-          {runs.map((r) => {
+          {sorted.map((r) => {
             const short = shortRunId(r.id);
             const chip = runChip(r);
             const wait = r.waiting ?? null;
             return (
               <tr
                 key={r.id}
-                className={selected.has(r.id) ? "is-selected" : undefined}
+                className={cx(
+                  "cursor-pointer hover:bg-surface-subtle",
+                  selected.has(r.id) && "is-selected",
+                )}
                 data-testid={`ops-run-row-${r.id}`}
+                // The whole row opens the run; its check box and links keep their own clicks.
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest("a, button, input, label")) return;
+                  navigate(`/ops/runs/${r.id}`);
+                }}
               >
                 <td>
                   <input

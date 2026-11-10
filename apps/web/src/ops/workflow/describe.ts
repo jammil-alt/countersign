@@ -121,6 +121,8 @@ export interface StepLabels {
   automation?(ref: string): string | undefined;
   connector?(toolId: string): string | undefined;
   person?(id: string): string | undefined;
+  /** What a step's skill, tool or automation does, in its own words (the canvas's tooltip). */
+  description?(step: Step): string | undefined;
 }
 
 /** The second line under a step's name: what it does in words, never its ids. */

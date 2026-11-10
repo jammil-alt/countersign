@@ -477,6 +477,7 @@ describe("WorkflowBuilder", () => {
   it("lays the workflow out with numbers, kinds and the header's counts", async () => {
     setup();
     await ready();
+    const user = userEvent.setup();
     expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]);
     expect(screen.getByTestId("builder-step-find-number")).toHaveTextContent("1");
     // Labels, never ids: the event, the tool and its connector, the person a step asks.
@@ -484,10 +485,15 @@ describe("WorkflowBuilder", () => {
       "When a bill or purchase arrives",
     );
     expect(screen.getByTestId("builder-trigger")).not.toHaveTextContent("transaction.created");
-    expect(screen.getByTestId("builder-step-update")).toHaveTextContent(
+    // A card is one line; what the step does is in its tooltip.
+    await user.hover(screen.getByTestId("builder-step-update"));
+    expect(screen.getByTestId("builder-step-tip")).toHaveTextContent(
       "Testkit · Update a record · needs approval",
     );
-    expect(screen.getByTestId("builder-step-ask")).toHaveTextContent("Ask · client admin · 2 days");
+    await user.hover(screen.getByTestId("builder-step-ask"));
+    expect(screen.getByTestId("builder-step-tip")).toHaveTextContent("Ask · client admin · 2 days");
+    await user.unhover(screen.getByTestId("builder-step-ask"));
+    expect(screen.queryByTestId("builder-step-tip")).toBeNull();
     expect(screen.getByTestId("builder-step-find")).not.toHaveTextContent("docs.find-support");
     expect(listOrder("path:low")).toEqual(["ask"]);
     expect(screen.getByTestId("builder-counts")).toHaveTextContent(
@@ -502,10 +508,10 @@ describe("WorkflowBuilder", () => {
     setup();
     await ready();
     const fork = screen.getByTestId("builder-fork-confidence");
-    // Two paths and otherwise, each at least a card's width (200px plus its padding).
-    expect(fork.style.minWidth).toBe("728px");
+    // Two paths and otherwise, each at least a card's width (180px plus its padding).
+    expect(fork.style.minWidth).toBe("628px");
     expect((fork.querySelector(".grid") as HTMLElement).style.gridTemplateColumns).toBe(
-      "minmax(226px, 1fr) minmax(226px, 1fr) minmax(226px, 1fr)",
+      "minmax(198px, 1fr) minmax(198px, 1fr) minmax(198px, 1fr)",
     );
     // The fork scrolls sideways in its own box; the top-level steps keep to the canvas.
     expect(screen.getByTestId("builder-fork-confidence-scroll")).toHaveClass("overflow-x-auto");
@@ -604,7 +610,7 @@ describe("WorkflowBuilder", () => {
     // Its required input is missing: the step is marked, and the summary names it.
     expect(screen.getByTestId(`builder-step-${added}-invalid`)).toBeInTheDocument();
     const problems = screen.getByTestId("builder-problems");
-    expect(problems).toHaveTextContent('Update a record: "id" is required');
+    expect(problems).toHaveTextContent("Update a record: Id is required.");
     expect(screen.getByTestId("builder-publish")).toBeDisabled();
     expect(screen.getByTestId("builder-test-run")).toBeDisabled();
 
@@ -629,7 +635,7 @@ describe("WorkflowBuilder", () => {
     });
     await ready();
     expect(screen.getByTestId("builder-problems")).toHaveTextContent(
-      "Agent: skill docs.gone not found",
+      "Agent: Skill docs.gone not found.",
     );
     expect(screen.getByTestId("builder-publish")).toBeDisabled();
   });
@@ -721,11 +727,34 @@ describe("WorkflowBuilder", () => {
     );
   });
 
+  it("folds the side panel and opens it again on a step, a tab or the expand button", async () => {
+    setup();
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-rail-collapse"));
+    expect(screen.getByTestId("builder-rail")).toHaveAttribute("data-open", "false");
+    expect(window.localStorage.getItem("mezonas.builder.panel")).toBe("closed");
+    expect(screen.queryByTestId("builder-inspector")).toBeNull();
+    // Clicking a step opens the panel on it.
+    await user.click(screen.getByTestId("builder-step-read-select"));
+    expect(screen.getByTestId("builder-rail")).toHaveAttribute("data-open", "true");
+    expect(screen.getByTestId("builder-inspector")).toBeInTheDocument();
+    // Folded again, a tab's icon or the expand button opens it.
+    await user.click(screen.getByTestId("builder-rail-collapse"));
+    await user.click(screen.getByTestId("builder-rail-builder-folded"));
+    expect(screen.getByTestId("builder-rail-builder")).toHaveAttribute("aria-selected", "true");
+    await user.click(screen.getByTestId("builder-rail-collapse"));
+    await user.click(screen.getByTestId("builder-rail-expand"));
+    expect(screen.getByTestId("builder-rail")).toHaveAttribute("data-open", "true");
+    window.localStorage.removeItem("mezonas.builder.panel");
+  });
+
   it("deletes a step, then undoes and redoes it", async () => {
     setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-step-read-delete"));
+    await user.click(screen.getByTestId("builder-step-read-select"));
+    await user.click(screen.getByTestId("builder-inspector-delete"));
     expect(rootOrder()).toEqual(["find", "confidence", "update"]);
     expect(screen.getByTestId("builder-unsaved")).toBeInTheDocument();
     await user.click(screen.getByTestId("builder-undo"));
@@ -878,7 +907,8 @@ describe("WorkflowBuilder", () => {
     expect(screen.queryByTestId("builder-publish")).toBeNull();
     expect(screen.getByTestId("builder-version")).toHaveTextContent("Live · v1");
 
-    await user.click(screen.getByTestId("builder-step-update-delete"));
+    await user.click(screen.getByTestId("builder-step-update-select"));
+    await user.click(screen.getByTestId("builder-inspector-delete"));
     await user.click(screen.getByTestId("builder-publish"));
     await waitFor(() =>
       expect(sent.map((s) => s.path)).toEqual([`publish ${V1}`, "save", `publish ${V2}`]),
@@ -1025,7 +1055,8 @@ describe("WorkflowBuilder", () => {
     setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-step-read-delete"));
+    await user.click(screen.getByTestId("builder-step-read-select"));
+    await user.click(screen.getByTestId("builder-inspector-delete"));
     await user.click(screen.getByTestId("builder-workflow-add"));
     await user.type(screen.getByTestId("builder-workflow-name"), "Weekly digest");
     expect(screen.getByTestId("builder-workflow-slug")).toHaveValue("weekly-digest");
@@ -1046,7 +1077,8 @@ describe("WorkflowBuilder", () => {
     const first = setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("builder-step-read-delete"));
+    await user.click(screen.getByTestId("builder-step-read-select"));
+    await user.click(screen.getByTestId("builder-inspector-delete"));
     await waitFor(
       () =>
         expect(screen.getByTestId("builder-draft-status")).toHaveTextContent(
@@ -1145,7 +1177,8 @@ describe("WorkflowBuilder", () => {
       },
     });
     await ready();
-    expect(screen.getByTestId("builder-step-follow")).toHaveTextContent("Polite follow-up · v2");
+    await user.hover(screen.getByTestId("builder-step-follow"));
+    expect(screen.getByTestId("builder-step-tip")).toHaveTextContent("Polite follow-up · v2");
     await user.click(screen.getByTestId("builder-step-follow-select"));
     expect(screen.getByTestId("builder-automation")).toHaveTextContent("Polite follow-up · v2");
     expect(screen.queryByTestId("builder-step-follow-invalid")).toBeNull();
@@ -1233,6 +1266,61 @@ describe("WorkflowBuilder with the Builder", () => {
     await user.click(screen.getByTestId("builder-change-undo"));
     await waitFor(() => expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]));
     expect(bodies[2]).toEqual({ turnId: TURN, changeId: "step:update" });
+  });
+
+  it("opens Fix on a problem: says what's wrong, asks the Builder to explain and propose, then makes the fix", async () => {
+    const { api } = setup({
+      bundle: {
+        ...BUNDLE,
+        definition: {
+          ...BUNDLE.definition,
+          skills: [...BUNDLE.definition.skills, { skill: "docs.gone", settings: {} }],
+        },
+      },
+    });
+    const texts: string[] = [];
+    api.on("POST /api/ops/builder/sessions", () => detail(BUNDLE));
+    api.on(`POST /api/ops/builder/sessions/${SESSION}/turns`, ({ init }) => {
+      texts.push((JSON.parse(String(init.body)) as { text: string }).text);
+      const answer = {
+        ...builderTurn([]),
+        id: `00000000-0000-4000-8000-0000000c51${10 + texts.length}`,
+        text: "The agent lists a skill that no longer exists. Remove it from the agent's skills.",
+      };
+      return { ...detail(BUNDLE, [answer]), turn: answer };
+    });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-problem-0-fix"));
+    const dialog = screen.getByRole("dialog", { name: "Fix “Agent”" });
+    expect(within(dialog).getByTestId("builder-fix-problem")).toHaveTextContent(
+      "Skill docs.gone not found.",
+    );
+    expect(
+      await within(dialog).findByText(
+        "The agent lists a skill that no longer exists. Remove it from the agent's skills.",
+      ),
+    ).toBeInTheDocument();
+    expect(texts[0]).toContain("Fix: “Agent”");
+    expect(texts[0]).toContain("Don't change the workflow yet.");
+    expect(texts[0]).toContain("skill docs.gone not found");
+
+    await user.click(within(dialog).getByTestId("builder-fix-apply"));
+    await waitFor(() => expect(texts[1]).toBe("Go ahead and make the fix you proposed."));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("builder-fix")).toBeNull();
+  });
+
+  it("keeps focus in a field clicked before the panel's next frame", async () => {
+    setup();
+    await ready();
+    // jsdom has no layout, so the panel counts as below the canvas: a step's click focuses the
+    // panel on the next frame. A field focused before then keeps it, so typing isn't lost.
+    act(() => screen.getByTestId("builder-step-find-select").click());
+    const name = screen.getByTestId("builder-inspector-name");
+    act(() => name.focus());
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(document.activeElement).toBe(name);
   });
 
   it("saves unsaved edits first and starts the conversation from that version", async () => {

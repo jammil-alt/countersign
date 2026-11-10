@@ -197,6 +197,21 @@ describe("escalations", () => {
       "href",
       `/ops/runs/${DEMO_RUN}`,
     );
+    // The avatar leads the row; the chip carries the date the wait began.
+    expect(row.firstElementChild).toHaveClass("ui-agentbadge");
+    expect(within(row).getByTestId(`ops-inbox-needs-${DEMO_RUN}-since`)).toHaveTextContent(
+      /^Since 5 Nov, \d\d:\d\d$/,
+    );
+    // Urgency figures: it has waited days, so it is urgent, with its date; a level filters.
+    const urgent = screen.getByTestId("ops-inbox-urgency-urgent");
+    expect(urgent).toHaveTextContent("Urgent · Over 2 days");
+    expect(urgent).toHaveTextContent(/Oldest since 5 Nov/);
+    expect(screen.getByTestId("ops-inbox-urgency-high")).toHaveTextContent("None waiting");
+    await userEvent.click(screen.getByTestId("ops-inbox-urgency-high"));
+    await waitFor(() => expect(screen.queryByTestId(`ops-inbox-needs-${DEMO_RUN}`)).toBeNull());
+    expect(screen.getByTestId("ops-inbox-urgency")).toHaveTextContent("urgency High");
+    await userEvent.click(screen.getByTestId("ops-inbox-urgency-high"));
+    expect(await screen.findByTestId(`ops-inbox-needs-${DEMO_RUN}`)).toBeInTheDocument();
     expect(screen.getByText("1 thing needs us.")).toBeInTheDocument();
     // One "All clients" control on the page: the top bar's.
     expect(screen.queryByTestId("ops-inbox-client-select")).toBeNull();

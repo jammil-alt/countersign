@@ -49,7 +49,7 @@ export function TeamApprovals({
     s === 0 ? t("desk.team.undoOff") : t("desk.team.undoSeconds", { count: s });
 
   return (
-    <Card title={t("desk.team.title")} testId="desk-team">
+    <Card titleAbove title={t("desk.team.title")} testId="desk-team">
       <ul>
         {team.members.map((m) => (
           <li
