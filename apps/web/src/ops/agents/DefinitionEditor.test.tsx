@@ -209,6 +209,29 @@ describe("DefinitionEditor", () => {
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ errors: [] }));
   });
 
+  // Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): the owner's review, worded with its cost.
+  it("offers the owner's review of every step, says what it costs, and saves it", async () => {
+    const { sent, user } = setup();
+    // FORK_BUNDLE has no owner settings: it reads as off.
+    expect(screen.getByTestId("agent-editor-owner-off")).toBeChecked();
+    expect(screen.getByTestId("agent-editor-owner")).toHaveTextContent("Review every step");
+    expect(screen.getByTestId("agent-editor-owner-cost-all")).toHaveTextContent(
+      "Cost: One model call on every step the run reaches, on the owner's model, up to the run's review limit (default $0.25 a run).",
+    );
+    expect(screen.getByTestId("agent-editor-owner-cost-failures")).toHaveTextContent(
+      "clean steps cost nothing",
+    );
+    await user.click(screen.getByTestId("agent-editor-owner-all"));
+    await user.click(screen.getByTestId("agent-editor-save"));
+    expect(sent).toHaveLength(1);
+    const body = sent[0] as { bundle: typeof FORK_BUNDLE };
+    expect(body.bundle.definition.oversight).toEqual({
+      review: "all",
+      maxPerRun: 3,
+      maxCostUsd: "0.25",
+    });
+  });
+
   it("reports the API's no-op answer instead of an error", async () => {
     const { user, onNoChange, onSaved } = setup(
       () =>
