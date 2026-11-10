@@ -632,7 +632,7 @@ export function threadNotifyPort(
             eq(inboxItem.runId, run.id),
             eq(inboxItem.kind, "request"),
             sql`${inboxItem.payload}->>'nodeId' = ${nodeId}`,
-            sql`${inboxItem.payload} ? 'notice'`,
+            sql`${inboxItem.payload}->'notice' is not null`,
           ),
         )
         .limit(1);
