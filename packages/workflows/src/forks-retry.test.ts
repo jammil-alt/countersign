@@ -490,6 +490,41 @@ describe("the executor's record and what its rows read back agree", () => {
   });
 });
 
+describe("an if routes on each outcome", () => {
+  // Every case above, routed: a conversation declined, failed or unanswered, a notice not seen, a
+  // process failed, a loop whose every item failed, a skill's sign-off turned down, and the rest.
+  it.each(CASES)("$name", async (c) => {
+    const h = new Harness();
+    c.setup?.(h);
+    const runner = c.runner?.(h) ?? new FakeStepRunner();
+    const route = {
+      id: "route",
+      kind: "if",
+      name: "Route",
+      paths: [
+        {
+          id: "yes",
+          name: "This way",
+          when: {
+            match: "all",
+            rules: [{ field: "{{steps.x.outcome}}", op: "=", value: c.outcome }],
+          },
+          steps: [],
+        },
+      ],
+      otherwise: { id: "no", steps: [] },
+    };
+    const result = await executeWorkflow(
+      runner,
+      h.context(c.extra?.(h) ?? {}),
+      proc([c.step, route]),
+      c.trigger ?? {},
+    );
+    expect(result.status, JSON.stringify(result)).toBe("succeeded");
+    expect(pathOf(h)).toBe("yes");
+  });
+});
+
 // ── Retries ───────────────────────────────────────────────────────────────────────────────────
 
 /**
