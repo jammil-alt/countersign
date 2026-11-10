@@ -263,6 +263,61 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
       expect(action?.status).not.toBe("approved");
     });
 
+    it("refuses an edit once two people sign: nothing is written on a signature for another input", async () => {
+      const version = await processVersion(proc([writeStep(approval())]));
+      const p = params(version);
+      const tried: number[] = [];
+      const userCard = async () => {
+        const [row] = await H.t.db
+          .select()
+          .from(inboxItem)
+          .where(
+            and(
+              eq(inboxItem.runId, p.runId),
+              eq(inboxItem.kind, "external_action"),
+              eq(inboxItem.assigneeUserId, H.A.user),
+            ),
+          );
+        return row ?? null;
+      };
+      const step = new FakeWorkflowStep(async (_name, type) => {
+        const item = await itemFor(type);
+        if (!item) {
+          // Answered already (the user's, below): its event was sent then.
+          const sent = H.instances.events.find((e) => e.event.type === type);
+          if (sent) return sent.event.payload;
+          throw TIMEOUT();
+        }
+        if (item.assigneeUserId === H.A.admin) {
+          // The user says yes first; then the admin tries to change the amount on their card.
+          const theirs = await userCard();
+          if (theirs?.status === "open") {
+            const yes = await H.call(user("a"), "POST", `/api/inbox/${theirs.id}/resolve`, {
+              decision: "approve",
+            });
+            expect(yes.status, JSON.stringify(yes.json)).toBe(200);
+          }
+          const edit = await H.call(admin("a"), "PUT", `/api/inbox/${item.id}/edit`, {
+            input: { id: "r1", amount: "99.00" },
+          });
+          tried.push(edit.status);
+          expect(j(edit.json).error).toMatchObject({ code: "invalid_state" });
+          expect(j(edit.json).error.message).toMatch(/others are signing this change/);
+        }
+        return resolveAs(type, () => ({ decision: "approve" }));
+      });
+      const result = await executeRun(deps(), p, cloudflareStepRunner(step));
+      expect(result).toEqual({ status: "succeeded" });
+      expect(tried).toEqual([409]);
+      // Written once, with the input both signed.
+      expect(H.backend.writes.map((w) => w.record.amount)).toEqual(["12.00"]);
+      const [action] = await H.t.db
+        .select()
+        .from(externalAction)
+        .where(eq(externalAction.runId, p.runId));
+      expect(action?.editedInput).toBeNull();
+    });
+
     it("one yes leaves the change proposed while the other signer's card is open", async () => {
       const version = await processVersion(proc([writeStep(approval())]));
       const p = params(version);
