@@ -6,6 +6,7 @@
 
 import {
   type AgentBundle,
+  type AnyAgentBundle,
   type AutomationDefinition,
   AutomationDefinition as AutomationSchema,
   automationRef,
@@ -13,6 +14,7 @@ import {
   automationRequires,
   hashJson,
   parseAutomationRef,
+  processes,
   type SkillDefinition,
   useSteps,
   type ValidationError,
@@ -39,9 +41,27 @@ export interface ResolvedAutomation {
   status: AutomationVersionRow["status"];
 }
 
-/** The automation versions a bundle's use steps pin, each once. */
+/**
+ * A bundle's workflows split by schema. R8: the builder saves v4 processes, so a stored bundle may
+ * hold them though the column is typed v3 (`AnyAgentBundle` is the true shape).
+ */
+function bySchema(bundle: AgentBundle): {
+  v3: AgentBundle["workflows"][number]["workflow"][];
+  v4: processes.Process[];
+} {
+  const v3: AgentBundle["workflows"][number]["workflow"][] = [];
+  const v4: processes.Process[] = [];
+  for (const w of (bundle as AnyAgentBundle).workflows) {
+    if (w.workflow.schemaVersion === 4) v4.push(w.workflow);
+    else v3.push(w.workflow);
+  }
+  return { v3, v4 };
+}
+
+/** The automation versions a bundle's use steps (v4: process steps) pin, each once. */
 export function bundleAutomationRefs(bundle: AgentBundle): string[] {
-  return automationRefs(bundle.workflows.map((w) => w.workflow));
+  const { v3, v4 } = bySchema(bundle);
+  return [...new Set([...automationRefs(v3), ...processes.subProcessRefs(v4)])];
 }
 
 /**
@@ -411,14 +431,21 @@ export function automationPublishErrors(
   found: { drafts: string[] },
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const w of bundle.workflows) {
-    for (const s of useSteps([w.workflow])) {
-      if (!found.drafts.includes(s.automation)) continue;
+  for (const w of (bundle as AnyAgentBundle).workflows) {
+    // R8: a v4 process pins its processes on `process` steps.
+    const pinned =
+      w.workflow.schemaVersion === 4
+        ? processes
+            .subProcessSteps([w.workflow])
+            .map((s) => ({ id: s.id, ref: s.process, field: "process" }))
+        : useSteps([w.workflow]).map((s) => ({ id: s.id, ref: s.automation, field: "automation" }));
+    for (const s of pinned) {
+      if (!found.drafts.includes(s.ref)) continue;
       errors.push({
         stepId: s.id,
-        field: "automation",
+        field: s.field,
         code: "unknown_automation",
-        message: `automation ${s.automation} is a draft: publish it first`,
+        message: `automation ${s.ref} is a draft: publish it first`,
         workflow: w.slug,
       });
     }
