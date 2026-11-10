@@ -3282,6 +3282,10 @@ executor, the run views' `outcome`; no migration):
   then failed or asked for help nobody gave, ends the run there, whatever its own error says. A
   carried write the model never repeats isn't the step's and doesn't count. No new column: the
   tool call already ties the action to this run's step.
+- DECISION (`wave5/fix3`): a v4 automation's `output` gets the error-message check too
+  (`error_message_not_here`, `validateProcessAutomation`): it becomes the using step's output,
+  which a write's input reads anywhere, so it never carries `steps.<id>.error.message` or a whole
+  step; `error.code` and output fields still go there.
 
 ## 2. Package layering
 

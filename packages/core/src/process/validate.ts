@@ -1468,6 +1468,9 @@ export function validateProcessAutomation(
   const list = scopeList({ triggers: [], steps: def.steps }, ctx, { schema: def.input });
   for (const { step, scope } of list) checkStep(c, step, scope, undefined);
   checkRefs(c, "", def.output, ["output"], automationEndScope(def, ctx));
+  // DECISION (wave 5, fix 3): an automation's output is the using step's output, which a write's
+  // input reads anywhere: it never carries a step's error message, as a process step's input.
+  checkErrorMessage(c, "", def.output, ["output"]);
   for (const e of errors) if (e.stepId === "") e.stepId = null;
   return { valid: errors.length === 0, errors, value: def };
 }

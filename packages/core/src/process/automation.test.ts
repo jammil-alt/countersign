@@ -91,6 +91,28 @@ describe("a v4 automation", () => {
     ]);
   });
 
+  it("keeps a step's error message out of its output, which the using step's writes read", () => {
+    const withOutput = (output: Record<string, unknown>) => {
+      const def = followUp();
+      (def.steps[0] as Record<string, unknown>).onError = "continue";
+      def.output = output;
+      return codes(validateAnyAutomation(def, baseCtx)).filter((c) =>
+        c.startsWith("error_message_not_here"),
+      );
+    };
+    expect(withOutput({ why: "{{steps.d1.error.message}}" })).toEqual([
+      "error_message_not_here@:output.why",
+    ]);
+    expect(withOutput({ why: "{{steps.d1.error}}", all: "{{steps.d1}}" })).toEqual([
+      "error_message_not_here@:output.why",
+      "error_message_not_here@:output.all",
+    ]);
+    // Its code is a word of ours, and its output a field: both may go there.
+    expect(
+      withOutput({ code: "{{steps.d1.error.code}}", summary: "{{steps.d1.output.summary}}" }),
+    ).toEqual([]);
+  });
+
   it("validates a v1 automation exactly as before", () => {
     expect(validateAnyAutomation(v3FollowUp, baseCtx).errors).toEqual([]);
   });
