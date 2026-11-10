@@ -244,6 +244,7 @@ function OpsFrame({ children }: { children: ReactNode }) {
             </SidebarSection>
             <SidebarMore label="More" testId="ops-nav-more">
               <SidebarLink to={OPS_PATHS.feedback} label="Feedback" testId="ops-nav-feedback" />
+              <SidebarLink to={OPS_PATHS.runAudit} label="Audit queue" testId="ops-nav-run-audit" />
               <SidebarLink to={OPS_PATHS.audit} label="Audit log" testId="ops-nav-audit" />
               <SidebarLink to={OPS_PATHS.requests} label="Requests" testId="ops-nav-requests" />
             </SidebarMore>

@@ -4,6 +4,8 @@ import { ConverseOpsView, ConversePortalView } from "../converse";
 import { DESK_ITEM_FIELDS } from "../desk/item";
 import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
+// Wave 6: the run audit (the owner's check on every step, the audit queue, the export)
+import { OwnerCheckView } from "../oversight/check";
 import { ROLES, Role } from "../roles";
 import { JsonSchema } from "../schemas/common";
 import { ConnectorAuth } from "../schemas/connector";
@@ -69,9 +71,10 @@ import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
+import { RunAuditState, runAuditRoutes } from "./run-audit";
 // R8: the timeline's check fields
 import { OUTCOME_WORDS, TimelineChecks } from "./run-checks";
-import { runControlRoutes } from "./run-controls";
+import { ModelCallBody, OpsModelCall, runControlRoutes } from "./run-controls";
 // UI cleanup (stream A)
 import { RunWait } from "./run-state";
 import { RunSubject } from "./run-subject";
@@ -500,6 +503,83 @@ export const PortalRunSummary = z.object({
 
 /** Record names by id, for the receipts a run's steps cite (never "Record ·3f9a1c"). */
 export const SourceNames = z.record(z.string(), z.string());
+
+// ── Wave 6: one run's trail as one file (docs/plan.md §1.86 "Run audit (wave 6)") ──────────────
+
+export const RUN_EXPORT_FORMATS = ["html", "json"] as const;
+
+export const RunExportQuery = z.object({
+  /** `html` (printable, self-contained; prints to PDF) or `json` (the same data). */
+  format: z.enum(RUN_EXPORT_FORMATS).default("html"),
+  /** `1`: each AI call's full prompt and answer too (the operator ticks "include AI calls"). */
+  modelCalls: z
+    .union([z.boolean(), z.enum(["1", "0", "true", "false"])])
+    .transform((v) => v === true || v === "1" || v === "true")
+    .default(false),
+});
+export type RunExportQuery = z.infer<typeof RunExportQuery>;
+
+/** The file the export route answers with (`Content-Disposition: attachment`), not JSON. */
+export const RunExportFile = z.object({
+  filename: z.string().min(1),
+  contentType: z.enum(["text/html; charset=utf-8", "application/json; charset=utf-8"]),
+  bytes: z.instanceof(Uint8Array),
+});
+export type RunExportFile = z.infer<typeof RunExportFile>;
+
+/** An AI call in the export: its model, tokens and cost; the prompt and answer only when asked. */
+export const RunExportModelCall = OpsModelCall.extend({
+  body: ModelCallBody.nullable().optional(),
+});
+
+/** A step in the export: the run view's step with everything that happened at it. */
+export const RunExportStep = OpsStep.extend({
+  /** The step's name in the run's version, when found. */
+  name: z.string().nullable(),
+  /** Confer verdicts, approvals (who, when), no-answer outcomes, urgent notices, the route taken. */
+  checks: TimelineChecks.nullable(),
+  ownerChecks: z.array(OwnerCheckView),
+  toolCalls: z.array(OpsToolCall),
+  /** The writes it made or proposed: before state, approver, status. */
+  actions: z.array(OpsAction),
+  /** The inbox items it opened: approvals, questions, deadlines, escalations, notices. */
+  inbox: z.array(OpsInboxItem),
+  /** The owner's decisions on it, with notes and sources. */
+  decisions: z.array(OversightDecisionView),
+  modelCalls: z.array(RunExportModelCall),
+});
+export type RunExportStep = z.infer<typeof RunExportStep>;
+
+/** The export's JSON: the run, every step in the order it ran, and the audit marks. */
+export const RunExport = z.object({
+  format: z.literal("mezonas.run-export"),
+  formatVersion: z.literal(1),
+  exportedAt: z.string(),
+  exportedBy: z.object({ id: z.string(), email: z.string(), name: z.string().nullable() }),
+  includesModelCalls: z.boolean(),
+  client: z.object({ id: z.string(), name: z.string() }),
+  agent: OpsAgentRef.nullable(),
+  agentVersion: z.object({ id: z.string(), number: z.number().int().nullable() }),
+  workflow: z.object({ slug: z.string(), name: z.string().nullable() }),
+  run: OpsRun,
+  steps: z.array(RunExportStep),
+  /** What no step row names: the run's own inbox items, writes, decisions and AI calls. */
+  unplaced: z.object({
+    inbox: z.array(OpsInboxItem),
+    actions: z.array(OpsAction),
+    decisions: z.array(OversightDecisionView),
+    modelCalls: z.array(RunExportModelCall),
+  }),
+  totals: z.object({
+    costUsd: z.string(),
+    tokensIn: z.number().int(),
+    tokensOut: z.number().int(),
+    modelCalls: z.number().int(),
+  }),
+  sourceNames: SourceNames,
+  audit: RunAuditState,
+});
+export type RunExport = z.infer<typeof RunExport>;
 
 export const TimelineStep = z.object({
   id: z.string(),
@@ -1561,7 +1641,24 @@ export const opsRoutes = {
       oversight: z.array(OversightDecisionView).optional(),
       /** The records the steps cite (`sources`), by id: "Northline Panel Supply · 20418". */
       sourceNames: SourceNames.optional(),
+      // Wave 6 (§1.86 "Run audit (wave 6)"): the owner's check on each attempt at a v4 read,
+      // skill or write step, by node then attempt (match a step by `nodeId`); none for v3 runs.
+      ownerChecks: z.array(OwnerCheckView).optional(),
+      /** Wave 6: the run's place in the audit queue and its marks, newest first. */
+      audit: RunAuditState.optional(),
     }),
+  }),
+  // Wave 6 (§1.86 "Run audit (wave 6)"): one run's whole trail as one file for an auditor.
+  opsRunExport: defineRoute({
+    method: "GET",
+    path: "/api/ops/runs/:id/export",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "A run's whole trail as one file: printable HTML or JSON; AI calls' prompts and answers only with modelCalls=1",
+    params: IdParams,
+    query: RunExportQuery,
+    response: RunExportFile,
   }),
   opsInbox: defineRoute({
     method: "GET",
@@ -2093,5 +2190,7 @@ export const routes = {
   ...libraryRoutes,
   // R5: the Undo a late no is offered (docs/plan.md §1.86).
   ...undoRoutes,
+  // Wave 6: the audit queue, marks, stats and sampling settings (docs/plan.md §1.86).
+  ...runAuditRoutes,
 } as const;
 export type Routes = typeof routes;

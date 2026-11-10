@@ -3295,6 +3295,129 @@ executor, the run views' `outcome`; no migration):
   `steps.<id>.stopStatus`, and a for each inside the process can't change which stop is read. A
   stopped process's output still reads as null for later steps (`scopeOutputOfRow` with the kind).
 
+**Run audit (wave 6, `wave6/data`):** the owner asked for an audit trail they can look at for
+every run. Three parts: the owner's check on every step recorded, an audit queue with a person's
+marks, and one run's whole trail as a file. Migration 0046 (`owner_check`, `run_audit`,
+`run_audit_mark`); core `oversight/check.ts`, `run-audit/sampling.ts`, `api/run-audit.ts`;
+packages/workflows `recordCheck`; apps/api `run-audit/` and `routes/run-audit.ts`.
+- DECISION: the owner's check is recorded per attempt at a native v4 `read`, `skill` or `write`
+  step (one `owner_check` row per run, node and attempt): `clean` (the cheap watch saw nothing
+  off), `flagged` (signals, or a failure or escalation, with why no review followed: `limit`,
+  `review_failed`, `no_decision`, `input_unresolved`), `reviewed` (the cause, the verdict's action
+  and the `oversight_decision` of the same run, node and seq) or `not_watched` (`owner_off`,
+  `step_off`). It is written through an optional port (`ExecutorContext.ownerChecks`) in a durable
+  step of its own, `${name}:owner:${attempt}`, after the attempt and its review (before an `ask`
+  waits), and the insert is `on conflict do nothing`, so a replay never duplicates it. No model
+  call. Inside a for each, see the batching row below.
+- DECISION: converted v3 workflows record nothing: a v3 run keeps exactly the durable steps it had
+  (as R6 kept the watch's history step for v4 runs only), and v3 has no cheap watch, so "clean"
+  would claim a look that never happened. Conversation steps record nothing either: the owner's
+  review loop doesn't run on them today.
+- DECISION: a check that can't be written never fails the step or the run; the run view then
+  shows no check for that attempt.
+- DECISION: the review setting `all` reads "Review every step" in the agent's settings, with its
+  cost ("one model call on every step the run reaches, on the owner's model, up to the run's
+  review limit"); core `OWNER_REVIEW_CHOICES` words all four. The back office's agent settings
+  don't offer the setting yet (only the builder's draft default sets it): the web stream adds the
+  control from these words.
+- DECISION: sampling is on by default: every live run that wrote to a client's tool plus 5% of
+  the rest. "Wrote" is core's `actionWrote` (see the review row below), not only an action done. The rule is `tenant.settings.runAudit`
+  (`{ rule?, agents?: { <agent id>: rule } }`, set in place with `jsonb_set`, logged in
+  `tenant_change`), an agent's override first; no column. A run's 5% is its bucket, FNV-1a of
+  its id modulo 10,000 (`auditBucket`), so the choice is stable and a replay agrees. It is applied
+  in `run:finish`'s transaction, under a savepoint that never fails the finish (and in a back
+  office cancel's, which never reaches `run:finish`); the rule as applied (with the bucket) is kept
+  on the `run_audit` row. Test runs are never queued.
+- DECISION: a run marked without being queued joins the queue `by_hand`; only finished live runs
+  take a mark (409 `run_not_finished`, or 409 `test_run` for a test run). A mark is insert only; the newest is the run's state, every mark is
+  kept. Each mark writes an `audit_event` (`run.audit_mark`, ids and the verdict, never the note).
+- DECISION: a "problem" mark needs a note and opens a `review` inbox item for us (operator, on the
+  run as its subject, no `run_id`: an item with one is read as something the run waits on or must
+  be told about).
+- DECISION: "problems found" counts runs whose latest mark is a problem; "audited" counts runs
+  with any mark; the queue's `unaudited` is a queued run with no mark yet.
+- DECISION: the export is one route, `GET /api/ops/runs/:id/export?format=html|json&modelCalls=1`,
+  on `mountLongFile` (new: `mountLong`'s short transactions with `mountFile`'s answer), so AI
+  calls' prompts and answers are read from object storage after the database reads commit. The
+  HTML is self-contained (inline styles from the design system's token values, no script, no
+  link, a Content-Security-Policy that allows neither) and prints to PDF. Every field named like a
+  secret (`FORBIDDEN_SECRET_FIELD`) becomes `[redacted]` and card numbers are redacted throughout;
+  nothing reads the vault. Writing it is audited (`run.export`, with the format and whether AI
+  calls were included), besides the route's own row.
+- DECISION: back office only. No portal route returns the owner's checks, the queue, marks or the
+  export (invariant 11: prompts, bundles and cost never reach the portal).
+- DECISION (review): a check is `flagged` only when the attempt failed or escalated, or the cheap
+  watch saw a signal. A clean step whose routine review was due (a checkpoint under
+  `checkpoints`, `all`, a step's `always`) and wasn't made stays `clean`, with the reason (`limit`,
+  `review_failed`, `no_decision`, `input_unresolved`), the cause and why it was due: "Owner checked:
+  nothing off → every-step review not made: the review gave no decision".
+- DECISION (review): why a review was due on a step that succeeded is kept on the check
+  (`owner_check.review_due`: `checkpoint`, `all`, `always`; core `successReviewDue`, the
+  workflows `AfterSuccess.why`), so the line tells them apart: "Reviewed (every step) → carried
+  on", "Reviewed (always for this step) → …", "Checkpoint before a write → reviewed → …"; a
+  signal still reads "Flagged: … → reviewed → …".
+- DECISION (review): how the attempt ended is `succeeded`, `failed`, `escalated` (a budget was
+  reached; flagged, "Escalated to us: a budget was reached → not reviewed"), `rejected` (a person
+  turned the write down, whatever its `onReject`) or `unanswered` (nobody answered in time); the
+  last two are `clean`, "Turned down by a person → nothing for the owner to review".
+- DECISION (review): when a person ends the run in the middle of an attempt (a confer reviewer
+  nobody answered with `stop`, before the write's approval or after a read or skill ran), the
+  check is still recorded before the run ends: `ended_by_person`, the outcome `rejected` or
+  `unanswered` ("Nobody answered in time → not reviewed: the run ended there"); a step the owner
+  doesn't watch records its `not_watched` check the same way.
+- DECISION (review): inside a for each, an attempt's check is kept on the loop's frame and the
+  outermost loop writes all of them in one durable step, `${loop}:owner`, when it ends, finished
+  or not (the store's `recordMany`, one transaction). Cloudflare Workflows' per-instance step
+  limit isn't recorded anywhere here (§5 lists step count limits as unchecked); the documented
+  default is 1,024 steps an instance on the Paid plan, so that is the ceiling we keep under. One
+  durable step per attempt would have doubled a loop's steps (a 500-item loop of one read: about
+  1,000 steps rather than about 500); now a 50-item loop of one read is 53 steps (start, 50
+  attempts, the checks, done; a test counts them). Folding the check into the attempt's own step
+  isn't replay-safe (the check is known only after the watch, the confer and any review), so
+  outside a loop it keeps its own step. The cost: a run waiting on an `ask` inside a loop shows
+  that loop's checks only once the loop ends.
+- DECISION (review): "wrote" counts a run's external actions done, executing, or failed after
+  reaching the provider (core `actionWrote`: a failure without the runtime's `notWritten`), its own
+  or a carried one its tool calls name: a write that failed part-way may be in the client's books.
+- DECISION (review): a run cancelled from the back office (`POST /api/ops/runs/:id/cancel`) is
+  queued in the cancel's own transaction (`queueFinishedRun`, the same savepoint), so a run that
+  wrote and was then cancelled is in the queue as "wrote". It is the only path that sets a
+  terminal status outside `run:finish` (ask runs are test runs).
+- DECISION (review): only live runs are audited: a mark on a test run is refused (409 `test_run`)
+  and the run view shows no Audit card for one; an agent's sampling rule can't be set for a
+  template's test copy (422 `unknown_agent`, as for an agent that isn't the client's).
+- DECISION (review): `owner_check.decision_id` references `oversight_decision(id)` alone, not
+  `(id, tenant_id)`: 0029 gave that table no unique `(id, tenant_id)`, and adding one would alter a
+  table the previous Worker writes. The store reads the decision inside the run's own client
+  (`withTenant`, filtered by `tenant_id`), so a check never names another client's decision.
+- Open question (owner): may the client see any of this (a run's audit marks, or an export without
+  prompts and cost)? Today, no.
+- Open question: whether "clean" should also be recorded for conversation steps once the owner
+  reviews them.
+- Screens (`wave6/screens`): apps/web `ops/run/RunAudit.tsx` (the run view's parts),
+  `ops/screens/RunAuditQueue.tsx` (`/ops/run-audit`), `ops/screens/ClientRunAudit.tsx` (the client
+  settings' Run audit section) and the definition editor's owner card. No core or API change.
+- DECISION: the run view shows each step's owner checks under it, one line per attempt (the API's
+  `words`; "Attempt N:" when a step had more than one), quieter for clean and not watched; a
+  reviewed check links to the owner's note in Details.
+- DECISION: the run view's rail has an Audit card (why the run was queued, or that it wasn't; its
+  marks newest first, earlier ones "superseded"; the mark form once the run is over, a problem's
+  note required before Save) and an Export card: two download links, HTML and JSON, on every run
+  (a running one gives the trail so far), with "Include AI calls" off by default.
+- DECISION: the Audit queue is its own page beside the audit log (sidebar, More), with client,
+  agent and state filters in the URL and counts on the state filter; a run is marked in the run
+  view, not from the list. The agent filter lists the agents the stats name (those with queued
+  runs). Per client and per agent stats sit under the list; a client's line opens its rule.
+- DECISION: the sampling rule is a client settings section of its own, "Run audit" (after
+  Compliance): the client's rule (writes tick and a percent, "Use our default" to clear it) and a
+  table of agents, each with its own rule or "the client's rule" ("Use the client's rule" clears
+  an override).
+- DECISION: the owner's review is now in the agent's Settings, Definition (it is
+  `definition.oversight`, so a change makes a draft version): four choices with core's
+  `OWNER_REVIEW_CHOICES` words and cost, "Review every step" among them. Only `review` changes;
+  the owner's model and limits are kept, and an agent with no owner settings stays with none while
+  it is off.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
@@ -4404,6 +4527,7 @@ Open
 8. **Before Wave 2:** (a) Sloan is the supervisor renamed and extended, one free agent per client; existing "Account check" forks become Sloan by a reviewed update: confirm the name and the merge. (b) The agent's email address: v0.12 builds `<agent>.<client>-<id>@<forwarding domain>`; the prototype's `<agent>@<client>.agents.mezonas.com` needs Email Routing per client subdomain, a Cloudflare API token to add them, and a domain apart from the code service's `agents.` (e.g. `<client>.mail.mezonas.com`). (c) Test cases from a client's own records stay in that client and never gate a shared skill: confirm. (d) A person's channel set to "on its own" is the operator's to set (the client asks the lead), as invariant 8 says: the prototype shows the client setting it. (e) Are trial and sign-off days billed (default yes: the agent is active)?
 9. **Before Wave 3:** the bank and card aggregator: answered (owner, 2026-11-06): **Plaid** (§1.52, built against a fake). Open: the price per connected account, and whether it is absorbed or passed into credits; Plaid's production review; HIPAA mode (whether Plaid signs a BAA; until then a HIPAA client isn't offered the feed). Also open: developer apps for Outlook (Entra, publisher verification), Ramp and HubSpot, Google Drive's `drive.file` on the consent screen, and Slack's timing.
 10. Smaller defaults to confirm when convenient: the undo window (60 s, delivered at the next minute, so 60–120 s); US federal holidays only; notifications by text only from the client's own Twilio number; replay as a test run in the same client, never in the Sandbox.
+11. Run audit (§1.86 "Run audit (wave 6)"): may the client see any of it (a run's audit marks, or its export without prompts and cost)? Built back office only.
 
 ---
 
@@ -4493,6 +4617,7 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0043 | R4 (§1.86) | `membership.hours`, `contact.hours`: a person's own week and away dates, nullable `jsonb` |
 | 0044 | R5 (§1.86) | `external_action.after`: the state a write left, for undo, nullable `jsonb` |
 | 0045 | R9 (§1.86) | `browser_script`, `browser_script_version`: a client's recorded scripts (scripted site tools), forced RLS on `tenant_id`, versions immutable |
+| 0046 | Wave 6 (§1.86 "Run audit (wave 6)") | `owner_check`, `run_audit`, `run_audit_mark`: the owner's check per attempt, the audit queue and reviewers' marks; forced RLS on `tenant_id`, all insert only |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is

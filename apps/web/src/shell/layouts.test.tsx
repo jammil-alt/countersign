@@ -137,6 +137,8 @@ describe("back office layout", () => {
       "Marketing",
       // Under More.
       "Feedback",
+      // Wave 6 (plan §1.86): the audit queue, beside the audit log.
+      "Audit queue",
       "Audit log",
       "Requests",
     ]);

@@ -3814,6 +3814,198 @@ export const browserScriptVersion = pgTable(
   ],
 );
 
+// ── Wave 6: the run audit (migration 0046; docs/plan.md §1.86 "Run audit (wave 6)") ──────────────
+// Back office only (invariant 11): no portal route reads these tables.
+
+/** What the owner's check on one attempt at a step came to. */
+export const OWNER_CHECK_RESULTS = ["clean", "flagged", "reviewed", "not_watched"] as const;
+/**
+ * How the attempt itself ended, before any review: done, failed (or threw), escalated (a budget
+ * was reached), turned down by a person, or nobody answered in time.
+ */
+export const OWNER_CHECK_ATTEMPTS = [
+  "succeeded",
+  "failed",
+  "escalated",
+  "rejected",
+  "unanswered",
+] as const;
+/**
+ * Why a review that was due wasn't made (on a flagged check, or a clean one whose routine review
+ * was due): the per-step or per-run limit was reached, the review failed or gave no decision, its
+ * input could not be shown; why the owner never looked (a person's answer, or nobody answering,
+ * ended the run during the attempt); or why a check is `not_watched`: the agent's owner is off,
+ * or this step's review is off.
+ */
+export const OWNER_CHECK_REASONS = [
+  "limit",
+  "review_failed",
+  "no_decision",
+  "input_unresolved",
+  "ended_by_person",
+  "owner_off",
+  "step_off",
+] as const;
+/** Why a step that succeeded was due a review whatever its result. */
+export const OWNER_REVIEW_DUES = ["checkpoint", "all", "always"] as const;
+
+/**
+ * The owner's check on one attempt at a step of a v4 process (read, skill, write): clean (its
+ * cheap watch saw nothing off), flagged (with the signals, or a failure, and why no review
+ * followed), reviewed (the `oversight_decision` it led to) or not watched (the owner is off).
+ * Written in a durable step of its own after the attempt, once per run, node and attempt. No
+ * model call: the cheap watch is rules only. Insert only (grants and trigger).
+ */
+export const ownerCheck = pgTable(
+  "owner_check",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    runId: uuid("run_id").notNull(),
+    /** The step's durable name (`step_run.node_id`). */
+    nodeId: text("node_id").notNull(),
+    /** 1.. per node: the attempt the owner looked at (an oversight retry is the next). */
+    attempt: integer("attempt").notNull(),
+    result: text("result").$type<(typeof OWNER_CHECK_RESULTS)[number]>().notNull(),
+    attemptOutcome: text("attempt_outcome")
+      .$type<(typeof OWNER_CHECK_ATTEMPTS)[number]>()
+      .notNull(),
+    /** core's `AnomalySignal[]`: what the cheap watch saw (empty when clean or not watched). */
+    signals: json<unknown[]>("signals").notNull().default([]),
+    reason: text("reason").$type<(typeof OWNER_CHECK_REASONS)[number]>(),
+    /** `reviewed`: why (the oversight cause) and the verdict's action. */
+    cause: text("cause").$type<(typeof OVERSIGHT_CAUSES)[number]>(),
+    verdict: text("verdict"),
+    /** A step that succeeded and was due a review whatever its result: a checkpoint, all, always. */
+    reviewDue: text("review_due").$type<(typeof OWNER_REVIEW_DUES)[number]>(),
+    /**
+     * `reviewed`: the decision recorded for this run, node and attempt, when there is one.
+     * DECISION (wave 6 review): on `oversight_decision(id)` alone, not `(id, tenant_id)`: that
+     * table (0029) has no unique `(id, tenant_id)` to reference, and adding one would alter a
+     * table the previous Worker writes. The store reads the decision inside the run's own client
+     * (`withTenant`, filtered by `tenant_id`), so a check never names another client's decision.
+     */
+    decisionId: uuid("decision_id").references(() => oversightDecision.id),
+    agentVersionId: uuid("agent_version_id").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("owner_check_attempt_key").on(t.runId, t.nodeId, t.attempt),
+    foreignKey({
+      name: "owner_check_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    foreignKey({
+      name: "owner_check_agent_version_fk",
+      columns: [t.agentVersionId, t.tenantId],
+      foreignColumns: [agentVersion.id, agentVersion.tenantId],
+    }),
+    index("owner_check_tenant_idx").on(t.tenantId, t.createdAt),
+    check("owner_check_result_check", oneOf(t.result, OWNER_CHECK_RESULTS)),
+    check("owner_check_attempt_outcome_check", oneOf(t.attemptOutcome, OWNER_CHECK_ATTEMPTS)),
+    check(
+      "owner_check_reason_check",
+      sql`${t.reason} is null or ${oneOf(t.reason, OWNER_CHECK_REASONS)}`,
+    ),
+    check(
+      "owner_check_cause_check",
+      sql`${t.cause} is null or ${oneOf(t.cause, OVERSIGHT_CAUSES)}`,
+    ),
+    check(
+      "owner_check_review_due_check",
+      sql`${t.reviewDue} is null or ${oneOf(t.reviewDue, OWNER_REVIEW_DUES)}`,
+    ),
+    check("owner_check_attempt_check", sql`${t.attempt} >= 1`),
+    check("owner_check_signals_check", sql`jsonb_typeof(${t.signals}) = 'array'`),
+    check(
+      "owner_check_reviewed_check",
+      sql`(${t.result} = 'reviewed') = (${t.verdict} is not null and ${t.cause} is not null)`,
+    ),
+    check("owner_check_verdict_check", sql`${t.verdict} is null or length(${t.verdict}) <= 40`),
+  ],
+);
+
+/** Why a run is in the audit queue: it wrote to a client's tool, it was sampled, or by hand. */
+export const RUN_AUDIT_REASONS = ["wrote", "sampled", "by_hand"] as const;
+/** A reviewer's mark on a run. */
+export const RUN_AUDIT_VERDICTS = ["looks_right", "problem"] as const;
+
+/**
+ * A run queued for a person's audit: chosen when the run finished, by the client's sampling rule
+ * (or the agent's override), deterministically (a hash of the run id), or added by hand when a
+ * reviewer marks a run that wasn't. One row per run. `rule` is the rule as applied. Insert only.
+ */
+export const runAudit = pgTable(
+  "run_audit",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    runId: uuid("run_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    reason: text("reason").$type<(typeof RUN_AUDIT_REASONS)[number]>().notNull(),
+    /** core's `AppliedAuditRule`: writes, percent, where it came from and the run's bucket. */
+    rule: json("rule").notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("run_audit_run_key").on(t.runId),
+    foreignKey({
+      name: "run_audit_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    foreignKey({
+      name: "run_audit_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    index("run_audit_tenant_idx").on(t.tenantId, t.createdAt),
+    index("run_audit_agent_idx").on(t.tenantId, t.agentId, t.createdAt),
+    check("run_audit_reason_check", oneOf(t.reason, RUN_AUDIT_REASONS)),
+  ],
+);
+
+/**
+ * A reviewer's mark on a run: it looks right, or a problem (with a note, and the operator inbox
+ * item it opened). Insert only: a later mark supersedes an earlier one for display, every mark
+ * is kept.
+ */
+export const runAuditMark = pgTable(
+  "run_audit_mark",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    runId: uuid("run_id").notNull(),
+    verdict: text("verdict").$type<(typeof RUN_AUDIT_VERDICTS)[number]>().notNull(),
+    note: text("note"),
+    markedBy: uuid("marked_by")
+      .notNull()
+      .references(() => appUser.id),
+    inboxItemId: uuid("inbox_item_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "run_audit_mark_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    foreignKey({
+      name: "run_audit_mark_inbox_item_fk",
+      columns: [t.inboxItemId, t.tenantId],
+      foreignColumns: [inboxItem.id, inboxItem.tenantId],
+    }),
+    index("run_audit_mark_run_idx").on(t.runId, t.createdAt),
+    index("run_audit_mark_tenant_idx").on(t.tenantId, t.createdAt),
+    check("run_audit_mark_verdict_check", oneOf(t.verdict, RUN_AUDIT_VERDICTS)),
+    check(
+      "run_audit_mark_note_check",
+      sql`(${t.note} is null or length(${t.note}) between 1 and 2000) and (${t.verdict} <> 'problem' or ${t.note} is not null)`,
+    ),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -3897,6 +4089,10 @@ export const TENANT_TABLES = [
   // 0045: recorded browser scripts (docs/plan.md §1.86 "Scripts (wave 4)").
   "browser_script",
   "browser_script_version",
+  // 0046: the run audit (docs/plan.md §1.86 "Run audit (wave 6)").
+  "owner_check",
+  "run_audit",
+  "run_audit_mark",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 

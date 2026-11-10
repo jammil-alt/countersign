@@ -66,6 +66,8 @@ export * from "./api/reach";
 export * from "./api/records";
 export * from "./api/requests";
 export * from "./api/routes";
+// Wave 6: the audit queue, marks, stats and sampling settings (docs/plan.md §1.86).
+export * from "./api/run-audit";
 // R8: what a run's rows say about a step's checks (docs/plan.md §1.86).
 export * from "./api/run-checks";
 // v0.12 W1-E
@@ -174,6 +176,8 @@ export * from "./messaging/rules";
 export * from "./money";
 export * from "./notify/notify";
 export * from "./notify/render";
+// Wave 6: the owner's check on every step, and which runs go to a person's audit
+export * from "./oversight/check";
 // v0.13 W2-I: run oversight
 export * from "./oversight/decision";
 export * from "./permissions/decide";
@@ -186,6 +190,7 @@ export * as processes from "./process";
 export * from "./reach/rules";
 export * from "./roles";
 export * from "./rules/compile";
+export * from "./run-audit/sampling";
 export * from "./schemas/agent";
 export * from "./schemas/approval";
 // v0.12 W2-B

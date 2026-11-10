@@ -84,10 +84,26 @@ export function reviewsAfterSuccess(
   step: { review?: StepReview | undefined },
   checkpoint: boolean,
 ): boolean {
-  if (step.review === "off") return false;
-  if (step.review === "always") return true;
-  if (settings?.review === "all") return true;
-  return settings?.review === "checkpoints" && checkpoint;
+  return successReviewDue(settings, step, checkpoint) !== null;
+}
+
+/**
+ * Wave 6: why a step that succeeded is reviewed whatever its result (`reviewsAfterSuccess`'s
+ * rule, by its reason): `always` on the step, `all` on the agent, or a `checkpoint` under
+ * `checkpoints`. Null when it isn't (a signal may still send it, `ownerReviewsSuccess`).
+ */
+export const OWNER_REVIEW_DUES = ["checkpoint", "all", "always"] as const;
+export type OwnerReviewDue = (typeof OWNER_REVIEW_DUES)[number];
+
+export function successReviewDue(
+  settings: Pick<OversightSettings, "review"> | undefined,
+  step: { review?: StepReview | undefined },
+  checkpoint: boolean,
+): OwnerReviewDue | null {
+  if (step.review === "off") return null;
+  if (step.review === "always") return "always";
+  if (settings?.review === "all") return "all";
+  return settings?.review === "checkpoints" && checkpoint ? "checkpoint" : null;
 }
 
 // ── Decisions ───────────────────────────────────────────────────────────────────────────────────

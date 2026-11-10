@@ -10,6 +10,8 @@ import {
   DECIMAL_RE,
   // v0.13 W2-I
   NEW_AGENT_OVERSIGHT,
+  type OversightReview,
+  OversightSettings,
   parseSkillRef,
   type SkillOption,
   uuidv7,
@@ -38,6 +40,8 @@ export interface DefinitionForm {
   maxSteps: string;
   maxCostUsd: string;
   memory: boolean;
+  /** Wave 6: what the agent's owner reviews (`definition.oversight.review`); none set reads `off`. */
+  ownerReview: OversightReview;
 }
 
 /** Field → message. Skill settings are keyed `skills.<i>.<key>`. */
@@ -80,7 +84,21 @@ export function formFromBundle(bundle: Pick<AnyAgentBundle, "definition">): Defi
     maxSteps: String(d.budgets.maxSteps),
     maxCostUsd: d.budgets.maxCostUsd,
     memory: d.memory.enabled,
+    ownerReview: d.oversight?.review ?? "off",
   };
+}
+
+/**
+ * Wave 6: the definition's `oversight` with the form's review: kept as it was when unchanged
+ * (an agent with none stays with none at `off`), else its other settings kept (model, limits),
+ * or the schema's defaults when it had none.
+ */
+export function oversightWith(
+  current: AnyAgentBundle["definition"]["oversight"],
+  review: OversightReview,
+): AnyAgentBundle["definition"]["oversight"] {
+  if (review === (current?.review ?? "off")) return current;
+  return current ? { ...current, review } : OversightSettings.parse({ review });
 }
 
 const POSITIVE_INT = /^[1-9]\d*$/;
@@ -172,10 +190,13 @@ export function applyForm<B extends AnyAgentBundle>(
     mission: form.mission.trim(),
   };
   if (d.identity.avatar !== undefined) identity.avatar = d.identity.avatar;
+  const oversight = oversightWith(d.oversight, form.ownerReview);
+  const { oversight: _was, ...rest } = d;
   return {
     ...bundle,
     definition: {
-      ...d,
+      ...rest,
+      ...(oversight ? { oversight } : {}),
       identity,
       model: { id: form.modelId.trim(), maxTokens: Number(form.maxTokens) },
       instructions: form.instructions,

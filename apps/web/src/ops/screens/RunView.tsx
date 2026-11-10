@@ -61,6 +61,8 @@ import { type StepItem, StepList, type StepState } from "../../ui/steps";
 import { Transcript } from "../../ui/transcript";
 import { usePageClient } from "../pickedClient";
 import { checklistRows, type RanWorkflow, type RunStepRow, ranWorkflow } from "../run/checklist";
+// Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): the owner's checks, the audit, the export.
+import { OwnerCheckLines, RunAuditCard, RunExportCard } from "../run/RunAudit";
 import { ModelCalls, RunControls } from "../run/RunControls";
 import { type RunWait, runWaiting, waitingOn, waitingWhat } from "../run/waiting";
 import {
@@ -253,6 +255,11 @@ export function OpsRunScreen() {
             />
             {run.status === "failed" ? <NextStep run={run} /> : null}
             {run.status === "failed" ? <SameError run={run} /> : null}
+            {/* Wave 6 review: only live runs are audited (the API refuses a test run's mark). */}
+            {run.mode === "live" ? (
+              <RunAuditCard runId={run.id} audit={data.audit} finished={!going} onMarked={reload} />
+            ) : null}
+            <RunExportCard runId={run.id} />
           </>
         }
       >
@@ -533,6 +540,8 @@ function Timeline({
     ].filter(Boolean);
     const failed = r.status === "failed" || (failedNode !== null && s?.nodeId === failedNode);
     const decisions = s ? oversight.filter((d) => d.stepRunId === s.id) : [];
+    // Wave 6: the owner's check on each attempt at this step (v4 read, skill and write steps).
+    const ownerChecks = s ? (data.ownerChecks ?? []).filter((c) => c.nodeId === s.nodeId) : [];
     return {
       key: r.key,
       testId: `ops-run-step-${r.key}`,
@@ -568,6 +577,11 @@ function Timeline({
               {ownerLine(d)}.
             </p>
           ))}
+          <OwnerCheckLines
+            checks={ownerChecks}
+            runId={run.id}
+            testId={`ops-run-owner-checks-${r.key}`}
+          />
           {/* P-4: a conversation's transcript, each turn's model and cost (§1.66). */}
           {s?.conversation ? (
             <Transcript

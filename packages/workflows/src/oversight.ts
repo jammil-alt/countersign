@@ -15,6 +15,7 @@ import {
   type AnomalySignal,
   anomalySignals,
   type OversightSettings,
+  type OwnerReviewDue,
   type OwnerWatchedStep,
   ownerReviewsFailure,
   ownerReviewsSuccess,
@@ -22,6 +23,7 @@ import {
   type processes,
   runErrorKey,
   stepPathOf,
+  successReviewDue,
   type TotalSample,
 } from "@countersign/core";
 import type { OversightRequest } from "./ports";
@@ -58,6 +60,13 @@ export interface AfterSuccess {
   review: boolean;
   /** The signals that asked for the review (empty when it is a checkpoint's, or none). */
   signals: AnomalySignal[];
+  /** Wave 6: every signal the watch saw, reviewed or not (for the owner's recorded check). */
+  found: AnomalySignal[];
+  /**
+   * Wave 6 review: why the review is due whatever the result (a checkpoint under `checkpoints`,
+   * `all`, a step's `always`); absent when only a signal sends it, or no review is due.
+   */
+  why?: OwnerReviewDue;
 }
 
 /**
@@ -77,7 +86,7 @@ export function ownerAfterSuccess(
     confer?: readonly processes.ConferVerdict[] | undefined;
   },
 ): AfterSuccess {
-  if (!ownerWatches(step)) return { review: false, signals: [] };
+  if (!ownerWatches(step)) return { review: false, signals: [], found: [] };
   const signals = owner?.watch
     ? anomalySignals({
         kind: step.kind,
@@ -87,7 +96,8 @@ export function ownerAfterSuccess(
       })
     : [];
   const review = ownerReviewsSuccess(owner?.settings, step, at.checkpoint, signals);
-  return { review, signals: review ? signals : [] };
+  const why = review ? successReviewDue(owner?.settings, step, at.checkpoint) : null;
+  return { review, signals: review ? signals : [], found: signals, ...(why ? { why } : {}) };
 }
 
 function lookup(

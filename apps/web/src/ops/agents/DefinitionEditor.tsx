@@ -2,7 +2,12 @@
 // their settings (forms from each skill's settings schema), permissions and default approver,
 // budgets. Saving makes a new draft version from the version it was opened on; the workflows are
 // kept as they are (the builder edits them). The same editor serves templates and client agents.
-import type { AnyAgentBundle, SkillOption } from "@countersign/core";
+import {
+  type AnyAgentBundle,
+  type OversightReview,
+  OWNER_REVIEW_CHOICES,
+  type SkillOption,
+} from "@countersign/core";
 import { useMemo, useState } from "react";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionSummary } from "../../api/routes";
@@ -225,6 +230,8 @@ export function DefinitionEditor({
         </div>
       </Card>
 
+      <OwnerReviewCard value={form.ownerReview} onChange={(v) => set("ownerReview", v)} />
+
       <Card className="p-5">
         <SectionLabel>Save as a draft</SectionLabel>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -320,6 +327,67 @@ function ModeOption({
         <span className="block text-sm text-ink-muted">{text}</span>
       </span>
     </label>
+  );
+}
+
+/**
+ * Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): what the agent's owner reviews, each choice
+ * in plain words with what it costs (core's `OWNER_REVIEW_CHOICES`). "Review every step" is a full
+ * AI review of every read, skill and write step; the others check every step by rules, free.
+ */
+// DECISION (wave 6): the setting is in Settings, Definition (it is `definition.oversight`, so a
+// change makes a new draft version, as every definition change does), as four radio choices with
+// core's words and cost. Only `review` is edited here; the owner's model and limits are kept.
+function OwnerReviewCard({
+  value,
+  onChange,
+}: {
+  value: OversightReview;
+  onChange(value: OversightReview): void;
+}) {
+  return (
+    <Card className="p-5" testId="agent-editor-owner">
+      <SectionLabel>The owner</SectionLabel>
+      <p className="mb-3 text-sm text-ink-muted">
+        The agent's owner watches its steps and decides what happens when one fails or looks off.
+        What it did on each step shows in the run.
+      </p>
+      <fieldset className="flex flex-col gap-2">
+        <legend className="sr-only">What the owner reviews</legend>
+        {OWNER_REVIEW_CHOICES.map((c) => {
+          const selected = value === c.value;
+          return (
+            <label
+              key={c.value}
+              className={`flex cursor-pointer items-start gap-3 rounded-md border px-4 py-3 ${
+                selected
+                  ? "border-slate bg-slate-tint"
+                  : "border-line bg-surface hover:bg-surface-subtle"
+              }`}
+            >
+              <input
+                type="radio"
+                name="owner-review"
+                className="mt-1 size-4 accent-slate"
+                data-testid={`agent-editor-owner-${c.value}`}
+                checked={selected}
+                onChange={() => onChange(c.value)}
+              />
+              <span>
+                <span className="block font-medium text-ink">{c.label}</span>
+                <span className="block text-sm text-ink-muted">{c.description}</span>
+                <span
+                  className="block text-sm text-ink-muted"
+                  data-testid={`agent-editor-owner-cost-${c.value}`}
+                >
+                  {c.cost ? `Cost: ${c.cost}` : "Cost: none."}
+                </span>
+              </span>
+            </label>
+          );
+        })}
+      </fieldset>
+    </Card>
   );
 }
 
