@@ -118,7 +118,7 @@ import {
   updateStep,
   workflowCounts,
 } from "./model";
-import { addRouteAfter } from "./outcomes";
+import { addRouteAfter, plainOutcomeProblem } from "./outcomes";
 import { type Member, type People, personName } from "./people";
 import { useClientScriptTools } from "./scripts";
 
@@ -541,14 +541,28 @@ function BuilderBody(
   // DECISION (web, wave 3b): validate what Publish would send: the stored v3 bundle until the first
   // edit, then the v4 process; the converted reading isn't shown as the version's own problems.
   const unchangedV3 = opensV3 && !dirty && saved.id === from.id;
-  const result = useMemo(
-    () =>
-      validateProcessesLikeServer(unchangedV3 ? props.bundle : bundle, ctx, {
-        clientAgent: agent.kind === "client",
-        publish: agent.kind === "client" ? { matrices } : undefined,
-      }),
-    [unchangedV3, props.bundle, bundle, ctx, matrices, agent.kind],
-  );
+  const result = useMemo(() => {
+    const r = validateProcessesLikeServer(unchangedV3 ? props.bundle : bundle, ctx, {
+      clientAgent: agent.kind === "client",
+      publish: agent.kind === "client" ? { matrices } : undefined,
+    });
+    // Wave 5: a condition on how a step ended says what's wrong in the builder's words.
+    const plain = <
+      P extends {
+        workflow?: string | undefined;
+        stepId: string | null;
+        field: string;
+        code: string;
+        message: string;
+      },
+    >(
+      p: P,
+    ): P => {
+      const process = bundle.workflows.find((w) => w.slug === p.workflow)?.workflow;
+      return process ? { ...p, message: plainOutcomeProblem(process, p) } : p;
+    };
+    return { ...r, errors: r.errors.map(plain), warnings: r.warnings.map(plain) };
+  }, [unchangedV3, props.bundle, bundle, ctx, matrices, agent.kind]);
   const workflowErrors = result.errors.filter((e) => e.workflow === slug);
   const env: ApprovalEnv = {
     ctx,
@@ -1208,11 +1222,18 @@ function Advice({ warnings }: { warnings: readonly { message: string; code: stri
     >
       <p className="font-medium text-ink">Worth a look</p>
       <ul className="mt-1 flex flex-col gap-0.5">
-        {warnings.map((w) => (
-          <li key={`${w.code}:${w.message}`}>
-            {w.message}. Two agents joined by a handoff may read better.
-          </li>
-        ))}
+        {warnings.map((w) =>
+          // Wave 5: a condition on an outcome its step never reaches is its own advice.
+          w.code === "outcome_unreachable" ? (
+            <li key={`${w.code}:${w.message}`} data-testid="builder-advice-outcome">
+              {w.message}
+            </li>
+          ) : (
+            <li key={`${w.code}:${w.message}`}>
+              {w.message}. Two agents joined by a handoff may read better.
+            </li>
+          ),
+        )}
       </ul>
     </div>
   );

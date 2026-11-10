@@ -7,7 +7,14 @@
 // go on (an approval's `onReject: continue`, a deadline's `skip`, `onError: continue`), it sets
 // that and says so; nothing here loosens an approval (invariant 8: a skipped or failed write
 // writes nothing).
-import { type PathOption, pickLocalized, processes, type Rule, uuidv7 } from "@countersign/core";
+import {
+  type PathOption,
+  pickLocalized,
+  processes,
+  type Rule,
+  singleRef,
+  uuidv7,
+} from "@countersign/core";
 import { insertStep, locate, type NewId, type Process, type Step, updateStep } from "./model";
 
 type OutcomeKind = processes.OutcomeKind;
@@ -449,4 +456,64 @@ export function addRouteAfter(
   };
   const changed = updateStep(process, stepId, option.apply);
   return { process: insertStep(changed, loc.container, loc.index + 1, route), ifId: route.id };
+}
+
+// ── The validator's outcome problems, in words ───────────────────────────────────────────────────
+
+/** An if path or a step by id, as a validation problem names it. */
+function nodeById(process: Pick<Process, "steps">, id: string | null): unknown {
+  if (!id) return undefined;
+  let found: unknown;
+  processes.walkSteps(process, ({ step }) => {
+    if (found) return;
+    if (step.id === id) found = step;
+    else if (step.kind === "if") found = step.paths.find((p) => p.id === id);
+  });
+  return found;
+}
+
+function valueAt(value: unknown, path: string): unknown {
+  let v = value;
+  for (const k of path.split(".")) {
+    if (v === null || typeof v !== "object") return undefined;
+    v = (v as Record<string, unknown>)[k];
+  }
+  return v;
+}
+
+/**
+ * The validator's outcome problems in the builder's words (its messages name raw words): a
+ * compared word the step's kind never ends with (`outcome_unknown`), and one the step can't reach
+ * as set up (`outcome_unreachable`, advice). Any other problem keeps its message.
+ */
+export function plainOutcomeProblem(
+  process: Pick<Process, "steps">,
+  p: { stepId: string | null; field: string; code: string; message: string },
+): string {
+  if (p.code !== "outcome_unknown" && p.code !== "outcome_unreachable") return p.message;
+  const rule = valueAt(nodeById(process, p.stepId), p.field.replace(/\.value$/, "")) as
+    | Rule
+    | undefined;
+  let ref: string[] | null = null;
+  try {
+    ref = rule && typeof rule.field === "string" ? singleRef(rule.field) : null;
+  } catch {
+    ref = null;
+  }
+  if (!rule || !ref || ref[0] !== "steps" || !ref[1]) return p.message;
+  const step = processes.findStep(process, ref[1])?.step;
+  if (!step) return p.message;
+  const field = ref.slice(2).join(".");
+  const all = valuePhrases(step, field) ?? {};
+  const words = (Array.isArray(rule.value) ? rule.value : [rule.value]).map(String);
+  const name = `“${step.name || step.kind}”`;
+  if (p.code === "outcome_unknown") {
+    const bad = words.find((w) => !(w in all)) ?? words[0] ?? "";
+    return `“${bad}” isn't a way ${name} can end. Pick one of: ${Object.values(all).join(", ")}.`;
+  }
+  const reachable = new Set(field === "outcome" ? processes.stepOutcomes(step) : Object.keys(all));
+  const word = words.find((w) => !reachable.has(w)) ?? words[0] ?? "";
+  const hint =
+    FAILURES.has(word) && takesOnError(step) ? ": set “If this step fails” to carry on" : "";
+  return `As set up, ${name} never ends “${all[word] ?? word}”, so this condition never holds${hint}.`;
 }

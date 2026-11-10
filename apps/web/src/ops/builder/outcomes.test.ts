@@ -8,6 +8,7 @@ import {
   goOnWhenNoAnswer,
   labelPaths,
   outcomeRules,
+  plainOutcomeProblem,
   routeOptions,
   takesOnError,
 } from "./outcomes";
@@ -203,5 +204,54 @@ describe("addRouteAfter", () => {
     const out = addRouteAfter(PROCESS, "find", failed, newId);
     expect(out?.process.steps[0]).toMatchObject({ id: "find", onError: "continue" });
     expect(out?.process.steps[1]).toMatchObject({ kind: "if", name: "If failed" });
+  });
+});
+
+describe("the validator's outcome problems in words", () => {
+  const routed = (value: string): Process => ({
+    ...PROCESS,
+    steps: PROCESS.steps.map((s) =>
+      s.kind === "if"
+        ? {
+            ...s,
+            paths: [
+              {
+                id: "p1",
+                name: "Path 1",
+                when: {
+                  match: "all",
+                  rules: [{ field: "{{steps.find.outcome}}", op: "=", value }],
+                },
+                steps: [],
+              },
+            ],
+          }
+        : s,
+    ),
+  });
+
+  it("says a word the step never ends with, and offers the ones it does", () => {
+    const process = routed("lost");
+    const problem = processes
+      .validateProcess(process, {})
+      .errors.find((e) => e.code === "outcome_unknown");
+    if (!problem) throw new Error("no problem");
+    expect(plainOutcomeProblem(process, problem)).toBe(
+      "“lost” isn't a way “Find the PO” can end. Pick one of: found it, found nothing, was rejected, nobody answered, was skipped, needed help nobody gave, failed.",
+    );
+  });
+
+  it("says an outcome the step can't reach as set up, and how to reach it", () => {
+    const process = routed("failed");
+    const warning = processes
+      .validateProcess(process, {})
+      .warnings.find((w) => w.code === "outcome_unreachable");
+    if (!warning) throw new Error("no warning");
+    expect(plainOutcomeProblem(process, warning)).toBe(
+      "As set up, “Find the PO” never ends “failed”, so this condition never holds: set “If this step fails” to carry on.",
+    );
+    expect(
+      plainOutcomeProblem(process, { stepId: null, field: "", code: "other", message: "As is" }),
+    ).toBe("As is");
   });
 });
