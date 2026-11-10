@@ -3438,6 +3438,88 @@ packages/workflows `recordCheck`; apps/api `run-audit/` and `routes/run-audit.ts
   the owner's model and limits are kept, and an agent with no owner settings stays with none while
   it is off.
 
+**Skill model (2026-11-10)** (the owner agreed it; decided, ARCHITECTURE §10.14 "The skill model";
+it supersedes R2's `rules_then_ai` method and the four skill modes). Two kinds of skill only:
+**deterministic** (typed data in, rule rows or built-in code, typed data out, the same every time)
+and **AI** (typed data in, instructions and a model, JSON out checked against the output schema). A
+skill needing both is two skills chained; routing on confidence is an `if` step. Skills never write
+or message anyone: a write step shows as "Save to records" (`internal`, approval off by default) or
+"Change in <connector>" (`external`, approval on). Every skill version has fixed input and output
+schemas, typed parameters the agent sets, tests and a Deterministic or AI label. An AI skill's model
+is the step's, else the agent's for the skill, else the skill's recommended. Setup is the
+operator's. The core stream (`skills/core`) built: core `skills/` (`skillKind`, `skillModelFacts`,
+`newSkillVersionProblems`, `retiredSkillReason`, `parameterValueProblems`,
+`resolveSkillParameters`, `evaluateSkillRules`, `isoToday`, `effectiveModel`, `skillVersionChange`,
+`skillMoveImpact`, `skillStepReferences`, `writeStepLabel`, `defaultWriteApproval`), the schema's
+`SkillParameter`, rule rows' `conditions` and `compute`, `ToolSpec.usesModel`, the agent's
+`skills[].parameters` and `skills[].model`, the runtime running rule skills, the Library and
+builder catalog without tool wrappers, and `POST /api/ops/agents/:id/skill-move`. No migration.
+- // DECISION: a skill's kind is derived, never stored (`skillKind`): `ai`, `rules_then_ai`, `task`
+  or `agent` is AI; a `tool`-mode skill is deterministic unless a tool it calls declares
+  `usesModel`, so built-in definitions and their pinned hashes stay as they are (invariant 3).
+- // DECISION: the code-side declaration is `ToolSpec.usesModel` (a reason, optional), not a list in
+  core: core never names a pack's tools. Declared: `docs.extract`, `docs.read`, `comms.translate`,
+  `web.search`, `web.fetch`, `comms.converse`, `materials.catalog.create_item`,
+  `materials.match_line`. apps/api hands a pack tool the model only when it declares it (every other
+  gets `llm: null`); a platform tool that records a model call without declaring it is reported by
+  the runtime's `onUndeclaredModelCall` after its cost is recorded (tests throw there; apps/api logs).
+- // DECISION: a deterministic operator skill is `mode: "tool"` with rule rows and no handler (the
+  schema now takes rule rows in place of a handler); a handler stays built-in code, ours only.
+- // DECISION: rule rows keep `when` (plain rules over `{{input.…}}`, `{{parameters.…}}`,
+  `{{today}}`) and `set`, both now optional, and gain typed `conditions` and `compute`; a row sets at
+  least one field, and each once. Rows are tried top to bottom, the first match wins; no match fails
+  the step "no rule row matched this input". A condition reading a missing value never holds (`!=`
+  included). Numbers, decimal strings and amounts compare as decimals (two amounts only in one
+  currency), dates as dates; a timestamp counts by the date written in it. Sums and differences keep
+  the operands' form (numbers stay numbers, amounts in one currency an amount, else a decimal
+  string); a percent change is rounded to 2 places, null from 0. Buckets are inclusive, ordered,
+  non-overlapping, only the last open-ended: "30+" after "16–30" is written `from: 31`.
+- // DECISION: today in a rule skill's run is the run clock's date in UTC (the runtime doesn't know
+  the client's zone there); `isoToday(now, tz)` takes a zone where a caller has one.
+- // DECISION: parameter values live on the agent's existing `skills[]` entry (`parameters`, `model`,
+  optional, no default) rather than a new `skillSettings` map; a step's own values ride its
+  customization (`customize.parameters`). Layers: the skill's default, the agent's, the step's. A
+  parameter with no default must be set by every agent that uses the skill: publish refuses it
+  (`parameter_invalid`), and a run without it fails in plain words. An AI skill reads its parameters
+  in the system prompt ("Parameters for this task"), as settings are read.
+- // DECISION: `effectiveModel` returns null for a code skill (no model a step picks); an agent-mode
+  skill (stored) runs on the agent's model under the agent × skill and step overrides. Pricing holds
+  for the agent's per-skill model (`definitionModelErrors`); HIPAA holds at run time on whatever model
+  resolves (the transport's `guardModels`), as before.
+- // DECISION: new skill versions (create, save) refuse `rules_then_ai`, agent mode, a tool that
+  writes among a skill's tools or reads, and rule rows beside a handler; a rollback copies a stored
+  version as it was (`restoring`). The Builder's skill drafts are AI skills: an answer asking for
+  agent mode is drafted as `task` with a note, and a write tool it names is left out with a note.
+- // DECISION: a new step is one whose id the version's parent version lacks
+  (`ProcessValidationContext.existingStepIds`, `processes.bundleNodeIds`); publish, test runs and
+  saved drafts refuse a retired kind of operator-written (`custom:`) skill in a new step
+  (`skill_retired`). A first version (a seed's, a template's, a fork's) has no parent, so nothing in
+  it counts as new. The platform's own agent-mode built-ins (Sloan, the supervisor, pack templates)
+  are still installed from code with new steps in their seeded versions, so they are not held to it;
+  they are off the palette instead.
+- // DECISION: version moves: compatible means only optional input fields, output fields, or
+  parameters with a default added. Breaks are `removed` (with `renamedTo` when exactly one field of
+  the same type was added beside it), `type_changed`, `now_optional`, `required_added`,
+  `parameter_removed`, `parameter_type_changed`, `parameter_required_added`. The move route takes the
+  builder's unsaved process and answers the breaks, every reference downstream (`*` for a reference
+  to the whole output; the step's own input for an input break) and the validation errors the move
+  adds (the same validator, errors diffed before and after).
+- // DECISION: tool-wrapper skills leave the skills list (`GET /api/ops/skills`), the agent's skill
+  picker and the builder catalog's `skills`, except a wrapper the agent's latest version already
+  names (listed, `palette: false`, so its stored steps still type). The catalog gains `stepTools`
+  (the platform's and packs' tools a step may call directly: what the wrappers wrapped, less the
+  conversation's and reach-out's handlers), which the web builder should read instead of deriving
+  them from the wrappers. Each catalog skill carries `kind` and `palette` (false for a wrapper, an
+  agent-mode or a `rules_then_ai` skill). The Library index's counts are unchanged.
+- // DECISION: `writeStepLabel(step, tool, connectorName)` treats an unknown tool as a client's tool
+  ("Change in …", approval on): the safe side of invariant 8; `defaultWriteApproval` is the builder's
+  one rule for a new write step's approval.
+- Open question (owner): whether "today" in a rule skill should be the client's calendar day (the
+  runtime would need the client's zone); today it is UTC.
+- Open question: the 15 built-in skills that are not wrappers include agent-mode ones (Sloan's, the
+  supervisor's, the packs' AI templates' skills); they keep running as stored, and their split into
+  AI skills plus write steps is a later stream's.
+
 ### 1.87 BILL connector (owner: "bill.com integrated", 2026-11-10; no migration)
 
 Connector `billcom` in `packages/connectors/src/billcom/` against a fake (`fakeBillcom` in
