@@ -164,6 +164,12 @@ export interface ActionStepRequest {
   stepRunId: string;
   input: unknown;
   approval: Approval;
+  // Skill model (2026-11-10)
+  /**
+   * An action write step's channel connection (`ResolvedAction.connectionId`): the tool's call
+   * goes through it, as the agent's binding for `connector`. Absent: the agent's own bindings.
+   */
+  binding?: { connector: string; connectionId: string };
   // v0.12 W2-B
   automation?: string;
   // v0.13 W2-I
@@ -185,7 +191,17 @@ export interface ResolveActionRequest {
  * The tool an action runs with for this agent: `processes.actionTool(action, connector)`. Small
  * JSON: it is stored as a durable step result. `refused`: it doesn't resolve (nothing written).
  */
-export type ResolvedAction = { tool: string; connector: string } | { refused: string };
+export type ResolvedAction =
+  | {
+      tool: string;
+      connector: string;
+      /**
+       * The connection a message action's channel resolved to (the agent's own, else the
+       * account's), which the call goes through even when the agent isn't bound to it.
+       */
+      connectionId?: string;
+    }
+  | { refused: string };
 
 export interface ResumeRequest {
   run: RunInfo;

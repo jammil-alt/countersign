@@ -272,6 +272,8 @@ interface WorkOptions {
    * (`processes.actionToolInput`). Throws `processes.ActionInputError` when the tool can't take it.
    */
   mapInput?: (input: unknown) => unknown;
+  /** The connection an action's channel resolved to (`ActionStepRequest.binding`). */
+  binding?: { connector: string; connectionId: string };
 }
 
 /** What `Executor.work` comes back with: the step ran on, or why it didn't (wave 5). */
@@ -1067,6 +1069,7 @@ class Executor {
     name: string,
     frame: Frame,
     mapInput?: (input: unknown) => unknown,
+    binding?: { connector: string; connectionId: string },
   ): Promise<void> {
     // Skill model (2026-11-10): an action resolves to its tool first (durably), then runs exactly
     // as a write step calling that tool, its input mapped to the tool's when each attempt starts.
@@ -1078,8 +1081,14 @@ class Executor {
         tool: resolved.tool,
         name: processes.actionStepLabel(action, resolved.connector, step.name),
       };
-      return this.workStep(concrete, name, frame, (input) =>
-        processes.actionToolInput(action, resolved.tool, input),
+      return this.workStep(
+        concrete,
+        name,
+        frame,
+        (input) => processes.actionToolInput(action, resolved.tool, input),
+        resolved.connectionId
+          ? { connector: resolved.connector, connectionId: resolved.connectionId }
+          : undefined,
       );
     }
     const origin = this.origin(step);
@@ -1171,6 +1180,7 @@ class Executor {
       ...(!origin ? { watched: step } : {}),
       verdicts: () => conferred,
       ...(mapInput ? { mapInput } : {}),
+      ...(binding ? { binding } : {}),
     };
     if (step.kind === "skill" && checks?.confer) {
       opts.beforeApproval = async (proposal) => {
@@ -1576,7 +1586,11 @@ class Executor {
                   // R3: the runtime applies a v4 step's added instructions and rule rows.
                   ...(opts.customize ? { customize: opts.customize } : {}),
                 })
-              : await agent.runAction({ ...request, step });
+              : await agent.runAction({
+                  ...request,
+                  step,
+                  ...(opts.binding ? { binding: opts.binding } : {}),
+                });
         return { stepRunId, outcome: await this.settle(step, stepRunId, outcome, false) };
       },
       this.ctx.stepConfig,

@@ -30,6 +30,7 @@ import {
   type JsonObject,
   LEAD_ASSIGNEE,
   parseSkillRef,
+  processes,
   REACH_OUT_SKILL,
 } from "@countersign/core";
 import {
@@ -61,6 +62,8 @@ import {
   releaseWaitOutcome,
   stepInputOf,
 } from "../access/release";
+// Skill model (2026-11-10): a message action sends on the agent's channel, else the account's.
+import { channelFor } from "../channels/resolve";
 // P-4
 import { type ConversePort, converseState } from "../converse/service";
 import { toRunResolution } from "../inbox";
@@ -315,10 +318,22 @@ export function agentPort(
       }
     },
 
-    async runAction({ run, step, nodeId, stepRunId, input, approval, keyNode }) {
+    async runAction({ run, step, nodeId, stepRunId, input, approval, keyNode, binding }) {
+      const base = await platformStep(run, stepRunId, keyNode ?? nodeId, approval);
       const ctx: StepContext = {
         // v0.13 W2-I: an oversight retry with a corrected input keys its own write.
-        ...(await platformStep(run, stepRunId, keyNode ?? nodeId, approval)),
+        ...base,
+        // Skill model: an action's channel connection is the agent's binding for this call (the
+        // account's channel is the agent's when it has none of its own, §10.14); the gate reads
+        // that connection's matrix, the agent's grant and its mode as for any binding.
+        ...(binding
+          ? {
+              agent: {
+                ...base.agent,
+                bindings: { ...base.agent.bindings, [binding.connector]: binding.connectionId },
+              },
+            }
+          : {}),
         // The step as written in the version: fixed inputs are checked against it, not `input`.
         literalInput: step.input,
       };
@@ -347,6 +362,34 @@ export function agentPort(
         case "failed":
           return { kind: "failed", error: o.error };
       }
+    },
+
+    // Skill model (2026-11-10): an action write step's tool, for this run's agent.
+    // DECISION: an accounting action resolves from the pinned version's bindings (the connection
+    // the gate then reads fresh); a message action from `channelFor` (the agent's own channel,
+    // else the account's), read now, in the run's own client. Neither is guessed: no connection,
+    // or two accounting connections without `via`, is refused (nothing written).
+    async resolveAction({ run, action, via }) {
+      const spec = processes.ACTION_SPECS[action];
+      if ("channel" in spec.from) {
+        const kind = spec.from.channel;
+        if (!release) return { refused: `${spec.label} needs the database to find its channel` };
+        const line = await withTenant(release.db, run.tenantId, (tx) =>
+          channelFor(tx, run.tenantId, run.agentId, kind),
+        );
+        const r = processes.resolveActionConnector(action, via, {
+          bound: [],
+          channels: { [kind]: line ? { connector: line.connector } : null },
+        });
+        if (!r?.ok || !line) return { refused: r && !r.ok ? r.message : "no channel" };
+        return { tool: r.tool, connector: r.connector, connectionId: line.connectionId };
+      }
+      const pinned = await deps.ports.store.loadAgentVersion(run.tenantId, run.agentVersionId);
+      const r = processes.resolveActionConnector(action, via, {
+        bound: Object.keys(pinned.bindings),
+      });
+      if (!r) return { refused: `${spec.label} doesn't resolve here` };
+      return r.ok ? { tool: r.tool, connector: r.connector } : { refused: r.message };
     },
 
     async waitDone(request) {
