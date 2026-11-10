@@ -8,6 +8,7 @@ import type { PackTool } from "./pack";
 import { POSTING_TOOLS, postedTool, qboInputTool, readyTool } from "./posting";
 import { RECONCILE_SKILLS } from "./reconcile/skills";
 import { RECONCILE_TOOLS } from "./reconcile/tools";
+import { BOOKKEEPING_SPLIT_SKILLS } from "./splits";
 import { BOOKKEEPER_TEMPLATE } from "./template";
 import {
   accountsTool,
@@ -153,6 +154,8 @@ export const BOOKKEEPING_SKILLS: readonly SkillDefinition[] = [
   }),
   // R-1: reconciliation.
   ...RECONCILE_SKILLS,
+  // Skill model (2026-11-10): AI skills that write nothing (./splits.ts).
+  ...BOOKKEEPING_SPLIT_SKILLS,
 ];
 
 export const bookkeepingManifest: PackManifest = PackManifest.parse({

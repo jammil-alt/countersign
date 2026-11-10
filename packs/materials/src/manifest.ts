@@ -10,7 +10,7 @@ import { PACK_ID } from "./ids";
 import { PRICE_DEFAULTS } from "./pricing/rules";
 import { PURCHASING_SKILLS } from "./purchasing/skills";
 import { PURCHASING_TOOLS } from "./purchasing/tools";
-import { SPLIT_SKILLS, SPLIT_TOOLS } from "./split";
+import { REPLACEMENT_SKILLS, SPLIT_SKILLS, SPLIT_TOOLS } from "./split";
 import {
   catalogDuplicates,
   MATERIALS_TOOLS,
@@ -209,6 +209,8 @@ export const MATERIALS_SKILLS: readonly SkillDefinition[] = [
   // Skill model (2026-11-10): Look up existing, Match the unmatched, Check matches, Compare to
   // historicals.
   ...SPLIT_SKILLS,
+  // Read a vendor's quote and Choose items to merge: AI skills that write nothing.
+  ...REPLACEMENT_SKILLS,
 ];
 
 export const materialsManifest: PackManifest = PackManifest.parse({

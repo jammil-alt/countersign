@@ -300,3 +300,95 @@ export const VENDOR_INVOICE_WRITES = [
   "materials.prices.record",
   "materials.prices.check",
 ] as const;
+
+/**
+ * "Read a vendor's quote" without a write inside a skill: the request's lines (a read), the AI
+ * skill over the reply and its document, then Save to records: record the quote.
+ */
+export function readQuoteSteps(
+  refs: { quoteRequestId: string; documentId?: string; text?: string },
+  prefix = "",
+): Step[] {
+  const id = (s: string) => `${prefix}${s}`;
+  return [
+    {
+      id: id("quote"),
+      name: "The lines asked for",
+      kind: "read",
+      tool: "materials.quote.get",
+      input: { quoteRequestId: refs.quoteRequestId },
+      client: { visible: false },
+    },
+    {
+      id: id("read-quote"),
+      name: "Read the vendor's quote",
+      kind: "skill",
+      skill: "materials.read-quote-document",
+      input: {
+        quoteRequestId: refs.quoteRequestId,
+        quote: `{{steps.${id("quote")}.output}}`,
+        ...(refs.documentId ? { documentId: refs.documentId } : {}),
+        ...(refs.text ? { text: refs.text } : {}),
+      },
+      client: { visible: true, label: "Read the vendor's quote" },
+    },
+    {
+      id: id("save-quote"),
+      name: "Save to records: the quote",
+      kind: "write",
+      tool: "materials.quote.record",
+      input: {
+        quoteRequestId: refs.quoteRequestId,
+        declined: `{{steps.${id("read-quote")}.output.declined}}`,
+        lines: `{{steps.${id("read-quote")}.output.lines}}`,
+      },
+      client: { visible: false },
+    },
+  ];
+}
+
+/** "Find duplicate catalog items": the likely pairs (a read), the AI's choice, one inbox item each. */
+export function reviewMergeSteps(prefix = ""): Step[] {
+  const id = (s: string) => `${prefix}${s}`;
+  return [
+    {
+      id: id("pairs"),
+      name: "Likely duplicates",
+      kind: "read",
+      tool: "materials.catalog.duplicates",
+      input: {},
+      client: { visible: false },
+    },
+    {
+      id: id("choose"),
+      name: "Choose items to merge",
+      kind: "skill",
+      skill: "materials.choose-merges",
+      input: { pairs: `{{steps.${id("pairs")}.output.pairs}}` },
+      client: { visible: false },
+    },
+    {
+      id: id("each"),
+      name: "Each merge",
+      kind: "for_each",
+      over: `{{steps.${id("choose")}.output.proposals}}`,
+      concurrency: 1,
+      steps: [
+        {
+          id: id("ask-merge"),
+          name: "Save to records: ask the operator to merge",
+          kind: "write",
+          tool: "inbox.create",
+          input: {
+            kind: "review",
+            title: "Merge catalog items",
+            details: "{{item.reason}}",
+            sources: ["{{item.fromId}}", "{{item.intoId}}"],
+            assignee: "operator",
+          },
+          client: { visible: false },
+        },
+      ],
+    },
+  ];
+}

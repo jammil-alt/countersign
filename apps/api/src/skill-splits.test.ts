@@ -36,10 +36,14 @@ import {
   withRecording,
 } from "@countersign/llm";
 import { DEFAULT_FIXTURE_DIR, fileFixtureStore } from "@countersign/llm/node";
+import { categorizeSteps, leftoverSteps } from "@countersign/pack-bookkeeping";
+import { forumReplySteps, socialPostSteps, weeklyReportSteps } from "@countersign/pack-marketing";
 import {
   catalogItem,
   itemMatch,
   parseLine,
+  readQuoteSteps,
+  reviewMergeSteps,
   VENDOR_INVOICE_SKILLS,
   VENDOR_INVOICE_WRITES,
   vendorInvoiceProcess,
@@ -124,6 +128,107 @@ function clerkBundle(): AnyAgentBundleInput {
     ],
   } as unknown as AnyAgentBundleInput;
 }
+
+/** A pattern as a process of its own: a manual trigger with the ids it needs, then its steps. */
+function patternBundle(name: string, steps: processes.Step[]): AnyAgentBundleInput {
+  const skills = new Set<string>();
+  const tools = new Set<string>();
+  processes.walkSteps({ schemaVersion: 4, triggers: [], steps } as never, ({ step }) => {
+    if (step.kind === "skill") skills.add(step.skill);
+    if (step.kind === "write" || step.kind === "read") tools.add(step.tool);
+  });
+  const bundle = clerkBundle() as J;
+  bundle.definition.skills = [...skills].map((skill) => ({ skill }));
+  bundle.definition.extraTools = [...tools];
+  bundle.workflows = [
+    {
+      slug: "pattern",
+      name,
+      workflow: {
+        schemaVersion: 4,
+        triggers: [
+          {
+            id: "trg-pattern",
+            on: {
+              type: "manual",
+              input: {
+                type: "object",
+                properties: {
+                  ...Object.fromEntries(
+                    ["documentId", "quoteRequestId", "reconciliationId", "reportId"].map((k) => [
+                      k,
+                      { type: "string", format: "uuid" },
+                    ]),
+                  ),
+                  bankTxnIds: { type: "array", items: { type: "string", format: "uuid" } },
+                },
+              },
+            },
+          },
+        ],
+        steps,
+      },
+    },
+  ];
+  return bundle;
+}
+
+describe("the replacement patterns", () => {
+  const PATTERNS: Record<string, processes.Step[]> = {
+    "Read a vendor's quote": readQuoteSteps({
+      quoteRequestId: "{{trigger.quoteRequestId}}",
+      documentId: "{{trigger.documentId}}",
+    }),
+    "Find duplicate catalog items": reviewMergeSteps(),
+    "Categorize bank transactions": categorizeSteps("{{trigger.bankTxnIds}}"),
+    "Explain what a reconciliation left": leftoverSteps("{{trigger.reconciliationId}}"),
+    "The weekly site report": weeklyReportSteps(),
+    "A forum reply": forumReplySteps({
+      id: "41000000",
+      url: "https://news.ycombinator.com/item?id=41000000",
+      title: "Ask HN: approval workflows",
+    }),
+    "A LinkedIn post": socialPostSteps("{{trigger.reportId}}"),
+  };
+
+  for (const [name, steps] of Object.entries(PATTERNS)) {
+    it(`${name}: validates, every model skill writes nothing, every change a write step`, () => {
+      const result = processes.validateAnyBundle(AnyAgentBundle.parse(patternBundle(name, steps)), {
+        skills: Object.fromEntries(platform.catalog.list().map((s) => [s.id, s])),
+        tools: platform.tools.specs(),
+        events: platform.events.byType(),
+      });
+      expect(result.errors).toEqual([]);
+      processes.walkSteps({ schemaVersion: 4, triggers: [], steps } as never, ({ step }) => {
+        if (step.kind !== "skill") return;
+        const def = platform.catalog.get(step.skill);
+        expect(def, step.skill).toBeDefined();
+        if (def) expect(newSkillVersionProblems(def, lookup), step.skill).toEqual([]);
+      });
+    });
+  }
+
+  it("every AI replacement is a task skill on a priced model, with no tools that write", () => {
+    const replacements = [
+      "materials.read-quote-document",
+      "materials.choose-merges",
+      "bookkeeping.propose-accounts",
+      "bookkeeping.suggest-matches",
+      "bookkeeping.read-statement-document",
+      "marketing.write-report",
+      "marketing.write-titles",
+      "marketing.write-article",
+      "marketing.write-forum-reply",
+      "marketing.write-post",
+    ];
+    for (const id of replacements) {
+      const def = platform.catalog.get(id);
+      expect(def?.mode, id).toBe("task");
+      expect(def && skillKind(def, lookup), id).toBe("ai");
+      expect(def && newSkillVersionProblems(def, lookup), id).toEqual([]);
+    }
+  });
+});
 
 const h = await createApiHarness();
 afterAll(() => h?.close());

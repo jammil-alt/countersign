@@ -16,7 +16,10 @@ const builtins = platform.catalog.list();
 // another name), so retiring wrappers in R2, or a new connector read, changes them on purpose.
 // Wave 4: `browser.script.read`, a connector read, adds its read skill (a wrapper) to both.
 // §1.87: BILL's six reads add six more.
-const BUILTINS = 107;
+// Skill model (2026-11-10): the splits add 16 that are no wrappers: Read document and Check
+// totals; Look up existing, Match the unmatched, Check matches, Compare to historicals, Read a
+// vendor's quote, Choose items to merge; Bookkeeping's three and Marketing's five AI skills.
+const BUILTINS = 123;
 const WRAPPERS = 92;
 
 describe("built-in skills under the R2 skill schema", () => {
