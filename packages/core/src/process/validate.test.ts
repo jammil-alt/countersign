@@ -112,7 +112,7 @@ function processInput(): Raw {
         checks: {
           confer: {
             with: [
-              { ai: { focus: "Is {{steps.s1.output.documentId}} the right document?" } },
+              { ai: { focus: "Is this the right document for the bill?" } },
               {
                 person: "accountant",
                 when: { rules: [{ field: "{{confer.0.verdict}}", op: "!=", value: "agree" }] },
@@ -196,7 +196,7 @@ describe("valid processes", () => {
           kind: "conversation",
           with: "{{trigger.vendor}}",
           channel: "email",
-          goal: "Confirm the total of {{trigger.documentId}}",
+          goal: "Confirm the total of the bill",
           deadline: { after: "2 days", hours: "business" },
         },
         { id: "w1", name: "Wait", kind: "wait", for: "2 hours" },
@@ -752,7 +752,7 @@ describe("checks", () => {
       stepIn(d, "s1").checks = {
         confer: {
           when: { rules: [{ field: "{{steps.s1.output.total}}", op: "exists" }] },
-          with: [{ ai: { focus: "Does {{steps.s1.output.total}} match the lines?" } }],
+          with: [{ ai: { focus: "Does the total match the lines?" } }],
         },
         approval: {
           when: { rules: [{ field: "{{confer.0.verdict}}", op: "!=", value: "agree" }] },
@@ -760,6 +760,41 @@ describe("checks", () => {
       };
     });
     expect(codes(p, full)).toEqual([]);
+  });
+
+  it("hides a writing skill's own output from its confer and approval (it hasn't run yet)", () => {
+    const p = edit(processInput(), (d) => {
+      Object.assign(stepIn(d, "s6"), {
+        skill: "test.itemize",
+        input: {},
+        checks: {
+          confer: {
+            when: { rules: [{ field: "{{steps.s6.output.updated}}", op: "exists" }] },
+            with: [{ ai: { focus: "Are the lines right?" } }],
+          },
+          approval: {
+            when: { rules: [{ field: "{{steps.s6.output.updated}}", op: "=", value: true }] },
+          },
+          notify: [{ to: ["client_admin"], message: "Updated: {{steps.s6.output.updated}}" }],
+        },
+      });
+    });
+    expect(codes(p, full)).toEqual([
+      { code: "template_scope", stepId: "s6", field: "checks.confer.when.rules.0.field" },
+      { code: "template_scope", stepId: "s6", field: "checks.approval.when.rules.0.field" },
+    ]);
+  });
+
+  it("hides a skill's own output from its checks when the registries don't know it", () => {
+    const p = edit(processInput(), (d) => {
+      stepIn(d, "s1").checks = {
+        approval: { when: { rules: [{ field: "{{steps.s1.output.total}}", op: "exists" }] } },
+      };
+    });
+    expect(codes(p, { skills: ctx.skills ?? {} })).toEqual([
+      { code: "template_scope", stepId: "s1", field: "checks.approval.when.rules.0.field" },
+    ]);
+    expect(codes(p, ctx)).toEqual([]);
   });
 
   it("checks a reviewer's model against the platform's", () => {
@@ -955,6 +990,64 @@ describe("invariant 8: loosening a write's approval", () => {
     ]);
   });
 
+  const asMode = (m: string, more: string[] = []): Partial<ProcessValidationContext> => {
+    const def = bundleInput().definition as { skills: { skill: string }[] };
+    return {
+      agent: {
+        ...def,
+        skills: [...def.skills, ...more.map((skill) => ({ skill }))],
+        permissions: { mode: m },
+      } as never,
+    };
+  };
+
+  it("holds a skill that reaches people, set to not_required, to an agent that acts", () => {
+    const reach = {
+      ...(ctx.skills?.["test.summarize"] as SkillDefinition),
+      id: "test.reach",
+      reachesPeople: true,
+    } as SkillDefinition;
+    const skills = { ...ctx.skills, [reach.id]: reach };
+    const reaching = (d: Raw) => {
+      Object.assign(stepIn(d, "s6"), {
+        skill: reach.id,
+        checks: { approval: { required: "not_required" } },
+      });
+    };
+    expect(publish({}, reaching, { ...asMode("suggest_only", [reach.id]), skills })).toEqual([
+      { code: "approval_needs_act", stepId: "s6", field: "checks.approval.required" },
+    ]);
+    expect(publish({}, reaching, { ...asMode("act", [reach.id]), skills })).toEqual([]);
+    // A template or draft: not checked; and it is a step with an approval setting.
+    expect(codes(edit(processInput(), reaching), { ...ctx, skills })).toEqual([]);
+  });
+
+  it("holds a conversation's messages without a person's yes to an agent that acts", () => {
+    const talking = (messages: Record<string, string>) => (d: Raw) => {
+      d.steps.push({
+        id: "c1",
+        name: "Ask the vendor",
+        kind: "conversation",
+        with: "{{trigger.vendor}}",
+        channel: "email",
+        goal: "Confirm the delivery date",
+        messages,
+        deadline: { after: "2 days" },
+      });
+    };
+    const loose = talking({ first: "not_required", later: "within_goal" });
+    expect(publish({}, loose, asMode("suggest_only"))).toEqual([
+      { code: "approval_needs_act", stepId: "c1", field: "messages.first" },
+      { code: "approval_needs_act", stepId: "c1", field: "messages.later" },
+    ]);
+    expect(publish({}, talking({ later: "within_goal" }), asMode("suggest_only"))).toEqual([
+      { code: "approval_needs_act", stepId: "c1", field: "messages.later" },
+    ]);
+    expect(publish({}, loose, asMode("act"))).toEqual([]);
+    expect(publish({}, talking({}), asMode("suggest_only"))).toEqual([]);
+    expect(codes(edit(processInput(), loose), full)).toEqual([]);
+  });
+
   it("lists the loosenings of an approval", () => {
     expect(approvalLoosenings(undefined, "x")).toEqual([]);
     expect(
@@ -1019,6 +1112,36 @@ describe("fixed inputs (text that becomes instructions)", () => {
       Object.assign(stepIn(d, "s1"), { skill: caller.id, input: {} });
     });
     expect(fixed(p)).toEqual([{ code: "input_not_fixed", stepId: "s1", field: "skill" }]);
+  });
+
+  it("flags a templated conversation goal (invariant 9); who it is with may be templated", () => {
+    const talk = (goal: string) =>
+      edit(processInput(), (d) => {
+        d.steps.push({
+          id: "c1",
+          name: "Ask the vendor",
+          kind: "conversation",
+          with: "{{trigger.vendor}}",
+          channel: "email",
+          goal,
+          deadline: { after: "2 days" },
+        });
+      });
+    expect(codes(talk("Confirm the delivery date"), full)).toEqual([]);
+    expect(codes(talk("Confirm the total of {{trigger.documentId}}"), full)).toEqual([
+      { code: "input_not_fixed", stepId: "c1", field: "goal" },
+    ]);
+  });
+
+  it("flags a templated focus of an AI reviewer", () => {
+    const p = edit(processInput(), (d) => {
+      const confer = write(d).checks.confer as { with: { ai: Record<string, unknown> }[] };
+      (confer.with[0] as { ai: Record<string, unknown> }).ai.focus =
+        "Is {{steps.s1.output.documentId}} the right document?";
+    });
+    expect(codes(p, full)).toEqual([
+      { code: "input_not_fixed", stepId: "s7", field: "checks.confer.with.0.ai.focus" },
+    ]);
   });
 });
 
