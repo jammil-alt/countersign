@@ -27,10 +27,17 @@ export const TestkitRecord = z.object({
 export type TestkitRecord = z.infer<typeof TestkitRecord>;
 
 export class StaleRecordError extends Error {
+  // Wave 5 review: the fake provider turned the write down; nothing was written (`writeNotMade`).
+  readonly notWritten = true;
   constructor(readonly recordId: string) {
     super(`record ${recordId} changed since it was read`);
     this.name = "StaleRecordError";
   }
+}
+
+/** A record the fake provider can't find: it says no, and writes nothing (`writeNotMade`). */
+function notFoundError(id: string): Error {
+  return Object.assign(new Error(`record ${id} not found`), { notWritten: true });
 }
 
 /**
@@ -108,7 +115,7 @@ export class TestkitBackend {
       return { ...done.result };
     }
     const current = this.company(connectionId).get(change.id);
-    if (!current) throw new Error(`record ${change.id} not found`);
+    if (!current) throw notFoundError(change.id);
     if (change.syncToken !== undefined && change.syncToken !== current.syncToken) {
       throw new StaleRecordError(change.id);
     }
@@ -190,7 +197,7 @@ export function createTestkitConnector(
           return backend.get(ctx.connection.id, input.id);
         },
         async run(input, ctx, before) {
-          if (!before) throw new Error(`record ${input.id} not found`);
+          if (!before) throw notFoundError(input.id);
           ctx.logger.info("updating record", { recordId: input.id });
           return { record: backend.update(ctx.connection.id, ctx.idempotencyKey, input) };
         },

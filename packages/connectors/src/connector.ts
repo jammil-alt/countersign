@@ -624,6 +624,30 @@ export class UnconfirmedWriteError extends Error {
   }
 }
 
+/**
+ * Wave 5 review (docs/plan.md §1.86 "Forks (wave 5)"): a write the provider turned down without
+ * making it (it answered, and said no: a validation error, a closed record). A connector throws
+ * this, or marks its own error `notWritten: true`, so a step with `onError: continue` may go on
+ * past it. Any other error a write's handler throws may have come after the provider took it.
+ */
+export class NotWrittenError extends Error {
+  readonly notWritten = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "NotWrittenError";
+  }
+}
+
+/** Whether a connector said its write was turned down without being made (`NotWrittenError`). */
+export function writeNotMade(error: unknown): boolean {
+  return (
+    error instanceof NotWrittenError ||
+    (typeof error === "object" &&
+      error !== null &&
+      (error as { notWritten?: unknown }).notWritten === true)
+  );
+}
+
 type ConnectorHooks = Omit<Connector, "manifest" | "tools">;
 
 /**
