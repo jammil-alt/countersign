@@ -45,6 +45,7 @@ function toRecord(row: Row): ExternalActionRecord {
     error: row.error,
     before: row.before,
     editedInput: (row.editedInput ?? null) as JsonObject | null,
+    after: row.after,
   };
 }
 
@@ -187,11 +188,15 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
       });
     },
 
-    // R5: a person's undo of a done write: approved by their press, no run and no agent (like a
-    // signed write), under its own key. The original's id is in the key.
-    // DECISION: `keepsAfter` stays unset here until external_action has an `after` column (a
-    // migration in its own PR): `complete` can't keep the after state yet, so writes don't read
-    // their record again, and an undo is refused as `after_unknown` (a person decides instead).
+    // R5: `complete` keeps the record as the write left it (`external_action.after`, migration
+    // 0044), so a write that can be taken back reads its record once more after writing.
+    keepsAfter: true,
+
+    // R5: a person's undo of a done write: approved by their press, no agent (like a signed
+    // write), under its own key. The original's id is in the key.
+    // DECISION (owner's safe choice, wave 2b): the undo carries the original's run, so it shows on
+    // that run's timeline beside the write it takes back; it has no step and no agent version (no
+    // agent decided it), and a test run's write is never undone, so a test run never gets one.
     proposeUndo(tenantId, input) {
       return withTenant(db, tenantId, async (tx) => {
         const now = new Date();
@@ -201,7 +206,7 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
             tenantId,
             connectionId: input.original.connectionId,
             tool: input.tool,
-            runId: null,
+            runId: input.original.runId,
             stepRunId: null,
             agentVersionId: null,
             input: input.input,
@@ -238,6 +243,9 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
             status: "done",
             result: (result.output ?? null) as Record<string, unknown> | null,
             before: (result.before ?? null) as Record<string, unknown> | null,
+            // Undefined (a write that can't be taken back) and null (the read failed) both store
+            // null: an undo then refuses as `after_unknown`.
+            after: (result.after ?? null) as Record<string, unknown> | null,
             error: null,
             executedAt: new Date(),
           })
