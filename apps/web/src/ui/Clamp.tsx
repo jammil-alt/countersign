@@ -69,11 +69,12 @@ export function Clamp({
 
   useEffect(() => {
     if (!shown) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    window.addEventListener("scroll", close, true);
+    const hide = () => setShown(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && hide();
+    window.addEventListener("scroll", hide, true);
     window.addEventListener("keydown", onKey);
     return () => {
-      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("scroll", hide, true);
       window.removeEventListener("keydown", onKey);
     };
   }, [shown]);
@@ -81,6 +82,7 @@ export function Clamp({
 
   return (
     <>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: hover and focus only show the tooltip; the cell's own link or text stays what you use. */}
       <span
         ref={ref}
         className={cx(LINES[lines], className)}

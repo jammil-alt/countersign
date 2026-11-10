@@ -883,3 +883,23 @@ a.ui-stat--link:focus-visible {
 .ds-tooltip.ui-tip--above {
   transform: translateY(-100%);
 }
+
+/* The agent lab's gallery (LabScreen): cards at a readable width, as many to a row as fit. */
+.ui-labgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: var(--space-4);
+}
+
+/* "All agents": back to the list a page came from, over its header (AgentScreen). */
+.ui-back {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: var(--space-1-5, 6px);
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+.ui-back:hover {
+  color: var(--slate);
+}
