@@ -16,14 +16,14 @@ import {
   pathOptions,
   processes,
   REACH_OUT_SKILL,
+  SKILL_KIND_LABEL,
   type Trigger,
   type TriggerOn,
   type TypingContext,
   triggerOnSchema,
+  writesToClientTool,
 } from "@countersign/core";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { apiRoutes } from "../../api/routes";
-import { useApi } from "../../api/useApi";
 import { Icon } from "../../ui/icons";
 import { Button, cx } from "../../ui/primitives";
 import { PROCESS_KIND_LABEL } from "../workflow/describe";
@@ -31,7 +31,13 @@ import { toolLabel, whenEvent } from "../workflow/labels";
 import { processClientVisible } from "./Canvas";
 // P-4
 import { ConversationFields, ConverseFields } from "./ConverseFields";
-import { type BuilderData, type BuilderProblem, connectorName } from "./catalog";
+import {
+  type BuilderData,
+  type BuilderProblem,
+  catalogSkillKind,
+  connectorName,
+  writeLabelOf,
+} from "./catalog";
 import { ChecksPanel, NotifyEditor } from "./checks";
 import { CustomizeSection } from "./customize";
 import { DeadlineEditor } from "./deadline";
@@ -64,6 +70,7 @@ import {
 import { type People, PersonPicker } from "./people";
 import { ReachOutFields } from "./ReachOutFields";
 import { RulesEditor } from "./rules";
+import { RunsOnRow, type SkillMove, StepParameters, VersionSection } from "./skill-step";
 
 export type { Member } from "./people";
 export { parseRuleValue, ruleValueText } from "./rules";
@@ -100,6 +107,13 @@ export interface InspectorProps {
   onDelete(id: string): void;
   /** Wave 5: put an `if` right after the step, routed on how it ended ("Add a route for this"). */
   onAddRoute?(stepId: string, option: RouteOption): void;
+  // Skill model (2026-11-10): a skill step's version move.
+  /** The agent being edited, for "what moves if this step goes to vN". */
+  agentId?: string | undefined;
+  /** Its client (null for a template): whose operator skills its references name. */
+  tenantId?: string | null | undefined;
+  /** Move a skill step to another version of its skill, with its references remapped. */
+  onMoveSkill?(move: SkillMove): void;
 }
 
 function errorsFor(errors: readonly BuilderProblem[], node: string): FieldErrors {
@@ -244,14 +258,24 @@ function StepInspector(props: InspectorProps & { step: Step }) {
     [workflow, step.id, ctx],
   );
   const set: SetStep = (key, fn) => onStep(step.id, fn, `${step.id}:${key}`);
-  const label = PROCESS_KIND_LABEL[step.kind];
+  // Skill model (2026-11-10): a write by where it writes, a skill step with its kind.
+  const label =
+    step.kind === "write" ? writeLabelOf(props.data, step.tool) : PROCESS_KIND_LABEL[step.kind];
+  const kind = step.kind === "skill" ? catalogSkillKind(props.data, step.skill) : undefined;
+  const skill = step.kind === "skill" ? lookupSkill(step.skill, ctx) : undefined;
+  const intro =
+    step.kind === "write"
+      ? writesToClientTool(ctx.tools?.[step.tool])
+        ? `${label}: it changes the client's tool behind its checks. Approval is on by default.`
+        : "Saves to our own records. Approval is off by default; add one below if someone should say yes first."
+      : STEP_INTRO[step.kind];
 
   return (
     <div className="flex flex-col gap-4">
       <Heading
-        eyebrow={`${stepNumber(workflow, step.id)} · ${label}`}
+        eyebrow={`${stepNumber(workflow, step.id)} · ${label}${kind ? ` · ${SKILL_KIND_LABEL[kind]}` : ""}`}
         title={step.name || label}
-        intro={STEP_INTRO[step.kind]}
+        intro={intro}
       />
       <NodeErrors errors={errors} node={step.id} />
       <Row label="Name" field="name" errors={fieldErrors}>
@@ -265,9 +289,27 @@ function StepInspector(props: InspectorProps & { step: Step }) {
 
       <KindFields {...props} paths={paths} fieldErrors={fieldErrors} set={set} />
 
-      {step.kind === "skill" ? (
+      {step.kind === "skill" && skill ? (
         <>
-          <ModelRow step={step} ctx={ctx} fieldErrors={fieldErrors} set={set} />
+          <RunsOnRow
+            step={step}
+            skill={skill}
+            bundle={props.bundle}
+            ctx={ctx}
+            fieldErrors={fieldErrors}
+            set={set}
+          />
+          <StepParameters step={step} skill={skill} bundle={props.bundle} set={set} />
+          {props.agentId && props.onMoveSkill ? (
+            <VersionSection
+              step={step}
+              skill={skill}
+              agentId={props.agentId}
+              tenantId={props.tenantId ?? null}
+              workflow={workflow}
+              onMove={props.onMoveSkill}
+            />
+          ) : null}
           <CustomizeSection
             step={step}
             ctx={ctx}
@@ -327,66 +369,6 @@ function StepInspector(props: InspectorProps & { step: Step }) {
         )}
       </div>
     </div>
-  );
-}
-
-// v0.13 W2-H: the model a skill step runs on (ARCHITECTURE §10.11), from GET /api/ops/models,
-// over the skill's own (a task skill) or the agent's (an agent skill). A rules skill runs code and
-// takes no model, so the row isn't offered for one.
-function ModelRow({
-  step,
-  ctx,
-  fieldErrors,
-  set,
-}: {
-  step: Extract<Step, { kind: "skill" }>;
-  ctx: TypingContext;
-  fieldErrors: FieldErrors;
-  set: SetStep;
-}) {
-  const skill = lookupSkill(step.skill, ctx);
-  // P-4: a conversation runs as code, but each turn is a model call in the agent's voice.
-  const noModel = skill?.mode === "tool" && parseSkillRef(step.skill).id !== CONVERSE_SKILL;
-  const models = useApi(apiRoutes.opsModels, noModel ? null : {});
-  if (noModel) return null;
-  const options = models.data?.models ?? [];
-  const current = step.model?.id ?? "";
-  const fallback = skill?.mode === "task" ? "The skill's model" : "The agent's model";
-  return (
-    <Row
-      label="Model"
-      field="model"
-      errors={fieldErrors}
-      hint={
-        models.error
-          ? "Couldn't load the models; the step keeps its own."
-          : "Price per million tokens, in and out."
-      }
-    >
-      <SmallSelect
-        data-field="model"
-        data-testid="builder-inspector-model"
-        value={current}
-        onChange={(e) => {
-          const id = e.target.value;
-          set("model", (s) => {
-            if (s.kind !== "skill") return s;
-            const { model: _m, ...rest } = s;
-            return id ? { ...rest, model: { id } } : rest;
-          });
-        }}
-      >
-        <option value="">{fallback}</option>
-        {current && !options.some((m) => m.id === current) ? (
-          <option value={current}>A model no longer offered</option>
-        ) : null}
-        {options.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label} · ${m.inputPerMtok} / ${m.outputPerMtok}
-          </option>
-        ))}
-      </SmallSelect>
-    </Row>
   );
 }
 

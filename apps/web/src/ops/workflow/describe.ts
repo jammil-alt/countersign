@@ -136,6 +136,11 @@ export interface StepLabels {
    * QuickBooks Online"); undefined when unknown (the step then reads "Write").
    */
   writeLabel?(toolId: string): string | undefined;
+  /**
+   * Skill model (2026-11-10): the model a skill step runs on, in a word ("claude-sonnet-5-5"), as
+   * core's `effectiveModel` resolves it; undefined for a step that runs none.
+   */
+  stepModel?(step: processes.Step): string | undefined;
 }
 
 /**
@@ -276,7 +281,13 @@ export function processStepDetail(step: ProcessStep, labels: StepLabels = {}): s
     case "skill": {
       const name = labels.skill?.(step.skill);
       const what = name && name !== step.name ? name : null;
-      return [what, step.agent ? `by ${step.agent}` : null].filter(Boolean).join(" · ") || null;
+      // Skill model (2026-11-10): the model it runs on, wherever the step is shown.
+      const model = labels.stepModel?.(step);
+      return (
+        [what, step.agent ? `by ${step.agent}` : null, model ? `runs on ${model}` : null]
+          .filter(Boolean)
+          .join(" · ") || null
+      );
     }
     case "read":
       return [labels.connector?.(step.tool), toolLabel(step.tool)].filter(Boolean).join(" · ");
