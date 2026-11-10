@@ -18,6 +18,7 @@ import {
   Trigger,
   WorkflowHandoff,
 } from "../schemas/workflow";
+import { SkillCustomization } from "./customize";
 
 // ── Deadlines ────────────────────────────────────────────────────────────────────────────────
 
@@ -182,6 +183,11 @@ export const SkillStep = z.object({
   input: TemplateObject.default({}),
   settings: z.record(z.string(), z.unknown()).optional(),
   model: ModelChoice.optional(),
+  /**
+   * R2: the Library skill as this step customizes it (`applyCustomization`): settings, added
+   * instructions, rule rows, a task's model, kept output fields; never its method or types.
+   */
+  customize: SkillCustomization.optional(),
 });
 
 /** A write: to a client's tool (external, approval on by default) or a platform record. */

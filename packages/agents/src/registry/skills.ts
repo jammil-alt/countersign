@@ -6,7 +6,9 @@
 import {
   type AgentBundle,
   hashJson,
+  isToolWrapper,
   parseSkillRef,
+  type processes,
   SkillDefinition,
   Slug,
   skillTools,
@@ -50,6 +52,7 @@ export class SkillCatalog {
         for (const t of skillTools(def)) {
           if (!tools.has(t)) problems.push(`${def.id}: unknown tool ${t}`);
         }
+        for (const p of readProblems(def, tools)) problems.push(`${def.id}: ${p}`);
       }
       this.byId.set(def.id, def);
     }
@@ -65,6 +68,44 @@ export class SkillCatalog {
   list(): SkillDefinition[] {
     return [...this.byId.values()];
   }
+}
+
+// ── R2: skills read, never write (docs/plan.md §1.86, §9) ───────────────────────────────────────
+
+/** A skill's declared `reads` must be registered tools that only read (side effect `none`). */
+export function readProblems(
+  def: Pick<SkillDefinition, "reads">,
+  tools: Pick<ToolRegistry, "get">,
+): string[] {
+  const problems: string[] = [];
+  for (const id of def.reads ?? []) {
+    const tool = tools.get(id);
+    if (!tool) problems.push(`unknown read tool ${id}`);
+    else if (tool.spec.sideEffect !== "none") {
+      problems.push(`${id} is not a read tool (${tool.spec.sideEffect}); a skill never writes`);
+    }
+  }
+  return problems;
+}
+
+/**
+ * What `processes.fromWorkflowV3` needs from the registries: the tool a tool-wrapper skill wraps
+ * (built-ins only; operator skills are never `tool` mode) and each tool's side effect. Unknown ids
+ * answer null, which the converter treats as a skill step or an external write (the safe side).
+ */
+export function convertLookup(
+  skills: Pick<SkillCatalog, "get">,
+  tools: Pick<ToolRegistry, "get">,
+): processes.ConvertLookup {
+  return {
+    wrappedTool(skillId) {
+      const def = skills.get(skillId);
+      return def && isToolWrapper(def) ? (def.handler ?? null) : null;
+    },
+    sideEffect(toolId) {
+      return tools.get(toolId)?.spec.sideEffect ?? null;
+    },
+  };
 }
 
 // ── Operator-written skills (rows) ───────────────────────────────────────────────────────────────
@@ -102,7 +143,10 @@ export function parseOperatorSkill(input: unknown, tools?: ToolRegistry): SkillD
   if (def.model && !knownModelIds().includes(def.model.id)) {
     problems.push(`unknown model ${def.model.id}`);
   }
-  if (tools) for (const t of def.tools) if (!tools.has(t)) problems.push(`unknown tool ${t}`);
+  if (tools) {
+    for (const t of def.tools) if (!tools.has(t)) problems.push(`unknown tool ${t}`);
+    problems.push(...readProblems(def, tools));
+  }
   if (problems.length > 0) {
     throw new AgentsError("invalid_definition", problems.join("; "), problems);
   }
