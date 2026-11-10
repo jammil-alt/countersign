@@ -244,7 +244,7 @@ export class BillcomClient {
   private async login(): Promise<Session> {
     const creds = BillcomCredentials.safeParse(await this.ctx.credentials.get());
     if (!creds.success) {
-      throw new ReconnectRequiredError("the BILL connection has no complete login");
+      throw signInNeeded("the BILL connection has no complete login");
     }
     const { username, password, organizationId } = creds.data;
     const secrets = [password, this.opts.devKey];
@@ -289,7 +289,7 @@ export class BillcomClient {
       if (/dev(eloper)?\s*key/i.test(e.message ?? "")) {
         throw new BillcomNotConfiguredError(`BILL refused our developer key: ${said}`);
       }
-      throw new ReconnectRequiredError(`BILL refused the login: ${said}`);
+      throw signInNeeded(`BILL refused the login: ${said}`);
     }
     const answer = LoginAnswer.safeParse(body);
     if (!answer.success) {
@@ -362,8 +362,7 @@ export class BillcomClient {
         this.ctx.logger.info("BILL session ended; signing in again");
         continue;
       }
-      if (ended)
-        throw new ReconnectRequiredError("BILL refused our session right after signing in");
+      if (ended) throw signInNeeded("BILL refused our session right after signing in");
       const said = scrub(e.message ?? `BILL answered ${res.status}`, secrets);
       if (res.status >= 500) {
         if (opts.write) throw unconfirmed(opts.write, `BILL answered ${res.status}: ${said}`);
@@ -391,6 +390,15 @@ export class BillcomClient {
       // The session times out at BILL on its own.
     }
   }
+}
+
+/**
+ * The client must enter the login again: the connection is marked as needing a person. Every such
+ * refusal comes before BILL took any change (a sign-in, or a request BILL turned away), so it is
+ * marked not written too.
+ */
+function signInNeeded(message: string): ReconnectRequiredError {
+  return Object.assign(new ReconnectRequiredError(message), { notWritten: true as const });
 }
 
 function unconfirmed(note: WriteNote, why: string): UnconfirmedWriteError {

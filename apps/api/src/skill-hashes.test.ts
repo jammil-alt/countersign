@@ -15,8 +15,9 @@ const builtins = platform.catalog.list();
 // DECISION: both counts are pinned (the owner's inventory: 100 skills, 85 of them only a tool by
 // another name), so retiring wrappers in R2, or a new connector read, changes them on purpose.
 // Wave 4: `browser.script.read`, a connector read, adds its read skill (a wrapper) to both.
-const BUILTINS = 101;
-const WRAPPERS = 86;
+// §1.87: BILL's six reads add six more.
+const BUILTINS = 107;
+const WRAPPERS = 92;
 
 describe("built-in skills under the R2 skill schema", () => {
   it("registers the platform's, the packs' and each connector's read skills, once each", () => {

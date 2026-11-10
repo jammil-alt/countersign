@@ -61,6 +61,10 @@ function documents(files: StoredFile[] = [PDF]): DocumentServices {
   return { read: async (id) => files.find((f) => f.id === id) ?? null };
 }
 
+/** A connector over an existing fake. */
+const connectorOf = (bill: ReturnType<typeof fakeBillcom>) =>
+  createBillcomConnector({ devKey: FAKE_BILLCOM.devKey, fetch: bill.fetch });
+
 function setup(over: { devKey?: string | null; permissions?: Partial<PermissionMatrix> } = {}) {
   const bill = fakeBillcom({ now: () => NOW });
   const connector = createBillcomConnector({
@@ -299,6 +303,15 @@ describe("billcom connector: signing in", () => {
     const refused = read(BILLCOM_TOOLS.billGet, { id: FAKE_BILLCOM.bills.open });
     await expect(refused).rejects.toBeInstanceOf(ReconnectRequiredError);
     await expect(refused).rejects.toThrow(/BILL refused the login/);
+    // A write refused at sign-in wrote nothing.
+    const write = await executeWrite(
+      connectorOf(bill),
+      BILLCOM_TOOLS.billArchive,
+      { id: FAKE_BILLCOM.bills.open },
+      setup().wctx(),
+    ).catch((e) => e);
+    expect(write).toBeInstanceOf(ReconnectRequiredError);
+    expect(writeNotMade(write)).toBe(true);
     const again = setup();
     again.bill.refuseSessions();
     await expect(
