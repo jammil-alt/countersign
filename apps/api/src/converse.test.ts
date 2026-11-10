@@ -997,6 +997,10 @@ describe.skipIf(!h)("conversations through the API", () => {
     // The signature the run took is marked received: the cron stops re-sending it.
     const items = await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, params.runId));
     expect(items.every((i) => i.status !== "resolved" || i.runReceivedAt !== null)).toBe(true);
+    // And so are its messages: the step waits on one event for all of them, so none is re-sent.
+    const rows = await rowsOf(params.runId);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.status !== "ended" || r.runReceivedAt !== null)).toBe(true);
   });
 
   it("refuses another client's contact (invariant 1)", async () => {

@@ -75,9 +75,9 @@ export async function redeliverResolutions(
       )
       .limit(500);
     // R7: a conversation's item also wakes a v4 conversation step, by the conversation's event.
-    return Promise.all(
-      rows.map(async (r) => ({ ...r, conversation: await conversationEventOfItem(tx, r) })),
-    );
+    const out = [];
+    for (const r of rows) out.push({ ...r, conversation: await conversationEventOfItem(tx, r) });
+    return out;
   });
   let sent = 0;
   let failed = 0;

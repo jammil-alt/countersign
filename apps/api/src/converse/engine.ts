@@ -15,10 +15,11 @@ import type {
 import {
   CONVERSE_SKILL,
   type ConverseOutput,
+  converseSubject,
   DEFAULT_APPROVAL,
   type SkillStep,
 } from "@countersign/core";
-import { inboxItem, run, withTenant } from "@countersign/db";
+import { inboxItem, reachOut, run, withTenant } from "@countersign/db";
 import type { RunInfo, StepOutcome } from "@countersign/workflows";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { toRunResolution } from "../inbox";
@@ -119,8 +120,30 @@ export function conversationEngine(deps: ConverseDeps): ConversationEngine {
     );
 
   /**
+   * The conversation's ended messages are the run's now: the cron stops re-sending their events,
+   * which would otherwise wake the step again (it waits on one event for every message).
+   */
+  const takeRows = (tenantId: string, runId: string, key: string) =>
+    withTenant(db, tenantId, (tx) =>
+      tx
+        .update(reachOut)
+        .set({ runReceivedAt: now() })
+        .where(
+          and(
+            eq(reachOut.tenantId, tenantId),
+            eq(reachOut.runId, runId),
+            eq(reachOut.subject, converseSubject(runId, key)),
+            eq(reachOut.status, "ended"),
+            isNull(reachOut.runReceivedAt),
+          ),
+        ),
+    );
+
+  /**
    * Where it is, without moving it on. Something the run can take at once (an answered item, a
-   * reply the next turn hasn't read) wakes it now, so a lost event costs nothing.
+   * reply the next turn hasn't read) reports `wakeAt` now. The executor waits on its earlier
+   * answer's time, so what makes a lost event cheap is the cron: it re-sends a resolved card's and
+   * an ended message's events until the run takes them (marked here as they are taken).
    */
   const report = async (tenantId: string, there: ConversePeek): Promise<ConversationProgress> => {
     const t = now().toISOString();
@@ -184,6 +207,7 @@ export function conversationEngine(deps: ConverseDeps): ConversationEngine {
           resolution,
         });
         await received(info.tenantId, there.inboxItemId);
+        await takeRows(info.tenantId, info.id, req.key);
         return progressOf(next, now());
       }
       // A reply, the reply's wait passing, a held message gone out: the service carries on.
@@ -196,6 +220,7 @@ export function conversationEngine(deps: ConverseDeps): ConversationEngine {
         },
         timedOut: req.wake.timedOut === true,
       });
+      await takeRows(info.tenantId, info.id, req.key);
       return progressOf(next, now());
     },
 

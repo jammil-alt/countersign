@@ -2503,7 +2503,8 @@ tools, is the owner's doc "Mezonas process model"; milestones are §9.
   the step's. An answer that doesn't parse, or a failed call, is `unsure`.
 - // DECISION: the v4 conversation step runs on P-4's service (`converse/engine.ts` over
   `conversePort`): the first call starts it, a call with no wake only reports where it is (an
-  answered card or an unread reply reports `wakeAt` now, so a lost event costs nothing), and a
+  answered card or an unread reply reports `wakeAt` now; a lost event is re-sent by the cron until
+  the run takes the card or message, which the engine marks as it takes them), and a
   wake reads the card or rows it waits on, never the event's payload. `messages.later: required`
   signs every later message. A deadline ends it as handed over (to `ifNoAnswer`), its open message
   ended and its cards expired. Calls aren't wired to the voice path yet: a call step fails plainly.
