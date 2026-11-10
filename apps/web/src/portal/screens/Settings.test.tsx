@@ -84,6 +84,9 @@ describe("portal settings", () => {
       ["General", "/settings"],
       ["Approvals", "/settings/approvals"],
       ["Team", "/settings/team"],
+      // R8
+      ["Business hours", "/settings/hours"],
+      ["Channels", "/settings/channels"],
       ["Billing", "/settings/billing"],
       ["Exports", "/settings/exports"],
       ["Conversations", "/settings/conversations"],
@@ -140,7 +143,7 @@ describe("portal settings", () => {
       within(nav)
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["General", "Approvals", "Team"]);
+    ).toEqual(["General", "Approvals", "Team", "Business hours", "Channels"]);
     const mine = await screen.findByTestId("portal-settings-mine");
     // No phone with consent: texts can't be turned on.
     expect(within(mine).getByTestId("portal-mine-sms")).toBeDisabled();

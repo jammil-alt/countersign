@@ -4,7 +4,11 @@
 //   what Sloan is.
 // - Approvals (`/settings/approvals`): who approves changes to your tools, who approves what on
 //   your team, the undo window, and the approver rules (read-only unless the admin tightens them).
-// - Team (`/settings/team`): who uses the portal, and invites (the admin).
+// - Team (`/settings/team`): who uses the portal, each person's hours and away dates, and invites
+//   (the admin).
+// - Business hours (`/settings/hours`) and Channels (`/settings/channels`), R8 (plan §1.86): the
+//   client's week, zone and closed dates (the admin changes them), and the account's and each
+//   agent's number and email (read here; we set them up).
 // The client admin also has Billing (credits, statements, what happens when credits run out),
 // Exports, Conversations (WhatsApp capture) and Voice samples. Never what the work cost us
 // (invariant 11).
@@ -24,6 +28,8 @@ import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader } from "../../
 import { PORTAL_PATHS } from "../paths";
 import { PortalApproverRules } from "./ApproverRules";
 import { PortalBillingScreen } from "./Billing";
+import { PortalBusinessHours } from "./BusinessHours";
+import { PortalChannels } from "./Channels";
 import { PortalConversationsScreen } from "./Conversations";
 import { PortalExportsScreen } from "./Exports";
 import { PortalTeamScreen } from "./Team";
@@ -35,6 +41,9 @@ export type SettingsSection =
   | "general"
   | "approvals"
   | "team"
+  // R8 (docs/plan.md §1.86)
+  | "hours"
+  | "channels"
   | "billing"
   | "exports"
   | "conversations"
@@ -46,6 +55,8 @@ const SECTION_WORDS: Record<SettingsSection, PlainKey> = {
   general: "settingsPage.general",
   approvals: "settingsPage.approvals",
   team: "settingsPage.team",
+  hours: "settingsPage.hours",
+  channels: "settingsPage.channels",
   billing: "settingsPage.billing",
   exports: "settingsPage.exports",
   conversations: "settingsPage.conversations",
@@ -57,6 +68,8 @@ const SECTION_PATH: Record<SettingsSection, string> = {
   general: PORTAL_PATHS.settings,
   approvals: PORTAL_PATHS.approvals,
   team: PORTAL_PATHS.team,
+  hours: PORTAL_PATHS.businessHours,
+  channels: PORTAL_PATHS.channels,
   billing: PORTAL_PATHS.billing,
   exports: PORTAL_PATHS.exports,
   conversations: PORTAL_PATHS.conversations,
@@ -65,11 +78,13 @@ const SECTION_PATH: Record<SettingsSection, string> = {
 };
 
 /** The sections everyone has; the client admin has the rest too. */
-const EVERYONE: readonly SettingsSection[] = ["general", "approvals", "team"];
+const EVERYONE: readonly SettingsSection[] = ["general", "approvals", "team", "hours", "channels"];
 const ADMIN: readonly SettingsSection[] = [
   "general",
   "approvals",
   "team",
+  "hours",
+  "channels",
   "billing",
   "exports",
   "conversations",
@@ -156,6 +171,18 @@ function Body({ section, isAdmin }: { section: SettingsSection; isAdmin: boolean
       return (
         <Part title={title}>
           <PortalTeamScreen embedded />
+        </Part>
+      );
+    case "hours":
+      return (
+        <Part title={title} subtitle={t("businessHours.subtitle")}>
+          <PortalBusinessHours isAdmin={isAdmin} />
+        </Part>
+      );
+    case "channels":
+      return (
+        <Part title={title} subtitle={t("channels.subtitle")}>
+          <PortalChannels />
         </Part>
       );
     case "billing":
