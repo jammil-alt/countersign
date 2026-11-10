@@ -2,6 +2,12 @@
 // automations with their step chain and clean-run rate and skills as cards; a skill is made in a
 // Builder conversation (or by hand) and saved as a draft; its page runs tests, publishes, and
 // asks why before tests stop being required; an automation's page publishes its draft.
+import {
+  evaluateSkillRules,
+  resolveSkillParameters,
+  SkillDefinition,
+  skillKind,
+} from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
@@ -446,11 +452,112 @@ describe("new skill, with the Builder", () => {
     await user.click(screen.getByTestId("skill-tool-testkit.record.query"));
     await user.click(screen.getByTestId("skill-create"));
     await waitFor(() => expect(sent).toHaveLength(1));
+    // Skill model (2026-11-10): written by hand, it is an AI skill on its recommended model.
     expect(sent[0]?.definition).toMatchObject({
       id: "custom:summarize-records",
-      mode: "agent",
+      mode: "task",
+      model: { id: "claude-haiku-5-5" },
       tools: ["testkit.record.query"],
     });
+  });
+});
+
+// Skill model (2026-11-10): the owner's aging example, built from the screen as a deterministic
+// skill: a buckets parameter (0–15 Current, 16–30 Due, 31+ Past due) and one rule row that puts
+// the days from the due date to today into the agent's buckets. Core's evaluator runs what it saved.
+describe("a deterministic skill, by hand", () => {
+  it("builds the aging skill: a buckets parameter and a row that buckets days overdue", async () => {
+    const sent: { definition: Record<string, unknown> }[] = [];
+    const { user } = renderAt("/ops/skills/new?by=hand", {
+      "GET /api/ops/skills": () => ({ ...LIBRARY, tools: [], connectors: [] }),
+      "GET /api/ops/models": () => ({ models: [] }),
+      "POST /api/ops/skills": ({ init }) => {
+        sent.push(JSON.parse(String(init.body)));
+        return { skill: ITEM, version: VERSION };
+      },
+    });
+    await user.click(await screen.findByTestId("skill-kind-deterministic"));
+    // A deterministic skill has no instructions and no tools: its rows are the work.
+    expect(screen.queryByTestId("skill-instructions-input")).toBeNull();
+    expect(screen.queryByTestId("skill-tools")).toBeNull();
+    await user.type(screen.getByTestId("skill-name-input"), "Age receivables");
+    await user.type(screen.getByTestId("skill-description-input"), "Buckets an open invoice");
+    // In: the due date. Out: the bucket and the days overdue.
+    await user.click(screen.getByTestId("skill-input-add"));
+    await user.type(screen.getByTestId("skill-input-0-key"), "dueDate");
+    await user.clear(screen.getByTestId("skill-output-0-key"));
+    await user.type(screen.getByTestId("skill-output-0-key"), "bucket");
+    await user.click(screen.getByTestId("skill-output-add"));
+    await user.type(screen.getByTestId("skill-output-1-key"), "daysOverdue");
+    await user.selectOptions(screen.getByTestId("skill-output-1-type"), "integer");
+    // The parameter: the agent's aging buckets, with a default.
+    await user.click(screen.getByTestId("skill-parameter-add"));
+    await user.type(screen.getByTestId("skill-parameter-0-name"), "aging");
+    await user.type(screen.getByTestId("skill-parameter-0-label"), "Aging buckets");
+    await user.selectOptions(screen.getByTestId("skill-parameter-0-type"), "buckets");
+    const buckets: [string, string, string][] = [
+      ["0", "15", "Current"],
+      ["16", "30", "Due"],
+      ["31", "", "Past due"],
+    ];
+    for (const [i, [from, to, label]] of buckets.entries()) {
+      await user.click(screen.getByTestId("skill-parameter-0-default-add"));
+      const fromInput = screen.getByTestId(`skill-parameter-0-default-${i}-from`);
+      await user.clear(fromInput);
+      await user.type(fromInput, from);
+      if (to) await user.type(screen.getByTestId(`skill-parameter-0-default-${i}-to`), to);
+      await user.type(screen.getByTestId(`skill-parameter-0-default-${i}-label`), label);
+    }
+    // One row, always: bucket = the aging bucket of the days from the due date to today.
+    await user.click(screen.getByTestId("skill-rule-add"));
+    await user.selectOptions(screen.getByTestId("skill-rule-0-output-0-how"), "bucket");
+    expect(screen.getByTestId("skill-rule-0-output-0-bucket-value-kind")).toHaveValue("days");
+    expect(screen.getByTestId("skill-rule-0-output-0-bucket-by")).toHaveValue("aging");
+    // daysOverdue = the same days.
+    await user.click(screen.getByTestId("skill-rule-0-output-add"));
+    await user.selectOptions(screen.getByTestId("skill-rule-0-output-1-how"), "copy");
+    await user.selectOptions(screen.getByTestId("skill-rule-0-output-1-copy-kind"), "days");
+    expect(screen.queryByTestId("skill-problems")).toBeNull();
+    await user.click(screen.getByTestId("skill-create"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+
+    const def = SkillDefinition.parse(sent[0]?.definition);
+    expect(def).toMatchObject({ id: "custom:age-receivables", mode: "tool", tools: [] });
+    expect(skillKind(def)).toBe("deterministic");
+    expect(def.instructions).toBeUndefined();
+    expect(def.parameters).toEqual([
+      {
+        name: "aging",
+        label: "Aging buckets",
+        type: "buckets",
+        default: [
+          { from: 0, to: 15, label: "Current" },
+          { from: 16, to: 30, label: "Due" },
+          { from: 31, label: "Past due" },
+        ],
+      },
+    ]);
+    const age = (dueDate: string) =>
+      evaluateSkillRules(def.rules ?? [], {
+        input: { dueDate },
+        parameters: resolveSkillParameters(def),
+        today: "2026-11-10",
+      })?.output;
+    expect(age("2026-11-01")).toEqual({ bucket: "Current", daysOverdue: 9 });
+    expect(age("2026-10-20")).toEqual({ bucket: "Due", daysOverdue: 21 });
+    expect(age("2026-09-01")).toEqual({ bucket: "Past due", daysOverdue: 70 });
+    // An agent's own buckets change the answer, with no new skill.
+    const agentBuckets = [
+      { from: 0, to: 30, label: "Fine" },
+      { from: 31, label: "Late" },
+    ];
+    expect(
+      evaluateSkillRules(def.rules ?? [], {
+        input: { dueDate: "2026-10-20" },
+        parameters: resolveSkillParameters(def, { agent: { aging: agentBuckets } }),
+        today: "2026-11-10",
+      })?.output,
+    ).toEqual({ bucket: "Fine", daysOverdue: 21 });
   });
 });
 
