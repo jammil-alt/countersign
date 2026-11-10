@@ -50,6 +50,8 @@ export * from "./runtime/actions";
 export * from "./runtime/attention";
 export * from "./runtime/call-tool";
 export * from "./runtime/carry";
+// R3: an AI reviewer's check
+export * from "./runtime/confer";
 export * from "./runtime/context";
 // P-4: conversations
 export * from "./runtime/conversation-step";
