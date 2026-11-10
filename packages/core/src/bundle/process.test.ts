@@ -120,6 +120,37 @@ describe("toProcessBundle", () => {
     expect(toProcessBundle(b, lookup)).toEqual(b);
   });
 
+  it("reads a v3 draft that v4's minimums refuse, without failing", () => {
+    // A v3 draft is saved with its errors: here a fork with no paths and a person with no one
+    // assigned (stored JSON, so the v3 schema's own minimum isn't applied on the way in).
+    const draft = edit(bundle(), (d) => {
+      const steps = v3Steps(d);
+      const fork = steps.find((s) => s.id === "s2") as Extract<Step, { kind: "fork" }>;
+      (fork.paths[0]?.steps[0] as Extract<Step, { kind: "person" }>).assignee = "";
+      steps.push({
+        id: "f9",
+        name: "Empty fork",
+        kind: "fork",
+        paths: [],
+        otherwise: { id: "o9", steps: [] },
+      });
+    });
+    const b = toProcessBundle(draft, lookup);
+    const p = proc(b);
+    expect(ids(p.steps)).toEqual(["s1", "s2", "s5", "s7", "f9"]);
+    expect(find(b, "s3")).toMatchObject({ kind: "person", assignee: "" });
+    expect(find(b, "f9")).toMatchObject({ kind: "if", paths: [], otherwise: { id: "o9" } });
+    // The parts that parse still get v4's defaults: the write's approval, the trigger.
+    expect(approval(b, "s7")).toMatchObject({ required: "required", mode: "in_turn" });
+    expect(find(b, "s2")).toMatchObject({ kind: "if", paths: [{ id: "p1" }] });
+    // Diff, merge and select read it; whether it is valid is for validation to say.
+    expect(diffBundles(draft, v4(), { lookup }).map((c) => c.entity)).toEqual(
+      expect.arrayContaining(["step:s3", "step:f9"]),
+    );
+    expect(mergeBundles(draft, draft, v4(), [], { lookup }).bundle.workflows).toHaveLength(1);
+    expect(selectableBetween(draft, v4(), { lookup }).length).toBeGreaterThan(0);
+  });
+
   it("refuses to compare v3 with v4 without a lookup", () => {
     expect(() => diffBundles(bundle(), v4())).toThrow(/pass a lookup/);
     expect(() => mergeBundles(bundle(), bundle(), v4())).toThrow(/pass a lookup/);
@@ -297,6 +328,65 @@ describe("mergeBundles on v4", () => {
       },
       secondTrigger,
     ]);
+  });
+
+  const thirdTrigger: Trigger = { id: "2", on: { type: "manual", input: { type: "object" } } };
+  const withTriggers = (...extra: Trigger[]) =>
+    edit(v4(), (d) => {
+      proc(d).triggers.push(...extra);
+    });
+  const reorder = (b: AnyAgentBundle, order: string[]) =>
+    edit(b, (d) => {
+      const p = proc(d);
+      p.triggers = order.map((id) => p.triggers.find((t) => t.id === id) as Trigger);
+    });
+  const triggerIds = (b: AnyAgentBundle) => proc(b).triggers.map((t) => t.id);
+
+  it("keeps trigger order through flattening, numeric ids included", () => {
+    const b = reorder(withTriggers(secondTrigger, thirdTrigger), ["t2", "t1", "2"]);
+    expect(triggerIds(unflattenBundle<AnyAgentBundle>(flattenBundle(b)))).toEqual([
+      "t2",
+      "t1",
+      "2",
+    ]);
+  });
+
+  it("shows a trigger reorder as a change, and select carries it with the workflow", () => {
+    const a = withTriggers(secondTrigger);
+    const b = reorder(a, ["t2", "t1"]);
+    expect(diffBundles(a, b).map((c) => [c.kind, c.path])).toEqual([
+      ["changed", "workflow:intake#/workflow/triggerOrder"],
+    ]);
+    const picks = selectableBetween(a, b);
+    expect(picks.map((s) => s.id)).toEqual(["workflow:intake"]);
+    expect(triggerIds(selectChanges(a, b, ["workflow:intake"]))).toEqual(["t2", "t1"]);
+    expect(triggerIds(selectChanges(a, b, []))).toEqual(["t1", "t2"]);
+  });
+
+  it("merges trigger order as a sequence: a reorder and an add both land", () => {
+    const base = withTriggers(secondTrigger);
+    const ours = reorder(base, ["t2", "t1"]);
+    const theirs = withTriggers(secondTrigger, thirdTrigger);
+    const r = mergeBundles(base, ours, theirs);
+    expect(r.clean).toBe(true);
+    // Their new trigger stays next to the one it followed on their side.
+    expect(triggerIds(r.bundle)).toEqual(["t2", "2", "t1"]);
+  });
+
+  it("conflicts on two different trigger reorders", () => {
+    const base = withTriggers(secondTrigger, thirdTrigger);
+    const ours = reorder(base, ["t2", "t1", "2"]);
+    const theirs = reorder(base, ["2", "t1", "t2"]);
+    const r = mergeBundles(base, ours, theirs);
+    expect(r.conflicts.map((c) => [c.kind, c.path])).toEqual([
+      ["order", "workflow:intake#/workflow/triggerOrder"],
+    ]);
+    expect(triggerIds(r.bundle)).toEqual(["t2", "t1", "2"]);
+    const settled = applyResolutions({ base, ours, theirs }, [
+      { path: "workflow:intake#/workflow/triggerOrder", choice: "theirs" },
+    ]);
+    expect(settled.clean).toBe(true);
+    expect(triggerIds(settled.bundle)).toEqual(["2", "t1", "t2"]);
   });
 });
 

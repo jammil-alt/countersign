@@ -4,7 +4,7 @@
 // `holidays/us`.
 
 import { type Duration, parseDuration } from "../duration";
-import { localDate, usFederalHolidayOn } from "../holidays/us";
+import { localDate, usFederalHolidays } from "../holidays/us";
 import { type BusinessHours, type PersonHours, WEEKDAYS } from "./hours";
 
 /** A person's away dates, inclusive, as calendar dates in their own hours' zone. */
@@ -35,8 +35,9 @@ export interface DueAtForManyOptions {
 
 const MINUTE = 60_000;
 const DAY = 86_400_000;
-// How far ahead the clock looks for open time before it gives up (hours with no open day at all,
-// or years of closed dates): five years.
+// The longest run of days with no open time the clock crosses before it gives up (hours with no
+// open day at all, or years of closed or away dates): five years. It limits a run of closed days,
+// never the deadline's own length (a deadline of 300 business days runs as long as it needs).
 const MAX_DAYS = 5 * 366;
 const WINDOW = 7 * DAY;
 
@@ -120,10 +121,22 @@ function awayOn(date: string, away: readonly AwayRange[] | undefined): boolean {
   return (away ?? []).some((r) => r.from <= date && date <= r.to);
 }
 
-/** Whether `date` is a day off: a closed date, a US federal holiday (own or observed), or away. */
+/** Whether `date` is the day a US federal holiday is observed (its own date on a weekday). */
+// DECISION: business hours close only on a holiday's observed date, as federal offices do: July 4
+// on a Saturday closes Friday July 3, and a business open on Saturdays stays open on the 4th (a
+// schedule trigger's `skipHolidays` skips both dates; `holidays/us` usFederalHolidayOn).
+function observedHoliday(date: string): boolean {
+  const year = Number(date.slice(0, 4));
+  // New Year's Day on a Saturday is observed on December 31 of the year before.
+  return [...usFederalHolidays(year), ...usFederalHolidays(year + 1)].some(
+    (h) => h.observed === date,
+  );
+}
+
+/** Whether `date` is a day off: a closed date, an observed US federal holiday, or away. */
 function dayOff(hours: BusinessHours, date: string, away?: readonly AwayRange[]): boolean {
   if ((hours.closed ?? []).includes(date)) return true;
-  if (hours.usHolidays !== false && usFederalHolidayOn(date) !== null) return true;
+  if (hours.usHolidays !== false && observedHoliday(date)) return true;
   return awayOn(date, away);
 }
 
@@ -167,17 +180,28 @@ function unionWithin(schedules: readonly Schedule[], from: number, to: number): 
   return out;
 }
 
+/** The hours (or every person of a role) have no open time for five years running. */
+export class NoOpenTimeError extends Error {
+  override name = "NoOpenTimeError";
+  constructor() {
+    super("These business hours have no open time for five years running");
+  }
+}
+
 function noOpenTime(): Error {
-  return new Error("These business hours have no open time in the next five years");
+  return new NoOpenTimeError();
 }
 
 /** `ms` of open time from `start`, counting only while any schedule is open. */
 function addOpenTime(start: number, ms: number, schedules: readonly Schedule[]): number {
   let remaining = ms;
-  for (let from = start; from < start + MAX_DAYS * DAY; from += WINDOW) {
+  // The end of the last open time seen: the clock gives up only after MAX_DAYS with none.
+  let lastOpen = start;
+  for (let from = start; from - lastOpen <= MAX_DAYS * DAY; from += WINDOW) {
     for (const [a, b] of unionWithin(schedules, from, from + WINDOW)) {
       if (remaining <= b - a) return a + remaining;
       remaining -= b - a;
+      lastOpen = b;
     }
   }
   throw noOpenTime();
@@ -205,10 +229,15 @@ function addOpenDays(start: number, days: number, schedule: Schedule): number {
   let date = localDate(new Date(from), tz);
   const msOfDay = wallAsUtc(from, tz) - dateUtc(date);
   let counted = 0;
-  for (let i = 0; counted < days; i++) {
-    if (i > MAX_DAYS) throw noOpenTime();
+  // Days in a row with no open time; only a run longer than MAX_DAYS gives up.
+  let closedRun = 0;
+  while (counted < days) {
+    if (closedRun > MAX_DAYS) throw noOpenTime();
     date = nextDate(date);
-    if (stretchesOn(schedule, date).length > 0) counted++;
+    if (stretchesOn(schedule, date).length > 0) {
+      counted++;
+      closedRun = 0;
+    } else closedRun++;
   }
   const stretches = stretchesOn(schedule, date);
   const target = zoned(date, msOfDay, tz);
@@ -266,12 +295,12 @@ export function scheduleFor(client: BusinessHours, person?: PersonHours): Schedu
 }
 
 /**
- * Whether the person is away at `at`: its calendar date, in their hours' zone, is in one of their
- * away ranges (inclusive).
+ * Whether the person is away at `at`: its calendar date, in their hours' zone (their own, else the
+ * client's), is in one of their away ranges (inclusive). The client's hours are required: a person
+ * with no hours of their own works on the client's, so their dates are the client's dates.
  */
-// DECISION: the date is read in the person's own zone, else the client's when given, else UTC.
-export function isAway(at: Date, person: PersonHours, client?: BusinessHours): boolean {
-  const tz = person.hours?.tz ?? client?.tz ?? "UTC";
+export function isAway(at: Date, person: PersonHours, client: BusinessHours): boolean {
+  const tz = person.hours?.tz ?? client.tz;
   return awayOn(localDate(at, tz), person.away);
 }
 
@@ -306,14 +335,25 @@ export function dueAt(start: Date, after: Duration, opts: DueAtOptions): Date {
  * any one of them is working: open minutes are counted over the union of their hours.
  */
 // DECISION: for days and weeks, each person counts open days on their own hours and the earliest
-// wins (the role has had its days once any one person has); minutes count over the union.
+// wins (the role has had its days once any one person has); minutes count over the union. A person
+// with no open time at all (no open weekday, or away for years) is skipped: the role's deadline
+// runs on the others, and only a role where nobody has any open time is refused.
 export function dueAtForMany(start: Date, after: Duration, opts: DueAtForManyOptions): Date {
   if (opts.hours === "clock") return new Date(start.getTime() + parseDuration(after));
   if (opts.people.length === 0) throw new Error("A role's deadline needs at least one person");
   const m = UNIT_RE.exec(after.trim());
-  if (m && (m[2] === "day" || m[2] === "week")) {
-    return new Date(Math.min(...opts.people.map((p) => businessDue(start, after, p))));
-  }
   if (m && Number(m[1]) === 0) return new Date(start.getTime());
+  if (m && (m[2] === "day" || m[2] === "week")) {
+    const due = opts.people.flatMap((p) => {
+      try {
+        return [businessDue(start, after, p)];
+      } catch (e) {
+        if (e instanceof NoOpenTimeError) return [];
+        throw e;
+      }
+    });
+    if (due.length === 0) throw noOpenTime();
+    return new Date(Math.min(...due));
+  }
   return new Date(addOpenTime(start.getTime(), parseDuration(after), opts.people));
 }

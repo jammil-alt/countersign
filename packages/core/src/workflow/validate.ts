@@ -9,6 +9,7 @@ import { validateClientView } from "../kpi/validate";
 import { levelFor } from "../permissions/decide";
 // v0.14 W4-B
 import { type EntityGrant, entityOffBy, publishEntity } from "../permissions/entities";
+import { jsonTypeOf, typesCompatible } from "../process/customize";
 import { compileRule, RuleCompileError } from "../rules/compile";
 import {
   type AgentBundle,
@@ -38,6 +39,7 @@ import {
   automationScopes,
   lookupSkill,
   outputSchemaOf,
+  type PathType,
   type Scope,
   schemaTypes,
   scopes,
@@ -166,15 +168,74 @@ export interface ValidationResult<T> {
   value?: T;
 }
 
-const VERB_NOUN: Record<Verb, string> = {
+// ── Shared with the v4 validator (process/validate.ts) ──────────────────────────────────────
+// R1 (docs/plan.md §1.86): the v3 checks below are exported so `validateProcess` runs the same
+// code. Each takes a `RefChecker`: where errors go, and how a reference types in the caller's
+// scope (v3's `Scope`, v4's `ProcessScope`).
+
+export const VERB_NOUN: Record<Verb, string> = {
   read: "reads",
   create: "creates",
   update: "updates",
   delete: "deletes",
 };
 
-function field(segments: readonly (string | number)[]): string {
+/** A dotted field path ("input.vendor") from path segments. */
+export function joinField(segments: readonly (string | number)[]): string {
   return segments.join(".");
+}
+const field = joinField;
+
+/** Where errors go. A v4 checker's codes are a superset of these. */
+export interface CheckSink {
+  add(stepId: string | null, f: string, code: ValidationCode, message: string): void;
+}
+
+/** A sink that also knows how a reference types in its scopes (`S`). */
+export interface RefChecker<S> extends CheckSink {
+  typePath(scope: S, path: readonly string[]): PathType;
+  /** The reference's root is readable here, so a failure is a bad path rather than a bad scope. */
+  inScope(scope: S, path: readonly string[]): boolean;
+}
+
+/**
+ * The node (step, path, otherwise or trigger) a schema issue's path points into, along the raw
+ * input: `isNode(path, i, start)` says whether segment `i` enters a node (`start` is where the
+ * current node's own fields begin), and an entered value counts only when it has a string `id`.
+ */
+export function locateIssue(
+  raw: unknown,
+  path: readonly (string | number)[],
+  isNode: (path: readonly (string | number)[], i: number, start: number) => boolean,
+): { stepId: string | null; node: Record<string, unknown> | undefined; start: number } {
+  let cur: unknown = raw;
+  let stepId: string | null = null;
+  let node: Record<string, unknown> | undefined;
+  let start = 0;
+  path.forEach((seg, i) => {
+    cur =
+      isPlainObject(cur) || Array.isArray(cur)
+        ? (cur as Record<string | number, unknown>)[seg]
+        : undefined;
+    if (isNode(path, i, start) && isPlainObject(cur) && typeof cur.id === "string") {
+      stepId = cur.id;
+      node = cur;
+      start = i + 1;
+    }
+  });
+  return { stepId, node, start };
+}
+
+/** v3: a step, fork path or extra trigger in a list, or the trigger or an otherwise branch. */
+function isV3Node(path: readonly (string | number)[], i: number): boolean {
+  const seg = path[i];
+  const prev = path[i - 1];
+  return (
+    (typeof seg === "number" &&
+      (prev === "steps" || prev === "paths" || prev === "moreTriggers")) ||
+    seg === "trigger" ||
+    seg === "otherwise"
+  );
 }
 
 /** Maps Zod issues to step-located errors by walking the raw input along each issue path. */
@@ -184,26 +245,8 @@ function schemaErrors(
   workflow?: string,
 ): ValidationError[] {
   return issues.map((issue) => {
-    let cur: unknown = raw;
-    let stepId: string | null = null;
-    let start = 0;
     const path = issue.path as (string | number)[];
-    path.forEach((seg, i) => {
-      cur =
-        isPlainObject(cur) || Array.isArray(cur)
-          ? (cur as Record<string | number, unknown>)[seg]
-          : undefined;
-      const prev = path[i - 1];
-      const isNode =
-        (typeof seg === "number" &&
-          (prev === "steps" || prev === "paths" || prev === "moreTriggers")) ||
-        seg === "trigger" ||
-        seg === "otherwise";
-      if (isNode && isPlainObject(cur) && typeof cur.id === "string") {
-        stepId = cur.id;
-        start = i + 1;
-      }
-    });
+    const { stepId, start } = locateIssue(raw, path, isV3Node);
     const err: ValidationError = {
       stepId,
       field: field(path.slice(start)),
@@ -215,61 +258,69 @@ function schemaErrors(
   });
 }
 
-function literalType(v: unknown): string {
-  if (v === null) return "null";
-  if (Array.isArray(v)) return "array";
-  if (typeof v === "number") return Number.isInteger(v) ? "integer" : "number";
-  return typeof v;
+// The JSON type helpers live with the skill customization (process/customize.ts), which checks a
+// rule row's values with them; it can't import this file (schemas/agent → process/schema →
+// customize → here → schemas/agent would be a cycle).
+export { jsonTypeOf, typesCompatible };
+
+const compatible = typesCompatible;
+
+interface Checker extends RefChecker<Scope> {
+  ctx: ValidationContext;
+  errors: ValidationError[];
 }
 
-function compatible(accepted: string[], actual: string[]): boolean {
-  if (accepted.length === 0 || actual.length === 0) return true;
-  return actual.some(
-    (t) => accepted.includes(t) || (t === "integer" && accepted.includes("number")),
+/** v3's reading of a reference's root: in scope, so a failure is a bad path. */
+function v3InScope(scope: Scope, path: readonly string[]): boolean {
+  const [root, id] = path;
+  return (
+    // v0.12 W2-B: an automation reads its input, never a trigger.
+    (root === "trigger" && !scope.input) ||
+    (root === "input" && scope.input !== undefined) ||
+    (root === "steps" && id !== undefined && scope.steps[id] !== undefined && path[2] === "output")
   );
 }
 
-interface Checker {
-  ctx: ValidationContext;
-  errors: ValidationError[];
-  add(stepId: string | null, f: string, code: ValidationCode, message: string): void;
+function checker(ctx: ValidationContext, errors: ValidationError[], slug?: string): Checker {
+  return {
+    ctx,
+    errors,
+    typePath: typeTemplatePath,
+    inScope: v3InScope,
+    add(stepId, f, code, message) {
+      const e: ValidationError = { stepId, field: f, code, message };
+      if (slug !== undefined) e.workflow = slug;
+      errors.push(e);
+    },
+  };
 }
 
-function checkRefs(
-  c: Checker,
+/** Every template reference in `value` parses and reads something readable in `scope`. */
+export function checkRefs<S>(
+  c: RefChecker<S>,
   stepId: string,
   value: unknown,
   at: (string | number)[],
-  scope: Scope,
+  scope: S,
 ) {
   const { refs, errors } = collectRefs(value, at);
   for (const e of errors) c.add(stepId, field(e.at), "template_syntax", e.message);
   for (const r of refs) {
-    const t = typeTemplatePath(scope, r.path);
-    if (!t.ok) {
-      // Scope: the reference names something not available here. Path: it names a field the
-      // referenced output doesn't have.
-      const [root, id] = r.path;
-      const inScope =
-        // v0.12 W2-B: an automation reads its input, never a trigger.
-        (root === "trigger" && !scope.input) ||
-        (root === "input" && scope.input !== undefined) ||
-        (root === "steps" &&
-          id !== undefined &&
-          scope.steps[id] !== undefined &&
-          r.path[2] === "output");
-      c.add(
-        stepId,
-        field(r.at),
-        inScope ? "template_path" : "template_scope",
-        `{{${r.expr}}}: ${t.message}`,
-      );
-    }
+    const t = c.typePath(scope, r.path);
+    if (t.ok) continue;
+    // Scope: the reference names something not available here. Path: it names a field the
+    // referenced output doesn't have.
+    c.add(
+      stepId,
+      field(r.at),
+      c.inScope(scope, r.path) ? "template_path" : "template_scope",
+      `{{${r.expr}}}: ${t.message}`,
+    );
   }
 }
 
 /** The type a templated value will have, when it can be known. */
-function valueTypes(value: unknown, scope: Scope): string[] {
+export function valueTypes<S>(c: RefChecker<S>, value: unknown, scope: S): string[] {
   if (typeof value === "string" && value.includes("{{")) {
     let path: string[] | null = null;
     try {
@@ -278,18 +329,19 @@ function valueTypes(value: unknown, scope: Scope): string[] {
       return [];
     }
     if (!path) return ["string"];
-    const t = typeTemplatePath(scope, path);
+    const t = c.typePath(scope, path);
     return t.ok ? schemaTypes(t.schema) : [];
   }
-  return [literalType(value)];
+  return [jsonTypeOf(value)];
 }
 
-function checkInput(
-  c: Checker,
+/** A step's input against its tool's or skill's input schema: required, known, typed. */
+export function checkInput<S>(
+  c: RefChecker<S>,
   stepId: string,
   input: Record<string, unknown>,
   schema: JsonSchema | undefined,
-  scope: Scope,
+  scope: S,
 ) {
   if (!schema) return;
   const props = isPlainObject(schema.properties)
@@ -311,7 +363,7 @@ function checkInput(
       continue;
     }
     const accepted = schemaTypes(prop);
-    const actual = valueTypes(value, scope);
+    const actual = valueTypes(c, value, scope);
     if (!compatible(accepted, actual)) {
       c.add(
         stepId,
@@ -323,12 +375,32 @@ function checkInput(
   }
 }
 
-function checkRules(
-  c: Checker,
+/** Input fields that become instructions must be written in the step, never templated (inv. 9). */
+export function checkFixed(
+  c: CheckSink,
+  stepId: string,
+  input: Record<string, unknown>,
+  fixed: readonly string[] | undefined,
+) {
+  for (const f of fixed ?? []) {
+    if (isPlainObject(input) && hasTemplate(input[f])) {
+      c.add(
+        stepId,
+        `input.${f}`,
+        "input_not_fixed",
+        `write ${f} in the step: it becomes instructions, so it can't come from a template`,
+      );
+    }
+  }
+}
+
+/** One rule list: each rule compiles, has its value, and reads what is in scope. */
+export function checkRules<S>(
+  c: RefChecker<S>,
   nodeId: string,
   rules: Rules,
   at: (string | number)[],
-  scope: Scope,
+  scope: S,
   requireRules: boolean,
 ) {
   if (requireRules && rules.rules.length === 0) {
@@ -353,6 +425,19 @@ function checkRules(
   });
 }
 
+/** v0.12 W1-D: quick answers are for questions, one button per value. */
+export function checkChoices(
+  c: CheckSink,
+  step: { id: string; mode: string; choices?: readonly { value: string }[] | undefined },
+) {
+  if (step.choices && step.mode !== "ask") {
+    c.add(step.id, "choices", "choices_not_ask", "quick answers are only for questions");
+  }
+  if (step.choices && new Set(step.choices.map((ch) => ch.value)).size < step.choices.length) {
+    c.add(step.id, "choices", "duplicate_choice", "each quick answer needs its own value");
+  }
+}
+
 /** The external tools a step can call: what makes it a "write step" needing approval. */
 export function stepWrites(step: Step, ctx: TypingContext): ToolSpec[] | undefined {
   if (step.kind === "action") {
@@ -360,17 +445,25 @@ export function stepWrites(step: Step, ctx: TypingContext): ToolSpec[] | undefin
     if (!tool) return undefined;
     return tool.sideEffect === "external" ? [tool] : [];
   }
-  if (step.kind === "skill") {
-    const skill = lookupSkill(step.skill, ctx);
-    if (!skill || !ctx.tools) return undefined;
-    return skillTools(skill)
-      .map((id) => ctx.tools?.[id])
-      .filter((t): t is ToolSpec => t?.sideEffect === "external");
-  }
+  if (step.kind === "skill") return skillWrites(step.skill, ctx);
   return [];
 }
 
-function allowedTools(ctx: ValidationContext): Set<string> | undefined {
+/** The external tools a skill (by reference) may call; undefined when the registries don't know. */
+export function skillWrites(ref: string, ctx: TypingContext): ToolSpec[] | undefined {
+  const skill = lookupSkill(ref, ctx);
+  if (!skill || !ctx.tools) return undefined;
+  return skillTools(skill)
+    .map((id) => ctx.tools?.[id])
+    .filter((t): t is ToolSpec => t?.sideEffect === "external");
+}
+
+/** The tools the agent may use (its extra tools and its skills' tools); undefined when unknown. */
+export function allowedTools(
+  ctx: Pick<TypingContext, "skills"> & {
+    agent?: Pick<AgentDefinition, "skills" | "extraTools"> | undefined;
+  },
+): Set<string> | undefined {
   if (!ctx.agent || !ctx.skills) return undefined;
   const ids = new Set(ctx.agent.extraTools ?? []);
   for (const s of ctx.agent.skills) {
@@ -426,28 +519,13 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
         );
       }
       if (tool) checkInput(c, step.id, step.input, tool.input, scope);
-      for (const f of tool?.fixedInputs ?? []) {
-        if (isPlainObject(step.input) && hasTemplate(step.input[f])) {
-          c.add(
-            step.id,
-            `input.${f}`,
-            "input_not_fixed",
-            `write ${f} in the step: it becomes instructions, so it can't come from a template`,
-          );
-        }
-      }
+      checkFixed(c, step.id, step.input, tool?.fixedInputs);
       break;
     }
     case "person":
       checkRefs(c, step.id, step.title, ["title"], scope);
       checkRefs(c, step.id, step.payload, ["payload"], scope);
-      // v0.12 W1-D: quick answers are for questions, one button per value.
-      if (step.choices && step.mode !== "ask") {
-        c.add(step.id, "choices", "choices_not_ask", "quick answers are only for questions");
-      }
-      if (step.choices && new Set(step.choices.map((ch) => ch.value)).size < step.choices.length) {
-        c.add(step.id, "choices", "duplicate_choice", "each quick answer needs its own value");
-      }
+      checkChoices(c, step);
       break;
     case "notify":
       checkRefs(c, step.id, step.message, ["message"], scope);
@@ -459,7 +537,7 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
       if (step.steps.length === 0) {
         c.add(step.id, "steps", "for_each_empty", "a for each needs at least one step");
       }
-      const types = valueTypes(step.over, scope);
+      const types = valueTypes(c, step.over, scope);
       if (!compatible(["array"], types)) {
         c.add(step.id, "over", "for_each_not_array", "for each needs a list to go over");
       }
@@ -513,25 +591,8 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
     // A built-in skill with its own fixed inputs (comms.reach-out's purpose) writes only from them:
     // those fields must be the step's own text, like an action step's.
     const def = lookupSkill(step.skill, ctx);
-    for (const f of def?.fixedInputs ?? []) {
-      if (isPlainObject(step.input) && hasTemplate(step.input[f])) {
-        c.add(
-          step.id,
-          `input.${f}`,
-          "input_not_fixed",
-          `write ${f} in the step: it becomes instructions, so it can't come from a template`,
-        );
-      }
-    }
-    for (const tool of def?.fixedInputs?.length ? [] : (writes ?? [])) {
-      if (!tool.fixedInputs?.length) continue;
-      c.add(
-        step.id,
-        "skill",
-        "input_not_fixed",
-        `"${tool.id}" runs only from an action step with its ${tool.fixedInputs.join(" and ")} written in it, not from a skill`,
-      );
-    }
+    checkFixed(c, step.id, step.input, def?.fixedInputs);
+    checkSkillFixedWrites(c, step.id, def, writes, "an action step");
   }
   if (ctx.publish && writes) {
     for (const tool of writes) {
@@ -553,7 +614,16 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
           "verb_off",
           `this connection doesn't allow ${VERB_NOUN[tool.verb]} ("${tool.id}")`,
         );
-      } else if (checkEntityOff(c, step, tool, connector)) {
+      } else if (
+        checkEntityOff(
+          c,
+          step.id,
+          tool,
+          connector,
+          step.kind === "action" ? step.input : undefined,
+          step.kind === "action" ? "tool" : "skill",
+        )
+      ) {
         // v0.14 W4-B: reported there.
       } else if (approval?.required === "not_required" && level !== "auto") {
         c.add(
@@ -567,18 +637,51 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
   }
 }
 
+/**
+ * A skill whose model could call a tool that runs only from fixed text (until R2 retires such
+ * skills): refused, since the model would write that text. `where` names the step kind that can
+ * run the tool ("an action step" in v3, "a write step" in v4).
+ */
+export function checkSkillFixedWrites(
+  c: CheckSink,
+  stepId: string,
+  def: Pick<SkillDefinition, "fixedInputs"> | undefined,
+  writes: readonly ToolSpec[] | undefined,
+  where: string,
+) {
+  for (const tool of def?.fixedInputs?.length ? [] : (writes ?? [])) {
+    if (!tool.fixedInputs?.length) continue;
+    c.add(
+      stepId,
+      "skill",
+      "input_not_fixed",
+      `"${tool.id}" runs only from ${where} with its ${tool.fixedInputs.join(" and ")} written in it, not from a skill`,
+    );
+  }
+}
+
 // v0.14 W4-B (docs/plan.md §1.44 "Off at publish"): an entity turned off on the client's connection
 // or in the agent's grant is refused at publish, as a verb turned off is. Returns whether it was.
-function checkEntityOff(c: Checker, step: Step, tool: ToolSpec, connector: string): boolean {
+/**
+ * `input` is the step's own input when it names the entity (an action or write step); a skill's
+ * model chooses its tools' input, so a skill step passes undefined. `at` is the field the error
+ * sits on ("tool" or "skill").
+ */
+export function checkEntityOff(
+  c: CheckSink & { ctx: { publish?: ValidationContext["publish"] | undefined } },
+  stepId: string,
+  tool: ToolSpec,
+  connector: string,
+  input: Record<string, unknown> | undefined,
+  at: "tool" | "skill",
+): boolean {
   const publish = c.ctx.publish;
   if (!publish) return false;
-  // A skill's model chooses its tools' input, so only an action step's own input names an entity.
-  const entity = publishEntity(tool, step.kind === "action" ? step.input : undefined);
+  const entity = publishEntity(tool, input);
   if (entity === undefined) return false;
-  const at = step.kind === "action" ? "tool" : "skill";
   if (entity === "") {
     const f = tool.entityInput?.field ?? "";
-    c.add(step.id, `input.${f}`, "entity_off", `"${tool.id}" can't work on that ${f}`);
+    c.add(stepId, `input.${f}`, "entity_off", `"${tool.id}" can't work on that ${f}`);
     return true;
   }
   const grants = publish.grants ?? {};
@@ -593,7 +696,7 @@ function checkEntityOff(c: Checker, step: Step, tool: ToolSpec, connector: strin
   if (by === null) return false;
   const who = by === "matrix" ? "this connection" : "this agent's access";
   c.add(
-    step.id,
+    stepId,
     at,
     "entity_off",
     `${who} doesn't allow ${VERB_NOUN[tool.verb]} of ${entity} records ("${tool.id}")`,
@@ -605,9 +708,9 @@ const CRON_FIELD = /^[0-9A-Za-z*/,?#LW-]+$/;
 
 // v0.13 W2-H: a skill step's model override (ARCHITECTURE §10.11, docs/plan.md §1.53).
 /** A step may override the model of a `task` or `agent` skill, with an id the platform knows. */
-function checkStepModel(
-  c: Checker,
-  step: Extract<Step, { kind: "skill" }>,
+export function checkStepModel(
+  c: CheckSink & { ctx: { models?: readonly string[] | undefined } },
+  step: { id: string; model?: { id: string } | undefined },
   skill: SkillDefinition | undefined,
 ) {
   if (step.model === undefined) return;
@@ -628,7 +731,8 @@ function checkStepModel(
   }
 }
 
-function validTimezone(tz: string): boolean {
+/** Whether `tz` is an IANA zone the runtime knows. */
+export function validTimezone(tz: string): boolean {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: tz });
     return true;
@@ -639,9 +743,13 @@ function validTimezone(tz: string): boolean {
 
 // v0.12 W2-E: every trigger of the workflow (`moreTriggers` too) is checked; a trigger's filter and
 // dedupe key read that trigger's own payload.
-function checkTrigger(c: Checker, trigger: Trigger) {
+/** One trigger; `own` is the scope its filter and dedupe key read (that trigger's own payload). */
+export function checkTrigger<S>(
+  c: RefChecker<S> & { ctx: { events?: TypingContext["events"] | undefined } },
+  trigger: Trigger,
+  own: S,
+) {
   const { id, on } = trigger;
-  const own: Scope = { trigger: triggerOnSchema(on, c.ctx), steps: {} };
   if (on.type === "event") {
     if (c.ctx.events && !c.ctx.events[on.event]) {
       c.add(id, "on.event", "unknown_event", `no event type "${on.event}"`);
@@ -730,17 +838,11 @@ function duplicateIds(workflows: { slug?: string; workflow: Workflow }[]): Valid
 
 function semantic(workflow: Workflow, ctx: ValidationContext, slug?: string): ValidationError[] {
   const errors: ValidationError[] = [];
-  const c: Checker = {
-    ctx,
-    errors,
-    add(stepId, f, code, message) {
-      const e: ValidationError = { stepId, field: f, code, message };
-      if (slug !== undefined) e.workflow = slug;
-      errors.push(e);
-    },
-  };
+  const c = checker(ctx, errors, slug);
   // v0.12 W2-E: every trigger, and what a successful run hands off.
-  for (const t of allTriggers(workflow)) checkTrigger(c, t);
+  for (const t of allTriggers(workflow)) {
+    checkTrigger(c, t, { trigger: triggerOnSchema(t.on, ctx), steps: {} });
+  }
   checkHandoff(c, workflow);
   const allowed = allowedTools(ctx);
   const byStep = scopes(workflow, ctx);
@@ -1040,13 +1142,7 @@ export function validateAutomation(
   }
   const def = parsed.data;
   const errors: ValidationError[] = [...automationIds(def.steps)];
-  const c: Checker = {
-    ctx,
-    errors,
-    add(stepId, f, code, message) {
-      errors.push({ stepId, field: f, code, message });
-    },
-  };
+  const c = checker(ctx, errors);
   automationRules(c, def.steps);
   const byStep = automationScopes(def, ctx);
   walkSteps(def, ({ step }) => {

@@ -7,6 +7,7 @@ import {
   isAway,
   isOpen,
   isWorking,
+  NoOpenTimeError,
   type Schedule,
   scheduleFor,
 } from "./clock";
@@ -80,6 +81,46 @@ describe("dueAt, business minutes", () => {
       dueAt(at("2026-07-03T15:00:00Z"), "30 minutes", business({ ...client, usHolidays: false })),
     ).toEqual(at("2026-07-03T15:30:00Z"));
   });
+
+  it("closes only the observed date: a business open on Saturdays works July 4th", () => {
+    const sixDays: BusinessHours = {
+      ...client,
+      week: { ...client.week, sat: [{ from: "08:00", to: "18:00" }] },
+    };
+    // Friday July 3, 2026 (observed) is closed; Saturday July 4 (the holiday itself) is open.
+    expect(isOpen(at("2026-07-03T15:00:00Z"), sixDays)).toBe(false);
+    expect(isOpen(at("2026-07-04T15:00:00Z"), sixDays)).toBe(true);
+    // Thursday 17:30 CDT + 1 hour: 30 minutes Thursday, then Saturday 08:30.
+    expect(dueAt(at("2026-07-02T22:30:00Z"), "1 hour", business(sixDays))).toEqual(
+      at("2026-07-04T13:30:00Z"),
+    );
+    // New Year's Day 2028 is a Saturday, observed Friday December 31, 2027.
+    expect(isOpen(at("2027-12-31T16:00:00Z"), sixDays)).toBe(false);
+    expect(isOpen(at("2028-01-01T16:00:00Z"), sixDays)).toBe(true);
+    // A holiday on a weekday is its own observed date.
+    expect(isOpen(at("2026-11-11T16:00:00Z"), sixDays)).toBe(false);
+  });
+
+  it("runs a deadline longer than five years; only five closed years in a row give up", () => {
+    // 300 business weeks (1,500 open days) and 16,000 open hours both run past five years.
+    const weeks = dueAt(at("2026-11-10T16:00:00Z"), "300 weeks", business(client));
+    expect(weeks.getTime()).toBeGreaterThan(at("2032-06-01T00:00:00Z").getTime());
+    const hours = dueAt(at("2026-11-10T16:00:00Z"), "16000 hours", business(client));
+    expect(hours.getTime()).toBeGreaterThan(at("2032-11-01T00:00:00Z").getTime());
+    // Closed for six years, then open: a run of closed days longer than five years gives up.
+    const away = [{ from: "2026-11-01", to: "2032-12-31" }];
+    expect(() => dueAt(at("2026-11-10T16:00:00Z"), "1 hour", business(client, away))).toThrow(
+      NoOpenTimeError,
+    );
+    expect(() => dueAt(at("2026-11-10T16:00:00Z"), "1 day", business(client, away))).toThrow(
+      NoOpenTimeError,
+    );
+    // Closed for four years, then open: it runs.
+    const fourYears = [{ from: "2026-11-01", to: "2030-10-31" }];
+    expect(dueAt(at("2026-11-10T16:00:00Z"), "1 hour", business(client, fourYears))).toEqual(
+      at("2030-11-01T14:00:00Z"),
+    );
+  }, 30_000);
 
   it("skips the client's closed dates", () => {
     const hours = { ...client, closed: ["2026-11-09"] };
@@ -263,8 +304,8 @@ describe("a person's own hours and away dates", () => {
     expect(dueAt(at("2026-11-17T16:00:00Z"), "2 hours", business(s.businessHours, s.away))).toEqual(
       at("2026-11-19T10:00:00Z"),
     );
-    expect(isAway(at("2026-11-18T12:00:00Z"), away)).toBe(true);
-    expect(isAway(at("2026-11-19T12:00:00Z"), away)).toBe(false);
+    expect(isAway(at("2026-11-18T12:00:00Z"), away, client)).toBe(true);
+    expect(isAway(at("2026-11-19T12:00:00Z"), away, client)).toBe(false);
     expect(isWorking(at("2026-11-18T12:00:00Z"), client, away)).toBe(false);
   });
 
@@ -272,7 +313,6 @@ describe("a person's own hours and away dates", () => {
     const away: PersonHours = { away: [{ from: "2026-11-18", to: "2026-11-20" }] };
     // 2026-11-18 03:00Z is still the 17th in Chicago.
     expect(isAway(at("2026-11-18T03:00:00Z"), away, client)).toBe(false);
-    expect(isAway(at("2026-11-18T03:00:00Z"), away)).toBe(true);
   });
 });
 
@@ -323,6 +363,29 @@ describe("a role: the clock runs while any one person is working", () => {
       dueAtForMany(at("2026-11-17T16:00:00Z"), "1 day", { hours: "business", people }),
     ).toEqual(at("2026-11-18T16:00:00Z"));
   });
+
+  it("skips a person with no open time, and refuses only when nobody has any", () => {
+    const never: Schedule = { businessHours: { ...client, week: {} } };
+    const people: Schedule[] = [never, { businessHours: client }];
+    // Tuesday 2026-11-17 10:00 CST.
+    expect(
+      dueAtForMany(at("2026-11-17T16:00:00Z"), "1 day", { hours: "business", people }),
+    ).toEqual(at("2026-11-18T16:00:00Z"));
+    expect(
+      dueAtForMany(at("2026-11-17T16:00:00Z"), "1 week", { hours: "business", people }),
+    ).toEqual(at("2026-11-24T16:00:00Z"));
+    expect(
+      dueAtForMany(at("2026-11-17T16:00:00Z"), "2 hours", { hours: "business", people }),
+    ).toEqual(at("2026-11-17T18:00:00Z"));
+    for (const after of ["1 day", "1 week", "2 hours"]) {
+      expect(() =>
+        dueAtForMany(at("2026-11-17T16:00:00Z"), after, {
+          hours: "business",
+          people: [never, never],
+        }),
+      ).toThrow(NoOpenTimeError);
+    }
+  }, 30_000);
 
   it("adds real time on the clock, and needs someone in business time", () => {
     expect(

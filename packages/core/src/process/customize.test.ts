@@ -6,8 +6,10 @@ import { skills } from "../testing/fixtures";
 import {
   applyCustomization,
   customizationProblems,
+  customizeSkill,
   SkillCustomization,
   SkillCustomizationError,
+  stepSkillSettings,
 } from "./customize";
 import { Process } from "./schema";
 
@@ -130,6 +132,78 @@ describe("applyCustomization", () => {
       "rule home-depot sets colour, not an output field",
     ]);
     expect(problems({ keep: ["account", "total"] })).toEqual(["no output field total"]);
+  });
+
+  it("holds the rows a step writes to the fields it keeps", () => {
+    expect(
+      problems({
+        keep: ["account"],
+        rules: {
+          add: [{ id: "shell", when: when("Shell"), set: { account: "Vehicle", reason: "Fuel" } }],
+          edit: [{ id: "home-depot", set: { confidence: 1 } }],
+        },
+      }),
+    ).toEqual([
+      "rule shell sets reason, not an output field",
+      "rule home-depot sets confidence, not an output field",
+    ]);
+    // Kept, or an alert skill's sources (always kept): fine.
+    expect(
+      problems({
+        keep: ["account"],
+        rules: { add: [{ id: "shell", when: when("Shell"), set: { account: "V", sources: [] } }] },
+      }),
+    ).toEqual([]);
+  });
+
+  it("holds a row's values to the output field's type and its choices", () => {
+    const withEnum = SkillDefinition.parse({
+      ...categorize,
+      output: {
+        ...categorize.output,
+        properties: {
+          ...(categorize.output.properties as object),
+          tier: { type: "string", enum: ["low", "high"] },
+          count: { type: "integer" },
+        },
+      },
+    });
+    const rows = (set: Record<string, unknown>) =>
+      customizationProblems(withEnum, { rules: { add: [{ id: "r", when: when("x"), set }] } });
+    expect(rows({ account: "Vehicle", confidence: 0.9, count: 2, tier: "low" })).toEqual([]);
+    // A whole number is a number; a number is not a whole number.
+    expect(rows({ confidence: 1 })).toEqual([]);
+    expect(rows({ account: 5 })).toEqual(["rule r sets account to number, but it is string"]);
+    expect(rows({ confidence: "high" })).toEqual([
+      "rule r sets confidence to string, but it is number",
+    ]);
+    expect(rows({ count: 1.5 })).toEqual(["rule r sets count to number, but it is integer"]);
+    expect(rows({ sources: "d1" })).toEqual(["rule r sets sources to string, but it is array"]);
+    expect(rows({ tier: "medium" })).toEqual([
+      'rule r sets tier to a value it can\'t take ("low", "high")',
+    ]);
+  });
+
+  it("returns the customization's settings apart, so the executor layers them last", () => {
+    const { definition, settings } = customizeSkill(categorize, {
+      settings: { min_confidence: 0.95 },
+      addInstructions: "Fuel is Vehicle.",
+    });
+    expect(settings).toEqual({ min_confidence: 0.95 });
+    expect(definition.instructions).toContain("Fuel is Vehicle.");
+    expect(customizeSkill(categorize, undefined)).toEqual({ definition: categorize, settings: {} });
+    // The skill's defaults, under the agent's, under the step's, under the customization's.
+    expect(
+      stepSkillSettings(categorize, {
+        agent: { min_confidence: 0.5, tone: "formal" },
+        step: { min_confidence: 0.7 },
+        customization: settings,
+      }),
+    ).toEqual({ min_confidence: 0.95, tone: "formal" });
+    expect(stepSkillSettings(categorize, { agent: { min_confidence: 0.5 } })).toEqual({
+      min_confidence: 0.5,
+      tone: "plain",
+    });
   });
 
   it("holds each part to the skill's method and mode", () => {

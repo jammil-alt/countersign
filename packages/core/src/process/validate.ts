@@ -6,20 +6,15 @@
 
 import type { z } from "zod";
 import { CONVERSE_SKILL, converseProblems, typedResultOutput } from "../converse";
-import { localizedVersions } from "../i18n/locale";
 import { isPlainObject } from "../json";
 import { levelFor } from "../permissions/decide";
-import { entityOffBy, publishEntity } from "../permissions/entities";
-import { compileRule, RuleCompileError } from "../rules/compile";
 import type { AgentDefinition } from "../schemas/agent";
 import type { JsonSchema } from "../schemas/common";
 import { parseSkillRef } from "../schemas/common";
-import type { AgentMode, Verb } from "../schemas/permissions";
-import type { Rules } from "../schemas/rules";
-import { type SkillDefinition, skillTools } from "../schemas/skill";
+import type { AgentMode } from "../schemas/permissions";
 import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
 import type { Trigger, Step as V3Step } from "../schemas/workflow";
-import { collectRefs, hasTemplate, singleRef } from "../template/template";
+import { hasTemplate, singleRef } from "../template/template";
 import {
   automationOutputSchema,
   FOR_EACH_OUTPUT,
@@ -29,20 +24,38 @@ import {
   type PathType,
   PERSON_OUTPUT,
   schemaAtPath,
-  schemaTypes,
   type TypingContext,
   triggerOnSchema,
 } from "../template/typer";
 import { mergeTriggerSchemas } from "../triggers/typing";
+// One copy of the checks v3 and v4 share (the v3 validator exports them).
 import {
+  allowedTools,
+  checkChoices,
+  checkEntityOff,
+  checkFixed,
+  checkInput,
+  checkRefs,
+  checkRules,
+  checkSkillFixedWrites,
+  checkStepModel,
+  checkTrigger,
+  typesCompatible as compatible,
+  joinField as field,
+  locateIssue,
+  type RefChecker,
+  skillWrites,
   type ValidationCode,
   type ValidationContext,
+  VERB_NOUN,
   stepWrites as v3StepWrites,
+  valueTypes,
 } from "../workflow/validate";
 import { walkSteps as walkV3Steps } from "../workflow/walk";
 import {
   type ApprovalCheck,
   CONFER_VERDICTS,
+  type ConversationStep,
   type Deadline,
   type DeadlineThen,
   type ForEachStep,
@@ -131,32 +144,7 @@ export interface ProcessValidationContext extends TypingContext {
   settings?: JsonSchema;
 }
 
-const VERB_NOUN: Record<Verb, string> = {
-  read: "reads",
-  create: "creates",
-  update: "updates",
-  delete: "deletes",
-};
-
-function field(segments: readonly (string | number)[]): string {
-  return segments.join(".");
-}
-
 // ── Schema errors, located ───────────────────────────────────────────────────────────────────
-
-type NodeKind = "root" | "step" | "branch" | "trigger";
-
-/** Which keys of a node lead to child nodes: a list of them, or one. */
-const CHILDREN: Record<NodeKind, Record<string, { kind: NodeKind; many: boolean }>> = {
-  root: { triggers: { kind: "trigger", many: true }, steps: { kind: "step", many: true } },
-  step: {
-    paths: { kind: "branch", many: true },
-    otherwise: { kind: "branch", many: false },
-    steps: { kind: "step", many: true },
-  },
-  branch: { steps: { kind: "step", many: true } },
-  trigger: {},
-};
 
 function at(value: unknown, seg: string | number): unknown {
   return isPlainObject(value) || Array.isArray(value)
@@ -164,46 +152,19 @@ function at(value: unknown, seg: string | number): unknown {
     : undefined;
 }
 
-/** The node (step, path, otherwise or trigger) an issue path points into, along the raw input. */
-function locate(raw: unknown, path: readonly (string | number)[]) {
-  let cur: unknown = raw;
-  let level: NodeKind | null = "root";
-  let pending: NodeKind | null = null;
-  let stepId: string | null = null;
-  let node: Record<string, unknown> | undefined;
-  let start = 0;
-  path.forEach((seg, i) => {
-    cur = at(cur, seg);
-    const enter = (kind: NodeKind) => {
-      if (isPlainObject(cur) && typeof cur.id === "string") {
-        stepId = cur.id;
-        node = cur;
-        start = i + 1;
-        level = kind;
-      } else level = null;
-    };
-    if (pending) {
-      const kind: NodeKind = pending;
-      pending = null;
-      if (typeof seg === "number") enter(kind);
-      else level = null;
-      return;
-    }
-    const child = level ? CHILDREN[level][String(seg)] : undefined;
-    if (!child) {
-      level = null;
-      return;
-    }
-    if (child.many) {
-      pending = child.kind;
-      level = null;
-    } else enter(child.kind);
-  });
-  return {
-    stepId: stepId as string | null,
-    node: node as Record<string, unknown> | undefined,
-    start,
-  };
+/**
+ * v4's nodes, for `locateIssue`: a trigger or a step listed at the root, a step or an if path
+ * listed directly under the node before it, and an if's otherwise. A list must be a field of the
+ * node it follows (`start`), so a step-shaped value inside an input is never taken for a step.
+ */
+function isProcessNode(path: readonly (string | number)[], i: number, start: number): boolean {
+  const seg = path[i];
+  const key = path[i - 1];
+  if (typeof seg === "number") {
+    if (i - 1 !== start) return false;
+    return key === "steps" || key === "paths" || (key === "triggers" && start === 0);
+  }
+  return seg === "otherwise" && i === start && start > 0;
 }
 
 /**
@@ -222,7 +183,7 @@ function expandUnion(issue: z.core.$ZodIssue): z.core.$ZodIssue[] {
 function schemaErrors(issues: z.core.$ZodIssue[], raw: unknown): ProcessValidationError[] {
   return issues.flatMap(expandUnion).map((issue) => {
     const path = issue.path as (string | number)[];
-    const { stepId, node, start } = locate(raw, path);
+    const { stepId, node, start } = locateIssue(raw, path, isProcessNode);
     const err: ProcessValidationError = {
       stepId,
       field: field(path.slice(start)),
@@ -445,148 +406,22 @@ export function processScopes(
 
 // ── Checker ──────────────────────────────────────────────────────────────────────────────────
 
-interface Checker {
+// The shared checks (workflow/validate.ts) type references through the checker: here in a v4
+// scope. Codes are v3's plus v4's.
+interface Checker extends RefChecker<ProcessScope> {
   ctx: ProcessValidationContext;
   add(stepId: string | null, f: string, code: ProcessValidationCode, message: string): void;
 }
 
-function checkRefs(
-  c: Checker,
-  nodeId: string,
-  value: unknown,
-  where: (string | number)[],
-  scope: ProcessScope,
-) {
-  const { refs, errors } = collectRefs(value, where);
-  for (const e of errors) c.add(nodeId, field(e.at), "template_syntax", e.message);
-  for (const r of refs) {
-    const t = typeProcessPath(scope, r.path);
-    if (t.ok) continue;
-    c.add(
-      nodeId,
-      field(r.at),
-      rootInScope(scope, r.path) ? "template_path" : "template_scope",
-      `{{${r.expr}}}: ${t.message}`,
-    );
-  }
-}
-
-function literalType(v: unknown): string {
-  if (v === null) return "null";
-  if (Array.isArray(v)) return "array";
-  if (typeof v === "number") return Number.isInteger(v) ? "integer" : "number";
-  return typeof v;
-}
-
-function compatible(accepted: string[], actual: string[]): boolean {
-  if (accepted.length === 0 || actual.length === 0) return true;
-  return actual.some(
-    (t) => accepted.includes(t) || (t === "integer" && accepted.includes("number")),
+/** Text that becomes a model's instructions is written in the step, never templated (inv. 9). */
+function checkFixedText(c: Checker, nodeId: string, value: string, f: string, what: string) {
+  if (!hasTemplate(value)) return;
+  c.add(
+    nodeId,
+    f,
+    "input_not_fixed",
+    `write the ${what} in the step: it becomes instructions, so it can't come from a template`,
   );
-}
-
-/** The type a templated value will have, when it can be known. */
-function valueTypes(value: unknown, scope: ProcessScope): string[] {
-  if (typeof value === "string" && value.includes("{{")) {
-    let path: string[] | null = null;
-    try {
-      path = singleRef(value);
-    } catch {
-      return [];
-    }
-    if (!path) return ["string"];
-    const t = typeProcessPath(scope, path);
-    return t.ok ? schemaTypes(t.schema) : [];
-  }
-  return [literalType(value)];
-}
-
-function checkInput(
-  c: Checker,
-  stepId: string,
-  input: Record<string, unknown>,
-  schema: JsonSchema | undefined,
-  scope: ProcessScope,
-) {
-  if (!schema) return;
-  const props = isPlainObject(schema.properties)
-    ? (schema.properties as Record<string, JsonSchema>)
-    : undefined;
-  const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
-  for (const key of required) {
-    if (input[key] === undefined)
-      c.add(stepId, `input.${key}`, "input_missing", `"${key}" is required`);
-  }
-  if (!props) return;
-  for (const [key, value] of Object.entries(input)) {
-    if (value === undefined) continue;
-    const prop = props[key];
-    if (!prop) {
-      if (schema.additionalProperties === false) {
-        c.add(stepId, `input.${key}`, "input_unknown", `"${key}" is not an input of this step`);
-      }
-      continue;
-    }
-    const accepted = schemaTypes(prop);
-    const actual = valueTypes(value, scope);
-    if (!compatible(accepted, actual)) {
-      c.add(
-        stepId,
-        `input.${key}`,
-        "input_type",
-        `"${key}" expects ${accepted.join(" or ")}, got ${actual.join(" or ")}`,
-      );
-    }
-  }
-}
-
-/** Input fields that become instructions must be written in the step, never templated. */
-function checkFixed(
-  c: Checker,
-  stepId: string,
-  input: Record<string, unknown>,
-  fixed: readonly string[] | undefined,
-) {
-  for (const f of fixed ?? []) {
-    if (hasTemplate(input[f])) {
-      c.add(
-        stepId,
-        `input.${f}`,
-        "input_not_fixed",
-        `write ${f} in the step: it becomes instructions, so it can't come from a template`,
-      );
-    }
-  }
-}
-
-function checkRules(
-  c: Checker,
-  nodeId: string,
-  rules: Rules,
-  where: (string | number)[],
-  scope: ProcessScope,
-  requireRules: boolean,
-) {
-  if (requireRules && rules.rules.length === 0) {
-    c.add(nodeId, field([...where, "rules"]), "rules_empty", "add a condition, or use otherwise");
-  }
-  rules.rules.forEach((rule, i) => {
-    const here = [...where, "rules", i];
-    try {
-      compileRule(rule, i);
-    } catch (e) {
-      if (e instanceof RuleCompileError) {
-        c.add(nodeId, field([...here, e.field]), "rule_invalid", e.message);
-        return;
-      }
-      throw e;
-    }
-    if (rule.op !== "exists" && rule.value === undefined) {
-      c.add(nodeId, field([...here, "value"]), "rule_invalid", `'${rule.op}' needs a value`);
-    }
-    checkRefs(c, nodeId, rule.field, [...here, "field"], scope);
-    checkRefs(c, nodeId, rule.value, [...here, "value"], scope);
-  });
 }
 
 // ── Writes and approval (invariant 8) ────────────────────────────────────────────────────────
@@ -602,21 +437,35 @@ export function stepWrites(step: Step, ctx: TypingContext): ToolSpec[] | undefin
     if (!tool) return undefined;
     return tool.sideEffect === "external" ? [tool] : [];
   }
-  if (step.kind === "skill") {
-    const skill = lookupSkill(step.skill, ctx);
-    if (!skill || !ctx.tools) return undefined;
-    return skillTools(skill)
-      .map((id) => ctx.tools?.[id])
-      .filter((t): t is ToolSpec => t?.sideEffect === "external");
-  }
+  if (step.kind === "skill") return skillWrites(step.skill, ctx);
   return [];
+}
+
+/** Whether the step contacts people: a conversation, or a skill that reaches people. */
+function stepReaches(step: Step, ctx: TypingContext): boolean {
+  if (step.kind === "conversation") return true;
+  return step.kind === "skill" && lookupSkill(step.skill, ctx)?.reachesPeople === true;
+}
+
+/**
+ * Whether the step's own output exists when its confer and approval run: a read step, or a skill
+ * that writes nothing and contacts nobody. Before a write (a write step, a skill whose tools write
+ * or that reaches people), confer and approval run first, so there is no output yet.
+ */
+// DECISION: a skill the registries don't know counts as writing (no output before its checks), the
+// safe side, as the converter counts an unknown tool as an external write.
+function outputBeforeChecks(step: Step, ctx: TypingContext): boolean {
+  if (step.kind === "read") return true;
+  if (step.kind !== "skill") return false;
+  const writes = stepWrites(step, ctx);
+  return writes !== undefined && writes.length === 0 && !stepReaches(step, ctx);
 }
 
 /** One way an approval can let a write through without a person's yes. */
 export interface Loosening {
   /** Where, in the step (e.g. "checks.approval.when"). */
   field: string;
-  what: "not_required" | "when" | "proceed";
+  what: "not_required" | "when" | "proceed" | "within_goal";
 }
 
 function proceedsIn(then: DeadlineThen, f: string, out: Loosening[]) {
@@ -653,32 +502,57 @@ export function approvalLoosenings(
   return out;
 }
 
+/**
+ * A conversation's messages sent without a person's yes: the first one (`messages.first:
+ * not_required`), or the later ones while they stay within the goal (`messages.later:
+ * within_goal`). Each is a write to a contact, so each is loosening (invariant 8).
+ */
+export function conversationLoosenings(step: Pick<ConversationStep, "messages">): Loosening[] {
+  const out: Loosening[] = [];
+  if (step.messages.first === "not_required") {
+    out.push({ field: "messages.first", what: "not_required" });
+  }
+  if (step.messages.later === "within_goal") {
+    out.push({ field: "messages.later", what: "within_goal" });
+  }
+  return out;
+}
+
 const LOOSENED: Record<Loosening["what"], string> = {
   not_required: "",
   when: ": on every run, not only when conditions hold",
   proceed: ": a write can't go ahead without an answer",
+  within_goal: ": every message needs a person's yes",
 };
 
-function allowedTools(ctx: ProcessValidationContext): Set<string> | undefined {
-  if (!ctx.agent || !ctx.skills) return undefined;
-  const ids = new Set(ctx.agent.extraTools ?? []);
-  for (const s of ctx.agent.skills) {
-    const def = lookupSkill(s.skill, ctx);
-    if (def) for (const t of skillTools(def)) ids.add(t);
+/** At publish, a loosened step whose agent doesn't act on its own is refused (invariant 8). */
+function needsAct(c: Checker, stepId: string, loose: readonly Loosening[]) {
+  const mode = c.ctx.agent?.permissions?.mode;
+  if (mode === undefined || mode === "act") return;
+  for (const l of loose) {
+    const messages = l.field.startsWith("messages.");
+    c.add(
+      stepId,
+      l.field,
+      "approval_needs_act",
+      messages
+        ? "the agent only suggests: set its mode to act before a message goes without a person's yes"
+        : "the agent only suggests: set its mode to act before a write runs without approval",
+    );
   }
-  return ids;
 }
 
 /**
- * The approval rules of a step: `not_required` only where something is written (v3's rule), no
- * loosening of a verb a person always signs (§1.73), and at publish the connection's matrix, the
- * agent's grant and mode (invariant 8; v3 checked `not_required`, v4 also `when` and `proceed`).
+ * The approval rules of a step: `not_required` only where something is written or someone is
+ * contacted (v3's rule), no loosening of a verb a person always signs (§1.73), and at publish the
+ * connection's matrix, the agent's grant and mode (invariant 8; v3 checked `not_required`, v4 also
+ * `when` and `proceed`, a reaching skill's `not_required` and a conversation's message settings).
  */
 function checkApproval(c: Checker, step: Step) {
   const { ctx } = c;
   const loose = approvalLoosenings(step.checks?.approval, "checks.approval");
   const writes = stepWrites(step, ctx);
-  const reaches = step.kind === "skill" && lookupSkill(step.skill, ctx)?.reachesPeople === true;
+  const reaches = stepReaches(step, ctx);
   const off = loose.find((l) => l.what === "not_required");
   if (off && writes !== undefined && writes.length === 0 && !reaches) {
     c.add(
@@ -694,10 +568,10 @@ function checkApproval(c: Checker, step: Step) {
       c.add(step.id, l.field, "approval_always", `"${always.id}" always needs a person to sign it`);
     }
   }
-  if (!ctx.publish || !writes) return;
+  if (!ctx.publish) return;
   const matrices = ctx.publish.matrices;
   const at = step.kind === "write" ? "tool" : "skill";
-  for (const tool of writes) {
+  for (const tool of writes ?? []) {
     const connector = tool.connector ?? tool.source;
     if (!(connector in matrices) || matrices[connector] === undefined) {
       c.add(
@@ -716,7 +590,16 @@ function checkApproval(c: Checker, step: Step) {
         "verb_off",
         `this connection doesn't allow ${VERB_NOUN[tool.verb]} ("${tool.id}")`,
       );
-    } else if (checkEntityOff(c, step, tool, connector)) {
+    } else if (
+      checkEntityOff(
+        c,
+        step.id,
+        tool,
+        connector,
+        step.kind === "write" ? step.input : undefined,
+        at,
+      )
+    ) {
       // Reported there.
     } else if (level !== "auto") {
       for (const l of loose) {
@@ -731,50 +614,14 @@ function checkApproval(c: Checker, step: Step) {
   }
   // DECISION: the agent's mode is checked at publish only, with the connection (as v3 checks the
   // matrix): a draft or a template may hold a loosened step that its client agent can't use yet.
-  const mode = ctx.agent?.permissions?.mode;
-  if (writes.length > 0 && mode !== undefined && mode !== "act") {
-    for (const l of loose) {
-      c.add(
-        step.id,
-        l.field,
-        "approval_needs_act",
-        "the agent only suggests: set its mode to act before a write runs without approval",
-      );
-    }
-  }
-}
-
-// An entity turned off on the client's connection or in the agent's grant is refused at publish.
-function checkEntityOff(c: Checker, step: Step, tool: ToolSpec, connector: string): boolean {
-  const publish = c.ctx.publish;
-  if (!publish) return false;
-  // A skill's model chooses its tools' input, so only a write step's own input names an entity.
-  const entity = publishEntity(tool, step.kind === "write" ? step.input : undefined);
-  if (entity === undefined) return false;
-  const at = step.kind === "write" ? "tool" : "skill";
-  if (entity === "") {
-    const f = tool.entityInput?.field ?? "";
-    c.add(step.id, `input.${f}`, "entity_off", `"${tool.id}" can't work on that ${f}`);
-    return true;
-  }
-  const grants = publish.grants ?? {};
-  const declared = publish.entities ?? {};
-  const by = entityOffBy({
-    tool,
-    entity,
-    matrix: publish.matrices[connector],
-    grant: Object.hasOwn(grants, connector) ? grants[connector] : null,
-    declared: Object.hasOwn(declared, connector) ? declared[connector] : undefined,
-  });
-  if (by === null) return false;
-  const who = by === "matrix" ? "this connection" : "this agent's access";
-  c.add(
-    step.id,
-    at,
-    "entity_off",
-    `${who} doesn't allow ${VERB_NOUN[tool.verb]} of ${entity} records ("${tool.id}")`,
-  );
-  return true;
+  // A conversation's channel connection is the agent's bound number or address, picked at run
+  // time, so for its messages only the mode is checked here; the gate holds each message to the
+  // connection's matrix when it is sent (invariant 8). A reaching skill's own tools, when they
+  // write, were held to their matrix above.
+  needsAct(c, step.id, [
+    ...((writes?.length ?? 0) > 0 || reaches ? loose : []),
+    ...(step.kind === "conversation" ? conversationLoosenings(step) : []),
+  ]);
 }
 
 // ── Steps ────────────────────────────────────────────────────────────────────────────────────
@@ -826,43 +673,11 @@ function checkSkillStep(c: Checker, step: Extract<Step, { kind: "skill" }>, scop
   // A built-in skill's own fixed inputs, and (until R2) a skill whose model could call a tool that
   // runs only from fixed text.
   checkFixed(c, step.id, step.input, skill?.fixedInputs);
-  if (!skill?.fixedInputs?.length) {
-    for (const tool of stepWrites(step, ctx) ?? []) {
-      if (!tool.fixedInputs?.length) continue;
-      c.add(
-        step.id,
-        "skill",
-        "input_not_fixed",
-        `"${tool.id}" runs only from a write step with its ${tool.fixedInputs.join(" and ")} written in it, not from a skill`,
-      );
-    }
-  }
+  checkSkillFixedWrites(c, step.id, skill, stepWrites(step, ctx), "a write step");
   if (parseSkillRef(step.skill).id === CONVERSE_SKILL) {
     for (const p of converseProblems(step.input)) {
       c.add(step.id, `input.${p.field}`, "converse_invalid", p.message);
     }
-  }
-}
-
-/** A step may override the model of a `task` or `agent` skill, with an id the platform knows. */
-function checkStepModel(
-  c: Checker,
-  step: Extract<Step, { kind: "skill" }>,
-  skill: SkillDefinition | undefined,
-) {
-  if (step.model === undefined) return;
-  if (skill?.mode === "tool" && skill.id !== CONVERSE_SKILL) {
-    c.add(
-      step.id,
-      "model",
-      "model_not_allowed",
-      `"${skill.id}" runs as code, so it has no model to choose`,
-    );
-    return;
-  }
-  const known = c.ctx.models;
-  if (known && !known.includes(step.model.id)) {
-    c.add(step.id, "model.id", "unknown_model", `no model "${step.model.id}"`);
   }
 }
 
@@ -1013,9 +828,9 @@ function checkSubProcess(c: Checker, step: SubProcessStep, scope: ProcessScope) 
 }
 
 /**
- * A step's checks. Confer and approval run before a write and after a read or a skill, so their
- * conditions see the step's own output only for a read or a skill; notify runs after the step and
- * always sees it. A reviewer's `when` reads the verdicts of the reviewers before it; approval and
+ * A step's checks. Confer and approval run before a write and after a read or a skill that writes
+ * nothing, so their conditions see the step's own output only there (`outputBeforeChecks`);
+ * notify runs after the step and always sees it. A reviewer's `when` reads the verdicts of the reviewers before it; approval and
  * notify conditions read them all.
  */
 function checkChecks(c: Checker, step: Step, base: ProcessScope) {
@@ -1027,7 +842,7 @@ function checkChecks(c: Checker, step: Step, base: ProcessScope) {
   };
   const before: ProcessScope = {
     ...base,
-    steps: step.kind === "read" || step.kind === "skill" ? own : base.steps,
+    steps: outputBeforeChecks(step, c.ctx) ? own : base.steps,
   };
   const after: ProcessScope = { ...base, steps: own };
   const conferred = checks.confer?.with.length;
@@ -1043,7 +858,8 @@ function checkChecks(c: Checker, step: Step, base: ProcessScope) {
       const at = [...where, "with", i];
       const scope: ProcessScope = { ...before, confer: i };
       if ("ai" in r) {
-        checkRefs(c, step.id, r.ai.focus, [...at, "ai", "focus"], scope);
+        // The focus becomes the reviewer's instructions: fixed text (invariant 9).
+        checkFixedText(c, step.id, r.ai.focus, field([...at, "ai", "focus"]), "focus");
         const known = c.ctx.models;
         if (r.ai.model && known && !known.includes(r.ai.model.id)) {
           c.add(
@@ -1086,19 +902,14 @@ function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<str
     case "person":
       checkRefs(c, step.id, step.title, ["title"], scope);
       checkRefs(c, step.id, step.payload, ["payload"], scope);
-      if (step.choices && step.mode !== "ask") {
-        c.add(step.id, "choices", "choices_not_ask", "quick answers are only for questions");
-      }
-      if (step.choices && new Set(step.choices.map((ch) => ch.value)).size < step.choices.length) {
-        c.add(step.id, "choices", "duplicate_choice", "each quick answer needs its own value");
-      }
+      checkChoices(c, step);
       break;
-    // DECISION: a conversation's messages to its contact (`messages.first: not_required`,
-    // `later: within_goal`) are held to invariant 8 when R7 builds the step and knows which
-    // connection each channel sends through; here only its templates are checked.
+    // A conversation's messages without a person's yes (`messages.first: not_required`, `later:
+    // within_goal`) are held to invariant 8 in checkApproval. Its goal becomes the model's
+    // instructions, so it is fixed text (invariant 9); who it is with may be templated.
     case "conversation":
       checkRefs(c, step.id, step.with, ["with"], scope);
-      checkRefs(c, step.id, step.goal, ["goal"], scope);
+      checkFixedText(c, step.id, step.goal, "goal", "goal");
       break;
     case "notify":
       checkNotify(c, step.id, step.notify, ["notify"], scope);
@@ -1110,7 +921,7 @@ function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<str
       break;
     case "for_each":
       checkRefs(c, step.id, step.over, ["over"], scope);
-      if (!compatible(["array"], valueTypes(step.over, scope))) {
+      if (!compatible(["array"], valueTypes(c, step.over, scope))) {
         c.add(step.id, "over", "for_each_not_array", "for each needs a list to go over");
       }
       break;
@@ -1126,62 +937,13 @@ function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<str
 
 // ── Triggers and handoff ─────────────────────────────────────────────────────────────────────
 
-const CRON_FIELD = /^[0-9A-Za-z*/,?#LW-]+$/;
-
-function validTimezone(tz: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** A trigger's filter and dedupe key read that trigger's own payload (as v3). */
-function checkTrigger(c: Checker, trigger: Trigger) {
-  const { id, on } = trigger;
-  const own: ProcessScope = {
-    trigger: triggerOnSchema(on, c.ctx),
+/** A trigger's filter and dedupe key read that trigger's own payload (v3's `checkTrigger`). */
+function checkProcessTrigger(c: Checker, trigger: Trigger) {
+  checkTrigger(c, trigger, {
+    trigger: triggerOnSchema(trigger.on, c.ctx),
     settings: c.ctx.settings,
     steps: {},
-  };
-  if (on.type === "event") {
-    if (c.ctx.events && !c.ctx.events[on.event]) {
-      c.add(id, "on.event", "unknown_event", `no event type "${on.event}"`);
-    }
-    if (on.filter) checkRules(c, id, on.filter, ["on", "filter"], own, false);
-  } else if (on.type === "webhook" || on.type === "handoff") {
-    if (on.filter) checkRules(c, id, on.filter, ["on", "filter"], own, false);
-    if (on.type === "webhook" && on.dedupeKey !== undefined) {
-      checkRefs(c, id, on.dedupeKey, ["on", "dedupeKey"], own);
-    }
-  } else if (on.type === "message") {
-    if (new Set(on.channels).size < on.channels.length) {
-      c.add(id, "on.channels", "duplicate_channel", "each channel once");
-    }
-    const f = on.from;
-    const listed =
-      (f.relationships?.length ?? 0) +
-      (f.tags?.length ?? 0) +
-      (f.contactIds?.length ?? 0) +
-      (f.clientRoles?.length ?? 0);
-    if (listed === 0) {
-      c.add(id, "on.from", "people_empty", "say who may send it: people, tags or client roles");
-    }
-    for (const text of on.reply ? localizedVersions(on.reply.confirm) : []) {
-      if (text.includes("{{")) {
-        c.add(id, "on.reply.confirm", "reply_not_fixed", "the confirmation is fixed words");
-      }
-    }
-  } else if (on.type === "schedule") {
-    const fields = on.cron.trim().split(/\s+/);
-    if (fields.length !== 5 || !fields.every((f) => CRON_FIELD.test(f))) {
-      c.add(id, "on.cron", "invalid_cron", "a schedule needs five cron fields, e.g. 0 7 * * 1-5");
-    }
-    if (on.tz !== undefined && !validTimezone(on.tz)) {
-      c.add(id, "on.tz", "invalid_timezone", `unknown timezone "${on.tz}"`);
-    }
-  }
+  });
 }
 
 /**
@@ -1281,11 +1043,13 @@ export function validateProcess(
   const errors: ProcessValidationError[] = duplicateIds(process);
   const c: Checker = {
     ctx,
+    typePath: typeProcessPath,
+    inScope: rootInScope,
     add(stepId, f, code, message) {
       errors.push({ stepId, field: f, code, message });
     },
   };
-  for (const t of process.triggers) checkTrigger(c, t);
+  for (const t of process.triggers) checkProcessTrigger(c, t);
   const list = scopeList(process, ctx);
   checkHandoff(c, process, list);
   const allowed = allowedTools(ctx);

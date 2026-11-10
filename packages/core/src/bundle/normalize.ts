@@ -4,26 +4,34 @@
 
 import { cloneJson } from "../json";
 import { type ConvertLookup, fromWorkflowV3 } from "../process/convert";
-import { Process, type Step as ProcessStep } from "../process/schema";
+import { Process, type Step as ProcessStep, Step } from "../process/schema";
 import {
   type AnyAgentBundle,
   holdsProcess,
   type ProcessAgentBundle,
   type ProcessBundleWorkflow,
 } from "../schemas/agent";
+import { Trigger, WorkflowHandoff } from "../schemas/workflow";
 
 /** How diff, merge and select read bundles that hold v4 processes. */
 export interface BundleReadOptions {
   /**
    * The registries' view for reading v3 workflows as v4 (`processes.ConvertLookup`). Needed only
    * when the bundles mix v3 workflows and v4 processes.
+   *
+   * A mixed diff, merge or select converts every v3 side with this lookup, the registries as they
+   * are now, not as they were when each version was saved: a skill that has since become a
+   * tool-wrapper (or a tool whose side effect changed) reads as a `read` or `write` step on every
+   * side alike, so the sides still line up by id, but a v3 base and a v4 side saved before the
+   * change can differ in a step's kind. Pass the same lookup to every call over the same versions.
    */
   lookup?: ConvertLookup;
 }
 
 /**
  * Every workflow of the bundle as a v4 process: v3 workflows through `fromWorkflowV3` (ids kept),
- * v4 processes as they are. The result is a copy.
+ * v4 processes as they are. The result is a copy. Never throws on what a draft may hold: see
+ * `readConverted`.
  */
 // DECISION: converted processes are parsed with the v4 schema, so a converted v3 side carries the
 // same defaults as a stored (parsed) v4 side and the two never differ by defaults alone.
@@ -34,9 +42,75 @@ export function toProcessBundle(bundle: AnyAgentBundle, lookup: ConvertLookup): 
     workflow:
       w.workflow.schemaVersion === 4
         ? w.workflow
-        : Process.parse(cloneJson(fromWorkflowV3(w.workflow, lookup))),
+        : readConverted(cloneJson(fromWorkflowV3(w.workflow, lookup))),
   }));
   return { ...out, workflows };
+}
+
+/**
+ * A converted v3 workflow, parsed with the v4 schema where it can be. A stored draft may hold what
+ * v4's minimums refuse (an empty fork, a person step with no assignee: a v3 draft is saved with
+ * its errors), so reading never fails on them: a part that doesn't parse keeps its converted value,
+ * and every part that does gets its defaults. Whether the process is valid is for validation to
+ * say (validateBundle, validateProcess), not for reading.
+ */
+// DECISION: defaults are filled node by node (each trigger, each step with its children filled
+// first, the handoff), so one bad step leaves the rest of the process with its defaults. A step
+// that fails keeps its converted value whole; the converter writes every field v4 requires, so only
+// what the v3 draft itself left invalid stays unparsed.
+export function readConverted(converted: Process): Process {
+  const whole = Process.safeParse(converted);
+  if (whole.success) return whole.data;
+  const handoff = converted.handoff ? WorkflowHandoff.safeParse(converted.handoff) : undefined;
+  return {
+    ...converted,
+    triggers: converted.triggers.map((t) => {
+      const r = Trigger.safeParse(t);
+      return r.success ? r.data : t;
+    }),
+    steps: converted.steps.map(fillStep),
+    ...(converted.handoff ? { handoff: handoff?.success ? handoff.data : converted.handoff } : {}),
+  };
+}
+
+/** A placeholder body, so a loop's own fields parse while its real body is filled apart. */
+const STUB: ProcessStep = { id: "stub", name: "", kind: "stop", status: "succeeded" };
+
+function fillStep(raw: ProcessStep): ProcessStep {
+  let s = raw;
+  if (s.kind === "if") {
+    s = {
+      ...s,
+      paths: s.paths.map((p) => ({ ...p, steps: p.steps.map(fillStep) })),
+      otherwise: { ...s.otherwise, steps: s.otherwise.steps.map(fillStep) },
+    };
+  } else if (s.kind === "for_each") {
+    s = { ...s, steps: s.steps.map(fillStep) };
+  }
+  const whole = Step.safeParse(s);
+  if (whole.success) return whole.data;
+  // A container whose own fields parse but a child doesn't: its defaults, its children as filled.
+  if (s.kind === "if") {
+    const ifStep = s;
+    const shell = Step.safeParse({
+      ...ifStep,
+      paths: ifStep.paths.map((p) => ({ ...p, steps: [] })),
+      otherwise: { ...ifStep.otherwise, steps: [] },
+    });
+    if (shell.success && shell.data.kind === "if") {
+      return {
+        ...shell.data,
+        paths: shell.data.paths.map((p, i) => ({ ...p, steps: ifStep.paths[i]?.steps ?? [] })),
+        otherwise: { ...shell.data.otherwise, steps: ifStep.otherwise.steps },
+      };
+    }
+  } else if (s.kind === "for_each") {
+    const loop = s;
+    const shell = Step.safeParse({ ...loop, steps: [STUB] });
+    if (shell.success && shell.data.kind === "for_each")
+      return { ...shell.data, steps: loop.steps };
+  }
+  return s;
 }
 
 /**

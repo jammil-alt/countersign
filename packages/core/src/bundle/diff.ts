@@ -9,6 +9,7 @@ export {
   type BundleReadOptions,
   eachProcessStep,
   readBundles,
+  readConverted,
   toProcessBundle,
 } from "./normalize";
 
