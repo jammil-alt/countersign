@@ -2,8 +2,10 @@
 // §1.14): one section at a time beside a section list, as the portal's Settings. General (name,
 // timezone, language, the portal's Feedback button), Approvals (who approves changes to its tools
 // by default, then the approver rules), People (its people and invites, and the emails its admin
-// chose), Billing, Compliance (HIPAA mode and vendors), Exports (it was a tab; `/exports`
-// redirects here) and Retire client. The tools it is offered are on Setup, Connections.
+// chose), Business hours and Channels (R8, plan §1.86: the client's week and its people's hours,
+// read-only; the account's number and email, ours to bind), Billing, Compliance (HIPAA mode and
+// vendors), Exports (it was a tab; `/exports` redirects here) and Retire client. The tools it is
+// offered are on Setup, Connections.
 import type { ExternalApprover, OpsClientSettings } from "@countersign/core";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, NavLink, useLocation, useParams } from "react-router-dom";
@@ -20,6 +22,7 @@ import { ClientApproverRules } from "./ClientApproverRules";
 import { ClientBillingSection } from "./ClientBilling";
 import { ClientComplianceSetting, ClientRetireSetting } from "./ClientComplianceSetting";
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
+import { ClientChannelsSection, ClientHoursSection } from "./ClientHours";
 import { ClientLanguageSetting } from "./ClientLanguageSetting";
 import { ApproverChoice, type CreatedState } from "./NewClient";
 
@@ -33,6 +36,9 @@ export const SETTINGS_SECTIONS = [
   ["general", "General"],
   ["approvals", "Approvals"],
   ["people", "People"],
+  // R8 (docs/plan.md §1.86): what the portal shows the client, read-only where it is theirs.
+  ["hours", "Business hours"],
+  ["channels", "Channels"],
   ["billing", "Billing"],
   ["compliance", "Compliance"],
   ["exports", "Exports"],
@@ -81,6 +87,10 @@ export function ClientSettingsScreen() {
 function SectionBody({ clientId, section }: { clientId: string; section: SettingsSection }) {
   const client = useClientPage();
   switch (section) {
+    case "hours":
+      return <ClientHoursSection clientId={clientId} />;
+    case "channels":
+      return <ClientChannelsSection clientId={clientId} />;
     case "billing":
       return (
         <Titled

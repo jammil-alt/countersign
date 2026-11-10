@@ -8,8 +8,9 @@
 // role names, their descriptions and contacts' names are data and stay as written. Channels are
 // the back office's alone and stay English.
 import {
-  type AgentChannels,
   type AgentPeople,
+  type ChannelBindings,
+  type ChannelOption,
   type PeopleBindingInput,
   type PersonRole,
   REACH_CHANNELS,
@@ -473,39 +474,54 @@ export function OpsChannelsSection({ agentId }: { agentId: string }) {
   return (
     <ChannelsEditor
       key={JSON.stringify(data.channels.channels)}
-      channels={data.channels}
+      bindings={data.channels.channels}
+      options={data.channels.options}
       save={async (channels) =>
         (
           await api.call(apiRoutes.opsSetAgentChannels, {
             params: { id: agentId },
             body: { channels },
           })
-        ).channels
+        ).channels.channels
       }
     />
   );
 }
 
-function ChannelsEditor({
-  channels,
+/**
+ * Each channel bound to a connection that can carry it: an agent's own (above), or, R8 (plan
+ * §1.86), a client account's (ops/screens/ClientHours.tsx), where a kind left unbound takes the
+ * default.
+ */
+export function ChannelsEditor({
+  bindings,
+  options: all,
   save,
+  title = "Channels",
+  help = "How this agent reaches people. It sends only through channels bound here.",
+  unbound = "Not bound",
+  testIdPrefix = "agent",
 }: {
-  channels: AgentChannels;
-  save(next: AgentChannels["channels"]): Promise<AgentChannels>;
+  bindings: ChannelBindings;
+  options: ChannelOption[];
+  save(next: ChannelBindings): Promise<ChannelBindings>;
+  title?: string;
+  help?: string;
+  /** What an unbound channel reads as. */
+  unbound?: string;
+  testIdPrefix?: string;
 }) {
-  const [draft, setDraft] = useState(channels.channels);
+  const [draft, setDraft] = useState(bindings);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   return (
-    <Card className="p-5" testId="agent-channels">
-      <SectionLabel>Channels</SectionLabel>
-      <p className="mb-3 text-sm text-ink-muted">
-        How this agent reaches people. It sends only through channels bound here.
-      </p>
+    <Card className="p-5" testId={`${testIdPrefix}-channels`}>
+      <SectionLabel>{title}</SectionLabel>
+      <p className="mb-3 text-sm text-ink-muted">{help}</p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {REACH_CHANNELS.map((ch) => {
-          const options = channels.options.filter((o) => o.channels.includes(ch));
+          const options = all.filter((o) => o.channels.includes(ch));
           return (
             <Field key={ch} label={CHANNEL_LABEL[ch]}>
               <Select
@@ -517,11 +533,9 @@ function ChannelsEditor({
                   else delete next[ch];
                   setDraft(next);
                 }}
-                data-testid={`agent-channel-${ch}`}
+                data-testid={`${testIdPrefix}-channel-${ch}`}
               >
-                <option value="">
-                  {options.length ? "Not bound" : "No connection can carry it"}
-                </option>
+                <option value="">{options.length ? unbound : "No connection can carry it"}</option>
                 {options.map((o) => (
                   <option key={o.connectionId} value={o.connectionId}>
                     {o.label}
@@ -546,7 +560,7 @@ function ChannelsEditor({
             setBusy(true);
             setError(null);
             try {
-              setDraft((await save(draft)).channels);
+              setDraft(await save(draft));
               setSaved(true);
             } catch (e) {
               setError(errorText(e, "That didn't save. Try again."));
@@ -554,7 +568,7 @@ function ChannelsEditor({
               setBusy(false);
             }
           }}
-          data-testid="agent-channels-save"
+          data-testid={`${testIdPrefix}-channels-save`}
         >
           Save channels
         </Button>
