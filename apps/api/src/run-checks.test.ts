@@ -12,7 +12,7 @@ import {
 } from "@countersign/core";
 import { agent, agentVersion, inboxItem, run, stepRun } from "@countersign/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { admin, createApiHarness, testBundle } from "./api.test-helper";
+import { admin, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
 import { stepFinder, stepOfRow } from "./routes/run-checks";
 
 const h = await createApiHarness();
@@ -215,7 +215,23 @@ describe.skipIf(!h)("a v4 run's checks in the portal", () => {
       [null, "Client A user", "no_answer"],
     ]);
     expect(j(byNode("Tell the team")).urgent).toMatchObject({ state: "waiting", seenAt: null });
+    // Wave 5: how each step ended, the word a later `if` routes on; a confer row has none.
+    expect(j(write).outcome).toBe("done");
+    expect(j(byNode("Tell the team")).outcome).toBe("sent");
+    expect(j(ai).outcome).toBeUndefined();
     // Nothing of a model or a cost anywhere.
     expect(JSON.stringify(res.json)).not.toContain("add up to the total");
+  });
+
+  it("gives the back office's run view each step's outcome (wave 5)", async () => {
+    const res = await H.call(OPERATOR, "GET", `/api/ops/runs/${runId}`);
+    expect(res.status).toBe(200);
+    const steps = j(res.json).steps as { nodeId: string; outcome?: string }[];
+    expect(Object.fromEntries(steps.map((s) => [s.nodeId, s.outcome ?? null]))).toEqual({
+      "update:confer:0": null,
+      "update:confer:1": null,
+      update: "done",
+      tell: "sent",
+    });
   });
 });

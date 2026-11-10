@@ -10,6 +10,7 @@ import {
   conferOf,
   findStep,
   noAnswerOf,
+  outcomeOfStepRow,
   processes,
   type Step,
   stepNodeOf,
@@ -68,14 +69,9 @@ interface ItemSel {
  * Each row's check fields for the portal: a confer with the person's name, the approvers (named
  * where they are the client's users) and the mode, no-answer outcomes and an urgent notice's Seen.
  */
-export async function timelineChecks(
-  tx: Tx,
-  rows: readonly RowSel[],
-  items: readonly ItemSel[],
-  runError: unknown,
-  find: (id: string) => TimelineStepDef | undefined,
-): Promise<Map<string, TimelineChecks>> {
-  const asItems = items.map((i) => ({
+/** Inbox rows as core's run-checks read them. */
+function itemsOf(items: readonly ItemSel[]) {
+  return items.map((i) => ({
     id: i.id,
     kind: i.kind,
     status: i.status,
@@ -86,6 +82,33 @@ export async function timelineChecks(
     resolvedAt: i.resolvedAt?.toISOString() ?? null,
     createdAt: i.createdAt.toISOString(),
   }));
+}
+
+/**
+ * Wave 5 (docs/plan.md §1.86 "Forks (wave 5)"): each step row's outcome, by row id, for the back
+ * office's run view (`OpsStep.outcome`): the word a later `if` routes on.
+ */
+export function stepOutcomes(
+  rows: readonly RowSel[],
+  items: readonly ItemSel[],
+): Map<string, NonNullable<TimelineChecks["outcome"]>> {
+  const asItems = itemsOf(items);
+  const out = new Map<string, NonNullable<TimelineChecks["outcome"]>>();
+  for (const r of rows) {
+    const outcome = outcomeOfStepRow(r, asItems);
+    if (outcome) out.set(r.id, outcome);
+  }
+  return out;
+}
+
+export async function timelineChecks(
+  tx: Tx,
+  rows: readonly RowSel[],
+  items: readonly ItemSel[],
+  runError: unknown,
+  find: (id: string) => TimelineStepDef | undefined,
+): Promise<Map<string, TimelineChecks>> {
+  const asItems = itemsOf(items);
   const out = new Map<string, TimelineChecks>();
   const userIds = new Set<string>();
   for (const r of rows) {
@@ -116,6 +139,9 @@ export async function timelineChecks(
     }
     const urgent = urgentOf(r, asItems);
     if (urgent) checks.urgent = urgent;
+    // Wave 5: how the step ended, in the words a later `if` routes on.
+    const outcome = outcomeOfStepRow(r, asItems);
+    if (outcome) checks.outcome = outcome;
     if (Object.keys(checks).length > 0) out.set(r.id, checks);
   }
   const ids = [...userIds].filter((id) => /^[0-9a-f-]{36}$/i.test(id));

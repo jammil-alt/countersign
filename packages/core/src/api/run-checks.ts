@@ -10,6 +10,7 @@
 
 import { z } from "zod";
 import { isPlainObject } from "../json";
+import { outcomeOfRow, STEP_OUTCOMES, type StepOutcomeWord } from "../process/outcomes";
 import { APPROVAL_MODES, CONFER_VERDICTS, type ConferVerdict } from "../process/schema";
 
 // ── Durable names ───────────────────────────────────────────────────────────────────────────────
@@ -230,6 +231,38 @@ export function urgentOf(row: RowLike, items: readonly ItemLike[]): UrgentView |
   };
 }
 
+// ── How the step ended (wave 5) ─────────────────────────────────────────────────────────────────
+
+/** Every outcome word of every kind (`processes.STEP_OUTCOMES`), for the views' schemas. */
+export const OUTCOME_WORDS = [
+  ...new Set(Object.values(STEP_OUTCOMES).flat()),
+] as unknown as readonly [StepOutcomeWord, ...StepOutcomeWord[]];
+
+/**
+ * How a step's row ended, in the outcome words a later `if` routes on (`steps.<id>.outcome`): read
+ * from the row as the executor left it, its approvers' answers and an urgent notice's "Seen". Null
+ * for a check's own row (`<step>:confer:<n>`…), a step still under way, or a kind with no outcome.
+ */
+// DECISION (wave 5): the run view derives the outcome from what the rows and items already hold
+// (`processes.outcomeOfRow`), so no column or migration is added; the executor's record and this
+// read agree by construction (tested in packages/workflows).
+export function outcomeOfStepRow(
+  row: RowLike & { error?: string | null },
+  items: readonly ItemLike[],
+): StepOutcomeWord | null {
+  if (checkKindOf(row.nodeId)) return null;
+  const approval = approvalOf(row, items);
+  const urgent = urgentOf(row, items);
+  return outcomeOfRow({
+    kind: row.nodeType,
+    status: row.status,
+    output: row.output,
+    ...(row.error !== undefined ? { error: row.error } : {}),
+    approvers: approval?.approvers.map((a) => a.state) ?? [],
+    urgent: urgent?.state ?? null,
+  });
+}
+
 // ── Which steps the client sees ─────────────────────────────────────────────────────────────────
 
 /** Kinds only v4 has that the client sees by default: the work, never the logic. */
@@ -262,5 +295,7 @@ export const TimelineChecks = z.object({
   noAnswer: z.enum(NO_ANSWER_OUTCOMES).optional(),
   approval: ApprovalView.optional(),
   urgent: UrgentView.optional(),
+  // Wave 5: how the step ended (`outcomeOfStepRow`), the word a later `if` routes on.
+  outcome: z.enum(OUTCOME_WORDS).optional(),
 });
 export type TimelineChecks = z.infer<typeof TimelineChecks>;
