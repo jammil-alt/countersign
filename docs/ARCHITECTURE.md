@@ -2396,6 +2396,13 @@ Decided, and it supersedes the method table below (`rules_then_ai` and the four 
   Library and the palette (a process uses the tool as a read or write step; stored references still
   run), and agent-mode skills (the agent's reasoning loop proposing writes) give way to AI skills
   followed by write steps. Stored versions and stored steps keep running (invariant 3).
+- **Templates on the skill model**: each seeded and pack template that used a retired kind of skill
+  has a new version built only from AI skills, deterministic skills, read steps and write steps (the
+  Bill clerk's v3, the Document clerk's v2, Sloan's v5, the Bookkeeper's v3, the marketing set's
+  v3). The reading skills run on the cheap model, set on the agent's skill; analysis on the skill's
+  recommended model. Stored versions are unchanged, and a client's agent moves only by the usual
+  reviewed update (invariant 11). Sloan keeps its four processes: the owner's one exception to one
+  agent, one process.
 
 #### Skill methods and reads
 

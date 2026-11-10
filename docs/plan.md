@@ -3687,6 +3687,83 @@ all optional fields: `SkillOption.kind`, `.parameters`, `.recommendedModel`;
   (`comms.converse` declares `usesModel`, so the step shows "its built-in code calls a model"); a
   conversation step of its own kind is unchanged.
 
+**Skill model (2026-11-10): the templates** (Wave B item 10, branch `skills/templates`, on the
+merged `skills/splits`, `skills/actions` and `skills/web`; no migration). Each seeded and pack
+template that used a retired kind of skill gets a new version built from AI skills, deterministic
+skills, read steps and write steps; stored versions are never edited (invariant 3) and a client's
+fork moves only by the reviewed update merge (invariant 11). Seeds (`packages/db/seed/agents/`, each
+an `extends` file, and apps/api's `account/templates.ts` for the install route): **Bill clerk v3**
+(Choose items and accounts, `qbo.choose-invoice-lines`, AI over the invoice and bill it is given,
+items as a read, in place of `qbo.map-invoice-lines`; with no bill: Find the vendor (a read) → Prepare
+bill, `docs.prepare-bill` (AI) → Create bill, the `create_bill` action, approval on → tell the
+client admin; no vendor: ask), **Document clerk v2** (when a document couldn't be read, or by hand:
+Read document (AI) → Check totals → a person when they don't add up → Save to records), **Sloan v5**
+(Explain a problem, `supervisor.explain`, AI with the health tools and `agents.ask` as reads, in
+place of `supervisor.triage`). Packs: **Bookkeeper v3** (Propose accounts and Suggest matches with
+a Save to records step for each, in place of `categorize` and `explain-leftovers`; Read a statement
+document in place of `read-statement`, under its step id), and the **marketing set's v3** (each
+agent-mode skill as read steps → its AI skill → a check in code → Save to records or Change in the
+site or LinkedIn). New built-ins: `qbo.choose-invoice-lines`, `docs.prepare-bill`,
+`supervisor.explain`; core gains `processes.replaceSteps` and `processes.processTools`. Tests:
+apps/api `templates-skill-model.test.ts` (each version validates against the platform, names no
+retired skill, keeps approval on changes and the cheap model on reading; the installs, the update
+offer, and fork + publish with QuickBooks, and with QuickBooks and BILL).
+- // DECISION: tool wrappers leave every new version's skill list; the tools its read and write
+  steps call are listed as the agent's tools (`extraTools`, `processes.processTools`), so the
+  validator's `tool_not_allowed` holds as before.
+- // DECISION: the reading skills (Read document, Read a statement document, Choose items and
+  accounts) run on the cheap model (`claude-haiku-5-5`, the classification default), set on the
+  agent's `skills[]` entry so the builder shows "the agent's"; analysis AI skills (Prepare bill,
+  Explain a problem, Propose accounts, Suggest matches, the marketing writers) run on their
+  recommended model, the platform's reasoning default. New AI skills recommend a model (a task
+  skill must name one).
+- // DECISION: Sloan (the supervisor) keeps its four processes (a failed run, a connection needing
+  a person, the daily check, the chat) in v5: the owner's exception to one agent, one process.
+  `account.chat` stays the conversation it is (agent mode, the one kept); its report and daily
+  check stay Save to records steps on `supervisor.report` and `supervisor.check`.
+- // DECISION: the Bill clerk now adds a bill when none matches (status `none`) and the vendor is in
+  QuickBooks: Prepare bill (AI) then Create bill (approval on, the client signs). An ambiguous match
+  still asks which bill; a vendor not found asks about the vendor. The vendor and accounts are read
+  from QuickBooks (the Bill clerk is a QuickBooks agent); Prepare bill only chooses among the ids it
+  is given, so it names no connector.
+- // DECISION: Create bill names no `via`: an agent bound to QuickBooks only resolves it there; one
+  bound to QuickBooks and BILL is refused at publish (`action_needs_via`) until the operator names
+  the system on the step, as a new version of the client's agent (the test does it for BILL).
+- // DECISION: the Document clerk's v2 runs when the background reading failed
+  (`document.extraction_failed`) or by hand with a document id; it doesn't read every upload again
+  (the platform's background extraction does that, outside any agent). `docs.find-support` is left
+  out: no process used it.
+- // DECISION: the Builder's and the Coordinator's templates get no new version: their latest name
+  no skill and hold no process, so there is nothing retired in them (an identical version would have
+  the same hash). The Demo client's records clerk (a client agent, one Change in Testkit step) uses
+  no skill either; seed-demo's agents are history of a demo client and move like any client's.
+- // DECISION: three versions carry the validator's advice to split (never an error): the Bill
+  clerk's process (25 steps), the Bookkeeper's daily process (23) and the forum watch (a reply four
+  levels in). Splitting them is the one-process-per-agent work.
+- // DECISION: the marketing set's v3: settings the agent-mode skills read (topics, the disclosure,
+  how many proposals) become literal step inputs the operator customizes per client. The forum
+  watch searches one query for a few recent stories and takes each new one in turn; a pasted
+  thread is read on its own. A social post about a guide reads the guide, otherwise the report
+  given (or the newest); the report path keeps v2's step ids. Article drafts run on a person's
+  topic only: Thursday's schedule chose its own topic inside the agent's loop, and is left out.
+- // DECISION: the marketing-agents, bookkeeping and reconcile tests fork the template's v2
+  explicitly (their scripted runs are of the agent-mode skills stored agents still run); v3 is held
+  by the new test (validation, install, update offer, fork and publish), not run end to end there.
+- // DECISION: the builder catalog's `stepTools` lists every platform and pack tool (a connector's
+  are offered under its connector), less a conversation's and a reach-out's handlers, not only what
+  a wrapper wrapped: the splits' and templates' tools (`docs.reading.record`,
+  `bookkeeping.booking.propose`, `marketing.report.record`, …) are offered as read and write steps.
+  This answers the splits' open question.
+- // DECISION (merge): an action write step reads "Change in <its via connector>", else "Change in
+  the agent's accounting / email / texts" in the builder, and "Change in the client's tool" in the
+  run view; the client's timeline says "Changed in <via's name>", else "your tool".
+- Open question: a scheduled article draft needs a "Choose a topic" AI skill (search figures and the
+  guides in, a topic out) before Write an article; not built.
+- Open question: for a BILL-only client the Bill clerk can't publish (its fill-in path changes
+  QuickBooks bills); and with `via: "billcom"` its vendor and account reads are still QuickBooks'.
+  A Bill clerk for BILL needs those reads swapped (`billcom.vendor.search`) as the operator's
+  customization, or a BILL template of its own.
+
 ### 1.87 BILL connector (owner: "bill.com integrated", 2026-11-10; no migration)
 
 Connector `billcom` in `packages/connectors/src/billcom/` against a fake (`fakeBillcom` in
