@@ -16,7 +16,8 @@ const decoder = new TextDecoder();
 export const MIN_COOKIE_PASSWORD_LENGTH = 32;
 
 /** `mcp-confirm`: the two-step write tokens of the MCP server (apps/api/src/mcp). */
-export type SealPurpose = "session" | "state" | "mcp-confirm";
+// §1.83: `device`, a browser remembered after it passed the second step.
+export type SealPurpose = "session" | "state" | "mcp-confirm" | "device";
 
 const FORMAT = "v1";
 

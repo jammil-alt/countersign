@@ -138,7 +138,11 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
         action: "session.sign_in",
         outcome: "ok",
         httpStatus: 302,
-        target: r.signedIn.method ? { method: r.signedIn.method } : {},
+        target: {
+          ...(r.signedIn.method ? { method: r.signedIn.method } : {}),
+          // §1.83: where the sign-in starts with the second step.
+          second_factor: r.signedIn.remembered ? "remembered" : r.signedIn.secondFactor,
+        },
       });
     }
     return c.redirect(r.redirectTo, 302);

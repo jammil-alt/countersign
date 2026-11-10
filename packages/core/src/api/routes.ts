@@ -74,6 +74,7 @@ import {
   RunStatusSchema,
   RunsPerDay,
 } from "./runs-filter";
+import { secondFactorRoutes } from "./second-factor";
 // v0.14 W4-C: the Slack channel picker
 import { slackRoutes } from "./slack";
 // P-6
@@ -2050,5 +2051,7 @@ export const routes = {
   ...translationRoutes,
   // P-8: US texting registration (docs/plan.md §1.70)
   ...a2pRoutes,
+  // §1.83: a second factor by authenticator app, text or WhatsApp.
+  ...secondFactorRoutes,
 } as const;
 export type Routes = typeof routes;

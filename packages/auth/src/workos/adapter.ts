@@ -2,7 +2,7 @@
 // start sign-in, finish it on the callback, and sign out. Provisioning (find or create the
 // app_user, refuse the uninvited) is the directory's job, done by the API with packages/db.
 
-import { SESSION_ACTIVITY_HEADER } from "@countersign/core";
+import { SESSION_ACTIVITY_HEADER, type SecondFactorState } from "@countersign/core";
 import { requestCookie } from "../cookies";
 import { randomToken, timingSafeEqual } from "../seal";
 import {
@@ -25,12 +25,14 @@ import {
   resolveSession,
   restartNonce,
   SESSION_COOKIE,
+  type SessionPayload,
   STATE_COOKIE,
   STATE_MAX_AGE_SEC,
   safeReturnTo,
   sealSession,
   sealState,
   sessionCookie,
+  sessionEnds,
   stateCookie,
 } from "./session";
 
@@ -39,8 +41,30 @@ export interface Redirect {
   readonly redirectTo: string;
   readonly setCookies: readonly string[];
   /** A completed sign-in: who, and how (for the audit log, docs/plan.md §1.35). */
-  readonly signedIn?: { readonly userId: string; readonly method: string | null };
+  readonly signedIn?: {
+    readonly userId: string;
+    readonly method: string | null;
+    /** §1.83: where the session starts with the second step. */
+    readonly secondFactor: SecondFactorState;
+    /** §1.83: passed by a remembered browser. */
+    readonly remembered: boolean;
+  };
 }
+
+/**
+ * §1.83: the second step, as the API runs it. `on` when this environment has it set up;
+ * `remembered` says whether this browser passed it for this person in the last 30 days (the API
+ * checks the device cookie against the person's methods, so a reset forgets every browser).
+ */
+export interface SecondFactorPolicy {
+  readonly on: boolean;
+  remembered?(input: { request: Request; userId: string; now: Date }): Promise<boolean>;
+}
+
+/** Sign-ins whose own provider does the second factor: a company's SSO. */
+// DECISION (docs/plan.md §1.83): only SSO is exempt. Google and Microsoft sign-ins are not: we
+// can't see whether that account has a second factor of its own.
+export const SECOND_FACTOR_EXEMPT_METHODS: readonly string[] = ["SSO"];
 
 /** Why a callback did not finish: the audit row's `target.reason` (plan §1.35). */
 export type CallbackFailureReason =
@@ -81,7 +105,19 @@ export interface WorkOSAdapter extends AuthAdapter {
   /** Finish sign-in on the callback request (`?code=&state=`). */
   callback(request: Request, now: Date): Promise<Redirect | CallbackRefusal>;
   signOut(request: Request): Promise<Redirect>;
+  /**
+   * §1.83: the second step was passed. Reseals a pending session as `done`; refuses one that is
+   * not pending (done, exempt, expired or another person's).
+   */
+  passSecondFactor(
+    request: Request,
+    userId: string,
+    now: Date,
+  ): Promise<{ readonly ok: true; readonly setCookies: readonly string[] } | AuthRefusal>;
 }
+
+/** §1.83: the web app's page for the second step (apps/web). */
+export const SECOND_FACTOR_PAGE = "/sign-in/second-step";
 
 const PROVISION_MESSAGES: Record<ProvisionRefusalReason, string> = {
   email_not_verified: "verify your email address with the sign-in provider, then sign in again",
@@ -100,8 +136,11 @@ export function createWorkOSAdapter(options: {
   /** Injected in tests; otherwise built over `fetch`. */
   readonly workos?: WorkOSClient;
   readonly fetch?: typeof fetch;
+  /** §1.83; off when not given. */
+  readonly secondFactor?: SecondFactorPolicy;
 }): WorkOSAdapter {
   const { config, directory } = options;
+  const step = options.secondFactor?.on ? options.secondFactor : null;
   const workos =
     options.workos ??
     createWorkOS({
@@ -123,6 +162,20 @@ export function createWorkOSAdapter(options: {
         return refuse("session_invalid", "the session cookie is not valid", [clearSessionCookie()]);
       }
       const now = epochSec(nowDate);
+      if (step) {
+        // DECISION (docs/plan.md §1.83): once the step is on, a cookie from before it (no `mf`) is
+        // signed in to again, and a pending step left past its 10 minutes starts over.
+        const stale =
+          opened.mf === undefined
+            ? "sign in again to set up your second step"
+            : opened.mf === "pending" && now >= (opened.mfx ?? 0)
+              ? "the second step was not finished in time; sign in again"
+              : null;
+        if (stale) {
+          if (opened.sid) await workos.revokeSession(opened.sid).catch(() => undefined);
+          return refuse("session_invalid", stale, [clearSessionCookie()]);
+        }
+      }
       const active = request.headers.get(SESSION_ACTIVITY_HEADER) === "1";
       const resolved = await resolveSession(opened, now, workos, active);
       if (resolved.status === "invalid") {
@@ -134,7 +187,35 @@ export function createWorkOSAdapter(options: {
       const setCookies = resolved.rotated
         ? [sessionCookie(await sealSession(resolved.session, password), resolved.session, now)]
         : [];
-      return { ok: true, userId: resolved.session.uid, setCookies };
+      // With the step off, a session is never held back by it (one signed in while it was on
+      // included).
+      return {
+        ok: true,
+        userId: resolved.session.uid,
+        setCookies,
+        ...(step && resolved.session.mf ? { secondFactor: resolved.session.mf } : {}),
+      };
+    },
+
+    async passSecondFactor(request, userId, nowDate) {
+      const raw = requestCookie(request, SESSION_COOKIE);
+      const opened = raw ? await openSession(raw, password) : null;
+      const now = epochSec(nowDate);
+      if (
+        !opened ||
+        opened.uid !== userId ||
+        opened.mf !== "pending" ||
+        now >= (opened.mfx ?? 0) ||
+        now >= sessionEnds(opened)
+      ) {
+        return refuse("session_invalid", "this sign-in is not waiting on a second step");
+      }
+      const { mfx: _expired, ...rest } = opened;
+      const done: SessionPayload = { ...rest, mf: "done", lat: now };
+      return {
+        ok: true,
+        setCookies: [sessionCookie(await sealSession(done, password), done, now)],
+      };
     },
 
     async signIn({ returnTo, restart }, nowDate) {
@@ -208,6 +289,16 @@ export function createWorkOSAdapter(options: {
       }
 
       const now = epochSec(nowDate);
+      const method = auth.authenticationMethod ?? null;
+      let secondFactor: SecondFactorState = "exempt";
+      let remembered = false;
+      if (step && !(method && SECOND_FACTOR_EXEMPT_METHODS.includes(method))) {
+        remembered =
+          (await step
+            .remembered?.({ request, userId: outcome.userId, now: nowDate })
+            .catch(() => false)) ?? false;
+        secondFactor = remembered ? "done" : "pending";
+      }
       const session = newSession(
         {
           userId: outcome.userId,
@@ -216,14 +307,20 @@ export function createWorkOSAdapter(options: {
           workosOrganizationId: auth.organizationId,
           sessionId: auth.sessionId,
           refreshToken: auth.refreshToken,
+          secondFactor,
         },
         now,
       );
+      // DECISION: a pending sign-in lands on the second step's page, then goes where it meant to.
+      const redirectTo =
+        secondFactor === "pending"
+          ? `${SECOND_FACTOR_PAGE}?${new URLSearchParams({ return_to: state.r })}`
+          : state.r;
       return {
         ok: true,
-        redirectTo: state.r,
+        redirectTo,
         setCookies: [...clear, sessionCookie(await sealSession(session, password), session, now)],
-        signedIn: { userId: outcome.userId, method: auth.authenticationMethod ?? null },
+        signedIn: { userId: outcome.userId, method, secondFactor, remembered },
       };
     },
 

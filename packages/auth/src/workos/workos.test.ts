@@ -2,14 +2,18 @@ import { describe, expect, it, vi } from "vitest";
 import { readCookie } from "../cookies";
 import { getSession } from "../session";
 import type { ProvisionInput, ProvisionOutcome } from "../types";
-import { createWorkOSAdapter } from "./adapter";
+import { createWorkOSAdapter, SECOND_FACTOR_PAGE, type SecondFactorPolicy } from "./adapter";
 import { createWorkOS, type WorkOSAuthentication, type WorkOSClient, WorkOSError } from "./client";
 import { workosStateOf } from "./config";
 import {
+  DEVICE_COOKIE,
+  deviceCookie,
   IDLE_TIMEOUT_SEC,
   isRestartState,
   newSession,
   OUTAGE_GRACE_SEC,
+  openDevice,
+  openSession,
   RACE_GRACE_SEC,
   REFRESH_INTERVAL_SEC,
   resolveSession,
@@ -74,6 +78,7 @@ function setup(
     ok: true,
     userId: USER_ID,
   }),
+  secondFactor?: SecondFactorPolicy,
 ) {
   const provisioned: ProvisionInput[] = [];
   const directory = {
@@ -88,7 +93,12 @@ function setup(
       return [{ tenantId: TENANT, tenantName: "Millwork", role: "client_admin" as const }];
     },
   };
-  const adapter = createWorkOSAdapter({ config, directory, workos });
+  const adapter = createWorkOSAdapter({
+    config,
+    directory,
+    workos,
+    ...(secondFactor ? { secondFactor } : {}),
+  });
   return { adapter, directory, workos, provisioned };
 }
 
@@ -104,6 +114,7 @@ async function sessionCookieFor(now = T0) {
       workosOrganizationId: null,
       sessionId: "sess_1",
       refreshToken: "rt_1",
+      secondFactor: "exempt",
     },
     now,
   );
@@ -580,5 +591,158 @@ describe("workosStateOf", () => {
         APP_ORIGIN: `${ORIGIN}/ignored/path`,
       }),
     ).toMatchObject({ state: "on", config: { appOrigin: ORIGIN } });
+  });
+});
+
+describe("the second step (docs/plan.md §1.83)", () => {
+  const FACTOR = "00000000-0000-4000-8000-0000000000f1";
+
+  async function signInWith(
+    policy: SecondFactorPolicy,
+    a: Partial<WorkOSAuthentication> = {},
+    extraCookie = "",
+  ) {
+    const workos = fakeWorkOS({ authenticateWithCode: vi.fn(async () => auth(a)) });
+    const { adapter } = setup(workos, undefined, policy);
+    const start = await adapter.signIn({ returnTo: "/inbox" }, at(T0));
+    if (!start.ok) throw new Error(start.code);
+    const state = new URL(start.redirectTo).searchParams.get("state") ?? "";
+    const stateCookie = cookieValue(start.setCookies, STATE_COOKIE);
+    const done = await adapter.callback(
+      withCookie(
+        [`${STATE_COOKIE}=${stateCookie}`, extraCookie].filter(Boolean).join("; "),
+        `${ORIGIN}/api/auth/callback?code=c1&state=${state}`,
+      ),
+      at(T0 + 5),
+    );
+    if (!done.ok) throw new Error(done.code);
+    const sealed = cookieValue(done.setCookies, SESSION_COOKIE) ?? "";
+    return { adapter, done, sealed, workos };
+  }
+
+  it("is exempt while the step is off", async () => {
+    const { done, sealed, adapter } = await signInWith({ on: false });
+    expect(done.redirectTo).toBe("/inbox");
+    expect(done.signedIn).toMatchObject({ secondFactor: "exempt", remembered: false });
+    const who = await adapter.identify(withCookie(`${SESSION_COOKIE}=${sealed}`), at(T0 + 10));
+    expect(who).toMatchObject({ ok: true });
+    expect((who as { secondFactor?: string }).secondFactor).toBeUndefined();
+  });
+
+  it("starts pending after a password, lands on the step's page, and only its routes are admitted", async () => {
+    const { done, sealed, adapter } = await signInWith(
+      { on: true },
+      { authenticationMethod: "Password" },
+    );
+    expect(done.signedIn).toMatchObject({ secondFactor: "pending", remembered: false });
+    expect(done.redirectTo).toBe(`${SECOND_FACTOR_PAGE}?return_to=%2Finbox`);
+    const request = withCookie(`${SESSION_COOKIE}=${sealed}`);
+    const directory = setup().directory;
+    const refused = await getSession(request, { adapter, directory, now: at(T0 + 10) });
+    expect(refused).toMatchObject({ ok: false, status: 401, code: "second_factor_required" });
+    const allowed = await getSession(request, {
+      adapter,
+      directory,
+      now: at(T0 + 10),
+      allowPendingSecondFactor: true,
+    });
+    expect(allowed).toMatchObject({ ok: true, session: { secondFactor: "pending" } });
+  });
+
+  it("passes the step once: the session becomes done and every route is admitted", async () => {
+    const { sealed, adapter } = await signInWith(
+      { on: true },
+      { authenticationMethod: "Password" },
+    );
+    const request = withCookie(`${SESSION_COOKIE}=${sealed}`);
+    expect(await adapter.passSecondFactor(request, "someone-else", at(T0 + 20))).toMatchObject({
+      ok: false,
+    });
+    const passed = await adapter.passSecondFactor(request, USER_ID, at(T0 + 20));
+    if (!passed.ok) throw new Error(passed.code);
+    const next = cookieValue(passed.setCookies, SESSION_COOKIE) ?? "";
+    expect((await openSession(next, PASSWORD))?.mf).toBe("done");
+    const after = await getSession(withCookie(`${SESSION_COOKIE}=${next}`), {
+      adapter,
+      directory: setup().directory,
+      now: at(T0 + 30),
+    });
+    expect(after).toMatchObject({ ok: true, session: { secondFactor: "done" } });
+    // A done session can't be passed again.
+    expect(
+      await adapter.passSecondFactor(withCookie(`${SESSION_COOKIE}=${next}`), USER_ID, at(T0 + 40)),
+    ).toMatchObject({ ok: false });
+  });
+
+  it("starts over when the step is left for 10 minutes", async () => {
+    const { sealed, adapter, workos } = await signInWith(
+      { on: true },
+      { authenticationMethod: "Password" },
+    );
+    const late = await adapter.identify(
+      withCookie(`${SESSION_COOKIE}=${sealed}`),
+      at(T0 + 5 + 600),
+    );
+    expect(late).toMatchObject({ ok: false, code: "session_invalid" });
+    expect(workos.revokeSession).toHaveBeenCalledWith("sess_1");
+    expect(
+      await adapter.passSecondFactor(
+        withCookie(`${SESSION_COOKIE}=${sealed}`),
+        USER_ID,
+        at(T0 + 605),
+      ),
+    ).toMatchObject({ ok: false });
+  });
+
+  it("exempts a company SSO sign-in, not a Google one", async () => {
+    const sso = await signInWith({ on: true }, { authenticationMethod: "SSO" });
+    expect(sso.done.signedIn?.secondFactor).toBe("exempt");
+    const google = await signInWith({ on: true }, { authenticationMethod: "GoogleOAuth" });
+    expect(google.done.signedIn?.secondFactor).toBe("pending");
+  });
+
+  it("skips the code on a remembered browser", async () => {
+    const remembered = vi.fn(async () => true);
+    const { done } = await signInWith(
+      { on: true, remembered },
+      { authenticationMethod: "Password" },
+    );
+    expect(done.signedIn).toMatchObject({ secondFactor: "done", remembered: true });
+    expect(done.redirectTo).toBe("/inbox");
+    expect(remembered).toHaveBeenCalledWith(expect.objectContaining({ userId: USER_ID }));
+    // A check that fails is not a remembered browser.
+    const broken = await signInWith(
+      { on: true, remembered: async () => Promise.reject(new Error("db down")) },
+      { authenticationMethod: "Password" },
+    );
+    expect(broken.done.signedIn?.secondFactor).toBe("pending");
+  });
+
+  it("signs in again a cookie from before the step, once the step is on", async () => {
+    const { sealed: old } = await sessionCookieFor();
+    // `mf` was exempt; strip it to look like a cookie from before.
+    const payload = await openSession(old, PASSWORD);
+    if (!payload) throw new Error("no payload");
+    const { mf: _mf, ...before } = payload;
+    const sealed = await sealSession(before, PASSWORD);
+    const { adapter } = setup(fakeWorkOS(), undefined, { on: true });
+    const who = await adapter.identify(withCookie(`${SESSION_COOKIE}=${sealed}`), at(T0 + 10));
+    expect(who).toMatchObject({ ok: false, code: "session_invalid" });
+    const { adapter: off } = setup();
+    expect(
+      await off.identify(withCookie(`${SESSION_COOKIE}=${sealed}`), at(T0 + 10)),
+    ).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it("seals the remembered browser for 30 days, for one person and method", async () => {
+    const cookie = await deviceCookie({ userId: USER_ID, factorId: FACTOR }, PASSWORD, T0);
+    expect(cookie).toContain(`${DEVICE_COOKIE}=`);
+    expect(cookie).toContain(`Max-Age=${30 * 24 * 3600}`);
+    const value = readCookie(cookie.split(";")[0], DEVICE_COOKIE) ?? "";
+    expect(await openDevice(value, PASSWORD, T0 + 10)).toMatchObject({ uid: USER_ID, fid: FACTOR });
+    expect(await openDevice(value, PASSWORD, T0 + 30 * 24 * 3600)).toBeNull();
+    expect(await openDevice(value, "d".repeat(40), T0 + 10)).toBeNull();
   });
 });

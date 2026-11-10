@@ -12,6 +12,7 @@ import {
   tenantScope,
   type WorkOSClient,
 } from "@countersign/auth";
+import type { CodeVerifier } from "@countersign/connectors";
 import {
   createStripeClient,
   type FetchLike,
@@ -45,6 +46,7 @@ import { type Platform, platformFor } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
 import { workerTransport } from "./runs/execute";
 import { type RunInstances, workflowInstances } from "./runs/instances";
+import { secondFactorPolicy, secondFactorSetupOf } from "./second-factor";
 // v0.12 W2-C
 import type { TestSuiteJobs } from "./testbench/instances";
 
@@ -86,6 +88,8 @@ export interface AppDeps {
   testSuites?(env: Bindings): TestSuiteJobs | null;
   /** The MCP server's authorization server, audit, rate limit and clock; tests pass fakes. */
   mcp?: McpDeps;
+  /** §1.83: the code service for sign-in codes; default Twilio Verify. Tests pass one in memory. */
+  codeVerifier?(env: Bindings): CodeVerifier;
 }
 
 /** The Stripe client for billing, or null where billing is off (no key). */
@@ -164,7 +168,17 @@ export function requestState(deps: AppDeps) {
             instances: deps.instances(env),
             deps,
             auth: () => {
-              auth ??= chooseAdapter(env, opened.db, deps.workos?.(env));
+              auth ??= chooseAdapter(
+                env,
+                opened.db,
+                deps.workos?.(env),
+                secondFactorPolicy(
+                  secondFactorSetupOf(env, {
+                    ...(deps.codeVerifier ? { verifier: deps.codeVerifier } : {}),
+                  }),
+                  opened.db,
+                ),
+              );
               return auth;
             },
           };

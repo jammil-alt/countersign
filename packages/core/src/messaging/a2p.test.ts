@@ -190,7 +190,12 @@ describe("what is stored and answered", () => {
 
   it("keeps the EIN out of every response and the portal's view free of cost and SIDs", () => {
     for (const [name, spec] of Object.entries(routes)) {
-      expect(secretResponseFields(spec.response), name).toEqual([]);
+      // §1.83: a route may show a person their own secret once (contract.ts `secretShownOnce`).
+      const shown = (spec as { secretShownOnce?: readonly string[] }).secretShownOnce ?? [];
+      expect(
+        secretResponseFields(spec.response).filter((f) => !shown.includes(f)),
+        name,
+      ).toEqual([]);
     }
     expect(forbiddenPortalFields(TextingRegistrationView)).toEqual([]);
     const keys = Object.keys(TextingRegistrationView.shape);

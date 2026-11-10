@@ -26,6 +26,12 @@ describe("route contract (static)", () => {
     expect(checkRouteContract(routes)).toEqual([]);
   });
 
+  it("lets only a person's own authenticator setup show a secret, once (§1.83)", () => {
+    expect(ROUTES.filter(([, r]) => r.secretShownOnce?.length).map(([name]) => name)).toEqual([
+      "secondFactorSetup",
+    ]);
+  });
+
   it("declares no portal response with forbidden fields", () => {
     for (const [, r] of ROUTES) {
       if (routeFamily(r) === "portal") expect(forbiddenPortalFields(r.response)).toEqual([]);

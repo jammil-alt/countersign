@@ -25,6 +25,11 @@ export interface GetSessionOptions {
    * client). Must be one of the user's; omitted means the only one, or all served for operators.
    */
   readonly tenantId?: string | null;
+  /**
+   * Admit a sign-in whose second step is still pending (docs/plan.md §1.83). Only the step's own
+   * routes pass this; everything else is refused with 401 `second_factor_required`.
+   */
+  readonly allowPendingSecondFactor?: boolean;
 }
 
 /** Build the session for a user from their memberships and the requested client. */
@@ -70,6 +75,11 @@ export async function getSession(
   const identified = await options.adapter.identify(request, options.now ?? new Date());
   if (!identified.ok) return identified;
   const { userId, setCookies } = identified;
+  // DECISION: the gate is here, in the one place every session is made, so no route can forget it;
+  // only the second step's own routes opt out.
+  if (identified.secondFactor === "pending" && !options.allowPendingSecondFactor) {
+    return refuse("second_factor_required", "finish signing in with your second step", setCookies);
+  }
   const { directory } = options;
   const account = directory.account
     ? await directory.account(userId)
@@ -79,7 +89,10 @@ export async function getSession(
   const memberships = account.memberships ?? (await directory.memberships(userId));
   const built = buildSession(user, memberships, options.adapter.kind, options.tenantId);
   if (!built.ok) return { ...built, setCookies: [...built.setCookies, ...setCookies] };
-  return { ok: true, session: built.session, setCookies };
+  const session = identified.secondFactor
+    ? { ...built.session, secondFactor: identified.secondFactor }
+    : built.session;
+  return { ok: true, session, setCookies };
 }
 
 export type RoleCheck = { readonly ok: true; readonly role: Role } | AuthRefusal;

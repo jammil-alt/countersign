@@ -74,6 +74,8 @@ export * from "./stripe/index";
 export * from "./tenant-keys";
 export * from "./testkit/index";
 export * from "./twilio/index";
+// §1.83: people's sign-in codes through Twilio Verify.
+export * from "./twilio/verify";
 export * from "./upload/index";
 export * from "./voice/services";
 export * from "./voice/spec";

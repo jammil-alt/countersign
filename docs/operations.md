@@ -776,6 +776,41 @@ first (Sandbox and Demo clients, the platform templates); the seed never runs on
 the workflow refuses to run there with "Run the seed first" ticked (it is ticked by default). Safe to
 run again, e.g. after new clients exist: it never adds a second first client.
 
+### Sign-in codes: the second step (`docs/plan.md` §1.83)
+
+After WorkOS checks the password, Mezonas asks for a code itself: an authenticator app (operators:
+only this), a text or WhatsApp. A browser that passed can be remembered for 30 days. Codes are
+checked by **Twilio Verify** on Mezonas' own Twilio account; we never hold a code or an
+authenticator secret. People who sign in through their company's SSO are not asked.
+
+**Off until `TWILIO_VERIFY_SERVICE_SID` is set** (a var under the environment's `vars` in
+`apps/api/wrangler.jsonc`; left out of the file until it has a value). **Don't set it until the
+second step's screens are on `main`** (the server side is there first; without the screens a
+pending sign-in has nowhere to go). Set wrongly (the service set, a key missing), it fails closed:
+sign-ins wait on the step and its routes answer 503.
+
+To turn it on for an environment (staging first):
+
+1. Twilio Console → Verify → Services → **Create** "Mezonas" (staging: "Mezonas staging"). Under
+   TOTP, set the **Issuer** to the same name (it is what the authenticator app shows). For
+   WhatsApp codes, attach a WhatsApp sender. Turn on **Fraud Guard** for SMS.
+2. `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` (already used for numbers) and `ENCRYPTION_KEY`
+   (recovery codes are HMACs under it) must be set in the environment.
+3. Add `"TWILIO_VERIFY_SERVICE_SID": "VA…"` under the environment's `vars`; merge (staging) or
+   release (production).
+4. Sign in once with a password: you're asked to set up a method. Check the items in
+   `packages/connectors/src/twilio/VERIFY_NOTES.md` as you go.
+5. Only then turn **WorkOS's own multi-factor off** (WorkOS → the environment → Authentication →
+   Multi-factor auth), so nobody is asked twice.
+
+Everyone signs in once more when it is turned on (sessions from before it are ended). Someone who
+lost their phone uses a recovery code; otherwise an operator resets their methods
+(`POST /api/ops/users/:id/second-factor/reset` with a reason; the button comes with the screens),
+which also forgets every browser they had remembered. Every step is in the audit log:
+`session.second_factor_setup`, `session.second_factor` (ok or refused, with the method),
+`session.second_factor_send`, `session.recovery_codes`, `session.second_factor_reset`, and the
+sign-in row's `second_factor` (`pending`, `exempt` or `remembered`).
+
 ### MCP server (Claude connector for the back office)
 
 The back office as a Claude connector (`docs/plan.md` §1.34): `https://staging.mezonas.com/mcp`

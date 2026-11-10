@@ -11,6 +11,7 @@ import {
   type DevDirectory,
   type ProvisioningDirectory,
   refuse,
+  type SecondFactorPolicy,
   type WorkOSAdapter,
   type WorkOSClient,
   workosStateOf,
@@ -104,7 +105,12 @@ export type AdapterChoice =
  * `AUTH_PROVIDER` picks the adapter (default: workos when WORKOS_CLIENT_ID is set, else dev).
  * A misconfigured WorkOS never falls back to dev, and dev never runs in production.
  */
-export function chooseAdapter(env: Bindings, db: Db, workosClient?: WorkOSClient): AdapterChoice {
+export function chooseAdapter(
+  env: Bindings,
+  db: Db,
+  workosClient?: WorkOSClient,
+  secondFactor?: SecondFactorPolicy,
+): AdapterChoice {
   const provider =
     env.AUTH_PROVIDER?.trim().toLowerCase() || (env.WORKOS_CLIENT_ID?.trim() ? "workos" : "dev");
   if (provider === "workos") {
@@ -122,6 +128,7 @@ export function chooseAdapter(env: Bindings, db: Db, workosClient?: WorkOSClient
       config: state.config,
       directory: provisioningDirectory(db),
       ...(workosClient ? { workos: workosClient } : {}),
+      ...(secondFactor ? { secondFactor } : {}),
     });
     return { ok: true, adapter: workos, dev: null, workos };
   }

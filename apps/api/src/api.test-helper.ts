@@ -4,6 +4,7 @@
 // instances, and a fake WorkflowStep for driving runs.
 
 import { DEV_USER_HEADER, type WorkOSClient } from "@countersign/auth";
+import type { CodeVerifier } from "@countersign/connectors";
 import {
   type Connector,
   createHackerNewsConnector,
@@ -143,6 +144,8 @@ export interface HarnessOptions {
   exports?: ExportJobs;
   /** The MCP server's authorization server, audit, rate limit and clock (fakes). */
   mcp?: McpDeps;
+  /** §1.83: the code service for sign-in codes (tests pass one in memory). */
+  codeVerifier?: CodeVerifier;
   // v0.12 W2-C
   /** Test suite jobs (in memory); none by default. */
   testSuites?: TestSuiteJobs;
@@ -201,6 +204,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     qboSync: () => options.qboSync ?? null,
     exports: () => options.exports ?? null,
     ...(options.mcp ? { mcp: options.mcp } : {}),
+    ...(options.codeVerifier ? { codeVerifier: () => options.codeVerifier as CodeVerifier } : {}),
     // v0.12 W2-C
     ...(options.testSuites ? { testSuites: () => options.testSuites as TestSuiteJobs } : {}),
   });

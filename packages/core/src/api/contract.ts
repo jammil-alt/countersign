@@ -27,6 +27,12 @@ export interface RouteSpec<
   query?: Q;
   body?: B;
   response: R;
+  /**
+   * Secret-named response fields this route may carry because they are shown once to the person
+   * they belong to (§1.83: their own authenticator app's link at setup). Anything else named like
+   * a secret is refused; apps/api's contract test lists every route that uses this.
+   */
+  secretShownOnce?: readonly string[];
 }
 
 export function defineRoute<
@@ -132,7 +138,9 @@ export function checkRouteContract(routes: Record<string, RouteSpec>): string[] 
         problems.push(`${name} (${r.method} ${r.path}): portal response has ${bad.join(", ")}`);
       }
     }
-    const secrets = secretResponseFields(r.response);
+    const secrets = secretResponseFields(r.response).filter(
+      (f) => !(r.secretShownOnce ?? []).includes(f),
+    );
     if (secrets.length > 0) {
       problems.push(`${name} (${r.method} ${r.path}): response has ${secrets.join(", ")}`);
     }
