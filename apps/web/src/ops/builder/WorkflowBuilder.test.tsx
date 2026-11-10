@@ -1966,6 +1966,10 @@ describe("WorkflowBuilder on processes", () => {
       expect(screen.getByTestId("builder-route-added-change")).toHaveTextContent(
         "If rejected: When a person rejects it, the step is skipped and the run goes on to the route. Approval stays on.",
       );
+      // The route still ends the run after a no, as a no always did, and says so.
+      expect(screen.getByTestId("builder-route-added-stop")).toHaveTextContent(
+        "The route ends with a stop step, so nothing below it runs, as before. Remove that stop to carry on below.",
+      );
       expect(screen.getByTestId("builder-routes-now")).toHaveTextContent("was rejected");
       await save(user, sent);
       expect(savedStep(sent, "update")?.checks?.approval).toEqual({
@@ -1984,7 +1988,7 @@ describe("WorkflowBuilder on processes", () => {
               match: "all",
               rules: [{ field: "{{steps.update.outcome}}", op: "=", value: "rejected" }],
             },
-            steps: [],
+            steps: [{ kind: "stop", name: "Stop the run", status: "cancelled" }],
           },
         ],
         otherwise: { steps: [] },

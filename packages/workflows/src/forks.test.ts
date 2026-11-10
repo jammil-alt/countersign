@@ -596,6 +596,54 @@ describe("routing on a bad outcome", () => {
     );
     expect(said(h)).toEqual(["done"]);
   });
+
+  it("a route the builder added on a person's no ends the run before the payment below it", async () => {
+    // The builder's "Add a route for this" on "said no": onReject continue, and the new path ends
+    // with a stop step (apps/web outcomes.ts), so the payment after the if never runs on a no.
+    const steps = [
+      {
+        id: "ok",
+        kind: "person",
+        name: "OK to pay?",
+        mode: "approve",
+        assignee: "client_admin",
+        title: "OK to pay?",
+        deadline: { after: "1 day" },
+        onReject: "continue",
+      },
+      {
+        id: "route",
+        kind: "if",
+        name: "If said no",
+        paths: [
+          {
+            id: "no",
+            name: "Said no",
+            when: {
+              match: "all",
+              rules: [{ field: "{{steps.ok.output.approved}}", op: "is", value: false }],
+            },
+            steps: [{ id: "end", kind: "stop", name: "Stop the run", status: "cancelled" }],
+          },
+        ],
+        otherwise: { id: "else", steps: [] },
+      },
+      write({ id: "pay", name: "Pay" }),
+    ];
+    const answered = (approved: boolean) => {
+      const runner = new FakeStepRunner({ onWait: "block" });
+      runner.onWaitStarted = (_n, type) => runner.deliver(type, { approved, by: "u-1" });
+      return runner;
+    };
+    const no = new Harness();
+    const r1 = await executeWorkflow(answered(false), no.context(), proc(steps), {});
+    expect(r1).toMatchObject({ status: "cancelled" });
+    expect(no.agentCalls.map((c) => c.step.id)).toEqual([]);
+    const yes = new Harness();
+    const r2 = await executeWorkflow(answered(true), yes.context(), proc(steps), {});
+    expect(r2.status).toBe("succeeded");
+    expect(yes.agentCalls.map((c) => c.step.id)).toEqual(["pay"]);
+  });
 });
 
 describe("replay", () => {

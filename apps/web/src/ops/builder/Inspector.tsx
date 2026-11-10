@@ -53,7 +53,14 @@ import {
   type Process,
   type Step,
 } from "./model";
-import { labelPaths, outcomeRules, type RouteOption, routeOptions, takesOnError } from "./outcomes";
+import {
+  labelPaths,
+  outcomeRules,
+  ROUTE_STOP_SAYS,
+  type RouteOption,
+  routeOptions,
+  takesOnError,
+} from "./outcomes";
 import { type People, PersonPicker } from "./people";
 import { ReachOutFields } from "./ReachOutFields";
 import { RulesEditor } from "./rules";
@@ -762,7 +769,11 @@ function OnErrorSection({ step, set }: { step: Step; set: SetStep }) {
  */
 function RoutesSection({ step, onAdd }: { step: Step; onAdd(option: RouteOption): void }) {
   const options = routeOptions(step);
-  const [added, setAdded] = useState<{ name: string; change: RouteOption["change"] } | null>(null);
+  const [added, setAdded] = useState<{
+    name: string;
+    change: RouteOption["change"];
+    stop: RouteOption["stop"];
+  } | null>(null);
   if (options.length === 0) return null;
   const now = options.filter((o) => o.change === null);
   return (
@@ -780,6 +791,7 @@ function RoutesSection({ step, onAdd }: { step: Step; onAdd(option: RouteOption)
               {added.change.setting}: {added.change.says}
             </p>
           ) : null}
+          {added.stop ? <p data-testid="builder-route-added-stop">{ROUTE_STOP_SAYS}</p> : null}
         </div>
       ) : null}
       <ul className="flex flex-col gap-1.5">
@@ -794,6 +806,7 @@ function RoutesSection({ step, onAdd }: { step: Step; onAdd(option: RouteOption)
               {o.change ? (
                 <span className="text-xs text-ink-muted">
                   Sets {o.change.setting.toLowerCase()}
+                  {o.stop ? "; the route ends the run" : ""}
                 </span>
               ) : null}
             </span>
@@ -802,7 +815,7 @@ function RoutesSection({ step, onAdd }: { step: Step; onAdd(option: RouteOption)
               data-testid={`builder-route-${o.key}-add`}
               onClick={() => {
                 onAdd(o);
-                setAdded({ name: o.pathName, change: o.change });
+                setAdded({ name: o.pathName, change: o.change, stop: o.stop });
               }}
             >
               <Icon name="add" />

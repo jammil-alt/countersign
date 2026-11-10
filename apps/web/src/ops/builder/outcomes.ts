@@ -229,8 +229,23 @@ export interface RouteOption {
   rule: Rule;
   /** Null when the run already goes on with this outcome. */
   change: RouteChange | null;
+  /**
+   * How the new route's stop step ends the run, where the run used to stop with this outcome
+   * (`change` set): a no ends it `cancelled`, nobody answering or a failure `failed`, as before.
+   * Null: the route ends with nothing and the run carries on below it.
+   */
+  stop: "cancelled" | "failed" | null;
   /** The step as it must be for the route (itself when nothing changes). */
   apply(step: Step): Step;
+}
+
+/** What the inspector says of a route that ends with a stop step (`RouteOption.stop`). */
+export const ROUTE_STOP_SAYS =
+  "The route ends with a stop step, so nothing below it runs, as before. Remove that stop to carry on below.";
+
+/** The run's end a route's stop step keeps: a no is `cancelled`, anything else `failed`. */
+function stopFor(word: string): "cancelled" | "failed" {
+  return word === "rejected" || word === "declined" || word === "said_no" ? "cancelled" : "failed";
 }
 
 /** The step kinds `onError` may be set on (the validator's `on_error_not_here` refuses the rest). */
@@ -394,6 +409,7 @@ export function routeOptions(step: Step): RouteOption[] {
       pathName: ROUTE_NAME[word] ?? word,
       rule: { field: `{{steps.${step.id}.outcome}}`, op: "=", value: word },
       ...needs,
+      stop: needs.change ? stopFor(word) : null,
     });
   }
   if (step.kind === "person") {
@@ -405,6 +421,7 @@ export function routeOptions(step: Step): RouteOption[] {
         pathName: label,
         rule: { field: `{{steps.${step.id}.choice}}`, op: "=", value: c.value },
         change: null,
+        stop: null,
         apply: same,
       });
     }
@@ -421,6 +438,7 @@ export function routeOptions(step: Step): RouteOption[] {
                 setting: "If rejected",
                 says: "When they say no, the run goes on to the route instead of stopping.",
               },
+        stop: step.onReject === "continue" ? null : stopFor("said_no"),
         apply: (s) => (s.kind === "person" ? { ...s, onReject: "continue" } : s),
       });
     }
@@ -430,9 +448,14 @@ export function routeOptions(step: Step): RouteOption[] {
 
 /**
  * Puts an `if` right after the step, with one path for the route (its condition the step's
- * outcome, no steps yet) and an empty otherwise, and sets on the step what the route needs. The if
- * sits in the step's own list, so it reads only steps before it (the validator's rule).
+ * outcome) and an empty otherwise, and sets on the step what the route needs. The if sits in the
+ * step's own list, so it reads only steps before it (the validator's rule). Where the run used to
+ * stop with this outcome, the path holds a stop step that ends it the same way (`option.stop`).
  */
+// DECISION (wave 5 review): paths rejoin after an `if`, so a route that turns a stop into "go on"
+// (a no, nobody answering, a failure) would otherwise let every later step run after it: a
+// person's "no" to "OK to pay?" would go on to pay. The new path ends with a stop step instead,
+// so nothing below runs unless the operator removes it, and the inspector says so.
 export function addRouteAfter(
   process: Process,
   stepId: string,
@@ -450,7 +473,9 @@ export function addRouteAfter(
         id: newId(),
         name: option.pathName,
         when: { match: "all", rules: [option.rule] },
-        steps: [],
+        steps: option.stop
+          ? [{ id: newId(), kind: "stop", name: "Stop the run", status: option.stop }]
+          : [],
       },
     ],
     otherwise: { id: newId(), steps: [] },

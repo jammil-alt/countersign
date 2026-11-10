@@ -1,6 +1,6 @@
 // Wave 5: the builder's words for how a step ended, the routes a step offers, and "Add a route for
 // this" (an if right after the step; the continue setting the route needs; approvals stay on).
-import { processes } from "@countersign/core";
+import { evaluateRules, processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import type { Process, Step } from "./model";
 import {
@@ -184,7 +184,10 @@ describe("addRouteAfter", () => {
             match: "all",
             rules: [{ field: "{{steps.approve.outcome}}", op: "=", value: "rejected" }],
           },
-          steps: [],
+          // The run used to stop on a no: the route still ends it, as a no always did.
+          steps: [
+            { id: expect.any(String), kind: "stop", name: "Stop the run", status: "cancelled" },
+          ],
         },
       ],
       otherwise: { id: expect.any(String), steps: [] },
@@ -198,12 +201,67 @@ describe("addRouteAfter", () => {
     expect(result.warnings.filter(mine)).toEqual([]);
   });
 
-  it("sets onError: continue for a failure route", () => {
+  it("sets onError: continue for a failure route, which ends the run as a failure did", () => {
     const failed = routeOptions(step("find")).find((o) => o.key === "failed");
     if (!failed) throw new Error("no route");
+    expect(failed.stop).toBe("failed");
     const out = addRouteAfter(PROCESS, "find", failed, newId);
     expect(out?.process.steps[0]).toMatchObject({ id: "find", onError: "continue" });
     expect(out?.process.steps[1]).toMatchObject({ kind: "if", name: "If failed" });
+    const path = out?.process.steps[1]?.kind === "if" ? out.process.steps[1].paths[0] : undefined;
+    expect(path?.steps).toMatchObject([{ kind: "stop", status: "failed" }]);
+  });
+
+  it("adds no stop where the run already went on with the outcome", () => {
+    const done = routeOptions(step("approve")).find((o) => o.key === "done");
+    const drop = routeOptions(step("ask")).find((o) => o.key === "choice:drop");
+    expect([done?.stop, drop?.stop]).toEqual([null, null]);
+    if (!done) throw new Error("no route");
+    const out = addRouteAfter(PROCESS, "approve", done, newId);
+    const route = out?.process.steps[2];
+    expect(route?.kind === "if" ? route.paths[0]?.steps : null).toEqual([]);
+  });
+
+  it("never runs past a person's no by default: the route ends the run before the payment", () => {
+    // "OK to pay?" then a payment the connection lets run unsigned. A route on the no must not
+    // let the payment run after it.
+    const pay: Process = {
+      schemaVersion: 4,
+      triggers: [{ id: "t1", on: { type: "manual", input: { type: "object" } } }],
+      steps: [
+        {
+          id: "ok",
+          kind: "person",
+          name: "OK to pay?",
+          mode: "approve",
+          assignee: "client_admin",
+          title: "OK to pay?",
+          payload: {},
+          deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+          channel: "inbox",
+          onReject: "stop",
+        },
+        { id: "pay", kind: "write", name: "Pay", tool: "testkit.record.update", input: {} },
+      ],
+    };
+    const ok = processes.findStep(pay, "ok")?.step as Step;
+    const saidNo = routeOptions(ok).find((o) => o.key === "said_no");
+    if (!saidNo) throw new Error("no route");
+    const out = addRouteAfter(pay, "ok", saidNo, newId);
+    if (!out) throw new Error("not added");
+    const [person, route, after] = out.process.steps;
+    expect(person).toMatchObject({ id: "ok", onReject: "continue" });
+    expect(after?.id).toBe("pay");
+    if (route?.kind !== "if") throw new Error("no if");
+    // The run after a no: the path the if takes, and the steps it runs before the payment.
+    const scope = { steps: { ok: { output: { approved: false }, outcome: "answered" } } };
+    const taken = route.paths.find((p) => evaluateRules(p.when, scope));
+    expect(taken?.name).toBe("Said no");
+    expect(taken?.steps.at(-1)).toMatchObject({ kind: "stop", status: "cancelled" });
+    // A yes takes otherwise and goes on to pay, as before.
+    const yes = { steps: { ok: { output: { approved: true }, outcome: "answered" } } };
+    expect(route.paths.find((p) => evaluateRules(p.when, yes))).toBeUndefined();
+    expect(processes.validateProcess(out.process, {}).errors).toEqual([]);
   });
 });
 
