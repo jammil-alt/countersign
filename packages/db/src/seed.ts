@@ -1,7 +1,8 @@
 // The seed (docs/plan.md §1.2 "Seeded and template definitions", "Sandbox client"): the operator,
 // the clients "Sandbox" and "Demo client" with their memberships, and the platform templates as v1
 // rows from packages/db/seed/agents/<slug>.v1.json, later seeded versions (`<slug>.v<n>.json`) as
-// the live version. With `e2e` (SEED_E2E=1) also one change on the Demo client's Desk, on the test
+// the live version. R9: the latest seeded versions hold v4 processes, and a later version file may
+// name the version it changes (`seedVersionBundle`, ./seed-files.ts). With `e2e` (SEED_E2E=1) also one change on the Demo client's Desk, on the test
 // kit only (`seedDemoDesk`). Idempotent: ids are uuid v5 of fixed names and every insert skips what is
 // already there, so running it twice changes nothing.
 //
@@ -10,13 +11,14 @@
 import { readdir, readFile } from "node:fs/promises";
 import {
   type AgentBundle,
+  type AnyAgentBundle,
   batchKeyOf,
   bundleHash,
   DEFAULT_PERMISSIONS,
   explainWrite,
+  processes,
   startTrial,
   uuidv5,
-  validateBundle,
 } from "@countersign/core";
 import { and, eq, isNull } from "drizzle-orm";
 import { type Db, type Tx, withOperator } from "./client";
@@ -34,6 +36,7 @@ import {
   tenant,
   toolCall,
 } from "./schema";
+import { seedVersionBundle } from "./seed-files";
 
 /** Namespace for seeded ids. Never change it: seeded rows are found again by these ids. */
 export const SEED_NAMESPACE = "3b0f9a56-2c41-4e8f-a1d7-6c5e9b204d18";
@@ -57,48 +60,72 @@ export interface SeedTemplate {
   hash: string;
 }
 
-/** The platform templates, parsed and validated. Throws on any file that fails validation. */
-export async function loadSeedTemplates(): Promise<SeedTemplate[]> {
-  const files = (await readdir(SEED_DIR)).filter((f) => f.endsWith(".v1.json")).sort();
-  const out: SeedTemplate[] = [];
-  for (const file of files) {
-    const slug = file.slice(0, -".v1.json".length);
-    const raw: unknown = JSON.parse(await readFile(new URL(file, SEED_DIR), "utf8"));
-    const result = validateBundle(raw);
-    if (!result.valid || !result.value) {
-      const errors = result.errors.map((e) => `${e.field}: ${e.message}`).join("; ");
-      throw new Error(`seed/agents/${file} is not a valid bundle: ${errors}`);
-    }
-    out.push({ slug, bundle: result.value, hash: await bundleHash(result.value) });
+/**
+ * A seeded bundle, validated: one of v3 workflows exactly as `validateBundle` does, one holding v4
+ * processes with `validateProcess` (core's `validateAnyBundle`). Throws naming every error.
+ */
+function validSeedBundle(raw: unknown, what: string): AnyAgentBundle {
+  const result = processes.validateAnyBundle(raw);
+  if (!result.valid || !result.value) {
+    const errors = result.errors.map((e) => `${e.field}: ${e.message}`).join("; ");
+    throw new Error(`${what} is not a valid bundle: ${errors}`);
+  }
+  return result.value;
+}
+
+/** Every `<slug>.v<n>.json` in a seed folder, parsed, by slug: version number → file. */
+async function seedFiles(dir: URL): Promise<Map<string, Record<number, unknown>>> {
+  const out = new Map<string, Record<number, unknown>>();
+  for (const file of (await readdir(dir)).sort()) {
+    const m = /^([a-z0-9-]+)\.v(\d{1,4})\.json$/.exec(file);
+    if (!m?.[1] || !m[2]) continue;
+    const files = out.get(m[1]) ?? {};
+    files[Number(m[2])] = JSON.parse(await readFile(new URL(file, dir), "utf8"));
+    out.set(m[1], files);
   }
   return out;
 }
 
+/** The platform templates, parsed and validated. Throws on any file that fails validation. */
+export async function loadSeedTemplates(): Promise<SeedTemplate[]> {
+  const out: SeedTemplate[] = [];
+  for (const [slug, files] of await seedFiles(SEED_DIR)) {
+    if (!Object.hasOwn(files, 1)) continue;
+    // A v1 is a whole bundle of v3 workflows, as the seed first wrote it.
+    const bundle = validSeedBundle(files[1], `seed/agents/${slug}.v1.json`) as AgentBundle;
+    out.push({ slug, bundle, hash: await bundleHash(bundle) });
+  }
+  return out.sort((a, b) => a.slug.localeCompare(b.slug));
+}
+
 // v0.12 W2-D: later seeded versions (`<slug>.v<n>.json`, n ≥ 2), e.g. the supervisor's v2, Sloan.
-export interface SeedTemplateVersion extends SeedTemplate {
+// R9: a later version may hold v4 processes, so its bundle is an `AnyAgentBundle`.
+export interface SeedTemplateVersion extends Omit<SeedTemplate, "bundle"> {
   version: number;
+  bundle: AnyAgentBundle;
+}
+
+/** Every version after the first of each agent in a seed folder, by slug then version. */
+async function laterVersions(dir: URL, folder: string): Promise<SeedTemplateVersion[]> {
+  const out: SeedTemplateVersion[] = [];
+  for (const [slug, files] of await seedFiles(dir)) {
+    for (const n of Object.keys(files).map(Number)) {
+      if (n < 2) continue;
+      const what = `seed/${folder}/${slug}.v${n}.json`;
+      const bundle = validSeedBundle(seedVersionBundle(files, n, what), what);
+      out.push({ slug, version: n, bundle, hash: await bundleHash(bundle) });
+    }
+  }
+  return out.sort((a, b) => a.slug.localeCompare(b.slug) || a.version - b.version);
 }
 
 /** Every seeded version after the first, by slug then version. Throws on an invalid file. */
+// DECISION (R9, one agent one process): the supervisor's v4 keeps its four workflows, each a v4
+// process; publishing doesn't apply `processes.oneProcessProblems` yet. When it does, Sloan keeps
+// `chat` and the slug, and the three watches (a failed run, a connection needing attention, the
+// daily check) become agents of their own under the account agent's guard (docs/plan.md §1.86).
 export async function loadSeedVersions(): Promise<SeedTemplateVersion[]> {
-  const out: SeedTemplateVersion[] = [];
-  for (const file of await readdir(SEED_DIR)) {
-    const m = /^([a-z0-9-]+)\.v(\d{1,4})\.json$/.exec(file);
-    if (!m?.[1] || !m[2] || Number(m[2]) < 2) continue;
-    const raw: unknown = JSON.parse(await readFile(new URL(file, SEED_DIR), "utf8"));
-    const result = validateBundle(raw);
-    if (!result.valid || !result.value) {
-      const errors = result.errors.map((e) => `${e.field}: ${e.message}`).join("; ");
-      throw new Error(`seed/agents/${file} is not a valid bundle: ${errors}`);
-    }
-    out.push({
-      slug: m[1],
-      version: Number(m[2]),
-      bundle: result.value,
-      hash: await bundleHash(result.value),
-    });
-  }
-  return out.sort((a, b) => a.slug.localeCompare(b.slug) || a.version - b.version);
+  return laterVersions(SEED_DIR, "agents");
 }
 
 const seedId = (name: string) => uuidv5(name, SEED_NAMESPACE);
@@ -245,7 +272,9 @@ export async function seed(db: Db, options: SeedOptions = {}): Promise<SeedResul
         agentId: template.agentId,
         // DECISION: the next free number, so an operator's own versions keep theirs.
         version: Math.max(0, ...versions.map((x) => x.version)) + 1,
-        bundle: v.bundle,
+        // The column is typed v3; a bundle that holds processes is stored as it is and its readers
+        // check `schemaVersion` (as the agents registry's `parseVersionBundle` stores one).
+        bundle: v.bundle as AgentBundle,
         bundleHash: v.hash,
         status: "live",
         changeNote: `Seeded platform template v${v.version}`,
@@ -326,12 +355,15 @@ export async function loadDemoAgent(): Promise<SeedTemplate> {
   const raw: unknown = JSON.parse(
     await readFile(new URL(DEMO_AGENT_FILE, CLIENT_SEED_DIR), "utf8"),
   );
-  const result = validateBundle(raw);
-  if (!result.valid || !result.value) {
-    const errors = result.errors.map((e) => `${e.field}: ${e.message}`).join("; ");
-    throw new Error(`seed/clients/${DEMO_AGENT_FILE} is not a valid bundle: ${errors}`);
-  }
-  return { slug: DEMO_AGENT_SLUG, bundle: result.value, hash: await bundleHash(result.value) };
+  // Its v1 is a whole bundle of v3 workflows: the version the Desk item's run is on.
+  const bundle = validSeedBundle(raw, `seed/clients/${DEMO_AGENT_FILE}`) as AgentBundle;
+  return { slug: DEMO_AGENT_SLUG, bundle, hash: await bundleHash(bundle) };
+}
+
+/** R9: the Demo client agent's versions after v1 (its v2 holds a v4 process), validated. */
+export async function loadDemoAgentVersions(): Promise<SeedTemplateVersion[]> {
+  const stem = DEMO_AGENT_FILE.slice(0, -".v1.json".length);
+  return (await laterVersions(CLIENT_SEED_DIR, "clients")).filter((v) => v.slug === stem);
 }
 
 async function seedDemoDesk(
@@ -425,6 +457,39 @@ async function seedDemoDesk(
     .onConflictDoNothing();
   if (row.liveVersionId === null) {
     await tx.update(agent).set({ liveVersionId: ids.agentVersionId }).where(eq(agent.id, row.id));
+  }
+  // R9: its later versions (v2 holds the same step as a v4 process) become live once, as the
+  // templates' do. The Desk item's run stays on v1, the version it ran (runs pin their version).
+  for (const v of await loadDemoAgentVersions()) {
+    const versions = await tx
+      .select({ id: agentVersion.id, version: agentVersion.version, hash: agentVersion.bundleHash })
+      .from(agentVersion)
+      .where(and(eq(agentVersion.agentId, ids.agentId), eq(agentVersion.tenantId, tenantId)));
+    if (versions.some((x) => x.hash === v.hash)) continue;
+    const [live] = await tx
+      .select({ liveVersionId: agent.liveVersionId })
+      .from(agent)
+      .where(and(eq(agent.id, ids.agentId), eq(agent.tenantId, tenantId)));
+    const id = await seedId(`demo:agent:${DEMO_AGENT_SLUG}:v${v.version}`);
+    await tx.insert(agentVersion).values({
+      id,
+      tenantId,
+      agentId: ids.agentId,
+      version: Math.max(0, ...versions.map((x) => x.version)) + 1,
+      bundle: v.bundle as AgentBundle,
+      bundleHash: v.hash,
+      status: "live",
+      changeNote: `Seeded Demo client agent v${v.version}`,
+      authorType: "operator",
+      parentVersionId: live?.liveVersionId ?? null,
+    });
+    if (live?.liveVersionId) {
+      await tx
+        .update(agentVersion)
+        .set({ status: "retired" })
+        .where(eq(agentVersion.id, live.liveVersionId));
+    }
+    await tx.update(agent).set({ liveVersionId: id }).where(eq(agent.id, ids.agentId));
   }
 
   // The run, waiting on its one step's approval.

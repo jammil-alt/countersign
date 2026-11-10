@@ -107,6 +107,8 @@ export {
   unflattenBundle,
 } from "./bundle/flatten";
 export * from "./bundle/merge";
+// R8: the builder reads stored v3 workflows as v4 processes (ids kept).
+export * from "./bundle/normalize";
 export * from "./bundle/select";
 // v0.12 W3-A: closest templates
 export * from "./bundle/similarity";

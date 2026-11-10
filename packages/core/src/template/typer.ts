@@ -338,6 +338,21 @@ function listPaths(
   if (ts.includes("array")) push(`${prefix}.length`, { type: "integer" });
 }
 
+/**
+ * R8: every reference under one root (`trigger`, `steps.<id>.output`, `item`), depth-limited, as
+ * the field picker offers them. The v4 builder lists a process scope's roots with it.
+ */
+export function pathOptions(
+  schema: JsonSchema | undefined,
+  prefix: string,
+  depth = 4,
+  stepId?: string,
+): PathOption[] {
+  const out: PathOption[] = [];
+  listPaths(schema, prefix, depth, out, stepId);
+  return out;
+}
+
 /** Every reference the field picker offers at a step, depth-limited. */
 export function pathsAt(
   workflow: Workflow,

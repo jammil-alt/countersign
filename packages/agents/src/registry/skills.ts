@@ -5,11 +5,12 @@
 
 import {
   type AgentBundle,
+  type AnyAgentBundle,
   type BrowserTier,
   hashJson,
   isToolWrapper,
   parseSkillRef,
-  type processes,
+  processes,
   SkillDefinition,
   Slug,
   skillTools,
@@ -417,7 +418,14 @@ export async function resolveCustomSkill(
 /** Every skill reference in a bundle: the agent's skills and every skill step. */
 export function bundleSkillRefs(bundle: AgentBundle): string[] {
   const refs = new Set(bundle.definition.skills.map((s) => s.skill));
-  for (const w of bundle.workflows) {
+  // R8: a bundle the builder saved holds v4 processes, though the column is typed v3.
+  for (const w of (bundle as AnyAgentBundle).workflows) {
+    if (w.workflow.schemaVersion === 4) {
+      for (const { step } of processes.allSteps(w.workflow)) {
+        if (step.kind === "skill") refs.add(step.skill);
+      }
+      continue;
+    }
     walkSteps(w.workflow, ({ step }) => {
       if (step.kind === "skill") refs.add(step.skill);
     });

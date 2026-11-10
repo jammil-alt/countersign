@@ -11,6 +11,8 @@
 import {
   type AgentBundle,
   AgentBundle as AgentBundleSchema,
+  type AnyAgentBundle,
+  AnyAgentBundle as AnyAgentBundleSchema,
   type AutomationDefinition,
   // v0.12 W2-D: the account agent's publish guard
   accountAgentProblems,
@@ -19,10 +21,12 @@ import {
   bundleHash,
   type EventTypeSpec,
   GrantLimits,
+  holdsProcess,
   isExternalTool,
   type PermissionEntity,
   type PermissionMatrix,
   parseSkillRef,
+  processes,
   REVOKED_GRANT,
   type SkillDefinition,
   skillTools,
@@ -73,6 +77,23 @@ export function parseBundle(input: unknown): AgentBundle {
     throw new AgentsError("invalid_bundle", parsed.error.message, parsed.error.issues);
   }
   return parsed.data;
+}
+
+/**
+ * R8 (docs/plan.md §1.86, §9): a bundle as a new version may hold it: v3 workflows, v4 processes
+ * (what the workflow builder saves) or both. A v3 bundle parses to the same value, so the same
+ * canonical JSON and hash, as `parseBundle` gives it.
+ */
+// DECISION: the version row's `bundle` column stays typed as the v3 `AgentBundle` (changing it
+// reaches every reader); a bundle that holds processes is stored through it as it is, and its
+// readers check `schemaVersion` (`AnyAgentBundle` is the true shape). Stored versions are never
+// rewritten (invariant 3): a v3 version stays v3, and the builder's next save is a new version.
+export function parseVersionBundle(input: unknown): AgentBundle {
+  const parsed = AnyAgentBundleSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new AgentsError("invalid_bundle", parsed.error.message, parsed.error.issues);
+  }
+  return parsed.data as AgentBundle;
 }
 
 async function lockAgent(tx: Tx, agentId: string): Promise<AgentRow> {
@@ -174,7 +195,7 @@ export interface CreateVersionInput {
  */
 export async function createVersion(tx: Tx, input: CreateVersionInput): Promise<AgentVersionRow> {
   const row = await lockAgent(tx, input.agentId);
-  const bundle = parseBundle(input.bundle);
+  const bundle = parseVersionBundle(input.bundle);
   const hash = await bundleHash(bundle);
   const [parent] = input.parentVersionId
     ? await tx.select().from(agentVersion).where(eq(agentVersion.id, input.parentVersionId))
@@ -305,7 +326,12 @@ export async function validateForPublish(
     bundle,
     catalog: ctx.catalog,
   });
-  const result = validateBundle(bundle, {
+  // R8: a bundle that holds v4 processes is validated as one (core's `validateAnyBundle`, which
+  // validates an all-v3 bundle exactly as `validateBundle` does).
+  const validate = holdsProcess(bundle as AnyAgentBundle)
+    ? (b: unknown, c: Parameters<typeof validateBundle>[1]) => processes.validateAnyBundle(b, c)
+    : validateBundle;
+  const result = validate(bundle, {
     skills: { ...used.skills, ...skills },
     // v0.14 W4-A: a client agent's shared ids (`whatsapp.send`) are checked against the connector
     // its bindings name (Twilio or Meta).
@@ -337,7 +363,11 @@ export async function validateForPublish(
     automations: used.automations,
     clientAgent: row.kind === "client",
   });
-  const errors = [...result.errors, ...automationPublishErrors(bundle, used)];
+  // v4's codes are v3's and more; the API answers `code` as a string either way.
+  const errors = [
+    ...(result.errors as ValidationError[]),
+    ...automationPublishErrors(bundle, used),
+  ];
   // v0.12 W2-D: the account agent (the supervisor and its forks) never reaches a client's tool:
   // no connector or external tool, no binding (docs/plan.md §1.47 "Guards").
   errors.push(

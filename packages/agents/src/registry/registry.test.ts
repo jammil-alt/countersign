@@ -1,7 +1,13 @@
 // Agent and skill versions, forking, operational fields and activation, against a real database
 // as cs_worker (RLS and grants apply).
 
-import { cloneJson, nodeIds } from "@countersign/core";
+import {
+  type AnyAgentBundle,
+  cloneJson,
+  nodeIds,
+  processes,
+  toProcessBundle,
+} from "@countersign/core";
 import { agent, agentChange, connection, run, skill } from "@countersign/db";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
@@ -26,8 +32,10 @@ import {
   publish,
   rollback,
   updateOperational,
+  validateForPublish,
 } from "./agents";
 import {
+  convertLookup,
   createSkill,
   createSkillVersion,
   publishSkill,
@@ -90,6 +98,39 @@ describe.skipIf(!harness)("agent registry", () => {
       expect(await code(rollback(tx, { agentId: tpl.id, toVersionId: v1.id, ctx: h.ctx }))).toBe(
         "no_op",
       );
+    });
+  });
+
+  // R8 (docs/plan.md §1.86): the workflow builder saves v4 processes as a new version.
+  it("saves a bundle of processes as a new version, validates it as v4, and leaves the v3 one", async () => {
+    await h.ops(async (tx) => {
+      const { agent: tpl, version: v1 } = await createTemplate(tx, {
+        slug: "processes",
+        bundle: makeBundle(),
+      });
+      const v4 = toProcessBundle(v1.bundle, convertLookup(h.catalog, h.tools));
+      const v2 = await createVersion(tx, { agentId: tpl.id, bundle: v4 });
+      expect(v2.version).toBe(2);
+      const stored = v2.bundle as unknown as AnyAgentBundle;
+      expect(stored.workflows.map((w) => w.workflow.schemaVersion)).toEqual([4]);
+      const process = stored.workflows[0]?.workflow;
+      const before = v1.bundle.workflows[0]?.workflow;
+      if (process?.schemaVersion !== 4 || !before) throw new Error("fixture");
+      expect(processes.nodeIds(process)).toEqual(nodeIds(before));
+      // The v3 version is as it was.
+      expect(v1.bundle.workflows[0]?.workflow.schemaVersion).toBe(3);
+      expect(await validateForPublish(tx, tpl, v2.bundle, h.ctx)).toEqual([]);
+      // A v4 problem is answered in the server's words, as the builder shows it.
+      const bad = cloneJson(v4);
+      const first = bad.workflows[0]?.workflow.steps[0];
+      if (first?.kind !== "skill") throw new Error("fixture");
+      first.skill = "test.nope";
+      const v3 = await createVersion(tx, { agentId: tpl.id, bundle: bad });
+      expect(
+        (await validateForPublish(tx, tpl, v3.bundle, h.ctx)).map((e) => [e.code, e.workflow]),
+      ).toContainEqual(["unknown_skill", v1.bundle.workflows[0]?.slug]);
+      await publish(tx, { agentId: tpl.id, versionId: v2.id, ctx: h.ctx });
+      expect((await getAgent(tx, tpl.id)).liveVersionId).toBe(v2.id);
     });
   });
 

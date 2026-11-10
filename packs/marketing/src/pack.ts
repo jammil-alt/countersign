@@ -12,6 +12,7 @@
 
 import type {
   AgentBundle,
+  AnyAgentBundle,
   EventTypeSpec,
   Role,
   SkillDefinition,
@@ -186,10 +187,14 @@ export class PackRefusal extends Error {
   }
 }
 
-/** A template the pack ships: installed as template v1 the first time the pack is switched on. */
+/**
+ * A template the pack ships: installed as template v1 the first time the pack is switched on. R9:
+ * its later versions (v2 first; they may hold v4 processes) are added where an earlier one is.
+ */
 export interface PackTemplate {
   slug: string;
   bundle: AgentBundle;
+  versions?: readonly AnyAgentBundle[];
 }
 
 /** A portal screen (M50); the back office's screens are apps/web's own routes. */

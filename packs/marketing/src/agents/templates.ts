@@ -11,7 +11,12 @@
 // (invariant 11).
 
 import { LINKEDIN_POST_TOOL, WEBSITE_META_TOOL } from "@countersign/connectors";
-import { AgentBundle, type AgentBundleInput } from "@countersign/core";
+import {
+  AgentBundle,
+  type AgentBundleInput,
+  AnyAgentBundle,
+  type AnyAgentBundleInput,
+} from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import type { PackTemplate } from "../pack";
 import {
@@ -23,6 +28,8 @@ import {
   TITLES_SKILL,
   WEEKLY_REPORT_SKILL,
 } from "./skills";
+import { SOCIAL_CHECK_TOOL } from "./social";
+import { TITLES_CHECK_TOOL } from "./titles";
 
 /** The agent set's model: the platform's default for agent reasoning. */
 const MODEL = { id: DEFAULT_MODELS.reasoning, maxTokens: 4096 };
@@ -346,10 +353,193 @@ export const SOCIAL_POSTS: PackTemplate = {
   }),
 };
 
+// ── R9 (docs/plan.md §1.86, §9): each template's v2, its workflow as a v4 process ───────────────
+//
+// Read from v1 by core's converter (`processes.upgradeWorkflowV3`) and checked by hand: every
+// trigger and step id kept, the checks that wrap a tool become `read` steps on it, the two writes
+// keep approval required (and stay verbs a person always signs), nothing waits. The definition is
+// v1's. apps/api's templates-v4 test holds them to the converter's output.
+
+/** Approval on, as v1's `approval: { required: "required" }` reads in v4. */
+const APPROVAL_REQUIRED = {
+  required: "required",
+  mode: "in_turn",
+  ifNoAnswer: "stop",
+  onReject: "stop",
+} as const;
+
+/** A v4 process as a bundle takes it (defaults may be left out). */
+type ProcessInput = Extract<
+  AnyAgentBundleInput["workflows"][number]["workflow"],
+  { schemaVersion: 4 }
+>;
+
+/** The template with a v2: v1's bundle with its one workflow as `process`. */
+function withV2(t: PackTemplate, process: ProcessInput): PackTemplate {
+  const [w, ...more] = t.bundle.workflows;
+  if (!w || more.length > 0) throw new Error(`${t.slug}: one workflow expected`);
+  return {
+    ...t,
+    versions: [
+      AnyAgentBundle.parse({
+        ...t.bundle,
+        workflows: [{ ...w, workflow: process }],
+      } satisfies AnyAgentBundleInput),
+    ],
+  };
+}
+
+const SITE_REPORT_V2 = withV2(SITE_REPORT, {
+  schemaVersion: 4,
+  triggers: [
+    { id: "trg-monday", on: { type: "schedule", cron: "37 7 * * 1" } },
+    { id: "trg-now", on: manual() },
+  ],
+  steps: [
+    {
+      id: "report",
+      kind: "skill",
+      name: "Write the weekly report",
+      skill: WEEKLY_REPORT_SKILL,
+      input: {},
+      client: { visible: true, label: "Wrote the weekly site report" },
+    },
+  ],
+});
+
+const TITLES_V2 = withV2(TITLES, {
+  schemaVersion: 4,
+  triggers: [
+    { id: "trg-wednesday", on: { type: "schedule", cron: "23 8 * * 3" } },
+    { id: "trg-now", on: manual() },
+  ],
+  steps: [
+    {
+      id: "propose",
+      kind: "skill",
+      name: "Find pages to improve",
+      skill: TITLES_SKILL,
+      input: {},
+      client: { visible: true, label: "Looked for pages to improve" },
+    },
+    {
+      id: "check",
+      kind: "read",
+      name: "Check the proposals",
+      tool: TITLES_CHECK_TOOL,
+      input: { proposals: "{{steps.propose.output.proposals}}" },
+      client: { visible: false },
+    },
+    {
+      id: "each",
+      kind: "for_each",
+      name: "Each proposal",
+      over: "{{steps.check.output.proposals}}",
+      concurrency: 1,
+      steps: [
+        {
+          id: "meta",
+          kind: "write",
+          name: "Change the title and description",
+          tool: WEBSITE_META_TOOL,
+          input: {
+            path: "{{item.path}}",
+            title: "{{item.title}}",
+            description: "{{item.description}}",
+          },
+          checks: { approval: APPROVAL_REQUIRED },
+          client: { visible: true, label: "Changed a page's title and description" },
+        },
+      ],
+    },
+  ],
+});
+
+const ARTICLE_DRAFTS_V2 = withV2(ARTICLE_DRAFTS, {
+  schemaVersion: 4,
+  triggers: [
+    { id: "trg-topic", on: manual({ topic: { type: "string", minLength: 3, maxLength: 300 } }) },
+    { id: "trg-thursday", on: { type: "schedule", cron: "13 9 * * 4" } },
+  ],
+  steps: [
+    {
+      id: "draft",
+      kind: "skill",
+      name: "Research and draft a guide",
+      skill: ARTICLE_DRAFT_SKILL,
+      input: { topic: "{{trigger.topic}}" },
+      client: { visible: true, label: "Drafted a guide" },
+    },
+  ],
+});
+
+const FORUM_WATCH_V2 = withV2(FORUM_WATCH, {
+  schemaVersion: 4,
+  triggers: [
+    { id: "trg-hours", on: { type: "schedule", cron: "17 */4 * * *" } },
+    { id: "trg-thread", on: manual({ thread: { type: "string", maxLength: 2048 } }) },
+  ],
+  steps: [
+    {
+      id: "watch",
+      kind: "skill",
+      name: "Look at new threads",
+      skill: FORUM_REPLY_SKILL,
+      input: { thread: "{{trigger.thread}}" },
+      client: { visible: true, label: "Looked at new forum threads" },
+    },
+  ],
+});
+
+const SOCIAL_POSTS_V2 = withV2(SOCIAL_POSTS, {
+  schemaVersion: 4,
+  triggers: [
+    {
+      id: "trg-post",
+      on: manual({
+        guide: { type: "string", format: "uuid" },
+        report: { type: "string", format: "uuid" },
+      }),
+    },
+  ],
+  steps: [
+    {
+      id: "write",
+      kind: "skill",
+      name: "Write the post",
+      skill: SOCIAL_POST_SKILL,
+      input: { guide: "{{trigger.guide}}", report: "{{trigger.report}}" },
+      client: { visible: true, label: "Wrote a LinkedIn post" },
+    },
+    {
+      id: "check",
+      kind: "read",
+      name: "Check the post",
+      tool: SOCIAL_CHECK_TOOL,
+      input: {
+        text: "{{steps.write.output.text}}",
+        guide: "{{steps.write.output.guide}}",
+        report: "{{steps.write.output.report}}",
+      },
+      client: { visible: false },
+    },
+    {
+      id: "post",
+      kind: "write",
+      name: "Post it on LinkedIn",
+      tool: LINKEDIN_POST_TOOL,
+      input: { text: "{{steps.check.output.text}}" },
+      checks: { approval: APPROVAL_REQUIRED },
+      client: { visible: true, label: "Posted on LinkedIn" },
+    },
+  ],
+});
+
+/** The agent set, each template with its v1 (`bundle`) and its v2 (`versions`). */
 export const AGENT_TEMPLATES: readonly PackTemplate[] = [
-  SITE_REPORT,
-  TITLES,
-  ARTICLE_DRAFTS,
-  FORUM_WATCH,
-  SOCIAL_POSTS,
+  SITE_REPORT_V2,
+  TITLES_V2,
+  ARTICLE_DRAFTS_V2,
+  FORUM_WATCH_V2,
+  SOCIAL_POSTS_V2,
 ];
