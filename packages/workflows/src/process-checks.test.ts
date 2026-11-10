@@ -404,7 +404,9 @@ describe("needs help", () => {
     expect(result.status).toBe("succeeded");
     // A script's answer is never written to memory: no answer changes its fixed steps.
     expect(h.agentCalls).toHaveLength(2);
-    expect(h.agentCalls.some((c) => c.step.tool === "memory.write")).toBe(false);
+    expect(h.agentCalls.some((c) => "tool" in c.step && c.step.tool === "memory.write")).toBe(
+      false,
+    );
     expect(h.agentCalls[1]?.input).toMatchObject({ script: "stock", help: "Re-recorded it" });
     const asked = [...h.items.values()][0]?.item;
     expect(asked?.title).toMatch(/couldn.t find #stock/);
