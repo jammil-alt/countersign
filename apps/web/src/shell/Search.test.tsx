@@ -67,6 +67,7 @@ function renderPortal(searches: string[]) {
       </AppProviders>
     </MemoryRouter>,
   );
+  return api;
 }
 
 describe("⌘K search", () => {
@@ -106,6 +107,26 @@ describe("⌘K search", () => {
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(searches).toEqual([]);
+  });
+  it("holds the results' place with skeleton rows while a search is out", async () => {
+    // docs/audit-plan.md 1.3: no loading text in the popover.
+    const searches: string[] = [];
+    const api = renderPortal(searches);
+    let answer: (v: unknown) => void = () => {};
+    api.on("GET /api/search", () => new Promise((resolve) => (answer = resolve)));
+    await userEvent.click(await screen.findByTestId("shell-search"));
+    await userEvent.type(await screen.findByTestId("search-input"), "birch");
+    const skeleton = await screen.findByTestId("search-loading");
+    expect(skeleton).toHaveAttribute("role", "status");
+    expect(skeleton).toHaveTextContent("Loading");
+    // Read by screen readers, not shown: the words sit in the visually hidden label.
+    expect(skeleton.querySelector(".sr-only")).toHaveTextContent("Loading");
+    // Still there once the search has gone out, until it answers.
+    await waitFor(() => expect(api.calls).toContain("GET /api/search"));
+    expect(screen.getByTestId("search-loading")).toBeInTheDocument();
+    answer(PORTAL_HITS);
+    expect(await screen.findAllByTestId("search-hit")).toHaveLength(3);
+    expect(screen.queryByTestId("search-loading")).toBeNull();
   });
 });
 

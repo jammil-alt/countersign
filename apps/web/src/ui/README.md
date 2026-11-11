@@ -40,9 +40,29 @@ the state from core's `runState` (`packages/core/src/api/run-state.ts`).
 - `Section` — `title` (heading), `meta` (muted text on the right), `action`.
 - `PageGrid` — the main column and a 340px right rail (`rail`); the rail drops below on narrow screens.
 - `Columns` — `count` 2, 3 or 4 even columns; one column at phone width.
-- `Loaded` — `state` (from `useApi`) and `children(data)`: Loading, the error with Try again, or the data.
+- `Loaded` — `state` (from `useApi`) and `children(data)`: a skeleton on the first load, the error with
+  Try again, or the data. `skeleton` is the screen's own shapes (below); without one it shows a page
+  body's (`SkeletonPage`). Never loading text after the frame is up.
   Empty lists use `EmptyState` (`primitives.tsx`): an optional `title`, the line (`line` or
   `children`) and an optional `action` (`{ label, to }` for a link, `{ label, onClick }` for a button).
+
+## Skeletons (`skeleton.tsx`)
+
+Placeholders the size of the content, so nothing moves when it arrives. The shapes are
+`aria-hidden`; `Skeleton` around them is the one `role="status"`, with a visually hidden "Loading…" (or
+its `label`) for screen readers. A slow fade, none under reduced motion. Tokens only (`ui-skel*` in
+`page.css`).
+
+- `Skeleton` — the status wrapper: `label`, the shapes as children. `Loaded` adds it for you.
+- `SkeletonLine` — one line of text: `width` (`full`, `long`, `half`, `short` or pixels), `size`
+  (`small`, `text`, `heading`, `title`), each the line's own height.
+- `SkeletonText` — `lines` lines, the last shorter. `SkeletonBlock` — a shape `height` tall.
+- `SkeletonCard` — a padded `Card`: a title line and `lines` of text. `SkeletonStat` — a `StatTile`;
+  `SkeletonStats` — a `KpiStrip` of `count`.
+- `SkeletonRows` — a table in a card: `rows` rows of `columns` cells at `--row-h`.
+- `SkeletonPage` — a heading line and `cards` cards: `Loaded`'s default.
+- `Loading` (`primitives.tsx`) — the same, for a hand-written loading state: three lines by default,
+  `size="line"` for a small slot; its `label` is read, not shown.
 
 ## Cards and figures
 

@@ -13,7 +13,11 @@ export function PortalDocumentScreen() {
   const { id = "" } = useParams();
   const api = useApiClient();
   const { t } = useI18n();
-  const { data, error, loading, reload } = useApi(apiRoutes.portalDocument, { params: { id } });
+  const { data, error, loading, reload } = useApi(apiRoutes.portalDocument, {
+    params: { id },
+    // A 5-minute signed link to the file: never stored.
+    cache: "none",
+  });
   const reading = data?.document.status === "stored" || data?.document.status === "extracting";
   usePoll(reload, reading, 3_000, loading);
 

@@ -4,17 +4,20 @@
 import { type AnyAgentBundle, allTriggers, processes, type SkillOption } from "@countersign/core";
 import { Link } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
-import { useApi } from "../../api/useApi";
+import { type ApiState, useApi } from "../../api/useApi";
 import { shortTime } from "../../runs/format";
 import { Icon } from "../../ui/icons";
-import { Card, ErrorNotice, Loading, SectionLabel, StepKindTag, Tag } from "../../ui/primitives";
+import { Card, ErrorNotice, SectionLabel, StepKindTag, Tag } from "../../ui/primitives";
+import { Skeleton, SkeletonLine } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { toolTitle } from "../builder/model";
 import { ClientViewCard, WhereItRuns } from "../lab/TemplateParts";
 import { runChip } from "../run/words";
+import type { RunLinkState } from "../screens/RunView";
 import { KIND_LABEL, PROCESS_KIND_LABEL, triggerTitle, workflowStats } from "../workflow/describe";
 import { optionFor } from "./definition-form";
 import { useConnectorNames } from "./OperationPanel";
+import { prefetchRun, useIntent } from "./prefetch";
 import { plural } from "./ui";
 
 export function OverviewTab({
@@ -27,7 +30,8 @@ export function OverviewTab({
   bundle: AnyAgentBundle;
   /** The agent page's URL. */
   base: string;
-  skills: readonly SkillOption[];
+  /** The agent's skills, loading beside the agent: its chips wait for them, nothing else does. */
+  skills: ApiState<{ skills: SkillOption[] }>;
 }) {
   const stats = workflowStats(bundle);
   const names = useConnectorNames(agent.id);
@@ -36,9 +40,12 @@ export function OverviewTab({
     (id) => `${toolTitle({ id })} · ${names(id.split(".")[0] ?? id)}`,
   );
   const worksIn = agent.kind === "client" ? Object.keys(agent.bindings).map(names) : [];
-  const skillNames = bundle.definition.skills.map(
-    (s) => optionFor(s.skill, skills)?.name ?? "A skill this agent can't use",
-  );
+  const options = skills.data?.skills;
+  const skillNames = options
+    ? bundle.definition.skills.map(
+        (s) => optionFor(s.skill, options)?.name ?? "A skill this agent can't use",
+      )
+    : null;
   const workflowNames = new Map(bundle.workflows.map((w) => [w.slug, w.name] as const));
   const mission = bundle.definition.identity.mission.trim();
   return (
@@ -93,10 +100,18 @@ export function OverviewTab({
               <Chips testId="agent-tools" items={tools} empty="" />
             </div>
           ) : null}
-          {skillNames.length > 0 ? (
+          {bundle.definition.skills.length > 0 ? (
             <div>
               <SectionLabel>Skills it uses</SectionLabel>
-              <Chips testId="agent-skills" items={skillNames} empty="" />
+              {skillNames ? (
+                <Chips testId="agent-skills" items={skillNames} empty="" />
+              ) : skills.error ? (
+                <ErrorNotice error={skills.error} onRetry={skills.reload} />
+              ) : (
+                <Skeleton>
+                  <SkeletonLine width="long" />
+                </Skeleton>
+              )}
             </div>
           ) : null}
         </div>
@@ -201,10 +216,21 @@ export function LatestRuns({
   workflowNames?: ReadonlyMap<string, string>;
 }) {
   const runs = useApi(apiRoutes.opsRuns, { query: { agent: agentId, limit } });
+  const intent = useIntent();
   return (
     <Card testId="agent-latest-runs" title={limit > 5 ? "Runs" : "Latest runs"} pad>
       {runs.error ? <ErrorNotice error={runs.error} onRetry={runs.reload} /> : null}
-      {!runs.data && !runs.error ? <Loading /> : null}
+      {!runs.data && !runs.error ? (
+        <Skeleton>
+          {Array.from({ length: Math.min(limit, 5) }, (_, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: placeholder rows have no identity.
+            <span key={i} className="flex items-center gap-3 py-2.5">
+              <SkeletonLine width={112} />
+              <SkeletonLine width="half" />
+            </span>
+          ))}
+        </Skeleton>
+      ) : null}
       {runs.data && runs.data.runs.length === 0 ? (
         <p className="text-sm text-ink-muted">No runs yet.</p>
       ) : null}
@@ -216,7 +242,13 @@ export function LatestRuns({
                 <span className="w-28 shrink-0 text-sm text-ink-muted figures">
                   {shortTime(r.startedAt ?? r.createdAt)}
                 </span>
-                <Link to={`/ops/runs/${r.id}`} className="truncate text-ink hover:underline">
+                <Link
+                  to={`/ops/runs/${r.id}`}
+                  // The row travels with the link: the run page draws its title and state at once.
+                  state={{ run: r } satisfies RunLinkState}
+                  className="truncate text-ink hover:underline"
+                  {...intent(r.id, (p) => prefetchRun(p, r.id))}
+                >
                   {r.workflowName ??
                     workflowNames?.get(r.workflowSlug) ??
                     r.workflowSlug.replace(/[-_]+/g, " ")}

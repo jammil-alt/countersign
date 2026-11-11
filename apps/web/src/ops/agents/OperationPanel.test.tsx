@@ -66,6 +66,20 @@ function renderPanel(answers: (string | null)[]) {
 }
 
 describe("activation and a running test run", () => {
+  it("keeps Retire's confirm, saying Retiring, until the server answers (1.8)", async () => {
+    let answer: (v: unknown) => void = () => {};
+    const { api } = renderPanel(["succeeded"]);
+    api.on(`POST /api/ops/agents/${AGENT.id}/retire`, () => new Promise((r) => (answer = r)));
+    await userEvent.click(await screen.findByTestId("agent-retire"));
+    await userEvent.click(screen.getByTestId("agent-retire-confirm"));
+    const confirm = screen.getByTestId("agent-retire-confirm");
+    expect(confirm).toHaveTextContent("Retiring…");
+    expect(confirm).toBeDisabled();
+    expect(screen.queryByTestId("agent-operation-done")).toBeNull();
+    answer({ agent: { ...AGENT, runStatus: "retired" } });
+    expect(await screen.findByTestId("agent-operation-done")).toHaveTextContent("Retired");
+  });
+
   it("says a test run is going, polls it, and turns ready when it passes", async () => {
     renderPanel(["running", "running", "succeeded"]);
     expect(await screen.findByTestId("agent-activation-test-running")).toHaveTextContent(

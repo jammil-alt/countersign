@@ -47,6 +47,7 @@ import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
 import { NewTemplateScreen, TemplatePage } from "./agents/TemplateScreens";
 import { ClientAgentsScreen } from "./client/ClientAgents";
+import { ClientLayout } from "./client/ClientFrame";
 import { OpsClientLedgerScreen } from "./client/ClientLedger";
 import { ClientOverviewScreen } from "./client/ClientOverview";
 import { CommandCenterScreen } from "./command/CommandCenter";
@@ -125,23 +126,71 @@ export const opsRoutes = (
         page of the Data and Setup tabs keeps its own address. */}
     <Route path="clients" element={<ClientsScreen />} />
     <Route path="clients/new" element={<NewClientScreen />} />
-    <Route path="clients/:clientId" element={<ClientOverviewScreen />} />
-    <Route path="clients/:clientId/agents" element={<ClientAgentsScreen />} />
-    {/* Data: Documents and Records */}
-    <Route path="clients/:clientId/documents" element={<OpsDocumentsScreen />} />
+    {/* 1.4 (docs/audit-plan.md): the client page's tabs under one frame (client/ClientFrame.tsx),
+        a layout route without a path of its own, so the header stays still as the tabs change. */}
+    <Route element={<ClientLayout />}>
+      <Route path="clients/:clientId" element={<ClientOverviewScreen />} />
+      <Route path="clients/:clientId/agents" element={<ClientAgentsScreen />} />
+      {/* Data: Documents and Records */}
+      <Route path="clients/:clientId/documents" element={<OpsDocumentsScreen />} />
+      <Route path="clients/:clientId/records" element={<OpsRecordsScreen />} />
+      {/* The client's chart of accounts, classes and locations, changed only with a signature */}
+      <Route path="clients/:clientId/ledger" element={<OpsClientLedgerScreen />} />
+      {/* Setup: Connections, Messaging, Directory and Knowledge */}
+      <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
+      <Route path="clients/:clientId/messaging" element={<OpsMessagingScreen />} />
+      <Route path="clients/:clientId/directory" element={<ClientDirectoryRoute />} />
+      <Route path="clients/:clientId/knowledge" element={<ClientKnowledgeRoute />} />
+      {/* Settings, one section at a time (General, Approvals, People, Billing, …) */}
+      <Route path="clients/:clientId/settings" element={<ClientSettingsScreen />} />
+      <Route path="clients/:clientId/settings/:section" element={<ClientSettingsScreen />} />
+      {/* Packs (P-1): the client's business areas and its pack reports */}
+      <Route path="clients/:clientId/packs" element={<OpsClientPacksScreen />} />
+      <Route
+        path="clients/:clientId/reports/materials/prices"
+        element={<OpsClientPriceWatchScreen />}
+      />
+      <Route
+        path="clients/:clientId/reports/materials/catalog"
+        element={<OpsClientCatalogScreen />}
+      />
+      {/* §1.88: a master item's page, its vendors side by side */}
+      <Route
+        path="clients/:clientId/reports/materials/catalog/:id"
+        element={<OpsClientCatalogScreen />}
+      />
+      {/* §1.88: a client's vendor catalog, and one vendor's */}
+      <Route
+        path="clients/:clientId/reports/materials/vendor-catalog"
+        element={<OpsClientVendorCatalogScreen />}
+      />
+      <Route
+        path="clients/:clientId/reports/materials/vendor-catalog/:id"
+        element={<OpsClientVendorCatalogScreen />}
+      />
+      {/* P-9: a client's purchase requests and one request's page */}
+      <Route
+        path="clients/:clientId/reports/materials/requests"
+        element={<OpsClientRequestsScreen />}
+      />
+      <Route
+        path="clients/:clientId/reports/materials/requests/:id"
+        element={<OpsClientRequestScreen />}
+      />
+      {/* B-6 (docs/plan.md §1.79): a client's bank transactions, account links, rules and chart */}
+      <Route
+        path="clients/:clientId/reports/bookkeeping/transactions"
+        element={<OpsClientBankTransactionsScreen />}
+      />
+      {/* R-1 (docs/plan.md §1.80): a client's reconciliations */}
+      <Route
+        path="clients/:clientId/reports/bookkeeping/reconciliations"
+        element={<OpsClientReconciliationsScreen />}
+      />
+    </Route>
+    {/* A document's and a record's own pages, outside the client's frame */}
     <Route path="clients/:clientId/documents/:documentId" element={<OpsDocumentScreen />} />
-    <Route path="clients/:clientId/records" element={<OpsRecordsScreen />} />
-    {/* The client's chart of accounts, classes and locations, changed only with a signature */}
-    <Route path="clients/:clientId/ledger" element={<OpsClientLedgerScreen />} />
     <Route path="clients/:clientId/records/:recordId" element={<OpsRecordScreen />} />
-    {/* Setup: Connections, Messaging, Directory and Knowledge */}
-    <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
-    <Route path="clients/:clientId/messaging" element={<OpsMessagingScreen />} />
-    <Route path="clients/:clientId/directory" element={<ClientDirectoryRoute />} />
-    <Route path="clients/:clientId/knowledge" element={<ClientKnowledgeRoute />} />
-    {/* Settings, one section at a time (General, Approvals, People, Billing, …) */}
-    <Route path="clients/:clientId/settings" element={<ClientSettingsScreen />} />
-    <Route path="clients/:clientId/settings/:section" element={<ClientSettingsScreen />} />
     {/* The client's runs: the Runs page, filtered to it (linked from the Overview) */}
     <Route path="clients/:clientId/runs" element={<OpsRunsScreen />} />
     {/* Usage, billing, feedback, audit, website logins, requests (UI-3) */}
@@ -162,48 +211,6 @@ export const opsRoutes = (
     <Route path="requests" element={<Redirect to="/ops/utilities/requests" />} />
     {/* Packs (P-1): switch a business area on per client, and a client's pack reports */}
     <Route path="packs" element={<OpsPacksScreen />} />
-    <Route path="clients/:clientId/packs" element={<OpsClientPacksScreen />} />
-    <Route
-      path="clients/:clientId/reports/materials/prices"
-      element={<OpsClientPriceWatchScreen />}
-    />
-    <Route
-      path="clients/:clientId/reports/materials/catalog"
-      element={<OpsClientCatalogScreen />}
-    />
-    {/* §1.88: a master item's page, its vendors side by side */}
-    <Route
-      path="clients/:clientId/reports/materials/catalog/:id"
-      element={<OpsClientCatalogScreen />}
-    />
-    {/* §1.88: a client's vendor catalog, and one vendor's */}
-    <Route
-      path="clients/:clientId/reports/materials/vendor-catalog"
-      element={<OpsClientVendorCatalogScreen />}
-    />
-    <Route
-      path="clients/:clientId/reports/materials/vendor-catalog/:id"
-      element={<OpsClientVendorCatalogScreen />}
-    />
-    {/* P-9: a client's purchase requests and one request's page */}
-    <Route
-      path="clients/:clientId/reports/materials/requests"
-      element={<OpsClientRequestsScreen />}
-    />
-    <Route
-      path="clients/:clientId/reports/materials/requests/:id"
-      element={<OpsClientRequestScreen />}
-    />
-    {/* B-6 (docs/plan.md §1.79): a client's bank transactions, account links, rules and chart */}
-    <Route
-      path="clients/:clientId/reports/bookkeeping/transactions"
-      element={<OpsClientBankTransactionsScreen />}
-    />
-    {/* R-1 (docs/plan.md §1.80): a client's reconciliations */}
-    <Route
-      path="clients/:clientId/reports/bookkeeping/reconciliations"
-      element={<OpsClientReconciliationsScreen />}
-    />
     {/* §1.73: the Marketing area (docs/marketing-plan.md §4.7, §11): the entry opens our own
         client with the pack on; each of a client's marketing pages is one line. */}
     <Route path="marketing" element={<MarketingEntryScreen />} />

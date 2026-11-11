@@ -27,7 +27,7 @@ import {
   urgentOf,
 } from "@countersign/core";
 import { type ReactNode, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
@@ -53,11 +53,11 @@ import {
   Card,
   EmptyState,
   ErrorNotice,
-  Loading,
   PageHeader,
   Tag,
   type Tone,
 } from "../../ui/primitives";
+import { SkeletonCard, SkeletonLine } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { type StepItem, StepList, type StepState } from "../../ui/steps";
 import { Transcript } from "../../ui/transcript";
@@ -105,12 +105,115 @@ const STARTED_BY_WORDS: Record<string, string> = {
   person: "by a person at the client",
 };
 
+/** What a link to a run may hand over: the row that was clicked (a runs list's). */
+export interface RunLinkState {
+  run?: OpsRunRow;
+}
+
+type OpsRunRow = ResponseOf<typeof apiRoutes.opsRuns>["runs"][number];
+
+/** The handed-over row, when it is the run this address names. */
+function handedRun(state: unknown, id: string): OpsRunRow | null {
+  const row = (state as RunLinkState | null)?.run;
+  return row?.id === id ? row : null;
+}
+
+/**
+ * The run page's frame before the run arrives (1.4): the breadcrumb with its short id, its title
+ * and state from the row that was clicked (else their shapes), and the tabs' places.
+ */
+function RunFrameSkeleton({
+  id,
+  row,
+  error,
+  children,
+}: {
+  id: string;
+  row: OpsRunRow | null;
+  error: unknown;
+  children: ReactNode;
+}) {
+  const session = useSession();
+  const clientName = row ? session.tenants.find((t) => t.id === row.tenantId)?.name : undefined;
+  const chip = row ? runChip(row) : null;
+  return (
+    <Page testId="ops-run-skeleton">
+      <nav className="ds-crumbs flex-wrap" aria-label="Breadcrumb">
+        <Link to="/ops/runs" className="text-link hover:underline" data-testid="ops-run-back">
+          Runs
+        </Link>
+        <span aria-hidden>/</span>
+        {row ? (
+          <Link to={`/ops/clients/${row.tenantId}`} className="hover:underline">
+            {clientName ?? "Client"}
+          </Link>
+        ) : (
+          <SkeletonLine width={96} />
+        )}
+        <span aria-hidden>/</span>
+        <b className="reference">{shortRunId(id)}</b>
+      </nav>
+      <div>
+        <PageHeader
+          leading={<span aria-hidden className="ds-avatar ds-avatar--lg bg-surface-subtle" />}
+          title={
+            row ? (
+              opsRunTitle(row.subject, row.workflowName ?? row.workflowSlug)
+            ) : (
+              <SkeletonLine size="title" width={280} />
+            )
+          }
+          badge={
+            chip ? (
+              <StatusChip state={chip.state} testId="ops-run-status">
+                {chip.words}
+              </StatusChip>
+            ) : null
+          }
+          subtitle={error ? undefined : <SkeletonLine width={360} />}
+        />
+        <div className="ds-tabs" role="tablist" aria-label="Run">
+          {(["Timeline", "Changes", "Details"] as const).map((label) => (
+            <button
+              key={label}
+              type="button"
+              role="tab"
+              aria-selected={label === "Timeline"}
+              disabled
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {children}
+    </Page>
+  );
+}
+
+/** The run page's body while it loads: the checklist and the rail. */
+function RunBodySkeleton() {
+  return (
+    <PageGrid
+      rail={
+        <>
+          <SkeletonCard lines={4} />
+          <SkeletonCard lines={2} />
+        </>
+      }
+    >
+      <SkeletonCard lines={6} />
+    </PageGrid>
+  );
+}
+
 export function OpsRunScreen() {
   const { id = "" } = useParams();
   const api = useApiClient();
   const session = useSession();
   const state = useApi(apiRoutes.opsRun, { params: { id } });
   const { data, loading, reload } = state;
+  const location = useLocation();
   // The top bar's client picker shows the run's client.
   usePageClient(data?.run.tenantId);
   const going = data ? isRunGoing(data.run.status) : false;
@@ -125,8 +228,15 @@ export function OpsRunScreen() {
     [data?.workflow],
   );
 
-  if (loading && !data) return <Loading />;
-  if (!data) return <Loaded state={state}>{() => null}</Loaded>;
+  if (!data) {
+    return (
+      <RunFrameSkeleton id={id} row={handedRun(location.state, id)} error={state.error}>
+        <Loaded state={state} skeleton={<RunBodySkeleton />}>
+          {() => null}
+        </Loaded>
+      </RunFrameSkeleton>
+    );
+  }
 
   const { run, agent } = data;
   const resolve = async (itemId: string, body: ResolveInput) => {
@@ -229,6 +339,7 @@ export function OpsRunScreen() {
         />
         {wait ? (
           <WaitingBlock
+            key={wait.item.id}
             wait={wait}
             data={data}
             onResolve={resolve}
@@ -341,7 +452,14 @@ function WaitingBlock({
   onResolve: (itemId: string, body: ResolveInput) => Promise<void>;
   onAnswer: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
+  // The decision on its way: its button says "Sending…" and neither can be pressed again; the
+  // block goes only when the server has the decision (rule 7, invariant 8).
+  const [pressed, setPressed] = useState<"approve" | "reject" | null>(null);
+  const [problem, setProblem] = useState<unknown>(null);
+  // The server has the decision: the block stays shut until the run reloads without this wait
+  // (the block is keyed by its item), so a second press can't send it twice.
+  const [sent, setSent] = useState<"approve" | "reject" | null>(null);
+  const busy = pressed !== null || sent !== null;
   const item = wait.item;
   const action = data.actions.find((a) => a.inboxItemId === item.id);
   const connector = action
@@ -349,11 +467,15 @@ function WaitingBlock({
     : null;
   const approves = item.kind === "external_action" || item.kind === "approval";
   const act = async (decision: "approve" | "reject") => {
-    setBusy(true);
+    setPressed(decision);
+    setProblem(null);
     try {
       await onResolve(item.id, { decision });
+      setSent(decision);
+    } catch (e) {
+      setProblem(e);
     } finally {
-      setBusy(false);
+      setPressed(null);
     }
   };
   const more = wait.items.length > 1 ? ` · ${plural(wait.items.length, "item", "items")}` : "";
@@ -388,7 +510,7 @@ function WaitingBlock({
               disabled={busy}
               onClick={() => void act("reject")}
             >
-              Reject
+              {pressed === "reject" ? "Sending…" : sent === "reject" ? "Rejected" : "Reject"}
             </Button>
             <Button
               data-testid="ops-run-waiting-approve"
@@ -396,7 +518,13 @@ function WaitingBlock({
               disabled={busy}
               onClick={() => void act("approve")}
             >
-              {connector ? `Approve and update ${connector}` : "Approve"}
+              {pressed === "approve"
+                ? "Sending…"
+                : sent === "approve"
+                  ? "Approved"
+                  : connector
+                    ? `Approve and update ${connector}`
+                    : "Approve"}
             </Button>
           </div>
         ) : wait.mine ? (
@@ -413,6 +541,11 @@ function WaitingBlock({
           </Link>
         )}
       </div>
+      {problem ? (
+        <div className="mt-3">
+          <ErrorNotice error={problem} />
+        </div>
+      ) : null}
     </Card>
   );
 }

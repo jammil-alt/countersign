@@ -292,7 +292,11 @@ export function ReleaseCodeEntry({
   const i18n = useI18n();
   const { t } = i18n;
   const api = useApiClient();
-  const state = useApi(apiRoutes.portalReleaseRequest, { params: { id: inboxItemId } });
+  const state = useApi(apiRoutes.portalReleaseRequest, {
+    params: { id: inboxItemId },
+    // A second-factor release is never stored (docs/audit-plan.md 1.2).
+    cache: "none",
+  });
   const [code, setCode] = useState("");
   const [result, setResult] = useState<Result | "sent" | null>(null);
   const [busy, setBusy] = useState(false);

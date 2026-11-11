@@ -159,7 +159,7 @@ about 2.2 MB, pdf-lib 0.8 MB.
 
 ### Results
 
-**Status (lead):** phase 0 done; 1.2 with 1.9 (the cache) in progress on `speed/cache`, alone. Next: 1.3, then the five screen workers.
+**Status (lead), 2026-11-11 12:20 UTC:** foundations merged (#251, #256); step 3: the frame and Home (#257) and the first load (#261) merged; agent pages (#258) and polling (#260) approved and next; portal (#259) in a last fix. Held for the owner, ready: 5.1 (#252), 5.2 (#255), phase 9 (#253), 4.7 transport (#250), 4.7 logins (#254).
 
 Add a row after each phase. "To content" is the script's `settled` time with `LATENCY_MS=100`
 (appendix A): it is not a real-world time, but it shows waits in a row.
@@ -168,6 +168,13 @@ Add a row after each phase. "To content" is the script's `settled` time with `LA
 |---|---|---|---|---|---|---|---|
 | 2026-11-11 | `d2e13ae` | baseline | 7 / 107 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 11 / 122 / 1.0 s | 526 kB |
 | 2026-11-11 | `1c30e45` | phase 0 (re-measured) | 7 / 107 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 11 / 123 / 1.0 s | 601 kB |
+| 2026-11-11 | `5ad1239` | 1.2, 1.9 (the store, #251) | 6 / 93 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 10 / 108 / 1.0 s | 602 kB |
+| 2026-11-11 | `9392ff2` | 1.3 (skeletons, #256) | 6 / 93 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 10 / 108 / 1.1 s | 603 kB |
+| 2026-11-11 | `aa4fe50` | frame and Home (#257: 1.5 Home, 2.3) | 6 / 93 / 0.9 s | 11 / 149 / 0.7 s | 4 / 60 / 1.0 s | 10 / 108 / 1.0 s | 603 kB |
+| 2026-11-11 | `84b38d5` | first load (#261: 1.1, 4.1, 4.3–4.5) | 6 / 93 / 0.9 s | 11 / 149 / 0.7 s | 4 / 60 / 1.0 s | 10 / 108 / 1.0 s | **429 kB** |
+
+From 1.3 on, the script's `paint` (first contentful paint) is not comparable with earlier rows: a
+skeleton is shapes, not text, so the browser counts the first paint only when words arrive.
 
 With 100 ms added per request, a screen that needed one round trip past the session would settle
 in about 0.4 s. Moving inside the app at the baseline: portal agent 0.34 s (three calls in a row),
@@ -195,13 +202,13 @@ Target: the frame paints without waiting for page data; a screen seen in the las
 shows its content at once; no full-page loading text after the first paint; a press answers
 within a tenth of a second.
 
-- [ ] **1.1 Something on screen before the bundle runs.**
+- [x] **1.1 Something on screen before the bundle runs.** (#261)
   Check: `apps/web/index.html` has an empty `#root`.
   Do: put a still frame inside `#root` (the page colour, the sidebar's shape, the mark), styled
   from the main stylesheet with the design system's tokens, in both themes. React replaces it on
   mount. No script is needed, so the CSP is untouched.
 
-- [ ] **1.2 A cache under `useApi`: show what is known, refresh behind.**
+- [x] **1.2 A cache under `useApi`: show what is known, refresh behind.**
   Check: `apps/web/src/api/useApi.tsx` fetches on every mount, keeps nothing, and two components
   asking the same route each make a request.
   Do: keep the hook's signature (229 call sites) and put a store under it, keyed by route and
@@ -225,8 +232,10 @@ within a tenth of a second.
   (D6)**.
   Done when: list → row → back shows the list at once; the Workflow tab asks `catalog/events`
   once.
+  **Done (#251):** rows show at once on the way back (1 call, the frame's); `catalog/events` once.
+  Decisions in `docs/plan.md` §1.91.
 
-- [ ] **1.3 Skeletons in place of "Loading".**
+- [x] **1.3 Skeletons in place of "Loading".**
   Check: `Loaded` (`apps/web/src/ui/page.tsx`) shows the `Loading` text; the loading, error, data
   triple is written by hand in 60 or more places.
   Do: `Skeleton` parts built from the design system's tokens (a line, a card, table rows, a stat):
@@ -235,6 +244,8 @@ within a tenth of a second.
   content. Move the hand-written triples to `Loaded` as each screen is touched.
   Done when: no screen shows the loading text after the frame is up, and content arriving does
   not move what is already on screen.
+  **Done (#256):** loading text seen on 0 of 60 screen loads at `LATENCY_MS=300` (58 before); the
+  boot screens draw a skeleton. Each screen's own shape comes with its screen worker (step 3).
 
 - [ ] **1.4 The frame does not wait for the page.**
   Check: `ClientFrame` (`apps/web/src/ops/client/ClientFrame.tsx`) sits inside each client
@@ -295,7 +306,7 @@ within a tenth of a second.
   - **Typing and filtering**: wrap list updates in `startTransition` so the input never lags;
     keep the old rows, dimmed, while new ones load.
 
-- [ ] **1.9 A failed refresh keeps the page.**
+- [x] **1.9 A failed refresh keeps the page.** (#251)
   Check: a failed call in `useApi` drops `data`; run pages then stop polling because `going` is
   read from `data`. On a key change the last entity's data shows under the new id.
   Do: keep `data` when a refresh fails and show the error beside it; store the key with the data
@@ -322,7 +333,7 @@ is settled by the cache in 1.2; these items are what is left.
   Do: poll fast only for `queued` and `running`. For `waiting`, poll every 30 s.
   Done when: a run page left open on a waiting run makes 2 requests a minute, not 30.
 
-- [ ] **2.3 Escalations and the frame count Needs us once.**
+- [x] **2.3 Escalations and the frame count Needs us once.** (#257)
   Check: `ops/OpsLayout.tsx` polls `/api/ops/counts` and reloads it on every route change, agent
   tab clicks included; `ops/screens/Inbox.tsx` also polls `opsNeedsUs`.
   Do: have Escalations call `useShareCounts` as the command center does; reload counts on a route
@@ -399,7 +410,7 @@ a list of a thousand rows scrolls smoothly. Web and API change together here, a 
 Target: web first load under 300 kB gzipped for the portal; hashed files are never asked for
 twice; no chunk over 300 kB.
 
-- [ ] **4.1 Load one language.**
+- [x] **4.1 Load one language.** (#261)
   Check: `apps/web/src/i18n/catalog.ts` imports all six catalogs.
   Do: keep `en` in the bundle; `import()` the others when the session's language is known.
   Done when: the `ui` chunk no longer contains `de`, `es`, `fr`, `it`, `pt-BR`.
@@ -413,14 +424,14 @@ twice; no chunk over 300 kB.
   lines in place. Screen tests render lazy chunks; watch the 20 s test timeout.
   Done when: the build prints no size warning.
 
-- [ ] **4.3 Start the session call and the back-office chunk early.**
+- [x] **4.3 Start the session call and the back-office chunk early.** (#261)
   Check: `App.tsx` imports `OpsApp` only after `RequireSession` passes, which is after
   `/api/session` returns, which starts in an effect after the bundle runs (`session/session.tsx`).
   Do: start the session fetch before React mounts, and start the `OpsApp` import at module load
   when the path begins `/ops`. The frame's first calls (`opsClients?view=names`, the overview)
   can start with the session call and be dropped if it refuses.
 
-- [ ] **4.4 Cache hashed files for good.**
+- [x] **4.4 Cache hashed files for good.** (#261)
   Check: `curl -sI https://staging.mezonas.com/assets/<file>.js` shows
   `Cache-Control: public, max-age=0, must-revalidate` (seen locally under `wrangler dev`; it is
   Cloudflare's default for static assets).
@@ -428,7 +439,7 @@ twice; no chunk over 300 kB.
   `Cache-Control: public, max-age=31536000, immutable`. The `/*` security headers must still apply
   to those files; check with `curl` on staging.
 
-- [ ] **4.5 Preload the two fonts** (`packages/design-system` Geist files, about 57 kB each) from
+- [x] **4.5 Preload the two fonts** (#261) (`packages/design-system` Geist files, about 57 kB each) from
   `apps/web/index.html`, so text does not wait for the CSS to be parsed. The design system's own
   files stay as delivered.
 
