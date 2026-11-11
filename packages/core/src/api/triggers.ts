@@ -8,6 +8,7 @@ import { defineRoute } from "./contract";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
 const OPS = ["operator"] as const;
+const CLIENT = ["client_admin", "client_user"] as const;
 
 export const TriggerListItem = z.object({
   workflow: z.string(),
@@ -40,7 +41,50 @@ export const AgentTriggers = z.object({
 });
 export type AgentTriggers = z.infer<typeof AgentTriggers>;
 
+/**
+ * How one of the client's agents starts, as the portal's Agent settings tab says it: what kind of
+ * trigger, the facts its words need and when it last started a run. Never its guards, filters,
+ * hooks or anything else of the bundle (invariant 11); event types are mapped to words by the
+ * portal, which shows a generic line for any it has none for.
+ */
+export const PortalTrigger = z.object({
+  /** The job (workflow) it starts, by its name. */
+  job: z.string(),
+  type: z.enum(["event", "schedule", "manual", "command", "webhook", "message", "handoff"]),
+  /** For an event trigger: the event type ("document.extracted"). */
+  event: z.string().nullable(),
+  /** For a schedule: its cron and zone (null: the client's own), and whether it skips holidays. */
+  cron: z.string().nullable(),
+  tz: z.string().nullable(),
+  skipsHolidays: z.boolean(),
+  /** For a manual trigger: the client may start it with Run now. */
+  clientCanRun: z.boolean(),
+  /** For a message trigger: the channels it listens on (email, sms, whatsapp, command, sloan). */
+  channels: z.array(z.string()),
+  /** When it last started a live run; null when it never has. */
+  lastStartedAt: z.string().nullable(),
+});
+export type PortalTrigger = z.infer<typeof PortalTrigger>;
+
+export const PortalAgentTriggers = z.object({
+  /** `/name` in the client's threads; null while the agent isn't active. */
+  commandName: z.string().nullable(),
+  /** The triggers of its enabled jobs, in the order its jobs are listed. */
+  triggers: z.array(PortalTrigger),
+});
+export type PortalAgentTriggers = z.infer<typeof PortalAgentTriggers>;
+
 export const triggerRoutes = {
+  portalAgentTriggers: defineRoute({
+    method: "GET",
+    path: "/api/services/:id/triggers",
+    auth: "session",
+    roles: CLIENT,
+    summary:
+      "How one of your services starts: each trigger of its jobs in plain facts, never its rules",
+    params: z.object({ id: Id }),
+    response: PortalAgentTriggers,
+  }),
   opsAgentTriggers: defineRoute({
     method: "GET",
     path: "/api/ops/agents/:id/triggers",

@@ -76,7 +76,7 @@ describe("the portal's routes", () => {
       "/inbox",
       "/agents/x",
       "/agents/x/runs",
-      "/agents/x/access",
+      "/agents/x/settings",
       "/accounts",
       "/contacts",
       "/settings",

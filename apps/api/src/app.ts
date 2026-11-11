@@ -125,7 +125,7 @@ import { threadRouteHandlers } from "./routes/threads";
 // P-7: message translation
 import { translationRoutes } from "./routes/translation";
 // v0.12 W2-E
-import { triggerRouteHandlers } from "./routes/triggers";
+import { portalTriggerRoutes, triggerRouteHandlers } from "./routes/triggers";
 import { twilioHookRoutes } from "./routes/twilio-hooks";
 import { twilioVoiceRoutes } from "./routes/twilio-voice";
 import { usageRouteHandlers } from "./routes/usage";
@@ -244,6 +244,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsConnectorRoutes(app);
   // v0.12 W2-E: the triggers list
   triggerRouteHandlers(app);
+  portalTriggerRoutes(app);
   // v0.13 W2-I: run oversight decisions for the agent lab
   opsOversightRoutes(app);
   // Wave 6: the audit queue, marks, stats, sampling settings and the run export (plan §1.86)

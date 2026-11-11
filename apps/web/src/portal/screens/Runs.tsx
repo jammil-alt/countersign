@@ -29,16 +29,16 @@ import { runChip, runOpen, runState, runStateWords, workedMs } from "../status";
 import { RunsPerDayChart, TookCell } from "./runsParts";
 
 /** The status tabs: each one a `statuses` filter on the list. */
-const TABS = {
+export const TABS = {
   all: null,
   going: "queued,running",
   waiting: "waiting",
   done: "succeeded",
   notFinished: "failed,cancelled",
 } as const;
-type Tab = keyof typeof TABS;
+export type Tab = keyof typeof TABS;
 
-const TAB_WORDS: Record<Tab, PlainKey> = {
+export const TAB_WORDS: Record<Tab, PlainKey> = {
   all: "runsPage.tab.all",
   going: "runsPage.tab.going",
   waiting: "runsPage.tab.waiting",
