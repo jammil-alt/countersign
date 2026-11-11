@@ -14,6 +14,18 @@ export interface BrowserCookie {
   httpOnly: boolean;
   secure: boolean;
   sameSite: "Strict" | "Lax" | "None";
+  /** A partitioned (CHIPS) cookie's top-level site, as Playwright keeps it; absent otherwise. */
+  partitionKey?: string;
+}
+
+/** What a `fill` may ask of the tab before it types. */
+export interface BrowserFillOptions {
+  /**
+   * Origins (`https://host[:port]`) the tab must be on, by the browser's own address at the moment
+   * of typing; on any other address nothing is typed and the fill fails. Sign-in passes the site's
+   * login origins, so a secret is never typed where a page moved by itself.
+   */
+  onlyOn?: readonly string[];
 }
 
 /** A table on the page: header cells and body rows, as text. */
@@ -52,10 +64,16 @@ export interface BrowserDownload {
 export interface BrowserTab {
   /** The address the tab is on now (after redirects and scripts). */
   url(): string;
+  /**
+   * The address, asked of the browser itself. A remote tab's `url()` is the address as of its last
+   * call, which can be minutes old after a wait (a sign-in's code); sign-in asks this before it
+   * types. Absent: `url()` is already live.
+   */
+  where?(): Promise<string>;
   /** Opens an address and waits for the page to load. */
   goto(url: string): Promise<void>;
   /** Types into the element `selector` names (replacing what was there). */
-  fill(selector: string, value: string): Promise<void>;
+  fill(selector: string, value: string, options?: BrowserFillOptions): Promise<void>;
   /** Clicks it and waits for the page to settle. */
   click(selector: string): Promise<void>;
   /** Whether an element matching `selector` is on the page. */
@@ -106,4 +124,63 @@ export interface BrowserTab {
 /** Opens a fresh browser with one tab. */
 export interface BrowserDriver {
   open(): Promise<BrowserTab>;
+}
+
+// The browser service (apps/browser, Worker `mezonas-browser`; docs/plan.md §1.26 "Browser
+// driver"): Browser Run and Playwright live in a Worker of their own, and apps/api reaches it only
+// through its `BROWSER` service binding. The service makes no decision: apps/api's connector keeps
+// the permission gate, pinned origins, the blocked tier, the vault, the audit and external actions,
+// and drives the tab below one primitive at a time. A secret typed by `fill` crosses for that one
+// call, with the origins apps/api allows it on, and is never written to a log, stored or returned.
+
+/**
+ * What a tab call answers over RPC: its value, and the address the tab was on when the call ended
+ * (an RPC tab can't answer `url()` without a round trip, so each call brings it back).
+ */
+export interface BrowserTabAnswer<T> {
+  url: string;
+  value: T;
+}
+
+/** One tab in the browser service, as apps/api holds it: every `BrowserTab` method, over RPC. */
+export interface BrowserTabService {
+  goto(url: string): Promise<BrowserTabAnswer<null>>;
+  /** `onlyOn`: the fill's origins (`BrowserFillOptions`), checked on the live address. */
+  fill(selector: string, value: string, onlyOn?: string[]): Promise<BrowserTabAnswer<null>>;
+  /** The live address (`BrowserTab.where`), in the answer's `url`. */
+  where(): Promise<BrowserTabAnswer<null>>;
+  click(selector: string): Promise<BrowserTabAnswer<null>>;
+  has(selector: string): Promise<BrowserTabAnswer<boolean>>;
+  readText(): Promise<BrowserTabAnswer<string>>;
+  readTables(): Promise<BrowserTabAnswer<BrowserTable[]>>;
+  textOf(selector: string): Promise<BrowserTabAnswer<string | null>>;
+  controls(): Promise<BrowserTabAnswer<BrowserControl[]>>;
+  sendsForm(selector: string): Promise<BrowserTabAnswer<boolean>>;
+  readOnly(on: boolean): Promise<BrowserTabAnswer<null>>;
+  download(url: string): Promise<BrowserTabAnswer<BrowserDownload>>;
+  cookies(): Promise<BrowserTabAnswer<BrowserCookie[]>>;
+  setCookies(cookies: BrowserCookie[]): Promise<BrowserTabAnswer<null>>;
+  screenshot(): Promise<BrowserTabAnswer<Uint8Array>>;
+  alive(): Promise<boolean>;
+  close(): Promise<void>;
+}
+
+/** What `open` asks for: the site's hosts (at most 50) and, for a held session, its keep-alive. */
+export interface BrowserOpenInput {
+  hosts: string[];
+  keepAliveMs?: number | undefined;
+}
+
+/** What `open` answers: the tab and its address, or why there is none. */
+export type BrowserOpenAnswer =
+  | { ok: true; url: string; tab: BrowserTabService }
+  | { ok: false; error: { code: "no_browser" | "invalid"; message: string } };
+
+/**
+ * The browser service's RPC entrypoint (`Browsers`): a fresh browser with one tab, held to `hosts`;
+ * `no_browser` when the service has no Browser Run binding (local development). The tab lives until
+ * `close`, or until apps/api lets go of it (the service then closes the browser).
+ */
+export interface BrowserService {
+  open(input: BrowserOpenInput): Promise<BrowserOpenAnswer>;
 }

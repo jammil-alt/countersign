@@ -3,7 +3,8 @@ name: Deploy
 # main → staging on every push (docs-only pushes ride along with the next deploy). Production by a
 # `v*` tag or a manual run. Each deploy runs the full check, migrates the target's Neon branch as
 # cs_owner, deploys the code service (apps/mfa, Worker mezonas-codes) and its secrets, then
-# `wrangler deploy` from apps/api, whose `CODES` service binding needs the code service to exist.
+# the browser service (apps/browser, Worker mezonas-browser), then `wrangler deploy` from apps/api,
+# whose `CODES` and `BROWSER` service bindings need both to exist.
 # The public site (apps/site, Worker mezonas-site, mezonas.com) deploys in its own job, from main only.
 # Inert until the secrets in docs/operations.md §1 exist, and until apps/api has a wrangler.jsonc (M0).
 
@@ -177,6 +178,15 @@ jobs:
             echo "::add-mask::$value"
             put MFA_ENCRYPTION_KEY "$value"
           fi
+
+      # The browser service (apps/browser, docs/plan.md §1.26) before apps/api too: apps/api's
+      # `BROWSER` service binding points at it. Browser Run and Playwright only; no secrets.
+      - name: Deploy the browser service
+        if: steps.ready.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          env_flag=$([ "$TARGET" = production ] && echo '--env=production' || echo '--env=staging')
+          pnpm --filter @countersign/browser exec wrangler deploy "$env_flag"
 
       # Error tracking (apps/web/src/observability.ts): the browser's Sentry DSN and the commit as
       # its release. The DSN is not a secret (it ships in the page); a repository variable or a

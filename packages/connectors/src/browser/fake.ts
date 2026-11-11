@@ -507,6 +507,15 @@ export type FakeBrowserEvent =
   | { op: "set_cookies"; count: number }
   | { op: "close" };
 
+/** An address's origin (`https://host[:port]`); empty for anything that isn't one. */
+function originOf(address: string): string {
+  try {
+    return webUrl(address).origin;
+  } catch {
+    return "";
+  }
+}
+
 /** A BrowserDriver over a FakeSupplierPortal; every tab's events are kept in `events`. */
 export class FakeBrowserDriver implements BrowserDriver {
   readonly events: FakeBrowserEvent[] = [];
@@ -561,9 +570,12 @@ export class FakeBrowserDriver implements BrowserDriver {
         events.push({ op: "goto", url: target });
         land(target);
       },
-      async fill(selector, value) {
+      async fill(selector, value, options) {
         answer();
         if (!page.selectors.includes(selector)) throw new Error(`no ${selector} on ${url}`);
+        if (options?.onlyOn && !options.onlyOn.includes(originOf(url))) {
+          throw new Error(`not on ${options.onlyOn.join(", ")}; nothing typed`);
+        }
         events.push({ op: "fill", url, selector, value });
         form[selector] = value;
       },

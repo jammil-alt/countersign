@@ -1,7 +1,7 @@
 // The Worker's environment: the bindings and vars wrangler.jsonc declares (the generated `Env`),
 // plus the secrets, which never appear in wrangler.jsonc and so are not in the generated type.
 
-import type { BrowserWorker } from "@cloudflare/playwright";
+import type { BrowserService } from "@countersign/connectors";
 import type { CodesMailbox, CodesService } from "@countersign/core";
 
 export interface Secrets {
@@ -160,7 +160,9 @@ export interface Vars {
 /**
  * Bindings not (yet) in wrangler.jsonc everywhere. `CODES` is the code service (apps/mfa,
  * Worker `mezonas-codes`), reached only by this service binding; unset, it is off. `BROWSER` is
- * Cloudflare Browser Run, for browser logins (docs/plan.md §1.26); unset, they are not available.
+ * the browser service (apps/browser, Worker `mezonas-browser`, entrypoint `Browsers`), which runs
+ * Browser Run for website logins and browser tool calls (docs/plan.md §1.26), reached only by this
+ * service binding; unset, they are not available.
  */
 export interface OptionalBindings {
   CODES?: CodesService & Partial<CodesMailbox>;
@@ -174,7 +176,7 @@ export interface OptionalBindings {
   // v0.14 capture
   /** CaptureWorkflow: one instance per WhatsApp message whose attachments are fetched (§1.55). */
   CAPTURE_WORKFLOW?: Workflow;
-  BROWSER?: BrowserWorker;
+  BROWSER?: BrowserService;
   /** Cloudflare's rate limiting: MCP calls per operator (src/mcp/limits.ts); unset, per isolate. */
   MCP_RATE_LIMIT?: RateLimiterBinding;
   // M46 (docs/plan.md §1.76): the bucket published guides go to, which the site Worker reads
