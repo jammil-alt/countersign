@@ -68,8 +68,8 @@ function txnQueryTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinitio
     entity: entity === "Bill" ? "bill" : "purchase",
     description:
       entity === "Bill"
-        ? "Find bills in QuickBooks by id, vendor, number or date, with their lines and SyncToken."
-        : "Find purchases (card charges, checks, cash) in QuickBooks by id, payee or date, with their lines and SyncToken.",
+        ? "Find bills in QuickBooks by id, vendor, number or date (from and to, or the last N days), with their lines and SyncToken."
+        : "Find purchases (card charges, checks, cash) in QuickBooks by id, payee or date (from and to, or the last N days), with their lines and SyncToken.",
     summary: `Found {{${plural}.length}} ${plural}`,
     input: z.object({
       ids: z.array(QboId).min(1).max(30).optional(),
@@ -77,6 +77,8 @@ function txnQueryTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinitio
       docNumber: z.string().min(1).max(21).optional(),
       from: IsoDate.optional(),
       to: IsoDate.optional(),
+      /** Dated in the last N days, today included: a rolling window, used when `from` is empty. */
+      lastDays: z.number().int().min(1).max(3650).optional(),
       ...Page,
     }),
     output: z.object({ [plural]: z.array(QboTxn), more: z.boolean() }) as z.ZodType<
@@ -92,13 +94,25 @@ function txnQueryTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinitio
         );
       }
       if (input.docNumber) conds.push(`DocNumber = ${qboLiteral(input.docNumber)}`);
-      if (input.from) conds.push(`TxnDate >= ${qboLiteral(input.from)}`);
+      const from =
+        input.from ?? (input.lastDays ? daysBefore(ctx.now(), input.lastDays) : undefined);
+      if (from) conds.push(`TxnDate >= ${qboLiteral(from)}`);
       if (input.to) conds.push(`TxnDate <= ${qboLiteral(input.to)}`);
       const client = await clientFor(ctx);
       const { rows, more } = await page(client, entity, conds, input, (r) => toTxn(entity, r));
       return { [plural]: rows, more };
     },
   });
+}
+
+/**
+ * The date N days before today, so "the last 30 days" is today and the 30 days before it.
+ */
+// DECISION (owner, 2026-11-11, "last 30 days" for the price checker): today is the UTC date. The
+// tool has no client time zone, and a day's difference at the edge doesn't matter for a lookback.
+// The window is on the bill's date (TxnDate), as `from` and `to` are.
+function daysBefore(now: Date, days: number): string {
+  return new Date(now.getTime() - days * 86_400_000).toISOString().slice(0, 10);
 }
 
 // ── Itemizing lines ─────────────────────────────────────────────────────────────────────────────
