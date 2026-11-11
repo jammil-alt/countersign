@@ -3804,6 +3804,31 @@ offer, and fork + publish with QuickBooks, and with QuickBooks and BILL).
   override is still held only when it loosens.
 - // DECISION: a wait's request carries an action's resolved channel (`WaitRequest.binding`), so a
   message action that runs again after a release goes through the same connection.
+- // DECISION (second review, `skills/fix2`): what a version's steps are checked against is
+  `existingBundle`: the nearest published (live or retired) version it was edited from, through any
+  drafts in between; with none, the template version a client agent is based on (checked the same
+  way when that is a draft); else nothing, and every step is new (`validateForPublish`'s
+  `previous: "none"`). It replaces "a first version has no parent, so nothing in it counts as new":
+  a first version the operator or the Builder writes (a client agent from scratch, a copy of an
+  unlinked agent, a template made in the back office) has every step new; a fork's v1 is checked
+  against the template version it copies, so nothing in it is new. Publish, saved drafts, test runs
+  and the Builder's drafts, revisions, conversations and saves all use it.
+- // DECISION (second review): a template's first version installed from code (a seeded platform
+  template's install, a pack's) is published with `installed: true`, which counts none of its
+  steps as new: its steps are the platform's, not new work. The seed writes its rows directly and
+  publishes nothing, so it is unchanged. A later version installed from code is checked against
+  the version before it, as before.
+- // DECISION (second review): only a published version counts as already there, so a step a draft
+  added is still new in a draft saved on it. A rollback passes the version it restores as what
+  exists only when that version was published (live or retired); a rollback to a draft is checked
+  as any version is, against the live version (`opsRollback` still takes any version id of the
+  agent).
+- // DECISION (second review): the AI Builder is offered what the palette offers for a new step: its
+  context's skills leave out tool wrappers and every skill `newStepSkillReason` refuses (a retired
+  kind, a skill that writes), and its tools leave out `SPLIT_MODEL_TOOLS` and `account.*`, each kept
+  where the version being revised (else the agent's latest) already uses it, with the tools a kept
+  skill calls, so a revision keeps its stored steps. The Builder's skill drafts get the same tools.
+  The live templates it is shown as starting points still list their skills as they are.
 - Not fixed: Check matches still applies `match_confidence_auto` inside the skill (below it a line
   is "unsure" and needs review). Moving it to an If step means a For each over the checked lines
   with an If per line and a review flag on `materials.matches.record`, which changes the matching

@@ -2398,7 +2398,10 @@ Decided, and it supersedes the method table below (`rules_then_ai` and the four 
   followed by write steps. Stored versions and stored steps keep running (invariant 3). A skill
   whose own tools write (Read quote and Read statement, which record a reading) is retired for new
   steps too, and the tools a split replaced (document extraction, item matching) are offered as
-  steps only where an agent already calls them; a tool step that calls a model reads AI.
+  steps only where an agent already calls them; a tool step that calls a model reads AI. A step is
+  new unless the last published version it was edited from has it (a fork's first version: its
+  template version); every step of any other first version the operator or the Builder writes is
+  new, and the Builder is offered only what the palette offers.
 - **AI then a check**: where an AI skill's answer feeds a write, a deterministic skill checks it
   first and an If step routes a failure to a person (the Bill clerk: Prepare bill, Check bill,
   Create bill; invariant 7).
