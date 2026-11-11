@@ -134,4 +134,26 @@ describe("the chart of accounts", () => {
       "already a class named Shop",
     );
   });
+
+  it("says Signing while the signed change goes to QuickBooks (1.8)", async () => {
+    let answer: (v: unknown) => void = () => {};
+    renderLedger({
+      [`GET /api/ops/clients/${CLIENT}/ledger`]: () => LEDGER,
+      [`POST /api/ops/clients/${CLIENT}/ledger/changes`]: () => new Promise((r) => (answer = r)),
+    });
+    const card = await screen.findByTestId("ops-ledger-card");
+    await userEvent.click(within(card).getByTestId("ops-ledger-add-class"));
+    const form = within(card).getByTestId("ops-ledger-form");
+    await userEvent.type(within(form).getByTestId("ops-ledger-name"), "Shop");
+    await userEvent.click(within(form).getByTestId("ops-ledger-review"));
+    await userEvent.click(within(form).getByTestId("ops-ledger-sign"));
+    const sign = within(form).getByTestId("ops-ledger-sign");
+    expect(sign).toHaveTextContent("Signing…");
+    expect(sign).toBeDisabled();
+    answer({ status: "failed", output: null, error: "QuickBooks said no" });
+    expect(await within(form).findByTestId("ops-ledger-problem")).toHaveTextContent(
+      "QuickBooks said no",
+    );
+    expect(within(form).getByTestId("ops-ledger-sign")).toHaveTextContent("Sign and save");
+  });
 });

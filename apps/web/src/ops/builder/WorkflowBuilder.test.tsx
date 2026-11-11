@@ -919,6 +919,24 @@ describe("WorkflowBuilder", () => {
     expect(changed()).toBe(1);
   });
 
+  it("says Publishing at once and shows nothing published before the answer (1.8)", async () => {
+    let answer: (v: unknown) => void = () => {};
+    const { api } = setup();
+    api.on(
+      `POST /api/ops/agents/${AGENT_ID}/versions/${V1}/publish`,
+      () => new Promise((r) => (answer = r)),
+    );
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-publish"));
+    const publish = screen.getByTestId("builder-publish");
+    expect(publish).toHaveTextContent("Publishing…");
+    expect(publish).toBeDisabled();
+    expect(screen.getByTestId("builder-version")).not.toHaveTextContent("Live");
+    answer({ version: version(V1, 1, "live", null) });
+    expect(await screen.findByTestId("builder-notice")).toHaveTextContent("Published v1.");
+  });
+
   it("publishes the version it opened, or saves then publishes", async () => {
     const { sent } = setup();
     await ready();
