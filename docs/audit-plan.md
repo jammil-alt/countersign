@@ -159,7 +159,7 @@ about 2.2 MB, pdf-lib 0.8 MB.
 
 ### Results
 
-**Status (lead):** phase 0 done on `speed/run`; next, the foundations (1.2 with 1.9).
+**Status (lead):** phase 0 done; 1.2 with 1.9 (the cache) in progress on `speed/cache`, alone. Next: 1.3, then the five screen workers.
 
 Add a row after each phase. "To content" is the script's `settled` time with `LATENCY_MS=100`
 (appendix A): it is not a real-world time, but it shows waits in a row.
