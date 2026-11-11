@@ -68,6 +68,8 @@ describe("tool registry", () => {
       "directory.get",
       "directory.search",
       "directory.suggest",
+      // Review: Check bill.
+      "docs.bill.check",
       "docs.bill_lines",
       "docs.extract",
       "docs.find_support",
