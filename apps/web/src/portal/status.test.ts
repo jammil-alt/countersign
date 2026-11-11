@@ -1,7 +1,16 @@
 // QA round 1: the client's status model, the one function per kind every portal screen calls.
 import { describe, expect, it } from "vitest";
 import { createTranslator } from "../i18n/catalog";
-import { agentChip, agentState, runChip, runOpen, runState, workedMs } from "./status";
+import {
+  agentChip,
+  agentState,
+  portalRunPollMs,
+  portalRunsPollMs,
+  runChip,
+  runOpen,
+  runState,
+  workedMs,
+} from "./status";
 
 const t = createTranslator("en");
 
@@ -36,6 +45,32 @@ describe("a run's state", () => {
     expect(workedMs({ ...run, waitedMs: undefined })).toBe(22 * 3_600_000);
     // Not finished: nothing to show yet ("—").
     expect(workedMs({ ...run, finishedAt: null })).toBeNull();
+  });
+});
+
+describe("how often a run's screens ask again (docs/audit-plan.md 2.2)", () => {
+  it("fast while it works, every 30 s while it waits on you, never once it is over", () => {
+    expect(portalRunPollMs({ status: "queued" }, 2_000)).toBe(2_000);
+    expect(portalRunPollMs({ status: "running" }, 2_000)).toBe(2_000);
+    expect(portalRunPollMs({ status: "waiting" }, 2_000)).toBe(30_000);
+    expect(portalRunPollMs({ status: "running", waitingOnYou: true }, 2_000)).toBe(30_000);
+    for (const status of ["succeeded", "failed", "cancelled"]) {
+      expect(portalRunPollMs({ status }, 2_000)).toBeNull();
+    }
+  });
+
+  it("does not change what a waiting run is shown as", () => {
+    const waiting = { status: "running", waitingOnYou: true };
+    expect(runOpen(waiting)).toBe(true);
+    expect(runChip(waiting, t).state).toBe("waiting");
+  });
+
+  it("polls a list at the rate of its busiest run", () => {
+    expect(portalRunsPollMs([{ status: "succeeded" }], 5_000)).toBeNull();
+    expect(portalRunsPollMs([{ status: "succeeded" }, { status: "waiting" }], 5_000)).toBe(30_000);
+    expect(
+      portalRunsPollMs([{ status: "running", waitingOnYou: true }, { status: "queued" }], 5_000),
+    ).toBe(5_000);
   });
 });
 

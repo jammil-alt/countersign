@@ -30,7 +30,7 @@ import {
   type PersonImportRow,
   type Relationship,
 } from "@countersign/core";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, startTransition, useState } from "react";
 import { isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
@@ -38,7 +38,9 @@ import type { PlainKey } from "../i18n/catalog";
 import { errorText } from "../i18n/errors";
 import { type I18n, useI18n } from "../i18n/i18n";
 import { AccessBadge, InviteContactAction } from "../people/People";
+import { useAnswered, useDebounced } from "../runs/useDebounced";
 import { Field, Select, TextArea, TextInput } from "../ui/forms";
+import { Loaded } from "../ui/page";
 import {
   Badge,
   Button,
@@ -47,9 +49,9 @@ import {
   cx,
   EmptyState,
   ErrorNotice,
-  Loading,
   SectionLabel,
 } from "../ui/primitives";
+import { SkeletonCard, SkeletonRows } from "../ui/skeleton";
 
 export type DirectorySurface = { kind: "ops"; clientId: string } | { kind: "portal" };
 
@@ -238,13 +240,17 @@ export function DirectoryPanel({
   const [q, setQ] = useState("");
   const [relationship, setRelationship] = useState<Relationship | "">("");
   const [kind, setKind] = useState<OrganizationKind | "">("");
+  // The server is asked once typing pauses, not once a letter (docs/audit-plan.md 2.4).
+  const typed = useDebounced(q.trim());
   const query: DirectoryListQuery = {
-    ...(q.trim() ? { q: q.trim() } : {}),
+    ...(typed ? { q: typed } : {}),
     ...(relationship && tab === "people" ? { relationship } : {}),
     ...(kind ? { kind } : {}),
   };
   const d = useDirectoryApi(surface, query);
-  const { data, error, loading, reload } = d.list;
+  const { data, error, reload } = d.list;
+  // What the rows on screen answer: an earlier search while the next loads, or if it failed.
+  const stale = useAnswered(data, query).stale;
   const allTabs: { id: Tab; label: string; count?: number }[] = [
     { id: "people", label: t("directory.tab.people") },
     { id: "organizations", label: t("directory.tab.organizations") },
@@ -303,7 +309,10 @@ export function DirectoryPanel({
             <Field label={t("directory.filter.relationship")}>
               <Select
                 value={relationship}
-                onChange={(e) => setRelationship(e.target.value as Relationship | "")}
+                onChange={(e) => {
+                  const next = e.target.value as Relationship | "";
+                  startTransition(() => setRelationship(next));
+                }}
                 data-testid="directory-filter-relationship"
               >
                 <option value="">{t("directory.filter.any")}</option>
@@ -320,7 +329,10 @@ export function DirectoryPanel({
           <Field label={t("directory.filter.kind")}>
             <Select
               value={kind}
-              onChange={(e) => setKind(e.target.value as OrganizationKind | "")}
+              onChange={(e) => {
+                const next = e.target.value as OrganizationKind | "";
+                startTransition(() => setKind(next));
+              }}
               data-testid="directory-filter-kind"
             >
               <option value="">{t("directory.filter.any")}</option>
@@ -334,18 +346,30 @@ export function DirectoryPanel({
         </div>
       ) : null}
 
-      {loading && !data ? <Loading /> : null}
-      {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      {data && tab === "people" ? (
-        <People api={d} people={data.people} canEdit={canEdit} onChanged={reload} />
-      ) : null}
-      {data && tab === "organizations" ? (
-        <Organizations
-          api={d}
-          organizations={data.organizations}
-          canEdit={canEdit}
-          onChanged={reload}
-        />
+      {tab === "people" || tab === "organizations" ? (
+        <>
+          {data && error ? <ErrorNotice error={error} onRetry={reload} /> : null}
+          <Loaded state={d.list} skeleton={<SkeletonRows rows={6} columns={3} />}>
+            {(list) => (
+              <div
+                aria-busy={stale}
+                data-testid="directory-list"
+                className={cx("transition-opacity", stale && "opacity-60")}
+              >
+                {tab === "people" ? (
+                  <People api={d} people={list.people} canEdit={canEdit} onChanged={reload} />
+                ) : (
+                  <Organizations
+                    api={d}
+                    organizations={list.organizations}
+                    canEdit={canEdit}
+                    onChanged={reload}
+                  />
+                )}
+              </div>
+            )}
+          </Loaded>
+        </>
       ) : null}
       {tab === "import" && canEdit ? <Import api={d} onApplied={reload} /> : null}
       {tab === "suggestions" && canEdit ? (
@@ -1279,14 +1303,33 @@ function Suggestions({
     }
   }
 
-  if (list.error) return <ErrorNotice error={list.error} onRetry={list.reload} />;
-  if (!list.data) return <Loading />;
-  if (list.data.items.length === 0) {
-    return <EmptyState>{t("directory.suggestions.empty")}</EmptyState>;
-  }
+  return (
+    <Loaded state={list} skeleton={<SkeletonCard lines={3} />}>
+      {(data) =>
+        data.items.length === 0 ? (
+          <EmptyState>{t("directory.suggestions.empty")}</EmptyState>
+        ) : (
+          <SuggestionList items={data.items} decide={decide} problemOf={problemOf} />
+        )
+      }
+    </Loaded>
+  );
+}
+
+function SuggestionList({
+  items,
+  decide,
+  problemOf,
+}: {
+  items: DirectorySuggestion[];
+  decide: (id: string, decision: "approve" | "reject") => void;
+  problemOf: Record<string, string>;
+}) {
+  const i18n = useI18n();
+  const { t } = i18n;
   return (
     <ul className="flex flex-col gap-3" data-testid="directory-suggestions">
-      {list.data.items.map((s) => (
+      {items.map((s) => (
         <li key={s.id}>
           <Card testId={`directory-suggestion-${s.id}`}>
             <div className="flex flex-wrap items-start gap-3">

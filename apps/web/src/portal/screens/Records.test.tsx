@@ -1,11 +1,11 @@
 // The portal's records list (v0.12 W1-H): the client's own records by kind, each opening its
 // record page, with the search in the URL.
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders } from "../../App";
-import { CLIENT_SESSION, fakeApi } from "../../test/fixtures";
+import { CLIENT_SESSION, fakeApi, Reply } from "../../test/fixtures";
 import { PortalRecordsScreen } from "./Records";
 
 const TXN = "00000000-0000-4000-8000-0000000b7001";
@@ -75,14 +75,18 @@ const vendors = {
   },
 };
 
-function show() {
+function show(answer?: (url: URL) => unknown) {
   const asked: string[] = [];
   const api = fakeApi({
     "GET /api/session": () => CLIENT_SESSION,
     "GET /api/records": ({ url }) => {
       asked.push(url.search);
+      const custom = answer?.(url);
+      if (custom !== undefined) return custom;
       const q = url.searchParams.get("q");
-      if (q) return { ...transactions, total: 0, page: { kind: "transactions", rows: [] } };
+      // The API answers with the kind asked for (record-list.ts), an empty page for a search.
+      const kind = url.searchParams.get("kind") ?? "transactions";
+      if (q) return { ...transactions, total: 0, page: { kind, rows: [] } };
       return url.searchParams.get("kind") === "vendors" ? vendors : transactions;
     },
   });
@@ -152,7 +156,62 @@ describe("portal records list", () => {
     );
     await userEvent.type(screen.getByTestId("portal-records-search"), "nothing");
     expect(await screen.findByText("Nothing matches “nothing”.")).toBeInTheDocument();
-    expect(asked.some((s) => s.includes("q=nothing"))).toBe(true);
+    // Asked once, when typing stopped, not once a letter.
+    expect(asked.filter((s) => s.includes("q="))).toEqual([expect.stringContaining("q=nothing")]);
+  });
+
+  it("a tab that clears the search never brings the typed word back", async () => {
+    const asked = show();
+    await screen.findByTestId("portal-records-transactions");
+    await userEvent.type(screen.getByTestId("portal-records-search"), "nothing");
+    expect(await screen.findByText("Nothing matches “nothing”.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("link", { name: /Vendors/ }));
+    expect(await screen.findByTestId("portal-records-vendors")).toBeInTheDocument();
+    expect(screen.getByTestId("portal-records-search")).toHaveValue("");
+    await new Promise((r) => setTimeout(r, 500));
+    expect(screen.getByTestId("portal-records-vendors")).toBeInTheDocument();
+    expect(asked.filter((s) => s.includes("q="))).toHaveLength(1);
+  });
+
+  it("asks again for the same word typed again just after a tab cleared it", async () => {
+    const asked = show();
+    await screen.findByTestId("portal-records-transactions");
+    await userEvent.type(screen.getByTestId("portal-records-search"), "nothing");
+    expect(await screen.findByText("Nothing matches “nothing”.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("link", { name: /Vendors/ }));
+    await userEvent.type(screen.getByTestId("portal-records-search"), "nothing");
+    await waitFor(() =>
+      expect(asked.some((s) => s.includes("kind=vendors") && s.includes("q=nothing"))).toBe(true),
+    );
+  });
+
+  it("keeps the last rows dimmed, with the error beside them, when a search fails", async () => {
+    show((url) => (url.searchParams.get("q") ? new Reply(500, { error: "internal" }) : undefined));
+    await screen.findByTestId("portal-records-transactions");
+    expect(screen.getByTestId("portal-records-found")).toBeInTheDocument();
+    await userEvent.type(screen.getByTestId("portal-records-search"), "oak");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    // The rows shown answer the last search, not "oak": dimmed, busy, and not counted as found.
+    expect(screen.getByTestId(`portal-records-row-${TXN}`)).toBeInTheDocument();
+    expect(screen.getByTestId("portal-records-list")).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByTestId("portal-records-found")).toBeNull();
+  });
+
+  it("never shows one kind's rows under another kind's tab", async () => {
+    let vendorsAnswer: (() => void) | null = null;
+    show((url) =>
+      url.searchParams.get("kind") === "vendors"
+        ? new Promise((resolve) => {
+            vendorsAnswer = () => resolve(vendors);
+          })
+        : undefined,
+    );
+    await screen.findByTestId("portal-records-transactions");
+    await userEvent.click(screen.getByRole("link", { name: /Vendors/ }));
+    await waitFor(() => expect(screen.queryByTestId("portal-records-transactions")).toBeNull());
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    (vendorsAnswer as (() => void) | null)?.();
+    expect(await screen.findByTestId("portal-records-vendors")).toBeInTheDocument();
   });
 
   it("lists receivables: what each customer still owes, an open one past due marked overdue", async () => {
