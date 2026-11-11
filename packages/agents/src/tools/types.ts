@@ -1,23 +1,25 @@
 // Tools the platform and packs implement in-process (sideEffect `none` or `internal`). Connector
 // tools keep their own handler shape (packages/connectors); the tool registry holds both.
 
-import type {
-  DirectoryGetInput,
-  DirectoryGetOutput,
-  DirectorySearchInput,
-  DirectorySearchOutput,
-  DirectorySuggestInput,
-  FindingKind,
-  FindingParams,
-  HealthSummary,
-  JsonObject,
-  LedgerAccountsInput,
-  LedgerAccountsOutput,
-  LedgerDimensionsInput,
-  LedgerDimensionsOutput,
-  Locale,
-  ToolSpec,
-  VoiceSampleChannel,
+import {
+  type DirectoryGetInput,
+  type DirectoryGetOutput,
+  type DirectorySearchInput,
+  type DirectorySearchOutput,
+  type DirectorySuggestInput,
+  type FindingKind,
+  type FindingParams,
+  type HealthSummary,
+  type JsonObject,
+  type LedgerAccountsInput,
+  type LedgerAccountsOutput,
+  type LedgerDimensionsInput,
+  type LedgerDimensionsOutput,
+  type Locale,
+  lazy,
+  lazyObject,
+  type ToolSpec,
+  type VoiceSampleChannel,
 } from "@countersign/core";
 import type { MatchBillInput, MatchBillResult } from "@countersign/documents";
 import type { LlmCallRecord, LlmExchange } from "@countersign/llm";
@@ -513,17 +515,18 @@ export function defineInternalTool<I extends z.ZodType, O extends z.ZodType>(def
 }): InternalTool {
   return {
     ...(def.pure ? { pure: true } : {}),
-    spec: {
+    // Worker startup (2026-11-11): the JSON Schemas are made on first read (core `lazy`).
+    spec: lazyObject({
       id: def.id,
       description: def.description,
-      input: jsonSchemaOf(def.input),
-      output: jsonSchemaOf(def.output),
+      input: lazy(() => jsonSchemaOf(def.input)),
+      output: lazy(() => jsonSchemaOf(def.output)),
       sideEffect: def.sideEffect,
       verb: def.sideEffect === "none" ? "read" : (def.verb ?? "create"),
       source: def.source ?? "platform",
       ...(def.summary === undefined ? {} : { summary: def.summary }),
       ...(def.usesModel === undefined ? {} : { usesModel: def.usesModel }),
-    },
+    }),
     input: def.input,
     output: def.output,
     run: (input, ctx) => def.run(input as z.output<I>, ctx),
