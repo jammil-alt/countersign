@@ -97,6 +97,13 @@ describe("Loading", () => {
     expect(screen.getByRole("status")).toHaveClass("ui-skel-wrap--line");
     expect(container.querySelectorAll(".ui-skel-line")).toHaveLength(1);
   });
+
+  it("shows its words for work the person started", () => {
+    const { container } = render(<Loading progress label="Saving your choice…" />);
+    const status = screen.getByRole("status");
+    expect(visibleText(status)).toBe("Saving your choice…");
+    expect(container.querySelector(".ui-skel")).toBeNull();
+  });
 });
 
 describe("skeleton styles", () => {
@@ -109,9 +116,13 @@ describe("skeleton styles", () => {
     );
   });
 
+  it("takes its parent's width, so a centred parent cannot shrink it to nothing", () => {
+    expect(rules).toMatch(/\.ui-skel-wrap \{[^}]*\bwidth: 100%;/);
+  });
+
   it("uses the design system's tokens only: no raw colours or shadows", () => {
     expect(rules).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(|box-shadow/i);
-    expect(rules).toContain("var(--surface-subtle)");
+    expect(rules).toContain("var(--line)");
     expect(rules).toContain("var(--radius-sm)");
   });
 });

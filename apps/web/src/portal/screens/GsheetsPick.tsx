@@ -203,9 +203,9 @@ export function GsheetsPickScreen() {
           {!data.available ? (
             <p className="text-sm text-ink-muted">{t("gsheets.notSetUp")}</p>
           ) : phase === "loading" ? (
-            <Loading label={t("gsheets.pick.loading")} />
+            <Loading progress label={t("gsheets.pick.loading")} />
           ) : phase === "saving" ? (
-            <Loading label={t("gsheets.pick.saving")} />
+            <Loading progress label={t("gsheets.pick.saving")} />
           ) : (
             <>
               {phase === "cancelled" ? (

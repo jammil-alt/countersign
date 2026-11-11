@@ -912,13 +912,13 @@ a.ui-stat--link:focus-visible {
 }
 
 /* ── Skeletons (skeleton.tsx): placeholders the size of the content while it loads. The shape is
- * the quiet surface on a card's white, in a small radius; the line's box is the text's height so
+ * the border colour (it reads on a card and on the page, in both themes), in a small radius; the line's box is the text's height so
  * a line of words takes exactly its place. A slow fade at most, and none when reduced motion is
  * asked for. ── */
 .ui-skel {
   display: block;
   border-radius: var(--radius-sm);
-  background: var(--surface-subtle);
+  background: var(--line);
   animation: ui-skel-pulse 1.6s ease-in-out infinite;
 }
 @keyframes ui-skel-pulse {
@@ -931,20 +931,33 @@ a.ui-stat--link:focus-visible {
     animation: none;
   }
 }
+/* Its own width: in a centred or start-aligned flex parent a box sized by its content would be
+ * 0 wide, since every shape is a share of it. */
 .ui-skel-wrap {
   display: flex;
+  width: 100%;
   min-width: 0;
   flex-direction: column;
   gap: var(--space-3);
 }
-/* `Loading` in a panel or a card: about the old line of text's height, with its air. */
+/* `Loading` in a panel or a card: about the old line of text's height, with its air, and a
+ * paragraph's width at most, so on its own in the middle of the screen it reads as text. */
 .ui-skel-wrap--block {
+  max-width: 640px;
   padding: var(--space-3) 0;
 }
 .ui-skel-wrap--line {
   display: inline-flex;
   width: 120px;
+  max-width: 100%;
   vertical-align: middle;
+}
+/* `Loading progress`: work the person started, in words ("Saving your choice…"). */
+.ui-progress {
+  padding: var(--space-3) 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 20px;
 }
 .ui-skel-line {
   display: flex;

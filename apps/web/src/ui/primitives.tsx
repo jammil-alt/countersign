@@ -367,10 +367,29 @@ export function SubTabs({
  * text by default (a panel, a card, a section), or `size="line"` for a small slot beside other
  * words. `label` says what loads, for screen readers only ("Loading the price…"); without one
  * they hear "Loading…". A screen that knows its content's shape passes it to `Loaded` instead.
+ *
+ * `progress` is for work the person started (a save, a connection): its `label` is shown in
+ * words, since a write is never shown as a grey shape ("The rules for every screen" 7).
  */
-// DECISION: the label is read, not shown (docs/audit-plan.md 1.3: no loading text after the frame
-// is up). A screen that must show progress in words ("Saving…") says it in its own control.
-export function Loading({ label, size = "block" }: { label?: string; size?: "block" | "line" }) {
+// DECISION: a data load's label is read, not shown (docs/audit-plan.md 1.3: no loading text after
+// the frame is up); progress on a write or a connection shows its words (`progress`).
+export function Loading({
+  label,
+  size = "block",
+  progress,
+}: {
+  label?: string;
+  size?: "block" | "line";
+  progress?: boolean;
+}) {
+  const { t } = useI18n();
+  if (progress) {
+    return (
+      <p role="status" className="ui-progress">
+        {label ?? t("common.loading")}
+      </p>
+    );
+  }
   return (
     <Skeleton label={label} className={`ui-skel-wrap--${size}`}>
       {size === "line" ? <SkeletonLine /> : <SkeletonText lines={3} />}
