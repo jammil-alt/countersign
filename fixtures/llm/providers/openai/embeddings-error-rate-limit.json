@@ -1,0 +1,13 @@
+{
+  "handWritten": true,
+  "about": "OpenAI: a rate limit (429) on /v1/embeddings, in OpenAI's error shape {error: {message, code}}",
+  "status": 429,
+  "headers": { "retry-after": "1" },
+  "body": {
+    "error": {
+      "message": "Rate limit reached for text-embedding-3-large on tokens per min.",
+      "type": "tokens",
+      "code": "rate_limit_exceeded"
+    }
+  }
+}

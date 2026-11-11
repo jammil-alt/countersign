@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import { luhnValid, redactCardNumbers, redactCardNumbersDeep } from "./card-numbers";
 import {
   complianceOf,
+  EMBEDDING_FEATURE,
   hipaaReadiness,
   inboundHeld,
   PROCESSORS,
   type Processor,
   parseCoveredProcessors,
   processingRefusal,
+  processorForEmbedding,
   processorForModel,
   processorsForOffer,
   processorsForTool,
@@ -144,6 +146,26 @@ describe("processors", () => {
     expect(hipaaReadiness(parseCoveredProcessors("cloudflare neon workos"), ["bankfeed"])).toEqual([
       "The bankfeed connector is offered and sends data to Plaid, with no signed BAA. Withdraw it first.",
     ]);
+  });
+
+  it("declares the vendor catalog's embeddings as OpenAI's, refused in HIPAA mode until covered", () => {
+    expect(processorForEmbedding(EMBEDDING_FEATURE.model)).toBe("openai");
+    expect(
+      processingRefusal(
+        { hipaa: true },
+        all,
+        [processorForEmbedding(EMBEDDING_FEATURE.model)],
+        "x",
+      ),
+    ).toBe("x sends data to OpenAI, which has no signed BAA; this client is in HIPAA mode");
+    expect(
+      processingRefusal(
+        { hipaa: true },
+        parseCoveredProcessors("cloudflare neon workos openai"),
+        [processorForEmbedding(EMBEDDING_FEATURE.model)],
+        "x",
+      ),
+    ).toBeNull();
   });
 
   it("refuses only in HIPAA mode, and only what isn't covered", () => {
