@@ -1,8 +1,9 @@
 // Speed run 6.2, 6.3 and 6.7 (docs/audit-plan.md): the back office's run page, run lists and
 // client page, through the app. The answers are the ones the per-agent and whole-bundle reads gave
-// (each checked against them here), the new run status route moves when the page would change,
+// (each checked against them here), the new run status route's key moves when the page would change,
 // and the statement counts are pinned: none grows with the client's agents or the list's versions.
 
+import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import {
   type AgentBundle,
   type AgentBundleInput,
@@ -10,10 +11,26 @@ import {
   findNodeStep,
   stepNodeOf,
 } from "@countersign/core";
-import { agentVersion, inboxItem, run, stepRun, toolCall } from "@countersign/db";
+import {
+  agentVersion,
+  contact,
+  inboxItem,
+  modelCall,
+  reachOut,
+  run,
+  stepRun,
+  toolCall,
+} from "@countersign/db";
 import { inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR, testBundle } from "./api.test-helper";
+import {
+  admin,
+  createApiHarness,
+  OPERATOR,
+  OTHER_OPERATOR,
+  storedSkill,
+  testBundle,
+} from "./api.test-helper";
 
 const h = await createApiHarness();
 afterAll(() => h?.close());
@@ -327,29 +344,113 @@ describe.skipIf(!h)("the back office's run page, run lists and client page", () 
     ]);
   });
 
-  it("the run status moves when its page would change, and only for clients served", async () => {
-    const first = await ok(OPERATOR, "GET", `/api/ops/runs/${waitingRun}/status`);
+  it("the run status key moves with what the page shows, timestamps or not, for clients served", async () => {
+    const path = `/api/ops/runs/${waitingRun}/status`;
+    const key = async () => (await ok(OPERATOR, "GET", path)).key as string;
+    const first = await ok(OPERATOR, "GET", path);
     expect(first).toEqual({
       id: waitingRun,
       status: "running",
       waiting: true,
-      updatedAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/),
+      key: expect.stringMatching(/^[0-9a-f]{32}$/),
     });
-    expect(await ok(OPERATOR, "GET", `/api/ops/runs/${waitingRun}/status`)).toEqual(first);
-    await H.t.db.insert(stepRun).values({
-      tenantId: A().tenantId,
-      runId: waitingRun,
-      nodeId: "confirm",
-      nodeType: "person",
-      status: "running",
-      startedAt: new Date(),
-    });
-    const later = await ok(OPERATOR, "GET", `/api/ops/runs/${waitingRun}/status`);
-    expect(later.updatedAt > first.updatedAt).toBe(true);
+    // Nothing changed: the same key.
+    expect(await key()).toBe(first.key);
+    const seen = new Set([first.key]);
+    /** Each change moves the key to one never seen before. */
+    const moves = async (why: string, change: () => Promise<unknown>) => {
+      await change();
+      const k = await key();
+      expect(seen.has(k), why).toBe(false);
+      seen.add(k);
+    };
+    const tenantId = A().tenantId;
+    const [step] = await H.t.db
+      .insert(stepRun)
+      .values({
+        tenantId,
+        runId: waitingRun,
+        nodeId: "update",
+        nodeType: "action",
+        status: "running",
+        startedAt: new Date(),
+      })
+      .returning();
+    if (!step) throw new Error("no step");
+    seen.add(await key());
+    const [call] = await H.t.db
+      .insert(toolCall)
+      .values({ tenantId, stepRunId: step.id, tool: "testkit.update_record", status: "running" })
+      .returning();
+    if (!call) throw new Error("no call");
+    seen.add(await key());
+    await moves("a tool call finishing (no timestamp)", () =>
+      H.t.db
+        .update(toolCall)
+        .set({ status: "succeeded", output: { ok: true }, durationMs: 40 })
+        .where(sql`${toolCall.id} = ${call.id}`),
+    );
+    await moves("a model call", () =>
+      H.t.db.insert(modelCall).values({
+        tenantId,
+        runId: waitingRun,
+        stepRunId: step.id,
+        provider: "anthropic",
+        model: "claude-opus-5-5",
+        tokensIn: 10,
+        tokensOut: 5,
+        costUsd: "0.0100",
+        durationMs: 300,
+        stopReason: "end_turn",
+        bodyKey: `tenants/${tenantId}/model-calls/x.json`,
+      }),
+    );
+    await moves("cost added to the run (no timestamp)", () =>
+      H.t.db.update(run).set({ costUsd: "0.0100" }).where(sql`${run.id} = ${waitingRun}`),
+    );
+    await moves("a step going from running to waiting (no timestamp)", () =>
+      H.t.db.update(stepRun).set({ status: "waiting" }).where(sql`${stepRun.id} = ${step.id}`),
+    );
+    const [person] = await H.t.db
+      .insert(contact)
+      .values({ tenantId, name: "Sam Rivera", email: "sam@example.com" })
+      .returning();
+    if (!person) throw new Error("no contact");
+    const [reach] = await H.t.db
+      .insert(reachOut)
+      .values({
+        tenantId,
+        agentId: trial.id,
+        agentVersionId: trial.versionId,
+        runId: waitingRun,
+        stepRunId: step.id,
+        nodeId: "ask",
+        contactId: person.id,
+        subject: `converse:${waitingRun}:ask`,
+        purpose: "confirm the record",
+        urgency: "normal",
+        plan: {},
+        status: "open",
+      })
+      .returning();
+    if (!reach) throw new Error("no reach-out");
+    seen.add(await key());
+    await moves("a reply on a conversation", () =>
+      H.t.db
+        .update(reachOut)
+        .set({ reply: { text: "Yes, that's right" } })
+        .where(sql`${reachOut.id} = ${reach.id}`),
+    );
+    await moves("an inbox item snoozed", () =>
+      H.t.db
+        .update(inboxItem)
+        .set({ snoozedUntil: new Date(Date.now() + 3_600_000) })
+        .where(sql`${inboxItem.runId} = ${waitingRun}`),
+    );
     // Client A is not this operator's.
-    const other = await H.call(OTHER_OPERATOR, "GET", `/api/ops/runs/${waitingRun}/status`);
+    const other = await H.call(OTHER_OPERATOR, "GET", path);
     expect(other.status).toBe(404);
-    const portal = await H.call(admin("a"), "GET", `/api/ops/runs/${waitingRun}/status`);
+    const portal = await H.call(admin("a"), "GET", path);
     expect(portal.status).toBe(403);
   });
 
@@ -371,5 +472,42 @@ describe.skipIf(!h)("the back office's run page, run lists and client page", () 
     await addRun(more, { minutesAgo: 6, status: "failed", error: { nodeId: "update" } });
     expect(await statements(client)).toBe(counts.client);
     expect(await statements(runs)).toBe(counts.runs);
+
+    // A custom skill of the client's, used by one agent: its reads come once (the skill and its
+    // version), and a second agent using it adds none.
+    await storedSkill(
+      H,
+      {
+        schemaVersion: 1,
+        id: "custom:recount",
+        name: "Recount",
+        description: "Recounts the records",
+        category: "writing",
+        mode: "agent",
+        instructions: "Recount the records.",
+        tools: [TESTKIT_UPDATE_TOOL],
+        input: { type: "object", properties: {} },
+        output: { type: "object", properties: {} },
+      },
+      A().tenantId,
+    );
+    const withSkill = () => {
+      const b = twoWorkflows() as AgentBundleInput;
+      return AgentBundleSchema.parse({
+        ...b,
+        definition: { ...b.definition, extraTools: [], skills: [{ skill: "custom:recount" }] },
+      });
+    };
+    const first = await agentOf("recounter", withSkill());
+    const one = await statements(client);
+    expect(one).toBe(counts.client + 2);
+    const page = await ok(OPERATOR, "GET", client);
+    for (const g of page.goLive.filter((x: Json) => x.agentId === first.id)) {
+      const alone = await ok(OPERATOR, "GET", `/api/ops/agents/${g.agentId}/go-live`);
+      expect(g.goLive).toEqual(alone.goLive);
+      expect(g.goLive.writes).toBe(true);
+    }
+    await agentOf("recounter-two", withSkill());
+    expect(await statements(client)).toBe(one);
   });
 });

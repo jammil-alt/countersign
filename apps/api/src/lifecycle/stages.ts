@@ -9,12 +9,14 @@
 import {
   activate,
   automationContext,
+  bundleAutomationRefs,
   type RegistryContext,
   skillContext,
 } from "@countersign/agents";
 import {
   type AgentStage,
   type AnyAgentBundle,
+  type AnyAutomationDefinition,
   clientLanguage,
   eachBundleStep,
   GO_LIVE_SUBJECT,
@@ -27,6 +29,7 @@ import {
   readPause,
   readStageState,
   type SignoffSummary,
+  type SkillDefinition,
   type StageState,
   skillTools,
   stageMove,
@@ -90,7 +93,55 @@ export async function bundleWrites(
   bundle: AnyAgentBundle,
   ctx: RegistryContext,
 ): Promise<boolean> {
-  const { skills } = await skillContext(tx, { tenantId, bundle, catalog: ctx.catalog });
+  return bundleWritesWith(bundle, await writesContext(tx, tenantId, [bundle], ctx), ctx);
+}
+
+/** The skills and automations `bundleWritesWith` walks, resolved for one client. */
+export interface WritesContext {
+  skills: Record<string, SkillDefinition>;
+  automations: Record<string, AnyAutomationDefinition>;
+  automationSkills: Record<string, SkillDefinition>;
+}
+
+/**
+ * The skills and automations of every bundle given, read once for all of them (one client's: a
+ * reference means the same skill or automation for each of its agents).
+ */
+// DECISION (speed run 6.7): the client page reads every agent's `writes`; resolving the union of
+// the bundles' references once keeps its reads from growing per agent. The union is a bundle made
+// of the bundles' skills and workflows, as skillContext and automationContext read only those.
+export async function writesContext(
+  tx: Tx,
+  tenantId: string,
+  bundles: readonly AnyAgentBundle[],
+  ctx: RegistryContext,
+): Promise<WritesContext> {
+  const [first] = bundles;
+  if (!first) return { skills: {}, automations: {}, automationSkills: {} };
+  const union = (workflows: AnyAgentBundle["workflows"]): AnyAgentBundle => ({
+    ...first,
+    definition: { ...first.definition, skills: bundles.flatMap((b) => b.definition.skills) },
+    workflows,
+  });
+  const all = bundles.flatMap((b) => b.workflows);
+  const { skills } = await skillContext(tx, { tenantId, bundle: union(all), catalog: ctx.catalog });
+  // v0.12 W2-B: the steps of the automations enabled workflows use.
+  const used = await automationContext(tx, {
+    tenantId,
+    bundle: union(all.filter((w) => w.enabled)),
+    catalog: ctx.catalog,
+  });
+  return { skills, automations: used.automations, automationSkills: used.skills };
+}
+
+/** Whether a bundle writes (`bundleWrites`), from its client's resolved skills and automations. */
+export function bundleWritesWith(
+  bundle: AnyAgentBundle,
+  context: WritesContext,
+  ctx: RegistryContext,
+): boolean {
+  const { skills } = context;
+  const used = { automations: context.automations, skills: context.automationSkills };
   const toolIds = new Set(bundle.definition.extraTools);
   let reaches = false;
   const addSkill = (ref: string) => {
@@ -113,10 +164,12 @@ export async function bundleWrites(
     },
     { enabledOnly: true },
   );
-  // v0.12 W2-B: the steps of the automations enabled workflows use.
-  const enabled = { ...bundle, workflows: bundle.workflows.filter((w) => w.enabled) };
-  const used = await automationContext(tx, { tenantId, bundle: enabled, catalog: ctx.catalog });
-  for (const def of Object.values(used.automations)) {
+  // v0.12 W2-B: the steps of the automations this bundle's enabled workflows use.
+  const mine = new Set(
+    bundleAutomationRefs({ ...bundle, workflows: bundle.workflows.filter((w) => w.enabled) }),
+  );
+  for (const [ref, def] of Object.entries(used.automations)) {
+    if (!mine.has(ref)) continue;
     // Wave 3b: a v4 automation's process steps (its reads, writes, skills and conversations).
     if (def.schemaVersion === 2) {
       processes.walkSteps(def, ({ step }) => {

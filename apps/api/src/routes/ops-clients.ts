@@ -56,7 +56,7 @@ import {
 } from "../http";
 import { resolveInboxItem, sendResolution } from "../inbox";
 import { isInternal } from "../internal-client";
-import { bundleWrites, stageOf } from "../lifecycle/stages";
+import { bundleWritesWith, stageOf, writesContext } from "../lifecycle/stages";
 // v0.13 W2-I
 import { runOversight } from "../oversight/views";
 import { runAuditState, runOwnerChecks } from "../run-audit/store";
@@ -239,7 +239,8 @@ async function agentActivity(
  * Speed run 6.7: every agent's go-live stage for the client page, as `goLiveView`
  * (lifecycle/stages.ts) answers it for one agent, without a read per agent: the trial's runs come
  * from `agentActivity`'s count, the sign-off items in one read, the versions `writes` is read from
- * in one read. A test pins it to `goLiveView` for every agent of the demo seed.
+ * in one read, and their skills and automations once for all of them (`writesContext`).
+ * src/ops-client-views.test.ts pins it to `goLiveView` for each kind of agent.
  */
 async function goLiveViews(
   tx: Tx,
@@ -290,15 +291,16 @@ async function goLiveViews(
   ]);
   const item = new Map(items.map((i) => [i.id, i]));
   const bundles = new Map(versions.map((v) => [v.agentId, v.bundle]));
-  const [writes, trialRuns] = await Promise.all([
-    Promise.all(
-      rows.map((r) => {
-        const bundle = bundles.get(r.id);
-        return r.kind === "client" && bundle ? bundleWrites(tx, tenantId, bundle, ctx) : false;
-      }),
-    ),
+  // The skills and automations every bundle names, read once for all of them.
+  const shown = rows.filter((r) => r.kind === "client").flatMap((r) => bundles.get(r.id) ?? []);
+  const [context, trialRuns] = await Promise.all([
+    writesContext(tx, tenantId, shown, ctx),
     trialRunsOf,
   ]);
+  const writes = rows.map((r) => {
+    const bundle = bundles.get(r.id);
+    return r.kind === "client" && bundle ? bundleWritesWith(bundle, context, ctx) : false;
+  });
   return rows.map((row, i) => {
     const stage = stageOf(row);
     const state = states.get(row.id) ?? readStageState(row.stageState);
@@ -574,32 +576,51 @@ export async function opsRunViews(
 }
 
 /**
- * Speed run 6.2: a run's status and when anything its page shows last changed, in one statement,
- * so the run page can poll this and reload the full view only on a change.
+ * The tables a back-office run page shows rows of, by `run_id` (each read through an index that
+ * leads with it). `tool_call` is reached through its steps.
  */
+const RUN_PAGE_TABLES = [
+  "step_run",
+  "model_call",
+  "external_action",
+  "inbox_item",
+  "oversight_decision",
+  "owner_check",
+  "run_audit",
+  "run_audit_mark",
+  "reach_out",
+] as const;
+
+/** One table's rows for the run, as one hash (empty: no rows). */
+const rowsHash = (from: SQL) =>
+  sql`(select md5(coalesce(string_agg(md5(x::text), ',' order by x.id), '')) ${from})`;
+
+/**
+ * Speed run 6.2: a run's status and a key that changes whenever anything its page shows changes,
+ * in one statement, so the run page can poll this and reload the full view only on a change.
+ */
+// DECISION (review of #265): the key is built from content, not timestamps: an md5 of the run's
+// row and of every row of each table the page shows (a whole row's text, so a tool call
+// finishing, a cost added, a step waiting, a reply, a snooze or a write reset all change it,
+// though none of them moves a timestamp). Names the page looks up elsewhere (documents, vendors,
+// people) are left out: they do not change with the run.
 async function opsRunStatus(tx: Tx, tenantIds: readonly string[], id: string) {
+  // Qualified by hand: a one-table select leaves its columns unqualified (`waitsOnPerson`).
+  const mine = sql.raw(`x.run_id = "run"."id" and x.tenant_id = "run"."tenant_id"`);
+  const parts = [
+    sql`md5("run"::text)`,
+    ...RUN_PAGE_TABLES.map((t) => rowsHash(sql`from ${sql.raw(t)} x where ${mine}`)),
+    rowsHash(
+      sql`from tool_call x join step_run s on s.id = x.step_run_id and s.tenant_id = x.tenant_id
+        where s.run_id = "run"."id" and s.tenant_id = "run"."tenant_id"`,
+    ),
+  ];
   const [row] = await tx
     .select({
       id: run.id,
       status: run.status,
       waiting: sql<boolean>`coalesce(${and(...opsStatusWhere(["waiting"]))}, false)`,
-      // `greatest` leaves out nulls. Each table is read by its run index. Qualified by hand: a
-      // one-table select leaves its columns unqualified (`waitsOnPerson` in runs/run-wait.ts).
-      updatedAt: sql<string>`to_char(greatest("run"."created_at", "run"."started_at", "run"."finished_at",
-        (select max(greatest(s.started_at, s.finished_at)) from step_run s
-          where s.run_id = "run"."id" and s.tenant_id = "run"."tenant_id"),
-        (select max(c.created_at) from tool_call c
-          join step_run s on s.id = c.step_run_id and s.tenant_id = c.tenant_id
-          where s.run_id = "run"."id" and s.tenant_id = "run"."tenant_id"),
-        (select max(greatest(a.created_at, a.approved_at, a.edited_at, a.executed_at))
-          from external_action a where a.run_id = "run"."id" and a.tenant_id = "run"."tenant_id"),
-        (select max(greatest(i.created_at, i.resolved_at)) from inbox_item i
-          where i.run_id = "run"."id" and i.tenant_id = "run"."tenant_id"),
-        (select max(o.created_at) from oversight_decision o
-          where o.run_id = "run"."id" and o.tenant_id = "run"."tenant_id"),
-        (select max(k.created_at) from owner_check k
-          where k.run_id = "run"."id" and k.tenant_id = "run"."tenant_id")
-      ) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+      key: sql<string>`md5(concat_ws('|', ${sql.join(parts, sql`, `)}))`,
     })
     .from(run)
     .where(and(eq(run.id, id), inArray(run.tenantId, [...tenantIds])));
@@ -733,16 +754,13 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       now,
       trialSince,
     );
+    // `goLiveViews` awaits the trial counts last; until then a failed `pending` is caught here,
+    // so it never surfaces as an unhandled rejection (the handler still fails through `pending`).
+    const trialRuns = pending.then((a) => a.trialRuns);
+    trialRuns.catch(() => {});
     const [{ activity }, goLive] = await Promise.all([
       pending,
-      goLiveViews(
-        tx,
-        t.id,
-        shown,
-        pending.then((a) => a.trialRuns),
-        services.platform.ctx,
-        now,
-      ),
+      goLiveViews(tx, t.id, shown, trialRuns, services.platform.ctx, now),
     ]);
     return {
       client: {

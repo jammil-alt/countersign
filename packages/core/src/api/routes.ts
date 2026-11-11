@@ -253,23 +253,25 @@ export const AgentSummary = z.object({
 export type AgentSummary = z.infer<typeof AgentSummary>;
 
 /**
- * UI cleanup (design pass): a client agent's work at a glance, for the client page's Overview: its
- * live runs in the last 7 days, how many wait for approval now, its last run, and its runs each day
- * (KPI_DAYS, UTC, oldest first).
- */
-/**
- * A run's status and the last time anything its back-office page shows changed (the run, its
- * steps, tool calls, writes, inbox items, oversight decisions and owner's checks), for polling.
+ * A run's status and a key that changes whenever anything its back-office page shows changes (the
+ * run, its steps, tool calls, model calls, writes, inbox items, conversations, oversight
+ * decisions, owner's checks and audit), for polling: reload the run only when the key moves.
  */
 export const OpsRunStatus = z.object({
   id: z.string(),
   status: z.string(),
   /** Whether the run waits on a person (as the runs list's `waiting` filter reads it). */
   waiting: z.boolean(),
-  updatedAt: Timestamp,
+  /** An opaque digest of what the run page shows; compare it, never parse it. */
+  key: z.string(),
 });
 export type OpsRunStatus = z.infer<typeof OpsRunStatus>;
 
+/**
+ * UI cleanup (design pass): a client agent's work at a glance, for the client page's Overview: its
+ * live runs in the last 7 days, how many wait for approval now, its last run, and its runs each day
+ * (KPI_DAYS, UTC, oldest first).
+ */
 export const OpsAgentActivity = z.object({
   agentId: z.string(),
   runs7d: z.number().int(),
@@ -1719,7 +1721,8 @@ export const opsRoutes = {
     path: "/api/ops/runs/:id/status",
     auth: "session",
     roles: OPS,
-    summary: "A run's status and when anything its page shows last changed, for polling",
+    summary:
+      "A run's status and a key that changes when anything its page shows changes, for polling",
     params: IdParams,
     response: OpsRunStatus,
   }),
