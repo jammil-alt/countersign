@@ -816,7 +816,7 @@ function checkApproval(c: Checker, step: Step) {
   const { ctx } = c;
   const loose = approvalLoosenings(step.checks?.approval, "checks.approval");
   if (step.kind === "write" && step.action !== undefined) {
-    checkActionLoose(c, step.id, step, loose, "action");
+    checkActionLoose(c, step.id, step, loose, "action", true);
     return;
   }
   const writes = stepWrites(step, ctx);
@@ -917,12 +917,17 @@ function actionMatrix(
  */
 // DECISION: at publish, an action whose connection can't be resolved here (the caller didn't pass
 // the agent's channels) keeps its approval: a loosening is refused rather than checked at the call.
+// Review: the step's own check (`own`) holds it to its connection at publish whatever its
+// approval, as a tool write step is: a verb the matrix turns off, or a record type the matrix or
+// the agent's grant turns off, is reported with approval on too (the gate would refuse every run).
+// A sub-process override is held to it only when it loosens; the used process's own step reports.
 function checkActionLoose(
   c: Checker,
   reportAt: string,
   step: Pick<WriteStep, "action" | "via">,
   loose: readonly Loosening[],
   at: string,
+  own = false,
 ) {
   const { ctx } = c;
   const r = writeActionResolution(step, ctx);
@@ -932,7 +937,8 @@ function checkActionLoose(
       c.add(reportAt, l.field, "approval_always", `"${tool.id}" always needs a person to sign it`);
     }
   }
-  if (!ctx.publish || loose.length === 0) return;
+  if (!ctx.publish || (loose.length === 0 && !own)) return;
+  if (loose.length === 0 && !r?.ok) return;
   if (!r?.ok) {
     if (r === undefined) {
       for (const l of loose) {
@@ -958,6 +964,8 @@ function checkActionLoose(
       "verb_off",
       `this connection doesn't allow ${VERB_NOUN[verb]} ("${r.tool}")`,
     );
+  } else if (own && tool && entityOffForAction(c, reportAt, r, tool, at)) {
+    // Reported there.
   } else if (level !== "auto") {
     for (const l of loose) {
       c.add(
@@ -969,6 +977,25 @@ function checkActionLoose(
     }
   }
   needsAct(c, reportAt, loose);
+}
+
+/**
+ * Review: the record type an accounting action's tool works on, held to the bound connection's
+ * matrix and the agent's grant (`checkEntityOff`); a message action's channel has none.
+ */
+function entityOffForAction(
+  c: Checker,
+  reportAt: string,
+  r: Extract<ActionResolution, { ok: true }>,
+  tool: ToolSpec,
+  at: string,
+): boolean {
+  if (r.channel) return false;
+  const key = Object.keys(c.ctx.publish?.matrices ?? {}).find(
+    (k) => bindingConnector(k) === r.connector,
+  );
+  // The action's input is provider-neutral, so only a tool's own entity is read here.
+  return key !== undefined && checkEntityOff(c, reportAt, tool, key, undefined, at);
 }
 
 /**

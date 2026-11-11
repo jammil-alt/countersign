@@ -680,7 +680,7 @@ export function checkEntityOff(
   tool: ToolSpec,
   connector: string,
   input: Record<string, unknown> | undefined,
-  at: "tool" | "skill",
+  at: string,
 ): boolean {
   const publish = c.ctx.publish;
   if (!publish) return false;

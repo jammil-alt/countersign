@@ -306,6 +306,36 @@ describe("validateProcess: action write steps", () => {
     ).toEqual(["approval_needs_act@w1:checks.approval.required"]);
   });
 
+  it("approval on: the verb and the record type are still held to the connection (review)", () => {
+    const at = (matrix: Record<string, unknown>, extra: Partial<ProcessValidationContext> = {}) =>
+      codes(process({ action: "create_bill" }), {
+        ...ctx,
+        tools: {
+          ...tools,
+          "qbo.bill.create": writeTool("qbo.bill.create", "qbo", { entity: "bill" }),
+        },
+        publish: { matrices: { qbo: matrix as never } },
+        ...extra,
+      });
+    expect(at({ create: "off" })).toEqual(["verb_off@w1:action"]);
+    expect(at({ create: "approval", entities: { bill: { create: "off" } } })).toEqual([
+      "entity_off@w1:action",
+    ]);
+    expect(at({ create: "approval" })).toEqual([]);
+    // The agent's grant turns bills off.
+    expect(
+      at(
+        { create: "approval" },
+        {
+          publish: {
+            matrices: { qbo: { create: "approval" } as never },
+            grants: { qbo: { entities: { bill: { create: "off" } } } as never },
+          },
+        },
+      ),
+    ).toEqual(["entity_off@w1:action"]);
+  });
+
   it("a message's channel: resolved from the agent's channels, else refused when loosened", () => {
     const email = {
       action: "send_email",
