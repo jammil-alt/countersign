@@ -2,7 +2,7 @@
 // them. What a document says reaches a model only inside these tools' results (invariant 9), as
 // data; instructions never quote it.
 
-import { DecimalString, type SkillDefinition } from "@countersign/core";
+import { DecimalString, lazy, lazyObjects, type SkillDefinition } from "@countersign/core";
 import { billLines, type InvoiceForBill, planBill, type ToolBill } from "@countersign/documents";
 import { z } from "zod";
 import { DOCS_SPLIT_SKILLS, DOCS_SPLIT_TOOLS } from "./docs-split";
@@ -380,11 +380,12 @@ export const DOCS_TOOLS: readonly InternalTool[] = [
   ...DOCS_SPLIT_TOOLS,
 ];
 
+// Worker startup (2026-11-11): skills read their tools' schemas on first use (core `lazy`).
 const schema = (tool: InternalTool, key: "input" | "output") =>
-  tool.spec[key] as Record<string, unknown>;
+  lazy(() => tool.spec[key] as Record<string, unknown>);
 
 /** Built-in skills over the docs tools: deterministic (tool mode), so no model reasons over them. */
-export const DOCS_SKILLS: readonly SkillDefinition[] = [
+export const DOCS_SKILLS: readonly SkillDefinition[] = lazyObjects([
   {
     schemaVersion: 1,
     id: "docs.extract",
@@ -496,4 +497,4 @@ export const DOCS_SKILLS: readonly SkillDefinition[] = [
   },
   // Skill model (2026-11-10): Read document (AI) and Check totals (deterministic).
   ...DOCS_SPLIT_SKILLS,
-];
+]);

@@ -7,6 +7,8 @@ import {
   AttachmentSummary,
   AttachmentView,
   E164,
+  lazy,
+  lazyObjects,
   MessagingChannel,
   OutboundAttachments,
 } from "@countersign/core";
@@ -179,12 +181,15 @@ export const MessageStatusPayload = z.strictObject({
 });
 export type MessageStatusPayload = z.infer<typeof MessageStatusPayload>;
 
-export const MESSAGING_EVENTS = [
+// Worker startup (2026-11-11): the payloads' JSON Schemas are made on first read (core `lazy`).
+export const MESSAGING_EVENTS = lazyObjects([
   {
     type: MESSAGE_RECEIVED_EVENT,
     description: "Someone texted or sent a WhatsApp message to one of your numbers.",
     subjectType: "raw_record",
-    payload: z.toJSONSchema(MessageReceivedPayload, { io: "input" }) as Record<string, unknown>,
+    payload: lazy(
+      () => z.toJSONSchema(MessageReceivedPayload, { io: "input" }) as Record<string, unknown>,
+    ),
     sample: {
       connectionId: "0192f7a0-0000-7000-8000-000000000001",
       channel: "sms",
@@ -203,7 +208,9 @@ export const MESSAGING_EVENTS = [
     type: MESSAGE_STATUS_EVENT,
     description: "A message we sent was delivered, read, or failed.",
     subjectType: "raw_record",
-    payload: z.toJSONSchema(MessageStatusPayload, { io: "input" }) as Record<string, unknown>,
+    payload: lazy(
+      () => z.toJSONSchema(MessageStatusPayload, { io: "input" }) as Record<string, unknown>,
+    ),
     sample: {
       connectionId: "0192f7a0-0000-7000-8000-000000000001",
       channel: "sms",
@@ -215,4 +222,4 @@ export const MESSAGING_EVENTS = [
       at: "2026-11-04T15:00:05.000Z",
     },
   },
-];
+]);

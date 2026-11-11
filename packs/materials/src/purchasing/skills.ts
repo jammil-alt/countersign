@@ -3,7 +3,7 @@
 // vendor's answer) into lines. The text is the task's input, which the runtime gives the model as
 // data, never instructions (invariant 9); matching and comparing stay in code.
 
-import type { SkillDefinition } from "@countersign/core";
+import { lazy, lazyObject, lazyObjects, type SkillDefinition } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { z } from "zod";
 import { PACK_ID } from "../ids";
@@ -37,6 +37,7 @@ import {
 const CATEGORY = "Purchasing";
 
 /** A tool-mode skill: the tool's own input and output, a name and a timeline line. */
+// Worker startup (2026-11-11): skills' JSON Schemas are made on first read (core `lazy`).
 function toolSkill(
   tool: PackTool,
   def: {
@@ -47,7 +48,7 @@ function toolSkill(
     settings?: SkillDefinition["settings"];
   },
 ): SkillDefinition {
-  return {
+  return lazyObject({
     schemaVersion: 1,
     id: def.id,
     name: def.name,
@@ -56,14 +57,14 @@ function toolSkill(
     mode: "tool",
     handler: tool.spec.id,
     tools: [],
-    input: tool.spec.input as Record<string, unknown>,
-    output: tool.spec.output as Record<string, unknown>,
+    input: lazy(() => tool.spec.input as Record<string, unknown>),
+    output: lazy(() => tool.spec.output as Record<string, unknown>),
     settings: def.settings ?? [],
     summary: def.summary,
     requiresConnectors: [],
     requiresPacks: [PACK_ID],
     producesAlerts: false,
-  };
+  });
 }
 
 // DECISION: the two reading skills run as `task` skills on the classification model (the small
@@ -89,7 +90,7 @@ const ReadQuoteIn = z.object({
   sourceId: z.string().nullish(),
 });
 
-export const PURCHASING_SKILLS: readonly SkillDefinition[] = [
+export const PURCHASING_SKILLS: readonly SkillDefinition[] = lazyObjects([
   {
     schemaVersion: 1,
     id: "materials.read-request",
@@ -107,8 +108,8 @@ export const PURCHASING_SKILLS: readonly SkillDefinition[] = [
       "4. Finish with the lines, those fields, your questions (plain, short, one thing each), and sources: the input's sourceId when there is one (else the message's sources from inbound.get) and the catalog item ids you used.",
     ].join("\n"),
     tools: [catalogMatchText.spec.id, "inbound.get"],
-    input: jsonSchemaOf(ReadRequestIn),
-    output: jsonSchemaOf(ReadRequestOut),
+    input: lazy(() => jsonSchemaOf(ReadRequestIn)),
+    output: lazy(() => jsonSchemaOf(ReadRequestOut)),
     settings: [],
     summary: "Read {{lines.length}} lines from the request",
     requiresConnectors: [],
@@ -134,8 +135,8 @@ export const PURCHASING_SKILLS: readonly SkillDefinition[] = [
       "6. Finish with sources: the quoteRequestId, and the documentId or sourceId when given.",
     ].join("\n"),
     tools: [quoteGet.spec.id, "docs.read", "docs.get"],
-    input: jsonSchemaOf(ReadQuoteIn),
-    output: jsonSchemaOf(ReadQuoteOut),
+    input: lazy(() => jsonSchemaOf(ReadQuoteIn)),
+    output: lazy(() => jsonSchemaOf(ReadQuoteOut)),
     settings: [],
     summary: "Read {{lines.length}} quoted lines",
     requiresConnectors: [],
@@ -288,4 +289,4 @@ export const PURCHASING_SKILLS: readonly SkillDefinition[] = [
       "Reads the vendor (or the split) a person picked on the vendor choice card, for the purchase order steps.",
     summary: "The vendor you picked: {{kind}}",
   }),
-];
+]);

@@ -18,6 +18,8 @@ import {
   findingFingerprint,
   type HealthSummary,
   type JsonObject,
+  lazy,
+  lazyObjects,
   RunFailedPayload,
   type SkillDefinition,
   supervisorSettings,
@@ -431,8 +433,12 @@ export const supervisorCheck = defineInternalTool({
 
 export const SUPERVISOR_TOOLS: readonly InternalTool[] = [supervisorReport, supervisorCheck];
 
+// Worker startup (2026-11-11): made on first read (core `lazy`); the skills below are lazyObjects.
 const json = (schema: z.ZodType) =>
-  z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>;
+  lazy(
+    () =>
+      z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>,
+  );
 
 const HEALTH_TOOL_IDS = ["health.runs", "health.connections", "health.inbox", "health.agents"];
 
@@ -440,7 +446,7 @@ const HEALTH_TOOL_IDS = ["health.runs", "health.connections", "health.inbox", "h
 export const SUPERVISOR_EXPLAIN_SKILL = "supervisor.explain";
 
 /** The supervisor's built-in skills: triage (the model), report and the daily check (no model). */
-export const SUPERVISOR_SKILLS: readonly SkillDefinition[] = [
+export const SUPERVISOR_SKILLS: readonly SkillDefinition[] = lazyObjects([
   {
     schemaVersion: 1,
     id: "supervisor.triage",
@@ -483,8 +489,8 @@ export const SUPERVISOR_SKILLS: readonly SkillDefinition[] = [
     mode: "tool",
     handler: SUPERVISOR_REPORT_TOOL,
     tools: [],
-    input: supervisorReport.spec.input as Record<string, unknown>,
-    output: supervisorReport.spec.output as Record<string, unknown>,
+    input: lazy(() => supervisorReport.spec.input as Record<string, unknown>),
+    output: lazy(() => supervisorReport.spec.output as Record<string, unknown>),
     settings: [],
     summary: "Reported what needs a person",
     requiresConnectors: [],
@@ -501,8 +507,8 @@ export const SUPERVISOR_SKILLS: readonly SkillDefinition[] = [
     mode: "tool",
     handler: SUPERVISOR_CHECK_TOOL,
     tools: [],
-    input: supervisorCheck.spec.input as Record<string, unknown>,
-    output: supervisorCheck.spec.output as Record<string, unknown>,
+    input: lazy(() => supervisorCheck.spec.input as Record<string, unknown>),
+    output: lazy(() => supervisorCheck.spec.output as Record<string, unknown>),
     settings: [],
     summary: "Checked the account",
     requiresConnectors: [],
@@ -551,4 +557,4 @@ export const SUPERVISOR_SKILLS: readonly SkillDefinition[] = [
     requiresPacks: [],
     producesAlerts: false,
   },
-];
+]);

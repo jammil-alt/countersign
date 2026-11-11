@@ -8,6 +8,8 @@ import {
   CONVERSE_SKILL,
   ConverseInput,
   ConverseOutput,
+  lazy,
+  lazyObject,
   type SkillDefinition,
 } from "@countersign/core";
 import { z } from "zod";
@@ -29,10 +31,14 @@ export const converseTool = defineInternalTool({
   },
 });
 
+// Worker startup (2026-11-11): made on first read (core `lazy`); the skills below are lazyObjects.
 const json = (schema: z.ZodType) =>
-  z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>;
+  lazy(
+    () =>
+      z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>,
+  );
 
-export const CONVERSE_SKILL_DEF: SkillDefinition = {
+export const CONVERSE_SKILL_DEF: SkillDefinition = lazyObject({
   schemaVersion: 1,
   id: CONVERSE_SKILL,
   name: "Talk with a person",
@@ -52,6 +58,6 @@ export const CONVERSE_SKILL_DEF: SkillDefinition = {
   fixedInputs: [...CONVERSE_FIXED_INPUTS],
   reachesPeople: true,
   resultFromInput: "result",
-};
+});
 
 export const CONVERSE_SKILLS: readonly SkillDefinition[] = [CONVERSE_SKILL_DEF];

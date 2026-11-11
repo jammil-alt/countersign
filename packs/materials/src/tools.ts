@@ -5,7 +5,7 @@
 // The pricing tools (record, check, history, compare vendors, digest) are at the end.
 
 import type { ContentStore } from "@countersign/connectors";
-import type { ToolSpec } from "@countersign/core";
+import { lazy, lazyObject, type ToolSpec } from "@countersign/core";
 import { type Db, docExtraction, docLine, withTenant } from "@countersign/db";
 import { createLlmClient, type LlmClient, type LlmTransport } from "@countersign/llm";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
@@ -111,17 +111,18 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
   run(input: z.output<I>, ctx: PackToolContext): Promise<z.input<O>>;
 }): PackTool {
   return {
-    spec: {
+    // Worker startup (2026-11-11): the JSON Schemas are made on first read (core `lazy`).
+    spec: lazyObject({
       id: def.id,
       description: def.description,
-      input: jsonSchemaOf(def.input),
-      output: jsonSchemaOf(def.output),
+      input: lazy(() => jsonSchemaOf(def.input)),
+      output: lazy(() => jsonSchemaOf(def.output)),
       sideEffect: def.sideEffect,
       verb: def.sideEffect === "none" ? "read" : (def.verb ?? "create"),
       source: "materials",
       ...(def.summary ? { summary: def.summary } : {}),
       ...(def.usesModel ? { usesModel: def.usesModel } : {}),
-    },
+    }),
     input: def.input,
     output: def.output,
     run: (input, ctx) => def.run(def.input.parse(input) as z.output<I>, ctx),

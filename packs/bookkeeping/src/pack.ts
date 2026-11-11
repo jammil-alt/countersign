@@ -4,7 +4,7 @@
 // reads (`none`) or the pack's own records (`internal`); a write to the client's accounting tool is
 // a connector's external tool, never a pack's (invariant 8).
 
-import type { ToolSpec } from "@countersign/core";
+import { lazy, lazyObject, type ToolSpec } from "@countersign/core";
 import type { Db, Tx } from "@countersign/db";
 import type { LlmClient } from "@countersign/llm";
 import { z } from "zod";
@@ -57,16 +57,17 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
   run(input: z.output<I>, ctx: PackToolContext): Promise<z.input<O>>;
 }): PackTool {
   return {
-    spec: {
+    // Worker startup (2026-11-11): the JSON Schemas are made on first read (core `lazy`).
+    spec: lazyObject({
       id: def.id,
       description: def.description,
-      input: jsonSchemaOf(def.input),
-      output: jsonSchemaOf(def.output),
+      input: lazy(() => jsonSchemaOf(def.input)),
+      output: lazy(() => jsonSchemaOf(def.output)),
       sideEffect: def.sideEffect,
       verb: def.sideEffect === "none" ? "read" : (def.verb ?? "create"),
       source: PACK_ID,
       ...(def.summary ? { summary: def.summary } : {}),
-    },
+    }),
     input: def.input,
     output: def.output,
     run: async (input, ctx) => def.run(def.input.parse(input) as z.output<I>, ctx),

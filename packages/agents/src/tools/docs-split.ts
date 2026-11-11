@@ -15,6 +15,9 @@ import {
   DecimalString,
   dec,
   InvoiceExtraction,
+  lazy,
+  lazyObject,
+  lazyObjects,
   RECORD_INVOICE_TOOL,
   type SkillDefinition,
 } from "@countersign/core";
@@ -266,8 +269,9 @@ export const DOCS_SPLIT_TOOLS: readonly InternalTool[] = [
   docsBillCheck,
 ];
 
+// Worker startup (2026-11-11): skills read their tools' schemas on first use (core `lazy`).
 const schema = (tool: InternalTool, key: "input" | "output") =>
-  tool.spec[key] as Record<string, unknown>;
+  lazy(() => tool.spec[key] as Record<string, unknown>);
 
 /** What the model is told: the document is data; copy figures exactly (as `docs.extract`). */
 export const READ_DOCUMENT_INSTRUCTIONS = [
@@ -290,7 +294,7 @@ export const READ_DOCUMENT_INSTRUCTIONS = [
 // DECISION: the vendor and the accounts are given, never searched: the process reads them from the
 // accounting system the agent works in (QuickBooks in the Bill clerk), so this skill names no
 // connector and works for BILL's lists as well. The model only chooses among the given ids.
-export const PREPARE_BILL_SKILL_DEFINITION: SkillDefinition = {
+export const PREPARE_BILL_SKILL_DEFINITION: SkillDefinition = lazyObject({
   schemaVersion: 1,
   id: PREPARE_BILL_SKILL,
   name: "Prepare bill",
@@ -317,13 +321,13 @@ export const PREPARE_BILL_SKILL_DEFINITION: SkillDefinition = {
     },
     required: ["invoice", "vendors", "accounts"],
   },
-  output: { ...jsonSchemaOf(PreparedBill), "x-action": "create_bill" },
+  output: lazy(() => ({ ...jsonSchemaOf(PreparedBill), "x-action": "create_bill" })),
   settings: [],
   summary: "Prepared bill {{invoiceNumber}} with {{lines.length}} lines",
   requiresConnectors: [],
   requiresPacks: [],
   producesAlerts: false,
-};
+});
 
 /**
  * The split's two skills. A built-in code skill lists its handler in `tools` as well, which tells
@@ -331,7 +335,7 @@ export const PREPARE_BILL_SKILL_DEFINITION: SkillDefinition = {
  */
 // DECISION: a built-in deterministic code skill names its handler in `tools` too; no stored
 // definition changes and `isToolWrapper` keeps meaning "the 92 skills that are only a tool".
-export const DOCS_SPLIT_SKILLS: readonly SkillDefinition[] = [
+export const DOCS_SPLIT_SKILLS: readonly SkillDefinition[] = lazyObjects([
   {
     schemaVersion: 1,
     id: READ_DOCUMENT_SKILL,
@@ -351,7 +355,7 @@ export const DOCS_SPLIT_SKILLS: readonly SkillDefinition[] = [
       required: ["documentId"],
       additionalProperties: false,
     },
-    output: jsonSchemaOf(InvoiceExtraction),
+    output: lazy(() => jsonSchemaOf(InvoiceExtraction)),
     settings: [],
     summary:
       "Read {{lines.length}} lines from {{header.vendorName}} invoice {{header.invoiceNumber}}",
@@ -409,4 +413,4 @@ export const DOCS_SPLIT_SKILLS: readonly SkillDefinition[] = [
     requiresPacks: [],
     producesAlerts: false,
   },
-];
+]);

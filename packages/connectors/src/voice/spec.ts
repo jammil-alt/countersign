@@ -2,7 +2,14 @@
 // placed and answered on the client's Twilio number, and an ElevenLabs voice agent speaks. The ids
 // are provider-neutral (shared namespace `call.`) like the messaging ones.
 
-import { CALL_DEFAULT_MINUTES, CALL_MAX_MINUTES, CallOutcome, E164 } from "@countersign/core";
+import {
+  CALL_DEFAULT_MINUTES,
+  CALL_MAX_MINUTES,
+  CallOutcome,
+  E164,
+  lazy,
+  lazyObjects,
+} from "@countersign/core";
 import { z } from "zod";
 
 export const CALL_NAMESPACES = ["call"] as const;
@@ -148,12 +155,15 @@ export const CallCompletedPayload = z.strictObject({
 });
 export type CallCompletedPayload = z.infer<typeof CallCompletedPayload>;
 
-export const CALL_EVENTS = [
+// Worker startup (2026-11-11): the payloads' JSON Schemas are made on first read (core `lazy`).
+export const CALL_EVENTS = lazyObjects([
   {
     type: CALL_RECEIVED_EVENT,
     description: "Someone called one of your numbers.",
     subjectType: "raw_record",
-    payload: z.toJSONSchema(CallReceivedPayload, { io: "input" }) as Record<string, unknown>,
+    payload: lazy(
+      () => z.toJSONSchema(CallReceivedPayload, { io: "input" }) as Record<string, unknown>,
+    ),
     sample: {
       connectionId: "0192f7a0-0000-7000-8000-000000000001",
       callSid: "CA0123456789abcdef0123456789abcdef",
@@ -171,7 +181,9 @@ export const CALL_EVENTS = [
     type: CALL_COMPLETED_EVENT,
     description: "A call ended: answered by an agent, voicemail, forwarded or not picked up.",
     subjectType: "raw_record",
-    payload: z.toJSONSchema(CallCompletedPayload, { io: "input" }) as Record<string, unknown>,
+    payload: lazy(
+      () => z.toJSONSchema(CallCompletedPayload, { io: "input" }) as Record<string, unknown>,
+    ),
     sample: {
       connectionId: "0192f7a0-0000-7000-8000-000000000001",
       callSid: "CA0123456789abcdef0123456789abcdef",
@@ -184,4 +196,4 @@ export const CALL_EVENTS = [
       at: "2026-11-04T15:02:00.000Z",
     },
   },
-];
+]);

@@ -8,6 +8,8 @@
 import {
   isPayloadPath,
   Locale,
+  lazy,
+  lazyObject,
   type SkillDefinition,
   TRANSLATE_SKILL,
   TranslationLanguage,
@@ -91,10 +93,14 @@ export const translateTool = defineInternalTool({
   },
 });
 
+// Worker startup (2026-11-11): made on first read (core `lazy`); the skills below are lazyObjects.
 const json = (schema: z.ZodType) =>
-  z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>;
+  lazy(
+    () =>
+      z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>,
+  );
 
-export const TRANSLATE_SKILL_DEF: SkillDefinition = {
+export const TRANSLATE_SKILL_DEF: SkillDefinition = lazyObject({
   schemaVersion: 1,
   id: TRANSLATE_SKILL,
   name: "Translate a message",
@@ -111,6 +117,6 @@ export const TRANSLATE_SKILL_DEF: SkillDefinition = {
   requiresConnectors: [],
   requiresPacks: [],
   producesAlerts: false,
-};
+});
 
 export const TRANSLATE_SKILLS: readonly SkillDefinition[] = [TRANSLATE_SKILL_DEF];

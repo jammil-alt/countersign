@@ -11,7 +11,13 @@
 //   Save to records: record prices     write step                 → materials.prices.record
 //   Save to records: raise the alerts  write step                 → materials.prices.check
 
-import type { SkillDefinition, SkillParameter } from "@countersign/core";
+import {
+  lazy,
+  lazyObject,
+  lazyObjects,
+  type SkillDefinition,
+  type SkillParameter,
+} from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { z } from "zod";
 import { MATCH_CONFIDENCE_AUTO } from "./catalog/settings";
@@ -263,8 +269,9 @@ export const SPLIT_TOOLS: readonly PackTool[] = [
   pricesCompare,
 ];
 
+// Worker startup (2026-11-11): skills' JSON Schemas are made on first read (core `lazy`).
 const schema = (tool: PackTool, key: "input" | "output") =>
-  tool.spec[key] as Record<string, unknown>;
+  lazy(() => tool.spec[key] as Record<string, unknown>);
 
 const THRESHOLD: SkillParameter = {
   name: "match_confidence_auto",
@@ -312,7 +319,7 @@ export const MATCH_UNMATCHED_INSTRUCTIONS = [
   "Confidence is how sure you are, from 0 to 1. Name the attribute the decision turned on. Answer every line, once.",
 ].join("\n");
 
-export const SPLIT_SKILLS: readonly SkillDefinition[] = [
+export const SPLIT_SKILLS: readonly SkillDefinition[] = lazyObjects([
   {
     schemaVersion: 1,
     id: "materials.lookup-existing",
@@ -345,16 +352,16 @@ export const SPLIT_SKILLS: readonly SkillDefinition[] = [
     // Retrieval as a read: the catalog's names (trigram). DECISION: no vector search yet; the
     // catalog's embedding column is written by nothing, so a read over it would find nothing.
     reads: ["materials.catalog.search"],
-    input: {
+    input: lazy(() => ({
       type: "object",
       properties: { lines: { type: "array", items: jsonSchemaOf(Open) } },
       required: ["lines"],
-    },
-    output: {
+    })),
+    output: lazy(() => ({
       type: "object",
       properties: { answers: { type: "array", items: jsonSchemaOf(Answer) } },
       required: ["answers"],
-    },
+    })),
     settings: [],
     summary: "Answered {{answers.length}} open lines",
     requiresConnectors: [],
@@ -399,7 +406,7 @@ export const SPLIT_SKILLS: readonly SkillDefinition[] = [
     requiresPacks: [PACK_ID],
     producesAlerts: false,
   },
-];
+]);
 
 // ── Writes moved out of the pack's model skills ──────────────────────────────────────────────
 // `materials.read-quote` (a task skill) called `docs.read`, which records a reading; and
@@ -407,7 +414,7 @@ export const SPLIT_SKILLS: readonly SkillDefinition[] = [
 // only; a write step records it (`materials.quote.record`, `inbox.create`).
 
 /** Read a vendor's quote: the request's lines asked (a read step's), its text and its document. */
-export const READ_QUOTE_DOCUMENT_SKILL: SkillDefinition = {
+export const READ_QUOTE_DOCUMENT_SKILL: SkillDefinition = lazyObject({
   schemaVersion: 1,
   id: "materials.read-quote-document",
   name: "Read a vendor's quote",
@@ -436,13 +443,13 @@ export const READ_QUOTE_DOCUMENT_SKILL: SkillDefinition = {
     },
     required: ["quoteRequestId", "quote"],
   },
-  output: jsonSchemaOf(ReadQuoteOut),
+  output: lazy(() => jsonSchemaOf(ReadQuoteOut)),
   settings: [],
   summary: "Read {{lines.length}} quoted lines",
   requiresConnectors: [],
   requiresPacks: [PACK_ID],
   producesAlerts: false,
-};
+});
 
 const MergeProposal = z.object({
   fromId: z.uuid(),
@@ -451,7 +458,7 @@ const MergeProposal = z.object({
 });
 
 /** Choose which likely duplicates are one item; a write step asks the operator to merge each. */
-export const CHOOSE_MERGES_SKILL: SkillDefinition = {
+export const CHOOSE_MERGES_SKILL: SkillDefinition = lazyObject({
   schemaVersion: 1,
   id: "materials.choose-merges",
   name: "Choose items to merge",
@@ -472,15 +479,15 @@ export const CHOOSE_MERGES_SKILL: SkillDefinition = {
     properties: { pairs: { type: "array", items: { type: "object" } } },
     required: ["pairs"],
   },
-  output: jsonSchemaOf(
-    z.object({ proposals: z.array(MergeProposal), sources: z.array(z.string()) }),
+  output: lazy(() =>
+    jsonSchemaOf(z.object({ proposals: z.array(MergeProposal), sources: z.array(z.string()) })),
   ),
   settings: [],
   summary: "Proposed merging {{proposals.length}} pairs of catalog items",
   requiresConnectors: [],
   requiresPacks: [PACK_ID],
   producesAlerts: false,
-};
+});
 
 export const REPLACEMENT_SKILLS: readonly SkillDefinition[] = [
   READ_QUOTE_DOCUMENT_SKILL,

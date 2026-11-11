@@ -1,7 +1,14 @@
 // The Bookkeeping pack's manifest (docs/plan.md §1.79): its tools and skills for bank transactions,
 // the chart of accounts and bookings, its report screens, and the Bookkeeper template.
 
-import { PackManifest, type SkillDefinition } from "@countersign/core";
+import {
+  lazy,
+  lazyObject,
+  lazyObjects,
+  lazyParse,
+  PackManifest,
+  type SkillDefinition,
+} from "@countersign/core";
 import { BOOK_CONFIDENCE_AUTO } from "./bookings";
 import { PACK_ID } from "./ids";
 import type { PackTool } from "./pack";
@@ -26,14 +33,16 @@ export { PACK_ID };
 
 const ALL_TOOLS: readonly PackTool[] = [...BOOKKEEPING_TOOLS, ...POSTING_TOOLS, ...RECONCILE_TOOLS];
 
+// Worker startup (2026-11-11): a tool's schema is read on first use (core `lazy`); the list below
+// goes through `lazyObjects`.
 const schema = (tool: PackTool, key: "input" | "output") =>
-  tool.spec[key] as Record<string, unknown>;
+  lazy(() => tool.spec[key] as Record<string, unknown>);
 
 function toolSkill(
   tool: PackTool,
   def: { id: string; name: string; description: string; summary: string },
 ): SkillDefinition {
-  return {
+  return lazyObject({
     schemaVersion: 1,
     id: def.id,
     name: def.name,
@@ -49,10 +58,10 @@ function toolSkill(
     requiresConnectors: [],
     requiresPacks: [PACK_ID],
     producesAlerts: false,
-  };
+  });
 }
 
-export const BOOKKEEPING_SKILLS: readonly SkillDefinition[] = [
+export const BOOKKEEPING_SKILLS: readonly SkillDefinition[] = lazyObjects([
   toolSkill(importTool, {
     id: "bookkeeping.import",
     name: "Read bank transactions",
@@ -156,9 +165,11 @@ export const BOOKKEEPING_SKILLS: readonly SkillDefinition[] = [
   ...RECONCILE_SKILLS,
   // Skill model (2026-11-10): AI skills that write nothing (./splits.ts).
   ...BOOKKEEPING_SPLIT_SKILLS,
-];
+]);
 
-export const bookkeepingManifest: PackManifest = PackManifest.parse({
+// Worker startup (2026-11-11): parsed on first read (core `lazyParse`); apps/api's
+// packs.test.ts parses every registered pack's manifest.
+export const bookkeepingManifest: PackManifest = lazyParse(PackManifest, () => ({
   id: PACK_ID,
   name: "Bookkeeping",
   version: "0.1.0",
@@ -181,7 +192,7 @@ export const bookkeepingManifest: PackManifest = PackManifest.parse({
       roles: ["client_admin", "client_user"],
     },
   ],
-});
+}));
 
 /** The pack's tool handlers by id, for apps/api to adapt into the tool registry. */
 export const BOOKKEEPING_HANDLERS: Readonly<Record<string, PackTool>> = Object.fromEntries(
