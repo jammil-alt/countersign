@@ -36,6 +36,7 @@ import {
   type PriceWatchRow,
   UNIT_LABEL,
 } from "./types";
+import { masterItemPath } from "./VendorCatalog";
 
 const PACK = "materials";
 
@@ -506,7 +507,16 @@ export function CatalogView({ clientId, clientName }: { clientId?: string; clien
               <tbody>
                 {items.map((i) => (
                   <tr key={i.id} data-testid="materials-catalog-row">
-                    <td>{i.name}</td>
+                    <td>
+                      {/* §1.88: the master item's page, with its vendors side by side. */}
+                      <Link
+                        to={masterItemPath(i.id, clientId)}
+                        className="text-ink hover:underline"
+                        data-testid="materials-catalog-item-link"
+                      >
+                        {i.name}
+                      </Link>
+                    </td>
                     <td>{categoryWord(i.category, i18n)}</td>
                     <td>{unitWord(i.standardUom, i18n)}</td>
                     {/* The pack's attribute names and values, as it records them. */}

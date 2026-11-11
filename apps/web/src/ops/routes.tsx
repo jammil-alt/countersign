@@ -171,9 +171,18 @@ export const opsRoutes = (
       path="clients/:clientId/reports/materials/catalog"
       element={<OpsClientCatalogScreen />}
     />
-    {/* §1.88: a client's vendor catalog */}
+    {/* §1.88: a master item's page, its vendors side by side */}
+    <Route
+      path="clients/:clientId/reports/materials/catalog/:id"
+      element={<OpsClientCatalogScreen />}
+    />
+    {/* §1.88: a client's vendor catalog, and one vendor's */}
     <Route
       path="clients/:clientId/reports/materials/vendor-catalog"
+      element={<OpsClientVendorCatalogScreen />}
+    />
+    <Route
+      path="clients/:clientId/reports/materials/vendor-catalog/:id"
       element={<OpsClientVendorCatalogScreen />}
     />
     {/* P-9: a client's purchase requests and one request's page */}

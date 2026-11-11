@@ -25,12 +25,18 @@ import { CatalogView, PackReportLinks, PriceWatchView } from "./materials/Report
 // P-9
 import { RequestsView, RequestView } from "./materials/Requests";
 // §1.88
-import { VendorCatalogView } from "./materials/VendorCatalog";
+import { MasterItemView, VendorCatalogView } from "./materials/VendorCatalog";
 
 // ── Portal ───────────────────────────────────────────────────────────────────────────────────────
 
 export const PortalPriceWatchScreen = () => <PriceWatchView />;
-export const PortalCatalogScreen = () => <CatalogView />;
+// §1.88: the catalog, or one master item's page (its vendors side by side) when the route names it.
+export function PortalCatalogScreen() {
+  const { id } = useParams();
+  return id ? <MasterItemView /> : <CatalogView />;
+}
+// §1.88: the vendor catalog, read only; `…/vendor-catalog/:id` opens that vendor.
+export const PortalVendorCatalogScreen = () => <VendorCatalogView />;
 // P-9: the list, or one request's page when the route names it.
 export function PortalRequestsScreen() {
   const { id } = useParams();
@@ -64,15 +70,15 @@ export function OpsClientPriceWatchScreen() {
 }
 
 export function OpsClientCatalogScreen() {
-  const { clientId = "" } = useParams();
+  const { clientId = "", id } = useParams();
   return (
     <ClientFrame clientId={clientId}>
-      <CatalogView clientId={clientId} />
+      {id ? <MasterItemView clientId={clientId} /> : <CatalogView clientId={clientId} />}
     </ClientFrame>
   );
 }
 
-// §1.88: a client's vendor catalog (back office only).
+// §1.88: a client's vendor catalog, with the operator's actions.
 export function OpsClientVendorCatalogScreen() {
   const { clientId = "" } = useParams();
   return (
@@ -377,13 +383,6 @@ export function OpsPacksScreen() {
   );
 }
 
-// DECISION (§1.88): the vendor catalog is a back-office screen until the owner decides what the
-// client sees; it is linked here beside the pack's portal screens, not named in its manifest
-// (whose screens the portal reads).
-const BACK_OFFICE_SCREENS: Readonly<Record<string, { route: string; title: string }[]>> = {
-  materials: [{ route: "/reports/materials/vendor-catalog", title: "Vendor catalog" }],
-};
-
 /** The client page's packs: which are on, switch one on, and that client's reports. */
 export function ClientPacks({ clientId }: { clientId: string }) {
   const { data, error, reload } = useApi(apiRoutes.opsClientPacks, { params: { id: clientId } });
@@ -408,10 +407,7 @@ export function ClientPacks({ clientId }: { clientId: string }) {
             </div>
             {p.enabled && p.screens.length > 0 ? (
               <div className="mt-4">
-                <PackReportLinks
-                  screens={[...p.screens, ...(BACK_OFFICE_SCREENS[p.id] ?? [])]}
-                  base={`/ops/clients/${clientId}`}
-                />
+                <PackReportLinks screens={p.screens} base={`/ops/clients/${clientId}`} />
               </div>
             ) : null}
             {/* P-9 */}

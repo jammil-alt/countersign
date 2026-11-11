@@ -137,6 +137,20 @@ const TOOLS: Record<string, string> = {
   "hubspot.task.create": "Create a task",
   "testkit.record.update": "Update a record",
   "testkit.record.query": "Find records",
+  // §1.88: the vendor catalog's reads and Save to records steps. Register item is the matching
+  // pipeline's step 5, as the owner names it.
+  "materials.vendor.match": "Find the vendor",
+  "materials.vendor_items.lookup": "Look up the vendor's items",
+  "materials.vendor_items.similar": "Find the vendor's closest items",
+  "materials.master_items.candidates": "Find master items it could be",
+  "materials.vendor_items.list": "Read a vendor's catalog",
+  "materials.vendor_items.for_item": "Read a master item's vendors",
+  "materials.vendor_items.register": "Register item",
+  "materials.vendor_item.upsert": "Save a vendor item",
+  "materials.vendor_items.import": "Import a vendor's price list",
+  "materials.vendor_item.set_preferred": "Mark the preferred vendor",
+  "materials.vendor_item.discontinue": "Discontinue a vendor item",
+  "materials.embeddings.write": "Embed new items for search",
 };
 
 /** "qbo.bill.update_lines" → "Itemize a bill"; an unknown id → "Update lines bill". */
