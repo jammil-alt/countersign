@@ -1,5 +1,5 @@
-// The Feedback button (docs/plan.md §1.10): floating at the bottom right of every screen, as in
-// Plenary Labs (2026-11-10, the owner; QA round 1 had moved it into the avatar menu). Choose it
+// The Feedback button (docs/plan.md §1.10): a row in the sidebar's foot, above Collapse (the owner,
+// 2026-11-11; it had floated at the bottom right and covered the page's own buttons). Choose it
 // and the page dims
 // ("Tap where the problem is"); a tap drops a pin and records what was under it, the path and the
 // viewport, and takes a picture of the page without this layer. A sheet shows the picture with the
@@ -46,7 +46,7 @@ function elementAt(x: number, y: number): Element | null {
   return all.find((el) => !el.closest(`[${FEEDBACK_LAYER_ATTR}]`)) ?? null;
 }
 
-// The shell's floating button starts it: FeedbackButton (where it is on) registers how to start,
+// The shell's sidebar row starts it: FeedbackButton (where it is on) registers how to start,
 // and the shell shows the button only while one is registered.
 let starter: (() => void) | null = null;
 const listeners = new Set<() => void>();

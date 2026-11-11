@@ -4,7 +4,7 @@
 // Sloan button, the Inbox or Escalations with its count, and the avatar menu (theme, language,
 // sign out); a sidebar; the page. At phone width the sidebar folds behind a menu button
 // and the top bar compacts; where a surface keeps its inbox out of the top bar (`inHeader: false`),
-// the menu button carries its count. Feedback floats at the bottom right.
+// the menu button carries its count. Feedback is a row in the sidebar's foot, above Collapse.
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { FEEDBACK_LAYER_ATTR } from "../feedback/capture";
@@ -83,6 +83,7 @@ export function AppShell({
   const [menuOpen, setMenuOpen] = useState(false);
   const wide = useWide();
   const [collapsed, setCollapsed] = useSidebarCollapsed();
+  const startFeedback = useFeedbackStarter();
   const { pathname } = useLocation();
   const deskInHeader = desk.inHeader ?? true;
   // Folded on a wide screen: a rail of icons, the words for screen readers and in tooltips.
@@ -151,7 +152,6 @@ export function AppShell({
         ) : null}
         <UserMenu surface={surface} extra={menu} />
       </header>
-      <FeedbackButton />
       <div className="ui-shell__body">
         {menuOpen ? (
           <button
@@ -172,9 +172,18 @@ export function AppShell({
         >
           <SidebarRail.Provider value={{ rail }}>
             <div className="ui-sidebar__nav">{sidebar}</div>
-            {sidebarFooter || wide ? (
+            {sidebarFooter || wide || startFeedback ? (
               <div className="ui-sidebar__foot">
                 {sidebarFooter}
+                {startFeedback ? (
+                  <FeedbackNavItem
+                    rail={rail}
+                    onStart={() => {
+                      setMenuOpen(false);
+                      startFeedback();
+                    }}
+                  />
+                ) : null}
                 {/* On a wide screen, Collapse (or Expand) closes the sidebar's foot, as in Anchor. */}
                 {wide ? (
                   <button
@@ -322,29 +331,28 @@ const THEME_LABEL = {
 } as const satisfies Record<Theme, MessageKey>;
 
 /**
- * Feedback: floating at the bottom right of every screen, as in Plenary Labs (2026-11-10, the
- * owner: back out of the avatar menu, where QA round 1 had put it). An icon and "Feedback"; the icon
- * alone at phone width. Only where feedback is on for the session (always in the back office; per
- * client in the portal). Its name says what it is for: problems with the app (Sloan takes other
- * asks).
+ * Feedback: a row in the sidebar's foot, above Collapse (the owner, 2026-11-11: it floated at the
+ * bottom right and covered the page's own buttons). Only where feedback is on for the session
+ * (always in the back office; per client in the portal). Its name says what it is for: problems
+ * with the app (Sloan takes other asks).
  */
-function FeedbackButton() {
+function FeedbackNavItem({ rail, onStart }: { rail: boolean; onStart: () => void }) {
   const { t } = useI18n();
-  const startFeedback = useFeedbackStarter();
-  if (!startFeedback) return null;
   return (
     <button
       type="button"
       data-testid="feedback-button"
       aria-label={t("feedback.button")}
-      title={t("feedback.button")}
-      onClick={() => startFeedback()}
-      className="ui-feedback-fab"
+      data-tip={rail ? t("feedback.short") : undefined}
+      onClick={onStart}
+      className="ds-navitem ui-navitem"
       // Part of the feedback layer: left out of the picture and never the pinned element.
       {...{ [FEEDBACK_LAYER_ATTR]: "" }}
     >
-      <Icon name="message" size={20} />
-      <span className="ui-feedback-fab__label">{t("feedback.short")}</span>
+      <span className="flex min-w-0 items-center gap-2.5">
+        <Icon name="message" className="ui-navitem__icon" />
+        <span className="ui-navitem__label">{t("feedback.short")}</span>
+      </span>
     </button>
   );
 }

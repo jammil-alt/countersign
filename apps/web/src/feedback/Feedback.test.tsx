@@ -61,7 +61,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-/** Feedback floats at the bottom right of every screen, as in Plenary Labs (2026-11-10). */
+/** Feedback is a row in the sidebar's foot, above Collapse (the owner, 2026-11-11). */
 async function openFeedback() {
   await userEvent.click(await screen.findByTestId("feedback-button"));
 }
