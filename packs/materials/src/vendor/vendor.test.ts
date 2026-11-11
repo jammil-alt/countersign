@@ -10,17 +10,19 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseLine } from "../catalog/keys";
 import { descriptionHash, normalize } from "../catalog/normalize";
-import { catalogItem, itemAlias, vendorItem } from "../schema";
+import { backfillFromBillsTool } from "../purchasing/tools";
+import { catalogItem, itemAlias, priceObservation, vendorItem } from "../schema";
 import { insertShop, type ShopFixture } from "../testing.test-helper";
 import { type PackToolContext, packToolContext } from "../tools";
 import { EMBEDDING_TEMPLATE } from "./embedding-text";
 import { registerLines } from "./pipeline";
-import { recordLastPrice } from "./store";
+import { priceForVendorItem, recordLastPrice } from "./store";
 import {
   embeddingsWrite,
   vendorItemDiscontinue,
   vendorItemSetPreferred,
   vendorItemsForItem,
+  vendorItemsImport,
   vendorItemsList,
   vendorItemsLookup,
   vendorItemUpsert,
@@ -447,5 +449,128 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
     // Everything is embedded under the template now: nothing is due.
     const after = (await embeddingsWrite.run({ missing: 500 }, withModel)) as { embedded: number };
     expect(after.embedded).toBe(0);
+  });
+
+  it("imports a vendor's price list: by SKU, by the vendor's wording, by a named master item", async () => {
+    const csv = [
+      "SKU,Description,Pack,UOM,Units per pack,List Price,Lead time",
+      'BB34-55,"BALTIC BIRCH PLY 3/4 5X5 BB/BB",bundle of 5,bundle,5,"$335.00",4 days',
+      ",WALNUT 4/4 FAS KD,,BF,,9.95,",
+      "NEW-77,MYSTERY PANEL,,EA,,12.00,",
+      "BB34-55,the same SKU again,,,,1,",
+      ",,,,,,",
+    ].join("\r\n");
+    const r = (await vendorItemsImport.run(
+      { vendorId: northline, listPriceOn: "2026-11-01", csv },
+      ctxA,
+    )) as J;
+    expect(r.rows.map((x: J) => [x.rowNo, x.outcome])).toEqual([
+      [1, "updated"],
+      [2, "updated"],
+      [3, "unplaced"],
+      [4, "skipped"],
+    ]);
+    expect(r).toMatchObject({ updated: 2, created: 0, unplaced: 1, skipped: 1 });
+    const [bb] = await t.db.select().from(vendorItem).where(eq(vendorItem.sku, "BB34-55"));
+    expect(bb).toMatchObject({
+      listPrice: "335.0000",
+      listPriceOn: "2026-11-01",
+      leadTimeDays: 4,
+      stdPerVendorUom: "5.0000",
+      packSize: "bundle of 5",
+      name: "BALTIC BIRCH PLY 3/4 5X5 BB/BB",
+    });
+    // The wording found the vendor's only item for the walnut (an alias kept before 0047).
+    const walnutRow = r.rows[1];
+    expect(walnutRow.catalogItemId).toBe(walnut);
+    const [wal] = await t.db
+      .select()
+      .from(vendorItem)
+      .where(eq(vendorItem.id, walnutRow.vendorItemId));
+    expect(wal).toMatchObject({ vendorUom: "board_foot", listPrice: "9.9500" });
+    // The renamed BB item is to embed again; the walnut kept its name.
+    expect(r.vendorItemIds).toEqual([bb?.id]);
+    // A row that names its master item adds the vendor's item; a test run writes nothing.
+    const rows = [
+      { sku: "BB12-55", name: "BB PLY 1/2 5X5", catalogItemId: baltic, vendorUom: "SHT" },
+    ];
+    const test = (await vendorItemsImport.run(
+      { vendorId: northline, listPriceOn: "2026-11-01", rows },
+      { ...ctxA, mode: "test" },
+    )) as J;
+    expect(test).toMatchObject({ created: 1, testRun: true });
+    expect(await t.db.select().from(vendorItem).where(eq(vendorItem.sku, "BB12-55"))).toEqual([]);
+    const made = (await vendorItemsImport.run(
+      { vendorId: northline, listPriceOn: "2026-11-01", rows },
+      ctxA,
+    )) as J;
+    expect(made).toMatchObject({ created: 1 });
+    const [half] = await t.db.select().from(vendorItem).where(eq(vendorItem.sku, "BB12-55"));
+    expect(half).toMatchObject({ catalogItemId: baltic, vendorUom: "sheet", listPrice: null });
+    // Another client's vendor can't be imported into.
+    expect(
+      await errorOf(
+        vendorItemsImport.run({ vendorId: northline, listPriceOn: "2026-11-01", rows }, ctxB),
+      ),
+    ).toMatch(/not found/);
+    expect(
+      await errorOf(
+        vendorItemsImport.run(
+          { vendorId: northline, listPriceOn: "2026-11-01", csv: "Price,Pack\n1,2" },
+          ctxA,
+        ),
+      ),
+    ).toMatch(/SKU or a name column/);
+  });
+
+  it("takes a QuickBooks bill's price as the vendor item's last price, in its own unit", async () => {
+    await A.qboBill({
+      id: "901",
+      vendorId: cedar,
+      date: "2026-11-05",
+      lines: [{ id: "1", item: "Walnut", description: "WALNUT 4/4 FAS", qty: 100, unitPrice: 9.5 }],
+    });
+    const r = (await backfillFromBillsTool.run(
+      { from: "2026-11-01", to: "2026-11-30" },
+      ctxA,
+    )) as J;
+    expect(r).toMatchObject({ recorded: 1, matched: 1 });
+    const [wal] = await t.db.select().from(vendorItem).where(eq(vendorItem.sku, "WAL44"));
+    expect(wal).toMatchObject({
+      lastPrice: "9.5000",
+      lastPriceStd: "9.5000",
+      lastPriceOn: "2026-11-05",
+      lastPriceSource: "qbo_bill",
+    });
+    const [price] = await t.db
+      .select()
+      .from(priceObservation)
+      .where(eq(priceObservation.vendorId, cedar));
+    expect(price?.vendorItemId).toBe(wal?.id);
+  });
+
+  it("reads a price in the vendor item's own unit only, never by guessing a conversion", () => {
+    const p = { price: "61.00", unit: "sheet", priceStd: "61.0000", standardUom: "sheet" };
+    expect(priceForVendorItem({ vendorUom: "sheet", stdPerVendorUom: null }, p)).toEqual({
+      price: "61.0000",
+      priceStd: "61.0000",
+    });
+    expect(priceForVendorItem({ vendorUom: "bundle", stdPerVendorUom: "5" }, p)).toEqual({
+      price: "305.0000",
+      priceStd: "61.0000",
+    });
+    expect(priceForVendorItem({ vendorUom: "bundle", stdPerVendorUom: null }, p)).toBeNull();
+    expect(
+      priceForVendorItem(
+        { vendorUom: "bundle", stdPerVendorUom: "5" },
+        { price: "300", unit: "bundle", priceStd: null, standardUom: "sheet" },
+      ),
+    ).toEqual({ price: "300.0000", priceStd: "60.0000" });
+    expect(
+      priceForVendorItem(
+        { vendorUom: null, stdPerVendorUom: null },
+        { price: "2", unit: "linear_foot", priceStd: null, standardUom: "board_foot" },
+      ),
+    ).toBeNull();
   });
 });

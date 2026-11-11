@@ -11,6 +11,7 @@ import { catalogItem, VENDOR_ITEM_STATUSES, vendorItem } from "../schema";
 import { Answer, Checked, LookedUp, Open } from "../split";
 import { defineTool, type PackTool, type PackToolContext } from "../tools";
 import { EMBEDDING_TEMPLATE } from "./embedding-text";
+import { importPriceList, readPriceList } from "./import";
 import {
   itemsToEmbed,
   lookupBySku,
@@ -563,6 +564,80 @@ function saveVendorItem(
   });
 }
 
+const PriceListRowIn = z.object({
+  sku: z.string().max(100).nullable().optional(),
+  name: z.string().max(500).nullable().optional(),
+  description: z.string().max(2000).nullable().optional(),
+  packSize: z.string().max(100).nullable().optional(),
+  vendorUom: z.string().max(40).nullable().optional(),
+  stdPerVendorUom: z.string().max(20).nullable().optional(),
+  minOrderQty: z.string().max(20).nullable().optional(),
+  leadTimeDays: z
+    .union([z.string().max(20), z.number().int()])
+    .nullable()
+    .optional(),
+  listPrice: z.string().max(20).nullable().optional(),
+  catalogItemId: z.string().max(40).nullable().optional(),
+});
+
+/** Save to records: a vendor's price list into its catalog. */
+export const vendorItemsImport = defineTool({
+  id: "materials.vendor_items.import",
+  description:
+    "Imports a vendor's price list (CSV text, or its rows) into the vendor's catalog: each row is the vendor's item by its SKU, else by a SKU or wording the vendor used before, else by the master item the row names, and takes the list's name, description, pack, unit, minimum order, lead time and list price (dated `listPriceOn`). A row no master item is known for is listed as unplaced and gets no vendor item. Prices paid are not changed.",
+  sideEffect: "internal",
+  summary: "{{updated}} vendor items updated, {{created}} added; {{unplaced}} unplaced",
+  input: z
+    .object({
+      vendorId: Uuid,
+      listPriceOn: Day,
+      csv: z.string().max(2_000_000).optional(),
+      rows: z.array(PriceListRowIn).max(5000).optional(),
+    })
+    .refine((v) => (v.csv === undefined) !== (v.rows === undefined), {
+      message: "give the price list as csv or as rows, one of them",
+    }),
+  output: z.object({
+    vendorId: z.string(),
+    rows: z.array(
+      z.object({
+        rowNo: z.number().int(),
+        sku: z.string().nullable(),
+        name: z.string().nullable(),
+        outcome: z.enum(["updated", "created", "unplaced", "skipped"]),
+        vendorItemId: z.string().nullable(),
+        catalogItemId: z.string().nullable(),
+        reason: z.string().nullable(),
+      }),
+    ),
+    updated: z.number().int(),
+    created: z.number().int(),
+    unplaced: z.number().int(),
+    skipped: z.number().int(),
+    vendorItemIds: z.array(z.string()),
+    testRun: z.boolean(),
+    sources: z.array(z.string()),
+  }),
+  async run(input, ctx) {
+    const rows = input.csv !== undefined ? readPriceList(input.csv) : (input.rows ?? []);
+    if (rows.length > 5000) {
+      throw new VendorItemError("bad_input", "a price list of more than 5,000 rows is split first");
+    }
+    const r = await importPriceList(ctx.db, {
+      tenantId: ctx.tenantId,
+      vendorId: input.vendorId,
+      rows,
+      listPriceOn: input.listPriceOn,
+      by: { agentVersionId: ctx.agentVersionId },
+      testRun: ctx.mode === "test",
+    });
+    return {
+      ...r,
+      sources: [input.vendorId, ...r.rows.flatMap((x) => (x.vendorItemId ? [x.vendorItemId] : []))],
+    };
+  },
+});
+
 /** Save to records: the client's first choice for a master item. */
 export const vendorItemSetPreferred = defineTool({
   id: "materials.vendor_item.set_preferred",
@@ -721,6 +796,7 @@ export const VENDOR_TOOLS: readonly PackTool[] = [
   vendorItemsList,
   vendorItemsForItem,
   vendorItemUpsert,
+  vendorItemsImport,
   vendorItemSetPreferred,
   vendorItemDiscontinue,
   embeddingsWrite,

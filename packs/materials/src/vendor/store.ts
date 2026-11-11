@@ -355,6 +355,34 @@ export async function recordLastPrice(
   return rows.length > 0;
 }
 
+/**
+ * A price for a vendor item in its own unit (and per standard unit), from a price stated in some
+ * unit (a quote's) or only per standard unit (a QuickBooks bill line's). Null when the vendor
+ * item's unit can't be reached from it without guessing (invariant 7).
+ */
+// DECISION: the price is the vendor item's when its unit is the one stated; else, from the
+// standard-unit price, when the vendor item is priced in the standard unit (or names no unit),
+// or through its `std_per_vendor_uom`. Anything else leaves the last price as it was.
+export function priceForVendorItem(
+  v: Pick<VendorItemRow, "vendorUom" | "stdPerVendorUom">,
+  p: { price: string | null; unit: string | null; priceStd: string | null; standardUom: string },
+): { price: string; priceStd: string | null } | null {
+  const factor =
+    v.stdPerVendorUom !== null && dec(v.stdPerVendorUom).gt(0) ? v.stdPerVendorUom : null;
+  if (p.price !== null && p.unit !== null && v.vendorUom === p.unit) {
+    const std = p.priceStd ?? (factor ? toNumeric(dec(p.price).dividedBy(factor)) : null);
+    return { price: toNumeric(p.price), priceStd: std };
+  }
+  if (p.priceStd === null) return null;
+  if (!v.vendorUom || v.vendorUom === p.standardUom) {
+    return { price: toNumeric(p.priceStd), priceStd: toNumeric(p.priceStd) };
+  }
+  if (factor) {
+    return { price: toNumeric(dec(p.priceStd).times(factor)), priceStd: toNumeric(p.priceStd) };
+  }
+  return null;
+}
+
 /** Marks a vendor item the client's first choice for its master item; the others lose it. */
 export async function setPreferred(
   tx: Tx,
