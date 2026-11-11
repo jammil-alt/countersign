@@ -227,12 +227,13 @@ describe("the portal in the session's language", () => {
     for (const label of ["Inicio", "Bandeja", "Ejecuciones", "Cuentas", "Contactos", "Ajustes"]) {
       expect(within(nav).getByText(label)).toBeInTheDocument();
     }
-    // The status reads in Spanish on the agent's card.
-    expect(within(screen.getByRole("main")).getByText("Trabajando")).toBeInTheDocument();
+    // The status reads in Spanish on the agent's card. The heading shows while the cards are
+    // still skeletons (1.3), so wait for the card itself.
+    expect(await within(screen.getByRole("main")).findByText("Trabajando")).toBeInTheDocument();
     expect(
       within(screen.getByRole("main")).getByText("Paso 2 de 4", { exact: false }),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("table-desk")).toHaveTextContent("Le necesita");
+    await waitFor(() => expect(screen.getByTestId("table-desk")).toHaveTextContent("Le necesita"));
     // Names and what the operator wrote stay as written.
     expect(within(screen.getByRole("main")).getByText("Record keeping")).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("es");
