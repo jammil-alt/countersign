@@ -30,18 +30,21 @@ export interface LiveProjection {
 export const clientViewSql = sql<unknown>`(${agentVersion.bundle} -> 'definition' -> 'clientView')`;
 
 /**
- * Whether an enabled workflow of the bundle starts on a `document.*` event (its first trigger), as
- * `readsDocuments` (lifecycle/runs.ts) reads it from the whole bundle: v4's `triggers[0]`, else
- * v3's `trigger`.
+ * Whether an enabled workflow of the bundle starts on a `document.*` event (any of its triggers), as
+ * `readsDocuments` (lifecycle/runs.ts) reads it from the whole bundle: v4's `triggers`, else v3's
+ * `trigger` and `moreTriggers`.
  */
 export const readsDocumentsSql = sql<boolean>`coalesce((select bool_or(
     (w ->> 'enabled')::boolean
-    and (case when jsonb_typeof(w -> 'workflow' -> 'triggers') = 'array'
-              then w -> 'workflow' -> 'triggers' -> 0
-              else w -> 'workflow' -> 'trigger' end) -> 'on' ->> 'type' = 'event'
-    and (case when jsonb_typeof(w -> 'workflow' -> 'triggers') = 'array'
-              then w -> 'workflow' -> 'triggers' -> 0
-              else w -> 'workflow' -> 'trigger' end) -> 'on' ->> 'event' like 'document.%')
+    and exists (
+      select 1
+      from jsonb_array_elements(case when jsonb_typeof(w -> 'workflow' -> 'triggers') = 'array'
+                                     then w -> 'workflow' -> 'triggers'
+                                     else jsonb_build_array(w -> 'workflow' -> 'trigger')
+                                          || case when jsonb_typeof(w -> 'workflow' -> 'moreTriggers') = 'array'
+                                                  then w -> 'workflow' -> 'moreTriggers'
+                                                  else '[]'::jsonb end end) t
+      where t -> 'on' ->> 'type' = 'event' and t -> 'on' ->> 'event' like 'document.%'))
   from jsonb_array_elements(case when jsonb_typeof(${agentVersion.bundle} -> 'workflows') = 'array'
                                  then ${agentVersion.bundle} -> 'workflows' else '[]'::jsonb end) w),
   false)`;

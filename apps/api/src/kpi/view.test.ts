@@ -11,7 +11,12 @@ import { liveProjections } from "./view";
 const h = await createApiHarness();
 afterAll(() => h?.close());
 
-type Wf = { on: Record<string, unknown>; enabled?: boolean; v4?: boolean };
+type Wf = {
+  on: Record<string, unknown>;
+  enabled?: boolean;
+  v4?: boolean;
+  second?: Record<string, unknown>;
+};
 
 function bundle(workflows: Wf[], clientView?: unknown): AgentBundle {
   return {
@@ -24,7 +29,7 @@ function bundle(workflows: Wf[], clientView?: unknown): AgentBundle {
         ? {
             triggers: [
               { id: `t${i}`, on: w.on },
-              { id: `u${i}`, on: { type: "manual" } },
+              { id: `u${i}`, on: w.second ?? { type: "manual" } },
             ],
           }
         : { trigger: { id: `t${i}`, on: w.on } },
@@ -39,7 +44,9 @@ const cases: [string, AgentBundle][] = [
   ["disabled", bundle([{ on: doc, enabled: false }])],
   ["other event", bundle([{ on: { type: "event", event: "run.finished" } }])],
   ["no workflows", bundle([])],
-  ["v4, document second", bundle([{ on: { type: "manual" }, v4: true }])],
+  ["v4, manual twice", bundle([{ on: { type: "manual" }, v4: true }])],
+  // AP bill clerk (2026-11-11): started by hand first, a document second.
+  ["v4, document second", bundle([{ on: { type: "manual" }, v4: true, second: doc }])],
 ];
 
 describe.skipIf(!h)("liveProjections", () => {
@@ -74,7 +81,7 @@ describe.skipIf(!h)("liveProjections", () => {
       expect(got.get(r.id)?.readsDocuments, cases[i]?.[0]).toBe(r.want);
       expect(got.get(r.id)?.versionId).toBe(r.liveVersionId);
     }
-    expect(rows.map((r) => r.want)).toEqual([true, true, false, false, false, false]);
+    expect(rows.map((r) => r.want)).toEqual([true, true, false, false, false, false, true]);
     expect(got.get(rows[0]?.id as string)?.view).toEqual({ kpis: [], panels: [] });
     expect(got.get(rows[1]?.id as string)?.view).toBeNull();
   });

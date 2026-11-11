@@ -167,13 +167,18 @@ function clientRunnable(bundle: AnyAgentBundle | null): RunForm[] {
 
 /**
  * The agent starts from documents: an enabled workflow of its live bundle has a `document.*` event
- * trigger (an invoice read, a file uploaded). The portal's agent page offers upload for it.
+ * among its triggers (an invoice read, a file uploaded). The portal's agent page offers upload for it.
  */
+// DECISION (owner, 2026-11-11): any trigger counts, not only the first. AP bill clerk starts by
+// hand first and on "a document arrives" second, and its page hid the upload and forwarding card.
 export function readsDocuments(bundle: AnyAgentBundle | null): boolean {
-  return (bundle?.workflows ?? []).some((w) => {
-    const on = firstTrigger(w)?.on;
-    return w.enabled && on?.type === "event" && on.event.startsWith("document.");
-  });
+  return (bundle?.workflows ?? []).some(
+    (w) =>
+      w.enabled &&
+      allTriggers(w.workflow).some(
+        (t) => t.on.type === "event" && t.on.event.startsWith("document."),
+      ),
+  );
 }
 
 /**
