@@ -459,11 +459,14 @@ export function TestRun({
 }
 
 /**
- * Connector names by id ("qbo" → "QuickBooks Online"), from the agent's builder catalog: what the
- * operator reads instead of connector ids.
+ * Connector names by id ("qbo" → "QuickBooks Online"), from the connectors catalog: what the
+ * operator reads instead of connector ids. `agentId` is kept for callers.
  */
-export function useConnectorNames(agentId: string): (id: string) => string {
-  const catalog = useApi(apiRoutes.opsBuilderCatalog, { params: { id: agentId } });
+// DECISION (1.5): the names come from the connectors catalog (`GET /api/ops/connectors`, 38 kB),
+// not the agent's builder catalog (595 kB), which only the Workflow tab needs whole. The catalog
+// lists every connector, the test-only ones too, so a test copy's names read the same.
+export function useConnectorNames(_agentId?: string): (id: string) => string {
+  const catalog = useApi(apiRoutes.opsConnectors);
   return (id: string) => {
     const [connector, site] = id.split(":");
     const name =

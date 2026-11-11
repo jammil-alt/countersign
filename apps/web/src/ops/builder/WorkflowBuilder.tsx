@@ -48,7 +48,8 @@ import { useApi } from "../../api/useApi";
 import { HeaderSwitcher } from "../../shell/HeaderSwitcher";
 import { AgentBadge } from "../../ui/badges";
 import { Icon } from "../../ui/icons";
-import { Badge, Button, buttonClass, cx, ErrorNotice, Loading } from "../../ui/primitives";
+import { Badge, Button, buttonClass, cx, ErrorNotice } from "../../ui/primitives";
+import { Skeleton, SkeletonBlock } from "../../ui/skeleton";
 import { slugify } from "../agents/definition-form";
 import {
   JSON_INPUT_PROPS,
@@ -220,7 +221,9 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
   if (!catalog.data || !events.data) {
     return (
       <Frame {...props}>
-        <Loading label="Loading skills, tools and events…" />
+        <Skeleton label="Loading skills, tools and events…" testId="builder-skeleton">
+          <SkeletonBlock height={480} />
+        </Skeleton>
       </Frame>
     );
   }

@@ -343,8 +343,10 @@ describe("AgentScreen", () => {
       [`GET /api/ops/agents/${ID}`]: () => new Promise((r) => (answer = r)),
     });
     const frame = await screen.findByTestId("agent-skeleton");
+    // The back link to the client's agents, and the tabs, before the agent arrives (1.4).
+    expect(within(frame).getByTestId("agent-back")).toHaveTextContent("All Harbor Millwork agents");
     expect(
-      within(frame)
+      within(within(frame).getByRole("navigation"))
         .getAllByRole("link")
         .map((l) => l.textContent),
     ).toEqual(["Overview", "Workflow", "Runs", "Versions", "Settings"]);

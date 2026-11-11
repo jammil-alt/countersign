@@ -37,6 +37,7 @@ import {
   SectionLabel,
   Tabs,
 } from "../../ui/primitives";
+import { Skeleton, SkeletonBlock, SkeletonCard, SkeletonLine } from "../../ui/skeleton";
 import { StatusChip, serviceChipState } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
 import { labPath } from "../lab/back";
@@ -53,6 +54,7 @@ import { AgentLineage, agentKindBadge } from "./Lineage";
 import { OperationPanel, ServicePanel } from "./OperationPanel";
 import { LatestRuns, OverviewTab } from "./OverviewTab";
 import { PricePanel } from "./PricePanel";
+import { type Prefetch, prefetchWorkflowTab, useIntent } from "./prefetch";
 import { TestsTab } from "./TestsTab";
 import { detailMessages, errorText, Notice, notifyAgentsChanged, plural, useAction } from "./ui";
 import { VersionsTab } from "./VersionsTab";
@@ -79,76 +81,157 @@ function AgentTabs({
   workflow,
   versions,
   workflowActive,
+  agentId,
 }: {
   base: string;
   keep: string;
   workflow: string | null;
   versions: number | null;
   workflowActive: boolean;
+  /** Known: hovering or focusing a tab fetches that tab's own data (1.5, 1.6). */
+  agentId?: string | undefined;
 }) {
+  const intent = useIntent();
+  // The tabs are shared links (ui/primitives' `Tabs`): which one the pointer or focus is on is
+  // read from the link's address, one prefetch per tab.
+  const onIntent = (target: EventTarget | null) => {
+    if (!agentId || !(target instanceof Element)) return null;
+    const href = target.closest("a")?.getAttribute("href") ?? "";
+    const tab = href.slice(base.length).split(/[/?]/)[1] ?? "";
+    const run = TAB_PREFETCH[tab];
+    return run ? intent(`${agentId}:${tab}`, (p) => run(p, agentId)) : null;
+  };
   return (
-    <Tabs
-      items={[
-        { to: `${base}${keep}`, label: "Overview", end: true },
-        {
-          to: workflow ? `${base}/workflows/${workflow}` : `${base}/workflow`,
-          label: "Workflow",
-          active: workflowActive,
-        },
-        { to: `${base}/runs${keep}`, label: "Runs" },
-        {
-          to: `${base}/versions${keep}`,
-          label: "Versions",
-          ...(versions === null ? {} : { count: versions }),
-        },
-        { to: `${base}/settings`, label: "Settings" },
-      ]}
-    />
+    // biome-ignore lint/a11y/noStaticElementInteractions: the links inside are the controls; this only listens.
+    <div
+      onPointerOver={(e) => onIntent(e.target)?.onPointerEnter(e)}
+      onFocus={(e) => onIntent(e.target)?.onFocus(e)}
+    >
+      <Tabs
+        items={[
+          { to: `${base}${keep}`, label: "Overview", end: true },
+          {
+            to: workflow ? `${base}/workflows/${workflow}` : `${base}/workflow`,
+            label: "Workflow",
+            active: workflowActive,
+          },
+          { to: `${base}/runs${keep}`, label: "Runs" },
+          {
+            to: `${base}/versions${keep}`,
+            label: "Versions",
+            ...(versions === null ? {} : { count: versions }),
+          },
+          { to: `${base}/settings`, label: "Settings" },
+        ]}
+      />
+    </div>
   );
 }
 
+/** Each tab's own first calls, fetched on hover or focus of the tab (1.5). */
+const TAB_PREFETCH: Record<string, (p: Prefetch, id: string) => void> = {
+  workflow: prefetchWorkflowTab,
+  workflows: prefetchWorkflowTab,
+  runs: (p, id) => p(apiRoutes.opsRuns, { query: { agent: id, limit: 50 } }),
+  versions: (p, id) => {
+    p(apiRoutes.opsActivation, { params: { id } });
+    p(apiRoutes.opsAgentGoLive, { params: { id } });
+  },
+  settings: (p) => p(apiRoutes.opsConnectors),
+};
+
 /**
- * The page's frame while the agent loads (the owner's review: pages hung on "Loading…"): the bar's
- * place and the tabs at once, so the page doesn't jump when the agent arrives.
+ * The page's frame while the agent loads (the owner's review: pages hung on "Loading…"): the back
+ * link, the bar and the tabs at once, so the page doesn't jump when the agent arrives. With the
+ * agent's row (the client's list, or the link that was clicked) the bar shows its name, kind and
+ * status already (1.4); the versions and the tab's body follow.
  */
 export function AgentFrameSkeleton({
   base,
   error,
   tabs = true,
+  summary,
+  clientName,
 }: {
   base: string;
   error?: ReactNode;
   /** False while the page's own address isn't known yet (`/ops/agents/:id`). */
   tabs?: boolean;
+  /** The agent's row, when the page has it before the agent itself. */
+  summary?: AgentSummary | undefined;
+  clientName?: string | undefined;
 }) {
   const workflowTab = useMatch(`${base}/workflow`);
   const builder = useMatch(`${base}/workflows/*`);
   const workflowActive = workflowTab !== null || builder !== null;
+  const tabRow = tabs ? (
+    <AgentTabs
+      base={base}
+      keep=""
+      workflow={null}
+      versions={null}
+      workflowActive={workflowActive}
+      agentId={summary?.id}
+    />
+  ) : (
+    <div className="h-4" />
+  );
+  const body = error ?? (
+    <Skeleton label="Loading the agent…">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_340px]">
+        <div className="flex flex-col gap-5">
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={2} />
+        </div>
+        <SkeletonCard lines={4} />
+      </div>
+    </Skeleton>
+  );
+  if (summary) {
+    return (
+      <div className="flex flex-col gap-6" data-testid="agent-skeleton">
+        <AgentBar
+          view={summary}
+          clientName={clientName}
+          bundle={null}
+          live={null}
+          draft={null}
+          lineage={null}
+          pending
+        >
+          {tabRow}
+        </AgentBar>
+        {body}
+      </div>
+    );
+  }
+  const clientId = base.match(/^\/ops\/clients\/([^/]+)\/agents\//)?.[1];
   return (
     <div className="flex flex-col gap-6" data-testid="agent-skeleton">
-      <Card>
-        <div className="flex items-start gap-4 px-6 pt-5 pb-1" aria-hidden>
-          <span className="ds-avatar ds-avatar--lg bg-surface-subtle" />
-          <div className="flex flex-1 flex-col gap-2 pt-1">
-            <span className="h-6 w-56 max-w-full rounded-sm bg-surface-subtle" />
-            <span className="h-4 w-80 max-w-full rounded-sm bg-surface-subtle" />
+      <div className="flex flex-col gap-3">
+        {clientId ? (
+          <Link
+            to={`${OPS_PATHS.client(clientId)}/agents`}
+            className="ui-back"
+            data-testid="agent-back"
+          >
+            <Icon name="arrow" size={14} className="rotate-180" />
+            {`All ${clientName ?? "client"} agents`}
+          </Link>
+        ) : null}
+        <Card>
+          <div className="flex items-start gap-4 px-6 pt-5 pb-1" aria-hidden>
+            <span className="ds-avatar ds-avatar--lg bg-surface-subtle" />
+            <div className="flex flex-1 flex-col gap-2 pt-1">
+              <SkeletonLine size="small" width={120} />
+              <SkeletonLine size="heading" width={224} />
+              <SkeletonLine size="small" width={320} />
+            </div>
           </div>
-        </div>
-        {tabs ? (
-          <div className="px-6 [&>nav]:border-b-0">
-            <AgentTabs
-              base={base}
-              keep=""
-              workflow={null}
-              versions={null}
-              workflowActive={workflowActive}
-            />
-          </div>
-        ) : (
-          <div className="h-4" />
-        )}
-      </Card>
-      {error ?? <Loading label="Loading the agent…" />}
+          <div className="px-6 [&>nav]:border-b-0">{tabRow}</div>
+        </Card>
+      </div>
+      {body}
     </div>
   );
 }
@@ -160,6 +243,7 @@ export function AgentScreen({
   connections = [],
   members = [],
   initial,
+  summary,
 }: {
   agentId: string;
   /** The page's URL: `/ops/clients/<id>/agents/<slug>` or `/ops/templates/<slug>`. */
@@ -172,6 +256,8 @@ export function AgentScreen({
   members?: readonly Member[];
   /** The agent as a page that sent here had it already: shown while it is fetched again. */
   initial?: AgentDetail | undefined;
+  /** The agent's row (the client's list): the bar while the agent itself loads. */
+  summary?: AgentSummary | undefined;
 }) {
   const [search] = useSearchParams();
   const navigate = useNavigate();
@@ -212,6 +298,8 @@ export function AgentScreen({
     return (
       <AgentFrameSkeleton
         base={base}
+        summary={summary?.id === agentId ? summary : undefined}
+        clientName={clientName}
         error={agent.error ? <ErrorNotice error={agent.error} onRetry={agent.reload} /> : undefined}
       />
     );
@@ -258,6 +346,7 @@ export function AgentScreen({
       workflow={builderStart}
       versions={versions.length}
       workflowActive={builder !== null || workflowTab !== null}
+      agentId={view.id}
     />
   );
   const lineage = (
@@ -290,7 +379,23 @@ export function AgentScreen({
       );
     }
     return (
-      <Suspense fallback={<Loading label="Opening the workflow builder…" />}>
+      <Suspense
+        fallback={
+          // The builder's own frame while its chunk loads: the agent, the tabs, the canvas's place.
+          <div data-testid="agent-builder-loading">
+            <div className="flex min-w-0 items-center gap-3 pb-3">
+              <AgentBadge name={view.serviceName ?? view.name} seed={view.id} size="md" />
+              <h1 className="type-subheading text-ink">{view.serviceName ?? view.name}</h1>
+            </div>
+            <div className="overflow-x-auto">{tabs}</div>
+            <div className="pt-6">
+              <Skeleton label="Opening the workflow builder…">
+                <SkeletonBlock height={480} />
+              </Skeleton>
+            </div>
+          </div>
+        }
+      >
         <WorkflowBuilder
           key={`${view.id}:${builderEpoch}`}
           agent={view}
@@ -361,12 +466,7 @@ export function AgentScreen({
             element={
               blocked ??
               (bundle ? (
-                <OverviewTab
-                  agent={view}
-                  bundle={bundle}
-                  base={base}
-                  skills={skills.data?.skills ?? []}
-                />
+                <OverviewTab agent={view} bundle={bundle} base={base} skills={skills} />
               ) : null)
             }
           />
@@ -477,6 +577,7 @@ function AgentBar({
   draft,
   lineage,
   actions,
+  pending = false,
   children,
 }: {
   view: AgentSummary;
@@ -486,6 +587,8 @@ function AgentBar({
   draft: { version: number } | null;
   lineage: ReactNode;
   actions?: ReactNode;
+  /** Drawn from the agent's row while the agent loads: its versions aren't known yet. */
+  pending?: boolean;
   children: ReactNode;
 }) {
   const stats = bundle ? workflowStats(bundle) : null;
@@ -543,11 +646,15 @@ function AgentBar({
                   <Badge tone={kind.tone} testId="agent-kind">
                     {kind.label}
                   </Badge>
-                  {versionBadges(live, draft).map((b) => (
-                    <Badge key={b.label} tone={b.tone}>
-                      {b.label}
-                    </Badge>
-                  ))}
+                  {pending ? (
+                    <SkeletonLine size="small" width={96} />
+                  ) : (
+                    versionBadges(live, draft).map((b) => (
+                      <Badge key={b.label} tone={b.tone}>
+                        {b.label}
+                      </Badge>
+                    ))
+                  )}
                   {view.status === "disabled" ? <Badge tone="neutral">Discarded</Badge> : null}
                 </span>
                 {view.kind === "client" && !view.testCopy ? (
@@ -561,7 +668,7 @@ function AgentBar({
                   {line.join(" · ")}
                 </p>
               ) : null}
-              <div className="mt-1">{lineage}</div>
+              {lineage ? <div className="mt-1">{lineage}</div> : null}
             </div>
           </div>
           {actions}

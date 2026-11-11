@@ -9,15 +9,9 @@ import { useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { shortTime } from "../../runs/format";
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorNotice,
-  Loading,
-  SectionLabel,
-} from "../../ui/primitives";
+import { Loaded } from "../../ui/page";
+import { Badge, Button, Card, EmptyState, SectionLabel } from "../../ui/primitives";
+import { SkeletonCard } from "../../ui/skeleton";
 import { ClientFrame } from "./ClientFrame";
 
 /** QuickBooks' account types (connector `QBO_ACCOUNT_TYPES`). */
@@ -95,26 +89,33 @@ export function OpsClientLedgerScreen() {
 }
 
 export function ClientLedger({ clientId }: { clientId: string }) {
-  const { data, error, loading, reload } = useApi(apiRoutes.opsClientLedger, {
-    params: { id: clientId },
-  });
-  if (loading && !data) return <Loading />;
-  if (error) return <ErrorNotice error={error} onRetry={reload} />;
-  const ledgers = (data?.ledgers ?? []) as Ledger[];
-  if (ledgers.length === 0) {
-    return (
-      <EmptyState>
-        No chart of accounts yet: the client connects QuickBooks, and its first sync brings the
-        accounts, classes and locations.
-      </EmptyState>
-    );
-  }
+  const state = useApi(apiRoutes.opsClientLedger, { params: { id: clientId } });
   return (
-    <div className="flex flex-col gap-6" data-testid="ops-ledger">
-      {ledgers.map((l) => (
-        <LedgerCard key={l.connectionId} clientId={clientId} ledger={l} onChange={reload} />
-      ))}
-    </div>
+    <Loaded state={state} skeleton={<SkeletonCard lines={6} />}>
+      {(data) => {
+        const ledgers = data.ledgers as Ledger[];
+        if (ledgers.length === 0) {
+          return (
+            <EmptyState>
+              No chart of accounts yet: the client connects QuickBooks, and its first sync brings
+              the accounts, classes and locations.
+            </EmptyState>
+          );
+        }
+        return (
+          <div className="flex flex-col gap-6" data-testid="ops-ledger">
+            {ledgers.map((l) => (
+              <LedgerCard
+                key={l.connectionId}
+                clientId={clientId}
+                ledger={l}
+                onChange={state.reload}
+              />
+            ))}
+          </div>
+        );
+      }}
+    </Loaded>
   );
 }
 
