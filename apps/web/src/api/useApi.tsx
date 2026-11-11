@@ -8,6 +8,7 @@ import {
   useId,
   useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
 } from "react";
 import { type ApiClient, api, type CallOptions, type ResponseOf } from "./client";
@@ -146,10 +147,14 @@ export function useApi<R extends RouteSpec>(
     [],
   );
 
-  const reload = useCallback(() => {
+  // `reload` asks again on the next render, for the options then: a reload in the same commit as
+  // a change to `null` options (a page taking over a frame's call) asks nothing, as before.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
     const { key: k, route: r, callOptions: opts } = ref.current;
-    if (k !== null && opts !== null) void store.fetch(k, r, opts);
-  }, [store]);
+    if (tick > 0 && k !== null && opts !== null) void store.fetch(k, r, opts);
+  }, [store, tick]);
+  const reload = useCallback(() => setTick((t) => t + 1), []);
 
   // DECISION: while a new query on the same entity loads, the last answer for that entity stays
   // (dimmed by `refreshing` where a screen shows it), as typing and filtering ask (plan 1.8); an
