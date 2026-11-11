@@ -71,6 +71,7 @@ import {
   TextArea,
   useAction,
 } from "../agents/ui";
+import { useOpsClients } from "../OpsLayout";
 import { PROCESS_KIND_LABEL, type StepLabels } from "../workflow/describe";
 import { BuilderPanel, SaveAsAutomation, useBuilderSession } from "./BuilderPanel";
 import {
@@ -507,11 +508,18 @@ function BuilderBody(
   }, [workflow, addTarget]);
 
   // ── Whose tools the palette offers ──
+  // DECISION (2.5): the frame's clients list (OpsLayout's `clients?view=names`) says whether the
+  // client is the Sandbox; the builder asks for its own only outside the frame (a screen test), or
+  // while the frame's is still on its way (the same request then, shared by the store).
+  const frameClients = useOpsClients();
+  const asks = agent.kind === "client" && !agent.testCopy;
   const clients = useApi(
     apiRoutes.opsClients,
-    agent.kind === "client" && !agent.testCopy ? { query: { view: "names" } } : null,
+    asks && frameClients === null ? { query: { view: "names" } } : null,
   );
-  const sandbox = clients.data?.clients.find((c) => c.id === agent.tenantId)?.sandbox === true;
+  const sandbox =
+    asks &&
+    (frameClients ?? clients.data?.clients)?.find((c) => c.id === agent.tenantId)?.sandbox === true;
   const connectors = useMemo(
     () =>
       paletteConnectors({
