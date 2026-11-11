@@ -4281,6 +4281,41 @@ factor (`portalReleaseRequest`, `opsRelease`, `opsAgentGrants`).
 6. `/assets/*` is cached for good (`immutable`); both Geist faces are preloaded, and a build missing
    either fails. Tests load all six catalogs in `test/setup.ts`; the app loads one.
 
+**The agent, run and client pages** (#258):
+
+1. The client page's frame is a pathless layout route around the tabs' routes; tab screens keep
+   wrapping themselves in `ClientFrame`, which inside the layout portals its intro and buttons into
+   the layout's header.
+2. The agent page resolves its slug from the client's own list; the list with discarded drafts is
+   asked only when the slug isn't there.
+3. `life: "catalog"` (event, builder and connector catalogs, models, client names): fresh for 5
+   minutes instead of 10 s; writes still mark it stale; emptied on scope change and sign-out.
+4. The agent page's connector names stay on the builder catalog, asked beside the agent on the
+   Overview (taking it off raised the Workflow tab's statements, which gate 2 forbids).
+5. Prefetch on intent fires for a mouse or pen hovering, or focus, once per target, never in a
+   hidden tab. Decisions and writes say what they are doing on the pressed button until the server
+   answers and cannot be pressed twice.
+
+**Polling and search** (#260): one `useDebounced` (300 ms, settled in a transition) for every search
+box; search lists keep their rows (`keep`) and dim them only while they answer an earlier query, with
+the error beside them if the new one fails, never across record kinds; a run that waits on a person
+is polled every 30 s (`runPollMs`, `portalRunPollMs`); the back-office Runs list uses it, the run
+pages switch in a follow-up.
+
+**The portal screens** (#259, #262):
+
+1. Fetch on intent is one listener around the portal's screens, reading the address under the
+   pointer (`data-intent` on rows that aren't links). Documents are never prefetched (signed links).
+2. The frame asks for the overview again on a move only when its answer is 5 s or older; the Inbox
+   refreshes the count when its open list disagrees.
+3. Pages draw their header from what is known (the overview, a list's row), in memory beside the
+   store and dropped with it. A run's open Inbox items are asked only once the run or its row says it
+   waits.
+4. The portal's waits (Sloan's answer, a document being read) back off from 3 s to 30 s; uploads
+   stop after 16 ticks.
+5. Home's "Not now" removes the row at once and puts it back if refused; the Runs list keeps its rows
+   across a status or start filter, never across a change of agent.
+
 **Running the run.** Worker sessions cannot force-push, so a worker brings its branch up to date by
 merging `speed/run` into it, and the lead merges each PR with a merge commit (never a squash). The
 tree merged is the one the gates ran on. `pnpm typecheck` runs out of memory in a 15 GB cloud

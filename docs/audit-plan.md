@@ -159,7 +159,7 @@ about 2.2 MB, pdf-lib 0.8 MB.
 
 ### Results
 
-**Status (lead), 2026-11-11 12:20 UTC:** foundations merged (#251, #256); step 3: the frame and Home (#257) and the first load (#261) merged; agent pages (#258) and polling (#260) approved and next; portal (#259) in a last fix. Held for the owner, ready: 5.1 (#252), 5.2 (#255), phase 9 (#253), 4.7 transport (#250), 4.7 logins (#254).
+**Status (lead), 2026-11-11 13:50 UTC:** steps 1 to 3 done and going to `main` as the front-end cut (`speed/cut`). Phase 6 (6.1–6.4, 6.6, 6.7) in progress on `speed/run`. The owner chose to merge the five held PRs (#250, #252, #253, #254, #255) to `main` one at a time once their CI is green. Not started: 4.2, phase 3, the rest of phase 6, phases 7, 8 and 10 (the next run).
 
 Add a row after each phase. "To content" is the script's `settled` time with `LATENCY_MS=100`
 (appendix A): it is not a real-world time, but it shows waits in a row.
@@ -172,6 +172,11 @@ Add a row after each phase. "To content" is the script's `settled` time with `LA
 | 2026-11-11 | `9392ff2` | 1.3 (skeletons, #256) | 6 / 93 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 10 / 108 / 1.1 s | 603 kB |
 | 2026-11-11 | `aa4fe50` | frame and Home (#257: 1.5 Home, 2.3) | 6 / 93 / 0.9 s | 11 / 149 / 0.7 s | 4 / 60 / 1.0 s | 10 / 108 / 1.0 s | 603 kB |
 | 2026-11-11 | `84b38d5` | first load (#261: 1.1, 4.1, 4.3–4.5) | 6 / 93 / 0.9 s | 11 / 149 / 0.7 s | 4 / 60 / 1.0 s | 10 / 108 / 1.0 s | **429 kB** |
+| 2026-11-11 | `b840a1c` | step 3 done (#258, #259, #260, #262) | 6 / 93 / 0.7 s | 11 / 149 / 0.6 s | 4 / 60 / 1.0 s | 9 / 101 / 0.9 s | 431 kB |
+
+**Totals over every screen at `b840a1c`** (calls / SQL; phase 0 → step 3): back office fresh
+131 / 1,402 → 114 / 1,216, moves 79 / 974 → 51 / 607; portal fresh 85 / 1,030 → 82 / 988, moves
+53 / 716 → 33 / 406. No screen went up at any merge.
 
 From 1.3 on, the script's `paint` (first contentful paint) is not comparable with earlier rows: a
 skeleton is shapes, not text, so the browser counts the first paint only when words arrive.
@@ -247,7 +252,7 @@ within a tenth of a second.
   **Done (#256):** loading text seen on 0 of 60 screen loads at `LATENCY_MS=300` (58 before); the
   boot screens draw a skeleton. Each screen's own shape comes with its screen worker (step 3).
 
-- [ ] **1.4 The frame does not wait for the page.**
+- [x] **1.4 The frame does not wait for the page.** (#258, #259)
   Check: `ClientFrame` (`apps/web/src/ops/client/ClientFrame.tsx`) sits inside each client
   screen, so a tab click remounts it and its title falls back to "Client"; the agent pages
   (`ops/screens/AgentPage.tsx`, `portal/screens/Agent.tsx`) show nothing until the agent loads.
@@ -258,7 +263,7 @@ within a tenth of a second.
   Done when: clicking through the client tabs keeps the header still and makes no
   `GET /api/ops/clients/:id`.
 
-- [ ] **1.5 The main thing first, the rest after.**
+- [x] **1.5 The main thing first, the rest after.** (#257, #258, #259; the agent page keeps the builder catalog on its Overview, §1.91)
   Check: these screens hold everything until one call returns, or load side panels with the
   main content:
   - portal Home (`portal/screens/Home.tsx`): overview, access and weekly wait on `portalTable`;
@@ -274,7 +279,7 @@ within a tenth of a second.
   Done when: with `LATENCY_MS=100`, each of these screens shows its main content after one round
   trip past the session.
 
-- [ ] **1.6 Fetch on intent.**
+- [x] **1.6 Fetch on intent.** (#257, #258, #259: on hover or focus. "Prefetch the next screen once Home has settled" is not built: it raises Home's calls, which gate 2 forbids; owner's call.)
   Do: on hover or focus of a row or link that opens a detail page (runs, inbox items, agents,
   clients, documents), call `prefetch` for that page's first call and start its chunk's
   `import()`. On Home, prefetch the Inbox once Home has settled. Limit: one prefetch per target,
@@ -291,7 +296,7 @@ within a tenth of a second.
   start, add the sweep first or leave the task where it is. Record each choice.
   Done when: signing a change answers as soon as it is committed.
 
-- [ ] **1.8 A press answers at once.**
+- [x] **1.8 A press answers at once.** (on the screens touched in step 3; the rest as screens are touched)
   Do, by kind of action:
   - **Reversible and internal** (snooze, mark read, a filter, a sort, a settings switch, a
     rename): change the screen at once with `useOptimistic`, put it back with a plain message if
@@ -320,14 +325,14 @@ Target: no screen asks the same route twice on load; a move between tabs of one 
 for that tab's data; portal Home 5 calls or fewer; back-office agent page 8 or fewer. Much of this
 is settled by the cache in 1.2; these items are what is left.
 
-- [ ] **2.1 The portal shares one overview.**
+- [x] **2.1 The portal shares one overview.** (#259)
   Check: `PortalApp.tsx` loads `portalOverview`, reloads it on every route change and every 20 s;
   `portal/screens/Home.tsx` and `portal/screens/Runs.tsx` ask for it again.
   Do: with 1.2 the screens read the shell's answer. Refresh on a route change only if the stored
   answer is older than a few seconds.
   Done when: `/api/overview` is asked once per load and at most once per move.
 
-- [ ] **2.2 Waiting on a person is not "running".**
+- [ ] **2.2 Waiting on a person is not "running".** Helpers and the back-office Runs list done (#260); the two run pages, the portal Runs and agent polls switch in the next run.
   Check: `isRunGoing` (`apps/web/src/runs/format.ts`) and `runOpen` (`apps/web/src/portal/status.ts`)
   count `waiting`. Run pages poll every 2 s and run lists every 5 s while any run waits.
   Do: poll fast only for `queued` and `running`. For `waiting`, poll every 30 s.
@@ -339,12 +344,12 @@ is settled by the cache in 1.2; these items are what is left.
   Do: have Escalations call `useShareCounts` as the command center does; reload counts on a route
   change only when the first path segment after `/ops` changes.
 
-- [ ] **2.4 Search boxes wait for typing to stop.**
+- [x] **2.4 Search boxes wait for typing to stop.** (#260)
   Check: `portal/screens/Contacts.tsx` and `directory/DirectoryPanel.tsx` call the API on every
   keystroke; both Records screens carry the same copied 300 ms effect.
   Do: one `useDebounced` hook, used by all four.
 
-- [ ] **2.5 Catalogs asked once.** `opsEventCatalog`, `opsBuilderCatalog`, `connectors`,
+- [x] **2.5 Catalogs asked once.** (#258) `opsEventCatalog`, `opsBuilderCatalog`, `connectors`,
   `opsConnectors`, `opsModels`, `opsClients?view=names`: after 1.2, check each is asked once per
   page and give them a longer life in the store (they change only on a deploy or a pack switch).
 
@@ -352,7 +357,7 @@ is settled by the cache in 1.2; these items are what is left.
   per agent. Needs 6.7 (the stage in the `opsClient` answer); listed here so the screen is not
   forgotten.
 
-- [ ] **2.7 Polls that never stop.** `portal/screens/Upload.tsx` checks each unread document
+- [x] **2.7 Polls that never stop.** (#259) `portal/screens/Upload.tsx` checks each unread document
   every 3 s for up to 40 tries and does not pause in a hidden tab; `portal/screens/Sloan.tsx`
   polls every 3 s with no limit while the last message is the person's. Use `usePoll` and back
   off.
