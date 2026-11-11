@@ -19,6 +19,7 @@ import { getDocument } from "./get";
 import { GOLDEN_INVOICES, goldenProblems, invoicePath } from "./golden.test-helper";
 import { type Client, createHarness, type Harness } from "./harness.test-helper";
 import { linkToTransaction, shiftDate } from "./link";
+import { findQboBills } from "./qbo-bills";
 import { PDF_PAGES_PER_CALL } from "./split";
 import { countPages, DocumentError, storeDocument } from "./store";
 
@@ -443,6 +444,45 @@ describe.skipIf(!h)("documents", () => {
       });
       const again = await harness.as(C, (tx) => findSupport(tx, C.tenantId, txn.id));
       expect(again).toMatchObject({ status: "found", linkedNow: false });
+    });
+
+    it("findQboBills: the synced copy of each QuickBooks bill and its documents, else not_yet", async () => {
+      const C = await freshClient("Synced bills shop");
+      const synced = await harness.as(C, async (tx) => {
+        const [row] = await tx
+          .insert(transaction)
+          .values({
+            tenantId: C.tenantId,
+            kind: "bill",
+            connector: "qbo",
+            txnDate: "2026-11-02",
+            total: "961.2500",
+            externalId: "Bill:146",
+          })
+          .returning();
+        if (!row) throw new Error("no transaction");
+        return row;
+      });
+      const { document: doc } = await store(C, "northline-20418.pdf", "application/pdf");
+      await harness.as(C, (tx) =>
+        tx.update(document).set({ transactionId: synced.id }).where(eq(document.id, doc.id)),
+      );
+      // Another client's bill with the same QuickBooks id is not this client's.
+      const other = await freshClient("Other shop");
+      await harness.as(other, (tx) =>
+        tx.insert(transaction).values({
+          tenantId: other.tenantId,
+          kind: "bill",
+          connector: "qbo",
+          total: "1.0000",
+          externalId: "Bill:999",
+        }),
+      );
+      const out = await harness.as(C, (tx) => findQboBills(tx, C.tenantId, ["146", "999", "146"]));
+      expect(out).toEqual([
+        { qboId: "146", status: "in", transactionId: synced.id, documentIds: [doc.id] },
+        { qboId: "999", status: "not_yet", transactionId: null, documentIds: [] },
+      ]);
     });
   });
 

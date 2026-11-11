@@ -185,6 +185,59 @@ export const docsFindSupport = defineInternalTool({
   },
 });
 
+// The price checker's step 2 (owner, 2026-11-11): the bills step 1 read from QuickBooks, as
+// Mezonas has them. The QuickBooks sync brings bills and their attachments in on its own.
+const QboBillCopyOut = z.object({
+  qboId: z.string(),
+  status: z.enum(["in", "not_yet"]),
+  transactionId: z.string().nullable(),
+  documentIds: z.array(z.string()),
+});
+
+export const docsQboBills = defineInternalTool({
+  id: "docs.qbo_bills",
+  description:
+    "For bills read from QuickBooks, Mezonas's copy of each: its transaction and its attachments as documents, ready to read. The QuickBooks sync brings bills and attachments in every 15 minutes, so a bill entered minutes ago may be 'not_yet'.",
+  sideEffect: "none",
+  input: z
+    .object({
+      /** The bills from QuickBooks' find bills step, as it gives them. */
+      bills: z
+        .array(z.object({ id: z.string().min(1) }).passthrough())
+        .max(200)
+        .optional(),
+      /** Or their QuickBooks ids. */
+      ids: z.array(z.string().min(1)).max(200).optional(),
+    })
+    .refine((v) => (v.bills?.length ?? 0) + (v.ids?.length ?? 0) > 0, {
+      message: "give the bills from QuickBooks, or their ids",
+    }),
+  output: z.object({
+    bills: z.array(QboBillCopyOut),
+    inCount: z.number(),
+    notYetCount: z.number(),
+    documentIds: z.array(z.string()),
+    sources: z.array(z.string()),
+  }),
+  async run(input, ctx) {
+    const p = port(ctx);
+    if (!p.qboBills) throw new Error("finding bills from QuickBooks is not available here");
+    const ids = [...(input.bills ?? []).map((b) => b.id), ...(input.ids ?? [])];
+    const bills = await p.qboBills(ctx.tenantId, ids);
+    const documentIds = bills.flatMap((b) => b.documentIds);
+    return {
+      bills,
+      inCount: bills.filter((b) => b.status === "in").length,
+      notYetCount: bills.filter((b) => b.status === "not_yet").length,
+      documentIds,
+      sources: [
+        ...bills.flatMap((b) => (b.transactionId ? [b.transactionId] : [])),
+        ...documentIds,
+      ],
+    };
+  },
+});
+
 // ── Bills behind invoices (docs/plan.md §1.30, "Bill clerk") ───────────────────────────────────
 
 const MatchBillOut = z.object({
@@ -373,6 +426,7 @@ export const DOCS_TOOLS: readonly InternalTool[] = [
   docsRead,
   docsExtract,
   docsFindSupport,
+  docsQboBills,
   docsMatchBill,
   docsPlanBill,
   docsBillLines,

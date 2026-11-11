@@ -181,6 +181,21 @@ export interface DocumentsPort {
     tenantId: string,
     input: { transactionId: string; testRun: boolean },
   ): Promise<FindSupportOutcome>;
+  /**
+   * Mezonas's copy of bills read from QuickBooks: the transaction the sync stored for each and its
+   * documents (packages/documents' findQboBills); reads only.
+   */
+  qboBills?(
+    tenantId: string,
+    qboIds: readonly string[],
+  ): Promise<
+    {
+      qboId: string;
+      status: "in" | "not_yet";
+      transactionId: string | null;
+      documentIds: string[];
+    }[]
+  >;
   /** The one synced bill an invoice belongs to (packages/documents' matchBill); reads only. */
   matchBill(tenantId: string, input: MatchBillInput): Promise<MatchBillResult>;
   // Skill model (2026-11-10): "Read document" (an AI skill) and "record the reading" (a write).

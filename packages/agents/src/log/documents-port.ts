@@ -9,6 +9,7 @@ import { type Db, withTenant } from "@countersign/db";
 import {
   type DocumentView,
   extractDocument,
+  findQboBills,
   findSupport,
   getDocument,
   matchBill,
@@ -124,6 +125,10 @@ export function dbDocumentsPort(db: Db, options: DbDocumentsOptions): DocumentsP
       return withTenant(db, tenantId, (tx) =>
         findSupport(tx, tenantId, input.transactionId, { testRun: input.testRun }),
       );
+    },
+
+    qboBills(tenantId, qboIds) {
+      return withTenant(db, tenantId, (tx) => findQboBills(tx, tenantId, qboIds));
     },
 
     matchBill(tenantId, input) {

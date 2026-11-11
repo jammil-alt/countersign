@@ -11,5 +11,6 @@ export * from "./get";
 export * from "./golden";
 export * from "./knowledge";
 export * from "./link";
+export * from "./qbo-bills";
 export * from "./store";
 export * from "./validate";
