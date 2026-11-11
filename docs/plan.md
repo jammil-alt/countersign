@@ -4411,6 +4411,20 @@ could never come.
 | Not covered | A later step that reads the provider again (look up the vendor just made) still finds nothing, and a later write's own checks still read QuickBooks: a bill for the stand-in vendor "0" is refused as not the company's. Such a flow passes a test run only if it uses the create's output and the next write doesn't check that record. |
 | Checked | `apps/api/src/actions.test.ts` (a test run of create bill then attach with the bill's id: succeeded, both writes proposed, no POST to QuickBooks, the stand-in marked; the attach, with no stand-in, as before), `packages/connectors/src/qbo/qbo.test.ts` (each create declares one, valid and calling nothing), `packages/agents/src/log/runtime.test.ts` (no stand-in without one). |
 
+### 1.95 The run step panel (owner's UI pass, 2026-11-11)
+
+Each step on a run page opens a panel beside the run that says what the step did, on both
+surfaces: the back office's `/ops/runs/:id` and the client's `/runs/:id`.
+
+| Topic | Decision |
+|---|---|
+| Opening | A step's title is a button (`StepList` `onOpen`); the panel is the side sheet from the right (`ui/sheet.tsx`), wide. Its address is `?step=<step run id>` (a back office step not reached yet: its checklist key), so a link to a run can open a step. Escape, the scrim and Close shut it and take `step` out of the address; Tab keeps focus inside it (`trapTab`). // DECISION |
+| Step tab | The step's summary, state, start and end, duration and tries (`step_run.attempts`, when above one); its checks and approvals (`StepChecks`); what went in and came out read as fields, lists and tables (`FieldsView`: ids by their tail, times and figures in the reader's locale), with the raw JSON behind a toggle; the changes it made to the client's tools, now and after (`ChangeTables`). |
+| Back office | Also the step id, its skill or tool, models, tokens and cost, the owner's decisions and checks, each model call with its prompt and answer on demand (`opsModelCall`), and its tool calls. No route change beyond `attempts`: `opsRun` already carries the rest. |
+| Portal | `TimelineStep` gains `input` and `output` (`clientStepData`: the stored value without any key the contract forbids a portal response, any secret field, or a model; none on a confer's row), `attempts` and `ai` ("AI read this", never which model, its prompt or cost). Portal `actions` gain `stepRunId`, `before` and `input` (the signer's edit when there was one), as the Inbox already showed them. The screen reads the step's data through `clientStepData` again. // DECISION: a deny list over the stored data rather than a per-skill allow list; step data is business data and the contract names what a client never sees. |
+| Data tab | When the step made, changed or cited anything: its changes, the records it cites (`sources`) and the documents it names (`documentId`, `documentIds`; `stepDocumentIds`), each with its page. Records and documents have no link to a step run of their own, so the tab reads the step's data. |
+| Checked | `packages/core/src/api/step-data.test.ts`, `apps/web/src/runs/StepPanel.test.tsx`, `apps/web/src/portal/screens/RunStepPanel.test.tsx`, `apps/web/src/ops/screens/RunView.test.tsx` ("back-office step panel"), `apps/api/src/runs.test.ts` (the client's timeline carries the step's input and the change by its step, and `forbiddenKeys` finds none). |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

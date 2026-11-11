@@ -6,6 +6,7 @@
 // (who opened it or its items, who approved). No costs, no instructions, no internal steps: the API
 // sends none, and this screen renders only the fields the contracts name. Polls while it goes.
 // P-4
+// Step panel (docs/plan.md §1.95): each step opens its details beside the run (`?step=<id>`).
 
 import { pickLocalized, type RunAuditEntry, shortRunId } from "@countersign/core";
 import { useState } from "react";
@@ -21,6 +22,7 @@ import { SourceLinks } from "../../records/SourceLinks";
 import { ConversationControls } from "../../runs/ConversationControls";
 import { shortTime, stepStatusLabel } from "../../runs/format";
 import { conferTitle, StepChecks } from "../../runs/StepChecks";
+import { useStepParam } from "../../runs/StepPanel";
 import { subjectTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { writeLine } from "../../runs/write";
@@ -50,6 +52,7 @@ import { Transcript } from "../../ui/transcript";
 import { useKnownRun, useRememberRuns } from "../known";
 import { PORTAL_PATHS } from "../paths";
 import { runChip, runOpen, runState, workedMs } from "../status";
+import { PortalStepPanel } from "./RunStepPanel";
 import { msDuration, TookCell } from "./runsParts";
 
 const ACTION_WORDS: Record<string, PlainKey> = {
@@ -307,9 +310,14 @@ function RunBody({
         ? t("run.conversation.endedByUs")
         : t("run.conversation.ended", { who: by.name ?? "" });
   const { run } = data;
+  const { stepId, openStep, closeStep } = useStepParam();
+  const openIndex = stepId ? data.steps.findIndex((s) => s.id === stepId) : -1;
+  const open = openIndex >= 0 ? data.steps[openIndex] : undefined;
 
   const steps: StepItem[] = data.steps.map((s) => ({
     key: s.id,
+    onOpen: () => openStep(s.id),
+    selected: s.id === stepId,
     // R8: a confer is a step of its own: a person's answer in copper (§1.86).
     state: s.confer ? (s.confer.reviewer === "person" ? "person" : "done") : stepState(s.status),
     time: s.startedAt ? time(s.startedAt) : "",
@@ -415,6 +423,17 @@ function RunBody({
           </div>
         )}
       </Card>
+
+      {open ? (
+        <PortalStepPanel
+          key={open.id}
+          step={open}
+          index={openIndex + 1}
+          count={data.steps.length}
+          data={data}
+          onClose={closeStep}
+        />
+      ) : null}
 
       <WaitingChanges items={waiting} />
 

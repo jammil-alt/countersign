@@ -85,6 +85,7 @@ export * from "./api/search";
 export * from "./api/skill-model";
 // v0.14 W4-C: the Slack channel picker
 export * from "./api/slack";
+export * from "./api/step-data";
 // P-6
 export * from "./api/step-in";
 export * from "./api/supervisor";

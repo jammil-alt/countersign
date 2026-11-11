@@ -346,6 +346,13 @@ describe.skipIf(!h)("runs", () => {
     expect(body.actions).toEqual([
       expect.objectContaining({ tool: TESTKIT_UPDATE_TOOL, status: "done" }),
     ]);
+    // Step panel (docs/plan.md §1.95): what went in and the change before and after, by its step.
+    expect(body.steps[0].input).toMatchObject({ amount: "12.00" });
+    expect(body.actions[0]).toMatchObject({
+      stepRunId: body.steps[0].id,
+      before: expect.objectContaining({ amount: "10.00" }),
+      input: expect.objectContaining({ amount: "12.00" }),
+    });
     for (const path of [
       "/api/overview",
       "/api/runs",
