@@ -706,11 +706,14 @@ export async function portalRunView(
 // DECISION: the key is an md5 over the content of every row the view reads (the run's status,
 // times, error and trigger; each step's status, attempts, times, summary and output; each client
 // item's state, title, payload and resolution; each change's status, time, input and before; each
-// conversation's status, turns, plan and reply; each oversight decision), not timestamps alone
-// and not a stored counter: a step going from running to waiting, a reply landing or a write's
-// status changing moves no timestamp, and no write path has to remember to bump anything. It is
-// a change detector only, never shown. Cost, models and tool calls are left out: the portal
-// shows none of them (invariant 11), so their changes need no reload.
+// conversation's status, turns, plan and reply, and each translation of its reply), not
+// timestamps alone and not a stored counter: a step going from running to waiting, a reply or
+// its translation landing, or a write's status changing moves no timestamp, and no write path has
+// to remember to bump anything. Cost, models and tool calls are not keyed on their own: the portal
+// shows none of them. A conversation's plan does carry its model and cost, so their changes do
+// move the key; harmless, since only an opaque md5 leaves (invariant 11). Not in the key:
+// `waitedMs` (it grows with the clock: the page ticks it locally) and the display names of
+// people and cited records (they live in other rows and rarely change).
 export async function portalRunStatus(tx: Tx, tenantId: string, runId: string) {
   const rows = await tx.execute<{
     id: string;
@@ -725,8 +728,8 @@ export async function portalRunStatus(tx: Tx, tenantId: string, runId: string) {
         where i.tenant_id = r.tenant_id and i.run_id = r.id and i.status = 'open'
           and (i.assignee_role is null or i.assignee_role <> 'operator')
       )) as waiting,
-      to_json(greatest(r.created_at, r.started_at, r.finished_at, s.at, i.at, x.at, c.at, o.at)) #>> '{}' as updated_at,
-      md5(concat_ws('|', r.status, r.started_at, r.finished_at, md5(coalesce(r.error::text, '')), md5(r.trigger::text), s.k, i.k, x.k, c.k, o.k)) as change_key
+      to_json(greatest(r.created_at, r.started_at, r.finished_at, s.at, i.at, x.at, c.at, t.at, o.at)) #>> '{}' as updated_at,
+      md5(concat_ws('|', r.status, r.started_at, r.finished_at, md5(coalesce(r.error::text, '')), md5(r.trigger::text), s.k, i.k, x.k, c.k, t.k, o.k)) as change_key
     from run r
     left join lateral (
       select max(greatest(started_at, finished_at)) as at,
@@ -750,6 +753,16 @@ export async function portalRunStatus(tx: Tx, tenantId: string, runId: string) {
         string_agg(concat_ws(':', id, step_run_id, status, outcome, ended_at, updated_at, md5(plan::text), md5(attempts::text), md5(coalesce(reply::text, ''))), ',' order by id) as k
       from reach_out where tenant_id = r.tenant_id and run_id = r.id
     ) c on true
+    left join lateral (
+      select max(created_at) as at,
+        string_agg(concat_ws(':', id, status, field, target_language, md5(coalesce(text, ''))), ',' order by id) as k
+      from message_translation
+      where tenant_id = r.tenant_id and raw_record_id in (
+        select (reply->>'rawRecordId')::uuid from reach_out
+        where tenant_id = r.tenant_id and run_id = r.id
+          and reply->>'rawRecordId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      )
+    ) t on true
     left join lateral (
       select max(created_at) as at,
         string_agg(concat_ws(':', id, step_run_id, action, inbox_item_id), ',' order by id) as k

@@ -5,7 +5,17 @@
 // (invariant 1).
 
 import { FORBIDDEN_PORTAL_FIELD } from "@countersign/core";
-import { contact, type Db, inboxItem, reachOut, run, stepRun, withTenant } from "@countersign/db";
+import {
+  contact,
+  type Db,
+  inboxItem,
+  messageTranslation,
+  rawRecord,
+  reachOut,
+  run,
+  stepRun,
+  withTenant,
+} from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -243,7 +253,7 @@ describe.skipIf(!h)("portal reads (speed run 6.2, 6.4)", () => {
     );
   });
 
-  it("gives a new key when a step goes waiting, a step finishes, or a conversation replies", async () => {
+  it("gives a new key when a step goes waiting, a step finishes, a conversation replies or its reply is translated", async () => {
     const key = async () =>
       j((await H.call(user("a"), "GET", `/api/runs/${runId}/status`)).json).changeKey as string;
     const [step] = await H.t.db
@@ -301,14 +311,43 @@ describe.skipIf(!h)("portal reads (speed run 6.2, 6.4)", () => {
       .returning({ id: reachOut.id, updatedAt: reachOut.updatedAt });
     if (!talk) throw new Error("no conversation");
     await fresh();
+    // The reply, kept as a raw record: status and times stay as they were.
+    const [raw] = await H.t.db
+      .insert(rawRecord)
+      .values({
+        tenantId: H.A.tenantId,
+        connectionId: H.A.connectionId,
+        connector: "testkit",
+        entityType: "message",
+        externalId: `reply-${talk.id}`,
+        payload: { text: "Sí, 12.00" },
+      })
+      .returning({ id: rawRecord.id });
+    if (!raw) throw new Error("no raw record");
     await H.t.db
       .update(reachOut)
-      .set({ reply: { text: "Yes, 12.00", rawRecordId: null }, updatedAt: talk.updatedAt })
+      .set({ reply: { text: "Sí, 12.00", rawRecordId: raw.id }, updatedAt: talk.updatedAt })
       .where(eq(reachOut.id, talk.id));
+    await fresh();
+    // Its translation lands later, in a transaction of its own: nothing else on the run moves.
+    const [translation] = await H.t.db
+      .insert(messageTranslation)
+      .values({
+        tenantId: H.A.tenantId,
+        rawRecordId: raw.id,
+        direction: "in",
+        sourceLanguage: "es",
+        targetLanguage: "en",
+        detectedBy: "rule",
+        status: "translated",
+        text: "Yes, 12.00",
+      })
+      .returning({ id: messageTranslation.id });
+    if (!translation) throw new Error("no translation");
     await fresh();
     // The page itself still answers with the conversation on the run.
     expect((await H.call(user("a"), "GET", `/api/runs/${runId}`)).status).toBe(200);
-    await H.t.db.delete(reachOut).where(eq(reachOut.id, talk.id));
+    // Translations are never deleted, so the conversation stays on the run for later tests.
   });
 
   it("hides test runs and other clients' runs from the status route", async () => {
