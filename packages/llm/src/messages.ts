@@ -137,23 +137,39 @@ export interface Tool {
   cache_control?: CacheControlEphemeral | null;
 }
 
-/**
- * One of Anthropic's server tools (`web_search_20250305` and the like). No caller sends one; the
- * other providers' translations refuse it.
- */
-export interface ServerTool {
-  type:
-    | `web_search_${string}`
-    | `web_fetch_${string}`
-    | `code_execution_${string}`
-    | `bash_${string}`
-    | `text_editor_${string}`
-    | `memory_${string}`
-    | `computer_${string}`
-    | `tool_search_tool_${string}`;
-  name: string;
+export interface UserLocation {
+  type: "approximate";
+  city?: string | null;
+  region?: string | null;
+  country?: string | null;
+  timezone?: string | null;
+}
+
+/** Anthropic's server-side web search (packages/agents' `web.search`, §1.77). */
+export interface WebSearchTool20250305 {
+  type: "web_search_20250305";
+  name: "web_search";
+  max_uses?: number | null;
+  allowed_domains?: string[] | null;
+  blocked_domains?: string[] | null;
+  user_location?: UserLocation | null;
   cache_control?: CacheControlEphemeral | null;
 }
+
+/** Anthropic's server-side page fetch (packages/agents' `web.fetch`, §1.77). */
+export interface WebFetchTool20250910 {
+  type: "web_fetch_20250910";
+  name: "web_fetch";
+  max_uses?: number | null;
+  max_content_tokens?: number | null;
+  allowed_domains?: string[] | null;
+  blocked_domains?: string[] | null;
+  citations?: { enabled?: boolean } | null;
+  cache_control?: CacheControlEphemeral | null;
+}
+
+/** The server tools the platform uses. The other providers' translations refuse them. */
+export type ServerTool = WebSearchTool20250305 | WebFetchTool20250910;
 
 export type ToolChoice =
   | { type: "auto"; disable_parallel_tool_use?: boolean }
@@ -238,10 +254,77 @@ const toolUseBlockSchema = z.looseObject({
   caller: toolCallerSchema.optional(),
 });
 
-const KNOWN_BLOCKS = new Set(["text", "thinking", "redacted_thinking", "tool_use"]);
+const serverToolUseBlockSchema = z.looseObject({
+  type: z.literal("server_tool_use"),
+  id: z.string(),
+  name: z.string(),
+  input: z.unknown(),
+  caller: toolCallerSchema.optional(),
+});
+
+const webSearchResultSchema = z.looseObject({
+  type: z.literal("web_search_result"),
+  url: z.string(),
+  title: z.string(),
+  page_age: z.string().nullable().optional(),
+  encrypted_content: z.string(),
+});
+
+const webSearchToolResultBlockSchema = z.looseObject({
+  type: z.literal("web_search_tool_result"),
+  tool_use_id: z.string(),
+  caller: toolCallerSchema.optional(),
+  content: z.union([
+    z.array(webSearchResultSchema),
+    z.looseObject({ type: z.literal("web_search_tool_result_error"), error_code: z.string() }),
+  ]),
+});
+
+const documentBlockSchema = z.looseObject({
+  type: z.literal("document"),
+  source: z.union([
+    z.looseObject({
+      type: z.literal("base64"),
+      media_type: z.literal("application/pdf"),
+      data: z.string(),
+    }),
+    z.looseObject({
+      type: z.literal("text"),
+      media_type: z.literal("text/plain"),
+      data: z.string(),
+    }),
+  ]),
+  title: z.string().nullable(),
+  citations: z.looseObject({ enabled: z.boolean() }).nullable().optional(),
+});
+
+const webFetchToolResultBlockSchema = z.looseObject({
+  type: z.literal("web_fetch_tool_result"),
+  tool_use_id: z.string(),
+  caller: toolCallerSchema.optional(),
+  content: z.union([
+    z.looseObject({
+      type: z.literal("web_fetch_result"),
+      url: z.string(),
+      retrieved_at: z.string().nullable().optional(),
+      content: documentBlockSchema,
+    }),
+    z.looseObject({ type: z.literal("web_fetch_tool_result_error"), error_code: z.string() }),
+  ]),
+});
+
+const KNOWN_BLOCKS = new Set([
+  "text",
+  "thinking",
+  "redacted_thinking",
+  "tool_use",
+  "server_tool_use",
+  "web_search_tool_result",
+  "web_fetch_tool_result",
+]);
 
 /**
- * A block of a type we never ask for (server tools and the like). Kept as it came, so a
+ * A block of a type we never ask for (other server tools and the like). Kept as it came, so a
  * transcript sent back is the one the API gave; nothing above the transport reads one.
  */
 const otherBlockSchema = z.looseObject({
@@ -254,6 +337,9 @@ export const contentBlockSchema = z.union([
     thinkingBlockSchema,
     redactedThinkingBlockSchema,
     toolUseBlockSchema,
+    serverToolUseBlockSchema,
+    webSearchToolResultBlockSchema,
+    webFetchToolResultBlockSchema,
   ]),
   otherBlockSchema,
 ]);
@@ -272,6 +358,13 @@ export const usageSchema = z.looseObject({
     })
     .nullable()
     .optional(),
+  server_tool_use: z
+    .looseObject({
+      web_search_requests: count.nullable().optional(),
+      web_fetch_requests: count.nullable().optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 export const messageSchema = z.looseObject({
@@ -285,10 +378,28 @@ export const messageSchema = z.looseObject({
   usage: usageSchema,
 });
 
+/** Where a sentence of a search answer came from (the search's own results). */
+export interface CitationsWebSearchResultLocation {
+  type: "web_search_result_location";
+  url: string;
+  title: string | null;
+  cited_text: string;
+  encrypted_index: string;
+}
+
+/** Where a sentence came from in a document or search result we sent. */
+export interface CitationOtherLocation {
+  type: "char_location" | "page_location" | "content_block_location" | "search_result_location";
+  cited_text: string;
+  [k: string]: unknown;
+}
+
+export type TextCitation = CitationsWebSearchResultLocation | CitationOtherLocation;
+
 export interface TextBlock {
   type: "text";
   text: string;
-  citations: unknown[] | null;
+  citations: TextCitation[] | null;
 }
 
 export interface ThinkingBlock {
@@ -310,7 +421,53 @@ export interface ToolUseBlock {
   caller?: ToolCaller;
 }
 
-export type ContentBlock = TextBlock | ThinkingBlock | RedactedThinkingBlock | ToolUseBlock;
+export interface ServerToolUseBlock {
+  type: "server_tool_use";
+  id: string;
+  name: string;
+  input: unknown;
+  caller?: ToolCaller;
+}
+
+export interface WebSearchResultBlock {
+  type: "web_search_result";
+  url: string;
+  title: string;
+  page_age: string | null;
+  encrypted_content: string;
+}
+
+export interface WebSearchToolResultBlock {
+  type: "web_search_tool_result";
+  tool_use_id: string;
+  caller?: ToolCaller;
+  content: WebSearchResultBlock[] | { type: "web_search_tool_result_error"; error_code: string };
+}
+
+export interface DocumentBlock {
+  type: "document";
+  source: Base64PDFSource | PlainTextSource;
+  title: string | null;
+  citations?: { enabled: boolean } | null;
+}
+
+export interface WebFetchToolResultBlock {
+  type: "web_fetch_tool_result";
+  tool_use_id: string;
+  caller?: ToolCaller;
+  content:
+    | { type: "web_fetch_result"; url: string; retrieved_at: string | null; content: DocumentBlock }
+    | { type: "web_fetch_tool_result_error"; error_code: string };
+}
+
+export type ContentBlock =
+  | TextBlock
+  | ThinkingBlock
+  | RedactedThinkingBlock
+  | ToolUseBlock
+  | ServerToolUseBlock
+  | WebSearchToolResultBlock
+  | WebFetchToolResultBlock;
 
 export interface Usage {
   input_tokens: number;
@@ -320,6 +477,11 @@ export interface Usage {
   cache_creation?: {
     ephemeral_5m_input_tokens?: number;
     ephemeral_1h_input_tokens?: number;
+  } | null;
+  /** The server tools' requests in this call, priced on top of the tokens. */
+  server_tool_use?: {
+    web_search_requests?: number | null;
+    web_fetch_requests?: number | null;
   } | null;
   [k: string]: unknown;
 }

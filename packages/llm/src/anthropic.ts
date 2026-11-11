@@ -484,8 +484,8 @@ export function parseMessage(value: unknown): LlmMessage {
       null,
     );
   }
-  // DECISION: blocks of types we never ask for (server tools) pass through as they came, typed as
-  // the four we read; nothing above the transport reads them, and a transcript sent back must
-  // carry them unchanged.
+  // DECISION: blocks of types we never ask for (server tools other than web search and fetch)
+  // pass through as they came, typed as the ones we read; nothing above the transport reads
+  // them, and a transcript sent back must carry them unchanged.
   return parsed.data as unknown as LlmMessage;
 }

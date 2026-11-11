@@ -541,12 +541,156 @@ describe("the message schema", () => {
 
   it("keeps a block of a type we never ask for, but not a known type with the wrong shape", () => {
     const base = start().data.message;
-    const server = { type: "server_tool_use", id: "s1", name: "web_search", input: {} };
-    expect(parseMessage({ ...base, stop_reason: "end_turn", content: [server] }).content).toEqual([
-      server,
+    const other = { type: "code_execution_tool_result", tool_use_id: "s1", content: {} };
+    expect(parseMessage({ ...base, stop_reason: "end_turn", content: [other] }).content).toEqual([
+      other,
     ]);
-    expect(() =>
-      parseMessage({ ...base, stop_reason: "end_turn", content: [{ type: "text" }] }),
-    ).toThrow(/invalid message/);
+    for (const wrong of [
+      { type: "text" },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "s1",
+        content: [{ type: "web_search_result" }],
+      },
+    ]) {
+      expect(() => parseMessage({ ...base, stop_reason: "end_turn", content: [wrong] })).toThrow(
+        /invalid message/,
+      );
+    }
+  });
+});
+
+describe("anthropicTransport: the server-side web tools (packages/agents' web.search and web.fetch)", () => {
+  it("sends the tool as given and puts the search, its results and citations together", async () => {
+    const results = [
+      {
+        type: "web_search_result",
+        url: "https://example.com/a",
+        title: "A",
+        page_age: "3 days ago",
+        encrypted_content: "enc",
+      },
+    ];
+    const { fn, calls } = scriptedFetch(
+      sse([
+        start(),
+        ev("content_block_start", {
+          index: 0,
+          content_block: {
+            type: "server_tool_use",
+            id: "srvtoolu_1",
+            name: "web_search",
+            input: {},
+            caller: { type: "direct" },
+          },
+        }),
+        ev("content_block_delta", {
+          index: 0,
+          delta: { type: "input_json_delta", partial_json: '{"query": "invoices"}' },
+        }),
+        ev("content_block_stop", { index: 0 }),
+        ev("content_block_start", {
+          index: 1,
+          content_block: {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_1",
+            caller: { type: "direct" },
+            content: results,
+          },
+        }),
+        ev("content_block_stop", { index: 1 }),
+        ev("content_block_start", {
+          index: 2,
+          content_block: { type: "text", text: "", citations: null },
+        }),
+        ev("content_block_delta", {
+          index: 2,
+          delta: {
+            type: "citations_delta",
+            citation: {
+              type: "web_search_result_location",
+              url: "https://example.com/a",
+              title: "A",
+              cited_text: "Most teams approve by email.",
+              encrypted_index: "idx",
+            },
+          },
+        }),
+        ev("content_block_delta", { index: 2, delta: { type: "text_delta", text: "Done." } }),
+        ev("content_block_stop", { index: 2 }),
+        ev("message_delta", {
+          delta: { stop_reason: "end_turn", stop_sequence: null, stop_details: null },
+          usage: {
+            output_tokens: 20,
+            server_tool_use: { web_search_requests: 1, web_fetch_requests: 0 },
+          },
+        }),
+        ev("message_stop"),
+      ]),
+    );
+    const tools: LlmRequest["tools"] = [
+      { type: "web_search_20250305", name: "web_search", max_uses: 1 },
+    ];
+    const message = await transport(fn).t.create(req({ tools }));
+    expect(calls[0]?.body).toMatchObject({ tools, stream: true });
+    expect(message.content).toEqual([
+      {
+        type: "server_tool_use",
+        id: "srvtoolu_1",
+        name: "web_search",
+        input: { query: "invoices" },
+        caller: { type: "direct" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_1",
+        caller: { type: "direct" },
+        content: results,
+      },
+      {
+        type: "text",
+        text: "Done.",
+        citations: [
+          {
+            type: "web_search_result_location",
+            url: "https://example.com/a",
+            title: "A",
+            cited_text: "Most teams approve by email.",
+            encrypted_index: "idx",
+          },
+        ],
+      },
+    ]);
+    expect(message.usage.server_tool_use).toEqual({
+      web_search_requests: 1,
+      web_fetch_requests: 0,
+    });
+  });
+
+  it("reads a fetched page's result block", () => {
+    const fetched = {
+      type: "web_fetch_tool_result",
+      tool_use_id: "srvtoolu_2",
+      content: {
+        type: "web_fetch_result",
+        url: "https://example.com/page",
+        retrieved_at: "2026-11-11T00:00:00Z",
+        content: {
+          type: "document",
+          source: { type: "text", media_type: "text/plain", data: "Hello" },
+          title: "Page",
+          citations: null,
+        },
+      },
+    };
+    const failed = {
+      type: "web_fetch_tool_result",
+      tool_use_id: "srvtoolu_3",
+      content: { type: "web_fetch_tool_result_error", error_code: "url_not_accessible" },
+    };
+    const base = start().data.message;
+    expect(
+      parseMessage({ ...base, stop_reason: "end_turn", content: [fetched, failed] }).content,
+    ).toEqual([fetched, failed]);
   });
 });
