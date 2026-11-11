@@ -227,6 +227,8 @@ export * from "./translate/detect";
 export * from "./translate/settings";
 // v0.12 W2-E
 export * from "./triggers";
+// Reshape data (2026-11-11): the fixed unit conversions any process may use.
+export * from "./units";
 export * from "./weekly/schemas";
 export * from "./weekly/week";
 // v0.12 W2-B

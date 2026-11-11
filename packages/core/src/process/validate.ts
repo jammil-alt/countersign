@@ -82,6 +82,15 @@ import {
 } from "./conversation";
 // Wave 5: how each step ended, for an `if` to route on (`steps.<id>.outcome` and the rest).
 import { outcomeVocabulary, stepRecordFields, stepRecordSchema } from "./outcomes";
+// Reshape data (2026-11-11): its output, and the checks on its mapping.
+import {
+  isReshapeStep,
+  nextStepOf,
+  reshapeOutputSchema,
+  reshapeProblems,
+  schemaFitProblems,
+  stepInputSchema,
+} from "./reshape";
 import {
   type ApprovalCheck,
   CONFER_VERDICTS,
@@ -124,7 +133,9 @@ export type ProcessValidationCode =
   // conversation, an email or text): only its code goes there.
   | "error_message_not_here"
   // Skill model (2026-11-10): an action write step that doesn't resolve from the agent's bindings.
-  | ActionProblemCode;
+  | ActionProblemCode
+  // Reshape data (2026-11-11): a mapping that doesn't type-check, or doesn't fit the next step.
+  | "reshape_mapping";
 
 /**
  * `conversationProblems`' codes. A templated goal is reported as `input_not_fixed`, as every other
@@ -347,6 +358,8 @@ export function stepOutputSchema(step: Step, ctx: TypingContext): JsonSchema | u
     case "write":
       return step.tool === undefined ? undefined : ctx.tools?.[step.tool]?.output;
     case "skill": {
+      // Reshape data (2026-11-11): the output is the fields the step's mapping defines.
+      if (isReshapeStep(step)) return reshapeOutputSchema(step.reshape);
       const def = lookupSkill(step.skill, ctx);
       if (def?.resultFromInput)
         return typedResultOutput(def.output, def.resultFromInput, step.input);
@@ -1230,6 +1243,96 @@ function checkSkillStep(c: Checker, step: Extract<Step, { kind: "skill" }>, scop
       c.add(step.id, `input.${p.field}`, "converse_invalid", p.message);
     }
   }
+  checkReshape(c, step, scope);
+}
+
+/**
+ * Reshape data (2026-11-11): a Reshape step carries a mapping (only it does), and the mapping
+ * type-checks against what the step's input brings in: every required field mapped, every field
+ * read there, every value fitting its field. Errors name the fields, so a move of the step before
+ * (a skill's new version, a tool's new output) flags the Reshape step itself.
+ */
+function checkReshape(c: Checker, step: Extract<Step, { kind: "skill" }>, scope: ProcessScope) {
+  if (!isReshapeStep(step)) {
+    if (step.reshape !== undefined) {
+      c.add(step.id, "reshape", "reshape_mapping", "only a Reshape data step has a mapping");
+    }
+    return;
+  }
+  if (!step.reshape) {
+    c.add(step.id, "reshape", "reshape_mapping", "Reshape data needs its output fields mapped");
+    return;
+  }
+  const input = outputTemplateSchema(step.input, (path) => typeProcessPath(scope, path));
+  for (const p of reshapeProblems(step.reshape, input)) {
+    c.add(step.id, `reshape.${p.field}`, "reshape_mapping", p.message);
+  }
+}
+
+/**
+ * Reshape data (2026-11-11): the step after a Reshape step, when it reads the Reshape step's
+ * output, gets what it takes from it: each field it reads is one the mapping gives, of a type it
+ * takes, and nothing it requires is left out. Reported on the Reshape step, naming the fields, so
+ * a change to the next step's input (a new version of its skill, another tool) says where to fix.
+ */
+function checkReshapeNext(c: Checker, process: Process) {
+  walkSteps(process, ({ step }) => {
+    if (step.kind !== "skill" || !isReshapeStep(step) || !step.reshape) return;
+    const next = nextStepOf(process, step.id);
+    if (!next) return;
+    const takes = stepInputSchema(next, c.ctx);
+    if (!takes || !("input" in next) || !isPlainObject(next.input)) return;
+    const input = next.input as Record<string, unknown>;
+    const prefix = ["steps", step.id, "output"];
+    const fields = new Map(step.reshape.fields.map((f) => [f.name, f]));
+    let reads = false;
+    const props = isPlainObject(takes.properties)
+      ? (takes.properties as Record<string, JsonSchema>)
+      : {};
+    for (const [key, value] of Object.entries(input)) {
+      if (typeof value !== "string") continue;
+      let path: string[] | null = null;
+      try {
+        path = singleRef(value);
+      } catch {
+        path = null;
+      }
+      if (!path || prefix.some((p, i) => path?.[i] !== p)) continue;
+      reads = true;
+      const name = path[3];
+      if (name === undefined) continue;
+      const f = fields.get(name);
+      if (!f) {
+        c.add(
+          step.id,
+          "reshape",
+          "reshape_mapping",
+          `${next.name || "the next step"} reads ${name}, which the mapping doesn't give`,
+        );
+        continue;
+      }
+      if (path.length > 4) continue;
+      for (const p of schemaFitProblems(props[key], f.schema, name)) {
+        c.add(
+          step.id,
+          `reshape.${name}`,
+          "reshape_mapping",
+          `${next.name || "the next step"}: ${p}`,
+        );
+      }
+    }
+    if (!reads) return;
+    const required = Array.isArray(takes.required) ? (takes.required as string[]) : [];
+    const missing = required.filter((r) => input[r] === undefined);
+    if (missing.length > 0) {
+      c.add(
+        step.id,
+        "reshape",
+        "reshape_mapping",
+        `${next.name || "the next step"} needs ${missing.join(", ")}, which the mapping doesn't give`,
+      );
+    }
+  });
 }
 
 function checkNotify(
@@ -1773,6 +1876,7 @@ export function validateProcess(
   checkHandoff(c, process, list);
   const allowed = allowedTools(ctx);
   for (const { step, scope } of list) checkStep(c, step, scope, allowed);
+  checkReshapeNext(c, process);
   return {
     valid: errors.length === 0,
     errors,
