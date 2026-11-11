@@ -4213,6 +4213,38 @@ the same URL: `https://staging.mezonas.com/mcp` and `https://app.mezonas.com/mcp
 | Metadata | The protected resource's `resource_name` is now "Mezonas (<environment>)"; the back-office server info stays `mezonas-ops`, the client's is `mezonas` / "Mezonas". No new var, secret, binding or migration: staging and production already have `WORKOS_AUTHKIT_DOMAIN`. |
 | Not built | Client writes through the connector (approve or answer an inbox item, raise a request), each two-step as §1.34's; a per-client switch to turn the connector off; a portal page that says how to connect. |
 
+### 1.91 Speed run: what the run decided (2026-11-11; `docs/audit-plan.md`)
+
+The decisions taken while running the speed and structure plan, item by item, as each merged into
+`speed/run`. Held items record theirs in their own PRs (§1.90 one transaction per request, §1.92
+website logins in their own Worker, §1.93 memberships in the cookie).
+
+**1.2 and 1.9, the store under `useApi`** (`apps/web/src/api/store.ts`, #251):
+
+1. Nothing older than five minutes is shown (`MAX_AGE_MS`).
+2. Fresh for ten seconds (`FRESH_MS`): a component that mounts while the stored answer is under
+   10 s old, with no write since, does not ask again. A change of options, and `reload`, always ask.
+3. The first session answer names the scope without emptying the store; every later change empties it.
+4. One store per `ApiProvider` (tests that render twice with one fake client expect a second ask).
+5. Keeping the last answer while a new query loads is opt-in (`keep: true`), and only for the same
+   route and path params: a query can name another entity (`?client=`, `?agent=`).
+6. Any successful write, through any client, marks every stored answer stale.
+7. Sign-out closes the store until the signed-in screens are gone. Tabs share who is signed in as a
+   fingerprint (a hash of user and client, never an answer or an id) in `cs.sessionScope`; a tab
+   that sees another fingerprint than its own empties its store and asks who is signed in.
+8. The operator's client picker does not empty the store: an operator call names its client in the
+   address, so answers for two clients never share a key.
+9. At most 200 answers, least recently used first.
+
+`cache: "none"` on every answer holding a short-lived link or a secret: signed document links,
+the feedback screenshot, client exports, webhook setup, the vault (`portalAccess`) and second
+factor (`portalReleaseRequest`, `opsRelease`, `opsAgentGrants`).
+
+**Running the run.** Worker sessions cannot force-push, so a worker brings its branch up to date by
+merging `speed/run` into it, and the lead merges each PR with a merge commit (never a squash). The
+tree merged is the one the gates ran on. `pnpm typecheck` runs out of memory in a 15 GB cloud
+container at full parallelism; the run uses `pnpm -r --workspace-concurrency=4 typecheck` there.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
