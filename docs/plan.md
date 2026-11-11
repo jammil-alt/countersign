@@ -3882,7 +3882,7 @@ the owner; ARCHITECTURE v0.16 should list it with the other connectors (§6.11).
 | Tests | `packages/connectors/src/billcom/billcom.test.ts` (each read and write against the fake, sign-in and sign-in again on an ended session, the password in no output, log, error or request but the sign-in, approval by default, once-only retries, the created bill archived as its undo, unconfirmed writes, refusals not written, payments refused, HIPAA refusal, the starting matrix) and `apps/api/src/billcom.test.ts` (the vault login, the starting matrix, the back office's catalogue, a bill made once after the client's approval, nothing kept holding the password, the HIPAA policy). |
 | Not built | Payments (MFA through `apps/mfa`); events or a poll for new bills; checking the login when it is entered; vendor archive, bill restore, vendor credits, BILL's own approvals, recurring bills. |
 
-### 1.88 The vendor catalog: `vendor_item` (owner, 2026-11-11; planned, not built; one migration)
+### 1.88 The vendor catalog: `vendor_item` (owner, 2026-11-11; the data and engine built, migration 0047)
 
 The Purchasing area's next version. Today a vendor's version of a master item exists only as its
 aliases (`item_alias`: vendor SKU and descriptions) and its prices (`price_observation`); pack
@@ -3929,6 +3929,61 @@ steps under the skill model, as agents need them; templates are the owner's, bui
   alternative if quality tests on the matching goldens favour them. Unchecked: current model names
   and prices (check OpenAI's pricing page). Embeddings are made when a master item or vendor item is
   saved; known lines never need one.
+
+**Built: the data and the engine** (branch `vendor/data`, 2026-11-11; migration 0047). Platform
+pieces only; templates are the owner's. Migration 0047 (its own commit): `vendor_item`,
+`item_alias.vendor_item_id` and `price_observation.vendor_item_id` (nullable), forced RLS, no DELETE,
+and the backfill. Embeddings on the `openai:` provider (`LlmTransport.embed`), declared in core
+(`EMBEDDING_FEATURE`) and held to HIPAA by apps/api's model guard. Materials tools (`none` reads,
+`internal` Save to records): `materials.vendor.match`, `materials.vendor_items.lookup`,
+`materials.vendor_items.similar` and `materials.master_items.candidates` (each embeds the lines it
+searches for), `materials.vendor_items.list`, `materials.vendor_items.for_item`;
+`materials.vendor_items.register`, `materials.vendor_item.upsert`, `.set_preferred`,
+`.discontinue`, `materials.embeddings.write`. Skills: Match vendor (`materials.match-vendor`) and
+Match by SKU (vendor) (`materials.match-sku-vendor`), Deterministic; Semantic match (vendor)
+(`materials.semantic-match-vendor`) and Master item manager (`materials.master-item-manager`), AI;
+Check matches reused after each AI skill. Pattern: `vendorCatalogSteps` / `vendorCatalogProcess`
+(`packs/materials/src/vendor/patterns.ts`). Back office: reports `materials/vendor-catalog` (an
+item: one vendor's catalog) and `materials/master-vendors` (an item: a master item's vendors side
+by side), actions `vendor-item-preferred` and `vendor-item-discontinue` (operator, audited).
+
+| Topic | Decision |
+|---|---|
+| Pack size | // DECISION: `pack_size` is the vendor's words ("bundle of 5"); `std_per_vendor_uom` is the number that converts, so nothing parses words to compare prices (invariant 7). |
+| A vendor item without a SKU | // DECISION: it is (vendor, master item, vendor unit), unique (hand-written index `vendor_item_no_sku_key`): a box and an each of one master item from one vendor are two vendor items. One preferred vendor item per master item (`vendor_item_preferred_key`); marking another clears the first. |
+| No approximate vector index | // DECISION: searches are exact cosine distance over one vendor's items (or one client's master items in a category), narrowed by the btree indexes. An HNSW index orders every client's rows and filters after, so it can return fewer than asked (pgvector before 0.8 has no iterative scans; the local one is 0.6). An index is for when a client's catalog passes tens of thousands of items. |
+| Backfill | // DECISION: one vendor item per SKU a vendor used (on its latest alias's item, a person's first), and one without a SKU per vendor and master item its wordings or prices name that no SKU covers; named as the vendor last wrote it. Priced in the master item's standard unit (`vendor_uom` the standard unit, `std_per_vendor_uom` 1), since every kept price is per standard unit. A wording or price is linked only where the vendor has exactly one vendor item for that master item (several SKUs: left null, never guessed); aliases and prices on a merged item are left. The last price is the newest by date. |
+| The previous Worker | // DECISION: what it writes after 0047 has no vendor item; the new Worker resolves such an alias or price by its vendor and master item (the vendor's only item for it), and Register item links the alias when it next sees the wording. |
+| Embeddings | // DECISION: `LlmTransport.embed` is optional; OpenAI's transport answers it from `/v1/embeddings`, routing sends it by model id, record/replay keeps it in the same fixture store under its own hash (`kind: "embedding"`), the client prices it by input tokens and reports it to `onEmbed` (kept apart from `onCall`, whose exchange is a message's), and an unpriced embedding model is refused before it is called. No transport: no vectors, and the searches fall back to names (trigrams); the model and the hard rules still decide. A test run makes none. |
+| What is embedded | // DECISION: a vendor item's normalized wording (and description), a master item's normalized name, and an open line's normalized description. Only items Register item made (never a known line's); idempotent by `ext.embedding.text`. Backfilled items get theirs from `materials.embeddings.write` with `missing` (up to 500 a call). |
+| Match vendor | // DECISION: the vendor id given, the document's purchase, the tax id (`vendor.ext.taxId`, letters and digits compared), the sender's email domain (`vendor.ext.domains`, one vendor only), the normalized name or a known name; a near name (trigrams) only when the agent's `min_name_similarity` is below 1 (default 1) and one vendor is that close. None: the pattern asks a person and stops. |
+| Match by SKU (vendor) | // DECISION: the vendor's item with the line's SKU (a discontinued one too: the vendor invoiced it), then a SKU alias, then a wording alias of this vendor; an alias with no vendor item still gives its master item, and Register item makes the vendor item. |
+| The semantic read | // DECISION: `materials.vendor_items.similar` scores this vendor's closest items (top 5 by embedding, then by name; one per master item) with the category's key attributes and lets the rules settle what they can (`decideByRules`): one equal item is a match; none that could be it, every required attribute stated, is new to this vendor; the rest are open for the model. The same document makes the same request (candidates in a fixed order), so recorded answers replay. |
+| Check matches reused | // DECISION: Semantic match (vendor) answers in Check matches' shape, `new_item` meaning "not in this vendor's catalog", plus the `vendorItemId` it chose (a hint Register item checks: same vendor, same master item, never another SKU's item). The Master item manager answers in the same shape: `matched` links, `new_item` creates. The hard rules and the per-agent threshold are Check matches' own, unchanged. |
+| Master item manager's read | // DECISION: `materials.master_items.candidates` takes the lines Check matches found new to the vendor: equal key attributes, close names, then close embeddings, in the line's category; one equal item links by the rules, none that could be it (every required attribute stated) creates by the rules, the rest go to the model. |
+| Register item | // DECISION: one transaction for the document. A line decided before is left as it is (a retried step adds nothing). The vendor item is the SKU's, else the semantic hint, else the vendor's item for that master item in the line's unit, else its only one; else a new one named as the vendor wrote it, with the conversion when a rule exists. A SKU that names another master item: an agent's line goes to a person; a person's answer moves the vendor item. Each line gets an `item_match` row (the agent version, or the person), aliases with the vendor item, a price observation with the vendor item (per standard unit only with a conversion, invariant 7) and the vendor item's last price in its own unit (`invoice`, or `person`), the newer date winning (on the same date, the later). Unsure lines get an unsure row and go to a person. |
+| A test run's Register item | // DECISION: it writes nothing: the work runs in its transaction and is rolled back, and the step answers what it would have written (the ids are the rolled-back rows'). |
+| The person's answer | // DECISION: the person step (`ask`) shows the unsure lines with their candidates; its answer is `{ lines: [{ lineNo, catalogItemId }] }` or `{ lineNo, newItem: true }`, and "Save to records: your answer" registers it with the step's `by` as the person (`human` aliases, `decided_by_user_id`), so the next invoice's wording is caught at step 2. An answer without who gave it is refused. |
+| Aliases | // DECISION: `learnAlias` takes the vendor item: an alias that keeps its master item keeps (or gains) its vendor item; one that changes master item takes the new vendor item (or none). |
+| Recording prices elsewhere | // DECISION: `materials.prices.record` also sets the price's vendor item and its last price where the vendor catalog has one; it never makes a vendor item (Register item does). |
+| The pattern's branches | // DECISION: an If repeats the steps after it in each branch with their own ids (`o-`/`s-`, then `m-`/`r-`): a step inside an If path isn't readable after it, and an AI skill with nothing to decide would still call its model. |
+| New steps | // DECISION: `PackManifest.superseded` names a pack's skills another of its skills replaces for new steps (Look up existing → Match by SKU (vendor), Match the unmatched → Semantic match (vendor)); core's `newStepSkillReason` keeps them off the palette and the Builder, and stored steps keep running them. Built-in definitions (and their hashes) are unchanged. |
+| Who sees the catalog | // DECISION: the vendor catalog's reports are the back office's: the portal reads only the Materials reports its screens name (`portalReports`), until the owner decides what the client sees. Preferred and discontinued are operator actions (`/api/ops/clients/:id/packs/materials/actions/…`, audited, a refusal 422). |
+| Tests | // DECISION: `apps/api/src/vendor-catalog.test.ts` runs the pattern through the workflow engine on hand-written replays (`fixtures/llm`, `handWritten`; the embeddings are character-trigram vectors): a known SKU, a known wording, a semantic hit, a line new to the vendor linked by the rules and one by the Master item manager, a new master item, a hard-rule veto that goes to a person, and the next invoice caught at step 2 with no model call and an older price not overwriting a newer one. The split's matching golden (`fixtures/matching`) covers the rules both paths share (`decideByRules`, `checkMatches`). |
+| Start commit | The task named `4d66da642ab1…`, which doesn't exist; the branch starts at `4d66da64` (`4d66da649b54…`, `claude/busy-euler-cgu5kr`), the commit with that prefix and §1.88. |
+
+Open, for the owner or a later stream:
+- Whether the client may mark a preferred vendor (the actions are the operator's today), and
+  whether a vendor's list price should alert when an invoice differs from it.
+- The person step's card: the inbox shows an `ask` item's payload; a card that offers the master
+  items to pick (and "a new item") and sends `{ lines: [...] }` is the screens stream's.
+- When to embed what the backfill made: `materials.embeddings.write` with `missing` is a step; no
+  cron runs it yet.
+- Nothing writes `vendor.ext.taxId` yet (Match vendor reads it), and an invoice's tax id isn't read.
+- An approximate vector index once a client's catalog is large (pgvector 0.8's iterative scans on
+  Neon), and whether `text-embedding-3-small` is good enough on the goldens.
+- A line in category `other` (no key attributes) never makes a new master item by the rules; the
+  model or a person decides.
 
 ## 2. Package layering
 
