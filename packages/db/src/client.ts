@@ -249,14 +249,15 @@ export type SessionDecision<D, R> =
   | { readonly ok: false; readonly refusal: R };
 
 /**
- * One session request in one transaction (docs/plan.md §1.84, 5.1). First as `withUser`: only
+ * One session request in one transaction (docs/plan.md §1.90). First as `withUser`: only
  * `app.user_id` is set, so `decide` sees this user's own memberships and no client's rows, and
  * works out the scope. Then, in the same transaction and before `fn` issues anything,
  * `app.tenant_ids` and `app.operator` are set to that scope and `app.user_id` is cleared: `fn`
  * runs exactly as it would inside `withOperator` or `withTenants`, never with the user's id set.
  *
  * A refusal from `decide` ends the transaction (it wrote nothing) and comes back as
- * `{ ok: false }`; `fn` never runs. A throw anywhere rolls the whole transaction back.
+ * `{ ok: false }`; `fn` never runs. A throw anywhere rolls the whole transaction back. A scope
+ * without `operator` must name exactly one client (ScopeError otherwise), as `withTenant` does.
  */
 // DECISION: one transaction instead of `withUser` then `withOperator`/`withTenant` (two `begin`s
 // and two `commit`s per request). The scope switch is issued before `fn` can issue a statement,
@@ -279,6 +280,11 @@ export async function withSession<D, R, T>(
       .then(() => undefined);
     const [, decided] = await Promise.all([signIn, (async () => decide(tx))()]);
     if (!decided.ok) return { ok: false as const, refusal: decided.refusal };
+    // A session that is not the back office acts for exactly one client (invariant 1), whatever
+    // the caller checked before.
+    if (!decided.scope.operator && new Set(decided.scope.tenantIds).size !== 1) {
+      throw new ScopeError("a client session acts for exactly one client");
+    }
     const ids = checkIds(decided.scope.tenantIds);
     const scoped = tx
       .execute(sql`select

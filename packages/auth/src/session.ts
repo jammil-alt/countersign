@@ -89,7 +89,7 @@ export async function getSession(
 /**
  * The second half of `getSession`, for a caller that identified the request itself and read the
  * account where it chose (apps/api reads it inside the request's own transaction, docs/plan.md
- * §1.84): the session for the requested client, or the refusal, with the identity's cookies.
+ * §1.90): the session for the requested client, or the refusal, with the identity's cookies.
  */
 export function sessionFromAccount(
   account: { readonly user: Session["user"] | null; readonly memberships: readonly Membership[] },

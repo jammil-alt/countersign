@@ -58,7 +58,7 @@ export function authDirectory(db: Db): AuthDirectory & DevDirectory {
 
 /**
  * A session's user and memberships, read inside the request's own transaction while it names the
- * user (`withSession`'s first half, docs/plan.md §1.84): what `authDirectory(db).account` reads in
+ * user (`withSession`'s first half, docs/plan.md §1.90): what `authDirectory(db).account` reads in
  * a transaction of its own.
  */
 export async function accountInTx(tx: Tx, userId: string) {

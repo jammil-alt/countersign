@@ -2,7 +2,7 @@
 // client per request, the session from packages/auth, the route's roles from the contract, the
 // client scope (`app.tenant_ids`, `app.operator`) set on the transaction the handler runs in, Zod
 // on the way in and on the way out, and work that must wait for the commit. A session route reads
-// its user and memberships in that same transaction (withSession, docs/plan.md §1.84).
+// its user and memberships in that same transaction (withSession, docs/plan.md §1.90).
 
 import { AgentsError } from "@countersign/agents";
 import {
@@ -680,8 +680,13 @@ function mountWith<R extends RouteSpec>(
         // No request transaction to commit with: its own, once the handler's work is done.
         await auditAlone(services.db, c, entry("ok", 200));
       } else {
-        // One transaction (docs/plan.md §1.84): the user and memberships under `app.user_id`, then
+        // One transaction (docs/plan.md §1.90): the user and memberships under `app.user_id`, then
         // the scope in place of it, then the handler and the ok audit row, committed together.
+        // DECISION: the body is read before the transaction opens, so a slow or trickled upload
+        // never holds a connection and a transaction (docs/plan.md §1.90). Hono keeps what it read;
+        // `parseInput` parses it inside, after the scope check, so a refusal still comes before a
+        // 400 as it did. A body that fails to read fails there, as before.
+        if (spec.body) await c.req.text().catch(() => undefined);
         const after: (() => Promise<unknown>)[] = [];
         const result = await withSession(
           services.db,

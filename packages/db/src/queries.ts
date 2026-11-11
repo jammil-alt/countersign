@@ -55,7 +55,7 @@ export function userWithMemberships(
  * first half of `withSession`): the user row and their memberships, read under `own_memberships`,
  * with retired clients left out for their own users as `userMemberships` leaves them out.
  */
-// DECISION: one statement for both reads (docs/plan.md §1.84, 5.1): the memberships come back as
+// DECISION: one statement for both reads (docs/plan.md §1.90): the memberships come back as
 // a JSON array beside the user row, so the session costs one statement, not two. The same join,
 // filter and order as `membershipsQuery`; RLS applies to the subquery as to any read.
 export async function accountIn(

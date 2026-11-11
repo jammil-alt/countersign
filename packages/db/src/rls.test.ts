@@ -350,6 +350,20 @@ describe.skipIf(!online)("one transaction per session request (withSession), as 
       ),
     ).rejects.toBeInstanceOf(ScopeError);
     expect(ran).toBe(false);
+    // A client session names exactly one client, even if its caller checked nothing.
+    for (const tenantIds of [[A.tenantId, B.tenantId], []]) {
+      await expect(
+        withSession(
+          t.db,
+          A.userId,
+          async () => ({ ok: true as const, scope: { tenantIds, operator: false }, value: 1 }),
+          async () => {
+            ran = true;
+          },
+        ),
+      ).rejects.toBeInstanceOf(ScopeError);
+    }
+    expect(ran).toBe(false);
     await expect(
       withSession(
         t.db,
