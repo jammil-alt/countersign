@@ -136,6 +136,8 @@ import {
   testRunApprovalNote,
 } from "./outcomes";
 import { type Member, type People, personName } from "./people";
+// Reshape data (2026-11-11)
+import { addReshapeBefore, addReshapeThenAction, newReshapeStep } from "./reshape";
 import { useClientScriptTools } from "./scripts";
 import { applySkillMove } from "./skill-move";
 
@@ -1209,6 +1211,29 @@ function BuilderBody(
                       edit((w) => addActionAfter(w, id, fit, ctx, () => newId)?.process ?? w);
                       setSelection({ type: "step", id: newId });
                     }}
+                    // Reshape data (2026-11-11): a Reshape step before a step whose inputs can't
+                    // be filled, or between a skill and a write it fits in part; the agent gets
+                    // the skill in the same edit, and the new step opens with its mapping.
+                    onAddReshape={(at) => {
+                      const made = [uuidv7(), uuidv7()];
+                      apply((b) => {
+                        // The same ids however often the edit is applied.
+                        let n = 0;
+                        const ids = () => made[n++] ?? uuidv7();
+                        const next = editWorkflow(
+                          b,
+                          slug,
+                          (w) =>
+                            ("before" in at
+                              ? addReshapeBefore(w, at.before, ctx, ids)
+                              : addReshapeThenAction(w, at.after, at.action, ctx, ids)
+                            )?.process ?? w,
+                        );
+                        return allowStep(next, newReshapeStep(), ctx);
+                      });
+                      setSelection({ type: "step", id: made[0] as string });
+                    }}
+                    onProcess={(fn, key) => edit(fn, key)}
                   />
                 </div>
               ) : null}

@@ -69,3 +69,17 @@ WRITE_PROVIDER_FIXTURES=1 pnpm --filter @countersign/llm exec vitest run src/pro
 
 What is unchecked about each provider is in `packages/llm/NOTES.md`. Once a key exists, replace
 the provider-format answers with real ones from a live call.
+
+## Reshape data's Builder AI suggestion (hand-written)
+
+The Builder AI's answer for the fields a Reshape step's deterministic proposal leaves unmapped
+(apps/api's `reshape.test.ts`: Read document, then Reshape data, then Create bill) is **written by
+hand**, marked `"handWritten": true`: the memo from the PO number, and a vendor id that isn't an
+expression from the allowed set (the route drops it). Rebuild it after changing the prompt
+(`packages/agents/src/builder/reshape.ts`) or the proposal, then delete the file whose hash no
+longer appears:
+
+```sh
+WRITE_RESHAPE_FIXTURES=1 COUNTERSIGN_REQUIRE_DB=1 \
+  pnpm --filter @countersign/api exec vitest run src/reshape.test.ts
+```

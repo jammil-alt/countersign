@@ -20,6 +20,8 @@ import {
 } from "../schemas/workflow";
 import { WriteAction } from "./actions";
 import { SkillCustomization } from "./customize";
+// Reshape data (owner, 2026-11-11): the step's mapping, as data.
+import { ReshapeMapping } from "./reshape";
 
 // ── Deadlines ────────────────────────────────────────────────────────────────────────────────
 
@@ -201,6 +203,11 @@ export const SkillStep = z.object({
    * instructions, rule rows, a task's model, kept output fields; never its method or types.
    */
   customize: SkillCustomization.optional(),
+  /**
+   * Reshape data (owner, 2026-11-11): the output fields a `data.reshape` step defines and how each
+   * is filled from its input. Only that skill's steps carry one; it runs deterministically.
+   */
+  reshape: ReshapeMapping.optional(),
 });
 
 /**

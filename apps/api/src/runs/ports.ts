@@ -286,6 +286,8 @@ export function agentPort(
         ...(request.automation ? { automation: request.automation } : {}),
         // R3: a v4 step's customization of its skill (its added instructions).
         ...(request.customize ? { customize: request.customize } : {}),
+        // Reshape data (2026-11-11): the step's mapping, run by the skill's pure handler.
+        ...(request.reshape ? { reshape: request.reshape } : {}),
       });
       switch (r.status) {
         case "succeeded":

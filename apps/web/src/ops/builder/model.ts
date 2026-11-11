@@ -366,7 +366,17 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
   const id = newId();
   switch (item.type) {
     case "skill": {
-      const step: Step = { id, kind: "skill", name: item.skill.name, skill: item.ref, input: {} };
+      const step: Step = {
+        id,
+        kind: "skill",
+        name: item.skill.name,
+        skill: item.ref,
+        input: {},
+        // Reshape data (2026-11-11): its mapping starts empty; the inspector proposes one.
+        ...(parseSkillRef(item.ref).id === processes.RESHAPE_SKILL
+          ? { reshape: { fields: [] } }
+          : {}),
+      };
       const writes = processes.stepWrites(step, ctx);
       // Core's rule, as the validator reads it: a skill that reaches people (a reach-out).
       const reaches = processes.stepReaches(step, ctx);

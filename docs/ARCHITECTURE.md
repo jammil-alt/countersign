@@ -2712,6 +2712,25 @@ without `via`, is refused); a template checks its input only. The run view names
 skill whose output fits an action's input, the matching write with its fields mapped. Design
 decisions: docs/plan.md §1.86 "Skill model (2026-11-10)".
 
+#### Reshape data (owner, 2026-11-11)
+
+One built-in deterministic skill, **Reshape data** (`data.reshape`), turns what earlier steps found
+into what the next step takes. Its output is fields the step defines; each is a mapping held in the
+step as data (versioned with the agent): a copied input field, a literal, or a small typed
+expression (the rule rows' sums, differences, percent changes, days between and buckets, plus
+dates, numbers and money formatted, text joined or split, a list picked from, plucked or mapped
+field by field, and units converted with core's table). No code and no templates execute; it never
+writes and calls no model when it runs, so it is labelled Deterministic. When the operator adds one
+(from the palette, before a step whose inputs earlier steps can't fill, or between a skill and a
+write it fits only in part), the builder proposes the mapping by name and type first, then asks the
+Builder AI once (back office, the operator's cost, never in a client's run) for the fields left;
+every suggestion is checked against the expression schema and typed, and what fails stays unmapped.
+The operator reviews each field with the value it would give (the latest run's real step output
+when there is one, else a sample from the types), edits any, and saves. The validator types the
+mapping against the steps before and the step after, so a new version of either flags the Reshape
+step by field, and the builder offers "Propose an updated mapping". Decisions: docs/plan.md §1.86
+"Skill model (2026-11-11): Reshape data".
+
 ---
 
 ## 11. Inbox and threads

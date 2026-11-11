@@ -64,6 +64,8 @@ describe("tool registry", () => {
       "comms.reach_out",
       // P-7
       "comms.translate",
+      // Reshape data (2026-11-11): its pure handler.
+      "data.reshape",
       "demo.thing.find",
       "directory.get",
       "directory.search",

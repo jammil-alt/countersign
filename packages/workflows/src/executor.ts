@@ -253,6 +253,8 @@ interface WorkOptions {
   plan?: ApprovalPlan;
   /** A skill step's customization, for the runtime (instructions, rule rows). */
   customize?: processes.SkillCustomization;
+  /** Reshape data (2026-11-11): a Reshape step's mapping, for the runtime to run. */
+  reshape?: processes.ReshapeMapping;
   /** The step's row kind when not its port view's: a native `read` or `write`. */
   nodeType?: "read" | "write";
   // R6
@@ -1174,6 +1176,7 @@ class Executor {
       // should it propose one after all).
       ...(plan ? { plan } : {}),
       ...(step.kind === "skill" && step.customize ? { customize: step.customize } : {}),
+      ...(step.kind === "skill" && step.reshape ? { reshape: step.reshape } : {}),
       // A converted step's row keeps its stored kind; a native read or write is named as such.
       ...(!origin && step.kind !== "skill" ? { nodeType: step.kind } : {}),
       // R6: the owner watches the native step itself (a converted step as its stored v3 step).
@@ -1585,6 +1588,8 @@ class Executor {
                   step,
                   // R3: the runtime applies a v4 step's added instructions and rule rows.
                   ...(opts.customize ? { customize: opts.customize } : {}),
+                  // Reshape data (2026-11-11): the step's mapping, which the runtime runs.
+                  ...(opts.reshape ? { reshape: opts.reshape } : {}),
                 })
               : await agent.runAction({
                   ...request,

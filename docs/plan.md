@@ -3853,6 +3853,80 @@ offer, and fork + publish with QuickBooks, and with QuickBooks and BILL).
 - DECISION (owner, 2026-11-11): templates are the owner's, built per agent in the builder; the
   platform work builds skills, steps, tools and the builder, not templates.
 
+**Skill model (2026-11-11): Reshape data** (owner's design; ARCHITECTURE §10.14 "Reshape data";
+branch `skills/reshape`; no migration). One built-in deterministic skill, `data.reshape` ("Reshape
+data"): any input in, an output whose fields the step defines, each a mapping (a copied input
+field, a literal, or a typed expression). It never writes and calls no model when it runs. Core
+`processes` (`process/reshape.ts`, `process/reshape-propose.ts`): `ReshapeMapping`, `ReshapeExpr`,
+`evaluateReshape`, `reshapeOutputSchema`, `reshapeExprSchema`, `reshapeProblems`,
+`schemaFitProblems`, `sampleFromSchema`, `reshapeContext`, `proposeReshape`, `wireToReshape`; core
+`units` (`convertUnits`, `unitOf`). agents: the skill and its pure handler (`tools/reshape.ts`), the
+runtime's Reshape branch, the Builder AI's suggestion (`builder/reshape.ts`). apps/api:
+`POST /api/ops/agents/:id/reshape/propose` and `/reshape/sample` (`routes/ops-reshape.ts`). Web: the
+inspector's mapping table (`reshape-step.tsx`), the offers (`reshape.ts`). Built-ins: 128.
+- // DECISION: the expression set is the rule rows' calculations (copy, literal, today, days
+  between, sum, difference, percent change, a bucket, here with its buckets inline since the step
+  has no parameters) plus `formatDate` (iso, mdy, dmy, long), `formatNumber` (places, text or a
+  number), `formatMoney` (a decimal string at 2 places by default, or an amount with a currency),
+  `join`, `split`, `pick` (by index or where a field equals a value, then a field), `pluck`,
+  `mapList` (a list of records field by field; `{item: …}` reads the item) and `convertUnit`. Data
+  only, parsed by Zod; nothing executes text. The sums go through the rule rows' own evaluator
+  (`evaluateSkillCompute`), so decimals, amounts in one currency and dates behave the same way.
+- // DECISION: the mapping is the step's `reshape` field (`SkillStep.reshape`: output fields in
+  order, each with its JSON Schema, `required` (absent: required) and `from`); the step's `input`
+  brings in the sources under keys taken from the steps' names (`readDocument:
+  "{{steps.read.output}}"`), and expressions read `input.<key>…`. Only a `data.reshape` step may
+  carry one, and one must (`reshape_mapping`).
+- // DECISION: the step's output is the mapping's fields (`stepOutputSchema`), so later steps type
+  by it; the skill's own schemas are open. The validator types each field against what the input
+  brings in (a field read that isn't there, a value that doesn't fit, a required field unmapped)
+  and against the next step on its path when that step reads the Reshape step's output (a field it
+  reads that the mapping doesn't give, a type it doesn't take, a required input left out). Every
+  problem is an error with code `reshape_mapping` on the Reshape step, field `reshape.<name>`, so a
+  version move of the step before or a change to the next step's input flags it by field.
+- // DECISION: an empty value (missing or null) leaves an optional field out (an invoice with no
+  due date makes a bill with none); a required one fails the step naming the field, unless its type
+  allows null. Any field the mapping can't fill fails the step: never a partial output.
+- // DECISION: a JS number read as money goes through its shortest decimal text, never its binary
+  value; money text such as "$1,250.00" or "(12.50)" is read; rounding is half up (core's Decimal).
+  An amount never changes currency in `formatMoney`.
+- // DECISION: core gains a small unit table (`packages/core/src/units.ts`: length, mass, volume,
+  counts, board feet; exact factors) for `convertUnit`. Materials keeps its own invoice-unit table:
+  what a box or a pail holds is the vendor's, not a fixed conversion.
+- // DECISION: the runtime runs the mapping through the skill's pure handler (`data.reshape`,
+  `sideEffect: none`, `pure`), so the call is logged like any tool call and may run on the test
+  bench; the executor hands the mapping to the agent port (`SkillStepRequest.reshape`), which
+  passes it to `runAgent`. Today is the run clock's date in UTC, as for rule rows. The handler is
+  not offered as a read step (`stepTools` leaves it out).
+- // DECISION: the deterministic proposal maps by name first: exact, any case or spelling
+  (`vendor.name` reads as `vendorName`), then a short synonym list for the fields our actions and
+  skills name; a type must fit, or convert plainly (a number into money text or number text, text
+  read as a number, a list of text joined, a list of records mapped field by field). A type alone
+  never maps a field. The nearest step wins a tie. "Propose an updated mapping" keeps every field
+  whose mapping still type-checks (`kept`) and proposes the rest.
+- // DECISION: the Builder AI is asked once per proposal, for top-level fields still unmapped
+  (a mapped list's leftover item fields are the operator's), on the Builder's model and path, in the
+  route's request (never in a client's run). Its answer takes each expression as any JSON; each is
+  parsed with `ReshapeExpr`, typed against the step's sources and fitted to its field, and dropped
+  with a reason when it fails (shown to the operator). The call's cost is returned to the builder,
+  not charged to the client. The hand-written replay is in `fixtures/llm`.
+- // DECISION: samples come from the client agent's latest test or live run that stored a
+  succeeded output for a step the Reshape input reads (its step rows, in the client's scope); a
+  step that run didn't reach, and a template, are sampled from the schemas (`sampleFromSchema`).
+- // DECISION (web): a Reshape step placed from the palette asks the server for its mapping once
+  (by name, then the Builder AI); the offers ("Add a Reshape step before this" on a step whose own
+  input errors say earlier steps can't fill it; "Add a Reshape step" after a skill whose output
+  fills at least two of a write's fields, one required, by the proposal, where it doesn't fit
+  whole) place it pre-filled with core's deterministic proposal and wire the next step, and the
+  operator asks the Builder AI from the inspector. A field is edited as not mapped, a copy (a path
+  picker over the sources), a fixed value, or an expression as JSON checked as it is typed.
+- Open question: Create bill's vendor by name. QuickBooks and BILL take a vendor by id; a Reshape
+  step can't look one up (it reads only its input), so a read step finding the vendor still comes
+  first, and the proposal leaves `vendorId` for the operator or the Builder AI.
+- Open question: whether a Reshape step's own output fields may nest (a record of records) beyond
+  a list's items, and whether the operator may add fields the next step doesn't take (today the
+  fields are the next step's, or the mapping's own with no next step).
+
 ### 1.87 BILL connector (owner: "bill.com integrated", 2026-11-10; no migration)
 
 Connector `billcom` in `packages/connectors/src/billcom/` against a fake (`fakeBillcom` in

@@ -16,6 +16,7 @@ export * from "./builder/commands";
 export * from "./builder/context";
 export * from "./builder/conversation";
 export * from "./builder/guards";
+export * from "./builder/reshape";
 export * from "./builder/skill-draft";
 export * from "./errors";
 // v0.12 W2-D
@@ -86,6 +87,8 @@ export * from "./tools/knowledge";
 export * from "./tools/ledger";
 export * from "./tools/platform";
 export * from "./tools/reach";
+// Reshape data (2026-11-11)
+export * from "./tools/reshape";
 export * from "./tools/supervisor";
 export * from "./tools/threads";
 // P-7
