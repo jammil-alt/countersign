@@ -1996,6 +1996,24 @@ export const portalRoutes = {
       ),
     }),
   }),
+  // Speed run 6.2: what a run page polls; it reloads `portalRun` only when `changeKey` changes.
+  portalRunStatus: defineRoute({
+    method: "GET",
+    path: "/api/runs/:id/status",
+    auth: "session",
+    roles: CLIENT,
+    summary: "A run's status and when it last changed, for a run page to poll",
+    params: IdParams,
+    response: z.object({
+      id: z.string(),
+      status: RunStatusSchema,
+      waitingOnYou: z.boolean(),
+      /** The latest time anything on the run's page moved (its steps, items, changes, talks). */
+      updatedAt: Timestamp,
+      /** Changes whenever anything the run page shows changes, timestamps or not. */
+      changeKey: z.string(),
+    }),
+  }),
   portalConnections: defineRoute({
     method: "GET",
     path: "/api/connections",
