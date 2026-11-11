@@ -45,6 +45,10 @@ describe("connectorBrand", () => {
     // Zoho's logo is a wordmark, unreadable on a tile: its letter instead.
     expect(connectorBrand("zoho_crm")).toEqual({ kind: "monogram", fill: "#E42527", letters: "Z" });
     expect(connectorBrand("bankfeed")).toEqual({ kind: "icon", icon: "bank" });
+    // The owner's full-colour files (2026-11-11).
+    for (const id of ["gdrive", "gsheets", "gsc", "gsc_oauth", "whatsapp_meta"]) {
+      expect(connectorBrand(id)?.kind, id).toBe("image");
+    }
     expect(connectorBrand("nope")).toBeNull();
     expect(connectorBrand(undefined)).toBeNull();
   });
