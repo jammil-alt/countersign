@@ -3927,6 +3927,16 @@ inspector's mapping table (`reshape-step.tsx`), the offers (`reshape.ts`). Built
   a list's items, and whether the operator may add fields the next step doesn't take (today the
   fields are the next step's, or the mapping's own with no next step).
 
+#### Worker startup (2026-11-11)
+
+Cloudflare refused the Worker (startup CPU over its limit, deploy of 3922f765): every tool's and
+built-in skill's JSON Schema (`z.toJSONSchema`) and every pack manifest and template version
+(`.parse`) was made while the modules loaded.
+
+| Decision | Choice |
+|---|---|
+| // DECISION: definitions built on first read | A tool spec's `input`/`output`, a built-in skill's schemas, a connector event's `payload`, a pack's manifest (`lazyParse`) and its template versions are computed on first read and kept, through enumerable memoised getters in place (`packages/core/src/lazy.ts`), so JSON, spreads, key order and equality are unchanged; senses' default registry is built on the first emit. A bad pack manifest now throws on first read, not at load: apps/api's tests build the platform with every pack. Zod schema construction, keepNames and pdf-lib's load stay as they are. |
+
 ### 1.87 BILL connector (owner: "bill.com integrated", 2026-11-10; no migration)
 
 Connector `billcom` in `packages/connectors/src/billcom/` against a fake (`fakeBillcom` in
