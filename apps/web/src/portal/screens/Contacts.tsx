@@ -37,7 +37,7 @@ import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { AccessBadge, InviteContactAction } from "../../people/People";
 import { shortTime } from "../../runs/format";
-import { useDebounced, useStale } from "../../runs/useDebounced";
+import { useAnswered, useDebounced } from "../../runs/useDebounced";
 import { useSession } from "../../session/session";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
 import { Select, TextInput } from "../../ui/forms";
@@ -189,7 +189,9 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
     // A search of the one list: its rows stay, dimmed, while the next answer loads.
     keep: true,
   });
-  const stale = useStale(list, typed);
+  // What the rows on screen answer: an earlier search while the next loads, or if it failed.
+  const answered = useAnswered(list.data, typed);
+  const stale = answered.stale;
   // Who each agent reaches (the client admin's view): the agents in touch with each person.
   const reach = useApi(apiRoutes.portalAgentPeople, admin ? {} : null);
   // R8 (plan §1.86): each contact's hours and away dates, the client admin's to read and change.
@@ -328,6 +330,7 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
                 />
               )}
             </div>
+            {list.error ? <ErrorNotice error={list.error} onRetry={list.reload} /> : null}
             {organizations ? (
               <DirectoryPanel
                 surface={{ kind: "portal" }}
@@ -336,7 +339,9 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
               />
             ) : shown.length === 0 ? (
               <EmptyState>
-                {people.length === 0 && !typed ? t("peoplePage.empty") : t("peoplePage.noMatch")}
+                {people.length === 0 && !answered.query
+                  ? t("peoplePage.empty")
+                  : t("peoplePage.noMatch")}
               </EmptyState>
             ) : (
               <div

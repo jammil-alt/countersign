@@ -7,7 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
-import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION } from "../test/fixtures";
+import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION, Reply } from "../test/fixtures";
 
 const DEMO = "00000000-0000-4000-8000-00000000a002";
 const PAT = "00000000-0000-4000-8000-0000000c0001";
@@ -177,6 +177,22 @@ describe("portal directory", () => {
       expect(screen.getByTestId("people-list")).toHaveAttribute("aria-busy", "false"),
     );
     expect(queries.filter((q) => q.includes("q="))).toEqual(["?q=birch"]);
+  });
+
+  it("keeps the last rows dimmed, with the error beside them, when a search fails", async () => {
+    const api = fakeApi({
+      ...portalBase(),
+      "GET /api/directory": ({ url }) =>
+        url.searchParams.get("q")
+          ? new Reply(500, { error: "internal" })
+          : { people: [pat], organizations: [], pendingSuggestions: 0 },
+    });
+    renderAt("/contacts", api);
+    await screen.findByTestId(`people-row-${PAT}`);
+    await userEvent.type(screen.getByTestId("people-search"), "oak");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByTestId(`people-row-${PAT}`)).toBeInTheDocument();
+    expect(screen.getByTestId("people-list")).toHaveAttribute("aria-busy", "true");
   });
 
   it("previews a CSV and applies the chosen rows, with a result per row", async () => {

@@ -19,7 +19,7 @@ import { useApi } from "../../api/useApi";
 import { figure, money } from "../../portal/documents";
 import { day, txnKind } from "../../records/RecordDetail";
 import { shortTime } from "../../runs/format";
-import { useDebounced, useStale } from "../../runs/useDebounced";
+import { useAnswered, useDebounced } from "../../runs/useDebounced";
 import { Icon } from "../../ui/icons";
 import { Loaded } from "../../ui/page";
 import { Badge, Button, EmptyState, ErrorNotice, Tabs } from "../../ui/primitives";
@@ -73,15 +73,21 @@ export function OpsRecordsScreen() {
 
   // The search box updates the URL once typing pauses; the list follows in a transition.
   const [text, setText] = useState(q);
-  useEffect(() => setText(q), [q]);
+  // A new `q` from the URL (a tab, "Clear", a link) resets the box in the same render, so the
+  // effect below never sees the old word beside the new `q` and pushes it back.
+  const [boxFor, setBoxFor] = useState(q);
+  if (boxFor !== q) {
+    setBoxFor(q);
+    setText(q);
+  }
   const typed = useDebounced(text.trim());
   // biome-ignore lint/correctness/useExhaustiveDependencies: `set` reads the current params.
   useEffect(() => {
     // Only a pause on what is in the box: a tab or "Clear" that empties it never brings back the
-    // word typed before.
+    // word typed before, and the same word typed again after one is asked for again.
     if (typed !== text.trim() || typed === q) return;
     startTransition(() => set({ q: typed, page: "" }));
-  }, [typed]);
+  }, [typed, text, q]);
 
   const query = {
     kind,
@@ -98,7 +104,13 @@ export function OpsRecordsScreen() {
     keep: true,
   });
   const { data, error, reload } = state;
-  const stale = useStale(state, JSON.stringify(query));
+  // What the rows on screen answer: an earlier search while the next loads, or if it failed.
+  const answered = useAnswered(data, query);
+  const stale = answered.stale;
+  // DECISION: rows of another kind are never kept (docs/plan.md §1.91, 5): a tab shows its
+  // skeleton until its own answer comes. The counts and sources above are the client's, the same
+  // in every kind's answer, so they stay.
+  const ofKind = data && data.page.kind !== kind ? { ...state, data: undefined } : state;
   const sources = new Map((data?.sources ?? []).map((s) => [s.id, s]));
   const base = `/ops/clients/${clientId}`;
   const tabTo = (k: RecordListKind) => {
@@ -169,21 +181,21 @@ export function OpsRecordsScreen() {
           </Select>
         </label>
       </div>
-      {data && error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      <Loaded state={state} skeleton={<SkeletonRows rows={8} columns={6} />}>
+      {ofKind.data && error ? <ErrorNotice error={error} onRetry={reload} /> : null}
+      <Loaded state={ofKind} skeleton={<SkeletonRows rows={8} columns={6} />}>
         {(list) =>
           list.page.rows.length === 0 ? (
             <EmptyState
               testId="ops-records-empty"
               line={
-                q
-                  ? `Nothing matches "${q}".`
-                  : source
+                answered.query.q
+                  ? `Nothing matches "${answered.query.q}".`
+                  : answered.query.source
                     ? `No ${list.page.kind} from this source yet.`
                     : EMPTY[list.page.kind]
               }
               action={
-                q || source
+                answered.query.q || answered.query.source
                   ? {
                       label: "Clear the search",
                       onClick: () => {

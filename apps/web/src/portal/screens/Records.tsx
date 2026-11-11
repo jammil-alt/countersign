@@ -12,11 +12,19 @@ import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { day, txnKind } from "../../records/RecordDetail";
 import { shortTime } from "../../runs/format";
-import { useDebounced, useStale } from "../../runs/useDebounced";
+import { useAnswered, useDebounced } from "../../runs/useDebounced";
 import { cx } from "../../ui/cx";
 import { Icon } from "../../ui/icons";
 import { Loaded, Page } from "../../ui/page";
-import { Badge, Button, Card, EmptyState, PageHeader, Tabs } from "../../ui/primitives";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorNotice,
+  PageHeader,
+  Tabs,
+} from "../../ui/primitives";
 import { useRowLink } from "../../ui/rows";
 import { SkeletonRows } from "../../ui/skeleton";
 import { type ChipState, StatusChip } from "../../ui/status";
@@ -66,15 +74,21 @@ export function PortalRecordsScreen() {
 
   // The search box updates the URL once typing pauses; the list follows in a transition.
   const [text, setText] = useState(q);
-  useEffect(() => setText(q), [q]);
+  // A new `q` from the URL (a tab, "Clear", a link) resets the box in the same render, so the
+  // effect below never sees the old word beside the new `q` and pushes it back.
+  const [boxFor, setBoxFor] = useState(q);
+  if (boxFor !== q) {
+    setBoxFor(q);
+    setText(q);
+  }
   const typed = useDebounced(text.trim());
   // biome-ignore lint/correctness/useExhaustiveDependencies: `set` reads the current params.
   useEffect(() => {
     // Only a pause on what is in the box: a tab that empties it never brings back the word typed
-    // before.
+    // before, and the same word typed again after one is asked for again.
     if (typed !== text.trim() || typed === q) return;
     startTransition(() => set({ q: typed, page: "" }));
-  }, [typed]);
+  }, [typed, text, q]);
 
   const query = {
     kind,
@@ -85,8 +99,13 @@ export function PortalRecordsScreen() {
   // A search, a tab or a page of the client's records: the rows stay, dimmed, while the next
   // answer loads.
   const state = useApi(apiRoutes.portalRecords, { query, keep: true });
-  const { data } = state;
-  const stale = useStale(state, JSON.stringify(query));
+  const { data, error, reload } = state;
+  // What the rows on screen answer: an earlier search while the next loads, or if it failed.
+  const answered = useAnswered(data, query);
+  const stale = answered.stale;
+  // DECISION: rows of another kind are never kept (docs/plan.md §1.91, 5): a tab shows its
+  // skeleton until its own answer comes. The tab counts are the client's, the same in every answer.
+  const ofKind = data && data.page.kind !== kind ? { ...state, data: undefined } : state;
   const sources = new Map((data?.sources ?? []).map((s) => [s.id, s]));
 
   return (
@@ -122,16 +141,21 @@ export function PortalRecordsScreen() {
           onChange={(e) => setText(e.target.value)}
           className="ui-ask__input"
         />
-        {data ? (
+        {ofKind.data && !stale ? (
           <span className="text-sm text-ink-muted figures" data-testid="portal-records-found">
-            {t("records.found", { count: data.total })}
+            {t("records.found", { count: ofKind.data.total })}
           </span>
         ) : null}
       </label>
-      <Loaded state={state} skeleton={<SkeletonRows rows={8} columns={5} />}>
+      {ofKind.data && error ? <ErrorNotice error={error} onRetry={reload} /> : null}
+      <Loaded state={ofKind} skeleton={<SkeletonRows rows={8} columns={5} />}>
         {(list) =>
           list.page.rows.length === 0 ? (
-            <EmptyState>{q ? t("records.noMatch", { q }) : t("records.empty")}</EmptyState>
+            <EmptyState>
+              {answered.query.q
+                ? t("records.noMatch", { q: answered.query.q })
+                : t("records.empty")}
+            </EmptyState>
           ) : (
             <div
               aria-busy={stale}

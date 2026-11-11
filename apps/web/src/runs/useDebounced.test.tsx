@@ -2,7 +2,7 @@
 // and the rows on screen marked as answering the last search while the next one loads.
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SEARCH_PAUSE_MS, useDebounced, useStale } from "./useDebounced";
+import { SEARCH_PAUSE_MS, useAnswered, useDebounced } from "./useDebounced";
 
 describe("useDebounced", () => {
   beforeEach(() => {
@@ -44,24 +44,40 @@ describe("useDebounced", () => {
   });
 });
 
-describe("useStale", () => {
-  it("is true only while a kept answer for another query shows", () => {
-    const first = { rows: 1 };
-    const second = { rows: 2 };
-    type Props = { state: { data: { rows: number }; refreshing: boolean }; q: string };
-    const { rerender, result } = renderHook(({ state, q }: Props) => useStale(state, q), {
-      initialProps: { state: { data: first, refreshing: false }, q: "" },
+describe("useAnswered", () => {
+  type Props = { data: { rows: number } | undefined; q: string };
+  const first = { rows: 1 };
+  const second = { rows: 2 };
+
+  it("marks kept rows stale until the new query's answer replaces them", () => {
+    const { rerender, result } = renderHook(({ data, q }: Props) => useAnswered(data, q), {
+      initialProps: { data: first, q: "" } as Props,
     });
-    expect(result.current).toBe(false);
+    expect(result.current).toEqual({ query: "", stale: false });
     // The query changed; the list keeps the last answer while the new one loads.
-    rerender({ state: { data: first, refreshing: true }, q: "birch" });
-    expect(result.current).toBe(true);
-    rerender({ state: { data: second, refreshing: false }, q: "birch" });
-    expect(result.current).toBe(false);
+    rerender({ data: first, q: "birch" });
+    expect(result.current).toEqual({ query: "", stale: true });
+    rerender({ data: second, q: "birch" });
+    expect(result.current).toEqual({ query: "birch", stale: false });
   });
 
-  it("is false for a stored answer refreshing behind", () => {
-    const { result } = renderHook(() => useStale({ data: { rows: 1 }, refreshing: true }, "oak"));
-    expect(result.current).toBe(false);
+  it("keeps them stale when the new query fails", () => {
+    const { rerender, result } = renderHook(({ data, q }: Props) => useAnswered(data, q), {
+      initialProps: { data: first, q: "" } as Props,
+    });
+    rerender({ data: first, q: "birch" });
+    // The load failed: `useApi` still shows the kept answer, and nothing is refreshing.
+    rerender({ data: first, q: "birch" });
+    expect(result.current).toEqual({ query: "", stale: true });
+  });
+
+  it("is not stale for a stored answer refreshing behind, or before any data", () => {
+    const { rerender, result } = renderHook(({ data, q }: Props) => useAnswered(data, q), {
+      initialProps: { data: undefined, q: "oak" } as Props,
+    });
+    expect(result.current.stale).toBe(false);
+    rerender({ data: first, q: "oak" });
+    rerender({ data: second, q: "oak" });
+    expect(result.current).toEqual({ query: "oak", stale: false });
   });
 });

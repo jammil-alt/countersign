@@ -23,18 +23,18 @@ export function useDebounced<T>(value: T, ms: number = SEARCH_PAUSE_MS): T {
 }
 
 /**
- * Whether the rows on screen answer an earlier search: a `keep` list (`useApi`) shows its last
- * answer while the one for `query` loads, and the screen dims those rows. False for a stored answer
- * refreshing behind, which answers the same query.
+ * The query the data on screen answers, and whether that is an earlier one (`stale`): a `keep`
+ * list (`useApi`) shows its last answer while the answer for `query` loads, and still shows it if
+ * that load fails. The screen dims stale rows and words its empty state for the query answered.
+ * Recorded when the data changes, so kept data stays stale until a new answer replaces it; a stored
+ * answer refreshing behind is the current query's own.
  */
-export function useStale(
-  state: { data: unknown; refreshing?: boolean | undefined },
-  query: string,
-): boolean {
-  const shown = useRef<{ data: unknown; query: string } | null>(null);
-  if (state.data !== undefined && !state.refreshing) shown.current = { data: state.data, query };
-  const last = shown.current;
-  return (
-    state.data !== undefined && last !== null && last.data === state.data && last.query !== query
-  );
+export function useAnswered<Q>(data: unknown, query: Q): { query: Q; stale: boolean } {
+  const shown = useRef<{ data: unknown; query: Q } | null>(null);
+  if (data !== undefined && shown.current?.data !== data) shown.current = { data, query };
+  const answered = shown.current?.query ?? query;
+  return {
+    query: answered,
+    stale: data !== undefined && JSON.stringify(answered) !== JSON.stringify(query),
+  };
 }

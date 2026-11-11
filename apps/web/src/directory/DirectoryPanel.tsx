@@ -38,7 +38,7 @@ import type { PlainKey } from "../i18n/catalog";
 import { errorText } from "../i18n/errors";
 import { type I18n, useI18n } from "../i18n/i18n";
 import { AccessBadge, InviteContactAction } from "../people/People";
-import { useDebounced, useStale } from "../runs/useDebounced";
+import { useAnswered, useDebounced } from "../runs/useDebounced";
 import { Field, Select, TextArea, TextInput } from "../ui/forms";
 import { Loaded } from "../ui/page";
 import {
@@ -249,7 +249,8 @@ export function DirectoryPanel({
   };
   const d = useDirectoryApi(surface, query);
   const { data, error, reload } = d.list;
-  const stale = useStale(d.list, JSON.stringify(query));
+  // What the rows on screen answer: an earlier search while the next loads, or if it failed.
+  const stale = useAnswered(data, query).stale;
   const allTabs: { id: Tab; label: string; count?: number }[] = [
     { id: "people", label: t("directory.tab.people") },
     { id: "organizations", label: t("directory.tab.organizations") },
