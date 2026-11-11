@@ -185,6 +185,25 @@ describe("a deterministic rule skill in a run", () => {
     expect(steps.at(-1)?.status).toBe("succeeded");
   });
 
+  // Owner, 2026-11-11: "today" is the client's date. At 02:00 UTC on Nov 11 it is still Nov 10 in
+  // Los Angeles, so a bill due Oct 1 is 40 days overdue there, and 41 in UTC.
+  it("reads today in the client's time zone", async () => {
+    const run = async (timeZone?: string) => {
+      const { deps } = setUp([{ skill: AGE.id, settings: {} }]);
+      return runAgent(deps(new FakeModel([]), new Date("2026-11-11T02:00:00Z")), {
+        tenantId: TENANT,
+        agentVersionId: "v1",
+        skill: AGE.id,
+        input: { dueDate: "2026-10-01", amount: "10.00" },
+        runId: "r1",
+        stepId: "age",
+        ...(timeZone ? { timeZone } : {}),
+      });
+    };
+    expect(await run("America/Los_Angeles")).toMatchObject({ output: { daysOverdue: 40 } });
+    expect(await run()).toMatchObject({ output: { daysOverdue: 41 } });
+  });
+
   it("takes a step's own parameters over the agent's, and its rule rows too", async () => {
     const { deps } = setUp([{ skill: AGE.id, settings: {} }]);
     const result = await runAgent(deps(new FakeModel([]), new Date("2026-11-10T12:00:00Z")), {

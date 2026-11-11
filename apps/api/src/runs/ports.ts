@@ -278,6 +278,8 @@ export function agentPort(
         approval,
         mode: run.mode,
         language: run.language,
+        // Owner, 2026-11-11: rule skills read "today" in the client's time zone.
+        ...(run.timeZone ? { timeZone: run.timeZone } : {}),
         // v0.12 W1-E: a retry carries the run retried's approved, not-done writes (§10.10).
         ...(run.retryOf ? { retryOf: run.retryOf } : {}),
         // v0.12 W2-B: a step of an automation runs with the automation's skills.

@@ -3841,6 +3841,18 @@ offer, and fork + publish with QuickBooks, and with QuickBooks and BILL).
   the model that read the document (the skill's answer doesn't carry its model); "today" in rule
   skills is UTC.
 
+- DECISION (owner, 2026-11-11): a rule skill's "today" is the client's date, in the client's time
+  zone (`tenant.timezone`, carried by the run); UTC only when none is set.
+- DECISION (owner, 2026-11-11): browser scripts may be recorded by the operator or a client admin
+  (a client admin's recording stays a draft until the operator publishes it); client admins keep
+  tightening their approver rules (never loosening). Everything else about agents is set up in the
+  back office only; clients give feedback.
+- DECISION (owner, 2026-11-11): the confidence threshold stays inside Check matches as a parameter
+  set per agent; the process routes on its output with an If (a person sees all doubtful lines on
+  one card).
+- DECISION (owner, 2026-11-11): templates are the owner's, built per agent in the builder; the
+  platform work builds skills, steps, tools and the builder, not templates.
+
 ### 1.87 BILL connector (owner: "bill.com integrated", 2026-11-10; no migration)
 
 Connector `billcom` in `packages/connectors/src/billcom/` against a fake (`fakeBillcom` in

@@ -95,6 +95,8 @@ export interface RunAgentInput {
    * text: summaries render in it, and the model is asked to write client-facing text in it.
    */
   language?: Locale | undefined;
+  /** The client's time zone (IANA): a rule skill's "today" is the client's date (owner, 2026-11-11). */
+  timeZone?: string | undefined;
   /**
    * An ask (`agents.ask`, docs/plan.md §1.28): answer `input.question` with only the tools that
    * read, within `budget` (each limit the smaller of it and the agent's own), with no inbox item
@@ -573,14 +575,13 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
 
   // 2a. Skill model (2026-11-10): a deterministic rule skill runs its rule rows: the same input,
   // parameters and day give the same output, with no tool and no model.
-  // DECISION: today is the run clock's date in UTC: the runtime doesn't know the client's zone
-  // here, and a row comparing dates reads whole days, so a run near midnight UTC may count one
-  // day off the client's calendar.
+  // DECISION (owner, 2026-11-11): today is the client's date, in the client's time zone (the run
+  // carries it); UTC only when the client has none or it is unknown.
   if (isRuleSkill(def)) {
     const result = evaluateSkillRules(def.rules ?? [], {
       input: checkedInput.value,
       parameters,
-      today: isoToday(deps.now?.() ?? new Date()),
+      today: isoToday(deps.now?.() ?? new Date(), input.timeZone),
     });
     if (!result) return fail("no rule row matched this input");
     const out = checkOutput(def, result.output);
