@@ -397,7 +397,7 @@ function LeadCard({
                 onClick={() => void save()}
                 data-testid="ops-client-lead-save"
               >
-                Set lead
+                {busy ? "Saving…" : "Set lead"}
               </Button>
             </div>
           ) : null}

@@ -170,8 +170,14 @@ function StatusCard({
   const status =
     (answered && answered.id === agent.id ? answered.runStatus : agent.runStatus) ?? "draft";
 
+  // Which press is waiting on the server: its button says so until the answer (1.8). Nothing
+  // shows as activated, paused or retired before the server says it is (invariant 8).
+  const [pressed, setPressed] = useState<"activate" | "pause" | "retire" | null>(null);
+  const busyWith = (kind: "activate" | "pause" | "retire") => action.busy && pressed === kind;
+
   async function run(kind: "activate" | "pause" | "retire") {
     setRetiring(false);
+    setPressed(kind);
     const route =
       kind === "activate"
         ? apiRoutes.opsActivate
@@ -278,7 +284,7 @@ function StatusCard({
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {status === "active" ? (
           <Button data-testid="agent-pause" disabled={action.busy} onClick={() => run("pause")}>
-            Pause
+            {busyWith("pause") ? "Pausing…" : "Pause"}
           </Button>
         ) : status !== "retired" ? (
           <Button
@@ -288,7 +294,7 @@ function StatusCard({
             onClick={() => run("activate")}
           >
             {/* v0.12 W1-A: Activate starts the trial (or resumes a paused agent). */}
-            {status === "paused" ? "Resume" : "Start trial"}
+            {busyWith("activate") ? "Starting…" : status === "paused" ? "Resume" : "Start trial"}
           </Button>
         ) : null}
         {status !== "retired" ? (
@@ -298,7 +304,7 @@ function StatusCard({
               disabled={action.busy}
               onClick={() => run("retire")}
             >
-              Retire for good?
+              {busyWith("retire") ? "Retiring…" : "Retire for good?"}
             </Button>
           ) : (
             <Button variant="ghost" data-testid="agent-retire" onClick={() => setRetiring(true)}>
@@ -437,7 +443,7 @@ export function TestRun({
           disabled={action.busy || !workflow || !parsed.ok}
           onClick={start}
         >
-          Test-run v{live.version}
+          {action.busy ? "Starting…" : `Test-run v${live.version}`}
         </Button>
       </div>
       {started ? (

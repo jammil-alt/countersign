@@ -451,7 +451,11 @@ function WaitingBlock({
   onResolve: (itemId: string, body: ResolveInput) => Promise<void>;
   onAnswer: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
+  // The decision on its way: its button says "Sending…" and neither can be pressed again; the
+  // block goes only when the server has the decision (rule 7, invariant 8).
+  const [pressed, setPressed] = useState<"approve" | "reject" | null>(null);
+  const [problem, setProblem] = useState<unknown>(null);
+  const busy = pressed !== null;
   const item = wait.item;
   const action = data.actions.find((a) => a.inboxItemId === item.id);
   const connector = action
@@ -459,11 +463,14 @@ function WaitingBlock({
     : null;
   const approves = item.kind === "external_action" || item.kind === "approval";
   const act = async (decision: "approve" | "reject") => {
-    setBusy(true);
+    setPressed(decision);
+    setProblem(null);
     try {
       await onResolve(item.id, { decision });
+    } catch (e) {
+      setProblem(e);
     } finally {
-      setBusy(false);
+      setPressed(null);
     }
   };
   const more = wait.items.length > 1 ? ` · ${plural(wait.items.length, "item", "items")}` : "";
@@ -498,7 +505,7 @@ function WaitingBlock({
               disabled={busy}
               onClick={() => void act("reject")}
             >
-              Reject
+              {pressed === "reject" ? "Sending…" : "Reject"}
             </Button>
             <Button
               data-testid="ops-run-waiting-approve"
@@ -506,7 +513,11 @@ function WaitingBlock({
               disabled={busy}
               onClick={() => void act("approve")}
             >
-              {connector ? `Approve and update ${connector}` : "Approve"}
+              {pressed === "approve"
+                ? "Sending…"
+                : connector
+                  ? `Approve and update ${connector}`
+                  : "Approve"}
             </Button>
           </div>
         ) : wait.mine ? (
@@ -523,6 +534,11 @@ function WaitingBlock({
           </Link>
         )}
       </div>
+      {problem ? (
+        <div className="mt-3">
+          <ErrorNotice error={problem} />
+        </div>
+      ) : null}
     </Card>
   );
 }

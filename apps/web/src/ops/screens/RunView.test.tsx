@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { BILL_BEFORE, BILL_INPUT, BILL_LINES_VIEW } from "../../test/changes";
-import { fakeApi, OPERATOR_SESSION } from "../../test/fixtures";
+import { fakeApi, OPERATOR_SESSION, Reply } from "../../test/fixtures";
 import { checklistRows, parseNodeId } from "../run/checklist";
 
 const RUN_ID = "00000000-0000-4000-8000-0000000f1001";
@@ -487,6 +487,54 @@ describe("back-office run view", () => {
     );
     await userEvent.click(within(block).getByTestId("ops-run-waiting-reject"));
     expect(resolved).toEqual([{ decision: "reject" }]);
+  });
+
+  it("says Sending on the pressed decision until the server answers, and never earlier done (1.8)", async () => {
+    let answer: (v: unknown) => void = () => {};
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: () => detail("open"),
+      [`POST /api/ops/inbox/${ITEM_ID}/resolve`]: () => new Promise((r) => (answer = r)),
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/runs/${RUN_ID}?tab=timeline`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const block = await screen.findByTestId("ops-run-waiting");
+    await userEvent.click(within(block).getByTestId("ops-run-waiting-approve"));
+    expect(within(block).getByTestId("ops-run-waiting-approve")).toHaveTextContent("Sending…");
+    expect(within(block).getByTestId("ops-run-waiting-approve")).toBeDisabled();
+    expect(within(block).getByTestId("ops-run-waiting-reject")).toBeDisabled();
+    // Still waiting: nothing reads as approved before the server says so.
+    expect(screen.getByTestId("ops-run-status")).toHaveTextContent("Waiting for approval");
+    answer({ item: { ...detail("resolved").inbox[0] } });
+    await waitFor(() =>
+      expect(within(block).getByTestId("ops-run-waiting-approve")).not.toHaveTextContent(
+        "Sending…",
+      ),
+    );
+  });
+
+  it("shows a refused decision beside the buttons (1.8)", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: () => detail("open"),
+      [`POST /api/ops/inbox/${ITEM_ID}/resolve`]: () =>
+        new Reply(409, { error: { code: "conflict", message: "Already decided." } }),
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/runs/${RUN_ID}?tab=timeline`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const block = await screen.findByTestId("ops-run-waiting");
+    await userEvent.click(within(block).getByTestId("ops-run-waiting-approve"));
+    expect(await within(block).findByText(/Already decided/)).toBeInTheDocument();
   });
 
   it("titles the run by what it is about, and names the records its steps cite", async () => {

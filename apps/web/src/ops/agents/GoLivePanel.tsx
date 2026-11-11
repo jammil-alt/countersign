@@ -190,7 +190,7 @@ export function GoLivePanel({
           disabled={action.busy || !to || (forward && !reason.trim())}
           onClick={move}
         >
-          Move
+          {action.busy ? "Moving…" : "Move"}
         </Button>
       </div>
 
@@ -220,7 +220,7 @@ export function GoLivePanel({
             disabled={action.busy || (minDays === "" && minRuns === "")}
             onClick={saveTrial}
           >
-            Change minimums
+            {action.busy ? "Saving…" : "Change minimums"}
           </Button>
         </div>
       ) : null}
@@ -303,7 +303,7 @@ function PastEventRun({
           disabled={action.busy || !eventId}
           onClick={start}
         >
-          Run live
+          {action.busy ? "Starting…" : "Run live"}
         </Button>
       </div>
       {started.length > 0 ? (

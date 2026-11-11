@@ -77,6 +77,8 @@ export function VersionsTab({
   const sorted = [...versions].sort((a, b) => b.version - a.version);
   const [selected, setSelected] = useState<string | null>(sorted[0]?.id ?? null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  // The version whose button was pressed: it says "Publishing…" until the server answers (1.8).
+  const [pressed, setPressed] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const action = useAction();
   const own = useApi(
@@ -93,6 +95,7 @@ export function VersionsTab({
   if (versions.length === 0) return <EmptyState>No versions yet.</EmptyState>;
 
   async function publish(v: VersionSummary) {
+    setPressed(v.id);
     const res = await action.call(apiRoutes.opsPublish, {
       params: { id: agent.id, vid: v.id },
     });
@@ -104,6 +107,7 @@ export function VersionsTab({
 
   async function rollback(v: VersionSummary) {
     setConfirming(null);
+    setPressed(v.id);
     const res = await action.call(apiRoutes.opsRollback, {
       params: { id: agent.id },
       body: { versionId: v.id },
@@ -227,7 +231,7 @@ export function VersionsTab({
                           disabled={action.busy}
                           onClick={() => publish(v)}
                         >
-                          Publish
+                          {action.busy && pressed === v.id ? "Publishing…" : "Publish"}
                         </Button>
                       ) : v.id !== liveId ? (
                         confirming === v.id ? (
@@ -236,7 +240,9 @@ export function VersionsTab({
                             disabled={action.busy}
                             onClick={() => rollback(v)}
                           >
-                            Roll back to v{v.version}?
+                            {action.busy && pressed === v.id
+                              ? "Rolling back…"
+                              : `Roll back to v${v.version}?`}
                           </Button>
                         ) : (
                           <Button
@@ -413,7 +419,7 @@ function LineageCard({
               disabled={action.busy}
               onClick={detach}
             >
-              Detach? It will take no more updates
+              {action.busy ? "Detaching…" : "Detach? It will take no more updates"}
             </Button>
           ) : (
             <Button
@@ -445,7 +451,7 @@ function LineageCard({
               disabled={action.busy || !relinkChoice}
               onClick={relink}
             >
-              Re-link as its base
+              {action.busy ? "Re-linking…" : "Re-link as its base"}
             </Button>
           </span>
         ) : null}
