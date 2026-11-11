@@ -13,8 +13,8 @@
 // finish reason (safety and recitation stops become refusals, a prompt block too) and usage with
 // cached and thinking tokens apart.
 
-import type Anthropic from "@anthropic-ai/sdk";
 import { MODEL_PREFIXES, providerModelName } from "@countersign/core";
+import type * as Anthropic from "./messages";
 import {
   type HttpTransportOptions,
   httpTransport,
@@ -222,7 +222,8 @@ export function toGeminiContents(messages: readonly Anthropic.MessageParam[]): G
       for (const block of m.content) {
         if (block.type === "thinking") {
           // Only Gemini's own signatures go back; Anthropic thinking is dropped, as for OpenAI.
-          if (block.signature.startsWith(GEMINI_SIGNATURE_PREFIX)) {
+          // A thinking block from a stream may carry no signature (./messages.ts).
+          if (block.signature?.startsWith(GEMINI_SIGNATURE_PREFIX)) {
             signature = block.signature.slice(GEMINI_SIGNATURE_PREFIX.length);
           }
         } else if (block.type === "redacted_thinking") {

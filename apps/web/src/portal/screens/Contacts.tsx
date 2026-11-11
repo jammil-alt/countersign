@@ -37,6 +37,7 @@ import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { AccessBadge, InviteContactAction } from "../../people/People";
 import { shortTime } from "../../runs/format";
+import { useAnswered, useDebounced } from "../../runs/useDebounced";
 import { useSession } from "../../session/session";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
 import { Select, TextInput } from "../../ui/forms";
@@ -51,6 +52,7 @@ import {
   PageHeader,
   Tag,
 } from "../../ui/primitives";
+import { SkeletonRows, SkeletonText } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { PORTAL_PATHS } from "../paths";
 
@@ -180,7 +182,16 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
     });
     if (next !== "organizations") setRelationship(next);
   }
-  const list = useApi(apiRoutes.portalDirectory, { query: q.trim() ? { q: q.trim() } : {} });
+  // The server is asked once typing pauses, not once a letter (docs/audit-plan.md 2.4).
+  const typed = useDebounced(q.trim());
+  const list = useApi(apiRoutes.portalDirectory, {
+    query: typed ? { q: typed } : {},
+    // A search of the one list: its rows stay, dimmed, while the next answer loads.
+    keep: true,
+  });
+  // What the rows on screen answer: an earlier search while the next loads, or if it failed.
+  const answered = useAnswered(list.data, typed);
+  const stale = answered.stale;
   // Who each agent reaches (the client admin's view): the agents in touch with each person.
   const reach = useApi(apiRoutes.portalAgentPeople, admin ? {} : null);
   // R8 (plan §1.86): each contact's hours and away dates, the client admin's to read and change.
@@ -209,7 +220,7 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
   }
 
   return (
-    <Loaded state={list}>
+    <Loaded state={list} skeleton={<SkeletonRows rows={6} columns={admin ? 5 : 4} />}>
       {(data) => {
         const people = data.people;
         const counts = new Map<Relationship, number>();
@@ -319,6 +330,7 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
                 />
               )}
             </div>
+            {list.error ? <ErrorNotice error={list.error} onRetry={list.reload} /> : null}
             {organizations ? (
               <DirectoryPanel
                 surface={{ kind: "portal" }}
@@ -327,35 +339,43 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
               />
             ) : shown.length === 0 ? (
               <EmptyState>
-                {people.length === 0 && !q.trim() ? t("peoplePage.empty") : t("peoplePage.noMatch")}
+                {people.length === 0 && !answered.query
+                  ? t("peoplePage.empty")
+                  : t("peoplePage.noMatch")}
               </EmptyState>
             ) : (
-              <Card className="overflow-hidden">
-                <div className="dt dt-ana overflow-x-auto rounded-none border-0">
-                  <table data-testid="people-table">
-                    <thead>
-                      <tr className="dt-cols">
-                        <th>{t("peoplePage.col.person")}</th>
-                        <th>{t("peoplePage.col.who")}</th>
-                        <th>{t("peoplePage.col.reach")}</th>
-                        {admin ? <th>{t("peoplePage.col.agents")}</th> : null}
-                        <th>{t("peoplePage.col.about")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {shown.map((p) => (
-                        <PersonRow
-                          key={p.id}
-                          person={p}
-                          agents={admin ? (agentsOf.get(p.id) ?? []) : null}
-                          selected={p.id === selected?.id}
-                          onSelect={() => select(p.id)}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
+              <div
+                aria-busy={stale}
+                data-testid="people-list"
+                className={cx("transition-opacity", stale && "opacity-60")}
+              >
+                <Card className="overflow-hidden">
+                  <div className="dt dt-ana overflow-x-auto rounded-none border-0">
+                    <table data-testid="people-table">
+                      <thead>
+                        <tr className="dt-cols">
+                          <th>{t("peoplePage.col.person")}</th>
+                          <th>{t("peoplePage.col.who")}</th>
+                          <th>{t("peoplePage.col.reach")}</th>
+                          {admin ? <th>{t("peoplePage.col.agents")}</th> : null}
+                          <th>{t("peoplePage.col.about")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {shown.map((p) => (
+                          <PersonRow
+                            key={p.id}
+                            person={p}
+                            agents={admin ? (agentsOf.get(p.id) ?? []) : null}
+                            selected={p.id === selected?.id}
+                            onSelect={() => select(p.id)}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              </div>
             )}
           </PageGrid>
         );
@@ -767,7 +787,7 @@ function RecentMessages({ contactId }: { contactId: string }) {
   const { t } = i18n;
   const messages = useApi(apiRoutes.portalContactMessages, { params: { id: contactId } });
   return (
-    <Loaded state={messages}>
+    <Loaded state={messages} skeleton={<SkeletonText lines={3} />}>
       {(data) =>
         data.items.length === 0 ? (
           <p className="text-sm text-ink-muted">{t("peoplePage.recentNone")}</p>

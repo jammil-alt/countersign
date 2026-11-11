@@ -67,6 +67,11 @@ export function PickedClientProvider({ children }: { children: ReactNode }) {
     }
   }, [pageClientId, remembered]);
 
+  // DECISION: picking a client does not empty the store under useApi (docs/audit-plan.md 1.2).
+  // An operator session's active client is not in the session (`activeTenantId` is null); each
+  // call names its client in the address (`/ops/clients/:id/…`, `?client=`), so one client's
+  // answers are keyed apart from another's and never shown on its page. Emptying on a pick would
+  // only ask the frame's names and counts again.
   const remember = useCallback((id: string | null) => {
     setRemembered(id);
     writeStored(id);

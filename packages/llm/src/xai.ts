@@ -3,8 +3,8 @@
 // and gives the answers ./openai.ts translates, so this is that translation with xAI's address,
 // key and error class, and two differences (`XAI_DIALECT`). What is unchecked is in ../NOTES.md.
 
-import type Anthropic from "@anthropic-ai/sdk";
 import { MODEL_PREFIXES } from "@countersign/core";
+import type * as Anthropic from "./messages";
 import {
   fromResponsesAnswer,
   type OAResponse,

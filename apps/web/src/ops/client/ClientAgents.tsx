@@ -7,9 +7,12 @@ import { useApi } from "../../api/useApi";
 import { connectorName } from "../../inbox/change";
 import { AgentBadge } from "../../ui/badges";
 import { Columns, Section } from "../../ui/page";
-import { Badge, buttonClass, Card, EmptyState, Loading, Tag } from "../../ui/primitives";
+import { Badge, buttonClass, Card, EmptyState, Tag } from "../../ui/primitives";
+import { Skeleton, SkeletonCard } from "../../ui/skeleton";
 import { StatusChip, serviceChipState } from "../../ui/status";
+import { prefetchAgent, useIntent } from "../agents/prefetch";
 import { OPS_PATHS } from "../paths";
+import type { AgentLinkState } from "../screens/AgentPage";
 import { summaryBadge } from "../versions";
 import { ClientFrame, useClientPage } from "./ClientFrame";
 
@@ -43,8 +46,19 @@ export function ClientAgentsScreen() {
 function Agents({ clientId }: { clientId: string }) {
   const { data, error } = useClientPage();
   // Connector names for the cards' tool tags (never the raw ids).
-  const catalog = useApi(apiRoutes.connectors);
-  if (!data) return error ? null : <Loading />;
+  const catalog = useApi(apiRoutes.connectors, { life: "catalog" });
+  if (!data) {
+    return error ? null : (
+      <Section title="Agents" testId="ops-client-agents-section">
+        <Skeleton testId="ops-client-agents-skeleton">
+          <Columns count={2}>
+            <SkeletonCard lines={3} />
+            <SkeletonCard lines={3} />
+          </Columns>
+        </Skeleton>
+      </Section>
+    );
+  }
   const names = Object.fromEntries(
     (catalog.data?.connectors ?? []).map((c) => [c.id, c.name] as const),
   );
@@ -94,13 +108,16 @@ function AgentCard({
       : "built for this client";
   const name = agent.serviceName ?? agent.name;
   const status = agent.runStatus ?? "draft";
+  const intent = useIntent();
   return (
     <Card dashed={agent.liveVersionId === null} pad testId={`ops-agent-card-${agent.slug}`}>
       <div className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
           <Link
             to={`${OPS_PATHS.client(clientId)}/agents/${agent.slug}`}
+            state={{ agentId: agent.id } satisfies AgentLinkState}
             className="flex min-w-0 items-center gap-3"
+            {...intent(agent.id, (p) => prefetchAgent(p, agent.id))}
           >
             <AgentBadge name={name} seed={agent.id} />
             <span className="min-w-0">

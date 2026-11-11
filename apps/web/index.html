@@ -12,7 +12,50 @@
     <link rel="apple-touch-icon" href="./node_modules/@countersign/design-system/assets/Logos/apple-touch-icon-180.png" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- The still frame (docs/audit-plan.md 1.1): what shows while the bundle loads and runs, on the
+           main stylesheet's classes and tokens, in the OS theme. React replaces it on mount with its
+           twin (src/session/StillFrame.tsx; a test keeps the two the same) until the session is known. -->
+      <div class="ui-shell ui-frame" data-testid="still-frame">
+        <p class="sr-only" role="status">Loading…</p>
+        <div aria-hidden="true" class="ds-header ui-topbar">
+          <span class="ui-skel ui-topbar__menu ui-frame__menu"></span>
+          <span class="ui-topbar__logo">
+            <span class="ui-topbar__lockup">
+              <img src="./node_modules/@countersign/design-system/assets/Logos/mezonas-logo.svg" alt="" width="130" height="18" class="theme-light-only" />
+              <img src="./node_modules/@countersign/design-system/assets/Logos/mezonas-logo-paper.svg" alt="" width="130" height="18" class="theme-dark-only" />
+            </span>
+            <span class="ui-topbar__mark">
+              <img src="./node_modules/@countersign/design-system/assets/Logos/mezonas-mark.svg" alt="" width="28" height="28" class="theme-light-only" />
+              <img src="./node_modules/@countersign/design-system/assets/Logos/mezonas-mark-paper.svg" alt="" width="28" height="28" class="theme-dark-only" />
+            </span>
+          </span>
+          <span class="ui-topbar__sep"></span>
+          <span class="ui-skel ui-frame__context"></span>
+          <span class="ui-topbar__search"><span class="ui-skel ui-frame__search"></span></span>
+          <span class="ui-skel ui-frame__avatar"></span>
+        </div>
+        <div aria-hidden="true" class="ui-shell__body">
+          <aside class="ds-sidebar ui-sidebar">
+            <span class="ui-sidebar__nav">
+              <span class="ds-navitem ui-navitem ui-navskel"><span class="ui-skel ui-frame__nav ui-frame__nav--long"></span></span>
+              <span class="ds-navitem ui-navitem ui-navskel"><span class="ui-skel ui-frame__nav ui-frame__nav--half"></span></span>
+              <span class="ds-navitem ui-navitem ui-navskel"><span class="ui-skel ui-frame__nav ui-frame__nav--long"></span></span>
+              <span class="ds-navitem ui-navitem ui-navskel"><span class="ui-skel ui-frame__nav ui-frame__nav--short"></span></span>
+              <span class="ds-navitem ui-navitem ui-navskel"><span class="ui-skel ui-frame__nav ui-frame__nav--half"></span></span>
+              <span class="ds-navitem ui-navitem ui-navskel"><span class="ui-skel ui-frame__nav ui-frame__nav--long"></span></span>
+            </span>
+          </aside>
+          <main class="ui-main">
+            <span class="ui-skel-page">
+              <span class="ui-skel-line ui-skel-line--heading"><span class="ui-skel ui-frame__heading"></span></span>
+              <span class="ds-card ui-skel-card ui-frame__card"></span>
+              <span class="ds-card ui-skel-card ui-frame__card"></span>
+            </span>
+          </main>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

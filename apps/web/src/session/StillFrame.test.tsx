@@ -1,0 +1,52 @@
+// The still frame (docs/audit-plan.md 1.1): index.html's #root and the React twin that replaces it
+// are the same frame, so nothing moves when React mounts; and index.html needs no script for it.
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import html from "../../index.html?raw";
+import { StillFrame } from "./StillFrame";
+
+/** The frame's elements and classes only: no comments, image sources, words or spacing. */
+function shape(markup: string): string {
+  const doc = new DOMParser().parseFromString(markup, "text/html");
+  const walk = (el: Element): string => {
+    const attrs = [...el.attributes]
+      .filter((a) => a.name !== "src")
+      .map((a) => `${a.name}=${a.value}`)
+      .sort()
+      .join(" ");
+    return `<${el.tagName.toLowerCase()} ${attrs}>${[...el.children].map(walk).join("")}</>`;
+  };
+  const root = doc.body.firstElementChild;
+  if (!root) throw new Error("no frame");
+  return walk(root);
+}
+
+describe("the still frame", () => {
+  // Comments removed until none is left, so a comment rebuilt by removing another can't survive.
+  const withoutComments = (text: string): string => {
+    let out = text;
+    for (let before = ""; before !== out; ) {
+      before = out;
+      out = out.replace(/<!--[\s\S]*?-->/g, "");
+    }
+    return out;
+  };
+  const root = html.match(/<div id="root">([\s\S]*?)<\/div>\s*<script/)?.[1] ?? "";
+
+  it("sits in index.html's #root, with the same shape React draws", () => {
+    expect(root).toContain('data-testid="still-frame"');
+    expect(shape(withoutComments(root).trim())).toBe(shape(renderToStaticMarkup(<StillFrame />)));
+  });
+
+  it("needs no script: index.html has no inline script and no inline handler", () => {
+    // Tag names in HTML are case-insensitive, so every check is too.
+    for (const tag of html.match(/<script\b[^>]*>/gi) ?? []) expect(tag).toMatch(/\ssrc=/i);
+    expect(html).not.toMatch(/\son[a-z]+=/i);
+    expect(html).not.toMatch(/<style\b/i);
+  });
+
+  it("has a status for screen readers and hides its shapes from them", () => {
+    expect(root).toContain('role="status"');
+    expect(root.match(/aria-hidden="true"/g)).toHaveLength(2);
+  });
+});

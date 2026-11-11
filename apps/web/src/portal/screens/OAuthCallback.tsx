@@ -63,7 +63,7 @@ export function OAuthCallbackScreen() {
           </Link>
         </div>
       ) : (
-        <Loading label={t("callback.connecting")} />
+        <Loading progress label={t("callback.connecting")} />
       )}
     </ConnectFrame>
   );

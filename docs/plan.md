@@ -4229,6 +4229,114 @@ That was two `begin`s, two `commit`s and a membership read of two statements bef
 | Measured | Local, demo seed: `GET /api/feedback/status` went from 7 statements, 2 `begin`s to 6 and 1; every back-office and portal screen's statements went down by 2 to 21, and `begin`s about halved. |
 | Checked | `scope.test.ts` (the switch, a drizzle select issued at once, one backend, rollback, a pooled connection clean after every kind of failure), `rls.test.ts` (as `cs_worker`: the sign-in half sees only the user's memberships, the handler only the scoped clients), `apps/api/src/http.test.ts` (through `mount` and `invokeRoute`). |
 
+### 1.91 Speed run: what the run decided (2026-11-11; `docs/audit-plan.md`)
+
+The decisions taken while running the speed and structure plan, item by item, as each merged into
+`speed/run`. Held items record theirs in their own PRs (§1.90 one transaction per request, §1.92
+website logins in their own Worker, §1.93 memberships in the cookie).
+
+**1.2 and 1.9, the store under `useApi`** (`apps/web/src/api/store.ts`, #251):
+
+1. Nothing older than five minutes is shown (`MAX_AGE_MS`).
+2. Fresh for ten seconds (`FRESH_MS`): a component that mounts while the stored answer is under
+   10 s old, with no write since, does not ask again. A change of options, and `reload`, always ask.
+3. The first session answer names the scope without emptying the store; every later change empties it.
+4. One store per `ApiProvider` (tests that render twice with one fake client expect a second ask).
+5. Keeping the last answer while a new query loads is opt-in (`keep: true`), and only for the same
+   route and path params: a query can name another entity (`?client=`, `?agent=`).
+6. Any successful write, through any client, marks every stored answer stale.
+7. Sign-out closes the store until the signed-in screens are gone. Tabs share who is signed in as a
+   fingerprint (a hash of user and client, never an answer or an id) in `cs.sessionScope`; a tab
+   that sees another fingerprint than its own empties its store and asks who is signed in.
+8. The operator's client picker does not empty the store: an operator call names its client in the
+   address, so answers for two clients never share a key.
+9. At most 200 answers, least recently used first.
+
+`cache: "none"` on every answer holding a short-lived link or a secret: signed document links,
+the feedback screenshot, client exports, webhook setup, the vault (`portalAccess`) and second
+factor (`portalReleaseRequest`, `opsRelease`, `opsAgentGrants`).
+
+**1.3, skeletons in place of Loading** (`apps/web/src/ui/skeleton.tsx`, #256):
+
+1. A data load's label is read by screen readers, not shown; `Loading progress` shows its words for
+   work the person started (saving, connecting), so a write is never only a grey shape (rule 7).
+2. `Loaded`'s default skeleton is a page body (a heading line and two cards); screens pass their own.
+3. Skeleton shapes use `--line` (the border token): `--surface-subtle` nearly vanished on a dark card.
+4. A block `Loading` is 640px wide at most and takes its parent's width (a shrink-to-fit parent
+   left it 0 wide).
+5. One fade for every skeleton, the sidebar's included: opacity only, 1.6 s, none under reduced motion.
+
+**The back-office frame, Home and Escalations** (#257):
+
+1. The frame's counts reload when the place changes (the first path segment after `/ops`), or inside
+   a place when a write came after them (`ApiStore.staleByWrite`); the 20 s poll keeps them current.
+2. Escalations hands the frame Needs us across every client; narrowed to one client it shares
+   nothing and the frame asks for its own counts.
+3. A list keeps its last rows, dimmed and `inert`, while a view, status or filter loads, never across
+   a client filter (`keep: !client`); dimming shows only for a kept answer, not on polls.
+4. Fetch on intent prefetches only the first call of the run, agent and client pages, from delegated
+   handlers on each list (`ops/command/prefetch.ts`).
+5. Home's sections each load on their own; a failed first load is one notice.
+6. 1.6's "prefetch the next screen once Home settles" is not built: it raises Home's calls, which
+   gate 2 forbids. Left for the owner (the same for the portal's Home → Inbox).
+
+**The first load** (#261: 1.1, 4.1, 4.3, 4.4, 4.5):
+
+1. A still frame inside `#root` (top bar, sidebar rows, a heading and two cards, on the shell's own
+   classes), the same picture as its React twin `session/StillFrame.tsx`, which covers the session,
+   its language and the `OpsApp` chunk; a test keeps the two identical. No script, CSP untouched.
+2. The frame follows the OS theme only: showing a stored light or dark choice before the bundle runs
+   needs a blocking script, which 1.1 rules out.
+3. Only English is in the bundle. Nothing is downloaded while the session is unknown; the session's
+   language once known, the browser's only signed out. A chunk that fails reads in English and is
+   asked for again on the next session refresh.
+4. The session call starts before React mounts; the frame's first calls are prefetched only after it
+   answers, never beside it (a WorkOS refresh rotates the refresh token, and a racing request with
+   the old cookie revokes the session), by `session.operator`, so nothing refused is asked.
+5. `OpsApp` starts loading at module load on `/ops` addresses.
+6. `/assets/*` is cached for good (`immutable`); both Geist faces are preloaded, and a build missing
+   either fails. Tests load all six catalogs in `test/setup.ts`; the app loads one.
+
+**The agent, run and client pages** (#258):
+
+1. The client page's frame is a pathless layout route around the tabs' routes; tab screens keep
+   wrapping themselves in `ClientFrame`, which inside the layout portals its intro and buttons into
+   the layout's header.
+2. The agent page resolves its slug from the client's own list; the list with discarded drafts is
+   asked only when the slug isn't there.
+3. `life: "catalog"` (event, builder and connector catalogs, models, client names): fresh for 5
+   minutes instead of 10 s; writes still mark it stale; emptied on scope change and sign-out.
+4. The agent page's connector names stay on the builder catalog, asked beside the agent on the
+   Overview (taking it off raised the Workflow tab's statements, which gate 2 forbids).
+5. Prefetch on intent fires for a mouse or pen hovering, or focus, once per target, never in a
+   hidden tab. Decisions and writes say what they are doing on the pressed button until the server
+   answers and cannot be pressed twice.
+
+**Polling and search** (#260): one `useDebounced` (300 ms, settled in a transition) for every search
+box; search lists keep their rows (`keep`) and dim them only while they answer an earlier query, with
+the error beside them if the new one fails, never across record kinds; a run that waits on a person
+is polled every 30 s (`runPollMs`, `portalRunPollMs`); the back-office Runs list uses it, the run
+pages switch in a follow-up.
+
+**The portal screens** (#259, #262):
+
+1. Fetch on intent is one listener around the portal's screens, reading the address under the
+   pointer (`data-intent` on rows that aren't links). Documents are never prefetched (signed links).
+2. The frame asks for the overview again on a move only when its answer is 5 s or older; the Inbox
+   refreshes the count when its open list disagrees.
+3. Pages draw their header from what is known (the overview, a list's row), in memory beside the
+   store and dropped with it. A run's open Inbox items are asked only once the run or its row says it
+   waits.
+4. The portal's waits (Sloan's answer, a document being read) back off from 3 s to 30 s; uploads
+   stop after 16 ticks.
+5. Home's "Not now" removes the row at once and puts it back if refused; the Runs list keeps its rows
+   across a status or start filter, never across a change of agent.
+
+**Running the run.** Worker sessions cannot force-push, so a worker brings its branch up to date by
+merging `speed/run` into it, and the lead merges each PR with a merge commit (never a squash). The
+tree merged is the one the gates ran on. `pnpm typecheck` runs out of memory in a 15 GB cloud
+container at full parallelism; the run uses `pnpm -r --workspace-concurrency=4 typecheck` there.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

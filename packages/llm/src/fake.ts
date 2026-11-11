@@ -1,7 +1,7 @@
 // A scripted model for tests: answers each call with the next scripted response, and keeps every
 // request it was sent so a test can assert on prompts and tools.
 
-import type Anthropic from "@anthropic-ai/sdk";
+import type * as Anthropic from "./messages";
 import type { LlmMessage, LlmRequest, LlmTransport } from "./transport";
 
 export interface FakeUsage {

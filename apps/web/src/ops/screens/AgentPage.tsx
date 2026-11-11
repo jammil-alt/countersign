@@ -13,6 +13,7 @@ import { useApi } from "../../api/useApi";
 import { AgentHuesProvider } from "../../ui/badges";
 import { ErrorNotice } from "../../ui/primitives";
 import { type AgentDetail, AgentFrameSkeleton, AgentScreen } from "../agents/AgentScreen";
+import { useOpsClients } from "../OpsLayout";
 
 /** What a page that links to an agent may hand over: its id, or the whole agent it has loaded. */
 export interface AgentLinkState {
@@ -50,20 +51,29 @@ export function AgentPage() {
   const handed = handedOver(location.state, { slug, tenantId: clientId });
   const kept = useResolvedId(base, handed?.id);
   const given = handed ?? (kept ? { id: kept } : null);
+  const clientNames = useOpsClients() ?? [];
   // In parallel: the client (for the bar and the bindings) never holds the agent back.
   const client = useApi(apiRoutes.opsClient, { params: { id: clientId } });
-  // Discarded drafts leave the client's lists but still open by address (to restore them).
+  // The client's agents name the slug's id and give the bar its row (1.4): the agent's name, kind
+  // and status show after this first call, before the agent itself.
+  const row = client.data?.agents.find((a) => a.slug === slug);
+  // DECISION (1.4): the client's own list is asked first, and the list with discarded drafts only
+  // when the slug isn't in it (or the client didn't load): a discarded draft still opens by its
+  // address, one call later, and every other agent page asks one call fewer.
+  const lookUp = !given && (client.error !== undefined || (client.data !== undefined && !row));
   const agents = useApi(
     apiRoutes.opsClientAgents,
-    given ? null : { params: { id: clientId }, query: { include: "discarded" } },
+    lookUp ? { params: { id: clientId }, query: { include: "discarded" } } : null,
   );
-  const id = given?.id ?? agents.data?.agents.find((a) => a.slug === slug)?.id;
+  const id = given?.id ?? row?.id ?? agents.data?.agents.find((a) => a.slug === slug)?.id;
+  const clientName = client.data?.client.name ?? clientNames.find((c) => c.id === clientId)?.name;
 
   if (!id) {
     if (agents.error) {
       return (
         <AgentFrameSkeleton
           base={base}
+          clientName={clientName}
           error={<ErrorNotice error={agents.error} onRetry={agents.reload} />}
         />
       );
@@ -71,7 +81,7 @@ export function AgentPage() {
     if (agents.data) {
       return <ErrorNotice error={new Error(`This client has no agent "${slug}".`)} />;
     }
-    return <AgentFrameSkeleton base={base} />;
+    return <AgentFrameSkeleton base={base} clientName={clientName} />;
   }
   return (
     <AgentHuesProvider agents={client.data?.agents ?? []}>
@@ -83,7 +93,8 @@ export function AgentPage() {
       <AgentScreen
         agentId={id}
         base={base}
-        clientName={client.data?.client.name}
+        clientName={clientName}
+        summary={row ?? agents.data?.agents.find((a) => a.id === id)}
         connections={client.data?.connections ?? []}
         members={client.data?.members ?? []}
         initial={given?.detail}

@@ -1,4 +1,9 @@
-import type { SessionResponse } from "@countersign/core";
+import {
+  browserLocale,
+  DEFAULT_LOCALE,
+  type Locale,
+  type SessionResponse,
+} from "@countersign/core";
 import {
   createContext,
   type ReactNode,
@@ -10,13 +15,54 @@ import {
 } from "react";
 import { isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
-import { useApiClient } from "../api/useApi";
+import { useApiClient, useApiStore } from "../api/useApi";
+import { loadCatalog } from "../i18n/catalog";
+import { browserLanguages } from "../i18n/i18n";
 import { identifyForErrors } from "../observability";
 import { idleTooLong, watchInput } from "./activity";
+import { prefetchFrame, takeEarlySession } from "./early";
 
 // DECISION: the app checks for idleness every 30 seconds; the API refuses an idle session anyway,
 // this only signs the browser out cleanly instead of failing its next call.
 const IDLE_CHECK_MS = 30_000;
+
+// Who is signed in, shared between tabs (docs/audit-plan.md 1.2). Every answer to `/api/session`
+// and every sign-out writes a fingerprint of this tab's scope (a hash of user and client, never an
+// answer); a tab that sees another fingerprint than its own empties its store and asks who is
+// signed in, so one person's stored answers never show under another's session. A fresh page load
+// counts too, so a WorkOS sign-in (which arrives as one) reaches the tabs already open.
+export const SESSION_SCOPE_KEY = "cs.sessionScope";
+
+/** FNV-1a of the scope, in hex: who it is can't be read back from it. "" when signed out. */
+export function scopeFingerprint(scope: string | null): string {
+  if (!scope) return "";
+  let h = 0x811c9dc5;
+  for (let i = 0; i < scope.length; i++) {
+    h ^= scope.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16);
+}
+
+function shareScope(scope: string | null): void {
+  try {
+    // Writing the value already there tells no one (no storage event), so this costs nothing.
+    globalThis.localStorage?.setItem(SESSION_SCOPE_KEY, scopeFingerprint(scope));
+  } catch {
+    // Storage blocked: other tabs find out on their next call, which the API refuses or answers.
+  }
+}
+
+/**
+ * The language a state reads in: the session's; signed out (or failed), the browser's; English
+ * while the session is not known yet, so nothing is downloaded for a language that may not be the
+ * session's (the still frame has one word, for screen readers).
+ */
+export function stateLocale(state: SessionState): Locale {
+  if (state.status === "signed_in") return state.session.language.effective;
+  if (state.status === "loading") return DEFAULT_LOCALE;
+  return browserLocale(browserLanguages()) ?? DEFAULT_LOCALE;
+}
 
 export type SessionState =
   | { status: "loading" }
@@ -35,12 +81,15 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const client = useApiClient();
+  const store = useApiStore();
   const [state, setState] = useState<SessionState>({ status: "loading" });
 
   const refresh = useCallback(async (): Promise<SessionState> => {
     let next: SessionState;
+    // The first load asked before React mounted (main.tsx); every later refresh asks here.
+    const early = takeEarlySession();
     try {
-      next = { status: "signed_in", session: await client.call(apiRoutes.session) };
+      next = { status: "signed_in", session: await (early ?? client.call(apiRoutes.session)) };
     } catch (error) {
       next =
         isApiError(error) && error.unauthenticated
@@ -50,6 +99,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
               error,
             };
     }
+    // On the first load, the frame's calls start once the session has answered (never beside it:
+    // early.ts), while the language loads and React renders (docs/audit-plan.md 4.3). The store's
+    // scope is not set yet; its first setting keeps what is already there.
+    if (early && next.status === "signed_in") prefetchFrame(store, next.session);
+    // Nothing shows until its language is here, so no screen reads in a language still loading
+    // (docs/audit-plan.md 4.1). English is in the bundle; a language that fails to load reads in
+    // English this time and is asked for again on the next refresh.
+    await loadCatalog(stateLocale(next));
+    // Stored answers belong to one user and one active client: anything else empties the store
+    // before a screen can read it (docs/audit-plan.md 1.2). Signed out, the store stays closed
+    // until the signed-in screens have gone (the effect below opens it).
+    if (next.status === "signed_in") {
+      store.open();
+      store.setScope(`${next.session.user.id}\u0001${next.session.activeTenantId ?? ""}`);
+    } else {
+      // A session that ended closes the store (the effect below opens it once its screens have
+      // gone); a tab that was already signed out has nothing to drop and stays open.
+      if (store.signedIn) store.close();
+      else store.open();
+      store.setScope("");
+    }
+    shareScope(store.currentScope);
     setState(next);
     if (next.status === "signed_in") {
       identifyForErrors({ id: next.session.user.id, operator: next.session.operator });
@@ -57,9 +128,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       identifyForErrors(null);
     }
     return next;
-  }, [client]);
+  }, [client, store]);
 
   const signOut = useCallback(async () => {
+    // Signing out (by hand or after the idle limit) forgets every stored answer at once, and asks
+    // nothing more until the signed-in screens have gone: they would ask with the old cookie.
+    store.close();
+    store.setScope("");
+    shareScope("");
     let redirectTo: string | null = null;
     try {
       redirectTo = (await client.call(apiRoutes.signOut)).redirectTo;
@@ -69,11 +145,32 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     // WorkOS may name its own sign-out page; the dev adapter never does.
     if (redirectTo) window.location.assign(redirectTo);
-  }, [client]);
+  }, [client, store]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Signed out (or the session failed): the signed-in screens are gone now, so the store may
+  // answer the sign-in page again.
+  const status = state.status;
+  useEffect(() => {
+    if (status === "signed_out" || status === "error") store.open();
+  }, [status, store]);
+
+  // Another tab found someone else (or no one) signed in: forget everything and ask who is
+  // signed in here now. The same fingerprint as this tab's changes nothing.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== SESSION_SCOPE_KEY) return;
+      if ((e.newValue ?? "") === scopeFingerprint(store.currentScope)) return;
+      if (store.signedIn) store.close();
+      void refresh();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [refresh, store]);
 
   // Signed in: count the person's input, and sign out after 30 minutes without any (§1.35).
   const signedIn = state.status === "signed_in";

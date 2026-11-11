@@ -1,6 +1,6 @@
 // Shared words, tones and times for runs and steps (back office run view, portal timeline), in the
 // reader's language: the portal passes its I18n, the back office reads English (EN).
-import { formatAmount } from "@countersign/core";
+import { formatAmount, type RunStateFields, runState } from "@countersign/core";
 import type { PlainKey } from "../i18n/catalog";
 import { EN, type I18n } from "../i18n/i18n";
 import type { Tone } from "../ui/primitives";
@@ -8,6 +8,41 @@ import type { Tone } from "../ui/primitives";
 /** A run that may still change: its screens poll (plan §1.2 "Live updates"). */
 export function isRunGoing(status: string): boolean {
   return status === "queued" || status === "running" || status === "waiting";
+}
+
+/** How often a screen asks again about a run that waits on a person (docs/audit-plan.md 2.2). */
+export const WAITING_POLL_MS = 30_000;
+
+/**
+ * How often a run's screen asks again: every `fast` ms while it is queued or running, every 30 s
+ * while it waits on a person (an approval or an answer moves it, and a person takes minutes), and
+ * never once it has finished (null). Only the polling reads this; what a run is shown as still
+ * comes from `isRunGoing`, `runState` and the chips.
+ */
+// DECISION: a waiting run is polled every 30 s, not at the working rate (docs/audit-plan.md 2.2):
+// a run page left open on a run waiting for approval asked 30 times a minute for no change. A
+// decision made on the same page reloads it at once, so only a decision made elsewhere waits for
+// the next tick.
+export function runPollMs(run: RunStateFields, fast: number): number | null {
+  switch (runState(run)) {
+    case "queued":
+    case "running":
+      return fast;
+    case "waiting":
+      return WAITING_POLL_MS;
+    default:
+      return null;
+  }
+}
+
+/** A list's poll: the fastest any of its runs needs (`runPollMs`), or null when none is open. */
+export function runsPollMs(runs: readonly RunStateFields[], fast: number): number | null {
+  let ms: number | null = null;
+  for (const r of runs) {
+    const each = runPollMs(r, fast);
+    if (each !== null && (ms === null || each < ms)) ms = each;
+  }
+  return ms;
 }
 
 const RUN_WORDS: Record<string, PlainKey> = {

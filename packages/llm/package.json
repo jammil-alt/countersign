@@ -13,7 +13,6 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.4.0",
     "@countersign/core": "workspace:*",
     "zod": "^4.6.2"
   },
