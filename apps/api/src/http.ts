@@ -662,8 +662,9 @@ function mountWith<R extends RouteSpec>(
 
       // The account the cookie carries, while it is younger than the window (docs/plan.md §1.93):
       // the session and scope come from it and the account is not read. Only a carried account
-      // that admits the request is used; one that would refuse it is read again first, so the
-      // window can delay a lost membership, never a new one.
+      // that admits the request is used; one that would refuse it is read again first, so a
+      // request naming a new client or needing a new role is not delayed (lists across clients
+      // and a role raised in place wait for the window: §1.93).
       const carried =
         identified.account && accountFresh(identified.account, nowSec) ? identified.account : null;
       const fromCookie = carried ? decide(carried) : null;

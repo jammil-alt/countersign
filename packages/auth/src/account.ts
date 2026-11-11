@@ -4,9 +4,10 @@
 // transaction and the cookie is sealed again with what it read.
 //
 // What the window costs: a member removed from a client (or a role lowered) by someone else keeps
-// what their cookie carries for up to ACCOUNT_WINDOW_SEC. It never delays a grant: a session the
-// carried account refuses (a client it doesn't list, a role it lacks) is read again before the
-// request is refused. Sign-out, the idle lock and a new sign-in drop it with the session.
+// what their cookie carries for up to ACCOUNT_WINDOW_SEC. A carried account that would refuse a
+// request (a client it doesn't list, a role it lacks) is read again first, so a request that names
+// a new client or needs a new role is not delayed; a list across clients and a role raised in place
+// are. Sign-out, the idle lock and a new sign-in drop it with the session.
 
 import { Role } from "@countersign/core";
 import { z } from "zod";

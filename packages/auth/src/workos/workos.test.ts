@@ -11,6 +11,7 @@ import {
   isRestartState,
   newSession,
   OUTAGE_GRACE_SEC,
+  openSession,
   RACE_GRACE_SEC,
   REFRESH_INTERVAL_SEC,
   resolveSession,
@@ -674,6 +675,60 @@ describe("the account carried in the session cookie (docs/plan.md §1.93)", () =
     const { value } = await carried(sealed, other);
     const { adapter } = setup();
     expect(await identify(adapter, value ?? "", T0 + 2)).toMatchObject({ ok: true, account: null });
+  });
+
+  it("never writes a spent refresh token back: parallel requests across a refresh", async () => {
+    // WorkOS rotates refresh tokens: a token used once is refused after that.
+    const spent = new Set<string>();
+    let issued = 1;
+    const workos = fakeWorkOS({
+      refresh: vi.fn(async (rt: string) => {
+        if (spent.has(rt))
+          throw new WorkOSError("refresh token already used", 400, "invalid_grant");
+        spent.add(rt);
+        issued += 1;
+        return auth({ refreshToken: `rt_${issued}`, sessionId: "sess_1" });
+      }),
+    });
+    const { adapter } = setup(workos);
+    const { sealed } = await sessionCookieFor();
+    // The cookie carries an account that went stale before the refresh is due.
+    const { value } = await carried(sealed, account(T0 - 10));
+    const cookie = value ?? "";
+    const tokenIn = async (cookies: readonly string[]) => {
+      const v = cookieValue(cookies, SESSION_COOKIE);
+      return v ? (await openSession(v, PASSWORD))?.rt : undefined;
+    };
+    /** One request: identify, read the (stale) account, and carry it. */
+    const request = async (now: number) => {
+      const id = await identify(adapter, cookie, now);
+      if (!id.ok || !id.carry) throw new Error("refused");
+      return id.carry(account(now));
+    };
+
+    // Well before the refresh is due, the account is sealed in with the token, which is unspent.
+    expect(await tokenIn(await request(T0 + 100))).toBe("rt_1");
+    // Within RACE_GRACE_SEC of the refresh: not sealed, nothing written.
+    expect(await request(T0 + REFRESH_INTERVAL_SEC - 30)).toEqual([]);
+    // Across the refresh: three tabs at once. One refreshes; the others are refused by WorkOS
+    // and admitted on the race grace. Only the refreshed token is ever written.
+    const due = T0 + REFRESH_INTERVAL_SEC + 1;
+    const written = await Promise.all([request(due), request(due), request(due)]);
+    expect(workos.refresh).toHaveBeenCalledTimes(3);
+    const tokens = await Promise.all(written.map(tokenIn));
+    expect(tokens.filter((t) => t !== undefined)).toEqual(["rt_2"]);
+    // The outage grace too: WorkOS unreachable, the old token is admitted but never written.
+    const down = fakeWorkOS({
+      refresh: vi.fn(async () => {
+        throw new WorkOSError("unreachable", null);
+      }),
+    });
+    const outage = await setup(down).adapter.identify(
+      withCookie(`${SESSION_COOKIE}=${cookie}`),
+      at(due + 60),
+    );
+    if (!outage.ok || !outage.carry) throw new Error("refused");
+    expect(await outage.carry(account(due + 60))).toEqual([]);
   });
 
   it("is not carried when the cookie would pass 4 KB: the session is sealed without it", async () => {

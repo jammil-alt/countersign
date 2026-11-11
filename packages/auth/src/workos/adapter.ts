@@ -23,6 +23,7 @@ import {
   newSession,
   openSession,
   openState,
+  RACE_GRACE_SEC,
   resolveSession,
   restartNonce,
   SESSION_COOKIE,
@@ -143,6 +144,15 @@ export function createWorkOSAdapter(options: {
         account: expandAccount(session.acct, session.uid),
         // The same session, sealed again with the account just read (or without one).
         async carry(account) {
+          // DECISION: the account is sealed in only when this request's refresh token is safe to
+          // write back (docs/plan.md §1.93): this request refreshed it, or it is not due within
+          // RACE_GRACE_SEC. A request admitted on a grace, or one racing a refresh in another
+          // tab, holds a token another request may have spent; a cookie it wrote could land last
+          // and sign the person out at the next refresh. It sends what identify decided, and the
+          // account is read again next time.
+          const refreshed = session.rt !== opened.rt;
+          const settled = !resolved.grace && (refreshed || now < session.rat - RACE_GRACE_SEC);
+          if (!settled) return setCookies;
           const { acct: _old, ...rest } = session;
           if (account) {
             const next = { ...rest, acct: compactAccount(account) };

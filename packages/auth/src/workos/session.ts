@@ -149,7 +149,16 @@ export async function openState(sealed: string, password: string): Promise<State
 }
 
 export type SessionResolution =
-  | { readonly status: "valid"; readonly session: SessionPayload; readonly rotated: boolean }
+  | {
+      readonly status: "valid";
+      readonly session: SessionPayload;
+      readonly rotated: boolean;
+      /**
+       * Admitted on the race or outage grace: the refresh failed, so `session` still holds the old
+       * refresh token, which another request may already have spent (docs/plan.md §1.93).
+       */
+      readonly grace?: true;
+    }
   | { readonly status: "invalid"; readonly reason: string };
 
 /**
@@ -184,7 +193,7 @@ export async function resolveSession(
       !(error instanceof WorkOSError) || error.status === null || error.status >= 500;
     const grace = unreachable ? OUTAGE_GRACE_SEC : RACE_GRACE_SEC;
     if (now < session.rat + grace) {
-      return { status: "valid", session: touched, rotated: touched !== session };
+      return { status: "valid", session: touched, rotated: touched !== session, grace: true };
     }
     return {
       status: "invalid",
