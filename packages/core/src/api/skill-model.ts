@@ -37,6 +37,11 @@ export type SkillModelFacts = z.infer<typeof SkillModelFacts>;
 export const StepModelFacts = z.object({
   skillKind: SkillKindSchema.optional(),
   write: z.object({ kind: z.enum(["save_to_records", "change_in"]), text: z.string() }).optional(),
+  /**
+   * Review: a read or a write step whose tool calls a model inside (`ToolSpec.usesModel`: web
+   * search, translate, a stored step on document extraction), so the run view labels it AI.
+   */
+  usesModel: z.literal(true).optional(),
 });
 export type StepModelFacts = z.infer<typeof StepModelFacts>;
 

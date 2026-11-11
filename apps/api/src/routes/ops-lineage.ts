@@ -30,10 +30,10 @@ import {
   flattenBundle,
   isToolWrapper,
   mergeBundles,
+  newStepSkillReason,
   parseSkillRef,
   processes,
   recommendedModel,
-  retiredSkillReason,
   routes,
   type SkillDefinition,
   type SkillToolLookup,
@@ -167,7 +167,10 @@ export async function operatorSkills(
  */
 // DECISION (templates): every platform and pack tool is a step tool, not only what a wrapper
 // wrapped, so the operator can build what the new template versions are built from.
-export function stepTools(platform: Platform): string[] {
+// Review: less the hidden AI the splits replaced (`SPLIT_MODEL_TOOLS`) and the account agent's
+// handlers (`account.*`), each kept only where the agent's latest version already calls it as a
+// step (`used`), so a stored step still types and reads by name.
+export function stepTools(platform: Platform, used: ReadonlySet<string> = new Set()): string[] {
   const stepOnly = new Set(
     processes.STEP_ONLY_SKILLS.map((id) => platform.catalog.get(id)?.handler).filter(
       (h): h is string => h !== undefined,
@@ -182,7 +185,44 @@ export function stepTools(platform: Platform): string[] {
     if (stepOnly.has(t.id) || connectors.has(t.connector ?? t.source)) continue;
     out.add(t.id);
   }
+  for (const id of out) {
+    if ((SPLIT_MODEL_TOOLS.has(id) || id.startsWith(ACCOUNT_TOOL_PREFIX)) && !used.has(id)) {
+      out.delete(id);
+    }
+  }
   return [...out].sort();
+}
+
+/**
+ * Skill model (2026-11-10, review): tools that call a model inside (`usesModel`) and were split
+ * into an AI skill, a deterministic check and a Save to records step. They stay registered for
+ * the agents whose stored versions call them (invariant 3); a new step uses the split instead:
+ * Read document → Check totals → record the reading (`docs.extract`, `docs.read`); Look up
+ * existing → Match the unmatched → Check matches → record the matches (`materials.match_line`,
+ * `materials.match_lines`, and `materials.catalog.create_item`, which reads a new item's name
+ * with a model).
+ */
+// DECISION (review): the list is named here, where the platform and the packs are wired together,
+// rather than as a new field on every tool spec; a tool that calls a model and has no split
+// (web search and fetch, translate) stays offered, labelled AI in the builder and the run view.
+export const SPLIT_MODEL_TOOLS: ReadonlySet<string> = new Set([
+  "docs.extract",
+  "docs.read",
+  "materials.match_line",
+  "materials.match_lines",
+  "materials.catalog.create_item",
+]);
+
+/** The account agent's (Sloan's) handlers: steps of its own processes, never general tools. */
+export const ACCOUNT_TOOL_PREFIX = "account.";
+
+/** The tools an agent's processes call as read or write steps (core's `processTools`). */
+function bundleStepTools(bundle: AnyAgentBundle | null | undefined): Set<string> {
+  if (!bundle) return new Set();
+  const v4 = bundle.workflows
+    .map((w) => w.workflow)
+    .filter((w): w is processes.Process => w.schemaVersion === 4);
+  return new Set(processes.processTools(v4));
 }
 
 function skillOption(
@@ -343,7 +383,7 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     const lookup = toolLookup(platform.tools.specs());
     // Instructions stay out: the builder places skills, it doesn't read their prompts.
     // Skill model (2026-11-10): each entry says its kind, and whether the palette offers it for a
-    // new step (never a tool wrapper, an agent-mode or a `rules_then_ai` skill).
+    // new step (never a tool wrapper, an agent-mode or a `rules_then_ai` skill, or one that writes).
     const entry = (
       ref: string,
       def: SkillDefinition,
@@ -357,7 +397,7 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
         version,
         definition,
         kind: skillKind(def, lookup),
-        palette: !isToolWrapper(def) && retiredSkillReason(def) === null,
+        palette: !isToolWrapper(def) && newStepSkillReason(def, lookup) === null,
       };
     };
     const latest = await latestVersion(tx, row.id);
@@ -404,7 +444,9 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
         .filter((t) => !toolHidden(t.id)),
       // Skill model (2026-11-10): the tools a step may call directly, which the retired wrappers
       // wrapped (a conversation's or a reach-out's handler is a step of its own, not a tool step).
-      stepTools: stepTools(platform).filter((id) => !toolHidden(id)),
+      stepTools: stepTools(platform, bundleStepTools(latest?.bundle)).filter(
+        (id) => !toolHidden(id),
+      ),
       connectors: platform.connectors
         .list()
         .filter((c) => !hidden.has(c.manifest.id))

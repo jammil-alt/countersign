@@ -110,7 +110,13 @@ export async function stepModelFacts(
     } else if (step.kind === "write" && step.action) {
       out[step.id] = { write: actionWriteFacts(platform, step.via) };
     } else if ((step.kind === "write" || step.kind === "action") && step.tool) {
-      out[step.id] = { write: writeFacts(platform, step.tool) };
+      out[step.id] = {
+        write: writeFacts(platform, step.tool),
+        ...(lookup(step.tool)?.usesModel !== undefined ? { usesModel: true as const } : {}),
+      };
+    } else if (step.kind === "read" && step.tool && lookup(step.tool)?.usesModel !== undefined) {
+      // Review: the hidden AI is never unlabelled, a read included.
+      out[step.id] = { usesModel: true };
     }
   }
   return out;

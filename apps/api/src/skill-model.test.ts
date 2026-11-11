@@ -183,6 +183,32 @@ describe.skipIf(!h)("the builder and the skill model", () => {
       expect(["deterministic", "ai"]).toContain(s.kind);
       expect(typeof s.palette).toBe("boolean");
     }
+    // Review: a skill whose own tools write (Read quote and Read statement call `docs.read`) is
+    // never offered for a new step; the splits' replacements are.
+    const palette = (id: string) =>
+      body.skills.find((s: { ref: string }) => s.ref === id)?.palette as boolean | undefined;
+    expect(palette("materials.read-quote")).toBe(false);
+    expect(palette("bookkeeping.read-statement")).toBe(false);
+    expect(palette("materials.read-quote-document")).toBe(true);
+    expect(palette("bookkeeping.read-statement-document")).toBe(true);
+    // Review: the hidden AI the splits replaced, and the account agent's handlers, are no step
+    // tools; web search stays, and its spec says it calls a model (the builder labels it AI).
+    for (const id of [
+      "docs.extract",
+      "docs.read",
+      "materials.match_line",
+      "materials.match_lines",
+      "materials.catalog.create_item",
+      "account.pause_agent",
+      "account.draft_change",
+      "account.runs",
+    ]) {
+      expect(body.stepTools, id).not.toContain(id);
+    }
+    expect(body.stepTools).toContain("docs.reading.record");
+    expect(body.stepTools).toContain("web.search");
+    const web = body.tools.find((t: { id: string }) => t.id === "web.search");
+    expect(web?.usesModel).toEqual(expect.any(String));
   });
 
   it("says what moves if a step goes to another version, and every reference to remap", async () => {

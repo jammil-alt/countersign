@@ -48,7 +48,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { latestSeededVersion } from "./account/templates";
 import { type ApiHarness, admin, createApiHarness, OPERATOR } from "./api.test-helper";
 import { createPlatform, deploymentConnectors } from "./platform";
-import { stepTools } from "./routes/ops-lineage";
+import { SPLIT_MODEL_TOOLS, stepTools } from "./routes/ops-lineage";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -489,12 +489,15 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
 
 describe("the builder's palette and the new versions", () => {
   it("offers every tool their read and write steps call, a connector's under its connector", () => {
-    const offered = new Set(stepTools(platform));
     const connectors = new Set(platform.connectors.list().map((c) => c.manifest.id));
     for (const b of all) {
-      for (const id of processes.processTools(
+      const calls = processes.processTools(
         b.bundle.workflows.flatMap((w) => (w.workflow.schemaVersion === 4 ? [w.workflow] : [])),
-      )) {
+      );
+      // Review: a tool left off the palette (the account agent's handlers, the split's hidden AI)
+      // is still offered where the agent's version already calls it.
+      const offered = new Set(stepTools(platform, new Set(calls)));
+      for (const id of calls) {
         const t = ctx.tools[id];
         expect(t, id).toBeDefined();
         if (!t) continue;
@@ -502,7 +505,22 @@ describe("the builder's palette and the new versions", () => {
         expect(where, `${b.name}: ${id}`).toBe(true);
       }
     }
-    // A conversation's and a reach-out's handlers stay steps of their own.
-    expect(offered.has("comms.converse")).toBe(false);
+    // A conversation's and a reach-out's handlers stay steps of their own; the hidden AI the
+    // splits replaced and the account agent's handlers are offered only where already used.
+    const fresh = new Set(stepTools(platform));
+    expect(fresh.has("comms.converse")).toBe(false);
+    expect(fresh.has("docs.extract")).toBe(false);
+    expect(fresh.has("account.pause_agent")).toBe(false);
+    expect(stepTools(platform, new Set(["docs.extract"]))).toContain("docs.extract");
+    // None of the new versions calls the hidden AI the splits replaced.
+    for (const b of all) {
+      const calls = processes.processTools(
+        b.bundle.workflows.flatMap((w) => (w.workflow.schemaVersion === 4 ? [w.workflow] : [])),
+      );
+      expect(
+        calls.filter((id) => SPLIT_MODEL_TOOLS.has(id)),
+        b.name,
+      ).toEqual([]);
+    }
   });
 });
