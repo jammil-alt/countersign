@@ -9,11 +9,11 @@
 // `/api/overview` for the findings, `/api/access` for each agent's tools, `/api/weekly` for the
 // summary). Never a bundle, an instruction, a prompt or a cost (invariant 11).
 import type { PortalAccessView, PortalFinding, TableView } from "@countersign/core";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
-import { useApi, useApiClient, useApiStore } from "../../api/useApi";
+import { useApi, useApiClient } from "../../api/useApi";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { shortTime } from "../../runs/format";
@@ -37,7 +37,6 @@ import { Skeleton, SkeletonCard, SkeletonStats } from "../../ui/skeleton";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { longDay, partOfDay, sameDay, stageWord } from "../agentState";
 import { INBOX_COUNT_POLL_MS, useRefreshInboxCount } from "../inboxCount";
-import { prefetchTarget } from "../intent";
 import { PORTAL_PATHS } from "../paths";
 import { agentChip, runChip, runOpen } from "../status";
 
@@ -61,7 +60,6 @@ export function HomeScreen() {
   const i18n = useI18n();
   const { t } = i18n;
   const session = useSession();
-  const store = useApiStore();
   // Every call Home needs starts here, together (docs/audit-plan.md 1.5): the agents and figures,
   // the findings (the frame's own overview, shared), each agent's tools and the weekly summary.
   // Each section waits only for its own answer.
@@ -76,12 +74,9 @@ export function HomeScreen() {
   const weekly = useApi(apiRoutes.portalWeekly, { query: {} });
   usePoll(table.reload, true, INBOX_COUNT_POLL_MS, table.loading);
   const data = table.data;
-  // Once Home has settled with something waiting, the Inbox's list is asked for (1.6), so it
-  // opens on it.
-  const waiting = (data?.desk.open ?? 0) > 0 && !table.refreshing;
-  useEffect(() => {
-    if (waiting) prefetchTarget(store, { kind: "inbox" });
-  }, [waiting, store]);
+  // DECISION (lead, speed run): Home does not ask for the Inbox once it has settled (1.6): it
+  // would add a call to Home, and no screen's calls may go up (gate 2). Left for the owner; links
+  // to the Inbox still ask for it on hover or focus.
 
   const now = new Date();
   // DECISION: the greeting and the date draw at once, in the browser's zone until the client's

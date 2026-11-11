@@ -37,7 +37,7 @@ export function firstCalls(target: IntentTarget): Call[] {
 // the store's contents (its version moves on every clear: sign-out, another client).
 const asked = new WeakMap<ApiStore, { version: number; keys: Set<string> }>();
 
-/** Asks for a target's first calls once, and never in a hidden tab. Exported for Home and tests. */
+/** Asks for a target's first calls once, and never in a hidden tab. */
 export function prefetchTarget(store: ApiStore, target: IntentTarget): void {
   if (!pageVisible() || !store.signedIn) return;
   let seen = asked.get(store);
