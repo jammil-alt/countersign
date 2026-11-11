@@ -13,8 +13,8 @@
 // finish reason (safety and recitation stops become refusals, a prompt block too) and usage with
 // cached and thinking tokens apart.
 
-import type Anthropic from "@anthropic-ai/sdk";
 import { MODEL_PREFIXES, providerModelName } from "@countersign/core";
+import type * as Anthropic from "./messages";
 import {
   type HttpTransportOptions,
   httpTransport,

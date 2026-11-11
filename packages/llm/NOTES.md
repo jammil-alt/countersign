@@ -95,3 +95,19 @@ replay hand-written vectors (`fixtures/llm`, marked `handWritten`).
 | Price: $0.13 per 1M input tokens for `-3-large`, $0.02 for `-3-small`; no output tokens | **UNCHECKED**: check https://openai.com/api/pricing (`EMBEDDING_PRICES`) |
 | At most 2,048 inputs and 8,192 tokens per input per call | Known; we send at most 100 short texts per call (`EMBED_BATCH_MAX`) |
 | Zero data retention and a BAA are offered for the API (HIPAA clients) | **UNCHECKED** for embeddings specifically; until `openai` is in `BAA_PROCESSORS`, a HIPAA client's embeddings are refused like its OpenAI model calls |
+
+## Anthropic (`src/anthropic.ts`, docs/audit-plan.md 4.7)
+
+Written 2026-11-11, replacing `@anthropic-ai/sdk` 1.4.0 with our own transport over fetch (the
+owner's answer to D3). Every fact below was read from that SDK's source, not checked with a live
+call; the fake-fetch tests in `src/anthropic.test.ts` pin each one.
+
+| Fact | Status |
+|---|---|
+| `POST https://api.anthropic.com/v1/messages`, `anthropic-version: 2026-10-21`, the key as `Authorization: Bearer <key>`, `accept: application/json`, JSON body | As the SDK sent them; **UNCHECKED** with a live call on staging |
+| The body is the request plus `stream: true`; the answer is server-sent events (`message_start`, `content_block_start/delta/stop`, `message_delta`, `message_stop`, `ping`, `error`) put together into one message | As the SDK's `messages.stream().finalMessage()` did |
+| `message_delta.usage`: `output_tokens` always; `input_tokens`, cache counts, `server_tool_use`, `output_tokens_details` only when they apply, as whole-message totals | As the SDK read them |
+| Retries: 2, after a dropped connection, a time-out, or 408, 409, 429, 5xx; `x-should-retry` overrides; waits `retry-after-ms`, else `retry-after` (seconds or a date), else 0.5 s doubling to 8 s less up to 25% | As the SDK did |
+| The 10-minute time limit covers the wait for the answer to start, not the stream after it | As the SDK did |
+| Errors: `<status> <body as JSON>` (`529 {"type":"error","error":{"type":"overloaded_error",…}}`), a stream's `error` event as its body in JSON, `Connection error.`, `Request timed out.`, `Request was aborted.`; class name `Error` | As the SDK worded them, so run error keys read the same |
+| SDK telemetry headers (`x-stainless-*`, `user-agent`) | Not sent: nothing reads them |
