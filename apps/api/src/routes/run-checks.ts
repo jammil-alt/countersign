@@ -56,7 +56,11 @@ export function isClientCheckRow(nodeId: string): boolean {
   return kind === "confer" || kind === "notify";
 }
 
-type RowSel = typeof stepRun.$inferSelect;
+// Speed run 6.2: only what the checks read, so the portal need not select whole step rows.
+type RowSel = Pick<
+  typeof stepRun.$inferSelect,
+  "id" | "nodeId" | "nodeType" | "status" | "input" | "output"
+>;
 interface ItemSel {
   id: string;
   kind: string;
