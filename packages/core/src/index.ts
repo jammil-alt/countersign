@@ -167,6 +167,8 @@ export * from "./kpi/format";
 export * from "./kpi/period";
 export * from "./kpi/schema";
 export * from "./kpi/validate";
+// Worker startup (2026-11-11): definitions built on first read.
+export * from "./lazy";
 // B-2 (docs/plan.md §1.79): the ledger's tools.
 export * from "./ledger/schemas";
 export * from "./lifecycle/pause";
