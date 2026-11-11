@@ -17,6 +17,9 @@ the rest.**
 - **No open PRs or issues** on GitHub. Production has had no release (no `v*` tag).
 - Almost everything below is **a setup step, a key or a decision for the owner**, not code. Where
   code is still needed, it says so.
+- **Speed and structure** (audit of 2026-11-11) is its own plan, not repeated here:
+  `docs/audit-plan.md`. It is code, to run after the work below; its order is the owner's
+  (how the screens feel first).
 
 ## 1. The purchasing agent (the buyer) working on staging
 
