@@ -77,6 +77,10 @@ Every item in phases 1 to 4 is judged against these. A new screen follows them f
 
 ## Baseline (2026-11-11, commit `d2e13ae`, local, demo seed)
 
+Re-measured by phase 0 on `speed/run` at `1c30e45` (main with the vendor catalog, migration 0047).
+Per-screen counts moved by less than a tenth except the Workflow tab (17 → 19 calls, 164 → 185
+statements); the bundle grew by more than a tenth. Both are updated below; the rest stand.
+
 Counts are exact. Times are not given: local times say nothing about staging. SQL counts leave out
 `begin` and `commit`.
 
@@ -90,7 +94,7 @@ Counts are exact. Times are not given: local times say nothing about staging. SQ
 | Back office run page | 5 | 66 | |
 | Back office client overview | 11 | 108 | `agents/:id/go-live` ×4 (one per agent) |
 | Back office agent page | 11 | 122 | `clients/:id` ×2, `agents/:id` ×2 |
-| Agent page, Workflow tab | 17 | 164 | `catalog/events` ×3, `clients?view=names` ×2, `triggers` ×2 |
+| Agent page, Workflow tab | 19 | 185 | `catalog/events` ×3, `clients?view=names` ×2, `clients/:id` ×2, `agents/:id` ×2, `triggers` ×2 |
 | Agent page, Versions tab | 21 | 207 | `agents/:id` ×3, `clients/:id/events` ×3, `catalog/events` ×2 |
 | Portal Home | 7 | 107 | `/api/overview` ×2 |
 | Portal Inbox | 8 | 83 | |
@@ -142,11 +146,11 @@ not make; `docs/plan.md` §1.84 counts nine with `begin` and `commit`.
 
 | What | Size | Gzipped |
 |---|---|---|
-| Web, loaded by everyone: `index` + `ui` chunks | 1,877 kB | 526 kB |
-| Web, the back office's `OpsApp` chunk | 652 kB | 167 kB |
-| Web, `WorkflowBuilder` chunk | 137 kB | 40 kB |
+| Web, loaded by everyone: `index` + `ui` chunks | 2,141 kB | 601 kB |
+| Web, the back office's `OpsApp` chunk | 752 kB | 194 kB |
+| Web, `WorkflowBuilder` chunk | 215 kB | 62 kB |
 | Web CSS | 89 kB | 17 kB |
-| Worker (`wrangler deploy --dry-run`) | 12.4 MB | 2.6 MB |
+| Worker (`wrangler deploy --dry-run`) | 13.2 MB | 2.8 MB |
 
 In the `ui` chunk by source: the six message catalogs 704 kB, core's route contract 429 kB,
 react-router 368 kB, zod 362 kB, decimal.js 125 kB. In `index`: react-dom 612 kB, every portal
@@ -155,12 +159,15 @@ about 2.2 MB, pdf-lib 0.8 MB.
 
 ### Results
 
+**Status (lead):** phase 0 done on `speed/run`; next, the foundations (1.2 with 1.9).
+
 Add a row after each phase. "To content" is the script's `settled` time with `LATENCY_MS=100`
 (appendix A): it is not a real-world time, but it shows waits in a row.
 
 | Date | Commit | After phase | Portal Home (calls / SQL / to content) | Portal agent | Ops Home | Ops agent page | Web first load, gzipped |
 |---|---|---|---|---|---|---|---|
 | 2026-11-11 | `d2e13ae` | baseline | 7 / 107 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 11 / 122 / 1.0 s | 526 kB |
+| 2026-11-11 | `1c30e45` | phase 0 (re-measured) | 7 / 107 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 11 / 123 / 1.0 s | 601 kB |
 
 With 100 ms added per request, a screen that needed one round trip past the session would settle
 in about 0.4 s. Moving inside the app at the baseline: portal agent 0.34 s (three calls in a row),
@@ -170,11 +177,14 @@ back-office agent page 0.34 s, its Workflow tab 0.46 s; a simple screen 0.12 s (
 
 ## Phase 0: measure again
 
-- [ ] **0.1 Run the measurement** (appendix A) on the current `main`, once plain and once with
+- [x] **0.1 Run the measurement** (appendix A) on the current `main`, once plain and once with
   `LATENCY_MS=100`. Replace the baseline tables above if the numbers moved by more than a tenth,
   fill in "to content", and note the commit.
-- [ ] **0.2 Check each phase's items** against the code and tick what is already done.
-- [ ] **0.3 Ask the owner** for answers to D1 to D6, or note that they are still open. Only the
+- [x] **0.2 Check each phase's items** against the code and tick what is already done.
+  Phases 1, 2 and 4 checked at `1c30e45`: every check still holds, none done. `useApi` now has
+  260 call sites (229 at the audit). Phases 3 and 5 to 10 are checked as the run reaches them,
+  since the front-end work moves the code first; each worker also runs its item's Check.
+- [x] **0.3 Ask the owner** for answers to D1 to D6, or note that they are still open. Only the
   items that name one wait on it.
 
 ---

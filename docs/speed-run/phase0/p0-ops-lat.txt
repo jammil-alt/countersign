@@ -1,0 +1,34 @@
+fresh  Home                   api   4  sql   60  paint   448  settled  1101 
+fresh  Escalations            api   5  sql   54  paint   308  settled   838 
+fresh  Runs                   api   5  sql   50  paint   284  settled   831 
+fresh  Run page               api   5  sql   69  paint   288  settled   822 
+fresh  Agent lab              api   5  sql   48  paint   304  settled   833 
+fresh  Clients                api   4  sql   49  paint   292  settled   816 
+fresh  Client overview        api  11  sql  108  paint   272  settled   900  repeated: GET /api/ops/agents/:id/go-live x4
+fresh  Client agents          api   5  sql   49  paint   312  settled   795 
+fresh  Agent page             api  11  sql  123  paint   284  settled  1027  repeated: GET /api/ops/clients/:id x2 | GET /api/ops/agents/:id x2
+fresh  Agent workflow tab     api  19  sql  185  paint   284  settled  1599  repeated: GET /api/ops/clients/:id x2 | GET /api/ops/clients?view=names x2 | GET /api/ops/agents/:id x2 | GET /api/ops/agents/:id/triggers x2 | GET /api/ops/catalog/events x3
+fresh  Agent runs tab         api  10  sql  111  paint   300  settled  1022  repeated: GET /api/ops/clients/:id x2 | GET /api/ops/agents/:id x2
+fresh  Agent versions tab     api  21  sql  208  paint   268  settled  1223  repeated: GET /api/ops/clients/:id x2 | GET /api/ops/agents/:id x3 | GET /api/ops/catalog/events x2 | GET /api/ops/clients/:id/events?type=document.extracted x3
+fresh  Client connections     api   6  sql   66  paint   320  settled   827 
+fresh  Client documents       api   5  sql   55  paint   288  settled   806 
+fresh  Client settings        api   6  sql   61  paint   292  settled   905 
+fresh  Skills                 api   4  sql   57  paint   284  settled   817 
+fresh  Usage                  api   5  sql   49  paint   296  settled   908 
+move   Home                   api   2  sql   47  paint     -  settled   224 
+move   Escalations            api   3  sql   41  paint     -  settled   115 
+move   Runs                   api   3  sql   37  paint     -  settled   118 
+move   Run page               api   3  sql   56  paint     -  settled   121 
+move   Agent lab              api   3  sql   35  paint     -  settled   119 
+move   Clients                api   2  sql   36  paint     -  settled   112 
+move   Client overview        api   9  sql   95  paint     -  settled   229  repeated: GET /api/ops/agents/:id/go-live x4
+move   Client agents          api   3  sql   36  paint     -  settled   121 
+move   Agent page             api   9  sql  110  paint     -  settled   342  repeated: GET /api/ops/clients/:id x2 | GET /api/ops/agents/:id x2
+move   Agent workflow tab     api  11  sql  103  paint     -  settled   458  repeated: GET /api/ops/agents/:id/triggers x2 | GET /api/ops/catalog/events x3
+move   Agent runs tab         api   2  sql   29  paint     -  settled   138 
+move   Agent versions tab     api  13  sql  126  paint     -  settled   328  repeated: GET /api/ops/clients/:id/events?type=document.extracted x3 | GET /api/ops/catalog/events x2
+move   Client connections     api   4  sql   53  paint     -  settled   124 
+move   Client documents       api   3  sql   42  paint     -  settled   117 
+move   Client settings        api   5  sql   64  paint     -  settled   461  repeated: GET /api/ops/counts x2
+move   Skills                 api   2  sql   44  paint     -  settled   124 
+move   Usage                  api   3  sql   36  paint     -  settled   220 
