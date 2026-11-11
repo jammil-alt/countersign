@@ -11,7 +11,6 @@ import type {
   AgentBundle,
   AutomationDefinition,
   PermissionMatrix,
-  processes,
   SkillDefinition,
 } from "@countersign/core";
 import { type SQL, sql } from "drizzle-orm";
@@ -249,7 +248,7 @@ export const membership = pgTable(
     // R4 (migration 0043, docs/plan.md §1.86): this person's own working week and away dates in
     // this client (core's `processes.PersonHours`, validated where written). Null: the client's
     // hours, never away.
-    hours: json<processes.PersonHours>("hours"),
+    hours: json<Record<string, unknown>>("hours"),
   },
   (t) => [
     primaryKey({ columns: [t.tenantId, t.userId] }),
@@ -1833,7 +1832,7 @@ export const contact = pgTable(
     // R4 (migration 0043, docs/plan.md §1.86): the contact's own working week and away dates
     // (core's `processes.PersonHours`, validated where written), for deadlines in business time
     // and approvals that skip someone away. Null: the client's hours, never away.
-    hours: json<processes.PersonHours>("hours"),
+    hours: json<Record<string, unknown>>("hours"),
   },
   (t) => [
     unique("contact_id_tenant_key").on(t.id, t.tenantId),
