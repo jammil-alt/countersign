@@ -143,6 +143,88 @@ export const HARBOR_AGENTS = {
 } as const;
 type AgentSlug = keyof typeof HARBOR_AGENTS;
 
+/**
+ * Who a demo client is: all that differs between the demo clients. The rest (the four agents,
+ * their versions, the vendors and how three weeks of invoices went) is shared, as two shops in the
+ * same region buy from the same suppliers.
+ */
+export interface DemoProfile {
+  /** Its ids' namespace (`<key>:agent:bill-clerk`): fixed for good, as a new one makes new rows. */
+  key: string;
+  name: string;
+  timezone: string;
+  /** Its web and mail domain. */
+  domain: string;
+  people: {
+    admin: { email: string; name: string };
+    user: { email: string; name: string };
+  };
+  /** The shop's own staff in the directory (PEOPLE's columns, `org` own), the admin and user first. */
+  staff: string;
+  /** First names the texts use: who signs (admin), who keys bills (user), who runs the floor. */
+  first: { admin: string; user: string; foreman: string };
+  office: { phone: string; line1: string; city: string; region: string; postalCode: string };
+  /** The QuickBooks company it is connected to (display only). */
+  qboRealm: string;
+  /** Invoice numbers move up and times later by these, so two clients' weeks don't read alike. */
+  shift: { number: number; minutes: number };
+}
+
+export const HARBOR_PROFILE: DemoProfile = {
+  key: "harbor",
+  name: "Harbor Millwork",
+  timezone: "America/Chicago",
+  domain: "harbor-millwork.example.com",
+  people: {
+    admin: { email: "dana@harbor-millwork.example.com", name: "Dana Reyes" },
+    user: { email: "luis@harbor-millwork.example.com", name: "Luis Ortega" },
+  },
+  staff: `
+  dana | Dana Reyes | own | Office manager | employee | dana@harbor-millwork.example.com | +13125550101 | owner, approver | email, sms | Staff contact form, signed at onboarding
+  luis | Luis Ortega | own | Bookkeeper | employee | luis@harbor-millwork.example.com | +13125550102 | bookkeeper | email, sms | Staff contact form, signed at onboarding
+  marcus | Marcus Bell | own | Shop foreman | employee | marcus@harbor-millwork.example.com | +13125550103 | purchaser | sms | Staff contact form, signed at onboarding
+  priya | Priya Nair | own | Estimator | employee | priya@harbor-millwork.example.com | +13125550104 | purchaser | email | Staff contact form, signed at onboarding`,
+  first: { admin: "Dana", user: "Luis", foreman: "Marcus" },
+  office: {
+    phone: "+13125550100",
+    line1: "3100 S Ashland Ave",
+    city: "Chicago",
+    region: "IL",
+    postalCode: "60608",
+  },
+  qboRealm: "9130000000004821",
+  shift: { number: 0, minutes: 0 },
+};
+
+// DECISION: a second demo client (the owner: "multiple agents, multiple runs" on more than one
+// account) rather than filling the Demo client: the Demo client carries the end-to-end Desk item
+// and the sweep's walkthroughs, which expect it as the base seed leaves it.
+export const FOX_RIVER_PROFILE: DemoProfile = {
+  key: "foxriver",
+  name: "Fox River Cabinetry",
+  timezone: "America/Chicago",
+  domain: "foxriver-cabinetry.example.com",
+  people: {
+    admin: { email: "maya@foxriver-cabinetry.example.com", name: "Maya Chen" },
+    user: { email: "owen@foxriver-cabinetry.example.com", name: "Owen Brooks" },
+  },
+  staff: `
+  maya | Maya Chen | own | Operations manager | employee | maya@foxriver-cabinetry.example.com | +19205550101 | owner, approver | email, sms | Staff contact form, signed at onboarding
+  owen | Owen Brooks | own | Bookkeeper | employee | owen@foxriver-cabinetry.example.com | +19205550102 | bookkeeper | email | Staff contact form, signed at onboarding
+  rafael | Rafael Diaz | own | Shop foreman | employee | rafael@foxriver-cabinetry.example.com | +19205550103 | purchaser | sms | Staff contact form, signed at onboarding
+  grace | Grace Kim | own | Designer | employee | grace@foxriver-cabinetry.example.com | +19205550104 | purchaser | email | Staff contact form, signed at onboarding`,
+  first: { admin: "Maya", user: "Owen", foreman: "Rafael" },
+  office: {
+    phone: "+19205550100",
+    line1: "1250 W College Ave",
+    city: "Appleton",
+    region: "WI",
+    postalCode: "54914",
+  },
+  qboRealm: "9130000000007315",
+  shift: { number: 57, minutes: 23 },
+};
+
 /** How far back the client starts, and how many days of runs and usage it has. */
 const CLIENT_AGE_DAYS = 35;
 const RUN_DAYS = 21;
@@ -150,6 +232,9 @@ const USAGE_DAYS = 30;
 
 const DAY_MS = 86_400_000;
 const MIN_MS = 60_000;
+
+/** The demo clients SEED_DEMO=1 seeds, in order. */
+export const DEMO_PROFILES: readonly DemoProfile[] = [HARBOR_PROFILE, FOX_RIVER_PROFILE];
 
 // ── Vendors and what they sell ───────────────────────────────────────────────────────────────────
 
@@ -333,7 +418,7 @@ interface InvoiceSpec {
   of?: string;
 }
 
-const INVOICES: InvoiceSpec[] = [
+const BASE_INVOICES: InvoiceSpec[] = [
   { vendor: "nps", number: "20398", at: { d: 20, h: 9, m: 12 }, outcome: "done" },
   { vendor: "cpl", number: "7731", at: { d: 20, h: 14, m: 40 }, outcome: "done" },
   { vendor: "mwh", number: "55102", at: { d: 19, h: 10, m: 5 }, outcome: "done" },
@@ -377,6 +462,27 @@ const INVOICES: InvoiceSpec[] = [
   { vendor: "mwh", number: "55230", at: { ago: 40 }, outcome: "waiting" },
 ];
 
+/** The invoices as one client got them: numbers and times moved by its shift (see DemoProfile). */
+/** An invoice number as this client has it, and back to the shared one. */
+const shifted = (p: DemoProfile, n: string) => String(Number(n) + p.shift.number);
+const unshifted = (p: DemoProfile, n: string) => String(Number(n) - p.shift.number);
+
+function invoicesOf(p: DemoProfile): InvoiceSpec[] {
+  if (p.shift.number === 0 && p.shift.minutes === 0) return BASE_INVOICES;
+  const num = (n: string) => shifted(p, n);
+  const later = (at: When): When => {
+    if ("ago" in at) return { ago: Math.max(5, at.ago - p.shift.minutes) };
+    const m = at.m + p.shift.minutes;
+    return { d: at.d, h: at.h + Math.floor(m / 60), m: m % 60 };
+  };
+  return BASE_INVOICES.map((i) => ({
+    ...i,
+    number: num(i.number),
+    at: later(i.at),
+    ...(i.of ? { of: num(i.of) } : {}),
+  }));
+}
+
 /** Card purchases synced from QuickBooks with no document behind them yet. */
 const PURCHASE_COUNT = 22;
 
@@ -395,21 +501,25 @@ interface PersonSpec {
   consentSource: string;
 }
 
-/** key | name | organization | title | relationship | email | phone | roles | consent | its source */
-const PEOPLE: PersonSpec[] = people(`
-  dana | Dana Reyes | own | Office manager | employee | dana@harbor-millwork.example.com | +13125550101 | owner, approver | email, sms | Staff contact form, signed at onboarding
-  luis | Luis Ortega | own | Bookkeeper | employee | luis@harbor-millwork.example.com | +13125550102 | bookkeeper | email, sms | Staff contact form, signed at onboarding
-  marcus | Marcus Bell | own | Shop foreman | employee | marcus@harbor-millwork.example.com | +13125550103 | purchaser | sms | Staff contact form, signed at onboarding
-  priya | Priya Nair | own | Estimator | employee | priya@harbor-millwork.example.com | +13125550104 | purchaser | email | Staff contact form, signed at onboarding
+/** The vendors' people, the same at every shop; `{admin}` and `{foreman}` are the shop's own. */
+const VENDOR_PEOPLE = `
   karen | Karen Holt | nps | Accounts receivable | vendor | karen.holt@northline-panel.example.com | +18475550111 | vendor rep, billing | email | Vendor setup form
-  tom | Tom Becker | nps | Sales rep | vendor | tom.becker@northline-panel.example.com | +18475550112 | vendor rep | email, sms | Asked by phone; noted by Dana
+  tom | Tom Becker | nps | Sales rep | vendor | tom.becker@northline-panel.example.com | +18475550112 | vendor rep | email, sms | Asked by phone; noted by {admin}
   erin | Erin Walsh | cpl | Inside sales | vendor | erin.walsh@cedarpine-lumber.example.com | +17155550121 | vendor rep | email | Vendor setup form
   sam | Sam Ortiz | cpl | Accounts receivable | vendor | sam.ortiz@cedarpine-lumber.example.com | +17155550122 | billing | email | Vendor setup form
-  jamal | Jamal Carter | mwh | Counter sales | vendor | jamal.carter@midwest-hardware.example.com | +13125550131 | vendor rep | email, sms | Asked in person; noted by Marcus
+  jamal | Jamal Carter | mwh | Counter sales | vendor | jamal.carter@midwest-hardware.example.com | +13125550131 | vendor rep | email, sms | Asked in person; noted by {foreman}
   holly | Holly Park | lsf | Account manager | vendor | holly.park@lakeshore-finishes.example.com | +12625550141 | vendor rep | email | Vendor setup form
   ben | Ben Fischer | pec | Customer service | vendor | ben.fischer@prairie-edge.example.com | +13195550151 | vendor rep | email | Vendor setup form
-  rosa | Rosa Lind | pec | Accounts receivable | vendor | rosa.lind@prairie-edge.example.com | +13195550152 | billing | email | Vendor setup form
-`);
+  rosa | Rosa Lind | pec | Accounts receivable | vendor | rosa.lind@prairie-edge.example.com | +13195550152 | billing | email | Vendor setup form`;
+
+/** key | name | organization | title | relationship | email | phone | roles | consent | its source */
+function peopleOf(p: DemoProfile): PersonSpec[] {
+  const reps = VENDOR_PEOPLE.replaceAll("{admin}", p.first.admin).replaceAll(
+    "{foreman}",
+    p.first.foreman,
+  );
+  return people(`${p.staff}\n${reps}`);
+}
 
 function people(table: string): PersonSpec[] {
   const list = (cell: string | undefined) =>
@@ -420,6 +530,7 @@ function people(table: string): PersonSpec[] {
   return table
     .trim()
     .split("\n")
+    .filter((row) => row.trim() !== "")
     .map((row) => {
       const [key, name, org, title, relationship, email, phone, roles, consent, source] = row
         .split("|")
@@ -442,29 +553,31 @@ function people(table: string): PersonSpec[] {
     });
 }
 
-const KNOWLEDGE = [
-  {
-    key: "itemize",
-    kind: "policy" as const,
-    title: "Which bills we itemize",
-    body: "Itemize bills from Northline Panel Supply, Cedar & Pine Lumber, Prairie Edgebanding and Lakeshore Finishes. Midwest Hardware counter receipts under $100 stay on one line. Never change a bill's total.",
-    by: "admin" as const,
-  },
-  {
-    key: "forwarding",
-    kind: "faq" as const,
-    title: "Where do vendor invoices go?",
-    body: "Luis forwards every invoice that reaches ap@harbor-millwork.example.com to our forwarding address. Paper invoices are scanned and uploaded on the Connections page the same day.",
-    by: "admin" as const,
-  },
-  {
-    key: "po-memo",
-    kind: "policy" as const,
-    title: "Job numbers on bills",
-    body: 'Our purchase orders carry the job number, like J-2214. The bill memo reads: vendor, invoice number, then the PO, for example "Northline Panel Supply invoice 20418, PO J-2231".',
-    by: "operator" as const,
-  },
-];
+function knowledgeOf(p: DemoProfile) {
+  return [
+    {
+      key: "itemize",
+      kind: "policy" as const,
+      title: "Which bills we itemize",
+      body: "Itemize bills from Northline Panel Supply, Cedar & Pine Lumber, Prairie Edgebanding and Lakeshore Finishes. Midwest Hardware counter receipts under $100 stay on one line. Never change a bill's total.",
+      by: "admin" as const,
+    },
+    {
+      key: "forwarding",
+      kind: "faq" as const,
+      title: "Where do vendor invoices go?",
+      body: `${p.first.user} forwards every invoice that reaches ap@${p.domain} to our forwarding address. Paper invoices are scanned and uploaded on the Connections page the same day.`,
+      by: "admin" as const,
+    },
+    {
+      key: "po-memo",
+      kind: "policy" as const,
+      title: "Job numbers on bills",
+      body: 'Our purchase orders carry the job number, like J-2214. The bill memo reads: vendor, invoice number, then the PO, for example "Northline Panel Supply invoice 20418, PO J-2231".',
+      by: "operator" as const,
+    },
+  ];
+}
 
 // ── Small helpers ────────────────────────────────────────────────────────────────────────────────
 
@@ -553,6 +666,8 @@ export interface DemoSeed {
 export interface DemoSeedInput {
   /** The seeded operator (SeedResult.users.operator): serves the client and is its lead. */
   operatorId: string;
+  /** Which demo client: Harbor Millwork unless named. */
+  profile?: DemoProfile;
   /** "Now" for a first run; later runs count from the client's own `created_at`. */
   now?: Date;
 }
@@ -583,12 +698,19 @@ interface Plan {
 
 // ── The seed ─────────────────────────────────────────────────────────────────────────────────────
 
-/** Seeds Harbor Millwork (see the top of this file). Idempotent. */
+/** Seeds a demo client, Harbor Millwork unless another profile is named (see the top). Idempotent. */
 export async function seedDemo(db: Db, input: DemoSeedInput): Promise<DemoSeed> {
-  const id = (name: string) => uuidv5(`harbor:${name}`, SEED_NAMESPACE);
+  const profile = input.profile ?? HARBOR_PROFILE;
+  const id = (name: string) => uuidv5(`${profile.key}:${name}`, SEED_NAMESPACE);
   const tenantId = await id("tenant");
   return withOperator(db, [tenantId], async (tx) => {
-    const ctx = await setup(tx, { tenantId, id, operatorId: input.operatorId, now: input.now });
+    const ctx = await setup(tx, {
+      tenantId,
+      id,
+      operatorId: input.operatorId,
+      now: input.now,
+      profile,
+    });
     const agents = await seedAgents(tx, ctx);
     const directory = await seedDirectory(tx, ctx);
     const books = await seedBooks(tx, ctx, directory);
@@ -634,7 +756,7 @@ export async function seedDemo(db: Db, input: DemoSeedInput): Promise<DemoSeed> 
         inboxItems: plan.items.length + ctx.extraItems,
         documents: books.documents.length,
         transactions: books.bills.length + books.purchases.length,
-        contacts: PEOPLE.length,
+        contacts: peopleOf(profile).length,
         organizations: VENDORS.length + 1,
         usageDays,
       },
@@ -646,6 +768,9 @@ export async function seedDemo(db: Db, input: DemoSeedInput): Promise<DemoSeed> 
 
 interface Ctx {
   tenantId: string;
+  profile: DemoProfile;
+  /** A seeded random generator; Harbor Millwork's names are bare, so its rows never change. */
+  rng: (name: string) => () => number;
   id: (name: string) => Promise<string>;
   /** The moment the demo's "now" is: the first seed's time. */
   now: Date;
@@ -672,16 +797,22 @@ const QBO_MATRIX: PermissionMatrix = {
 
 async function setup(
   tx: Tx,
-  input: { tenantId: string; id: Ctx["id"]; operatorId: string; now: Date | undefined },
+  input: {
+    tenantId: string;
+    id: Ctx["id"];
+    operatorId: string;
+    now: Date | undefined;
+    profile: DemoProfile;
+  },
 ): Promise<Ctx> {
-  const { tenantId, id } = input;
+  const { tenantId, id, profile: p } = input;
   const firstNow = input.now ?? new Date();
   await tx
     .insert(tenant)
     .values({
       id: tenantId,
-      name: HARBOR.name,
-      timezone: HARBOR.timezone,
+      name: p.name,
+      timezone: p.timezone,
       settings: {
         // The operator is the client's Mezonas lead (ARCHITECTURE §11.2).
         lead: { userId: input.operatorId },
@@ -698,13 +829,13 @@ async function setup(
   // Every time is counted from the first seed, so a second run computes the same rows.
   const now = new Date(t.createdAt.getTime() + CLIENT_AGE_DAYS * DAY_MS);
   const today = (() => {
-    const z = zonedParts(now, HARBOR.timezone);
+    const z = zonedParts(now, p.timezone);
     return `${z.year}-${String(z.month).padStart(2, "0")}-${String(z.day).padStart(2, "0")}`;
   })();
   const at = (when: When): Date =>
     "ago" in when
       ? new Date(now.getTime() - when.ago * MIN_MS)
-      : zonedTimeToUtc(addDays(today, -when.d), when.h, when.m, HARBOR.timezone);
+      : zonedTimeToUtc(addDays(today, -when.d), when.h, when.m, p.timezone);
 
   // People: found by email, as the main seed finds its users.
   const userId = async (u: { email: string; name: string }) => {
@@ -718,8 +849,8 @@ async function setup(
       .where(eq(appUser.email, u.email));
     return must(row, `user ${u.email}`).id;
   };
-  const admin = await userId(HARBOR_PEOPLE.admin);
-  const user = await userId(HARBOR_PEOPLE.user);
+  const admin = await userId(p.people.admin);
+  const user = await userId(p.people.user);
   const operator = input.operatorId;
   const joined = new Date(t.createdAt.getTime() + 60 * MIN_MS);
   await insertAll(tx, membership, [
@@ -740,7 +871,7 @@ async function setup(
       connector: "qbo",
       status: "connected",
       // Display only: no credentials are stored (see the DECISION at the top).
-      externalAccountId: "9130000000004821",
+      externalAccountId: p.qboRealm,
       credentialsEncrypted: null,
       config: {},
       permissions: QBO_MATRIX,
@@ -753,7 +884,7 @@ async function setup(
       tenantId,
       connector: "upload",
       status: "connected",
-      config: { forwarding: { address: null, allowedSenders: ["harbor-millwork.example.com"] } },
+      config: { forwarding: { address: null, allowedSenders: [p.domain] } },
       createdAt: at({ d: 33, h: 10, m: 20 }),
     },
   ]);
@@ -797,7 +928,7 @@ async function setup(
       change: {
         forwarding: {
           from: { address: null, allowedSenders: [] },
-          to: { address: null, allowedSenders: ["harbor-millwork.example.com"] },
+          to: { address: null, allowedSenders: [p.domain] },
         },
       },
       createdAt: at({ d: 33, h: 10, m: 24 }),
@@ -806,6 +937,8 @@ async function setup(
 
   return {
     tenantId,
+    profile: p,
+    rng: (name) => rngOf(p.key === HARBOR_PROFILE.key ? name : `${p.key}:${name}`),
     id,
     now,
     operator,
@@ -1158,7 +1291,9 @@ async function seedAgents(tx: Tx, ctx: Ctx): Promise<Agents> {
       .select({ id: agent.id, liveVersionId: agent.liveVersionId })
       .from(agent)
       .where(and(eq(agent.id, agentId), eq(agent.tenantId, tenantId)));
-    if (!row) throw new Error(`seed-demo: Harbor Millwork already has another "${slug}" agent`);
+    if (!row) {
+      throw new Error(`seed-demo: ${ctx.profile.name} already has another "${slug}" agent`);
+    }
 
     // v1: the fork (or the client's own first version), then the client's later versions. Each
     // is inserted once; one already there is history and stays as it is (invariant 3).
@@ -1170,7 +1305,7 @@ async function seedAgents(tx: Tx, ctx: Ctx): Promise<Agents> {
         note:
           template && tv
             ? `Forked from ${template.slug} v${tv.version}`
-            : "Created for Harbor Millwork",
+            : `Created for ${ctx.profile.name}`,
         from: createdAt,
       },
       ...later,
@@ -1372,16 +1507,16 @@ async function seedDirectory(tx: Tx, ctx: Ctx): Promise<Directory> {
   orgRows.push({
     id: ownId,
     tenantId,
-    name: HARBOR.name,
+    name: ctx.profile.name,
     kinds: ["own"],
-    website: "https://harbor-millwork.example.com",
-    email: "office@harbor-millwork.example.com",
-    phone: "+13125550100",
+    website: `https://${ctx.profile.domain}`,
+    email: `office@${ctx.profile.domain}`,
+    phone: ctx.profile.office.phone,
     address: {
-      line1: "3100 S Ashland Ave",
-      city: "Chicago",
-      region: "IL",
-      postalCode: "60608",
+      line1: ctx.profile.office.line1,
+      city: ctx.profile.office.city,
+      region: ctx.profile.office.region,
+      postalCode: ctx.profile.office.postalCode,
       country: "US",
     },
     source: "manual",
@@ -1451,7 +1586,7 @@ async function seedDirectory(tx: Tx, ctx: Ctx): Promise<Directory> {
 
   const contacts: (typeof contact.$inferInsert)[] = [];
   const contactChanges: (typeof contactChange.$inferInsert)[] = [];
-  for (const [i, ps] of PEOPLE.entries()) {
+  for (const [i, ps] of peopleOf(ctx.profile).entries()) {
     const cid = await id(`contact:${ps.key}`);
     const createdAt = plusMin(made, 10 + i * 3);
     const by = ps.relationship === "employee" ? admin : operator;
@@ -1582,9 +1717,11 @@ async function seedBooks(tx: Tx, ctx: Ctx, dir: Directory): Promise<Books> {
   const bills: Bill[] = [];
   let billNo = 1100;
 
-  for (const [index, spec] of INVOICES.entries()) {
+  for (const [index, spec] of invoicesOf(ctx.profile).entries()) {
     const v = vendorOf(spec.vendor);
-    const r = rngOf(`invoice:${spec.vendor}:${spec.number}:${spec.outcome}`);
+    const r = rngOf(
+      `invoice:${spec.vendor}:${unshifted(ctx.profile, spec.number)}:${spec.outcome}`,
+    );
     const receivedAt = at(spec.at);
     const of = spec.of
       ? must(
@@ -1736,7 +1873,7 @@ async function seedBooks(tx: Tx, ctx: Ctx, dir: Directory): Promise<Books> {
   // Card purchases (counter buys, finishes) with no document yet.
   const purchases: Purchase[] = [];
   for (let i = 0; i < PURCHASE_COUNT; i++) {
-    const r = rngOf(`purchase:${i}`);
+    const r = ctx.rng(`purchase:${i}`);
     const v = must(VENDORS[[2, 3, 2, 4, 0, 2, 3][i % 7] ?? 2], "purchase vendor");
     const qboId = String(2200 + i);
     const syncedAt = at({
@@ -1824,19 +1961,19 @@ async function seedBooks(tx: Tx, ctx: Ctx, dir: Directory): Promise<Books> {
     const v = inv.vendor;
     const r = inv.rng;
     const sha = createHash("sha256")
-      .update(`harbor-millwork:${inv.filename}:${inv.index}`)
+      .update(`${ctx.profile.domain.split(".")[0]}:${inv.filename}:${inv.index}`)
       .digest("hex");
     const uploaded = inv.index % 6 === 4;
     const meta: Record<string, unknown> = uploaded
       ? { uploadedBy: ctx.admin }
       : {
           email: {
-            from: `${HARBOR_PEOPLE.user.name} <${HARBOR_PEOPLE.user.email}>`,
-            envelopeFrom: HARBOR_PEOPLE.user.email,
-            to: "harbor-millwork-docs@in.example.com",
+            from: `${ctx.profile.people.user.name} <${ctx.profile.people.user.email}>`,
+            envelopeFrom: ctx.profile.people.user.email,
+            to: `${ctx.profile.domain.split(".")[0]}-docs@in.example.com`,
             subject: `Fwd: Invoice ${inv.spec.number} from ${v.name}`,
             date: inv.receivedAt.toUTCString(),
-            messageId: `<inv-${inv.spec.number}-${inv.index}@mail.harbor-millwork.example.com>`,
+            messageId: `<inv-${inv.spec.number}-${inv.index}@mail.${ctx.profile.domain}>`,
           },
         };
     if (inv.of) meta.duplicateOf = { documentId: inv.of.documentId, filename: inv.of.filename };
@@ -2205,7 +2342,7 @@ async function planBillClerk(ctx: Ctx, agents: Agents, books: Books, plan: Plan)
   for (const inv of books.invoices) {
     const outcome = inv.spec.outcome;
     if (outcome === "duplicate") continue;
-    const r = rngOf(`run:bill:${inv.spec.vendor}:${inv.spec.number}`);
+    const r = ctx.rng(`run:bill:${inv.spec.vendor}:${inv.spec.number}`);
     const v = inv.vendor;
     const key = `bill:${inv.spec.vendor}:${inv.spec.number}`;
     const startedAt = plusSec(inv.extractedAt, 20);
@@ -2275,7 +2412,7 @@ async function planBillClerk(ctx: Ctx, agents: Agents, books: Books, plan: Plan)
       const askedAt = plusSec(startedAt, 4);
       const answerAt = answered ? must(bill, "bill").syncedAt : null;
       const answer = answered
-        ? `Luis entered it as bill ${must(bill, "bill").qboId} this afternoon.`
+        ? `${ctx.profile.first.user} entered it as bill ${must(bill, "bill").qboId} this afternoon.`
         : null;
       steps.push({
         node: "no-match",
@@ -2965,7 +3102,7 @@ async function planPriceKeeper(ctx: Ctx, agents: Agents, books: Books, plan: Pla
     {
       key: "price:1",
       at: ctx.at({ d: 5, h: 9, m: 40 }),
-      invoice: { vendor: "nps", number: "20431" },
+      invoice: { vendor: "nps", number: shifted(ctx.profile, "20431") },
       item: "301",
       syncToken: "6",
       cost: "92.4000",
@@ -2974,7 +3111,7 @@ async function planPriceKeeper(ctx: Ctx, agents: Agents, books: Books, plan: Pla
     {
       key: "price:2",
       at: ctx.at({ d: 4, h: 14, m: 30 }),
-      invoice: { vendor: "cpl", number: "7779" },
+      invoice: { vendor: "cpl", number: shifted(ctx.profile, "7779") },
       item: "311",
       syncToken: "3",
       cost: "8.2500",
@@ -2984,7 +3121,7 @@ async function planPriceKeeper(ctx: Ctx, agents: Agents, books: Books, plan: Pla
     {
       key: "price:3",
       at: ctx.at({ d: 2, h: 11, m: 15 }),
-      invoice: { vendor: "pec", number: "1210" },
+      invoice: { vendor: "pec", number: shifted(ctx.profile, "1210") },
       item: "342",
       syncToken: "2",
       cost: "49.7500",
@@ -3260,7 +3397,7 @@ async function planSupervisor(ctx: Ctx, agents: Agents, plan: Plan): Promise<voi
   }
 
   // The daily check, every morning at 8:00 in Chicago (its schedule trigger).
-  const localNow = zonedParts(ctx.now, HARBOR.timezone);
+  const localNow = zonedParts(ctx.now, ctx.profile.timezone);
   const firstDay = localNow.hour >= 9 ? 0 : 1;
   let latest: { at: Date; summary: HealthSummary } | null = null;
   for (let d = RUN_DAYS - 1; d >= firstDay; d--) {
@@ -3273,7 +3410,7 @@ async function planSupervisor(ctx: Ctx, agents: Agents, plan: Plan): Promise<voi
         triggerId: "trg-daily",
         type: "schedule",
         cron: "0 8 * * *",
-        tz: HARBOR.timezone,
+        tz: ctx.profile.timezone,
         scheduledAt: scheduledAt.toISOString(),
         payload: { scheduledAt: scheduledAt.toISOString() },
       },
@@ -3361,7 +3498,7 @@ async function seedConversation(tx: Tx, ctx: Ctx, agents: Agents): Promise<void>
       senderId: operator,
       kind: "text",
       body: {
-        text: `Dana, the ${bill.serviceName} itemized 21 bills in the last three weeks and every total stayed the same. Two things need you: three bills wait for your signature, and one Cedar & Pine invoice has no bill in QuickBooks yet. Since you turned down the Midwest Hardware lines, we keep their counter receipts on one line.`,
+        text: `${ctx.profile.first.admin}, the ${bill.serviceName} itemized 21 bills in the last three weeks and every total stayed the same. Two things need you: three bills wait for your signature, and one Cedar & Pine invoice has no bill in QuickBooks yet. Since you turned down the Midwest Hardware lines, we keep their counter receipts on one line.`,
       },
       sources: [],
       audience: "client",
@@ -3372,7 +3509,7 @@ async function seedConversation(tx: Tx, ctx: Ctx, agents: Agents): Promise<void>
 
 async function seedKnowledge(tx: Tx, ctx: Ctx): Promise<void> {
   const { tenantId, id, admin, operator } = ctx;
-  for (const [i, k] of KNOWLEDGE.entries()) {
+  for (const [i, k] of knowledgeOf(ctx.profile).entries()) {
     const entryId = await id(`knowledge:${k.key}`);
     const versionId = await id(`knowledge:${k.key}:v1`);
     const at = ctx.at({ d: 30 - i * 4, h: 10, m: 15 });
@@ -3515,7 +3652,7 @@ async function seedUsage(
     const day = utcDay(new Date(ctx.now.getTime() - back * DAY_MS));
     for (const slug of ["bill-clerk", "document-clerk", "supervisor"] as const) {
       if (days.has(`${day}|${agents[slug].id}`)) continue;
-      const r = rngOf(`usage:${slug}:${back}`);
+      const r = ctx.rng(`usage:${slug}:${back}`);
       const runs = slug === "supervisor" ? 1 : intIn(r, 1, 3);
       const steps = slug === "bill-clerk" ? runs * intIn(r, 8, 11) : runs;
       const tokensIn = slug === "bill-clerk" ? runs * intIn(r, 5200, 7600) : 0;
@@ -3591,9 +3728,9 @@ async function seedWeeklyTable(
   plan: Plan,
 ): Promise<void> {
   const { tenantId, operator } = ctx;
-  const weekStart = weekStartOf(new Date(ctx.now.getTime() - 7 * DAY_MS), HARBOR.timezone);
-  const b = weekBounds(weekStart, HARBOR.timezone);
-  const prev = weekBounds(addDays(weekStart, -7), HARBOR.timezone);
+  const weekStart = weekStartOf(new Date(ctx.now.getTime() - 7 * DAY_MS), ctx.profile.timezone);
+  const b = weekBounds(weekStart, ctx.profile.timezone);
+  const prev = weekBounds(addDays(weekStart, -7), ctx.profile.timezone);
   const inWeek = (at: Date | null | undefined, w: { from: Date; to: Date }) =>
     !!at && at.getTime() >= w.from.getTime() && at.getTime() < w.to.getTime();
   const done = plan.runs.filter((r) => r.status === "succeeded" && inWeek(r.finishedAt as Date, b));
@@ -3638,9 +3775,9 @@ async function seedWeeklyTable(
       runsDone: done.filter((r) => r.agentId === agents[slug].id).length,
       kpis: [],
     })),
-    computedAt: weeklySchedule(weekStart, HARBOR.timezone).sendAt.toISOString(),
+    computedAt: weeklySchedule(weekStart, ctx.profile.timezone).sendAt.toISOString(),
   };
-  const sentAt = weeklySchedule(weekStart, HARBOR.timezone).sendAt;
+  const sentAt = weeklySchedule(weekStart, ctx.profile.timezone).sendAt;
   const rejected = plan.actions.find(
     (a) => a.status === "rejected" && a.tool === "qbo.bill.update_lines",
   );
@@ -3657,7 +3794,7 @@ async function seedWeeklyTable(
         {
           id: await ctx.id(`weekly:${weekStart}:decision:mwh`),
           title: "Itemize Midwest Hardware invoices?",
-          body: "You turned down the lines on Midwest Hardware invoice 55187. Should we leave all their invoices on one line, or only counter receipts under $100?",
+          body: `You turned down the lines on Midwest Hardware invoice ${shifted(ctx.profile, "55187")}. Should we leave all their invoices on one line, or only counter receipts under $100?`,
           options: ["Leave all on one line", "Only receipts under $100"],
           sources: rejected ? [rejected.id] : [],
         },
@@ -3666,7 +3803,7 @@ async function seedWeeklyTable(
         "We start on the Price keeper's trial with you, and look at the Cedar & Pine bill that is still missing.",
       setup: { items: [] },
       sentAt,
-      createdAt: weeklySchedule(weekStart, HARBOR.timezone).draftAt,
+      createdAt: weeklySchedule(weekStart, ctx.profile.timezone).draftAt,
       updatedAt: sentAt,
     },
   ]);
