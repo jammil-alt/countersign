@@ -10,7 +10,7 @@ import {
 } from "react";
 import { isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
-import { useApiClient } from "../api/useApi";
+import { useApiClient, useApiStore } from "../api/useApi";
 import { identifyForErrors } from "../observability";
 import { idleTooLong, watchInput } from "./activity";
 
@@ -35,6 +35,7 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const client = useApiClient();
+  const store = useApiStore();
   const [state, setState] = useState<SessionState>({ status: "loading" });
 
   const refresh = useCallback(async (): Promise<SessionState> => {
@@ -50,6 +51,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
               error,
             };
     }
+    // Stored answers belong to one user and one active client: anything else empties the store
+    // before a screen can read it (docs/audit-plan.md 1.2).
+    store.setScope(
+      next.status === "signed_in"
+        ? `${next.session.user.id}\u0001${next.session.activeTenantId ?? ""}`
+        : "",
+    );
     setState(next);
     if (next.status === "signed_in") {
       identifyForErrors({ id: next.session.user.id, operator: next.session.operator });
@@ -57,9 +65,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       identifyForErrors(null);
     }
     return next;
-  }, [client]);
+  }, [client, store]);
 
   const signOut = useCallback(async () => {
+    // Signing out (by hand or after the idle limit) forgets every stored answer at once.
+    store.setScope("");
+    store.clear();
     let redirectTo: string | null = null;
     try {
       redirectTo = (await client.call(apiRoutes.signOut)).redirectTo;
@@ -69,7 +80,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     // WorkOS may name its own sign-out page; the dev adapter never does.
     if (redirectTo) window.location.assign(redirectTo);
-  }, [client]);
+  }, [client, store]);
 
   useEffect(() => {
     void refresh();

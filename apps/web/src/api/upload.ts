@@ -3,6 +3,7 @@
 // back office's Sandbox upload (`POST /api/ops/clients/:id/uploads`) answers the same.
 import { buildPath, routes, SESSION_ACTIVITY_HEADER } from "@countersign/core";
 import { ApiError, type ResponseOf } from "./client";
+import { noteWrite } from "./store";
 
 export type UploadResponse = ResponseOf<typeof routes.portalUploads>;
 
@@ -63,5 +64,7 @@ export async function uploadFiles(
       body: json,
     });
   }
+  // An upload is a write: stored answers (documents, inbox) are stale from now.
+  noteWrite();
   return parsed.data;
 }
