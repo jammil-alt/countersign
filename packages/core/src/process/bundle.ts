@@ -24,7 +24,7 @@ import {
   type ProcessWarning,
   validateProcess,
 } from "./validate";
-import { nodeIds } from "./walk";
+import { nodeIds, walkSteps } from "./walk";
 
 /** A bundle error: v3's shape, with v4's codes. */
 export type BundleValidationError = Omit<ValidationError, "code"> & {
@@ -71,6 +71,27 @@ export function bundleNodeIds(bundle: Pick<AnyAgentBundle, "workflows">): Set<st
 }
 
 /**
+ * Skill model (2026-11-10, review): each skill step's skill id (no `@version`) by step id, in a
+ * bundle's workflows (v3 or v4): with `bundleNodeIds`, a step that kept its id but changed its
+ * skill counts as new (`ProcessValidationContext.existingStepSkills`).
+ */
+export function bundleStepSkills(bundle: Pick<AnyAgentBundle, "workflows">): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion === 4) {
+      walkSteps(w.workflow, ({ step }) => {
+        if (step.kind === "skill") out.set(step.id, parseSkillRef(step.skill).id);
+      });
+    } else {
+      walkV3Steps(w.workflow, ({ step }) => {
+        if (step.kind === "skill") out.set(step.id, parseSkillRef(step.skill).id);
+      });
+    }
+  }
+  return out;
+}
+
+/**
  * Validates a bundle that may hold v4 processes. All v3: `validateBundle`, unchanged. Schema
  * errors inside one workflow are reported by that workflow's own validator (so they name its
  * step and field); the other checks need a parsed bundle.
@@ -82,6 +103,8 @@ export function validateAnyBundle(
     Pick<ProcessValidationContext, "actions"> & {
       /** Skill model (2026-11-10): the node ids of the version this one was made from. */
       existingStepIds?: ReadonlySet<string>;
+      /** Skill model (2026-11-10, review): each skill step's skill id in that version. */
+      existingStepSkills?: ReadonlyMap<string, string>;
     } = {},
 ): AnyBundleValidationResult {
   const v3 = AgentBundle.safeParse(input);

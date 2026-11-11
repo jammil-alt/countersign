@@ -7,9 +7,12 @@ import type { ToolSpec } from "../schemas/tool";
 import { definitionModelErrors, definitionSkillErrors } from "../workflow/validate";
 import {
   newSkillVersionProblems,
+  newStepSkillReason,
   retiredSkillReason,
   SKILL_KIND_LABEL,
+  skillIsWriter,
   skillKind,
+  skillWriteTools,
   toolLookup,
 } from "./kind";
 import { effectiveModel, recommendedModel } from "./model";
@@ -756,6 +759,60 @@ describe("moving a step to another version", () => {
     expect(codes(new Set())).toContain("skill_retired");
     expect(codes(new Set(["m"]))).not.toContain("skill_retired");
     expect(codes()).not.toContain("skill_retired");
+  });
+
+  it("counts a step that kept its id but changed its skill as new (review)", () => {
+    const agentMode = { ...v1, id: "custom:act", mode: "agent" as const, model: undefined };
+    const swapped = Process.parse({
+      ...process,
+      steps: process.steps.map((s) => (s.id === "m" ? { ...s, skill: "custom:act@1" } : s)),
+    });
+    const codes = (skills: Map<string, string>) =>
+      validateProcess(swapped, {
+        skills: { "custom:act@1": agentMode },
+        existingStepIds: new Set(["m"]),
+        existingStepSkills: skills,
+      }).errors.map((e) => e.code);
+    expect(codes(new Map([["m", "custom:match"]]))).toContain("skill_retired");
+    // The same skill at another version is the same step.
+    expect(codes(new Map([["m", "custom:act"]]))).not.toContain("skill_retired");
+  });
+
+  it("refuses a skill that writes in a new step, built-ins too, never in one already there", () => {
+    const reader = {
+      ...v1,
+      id: "materials.read-quote",
+      tools: ["docs.read"],
+    };
+    const quote = Process.parse({
+      ...process,
+      steps: process.steps.map((s) => (s.id === "m" ? { ...s, skill: "materials.read-quote" } : s)),
+    });
+    const tools = {
+      "docs.read": spec("docs.read", {
+        sideEffect: "internal",
+        verb: "create",
+        usesModel: "reads the document with a model",
+      }),
+    };
+    const errors = (existing?: Set<string>) =>
+      validateProcess(quote, {
+        skills: { "materials.read-quote": reader },
+        tools,
+        ...(existing ? { existingStepIds: existing } : {}),
+      }).errors.filter((e) => e.code === "skill_retired");
+    expect(errors(new Set()).map((e) => [e.stepId, e.message])).toEqual([
+      [
+        "m",
+        'Skills never write: "docs.read" changes something. Use the skill that only reads, then a write step.',
+      ],
+    ]);
+    expect(errors(new Set(["m"]))).toEqual([]);
+    expect(errors()).toEqual([]);
+    expect(skillWriteTools(reader, toolLookup(tools))).toEqual(["docs.read"]);
+    expect(skillIsWriter(v1, toolLookup(tools))).toBe(false);
+    expect(newStepSkillReason(reader, toolLookup(tools))).toMatch(/Skills never write/);
+    expect(newStepSkillReason(v1, toolLookup(tools))).toBeNull();
   });
 });
 

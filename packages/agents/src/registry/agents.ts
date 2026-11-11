@@ -354,9 +354,17 @@ export async function validateForPublish(
   // R8: a bundle that holds v4 processes is validated as one (core's `validateAnyBundle`, which
   // validates an all-v3 bundle exactly as `validateBundle` does).
   const existing = options.previous ? processes.bundleNodeIds(options.previous) : undefined;
+  // Review: a step that kept its id but changed its skill is new too.
+  const existingSkills = options.previous
+    ? processes.bundleStepSkills(options.previous)
+    : undefined;
   const validate = holdsProcess(bundle)
     ? (b: unknown, c: Parameters<typeof validateBundle>[1]) =>
-        processes.validateAnyBundle(b, { ...c, ...(existing ? { existingStepIds: existing } : {}) })
+        processes.validateAnyBundle(b, {
+          ...c,
+          ...(existing ? { existingStepIds: existing } : {}),
+          ...(existingSkills ? { existingStepSkills: existingSkills } : {}),
+        })
     : validateBundle;
   const result = validate(bundle, {
     skills: { ...used.skills, ...skills },
@@ -459,7 +467,17 @@ export async function parentBundle(
  */
 export async function publish(
   tx: Tx,
-  input: { agentId: string; versionId: string; actorId?: string | null; ctx: RegistryContext },
+  input: {
+    agentId: string;
+    versionId: string;
+    actorId?: string | null;
+    ctx: RegistryContext;
+    /**
+     * Review: the bundle whose steps count as already there, in place of the parent's. A rollback
+     * passes the version it copies: every step in it was published before, so none is new.
+     */
+    existingFrom?: AnyAgentBundle;
+  },
 ): Promise<AgentVersionRow> {
   const row = await lockAgent(tx, input.agentId);
   const v = await getVersion(tx, input.versionId);
@@ -469,7 +487,7 @@ export async function publish(
     throw new AgentsError("invalid_state", "it was discarded: restore it before publishing");
   }
   const errors = await validateForPublish(tx, row, v.bundle, input.ctx, {
-    previous: await parentBundle(tx, v),
+    previous: input.existingFrom ?? (await parentBundle(tx, v)),
   });
   if (errors.length > 0) {
     throw new AgentsError("invalid_bundle", `v${v.version} does not validate`, errors);
@@ -527,11 +545,15 @@ export async function rollback(
     releaseNote: target.releaseNote,
     basedOnTemplateVersionId: target.basedOnTemplateVersionId,
   });
+  // DECISION (review): a rollback restores a version that was published: its steps are checked as
+  // that version's, never as new against the version it replaces (a retired or a writing skill in
+  // it keeps running, invariant 3).
   return publish(tx, {
     agentId: row.id,
     versionId: copy.id,
     actorId: input.actorId ?? null,
     ctx: input.ctx,
+    existingFrom: parseVersionBundle(target.bundle),
   });
 }
 

@@ -22,7 +22,7 @@ import type { AgentMode } from "../schemas/permissions";
 import type { Rules } from "../schemas/rules";
 import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
 import type { Trigger, Step as V3Step } from "../schemas/workflow";
-import { retiredSkillReason } from "../skills/kind";
+import { retiredSkillReason, skillWriteTools, toolLookup } from "../skills/kind";
 import { collectRefs, hasTemplate, singleRef } from "../template/template";
 import {
   automationOutputSchema,
@@ -209,6 +209,12 @@ export interface ProcessValidationContext extends TypingContext {
    * (`rules_then_ai`, agent mode). Absent: no step counts as new (stored versions, templates).
    */
   existingStepIds?: ReadonlySet<string>;
+  /**
+   * Skill model (2026-11-10, review): the skill id (without its `@version`) of each skill step of
+   * the version this one was made from. With `existingStepIds`, a step whose skill id changed
+   * counts as new too, so swapping an existing step's skill can't get around the new-step checks.
+   */
+  existingStepSkills?: ReadonlyMap<string, string>;
   /**
    * Skill model (2026-11-10): what a client agent's action write steps resolve from at publish:
    * its bound connectors and the channels `channelFor` resolves for it (its own, else the
@@ -1136,6 +1142,17 @@ function checkToolStep(
   checkFixed(c, step.id, step.input, tool.fixedInputs);
 }
 
+/**
+ * Whether a skill step is new in this version: its id isn't in the version it was made from, or
+ * (when the caller passes each step's skill) it was there with another skill. Without
+ * `existingStepIds` no step is new (stored versions, templates).
+ */
+function newSkillStep(ctx: ProcessValidationContext, stepId: string, skillId: string): boolean {
+  if (!ctx.existingStepIds) return false;
+  if (!ctx.existingStepIds.has(stepId)) return true;
+  return ctx.existingStepSkills !== undefined && ctx.existingStepSkills.get(stepId) !== skillId;
+}
+
 function checkSkillStep(c: Checker, step: Extract<Step, { kind: "skill" }>, scope: ProcessScope) {
   const { ctx } = c;
   checkRefs(c, step.id, step.input, ["input"], scope);
@@ -1157,9 +1174,24 @@ function checkSkillStep(c: Checker, step: Extract<Step, { kind: "skill" }>, scop
   // with new steps in their seeded versions; they are left off the builder's palette instead, and
   // their split into AI skills and write steps is a later stream's.
   const retired = skill ? retiredSkillReason(skill) : null;
-  const operatorSkill = parseSkillRef(step.skill).id.startsWith("custom:");
-  if (retired && operatorSkill && ctx.existingStepIds && !ctx.existingStepIds.has(step.id)) {
+  const skillId = parseSkillRef(step.skill).id;
+  const operatorSkill = skillId.startsWith("custom:");
+  const isNew = newSkillStep(ctx, step.id, skillId);
+  if (retired && operatorSkill && isNew) {
     c.add(step.id, "skill", "skill_retired", retired);
+  }
+  // Skill model (2026-11-10, review): skills never write, built-ins included. A skill whose own
+  // tools or reads change something (`materials.read-quote` and `bookkeeping.read-statement` call
+  // `docs.read`, which records a reading) is refused in a new step; steps already using it keep
+  // running (invariant 3), and the split's replacement only reads.
+  const writes = skill && isNew && ctx.tools ? skillWriteTools(skill, toolLookup(ctx.tools)) : [];
+  if (!retired && writes.length > 0) {
+    c.add(
+      step.id,
+      "skill",
+      "skill_retired",
+      `Skills never write: "${writes[0]}" changes something. Use the skill that only reads, then a write step.`,
+    );
   }
   checkStepModel(c, step, skill);
   // A built-in skill's own fixed inputs, and (until R2) a skill whose model could call a tool that

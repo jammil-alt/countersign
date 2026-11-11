@@ -80,6 +80,50 @@ export function retiredSkillReason(def: Pick<SkillDefinition, "mode" | "method">
 }
 
 /**
+ * The tools a skill calls or reads that change something (`sideEffect` other than "none"). Skills
+ * never write ("skills think, tools act"): a skill with any is not offered for a new step.
+ */
+export function skillWriteTools(
+  def: Pick<SkillDefinition, "handler" | "tools" | "reads">,
+  tools?: SkillToolLookup,
+): string[] {
+  if (!tools) return [];
+  return [...new Set([...skillTools(def), ...(def.reads ?? [])])].filter((id) => {
+    const t = tools(id);
+    return t !== undefined && t.sideEffect !== "none";
+  });
+}
+
+/**
+ * Whether a skill calls or reads a tool that writes (`skillWriteTools`), our own records included.
+ * (Not v3's `skillWrites`, which lists only the external tools a skill reference may call.)
+ */
+export function skillIsWriter(
+  def: Pick<SkillDefinition, "handler" | "tools" | "reads">,
+  tools?: SkillToolLookup,
+): boolean {
+  return skillWriteTools(def, tools).length > 0;
+}
+
+/**
+ * Why a skill isn't offered for a new step, in plain words; null when it is: a retired kind
+ * (`retiredSkillReason`), or a skill that writes (`skillIsWriter`). A tool wrapper is not covered
+ * here (`isToolWrapper`): its tool is offered as a step instead.
+ */
+export function newStepSkillReason(
+  def: Pick<SkillDefinition, "mode" | "method" | "handler" | "tools" | "reads">,
+  tools?: SkillToolLookup,
+): string | null {
+  const retired = retiredSkillReason(def);
+  if (retired) return retired;
+  const writes = skillWriteTools(def, tools);
+  if (writes.length > 0) {
+    return `Skills never write: this one changes something through "${writes[0]}". Use the skill that only reads, then a write step.`;
+  }
+  return null;
+}
+
+/**
  * What a new skill version breaks of the skill model, in plain words (empty: none). Checked when
  * a version is saved, never on a stored one. `tools` checks that a skill never writes.
  */
