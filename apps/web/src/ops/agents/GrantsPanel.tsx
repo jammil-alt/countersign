@@ -47,7 +47,11 @@ export function GrantsPanel({
   /** The agent's client, to turn human release on (none: shown read-only). */
   clientId?: string | null;
 }) {
-  const grants = useApi(apiRoutes.opsAgentGrants, { params: { id: agentId } });
+  const grants = useApi(apiRoutes.opsAgentGrants, {
+    params: { id: agentId },
+    // Vault and second-factor answers are never stored (docs/audit-plan.md 1.2).
+    cache: "none",
+  });
   return (
     <Card className="p-5" testId="agent-grants">
       <SectionLabel>What it may do</SectionLabel>
@@ -302,7 +306,13 @@ function ReleaseOps({
   const [open, setOpen] = useState(false);
   const people = useApi(
     apiRoutes.opsRelease,
-    open && clientId ? { params: { clientId, connectionId: grant.connectionId } } : null,
+    open && clientId
+      ? {
+          params: { clientId, connectionId: grant.connectionId },
+          // A vault item's release setting is never stored (docs/audit-plan.md 1.2).
+          cache: "none",
+        }
+      : null,
   );
   const [personId, setPersonId] = useState("");
   const [channel, setChannel] = useState<"sms" | "email">("email");
@@ -406,7 +416,7 @@ function ReleaseOps({
               disabled={!person || action.busy}
               onClick={() => void turnOn()}
             >
-              Turn on
+              {action.busy ? "Turning on…" : "Turn on"}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
               Cancel

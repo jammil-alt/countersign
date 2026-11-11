@@ -1,0 +1,26 @@
+fresh  Home                   api   7  sql  107  paint   452  settled   818  repeated: GET /api/overview x2
+fresh  Inbox                  api   8  sql   83  paint   308  settled   649 
+fresh  Runs                   api   5  sql   55  paint   280  settled   584  repeated: GET /api/overview x2
+fresh  Run page               api   7  sql   79  paint   284  settled   608 
+fresh  Agent                  api  11  sql  149  paint   324  settled   789 
+fresh  Agent runs tab         api   7  sql  104  paint   280  settled   590 
+fresh  Agent access tab       api   8  sql  126  paint   292  settled   605 
+fresh  Accounts               api   6  sql   69  paint   320  settled   520 
+fresh  Contacts               api   6  sql   64  paint   276  settled   495 
+fresh  Records                api   4  sql   43  paint   284  settled   487 
+fresh  Settings               api   4  sql   38  paint   308  settled   505 
+fresh  Settings team          api   6  sql   54  paint   324  settled   549 
+fresh  Sloan                  api   6  sql   59  paint   284  settled   601  repeated: GET /api/overview x2
+move   Home                   api   5  sql   93  paint     -  settled   227  repeated: GET /api/overview x2
+move   Inbox                  api   6  sql   69  paint     -  settled   234 
+move   Runs                   api   3  sql   41  paint     -  settled   215  repeated: GET /api/overview x2
+move   Run page               api   5  sql   65  paint     -  settled   230 
+move   Agent                  api   9  sql  135  paint     -  settled   338 
+move   Agent runs tab         api   2  sql   24  paint     -  settled   129 
+move   Agent access tab       api   3  sql   46  paint     -  settled   113 
+move   Accounts               api   4  sql   55  paint     -  settled   113 
+move   Contacts               api   4  sql   50  paint     -  settled   115 
+move   Records                api   2  sql   29  paint     -  settled   126 
+move   Settings               api   2  sql   24  paint     -  settled   117 
+move   Settings team          api   4  sql   40  paint     -  settled   116 
+move   Sloan                  api   5  sql   59  paint     -  settled   562  repeated: GET /api/overview x3

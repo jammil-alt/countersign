@@ -4,11 +4,11 @@
 // list's own filter, shown back as chips. Runs per day draw from the same filter. Polls while a
 // run on the list is still going. Its columns sort, and a whole row opens its run.
 import { type AskChip, RUN_STARTED_BY, type RunStartedBy, shortRunId } from "@countersign/core";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
-import { useApi, useApiClient } from "../../api/useApi";
+import { type ApiOptions, useApi, useApiClient } from "../../api/useApi";
 import type { PlainKey, Translate } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
 import { StatusFilter } from "../../inbox/StatusFilter";
@@ -21,7 +21,9 @@ import { Icon } from "../../ui/icons";
 import { Loaded, Page } from "../../ui/page";
 import { Button, Card, cx, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
 import { useRowLink } from "../../ui/rows";
+import { SkeletonBlock, SkeletonRows } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
+import { useRememberRuns } from "../known";
 import { PORTAL_PATHS } from "../paths";
 import { runChip, runOpen, runState, runStateWords, workedMs } from "../status";
 import { RunsPerDayChart, TookCell } from "./runsParts";
@@ -104,9 +106,6 @@ export function PortalRunsScreen() {
         ...(agent ? { agents: agent } : {}),
         ...(startedBy ? { startedBy } : {}),
       };
-  const runs = useApi(apiRoutes.portalRuns, { query });
-  usePoll(runs.reload, runs.data?.runs.some((r) => runOpen(r)) ?? false, 5_000, runs.loading);
-
   async function ask(e: FormEvent) {
     e.preventDefault();
     const text = question.trim();
@@ -250,27 +249,60 @@ export function PortalRunsScreen() {
         </div>
       )}
 
-      <Loaded state={runs}>
-        {(data) => (
-          <>
-            {data.perDay && data.perDay.length > 0 ? (
-              <RunsPerDayChart days={data.perDay} testId="portal-runs-per-day" />
-            ) : null}
-            {data.runs.length === 0 ? (
-              <EmptyState>
-                {asked || tab !== "all" || agent || startedBy
-                  ? t("runsPage.noMatch")
-                  : t("runs.empty")}
-              </EmptyState>
-            ) : (
-              <Card>
-                <RunsTable runs={data.runs} />
-              </Card>
-            )}
-          </>
-        )}
-      </Loaded>
+      {/* DECISION (review of #259): the list is keyed by its agent filter, so a change of agent
+          starts it afresh and shows nothing of the last agent's rows (docs/plan.md §1.91, 5);
+          within one agent, a change of status or start keeps the rows, dimmed (1.8). */}
+      <RunsResults
+        key={JSON.stringify(query.agents ?? null)}
+        query={query}
+        filtered={!!(asked || tab !== "all" || agent || startedBy)}
+      />
     </Page>
+  );
+}
+
+type RunsQuery = NonNullable<ApiOptions<typeof apiRoutes.portalRuns>["query"]>;
+
+/** The list for one agent filter: its own rows kept, dimmed, while a status or start filter loads. */
+function RunsResults({ query, filtered }: { query: RunsQuery; filtered: boolean }) {
+  const { t } = useI18n();
+  const runs = useApi(apiRoutes.portalRuns, { query, keep: true });
+  usePoll(runs.reload, runs.data?.runs.some((r) => runOpen(r)) ?? false, 5_000, runs.loading);
+  useRememberRuns(runs.data?.runs);
+  const queryKey = JSON.stringify(query);
+  const answered = useRef(queryKey);
+  if (runs.data && !runs.refreshing) answered.current = queryKey;
+  // Dimmed only while another filter's rows show, never for a refresh behind the same rows.
+  const dimmed = runs.refreshing === true && answered.current !== queryKey;
+  return (
+    <Loaded
+      state={runs}
+      skeleton={
+        <div className="flex flex-col gap-6">
+          <SkeletonBlock height={160} />
+          <SkeletonRows rows={8} columns={5} />
+        </div>
+      }
+    >
+      {(data) => (
+        <div
+          className={cx("flex flex-col gap-8 transition-opacity", dimmed && "opacity-60")}
+          aria-busy={dimmed || undefined}
+          data-testid="portal-runs-results"
+        >
+          {data.perDay && data.perDay.length > 0 ? (
+            <RunsPerDayChart days={data.perDay} testId="portal-runs-per-day" />
+          ) : null}
+          {data.runs.length === 0 ? (
+            <EmptyState>{filtered ? t("runsPage.noMatch") : t("runs.empty")}</EmptyState>
+          ) : (
+            <Card>
+              <RunsTable runs={data.runs} />
+            </Card>
+          )}
+        </div>
+      )}
+    </Loaded>
   );
 }
 
@@ -362,6 +394,8 @@ function RunsTable({ runs }: { runs: Run[] }) {
               <tr
                 key={r.id}
                 data-testid={`portal-run-row-${r.id}`}
+                // The whole row asks for its run on hover (1.6), as its link does.
+                data-intent={`${PORTAL_PATHS.runs}/${r.id}`}
                 {...rowLink(`${PORTAL_PATHS.runs}/${r.id}`)}
               >
                 <td>

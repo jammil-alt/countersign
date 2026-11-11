@@ -212,6 +212,25 @@ describe("VersionsTab", () => {
     expect(onChanged).toHaveBeenCalled();
   });
 
+  it("keeps the rollback's confirm, saying Rolling back, until the server answers (1.8)", async () => {
+    let answer: (v: unknown) => void = () => {};
+    const { user } = setup({
+      routes: {
+        [`POST /api/ops/agents/${ID}/rollback`]: () => new Promise((r) => (answer = r)),
+        [`GET /api/ops/agents/${ID}/versions/${versionId(4)}/diff`]: () => diffReply(1),
+      },
+    });
+    await user.click(screen.getByTestId("agent-version-1-rollback"));
+    await user.click(screen.getByTestId("agent-version-1-rollback-confirm"));
+    const confirm = screen.getByTestId("agent-version-1-rollback-confirm");
+    expect(confirm).toHaveTextContent("Rolling back…");
+    expect(confirm).toBeDisabled();
+    expect(screen.queryByTestId("agent-versions-done")).toBeNull();
+    answer({ version: v(4, "live", { changeNote: "Rollback to v1" }) });
+    expect(await screen.findByTestId("agent-versions-done")).toHaveTextContent("Rolled back");
+    expect(screen.queryByTestId("agent-version-1-rollback-confirm")).toBeNull();
+  });
+
   it("on a client agent, shows its template base, the update waiting and its customizations", async () => {
     const forked = {
       ...AGENT_SUMMARY,

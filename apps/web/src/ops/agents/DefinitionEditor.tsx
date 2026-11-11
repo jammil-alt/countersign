@@ -606,7 +606,7 @@ function AgentSkillSection({
 }) {
   const ai = option.kind === "ai";
   const params = option.parameters ?? [];
-  const models = useApi(apiRoutes.opsModels, ai ? {} : null);
+  const models = useApi(apiRoutes.opsModels, ai ? { life: "catalog" } : null);
   if (!ai && params.length === 0) return null;
   const options = models.data?.models ?? [];
   const recommended = option.recommendedModel?.id ?? null;

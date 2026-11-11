@@ -76,7 +76,7 @@ export function RunsOnRow({
     agentSkill,
     step: own,
   });
-  const models = useApi(apiRoutes.opsModels, runs ? {} : null);
+  const models = useApi(apiRoutes.opsModels, runs ? { life: "catalog" } : null);
   if (!runs) {
     const inside = modelTools(skill, toolLookup(ctx.tools ?? {}));
     return (

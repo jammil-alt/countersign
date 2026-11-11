@@ -87,7 +87,7 @@ export function AddTriggerForm({
   const [cron, setCron] = useState("0 8 * * 1-5");
   const [tz, setTz] = useState("");
   const [skipHolidays, setSkipHolidays] = useState(false);
-  const events = useApi(apiRoutes.opsEventCatalog, kind === "event" ? {} : null);
+  const events = useApi(apiRoutes.opsEventCatalog, kind === "event" ? { life: "catalog" } : null);
   const [event, setEvent] = useState("");
   const [canRun, setCanRun] = useState(false);
   const [runLabel, setRunLabel] = useState("");
