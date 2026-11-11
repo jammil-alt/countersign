@@ -5,7 +5,7 @@
 // DECISION (owner, 2026-11-08): the pack ships the agent set as templates, unlike Materials; until
 // those milestones there are none, so enabling it installs nothing.
 
-import { PackManifest } from "@countersign/core";
+import { lazyParse, PackManifest } from "@countersign/core";
 import type { Db } from "@countersign/db";
 import { AREA as AGENTS } from "./agents";
 import { AREA as CONTENT } from "./content";
@@ -66,7 +66,9 @@ export const MARKETING_ACTIONS: Readonly<Record<string, PackActionHandler>> = me
 
 export const MARKETING_SKILLS = all((a) => a.SKILLS);
 
-export const marketingManifest: PackManifest = PackManifest.parse({
+// Worker startup (2026-11-11): parsed on first read (core `lazyParse`); apps/api's
+// packs.test.ts parses every registered pack's manifest.
+export const marketingManifest: PackManifest = lazyParse(PackManifest, () => ({
   id: PACK_ID,
   name: "Marketing",
   version: "0.1.0",
@@ -78,7 +80,7 @@ export const marketingManifest: PackManifest = PackManifest.parse({
   skills: MARKETING_SKILLS,
   templates: all((a) => a.TEMPLATES),
   screens: all((a) => a.SCREENS),
-});
+}));
 
 /** What the platform's public inbound route hands a pack (`POST /api/in/:pack/:tenantId/:target`). */
 export interface PackInboundRequest {

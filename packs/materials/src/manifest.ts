@@ -3,7 +3,13 @@
 // DECISION: no agent templates (owner, 2026-11-07; docs/plan.md §1.63): agents on the Purchasing
 // area, Pia included, are built by the operator in the Agent lab from these tools and skills.
 
-import { PackManifest, type SkillDefinition } from "@countersign/core";
+import {
+  lazy,
+  lazyObjects,
+  lazyParse,
+  PackManifest,
+  type SkillDefinition,
+} from "@countersign/core";
 import { MATCH_CONFIDENCE_AUTO } from "./catalog/settings";
 import { MATERIALS_EVENTS } from "./events";
 import { PACK_ID } from "./ids";
@@ -28,10 +34,12 @@ export { PACK_ID };
 // Skill model (2026-11-10): the split's reads and its Save to records write.
 const ALL_TOOLS: readonly PackTool[] = [...MATERIALS_TOOLS, ...PURCHASING_TOOLS, ...SPLIT_TOOLS];
 
+// Worker startup (2026-11-11): a tool's schema is read on first use (core `lazy`); the list below
+// goes through `lazyObjects`.
 const schema = (tool: PackTool, key: "input" | "output") =>
-  tool.spec[key] as Record<string, unknown>;
+  lazy(() => tool.spec[key] as Record<string, unknown>);
 
-export const MATERIALS_SKILLS: readonly SkillDefinition[] = [
+export const MATERIALS_SKILLS: readonly SkillDefinition[] = lazyObjects([
   {
     schemaVersion: 1,
     id: "materials.match-lines",
@@ -211,9 +219,11 @@ export const MATERIALS_SKILLS: readonly SkillDefinition[] = [
   ...SPLIT_SKILLS,
   // Read a vendor's quote and Choose items to merge: AI skills that write nothing.
   ...REPLACEMENT_SKILLS,
-];
+]);
 
-export const materialsManifest: PackManifest = PackManifest.parse({
+// Worker startup (2026-11-11): parsed on first read (core `lazyParse`); apps/api's
+// packs.test.ts parses every registered pack's manifest.
+export const materialsManifest: PackManifest = lazyParse(PackManifest, () => ({
   id: PACK_ID,
   name: "Materials",
   // P-5: 0.2.0 adds purchase requests, quotes, purchase orders and prices from QuickBooks bills.
@@ -243,7 +253,7 @@ export const materialsManifest: PackManifest = PackManifest.parse({
       roles: ["client_admin", "client_user"],
     },
   ],
-});
+}));
 
 /** The pack's tool handlers by id, for apps/api to adapt into the tool registry. */
 export const MATERIALS_HANDLERS: Readonly<Record<string, PackTool>> = Object.fromEntries(

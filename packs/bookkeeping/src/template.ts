@@ -14,6 +14,9 @@ import {
   type AgentBundleInput,
   AnyAgentBundle,
   type AnyAgentBundleInput,
+  lazy,
+  lazyObject,
+  once,
   processes,
 } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
@@ -120,10 +123,12 @@ function askAboutLeftovers(prefix: string, rec: string) {
   };
 }
 
-const bundle = (b: AgentBundleInput): AgentBundle => AgentBundle.parse(b);
+// Worker startup (2026-11-11): each version is parsed on first read (core `lazy`, `once`), not
+// when the module loads.
+const bundle = (b: AgentBundleInput): AgentBundle => lazy(() => AgentBundle.parse(b));
 
 /** v1, as first installed: never changed (invariant 3). */
-const BOOKKEEPER_V1 = {
+const BOOKKEEPER_V1 = lazyObject({
   slug: BOOKKEEPER_SLUG,
   bundle: bundle({
     schemaVersion: 1,
@@ -519,7 +524,7 @@ const BOOKKEEPER_V1 = {
       },
     ],
   }),
-};
+});
 
 // ── R9 (docs/plan.md §1.86, §9): v2, each workflow as a v4 process ──────────────────────────────
 //
@@ -641,359 +646,362 @@ const v1Entry = (slug: string) => {
   return { slug: w.slug, name: w.name, enabled: w.enabled };
 };
 
-const BOOKKEEPER_V2 = AnyAgentBundle.parse({
-  ...BOOKKEEPER_V1.bundle,
-  workflows: [
-    {
-      ...v1Entry("daily"),
-      workflow: {
-        schemaVersion: 4,
-        triggers: [
-          { id: "trg-morning", on: { type: "schedule", cron: "43 6 * * *" } },
-          { id: "trg-now", on: manual() },
-        ],
-        steps: [
-          {
-            id: "import",
-            name: "Read the bank feed",
-            kind: "write",
-            tool: "bookkeeping.transactions.import",
-            input: {},
-            client: { visible: true, label: "Read the bank feed" },
-          },
-          {
-            id: "settle",
-            name: "Match, pair transfers and apply rules",
-            kind: "write",
-            tool: "bookkeeping.transactions.settle",
-            input: {},
-            client: { visible: true, label: "Matched what was already in QuickBooks" },
-          },
-          {
-            id: "any-open",
-            name: "Anything left to categorize?",
-            kind: "if",
-            paths: [
-              {
-                id: "categorize-path",
-                name: "Some",
-                when: {
-                  match: "all",
-                  rules: [{ field: "{{steps.settle.output.openCount}}", op: ">", value: 0 }],
-                },
-                steps: [
-                  {
-                    id: "categorize",
-                    name: "Propose accounts",
-                    kind: "skill",
-                    skill: "bookkeeping.categorize",
-                    input: { bankTxnIds: "{{steps.settle.output.open}}" },
-                    client: { visible: true, label: "Proposed accounts for new transactions" },
+const bookkeeperV2 = once(() => AnyAgentBundle.parse(bookkeeperV2Input()));
+
+const bookkeeperV2Input = () =>
+  ({
+    ...BOOKKEEPER_V1.bundle,
+    workflows: [
+      {
+        ...v1Entry("daily"),
+        workflow: {
+          schemaVersion: 4,
+          triggers: [
+            { id: "trg-morning", on: { type: "schedule", cron: "43 6 * * *" } },
+            { id: "trg-now", on: manual() },
+          ],
+          steps: [
+            {
+              id: "import",
+              name: "Read the bank feed",
+              kind: "write",
+              tool: "bookkeeping.transactions.import",
+              input: {},
+              client: { visible: true, label: "Read the bank feed" },
+            },
+            {
+              id: "settle",
+              name: "Match, pair transfers and apply rules",
+              kind: "write",
+              tool: "bookkeeping.transactions.settle",
+              input: {},
+              client: { visible: true, label: "Matched what was already in QuickBooks" },
+            },
+            {
+              id: "any-open",
+              name: "Anything left to categorize?",
+              kind: "if",
+              paths: [
+                {
+                  id: "categorize-path",
+                  name: "Some",
+                  when: {
+                    match: "all",
+                    rules: [{ field: "{{steps.settle.output.openCount}}", op: ">", value: 0 }],
                   },
-                ],
-              },
-            ],
-            otherwise: { id: "none-open", steps: [] },
-          },
-          {
-            id: "review",
-            name: "What waits for a person",
-            kind: "read",
-            tool: "bookkeeping.transactions.to-review",
-            input: {},
-            client: { visible: false },
-          },
-          {
-            id: "any-review",
-            name: "Anything to ask?",
-            kind: "if",
-            paths: [
-              {
-                id: "ask-path",
-                name: "Some",
-                when: {
-                  match: "all",
-                  rules: [{ field: "{{steps.review.output.count}}", op: ">", value: 0 }],
+                  steps: [
+                    {
+                      id: "categorize",
+                      name: "Propose accounts",
+                      kind: "skill",
+                      skill: "bookkeeping.categorize",
+                      input: { bankTxnIds: "{{steps.settle.output.open}}" },
+                      client: { visible: true, label: "Proposed accounts for new transactions" },
+                    },
+                  ],
                 },
-                steps: [
-                  {
-                    id: "ask-bookings",
-                    name: "Ask about the transactions we weren't sure of",
-                    kind: "person",
-                    mode: "ask",
-                    assignee: "client_admin",
-                    title: "Which accounts do these bank transactions go to?",
-                    payload: {
-                      review: BOOKINGS_REVIEW,
-                      bankTxnIds: "{{steps.review.output.bankTxnIds}}",
-                    },
-                    deadline: {
-                      after: "3 days",
-                      hours: "clock",
-                      remind: ["1 day"],
-                      ifNoAnswer: "proceed",
-                    },
-                    channel: "inbox",
-                    onReject: "stop",
-                    client: {
-                      visible: true,
-                      label: "Asked you about transactions we weren't sure of",
-                    },
+              ],
+              otherwise: { id: "none-open", steps: [] },
+            },
+            {
+              id: "review",
+              name: "What waits for a person",
+              kind: "read",
+              tool: "bookkeeping.transactions.to-review",
+              input: {},
+              client: { visible: false },
+            },
+            {
+              id: "any-review",
+              name: "Anything to ask?",
+              kind: "if",
+              paths: [
+                {
+                  id: "ask-path",
+                  name: "Some",
+                  when: {
+                    match: "all",
+                    rules: [{ field: "{{steps.review.output.count}}", op: ">", value: 0 }],
                   },
-                ],
-              },
-            ],
-            otherwise: { id: "none-review", steps: [] },
-          },
-          {
-            id: "ready",
-            name: "Approved and ready to book",
-            kind: "read",
-            tool: "bookkeeping.bookings.ready",
-            input: {},
-            client: { visible: false },
-          },
-          {
-            id: "post",
-            name: "Book each in QuickBooks",
-            kind: "for_each",
-            over: "{{steps.ready.output.bookings}}",
-            concurrency: 1,
-            steps: [
-              {
-                id: "qin",
-                name: "Lay out the QuickBooks record",
-                kind: "read",
-                tool: "bookkeeping.booking.qbo-input",
-                input: { bookingId: "{{item.bookingId}}" },
-                client: { visible: false },
-              },
-              {
-                id: "which",
-                name: "Which record",
-                kind: "if",
-                paths: [
-                  writeV2("purchase", BANKING_TOOLS.purchaseCreate, [
-                    "accountId",
-                    "paymentType",
-                    "credit",
-                    "vendorId",
-                    "txnDate",
-                    "currency",
-                    "expectedTotal",
-                    "privateNote",
-                    "reference",
-                    "lines",
-                  ]),
-                  writeV2("deposit", BANKING_TOOLS.depositCreate, [
-                    "accountId",
-                    "txnDate",
-                    "currency",
-                    "expectedTotal",
-                    "privateNote",
-                    "reference",
-                    "lines",
-                  ]),
-                  writeV2("transfer", BANKING_TOOLS.transferCreate, [
-                    "fromAccountId",
-                    "toAccountId",
-                    "amount",
-                    "txnDate",
-                    "privateNote",
-                    "reference",
-                  ]),
-                ],
-                otherwise: { id: "post-none", steps: [] },
-              },
-            ],
-          },
-        ],
+                  steps: [
+                    {
+                      id: "ask-bookings",
+                      name: "Ask about the transactions we weren't sure of",
+                      kind: "person",
+                      mode: "ask",
+                      assignee: "client_admin",
+                      title: "Which accounts do these bank transactions go to?",
+                      payload: {
+                        review: BOOKINGS_REVIEW,
+                        bankTxnIds: "{{steps.review.output.bankTxnIds}}",
+                      },
+                      deadline: {
+                        after: "3 days",
+                        hours: "clock",
+                        remind: ["1 day"],
+                        ifNoAnswer: "proceed",
+                      },
+                      channel: "inbox",
+                      onReject: "stop",
+                      client: {
+                        visible: true,
+                        label: "Asked you about transactions we weren't sure of",
+                      },
+                    },
+                  ],
+                },
+              ],
+              otherwise: { id: "none-review", steps: [] },
+            },
+            {
+              id: "ready",
+              name: "Approved and ready to book",
+              kind: "read",
+              tool: "bookkeeping.bookings.ready",
+              input: {},
+              client: { visible: false },
+            },
+            {
+              id: "post",
+              name: "Book each in QuickBooks",
+              kind: "for_each",
+              over: "{{steps.ready.output.bookings}}",
+              concurrency: 1,
+              steps: [
+                {
+                  id: "qin",
+                  name: "Lay out the QuickBooks record",
+                  kind: "read",
+                  tool: "bookkeeping.booking.qbo-input",
+                  input: { bookingId: "{{item.bookingId}}" },
+                  client: { visible: false },
+                },
+                {
+                  id: "which",
+                  name: "Which record",
+                  kind: "if",
+                  paths: [
+                    writeV2("purchase", BANKING_TOOLS.purchaseCreate, [
+                      "accountId",
+                      "paymentType",
+                      "credit",
+                      "vendorId",
+                      "txnDate",
+                      "currency",
+                      "expectedTotal",
+                      "privateNote",
+                      "reference",
+                      "lines",
+                    ]),
+                    writeV2("deposit", BANKING_TOOLS.depositCreate, [
+                      "accountId",
+                      "txnDate",
+                      "currency",
+                      "expectedTotal",
+                      "privateNote",
+                      "reference",
+                      "lines",
+                    ]),
+                    writeV2("transfer", BANKING_TOOLS.transferCreate, [
+                      "fromAccountId",
+                      "toAccountId",
+                      "amount",
+                      "txnDate",
+                      "privateNote",
+                      "reference",
+                    ]),
+                  ],
+                  otherwise: { id: "post-none", steps: [] },
+                },
+              ],
+            },
+          ],
+        },
       },
-    },
-    {
-      ...v1Entry("reconcile-monthly"),
-      workflow: {
-        schemaVersion: 4,
-        triggers: [
-          { id: "trg-month", on: { type: "schedule", cron: "19 7 3 * *" } },
-          { id: "trg-month-now", on: manual() },
-        ],
-        steps: [
-          {
-            id: "balances",
-            name: "Read the bank feed's balances",
-            kind: "read",
-            tool: BANKFEED_TOOLS.accounts,
-            input: {},
-            client: { visible: false },
-          },
-          {
-            id: "pairs",
-            name: "Accounts to reconcile",
-            kind: "read",
-            tool: "bookkeeping.reconcile.pairs",
-            input: { accounts: "{{steps.balances.output.accounts}}" },
-            client: { visible: false },
-          },
-          {
-            id: "each-account",
-            name: "Reconcile each account",
-            kind: "for_each",
-            over: "{{steps.pairs.output.pairs}}",
-            concurrency: 1,
-            steps: [
-              {
-                id: "register",
-                name: "Read the account in QuickBooks",
-                kind: "read",
-                tool: QBO_REGISTER_TOOL,
-                input: {
-                  accountId: "{{item.ledgerExternalId}}",
-                  startDate: "{{steps.pairs.output.periodStart}}",
-                  endDate: "{{steps.pairs.output.asOf}}",
-                },
-                client: { visible: false },
-              },
-              {
-                id: "rec",
-                name: "Compare the bank with QuickBooks",
-                kind: "write",
-                tool: "bookkeeping.reconcile",
-                input: {
-                  a: {
-                    source: "bank_feed",
-                    accountLinkId: "{{item.accountLinkId}}",
-                    current: "{{item.current}}",
-                    label: "{{item.name}}",
+      {
+        ...v1Entry("reconcile-monthly"),
+        workflow: {
+          schemaVersion: 4,
+          triggers: [
+            { id: "trg-month", on: { type: "schedule", cron: "19 7 3 * *" } },
+            { id: "trg-month-now", on: manual() },
+          ],
+          steps: [
+            {
+              id: "balances",
+              name: "Read the bank feed's balances",
+              kind: "read",
+              tool: BANKFEED_TOOLS.accounts,
+              input: {},
+              client: { visible: false },
+            },
+            {
+              id: "pairs",
+              name: "Accounts to reconcile",
+              kind: "read",
+              tool: "bookkeeping.reconcile.pairs",
+              input: { accounts: "{{steps.balances.output.accounts}}" },
+              client: { visible: false },
+            },
+            {
+              id: "each-account",
+              name: "Reconcile each account",
+              kind: "for_each",
+              over: "{{steps.pairs.output.pairs}}",
+              concurrency: 1,
+              steps: [
+                {
+                  id: "register",
+                  name: "Read the account in QuickBooks",
+                  kind: "read",
+                  tool: QBO_REGISTER_TOOL,
+                  input: {
+                    accountId: "{{item.ledgerExternalId}}",
+                    startDate: "{{steps.pairs.output.periodStart}}",
+                    endDate: "{{steps.pairs.output.asOf}}",
                   },
-                  b: {
-                    source: "given",
-                    label: "QuickBooks",
-                    opening: "{{steps.register.output.opening}}",
-                    closing: "{{steps.register.output.closing}}",
-                    items: "{{steps.register.output.items}}",
-                  },
-                  periodStart: "{{steps.pairs.output.periodStart}}",
-                  asOf: "{{steps.pairs.output.asOf}}",
-                  pairKey: "{{item.pairKey}}",
+                  client: { visible: false },
                 },
-                client: { visible: true, label: "Reconciled a bank account with QuickBooks" },
-              },
-              askAboutLeftoversV2("month", "rec"),
-            ],
-          },
-        ],
+                {
+                  id: "rec",
+                  name: "Compare the bank with QuickBooks",
+                  kind: "write",
+                  tool: "bookkeeping.reconcile",
+                  input: {
+                    a: {
+                      source: "bank_feed",
+                      accountLinkId: "{{item.accountLinkId}}",
+                      current: "{{item.current}}",
+                      label: "{{item.name}}",
+                    },
+                    b: {
+                      source: "given",
+                      label: "QuickBooks",
+                      opening: "{{steps.register.output.opening}}",
+                      closing: "{{steps.register.output.closing}}",
+                      items: "{{steps.register.output.items}}",
+                    },
+                    periodStart: "{{steps.pairs.output.periodStart}}",
+                    asOf: "{{steps.pairs.output.asOf}}",
+                    pairKey: "{{item.pairKey}}",
+                  },
+                  client: { visible: true, label: "Reconciled a bank account with QuickBooks" },
+                },
+                askAboutLeftoversV2("month", "rec"),
+              ],
+            },
+          ],
+        },
       },
-    },
-    {
-      ...v1Entry("payout-check"),
-      workflow: {
-        schemaVersion: 4,
-        triggers: [
-          {
-            id: "trg-payout",
-            on: {
-              type: "manual",
+      {
+        ...v1Entry("payout-check"),
+        workflow: {
+          schemaVersion: 4,
+          triggers: [
+            {
+              id: "trg-payout",
+              on: {
+                type: "manual",
+                input: {
+                  type: "object",
+                  properties: {
+                    bankTxnId: { type: "string", format: "uuid" },
+                    documentId: { type: "string", format: "uuid" },
+                  },
+                  required: ["bankTxnId", "documentId"],
+                  additionalProperties: false,
+                },
+                client: { canRun: true },
+              },
+            },
+          ],
+          steps: [
+            {
+              id: "statement",
+              name: "Read the payout statement",
+              kind: "skill",
+              skill: "bookkeeping.read-statement",
+              input: { documentId: "{{trigger.documentId}}" },
+              client: { visible: true, label: "Read the payout statement" },
+            },
+            {
+              id: "payout",
+              name: "Compare the deposit with the statement",
+              kind: "write",
+              tool: "bookkeeping.reconcile",
               input: {
-                type: "object",
-                properties: {
-                  bankTxnId: { type: "string", format: "uuid" },
-                  documentId: { type: "string", format: "uuid" },
+                a: {
+                  source: "records",
+                  label: "Bank deposit",
+                  bankTxnIds: ["{{trigger.bankTxnId}}"],
                 },
-                required: ["bankTxnId", "documentId"],
-                additionalProperties: false,
+                b: {
+                  source: "given",
+                  label: "{{steps.statement.output.label}}",
+                  opening: "{{steps.statement.output.opening}}",
+                  closing: "{{steps.statement.output.closing}}",
+                  items: "{{steps.statement.output.items}}",
+                },
               },
-              client: { canRun: true },
+              client: { visible: true, label: "Compared a deposit with its payout statement" },
             },
-          },
-        ],
-        steps: [
-          {
-            id: "statement",
-            name: "Read the payout statement",
-            kind: "skill",
-            skill: "bookkeeping.read-statement",
-            input: { documentId: "{{trigger.documentId}}" },
-            client: { visible: true, label: "Read the payout statement" },
-          },
-          {
-            id: "payout",
-            name: "Compare the deposit with the statement",
-            kind: "write",
-            tool: "bookkeeping.reconcile",
-            input: {
-              a: {
-                source: "records",
-                label: "Bank deposit",
-                bankTxnIds: ["{{trigger.bankTxnId}}"],
-              },
-              b: {
-                source: "given",
-                label: "{{steps.statement.output.label}}",
-                opening: "{{steps.statement.output.opening}}",
-                closing: "{{steps.statement.output.closing}}",
-                items: "{{steps.statement.output.items}}",
-              },
-            },
-            client: { visible: true, label: "Compared a deposit with its payout statement" },
-          },
-          askAboutLeftoversV2("payout", "payout"),
-        ],
+            askAboutLeftoversV2("payout", "payout"),
+          ],
+        },
       },
-    },
-    {
-      ...v1Entry("accounts"),
-      workflow: {
-        schemaVersion: 4,
-        triggers: [{ id: "trg-monday", on: { type: "schedule", cron: "13 9 * * 1" } }],
-        steps: [
-          {
-            id: "unclear",
-            name: "Accounts nobody has described",
-            kind: "read",
-            tool: "bookkeeping.accounts.unclear",
-            input: { limit: 5 },
-            client: { visible: false },
-          },
-          {
-            id: "any-unclear",
-            name: "Anything to ask?",
-            kind: "if",
-            paths: [
-              {
-                id: "ask-accounts-path",
-                name: "Some",
-                when: {
-                  match: "all",
-                  rules: [{ field: "{{steps.unclear.output.count}}", op: ">", value: 0 }],
-                },
-                steps: [
-                  {
-                    id: "ask-accounts",
-                    name: "Ask what these accounts are for",
-                    kind: "person",
-                    mode: "ask",
-                    assignee: "client_admin",
-                    title: "What do you use these accounts for?",
-                    payload: {
-                      review: ACCOUNT_QUESTIONS,
-                      ledgerAccountIds: "{{steps.unclear.output.ledgerAccountIds}}",
-                    },
-                    deadline: { after: "7 days", hours: "clock", ifNoAnswer: "proceed" },
-                    channel: "inbox",
-                    onReject: "stop",
-                    client: { visible: true, label: "Asked what some accounts are for" },
+      {
+        ...v1Entry("accounts"),
+        workflow: {
+          schemaVersion: 4,
+          triggers: [{ id: "trg-monday", on: { type: "schedule", cron: "13 9 * * 1" } }],
+          steps: [
+            {
+              id: "unclear",
+              name: "Accounts nobody has described",
+              kind: "read",
+              tool: "bookkeeping.accounts.unclear",
+              input: { limit: 5 },
+              client: { visible: false },
+            },
+            {
+              id: "any-unclear",
+              name: "Anything to ask?",
+              kind: "if",
+              paths: [
+                {
+                  id: "ask-accounts-path",
+                  name: "Some",
+                  when: {
+                    match: "all",
+                    rules: [{ field: "{{steps.unclear.output.count}}", op: ">", value: 0 }],
                   },
-                ],
-              },
-            ],
-            otherwise: { id: "none-unclear", steps: [] },
-          },
-        ],
+                  steps: [
+                    {
+                      id: "ask-accounts",
+                      name: "Ask what these accounts are for",
+                      kind: "person",
+                      mode: "ask",
+                      assignee: "client_admin",
+                      title: "What do you use these accounts for?",
+                      payload: {
+                        review: ACCOUNT_QUESTIONS,
+                        ledgerAccountIds: "{{steps.unclear.output.ledgerAccountIds}}",
+                      },
+                      deadline: { after: "7 days", hours: "clock", ifNoAnswer: "proceed" },
+                      channel: "inbox",
+                      onReject: "stop",
+                      client: { visible: true, label: "Asked what some accounts are for" },
+                    },
+                  ],
+                },
+              ],
+              otherwise: { id: "none-unclear", steps: [] },
+            },
+          ],
+        },
       },
-    },
-  ],
-} satisfies AnyAgentBundleInput);
+    ],
+  }) satisfies AnyAgentBundleInput;
 
 // ── Skill model (2026-11-10; docs/plan.md §1.86 "Skill model"): v3 ──────────────────────────────
 //
@@ -1011,7 +1019,7 @@ const BOOKKEEPER_V2 = AnyAgentBundle.parse({
 
 /** v2's processes with the split's steps in place of the skills that acted on their own. */
 function v3Workflows(): AnyAgentBundle["workflows"] {
-  return BOOKKEEPER_V2.workflows.map((w) => {
+  return bookkeeperV2().workflows.map((w) => {
     if (w.workflow.schemaVersion !== 4) throw new Error(`${w.slug}: not v4`);
     const steps = processes.replaceSteps(w.workflow.steps, (step) => {
       if (step.kind !== "skill") return undefined;
@@ -1032,32 +1040,40 @@ function v3Workflows(): AnyAgentBundle["workflows"] {
   });
 }
 
-const V3_WORKFLOWS = v3Workflows();
+const V3_WORKFLOWS = once(v3Workflows);
 
-const BOOKKEEPER_V3 = AnyAgentBundle.parse({
-  ...BOOKKEEPER_V2,
-  definition: {
-    ...BOOKKEEPER_V2.definition,
-    skills: [
-      { skill: PROPOSE_ACCOUNTS_SKILL.id, settings: {} },
-      { skill: SUGGEST_MATCHES_SKILL.id, settings: {} },
-      {
-        skill: READ_STATEMENT_DOCUMENT_SKILL.id,
-        settings: {},
-        model: { id: DEFAULT_MODELS.classification },
-      },
-    ],
-    extraTools: [
-      ...new Set([
-        ...processes.processTools(
-          V3_WORKFLOWS.map((w) => w.workflow as Extract<typeof w.workflow, { schemaVersion: 4 }>),
-        ),
-        ...BOOKKEEPER_V2.definition.extraTools,
-      ]),
-    ],
-  },
-  workflows: V3_WORKFLOWS,
-} satisfies AnyAgentBundleInput);
+const bookkeeperV3 = once(() =>
+  AnyAgentBundle.parse({
+    ...bookkeeperV2(),
+    definition: {
+      ...bookkeeperV2().definition,
+      skills: [
+        { skill: PROPOSE_ACCOUNTS_SKILL.id, settings: {} },
+        { skill: SUGGEST_MATCHES_SKILL.id, settings: {} },
+        {
+          skill: READ_STATEMENT_DOCUMENT_SKILL.id,
+          settings: {},
+          model: { id: DEFAULT_MODELS.classification },
+        },
+      ],
+      extraTools: [
+        ...new Set([
+          ...processes.processTools(
+            V3_WORKFLOWS().map(
+              (w) => w.workflow as Extract<typeof w.workflow, { schemaVersion: 4 }>,
+            ),
+          ),
+          ...bookkeeperV2().definition.extraTools,
+        ]),
+      ],
+    },
+    workflows: V3_WORKFLOWS(),
+  } satisfies AnyAgentBundleInput),
+);
 
 /** The Bookkeeper: v1 as first installed, then v2 (v4 processes) and v3 (the skill model). */
-export const BOOKKEEPER_TEMPLATE = { ...BOOKKEEPER_V1, versions: [BOOKKEEPER_V2, BOOKKEEPER_V3] };
+export const BOOKKEEPER_TEMPLATE = lazyObject({
+  slug: BOOKKEEPER_V1.slug,
+  bundle: lazy(() => BOOKKEEPER_V1.bundle),
+  versions: lazy(() => [bookkeeperV2(), bookkeeperV3()]),
+});

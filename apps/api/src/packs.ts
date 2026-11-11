@@ -5,7 +5,7 @@
 
 import type { InternalTool, PackToolSource } from "@countersign/agents";
 import type { ContentStore } from "@countersign/connectors";
-import type { PackManifest, ToolSpec } from "@countersign/core";
+import { lazy, lazyObjects, type PackManifest, type ToolSpec } from "@countersign/core";
 import type { Db, Tx } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import {
@@ -145,7 +145,9 @@ export function screenReports(manifest: PackManifest): string[] {
 }
 
 /** Every pack the deployment registers. Enabling one for a client is a `tenant_pack` row. */
-export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
+// Worker startup (2026-11-11): the portal's reports are read from the manifests on first use
+// (core `lazy`), so loading this module doesn't parse them.
+export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = lazyObjects([
   {
     manifest: materialsManifest,
     handlers: MATERIALS_HANDLERS,
@@ -167,7 +169,7 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
     // M50 (docs/plan.md §1.78): the client's portal reads the reports its screens name (website,
     // search, weekly report); the rest (visits, content, claims, the forum watch) stay in the
     // back office.
-    portalReports: screenReports(marketingManifest),
+    portalReports: lazy(() => screenReports(marketingManifest)),
   },
   // B-3 (docs/plan.md §1.79): the Bookkeeping area, bank and card transactions into QuickBooks.
   // The portal reads its Bank transactions report; the chart of accounts and the rules are the
@@ -179,9 +181,9 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
     reviews: BOOKKEEPING_REVIEWS,
     actions: BOOKKEEPING_ACTIONS,
     nightly: BOOKKEEPING_NIGHTLY,
-    portalReports: screenReports(bookkeepingManifest),
+    portalReports: lazy(() => screenReports(bookkeepingManifest)),
   },
-];
+]);
 
 /**
  * The model transport a pack tool's call gets: the run's, only for a tool that declares

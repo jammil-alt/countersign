@@ -16,6 +16,9 @@ import {
   type AgentBundleInput,
   AnyAgentBundle,
   type AnyAgentBundleInput,
+  copyLazy,
+  lazy,
+  lazyObject,
   type processes,
 } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
@@ -90,7 +93,9 @@ function definition(def: {
 }
 
 /** A bundle with the schema's defaults filled in, as a template version stores it. */
-const bundle = (b: AgentBundleInput): AgentBundle => AgentBundle.parse(b);
+// Worker startup (2026-11-11): each version is parsed on first read (core `lazy`), not at load:
+// the templates below are `lazyObject`s, and withV2 and withV3 add their versions the same way.
+const bundle = (b: AgentBundleInput): AgentBundle => lazy(() => AgentBundle.parse(b));
 
 const manual = (properties: Record<string, unknown> = {}) => ({
   type: "manual" as const,
@@ -98,7 +103,7 @@ const manual = (properties: Record<string, unknown> = {}) => ({
   client: { canRun: false },
 });
 
-export const SITE_REPORT: PackTemplate = {
+export const SITE_REPORT: PackTemplate = lazyObject({
   slug: "site-report",
   bundle: bundle({
     schemaVersion: 1,
@@ -138,9 +143,9 @@ export const SITE_REPORT: PackTemplate = {
       },
     ],
   }),
-};
+});
 
-export const TITLES: PackTemplate = {
+export const TITLES: PackTemplate = lazyObject({
   slug: "titles",
   bundle: bundle({
     schemaVersion: 1,
@@ -211,9 +216,9 @@ export const TITLES: PackTemplate = {
       },
     ],
   }),
-};
+});
 
-export const ARTICLE_DRAFTS: PackTemplate = {
+export const ARTICLE_DRAFTS: PackTemplate = lazyObject({
   slug: "article-drafts",
   bundle: bundle({
     schemaVersion: 1,
@@ -256,9 +261,9 @@ export const ARTICLE_DRAFTS: PackTemplate = {
       },
     ],
   }),
-};
+});
 
-export const FORUM_WATCH: PackTemplate = {
+export const FORUM_WATCH: PackTemplate = lazyObject({
   slug: "forum-watch",
   bundle: bundle({
     schemaVersion: 1,
@@ -303,9 +308,9 @@ export const FORUM_WATCH: PackTemplate = {
       },
     ],
   }),
-};
+});
 
-export const SOCIAL_POSTS: PackTemplate = {
+export const SOCIAL_POSTS: PackTemplate = lazyObject({
   slug: "social-posts",
   bundle: bundle({
     schemaVersion: 1,
@@ -370,7 +375,7 @@ export const SOCIAL_POSTS: PackTemplate = {
       },
     ],
   }),
-};
+});
 
 // ── R9 (docs/plan.md §1.86, §9): each template's v2, its workflow as a v4 process ───────────────
 //
@@ -395,17 +400,20 @@ type ProcessInput = Extract<
 
 /** The template with a v2: v1's bundle with its one workflow as `process`. */
 function withV2(t: PackTemplate, process: ProcessInput): PackTemplate {
-  const [w, ...more] = t.bundle.workflows;
-  if (!w || more.length > 0) throw new Error(`${t.slug}: one workflow expected`);
-  return {
-    ...t,
-    versions: [
-      AnyAgentBundle.parse({
-        ...t.bundle,
-        workflows: [{ ...w, workflow: process }],
-      } satisfies AnyAgentBundleInput),
-    ],
-  };
+  return lazyObject(
+    Object.assign(copyLazy(t), {
+      versions: lazy(() => {
+        const [w, ...more] = t.bundle.workflows;
+        if (!w || more.length > 0) throw new Error(`${t.slug}: one workflow expected`);
+        return [
+          AnyAgentBundle.parse({
+            ...t.bundle,
+            workflows: [{ ...w, workflow: process }],
+          } satisfies AnyAgentBundleInput),
+        ];
+      }),
+    }),
+  );
 }
 
 const SITE_REPORT_V2 = withV2(SITE_REPORT, {
@@ -575,25 +583,30 @@ function withV3(
   process: ProcessInput,
   name?: string,
 ): PackTemplate {
-  const v2 = t.versions?.[0];
-  if (!v2 || (t.versions?.length ?? 0) !== 1) throw new Error(`${t.slug}: v2 expected`);
-  const [w] = v2.workflows;
-  if (!w) throw new Error(`${t.slug}: one workflow expected`);
-  return {
-    ...t,
-    versions: [
-      v2,
-      AnyAgentBundle.parse({
-        ...v2,
-        definition: {
-          ...v2.definition,
-          skills: def.skills.map((skill) => ({ skill, settings: {} })),
-          extraTools: def.extraTools,
-        },
-        workflows: [{ ...w, ...(name ? { name } : {}), workflow: process }],
-      } satisfies AnyAgentBundleInput),
-    ],
-  };
+  // The process's triggers are v2's, read when v3 is (`lazy` below).
+  lazyObject(process);
+  return lazyObject(
+    Object.assign(copyLazy(t), {
+      versions: lazy(() => {
+        const v2 = t.versions?.[0];
+        if (!v2 || (t.versions?.length ?? 0) !== 1) throw new Error(`${t.slug}: v2 expected`);
+        const [w] = v2.workflows;
+        if (!w) throw new Error(`${t.slug}: one workflow expected`);
+        return [
+          v2,
+          AnyAgentBundle.parse({
+            ...v2,
+            definition: {
+              ...v2.definition,
+              skills: def.skills.map((skill) => ({ skill, settings: {} })),
+              extraTools: def.extraTools,
+            },
+            workflows: [{ ...w, ...(name ? { name } : {}), workflow: process }],
+          } satisfies AnyAgentBundleInput),
+        ];
+      }),
+    }),
+  );
 }
 
 const v2Triggers = (t: PackTemplate) => {
@@ -608,7 +621,11 @@ const SITE_REPORT_V3 = withV3(
     skills: [WRITE_REPORT_SKILL.id],
     extraTools: [SITE_FIGURES_TOOL, REPORT_RECORD_TOOL],
   },
-  { schemaVersion: 4, triggers: v2Triggers(SITE_REPORT_V2), steps: weeklyReportSteps() },
+  {
+    schemaVersion: 4,
+    triggers: lazy(() => v2Triggers(SITE_REPORT_V2)),
+    steps: weeklyReportSteps(),
+  },
 );
 
 const TITLES_V3 = withV3(
@@ -619,7 +636,7 @@ const TITLES_V3 = withV3(
   },
   {
     schemaVersion: 4,
-    triggers: v2Triggers(TITLES_V2),
+    triggers: lazy(() => v2Triggers(TITLES_V2)),
     steps: [
       {
         id: "search",
@@ -680,7 +697,7 @@ const ARTICLE_DRAFTS_V3 = withV3(
   { skills: [WRITE_ARTICLE_SKILL.id], extraTools: [ARTICLE_DRAFT_TOOL] },
   {
     schemaVersion: 4,
-    triggers: v2Triggers(ARTICLE_DRAFTS_V2).filter((t) => t.id === "trg-topic"),
+    triggers: lazy(() => v2Triggers(ARTICLE_DRAFTS_V2).filter((t) => t.id === "trg-topic")),
     steps: [
       {
         id: "write-article",
@@ -813,7 +830,7 @@ const FORUM_WATCH_V3 = withV3(
   },
   {
     schemaVersion: 4,
-    triggers: v2Triggers(FORUM_WATCH_V2),
+    triggers: lazy(() => v2Triggers(FORUM_WATCH_V2)),
     steps: [
       {
         id: "pasted",
@@ -925,7 +942,7 @@ const SOCIAL_POSTS_V3 = withV3(
   },
   {
     schemaVersion: 4,
-    triggers: v2Triggers(SOCIAL_POSTS_V2),
+    triggers: lazy(() => v2Triggers(SOCIAL_POSTS_V2)),
     steps: [
       {
         id: "about",
