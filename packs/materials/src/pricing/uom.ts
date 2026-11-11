@@ -154,3 +154,46 @@ export function convert(
   }
   return { ok: false, reason: `no conversion rule from ${unit} to ${standardUom}` };
 }
+
+// ── A line's conversion, vendor-neutral (docs/plan.md §1.88) ─────────────────────────────────────
+
+/** Attributes that are a vendor's packaging, not the item: they live on `vendor_item`. */
+export const PACKAGING_ATTRIBUTES: readonly string[] = ["pack_size"];
+
+/** A master item's attributes without a vendor's packaging (its pack size). */
+export function withoutPackaging(attributes: Readonly<Record<string, unknown>>): Attributes {
+  const out: Attributes = {};
+  for (const [k, v] of Object.entries(attributes)) {
+    if (!PACKAGING_ATTRIBUTES.includes(k) && typeof v === "string") out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * How many standard units one of a line's units is: from the line's own attributes over its
+ * master item's (never the master item's pack size: that was one vendor's box), else from the
+ * vendor item's own conversion when the line is in the vendor item's unit.
+ */
+// DECISION (review of vendor/web3, finding 4): a master item is vendor-neutral, so its pack size
+// never converts another vendor's line (a box of 50 is not a box of 100). The line's own words
+// ("100/BOX") convert; else the vendor item's `std_per_vendor_uom` for that unit; else there is no
+// rule and no price per standard unit (invariant 7).
+export function convertLine(
+  uomRaw: string | null | undefined,
+  standardUom: StandardUom,
+  line: Readonly<Attributes>,
+  item: Readonly<Record<string, unknown>>,
+  vendorItem?: { vendorUom: string | null; stdPerVendorUom: string | null } | null,
+): Conversion {
+  const conv = convert(uomRaw, standardUom, { ...withoutPackaging(item), ...line });
+  if (conv.ok || !vendorItem?.stdPerVendorUom) return conv;
+  const unit = uomRaw?.trim() ? (readUom(uomRaw) ?? uomRaw.trim().toLowerCase()) : null;
+  const factor = dec(vendorItem.stdPerVendorUom);
+  if (unit === null || unit !== vendorItem.vendorUom || !factor.greaterThan(0)) return conv;
+  return {
+    ok: true,
+    factor,
+    rule: `${unit} = ${factor.toString()} ${standardUom} (the vendor's item)`,
+    assumed: false,
+  };
+}

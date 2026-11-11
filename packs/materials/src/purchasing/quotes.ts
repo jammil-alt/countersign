@@ -32,8 +32,8 @@ import {
 import {
   priceForVendorItem,
   recordLastPrice,
+  recordLeadTime,
   resolveVendorItem,
-  updateVendorItem,
 } from "../vendor/store";
 // P-9
 import { vendorContacts } from "./contacts";
@@ -718,7 +718,7 @@ export function quotedLineProblems(
  */
 // DECISION: the vendor item is the vendor's for that master item in the quoted unit, else its
 // only one; the price reaches it only in its own unit (`priceForVendorItem`). A quote states the
-// vendor's lead time now, so it replaces the one kept.
+// vendor's lead time as of its date: an older quote never replaces a newer one (`recordLeadTime`).
 async function quoteToVendorItem(
   tx: Tx,
   tenantId: string,
@@ -757,8 +757,8 @@ async function quoteToVendorItem(
       currency: q.currency,
     });
   }
-  if (q.leadTimeDays !== null && q.leadTimeDays !== vi.leadTimeDays) {
-    await updateVendorItem(tx, tenantId, vi.id, { leadTimeDays: q.leadTimeDays });
+  if (q.leadTimeDays !== null) {
+    await recordLeadTime(tx, tenantId, vi.id, q.leadTimeDays, q.on);
   }
 }
 

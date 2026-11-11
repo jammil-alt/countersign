@@ -21,9 +21,15 @@ import { parseLine } from "../catalog/keys";
 import { latestMatch, liveItem } from "../catalog/store";
 import { materialsEventRegistry } from "../events";
 import { priceObservation } from "../schema";
-import { cleanSku, recordLastPrice, resolveVendorItem } from "../vendor/store";
+import {
+  cleanSku,
+  priceForVendorItem,
+  recordLastPrice,
+  resolveVendorItem,
+  type VendorItemRow,
+} from "../vendor/store";
 import type { Observation } from "./rules";
-import { convert, readUom } from "./uom";
+import { convertLine, readUom } from "./uom";
 
 export class PricingError extends Error {
   override name = "PricingError";
@@ -140,8 +146,8 @@ export async function loadPricedDocument(
 interface Draft extends Observation {
   line: LinePrice;
   ext: Record<string, unknown>;
-  // §1.88: what finds the line's vendor item, and its price in the vendor's unit.
-  sku: string | null;
+  // §1.88: the line's vendor item (none: the catalog has none yet), and its price in its unit.
+  vendorItem: VendorItemRow | null;
   vendorUom: string;
   unitPriceRaw: string;
 }
@@ -185,11 +191,27 @@ export async function priceLines(
       continue;
     }
     const withItem = { ...base, catalogItemId: item.id, catalogItemName: item.canonicalName };
-    const attributes = {
-      ...(item.attributes as Record<string, string>),
-      ...parseLine(l.rawDescription).attributes,
-    };
-    const conv = convert(l.uomRaw, item.standardUom, attributes);
+    const sku = cleanSku(l.vendorSku);
+    const vendorUom = l.uomRaw?.trim()
+      ? (readUom(l.uomRaw) ?? l.uomRaw.trim().toLowerCase())
+      : item.standardUom;
+    // §1.88: the vendor item the price is for, when the vendor catalog has it (this step makes
+    // none: Register item does). A master item's pack size never converts a line; the line's own
+    // words do, else the vendor item's conversion for its unit (`convertLine`).
+    const found = await resolveVendorItem(tx, tenantId, {
+      vendorId: doc.vendorId,
+      catalogItemId: item.id,
+      sku,
+      vendorUom,
+    });
+    const vi = found && found.catalogItemId === item.id ? found : null;
+    const conv = convertLine(
+      l.uomRaw,
+      item.standardUom,
+      parseLine(l.rawDescription).attributes,
+      item.attributes as Record<string, unknown>,
+      vi,
+    );
     if (!conv.ok) {
       out.push({ ...withItem, skipped: conv.reason });
       continue;
@@ -234,10 +256,8 @@ export async function priceLines(
         landedUnitPriceStd: toNumeric(landed),
         freightShare: toNumeric(share),
       },
-      sku: cleanSku(l.vendorSku),
-      vendorUom: l.uomRaw?.trim()
-        ? (readUom(l.uomRaw) ?? l.uomRaw.trim().toLowerCase())
-        : item.standardUom,
+      vendorItem: vi,
+      vendorUom,
       unitPriceRaw: toNumeric(unitRaw),
     });
   }
@@ -284,15 +304,9 @@ export async function recordPrices(
           )
           .orderBy(desc(priceObservation.observedOn), desc(priceObservation.createdAt))
           .limit(1);
-        // §1.88: the vendor item the price is for, when the vendor catalog has it (this step
-        // makes none: Register item does); its last price follows, the newer date winning.
-        const vi = await resolveVendorItem(tx, ctx.tenantId, {
-          vendorId: d.vendorId,
-          catalogItemId: d.catalogItemId,
-          sku: d.sku,
-          vendorUom: d.vendorUom,
-        });
-        const viFits = vi && vi.catalogItemId === d.catalogItemId ? vi : null;
+        // §1.88: the vendor item the price is for (`priceLines`); its last price follows, the
+        // newer date winning.
+        const viFits = d.vendorItem;
         const [row] = await tx
           .insert(priceObservation)
           .values({
@@ -314,10 +328,21 @@ export async function recordPrices(
           .returning({ id: priceObservation.id });
         if (!row) continue;
         d.line.observationId = row.id;
-        if (viFits) {
+        // The last price is in the vendor item's own unit, never the line's when they differ
+        // (invariant 7): `priceForVendorItem` reaches it from the line's unit or per standard
+        // unit, else the last price is left as it was.
+        const last = viFits
+          ? priceForVendorItem(viFits, {
+              price: d.unitPriceRaw,
+              unit: d.vendorUom,
+              priceStd: d.unitPriceStd,
+              standardUom: d.standardUom,
+            })
+          : null;
+        if (viFits && last) {
           await recordLastPrice(tx, ctx.tenantId, viFits.id, {
-            price: d.unitPriceRaw,
-            priceStd: d.unitPriceStd,
+            price: last.price,
+            priceStd: last.priceStd,
             on: d.observedOn,
             source: "invoice",
             sourceId: d.docLineId ?? null,

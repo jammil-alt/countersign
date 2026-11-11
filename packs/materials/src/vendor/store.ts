@@ -5,12 +5,13 @@
 
 import { dec, toNumeric } from "@countersign/core";
 import { type Tx, vendor } from "@countersign/db";
-import { and, asc, desc, eq, isNotNull, isNull, ne, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, type SQL, sql } from "drizzle-orm";
 import { liveItem } from "../catalog/store";
 import {
   type Category,
   catalogItem,
   itemAlias,
+  priceObservation,
   type VendorPriceSource,
   vendorItem,
 } from "../schema";
@@ -381,6 +382,128 @@ export function priceForVendorItem(
     return { price: toNumeric(dec(p.priceStd).times(factor)), priceStd: toNumeric(p.priceStd) };
   }
   return null;
+}
+
+/**
+ * Sets the vendor item's lead time unless a newer one is kept: the date it was stated is kept in
+ * `ext.leadTimeOn`, and an older statement (a quote recorded late) never replaces a newer one.
+ */
+// DECISION (review of vendor/web3, finding 11): the lead time has its own date (`ext.leadTimeOn`,
+// no new column), since a quote may state a lead time without a price; on the same date, the
+// later wins, as the last price does.
+export async function recordLeadTime(
+  tx: Tx,
+  tenantId: string,
+  vendorItemId: string,
+  days: number,
+  on: string,
+): Promise<boolean> {
+  const rows = await tx
+    .update(vendorItem)
+    .set({
+      leadTimeDays: days,
+      updatedAt: new Date(),
+      ext: sql`${vendorItem.ext} || ${JSON.stringify({ leadTimeOn: on })}::jsonb`,
+    })
+    .where(
+      and(
+        eq(vendorItem.id, vendorItemId),
+        eq(vendorItem.tenantId, tenantId),
+        sql`coalesce(${vendorItem.ext} ->> 'leadTimeOn', '') <= ${on}`,
+      ),
+    )
+    .returning({ id: vendorItem.id });
+  return rows.length > 0;
+}
+
+/**
+ * A merge's vendor items (`mergeItems`): every vendor item of the merged master items moves to the
+ * one that stays, so a vendor's SKU keeps finding its item and the vendors stand side by side
+ * there. Run inside the merge's transaction.
+ */
+// DECISION (review of vendor/web3, finding 3): a moved vendor item loses `preferred` when the item
+// that stays already has a preferred one (one per master item), and forgets what it was embedded
+// from (its specs are now the other item's). A vendor item without a SKU that would collide with
+// the staying item's one for the same vendor and unit (`vendor_item_no_sku_key`) is folded into
+// it: its aliases and prices name the staying one, which takes its last price when newer, and it
+// is discontinued where it was (no DELETE grant; `ext.foldedInto` says where it went).
+export async function moveVendorItemsOnMerge(
+  tx: Tx,
+  tenantId: string,
+  fromIds: readonly string[],
+  intoId: string,
+): Promise<{ moved: string[]; folded: { id: string; into: string }[] }> {
+  const out = { moved: [] as string[], folded: [] as { id: string; into: string }[] };
+  if (fromIds.length === 0) return out;
+  const rows = await tx
+    .select()
+    .from(vendorItem)
+    .where(and(eq(vendorItem.tenantId, tenantId), inArray(vendorItem.catalogItemId, [...fromIds])))
+    .orderBy(asc(vendorItem.createdAt), asc(vendorItem.id));
+  if (rows.length === 0) return out;
+  const staying = await tx
+    .select()
+    .from(vendorItem)
+    .where(and(eq(vendorItem.tenantId, tenantId), eq(vendorItem.catalogItemId, intoId)));
+  let preferredTaken = staying.some((r) => r.preferred);
+  for (const r of rows) {
+    const twin =
+      r.sku === null
+        ? staying.find(
+            (s) =>
+              s.sku === null &&
+              s.vendorId === r.vendorId &&
+              (s.vendorUom ?? "") === (r.vendorUom ?? ""),
+          )
+        : undefined;
+    if (twin) {
+      await tx
+        .update(itemAlias)
+        .set({ vendorItemId: twin.id, updatedAt: new Date() })
+        .where(and(eq(itemAlias.tenantId, tenantId), eq(itemAlias.vendorItemId, r.id)));
+      await tx
+        .update(priceObservation)
+        .set({ vendorItemId: twin.id })
+        .where(
+          and(eq(priceObservation.tenantId, tenantId), eq(priceObservation.vendorItemId, r.id)),
+        );
+      if (r.lastPrice !== null && r.lastPriceOn !== null && r.lastPriceSource !== null) {
+        await recordLastPrice(tx, tenantId, twin.id, {
+          price: r.lastPrice,
+          priceStd: r.lastPriceStd,
+          on: r.lastPriceOn,
+          source: r.lastPriceSource,
+          sourceId: r.lastPriceSourceId,
+          currency: r.currency,
+        });
+      }
+      await tx
+        .update(vendorItem)
+        .set({
+          status: "discontinued",
+          preferred: false,
+          updatedAt: new Date(),
+          ext: sql`${vendorItem.ext} || ${JSON.stringify({ foldedInto: twin.id })}::jsonb`,
+        })
+        .where(and(eq(vendorItem.id, r.id), eq(vendorItem.tenantId, tenantId)));
+      out.folded.push({ id: r.id, into: twin.id });
+      continue;
+    }
+    const preferred = r.preferred && !preferredTaken;
+    if (preferred) preferredTaken = true;
+    await tx
+      .update(vendorItem)
+      .set({
+        catalogItemId: intoId,
+        preferred,
+        updatedAt: new Date(),
+        ext: sql`${vendorItem.ext} - 'embedding'`,
+      })
+      .where(and(eq(vendorItem.id, r.id), eq(vendorItem.tenantId, tenantId)));
+    staying.push({ ...r, catalogItemId: intoId, preferred });
+    out.moved.push(r.id);
+  }
+  return out;
 }
 
 /** Marks a vendor item the client's first choice for its master item; the others lose it. */

@@ -175,6 +175,8 @@ export async function createItem(
   tenantId: string,
   parsed: ParsedLine,
   by: Creator,
+  /** §1.88: a master item from the vendor path keeps no vendor's wording (`firstDescription`). */
+  options: { vendorNeutral?: boolean } = {},
 ): Promise<{ item: CatalogItemRow; created: boolean }> {
   const signature = keySignature(parsed.category, parsed.attributes);
   const [row] = await tx
@@ -189,7 +191,9 @@ export async function createItem(
       ...("agentVersionId" in by
         ? { createdByAgentVersionId: by.agentVersionId }
         : { createdByUserId: by.userId }),
-      ext: { parsedBy: parsed.parsedBy, firstDescription: parsed.normalized },
+      ext: options.vendorNeutral
+        ? { parsedBy: parsed.parsedBy }
+        : { parsedBy: parsed.parsedBy, firstDescription: parsed.normalized },
     })
     .onConflictDoNothing()
     .returning();

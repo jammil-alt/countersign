@@ -59,6 +59,19 @@ describe("the embedding template", () => {
     );
   });
 
+  it("never takes a grade or a fraction for a labelled price", () => {
+    // The EXT grade and a fraction after a price word stay whole.
+    expect(stripTerms("CDX PLYWOOD EXT 3/4 4X8")).toBe("CDX PLYWOOD EXT 3/4 4X8");
+    expect(stripTerms("BIRCH 3/4 4X8 TOTAL 5/8 EDGE")).toBe("BIRCH 3/4 4X8 TOTAL 5/8 EDGE");
+    expect(stripTerms("CDX EXT 1/2 PRICE 3/4")).toBe("CDX EXT 1/2 PRICE 3/4");
+    // A labelled price still goes, whole or with cents.
+    expect(stripTerms("CDX PLYWOOD EXT 3/4 4X8 PRICE: 41.20 TOTAL 1648")).toBe(
+      "CDX PLYWOOD EXT 3/4 4X8",
+    );
+    expect(stripTerms("OAK 4/4 EXT: $980.00 cost 12")).toBe("OAK 4/4");
+    expect(stripTerms("OAK 4/4 extended price $980.00")).toBe("OAK 4/4");
+  });
+
   it(`caps the text at ${EMBEDDING_TEXT_MAX_WORDS} words, cutting the description first`, () => {
     const long = Array.from({ length: 400 }, (_, i) => `w${i}`).join(" ");
     const text = embeddingText({

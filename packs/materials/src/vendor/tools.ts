@@ -15,13 +15,17 @@ import { importPriceList, readPriceList } from "./import";
 import {
   itemsToEmbed,
   lookupBySku,
+  MASTER_CANDIDATES,
   masterCandidates,
   matchVendor,
   newToVendorLines,
   openLineEmbeddingText,
   registerLines,
   similarForOpenLines,
+  VENDOR_CANDIDATES,
+  VENDOR_IDENTIFIERS,
   VENDOR_METHODS,
+  type VendorIdentifier,
   VendorMatchError,
   vendorAbbreviations,
   vendorItemsToEmbed,
@@ -48,6 +52,66 @@ const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, yyyy-mm-dd");
 export function nameSimilarityFrom(settings: Readonly<Record<string, unknown>>): number {
   const v = Number(settings.min_name_similarity);
   return Number.isFinite(v) && v > 0 && v <= 1 ? v : 1;
+}
+
+const IDENTIFIER_WORDS: Readonly<Record<string, VendorIdentifier>> = {
+  document: "document",
+  purchase: "document",
+  "tax id": "tax_id",
+  "email domain": "email_domain",
+  email: "email_domain",
+  domain: "email_domain",
+  name: "name",
+  names: "name",
+};
+
+/**
+ * `match_on` from the step's parameters: the identifiers Match vendor tries, written as words
+ * ("document, tax id, email domain, name"), in any order; absent or empty, all of them. A word it
+ * doesn't know fails the step in plain words rather than being skipped.
+ */
+// DECISION (review of vendor/web3, finding 1): the identifiers are one text parameter (the skill
+// model's parameter types have no list), comma-separated words; the order tried stays the code's
+// (`VENDOR_IDENTIFIERS`), because a purchase or a tax id is surer than a name whatever is listed.
+export function vendorIdentifiersFrom(
+  settings: Readonly<Record<string, unknown>>,
+): VendorIdentifier[] {
+  const raw = settings.match_on;
+  if (typeof raw !== "string" || raw.trim() === "") return [...VENDOR_IDENTIFIERS];
+  const out = new Set<VendorIdentifier>();
+  for (const part of raw.split(/[,;\n]/)) {
+    const word = part.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+    if (!word) continue;
+    const id = IDENTIFIER_WORDS[word];
+    if (!id) {
+      throw new VendorMatchError(
+        "bad_input",
+        `match_on: "${part.trim()}" isn't something Match vendor matches on; use document, tax id, email domain or name`,
+      );
+    }
+    out.add(id);
+  }
+  return VENDOR_IDENTIFIERS.filter((i) => out.has(i));
+}
+
+/** A shortlist size from the step's parameters: 1 to 10, else the default. */
+function shortlistSize(value: unknown, fallback: number): number {
+  const v = Number(value);
+  return Number.isInteger(v) && v >= 1 && v <= 10 ? v : fallback;
+}
+
+/**
+ * The shortlist sizes Match by SKU (vendor) hands on (its parameters): how many of the vendor's
+ * closest items an open line is shown with, and how many master items a line new to its vendor.
+ */
+export function shortlistFrom(settings: Readonly<Record<string, unknown>>): {
+  vendorItems: number;
+  masterItems: number;
+} {
+  return {
+    vendorItems: shortlistSize(settings.vendor_shortlist_size, VENDOR_CANDIDATES),
+    masterItems: shortlistSize(settings.master_shortlist_size, MASTER_CANDIDATES),
+  };
 }
 
 /**
@@ -105,7 +169,13 @@ export const vendorMatch = defineTool({
   output: VendorMatchOut,
   async run(input, ctx) {
     const m = await withTenant(ctx.db, ctx.tenantId, (tx) =>
-      matchVendor(tx, ctx.tenantId, input, nameSimilarityFrom(ctx.settings)),
+      matchVendor(
+        tx,
+        ctx.tenantId,
+        input,
+        nameSimilarityFrom(ctx.settings),
+        vendorIdentifiersFrom(ctx.settings),
+      ),
     );
     return {
       ...m,
@@ -139,12 +209,18 @@ export const vendorItemsLookup = defineTool({
     lines: z.array(LookedUp),
     known: z.array(KnownOut),
     openCount: z.number().int(),
+    /** The shortlist sizes the next reads take (the agent's parameters for this skill). */
+    shortlist: z.object({
+      vendorItems: z.number().int().min(1).max(10),
+      masterItems: z.number().int().min(1).max(10),
+    }),
     sources: z.array(z.string()),
   }),
   async run(input, ctx) {
     const r = await withTenant(ctx.db, ctx.tenantId, (tx) => lookupBySku(tx, ctx.tenantId, input));
     return {
       ...r,
+      shortlist: shortlistFrom(ctx.settings),
       sources: [
         input.documentId,
         ...r.known.flatMap((k) => [k.docLineId, ...(k.vendorItemId ? [k.vendorItemId] : [])]),
@@ -686,7 +762,7 @@ export const embeddingsWrite = defineTool({
   usesModel:
     "embeds master items' and vendor items' names for the search by meaning (OpenAI embeddings)",
   description:
-    "Makes the embeddings the semantic searches use, for the master items and vendor items given (those just registered), or for up to `missing` items that have none yet. An item already embedded from the same text is left as it is.",
+    "Makes the embeddings the semantic searches use, for the master items and vendor items given (those just registered), and for up to `missing` more of the client's items that have none yet (or are due again); with no ids, for up to `missing` such items. An item already embedded from the same text is left as it is.",
   sideEffect: "internal",
   verb: "update",
   summary: "Embedded {{embedded}} items",
@@ -722,13 +798,16 @@ export async function writeEmbeddings(
   },
 ) {
   const byIds = input.catalogItemIds !== undefined || input.vendorItemIds !== undefined;
-  const limit = input.missing ?? 500;
-  const todo = await withTenant(ctx.db, ctx.tenantId, async (tx) => ({
-    masters:
+  const limit = byIds ? 500 : (input.missing ?? 500);
+  // With ids and `missing`, up to `missing` more of the client's items that are due come along
+  // (the backlog: what the backfill made, what was embedded under another template).
+  const backlog = byIds ? (input.missing ?? 0) : 0;
+  const todo = await withTenant(ctx.db, ctx.tenantId, async (tx) => {
+    const masters =
       input.catalogItemIds?.length || !byIds
         ? await itemsToEmbed(tx, ctx.tenantId, byIds ? (input.catalogItemIds ?? []) : null, limit)
-        : [],
-    vendors:
+        : [];
+    const vendors =
       input.vendorItemIds?.length || !byIds
         ? await vendorItemsToEmbed(
             tx,
@@ -736,8 +815,25 @@ export async function writeEmbeddings(
             byIds ? (input.vendorItemIds ?? []) : null,
             limit,
           )
-        : [],
-  }));
+        : [];
+    if (backlog > 0) {
+      const seenMasters = new Set(masters.map((m) => m.id));
+      const seenVendors = new Set(vendors.map((v) => v.id));
+      const moreMasters = (await itemsToEmbed(tx, ctx.tenantId, null, backlog)).filter(
+        (m) => !seenMasters.has(m.id),
+      );
+      masters.push(...moreMasters);
+      const room = Math.max(0, backlog - moreMasters.length);
+      if (room > 0) {
+        vendors.push(
+          ...(await vendorItemsToEmbed(tx, ctx.tenantId, null, room)).filter(
+            (v) => !seenVendors.has(v.id),
+          ),
+        );
+      }
+    }
+    return { masters, vendors };
+  });
   const total = todo.masters.length + todo.vendors.length;
   // DECISION: a test run makes no embeddings (they cost, and the items it registered were rolled
   // back); it says how many it would have made.

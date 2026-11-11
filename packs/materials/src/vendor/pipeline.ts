@@ -56,12 +56,13 @@ import {
   recordMatch,
 } from "../catalog/store";
 import { materialsEventRegistry } from "../events";
-import { convert, readUom } from "../pricing/uom";
+import { convertLine, readUom, withoutPackaging } from "../pricing/uom";
 import { type Category, catalogItem, priceObservation, vendorItem } from "../schema";
-import { EMBEDDING_TEMPLATE, embeddingText } from "./embedding-text";
+import { EMBEDDING_TEMPLATE, embeddingText, stripTerms } from "./embedding-text";
 import {
   cleanSku,
   createVendorItem,
+  priceForVendorItem,
   recordLastPrice,
   resolveVendorItem,
   similarMasterItems,
@@ -93,6 +94,13 @@ export const VENDOR_METHODS = [
   "similar_name",
 ] as const;
 export type VendorMethod = (typeof VENDOR_METHODS)[number];
+
+/**
+ * What Match vendor may match a document's vendor on, in the order it tries them (a vendor id
+ * given is always taken). The agent's `match_on` parameter picks among them.
+ */
+export const VENDOR_IDENTIFIERS = ["document", "tax_id", "email_domain", "name"] as const;
+export type VendorIdentifier = (typeof VENDOR_IDENTIFIERS)[number];
 
 export interface VendorMatchInput {
   vendorId?: string | undefined;
@@ -127,14 +135,17 @@ const domainOf = (email: string | null | undefined) => {
 /**
  * Step 1: the client's vendor for a document or what it names. A name is matched exactly
  * (normalized, or one of the vendor's known names) unless `minNameSimilarity` is below 1, when the
- * one vendor whose name is that close is taken; two that close is a person's call.
+ * one vendor whose name is that close is taken; two that close is a person's call. Only the
+ * identifiers in `matchOn` are tried (all, by default); a vendor id given is always taken.
  */
 export async function matchVendor(
   tx: Tx,
   tenantId: string,
   input: VendorMatchInput,
   minNameSimilarity = 1,
+  matchOn: readonly VendorIdentifier[] = VENDOR_IDENTIFIERS,
 ): Promise<VendorMatch> {
+  const on = (i: VendorIdentifier) => matchOn.includes(i);
   let name = input.name?.trim() || null;
   let email = input.email?.trim() || null;
   const taxId = input.taxId?.trim() || null;
@@ -184,12 +195,12 @@ export async function matchVendor(
     if (!name && typeof header.vendorName === "string") name = header.vendorName.trim() || null;
     const from = (d.meta as { email?: { from?: unknown } }).email?.from;
     if (!email && typeof from === "string") email = from;
-    if (d.vendorId) {
+    if (d.vendorId && on("document")) {
       const v = await byId(d.vendorId);
       if (v) return found(v, "document");
     }
   }
-  if (taxId && digits(taxId).length >= 5) {
+  if (on("tax_id") && taxId && digits(taxId).length >= 5) {
     const rows = await tx
       .select({ id: vendor.id, name: vendor.name })
       .from(vendor)
@@ -203,7 +214,7 @@ export async function matchVendor(
     if (rows.length === 1 && rows[0]) return found(rows[0], "tax_id");
   }
   const domain = domainOf(email);
-  if (domain) {
+  if (domain && on("email_domain")) {
     const rows = await tx
       .select({ id: vendor.id, name: vendor.name })
       .from(vendor)
@@ -211,7 +222,7 @@ export async function matchVendor(
       .limit(2);
     if (rows.length === 1 && rows[0]) return found(rows[0], "email_domain");
   }
-  const key = name ? normalizeVendorName(name) : "";
+  const key = name && on("name") ? normalizeVendorName(name) : "";
   if (key) {
     const rows = await tx
       .select({ id: vendor.id, name: vendor.name })
@@ -481,6 +492,24 @@ export interface VendorOpenLine {
 /** How many of this vendor's items an open line is compared with. */
 export const VENDOR_CANDIDATES = 5;
 
+/**
+ * The words a new master item made from a vendor's line may fall back on for its name (a category
+ * with no generic name, `canonicalName`): the line's text without the vendor's SKU, pack count,
+ * prices or terms. A master item is vendor-neutral (§1.88).
+ */
+// DECISION (review of vendor/web3, finding 4): a master item Register item makes keeps no pack
+// size (`withoutPackaging`), no `ext.firstDescription` (the vendor's wording is the vendor item's
+// name) and, where its name falls back on the line's words, none of the vendor's SKU or packaging.
+export function neutralName(normalized: string, sku: string | null): string {
+  let text = stripTerms(normalized);
+  if (sku) {
+    const escaped = sku.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    text = text.replace(new RegExp(`(^|\\s)${escaped}(?=\\s|$)`, "gi"), " ");
+  }
+  text = text.replace(/\s+/g, " ").trim();
+  return text || normalized;
+}
+
 /** The text an open line is searched by (names, trigrams) and parsed from: normalized. */
 export function lineText(raw: string, abbreviations: Record<string, string> = {}): string {
   return normalize(raw, { abbreviations });
@@ -572,14 +601,14 @@ export async function similarForOpenLines(
       });
     }
     vendorItems.set(line.docLineId, byMaster);
-    const decided = decideByRules(line, parsed, items);
+    const decided = decideByRules(line, parsed, items, input.limit ?? VENDOR_CANDIDATES);
     if (decided.decision !== "open")
       settled.push({ lineNo: line.lineNo, decision: decided.decision });
     out.push(decided);
   }
   const masters = new Map<string, CatalogItemRow>();
   const openOut: VendorOpenLine[] = [];
-  for (const o of openLines(out)) {
+  for (const o of openLines(out, { withoutVetoed: true })) {
     const line = out.find((l) => l.lineNo === o.lineNo);
     const byMaster = line ? vendorItems.get(line.docLineId) : undefined;
     const candidates: VendorOpenLine["candidates"] = [];
@@ -715,10 +744,11 @@ export async function masterCandidates(
         { docLineId: l.checked.docLineId, lineNo: l.checked.lineNo, description: l.description },
         parsed,
         [...items.values()],
+        limit,
       ),
     );
   }
-  const open = openLines(out);
+  const open = openLines(out, { withoutVetoed: true });
   return { lines: out, open, openCount: open.length };
 }
 
@@ -960,26 +990,28 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       }
     } else {
       const rules = parseNormalized(normalized);
-      const parsed = {
-        ...withModelReading(
-          { description: normalized, category: rules.category, attributes: rules.attributes },
-          d.attributes ?? undefined,
-        ),
-        normalized,
-      };
-      const made = await createItem(tx, tenantId, parsed, by);
+      const read = withModelReading(
+        { description: normalized, category: rules.category, attributes: rules.attributes },
+        d.attributes ?? undefined,
+      );
+      // A master item is vendor-neutral (§1.88): no pack size, no SKU, no vendor's wording kept.
+      const made = await createItem(
+        tx,
+        tenantId,
+        {
+          ...read,
+          attributes: withoutPackaging(read.attributes),
+          normalized: neutralName(normalized, sku),
+        },
+        by,
+        { vendorNeutral: true },
+      );
       item = made.item;
       createdItem = made.created;
       // Another run made the same master item a moment ago: this line is that item.
       if (!made.created) decision = "matched";
       if (made.created) result.catalogItemIds.push(item.id);
     }
-    // The vendor's unit and how many standard units it is (invariant 7: no rule, no std price).
-    const attributes = {
-      ...(item.attributes as Attributes),
-      ...parseLine(line.rawDescription).attributes,
-    };
-    const conv = convert(line.uomRaw, item.standardUom, attributes);
     const vendorUom = line.uomRaw?.trim()
       ? (readUom(line.uomRaw) ?? line.uomRaw.trim().toLowerCase())
       : item.standardUom;
@@ -991,8 +1023,11 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       hintId: hints.get(line.lineNo) ?? null,
     });
     if (vi && vi.catalogItemId !== item.id) {
+      // A vendor item left on a master item merged into this one (before merges moved them):
+      // it is this item, so it moves here without asking anyone.
+      const merged = (await liveItem(tx, tenantId, vi.catalogItemId))?.id === item.id;
       // The vendor's SKU names another master item. A person may move it; an agent asks one.
-      if (!human) {
+      if (!human && !merged) {
         if (prior?.decision !== "unsure") {
           await recordMatch(tx, tenantId, {
             docLineId: line.id,
@@ -1012,8 +1047,14 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       vi = await updateVendorItem(tx, tenantId, vi.id, { catalogItemId: item.id });
       result.changedVendorItemIds.push(vi.id);
     }
+    // The vendor's unit and how many standard units it is (invariant 7: no rule, no std price):
+    // the line's own words over the master item's specs, never the master item's pack size, else
+    // the vendor item's own conversion for that unit (`convertLine`).
+    const lineAttributes = parseLine(line.rawDescription).attributes;
+    const conv = convertLine(line.uomRaw, item.standardUom, lineAttributes, item.attributes, vi);
     let createdVendorItem = false;
     if (!vi) {
+      const pack = lineAttributes.pack_size;
       const made = await createVendorItem(
         tx,
         tenantId,
@@ -1022,6 +1063,8 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
           catalogItemId: item.id,
           sku,
           name: line.rawDescription,
+          // The pack is the vendor's (vendor_item.pack_size), as the line states it.
+          ...(pack ? { packSize: `${pack} per ${vendorUom}` } : {}),
           vendorUom,
           stdPerVendorUom: conv.ok ? toNumeric(conv.factor) : null,
         },
@@ -1129,14 +1172,25 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       } else {
         priceSkipped = conv.ok ? null : conv.reason;
       }
-      await recordLastPrice(tx, tenantId, vi.id, {
+      // The last price is in the vendor item's own unit (a vendor item found by SKU may be priced
+      // in another unit than this line's): reached from the line's unit or per standard unit,
+      // else left as it was (invariant 7).
+      const last = priceForVendorItem(vi, {
         price: toNumeric(unitRaw),
+        unit: vendorUom,
         priceStd: unitStd ? toNumeric(unitStd) : null,
-        on: doc.observedOn,
-        source: human ? "person" : "invoice",
-        sourceId: line.id,
-        currency: doc.currency,
+        standardUom: item.standardUom,
       });
+      if (last) {
+        await recordLastPrice(tx, tenantId, vi.id, {
+          price: last.price,
+          priceStd: last.priceStd,
+          on: doc.observedOn,
+          source: human ? "person" : "invoice",
+          sourceId: line.id,
+          currency: doc.currency,
+        });
+      }
     }
     await emit(
       tx,

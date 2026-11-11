@@ -3,20 +3,22 @@
 // wins), an older alias with no vendor item, a test run's Register item writing nothing, the
 // embedding write (idempotent), and one client never reaching another's vendor items (invariant 1).
 
-import { type Db, vendor } from "@countersign/db";
+import { type Db, vendor, withTenant } from "@countersign/db";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "@countersign/db/testing";
 import { createLlmClient } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseLine } from "../catalog/keys";
+import { mergeItems } from "../catalog/merge";
 import { descriptionHash, normalize } from "../catalog/normalize";
+import { openLines } from "../catalog/split";
 import { backfillFromBillsTool } from "../purchasing/tools";
 import { catalogItem, itemAlias, priceObservation, vendorItem } from "../schema";
 import { insertShop, type ShopFixture } from "../testing.test-helper";
 import { type PackToolContext, packToolContext } from "../tools";
 import { EMBEDDING_TEMPLATE } from "./embedding-text";
 import { registerLines } from "./pipeline";
-import { priceForVendorItem, recordLastPrice } from "./store";
+import { priceForVendorItem, recordLastPrice, recordLeadTime } from "./store";
 import {
   embeddingsWrite,
   vendorItemDiscontinue,
@@ -573,4 +575,316 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
       ),
     ).toBeNull();
   });
+
+  // ── The review of vendor/web3 ──────────────────────────────────────────────────────────────
+
+  /** A line Check matches decided, as Register item takes it. */
+  const decided = (
+    lineNo: number,
+    text: string,
+    d: { decision: "matched" | "new_item"; catalogItemId?: string | null },
+  ) => {
+    const p = parseLine(text);
+    return {
+      docLineId: "",
+      lineNo,
+      decision: d.decision,
+      catalogItemId: d.catalogItemId ?? null,
+      confidence: 0.97,
+      method: "rules" as const,
+      hingeAttribute: null,
+      needsReview: false,
+      vetoed: null,
+      category: p.category,
+      attributes: p.attributes,
+      candidates: [],
+    };
+  };
+
+  it("matches a vendor only on what the agent's match_on names, and refuses a word it doesn't know", async () => {
+    const run = (input: Record<string, unknown>, settings: Record<string, unknown>) =>
+      vendorMatch.run(input, { ...ctxA, settings }) as Promise<{
+        matched: boolean;
+        method: string | null;
+      }>;
+    expect(await run({ taxId: "123456789" }, { match_on: "name" })).toMatchObject({
+      matched: false,
+    });
+    expect(
+      await run({ taxId: "123456789", name: "Cedar Ridge" }, { match_on: "Tax ID, name" }),
+    ).toMatchObject({ method: "tax_id" });
+    expect(await run({ email: "ap@northline.example" }, { match_on: "" })).toMatchObject({
+      method: "email_domain",
+    });
+    // A vendor id given is always taken.
+    expect(await run({ vendorId: cedar }, { match_on: "name" })).toMatchObject({ method: "id" });
+    expect(await errorOf(run({ name: "Cedar Ridge" }, { match_on: "name, phone" }))).toMatch(
+      /phone/,
+    );
+  });
+
+  it("hands on the agent's shortlist sizes, 1 to 10, else the defaults", async () => {
+    const { documentId } = await A.invoiceDoc(cedar, [
+      { description: "ASH 4/4 FAS", qty: "10", uom: "BF", unitPrice: "6.00" },
+    ]);
+    const sizes = async (settings: Record<string, unknown>) =>
+      (
+        (await vendorItemsLookup.run({ documentId, vendorId: cedar }, { ...ctxA, settings })) as {
+          shortlist: unknown;
+        }
+      ).shortlist;
+    expect(await sizes({})).toEqual({ vendorItems: 5, masterItems: 5 });
+    expect(await sizes({ vendor_shortlist_size: 3, master_shortlist_size: 8 })).toEqual({
+      vendorItems: 3,
+      masterItems: 8,
+    });
+    expect(await sizes({ vendor_shortlist_size: 40 })).toEqual({ vendorItems: 5, masterItems: 5 });
+  });
+
+  it("keeps the last price in the vendor item's own unit when the line is in another", async () => {
+    const oak = await item(A, "WHITE OAK 8/4 FAS");
+    const [w44] = await t.db
+      .insert(vendorItem)
+      .values({
+        tenantId: A.tenantId,
+        vendorId: northline,
+        catalogItemId: oak,
+        sku: "W44",
+        name: "WHITE OAK 8/4 FAS",
+        vendorUom: "board_foot",
+        stdPerVendorUom: "1",
+      })
+      .returning();
+    const { documentId } = await A.invoiceDoc(
+      northline,
+      [{ description: "WHITE OAK 8/4 FAS", sku: "W44", qty: "1", uom: "MBF", unitPrice: "8400" }],
+      { date: "2026-11-03" },
+    );
+    await registerLines(t.db, {
+      tenantId: A.tenantId,
+      agentVersionId: A.agentVersionId,
+      documentId,
+      vendorId: northline,
+      lines: [decided(1, "WHITE OAK 8/4 FAS", { decision: "matched", catalogItemId: oak })],
+      testRun: false,
+    });
+    const [after] = await t.db
+      .select()
+      .from(vendorItem)
+      .where(eq(vendorItem.id, w44?.id ?? ""));
+    // 8,400 per thousand board feet is 8.40 per board foot, the vendor item's unit.
+    expect(after).toMatchObject({
+      lastPrice: "8.4000",
+      lastPriceStd: "8.4000",
+      lastPriceOn: "2026-11-03",
+    });
+  });
+
+  it("makes vendor-neutral master items: no pack size, no vendor's wording; one vendor's box never converts another's", async () => {
+    const text = "BLUM 71B3550 CLIP TOP HINGE 110 DEG 100/BOX";
+    const first = await A.invoiceDoc(northline, [
+      { description: text, sku: "71B3550-100", qty: "2", uom: "BX", unitPrice: "180.00" },
+    ]);
+    const r = await registerLines(t.db, {
+      tenantId: A.tenantId,
+      agentVersionId: A.agentVersionId,
+      documentId: first.documentId,
+      vendorId: northline,
+      lines: [decided(1, text, { decision: "new_item" })],
+      testRun: false,
+    });
+    const masterId = r.lines[0]?.catalogItemId ?? "";
+    expect(r.lines[0]).toMatchObject({ createdItem: true, createdVendorItem: true });
+    const [master] = await t.db.select().from(catalogItem).where(eq(catalogItem.id, masterId));
+    expect(master?.attributes).not.toHaveProperty("pack_size");
+    expect(master?.ext).not.toHaveProperty("firstDescription");
+    expect(master?.canonicalName).not.toMatch(/100\/BOX|71B3550-100/i);
+    // The pack is the vendor item's.
+    const [mine] = await t.db
+      .select()
+      .from(vendorItem)
+      .where(eq(vendorItem.id, r.lines[0]?.vendorItemId ?? ""));
+    expect(mine?.packSize).toContain("100");
+    // A second vendor's box that doesn't say how many it holds is never priced per hinge.
+    const second = await A.invoiceDoc(cedar, [
+      { description: "BLUM 71B3550 HINGE", qty: "1", uom: "BX", unitPrice: "25.00" },
+    ]);
+    const r2 = await registerLines(t.db, {
+      tenantId: A.tenantId,
+      agentVersionId: A.agentVersionId,
+      documentId: second.documentId,
+      vendorId: cedar,
+      lines: [decided(1, "BLUM 71B3550 HINGE", { decision: "matched", catalogItemId: masterId })],
+      testRun: false,
+    });
+    expect(r2.lines[0]?.observationId).toBeNull();
+    expect(r2.lines[0]?.priceSkipped).toMatch(/no conversion/);
+    const [theirs] = await t.db
+      .select()
+      .from(vendorItem)
+      .where(eq(vendorItem.id, r2.lines[0]?.vendorItemId ?? ""));
+    expect(theirs).toMatchObject({ lastPrice: "25.0000", lastPriceStd: null });
+  });
+
+  it("moves a merged master item's vendor items to the one that stays", async () => {
+    const from = await item(A, "MAPLE 4/4 FAS");
+    const into = await item(A, "HARD MAPLE 4/4 FAS");
+    const [m44] = await t.db
+      .insert(vendorItem)
+      .values({
+        tenantId: A.tenantId,
+        vendorId: northline,
+        catalogItemId: from,
+        sku: "M44",
+        name: "MAPLE 4/4 FAS",
+        vendorUom: "board_foot",
+        preferred: true,
+      })
+      .returning();
+    const [keep] = await t.db
+      .insert(vendorItem)
+      .values({
+        tenantId: A.tenantId,
+        vendorId: cedar,
+        catalogItemId: into,
+        name: "HARD MAPLE 4/4",
+        vendorUom: "board_foot",
+        preferred: true,
+        lastPrice: "5.0000",
+        lastPriceOn: "2026-10-01",
+        lastPriceSource: "invoice",
+      })
+      .returning();
+    const [twin] = await t.db
+      .insert(vendorItem)
+      .values({
+        tenantId: A.tenantId,
+        vendorId: cedar,
+        catalogItemId: from,
+        name: "MAPLE 4/4",
+        vendorUom: "board_foot",
+        lastPrice: "5.5000",
+        lastPriceOn: "2026-11-01",
+        lastPriceSource: "invoice",
+      })
+      .returning();
+    const wording = normalize("MAPLE 4/4");
+    await t.db.insert(itemAlias).values({
+      tenantId: A.tenantId,
+      vendorId: cedar,
+      descriptionHash: await descriptionHash(wording),
+      normalizedDescription: wording,
+      catalogItemId: from,
+      vendorItemId: twin?.id ?? null,
+      source: "auto",
+    });
+    const merged = await mergeItems(t.db, {
+      tenantId: A.tenantId,
+      fromId: from,
+      intoId: into,
+      userId: A.userId,
+    });
+    expect(merged.vendorItemsMoved).toBe(2);
+    const byId = async (id: string | undefined) =>
+      (
+        await t.db
+          .select()
+          .from(vendorItem)
+          .where(eq(vendorItem.id, id ?? ""))
+      )[0];
+    // The SKU's item moved; the item that stays keeps its own preferred vendor.
+    expect(await byId(m44?.id)).toMatchObject({ catalogItemId: into, preferred: false });
+    // The same vendor's item in the same unit is folded into the one that stays.
+    expect(await byId(twin?.id)).toMatchObject({ catalogItemId: from, status: "discontinued" });
+    expect((await byId(twin?.id))?.ext).toMatchObject({ foldedInto: keep?.id });
+    expect(await byId(keep?.id)).toMatchObject({
+      lastPrice: "5.5000",
+      lastPriceOn: "2026-11-01",
+    });
+    const [alias] = await t.db
+      .select()
+      .from(itemAlias)
+      .where(eq(itemAlias.normalizedDescription, wording));
+    expect(alias).toMatchObject({ catalogItemId: into, vendorItemId: keep?.id });
+    // The vendor's next invoice with the SKU registers on the item that stays, no person asked.
+    const { documentId } = await A.invoiceDoc(northline, [
+      { description: "MAPLE 4/4 FAS", sku: "M44", qty: "10", uom: "BF", unitPrice: "5.20" },
+    ]);
+    const looked = (await vendorItemsLookup.run({ documentId, vendorId: northline }, ctxA)) as {
+      known: { catalogItemId: string; vendorItemId: string }[];
+    };
+    expect(looked.known[0]).toMatchObject({ catalogItemId: into, vendorItemId: m44?.id });
+    const r = await registerLines(t.db, {
+      tenantId: A.tenantId,
+      agentVersionId: A.agentVersionId,
+      documentId,
+      vendorId: northline,
+      lines: [decided(1, "MAPLE 4/4 FAS", { decision: "matched", catalogItemId: into })],
+      testRun: false,
+    });
+    expect(r.needsPerson).toEqual([]);
+    expect(r.lines[0]).toMatchObject({ decision: "matched", vendorItemId: m44?.id });
+  });
+
+  it("keeps the newest lead time: a quote dated earlier never replaces it", async () => {
+    const [vi] = await t.db
+      .insert(vendorItem)
+      .values({
+        tenantId: A.tenantId,
+        vendorId: cedar,
+        catalogItemId: walnut,
+        sku: "LEAD-1",
+        name: "WALNUT 4/4 FAS",
+      })
+      .returning();
+    const id = vi?.id ?? "";
+    const set = (days: number, on: string) =>
+      withTenant(t.db, A.tenantId, (tx) => recordLeadTime(tx, A.tenantId, id, days, on));
+    expect(await set(7, "2026-11-05")).toBe(true);
+    expect(await set(3, "2026-11-01")).toBe(false);
+    expect(await set(9, "2026-11-05")).toBe(true);
+    const [row] = await t.db.select().from(vendorItem).where(eq(vendorItem.id, id));
+    expect(row).toMatchObject({ leadTimeDays: 9 });
+    expect(row?.ext).toMatchObject({ leadTimeOn: "2026-11-05" });
+  });
 });
+
+describe("the vendor-first shortlist", () => {
+  it("leaves out the candidates a key attribute rules out, for the model only", () => {
+    const line = {
+      docLineId: "d1",
+      lineNo: 1,
+      description: 'BALTIC BIRCH PLY 1/2"',
+      category: "sheet_goods" as const,
+      attributes: { thickness: "1/2in" },
+      missing: ["size"],
+      decision: "open" as const,
+      catalogItemId: null,
+      catalogItemName: null,
+      method: null,
+      confidence: 0.4,
+      hinge: "size",
+      candidates: [
+        { ...candidate("a", "1/2in"), vetoed: false },
+        { ...candidate("b", "3/4in"), vetoed: true },
+      ],
+    };
+    expect(openLines([line])[0]?.candidates.map((c) => c.catalogItemId)).toEqual(["a", "b"]);
+    expect(
+      openLines([line], { withoutVetoed: true })[0]?.candidates.map((c) => c.catalogItemId),
+    ).toEqual(["a"]);
+  });
+});
+
+function candidate(id: string, thickness: string) {
+  return {
+    catalogItemId: id,
+    name: `BALTIC BIRCH ${thickness}`,
+    category: "sheet_goods" as const,
+    attributes: { thickness },
+    standardUom: "sheet",
+    similarity: null,
+    confidence: 0.5,
+    hinge: null,
+  };
+}

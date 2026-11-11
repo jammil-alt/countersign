@@ -29,19 +29,31 @@ const MONTH =
 const UNIT =
   "(?:ea|each|sht|sheet|pc|pcs|piece|bf|lf|ft|box|bx|cs|case|bdl|bundle|gal|gallon|qt|pr|pair|roll|mbf|unit)";
 const NUM = "\\d[\\d,]*(?:\\.\\d+)?";
+/** After NUM: the whole figure, not the start of a fraction or a longer number (3/4, 5/8). */
+const WHOLE = "(?![\\d,]|[./]\\d)";
 
 // DECISION: what is stripped, in this order. Only figures with a money mark, a two-decimal price
 // per unit, a date with matching separators, a labelled quantity, and order or shipping words:
 // a bare fraction, a size (4X8), a thickness (.75, 18MM) or a thread (1/4-20) is never touched,
 // because those are what the item is.
 const STRIP: readonly RegExp[] = [
-  // Prices: @ $68.50/SHT, $68.50, USD 68.50, 68.50 USD, 68.50/EA, price: 68.50.
+  // Prices: price: 68.50, EXT: $980.00, @ $68.50/SHT, $68.50, USD 68.50, 68.50 USD, 68.50/EA.
+  // A labelled price (first, with its label) is a whole figure, never a fraction's numerator
+  // ("TOTAL 5/8 EDGE"); the grade EXT ("CDX PLYWOOD EXT 3/4") is a price label only with a colon,
+  // an equals sign or a money mark.
+  new RegExp(
+    `\\bext(?:ended)?\\.?(?:\\s+(?:price|amount|amt))?\\s*(?:[:=]\\s*\\$?|\\$)\\s*${NUM}${WHOLE}`,
+    "gi",
+  ),
+  new RegExp(
+    `\\b(?:unit\\s+)?(?:price|cost|amount|total)\\s*[:=]?\\s*\\$?\\s*${NUM}${WHOLE}`,
+    "gi",
+  ),
   new RegExp(`@\\s*\\$?\\s*${NUM}(?:\\s*\\/\\s*${UNIT}\\b)?`, "gi"),
   new RegExp(`\\$\\s*${NUM}(?:\\s*\\/\\s*${UNIT}\\b)?`, "gi"),
   new RegExp(`\\b(?:usd|cad|eur|gbp)\\s*${NUM}`, "gi"),
   new RegExp(`\\b${NUM}\\s*(?:usd|cad|eur|gbp|dollars?)\\b`, "gi"),
   new RegExp(`\\b\\d[\\d,]*\\.\\d{2}\\s*\\/\\s*${UNIT}\\b`, "gi"),
-  new RegExp(`\\b(?:unit\\s+)?(?:price|cost|amount|total|ext(?:ended)?)\\s*[:=]?\\s*${NUM}`, "gi"),
   // Dates: 11/02/2026, 2026-11-02, 02.11.26, Nov 2, 2026.
   /\b\d{4}-\d{1,2}-\d{1,2}\b/g,
   /\b\d{1,2}([/.-])\d{1,2}\1\d{2,4}\b/g,

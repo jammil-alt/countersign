@@ -133,6 +133,8 @@ export function decideByRules(
   line: { docLineId: string; lineNo: number; description: string },
   parsed: ParsedLine,
   items: readonly CandidateItem[],
+  /** How many candidates the line keeps (§1.88: the vendor-first skills' shortlist size). */
+  keep: number = OPEN_CANDIDATES,
 ): LookedUpLine {
   const scored = scoreCandidates(parsed, items);
   const exact = scored.filter((c) => c.confidence >= RULE_CONFIDENCE.exact);
@@ -144,7 +146,7 @@ export function decideByRules(
     category: parsed.category,
     attributes: parsed.attributes,
     missing: parsed.missing,
-    candidates: scored.slice(0, OPEN_CANDIDATES),
+    candidates: scored.slice(0, keep),
   };
   const [only] = exact;
   if (exact.length === 1 && only) {
@@ -180,8 +182,18 @@ export function decideByRules(
   };
 }
 
-/** The open lines, as Match the unmatched reads them. */
-export function openLines(lines: readonly LookedUpLine[]): OpenLine[] {
+/**
+ * The open lines, as Match the unmatched reads them. `withoutVetoed` (the vendor-first skills,
+ * §1.88) leaves out the candidates a key attribute rules out, so the model picks only from a
+ * shortlist the rules allow; the line keeps them for a person's card.
+ */
+// DECISION (review of vendor/web3, finding 5): the vendor-first path filters its shortlist by code
+// on the key attributes before the AI, as §1.88 says; Match the unmatched keeps sending them
+// (sorted last) so its stored steps make the same requests and replay the same recorded answers.
+export function openLines(
+  lines: readonly LookedUpLine[],
+  options: { withoutVetoed?: boolean } = {},
+): OpenLine[] {
   return lines
     .filter((l) => l.decision === "open")
     .map((l) => ({
@@ -190,11 +202,13 @@ export function openLines(lines: readonly LookedUpLine[]): OpenLine[] {
       category: l.category,
       attributes: l.attributes,
       missing: l.missing,
-      candidates: l.candidates.map((c) => ({
-        catalogItemId: c.catalogItemId,
-        name: c.name,
-        attributes: c.attributes,
-      })),
+      candidates: l.candidates
+        .filter((c) => !(options.withoutVetoed && c.vetoed))
+        .map((c) => ({
+          catalogItemId: c.catalogItemId,
+          name: c.name,
+          attributes: c.attributes,
+        })),
     }));
 }
 
