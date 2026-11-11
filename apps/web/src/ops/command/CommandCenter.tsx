@@ -16,10 +16,10 @@ import {
   KPI_DAYS,
   shortRunId,
 } from "@countersign/core";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
-import { useApi, usePrefetch } from "../../api/useApi";
+import { useApi } from "../../api/useApi";
 import { shortTime, usd } from "../../runs/format";
 import { opsRunTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
@@ -37,13 +37,7 @@ import { useShareCounts } from "../OpsLayout";
 import { OPS_PATHS } from "../paths";
 import { failedRunsSince, RUNNING_RUNS, runsLink, WAITING_RUNS } from "../run/links";
 import { age, oversightLine, percent, plural, runChip } from "../run/words";
-import {
-  escalationAction,
-  escalationChip,
-  escalationLine,
-  escalationsCalls,
-  escalationTone,
-} from "./escalations";
+import { escalationAction, escalationChip, escalationLine, escalationTone } from "./escalations";
 import { usePrefetchOnIntent } from "./prefetch";
 
 /** How often the figures reload, and the recent runs. */
@@ -78,7 +72,6 @@ export function CommandCenterScreen() {
     [state.data],
   );
   useShareCounts(counts);
-  usePrefetchEscalations(state.data !== undefined && !state.refreshing);
 
   // DECISION: each section has its own `Loaded` and skeleton (docs/audit-plan.md 1.5), and Recent
   // runs sits outside them, so its call starts with the command center's in the first render and
@@ -136,23 +129,6 @@ export function CommandCenterScreen() {
       )}
     </Page>
   );
-}
-
-/**
- * On Home, Escalations' list once Home has settled (docs/audit-plan.md 1.6): the place the operator
- * most often goes next. Once per visit, and not while the tab is hidden.
- */
-// DECISION: only the items (`opsInbox`), not Needs us: the command center has just computed Needs
-// us, and Home asks for it once (§1.84), so asking again for a page not yet opened would double the
-// heaviest work on the server. Escalations asks for Needs us itself when it opens.
-function usePrefetchEscalations(settled: boolean): void {
-  const prefetch = usePrefetch();
-  const done = useRef(false);
-  useEffect(() => {
-    if (!settled || done.current || document.visibilityState === "hidden") return;
-    done.current = true;
-    prefetch(apiRoutes.opsInbox, escalationsCalls().inbox);
-  }, [settled, prefetch]);
 }
 
 // ── Skeletons ──

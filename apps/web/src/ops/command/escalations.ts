@@ -104,9 +104,9 @@ export function sinceDate(iso: string): string {
 }
 
 /**
- * Escalations' two calls for a view, a status and a client (docs/audit-plan.md 1.6): the screen
- * makes them and Home prefetches the default ones, so both use the same options, in the same
- * order, and share one stored answer. Defaults: Needs us, open, every client.
+ * Escalations' two calls for a view, a status and a client, in one place so anything that fills
+ * the store ahead of the screen (1.6) uses the same options in the same order and shares its
+ * stored answer. Defaults: Needs us, open, every client.
  */
 export function escalationsCalls({
   view = "us",

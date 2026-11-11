@@ -405,17 +405,12 @@ describe("command center", () => {
     expect(screen.queryAllByRole("status")).toHaveLength(0);
   });
 
-  it("prefetches Escalations' list once Home has settled, and a run on hover, once", async () => {
-    // docs/audit-plan.md 1.6.
-    const api = routes({
-      "GET /api/ops/inbox": () => ({ items: [], agents: [] }),
-      [`GET /api/ops/runs/${RUN}`]: () => ({}),
-    });
+  it("prefetches a run on hover or focus, once, and nothing on a touch", async () => {
+    // docs/audit-plan.md 1.6. Home prefetches no other screen on its own (gate 2: no screen's
+    // calls go up).
+    const api = routes({ [`GET /api/ops/runs/${RUN}`]: () => ({}) });
     renderAt(api);
     await screen.findByTestId("ops-command-figures");
-    await waitFor(() => expect(api.calls).toContain("GET /api/ops/inbox"));
-    // Never Needs us again: Home has just computed it (§1.84).
-    expect(api.calls).not.toContain("GET /api/ops/needs-us");
 
     const row = await screen.findByTestId(`ops-recent-${RUN}`);
     const link = row.querySelector("a") as HTMLAnchorElement;
@@ -427,7 +422,7 @@ describe("command center", () => {
     fireEvent.focus(link);
     await waitFor(() => expect(api.calls).toContain(`GET /api/ops/runs/${RUN}`));
     expect(api.calls.filter((c) => c === `GET /api/ops/runs/${RUN}`)).toHaveLength(1);
-    expect(api.calls.filter((c) => c === "GET /api/ops/inbox")).toHaveLength(1);
+    expect(api.calls).not.toContain("GET /api/ops/inbox");
   });
 
   it("keeps the recent runs on screen, dimmed, while a filter's list loads", async () => {
