@@ -153,6 +153,7 @@ describe("the vendor-first skills on the platform", () => {
       "materials.vendor_items.similar",
       "materials.master_items.candidates",
       "materials.embeddings.write",
+      "materials.vendor_item.upsert",
     ]) {
       expect(platform.tools.get(id)?.spec.usesModel, id).toBeDefined();
     }
@@ -446,7 +447,9 @@ describe.skipIf(!h)("the vendor catalog's pattern, end to end", () => {
         canonicalName: text,
         attributes: p.attributes,
         standardUom: p.standardUom,
-        embedding: fakeEmbedding(masterText(text)),
+        embedding: fakeEmbedding(
+          masterText({ name: text, category: p.category, attributes: p.attributes }),
+        ),
       } as never);
     }
     const items = [
@@ -460,6 +463,7 @@ describe.skipIf(!h)("the vendor catalog's pattern, end to end", () => {
       { id: VI.walnut, sku: null, name: "WALNUT 4/4 FAS KD", master: M.walnut, uom: "board_foot" },
     ];
     for (const i of items) {
+      const p = parseLine(MASTERS.find(([id]) => id === i.master)?.[1] ?? "");
       await H.t.db.insert(vendorItem).values({
         id: i.id,
         tenantId: tenantId(),
@@ -469,7 +473,7 @@ describe.skipIf(!h)("the vendor catalog's pattern, end to end", () => {
         name: i.name,
         vendorUom: i.uom,
         stdPerVendorUom: "1",
-        embedding: fakeEmbedding(vendorItemText({ name: i.name, description: null })),
+        embedding: fakeEmbedding(vendorItemText({ name: i.name, description: null }, p)),
       });
     }
     // The vendor's wording for the walnut, learned before.
