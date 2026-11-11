@@ -4,6 +4,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useNavigate } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
+import { noteWrite } from "../api/store";
 import { fakeApi, OPERATOR_SESSION } from "../test/fixtures";
 import { opsPlace } from "./OpsLayout";
 
@@ -51,8 +52,18 @@ describe("the frame's counts", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(counts()).toBe(1);
 
+    // A write (a decision on the run page), then a move inside Runs: the stored counts came before
+    // it, so they are asked again (review of #257), once.
+    act(() => go(`/ops/runs/${RUN}`));
+    noteWrite();
+    act(() => go("/ops/runs"));
+    await waitFor(() => expect(counts()).toBe(2));
+    act(() => go(`/ops/runs/${RUN2}`));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(counts()).toBe(2);
+
     // Runs → Agent lab: another place, asked again.
     act(() => go("/ops/lab"));
-    await waitFor(() => expect(counts()).toBe(2));
+    await waitFor(() => expect(counts()).toBe(3));
   });
 });

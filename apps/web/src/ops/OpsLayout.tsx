@@ -17,7 +17,7 @@ import {
 import { useLocation, useMatch, useNavigate } from "react-router-dom";
 import type { ResponseOf } from "../api/client";
 import { apiRoutes } from "../api/routes";
-import { useApi, useApiClient } from "../api/useApi";
+import { useApi, useApiClient, useApiStore } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
 import { INBOX_COUNT_POLL_MS } from "../portal/inboxCount";
 import { usePoll } from "../runs/usePoll";
@@ -114,14 +114,22 @@ function OpsFrame({ children }: { children: ReactNode }) {
   const { reload: reloadCounts } = countsState;
   // DECISION: the counts reload when the place changes (the first path segment after `/ops`:
   // Home, Escalations, Runs, Clients, …), not on every move inside one place, such as an agent's
-  // tabs or a run opened from Runs (docs/audit-plan.md 2.3). The 20 s poll keeps them current.
-  const place = opsPlace(useLocation().pathname);
-  const lastPlace = useRef(place);
+  // tabs or a run opened from Runs (docs/audit-plan.md 2.3); inside one place, only when something
+  // was written since they came (a decision, a retry), so the badge is never a poll behind a press.
+  // The 20 s poll keeps them current otherwise.
+  const store = useApiStore();
+  const { pathname } = useLocation();
+  const place = opsPlace(pathname);
+  const lastMove = useRef({ place, pathname });
   useEffect(() => {
-    if (place === lastPlace.current) return;
-    lastPlace.current = place;
-    if (own) reloadCounts();
-  }, [place, own, reloadCounts]);
+    const last = lastMove.current;
+    if (pathname === last.pathname) return;
+    lastMove.current = { place, pathname };
+    if (!own) return;
+    if (place !== last.place || store.staleByWrite(store.key(apiRoutes.opsCounts, {}))) {
+      reloadCounts();
+    }
+  }, [place, pathname, own, reloadCounts, store]);
   usePoll(reloadCounts, own, INBOX_COUNT_POLL_MS, countsState.loading);
   const counts = own ? countsState.data : (shared ?? undefined);
   const needsUs = counts?.needsUs;
