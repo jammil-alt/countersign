@@ -1308,9 +1308,11 @@ function BuilderBody(
                   <Icon name="sidebar" size={16} className="-scale-x-100" />
                 </button>
               </div>
+              {/* The floating Feedback button sits over the panel's bottom right: each tab ends with
+                  room below it, so the last button (Delete step, Remove if, the Builder's box) clears it. */}
               {railOpen && rail === "add" ? (
                 <div
-                  className="min-h-0 flex-1 overflow-y-auto"
+                  className="min-h-0 flex-1 overflow-y-auto pb-20"
                   data-testid="builder-rail-add-panel"
                 >
                   <Palette
@@ -1343,14 +1345,14 @@ function BuilderBody(
               ) : null}
               <div
                 className={cx(
-                  "min-h-0 flex-1 overflow-y-auto",
+                  "min-h-0 flex-1 overflow-y-auto pb-20",
                   (!railOpen || rail !== "builder") && "hidden",
                 )}
               >
                 <BuilderPanel session={session} />
               </div>
               {railOpen && workflow && rail === "step" ? (
-                <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="min-h-0 flex-1 overflow-y-auto pb-20">
                   <Inspector
                     workflow={workflow}
                     bundle={bundle}
