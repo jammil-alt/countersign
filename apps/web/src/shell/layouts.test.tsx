@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
 import {
   AGENT_DETAIL,
@@ -116,7 +116,7 @@ describe("back office layout", () => {
       "Demo client",
     ]);
 
-    // Places only: Home, Escalations, Runs, Clients, Build, Business, and More folded.
+    // Places only: Home, Escalations, Runs, Clients, Build, Business, and Utilities.
     const nav = screen.getByRole("complementary", { name: "Navigation" });
     expect(within(nav).getByTestId("ops-nav-home")).toHaveAttribute("href", "/ops");
     expect(within(nav).getByTestId("ops-nav-home")).toHaveTextContent("Home");
@@ -135,14 +135,11 @@ describe("back office layout", () => {
       "Packs",
       "Usage and billing",
       "Marketing",
-      // Under More.
-      "Feedback",
-      // Wave 6 (plan §1.86): the audit queue, beside the audit log.
-      "Audit queue",
-      "Audit log",
-      "Requests",
+      // Feedback, the audit queue (wave 6), the audit log and requests are tabs of Utilities;
+      // website logins are in the Library (R8).
+      "Utilities",
     ]);
-    // Billing is under Usage and billing, not More.
+    // Billing is under Usage and billing, not Utilities.
     expect(within(nav).queryByText("Billing")).toBeNull();
     // Clients is one link, current on a client's page; no client or agent rows.
     expect(within(nav).getByTestId("ops-nav-clients")).toHaveAttribute("href", "/ops/clients");
@@ -440,6 +437,45 @@ describe("portal layout", () => {
     // Opening a page closes it.
     await userEvent.click(within(sidebar).getByTestId("portal-nav-runs"));
     await waitFor(() => expect(sidebar).not.toHaveAttribute("data-open"));
+  });
+
+  it("folds to a rail of icons on a wide screen, each named in a tooltip", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(min-width: 768px)",
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    try {
+      const api = fakeApi({
+        "GET /api/session": () => CLIENT_SESSION,
+        "GET /api/overview": () => overview(),
+      });
+      renderAt("/", api);
+      // Collapse is at the sidebar's foot, as in Anchor; the top bar's menu button is the phone's.
+      const sidebar = await screen.findByRole("complementary", { name: "Navigation" });
+      const toggle = within(sidebar).getByTestId("sidebar-collapse");
+      expect(toggle).toHaveAccessibleName("Collapse");
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await userEvent.click(toggle);
+      expect(sidebar).toHaveAttribute("data-collapsed", "true");
+      expect(localStorage.getItem("mezonas.sidebar")).toBe("collapsed");
+      expect(toggle).toHaveAccessibleName("Expand");
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+      // The words stay for screen readers; hovering an icon names it beside it.
+      const runs = within(sidebar).getByTestId("portal-nav-runs");
+      expect(runs).toHaveAccessibleName("Runs");
+      await userEvent.hover(runs);
+      expect(screen.getByTestId("sidebar-tip")).toHaveTextContent("Runs");
+      await userEvent.unhover(sidebar);
+      expect(screen.queryByTestId("sidebar-tip")).toBeNull();
+
+      await userEvent.click(toggle);
+      expect(sidebar).not.toHaveAttribute("data-collapsed");
+      expect(localStorage.getItem("mezonas.sidebar")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("keeps the theme the person picks, and goes back to the system's", async () => {

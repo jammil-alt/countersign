@@ -831,7 +831,12 @@ function SameError({ run }: { run: RunDetail["run"] }) {
   const others = (state.data?.runs ?? []).filter((r) => r.id !== run.id).slice(0, 5);
   if (others.length === 0) return null;
   return (
-    <Card title="Same error elsewhere" meta={errorKeyWords(key)} testId="ops-run-same-error">
+    <Card
+      titleAbove
+      title="Same error elsewhere"
+      meta={errorKeyWords(key)}
+      testId="ops-run-same-error"
+    >
       {others.map((r) => (
         <Link
           key={r.id}

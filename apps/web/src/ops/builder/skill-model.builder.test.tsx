@@ -172,6 +172,7 @@ const LIST_ITEM = {
   name: "Match a line",
   description: "The catalog item a line is",
   category: "data",
+  mode: "task",
   source: "client",
   clientId: CLIENT_ID,
   clientName: "Oak & Co",
@@ -312,8 +313,10 @@ describe("the builder under the skill model", () => {
     const { sent, user } = setup();
     await screen.findByTestId("builder-canvas");
     expect(screen.getByTestId("builder-step-match-skill-kind")).toHaveTextContent("AI");
-    // The canvas says the model it runs on too.
-    expect(screen.getByTestId("builder-step-match")).toHaveTextContent("runs on claude-sonnet-5-5");
+    // The canvas says the model it runs on too, in the card's tooltip (a card is one line).
+    await user.hover(screen.getByTestId("builder-step-match"));
+    expect(screen.getByTestId("builder-step-tip")).toHaveTextContent("runs on claude-sonnet-5-5");
+    await user.unhover(screen.getByTestId("builder-step-match"));
     await user.click(screen.getByTestId("builder-step-match-select"));
     const inspector = screen.getByTestId("builder-inspector");
     expect(inspector).toHaveTextContent("Step 1 · Skill · AI");

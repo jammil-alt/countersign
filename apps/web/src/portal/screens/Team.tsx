@@ -206,6 +206,7 @@ function TeamList({
   if (rows.length === 0) return <EmptyState>{t("people.none")}</EmptyState>;
   return (
     <Card
+      titleAbove
       title={t("teamPage.people")}
       meta={t("settings.peopleCount", { count: rows.length })}
       testId="portal-team"

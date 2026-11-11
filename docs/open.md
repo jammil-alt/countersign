@@ -158,6 +158,14 @@ URIs, MFA, session limits), production secrets, Email Routing for `in.mezonas.co
 seed's templates installed by hand on production, and the Mezonas client created there. D2 (§2) may
 bring this forward.
 
+### Sign-in codes and the Claude connector (owner, 2026-11-10)
+
+| # | Step | Notes |
+|---|---|---|
+| A1 | **Now: WorkOS multi-factor set to optional** on staging and production (WorkOS dashboard → the environment → Authentication → Multi-factor auth). | Owner's call, 2026-11-10: a code on every sign-in is too much for now. HIPAA today requires "person or entity authentication", not multi-factor; the proposed rule that would require it is not final (projected July 2027). Until A2 ships, sign-in is the password (or Google) alone, operators included. **No HIPAA client signs in before A2.** `docs/operations.md` and `docs/security.md` still describe multi-factor as required: that is the target, restored by A2. |
+| A2 | **Next: our own second step (`docs/plan.md` §1.83) with "remember this browser for 30 days"**, then multi-factor back on. | Code (sign-in PR after migration 0042). Needs Twilio Verify (`TWILIO_VERIFY_SERVICE_SID`). After it ships and one sign-in is checked: WorkOS's own multi-factor stays off (ours replaces it, so nobody is asked twice). |
+| A3 | **WorkOS production: Dynamic Client Registration and Client ID Metadata Documents on** (Applications → Configuration), as on staging. | Without it, connecting Claude to `https://app.mezonas.com/mcp` stops at "application not found" (`docs/operations.md`, "MCP server"). Check: `curl https://app.mezonas.com/.well-known/oauth-authorization-server` lists `registration_endpoint`. |
+
 ### Owner decisions still open (`docs/plan.md` §7 and the sections named)
 
 - **Billing**: the credit allowance per agent, whether allowances pool across a client's agents

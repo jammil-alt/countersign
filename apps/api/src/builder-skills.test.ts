@@ -164,6 +164,54 @@ describe.skipIf(!h)("skills library", () => {
     expect(await bad(skillDef("t3", { id: "docs.extract" }))).toBe(422);
     expect(await bad({ name: "nothing else" })).toBe(422);
   });
+
+  it("clones a built-in or an operator skill into a new draft, and refuses one that runs code", async () => {
+    const library = (await H.call(OPERATOR, "GET", "/api/ops/skills")).json as { skills: Json[] };
+    const builtins = library.skills.filter((s) => s.source === "builtin");
+    const reasoning = builtins.find((s) => s.mode !== "tool");
+    const code = builtins.find((s) => s.mode === "tool");
+    if (!reasoning || !code) throw new Error("the harness has no built-in of each kind");
+
+    const first = await H.call(OPERATOR, "POST", `/api/ops/skills/${reasoning.id}/clone`, {});
+    expect(first.status, JSON.stringify(first.json)).toBe(200);
+    const slug = `${String(reasoning.ref).replace(/[^a-z0-9]+/g, "-")}-copy`;
+    expect(first.json).toMatchObject({
+      skill: {
+        ref: `custom:${slug}`,
+        name: `${reasoning.name} (copy)`,
+        source: "shared",
+        mode: reasoning.mode,
+        latestStatus: "draft",
+        liveVersion: null,
+      },
+      version: { version: 1, status: "draft", changeNote: `Cloned from ${reasoning.ref}` },
+    });
+    // A second clone takes the next free slug.
+    const second = await H.call(OPERATOR, "POST", `/api/ops/skills/${reasoning.id}/clone`, {});
+    expect(second.json).toMatchObject({ skill: { ref: `custom:${slug}-2` } });
+
+    // An operator skill's clone keeps its client, and copies its latest version.
+    const own = await H.call(OPERATOR, "POST", "/api/ops/skills", {
+      clientId: H.A.tenantId,
+      definition: skillDef("clone-me", { name: "Clone me" }),
+    });
+    const ownId = (own.json as { skill: Json }).skill.id;
+    const copy = await H.call(OPERATOR, "POST", `/api/ops/skills/${ownId}/clone`, {});
+    expect(copy.json).toMatchObject({
+      skill: { ref: "custom:clone-me-copy", source: "client", clientId: H.A.tenantId },
+      version: { changeNote: "Cloned from custom:clone-me@1" },
+    });
+    // Another operator can't reach it, and a code skill isn't cloned.
+    expect(
+      (await H.call(OTHER_OPERATOR, "POST", `/api/ops/skills/${ownId}/clone`, {})).status,
+    ).toBe(404);
+    expect((await H.call(OPERATOR, "POST", `/api/ops/skills/${code.id}/clone`, {})).status).toBe(
+      422,
+    );
+    expect((await H.call(OPERATOR, "POST", "/api/ops/skills/no.such.skill/clone", {})).status).toBe(
+      404,
+    );
+  });
 });
 
 /** "Flag card charges over $500 missing receipts", with no card connector anywhere. */

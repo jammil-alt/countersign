@@ -150,7 +150,7 @@ export function AutomationPage() {
             </Columns>
 
             <Columns count={2}>
-              <Card title="Versions" testId="automation-versions">
+              <Card titleAbove title="Versions" testId="automation-versions">
                 <ul className="divide-y divide-line">
                   {versions.map((v) => (
                     <li key={v.id} className="flex items-start justify-between gap-3 px-6 py-3.5">

@@ -1,7 +1,8 @@
 // O4 Skills and automations, O8 New skill, the skill and automation pages: the library shows
-// automations with their step chain and clean-run rate and skills as cards; a skill is made in a
-// Builder conversation (or by hand) and saved as a draft; its page runs tests, publishes, and
-// asks why before tests stop being required; an automation's page publishes its draft.
+// skills as cards or a list (the Library's Skills bank) and automations in the Processes bank
+// with their step chain and clean-run rate; a skill is made in a Builder conversation (or by hand)
+// and saved as a draft; its page runs tests, publishes, and asks why before tests stop being
+// required; an automation's page publishes its draft.
 import {
   evaluateSkillRules,
   resolveSkillParameters,
@@ -78,6 +79,7 @@ const ITEM = {
   name: "Match card charge",
   description: "Pairs a card charge with its receipt.",
   category: "data",
+  mode: "agent",
   source: "shared",
   clientId: null,
   clientName: null,
@@ -109,7 +111,19 @@ const BUILTIN = {
   usedByNames: ["Bill clerk · Demo client", "Material costs · Harbor Millwork"],
 };
 
-const LIBRARY = { skills: [ITEM, BUILTIN], tools: [], connectors: [] };
+/** A connector read: a tool-mode built-in, code, so it has no Clone. */
+const CODE = {
+  ...BUILTIN,
+  id: "testkit.record.query",
+  ref: "testkit.record.query",
+  name: "Look up records",
+  category: "testkit",
+  mode: "tool",
+  usedBy: 0,
+  usedByNames: [],
+};
+
+const LIBRARY = { skills: [ITEM, BUILTIN, CODE], tools: [], connectors: [] };
 
 const VERSION = {
   id: "00000000-0000-4000-8000-00000000b001",
@@ -273,7 +287,12 @@ describe("skills and automations library", () => {
         usedBy: [],
       }),
     });
-    const row = await screen.findByTestId("automation-row-polite-follow-up");
+    // The first screen of a test file loads the app's chunks: slow on CI, so it gets longer.
+    const row = await screen.findByTestId(
+      "automation-row-polite-follow-up",
+      {},
+      { timeout: 10_000 },
+    );
     expect(within(row).getByTestId("automation-health-polite-follow-up")).toHaveTextContent(
       "98% clean",
     );
@@ -283,39 +302,108 @@ describe("skills and automations library", () => {
     expect(screen.getByTestId("automations")).toHaveTextContent("Used inside other processes");
   });
 
-  it("shows skills as cards, by category, from /ops/skills too", async () => {
+  it("shows skills as cards or a list, from /ops/skills too", async () => {
+    window.localStorage.removeItem("mezonas.skills.view");
     const { api, user } = renderAt("/ops/skills", {
       "GET /api/ops/skills": () => LIBRARY,
     });
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent("/ops/library/skills"),
     );
+    // A compact card: category, name, what it does, its kind and its numbers; the rest is in its
+    // sheet.
     const card = await screen.findByTestId("skills-card-custom:match-card-charge");
-    expect(within(card).getByText("amount, receipts")).toBeInTheDocument();
     expect(within(card).getByText("Draft")).toBeInTheDocument();
-    expect(within(card).getByRole("link", { name: "Match card charge" })).toHaveAttribute(
-      "href",
-      `/ops/skills/${SKILL_ID}`,
+    expect(within(card).queryByText("amount, receipts")).toBeNull();
+    expect(within(card).getByTestId("skills-card-custom:match-card-charge-kind")).toHaveTextContent(
+      "AI",
     );
     const builtin = screen.getByTestId("skills-card-docs.extract");
-    // Client agents only, as the API counts them.
-    expect(within(builtin).getByText("Used by 12 client agents")).toBeInTheDocument();
-    // Named on hover.
-    expect(within(builtin).getByTestId("skills-card-docs.extract-used-by")).toHaveAttribute(
+    // Client agents only, as the API counts them, named on hover.
+    const usedBy = within(builtin).getByTestId("skills-card-docs.extract-used-by");
+    expect(usedBy).toHaveTextContent("Agents12");
+    expect(usedBy).toHaveAttribute(
       "title",
       "Bill clerk · Demo client\nMaterial costs · Harbor Millwork",
     );
     expect(within(builtin).queryByRole("link")).toBeNull();
-    // In the Library the automations are the Processes bank's: none here, not even asked for.
+    // In the Library the automations are the Processes bank's: no tab here, not even asked for.
+    expect(screen.queryByTestId("skills-tabs")).toBeNull();
     expect(screen.queryByTestId("automations")).toBeNull();
-    expect(screen.queryByTestId("skills-tab-automations")).toBeNull();
     expect(api.calls).not.toContain("GET /api/ops/automations");
 
-    // The Documents tab shows only that category.
-    await user.click(screen.getByTestId("skills-tab-documents"));
+    // Opening a card shows the whole skill in a side sheet; Escape closes it.
+    await user.click(within(card).getByTestId("skills-card-custom:match-card-charge-open"));
+    const sheet = screen.getByRole("dialog", { name: "Match card charge" });
+    expect(within(sheet).getByText("amount, receipts")).toBeInTheDocument();
+    expect(within(sheet).getByText("No client agents yet.")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    // Documents in the filter shows only that category.
+    const filter = screen.getByTestId("skills-filter");
+    expect(within(filter).getByRole("option", { name: "Documents · 1" })).toBeInTheDocument();
+    await user.selectOptions(filter, "documents");
     expect(screen.queryByTestId("skills-card-custom:match-card-charge")).toBeNull();
-    expect(screen.getByTestId("skills-tab-documents")).toHaveTextContent("Documents · 1");
     expect(screen.getByTestId("skills-card-docs.extract")).toBeInTheDocument();
+    await user.selectOptions(filter, "all");
+
+    // The list: a row a skill, with the same numbers; the name opens the same sheet, and the
+    // choice is remembered.
+    await user.click(screen.getByTestId("skills-view-list"));
+    expect(screen.getByTestId("skills-view-list")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByTestId("skills-card-docs.extract")).toBeNull();
+    const row = screen.getByTestId("skills-row-docs.extract");
+    expect(within(row).getByText("12")).toHaveAttribute(
+      "title",
+      "Bill clerk · Demo client\nMaterial costs · Harbor Millwork",
+    );
+    expect(window.localStorage.getItem("mezonas.skills.view")).toBe("list");
+    await user.click(screen.getByTestId("skills-row-custom:match-card-charge-open"));
+    expect(screen.getByRole("dialog", { name: "Match card charge" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    window.localStorage.removeItem("mezonas.skills.view");
+  });
+});
+
+describe("editing and cloning from the library", () => {
+  it("edits an operator skill, clones a built-in into a draft, and offers no clone for code", async () => {
+    window.localStorage.removeItem("mezonas.skills.view");
+    const copyId = "00000000-0000-4000-8000-00000000c0b1";
+    const { api, user } = renderAt("/ops/library/skills", {
+      "GET /api/ops/skills": () => LIBRARY,
+      "POST /api/ops/skills/docs.extract/clone": () => ({
+        skill: { ...ITEM, id: copyId, ref: "custom:docs-extract-copy" },
+        version: VERSION,
+      }),
+    });
+    // An operator skill's sheet has Edit (its page) and Clone.
+    await user.click(await screen.findByTestId("skills-card-custom:match-card-charge-open"));
+    let sheet = screen.getByTestId("skill-sheet");
+    expect(within(sheet).getByTestId("skills-card-custom:match-card-charge-edit")).toHaveAttribute(
+      "href",
+      `/ops/skills/${SKILL_ID}`,
+    );
+    expect(within(sheet).getByTestId("skills-card-custom:match-card-charge-clone")).toBeVisible();
+    await user.click(screen.getByTestId("skill-sheet-close"));
+
+    // A code skill's has neither, and says why.
+    await user.click(screen.getByTestId("skills-card-testkit.record.query-open"));
+    sheet = screen.getByTestId("skill-sheet");
+    expect(within(sheet).getByText(/Runs code, no model/)).toBeInTheDocument();
+    expect(within(sheet).queryByRole("button", { name: "Clone" })).toBeNull();
+    expect(within(sheet).queryByRole("link", { name: "Edit" })).toBeNull();
+    await user.click(screen.getByTestId("skill-sheet-close"));
+
+    // A built-in's has Clone, which opens the new draft.
+    await user.click(screen.getByTestId("skills-card-docs.extract-open"));
+    sheet = screen.getByTestId("skill-sheet");
+    expect(within(sheet).queryByRole("link", { name: "Edit" })).toBeNull();
+    await user.click(within(sheet).getByTestId("skills-card-docs.extract-clone"));
+    expect(api.calls).toContain("POST /api/ops/skills/docs.extract/clone");
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(`/ops/skills/${copyId}`),
+    );
   });
 });
 

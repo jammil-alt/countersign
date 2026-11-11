@@ -5,6 +5,7 @@ import { credentialKeysFromEnv, globalFetch } from "@countersign/connectors";
 import { routes } from "@countersign/core";
 import type { Db } from "@countersign/db";
 import { Hono } from "hono";
+import { sloanTick } from "./account/sloan";
 import { bankfeedCron } from "./bankfeed/sync";
 import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
@@ -306,6 +307,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     // move to signoff (hourly, at the usage sweep's minute).
     await lifecycleTick(db, scheduledTime).catch((error: unknown) =>
       reportHandled("lifecycle tick failed", error, { job: "lifecycle" }),
+    );
+    // Sloan on by default (docs/plan.md §1.47): hourly, clients without it get it turned on.
+    await sloanTick(db, platform, scheduledTime).catch((error: unknown) =>
+      reportHandled("sloan tick failed", error, { job: "sloan" }),
     );
     // v0.12 W1-B: the Weekly Table every minute (Friday draft, Monday send) and the notification
     // pass every 5 minutes.

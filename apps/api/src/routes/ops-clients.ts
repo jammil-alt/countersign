@@ -34,6 +34,7 @@ import {
 import type { EventRow } from "@countersign/senses";
 import { and, count, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { sloanByDefault, withSloan } from "../account/sloan";
 // P-4
 import { runConversations } from "../converse/views";
 import {
@@ -74,7 +75,7 @@ import { inviteToClient, withApprovals } from "./onboarding";
 import { canSignIn, sourcesOf } from "./portal";
 import { stepOutcomes } from "./run-checks";
 import { ensureFilterClients, runErrorGroups, runFilterWhere, runsPerDay } from "./run-controls";
-import { addSupervisor } from "./supervisor";
+import { turnOnSloan } from "./supervisor";
 
 /** The Sandbox client: `tenant.settings.sandbox` (docs/plan.md §1.2). */
 export function isSandbox(settings: Record<string, unknown>): boolean {
@@ -236,9 +237,10 @@ async function clientSummaries(
   // §1.84: `names` (the back office's picker) leaves out the costly counts; its badges come from
   // the command center or GET /api/ops/counts.
   const counts = view === "full";
-  // DECISION: the five reads are asked at once, in the request's transaction, which the driver
+  // DECISION: the six reads are asked at once, in the request's transaction, which the driver
   // pipelines (docs/plan.md §1.82): the back office loads this list on every visit.
-  const [rows, agents, open, escalations, waiting] = await Promise.all([
+  const dayAgo = new Date(Date.now() - 24 * 3_600_000);
+  const [rows, agents, open, escalations, waiting, recent] = await Promise.all([
     tx
       .select()
       .from(tenant)
@@ -276,6 +278,24 @@ async function clientSummaries(
           )
           .groupBy(run.tenantId)
       : null,
+    // The client cards' last-day figures: live runs created in the last 24 hours, and the failed.
+    counts
+      ? tx
+          .select({
+            tenantId: run.tenantId,
+            total: count(),
+            failed: sql<number>`count(*) filter (where ${run.status} = 'failed')`.mapWith(Number),
+          })
+          .from(run)
+          .where(
+            and(
+              inArray(run.tenantId, [...ids]),
+              eq(run.mode, "live"),
+              sql`${run.createdAt} >= ${dayAgo.toISOString()}`,
+            ),
+          )
+          .groupBy(run.tenantId)
+      : null,
   ]);
   return rows.map((t) => ({
     id: t.id,
@@ -289,6 +309,12 @@ async function clientSummaries(
           needsUs: escalations.filter((e) => e.client.id === t.id).length,
           waitingRuns: waiting.find((w) => w.tenantId === t.id)?.n ?? 0,
         }
+      : {}),
+    ...(recent
+      ? (() => {
+          const r = recent.find((x) => x.tenantId === t.id);
+          return { runs24h: { total: r?.total ?? 0, failed: r?.failed ?? 0 } };
+        })()
       : {}),
     sandbox: isSandbox(t.settings as Record<string, unknown>),
     // §1.73: one of our own (Mezonas), for the back office's Marketing entry.
@@ -388,11 +414,14 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
         timezone,
         // Approval stays with the client's admin unless the operator delegates it (ARCHITECTURE §4);
         // unset reads as the client admin.
-        settings: withLanguage(
-          body.approvals
-            ? withApprovals({ connectors_offered: offered }, body.approvals)
-            : { connectors_offered: offered },
-          body.language,
+        settings: withSloan(
+          withLanguage(
+            body.approvals
+              ? withApprovals({ connectors_offered: offered }, body.approvals)
+              : { connectors_offered: offered },
+            body.language,
+          ),
+          body.supervisor !== false,
         ),
       })
       .returning();
@@ -415,11 +444,17 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
           { surface: "ops" },
         )
       : null;
-    // Onboarding offers the supervisor (docs/plan.md §1.28): forked and published, ready to test.
-    if (body.supervisor) {
-      await addSupervisor(tx, {
+    // Sloan, the account agent, is on from the start unless the operator unticked it (§1.47).
+    if (sloanByDefault(row.settings)) {
+      await turnOnSloan(tx, {
         tenantId: row.id,
         actorId: session.user.id,
+        actor: {
+          actorKind: "user",
+          actorUserId: session.user.id,
+          actorEmail: session.user.email,
+          actorRole: ctx.role,
+        },
         platform: services.platform,
       });
     }

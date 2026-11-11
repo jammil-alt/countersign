@@ -72,7 +72,7 @@ function seeded(slug: string, version: number): unknown {
 
 export async function installPlatformTemplate(
   tx: Tx,
-  input: { slug: string; version: number; actorId: string; platform: Platform },
+  input: { slug: string; version: number; actorId: string | null; platform: Platform },
 ): Promise<InstalledPlatformTemplate> {
   // R9: a later version may hold v4 processes (a v3 one parses as `parseBundle` gives it).
   const bundle = parseVersionBundle(seeded(input.slug, input.version));

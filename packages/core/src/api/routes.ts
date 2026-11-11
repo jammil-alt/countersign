@@ -219,6 +219,8 @@ export const ClientSummary = z.object({
   needsUs: z.number().int().optional(),
   /** Its runs waiting for approval now (on anyone: the client or us). */
   waitingRuns: z.number().int().optional(),
+  /** Its live runs started in the last 24 hours, and how many of them failed (full view only). */
+  runs24h: z.object({ total: z.number().int(), failed: z.number().int() }).optional(),
   /** The Sandbox client (`tenant.settings.sandbox`): fixture data for building and test runs. */
   sandbox: z.boolean().optional(),
   /** §1.73: one of our own (`tenant.settings.internal`, Mezonas): the Marketing entry opens it. */
@@ -923,6 +925,11 @@ export const SkillListItem = z.object({
   name: z.string(),
   description: z.string(),
   category: z.string(),
+  /**
+   * `tool` runs code (built-ins only), so it can't be cloned into an operator skill. The modes are
+   * written out (SKILL_MODES): this module is evaluated before schemas/skill in the Worker bundle.
+   */
+  mode: z.enum(["tool", "task", "agent"]),
   source: z.enum(["builtin", "shared", "client"]),
   clientId: z.string().nullable(),
   clientName: z.string().nullable(),
@@ -1086,7 +1093,10 @@ export const opsRoutes = {
       language: Locale.optional(),
       /** Its client admin, invited in the same step. */
       admin: InviteBody.omit({ role: true }).optional(),
-      /** Add the supervisor (docs/plan.md §1.28) as a draft to test and activate. */
+      /**
+       * Sloan, the account agent (docs/plan.md §1.47 "On by default"): on unless `false`, which
+       * leaves the client without it until the operator adds it from the client's page.
+       */
       supervisor: z.boolean().optional(),
     }),
     response: z.object({ client: ClientSummary, admin: InviteResult.nullable() }),
@@ -1736,6 +1746,18 @@ export const opsRoutes = {
       definition: z.unknown(),
       changeNote: Note.optional(),
     }),
+    response: z.object({ skill: SkillListItem, version: SkillVersionView }),
+  }),
+  opsCloneSkill: defineRoute({
+    method: "POST",
+    path: "/api/ops/skills/:id/clone",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Clone a skill (a built-in by its id, an operator skill by its row) into a new operator skill draft",
+    // A built-in is addressed by its skill id (`docs.extract`), an operator skill by its row id.
+    params: z.object({ id: z.string().min(1).max(200) }),
+    body: z.strictObject({ clientId: ApiId.optional() }),
     response: z.object({ skill: SkillListItem, version: SkillVersionView }),
   }),
   opsSkill: defineRoute({

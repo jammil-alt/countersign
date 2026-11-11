@@ -8,7 +8,7 @@ import { isApiError } from "../api/client";
 import { errorText } from "../i18n/errors";
 import { useI18n } from "../i18n/i18n";
 import { cx } from "./cx";
-import { Icon } from "./icons";
+import { Icon, type IconName } from "./icons";
 
 export { cx } from "./cx";
 
@@ -93,11 +93,21 @@ export function StepKindTag({ kind, label }: { kind: string; label: string }) {
  * A count badge (Inbox 5). Waiting-on-you counts use the signal tone; a zero count stays neutral,
  * since nothing waits.
  */
-export function Count({ n, tone = "neutral" }: { n: number; tone?: Tone }) {
+export function Count({
+  n,
+  tone = "neutral",
+  small = false,
+}: {
+  n: number;
+  tone?: Tone;
+  /** On an icon's corner (the folded sidebar): smaller, so the icon stays clear. */
+  small?: boolean;
+}) {
   return (
     <span
       className={cx(
-        "ds-pill min-w-6 justify-center px-1.5 py-[3px] text-xs figures",
+        "ds-pill justify-center figures",
+        small ? "h-4 min-w-4 px-1 py-0 text-[10px] leading-4" : "min-w-6 px-1.5 py-[3px] text-xs",
         PILL[n === 0 ? "neutral" : tone],
       )}
     >
@@ -140,6 +150,7 @@ export function Card({
   meta,
   footer,
   pad,
+  titleAbove,
 }: {
   children: ReactNode;
   className?: string;
@@ -149,7 +160,28 @@ export function Card({
   meta?: ReactNode;
   footer?: ReactNode;
   pad?: boolean;
+  /**
+   * A table or a list of rows: the title (and meta) sit above the card, not in a header band
+   * inside it. `testId` goes on the whole group, `className` on the card.
+   */
+  titleAbove?: boolean;
 }) {
+  // DECISION: tables and row lists carry a plain title above them, not a bordered header band
+  // (2026-11-10, the owner's call); cards about one thing keep their header inside.
+  if (titleAbove && (title || meta)) {
+    return (
+      <section data-testid={testId} className="ui-cardgroup">
+        <div className="ui-section__head">
+          {title ? <h3 className="type-subheading text-ink">{title}</h3> : <span />}
+          {meta ? <div className="ui-card__meta">{meta}</div> : null}
+        </div>
+        <div className={cx("ds-card", dashed && "border-dashed border-line-strong", className)}>
+          {pad ? <div className="ui-card__body">{children}</div> : children}
+          {footer ? <div className="ui-card__foot">{footer}</div> : null}
+        </div>
+      </section>
+    );
+  }
   return (
     <div
       data-testid={testId}
@@ -385,28 +417,53 @@ export type EmptyAction =
   | { label: string; onClick: () => void; testId?: string };
 
 /**
- * Says what will appear here and how it fills (EmptyState): an optional `title`, the line (`line`
- * or `children`), and an optional `action`, a link or a button. `<EmptyState>No runs yet.</EmptyState>`
- * still works as before.
+ * Says what will appear here and how it fills (EmptyState): an icon in a soft tile, an optional
+ * `title`, the line (`line` or `children`), and an optional `action` (a link or a button), all
+ * centred. `tone="done"` is good news (nothing waits: a check in the positive tint); `compact`
+ * fits inside a card or a side panel. `<EmptyState>No runs yet.</EmptyState>` still works.
+ * DECISION: one empty state for the app (2026-11-10): centred, with an icon tile and a solid
+ * hairline instead of the pattern's dashed box, which read as "drop something here".
  */
 export function EmptyState({
   title,
   line,
   action,
+  icon,
+  tone = "neutral",
+  compact = false,
   testId,
   children,
 }: {
   title?: ReactNode;
   line?: ReactNode;
   action?: EmptyAction | undefined;
+  /** The tile's icon: what would be here (runs, clients, documents…). Defaults to info, or a check when done. */
+  icon?: IconName;
+  tone?: "neutral" | "done";
+  /** Inside a card or panel: no border of its own, less room. */
+  compact?: boolean;
   testId?: string;
   children?: ReactNode;
 }) {
   const text = line ?? children;
   return (
-    <div className="ds-empty" data-testid={testId}>
-      {title ? <p className="font-medium text-ink">{title}</p> : null}
-      {text ? <div className="text-ink-muted">{text}</div> : null}
+    <div
+      className={cx(
+        "ds-empty ui-empty",
+        tone === "done" && "ui-empty--done",
+        compact && "ui-empty--compact",
+      )}
+      data-testid={testId}
+    >
+      <span className="ui-empty__icon" aria-hidden="true">
+        <Icon name={icon ?? (tone === "done" ? "check" : "info")} size={compact ? 16 : 20} />
+      </span>
+      {title || text ? (
+        <div className="ui-empty__text">
+          {title ? <p className="ui-empty__title">{title}</p> : null}
+          {text ? <div className="ui-empty__line">{text}</div> : null}
+        </div>
+      ) : null}
       {action ? (
         "to" in action ? (
           <Link

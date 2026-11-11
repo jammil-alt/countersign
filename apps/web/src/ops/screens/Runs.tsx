@@ -11,14 +11,16 @@ import {
   shortRunId,
 } from "@countersign/core";
 import { type FormEvent, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { duration, isRunGoing, shortTime, usd } from "../../runs/format";
-import { opsRunTitle } from "../../runs/subject";
+import { opsRunShortTitle, opsRunTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
+import { Clamp } from "../../ui/Clamp";
+import { cx } from "../../ui/cx";
 import { StatTile } from "../../ui/figures";
 import { TextInput } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
@@ -40,10 +42,16 @@ import {
   RUN_STATUS_WORDS,
   runChip,
   runErrorLine,
+  waitOnWords,
 } from "../run/words";
 
 type Run = ResponseOf<typeof apiRoutes.opsRuns>["runs"][number];
 type Group = NonNullable<ResponseOf<typeof apiRoutes.opsRuns>["groups"]>[number];
+
+/** "client admin" → "Client admin", for a cell that starts with it. */
+function capitalize(words: string): string {
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 /** The most runs the list loads. */
 export const RUNS_LIMIT = 100;
@@ -351,16 +359,24 @@ export function OpsRunsScreen() {
       <Loaded state={state}>
         {() =>
           runs.length === 0 ? (
-            <EmptyState>No runs match. Remove a filter or pick another view.</EmptyState>
+            <EmptyState
+              icon="search"
+              title="No runs match"
+              line="Remove a filter or pick another view."
+              action={{
+                label: "Show every run",
+                onClick: () => apply({}),
+                testId: "ops-runs-clear",
+              }}
+            />
           ) : (
-            <Card testId="ops-runs-card">
-              <div className="ui-card__head">
-                <span className="text-sm font-medium text-ink" data-testid="ops-runs-selected">
-                  {chosen.length > 0
-                    ? `${chosen.length} selected`
-                    : "Select runs to retry or cancel them."}
-                </span>
-                <span className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-3">
+              {/* The list starts with its column heads; the bulk actions show once runs are picked. */}
+              {chosen.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-2" data-testid="ops-runs-bulk">
+                  <span className="text-sm font-medium text-ink" data-testid="ops-runs-selected">
+                    {chosen.length} selected
+                  </span>
                   <Button
                     size="sm"
                     disabled={busy || retryable.length === 0}
@@ -377,27 +393,42 @@ export function OpsRunsScreen() {
                   >
                     Cancel
                   </Button>
-                </span>
-              </div>
-              <RunsTable
-                runs={runs}
-                clients={clients}
-                agents={agents}
-                selected={selected}
-                onToggle={(id) => {
-                  const next = new Set(selected);
-                  if (next.has(id)) next.delete(id);
-                  else next.add(id);
-                  setSelected(next);
-                }}
-              />
-            </Card>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setSelected(new Set())}
+                    data-testid="ops-runs-clear"
+                  >
+                    Clear
+                  </Button>
+                </div>
+              ) : null}
+              <Card testId="ops-runs-card">
+                <RunsTable
+                  runs={runs}
+                  clients={clients}
+                  agents={agents}
+                  selected={selected}
+                  onToggle={(id) => {
+                    const next = new Set(selected);
+                    if (next.has(id)) next.delete(id);
+                    else next.add(id);
+                    setSelected(next);
+                  }}
+                />
+              </Card>
+            </div>
           )
         }
       </Loaded>
     </Page>
   );
 }
+
+/** The columns the runs list sorts by (in the browser, over the runs loaded). */
+type SortKey = "run" | "client" | "agent" | "status" | "owner" | "started" | "took" | "cost";
+/** Words sort A to Z first; times, durations and cost largest first. */
+const TEXT_KEYS = new Set<SortKey>(["run", "client", "agent", "status", "owner"]);
 
 function RunsTable({
   runs,
@@ -412,6 +443,63 @@ function RunsTable({
   selected: Set<string>;
   onToggle: (id: string) => void;
 }) {
+  const navigate = useNavigate();
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
+    key: "started",
+    dir: "desc",
+  });
+  const sorted = useMemo(() => {
+    const value = (r: Run): string | number => {
+      switch (sort.key) {
+        case "run":
+          return opsRunShortTitle(r.subject, shortRunId(r.id)).toLowerCase();
+        case "client":
+          return (clients.get(r.tenantId) ?? "").toLowerCase();
+        case "agent":
+          return (agents.get(r.agentId)?.name ?? "").toLowerCase();
+        case "status":
+          return runChip(r).words.toLowerCase();
+        case "owner":
+          return r.waiting ? waitOnWords(r.waiting).toLowerCase() : "\uffff";
+        case "started":
+          return new Date(r.startedAt ?? r.createdAt).getTime();
+        case "took":
+          return r.startedAt
+            ? (r.finishedAt ? new Date(r.finishedAt).getTime() : Date.now()) -
+                new Date(r.startedAt).getTime()
+            : -1;
+        case "cost":
+          return Number(r.costUsd);
+      }
+    };
+    const sign = sort.dir === "asc" ? 1 : -1;
+    return [...runs].sort((a, b) => {
+      const x = value(a);
+      const y = value(b);
+      return x < y ? -sign : x > y ? sign : 0;
+    });
+  }, [runs, sort, clients, agents]);
+  const head = (key: SortKey, label: string, className?: string) => (
+    <th
+      className={className}
+      aria-sort={sort.key === key ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        className="dt-sort"
+        data-testid={`ops-runs-sort-${key}`}
+        onClick={() =>
+          setSort((old) =>
+            old.key === key
+              ? { key, dir: old.dir === "asc" ? "desc" : "asc" }
+              : { key, dir: TEXT_KEYS.has(key) ? "asc" : "desc" },
+          )
+        }
+      >
+        {label}
+      </button>
+    </th>
+  );
   return (
     <div className="dt dt-ana overflow-x-auto rounded-none border-0">
       <table data-testid="ops-runs">
@@ -420,26 +508,35 @@ function RunsTable({
             <th>
               <span className="sr-only">Select</span>
             </th>
-            <th>Run</th>
-            <th>Client</th>
-            <th>Agent</th>
-            <th>Status</th>
-            <th>Started</th>
-            <th>Took</th>
+            {head("run", "Run")}
+            {head("client", "Client")}
+            {head("agent", "Agent")}
+            {head("status", "Status")}
+            {head("owner", "Owner")}
+            {head("started", "Started")}
+            {head("took", "Took")}
             <th>Error</th>
-            <th className="text-right">Cost</th>
+            {head("cost", "Cost", "text-right")}
           </tr>
         </thead>
         <tbody>
-          {runs.map((r) => {
+          {sorted.map((r) => {
             const short = shortRunId(r.id);
             const chip = runChip(r);
             const wait = r.waiting ?? null;
             return (
               <tr
                 key={r.id}
-                className={selected.has(r.id) ? "is-selected" : undefined}
+                className={cx(
+                  "cursor-pointer hover:bg-surface-subtle",
+                  selected.has(r.id) && "is-selected",
+                )}
                 data-testid={`ops-run-row-${r.id}`}
+                // The whole row opens the run; its check box and links keep their own clicks.
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest("a, button, input, label")) return;
+                  navigate(`/ops/runs/${r.id}`);
+                }}
               >
                 <td>
                   <input
@@ -451,54 +548,81 @@ function RunsTable({
                   />
                 </td>
                 <td>
-                  {/* Titled by what the run is about: its invoice or its first change. */}
-                  <Link
-                    to={`/ops/runs/${r.id}`}
-                    data-testid={`ops-run-${r.id}-open`}
-                    className="text-link hover:underline"
+                  {/* Titled by what the run is about: its invoice or its first change. The
+                      vendor or customer is left to the tooltip; the table has the client. */}
+                  <Clamp
+                    tip={
+                      opsRunTitle(r.subject, short) === opsRunShortTitle(r.subject, short)
+                        ? null
+                        : opsRunTitle(r.subject, short)
+                    }
                   >
-                    {opsRunTitle(r.subject, short)}
-                  </Link>
+                    <Link
+                      to={`/ops/runs/${r.id}`}
+                      data-testid={`ops-run-${r.id}-open`}
+                      className="text-link hover:underline"
+                    >
+                      {opsRunShortTitle(r.subject, short)}
+                    </Link>
+                  </Clamp>
                   {r.subject ? (
                     <span className="block reference text-xs text-ink-muted">{short}</span>
                   ) : null}
                 </td>
-                <td className="text-sm">{clients.get(r.tenantId) ?? "Client"}</td>
                 <td className="text-sm">
-                  {agents.get(r.agentId)?.name ?? "Agent"}
-                  {r.workflowName ? (
-                    <span className="block text-xs text-ink-muted">{r.workflowName}</span>
-                  ) : null}
+                  <Clamp>{clients.get(r.tenantId) ?? "Client"}</Clamp>
+                </td>
+                <td className="text-sm">
+                  {/* The name only; what the agent was doing (its workflow) is in the tooltip. */}
+                  <Clamp tip={r.workflowName} testId={`ops-run-${r.id}-agent`}>
+                    {agents.get(r.agentId)?.name ?? "Agent"}
+                  </Clamp>
                 </td>
                 <td>
                   <span className="flex flex-wrap items-center gap-1.5">
+                    {/* The state alone ("Waiting for approval"); who it waits on is the Owner. */}
                     <StatusChip state={chip.state} testId={`ops-run-${r.id}-status`}>
-                      {chip.words}
+                      {chip.words.split(" · ")[0]}
                     </StatusChip>
                     {r.mode === "test" ? (
                       <span className="text-xs text-ink-muted">Test</span>
                     ) : null}
                   </span>
+                </td>
+                <td className="text-sm" data-testid={`ops-run-${r.id}-owner`}>
                   {wait ? (
-                    <span
-                      className="block text-xs text-ink-muted"
-                      data-testid={`ops-run-${r.id}-wait`}
+                    <Clamp
+                      onlyWhenCut
+                      tip={[
+                        `${capitalize(waitOnWords(wait))}, for ${age(wait.since)}`,
+                        wait.nobodyToAct ? NOBODY_TO_ACT_WORDS[wait.nobodyToAct] : null,
+                      ]
+                        .filter(Boolean)
+                        .join(". ")}
                     >
-                      For {age(wait.since)}
-                      {wait.nobodyToAct ? (
-                        <span className="ui-tone-risk">
-                          {" "}
-                          · {NOBODY_TO_ACT_WORDS[wait.nobodyToAct]}
-                        </span>
-                      ) : null}
-                    </span>
+                      <span className="block whitespace-nowrap">
+                        {capitalize(waitOnWords(wait))}
+                      </span>
+                      <span
+                        className="block text-xs text-ink-muted"
+                        data-testid={`ops-run-${r.id}-wait`}
+                      >
+                        For {age(wait.since)}
+                        {wait.nobodyToAct ? (
+                          <span className="ui-tone-risk">
+                            {" "}
+                            · {NOBODY_TO_ACT_WORDS[wait.nobodyToAct]}
+                          </span>
+                        ) : null}
+                      </span>
+                    </Clamp>
                   ) : null}
                 </td>
                 <td className="text-sm figures">{shortTime(r.startedAt ?? r.createdAt)}</td>
                 <td className="text-sm figures">{duration(r.startedAt, r.finishedAt)}</td>
                 <td className="text-sm" data-testid={`ops-run-${r.id}-error`}>
                   {r.status === "failed" ? (
-                    <span className="ui-tone-risk">{runErrorLine(r.error, r.errorStep)}</span>
+                    <Clamp className="ui-tone-risk">{runErrorLine(r.error, r.errorStep)}</Clamp>
                   ) : null}
                 </td>
                 <td className="n">{usd(r.costUsd)}</td>
@@ -523,7 +647,13 @@ function ErrorGroups({
   onPick: (key: string) => void;
 }) {
   if (groups.length === 0) {
-    return <EmptyState>No failed runs match, so there is nothing to group.</EmptyState>;
+    return (
+      <EmptyState
+        tone="done"
+        title="No failures to group"
+        line="No failed runs match these filters."
+      />
+    );
   }
   return (
     <div className="ops-tiles" data-testid="ops-runs-errors">

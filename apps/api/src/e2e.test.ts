@@ -656,6 +656,7 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     });
     // QA round 1: a service's documentsRead counts its own extractions and the document that
     // started its run: the clerk worked from the invoice read on upload, so it counts 1.
+    // Sloan, the account agent, is on for every client (docs/plan.md §1.47 "On by default").
     expect(activity.services).toEqual([
       expect.objectContaining({
         id: ids.clerk,
@@ -663,6 +664,11 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
         runs: expect.objectContaining({ total: 1, succeeded: 1 }),
         documentsRead: 1,
         actions: 3,
+      }),
+      expect.objectContaining({
+        name: "Sloan, your account agent",
+        runs: expect.objectContaining({ total: 0 }),
+        actions: 0,
       }),
     ]);
     const service = await ok(OWNER, "GET", `/api/services/${ids.clerk}`);
@@ -743,12 +749,20 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
       .select()
       .from(billingAgentDay)
       .where(and(eq(billingAgentDay.tenantId, ids.client), eq(billingAgentDay.day, day)));
-    expect(days.map((d) => [d.agentId, d.agentName])).toEqual([[ids.clerk, "Bills"]]);
+    // Sloan is on for every client (§1.47) and active too, at the platform's $0 for it.
+    expect(days.map((d) => d.agentName).sort()).toEqual(["Bills", "Sloan, your account agent"]);
+    expect(days.find((d) => d.agentName === "Bills")?.agentId).toBe(ids.clerk);
     const detail = await ok(OPERATOR, "GET", `/api/ops/billing/clients/${ids.client}`);
-    expect(detail.client).toMatchObject({ setUp: true, activeAgents: 1 });
+    expect(detail.client).toMatchObject({ setUp: true, activeAgents: 2 });
     expect(
       detail.client.monthSoFar.lines.filter((l: { kind: string }) => l.kind === "agent"),
-    ).toEqual([expect.objectContaining({ agentId: ids.clerk, description: "Bills", days: 1 })]);
+    ).toEqual([
+      expect.objectContaining({ agentId: ids.clerk, description: "Bills", days: 1 }),
+      expect.objectContaining({
+        description: "Sloan, your account agent",
+        amount: { amount: "0.0000", currency: "USD" },
+      }),
+    ]);
     // The client admin sees the month so far, without our cost.
     const portal = await ok(OWNER, "GET", "/api/billing");
     expect(portal.monthSoFar.lines.map((l: { description: string }) => l.description)).toContain(

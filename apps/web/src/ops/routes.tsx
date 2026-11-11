@@ -146,11 +146,19 @@ export const opsRoutes = (
     {/* Usage, billing, feedback, audit, website logins, requests (UI-3) */}
     <Route path="usage" element={<OpsUsageScreen />} />
     <Route path="billing" element={<OpsBillingScreen />} />
-    <Route path="feedback" element={<OpsFeedbackScreen />} />
-    <Route path="audit" element={<OpsAuditScreen />} />
+    {/* Utilities: feedback, the audit queue, the audit log and requests, a tab each. Website
+        logins are in the Library (R8): main's Websites tab redirects there. */}
+    <Route path="utilities" element={<Redirect to="/ops/utilities/feedback" />} />
+    <Route path="utilities/feedback" element={<OpsFeedbackScreen />} />
     {/* Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): runs picked for a person to check */}
-    <Route path="run-audit" element={<OpsRunAuditScreen />} />
-    <Route path="requests" element={<OpsRequestsScreen />} />
+    <Route path="utilities/run-audit" element={<OpsRunAuditScreen />} />
+    <Route path="utilities/audit" element={<OpsAuditScreen />} />
+    <Route path="utilities/requests" element={<OpsRequestsScreen />} />
+    <Route path="utilities/websites" element={<Redirect to="/ops/library/browser-sites" />} />
+    <Route path="feedback" element={<Redirect to="/ops/utilities/feedback" />} />
+    <Route path="run-audit" element={<Redirect to="/ops/utilities/run-audit" />} />
+    <Route path="audit" element={<Redirect to="/ops/utilities/audit" />} />
+    <Route path="requests" element={<Redirect to="/ops/utilities/requests" />} />
     {/* Packs (P-1): switch a business area on per client, and a client's pack reports */}
     <Route path="packs" element={<OpsPacksScreen />} />
     <Route path="clients/:clientId/packs" element={<OpsClientPacksScreen />} />

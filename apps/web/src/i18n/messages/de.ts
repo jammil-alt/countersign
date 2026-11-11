@@ -76,6 +76,8 @@ export const de: Messages = {
   "shell.desk": "Posteingang", // fluent review
   "shell.menu": "Menü",
   "shell.closeMenu": "Menü schließen",
+  "shell.collapse": "Einklappen",
+  "shell.expand": "Ausklappen",
   "shell.switchAgent": "Agent wechseln",
   "shell.theme": "Darstellung",
   "shell.theme.system": "System",

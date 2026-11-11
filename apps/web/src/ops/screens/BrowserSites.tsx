@@ -131,7 +131,7 @@ export function OpsBrowserSitesScreen() {
   return (
     <Page testId="ops-browser-sites">
       <PageHeader
-        title="Website logins"
+        title="Websites"
         subtitle="Sites agents may sign in to as a client's agent account. We sign in by code; the agent never sees a password or a code."
         actions={
           adding ? null : (

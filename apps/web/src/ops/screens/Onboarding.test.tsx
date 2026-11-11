@@ -143,7 +143,7 @@ describe("new client", () => {
       screen.getByTestId("new-client-admin-email"),
       "owner@cabinets.example.com",
     );
-    // The supervisor is offered, ticked (docs/plan.md §1.28).
+    // Sloan, the account agent, is on by default (docs/plan.md §1.47 "On by default").
     expect(screen.getByTestId("new-client-supervisor")).toBeChecked();
     await userEvent.click(screen.getByTestId("new-client-create"));
 

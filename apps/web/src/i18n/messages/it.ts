@@ -75,6 +75,8 @@ export const it: Messages = {
   "shell.desk": "In arrivo", // fluent review
   "shell.menu": "Menu",
   "shell.closeMenu": "Chiudi il menu",
+  "shell.collapse": "Comprimi",
+  "shell.expand": "Espandi",
   "shell.switchAgent": "Cambia agente",
   "shell.theme": "Tema",
   "shell.theme.system": "Sistema",

@@ -5,7 +5,9 @@
 // withOperator(the clients served).
 
 import {
+  AgentsError,
   bundleSkillRefs,
+  CUSTOM_PREFIX,
   createSkill,
   createSkillVersion,
   publishSkill,
@@ -14,6 +16,7 @@ import {
   schemaFields,
 } from "@countersign/agents";
 import {
+  ApiId,
   isToolWrapper,
   parseSkillRef,
   routes,
@@ -192,6 +195,7 @@ function listItem(
     name: def.name,
     description: def.description,
     category: def.category,
+    mode: def.mode,
     source: input.source,
     clientId: input.clientId,
     clientName: input.clientName,
@@ -290,6 +294,29 @@ async function itemFor(ctx: Scope & { platform: Platform }, row: SkillRow) {
   };
 }
 
+/**
+ * A free slug for a clone, in the scope it is made in: the source's id as a slug, then `-copy`,
+ * `-copy-2`… (`docs.extract` → `docs-extract-copy`).
+ */
+async function cloneSlug(ctx: Scope, sourceId: string, tenantId: string | null): Promise<string> {
+  const base = `${sourceId
+    .replace(CUSTOM_PREFIX, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")}-copy`;
+  const taken = new Set(
+    (
+      await ctx.tx
+        .select({ slug: skill.slug })
+        .from(skill)
+        .where(tenantId === null ? isNull(skill.tenantId) : eq(skill.tenantId, tenantId))
+    ).map((r) => r.slug),
+  );
+  let slug = base;
+  for (let n = 2; taken.has(slug); n++) slug = `${base}-${n}`;
+  return slug;
+}
+
 /** For each slug, the clients that have their own skill of that slug. */
 async function shadowingClients(ctx: Scope): Promise<Map<string, Set<string>>> {
   const out = new Map<string, Set<string>>();
@@ -374,6 +401,53 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
       definition: body.definition,
       authorId: session.user.id,
       changeNote: body.changeNote ?? "Created",
+      tools: services.platform.tools,
+    });
+    const { item } = await itemFor({ ...ctx, platform: services.platform }, created.skill);
+    return { skill: item, version: skillVersionView(created.version) };
+  });
+
+  // DECISION: clone copies the source's definition (a built-in's code definition, or an operator
+  // skill's live, else latest, version) into a new operator skill's v1 draft, named "<name> (copy)".
+  // A built-in clone is shared unless a client is given; an operator skill's stays in its scope.
+  // Tool-mode skills run code, which operator skills can't (§9.2), so they are refused.
+  mount(app, routes.opsCloneSkill, async (ctx) => {
+    const { tx, params, body, session, services } = ctx;
+    const builtin = services.platform.catalog.get(params.id);
+    let source: SkillDefinition;
+    let from: string;
+    let tenantId: string | null;
+    if (builtin) {
+      source = builtin;
+      from = builtin.id;
+      tenantId = body.clientId ?? null;
+    } else {
+      if (!ApiId.safeParse(params.id).success) throw notFound("skill");
+      const row = await skillInScope(ctx, params.id);
+      const [entry] = (await skillRows(ctx)).filter((e) => e.row.id === row.id);
+      const shown = entry?.live ?? entry?.latest;
+      if (!shown) throw notFound("skill");
+      source = shown.definition;
+      from = `${source.id}@${shown.version}`;
+      tenantId = body.clientId ?? row.tenantId;
+    }
+    if (tenantId) ensureClient(ctx, tenantId);
+    if (source.mode === "tool") {
+      throw new AgentsError(
+        "invalid_definition",
+        `${source.id} runs code, so it can't be cloned into an operator skill`,
+      );
+    }
+    const { handler: _code, ...rest } = source;
+    const created = await createSkill(tx, {
+      tenantId,
+      definition: {
+        ...rest,
+        id: `${CUSTOM_PREFIX}${await cloneSlug(ctx, source.id, tenantId)}`,
+        name: `${source.name} (copy)`,
+      },
+      authorId: session.user.id,
+      changeNote: `Cloned from ${from}`,
       tools: services.platform.tools,
     });
     const { item } = await itemFor({ ...ctx, platform: services.platform }, created.skill);

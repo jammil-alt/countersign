@@ -607,6 +607,7 @@ function AddToolCard({
   const groups = groupByConnector(items);
   return (
     <Card
+      titleAbove
       testId="portal-connections-available"
       title={t("accounts.add.title")}
       footer={

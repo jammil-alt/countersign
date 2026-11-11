@@ -823,13 +823,20 @@ first (Sandbox and Demo clients, the platform templates); the seed never runs on
 the workflow refuses to run there with "Run the seed first" ticked (it is ticked by default). Safe to
 run again, e.g. after new clients exist: it never adds a second first client.
 
-### MCP server (Claude connector for the back office)
+### MCP server (Claude connector for the back office and for clients)
 
-The back office as a Claude connector (`docs/plan.md` §1.34): `https://staging.mezonas.com/mcp`
-and `https://app.mezonas.com/mcp`, one code, each with its own WorkOS environment, users and
-data. Operators only; it reads what the back office shows for the clients you serve, and its one
-write (resolving feedback) takes two calls, a preview and a confirm. Off until
-`WORKOS_AUTHKIT_DOMAIN` is set for the environment.
+Mezonas as a Claude connector: `https://staging.mezonas.com/mcp` and `https://app.mezonas.com/mcp`,
+one code, each with its own WorkOS environment, users and data. One URL for everyone; who signs in
+decides what it does:
+
+- **Operators** (`docs/plan.md` §1.34): it reads what the back office shows for the clients you
+  serve, and its one write (resolving feedback) takes two calls, a preview and a confirm.
+- **A client's admin or user** (§1.89): it reads what their portal shows them (overview, inbox,
+  runs, connections, requests, records, documents, reports), for their own business only. It
+  changes nothing; approvals and answers stay in the portal.
+
+Off until `WORKOS_AUTHKIT_DOMAIN` is set for the environment (it is set for staging and
+production).
 
 Sign-in is WorkOS AuthKit acting as the OAuth server for MCP clients: Claude registers itself
 with AuthKit, you sign in on AuthKit's page with your usual WorkOS sign-in, and AuthKit issues a
@@ -858,22 +865,29 @@ writing; UNCHECKED, WorkOS renames them now and then):
 use for the back office. Then ask Claude "whoami in Mezonas staging" to see the environment and
 your clients.
 
+**For a client** the steps are the same: they add a custom connector with the production URL
+`https://app.mezonas.com/mcp` and sign in with the address they use for their portal. Someone
+who has never signed in to the portal signs in there once first. Someone in more than one business
+is asked which one; whoami lists them.
+
 If connecting fails:
 
 | You see | Why | What to do |
 |---|---|---|
-| 403 "sign in to the Mezonas back office in a browser once" | Your WorkOS user has never signed in to this environment's back office, so no Mezonas user carries its WorkOS id yet | Sign in at `https://staging.mezonas.com` once, then Connect again |
-| 403 "for operators" | You are signed in as a client user | Use an operator account |
+| 403 "sign in to Mezonas in a browser once" | Your WorkOS user has never signed in to this environment's back office or portal, so no Mezonas user carries its WorkOS id yet | Sign in at `https://staging.mezonas.com` (or `https://app.mezonas.com`) once, then Connect again |
+| 403 "not a member of any business" | The account has no operator or client membership here | Invite them to the client first (or add the operator) |
+| Only the client tools, as an operator | You signed in with a client user's address | Disconnect and sign in with your operator account |
 | 401 "the access token is not for this server" on every call | AuthKit did not put this server's URL in the token's `aud` (RFC 8707 resource indicator; UNCHECKED) | Look at a token's `aud` in the Worker log or WorkOS, and set `MCP_AUDIENCE` to it under the environment's `vars`. Empty means the default (the `/mcp` URL); there is no way to turn the check off |
 | 503 "the sign-in service can't be reached" | The Worker could not read AuthKit's metadata at `<domain>/.well-known/oauth-authorization-server` | Check `WORKOS_AUTHKIT_DOMAIN` |
 | 503 "the MCP server is not set up here" | `WORKOS_AUTHKIT_DOMAIN` is set but WorkOS sign-in is not fully on (client id, API key, cookie password) | Fix WorkOS sign-in first |
 | 429 | More than 120 calls a minute from you (Cloudflare rate limiting, `MCP_RATE_LIMIT`) | Wait a minute |
 
-To cut a connector off: remove the person's operator memberships (takes effect on the next call),
+To cut a connector off: remove the person's memberships (takes effect on the next call),
 or end their sessions in WorkOS (tokens last as long as AuthKit's access-token lifetime, a few
 minutes by default; nothing here refreshes them). Every tool call is a log line
-`{"event":"mcp.tool_call",…}` in Workers Logs, with the operator, the tool, its arguments (never
-a confirm token) and the outcome.
+`{"event":"mcp.tool_call",…}` in Workers Logs, with the person, `audience` (`ops` or `client`),
+the tool, its arguments (never a confirm token) and the outcome; each read is also a row in the
+audit log (`mcp GET /api/…`).
 
 Locally the MCP server is off (`WORKOS_AUTHKIT_DOMAIN` is empty in `wrangler.jsonc`); the tests in
 `apps/api/src/mcp.test.ts` run it against a fake AuthKit.
@@ -901,12 +915,16 @@ nothing itself.
 1. **The template** is the platform template `supervisor` (`packages/db/seed/agents/`). Where it
    isn't installed yet (production, where the seed never runs), adding the supervisor installs its
    newest seeded version first, so nothing is done by hand.
-2. **Add it.** New clients: "Add the supervisor" is ticked on the new-client form. Existing clients:
-   the client page → Health → **Add the supervisor**. Either way it is forked from the template's
-   live version and published as the client's agent `supervisor` ("Account check"); a client that
-   has one keeps it.
-3. **Test and activate it** like any agent: test-run `daily-check` (a test run reads and writes
-   nothing; its output says what it would have reported), then Activate. It needs no connection.
+2. **It is on by default** (since 2026-11-10, `docs/plan.md` §1.47 "On by default"). New clients:
+   "Turn on Sloan" is ticked on the new-client form (untick it to leave a client without it).
+   Existing clients: the cron's hourly pass (minute 23) turns it on for every client without one,
+   and for one added but never activated; or the client page → Health → **Turn on Sloan**. Either
+   way it is forked from the template's live version, published as the client's agent `supervisor`
+   ("Sloan, your account agent"), activated without a test run (it writes nothing to a client's
+   tools) and goes straight to live ("no writes"). A client whose Sloan was activated, paused,
+   moved back, retired or discarded keeps it as it is; so does the Sandbox (no client people).
+3. **To test it** anyway: test-run `daily-check` (a test run reads and writes nothing; its output
+   says what it would have reported). It needs no connection.
 4. **What it does then.** On every failed live run and every connection that needs a person it looks
    into it (the model, with the health tools and, at most, one question to the agent involved) and
    reports: one item for the client admin, one for us, once per open issue. Every day at 08:00 in the

@@ -131,6 +131,7 @@ export function TriggersPanel({
 
   return (
     <Card
+      titleAbove
       title={`Starts when · ${plural(rows.length, "trigger")}`}
       testId="triggers-table"
       meta={

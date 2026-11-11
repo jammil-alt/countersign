@@ -43,7 +43,9 @@ branches.
 - WorkOS sessions are capped at the same 12 hours and 30 minutes. That also covers the Ops MCP
   connector, which signs in with 5-minute WorkOS access tokens instead of our cookie.
 - Roles are `operator`, `client_admin` and `client_user`. Only operators reach `/api/ops` and the
-  MCP connector. Portal routes never return agent definitions, prompts or costs.
+  MCP connector's back-office tools; a client's admin or user signing in to the same connector gets
+  read-only tools over the portal's routes, for one of their own clients per call (`docs/plan.md`
+  §1.89). Portal routes never return agent definitions, prompts or costs.
 - Code: `packages/auth`, `packages/core/src/security/session-limits.ts`,
   `apps/web/src/session/activity.ts`.
 
@@ -51,7 +53,7 @@ branches.
 
 - `audit_event` records **who read or changed what, when and from where**:
   - every request to a session route, reads included;
-  - every back-office call made through the Ops MCP connector;
+  - every back-office or portal read made through the MCP connector;
   - every sign-in, refused sign-in and sign-out;
   - system actions such as file purges.
 - Each row holds the person, their role, the client, the action, the outcome, the ids involved,

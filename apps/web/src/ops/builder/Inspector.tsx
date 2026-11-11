@@ -46,6 +46,7 @@ import {
   EventOptions,
   type FieldErrors,
   JsonInput,
+  ReferenceNames,
   Row,
   SchemaForm,
   SmallInput,
@@ -70,6 +71,7 @@ import {
   takesOnError,
 } from "./outcomes";
 import { type People, PersonPicker } from "./people";
+import { fieldLabel, stepNamer } from "./problems";
 import { ReachOutFields } from "./ReachOutFields";
 // Reshape data (2026-11-11)
 import { inputsUnfilled, isReshape, type ReshapeOffer, reshapeOffers } from "./reshape";
@@ -132,6 +134,8 @@ export interface InspectorProps {
   tenantId?: string | null | undefined;
   /** Move a skill step to another version of its skill, with its references remapped. */
   onMoveSkill?(move: SkillMove): void;
+  /** Opens the Fix dialog for one of the step's problems. */
+  onFix?: ((e: BuilderProblem) => void) | undefined;
 }
 
 function errorsFor(errors: readonly BuilderProblem[], node: string): FieldErrors {
@@ -173,6 +177,7 @@ export function Inspector(props: InspectorProps) {
     selection?.type === "trigger"
       ? workflow.triggers.find((t) => t.id === selection.id)
       : undefined;
+  const names = useMemo(() => stepNamer(workflow, props.bundle), [workflow, props.bundle]);
 
   let body: ReactNode;
   if (trigger) {
@@ -197,7 +202,7 @@ export function Inspector(props: InspectorProps) {
       tabIndex={-1}
       className="outline-none"
     >
-      {body}
+      <ReferenceNames.Provider value={names}>{body}</ReferenceNames.Provider>
     </div>
   );
 }
@@ -229,15 +234,40 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function NodeErrors({ errors, node }: { errors: readonly BuilderProblem[]; node: string }) {
+function NodeErrors({
+  errors,
+  node,
+  onFix,
+}: {
+  errors: readonly BuilderProblem[];
+  node: string;
+  onFix?: ((e: BuilderProblem) => void) | undefined;
+}) {
   const mine = errors.filter((e) => e.stepId === node);
   if (mine.length === 0) return null;
   return (
-    <ul className="ds-banner mb-4 flex-col gap-1 text-sm" data-testid="builder-inspector-errors">
-      {mine.map((e) => (
-        <li key={`${e.field}:${e.code}:${e.message}`}>
-          {e.field ? <span className="reference">{e.field}: </span> : null}
-          {e.message}
+    <ul className="ds-banner mb-4 flex-col gap-2 text-sm" data-testid="builder-inspector-errors">
+      {mine.map((e, i) => (
+        <li
+          key={`${e.field}:${e.code}:${e.message}`}
+          className="flex items-start justify-between gap-3"
+        >
+          <span className="min-w-0">
+            {fieldLabel(e.field) ? (
+              <span className="font-medium">{fieldLabel(e.field)}: </span>
+            ) : null}
+            {e.message}
+          </span>
+          {onFix ? (
+            <button
+              type="button"
+              data-testid={`builder-inspector-error-${i}-fix`}
+              onClick={() => onFix(e)}
+              className="ds-btn ds-btn--secondary ds-btn--sm shrink-0"
+            >
+              Fix
+            </button>
+          ) : null}
         </li>
       ))}
     </ul>
@@ -312,7 +342,7 @@ function StepInspector(props: InspectorProps & { step: Step }) {
         title={step.name || label}
         intro={intro}
       />
-      <NodeErrors errors={errors} node={step.id} />
+      <NodeErrors errors={errors} node={step.id} onFix={props.onFix} />
       <Row label="Name" field="name" errors={fieldErrors}>
         <SmallInput
           data-field="name"
@@ -1252,7 +1282,7 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
             : "This trigger starts each run of this process."
         }
       />
-      <NodeErrors errors={errors} node={trigger.id} />
+      <NodeErrors errors={errors} node={trigger.id} onFix={props.onFix} />
       <Row label="Starts" field="on.type" errors={fieldErrors}>
         <SmallSelect
           data-field="on.type"

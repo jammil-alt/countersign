@@ -26,6 +26,7 @@ import {
   PageHeader,
   type Tone,
 } from "../../ui/primitives";
+import { UtilitiesTabs } from "./UtilitiesTabs";
 
 type Filter = "open" | "resolved" | "all";
 
@@ -67,6 +68,7 @@ export function OpsRequestsScreen() {
   return (
     <Page testId="ops-requests">
       <PageHeader
+        eyebrow="Utilities"
         title="Requests"
         subtitle={
           requests.data
@@ -76,6 +78,7 @@ export function OpsRequestsScreen() {
             : "Clients' asks for changes and new services."
         }
       />
+      <UtilitiesTabs />
       <div className="flex flex-wrap items-center gap-3">
         <StatusFilter
           value={filter}
@@ -106,11 +109,12 @@ export function OpsRequestsScreen() {
       <Loaded state={requests}>
         {(data) =>
           data.items.length === 0 ? (
-            <EmptyState>
-              {filter === "open"
-                ? "Nothing open. Clients' requests show here."
-                : "No requests here."}
-            </EmptyState>
+            <EmptyState
+              icon="message"
+              {...(filter === "open" ? { tone: "done" as const } : {})}
+              title={filter === "open" ? "Nothing open" : "No requests here"}
+              line="When a client asks for a change or a new agent, the request shows here."
+            />
           ) : (
             <div data-testid="ops-requests-list" className="flex flex-col gap-4">
               {data.items.map((item) => (

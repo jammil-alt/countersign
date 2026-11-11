@@ -119,7 +119,10 @@ describe("ops audit queue", () => {
     expect(screen.getByTestId("ops-run-audit-state-filter-unaudited")).toHaveTextContent(
       "To audit · 3",
     );
-    expect(screen.getByTestId("ops-nav-run-audit")).toHaveAttribute("href", "/ops/run-audit");
+    // A Utilities tab (its old address, opened here, redirects there).
+    expect(
+      within(screen.getByTestId("utilities-tabs")).getByRole("link", { name: "Audit queue" }),
+    ).toHaveAttribute("aria-current", "page");
 
     // Client, then agent: each reaches the request.
     await user.selectOptions(screen.getByTestId("ops-run-audit-client"), DEMO);

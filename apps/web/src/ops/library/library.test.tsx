@@ -109,6 +109,8 @@ const skill = (over: Record<string, unknown>) => ({
   name: "Read a document",
   description: "Reads an invoice or a receipt.",
   category: "documents",
+  // main's list rows carry the skill's mode (its Clone needs it).
+  mode: "task",
   source: "builtin",
   clientId: null,
   clientName: null,

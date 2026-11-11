@@ -329,7 +329,7 @@ function StartsWhen({ bundle }: { bundle: AgentBundle }) {
     w.workflow.triggers.map((t) => ({ t, workflow: w.name, key: `${w.slug}:${t.id}` })),
   );
   return (
-    <Card title="Starts when" testId="new-agent-starts">
+    <Card titleAbove title="Starts when" testId="new-agent-starts">
       {rows.length === 0 ? (
         <div className="ui-card__body">
           <EmptyState>No triggers yet: it answers asks and commands.</EmptyState>
@@ -469,6 +469,7 @@ function Access({
   const rows = [...byConnector.entries()].sort(([a], [b]) => a.localeCompare(b));
   return (
     <Card
+      titleAbove
       title="Access it will ask for"
       meta={
         connections ? (

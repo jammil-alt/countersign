@@ -39,7 +39,7 @@ describe("StepList", () => {
       "Otherwise",
     ]);
     expect((fork.querySelector(".grid") as HTMLElement).style.gridTemplateColumns).toBe(
-      "minmax(226px, 1fr) minmax(226px, 1fr) minmax(226px, 1fr)",
+      "minmax(198px, 1fr) minmax(198px, 1fr) minmax(198px, 1fr)",
     );
 
     // Rules read as the builder writes them; template braces are dropped.

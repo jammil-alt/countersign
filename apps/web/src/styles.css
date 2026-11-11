@@ -181,9 +181,21 @@
  *   Geist with tabular figures (the table pattern sets them in mono);
  * - text cells in the app's tables wrap (the pattern keeps every cell on one line), with room
  *   above and below when they do;
- * - two weights in the app: the components' 600 labels are set at 500. */
+ * - two weights in the app: the components' 600 labels are set at 500;
+ * - cards and tables take the small radius (6px), as the owner chose on 2026-11-10.
+ * DECISION: the radius is set here, not in packages/design-system, which is replaced whole by
+ *   the owner's next delivery (2026-11-10); that delivery should carry it. */
 @layer components {
-  .dt .n {
+  .ds-card,
+  .dt {
+    border-radius: var(--radius-sm);
+  }
+  /* A number column's head is the same small mono as the others (the pattern's `.dt .n` set it at
+   * 12px, larger than its neighbours). */
+  .dt thead th.n {
+    font-size: 10px;
+  }
+  .dt .n:not(th) {
     font-family: var(--font-sans);
     font-size: 13px;
   }

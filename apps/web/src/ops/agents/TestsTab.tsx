@@ -190,6 +190,7 @@ function TestBench({
           <div className="flex flex-col gap-6">
             <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
               <Card
+                titleAbove
                 title="Suite runs"
                 testId="agent-test-suite-runs"
                 meta={
@@ -290,7 +291,7 @@ function TestBench({
 function SuiteResults({ id }: { id: string }) {
   const res = useApi(apiRoutes.opsTestSuiteRun, { params: { id } });
   return (
-    <Card title="What each case got" testId="agent-test-results">
+    <Card titleAbove title="What each case got" testId="agent-test-results">
       {res.error ? (
         <div className="px-6 py-4">
           <ErrorNotice error={res.error} onRetry={res.reload} />
@@ -362,6 +363,7 @@ function CasesCard({
   const archive = useAction();
   return (
     <Card
+      titleAbove
       title={`Cases · ${cases.length}`}
       testId="agent-test-cases"
       meta={
@@ -608,6 +610,7 @@ function TestRunsCard({
   const live = detail.versions.find((v) => v.id === agent.liveVersionId) ?? null;
   return (
     <Card
+      titleAbove
       title="Test runs"
       testId="agent-test-runs"
       meta={

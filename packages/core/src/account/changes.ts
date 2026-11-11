@@ -21,6 +21,8 @@ export const ACCOUNT_CHANGE_SUBJECT = "account_change";
 /** Sloan's identity and the service name a new client fork takes (§1.47 "Template"). */
 export const ACCOUNT_AGENT_NAME = "Sloan";
 export const ACCOUNT_AGENT_SERVICE_NAME = "Sloan, your account agent";
+export const ACCOUNT_AGENT_SERVICE_DESCRIPTION =
+  "Answers your questions about your account, and tells you in plain steps when something needs you.";
 
 /** The skill of the template's `chat` workflow. */
 export const ACCOUNT_CHAT_SKILL = "account.chat";

@@ -10,6 +10,7 @@ import { Icon } from "../../ui/icons";
 import { Card, ErrorNotice, Loading, SectionLabel, StepKindTag, Tag } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
 import { toolTitle } from "../builder/model";
+import { ClientViewCard, WhereItRuns } from "../lab/TemplateParts";
 import { runChip } from "../run/words";
 import { KIND_LABEL, PROCESS_KIND_LABEL, triggerTitle, workflowStats } from "../workflow/describe";
 import { optionFor } from "./definition-form";
@@ -69,7 +70,12 @@ export function OverviewTab({
         {agent.kind === "client" ? (
           <LatestRuns agentId={agent.id} workflowNames={workflowNames} />
         ) : (
-          <TemplateRunsNote />
+          <>
+            {/* A template's own panels (they lived in the lab before it became a gallery). */}
+            <WhereItRuns templateId={agent.id} />
+            <ClientViewCard agentId={agent.id} />
+            <TemplateRunsNote />
+          </>
         )}
       </div>
       <Card className="h-fit" title="Works in" pad>

@@ -96,6 +96,7 @@ import {
   validateProcessesLikeServer,
   writeLabelOf,
 } from "./catalog";
+import { FixDialog, type FixRequest } from "./FixDialog";
 import { EventOptions, SmallInput, SmallSelect } from "./fields";
 import { type FocusRequest, Inspector, type Selection } from "./Inspector";
 import {
@@ -136,6 +137,7 @@ import {
   testRunApprovalNote,
 } from "./outcomes";
 import { type Member, type People, personName } from "./people";
+import { type ProblemLine, problemLines, problemPlace, readableErrors } from "./problems";
 // Reshape data (2026-11-11)
 import { addReshapeBefore, addReshapeThenAction, newReshapeStep } from "./reshape";
 import { useClientScriptTools } from "./scripts";
@@ -145,6 +147,9 @@ type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
 
 /** The side panel's tabs: the steps to add, the Builder conversation, the selected step. */
 type Rail = "add" | "builder" | "step";
+
+/** Whether the side panel is folded, per viewer (a convenience: open when unknown). */
+const RAIL_KEY = "mezonas.builder.panel";
 
 export interface WorkflowBuilderProps {
   agent: AgentSummary;
@@ -400,6 +405,23 @@ function BuilderBody(
   // A template's connectors the operator chose to build with in this session.
   const [extraConnectors, setExtraConnectors] = useState<string[]>([]);
   const railRef = useRef<HTMLElement>(null);
+  // The side panel folds to a strip of icons, remembered per viewer in this browser; picking a
+  // step, a tab or "Add a step" opens it again.
+  const [railOpen, setRailOpenState] = useState(() => {
+    try {
+      return window.localStorage.getItem(RAIL_KEY) !== "closed";
+    } catch {
+      return true;
+    }
+  });
+  const setRailOpen = (open: boolean) => {
+    setRailOpenState(open);
+    try {
+      window.localStorage.setItem(RAIL_KEY, open ? "open" : "closed");
+    } catch {
+      // Storage blocked: it stays as chosen for this visit.
+    }
+  };
   // Top-level steps picked for "Save as automation"; null while not picking.
   const [checked, setChecked] = useState<Set<string> | null>(null);
   const [notice, setNotice] = useState<{
@@ -420,9 +442,13 @@ function BuilderBody(
   );
   const action = useAction();
 
-  // Selecting a step or the trigger shows it in the rail.
+  // Selecting a step or the trigger shows it in the rail, opening the rail if it was folded.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setRailOpen only sets state.
   useEffect(() => {
-    if (selection) setRail("step");
+    if (selection) {
+      setRail("step");
+      setRailOpen(true);
+    }
   }, [selection]);
 
   const slug = props.workflow;
@@ -436,13 +462,16 @@ function BuilderBody(
    */
   const showRail = (next: Rail) => {
     setRail(next);
+    setRailOpen(true);
     const el = railRef.current;
     if (!el?.parentElement) return;
     const beside = el.getBoundingClientRect().left - el.parentElement.getBoundingClientRect().left;
     if (beside > 10) return;
     window.requestAnimationFrame(() => {
       el.scrollIntoView?.({ block: "start", behavior: "smooth" });
-      if (next === "step")
+      // Not when focus is already in the panel (a field clicked before this frame): the field
+      // keeps it, so what is typed there isn't lost.
+      if (next === "step" && !el.contains(document.activeElement))
         el.querySelector<HTMLElement>("[data-testid='builder-inspector']")?.focus({
           preventScroll: true,
         });
@@ -533,6 +562,23 @@ function BuilderBody(
         if (["client_admin", "client_user", "operator", "lead"].includes(id)) return undefined;
         return personName(props.people, id);
       },
+      description: (step) => {
+        if (step.kind === "skill") {
+          return data.catalog.skills.find(
+            (s) => s.ref === step.skill || parseSkillRef(s.ref).id === step.skill,
+          )?.definition.description;
+        }
+        // v4: a read or a write by its tool (an action write has none: its kind says it).
+        if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
+          return data.catalog.tools.find((t) => t.id === step.tool)?.description;
+        }
+        if (step.kind === "process") {
+          return (
+            data.catalog.automations?.find((a) => a.ref === step.process)?.description ?? undefined
+          );
+        }
+        return undefined;
+      },
     }),
     [data, ctx, props.people, bundle],
   );
@@ -620,7 +666,20 @@ function BuilderBody(
     };
     return { ...r, errors: r.errors.map(plain), warnings: r.warnings.map(plain) };
   }, [unchangedV3, props.bundle, bundle, ctx, matrices, agent.kind]);
-  const workflowErrors = result.errors.filter((e) => e.workflow === slug);
+  // Counted as the problems list shows them: one step's references to the same step are one.
+  const problemCount = useMemo(
+    () => problemLines(result.errors, bundle).length,
+    [result.errors, bundle],
+  );
+  // In plain words for the step panel and its fields; the list below groups them too.
+  const workflowErrors = useMemo(
+    () =>
+      readableErrors(
+        result.errors.filter((e) => e.workflow === slug),
+        bundle,
+      ),
+    [result.errors, slug, bundle],
+  );
   const env: ApprovalEnv = {
     ctx,
     agentKind: agent.kind,
@@ -773,6 +832,33 @@ function BuilderBody(
     ensureSaved: async () => (dirty ? await save() : saved),
     onDraft: (next) => apply(() => next),
   });
+  // ── Fix: a problem explained and a fix proposed by the Builder, in a dialog ──
+  const [fixing, setFixing] = useState<FixRequest | null>(null);
+  const workflowName = (s?: string) =>
+    bundle.workflows.find((w) => w.slug === (s ?? slug))?.name ?? "this workflow";
+  const fixLine = (line: ProblemLine) =>
+    setFixing({
+      error: line.error,
+      place: problemPlace(line.error, bundle, slug),
+      text: line.text,
+      raw: line.all.map((e) => e.message),
+      workflowName: workflowName(line.error.workflow),
+    });
+  /** From the step panel, whose errors are already in plain words: the raw ones match by place. */
+  const fixError = (e: BuilderProblem) => {
+    const raw = result.errors.filter(
+      (r) =>
+        r.workflow === slug && r.stepId === e.stepId && r.field === e.field && r.code === e.code,
+    );
+    setFixing({
+      error: raw[0] ?? e,
+      place: problemPlace(raw[0] ?? { ...e, workflow: slug }, bundle, slug),
+      text: e.message,
+      raw: raw.length ? raw.map((r) => r.message) : [e.message],
+      workflowName: workflowName(),
+    });
+  };
+
   const saveAutomation = async (name: string, automationSlug: string) => {
     if (!checked || !workflow) return false;
     // In the canvas's order, as the steps run.
@@ -791,7 +877,7 @@ function BuilderBody(
 
   const invalidReason = result.valid
     ? null
-    : `Fix ${plural(result.errors.length, "problem")} first: only a valid workflow can be test-run or published.`;
+    : `Fix ${plural(problemCount, "problem")} first: only a valid workflow can be test-run or published.`;
   const publishBlocked =
     invalidReason ?? (!dirty && saved.status === "live" ? "Nothing new to publish." : null);
 
@@ -834,7 +920,7 @@ function BuilderBody(
             <span data-testid="builder-counts">{subtitle}</span>
             {" · "}
             <span className={result.valid ? "text-positive" : "text-risk"}>
-              {result.valid ? "valid" : plural(result.errors.length, "problem")}
+              {result.valid ? "valid" : plural(problemCount, "problem")}
             </span>
           </>
         }
@@ -958,7 +1044,14 @@ function BuilderBody(
             below the canvas on narrow screens. The palette is the panel's "Add a step" tab, so it
             never covers the Builder or the step. */}
         <div className="@container -mx-4 -mb-8 mt-4 border-t border-line md:-mx-10 md:-mb-12">
-          <div className="grid grid-cols-1 @3xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div
+            className={cx(
+              "grid grid-cols-1",
+              railOpen
+                ? "@3xl:grid-cols-[minmax(0,1fr)_340px]"
+                : "@3xl:grid-cols-[minmax(0,1fr)_52px]",
+            )}
+          >
             <div className="min-w-0 bg-surface-subtle px-4 py-5 md:px-6">
               <WorkflowSwitcher
                 bundle={bundle}
@@ -1043,7 +1136,13 @@ function BuilderBody(
                 </span>
               </div>
 
-              <Problems errors={result.errors} bundle={bundle} slug={slug} onShow={showError} />
+              <Problems
+                errors={result.errors}
+                bundle={bundle}
+                slug={slug}
+                onShow={showError}
+                onFix={fixLine}
+              />
               <Advice warnings={result.warnings.filter((w) => w.workflow === slug)} />
 
               {workflow ? (
@@ -1067,7 +1166,6 @@ function BuilderBody(
                     );
                     showRail("step");
                   }}
-                  onDelete={remove}
                   labels={labels}
                   onAddAt={openPalette}
                   addTarget={rail === "add" ? addTarget : null}
@@ -1091,10 +1189,57 @@ function BuilderBody(
             <aside
               ref={railRef}
               aria-label="Add a step, the Builder and the step"
-              className="flex scroll-mt-[var(--header-h)] flex-col border-t border-line bg-surface px-5 py-4 @3xl:sticky @3xl:top-header @3xl:h-[calc(100vh-var(--header-h))] @3xl:border-t-0 @3xl:border-l"
+              data-testid="builder-rail"
+              data-open={railOpen ? "true" : "false"}
+              className={cx(
+                "flex scroll-mt-[var(--header-h)] flex-col border-t border-line bg-surface @3xl:sticky @3xl:top-header @3xl:h-[calc(100vh-var(--header-h))] @3xl:border-t-0 @3xl:border-l",
+                railOpen ? "px-5 py-4" : "items-center gap-1 px-1.5 py-3 @max-3xl:flex-row",
+              )}
             >
+              {railOpen ? null : (
+                // Folded: an expand button, then each tab as an icon that opens the panel on it.
+                <>
+                  <button
+                    type="button"
+                    aria-label="Expand the side panel"
+                    aria-expanded="false"
+                    title="Expand"
+                    data-testid="builder-rail-expand"
+                    onClick={() => setRailOpen(true)}
+                    className="ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm text-ink-muted hover:text-ink"
+                  >
+                    <Icon name="sidebar" size={16} className="-scale-x-100" />
+                  </button>
+                  <span aria-hidden className="my-1 h-px w-6 bg-line @max-3xl:h-6 @max-3xl:w-px" />
+                  {(
+                    [
+                      ["add", "Add a step", "add"],
+                      ["builder", "Builder", "message"],
+                      ["step", selection ? "Step" : "Inspector", "settings"],
+                    ] as const
+                  ).map(([key, label, icon]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      aria-label={label}
+                      title={label}
+                      data-testid={`builder-rail-${key}-folded`}
+                      onClick={() => (key === "add" ? openPalette(addTarget) : showRail(key))}
+                      className={cx(
+                        "ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm",
+                        rail === key ? "text-slate" : "text-ink-muted hover:text-ink",
+                      )}
+                    >
+                      <Icon name={icon} size={16} />
+                    </button>
+                  ))}
+                </>
+              )}
               <div
-                className="mb-4 flex gap-1 border-b border-line"
+                className={cx(
+                  "mb-4 flex items-end gap-1 border-b border-line",
+                  !railOpen && "hidden",
+                )}
                 role="tablist"
                 aria-label="Side panel"
               >
@@ -1111,7 +1256,7 @@ function BuilderBody(
                     role="tab"
                     aria-selected={rail === key}
                     data-testid={`builder-rail-${key}`}
-                    onClick={() => (key === "add" ? openPalette(addTarget) : setRail(key))}
+                    onClick={() => (key === "add" ? openPalette(addTarget) : showRail(key))}
                     className={cx(
                       "-mb-px border-b-2 px-3 py-2 text-sm",
                       rail === key
@@ -1122,8 +1267,19 @@ function BuilderBody(
                     {label}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  aria-label="Collapse the side panel"
+                  aria-expanded="true"
+                  title="Collapse"
+                  data-testid="builder-rail-collapse"
+                  onClick={() => setRailOpen(false)}
+                  className="ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm mb-1 ml-auto text-ink-muted hover:text-ink"
+                >
+                  <Icon name="sidebar" size={16} className="-scale-x-100" />
+                </button>
               </div>
-              {rail === "add" ? (
+              {railOpen && rail === "add" ? (
                 <div
                   className="min-h-0 flex-1 overflow-y-auto"
                   data-testid="builder-rail-add-panel"
@@ -1156,10 +1312,15 @@ function BuilderBody(
                   />
                 </div>
               ) : null}
-              <div className={cx("min-h-0 flex-1 overflow-y-auto", rail !== "builder" && "hidden")}>
+              <div
+                className={cx(
+                  "min-h-0 flex-1 overflow-y-auto",
+                  (!railOpen || rail !== "builder") && "hidden",
+                )}
+              >
                 <BuilderPanel session={session} />
               </div>
-              {workflow && rail === "step" ? (
+              {railOpen && workflow && rail === "step" ? (
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   <Inspector
                     workflow={workflow}
@@ -1234,12 +1395,21 @@ function BuilderBody(
                       setSelection({ type: "step", id: made[0] as string });
                     }}
                     onProcess={(fn, key) => edit(fn, key)}
+                    onFix={fixError}
                   />
                 </div>
               ) : null}
             </aside>
           </div>
         </div>
+        {fixing ? (
+          <FixDialog
+            fix={fixing}
+            session={session}
+            onClose={() => setFixing(null)}
+            onShowStep={fixing.error.stepId ? () => showError(fixing.error) : undefined}
+          />
+        ) : null}
         <DragOverlay dropAnimation={null}>
           {activeId && activeLabel ? (
             <DragCard title={activeLabel.title} kind={activeLabel.kind} />
@@ -1257,11 +1427,14 @@ function Problems({
   bundle,
   slug,
   onShow,
+  onFix,
 }: {
   errors: BuilderProblem[];
   bundle: ProcessAgentBundle;
   slug: string;
   onShow(e: BuilderProblem): void;
+  /** Opens the Fix dialog for a line: the Builder explains it and proposes a fix. */
+  onFix(line: ProblemLine): void;
 }) {
   const [open, setOpen] = useState(true);
   if (errors.length === 0) {
@@ -1271,16 +1444,7 @@ function Problems({
       </p>
     );
   }
-  const name = (e: BuilderProblem) => {
-    if (!e.workflow) return "Agent";
-    const w = bundle.workflows.find((x) => x.slug === e.workflow);
-    if (!w) return e.workflow;
-    if (w.workflow.triggers.some((t) => t.id === e.stepId)) return `${w.name} · Trigger`;
-    const owner = e.stepId
-      ? (locate(w.workflow, e.stepId)?.step ?? ifOfBranch(w.workflow, e.stepId))
-      : null;
-    return owner ? `${w.name} · ${owner.name}` : w.name;
-  };
+  const lines = problemLines(errors, bundle);
   return (
     <div data-testid="builder-problems" className="ds-banner mb-4 block">
       <button
@@ -1290,23 +1454,38 @@ function Problems({
         onClick={() => setOpen((o) => !o)}
         className="text-sm font-medium"
       >
-        {plural(errors.length, "problem")} before this can be test-run or published
+        {plural(lines.length, "problem")} before this can be test-run or published
         {errors.some((e) => e.workflow && e.workflow !== slug) ? " (some in other workflows)" : ""}
       </button>
       {open ? (
         <ul className="mt-2 flex flex-col gap-1">
-          {errors.map((e, i) => (
-            <li key={`${e.workflow}:${e.stepId}:${e.field}:${e.code}:${e.message}`}>
-              <button
-                type="button"
-                data-testid={`builder-problem-${i}`}
-                onClick={() => onShow(e)}
-                className="text-left text-sm hover:underline"
+          {lines.map((line, i) => {
+            const e = line.error;
+            return (
+              <li
+                key={`${e.workflow}:${e.stepId}:${e.field}:${e.code}:${e.message}`}
+                className="flex items-start justify-between gap-3"
               >
-                <span className="font-medium">{name(e)}</span>: {e.message}
-              </button>
-            </li>
-          ))}
+                <button
+                  type="button"
+                  data-testid={`builder-problem-${i}`}
+                  onClick={() => onShow(e)}
+                  className="min-w-0 text-left text-sm hover:underline"
+                >
+                  <span className="font-medium">{problemPlace(e, bundle, slug)}</span>: {line.text}
+                </button>
+                <button
+                  type="button"
+                  data-testid={`builder-problem-${i}-fix`}
+                  aria-label={`Fix: ${problemPlace(e, bundle, slug)}`}
+                  onClick={() => onFix(line)}
+                  className="ds-btn ds-btn--secondary ds-btn--sm shrink-0"
+                >
+                  Fix
+                </button>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </div>

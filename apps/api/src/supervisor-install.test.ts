@@ -36,7 +36,8 @@ describe.skipIf(!h)("adding the supervisor without its template", () => {
       "GET",
       `/api/ops/clients/${j(res.json).client.id}/health`,
     );
-    expect(j(health.json).supervisor).toMatchObject({ slug: "supervisor", runStatus: "draft" });
+    // Sloan on by default (docs/plan.md §1.47): installed, forked and turned on.
+    expect(j(health.json).supervisor).toMatchObject({ slug: "supervisor", runStatus: "active" });
 
     const [template] = await templates();
     expect(template?.kind).toBe("template");

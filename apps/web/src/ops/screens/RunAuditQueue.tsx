@@ -33,6 +33,7 @@ import { reviewerName, VerdictBadge } from "../run/RunAudit";
 import { runChip } from "../run/words";
 import { TableCard } from "./business";
 import { settingsPath } from "./ClientSettings";
+import { UtilitiesTabs } from "./UtilitiesTabs";
 
 const STATE_WORDS: Record<AuditQueueState, string> = {
   unaudited: "To audit",
@@ -85,6 +86,7 @@ export function OpsRunAuditScreen() {
   return (
     <Page testId="ops-run-audit">
       <PageHeader
+        eyebrow="Utilities"
         title="Audit queue"
         subtitle="Runs picked for a person to check: every run that wrote to a client's tools, and a share of the rest. Open one, read what it did, and mark it."
         actions={
@@ -100,6 +102,7 @@ export function OpsRunAuditScreen() {
           />
         }
       />
+      <UtilitiesTabs />
 
       <Card pad>
         <div className="flex flex-wrap items-end gap-3" data-testid="ops-run-audit-filters">

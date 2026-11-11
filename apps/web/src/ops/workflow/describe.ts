@@ -124,6 +124,8 @@ export interface StepLabels {
   automation?(ref: string): string | undefined;
   connector?(toolId: string): string | undefined;
   person?(id: string): string | undefined;
+  /** What a step's skill, tool or automation does, in its own words (the canvas's tooltip). */
+  description?(step: processes.Step): string | undefined;
   /**
    * Whether a tool changes a client's tool (an external side effect); undefined when unknown.
    * A v4 write with no approval check reads "needs approval" unless this says false.
