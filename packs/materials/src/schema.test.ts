@@ -25,6 +25,7 @@ import {
   purchaseRequestLine,
   quoteLine,
   quoteRequest,
+  vendorItem,
 } from "./schema";
 import { insertShop, type ShopFixture } from "./testing.test-helper";
 
@@ -69,12 +70,32 @@ describe.skipIf(!online)("materials tables (migration 0032)", () => {
       })
       .returning();
     if (!item || !lineId) throw new Error("no item");
+    // §1.88 (0047): the vendor's version of the item, which its alias and price name.
+    const [vi] = await t.db
+      .insert(vendorItem)
+      .values({
+        tenantId: shop.tenantId,
+        vendorId,
+        catalogItemId: item.id,
+        sku: "BB34-55",
+        name: "3/4 BB/BB BALTIC BIRCH 5X5",
+        vendorUom: "sheet",
+        stdPerVendorUom: "1",
+        lastPrice: "92.5000",
+        lastPriceStd: "92.5000",
+        lastPriceOn: "2026-11-02",
+        lastPriceSource: "invoice",
+        lastPriceSourceId: lineId,
+      })
+      .returning();
+    if (!vi) throw new Error("no vendor item");
     await t.db.insert(itemAlias).values({
       tenantId: shop.tenantId,
       vendorId,
       descriptionHash: HASH,
       catalogItemId: item.id,
       source: "human",
+      vendorItemId: vi.id,
     });
     await t.db.insert(itemMatch).values({
       tenantId: shop.tenantId,
@@ -94,6 +115,7 @@ describe.skipIf(!online)("materials tables (migration 0032)", () => {
       qtyStd: "10.0000",
       standardUom: "sheet",
       docLineId: lineId,
+      vendorItemId: vi.id,
     });
     // P-5: a request with one line, an RFQ to the vendor and its answer.
     const [request] = await t.db
@@ -229,6 +251,7 @@ describe.skipIf(!online)("materials tables (migration 0032)", () => {
     expect(await can("catalog_item", "UPDATE")).toBe(true);
     expect(await can("item_alias", "UPDATE")).toBe(true);
     expect(await can("price_observation", "UPDATE")).toBe(true);
+    expect(await can("vendor_item", "UPDATE")).toBe(true);
     expect(await can("item_match", "UPDATE")).toBe(false);
   });
 

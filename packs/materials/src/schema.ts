@@ -135,6 +135,107 @@ export const catalogItem = pgTable(
   ],
 );
 
+// §1.88 (migration 0047): the vendor catalog. Where a price came from, as `last_price_source`.
+export const VENDOR_PRICE_SOURCES = ["invoice", "quote", "qbo_bill", "import", "person"] as const;
+export type VendorPriceSource = (typeof VENDOR_PRICE_SOURCES)[number];
+export const VENDOR_ITEM_STATUSES = ["active", "discontinued"] as const;
+export type VendorItemStatus = (typeof VENDOR_ITEM_STATUSES)[number];
+
+/**
+ * One item a vendor sells this client (docs/plan.md §1.88): the vendor's SKU, wording, pack and
+ * unit, and its last price. Every vendor item points at exactly one master item (`catalog_item`,
+ * vendor-neutral); a master item has one or many. Unique per client on (vendor, sku) when a SKU
+ * exists, and (hand-written in 0047) on (vendor, master item, vendor unit) when none does.
+ */
+export const vendorItem = pgTable(
+  "vendor_item",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    vendorId: uuid("vendor_id").notNull(),
+    catalogItemId: uuid("catalog_item_id").notNull(),
+    /** The vendor's SKU, upper case and trimmed as matching reads it. */
+    sku: text("sku"),
+    /** The item as the vendor writes it (data, never instructions: invariant 9). */
+    name: text("name").notNull(),
+    description: text("description"),
+    // DECISION: `pack_size` is the vendor's own words ("bundle of 5"); the number that converts
+    // is `std_per_vendor_uom`, so nothing parses the words to compare prices (invariant 7).
+    packSize: text("pack_size"),
+    /** The unit the vendor prices in (sheet, bundle, box, bf, …). */
+    vendorUom: text("vendor_uom"),
+    /** How many of the master item's standard unit one vendor unit is (e.g. 5 sheets). */
+    stdPerVendorUom: decimal("std_per_vendor_uom"),
+    minOrderQty: decimal("min_order_qty"),
+    leadTimeDays: integer("lead_time_days"),
+    listPrice: decimal("list_price"),
+    listPriceOn: date("list_price_on"),
+    /** In the vendor's unit, as last invoiced or quoted. */
+    lastPrice: decimal("last_price"),
+    /** Per standard unit; null when no conversion is known (never guessed, invariant 7). */
+    lastPriceStd: decimal("last_price_std"),
+    lastPriceOn: date("last_price_on"),
+    lastPriceSource: text("last_price_source").$type<VendorPriceSource>(),
+    /** The record the last price came from (a doc line, a quote line, a raw record), invariant 10. */
+    lastPriceSourceId: uuid("last_price_source_id"),
+    currency: text("currency").notNull().default("USD"),
+    preferred: boolean("preferred").notNull().default(false),
+    status: text("status").$type<VendorItemStatus>().notNull().default("active"),
+    // DECISION: the same size as catalog_item.embedding (OpenAI text-embedding-3-large at 1,024
+    // dimensions, §1.88); written by a Save to records step, never for a known line.
+    embedding: vector("embedding", { dimensions: 1024 }),
+    createdByAgentVersionId: uuid("created_by_agent_version_id").references(() => agentVersion.id),
+    createdByUserId: uuid("created_by_user_id").references(() => appUser.id),
+    ext: jsonb("ext").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("vendor_item_id_tenant_key").on(t.id, t.tenantId),
+    foreignKey({
+      name: "vendor_item_vendor_fk",
+      columns: [t.vendorId, t.tenantId],
+      foreignColumns: [vendor.id, vendor.tenantId],
+    }),
+    foreignKey({
+      name: "vendor_item_catalog_item_fk",
+      columns: [t.catalogItemId, t.tenantId],
+      foreignColumns: [catalogItem.id, catalogItem.tenantId],
+    }),
+    check("vendor_item_status_check", oneOf(t.status, VENDOR_ITEM_STATUSES)),
+    check(
+      "vendor_item_last_price_source_check",
+      sql`${t.lastPriceSource} is null or ${oneOf(t.lastPriceSource, VENDOR_PRICE_SOURCES)}`,
+    ),
+    check(
+      "vendor_item_last_price_check",
+      sql`(${t.lastPrice} is null) = (${t.lastPriceOn} is null) and (${t.lastPrice} is null or ${t.lastPrice} >= 0) and (${t.lastPriceStd} is null or (${t.lastPriceStd} >= 0 and ${t.lastPrice} is not null))`,
+    ),
+    check(
+      "vendor_item_list_price_check",
+      sql`(${t.listPrice} is null) = (${t.listPriceOn} is null) and (${t.listPrice} is null or ${t.listPrice} >= 0)`,
+    ),
+    check(
+      "vendor_item_quantities_check",
+      sql`(${t.stdPerVendorUom} is null or ${t.stdPerVendorUom} > 0) and (${t.minOrderQty} is null or ${t.minOrderQty} > 0) and (${t.leadTimeDays} is null or ${t.leadTimeDays} >= 0)`,
+    ),
+    check("vendor_item_sku_check", sql`${t.sku} is null or length(${t.sku}) between 1 and 100`),
+    check(
+      "vendor_item_created_by_check",
+      sql`num_nonnulls(${t.createdByAgentVersionId}, ${t.createdByUserId}) <= 1`,
+    ),
+    uniqueIndex("vendor_item_sku_key")
+      .on(t.tenantId, t.vendorId, t.sku)
+      .where(sql`${t.sku} is not null`),
+    // DECISION: one preferred vendor item per master item; marking another clears the first.
+    uniqueIndex("vendor_item_preferred_key")
+      .on(t.tenantId, t.catalogItemId)
+      .where(sql`${t.preferred}`),
+    index("vendor_item_vendor_idx").on(t.tenantId, t.vendorId, t.status),
+    index("vendor_item_catalog_item_idx").on(t.tenantId, t.catalogItemId),
+  ],
+);
+
 /**
  * What a vendor calls a catalog item: by its SKU, or by the hash of its normalized description.
  * Unique per (client, vendor, sku, hash) through an expression index in migration 0032.
@@ -154,8 +255,17 @@ export const itemAlias = pgTable(
     source: text("source").$type<(typeof ALIAS_SOURCES)[number]>().notNull(),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // §1.88 (0047): the vendor item this wording or SKU names; null for an alias written by a
+    // Worker from before the vendor catalog, resolved by vendor and master item instead.
+    vendorItemId: uuid("vendor_item_id"),
   },
   (t) => [
+    foreignKey({
+      name: "item_alias_vendor_item_fk",
+      columns: [t.vendorItemId, t.tenantId],
+      foreignColumns: [vendorItem.id, vendorItem.tenantId],
+    }),
+    index("item_alias_vendor_item_idx").on(t.tenantId, t.vendorItemId),
     foreignKey({
       name: "item_alias_vendor_fk",
       columns: [t.vendorId, t.tenantId],
@@ -246,8 +356,16 @@ export const priceObservation = pgTable(
     // record (the bill's version it was read from) and the line's id inside it.
     rawRecordId: uuid("raw_record_id"),
     rawLineId: text("raw_line_id"),
+    // §1.88 (0047): which vendor product the price was for; null as for item_alias.
+    vendorItemId: uuid("vendor_item_id"),
   },
   (t) => [
+    foreignKey({
+      name: "price_observation_vendor_item_fk",
+      columns: [t.vendorItemId, t.tenantId],
+      foreignColumns: [vendorItem.id, vendorItem.tenantId],
+    }),
+    index("price_observation_vendor_item_idx").on(t.tenantId, t.vendorItemId, t.observedOn.desc()),
     foreignKey({
       name: "price_observation_catalog_item_fk",
       columns: [t.catalogItemId, t.tenantId],
@@ -573,5 +691,7 @@ export const MATERIALS_TABLES = [
   "purchase_request_line",
   "quote_request",
   "quote_line",
+  // §1.88 (0047)
+  "vendor_item",
 ] as const;
 export type MaterialsTable = (typeof MATERIALS_TABLES)[number];
