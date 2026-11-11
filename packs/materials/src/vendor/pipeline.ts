@@ -57,7 +57,8 @@ import {
 } from "../catalog/store";
 import { materialsEventRegistry } from "../events";
 import { convert, readUom } from "../pricing/uom";
-import { type Category, catalogItem, priceObservation } from "../schema";
+import { type Category, catalogItem, priceObservation, vendorItem } from "../schema";
+import { EMBEDDING_TEMPLATE, embeddingText } from "./embedding-text";
 import {
   cleanSku,
   createVendorItem,
@@ -480,9 +481,32 @@ export interface VendorOpenLine {
 /** How many of this vendor's items an open line is compared with. */
 export const VENDOR_CANDIDATES = 5;
 
-/** The text an open line is searched by (and embedded as): its normalized description. */
+/** The text an open line is searched by (names, trigrams) and parsed from: normalized. */
 export function lineText(raw: string, abbreviations: Record<string, string> = {}): string {
   return normalize(raw, { abbreviations });
+}
+
+/**
+ * The text an open line is embedded as, in the one template (./embedding-text.ts): its wording as
+ * the vendor wrote it for the name, and the specs its category parser reads.
+ */
+// DECISION: a line is embedded in the same template as the items it is compared with (§1.88:
+// like for like). Its name is the vendor's wording as written (what a vendor item's name is), it
+// has no description, and its specs are the parsed category and attributes (the rules' reading,
+// or Check matches' for a line new to its vendor).
+export function lineEmbeddingText(
+  raw: string,
+  reading: { category: Category | string; attributes: Readonly<Record<string, unknown>> },
+): string {
+  return embeddingText({ name: raw, category: reading.category, attributes: reading.attributes });
+}
+
+/** An open line's embedding text, parsed with the vendor's abbreviations. */
+export function openLineEmbeddingText(
+  raw: string,
+  abbreviations: Record<string, string> = {},
+): string {
+  return lineEmbeddingText(raw, parseNormalized(lineText(raw, abbreviations)));
 }
 
 export interface SimilarInput {
@@ -589,7 +613,10 @@ export const MASTER_CANDIDATES = 5;
 export interface NewToVendorLine {
   checked: CheckedLine;
   description: string;
+  /** Normalized: what names are compared by. */
   text: string;
+  /** What the line is embedded as (the one template). */
+  embedText: string;
 }
 
 /** The lines Check matches found new to this vendor, with their text (from the document). */
@@ -617,7 +644,14 @@ export async function newToVendorLines(
   return fresh.flatMap((checked) => {
     const description = raw.get(checked.docLineId);
     if (description === undefined) return [];
-    return [{ checked, description, text: lineText(description, abbreviations) }];
+    return [
+      {
+        checked,
+        description,
+        text: lineText(description, abbreviations),
+        embedText: lineEmbeddingText(description, checked),
+      },
+    ];
   });
 }
 
@@ -746,6 +780,8 @@ export interface RegisterResult {
   /** Master items and vendor items made now: Save to records: embeddings, next. */
   catalogItemIds: string[];
   vendorItemIds: string[];
+  /** Vendor items moved to another master item now: their specs changed, so they embed again. */
+  changedVendorItemIds: string[];
   testRun: boolean;
 }
 
@@ -837,6 +873,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
     needsPerson: [],
     catalogItemIds: [],
     vendorItemIds: [],
+    changedVendorItemIds: [],
     testRun: input.testRun,
   };
   for (const line of doc.lines) {
@@ -973,6 +1010,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
         continue;
       }
       vi = await updateVendorItem(tx, tenantId, vi.id, { catalogItemId: item.id });
+      result.changedVendorItemIds.push(vi.id);
     }
     let createdVendorItem = false;
     if (!vi) {
@@ -1132,6 +1170,13 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
   return result;
 }
 
+// DECISION: an item is due for an embedding when it has none, when it was embedded under another
+// template (or before the template was named), or, when its ids are given, when its text changed.
+// A change of name, description or master item clears what a vendor item was embedded from
+// (`updateVendorItem`), so `missing` finds it again; its old vector serves the searches meanwhile.
+const dueSql = (embedding: unknown, ext: unknown) =>
+  sql`(${embedding} is null or coalesce(${ext} -> 'embedding' ->> 'template', '') <> ${EMBEDDING_TEMPLATE})`;
+
 /** Master items with no embedding yet, or whose text changed, among `ids` (or any, with none). */
 export async function itemsToEmbed(
   tx: Tx,
@@ -1143,6 +1188,8 @@ export async function itemsToEmbed(
     .select({
       id: catalogItem.id,
       name: catalogItem.canonicalName,
+      category: catalogItem.category,
+      attributes: catalogItem.attributes,
       ext: catalogItem.ext,
       has: sql<boolean>`${catalogItem.embedding} is not null`,
     })
@@ -1151,25 +1198,93 @@ export async function itemsToEmbed(
       and(
         eq(catalogItem.tenantId, tenantId),
         isNull(catalogItem.mergedIntoId),
-        ids ? inArray(catalogItem.id, [...ids]) : sql`${catalogItem.embedding} is null`,
+        ids ? inArray(catalogItem.id, [...ids]) : dueSql(catalogItem.embedding, catalogItem.ext),
       ),
     )
     .orderBy(asc(catalogItem.id))
     .limit(limit);
   return rows
-    .map((r) => ({ id: r.id, text: masterText(r.name), has: r.has, was: embeddedText(r.ext) }))
+    .map((r) => ({ id: r.id, text: masterText(r), has: r.has, was: embeddedText(r.ext) }))
     .filter((r) => !r.has || r.was !== r.text)
     .map(({ id, text }) => ({ id, text }));
 }
 
-/** The text a master item is embedded as: its vendor-neutral name, normalized. */
-export function masterText(canonicalName: string): string {
-  return normalize(canonicalName);
+/** Vendor items with no embedding yet, or whose text changed, among `ids` (or any, with none). */
+export async function vendorItemsToEmbed(
+  tx: Tx,
+  tenantId: string,
+  ids: readonly string[] | null,
+  limit: number,
+): Promise<{ id: string; text: string }[]> {
+  const rows = await tx
+    .select({
+      id: vendorItem.id,
+      name: vendorItem.name,
+      description: vendorItem.description,
+      ext: vendorItem.ext,
+      has: sql<boolean>`${vendorItem.embedding} is not null`,
+      category: catalogItem.category,
+      attributes: catalogItem.attributes,
+    })
+    .from(vendorItem)
+    .innerJoin(
+      catalogItem,
+      and(
+        eq(catalogItem.id, vendorItem.catalogItemId),
+        eq(catalogItem.tenantId, vendorItem.tenantId),
+      ),
+    )
+    .where(
+      and(
+        eq(vendorItem.tenantId, tenantId),
+        ids ? inArray(vendorItem.id, [...ids]) : dueSql(vendorItem.embedding, vendorItem.ext),
+      ),
+    )
+    .orderBy(asc(vendorItem.id))
+    .limit(limit);
+  return rows
+    .map((r) => ({
+      id: r.id,
+      text: vendorItemText(r, r),
+      has: r.has,
+      was: embeddedText(r.ext),
+    }))
+    .filter((r) => !r.has || r.was !== r.text)
+    .map(({ id, text }) => ({ id, text }));
 }
 
-/** The text a vendor item is embedded as: the vendor's wording (and description), normalized. */
-export function vendorItemText(v: { name: string; description: string | null }): string {
-  return normalize([v.name, v.description ?? ""].join(" "));
+/**
+ * The text a master item is embedded as, in the one template: its vendor-neutral name, and its
+ * category and attributes as the specs. A master item has no description of its own.
+ */
+export function masterText(m: {
+  name: string;
+  category: Category | string;
+  attributes: Readonly<Record<string, unknown>> | null;
+}): string {
+  return embeddingText({ name: m.name, category: m.category, attributes: m.attributes });
+}
+
+/**
+ * The text a vendor item is embedded as, in the one template: the vendor's name and description
+ * as written, and the specs of its master item (the item it is).
+ */
+// DECISION: a vendor item's specs are its master item's category and attributes: a vendor item
+// is exactly one master item (§1.88), whose attributes are the rules' reading, so its specs move
+// with its master item and never depend on how one vendor abbreviates.
+export function vendorItemText(
+  v: { name: string; description: string | null },
+  master: {
+    category: Category | string;
+    attributes: Readonly<Record<string, unknown>> | null;
+  } | null,
+): string {
+  return embeddingText({
+    name: v.name,
+    description: v.description,
+    category: master?.category ?? null,
+    attributes: master?.attributes ?? null,
+  });
 }
 
 /** What an item was last embedded from (`ext.embedding.text`). */

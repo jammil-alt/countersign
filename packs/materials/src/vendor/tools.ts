@@ -5,25 +5,25 @@
 
 import { type Db, vendor, withTenant } from "@countersign/db";
 import { EMBED_BATCH_MAX, EMBEDDING_DIMENSIONS } from "@countersign/llm";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { catalogItem, VENDOR_ITEM_STATUSES, vendorItem } from "../schema";
 import { Answer, Checked, LookedUp, Open } from "../split";
 import { defineTool, type PackTool, type PackToolContext } from "../tools";
+import { EMBEDDING_TEMPLATE } from "./embedding-text";
 import {
-  embeddedText,
   itemsToEmbed,
-  lineText,
   lookupBySku,
   masterCandidates,
   matchVendor,
   newToVendorLines,
+  openLineEmbeddingText,
   registerLines,
   similarForOpenLines,
   VENDOR_METHODS,
   VendorMatchError,
   vendorAbbreviations,
-  vendorItemText,
+  vendorItemsToEmbed,
 } from "./pipeline";
 import {
   cleanSku,
@@ -202,7 +202,7 @@ export const vendorItemsSimilar = defineTool({
     // Known lines are never embedded: only the open ones are searched by meaning.
     const vectors = await embedTexts(
       ctx,
-      open.map((l) => lineText(l.description, abbreviations)),
+      open.map((l) => openLineEmbeddingText(l.description, abbreviations)),
       "materials.vendor_items.similar",
     );
     const r = await withTenant(ctx.db, ctx.tenantId, (tx) =>
@@ -254,7 +254,7 @@ export const masterItemsCandidates = defineTool({
     );
     const vectors = await embedTexts(
       ctx,
-      fresh.map((l) => l.text),
+      fresh.map((l) => l.embedText),
       "materials.master_items.candidates",
     );
     const r = await withTenant(ctx.db, ctx.tenantId, (tx) =>
@@ -348,6 +348,8 @@ export const vendorItemsRegister = defineTool({
       registered: r.lines.filter((l) => l.recorded).length,
       newMasterItems: r.catalogItemIds.length,
       newVendorItems: r.vendorItemIds.length,
+      // The vendor items to embed next: those made now, and those moved to another master item.
+      vendorItemIds: [...new Set([...r.vendorItemIds, ...r.changedVendorItemIds])],
       needsPersonCount: r.needsPerson.length,
       anyNeedsPerson: r.needsPerson.length > 0,
       sources: [
@@ -450,8 +452,10 @@ export const vendorItemsForItem = defineTool({
 /** Save to records: a vendor item, made or changed. */
 export const vendorItemUpsert = defineTool({
   id: "materials.vendor_item.upsert",
+  usesModel:
+    "embeds the vendor item again when its name, description or master item changed (OpenAI embeddings)",
   description:
-    "Adds an item to a vendor's catalog, or changes one (by its id, or the vendor's SKU): the master item it is, the vendor's name and description, pack and unit with how many standard units one unit is, the minimum order, the lead time and the list price. Only the fields given change.",
+    "Adds an item to a vendor's catalog, or changes one (by its id, or the vendor's SKU): the master item it is, the vendor's name and description, pack and unit with how many standard units one unit is, the minimum order, the lead time and the list price. Only the fields given change. A new item, or a changed name, description or master item, is embedded again for the search by meaning.",
   sideEffect: "internal",
   summary: "Saved {{item.name}} in the vendor's catalog",
   input: z.object({
@@ -473,59 +477,91 @@ export const vendorItemUpsert = defineTool({
       .regex(/^[A-Z]{3}$/)
       .optional(),
   }),
-  output: z.object({ item: VendorItemOut, created: z.boolean(), sources: z.array(z.string()) }),
-  run: (input, ctx) =>
-    withTenant(ctx.db, ctx.tenantId, async (tx) => {
-      if (input.listPrice && !input.listPriceOn) {
-        throw new VendorItemError("bad_input", "a list price needs its date (listPriceOn)");
-      }
-      if (input.catalogItemId) {
-        const [m] = await tx
-          .select({ id: catalogItem.id, merged: catalogItem.mergedIntoId })
-          .from(catalogItem)
-          .where(
-            and(eq(catalogItem.id, input.catalogItemId), eq(catalogItem.tenantId, ctx.tenantId)),
-          )
-          .limit(1);
-        if (!m)
-          throw new VendorItemError("not_found", `catalog item ${input.catalogItemId} not found`);
-        if (m.merged)
-          throw new VendorItemError("conflict", "that catalog item was merged into another");
-      }
-      const sku = input.sku === undefined ? undefined : cleanSku(input.sku);
-      const existing = input.id
-        ? await vendorItemById(tx, ctx.tenantId, input.id)
-        : sku
-          ? await vendorItemBySku(tx, ctx.tenantId, input.vendorId, sku)
-          : null;
-      if (input.id && !existing)
-        throw new VendorItemError("not_found", `vendor item ${input.id} not found`);
-      if (existing && existing.vendorId !== input.vendorId) {
-        throw new VendorItemError("conflict", "that vendor item is another vendor's");
-      }
-      const { id: _id, vendorId: _vendorId, ...fields } = input;
-      if (existing) {
-        const item = await updateVendorItem(tx, ctx.tenantId, existing.id, { ...fields, sku });
-        return { item: vendorItemView(item), created: false, sources: [item.id] };
-      }
-      if (!input.catalogItemId || !input.name) {
-        throw new VendorItemError("bad_input", "a new vendor item needs its master item and name");
-      }
-      const made = await createVendorItem(
-        tx,
-        ctx.tenantId,
-        {
-          ...fields,
-          vendorId: input.vendorId,
-          catalogItemId: input.catalogItemId,
-          name: input.name,
-          sku,
-        },
-        { agentVersionId: ctx.agentVersionId },
-      );
-      return { item: vendorItemView(made.item), created: made.created, sources: [made.item.id] };
-    }),
+  output: z.object({
+    item: VendorItemOut,
+    created: z.boolean(),
+    embedded: z.boolean(),
+    sources: z.array(z.string()),
+  }),
+  async run(input, ctx) {
+    const saved = await saveVendorItem(input, ctx);
+    // DECISION: the vendor item is embedded when it is saved (§1.88: "made when a master item or
+    // vendor item is saved"), after its transaction; the write compares the text, so a change of
+    // price or pack embeds nothing. No model, or a test run: it stays due for `missing`.
+    const e = await writeEmbeddings(ctx, { vendorItemIds: [saved.item.id] });
+    return { ...saved, embedded: e.vendorItems > 0 };
+  },
 });
+
+/** The upsert's write, in one transaction. */
+function saveVendorItem(
+  input: {
+    id?: string | undefined;
+    vendorId: string;
+    catalogItemId?: string | undefined;
+    sku?: string | null | undefined;
+    name?: string | undefined;
+    description?: string | null | undefined;
+    packSize?: string | null | undefined;
+    vendorUom?: string | null | undefined;
+    stdPerVendorUom?: string | null | undefined;
+    minOrderQty?: string | null | undefined;
+    leadTimeDays?: number | null | undefined;
+    listPrice?: string | null | undefined;
+    listPriceOn?: string | null | undefined;
+    currency?: string | undefined;
+  },
+  ctx: PackToolContext,
+) {
+  return withTenant(ctx.db, ctx.tenantId, async (tx) => {
+    if (input.listPrice && !input.listPriceOn) {
+      throw new VendorItemError("bad_input", "a list price needs its date (listPriceOn)");
+    }
+    if (input.catalogItemId) {
+      const [m] = await tx
+        .select({ id: catalogItem.id, merged: catalogItem.mergedIntoId })
+        .from(catalogItem)
+        .where(and(eq(catalogItem.id, input.catalogItemId), eq(catalogItem.tenantId, ctx.tenantId)))
+        .limit(1);
+      if (!m)
+        throw new VendorItemError("not_found", `catalog item ${input.catalogItemId} not found`);
+      if (m.merged)
+        throw new VendorItemError("conflict", "that catalog item was merged into another");
+    }
+    const sku = input.sku === undefined ? undefined : cleanSku(input.sku);
+    const existing = input.id
+      ? await vendorItemById(tx, ctx.tenantId, input.id)
+      : sku
+        ? await vendorItemBySku(tx, ctx.tenantId, input.vendorId, sku)
+        : null;
+    if (input.id && !existing)
+      throw new VendorItemError("not_found", `vendor item ${input.id} not found`);
+    if (existing && existing.vendorId !== input.vendorId) {
+      throw new VendorItemError("conflict", "that vendor item is another vendor's");
+    }
+    const { id: _id, vendorId: _vendorId, ...fields } = input;
+    if (existing) {
+      const item = await updateVendorItem(tx, ctx.tenantId, existing.id, { ...fields, sku });
+      return { item: vendorItemView(item), created: false, sources: [item.id] };
+    }
+    if (!input.catalogItemId || !input.name) {
+      throw new VendorItemError("bad_input", "a new vendor item needs its master item and name");
+    }
+    const made = await createVendorItem(
+      tx,
+      ctx.tenantId,
+      {
+        ...fields,
+        vendorId: input.vendorId,
+        catalogItemId: input.catalogItemId,
+        name: input.name,
+        sku,
+      },
+      { agentVersionId: ctx.agentVersionId },
+    );
+    return { item: vendorItemView(made.item), created: made.created, sources: [made.item.id] };
+  });
+}
 
 /** Save to records: the client's first choice for a master item. */
 export const vendorItemSetPreferred = defineTool({
@@ -597,6 +633,10 @@ export const embeddingsWrite = defineTool({
   },
 });
 
+/** What an item was embedded from, kept in its `ext` so the same text is never embedded twice. */
+const embeddedFrom = (text: string) =>
+  JSON.stringify({ embedding: { text, template: EMBEDDING_TEMPLATE } });
+
 /** The embedding write, between transactions: read what needs one, embed, write each back. */
 export async function writeEmbeddings(
   ctx: PackToolContext,
@@ -608,38 +648,21 @@ export async function writeEmbeddings(
 ) {
   const byIds = input.catalogItemIds !== undefined || input.vendorItemIds !== undefined;
   const limit = input.missing ?? 500;
-  const todo = await withTenant(ctx.db, ctx.tenantId, async (tx) => {
-    const masters =
+  const todo = await withTenant(ctx.db, ctx.tenantId, async (tx) => ({
+    masters:
       input.catalogItemIds?.length || !byIds
         ? await itemsToEmbed(tx, ctx.tenantId, byIds ? (input.catalogItemIds ?? []) : null, limit)
-        : [];
-    const rows =
+        : [],
+    vendors:
       input.vendorItemIds?.length || !byIds
-        ? await tx
-            .select({
-              id: vendorItem.id,
-              name: vendorItem.name,
-              description: vendorItem.description,
-              ext: vendorItem.ext,
-              has: sql<boolean>`${vendorItem.embedding} is not null`,
-            })
-            .from(vendorItem)
-            .where(
-              and(
-                eq(vendorItem.tenantId, ctx.tenantId),
-                byIds
-                  ? inArray(vendorItem.id, input.vendorItemIds ?? [])
-                  : isNull(vendorItem.embedding),
-              ),
-            )
-            .limit(limit)
-        : [];
-    const vendors = rows
-      .map((r) => ({ id: r.id, text: vendorItemText(r), has: r.has, was: embeddedText(r.ext) }))
-      .filter((r) => !r.has || r.was !== r.text)
-      .map(({ id, text }) => ({ id, text }));
-    return { masters, vendors };
-  });
+        ? await vendorItemsToEmbed(
+            tx,
+            ctx.tenantId,
+            byIds ? (input.vendorItemIds ?? []) : null,
+            limit,
+          )
+        : [],
+  }));
   const total = todo.masters.length + todo.vendors.length;
   // DECISION: a test run makes no embeddings (they cost, and the items it registered were rolled
   // back); it says how many it would have made.
@@ -663,7 +686,7 @@ export async function writeEmbeddings(
         .update(catalogItem)
         .set({
           embedding: v,
-          ext: sql`${catalogItem.ext} || ${JSON.stringify({ embedding: { text: m.text } })}::jsonb`,
+          ext: sql`${catalogItem.ext} || ${embeddedFrom(m.text)}::jsonb`,
         })
         .where(and(eq(catalogItem.id, m.id), eq(catalogItem.tenantId, ctx.tenantId)));
     }
@@ -674,7 +697,7 @@ export async function writeEmbeddings(
         .update(vendorItem)
         .set({
           embedding: v,
-          ext: sql`${vendorItem.ext} || ${JSON.stringify({ embedding: { text: r.text } })}::jsonb`,
+          ext: sql`${vendorItem.ext} || ${embeddedFrom(r.text)}::jsonb`,
         })
         .where(and(eq(vendorItem.id, r.id), eq(vendorItem.tenantId, ctx.tenantId)));
     }

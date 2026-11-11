@@ -5,7 +5,7 @@
 
 import { dec, toNumeric } from "@countersign/core";
 import { type Tx, vendor } from "@countersign/db";
-import { and, asc, desc, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, ne, type SQL, sql } from "drizzle-orm";
 import { liveItem } from "../catalog/store";
 import {
   type Category,
@@ -262,7 +262,9 @@ export async function updateVendorItem(
   id: string,
   f: { [K in keyof Omit<VendorItemFields, "vendorId">]?: VendorItemFields[K] | undefined },
 ): Promise<VendorItemRow> {
-  const set: Partial<typeof vendorItem.$inferInsert> = { updatedAt: new Date() };
+  const set: Omit<Partial<typeof vendorItem.$inferInsert>, "ext"> & { ext?: SQL } = {
+    updatedAt: new Date(),
+  };
   if (f.catalogItemId !== undefined) set.catalogItemId = f.catalogItemId;
   if (f.sku !== undefined) set.sku = cleanSku(f.sku);
   if (f.name !== undefined) set.name = f.name.slice(0, 500);
@@ -277,6 +279,20 @@ export async function updateVendorItem(
     set.listPriceOn = f.listPrice === null ? null : (f.listPriceOn ?? null);
   }
   if (f.currency !== undefined) set.currency = f.currency;
+  // What the vendor item is embedded from changed: forget the text it was embedded from, so the
+  // embedding write makes it again (the old vector serves the searches until then).
+  const changes = [
+    set.name !== undefined ? sql`${vendorItem.name} is distinct from ${set.name}` : null,
+    set.description !== undefined
+      ? sql`${vendorItem.description} is distinct from ${set.description}`
+      : null,
+    set.catalogItemId !== undefined
+      ? sql`${vendorItem.catalogItemId} is distinct from ${set.catalogItemId}`
+      : null,
+  ].filter((c) => c !== null);
+  if (changes.length > 0) {
+    set.ext = sql`case when ${sql.join(changes, sql` or `)} then ${vendorItem.ext} - 'embedding' else ${vendorItem.ext} end`;
+  }
   const [row] = await tx
     .update(vendorItem)
     .set(set)

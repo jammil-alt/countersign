@@ -13,6 +13,7 @@ import { descriptionHash, normalize } from "../catalog/normalize";
 import { catalogItem, itemAlias, vendorItem } from "../schema";
 import { insertShop, type ShopFixture } from "../testing.test-helper";
 import { type PackToolContext, packToolContext } from "../tools";
+import { EMBEDDING_TEMPLATE } from "./embedding-text";
 import { registerLines } from "./pipeline";
 import { recordLastPrice } from "./store";
 import {
@@ -27,6 +28,9 @@ import {
 } from "./tools";
 
 const online = await databaseAvailable();
+
+// biome-ignore lint/suspicious/noExplicitAny: jsonb read loosely in tests.
+type J = any;
 
 async function errorOf(p: Promise<unknown>): Promise<string> {
   try {
@@ -358,5 +362,90 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
       testRun: boolean;
     };
     expect(test).toMatchObject({ embedded: 0, testRun: true });
+  });
+
+  it("embeds name, description and specs, when an item is saved and again when they change", async () => {
+    const seen: string[] = [];
+    const llm = createLlmClient({
+      transport: {
+        create: () => Promise.reject(new Error("no")),
+        embed: async (request) => {
+          seen.push(...request.input);
+          return {
+            model: "text-embedding-3-large",
+            embeddings: request.input.map(() =>
+              Array.from({ length: request.dimensions }, (_, j) => (j === 0 ? 1 : 0)),
+            ),
+            usage: { inputTokens: 10 },
+          };
+        },
+      },
+    });
+    const withModel = { ...ctxA, llm };
+    const walnutText =
+      "Name: WALNUT 4/4 FAS\nSpecs: category hardwood; species walnut; thickness 4/4; grade fas; surfacing rough; cut plain";
+    // The master item embedded above went in the one template.
+    const [master] = await t.db.select().from(catalogItem).where(eq(catalogItem.id, walnut));
+    expect((master?.ext as J)?.embedding).toEqual({
+      text: walnutText,
+      template: EMBEDDING_TEMPLATE,
+    });
+    // Saved: embedded at once, with the vendor's wording and its master item's specs.
+    const saved = (await vendorItemUpsert.run(
+      {
+        vendorId: cedar,
+        catalogItemId: walnut,
+        sku: "WAL44",
+        name: "WALNUT 4/4 FAS KD",
+        description: "Kiln dried, $9.80/BF, QTY 120",
+        vendorUom: "board_foot",
+      },
+      withModel,
+    )) as { item: { id: string }; embedded: boolean };
+    expect(saved.embedded).toBe(true);
+    expect(seen.at(-1)).toBe(
+      "Name: WALNUT 4/4 FAS KD\nDescription: Kiln dried\nSpecs: category hardwood; species walnut; thickness 4/4; grade fas; surfacing rough; cut plain",
+    );
+    const count = seen.length;
+    // A lead time changes nothing it is embedded from.
+    const lead = (await vendorItemUpsert.run(
+      { vendorId: cedar, sku: "WAL44", leadTimeDays: 5 },
+      withModel,
+    )) as { embedded: boolean };
+    expect(lead.embedded).toBe(false);
+    expect(seen).toHaveLength(count);
+    // A new description does: embedded again.
+    const desc = (await vendorItemUpsert.run(
+      { vendorId: cedar, sku: "WAL44", description: "Kiln dried, select and better" },
+      withModel,
+    )) as { embedded: boolean };
+    expect(desc.embedded).toBe(true);
+    expect(seen.at(-1)).toContain("Description: Kiln dried, select and better");
+    // Without a model the change is remembered: `missing` finds it later.
+    await vendorItemUpsert.run(
+      { vendorId: cedar, sku: "WAL44", name: "WALNUT 4/4 FAS KD S2S" },
+      ctxA,
+    );
+    const [due] = await t.db.select().from(vendorItem).where(eq(vendorItem.sku, "WAL44"));
+    expect((due?.ext as J)?.embedding).toBeUndefined();
+    expect(due?.embedding).toHaveLength(1024);
+    // An item embedded before the template was named is due again too.
+    await t.db
+      .update(catalogItem)
+      .set({ ext: { embedding: { text: "WALNUT 4/4 FAS" } } })
+      .where(eq(catalogItem.id, walnut));
+    const before = seen.length;
+    const missing = (await embeddingsWrite.run({ missing: 500 }, withModel)) as {
+      catalogItems: number;
+      vendorItems: number;
+    };
+    expect(missing.catalogItems).toBeGreaterThanOrEqual(1);
+    expect(missing.vendorItems).toBeGreaterThanOrEqual(1);
+    const texts = seen.slice(before);
+    expect(texts).toContain(walnutText);
+    expect(texts.some((x) => x.startsWith("Name: WALNUT 4/4 FAS KD S2S\n"))).toBe(true);
+    // Everything is embedded under the template now: nothing is due.
+    const after = (await embeddingsWrite.run({ missing: 500 }, withModel)) as { embedded: number };
+    expect(after.embedded).toBe(0);
   });
 });

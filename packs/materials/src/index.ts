@@ -59,12 +59,21 @@ export {
   thresholdFrom,
 } from "./tools";
 // §1.88: the vendor catalog, its matching pipeline, skills and pattern.
+export {
+  EMBEDDING_TEMPLATE,
+  EMBEDDING_TEXT_MAX_WORDS,
+  embeddingText,
+  specsText,
+  stripTerms,
+} from "./vendor/embedding-text";
 export * from "./vendor/patterns";
 export {
   type LoadedDocument,
+  lineEmbeddingText,
   lookupBySku,
   masterText,
   matchVendor,
+  openLineEmbeddingText,
   type RegisterResult,
   registerLines,
   VendorMatchError,
