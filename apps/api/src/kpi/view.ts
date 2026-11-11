@@ -13,38 +13,103 @@ import {
   userLanguage,
 } from "@countersign/core";
 import { type agent, agentVersion, type Tx, tenantPack } from "@countersign/db";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { reportProblem } from "../observability/report";
-import { computeKpis } from "./compute";
+import { computeKpis, computeKpisMany } from "./compute";
 
 type AgentRow = typeof agent.$inferSelect;
+
+/** What the portal reads from a live bundle: its client view, and whether it starts from documents. */
+export interface LiveProjection {
+  versionId: string;
+  view: ClientView | null;
+  readsDocuments: boolean;
+}
+
+/** The live bundle's client view, as JSON (a path into the bundle, never the bundle itself). */
+export const clientViewSql = sql<unknown>`(${agentVersion.bundle} -> 'definition' -> 'clientView')`;
+
+/**
+ * Whether an enabled workflow of the bundle starts on a `document.*` event (its first trigger), as
+ * `readsDocuments` (lifecycle/runs.ts) reads it from the whole bundle: v4's `triggers[0]`, else
+ * v3's `trigger`.
+ */
+export const readsDocumentsSql = sql<boolean>`coalesce((select bool_or(
+    (w ->> 'enabled')::boolean
+    and (case when jsonb_typeof(w -> 'workflow' -> 'triggers') = 'array'
+              then w -> 'workflow' -> 'triggers' -> 0
+              else w -> 'workflow' -> 'trigger' end) -> 'on' ->> 'type' = 'event'
+    and (case when jsonb_typeof(w -> 'workflow' -> 'triggers') = 'array'
+              then w -> 'workflow' -> 'triggers' -> 0
+              else w -> 'workflow' -> 'trigger' end) -> 'on' ->> 'event' like 'document.%')
+  from jsonb_array_elements(case when jsonb_typeof(${agentVersion.bundle} -> 'workflows') = 'array'
+                                 then ${agentVersion.bundle} -> 'workflows' else '[]'::jsonb end) w),
+  false)`;
+
+/** A client view as stored, checked at the boundary; null when absent or unreadable. */
+export function parseClientView(versionId: string, raw: unknown): ClientView | null {
+  if (raw === undefined || raw === null) return null;
+  const parsed = ClientView.safeParse(raw);
+  if (!parsed.success) {
+    reportProblem("an agent version has an unreadable client view", { agent_version: versionId });
+    return null;
+  }
+  return parsed.data;
+}
+
+/**
+ * The live versions' projections of many agents in one query, by agent id: only the client view
+ * and the documents flag are read, never the whole bundle. Agents with no live version are absent.
+ */
+export async function liveProjections(
+  tx: Tx,
+  agents: readonly Pick<AgentRow, "id" | "liveVersionId" | "tenantId">[],
+): Promise<Map<string, LiveProjection>> {
+  const out = new Map<string, LiveProjection>();
+  const live = agents.filter((a) => a.liveVersionId !== null);
+  if (live.length === 0) return out;
+  const tenants = [...new Set(live.flatMap((a) => (a.tenantId === null ? [] : [a.tenantId])))];
+  const scope = [
+    ...(tenants.length > 0 ? [inArray(agentVersion.tenantId, tenants)] : []),
+    ...(live.some((a) => a.tenantId === null) ? [isNull(agentVersion.tenantId)] : []),
+  ];
+  const rows = await tx
+    .select({
+      id: agentVersion.id,
+      tenantId: agentVersion.tenantId,
+      view: clientViewSql,
+      readsDocuments: readsDocumentsSql,
+    })
+    .from(agentVersion)
+    .where(
+      and(
+        inArray(
+          agentVersion.id,
+          live.map((a) => a.liveVersionId as string),
+        ),
+        or(...scope),
+      ),
+    );
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  for (const a of live) {
+    const r = byId.get(a.liveVersionId as string);
+    if (!r || r.tenantId !== a.tenantId) continue;
+    out.set(a.id, {
+      versionId: r.id,
+      view: parseClientView(r.id, r.view),
+      readsDocuments: r.readsDocuments === true,
+    });
+  }
+  return out;
+}
 
 /** The client view of an agent's live version, checked at the boundary; null when it has none. */
 export async function liveClientView(
   tx: Tx,
-  a: Pick<AgentRow, "liveVersionId" | "tenantId">,
+  a: Pick<AgentRow, "id" | "liveVersionId" | "tenantId">,
 ): Promise<{ versionId: string; view: ClientView | null } | null> {
-  if (!a.liveVersionId) return null;
-  const [v] = await tx
-    .select({ bundle: agentVersion.bundle })
-    .from(agentVersion)
-    .where(
-      and(
-        eq(agentVersion.id, a.liveVersionId),
-        a.tenantId === null ? isNull(agentVersion.tenantId) : eq(agentVersion.tenantId, a.tenantId),
-      ),
-    );
-  if (!v) return null;
-  const raw = (v.bundle.definition as { clientView?: unknown }).clientView;
-  if (raw === undefined) return { versionId: a.liveVersionId, view: null };
-  const parsed = ClientView.safeParse(raw);
-  if (!parsed.success) {
-    reportProblem("an agent version has an unreadable client view", {
-      agent_version: a.liveVersionId,
-    });
-    return { versionId: a.liveVersionId, view: null };
-  }
-  return { versionId: a.liveVersionId, view: parsed.data };
+  const p = (await liveProjections(tx, [a])).get(a.id);
+  return p ? { versionId: p.versionId, view: p.view } : null;
 }
 
 /** The language a person reads the portal in: their own, else the client's, else English. */
@@ -74,20 +139,19 @@ export async function serviceView(
   a: AgentRow,
   input: { name: string; locale: Locale; timezone: string; now: Date },
 ): Promise<ServiceView> {
-  const live = await liveClientView(tx, a);
-  const view = live?.view;
+  const view = (await liveClientView(tx, a))?.view;
   if (!view) return { service: { id: a.id, name: input.name }, kpis: [], panels: [] };
-  const enabled = new Set(
-    (
-      await tx
-        .select({ pack: tenantPack.pack })
-        .from(tenantPack)
-        .where(eq(tenantPack.tenantId, a.tenantId as string))
-    ).map((p) => p.pack),
-  );
+  const [packs, kpis] = await Promise.all([
+    tx
+      .select({ pack: tenantPack.pack })
+      .from(tenantPack)
+      .where(eq(tenantPack.tenantId, a.tenantId as string)),
+    agentKpisNow(tx, a, view, input),
+  ]);
+  const enabled = new Set(packs.map((p) => p.pack));
   return {
     service: { id: a.id, name: input.name },
-    kpis: await agentKpisNow(tx, a, view, input),
+    kpis,
     // DECISION: a pack panel shows only while the client has its pack enabled.
     panels: view.panels.filter((p) => p.kind === "kpis" || enabled.has(p.pack)),
   };
@@ -112,24 +176,42 @@ export async function weekKpis(
   agents: readonly Pick<AgentRow, "id" | "tenantId" | "liveVersionId">[],
   input: { locale: Locale; bounds: KpiBounds },
 ): Promise<Map<string, WeekKpi[]>> {
+  const views = await liveProjections(tx, agents);
+  return weekKpisOf(
+    tx,
+    agents.map((a) => ({ agent: a, view: views.get(a.id)?.view ?? null })),
+    input,
+  );
+}
+
+/** `weekKpis` for agents whose client views the caller already read: one statement for all. */
+export async function weekKpisOf(
+  tx: Tx,
+  items: readonly { agent: Pick<AgentRow, "id" | "tenantId">; view: ClientView | null }[],
+  input: { locale: Locale; bounds: KpiBounds },
+): Promise<Map<string, WeekKpi[]>> {
+  const shown = items.flatMap(({ agent: a, view }) =>
+    view && view.kpis.length > 0 ? [{ a, kpis: view.kpis }] : [],
+  );
+  const values = await computeKpisMany(
+    tx,
+    shown.map(({ a, kpis }) => ({
+      scope: { tenantId: a.tenantId as string, agentId: a.id },
+      kpis,
+      boundsOf: () => input.bounds,
+    })),
+    input.locale,
+  );
   const out = new Map<string, WeekKpi[]>();
-  for (const a of agents) {
-    const view = (await liveClientView(tx, a))?.view;
-    if (!view || view.kpis.length === 0) continue;
-    const values = await computeKpis(
-      tx,
-      { tenantId: a.tenantId as string, agentId: a.id },
-      view.kpis,
-      { locale: input.locale, boundsOf: () => input.bounds },
-    );
+  shown.forEach(({ a }, i) => {
     out.set(
       a.id,
-      values.flatMap((v) =>
+      (values[i] ?? []).flatMap((v) =>
         v.display === null
           ? []
           : [{ key: v.id, label: v.label, value: v.display, sources: v.sources }],
       ),
     );
-  }
+  });
   return out;
 }
