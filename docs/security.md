@@ -42,7 +42,7 @@ branches.
   signed in; it never creates a session. Each refusal is in the audit log with its reason.
 - WorkOS sessions are capped at the same 12 hours and 30 minutes. That also covers the Ops MCP
   connector, which signs in with 5-minute WorkOS access tokens instead of our cookie.
-- **A person's clients and roles are read again at most every 5 minutes** (`docs/plan.md` §1.91,
+- **A person's clients and roles are read again at most every 5 minutes** (`docs/plan.md` §1.93,
   the owner's D2). The sealed session cookie carries them with the time they were read; a request
   inside those 5 minutes uses them instead of reading them. So when someone else removes a person
   from a client or lowers their role, it can take up to 5 minutes to stop working for that

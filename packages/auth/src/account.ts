@@ -1,4 +1,4 @@
-// The account carried in the sealed session cookie (docs/plan.md §1.91, the owner's D2): the user
+// The account carried in the sealed session cookie (docs/plan.md §1.93, the owner's D2): the user
 // and their memberships as read at `at`, so a request inside the window builds its session and
 // scope without reading them again. Older than the window, the request reads them in its own
 // transaction and the cookie is sealed again with what it read.

@@ -338,7 +338,7 @@ export interface HandlerCtx<R extends RouteSpec> extends PublicCtx<R> {
   defer(task: () => Promise<unknown>): void;
   /**
    * This request changed the signed-in person's own memberships (a client they now serve): the
-   * response drops the account their cookie carries, so the next request reads it (§1.91).
+   * response drops the account their cookie carries, so the next request reads it (§1.93).
    */
   accountChanged(): void;
 }
@@ -660,7 +660,7 @@ function mountWith<R extends RouteSpec>(
         return { ok: true as const, session, scope };
       };
 
-      // The account the cookie carries, while it is younger than the window (docs/plan.md §1.91):
+      // The account the cookie carries, while it is younger than the window (docs/plan.md §1.93):
       // the session and scope come from it and the account is not read. Only a carried account
       // that admits the request is used; one that would refuse it is read again first, so the
       // window can delay a lost membership, never a new one.

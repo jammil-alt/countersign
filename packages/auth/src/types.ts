@@ -95,7 +95,7 @@ export type Identification =
       readonly setCookies: readonly string[];
       /**
        * The account the sealed cookie carries for this user, fresh or not (`accountFresh`
-       * decides); absent when it carries none (docs/plan.md §1.91).
+       * decides); absent when it carries none (docs/plan.md §1.93).
        */
       readonly account?: CarriedAccount | null;
       /**

@@ -3,7 +3,7 @@
 //
 // It holds the app user, the WorkOS user, the WorkOS refresh token and session id, three times,
 // and the account (the user's memberships) as last read, for ACCOUNT_WINDOW_SEC (../account.ts,
-// docs/plan.md §1.91). Sealed with AES-GCM (../seal.ts): a changed byte is a cookie that does not
+// docs/plan.md §1.93). Sealed with AES-GCM (../seal.ts): a changed byte is a cookie that does not
 // open, treated exactly like no cookie. A new sign-in starts without an account; sign-out and the
 // idle lock clear the cookie, and the account with it.
 //

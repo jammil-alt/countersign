@@ -148,7 +148,7 @@ export function createWorkOSAdapter(options: {
             const next = { ...rest, acct: compactAccount(account) };
             const cookie = sessionCookie(await sealSession(next, password), next, now);
             // DECISION: an account too big for a cookie (an operator with very many clients) is
-            // not carried; that person's requests read it each time, as before (§1.91).
+            // not carried; that person's requests read it each time, as before (§1.93).
             if (cookieFits(cookie)) return [cookie];
           }
           if (session.acct === undefined) return setCookies;

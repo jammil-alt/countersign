@@ -8,7 +8,7 @@ import { randomToken, seal, unseal } from "./seal";
 import { type AuthAdapter, type DevDirectory, refuse } from "./types";
 
 export const DEV_USER_COOKIE = "cs_dev_user";
-/** The dev sign-in's carried account (docs/plan.md §1.91): its own sealed cookie, as it has no session cookie. */
+/** The dev sign-in's carried account (docs/plan.md §1.93): its own sealed cookie, as it has no session cookie. */
 export const DEV_ACCOUNT_COOKIE = "cs_dev_account";
 export const DEV_USER_HEADER = "x-countersign-dev-user";
 const DEV_COOKIE_MAX_AGE_SEC = 30 * 24 * 60 * 60;

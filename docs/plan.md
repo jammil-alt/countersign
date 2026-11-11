@@ -4229,7 +4229,7 @@ That was two `begin`s, two `commit`s and a membership read of two statements bef
 | Measured | Local, demo seed: `GET /api/feedback/status` went from 7 statements, 2 `begin`s to 6 and 1; every back-office and portal screen's statements went down by 2 to 21, and `begin`s about halved. |
 | Checked | `scope.test.ts` (the switch, a drizzle select issued at once, one backend, rollback, a pooled connection clean after every kind of failure), `rls.test.ts` (as `cs_worker`: the sign-in half sees only the user's memberships, the handler only the scoped clients), `apps/api/src/http.test.ts` (through `mount` and `invokeRoute`). |
 
-### 1.91 Speed: memberships in the sealed session cookie (speed run 5.2, 2026-11-11)
+### 1.93 Speed: memberships in the sealed session cookie (speed run 5.2, 2026-11-11)
 
 The owner's D2 ("Yes"): a person's memberships ride in the sealed cookie for a few minutes, so most
 session requests skip reading them. It delays a removed member's loss of access by that long.

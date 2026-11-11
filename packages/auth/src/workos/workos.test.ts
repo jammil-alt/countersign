@@ -584,7 +584,7 @@ describe("workosStateOf", () => {
   });
 });
 
-describe("the account carried in the session cookie (docs/plan.md §1.91)", () => {
+describe("the account carried in the session cookie (docs/plan.md §1.93)", () => {
   const account = (at: number, clients = 1) => ({
     at,
     user: { id: USER_ID, email: "admin@millwork.test", name: "Ada M" },

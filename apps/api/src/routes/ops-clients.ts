@@ -435,7 +435,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     await tx
       .insert(membership)
       .values({ tenantId: row.id, userId: session.user.id, role: "operator" });
-    // The creator's cookie drops the clients it carries, so the next request serves this one (§1.91).
+    // The creator's cookie drops the clients it carries, so the next request serves this one (§1.93).
     ctx.accountChanged();
     // The client admin, invited in the same transaction (the email follows the commit).
     const invited = body.admin

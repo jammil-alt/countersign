@@ -1,4 +1,4 @@
-// Memberships carried in the sealed cookie (docs/plan.md §1.91, audit plan 5.2): within the window a
+// Memberships carried in the sealed cookie (docs/plan.md §1.93, audit plan 5.2): within the window a
 // session request builds its scope from the cookie and does not read the account; after it, the
 // request reads the account in its one transaction and the cookie is sealed again. Tested with the
 // dev sign-in, whose carried account is its own sealed cookie; the WorkOS session cookie's is
