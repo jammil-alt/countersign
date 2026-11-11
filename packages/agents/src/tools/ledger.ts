@@ -9,6 +9,8 @@ import {
   LedgerAccountsOutput,
   LedgerDimensionsInput,
   LedgerDimensionsOutput,
+  lazy,
+  lazyObjects,
   type SkillDefinition,
 } from "@countersign/core";
 import { defineInternalTool, type InternalTool, type ToolInvocation } from "./types";
@@ -47,7 +49,8 @@ export const ledgerDimensionsTool = defineInternalTool({
 export const LEDGER_TOOLS: readonly InternalTool[] = [ledgerAccounts, ledgerDimensionsTool];
 
 /** The built-in skill: deterministic, so any workflow or agent can read the chart. */
-export const LEDGER_SKILLS: readonly SkillDefinition[] = [
+// Worker startup (2026-11-11): the tool's schemas are read on first use (core `lazy`).
+export const LEDGER_SKILLS: readonly SkillDefinition[] = lazyObjects([
   {
     schemaVersion: 1,
     id: "ledger.chart",
@@ -58,12 +61,12 @@ export const LEDGER_SKILLS: readonly SkillDefinition[] = [
     mode: "tool",
     handler: "ledger.accounts.list",
     tools: [],
-    input: ledgerAccounts.spec.input as Record<string, unknown>,
-    output: ledgerAccounts.spec.output as Record<string, unknown>,
+    input: lazy(() => ledgerAccounts.spec.input as Record<string, unknown>),
+    output: lazy(() => ledgerAccounts.spec.output as Record<string, unknown>),
     settings: [],
     summary: "Read {{count}} accounts",
     requiresConnectors: [],
     requiresPacks: [],
     producesAlerts: false,
   },
-];
+]);

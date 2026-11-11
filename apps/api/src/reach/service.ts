@@ -16,8 +16,8 @@ import {
   type StepContext,
 } from "@countersign/agents";
 import {
-  type AgentBundle,
   type AgentMode,
+  type AnyAgentBundle,
   type ApprovalRequirement,
   type ApprovalSource,
   // P-3: attachments both ways
@@ -37,7 +37,6 @@ import {
   isPlainObject,
   isSendableType,
   type JsonObject,
-  levelFor,
   type ModelChoice,
   nextEscalation,
   type PeopleBinding,
@@ -82,6 +81,9 @@ import type {
   WaitRequest,
 } from "@countersign/workflows";
 import { and, eq, gte, inArray, isNull, lte, ne, sql } from "drizzle-orm";
+import { accountBindings, pickChannel, sendingChannels } from "../channels/resolve";
+// R7
+import { conversationEventOfSubject, sendWithConversation } from "../converse/wake";
 import {
   type ContactRow,
   contactLanguage,
@@ -326,13 +328,19 @@ export async function endReachOut(
 }
 
 /** Wakes the run (best effort: the cron re-sends until the run takes it). */
-async function wake(deps: Pick<ReachDeps, "instances">, row: Pick<ReachOutRow, "id" | "runId">) {
+async function wake(
+  deps: Pick<ReachDeps, "instances">,
+  row: Pick<ReachOutRow, "id" | "runId" | "subject">,
+) {
   if (!deps.instances) return;
   try {
-    await deps.instances.sendEvent(row.runId, {
-      type: reachOutEventType(row.id),
-      payload: { reachOutId: row.id },
-    });
+    // R7: a conversation's message wakes a v4 conversation step too (its own event).
+    await sendWithConversation(
+      deps.instances,
+      row.runId,
+      { type: reachOutEventType(row.id), payload: { reachOutId: row.id } },
+      conversationEventOfSubject(row.subject),
+    );
   } catch (error) {
     reportHandled(`waking run ${row.runId} for reach-out ${row.id} failed`, error, {
       job: "reach",
@@ -344,7 +352,7 @@ async function wake(deps: Pick<ReachDeps, "instances">, row: Pick<ReachOutRow, "
 
 interface Loaded {
   agentRow: typeof agent.$inferSelect;
-  bundle: AgentBundle;
+  bundle: AnyAgentBundle;
   tenantRow: typeof tenant.$inferSelect;
   trigger: unknown;
   candidates: ContactRow[];
@@ -416,24 +424,13 @@ async function load(tx: Tx, req: SkillStepRequest, input: ReachOutInput): Promis
     }
   }
 
-  const bound = (agentRow.channels ?? {}) as Record<string, string>;
-  const ids = [...new Set(Object.values(bound))];
-  const conns = ids.length
-    ? await tx
-        .select()
-        .from(connection)
-        .where(and(eq(connection.tenantId, info.tenantId), inArray(connection.id, ids)))
-    : [];
-  const channels = new Map<ReachChannel, { id: string; connector: string; create: string }>();
-  for (const [ch, id] of Object.entries(bound)) {
-    const c = conns.find((x) => x.id === id);
-    if (c?.status !== "connected" || !channelTool(c.connector, ch as ReachChannel)) continue;
-    channels.set(ch as ReachChannel, {
-      id: c.id,
-      connector: c.connector,
-      create: levelFor(c.permissions, "create"),
-    });
-  }
+  // R4: the agent's own channels, else the account's (../channels/resolve.ts), as the portal shows.
+  const conns = await tx.select().from(connection).where(eq(connection.tenantId, info.tenantId));
+  const channels = sendingChannels(
+    agentRow.channels as Record<string, string> | null,
+    accountBindings(tenantRow.settings),
+    conns,
+  );
   return {
     agentRow,
     bundle: v.bundle,
@@ -533,7 +530,8 @@ export function planWhyApproval(input: {
   definitionMode: AgentMode;
   stage: string | null | undefined;
   needsSignature: boolean;
-  route: { source: ApprovalSource; ruleId: string | null };
+  /** Where the approval went; left out when only the reasons are wanted (`unsignedSendRefusal`). */
+  route?: { source: ApprovalSource; ruleId: string | null };
 }): WhyApproval {
   return explainWrite({
     verb: "create",
@@ -543,8 +541,59 @@ export function planWhyApproval(input: {
     definitionMode: input.definitionMode,
     stage: input.stage,
     person: input.needsSignature ? "approval" : null,
-    route: input.route,
+    ...(input.route ? { route: input.route } : {}),
   });
+}
+
+/**
+ * Why a reach-out's plan, or a conversation's message (each a reach-out row), may not go out with
+ * nobody's signature now, or null when it would have gone out unsigned: the step's approval
+ * `not_required` (what `ifNoAnswer: proceed` stands for once nobody answered), every planned
+ * channel's `create` at `auto`, the agent's own mode `act` at the `live` stage and no planned
+ * channel the person set to `approval`, each read fresh, as a plan is decided when it is made.
+ */
+// DECISION (wave 2c): a message nobody signed is decided again by the gate before it goes, as an
+// external action is (packages/agents `unsignedRefusal`), with the inputs the plan's own decision
+// used (`planWhyApproval`): a client who tightened a channel, a person set to `approval`, or an
+// agent no longer live keeps it from going.
+export async function unsignedSendRefusal(tx: Tx, row: ReachOutRow): Promise<string | null> {
+  const { tenantId } = row;
+  const [agentRow] = await tx
+    .select({ stage: agent.stage, channels: agent.channels })
+    .from(agent)
+    .where(and(eq(agent.id, row.agentId), eq(agent.tenantId, tenantId)));
+  const [v] = await tx
+    .select({ bundle: agentVersion.bundle })
+    .from(agentVersion)
+    .where(and(eq(agentVersion.id, row.agentVersionId), eq(agentVersion.tenantId, tenantId)));
+  const [tenantRow] = await tx
+    .select({ settings: tenant.settings })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId));
+  const [who] = await tx
+    .select()
+    .from(contact)
+    .where(and(eq(contact.id, row.contactId), eq(contact.tenantId, tenantId)));
+  if (!agentRow || !v || !tenantRow || !who) return "the agent or the person is gone";
+  const conns = await tx.select().from(connection).where(eq(connection.tenantId, tenantId));
+  const sending = sendingChannels(
+    agentRow.channels as Record<string, string> | null,
+    accountBindings(tenantRow.settings),
+    conns,
+  );
+  const channels = planOf(row).channels ?? [];
+  if (channels.length === 0) return "the message has no channel";
+  const autonomy = reachContactOf(who).autonomy;
+  const why = planWhyApproval({
+    levels: channels.map((ch) => sending.get(ch)?.create),
+    stepApproval: "not_required",
+    definitionMode: v.bundle.definition.permissions.mode,
+    stage: agentRow.stage,
+    needsSignature: channels.some((ch) => autonomy?.[ch] === "approval"),
+  });
+  return why.reasons.length === 0
+    ? null
+    : `a message to ${who.name} needs a person's signature now`;
 }
 
 /** Whether a resume's pending state is a reach-out's plan approval. */
@@ -1016,6 +1065,16 @@ export function reachPort(deps: ReachDeps): ReachPort {
       const { row, who } = await getRow(req.run.tenantId, id);
       if (!row) return { kind: "failed", error: "the reach-out is gone" };
       if (row.status === "awaiting_approval") {
+        if (req.resolution.approved === true && req.resolution.proceeded === true) {
+          // Wave 2c: nobody answered and `ifNoAnswer` is proceed: the gate decides it again, and a
+          // plan it would make wait ends unsent (invariant 8).
+          const refused = await withTenant(db, row.tenantId, async (tx) => {
+            const why = await unsignedSendRefusal(tx, row);
+            if (why) await endReachOut(tx, row, { outcome: "declined", reason: why }, now());
+            return why;
+          });
+          if (refused) return { kind: "failed", error: `nobody answered in time, and ${refused}` };
+        }
         if (req.resolution.approved === true) return open(row, req.resolution.by);
         // DECISION: a plan its approver rejected ends as `declined`: nothing was sent.
         const ended = await withTenant(db, row.tenantId, (tx) =>
@@ -1211,7 +1270,13 @@ export async function attemptFrom(
       );
       return sentNow;
     }
-    const connectionId = state.channels[channel];
+    // R4: resolved again when sent (the agent's own, else the account's), as when it was planned.
+    const connectionId = pickChannel({
+      kind: channel,
+      agent: state.channels,
+      account: accountBindings(state.t.settings),
+      connections: state.conns,
+    })?.connectionId;
     const conn = state.conns.find((c) => c.id === connectionId);
     const toolId = conn ? channelTool(conn.connector, channel) : null;
     if (!conn || !toolId) {
@@ -1388,7 +1453,7 @@ export async function reachOutTick(
 
   const pending = await withTenant(db, tenantId, (tx) =>
     tx
-      .select({ id: reachOut.id, runId: reachOut.runId })
+      .select({ id: reachOut.id, runId: reachOut.runId, subject: reachOut.subject })
       .from(reachOut)
       .innerJoin(run, and(eq(run.id, reachOut.runId), eq(run.tenantId, reachOut.tenantId)))
       .where(

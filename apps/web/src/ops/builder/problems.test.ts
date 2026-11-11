@@ -1,6 +1,9 @@
-import type { AgentBundle, ValidationError } from "@countersign/core";
+import type { ProcessAgentBundle } from "@countersign/core";
 import { describe, expect, it } from "vitest";
+import type { BuilderProblem } from "./catalog";
 import { fieldLabel, problemLines, problemPlace, readableProblem } from "./problems";
+
+type ValidationError = BuilderProblem;
 
 const bundle = {
   workflows: [
@@ -8,16 +11,16 @@ const bundle = {
       slug: "bill",
       name: "When an invoice has been read",
       workflow: {
-        trigger: { id: "t1", on: { kind: "event", event: "document.read" } },
+        triggers: [{ id: "t1", on: { kind: "event", event: "document.read" } }],
         steps: [
-          { id: "ask", name: "Ask which bill", kind: "ask" },
+          { id: "ask", name: "Ask which bill", kind: "person" },
           { id: "match", name: "Match the invoice", kind: "skill" },
-          { id: "read", name: "Read the bill", kind: "tool" },
+          { id: "read", name: "Read the bill", kind: "read" },
         ],
       },
     },
   ],
-} as unknown as AgentBundle;
+} as unknown as ProcessAgentBundle;
 
 const order = (stepId: string, ref: string, field = "input.question"): ValidationError => ({
   workflow: "bill",

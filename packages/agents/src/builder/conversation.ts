@@ -6,12 +6,13 @@
 // reaches it with aliases (./aliases.ts) and its answer is mapped back before the guards, which
 // keep every id of the draft and give new nodes server-made ids. The guards hold across turns:
 // the operator's rules follow the version the conversation started from (`origin`). Nothing here
-// touches the database; apps/api keeps the session and its turns.
+// touches the database; apps/api keeps the session and its turns. Wave 3b: the draft is a v4
+// process bundle; a session started from a v3 version reads it through the converter (§1.86).
 
 import {
-  type AgentBundle,
-  AgentBundle as AgentBundleSchema,
   NEW_AGENT_OVERSIGHT,
+  type ProcessAgentBundle,
+  ProcessAgentBundle as ProcessAgentBundleSchema,
   selectableBetween,
   selectChanges,
   uuidv7,
@@ -46,7 +47,7 @@ export const TurnAnswer = z.object({
     .max(30)
     .default([])
     .describe("Capabilities it needs that are not in the catalog, one plain sentence each"),
-  bundle: AgentBundleSchema.describe(
+  bundle: ProcessAgentBundleSchema.describe(
     "The whole agent bundle after this turn; the same bundle when you only answer a question",
   ),
 });
@@ -66,9 +67,9 @@ export interface HistoryLine {
 
 export interface TurnInput {
   /** The working draft (real ids). */
-  working: AgentBundle;
+  working: ProcessAgentBundle;
   /** The operator's version the conversation started from; null for a new agent. */
-  origin: AgentBundle | null;
+  origin: ProcessAgentBundle | null;
   /** Earlier turns' text, oldest first. */
   history: readonly HistoryLine[];
   /** The operator's words (the whole message, command included). */
@@ -80,7 +81,7 @@ export interface TurnInput {
 }
 
 export interface TurnResult {
-  bundle: AgentBundle;
+  bundle: ProcessAgentBundle;
   text: string;
   questions: string[];
   gaps: string[];
@@ -104,7 +105,7 @@ function historyBlock(history: readonly HistoryLine[], aliases: IdAliases): stri
 }
 
 /** Gives every id the model hasn't seen yet (server-made in a guarded answer) a new alias. */
-function extendAliases(bundle: AgentBundle, aliases: IdAliases): AgentBundle {
+function extendAliases(bundle: ProcessAgentBundle, aliases: IdAliases): ProcessAgentBundle {
   const next = { trigger: 0, step: 0, path: 0, otherwise: 0 };
   for (const alias of aliases.toReal.keys()) {
     const kind =
@@ -140,8 +141,8 @@ function extendAliases(bundle: AgentBundle, aliases: IdAliases): AgentBundle {
 export function blankAgentDraft(
   input: { name: string; role?: string; model?: string },
   newId: () => string = () => uuidv7(),
-): AgentBundle {
-  return AgentBundleSchema.parse({
+): ProcessAgentBundle {
+  return ProcessAgentBundleSchema.parse({
     schemaVersion: 1,
     definition: {
       schemaVersion: 2,
@@ -162,8 +163,9 @@ export function blankAgentDraft(
         slug: "main",
         name: "Main",
         workflow: {
-          schemaVersion: 3,
-          trigger: { id: newId(), on: { type: "manual", input: { type: "object" } } },
+          // Wave 3b: a new agent's draft is a v4 process (docs/plan.md §1.86).
+          schemaVersion: 4,
+          triggers: [{ id: newId(), on: { type: "manual", input: { type: "object" } } }],
           steps: [],
         },
       },
@@ -205,7 +207,7 @@ ${input.request ? `\nThe client's request, in their words (what they want change
       const all = selectableBetween(working, bundle).map((c) => c.id);
       const allowed = all.filter(scope);
       if (allowed.length < all.length) {
-        const kept = AgentBundleSchema.parse(selectChanges(working, bundle, allowed));
+        const kept = ProcessAgentBundleSchema.parse(selectChanges(working, bundle, allowed));
         // The guards again on what is kept (what a kept step needs, approvals), keeping its ids.
         const again = guardBundle(kept, ctx, {
           mode: "revise",
@@ -241,7 +243,7 @@ ${input.request ? `\nThe client's request, in their words (what they want change
     options,
   );
   if (command?.name === "automation") {
-    const placed = JSON.stringify(out.bundle).includes(`"automation":"${command.ref}"`);
+    const placed = JSON.stringify(out.bundle).includes(`"process":"${command.ref}"`);
     if (!placed) scopeNotes.push(`The Builder didn't place ${command.ref}; nothing uses it yet.`);
   }
   return {

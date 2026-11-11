@@ -4,7 +4,20 @@
 // strings our code wrote, evaluated in the page. The model never runs anything in a page.
 
 import { fromBase64 } from "../runtime";
-import type { BrowserCookie, BrowserDownload, BrowserTab, BrowserTable } from "./driver";
+import type {
+  BrowserControl,
+  BrowserCookie,
+  BrowserDownload,
+  BrowserTab,
+  BrowserTable,
+} from "./driver";
+
+/** The part of Playwright's `Route` read-only mode uses. */
+export interface PlaywrightRouteLike {
+  request(): { method(): string };
+  abort(errorCode?: string): Promise<void>;
+  continue(): Promise<void>;
+}
 
 /** The part of Playwright's `Page` this adapter uses. */
 export interface PlaywrightPageLike {
@@ -17,9 +30,13 @@ export interface PlaywrightPageLike {
   locator(selector: string): { count(): Promise<number> };
   evaluate<T>(script: string): Promise<T>;
   screenshot(options?: { type?: "png"; fullPage?: boolean }): Promise<Uint8Array>;
+  /** True once the page, its context or its browser closed (or the connection to it dropped). */
+  isClosed?(): boolean;
   context(): {
     cookies(): Promise<BrowserCookie[]>;
     addCookies(cookies: BrowserCookie[]): Promise<void>;
+    /** Read-only mode's request filter, on the context: its popups and new pages too. */
+    route(url: string, handler: (route: PlaywrightRouteLike) => unknown): Promise<void>;
   };
 }
 
@@ -85,6 +102,14 @@ function visibleAncestors(el) {
   for (let p = el; p; p = p.parentElement) if (removed(p)) return false;
   return true;
 }
+function sendsForm(el) {
+  const b = el.closest("button,input");
+  if (!b) return false;
+  const t = (b.getAttribute("type") || "").toLowerCase();
+  if (b.tagName === "INPUT" && !["submit", "image", "button", "reset"].includes(t)) return false;
+  if (t === "submit" || t === "image") return true;
+  return !!(b.form || b.closest("form"));
+}
 `;
 
 const READ_TEXT = `(() => { ${WALK}
@@ -112,6 +137,96 @@ const READ_TABLES = `(() => { ${WALK}
   }
   return tables;
 })()`;
+
+/**
+ * A string as a JavaScript literal inside a script the page runs: JSON's quoting, plus the
+ * characters that could end a script element or a line in older parsers written as escapes.
+ */
+// DECISION (CodeQL js/bad-code-sanitization): selectors are the operator's, but a script built from
+// text escapes everything that could change its meaning, not only quotes.
+function scriptString(value: string): string {
+  return JSON.stringify(value).replace(
+    /[<>/\u2028\u2029]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
+/** One element's text, with READ_TEXT's removals (a field reads as its value); null when none. */
+function textOfScript(selector: string): string {
+  return `(() => { ${WALK}
+  let el = null;
+  try { el = document.querySelector(${scriptString(selector)}); } catch { return null; }
+  if (!el || !visibleAncestors(el)) return null;
+  const f = fieldText(el);
+  if (f !== null) return f.trim();
+  const out = [];
+  textOf(el, out);
+  return clean(out.join(""));
+})()`;
+}
+
+/**
+ * The fields, lists, buttons and links a person recording may use, each with a selector that finds
+ * it again (its id, its name, a link's address, else its place in the page); never a password,
+ * hidden or one-time-code field.
+ */
+const CONTROLS = `(() => { ${WALK}
+function sel(el) {
+  const tag = el.tagName.toLowerCase();
+  if (el.id && /^[A-Za-z][\\w-]*$/.test(el.id)) return "#" + el.id;
+  const q = (v) => v.replace(/["\\\\]/g, "\\\\$&");
+  const name = el.getAttribute("name");
+  if (name) return tag + '[name="' + q(name) + '"]';
+  const href = tag === "a" && el.getAttribute("href");
+  if (href) return 'a[href="' + q(href) + '"]';
+  const parts = [];
+  for (let e = el; e && e !== document.body; e = e.parentElement) {
+    const t = e.tagName.toLowerCase();
+    const same = e.parentElement ? Array.from(e.parentElement.children).filter((x) => x.tagName === e.tagName) : [];
+    parts.unshift(same.length > 1 ? t + ":nth-of-type(" + (same.indexOf(e) + 1) + ")" : t);
+  }
+  return "body > " + parts.join(" > ");
+}
+function labelOf(el) {
+  const aria = el.getAttribute("aria-label");
+  if (aria) return aria;
+  if (el.id) { const l = document.querySelector('label[for="' + el.id + '"]'); if (l) return cellText(l); }
+  const wrap = el.closest("label");
+  if (wrap) return cellText(wrap);
+  return el.getAttribute("placeholder") || cellText(el) || el.getAttribute("value") || el.getAttribute("title") || "";
+}
+const out = [];
+for (const el of Array.from(document.querySelectorAll("input,select,textarea,button,a[href]"))) {
+  if (out.length >= 200) break;
+  if (!visibleAncestors(el)) continue;
+  const tag = el.tagName;
+  let kind = "field";
+  if (tag === "SELECT") kind = "select";
+  else if (tag === "BUTTON") kind = "button";
+  else if (tag === "A") kind = "link";
+  else if (tag === "INPUT") {
+    const t = (el.getAttribute("type") || "text").toLowerCase();
+    if (t === "submit" || t === "button" || t === "reset" || t === "image") kind = "button";
+    if (t === "file") continue;
+  }
+  out.push({ selector: sel(el), kind, label: labelOf(el).slice(0, 120), submits: kind === "button" && sendsForm(el) });
+}
+return out;
+})()`;
+
+/**
+ * Whether clicking the element a selector names sends a form; false when nothing matches. A
+ * submit-type button (an explicit `type="submit"`, an image input), or any button inside a form.
+ */
+// DECISION: a `<button>` with no type outside any form is not one: it posts nothing by itself, and
+// single-page sites use them for everything. Read-only mode still stops whatever its script sends.
+function sendsFormScript(selector: string): string {
+  return `(() => { ${WALK}
+  let el = null;
+  try { el = document.querySelector(${scriptString(selector)}); } catch { return false; }
+  return el ? sendsForm(el) : false;
+})()`;
+}
 
 /** Fetches with the page's cookies; the address it ends at after redirects comes back too. */
 function downloadScript(url: string): string {
@@ -147,6 +262,9 @@ export function playwrightTab(page: PlaywrightPageLike, options: PlaywrightTabOp
   const timeout = options.timeoutMs ?? 20_000;
   const navWait = options.navigationWaitMs ?? 3_000;
   let closed = false;
+  // Read only: one route on the page's context for its life, reading the flag on every request.
+  let holding = false;
+  let routed = false;
   return {
     url: () => page.url(),
     async goto(url) {
@@ -171,6 +289,30 @@ export function playwrightTab(page: PlaywrightPageLike, options: PlaywrightTabOp
     },
     readText: () => page.evaluate<string>(READ_TEXT),
     readTables: () => page.evaluate<BrowserTable[]>(READ_TABLES),
+    textOf: (selector) => page.evaluate<string | null>(textOfScript(selector)),
+    controls: () => page.evaluate<BrowserControl[]>(CONTROLS),
+    sendsForm: (selector) => page.evaluate<boolean>(sendsFormScript(selector)),
+    async readOnly(on) {
+      holding = on;
+      if (!on || routed) return;
+      routed = true;
+      // DECISION: only GET and HEAD leave the browser while read only. A navigation, fetch, XHR or
+      // beacon with any other method is aborted where it starts, so a click that would post a
+      // form goes nowhere and the page stays as it was. The route is the context's, so a popup or
+      // a new page the site opens is held too; service workers (whose requests no route sees) are
+      // blocked where the opener makes the context (`serviceWorkers: "block"`, apps/api's
+      // driver.ts). WebSockets are not covered: a route sees no frame sent on one, so a site that
+      // writes over a socket is not held by this. Browser Run's support for `context.route` is
+      // unchecked until staging.
+      await page.context().route("**/*", (route) => {
+        const method = route.request().method().toUpperCase();
+        const go =
+          holding && method !== "GET" && method !== "HEAD"
+            ? route.abort("blockedbyclient")
+            : route.continue();
+        return go.catch(() => undefined);
+      });
+    },
     async download(url): Promise<BrowserDownload> {
       const r = await page.evaluate<{
         status: number;
@@ -191,6 +333,17 @@ export function playwrightTab(page: PlaywrightPageLike, options: PlaywrightTabOp
     setCookies: (cookies) => page.context().addCookies(cookies),
     async screenshot() {
       return new Uint8Array(await page.screenshot({ type: "png" }));
+    },
+    async alive() {
+      if (closed || page.isClosed?.()) return false;
+      try {
+        // A round trip to the browser, not the page's scripts (a page mid-navigation still
+        // answers): a browser Browser Run closed doesn't.
+        await page.context().cookies();
+        return true;
+      } catch {
+        return false;
+      }
     },
     async close() {
       if (closed) return;

@@ -1,8 +1,29 @@
-# Mezonas — Architecture v0.15
+# Mezonas — Architecture v0.16
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
+
+> **v0.16, the skill model (2026-11-10, owner):** **Two kinds of skill: deterministic or AI.** A
+> skill that needs both is two skills chained; skills never write (a write is "Save to records" or
+> "Change in <connector>"); every skill version has typed parameters and a Deterministic or AI label;
+> rule rows compare inputs, parameters and today; an AI skill's model is the step's, else the agent's
+> for the skill, else the skill's recommended. `rules_then_ai`, agent-mode skills and the tool-wrapper
+> skills retire for new use. Changed: §10.14 ("The skill model"); `docs/plan.md` §1.86.
+
+> **v0.16 (2026-11-10, owner):** **Six words for the work: connector, tool, skill, trigger, process
+> and person.** Skills think, tools act: a skill turns data into data by rules, a model, or rules then
+> a model, and may read but never writes; a write is a step of its own. A process is triggers plus
+> steps (read, skill, write, person, conversation, notify, and the logic steps), stored as workflow
+> `schemaVersion: 4`. Any step carries checks: confer (a second model or a person, advice only),
+> approval (in turn, any or all; a reject is an answer) and notify (urgent ones send at once and need
+> a Seen). Everything that waits has one deadline with `ifNoAnswer` (stop by default, proceed, skip,
+> escalate), on clock time or the business hours of the person asked; `proceed` on a write's approval
+> is loosening. Write tools declare their undo, offered never automatic. An agent is one process plus
+> its owner, the AI that watches and fixes within the plan. Every client account has a number and an
+> email. Stored v3 workflows are never rewritten; they are read as v4 with every id kept. The
+> Marketing and Bookkeeping areas (built as M43–M57) remain to be folded into this document. Changed:
+> §1, §10.14 (new), §18, §20; `docs/plan.md` §1.86, §9.
 
 > **v0.15 (2026-11-07, owner):** **Data is organised by business area, and purchasing comes
 > first.** Agents are many; the data they share belongs to a few business areas (purchasing, sales,
@@ -241,6 +262,10 @@ How the parts fit:
 | Automation | A reusable, versioned chain of steps used as one workflow step (v0.12) | §10.7 |
 | Test case | A saved example with its expected answer, for a skill or a template (v0.12) | §9.10 |
 | Weekly Table | The Monday digest per client: stats, the lead's note, decisions, next week (v0.12) | §11.4 |
+| Process | Triggers plus steps, each step able to carry checks; workflow `schemaVersion: 4` (v0.16) | §10.14 |
+| Checks | Confer, approval and notify on any step, each with conditions and a deadline (v0.16) | §10.14 |
+| Owner | The AI that watches an agent's one process and fixes within it; v0.13's oversight (v0.16) | §10.14 |
+| Business hours | A client's working week and each person's, with away dates; deadlines can run on them (v0.16) | §10.14 |
 
 ### First client and first agent
 
@@ -440,6 +465,17 @@ only what a test or an existing screen needs.
   be translated into the contact's language before it is signed, and what is signed is what is sent.
   Off by default, a cheap model, a daily limit per client, the client's usage, HIPAA mode respected.
   Documents, invoices and calls are never translated
+
+Added in v0.16 (owner, 2026-11-10; `docs/plan.md` §1.86, milestones R0–R9 in §9). In v1 scope:
+- **The process model** (§10.14): connector, tool, skill, trigger, process and person; skills by
+  `rules`, `ai` or `rules_then_ai` with declared reads and site-scoped browsing; processes as workflow
+  `schemaVersion: 4` with read, skill, write, person, conversation and notify steps and the logic
+  steps; checks on any step (confer, approval in turn, any or all, notify and urgent notify); one
+  deadline shape with `ifNoAnswer`; business hours per client and per person with away dates; undo
+  declared per write tool and offered, never automatic; one agent, one process and its owner; a number
+  and email per client account, optional per agent; the Library and the client's Connections, People,
+  Business hours and Channels pages; scripted site tools for browser connectors. Stored v3 workflows
+  keep running, read as v4
 
 Out (designed for, not built):
 - Client self-serve building;
@@ -2285,6 +2321,416 @@ at 6,000 characters and marked. Translations made outside a run are the client's
 original one click away, never a model or a cost (invariant 11). Documents, invoices, call audio and
 live calls are never translated; a language outside the six is stored as unknown, not guessed.
 
+### 10.14 The process model (v0.16, owner 2026-11-10)
+
+The owner found skills, tools, workflows, automations and agents too many overlapping words
+(`docs/plan.md` §1.86). v0.16 keeps everything §10.1–§10.13 built and says it in six words, with one
+step list and one set of checks that every kind of step can carry. The schema is built
+(`packages/core/src/process`, exported as `processes`, R1); the validator, executor, builder and
+portal follow in R1–R9 (`docs/plan.md` §9). Decision: this is §10.14, not a new top-level section,
+so §11–§20 keep their numbers and every reference to them holds.
+
+#### Six definitions
+
+| Word | What it is | Today |
+|---|---|---|
+| **Connector** | A client's account in one system: its read tools, its write tools and its events. A browser site is a connector too (below) | §6.1, §6.10 |
+| **Tool** | One fixed action that reads or writes. It never decides: same input, same call | §9.4 |
+| **Skill** | Data in, data out: deterministic (rules or built-in code) or AI (instructions and a model), never both (the skill model, below). May read through connectors; never writes | §9.2 |
+| **Trigger** | What starts a process: the six kinds of §10.8 | §10.8 |
+| **Process** | One or more triggers, then steps top to bottom, each step able to carry checks | §10.1, §10.7 |
+| **Person** | Someone on the client's People list (a client user or a directory contact), or the lead | §4, §1.42 of the plan |
+
+**Skills think, tools act.** A skill works out what should happen; a `write` step after it makes it
+happen, through a write tool, the gate (§9.5) and its checks. A skill's output that should change
+anything, the client's tool or a platform record (an alert, a price observation), is the input of a
+write step, never a side effect of the skill (R2 moves today's skills that write). So every change a
+process makes is a step the operator placed, the client can see, and approval can stop (invariant 8).
+
+**An agent** is one process plus its **owner**: the AI that watches the process run (below). The
+Library (below) replaces "automation" with "process": a process used inside another is a `process`
+step, as `use_automation` was (§10.7).
+
+#### The skill model (owner, 2026-11-10)
+
+Decided, and it supersedes the method table below (`rules_then_ai` and the four skill modes):
+**two kinds of skill only.**
+
+| Kind | Runs as | Example |
+|---|---|---|
+| **Deterministic** | Typed data in, rules (rule rows as data, or built-in code), typed data out, the same every time | Check totals; Look up existing; Check matches (the hard rules that veto) |
+| **AI** | Typed data in (text and documents too), instructions and a model, JSON out checked against the skill's output schema and handed to the next step | Read document; Match the unmatched (with retrieval as a read) |
+
+- **Nothing in between.** A skill that needs both is two skills chained: Read document (AI) then
+  Check totals (deterministic); Look up existing (deterministic), Match the unmatched (AI), Check
+  matches (deterministic: never match when a key attribute differs, never compare prices across
+  units without a conversion, invariant 7). Routing on confidence is an `if` step, not logic in a
+  skill.
+- **Skills never write and never message anyone**, our own records included. Every write is a write
+  step calling one tool: a write to our records (a tool with side effect `internal`) shows as
+  **"Save to records"**, approval off by default (the operator may turn it on); a write to a client's
+  tool (`external`) shows as **"Change in <connector>"**, approval on by default (invariant 8). Same
+  step underneath (core `writeStepLabel`, `defaultWriteApproval`).
+- **Every skill version** has an input and an output schema (fixed per version), **parameters**
+  (named, typed values the agent sets: a number, text, a date, an amount, or buckets such as 0–15
+  Current, 16–30 Due, 31+ Past due), tests, and a label shown everywhere: Deterministic or AI.
+  Prefer a parameter to a near-duplicate skill.
+- **Rule rows**: when the conditions hold, set the outputs. Conditions compare input fields,
+  parameters and today's date (=, <, >, between, in a list, days between two dates); outputs are fixed
+  values, copied input fields, or simple calculations (days between, sum, difference, percent change,
+  the parameter's bucket a value falls in). Anything more is a built-in code skill (core `skills/rules`).
+- **Models**: an AI skill version has a recommended model; a client agent may set its own per skill
+  (`definition.skills[].model`, every use of the skill in that agent); a step may still override it.
+  Most specific wins: step, then agent × skill, then the skill's recommended, then the agent's
+  (core `effectiveModel`). Every model is priced (cost caps) and held to HIPAA's processors, as before.
+- **Versions** are immutable; a step pins one (or follows the live one at the agent's publish). A
+  compatible move (only optional fields, or parameters with defaults, added) is one click; a breaking
+  one lists every reference downstream to remap before the step is saved (core `skillVersionChange`,
+  `skillMoveImpact`; `POST /api/ops/agents/:id/skill-move`).
+- **Setup is the operator's** (the back office). Clients give feedback, and keep only signing in to
+  their own tools, tightening permissions and approver rules, and their hours and people.
+- **Hidden AI**: built-in code that calls a model (document extraction, item matching's attribute
+  fallback and adjudication, translation, web research, the conversation engine) declares it on its
+  tool (`ToolSpec.usesModel`), so its skill reads as AI; a built-in's kind is derived, never stored.
+- **Retired for new use**: the 92 built-in skills that are only a tool by another name leave the
+  Library and the palette (a process uses the tool as a read or write step; stored references still
+  run), and agent-mode skills (the agent's reasoning loop proposing writes) give way to AI skills
+  followed by write steps. Stored versions and stored steps keep running (invariant 3). A skill
+  whose own tools write (Read quote and Read statement, which record a reading) is retired for new
+  steps too, and the tools a split replaced (document extraction, item matching) are offered as
+  steps only where an agent already calls them; a tool step that calls a model reads AI. A step is
+  new unless the last published version it was edited from has it (a fork's first version: its
+  template version); every step of any other first version the operator or the Builder writes is
+  new, and the Builder is offered only what the palette offers.
+- **AI then a check**: where an AI skill's answer feeds a write, a deterministic skill checks it
+  first and an If step routes a failure to a person (the Bill clerk: Prepare bill, Check bill,
+  Create bill; invariant 7).
+- **Templates on the skill model**: each seeded and pack template that used a retired kind of skill
+  has a new version built only from AI skills, deterministic skills, read steps and write steps (the
+  Bill clerk's v3, the Document clerk's v2, Sloan's v5, the Bookkeeper's v3, the marketing set's
+  v3). The reading skills run on the cheap model, set on the agent's skill; analysis on the skill's
+  recommended model. Stored versions are unchanged, and a client's agent moves only by the usual
+  reviewed update (invariant 11). Sloan keeps its four processes: the owner's one exception to one
+  agent, one process.
+
+#### Skill methods and reads
+
+Superseded in part by the skill model above (2026-11-10): `rules_then_ai` is retired for new skill
+versions and new steps. A skill declares one **method** (R2; replaces §9.2's `mode`):
+
+| Method | Runs as | Use |
+|---|---|---|
+| `rules` | Code over plain rules, no model | Thresholds, lookups, a vendor's known names |
+| `ai` | A model call with typed input and output (the model chosen as §10.11) | Reading an invoice, drafting in the agent's voice |
+| `rules_then_ai` | Rules first; the model only for what the rules leave open, and a hard rule vetoes it | Item matching (§12.3) |
+
+`rules_then_ai` is invariant 7 as a setting: deterministic first, model second, and a person last
+through the step's checks. Today's `tool`-mode skills, a model-free wrapper around one tool, retire
+(85 of the 100 skills): each becomes a `read` or `write` step on that tool (v3 compatibility, below).
+How `task` and `agent` skills map onto `ai` is settled in R2; the model rules of §10.11 hold.
+
+**Declared reads.** A skill names the read tools it may call, and only those are exposed to it; it
+reaches a connection only through the agent's binding and grant (§6.9). A skill that browses names the
+**sites and the pages** it may open, a subset of the site's allowed pages (§6.10): it opens only those,
+and nothing it reads on them can widen the list (invariant 9).
+
+**Skill templates.** Skills in the Library are templates. A step customizes one (its settings and
+input) for this process; the customization is versioned with the agent, offered the template's
+updates by three-way merge and promoted back, like an agent (§9.3). Built in R8.
+
+#### The process schema (`schemaVersion: 4`)
+
+From `packages/core/src/process/schema.ts`, written in §10.1's short form. `Template`, `Rules`,
+`Duration`, `ModelChoice`, `PersonChoice`, `ClientVisibility`, `Trigger` and `WorkflowHandoff` are
+§10.1's (`Trigger` with §10.8's kinds).
+
+```ts
+Process = { schemaVersion: 4, triggers: Trigger[] /*1–10*/, steps: Step[], handoff?: WorkflowHandoff }
+
+Step = { id, kind, name, client?: ClientVisibility, checks?: Checks,
+         review?: 'auto' | 'off' | 'always' /*the owner's review of this step; §10.11*/, ...config } where kind ∈
+  // work
+  'read'         { tool: ToolId, input: TemplateObject = {} }
+  'skill'        { skill: 'id[@v]', agent?: slug /*another agent of the same client; default the owner*/,
+                   input: TemplateObject = {}, settings?, model?: ModelChoice }
+  'write'        { tool: ToolId, input: TemplateObject = {} }   // a client's tool (external) or a platform record
+  'person'       { mode: 'approve' | 'ask', assignee: Who, title: Template, payload: TemplateObject = {},
+                   deadline: Deadline, channel: 'inbox' | 'email' = 'inbox',
+                   onReject: 'stop' | 'continue' = 'stop', choices?: PersonChoice[] /*1–6*/ }
+  'conversation' { with: Template, channel: 'email' | 'sms' | 'whatsapp' | 'call', goal: Template,
+                   mayShare: string[] = [] /*≤ 20*/, find: { [field]: recordType /*'?' optional*/ } = {},
+                   maxTurns: 1–20 = 4,
+                   messages: { first: 'required' | 'not_required' = 'required',
+                               later: 'required' | 'within_goal' = 'required' },
+                   deadline: Deadline }
+  'notify'       { notify: NotifyCheck }                     // a note standing on its own (a run's summary)
+  // logic
+  'if'           { paths: [{ id, name, when: Rules, steps: Step[] }] /*≥ 1*/, otherwise: { id, steps: Step[] } }
+  'for_each'     { over: Template, concurrency: 1–50 = 10, steps: Step[] /*≥ 1*/ }
+  'wait'         { for: Duration }
+  'stop'         { status: 'succeeded' | 'failed' | 'cancelled' }
+  'process'      { process: 'slug@version' /*pinned*/, input: TemplateObject = {},
+                   approvals?: { [innerStepId]: ApprovalCheck } /*the operator's, per client; §10.7*/ }
+
+Who = string /*a role ('client_admin', 'lead', 'operator'), a user id or a contact id; 1–200 chars*/
+```
+
+Templates, ids, paths and forks work as §10.1 says: `if` is §10.1's fork, renamed for the builder's
+words. Validation (R1, next) carries §10.2's rules over to v4, plus the checks' rules below.
+
+#### Checks
+
+Any step may carry checks. They run in a fixed order: **confer, then approval, then the step's write,
+then notify.** Each has a `when` (plain rules over the run, never a model; absent means always), so a
+check can apply to some runs only ("confer when the total is over $5,000").
+
+```ts
+Checks = { confer?: ConferCheck, approval?: ApprovalCheck, notify?: NotifyCheck[] /*≤ 5*/ }
+
+ConferCheck = { when?: Rules, with: Conferee[] /*1–3, in order*/ }
+Conferee = { ai: { focus: Template, model?: ModelChoice /*default: a model other than the step's*/ },
+             when?: Rules, deadline?: Deadline }
+         | { person: Who, show?: TemplateObject /*default: the step's output*/, when?: Rules, deadline: Deadline }
+ConferVerdict = 'agree' | 'disagree' | 'unsure' | 'no_answer'
+
+ApprovalCheck = { required: 'required' | 'not_required' = 'required', when?: Rules,
+                  mode: 'in_turn' | 'any' | 'all' = 'in_turn',
+                  approvers?: [{ who?: Who, deadline?: Deadline }] /*≤ 5; absent: the default approver*/,
+                  ifNoAnswer: DeadlineThen = 'stop' /*after the last approver's deadline*/,
+                  onReject: 'stop' | 'continue' = 'stop' }
+
+NotifyCheck = { when?: Rules, to: Who[] /*1–10*/, channel: 'inbox' | 'email' | 'sms' = 'inbox',
+                message: Template,
+                urgent?: { when?: Rules, ackWithin: Duration, ifNoAnswer: DeadlineThen = 'stop' },
+                sources?: Template[] /*≤ 50*/ }
+```
+
+**Confer** asks for advice on a step's result: from a second model (`ai`, with a focus such as "do
+these lines add up to the bill's total"), from a person on the client's People list, or the model then
+the person; a later conferee's `when` can test the verdicts before it ("ask Dana only if the model
+disagreed"). It is advice only: it never changes the step's output and never approves a write. Its
+verdicts are the step's data for later checks, `if` rules and the owner. A confer is shown on the
+client's run timeline as **its own step** ("Checked with Dana: agrees"), and an AI confer as "A second
+check agreed", never its model, prompt or cost (invariant 11). A person away on the day is skipped.
+
+**Approval** is permission from the client's team or the lead, and keeps invariant 8 exactly:
+`required` is on by default and `not_required` follows §9.5's three conditions. Approvers default to
+the step's, then the agent's, then the client's (approver rules, `docs/plan.md` §1.20). Three modes:
+
+| Mode | Asks | Decided by |
+|---|---|---|
+| `in_turn` (default) | One approver at a time, in order; the next when the one before's deadline passes | The first answer |
+| `any` | Every approver at once | The first answer |
+| `all` | Every approver at once | Everyone approving; the first reject |
+
+A **reject is an answer**: it ends the asking at once and the step's `onReject` applies; it is never
+passed to the next approver. A person who is **away** (below) is skipped at once, never waited for.
+When the last approver's deadline passes with no answer, `ifNoAnswer` applies.
+
+**Notify** tells the client's team or ours that something happened, in the inbox, by email or by text.
+It goes only to people of the client or of Mezonas: a message to anyone else (a vendor, a customer)
+is a write, behind approval. A notify carries `sources`, record ids (invariant 10). Unlike reach out,
+notifications have **no daily cap**; instead the builder shows each notify's frequency (how often it
+went out over the last 30 days), so a noisy one is visible. **Urgent** notifications send at once
+whatever the hours (quiet hours and business hours included), by text too, and need a **Seen** within
+`ackWithin`; with none, `urgent.ifNoAnswer` applies.
+
+#### Deadlines
+
+Everything that waits (a person step, a conversation, an approver, a person conferee, an urgent
+notify's Seen) has one shape:
+
+```ts
+Deadline = { after: Duration, hours: 'clock' | 'business' = 'clock',
+             remind?: Duration[] /*≤ 5*/, ifNoAnswer: DeadlineThen = 'stop',
+             tell?: Who[] /*≤ 10; told when it passes, whatever ifNoAnswer does*/ }
+DeadlineThen = 'stop' | 'proceed' | 'skip' | { escalate: { to: Who, deadline: Deadline } }
+```
+
+| `ifNoAnswer` | Effect |
+|---|---|
+| `stop` (default everywhere) | The run stops at this step, as a timeout always has |
+| `proceed` | The step goes on as if the answer were yes |
+| `skip` | The step is skipped and the run goes on after it |
+| `escalate` | The same question goes to `to`, with its own deadline (and its own `ifNoAnswer`) |
+
+**`proceed` on a write's approval is loosening** (invariant 8): it lets a write run unsigned. The
+validator allows it only where `required: 'not_required'` would be allowed, set by the operator, the
+connection's matrix `auto` for the verb and the agent's mode `act`, and never while the agent is in
+trial or sign-off (§10.9), where every write is signed. The same holds for an approval's `when` on a
+write (an approval that applies only to some runs) and for `proceed` at the end of an escalation chain.
+Clients can tighten (their matrix overrides at once, §6.9); only the operator loosens.
+// DECISION (core): the field is `ifNoAnswer`, not `then`: an object with `then` is a thenable.
+
+#### Business hours
+
+A deadline in `business` hours only runs while **the person being asked** is working: "30 minutes,
+business hours" asked at 5:50pm on a Friday ends at 8:20am on Monday.
+
+```ts
+BusinessHours = { tz: string /*IANA*/, week: { mon?..sun?: [{ from: 'HH:MM', to: 'HH:MM' }] /*≤ 4 a day*/ },
+                  usHolidays: boolean = true, closed: IsoDate[] = [] /*≤ 366*/ }
+PersonHours   = { hours?: BusinessHours /*absent: the client's*/, away: [{ from: IsoDate, to: IsoDate }] = [] }
+```
+
+- **The client's hours** default to Monday to Friday, 8:00 to 18:00 in the client's time zone, US
+  federal holidays closed (core `holidays/us`, as §10.8's schedules), plus the client's own closed
+  dates. A day left out of `week` is closed; no stretch runs past midnight.
+- **A person's hours** are their own or, absent, the client's. **Away dates** skip the person at once
+  in an `in_turn` approval or a confer.
+- **Whose clock.** A `business` deadline runs on the hours of the person asked: each approver's on
+  that approver's, an escalation's on the person escalated to, a person step's on its assignee's.
+  Someone without hours of their own runs on the client's. `clock` deadlines ignore hours. Where hours
+  and away dates are stored is R4's (its migration in its own PR).
+
+#### Undo
+
+Each write tool **declares its undo**: the call that reverses it (for example, restore what it
+changed, such as putting a memo or a bill's lines back from the before state), or none. Delete stays
+off (invariant 8), so no undo deletes. Undo is **offered, never automatic**: when an answer arrives
+after the write already ran (a late reject, after `proceed`), the person who rejected sees "Undo this change?" with the before state, and only their yes runs it. The undo is a
+write of its own: an `external_action` through the gate with its own idempotency key (invariant 8),
+and it first checks that **the record is unchanged** since our write (the after state still holds).
+If someone changed it since, nothing is undone and the person is told why. A tool without an undo
+says so on the card. The Desk's 60-second undo before a write runs (§11.1) is unchanged. Built in R5.
+
+#### Agents and their owner
+
+**One agent owns exactly one process.** The agent is that process plus its **owner**: the AI that
+watches every step and fixes within limits, v0.13's oversight (§10.11) given its proper name (R6):
+
+| The owner may | v0.13 decision |
+|---|---|
+| Watch: review a failed step, or a step whose output feeds a write, and let a good one go on | `continue` |
+| Retry, the same input, later | `retry` |
+| Correct the input and retry (the gate decides a write again) | `retry_with` |
+| Ask the lead | `ask` |
+| Stop | `stop` |
+
+It **never changes the plan, its approvals or its permissions** (invariant 9): it adds, skips and
+reorders no step, loosens no check and calls no tool. A fix that should last is a proposal to the
+operator, as in §10.11. Bundles stored with more than one workflow keep running as stored (invariant
+3); how they become one agent per process is R6's.
+
+**When to split.** The builder suggests splitting a process into two agents, joined by a handoff
+trigger (§10.8), when it sees:
+- more than 20 steps;
+- nesting deeper than 3 (an `if` in a `for_each` in an `if` in a `for_each`);
+- two results the client would name apart ("bills entered" and "vendors paid");
+- different approvers for different parts;
+- writes that move money beside steps that only read.
+
+These are signals, never errors: the operator decides.
+
+#### Conversations as a step
+
+§10.12's conversation becomes a step kind, `conversation` (R7): who it is `with`, the `channel` (now
+with `call`), the `goal`, what it `mayShare`, what it must `find` (typed fields), `maxTurns` and a
+deadline. Its messages are approved as §10.12's: the first one (the plan) `required` by default; later
+ones `required`, or `within_goal` to go under the first signature, with the person's autonomy and the
+agent's stage still forcing a signature per message. Everything else in §10.12 holds: sending as
+reach-outs, one at a time per person, hand-over on every limit, stepping in, and what each side sees.
+Stored `comms.converse` steps keep running as skill steps.
+
+#### Communications
+
+Every client account has **a phone number and an email address** of its own. An agent may have its
+own as well (optional, the operator's choice). When an agent writes or calls, **its own is used
+first**, else the account's. Numbers stay in the client's Twilio subaccount (§1.19, §1.22 of the
+plan); an agent's address is §10.8's. Inbound messages keep §10.8's message triggers and §6.12's
+capture. Built in R4.
+
+#### The Library and the client's settings
+
+**The Library** (back office, R8) holds the banks the operator builds from: processes, skills, tools,
+connectors, triggers, record types and condition sets (named `Rules` reused across checks and `if`
+steps). A process is assembled from the banks; nothing in it is code (invariant 4).
+
+**The client's portal** gains four settings pages, all the client's own:
+- **Connections**: the client signs in to its own tools, or, for a browser connector, the client
+  admin enters the agent account's login into the vault (§6.9, §6.10). The operator never sees it.
+- **People**: the client's team and contacts (§1.42 of the plan), each with their hours and away
+  dates. Approvers, conferees and notify recipients are picked from it.
+- **Business hours**: the client's week, zone and closed dates.
+- **Channels**: the account's number and address, and each agent's own.
+
+#### Browser connectors
+
+For a system with no API, **the site is the connector** (§6.10): its read and write tools are site
+tools, its tier sets what may run unsigned. A **scripted site tool** (fixed steps: open this page, read
+this table, fill this form) is preferred to letting a model browse: it is a tool, so it never decides.
+The operator **or the client admin** records a script in our hosted browser (Browser Run) while **our
+code signs in** from the vault first, so whoever records never sees or types the client's login
+(invariant 13). A client admin's recording is a draft until **the operator publishes it** (the
+operator builds, clients use: invariant 11). A recorded write is a write tool like any other, behind
+approval, declaring its undo.
+
+Where no script covers a need, an `ai` skill **browses read-only** on the site's allowed pages (its
+declared `browse` pages, a subset of the site's; never a write, never another page). If it can't find
+what it needs within its limits, it **asks for help**: the lead or the client admin gets what it was
+looking for and what it tried (the pages it opened), and the answer is kept with the client's site
+(per client, never shared: invariant 1) for the next run to use. A path that has worked twice is
+offered to the operator as a **script draft**, to record and publish as a scripted site tool. Built
+in R9.
+
+#### v3 compatibility
+
+Stored v3 workflows are **never rewritten** (invariant 3). `processes.fromWorkflowV3` reads one as a
+v4 process, keeping **every step, path and trigger id**, so merges still line up:
+
+| v3 | v4 |
+|---|---|
+| `trigger` + `moreTriggers` | `triggers` |
+| `skill` whose skill only wraps one tool (no `agent`, `model` or `settings`) | `read` if the tool's side effect is `none`, else `write`; an unknown tool counts as external, so approval stays on |
+| `skill` (any other) | `skill`; its `approval` becomes `checks.approval` |
+| `action` | `write` with `checks.approval` |
+| `Approval { approver, timeout }` | `approvers: [{ who, deadline }]`, `in_turn`, a `clock` deadline, `ifNoAnswer: 'stop'` |
+| `person { timeout, remindEvery, onTimeout }` | `deadline`: `continue` → `proceed`; `stop` → `stop`; `notify_operator` → `stop`, telling the operator |
+| `notify { channel, to }` | `notify`: `thread` and `digest` → `inbox`, `email` → `email`; `to` defaults to `client_admin` |
+| `fork` | `if` |
+| `for_each`, `wait`, `stop` | the same |
+| `use_automation` | `process`, with its `approvals` |
+
+The converter is pure and adds nothing a v3 workflow didn't say: no confer, no notify checks, no
+business hours. New versions are saved as v4 (seeds and pack templates in R9); old versions read as
+v4 through the converter wherever v4 is needed.
+
+#### Action write steps (skill model, owner 2026-11-10)
+
+A write step names a **tool**, or an **action**: `send_email`, `send_text`, `create_bill`,
+`create_vendor`, with a provider-neutral input (core `processes.ACTION_INPUTS`; money as decimal
+strings). The action resolves from the agent's bindings when the step runs, once, in a durable step
+(`<step>:action`), so a replay resolves the same way: an accounting action to the one accounting
+connection the agent is bound to (QuickBooks or BILL; with both the step names `via`), a message
+action to the agent's own email or text channel, else the account's (`channelFor`). It then runs
+exactly as a write step calling that tool: its input mapped to the tool's
+(`processes.actionToolInput`), one external action with its idempotency key, before state and undo,
+the gate. Every action is external, so its approval is on by default (invariant 8). Publish checks
+an action against the client agent's bindings and channels (no accounting connection, or two
+without `via`, is refused); a template checks its input only. The run view names where it went
+("Create bill · in QuickBooks"). The builder offers the actions as a palette group and, after a
+skill whose output fits an action's input, the matching write with its fields mapped. Design
+decisions: docs/plan.md §1.86 "Skill model (2026-11-10)".
+
+#### Reshape data (owner, 2026-11-11)
+
+One built-in deterministic skill, **Reshape data** (`data.reshape`), turns what earlier steps found
+into what the next step takes. Its output is fields the step defines; each is a mapping held in the
+step as data (versioned with the agent): a copied input field, a literal, or a small typed
+expression (the rule rows' sums, differences, percent changes, days between and buckets, plus
+dates, numbers and money formatted, text joined or split, a list picked from, plucked or mapped
+field by field, and units converted with core's table). No code and no templates execute; it never
+writes and calls no model when it runs, so it is labelled Deterministic. When the operator adds one
+(from the palette, before a step whose inputs earlier steps can't fill, or between a skill and a
+write it fits only in part), the builder proposes the mapping by name and type first, then asks the
+Builder AI once (back office, the operator's cost, never in a client's run) for the fields left;
+every suggestion is checked against the expression schema and typed, and what fails stays unmapped.
+The operator reviews each field with the value it would give (the latest run's real step output
+when there is one, else a sample from the types), edits any, and saves. The validator types the
+mapping against the steps before and the step after, so a new version of either flags the Reshape
+step by field, and the builder offers "Propose an updated mapping". Decisions: docs/plan.md §1.86
+"Skill model (2026-11-11): Reshape data".
+
 ---
 
 ## 11. Inbox and threads
@@ -2817,7 +3263,7 @@ Portal (client)
 Shared         GET  /api/connections/qbo/callback         GET  /api/connections/gmail/callback
                POST /api/connections/qbo/webhook      (Intuit's webhook; plan §1.30)
 
-MCP (operators: plan §1.34; clients' admins and users: plan §1.86; outside /api)
+MCP (operators: plan §1.34; clients' admins and users: plan §1.89; outside /api)
                POST /mcp                             (Streamable HTTP; bearer token from WorkOS AuthKit)
                GET  /.well-known/oauth-protected-resource[/mcp]   GET /.well-known/oauth-authorization-server
 ```
@@ -2897,7 +3343,7 @@ prompt, cost or Twilio link.
 The MCP server's tools read through the back office's own route handlers, scoped to the clients the
 operator serves; its one write (`feedback_resolve`) takes a preview call and a confirm call. A
 client's admin or user signing in to the same `/mcp` gets read-only tools over the portal's route
-handlers instead, for one of their own clients per call (plan §1.86).
+handlers instead, for one of their own clients per call (plan §1.89).
 All bodies validated with Zod. The route contract declares each route's roles; middleware sets
 `app.tenant_ids` (and `app.operator` for operator sessions) from the session (§4). No portal route
 returns an agent bundle, instructions, prompts, model output outside `summary`, or cost; a contract test
@@ -3093,6 +3539,7 @@ Platform first; the Materials template, forked and customized for the millwork s
 | M34 | (v0.15) The Purchasing area: the Materials pack ported | On staging, the Materials pack is enabled for the Sandbox; three invoices from different vendors for the same sheet good are matched to one catalog item (the second and third by alias or rules, not the model); the Price watch report shows that item's price per vendor and date; a key attribute that differs is never matched; golden matching tests ≥ 95% precision on "same" |
 | M37 | (P-4) Conversations | A three-turn WhatsApp clarification ends with a confirmed, typed result; a limit hands over to a person with the transcript; a replay sends nothing twice; a contact on "needs approval" makes each message wait |
 | M40 | (P-7) Message translation | An English WhatsApp reply to a Spanish-working client is stored with its Spanish translation beside the untouched original; an approver's Spanish words to an English-speaking vendor are translated, signed with both texts in view and sent once exactly as signed; a client without the setting works as before |
+| R0–R9 | (v0.16) The process model (§10.14) | As `docs/plan.md` §9, one milestone at a time: the v4 schema and converter (R1, built), skills, executor, business hours and channels, undo, the owner, the conversation step, the builder and portal, templates and browser scripts |
 
 **MVP** (§1): M0–M4 in full; M5 without client requests; M6 without the Builder, operator-written skills, template updates and
 promotion; M7 without the merge view; M8; M9 with the two MVP write tools; plus email forwarding (§6.5)
@@ -3183,6 +3630,10 @@ Decided:
 - P-7 (owner, 2026-11-08): message translation is in v1: a working language per client, with a
   per-contact switch; translations are stored beside untouched originals, are data, and count as the
   client's usage under a daily limit (§10.13).
+- v0.16 (owner, 2026-11-10): the process model (§10.14): six definitions, skills think and tools act,
+  one step list (workflow `schemaVersion: 4`) with checks on any step, one deadline shape whose default
+  is `stop`, business hours per client (Monday to Friday, 8 to 6) and per person, undo offered never
+  automatic, one agent per process with its owner; stored v3 is read as v4, never rewritten.
 
 Open:
 - v0.15, for the owner: embeddings for matching (when, and which provider: OpenAI or Voyage, named in

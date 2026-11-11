@@ -3,29 +3,43 @@
 // approval goes through packages/agents), emit `inbox.resolved` in the same transaction, and tell
 // the caller which run to resume, with what, once the transaction has committed.
 
-import { type Approver, mayResolve, resolveExternalActionTx } from "@countersign/agents";
-import type { ResolveBody } from "@countersign/core";
+import {
+  type Approver,
+  mayResolve,
+  type ProceededWrite,
+  proceededWriteTx,
+  resolveExternalActionTx,
+  resolveLateAnswerTx,
+  type ToolRegistry,
+} from "@countersign/agents";
+import type { JsonObject, ResolveBody } from "@countersign/core";
 import {
   // v0.12 W2-D
   ACCOUNT_CHANGE_SUBJECT,
   choiceProblem,
   FORBIDDEN_PORTAL_FIELD,
   isPlainObject,
+  processes,
   readChoices,
   undoSecondsOf,
 } from "@countersign/core";
 import { inboxItem, membership, run, type Tx, tenant } from "@countersign/db";
 import { type EventRow, type EventTypeRegistry, emit } from "@countersign/senses";
-import { senseEmitPosted } from "@countersign/threads";
+import { leadOf, senseEmitPosted } from "@countersign/threads";
 import { type InboxResolution, inboxEventType } from "@countersign/workflows";
 import { and, eq, sql } from "drizzle-orm";
 import type { z } from "zod";
 import { refuseGenericResolve } from "./access/release";
+import { auditInTx } from "./audit";
+// R7
+import { conversationEventOfItem, itemWakePayload } from "./converse/wake";
 import { applySuggestion, isDirectorySuggestion } from "./directory/suggestions";
 import { HttpError, notFound } from "./http";
 // v0.12 W1-A: go-live sign-off
 import { isGoLiveItem, resolveGoLive } from "./lifecycle/stages";
 import { senseEmitter } from "./runs/dispatch";
+// R5: a late answer and its undo
+import { type LateAnswerNote, lateTitle, type UndoOffer } from "./undo/offer";
 
 export type InboxRow = typeof inboxItem.$inferSelect;
 
@@ -37,12 +51,46 @@ export interface ResolveInput {
   registry: EventTypeRegistry;
   /** Emitted events land here for dispatch after the commit. */
   collect: EventRow[];
+  /**
+   * R5: the platform's tools, to tell whether a write that went ahead can be taken back (its
+   * `undo`). Absent: a late no is recorded and the lead told, but no undo is offered.
+   */
+  tools?: Pick<ToolRegistry, "get">;
 }
 
 export interface ResolveOutcome {
   item: InboxRow;
   /** The run to resume and the event to send it, or null (no run, or nothing changed). */
   resume: { runId: string; type: string; payload: InboxResolution } | null;
+  // R7 (docs/plan.md §1.86)
+  /**
+   * A conversation's item: the event a v4 conversation step waits on, sent beside `resume` (the
+   * cron re-sends both until the run takes the item, ./runs/resume.ts).
+   */
+  conversation?: { runId: string; type: string; payload: unknown } | null;
+}
+
+/** An event for a run, sent once the transaction commits. */
+export interface RunWake {
+  runId: string;
+  type: string;
+  payload: unknown;
+}
+
+/** Sends a resolution's events to its run: the item's own, and a conversation's beside it. */
+export async function sendResolution(
+  instances: { sendEvent(runId: string, event: { type: string; payload: unknown }): Promise<void> },
+  outcome: { resume?: RunWake | null | undefined; conversation?: RunWake | null | undefined },
+): Promise<void> {
+  const { resume, conversation } = outcome;
+  if (resume)
+    await instances.sendEvent(resume.runId, { type: resume.type, payload: resume.payload });
+  if (conversation) {
+    await instances.sendEvent(conversation.runId, {
+      type: conversation.type,
+      payload: conversation.payload,
+    });
+  }
 }
 
 async function lockItem(tx: Tx, tenantId: string, itemId: string): Promise<InboxRow> {
@@ -97,6 +145,11 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
   if (item.subjectType === ACCOUNT_CHANGE_SUBJECT) {
     throw new HttpError(409, "use_account_change", "approve this change from its own card");
   }
+  // R5: the run went ahead without this answer (a deadline's `ifNoAnswer: proceed`): the answer
+  // is recorded as late, the lead is told, a late no is offered an undo, and nothing reaches the
+  // run. Checked before `expired`: an item the deadline passed may still be answered late.
+  const proceeded = await proceededWriteTx(tx, input.tenantId, item);
+  if (proceeded) return resolveLate(tx, input, item, proceeded);
   if (item.status === "expired") {
     throw new HttpError(409, "expired", "this item expired: the run stopped waiting for it");
   }
@@ -211,12 +264,22 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
   // delivers it (runs/resume.ts), so nothing is sent now.
   const held = await holdForUndo(tx, input.tenantId, item, resolution, testRun);
   const updated = await lockItem(tx, input.tenantId, item.id);
+  const conversation = item.runId && !held ? await conversationEventOfItem(tx, item) : null;
   return {
     item: updated,
     resume:
       item.runId && !held
         ? { runId: item.runId, type: inboxEventType(item.id), payload: resolution }
         : null,
+    ...(conversation && item.runId
+      ? {
+          conversation: {
+            runId: item.runId,
+            type: conversation,
+            payload: itemWakePayload(item.id, resolution),
+          },
+        }
+      : {}),
   };
 }
 
@@ -275,4 +338,134 @@ export function scrubForPortal(value: unknown): unknown {
     out[k] = scrubForPortal(v);
   }
   return out;
+}
+
+// ── R5: an answer after the run went ahead (docs/plan.md §1.86, §9) ──────────────────────────────
+
+/**
+ * Resolves an item whose run went ahead without it: who answered and when go on the item and in
+ * the audit log, the lead gets an item saying so, and a late no to a write that can be taken back
+ * is offered an undo, to the person who said no and to the lead. Nothing is undone here, and the
+ * run (which isn't waiting) is told nothing.
+ */
+// DECISION: the lead hears through an operator `review` item (as a write that may have happened
+// does, docs/plan.md §1.22), assigned to the lead by name, else to the operator role. In a test
+// run nothing was written: the answer is recorded and audited, and nobody else is told.
+async function resolveLate(
+  tx: Tx,
+  input: ResolveInput,
+  item: InboxRow,
+  proceeded: ProceededWrite,
+): Promise<ResolveOutcome> {
+  const { decision, answer, note } = input.body;
+  let approved: boolean;
+  if (item.kind === "request") {
+    // A question with quick answers takes one of them, late or not (a decline needs none).
+    const choices = readChoices(isPlainObject(item.payload) ? item.payload.choices : undefined);
+    if (choices && decision !== "reject") {
+      const problem = choiceProblem(choices, answer);
+      if (problem) throw new HttpError(422, "invalid_answer", problem);
+    }
+    approved = decision !== "reject";
+  } else {
+    if (!decision) throw new HttpError(400, "invalid_request", "approve or reject this item");
+    approved = decision === "approve";
+  }
+  let testRun = false;
+  if (item.runId) {
+    const [r] = await tx.select({ mode: run.mode }).from(run).where(eq(run.id, item.runId));
+    testRun = r?.mode === "test";
+  }
+  const late = await resolveLateAnswerTx(tx, {
+    tenantId: input.tenantId,
+    item,
+    proceeded,
+    decision,
+    approved,
+    answer,
+    note,
+    by: input.by,
+    emit: senseEmitter(input.registry, { collect: input.collect, testRun }),
+  });
+  const { action } = late;
+  const note_: LateAnswerNote = {
+    at: late.at.toISOString(),
+    by: input.by.userId,
+    approved,
+    actionId: action?.id ?? null,
+    actionStatus: action?.status ?? null,
+  };
+  const lead = testRun ? null : await leadOf(tx, input.tenantId);
+  const offer = testRun ? null : undoOffer(input, action, approved);
+  const payload = {
+    ...(isPlainObject(item.payload) ? (item.payload as JsonObject) : {}),
+    lateAnswer: note_,
+    ...(offer ? { undo: offer } : {}),
+  } as JsonObject;
+  await tx
+    .update(inboxItem)
+    .set({ payload })
+    .where(and(eq(inboxItem.id, item.id), eq(inboxItem.tenantId, input.tenantId)));
+  if (!testRun) {
+    await tx.insert(inboxItem).values({
+      tenantId: input.tenantId,
+      kind: "review",
+      agentId: item.agentId,
+      subjectType: action ? "external_action" : "inbox_item",
+      subjectId: action?.id ?? item.id,
+      runId: item.runId,
+      assigneeRole: "operator",
+      assigneeUserId: lead?.userId ?? null,
+      title: lateTitle(item.title),
+      payload: {
+        reason: approved
+          ? "They said yes after we went ahead without their answer."
+          : offer
+            ? "They said no after we went ahead without their answer. You or they can undo the change."
+            : "They said no after we went ahead without their answer, and the change can't be undone.",
+        sourceItemId: item.id,
+        actionId: action?.id ?? null,
+        lateAnswer: note_,
+        ...(offer ? { undo: offer } : {}),
+      } as JsonObject,
+    });
+  }
+  // Who answered and when, after we went ahead (invariant 14): ids only, as every audit row.
+  await auditInTx(tx, null, {
+    tenantId: input.tenantId,
+    actorKind: "user",
+    actorUserId: input.by.userId,
+    actorRole: input.by.role,
+    action: "inbox.answered_after_proceeding",
+    outcome: "ok",
+    target: {
+      item: item.id,
+      answer: approved ? "yes" : "no",
+      ...(item.runId ? { run: item.runId } : {}),
+      ...(action ? { action: action.id } : {}),
+      ...(offer ? { undo: "offered" } : {}),
+    },
+  });
+  const updated = await lockItem(tx, input.tenantId, item.id);
+  return { item: updated, resume: null };
+}
+
+/** The undo a late no is offered, or null: a done write whose tool says how it is taken back. */
+function undoOffer(
+  input: ResolveInput,
+  action: ProceededWrite["action"],
+  approved: boolean,
+): UndoOffer | null {
+  if (approved || action?.status !== "done") return null;
+  const spec = input.tools?.get(action.tool)?.spec;
+  const described = spec ? processes.describeUndo(spec) : null;
+  if (!described?.undoable) return null;
+  return {
+    actionId: action.id,
+    tool: action.tool,
+    text: described.text,
+    for: [input.by.userId],
+    lead: true,
+    status: "offered",
+  };
 }

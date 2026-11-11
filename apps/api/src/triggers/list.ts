@@ -3,8 +3,8 @@
 // last fired, answered from `run.trigger` (no new table). The operator's only.
 
 import {
-  type AgentBundle,
   type AgentTriggers,
+  type AnyAgentBundle,
   agentAddress,
   agentCommandNames,
   allTriggers,
@@ -41,6 +41,33 @@ function guardsOf(on: TriggerOn): Record<string, unknown> {
   return rest;
 }
 
+/**
+ * Each client agent's own email address (ARCHITECTURE §10.8), by agent id: its command name (live
+ * agents only) at the client on the forwarding domain. Empty without a domain. `names` are the
+ * client's command names when the caller has them already.
+ */
+export async function agentAddresses(
+  tx: Tx,
+  tenantId: string,
+  domain: string | null | undefined,
+  names?: ReadonlyMap<string, string>,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const d = domain?.trim();
+  if (!d) return out;
+  const commandNames = names ?? agentCommandNames(await commandCandidates(tx, tenantId));
+  if (commandNames.size === 0) return out;
+  const [client] = await tx
+    .select({ name: tenant.name })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId));
+  if (!client) return out;
+  for (const [agentId, commandName] of commandNames) {
+    out.set(agentId, agentAddress({ commandName, clientName: client.name, tenantId, domain: d }));
+  }
+  return out;
+}
+
 export async function agentTriggers(
   tx: Tx,
   row: { id: string; tenantId: string; liveVersionId: string | null },
@@ -55,7 +82,7 @@ export async function agentTriggers(
     .where(where)
     .orderBy(desc(agentVersion.version))
     .limit(1);
-  const bundle: AgentBundle | null = v?.bundle ?? null;
+  const bundle: AnyAgentBundle | null = v?.bundle ?? null;
 
   const fired = await tx.execute<{
     trigger_id: string;
@@ -99,22 +126,7 @@ export async function agentTriggers(
 
   const names = agentCommandNames(await commandCandidates(tx, row.tenantId));
   const commandName = names.get(row.id) ?? null;
-  let address: string | null = null;
-  const d = domain?.trim();
-  if (commandName && d) {
-    const [client] = await tx
-      .select({ name: tenant.name })
-      .from(tenant)
-      .where(eq(tenant.id, row.tenantId));
-    if (client) {
-      address = agentAddress({
-        commandName,
-        clientName: client.name,
-        tenantId: row.tenantId,
-        domain: d,
-      });
-    }
-  }
+  const address = (await agentAddresses(tx, row.tenantId, domain, names)).get(row.id) ?? null;
   return {
     agentId: row.id,
     versionId: v?.id ?? null,

@@ -189,7 +189,9 @@ function bundle(): AgentBundle {
   } satisfies AgentBundleInput);
 }
 
-const h = await createApiHarness({ connectors: () => [deskkit] });
+// A Worker's pool of one (`appDbMax: 1`): a route that opened a transaction beside the request's
+// would wait on itself (editing before signing: the runtime's check, a translation).
+const h = await createApiHarness({ connectors: () => [deskkit], appDbMax: 1 });
 afterAll(() => h?.close());
 
 describe.skipIf(!h)("the Desk", () => {

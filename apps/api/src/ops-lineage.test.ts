@@ -5,7 +5,7 @@
 // get 403 on every one of them, and an operator never sees a client they don't serve.
 
 import { createSkill, publishSkill } from "@countersign/agents";
-import { type AgentBundle, cloneJson } from "@countersign/core";
+import { type AgentBundle, cloneJson, isToolWrapper } from "@countersign/core";
 import { run } from "@countersign/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -37,7 +37,9 @@ function skillDef(slug: string, name: string) {
     name,
     description: `${name}, written by the operator`,
     category: "custom",
-    mode: "agent",
+    // Skill model (2026-11-10): new operator skills are AI skills (agent mode retired).
+    mode: "task",
+    model: { id: "claude-haiku-5-5" },
     instructions: "Do the thing.",
     tools: [],
     input: { type: "object" },
@@ -220,13 +222,17 @@ describe.skipIf(!h)("agent pages API", () => {
       const builtin = (skills: { source: string; id: string }[]) =>
         skills.filter((s) => s.source === "builtin").map((s) => s.id);
       const own = (skills: { source: string }[]) => skills.filter((s) => s.source !== "builtin");
-      // ...and so is every connector read tool, as a tool-mode skill (platform.ts).
-      expect(builtin(j(forTemplate.json).skills)).toEqual(
-        expect.arrayContaining(["docs.extract", "docs.find-support", "testkit.record.query"]),
-      );
-      expect(
-        j(forTemplate.json).skills.find((s: { id: string }) => s.id === "testkit.record.query"),
-      ).toMatchObject({ source: "builtin", category: "Testkit" });
+      // Skill model (2026-11-10): a skill that only wraps a tool (a connector read, docs.extract)
+      // is no longer offered, unless the agent already lists it; a process uses the tool directly.
+      const offered = builtin(j(forTemplate.json).skills);
+      expect(offered.length).toBeGreaterThan(0);
+      for (const id of ["docs.extract", "docs.find-support", "testkit.record.query"]) {
+        expect(offered).not.toContain(id);
+      }
+      for (const id of offered) {
+        const def = H.platform.catalog.get(id);
+        expect(def && isToolWrapper(def), id).toBe(false);
+      }
       expect(own(j(forTemplate.json).skills)).toEqual([
         expect.objectContaining({
           id: "custom:price-watch",
@@ -263,18 +269,17 @@ describe.skipIf(!h)("agent pages API", () => {
           definition: expect.objectContaining({
             id: "custom:price-watch",
             name: "Price watch for A",
-            mode: "agent",
+            mode: "task",
             input: { type: "object" },
             output: { type: "object" },
           }),
         }),
       ]);
+      // Skill model (2026-11-10): the wrapper is gone from the catalog; its tool is a step tool.
       expect(
         catalog.skills.find((s: { ref: string }) => s.ref === "testkit.record.query"),
-      ).toMatchObject({
-        source: "builtin",
-        definition: expect.objectContaining({ mode: "tool", handler: "testkit.record.query" }),
-      });
+      ).toBeUndefined();
+      expect(catalog.stepTools).toContain("testkit.record.query");
       // Prompts stay with the skill: the builder never needs them.
       expect(custom[0].definition.instructions).toBeUndefined();
       const update = catalog.tools.find((t: { id: string }) => t.id === "testkit.record.update");

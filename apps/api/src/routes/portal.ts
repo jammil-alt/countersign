@@ -15,11 +15,12 @@ import {
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
 import {
+  type AnyAgentBundle,
+  type ConnectorAuth,
+  checkKindOf,
   clientLabel,
   connectionLabel,
   connectorShown,
-  findStep,
-  isClientVisible,
   isPlainObject,
   LEAD_ASSIGNEE,
   leadCheckLabel,
@@ -28,6 +29,7 @@ import {
   type Role,
   routes,
   type Step,
+  shownOnTimeline,
   stepStateLabel,
 } from "@countersign/core";
 import {
@@ -54,7 +56,7 @@ import { mayControlConversation } from "../converse/control";
 // P-4
 import { portalConversation, runConversations } from "../converse/views";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
-import { type InboxRow, resolveInboxItem, scrubForPortal } from "../inbox";
+import { type InboxRow, resolveInboxItem, scrubForPortal, sendResolution } from "../inbox";
 // v0.13 W2-I
 import { timelineOversight } from "../oversight/views";
 import type { Platform } from "../platform";
@@ -67,10 +69,18 @@ import {
 } from "../runs/client-status";
 import { dispatchEvents } from "../runs/dispatch";
 import { runSubjects, sourceNames } from "../runs/subject";
+import { actionTimelineWrite, timelineWrite } from "../skill-facts";
 import { steppedInOf } from "../step-in/service";
 import { clientDescription } from "../weekly/stats";
 import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
 import { matrixEdit } from "./mappers";
+import {
+  isClientCheckRow,
+  stepFinder,
+  stepOfRow,
+  type TimelineStepDef,
+  timelineChecks,
+} from "./run-checks";
 import { runFilterWhere } from "./run-controls";
 import { latestHealthSummary, portalFindings } from "./supervisor";
 // v0.12 W1-C
@@ -238,11 +248,6 @@ export function summaryAfterLabel(
   return summary;
 }
 
-/** A step_run's node id names its step: the id, or `${loop}:${index}:${childId}` in a loop. */
-function stepOfNode(steps: (id: string) => Step | undefined, nodeId: string): Step | undefined {
-  return steps(nodeId) ?? steps(nodeId.split(":").at(-1) ?? nodeId);
-}
-
 /** Record ids a step's output cites (`output.sources`, invariant 10), for the client timeline. */
 // DECISION: the timeline's sources are only the string ids in `output.sources`; nothing else of a
 // step's output reaches the portal (model text stays out, ARCHITECTURE §10.6).
@@ -316,6 +321,7 @@ export async function portalConnections(
     icon: string | null;
     available: boolean;
     credentialForm: boolean;
+    auth?: ConnectorAuth;
     personal: boolean;
     permissionEntities: PermissionEntity[];
     connection: {
@@ -402,6 +408,7 @@ export async function portalConnections(
       icon: manifest?.icon ?? null,
       available: canSignIn(platform.connectors.get(id)),
       credentialForm: hasCredentialForm(platform.connectors.get(id)),
+      ...(manifest ? { auth: manifest.auth } : {}),
       personal: PERSONAL_CONNECTORS.has(id),
       // v0.12 W2-A: the record types the matrix sets levels for.
       permissionEntities: manifest?.permissionEntities ?? [],
@@ -428,7 +435,7 @@ export async function portalRunView(
   const [summary] = await runSummaries(tx, tenantId, [eq(run.id, runId)], 1, platform);
   if (!summary) throw notFound("run");
   const [r] = await tx
-    .select({ versionId: run.agentVersionId, slug: run.workflowSlug })
+    .select({ versionId: run.agentVersionId, slug: run.workflowSlug, error: run.error })
     .from(run)
     .where(and(eq(run.id, runId), eq(run.tenantId, tenantId)));
   const [v] = r
@@ -437,8 +444,10 @@ export async function portalRunView(
         .from(agentVersion)
         .where(and(eq(agentVersion.id, r.versionId), eq(agentVersion.tenantId, tenantId)))
     : [];
+  // R8: the workflow that ran may be a v4 process (§1.86); a check row (`:confer:`…) names the
+  // step it checks.
   const workflow = v?.bundle.workflows.find((w) => w.slug === r?.slug)?.workflow;
-  const lookup = (id: string) => (workflow ? findStep(workflow, id)?.step : undefined);
+  const lookup = stepFinder(workflow);
 
   const steps = await tx
     .select()
@@ -446,14 +455,16 @@ export async function portalRunView(
     .where(and(eq(stepRun.runId, runId), eq(stepRun.tenantId, tenantId)))
     .orderBy(stepRun.startedAt, stepRun.id);
   // v0.12 W1-C: a lead check's label carries the lead's first name ("Ana: Check new matches").
-  const isLeadCheck = (step: Step) => step.kind === "person" && step.assignee === LEAD_ASSIGNEE;
+  const isLeadCheck = (step: TimelineStepDef) =>
+    step.kind === "person" && step.assignee === LEAD_ASSIGNEE;
   const leadName = steps.some((s) => {
-    const step = stepOfNode(lookup, s.nodeId);
+    const step = stepOfRow(lookup, s.nodeId);
     return !!step && isLeadCheck(step);
   })
     ? await leadFirstName(tx, tenantId)
     : null;
   // v0.13 W2-I: run oversight in the platform's words only, never the agent's note (§10.11).
+  // Wave 3b: the oversight words read a v3 workflow's or a v4 process's steps alike.
   const oversight = await timelineOversight(tx, tenantId, runId, platform, workflow);
   // P-4: the client's side of each conversation step, never a prompt, model or cost (§1.66).
   const conversations = await runConversations(tx, tenantId, runId);
@@ -469,19 +480,45 @@ export async function portalRunView(
       }
     }
   }
+  // R8: the run's items not assigned to us, for the checks' approvers and urgent notices' Seen.
+  const runItems = await tx
+    .select()
+    .from(inboxItem)
+    .where(
+      and(
+        eq(inboxItem.runId, runId),
+        eq(inboxItem.tenantId, tenantId),
+        or(isNull(inboxItem.assigneeRole), ne(inboxItem.assigneeRole, "operator")),
+      ),
+    )
+    .orderBy(inboxItem.createdAt);
+  const checks = await timelineChecks(tx, steps, runItems, r?.error ?? null, lookup);
   const timeline = steps.flatMap((s) => {
-    const step = stepOfNode(lookup, s.nodeId);
+    const step = stepOfRow(lookup, s.nodeId);
     // Unknown nodes (agent tasks, internal bookkeeping) are internal steps: not shown.
-    if (!step || !isClientVisible(step)) return [];
+    if (!step || !shownOnTimeline(step)) return [];
+    // R8: a step's confer is its own row ("Checked with Dana: agrees"); an urgent notice its
+    // check sent shows while it waits for a Seen; other check rows stay internal.
+    const check = checks.get(s.id);
+    if (
+      checkKindOf(s.nodeId) &&
+      !(isClientCheckRow(s.nodeId) && (check?.confer || check?.urgent))
+    ) {
+      return [];
+    }
+    const labelled = step as Step;
     // A step reads by its state: "Itemize the bill" until it has run, then "Itemized the bill".
-    const label = stepStateLabel(step, s.status === "succeeded");
+    const label = stepStateLabel(labelled, s.status === "succeeded" || !!check?.confer);
     return [
       {
         id: s.id,
         label: isLeadCheck(step) ? leadCheckLabel(label, leadName) : label,
         status: s.status,
-        summary: summaryAfterLabel(s.summary, [clientLabel(step), step.name]),
-        sources: sourcesOf(s.output),
+        // A confer's own words are its verdict, worded by the screen; its row's summary is ours.
+        summary: check?.confer
+          ? null
+          : summaryAfterLabel(s.summary, [clientLabel(labelled), step.name]),
+        sources: check?.confer ? [] : sourcesOf(s.output),
         startedAt: iso(s.startedAt),
         finishedAt: iso(s.finishedAt),
         // v0.13 W2-I
@@ -490,22 +527,23 @@ export async function portalRunView(
         ...(conversations.has(s.id)
           ? { conversation: portalConversation(conversations.get(s.id), controls.has(s.id)) }
           : {}),
+        // R8
+        ...(check ?? {}),
+        // Skill model (2026-11-10), wave A: a write reads "Saved" or "Changed in QuickBooks";
+        // a confer's row is the check's, not the write's.
+        ...(!check?.confer && (step.kind === "write" || step.kind === "action")
+          ? {
+              write:
+                step.kind === "write" && step.action !== undefined
+                  ? actionTimelineWrite(platform, step.via)
+                  : timelineWrite(platform, step.tool as string),
+            }
+          : {}),
       },
     ];
   });
 
-  const items = await tx
-    .select()
-    .from(inboxItem)
-    .where(
-      and(
-        eq(inboxItem.runId, runId),
-        eq(inboxItem.tenantId, tenantId),
-        inArray(inboxItem.kind, ["approval", "external_action"]),
-        or(isNull(inboxItem.assigneeRole), ne(inboxItem.assigneeRole, "operator")),
-      ),
-    )
-    .orderBy(inboxItem.createdAt);
+  const items = runItems.filter((i) => i.kind === "approval" || i.kind === "external_action");
   const names = await userNames(
     tx,
     items.map((i) => i.resolvedBy),
@@ -652,12 +690,12 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
       body,
       registry: services.platform.events,
       collect,
+      // R5: a late no is offered an undo when its write's tool says how.
+      tools: services.platform.tools,
     });
-    const { resume } = outcome;
-    if (resume) {
-      ctx.afterCommit(() =>
-        services.instances.sendEvent(resume.runId, { type: resume.type, payload: resume.payload }),
-      );
+    // R7: and a conversation's own event beside it, for a v4 conversation step.
+    if (outcome.resume || outcome.conversation) {
+      ctx.afterCommit(() => sendResolution(services.instances, outcome));
     }
     if (collect.length > 0) {
       ctx.defer(() => dispatchEvents({ db: services.db, instances: services.instances }, collect));

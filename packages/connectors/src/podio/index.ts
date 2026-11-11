@@ -527,6 +527,8 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
         description:
           "Create an item in a Podio app. Fields by external id; checked against the app's fields.",
         verb: "create",
+        // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+        undo: { kind: "none" },
         summary: "Created item {{title}}",
         input: z.object({
           appId: Id,
@@ -574,6 +576,8 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
         description:
           "Change fields of a Podio item. Give the revision you read to refuse the change if the item changed since.",
         verb: "update",
+        // R5: the before state is written back with this tool, if the record hasn't changed since.
+        undo: { kind: "restore" },
         summary: "Updated item {{itemId}}",
         input: z.object({
           itemId: Id,
@@ -633,6 +637,8 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
         entity: "comment",
         description: "Add a comment to a Podio item.",
         verb: "create",
+        // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+        undo: { kind: "none" },
         summary: "Commented on item {{itemId}}",
         input: z.object({ itemId: Id, text: z.string().min(1).max(10_000) }),
         output: z.object({ itemId: z.number().int(), commentId: z.number().int() }),
@@ -655,6 +661,8 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
         entity: "task",
         description: "Create a Podio task, optionally on an item.",
         verb: "create",
+        // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+        undo: { kind: "none" },
         summary: "Created task {{taskId}}",
         input: z.object({
           text: z.string().min(1).max(400),

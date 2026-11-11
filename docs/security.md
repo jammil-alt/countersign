@@ -45,7 +45,7 @@ branches.
 - Roles are `operator`, `client_admin` and `client_user`. Only operators reach `/api/ops` and the
   MCP connector's back-office tools; a client's admin or user signing in to the same connector gets
   read-only tools over the portal's routes, for one of their own clients per call (`docs/plan.md`
-  §1.86). Portal routes never return agent definitions, prompts or costs.
+  §1.89). Portal routes never return agent definitions, prompts or costs.
 - Code: `packages/auth`, `packages/core/src/security/session-limits.ts`,
   `apps/web/src/session/activity.ts`.
 
@@ -178,6 +178,8 @@ in `docs/hipaa-plan.md`.
 | WorkOS | Users' names, emails and sign-ins | `workos` |
 | Anthropic | What agents read and write, and documents to extract | `anthropic` |
 | OpenAI | The same, for agents set to `openai:` models | `openai` |
+| xAI | The same, for agents set to `xai:` models (Grok) | `xai` |
+| Google (Gemini API) | The same, for agents set to `google:` models (Gemini); not the client's own Google account | `google` |
 | Twilio | Texts and calls of clients that use them | `twilio` |
 | Meta (WhatsApp) | WhatsApp messages | `meta_whatsapp` |
 | ElevenLabs | Live calls and their transcripts | `elevenlabs` |

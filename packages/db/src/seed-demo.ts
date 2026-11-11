@@ -45,6 +45,7 @@ import {
   GO_LIVE_SUBJECT,
   goLiveItem,
   type HealthSummary,
+  holdsProcess,
   normalizeVendorName,
   type PermissionMatrix,
   runErrorKey,
@@ -58,7 +59,7 @@ import {
   zonedParts,
   zonedTimeToUtc,
 } from "@countersign/core";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { type Db, type Tx, withOperator } from "./client";
 import {
@@ -1045,12 +1046,22 @@ async function seedAgents(tx: Tx, ctx: Ctx): Promise<Agents> {
       if (!trow?.live) {
         throw new Error(`seed-demo: the ${spec.template} template is missing; run the seed first`);
       }
-      const [vrow] = await tx
+      // R9: the agents were forked weeks ago, before the templates' v4 versions, and their runs
+      // below are v3 runs: the fork is of the template's latest version of v3 workflows only.
+      // DECISION: the demo forks the template's newest version that holds no v4 process (the live
+      // one while it holds none), so its history reads as the platform ran then and the v4
+      // version is the update the operator is offered.
+      const vrows = await tx
         .select({ id: agentVersion.id, version: agentVersion.version, bundle: agentVersion.bundle })
         .from(agentVersion)
-        .where(eq(agentVersion.id, trow.live));
+        .where(eq(agentVersion.agentId, trow.id))
+        .orderBy(desc(agentVersion.version));
       template = trow;
-      tv = must(vrow, `${spec.template} live version`);
+      const v3 = vrows.find((v) => !holdsProcess(v.bundle));
+      tv = must(
+        v3 && { ...v3, bundle: v3.bundle as AgentBundle },
+        `${spec.template} version of v3 workflows`,
+      );
     }
     const v1 = template && tv ? await validated(tv.bundle, `${spec.template} live version`) : null;
     const own = v1

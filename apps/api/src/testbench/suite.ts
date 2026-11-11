@@ -19,7 +19,7 @@ import {
   updateOperational,
 } from "@countersign/agents";
 import {
-  type AgentBundle,
+  type AnyAgentBundle,
   type CaseOutcome,
   Fixtures,
   labelOutcome,
@@ -166,7 +166,7 @@ async function bindCopy(
   tx: Tx,
   deps: RunDeps,
   copy: AgentRow,
-  bundle: AgentBundle,
+  bundle: AnyAgentBundle,
   actorId: string | null,
 ): Promise<AgentRow> {
   const tenantId = copy.tenantId as string;

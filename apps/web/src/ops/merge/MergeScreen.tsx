@@ -5,16 +5,22 @@
 // original or an edited value; the agent fields and settings side by side; and, for a promotion,
 // which changes go (client-specific values never do). Merging and validation run in the browser
 // with core's code on every change; Save asks the server, which runs both again.
+// R8 (ARCHITECTURE §10.14 "v3 compatibility"): the versions may hold v4 processes. When any side
+// does, every side is read as v4 once (core's `readBundles`, the lookup from the builder catalog),
+// so the step list, the marks, the conflicts and the merge all see one shape, and checks and
+// deadlines read in words.
 import {
   type AgentBundle,
-  AgentBundle as AgentBundleSchema,
+  type AnyAgentBundle,
+  AnyAgentBundle as AnyAgentBundleSchema,
   diffBundles,
+  holdsProcess,
   type MergeConflict,
   mergeBundles,
   type Resolution,
+  readBundles,
   selectableBetween,
   selectChanges,
-  type ValidationError,
 } from "@countersign/core";
 import { type ReactNode, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -45,12 +51,14 @@ import {
   TextInput,
   useAction,
 } from "../agents/ui";
-import { typingContext, validateLikeServer } from "../builder/catalog";
+import { typingContext, validateLikeServer, validateProcessesLikeServer } from "../builder/catalog";
+
 import { JsonInput } from "../builder/fields";
 import { usePageClient } from "../pickedClient";
 import { StepList, type StepMark } from "../workflow/StepList";
 import {
   activeResolutions,
+  catalogLookup,
   conflictChoices,
   conflictTarget,
   conflictText,
@@ -62,6 +70,7 @@ import {
   type Side,
   sideMarks,
   sideNames,
+  triggerLabels,
 } from "./model";
 
 type Preview =
@@ -75,9 +84,36 @@ export function agentBase(agent: Pick<AgentSummary, "kind" | "slug" | "tenantId"
     : `/ops/clients/${agent.tenantId}/agents/${agent.slug}`;
 }
 
-function parse(v: VersionDetail): AgentBundle | null {
-  const r = AgentBundleSchema.safeParse(v.bundle);
+type TypingContext = ReturnType<typeof typingContext>;
+
+function parse(v: VersionDetail): AnyAgentBundle | null {
+  const r = AnyAgentBundleSchema.safeParse(v.bundle);
   return r.success ? r.data : null;
+}
+
+/** A problem of the merged agent, v3's or a v4 process's (codes differ, the shape doesn't). */
+interface Problem {
+  workflow?: string | undefined;
+  stepId: string | null;
+  field: string;
+  code: string;
+  message: string;
+}
+
+/**
+ * The server's check of the merged agent, in the browser. All v3: `validateLikeServer` as before.
+ * Holding processes: the builder's `validateProcessesLikeServer` (core's whole-bundle
+ * `validateAnyBundle`, so slugs and ids across workflows are checked too), as the agent it lands
+ * on: an update lands on the client agent, a promotion on the template.
+ */
+export function validateMerged(
+  bundle: AnyAgentBundle,
+  ctx: TypingContext,
+  clientAgent: boolean,
+): { valid: boolean; errors: Problem[] } {
+  if (!holdsProcess(bundle)) return validateLikeServer(bundle as AgentBundle, ctx);
+  const r = validateProcessesLikeServer(bundle, ctx, { clientAgent });
+  return { valid: r.valid, errors: r.errors };
 }
 
 // DECISION: the merge view merges and validates in the browser with core's shared code on every
@@ -139,12 +175,27 @@ export function MergeScreen() {
       </Page>
     );
   }
-  const bundles = {
-    base: parse(preview.data.base),
-    ours: parse(preview.data.ours),
-    theirs: parse(preview.data.theirs),
-  };
-  if (!bundles.base || !bundles.ours || !bundles.theirs) {
+  const parsed = [
+    parse(preview.data.base),
+    parse(preview.data.ours),
+    parse(preview.data.theirs),
+  ] as const;
+  const read = (() => {
+    if (!parsed[0] || !parsed[1] || !parsed[2]) return null;
+    try {
+      // R8: one shape for all three: every side as v4 once any side holds a process.
+      const r = readBundles([parsed[0], parsed[1], parsed[2]], {
+        lookup: catalogLookup(catalog.data),
+      }).bundles;
+      return { base: r[0], ours: r[1], theirs: r[2] } as Record<
+        "base" | "ours" | "theirs",
+        AnyAgentBundle
+      >;
+    } catch {
+      return null;
+    }
+  })();
+  if (!read) {
     return (
       <Page testId="merge-page">
         {header}
@@ -152,6 +203,7 @@ export function MergeScreen() {
       </Page>
     );
   }
+  const bundles = read;
   return (
     <Page testId="merge-page">
       {header}
@@ -219,13 +271,17 @@ function MergeBody({
   mode: Mode;
   agent: AgentSummary;
   preview: Preview;
-  base: AgentBundle;
-  ours: AgentBundle;
-  theirs: AgentBundle;
+  base: AnyAgentBundle;
+  ours: AnyAgentBundle;
+  theirs: AnyAgentBundle;
   ctx: ReturnType<typeof typingContext>;
 }) {
   const names = sideNames(mode);
-  const labels = preview.labels;
+  // R8: trigger names too, for a v4 process's trigger changes and their order.
+  const labels = useMemo(
+    () => ({ ...triggerLabels(base, ours, offered), ...preview.labels }),
+    [base, ours, offered, preview.labels],
+  );
 
   // A promotion carries the selected changes only; all by default.
   const selectable = useMemo(
@@ -250,7 +306,10 @@ function MergeBody({
     () => mergeBundles(base, ours, theirs, resolutions),
     [base, ours, theirs, resolutions],
   );
-  const validation = useMemo(() => validateLikeServer(result.bundle, ctx), [result.bundle, ctx]);
+  const validation = useMemo(
+    () => validateMerged(result.bundle, ctx, mode === "update"),
+    [result.bundle, ctx, mode],
+  );
   const open = result.conflicts.length;
 
   const oursChanges = useMemo(() => diffBundles(base, ours), [base, ours]);
@@ -585,7 +644,7 @@ function Saved({
 }: {
   mode: Mode;
   saved: { version: number; to: AgentSummary };
-  bundle: AgentBundle;
+  bundle: AnyAgentBundle;
 }) {
   const base = agentBase(saved.to);
   const first = bundle.workflows[0]?.slug;
@@ -810,7 +869,7 @@ function PromoteChoices({
   );
 }
 
-function Problems({ errors, bundle }: { errors: ValidationError[]; bundle: AgentBundle }) {
+function Problems({ errors, bundle }: { errors: Problem[]; bundle: AnyAgentBundle }) {
   if (errors.length === 0) {
     return (
       <p className="text-sm text-ink-muted" data-testid="merge-problems-none">
@@ -818,7 +877,7 @@ function Problems({ errors, bundle }: { errors: ValidationError[]; bundle: Agent
       </p>
     );
   }
-  const where = (e: ValidationError) => {
+  const where = (e: Problem) => {
     const w = e.workflow ? bundle.workflows.find((x) => x.slug === e.workflow) : undefined;
     return w ? w.name : "Agent";
   };

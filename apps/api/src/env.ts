@@ -10,6 +10,10 @@ export interface Secrets {
   ANTHROPIC_API_KEY?: string;
   /** Loaded by deploy.yml; OpenAI models (`openai:` ids) in packages/llm. */
   OPENAI_API_KEY?: string;
+  /** Loaded by deploy.yml; xAI models (`xai:` ids, Grok) in packages/llm. Unset: those models are off. */
+  XAI_API_KEY?: string;
+  /** Loaded by deploy.yml; Google's Gemini models (`google:` ids) in packages/llm. Unset: off. */
+  GEMINI_API_KEY?: string;
   /** 32 bytes, base64: connection credentials at rest (ARCHITECTURE §17). */
   ENCRYPTION_KEY?: string;
   ENCRYPTION_KEY_PREVIOUS?: string;
@@ -82,6 +86,9 @@ export interface Secrets {
   PLAID_CLIENT_ID?: string;
   /** The secret of the Plaid environment PLAID_ENV names (sandbox and production differ). */
   PLAID_SECRET?: string;
+  // §1.87: BILL (Bill.com). The client's own login is in the vault, never here.
+  /** Mezonas' BILL developer key for the environment BILL_ENV names; unset: BILL refuses. */
+  BILL_DEV_KEY?: string;
   /** Mezonas' own Stripe account (billing, docs/plan.md §1.24); unset: billing is off. */
   STRIPE_SECRET_KEY?: string;
   /** The Stripe webhook endpoint's signing secret (`whsec_…`) for /api/billing/stripe/webhook. */
@@ -121,6 +128,8 @@ export interface Vars {
   QBO_ENV?: string;
   /** v0.12 bankfeed: `sandbox` (default) or `production`: which Plaid the bank feed talks to. */
   PLAID_ENV?: string;
+  /** §1.87: `sandbox` (default) or `production`: which BILL the billcom connector talks to. */
+  BILL_ENV?: string;
   // P-8: US texting registration by API (docs/plan.md §1.70), set in wrangler.jsonc (production).
   /** The BU SID of Mezonas' approved ISV primary customer profile in Trust Hub. */
   TWILIO_PRIMARY_PROFILE_SID?: string;

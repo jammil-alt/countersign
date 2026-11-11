@@ -2,6 +2,8 @@
 import {
   AgentBundle,
   type AgentBundleInput,
+  AnyAgentBundle,
+  type AnyAgentBundleInput,
   type SessionResponse,
   type TableView,
 } from "@countersign/core";
@@ -151,6 +153,73 @@ export const FORK_BUNDLE_INPUT: AgentBundleInput = {
 };
 
 export const FORK_BUNDLE = AgentBundle.parse(FORK_BUNDLE_INPUT);
+
+/**
+ * R8: the fixture agent saved as a v4 process (what the builder saves, and the templates' v4
+ * versions and their forks): a manual trigger first and the event second, an `if`, and a write
+ * with no approval check (it waits for the default approver).
+ */
+export const PROCESS_BUNDLE_INPUT: AnyAgentBundleInput = {
+  ...FORK_BUNDLE_INPUT,
+  workflows: [
+    {
+      slug: "new-bill",
+      name: "New bill",
+      workflow: {
+        schemaVersion: 4,
+        triggers: [
+          { id: "t0", on: { type: "manual", input: { type: "object", properties: {} } } },
+          { id: "t1", on: { type: "event", event: "bill.created" } },
+        ],
+        steps: [
+          {
+            id: "find",
+            kind: "skill",
+            name: "Find supporting document",
+            skill: "docs.find-support",
+            input: {},
+          },
+          {
+            id: "confidence",
+            kind: "if",
+            name: "Match confidence",
+            paths: [
+              {
+                id: "low",
+                name: "Any line below 90%",
+                when: {
+                  match: "any",
+                  rules: [{ field: "{{steps.find.output.confidence}}", op: "<", value: 0.9 }],
+                },
+                steps: [
+                  {
+                    id: "ask",
+                    kind: "person",
+                    name: "Ask Jammil",
+                    mode: "ask",
+                    assignee: "client_admin",
+                    title: "Check the match",
+                    deadline: { after: "2 days" },
+                  },
+                ],
+              },
+            ],
+            otherwise: { id: "else", steps: [] },
+          },
+          {
+            id: "update",
+            kind: "write",
+            name: "Update bill",
+            tool: "qbo.bill.update_lines",
+            input: { billId: "{{trigger.billId}}" },
+          },
+        ],
+      },
+    },
+  ],
+};
+
+export const PROCESS_BUNDLE = AnyAgentBundle.parse(PROCESS_BUNDLE_INPUT);
 
 /** Version n of the fixture agent. */
 export const versionId = (n: number) =>

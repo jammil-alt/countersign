@@ -23,7 +23,12 @@ import { createTemplate, fork, publish } from "../registry/agents";
 import { SkillCatalog } from "../registry/skills";
 import { runAgent } from "../runtime/run-agent";
 import { DOCS_SKILLS } from "../tools/docs";
-import { createHarness, type Harness, makeBundle } from "./harness.test-helper";
+import {
+  createHarness,
+  type Harness,
+  makeBundle,
+  undeclaredModelCall,
+} from "./harness.test-helper";
 import { dbModelCalls } from "./model-calls";
 import { createDbPorts } from "./ports";
 import { createRun } from "./run-log";
@@ -44,7 +49,13 @@ describe.skipIf(!harness)("docs tools in the runtime", () => {
     // v0.12 W1-E: a document read in a step is a model call of that step.
     modelCalls: dbModelCalls(h.db, { bodies }),
   });
-  const deps = () => ({ ports, tools: h.tools, catalog, transport });
+  const deps = () => ({
+    ports,
+    tools: h.tools,
+    catalog,
+    transport,
+    onUndeclaredModelCall: undeclaredModelCall,
+  });
   let agentId = "";
   let versionId = "";
   let documentId = "";

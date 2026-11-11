@@ -130,12 +130,13 @@ describe("back office layout", () => {
       "Runs",
       "Clients",
       "Agent lab",
-      "Skills",
-      "Connectors",
+      // R8: skills, tools, connectors and the other banks are in the Library.
+      "Library",
       "Packs",
       "Usage and billing",
       "Marketing",
-      // Feedback, Audit log, Requests and Websites are tabs of Utilities.
+      // Feedback, the audit queue (wave 6), the audit log and requests are tabs of Utilities;
+      // website logins are in the Library (R8).
       "Utilities",
     ]);
     // Billing is under Usage and billing, not Utilities.

@@ -2,13 +2,23 @@
 // five tabs, the old People, Triggers and Tests addresses, Settings split into Access and
 // Definition, the triggers on the Workflow tab and the test bench on Versions (run a suite, read a
 // case's result, add a case).
-import { render, screen, waitFor, within } from "@testing-library/react";
+
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { ApiProvider } from "../../api/useApi";
-import { AGENT_DETAIL, AGENT_SUMMARY, fakeApi, versionId } from "../../test/fixtures";
+import {
+  AGENT_DETAIL,
+  AGENT_SUMMARY,
+  fakeApi,
+  PROCESS_BUNDLE,
+  PROCESS_BUNDLE_INPUT,
+  versionId,
+} from "../../test/fixtures";
+import { toolTitle } from "../builder/model";
 import { AgentScreen } from "./AgentScreen";
+import { toolsItWorksIn } from "./OverviewTab";
 
 const ID = AGENT_SUMMARY.id;
 const CLIENT = AGENT_SUMMARY.tenantId;
@@ -126,6 +136,92 @@ describe("AgentScreen", () => {
     expect(await screen.findByTestId("agent-publish-done")).toHaveTextContent("v2 is live.");
     expect(published).toBe(true);
     expect(api.calls).toContain(`POST /api/ops/agents/${ID}/versions/${versionId(2)}/publish`);
+  });
+
+  // Wave 3b: once a version holds a v4 process (the builder's save, a template's v4 version or
+  // its fork), every tab reads it: no "does not match the agent bundle schema".
+  describe("a version that holds a process", () => {
+    const V4_DETAIL = {
+      ...AGENT_DETAIL,
+      live: { ...AGENT_DETAIL.live, bundle: PROCESS_BUNDLE_INPUT },
+      latest: { ...AGENT_DETAIL.latest, bundle: PROCESS_BUNDLE_INPUT },
+    };
+    const routes = { [`GET /api/ops/agents/${ID}`]: () => V4_DETAIL };
+
+    it("shows the Overview's steps in the builder's words, its first trigger first", async () => {
+      setup(BASE, routes);
+      const chips = await screen.findByTestId("agent-chips-new-bill");
+      expect(chips).toHaveTextContent("Started by hand");
+      expect(chips).toHaveTextContent("If");
+      expect(chips).toHaveTextContent("Write");
+      expect(screen.getByTestId("agent-how-it-works")).toHaveTextContent("4 steps, 1 fork");
+      expect(screen.getByTestId("agent-bar-line")).toHaveTextContent("4 steps · 1 fork");
+      expect(screen.queryByText(/does not match the agent bundle schema/)).toBeNull();
+    });
+
+    // Wave 3c: a process names its tools on its read and write steps, not in the definition.
+    it("lists the tools of a process's read and write steps, nested ones too, each once", async () => {
+      const bundle = structuredClone(PROCESS_BUNDLE);
+      bundle.definition.extraTools = ["gmail.message.send"];
+      const workflow = bundle.workflows[0]?.workflow;
+      if (workflow?.schemaVersion !== 4) throw new Error("fixture");
+      const branch = workflow.steps[1];
+      if (branch?.kind !== "if") throw new Error("fixture");
+      branch.paths[0]?.steps.push(
+        { id: "look", kind: "read", name: "Look up the bill", tool: "qbo.bill.get", input: {} },
+        {
+          id: "again",
+          kind: "write",
+          name: "Update again",
+          tool: "qbo.bill.update_lines",
+          input: {},
+        },
+      );
+      expect(toolsItWorksIn(bundle)).toEqual([
+        "gmail.message.send",
+        "qbo.bill.get",
+        "qbo.bill.update_lines",
+      ]);
+      setup(BASE, {
+        [`GET /api/ops/agents/${ID}`]: () => ({
+          ...V4_DETAIL,
+          live: { ...V4_DETAIL.live, bundle },
+          latest: { ...V4_DETAIL.latest, bundle },
+        }),
+      });
+      const tools = await screen.findByTestId("agent-tools");
+      expect(tools.children).toHaveLength(3);
+      for (const id of ["gmail.message.send", "qbo.bill.get", "qbo.bill.update_lines"]) {
+        expect(tools).toHaveTextContent(toolTitle({ id }));
+      }
+    });
+
+    it("shows an older version's process, and edits the definition of one", async () => {
+      setup(`${BASE}/workflow?version=1`, routes);
+      const list = await screen.findByTestId("workflow-new-bill");
+      expect(within(list).getByTestId("step-update")).toHaveTextContent("needs approval");
+      cleanup();
+      setup(`${BASE}/settings/definition`, routes);
+      expect(await screen.findByTestId("agent-editor")).toBeInTheDocument();
+      expect(screen.queryByText(/does not match/)).toBeNull();
+    });
+
+    it("test-runs its live version on the Versions tab", async () => {
+      setup(`${BASE}/versions`, {
+        ...routes,
+        [`GET /api/ops/agents/${ID}/activation`]: () => ({
+          ready: false,
+          problems: [],
+          requiredConnectors: [],
+          testRun: null,
+        }),
+        "GET /api/ops/catalog/events": () => ({ events: [] }),
+      });
+      // The panel above the history and the test bench's own runs both read it.
+      const selects = await screen.findAllByTestId("agent-test-run-workflow-select");
+      for (const s of selects) expect(s).toHaveValue("new-bill");
+      expect(screen.queryByText(/does not match/)).toBeNull();
+    });
   });
 
   it("sends the old People tab to Settings", async () => {

@@ -16,14 +16,18 @@ import {
   schemaFields,
 } from "@countersign/agents";
 import {
-  type AgentBundle,
   ApiId,
+  isToolWrapper,
+  newStepSkillReason,
   parseSkillRef,
   routes,
   type SkillDefinition,
   type SkillListItem,
   type SkillUse,
+  skillMethod,
+  skillModelFacts,
   skillTools,
+  toolLookup,
 } from "@countersign/core";
 import { agent, agentVersion, skill, skillVersion, tenant } from "@countersign/db";
 import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
@@ -107,7 +111,7 @@ async function agentUses(ctx: Scope) {
         agent: a,
         clientName: a.tenantId ? (clients.get(a.tenantId) ?? null) : null,
         version: v.version,
-        refs: bundleSkillRefs(v.bundle as AgentBundle),
+        refs: bundleSkillRefs(v.bundle),
       },
     ];
   });
@@ -205,6 +209,15 @@ function listItem(
     tools: skillTools(def),
     connectors: skillConnectors(def, platform),
     ...clientUses(input.uses),
+    // R8: the Library's facts (docs/plan.md §1.86).
+    method: skillMethod(def),
+    reads: def.reads ?? [],
+    browse: def.browse ?? null,
+    retired: isToolWrapper(def),
+    wraps: isToolWrapper(def) ? (def.handler ?? null) : null,
+    // Skill model (2026-11-10): deterministic or AI (a code skill whose tool calls a model is
+    // AI), its parameters and its recommended model.
+    ...skillModelFacts(def, toolLookup(platform.tools.specs())),
   };
 }
 
@@ -327,6 +340,9 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
     const shadowed = await shadowingClients(ctx);
     const items: SkillListItem[] = [];
     for (const def of platform.catalog.list()) {
+      // Skill model (2026-11-10): a skill that is only a tool by another name leaves the Library;
+      // a process uses the tool as a read or write step (stored references still resolve).
+      if (isToolWrapper(def)) continue;
       items.push(
         listItem(
           {
@@ -395,7 +411,11 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
   // DECISION: clone copies the source's definition (a built-in's code definition, or an operator
   // skill's live, else latest, version) into a new operator skill's v1 draft, named "<name> (copy)".
   // A built-in clone is shared unless a client is given; an operator skill's stays in its scope.
-  // Tool-mode skills run code, which operator skills can't (§9.2), so they are refused.
+  // Skills that run code (built-ins' handlers), which operator skills can't (§9.2), are refused.
+  // DECISION (merge with the skill model, 2026-11-11): a clone is a new skill version, so what the
+  // skill model retires for new use is refused too, up front and in its words (core's
+  // `newStepSkillReason`: the agent's own reasoning, rules then AI, a skill that writes). An
+  // operator's deterministic skill (rule rows, no code) clones.
   mount(app, routes.opsCloneSkill, async (ctx) => {
     const { tx, params, body, session, services } = ctx;
     const builtin = services.platform.catalog.get(params.id);
@@ -417,10 +437,17 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
       tenantId = body.clientId ?? row.tenantId;
     }
     if (tenantId) ensureClient(ctx, tenantId);
-    if (source.mode === "tool") {
+    if (source.handler !== undefined || (source.mode === "tool" && !source.rules?.length)) {
       throw new AgentsError(
         "invalid_definition",
         `${source.id} runs code, so it can't be cloned into an operator skill`,
+      );
+    }
+    const retired = newStepSkillReason(source, toolLookup(services.platform.tools.specs()));
+    if (retired) {
+      throw new AgentsError(
+        "invalid_definition",
+        `${source.id} can't be cloned into a new skill. ${retired}`,
       );
     }
     const { handler: _code, ...rest } = source;

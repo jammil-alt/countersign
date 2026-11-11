@@ -40,7 +40,7 @@ import {
 } from "../directory/organizations";
 import { listSuggestions, openSuggestionCount, suggestionViews } from "../directory/suggestions";
 import { type AppEnv, ensureClient, type HandlerCtx, mount, notFound } from "../http";
-import { resolveInboxItem } from "../inbox";
+import { resolveInboxItem, sendResolution } from "../inbox";
 import { contactView } from "../messaging/contacts";
 import { dispatchEvents } from "../runs/dispatch";
 import { knowsSignIns, membersOf } from "./onboarding";
@@ -97,7 +97,7 @@ export async function directoryList(
 async function resolveSuggestion(
   ctx: Pick<
     HandlerCtx<typeof routes.portalDirectorySuggestionResolve>,
-    "tx" | "services" | "defer"
+    "tx" | "services" | "defer" | "afterCommit"
   >,
   tenantId: string,
   itemId: string,
@@ -124,6 +124,10 @@ async function resolveSuggestion(
     registry: ctx.services.platform.events,
     collect,
   });
+  // Wave 2c: every resolve path sends what resolving sends (a suggestion has no run today).
+  if (outcome.resume || outcome.conversation) {
+    ctx.afterCommit(() => sendResolution(ctx.services.instances, outcome));
+  }
   if (collect.length > 0) {
     const { db, instances } = ctx.services;
     ctx.defer(() => dispatchEvents({ db, instances }, collect));

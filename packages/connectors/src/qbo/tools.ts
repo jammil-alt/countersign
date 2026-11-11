@@ -31,6 +31,7 @@ import {
   QboItem,
   QboTxn,
   type QboTxnEntity,
+  type QboTxnLine,
   QboVendor,
   SyncToken,
   toAttachment,
@@ -217,6 +218,62 @@ function itemizeProblem(txn: QboTxn, input: UpdateLinesInput): QboApiError | nul
   return null;
 }
 
+/** A line as it was, as itemizing takes it back; null when it can't be written back the same. */
+function lineAsNew(l: QboTxnLine): NewLine | null {
+  // A cost already billed to the customer can't be put back as it was by a write.
+  if (l.billable !== null && l.billable !== "Billable" && l.billable !== "NotBillable") return null;
+  const coding = {
+    ...(l.description === null ? {} : { description: l.description }),
+    ...(l.class ? { classId: l.class.id } : {}),
+    ...(l.customer ? { customerId: l.customer.id } : {}),
+    ...(l.customer && l.billable !== null ? { billable: l.billable === "Billable" } : {}),
+    amount: l.amount,
+  };
+  if (l.detailType === "item") {
+    if (!l.item || l.qty === null || l.unitPrice === null) return null;
+    return { itemId: l.item.id, qty: l.qty, unitPrice: l.unitPrice, ...coding };
+  }
+  return l.account ? { accountId: l.account.id, ...coding } : null;
+}
+
+/**
+ * R5: the itemize that takes an itemize back: the lines it added (on the record now, past the
+ * lines it kept) are replaced by the lines it replaced (from the before state), at the record's
+ * version and total now. Null when a line can't be named or written back as it was.
+ */
+// DECISION: the lines put back go at the end, as itemizing places its new lines; QuickBooks' line
+// order is the only thing an undo doesn't restore (the total, accounts, items and coding are).
+export function itemizeRestoreInput(
+  input: UpdateLinesInput,
+  before: QboTxn | null,
+  now: QboTxn | null,
+): z.input<typeof UpdateLinesInput> | null {
+  if (!before || !now) return null;
+  const keptIds = new Set(
+    before.lines.flatMap((l) =>
+      l.id !== null && !input.replaceLineIds.includes(l.id) ? [l.id] : [],
+    ),
+  );
+  const added = now.lines.filter((l) => l.id === null || !keptIds.has(l.id));
+  const addedIds = added.flatMap((l) => (l.id === null ? [] : [l.id]));
+  if (addedIds.length === 0 || addedIds.length !== added.length) return null;
+  const lines: NewLine[] = [];
+  for (const id of input.replaceLineIds) {
+    const was = before.lines.find((l) => l.id === id);
+    const line = was ? lineAsNew(was) : null;
+    if (!line) return null;
+    lines.push(line);
+  }
+  return {
+    id: now.id,
+    syncToken: now.syncToken,
+    expectedTotal: now.total,
+    currency: now.currency,
+    replaceLineIds: addedIds,
+    lines,
+  };
+}
+
 function updateLinesTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinition {
   const word = entity === "Bill" ? "bill" : "purchase";
   return defineWriteTool({
@@ -224,6 +281,8 @@ function updateLinesTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefini
     entity: word,
     description: `Itemize a QuickBooks ${word}: replace lines (usually its one account line) with the invoice's item lines. The total must stay the same, or the change is refused.`,
     verb: "update",
+    // R5: the before state is written back with this tool, if the record hasn't changed since.
+    undo: { kind: "restore" },
     summary: `Itemized the ${word} into {{lineCount}} lines; total unchanged at {{total}}`,
     amount: { path: "expectedTotal", currencyPath: "currency", currency: "USD" },
     display: updateLinesDisplay(entity),
@@ -237,6 +296,8 @@ function updateLinesTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefini
       alreadyDone: z.boolean(),
     }),
     beforeSchema: QboTxn.extend({ names: RefNames.optional() }),
+    // R5: the before state is the whole record, not the input's shape (itemizeRestoreInput).
+    undoInput: ({ input, before, current }) => itemizeRestoreInput(input, before, current),
     // DECISION: a change that would move the total is refused when it is proposed, before anyone
     // is asked to approve it, and checked again right before writing.
     async before(input, ctx) {
@@ -315,6 +376,8 @@ function updateMemoTool(entity: QboTxnEntity, clientFor: ClientFor): ToolDefinit
     entity: word,
     description: `Set the memo of a QuickBooks ${word} (its private note). Nothing else changes.`,
     verb: "update",
+    // R5: the before state is written back with this tool, if the record hasn't changed since.
+    undo: { kind: "restore" },
     summary: `Updated the ${word}'s memo`,
     display: updateMemoDisplay(entity),
     input: z.object({ id: QboId, syncToken: SyncToken, memo: z.string().max(4000) }),
@@ -407,6 +470,8 @@ function updatePurchaseCostTool(clientFor: ClientFor): ToolDefinition {
     description:
       "Set an item's purchase cost in QuickBooks (what new purchases of it default to). Nothing else changes.",
     verb: "update",
+    // R5: the before state is written back with this tool, if the record hasn't changed since.
+    undo: { kind: "restore" },
     summary: "Set {{name}}'s purchase cost to {{purchaseCost}}",
     amount: { path: "purchaseCost", currencyPath: "currency", currency: "USD" },
     display: updatePurchaseCostDisplay,
@@ -502,6 +567,8 @@ function uploadTool(clientFor: ClientFor): ToolDefinition {
     description:
       "Attach a stored document (the invoice) to a QuickBooks bill, purchase or vendor credit.",
     verb: "create",
+    // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+    undo: { kind: "none" },
     summary: "Attached {{fileName}} to the {{entity}} in QuickBooks",
     input: z.object({
       documentId: z.uuid(),

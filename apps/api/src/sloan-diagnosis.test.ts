@@ -3,7 +3,13 @@
 // operator's note without a model call of its own; without one, Sloan triages as before. A client's
 // Sloan on v2 moves to v3 by the usual reviewed update merge, its step ids kept.
 
-import { AgentBundle as AgentBundleSchema, type Workflow } from "@countersign/core";
+import {
+  AgentBundle as AgentBundleSchema,
+  AnyAgentBundle,
+  nodeIds,
+  processes,
+  type Workflow,
+} from "@countersign/core";
 import { agent, agentVersion, inboxItem, stepRun, withTenant } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { emit } from "@countersign/senses";
@@ -155,5 +161,63 @@ describe.skipIf(!h)("Sloan reads the failing agent's own diagnosis", () => {
     expect(note).toBe(NOTE);
     expect(steps).toEqual(expect.arrayContaining(["run-triage", "run-report"]));
     expect(steps).not.toContain("run-report-diagnosed");
+  });
+
+  // R9 (docs/plan.md §1.86, §9): the supervisor's v4 holds v3's workflows as v4 processes. A
+  // client's Sloan takes it by the same clean update merge, every id kept, and runs it the same.
+  it("moves a client's Sloan from v3 to v4 (processes) by a clean merge, and reports the same", async () => {
+    const [before] = await H.t.db
+      .select()
+      .from(agentVersion)
+      .innerJoin(agent, eq(agent.liveVersionId, agentVersion.id))
+      .where(eq(agent.id, sloanId));
+    const v4 = await H.call(OPERATOR, "POST", "/api/ops/platform-templates/supervisor/install", {
+      version: 4,
+    });
+    expect(v4.status, JSON.stringify(v4.json)).toBe(200);
+    expect(j(v4.json)).toMatchObject({ version: { version: 4, status: "live" }, installed: true });
+
+    const preview = await H.call(OPERATOR, "GET", `/api/ops/agents/${sloanId}/update-preview`);
+    expect(preview.status, JSON.stringify(preview.json)).toBe(200);
+    expect(j(preview.json).conflicts).toEqual([]);
+    const update = await H.call(OPERATOR, "POST", `/api/ops/agents/${sloanId}/update`, {
+      resolutions: [],
+    });
+    expect(update.status, JSON.stringify(update.json)).toBe(200);
+    const versionId = j(update.json).version.id;
+    const pub = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${sloanId}/versions/${versionId}/publish`,
+    );
+    expect(pub.status, JSON.stringify(pub.json)).toBe(200);
+
+    const [row] = await H.t.db.select().from(agentVersion).where(eq(agentVersion.id, versionId));
+    const after = AnyAgentBundle.parse(row?.bundle);
+    const was = AgentBundleSchema.parse(before?.agent_version.bundle);
+    expect(after.workflows.map((w) => [w.slug, w.workflow.schemaVersion])).toEqual(
+      was.workflows.map((w) => [w.slug, 4]),
+    );
+    for (const w of after.workflows) {
+      const old = was.workflows.find((x) => x.slug === w.slug)?.workflow as Workflow;
+      if (w.workflow.schemaVersion !== 4) throw new Error(`${w.slug} is not v4`);
+      expect(processes.nodeIds(w.workflow), w.slug).toEqual(nodeIds(old));
+    }
+
+    const diagnosed = await fail("update-v4", DIAGNOSIS);
+    const quiet = new FakeModel([]);
+    expect(await execute(diagnosed, quiet)).toEqual({ status: "succeeded" });
+    expect(quiet.requests).toHaveLength(0);
+    expect(await outcome(diagnosed, "update-v4")).toMatchObject({ note: DIAGNOSIS });
+
+    const triaged = await fail("lookup-v4");
+    const model = new FakeModel([
+      { toolUse: { name: "finish", input: { note: NOTE, sources: [H.A.connectionId] } } },
+    ]);
+    expect(await execute(triaged, model)).toEqual({ status: "succeeded" });
+    expect(model.requests).toHaveLength(1);
+    const { note, steps } = await outcome(triaged, "lookup-v4");
+    expect(note).toBe(NOTE);
+    expect(steps).toEqual(expect.arrayContaining(["run-triage", "run-report"]));
   });
 });

@@ -13,15 +13,17 @@ import {
   skillContext,
 } from "@countersign/agents";
 import {
-  type AgentBundle,
   type AgentStage,
+  type AnyAgentBundle,
   clientLanguage,
+  eachBundleStep,
   GO_LIVE_SUBJECT,
   type GoLive,
   GoLivePayload,
   goLiveItem,
   isExternalTool,
   NO_WRITES_REASON,
+  processes,
   readPause,
   readStageState,
   type SignoffSummary,
@@ -80,10 +82,12 @@ export function stageOf(row: Pick<AgentRow, "kind" | "stage">): AgentStage | nul
 // DECISION: reaching people counts as a write, though `comms.reach_out` itself is `internal`: its
 // attempts are external actions on the client's own channels (docs/plan.md §1.25). Automations
 // (W2-B) join the walk: an enabled workflow's use steps bring in their automation's steps.
+// Wave 3b: a v4 process's read and write steps name their tool as an action does, its `process`
+// steps bring in their automation, and a conversation step reaches people.
 export async function bundleWrites(
   tx: Tx,
   tenantId: string,
-  bundle: AgentBundle,
+  bundle: AnyAgentBundle,
   ctx: RegistryContext,
 ): Promise<boolean> {
   const { skills } = await skillContext(tx, { tenantId, bundle, catalog: ctx.catalog });
@@ -96,17 +100,37 @@ export async function bundleWrites(
     for (const t of skillTools(def)) toolIds.add(t);
   };
   for (const s of bundle.definition.skills) addSkill(s.skill);
-  for (const w of bundle.workflows) {
-    if (!w.enabled) continue;
-    walkSteps(w.workflow, ({ step }) => {
+  eachBundleStep(
+    bundle,
+    (step) => {
       if (step.kind === "skill") addSkill(step.skill);
-      if (step.kind === "action") toolIds.add(step.tool);
-    });
-  }
+      // Skill model (2026-11-10): an action write step always writes (every action is external).
+      if (step.kind === "write" && step.tool === undefined) reaches = true;
+      else if (step.kind === "action" || step.kind === "read" || step.kind === "write") {
+        toolIds.add(step.tool as string);
+      }
+      if (step.kind === "conversation") reaches = true;
+    },
+    { enabledOnly: true },
+  );
   // v0.12 W2-B: the steps of the automations enabled workflows use.
   const enabled = { ...bundle, workflows: bundle.workflows.filter((w) => w.enabled) };
   const used = await automationContext(tx, { tenantId, bundle: enabled, catalog: ctx.catalog });
   for (const def of Object.values(used.automations)) {
+    // Wave 3b: a v4 automation's process steps (its reads, writes, skills and conversations).
+    if (def.schemaVersion === 2) {
+      processes.walkSteps(def, ({ step }) => {
+        if (step.kind === "skill") {
+          const inner = used.skills[step.skill] ?? skills[step.skill];
+          if (inner?.reachesPeople) reaches = true;
+          for (const t of inner ? skillTools(inner) : []) toolIds.add(t);
+        }
+        if (step.kind === "conversation") reaches = true;
+        if (step.kind === "write" && step.tool === undefined) reaches = true;
+        else if (step.kind === "write" || step.kind === "read") toolIds.add(step.tool as string);
+      });
+      continue;
+    }
     walkSteps(def, ({ step }) => {
       if (step.kind === "skill") {
         const inner = used.skills[step.skill] ?? skills[step.skill];
@@ -124,7 +148,7 @@ export async function bundleWrites(
   return false;
 }
 
-async function liveBundle(tx: Tx, row: AgentRow): Promise<AgentBundle | null> {
+async function liveBundle(tx: Tx, row: AgentRow): Promise<AnyAgentBundle | null> {
   if (!row.liveVersionId) return null;
   const [v] = await tx
     .select({ bundle: agentVersion.bundle })

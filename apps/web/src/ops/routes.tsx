@@ -50,18 +50,24 @@ import { OpsClientLedgerScreen } from "./client/ClientLedger";
 import { ClientOverviewScreen } from "./client/ClientOverview";
 import { CommandCenterScreen } from "./command/CommandCenter";
 import { LabScreen } from "./lab/LabScreen";
+// R8: the Library (docs/plan.md §1.86)
+import { ConditionsBank } from "./library/ConditionsBank";
+import { LibraryIndexScreen } from "./library/LibraryIndex";
+import { LibraryBrowserSites, LibraryConnectors, LibrarySkills } from "./library/LibraryScreens";
+import { ProcessesBank } from "./library/ProcessesBank";
+import { RecordTypesBank } from "./library/RecordTypesBank";
+import { ToolsBank } from "./library/ToolsBank";
+import { TriggersBank } from "./library/TriggersBank";
 import { MergeScreen } from "./merge/MergeScreen";
 import { AgentPage } from "./screens/AgentPage";
 import { OpsAgentRedirect } from "./screens/AgentRedirect";
 import { OpsAuditScreen } from "./screens/AuditLog";
 import { OpsBillingScreen } from "./screens/Billing";
-import { OpsBrowserSitesScreen } from "./screens/BrowserSites";
 import { ClientDirectoryRoute } from "./screens/ClientDirectory";
 import { ClientKnowledgeRoute } from "./screens/ClientKnowledge";
 import { ClientSettingsScreen } from "./screens/ClientSettings";
 import { ClientsScreen } from "./screens/Clients";
 import { OpsConnectionsScreen } from "./screens/Connections";
-import { OpsConnectorsScreen } from "./screens/Connectors";
 import { OpsDocumentScreen, OpsDocumentsScreen } from "./screens/Documents";
 import { OpsFeedbackScreen } from "./screens/Feedback";
 import { OpsInboxScreen } from "./screens/Inbox";
@@ -70,13 +76,13 @@ import { NewClientScreen } from "./screens/NewClient";
 import { OpsOAuthCallbackScreen } from "./screens/OAuthCallback";
 import { OpsRecordsScreen } from "./screens/Records";
 import { OpsRequestsScreen } from "./screens/Requests";
+import { OpsRunAuditScreen } from "./screens/RunAuditQueue";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
 import { OpsUsageScreen } from "./screens/Usage";
 import { AutomationPage } from "./skills/AutomationPage";
 import { NewSkillScreen } from "./skills/NewSkill";
 import { SkillPage } from "./skills/SkillPage";
-import { SkillsScreen } from "./skills/SkillsLibrary";
 
 export const opsRoutes = (
   <>
@@ -96,12 +102,23 @@ export const opsRoutes = (
     <Route path="clients/:clientId/agents/new" element={<NewClientAgentScreen />} />
     {/* Back-office agent page (UI-2b), with O6 Workflow builder and O7 Triggers as tabs (UI-2c) */}
     <Route path="clients/:clientId/agents/:slug/*" element={<AgentPage />} />
-    {/* O4 Skills and automations, O8 New skill, O3 Connectors (UI-2d) */}
-    <Route path="skills" element={<SkillsScreen />} />
+    {/* R8 The Library (docs/plan.md §1.86): the banks the operator builds from. Skills (O4),
+        Connectors (O3) and Website logins keep their screens inside it.
+        DECISION (library): their old addresses redirect here (below); a skill's and an
+        automation's own pages keep theirs. */}
+    <Route path="library" element={<LibraryIndexScreen />} />
+    <Route path="library/processes" element={<ProcessesBank />} />
+    <Route path="library/skills" element={<LibrarySkills />} />
+    <Route path="library/tools" element={<ToolsBank />} />
+    <Route path="library/connectors" element={<LibraryConnectors />} />
+    <Route path="library/browser-sites" element={<LibraryBrowserSites />} />
+    <Route path="library/triggers" element={<TriggersBank />} />
+    <Route path="library/record-types" element={<RecordTypesBank />} />
+    <Route path="library/conditions" element={<ConditionsBank />} />
+    {/* O8 New skill, a skill's page and an automation's page (UI-2d) */}
     <Route path="skills/new" element={<NewSkillScreen />} />
     <Route path="skills/:id" element={<SkillPage />} />
     <Route path="skills/automations/:id" element={<AutomationPage />} />
-    <Route path="connectors" element={<OpsConnectorsScreen />} />
 
     {/* Clients: the client page with its five tabs (client/ClientFrame.tsx) and new client. Each
         page of the Data and Setup tabs keeps its own address. */}
@@ -129,16 +146,19 @@ export const opsRoutes = (
     {/* Usage, billing, feedback, audit, website logins, requests (UI-3) */}
     <Route path="usage" element={<OpsUsageScreen />} />
     <Route path="billing" element={<OpsBillingScreen />} />
-    {/* Utilities: feedback, the audit log, requests and website logins, a tab each */}
+    {/* Utilities: feedback, the audit queue, the audit log and requests, a tab each. Website
+        logins are in the Library (R8): main's Websites tab redirects there. */}
     <Route path="utilities" element={<Redirect to="/ops/utilities/feedback" />} />
     <Route path="utilities/feedback" element={<OpsFeedbackScreen />} />
+    {/* Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): runs picked for a person to check */}
+    <Route path="utilities/run-audit" element={<OpsRunAuditScreen />} />
     <Route path="utilities/audit" element={<OpsAuditScreen />} />
     <Route path="utilities/requests" element={<OpsRequestsScreen />} />
-    <Route path="utilities/websites" element={<OpsBrowserSitesScreen />} />
+    <Route path="utilities/websites" element={<Redirect to="/ops/library/browser-sites" />} />
     <Route path="feedback" element={<Redirect to="/ops/utilities/feedback" />} />
+    <Route path="run-audit" element={<Redirect to="/ops/utilities/run-audit" />} />
     <Route path="audit" element={<Redirect to="/ops/utilities/audit" />} />
     <Route path="requests" element={<Redirect to="/ops/utilities/requests" />} />
-    <Route path="browser-sites" element={<Redirect to="/ops/utilities/websites" />} />
     {/* Packs (P-1): switch a business area on per client, and a client's pack reports */}
     <Route path="packs" element={<OpsPacksScreen />} />
     <Route path="clients/:clientId/packs" element={<OpsClientPacksScreen />} />
@@ -219,6 +239,9 @@ export const opsRoutes = (
 
     {/* Old addresses → their new homes */}
     <Route path="templates" element={<Redirect to="/ops/lab" />} />
+    <Route path="skills" element={<Redirect to="/ops/library/skills" />} />
+    <Route path="connectors" element={<Redirect to="/ops/library/connectors" />} />
+    <Route path="browser-sites" element={<Redirect to="/ops/library/browser-sites" />} />
     <Route
       path="clients/:clientId/data"
       element={<Redirect to="/ops/clients/:clientId/documents" />}

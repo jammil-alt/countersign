@@ -1,24 +1,17 @@
-// The builder's canvas (prototype `#O6-Builder`): the trigger on a tinted card, numbered step
-// cards, each one compact row (handle, number, the kind's icon, the name, small marks for
-// invalid, approval, hidden and customized), with what the step does in a tooltip; a click opens
-// it in the side panel, where all editing happens (the canvas only moves steps). Forks as
-// side-by-side paths with "Drop a step here, or add a step" and "Paths join here", for-each
-// blocks (while steps are being selected for an automation, a check box); and the "Add a step"
-// palette (shown in the side panel)
-// whose items drag into a list or add with + to the list it was opened for. The selected card
-// shows the design system's selection (slate). Drag and drop is @dnd-kit (docs/plan.md §1.2
-// "Builder"): every list is a
-// sortable context keyed by its container, so a step moves within its list, into and out of fork
-// paths and for-each blocks, with the pointer or the keyboard (Space, arrows, Space).
+// The builder's canvas (prototype `#O6-Builder`; ARCHITECTURE §10.14): the process's triggers on a
+// tinted card, one row each, and numbered step cards, each one compact row (handle, number, the
+// kind's icon, the name, a skill's kind (Deterministic or AI), small marks for invalid, its
+// checks, approval, hidden and customized), with what the step does in a tooltip; a click opens it
+// in the side panel, where all editing happens (the canvas only moves steps). Ifs as side-by-side
+// paths with "Drop a step here, or add a step" and "Paths join here", for-each blocks (while steps
+// are being selected for a process of their own, a check box); and the "Add a step" palette (shown
+// in the side panel) whose items drag into a list or add with + to the list it was opened for. The
+// selected card shows the design system's selection (slate). Drag and drop is @dnd-kit
+// (docs/plan.md §1.2 "Builder"): every list is a sortable context keyed by its container, so a
+// step moves within its list, into and out of if paths and for-each blocks, with the pointer or
+// the keyboard (Space, arrows, Space).
 
-import {
-  type ForEachStep,
-  type ForkStep,
-  isClientVisible,
-  type Step,
-  type ValidationError,
-  type Workflow,
-} from "@countersign/core";
+import { SKILL_KIND_LABEL, toolUsesModel } from "@countersign/core";
 import {
   type CollisionDetection,
   closestCenter,
@@ -34,23 +27,26 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Icon, type IconName } from "../../ui/icons";
 import { cx, Tag } from "../../ui/primitives";
 import {
-  KIND_LABEL,
+  processKindLabel,
+  processStepDetail,
+  processStepNames,
   rulesText,
   type StepLabels,
-  stepDetail,
-  stepNames,
+  stepSkillKindLabel,
   triggerDetail,
   triggerTitle,
 } from "../workflow/describe";
 import { forkGridColumns, forkMinWidth, stepMinWidth } from "../workflow/layout";
-import type { PaletteSection } from "./catalog";
+import type { BuilderProblem, PaletteSection } from "./catalog";
 import {
   type ApprovalEnv,
   approvalOption,
   type ContainerId,
   getContainer,
   type PaletteItem,
+  type Process,
   ROOT,
+  type Step,
 } from "./model";
 
 // ── Drag data and drops ──────────────────────────────────────────────────────────────────────────
@@ -68,10 +64,10 @@ export type Drop =
 /**
  * What a finished drag does. Over a step: within its own list the step takes that place (as
  * arrayMove does), from elsewhere it goes in before it. Over a "Drop a step here" zone: at the end
- * of that list. A trigger from the palette replaces how the workflow starts.
+ * of that list. A trigger from the palette replaces how the process starts.
  */
 export function resolveDrop(
-  workflow: Workflow,
+  process: Pick<Process, "steps">,
   activeId: string,
   active: DragData | undefined,
   over: DragData | undefined,
@@ -86,7 +82,7 @@ export function resolveDrop(
       : over.type === "container"
         ? {
             container: over.container,
-            index: getContainer(workflow, over.container)?.length ?? 0,
+            index: getContainer(process, over.container)?.length ?? 0,
           }
         : null;
   if (!target) return null;
@@ -108,18 +104,24 @@ export interface DragHandlers {
   onDragCancel(): void;
 }
 
+/** A canvas selection: a step by id, or one of the triggers as `trigger:<id>`. */
+export function triggerKey(id: string): string {
+  return `trigger:${id}`;
+}
+
 // ── Canvas ───────────────────────────────────────────────────────────────────────────────────────
 
 export interface CanvasProps {
-  workflow: Workflow;
+  workflow: Process;
   selectedId: string | null;
   env: ApprovalEnv;
-  errors: readonly ValidationError[];
+  errors: readonly BuilderProblem[];
   customized: ReadonlyMap<string, "added" | "changed">;
   activeId: string | null;
   overId: string | null;
-  onSelect(id: string | "trigger"): void;
-  /** Top-level steps picked for "Save as automation"; check boxes show while this is set. */
+  /** A step id, or `trigger:<id>`. */
+  onSelect(id: string): void;
+  /** Top-level steps picked for "Save as a process"; check boxes show while this is set. */
   checked?: ReadonlySet<string> | undefined;
   onCheck?: ((id: string, on: boolean) => void) | undefined;
   /** Names for steps' second lines (skills, tools' connectors, people), from the catalog. */
@@ -142,33 +144,43 @@ interface StepTip {
 
 /** Each kind's icon on its card: what kind of step it is at a glance (named in the tooltip). */
 const KIND_ICON: Record<Step["kind"], IconName> = {
+  read: "search",
   skill: "worksheet",
-  action: "upload",
+  write: "upload",
   person: "customer",
-  fork: "filter",
+  conversation: "message",
+  notify: "notifications",
+  if: "filter",
   for_each: "copy",
   wait: "calendar",
-  notify: "message",
   stop: "close",
-  use_automation: "table",
+  process: "table",
 };
 
 /** The state a selected card shows: the design system's selection (slate). */
 const SELECTED = "border-slate bg-slate-tint outline outline-1 outline-slate";
 
-/** Errors on a step, counting a fork's paths as the fork's. */
-function errorCount(step: Step, errors: readonly ValidationError[]): number {
+/** Errors on a step, counting an if's paths as the if's. */
+function errorCount(step: Step, errors: readonly BuilderProblem[]): number {
   const ids = new Set([step.id]);
-  if (step.kind === "fork") {
+  if (step.kind === "if") {
     for (const p of step.paths) ids.add(p.id);
     ids.add(step.otherwise.id);
   }
   return errors.filter((e) => e.stepId !== null && ids.has(e.stepId)).length;
 }
 
+/** Whether the client's run timeline shows the step: work does by default, logic never. */
+// DECISION: v4's work kinds (read, skill, write, person, conversation, notify, process) show on the
+// client's timeline by default, as v3's skill, action, person, notify and use steps did; logic
+// (if, for each, wait, stop) never does. A step's own `client.visible` wins.
+export function processClientVisible(step: Step): boolean {
+  if (step.client) return step.client.visible;
+  return !["if", "for_each", "wait", "stop"].includes(step.kind);
+}
+
 export function Canvas(props: CanvasProps) {
   const { workflow } = props;
-  const triggerErrors = props.errors.filter((e) => e.stepId === workflow.trigger.id).length;
   const [tip, setTip] = useState<StepTip | null>(null);
   // A scroll moves the cards out from under a fixed tooltip: hide it.
   useEffect(() => {
@@ -179,12 +191,12 @@ export function Canvas(props: CanvasProps) {
   }, [tip]);
   const shown = props.activeId ? null : tip;
   const inner: CanvasProps = { ...props, onTip: setTip };
-  // The trigger and the top-level steps always fit the canvas; a fork wider than it scrolls
+  // The triggers and the top-level steps always fit the canvas; an if wider than it scrolls
   // sideways in its own box (each path keeping a readable width, workflow/layout.ts), never the
   // page.
   return (
     <div data-testid="builder-canvas" className="flex min-w-0 flex-col items-center">
-      <TriggerCard {...inner} invalid={triggerErrors} />
+      <TriggerCard {...inner} />
       <List {...inner} id={ROOT} steps={workflow.steps} numbered />
       <span aria-hidden className="h-3 border-l border-line-strong" />
       <DropZone
@@ -195,7 +207,7 @@ export function Canvas(props: CanvasProps) {
         active={props.addTarget === ROOT}
       />
       {shown ? (
-        // Fixed, so a fork's scrolling box doesn't clip it; beside the card, or under it when
+        // Fixed, so an if's scrolling box doesn't clip it; beside the card, or under it when
         // there is no room on the right.
         <div
           role="tooltip"
@@ -220,48 +232,73 @@ export function Canvas(props: CanvasProps) {
   );
 }
 
-function TriggerCard(props: CanvasProps & { invalid: number }) {
-  const { workflow, selectedId, onSelect, invalid } = props;
-  const selected = selectedId === "trigger";
-  const title = triggerTitle(workflow.trigger);
-  const detail = triggerDetail(workflow.trigger);
-  const tip = (el: HTMLElement | null) =>
-    el &&
-    props.onTip?.({
-      id: "trigger",
-      rect: el.getBoundingClientRect(),
-      title: `Trigger · ${title}`,
-      lines: [detail, invalid > 0 ? "Invalid: see the problems above" : null].filter(
-        (l): l is string => Boolean(l),
-      ),
-    });
+/** The process's triggers, one row each: any of them starts a run. */
+function TriggerCard(props: CanvasProps) {
+  const { workflow, selectedId, onSelect, errors } = props;
+  const anySelected = workflow.triggers.some((t) => selectedId === triggerKey(t.id));
   return (
     <div
       data-testid="builder-trigger"
-      data-selected={selected ? "true" : undefined}
-      onPointerEnter={(e) => tip(e.currentTarget)}
-      onPointerLeave={() => props.onTip?.(null)}
+      data-selected={anySelected ? "true" : undefined}
       className={cx(
-        "flex w-full max-w-[360px] items-center gap-2 rounded-md border bg-slate-tint px-2.5 py-1.5",
-        selected ? SELECTED : "border-line",
+        "flex w-full max-w-[360px] flex-col rounded-md border bg-slate-tint",
+        anySelected ? "border-slate" : "border-line",
       )}
     >
-      <Icon name="arrow" size={16} className="shrink-0 text-slate" />
-      <button
-        type="button"
-        data-testid="builder-trigger-select"
-        aria-current={selected ? "true" : undefined}
-        aria-describedby={detail ? "builder-tip-trigger" : undefined}
-        onClick={() => onSelect("trigger")}
-        onFocus={(e) => tip(e.currentTarget.parentElement)}
-        onBlur={() => props.onTip?.(null)}
-        className="min-w-0 flex-1 truncate text-left text-sm font-medium text-ink"
-      >
-        {title}
-      </button>
-      {invalid > 0 ? (
-        <Mark tone="risk" icon="alert" label="Invalid" testId="builder-trigger-invalid" />
-      ) : null}
+      {workflow.triggers.map((trigger, i) => {
+        const selected = selectedId === triggerKey(trigger.id);
+        const invalid = errors.filter((e) => e.stepId === trigger.id).length;
+        const title = triggerTitle(trigger);
+        const detail = triggerDetail(trigger);
+        const tipId = `trigger-${trigger.id}`;
+        const tip = (el: HTMLElement | null) =>
+          el &&
+          props.onTip?.({
+            id: tipId,
+            rect: el.getBoundingClientRect(),
+            title: `Trigger · ${title}`,
+            lines: [detail, invalid > 0 ? "Invalid: see the problems above" : null].filter(
+              (l): l is string => Boolean(l),
+            ),
+          });
+        return (
+          <div
+            key={trigger.id}
+            data-testid={`builder-trigger-${trigger.id}`}
+            data-selected={selected ? "true" : undefined}
+            onPointerEnter={(e) => tip(e.currentTarget)}
+            onPointerLeave={() => props.onTip?.(null)}
+            className={cx(
+              "flex items-center gap-2 px-2.5 py-1.5",
+              i > 0 && "border-t border-line",
+              selected && "outline outline-1 outline-slate",
+            )}
+          >
+            <Icon name="arrow" size={16} className="shrink-0 text-slate" />
+            <button
+              type="button"
+              data-testid={`builder-trigger-${trigger.id}-select`}
+              aria-current={selected ? "true" : undefined}
+              aria-describedby={detail ? `builder-tip-${tipId}` : undefined}
+              onClick={() => onSelect(triggerKey(trigger.id))}
+              onFocus={(e) => tip(e.currentTarget.parentElement)}
+              onBlur={() => props.onTip?.(null)}
+              className="min-w-0 flex-1 truncate text-left text-sm font-medium text-ink"
+            >
+              {i > 0 ? "Or " : ""}
+              {i > 0 ? lowerFirst(title) : title}
+            </button>
+            {invalid > 0 ? (
+              <Mark
+                tone="risk"
+                icon="alert"
+                label="Invalid"
+                testId={`builder-trigger-${trigger.id}-invalid`}
+              />
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -297,6 +334,10 @@ function Mark({
       <span className="sr-only">{label}</span>
     </span>
   );
+}
+
+function lowerFirst(text: string): string {
+  return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
 function List(props: CanvasProps & { id: ContainerId; steps: Step[]; numbered?: boolean }) {
@@ -339,8 +380,8 @@ function StepNode(
 ) {
   const { step } = props;
   const inner =
-    step.kind === "fork" ? (
-      <Fork {...props} step={step} />
+    step.kind === "if" ? (
+      <IfBlock {...props} step={step} />
     ) : step.kind === "for_each" ? (
       <Loop {...props} step={step} />
     ) : null;
@@ -348,10 +389,10 @@ function StepNode(
     <>
       <StepCard {...props} />
       {inner && props.container === ROOT ? (
-        // A top-level fork or loop wider than the canvas scrolls sideways in its own box; what
+        // A top-level if or loop wider than the canvas scrolls sideways in its own box; what
         // is nested in it scrolls with it.
         <div
-          data-testid={`builder-${step.kind === "fork" ? "fork" : "loop"}-${step.id}-scroll`}
+          data-testid={`builder-${step.kind === "if" ? "fork" : "loop"}-${step.id}-scroll`}
           className="flex w-full justify-center-safe overflow-x-auto pb-1"
         >
           {inner}
@@ -363,8 +404,24 @@ function StepNode(
   );
 }
 
+/** What the step's checks add, in words: a second check, notices (approval has its own). */
+function checkWords(step: Step): { confer: string | null; notify: string | null; person: boolean } {
+  const confer = step.checks?.confer?.with ?? [];
+  const person = confer.some((c) => "person" in c);
+  const notify = step.checks?.notify ?? [];
+  return {
+    confer: confer.length > 0 ? (person ? "Checked with a person" : "Second check") : null,
+    notify:
+      notify.length > 0 ? (notify.some((n) => n.urgent) ? "Urgent notice" : "Tells people") : null,
+    person,
+  };
+}
+
 // DECISION: a step is one compact row; what it does is in its tooltip, and every edit (delete
 // included) happens in the side panel, the canvas only moving steps (2026-11-10, the owner's call).
+// Merged with the skill model: the kind's words (a write by where it writes, "Save to records",
+// "Change in QuickBooks Online") name the icon and lead the tooltip, and a skill's kind
+// (Deterministic or AI) stays on the row as a tag, so the hidden AI is never unlabelled.
 function StepCard(
   props: CanvasProps & {
     step: Step;
@@ -383,26 +440,28 @@ function StepCard(
   const invalid = errorCount(step, errors);
   const approval = approvalOption(step, env);
   const hidden =
-    !isClientVisible(step) &&
-    (step.kind === "skill" ||
-      step.kind === "action" ||
-      step.kind === "person" ||
-      step.kind === "notify");
+    !processClientVisible(step) && !["if", "for_each", "wait", "stop"].includes(step.kind);
   const custom = customized.get(step.id);
   const isOver = props.overId === step.id && props.activeId !== step.id;
   const selected = selectedId === step.id;
   const testId = `builder-step-${step.id}`;
-  const name = step.name || KIND_LABEL[step.kind];
-  const detail = stepDetail(step, props.labels);
+  const label = processKindLabel(step, props.labels);
+  const name = step.name || label;
+  const skillKind = stepSkillKindLabel(step, props.labels);
+  const detail = processStepDetail(step, props.labels);
   const description = props.labels?.description?.(step);
+  const checks = checkWords(step);
   const approvalWords = approval ? (approval.automatic ? "On its own" : "Needs approval") : null;
   const customWords = custom ? (custom === "added" ? "Added here" : "Customized") : null;
+  const people = step.kind === "person" || step.kind === "conversation";
   // The tooltip: what kind of step, what it does, its second line, and what its marks mean.
   const tipLines = [
     description,
     detail,
     [
       invalid > 0 ? "Invalid" : null,
+      checks.confer,
+      checks.notify,
       approvalWords,
       hidden ? "Not shown to the client" : null,
       customWords,
@@ -415,7 +474,7 @@ function StepCard(
     props.onTip?.({
       id: step.id,
       rect: card.current.getBoundingClientRect(),
-      title: `${KIND_LABEL[step.kind]} · ${name}`,
+      title: `${skillKind ? `${label} · ${skillKind}` : label} · ${name}`,
       lines: tipLines,
     });
   const hideTip = () => props.onTip?.(null);
@@ -472,12 +531,10 @@ function StepCard(
       ) : null}
       <span
         aria-hidden
-        title={KIND_LABEL[step.kind]}
+        title={label}
         className={cx(
           "flex size-5 shrink-0 items-center justify-center rounded-sm",
-          step.kind === "person"
-            ? "bg-copper-tint text-copper"
-            : "bg-surface-subtle text-ink-muted",
+          people ? "bg-copper-tint text-copper" : "bg-surface-subtle text-ink-muted",
         )}
       >
         <Icon name={KIND_ICON[step.kind]} size={14} />
@@ -492,12 +549,32 @@ function StepCard(
         onBlur={hideTip}
         className="min-w-0 flex-1 truncate text-left text-sm font-medium text-ink outline-none focus-visible:underline"
       >
-        <span className="sr-only">{KIND_LABEL[step.kind]}: </span>
+        <span className="sr-only" data-testid={`${testId}-kind`}>
+          {label}:{" "}
+        </span>
         {name}
       </button>
       <span className="flex shrink-0 items-center gap-1">
+        {skillKind ? <Tag testId={`${testId}-skill-kind`}>{skillKind}</Tag> : null}
         {invalid > 0 ? (
           <Mark tone="risk" icon="alert" label="Invalid" testId={`${testId}-invalid`} />
+        ) : null}
+        {checks.confer ? (
+          // A person's advice is people's work (copper); a second model's is the agents' (ink).
+          <Mark
+            tone={checks.person ? "person" : "neutral"}
+            icon={checks.person ? "customer" : "check"}
+            label={checks.confer}
+            testId={`${testId}-confer`}
+          />
+        ) : null}
+        {checks.notify ? (
+          <Mark
+            tone="neutral"
+            icon="notifications"
+            label={checks.notify}
+            testId={`${testId}-notify`}
+          />
         ) : null}
         {approval && approvalWords ? (
           // Approval is a person's sign-off (copper); a step the operator let run on its own is
@@ -588,9 +665,9 @@ function Branch(props: CanvasProps & { id: ContainerId; steps: Step[] }) {
   );
 }
 
-function Fork(props: CanvasProps & { step: ForkStep }) {
+function IfBlock(props: CanvasProps & { step: Extract<Step, { kind: "if" }> }) {
   const { step } = props;
-  const names = stepNames(props.workflow);
+  const names = processStepNames(props.workflow);
   return (
     <div
       data-testid={`builder-fork-${step.id}`}
@@ -638,7 +715,7 @@ function Fork(props: CanvasProps & { step: ForkStep }) {
   );
 }
 
-function Loop(props: CanvasProps & { step: ForEachStep }) {
+function Loop(props: CanvasProps & { step: Extract<Step, { kind: "for_each" }> }) {
   const { step } = props;
   return (
     <div
@@ -701,7 +778,7 @@ export function Palette({
         <div>
           <h2 className="type-subheading text-ink">Add a step</h2>
           <p className="mt-1 text-sm text-ink-muted" data-testid="builder-palette-target">
-            Press + to add it {target}, or drag it onto the workflow.
+            Press + to add it {target}, or drag it onto the process.
           </p>
         </div>
         {onClose ? (
@@ -777,6 +854,13 @@ export function Palette({
   );
 }
 
+const ITEM_KIND: Partial<Record<PaletteItem["type"], string>> = {
+  read: "Read",
+  write: "Write",
+  // Skill model (2026-11-10): an action is a write too.
+  action: "Write",
+};
+
 function PaletteCard({
   item,
   onAdd,
@@ -792,6 +876,14 @@ function PaletteCard({
     data,
   });
   const own = item.type === "skill" && item.own;
+  // Skill model (2026-11-10): a skill says its kind, Deterministic or AI; a read or a write whose
+  // tool calls a model inside (web search, translate) says AI too, never passing as plain code.
+  const kind =
+    item.type === "skill" && item.kind
+      ? SKILL_KIND_LABEL[item.kind]
+      : (item.type === "read" || item.type === "write") && toolUsesModel(item.tool)
+        ? `${ITEM_KIND[item.type]} · ${SKILL_KIND_LABEL.ai}`
+        : ITEM_KIND[item.type];
   return (
     <li
       ref={setNodeRef}
@@ -810,8 +902,9 @@ function PaletteCard({
           <Icon name="more" className="rotate-90" />
         </span>
         <span className="min-w-0">
-          <span className="block text-sm font-medium [overflow-wrap:anywhere] text-ink">
-            {item.title}
+          <span className="flex items-center gap-1.5 text-sm font-medium [overflow-wrap:anywhere] text-ink">
+            <span>{item.title}</span>
+            {kind ? <Tag testId={`builder-palette-item-${item.key}-kind`}>{kind}</Tag> : null}
           </span>
           <span className="line-clamp-2 text-xs text-ink-muted" title={item.detail}>
             {own ? "This agent's · " : ""}

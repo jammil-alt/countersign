@@ -4,10 +4,13 @@ import { ConverseOpsView, ConversePortalView } from "../converse";
 import { DESK_ITEM_FIELDS } from "../desk/item";
 import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
+// Wave 6: the run audit (the owner's check on every step, the audit queue, the export)
+import { OwnerCheckView } from "../oversight/check";
 import { ROLES, Role } from "../roles";
 import { JsonSchema } from "../schemas/common";
+import { ConnectorAuth } from "../schemas/connector";
 import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas/permissions";
-import { SkillDefinition } from "../schemas/skill";
+import { SkillBrowse, SkillDefinition, SkillMethod } from "../schemas/skill";
 import { ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
 // P-8: US texting registration
@@ -22,6 +25,7 @@ import { automationRoutes, BuilderAutomation } from "./automations";
 import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
+import { browserScriptRoutes } from "./browser-scripts";
 // v0.12 W3-A: the Builder as a conversation
 import { builderRoutes } from "./builder";
 import { callRoutes } from "./calls";
@@ -44,9 +48,13 @@ import { feedbackRoutes } from "./feedback";
 import { gchatRoutes } from "./gchat";
 // v0.14 W4-D: Google Sheets' picking
 import { gsheetsRoutes } from "./gsheets";
+// R4: business hours, person hours and channels
+import { hoursRoutes } from "./hours";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 import { ledgerRoutes } from "./ledger";
+// R8: the Library's banks
+import { libraryRoutes } from "./library";
 // v0.12 W1-A: go-live stages and client controls
 import { lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
@@ -63,7 +71,12 @@ import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
-import { runControlRoutes } from "./run-controls";
+// Reshape data (2026-11-11): the builder's proposal and samples for a Reshape step.
+import { reshapeRoutes } from "./reshape";
+import { RunAuditState, runAuditRoutes } from "./run-audit";
+// R8: the timeline's check fields
+import { OUTCOME_WORDS, TimelineChecks } from "./run-checks";
+import { ModelCallBody, OpsModelCall, runControlRoutes } from "./run-controls";
 // UI cleanup (stream A)
 import { RunWait } from "./run-state";
 import { RunSubject } from "./run-subject";
@@ -74,6 +87,14 @@ import {
   RunStatusSchema,
   RunsPerDay,
 } from "./runs-filter";
+// The skill model (owner, 2026-11-10)
+import {
+  SkillKindSchema,
+  SkillModelFacts,
+  StepModelFacts,
+  skillModelRoutes,
+  TimelineWrite,
+} from "./skill-model";
 // v0.14 W4-C: the Slack channel picker
 import { slackRoutes } from "./slack";
 // P-6
@@ -88,6 +109,8 @@ import { PortalLead, threadRoutes } from "./threads";
 // P-7: message translation
 import { translationRoutes } from "./translation";
 import { triggerRoutes } from "./triggers";
+// R5: take back a change that went ahead before a late no
+import { undoRoutes } from "./undo";
 import { AgentRunsNow, DayRuns, usageRoutes } from "./usage";
 // v0.14 W4-A: WhatsApp through Meta
 import { whatsappMetaRoutes } from "./whatsapp-meta";
@@ -328,6 +351,9 @@ export const OpsStep = z.object({
   models: z.array(z.string()).optional(),
   // P-4: a conversation step's transcript, with each turn's model and cost (§1.66).
   conversation: ConverseOpsView.optional(),
+  // Wave 5 (§1.86 "Forks (wave 5)"): how the step ended (`outcomeOfStepRow`); absent for a check's
+  // row, a step under way, or a kind with no outcome.
+  outcome: z.enum(OUTCOME_WORDS).optional(),
 });
 
 export const OpsToolCall = z.object({
@@ -490,6 +516,83 @@ export const PortalRunSummary = z.object({
 /** Record names by id, for the receipts a run's steps cite (never "Record ·3f9a1c"). */
 export const SourceNames = z.record(z.string(), z.string());
 
+// ── Wave 6: one run's trail as one file (docs/plan.md §1.86 "Run audit (wave 6)") ──────────────
+
+export const RUN_EXPORT_FORMATS = ["html", "json"] as const;
+
+export const RunExportQuery = z.object({
+  /** `html` (printable, self-contained; prints to PDF) or `json` (the same data). */
+  format: z.enum(RUN_EXPORT_FORMATS).default("html"),
+  /** `1`: each AI call's full prompt and answer too (the operator ticks "include AI calls"). */
+  modelCalls: z
+    .union([z.boolean(), z.enum(["1", "0", "true", "false"])])
+    .transform((v) => v === true || v === "1" || v === "true")
+    .default(false),
+});
+export type RunExportQuery = z.infer<typeof RunExportQuery>;
+
+/** The file the export route answers with (`Content-Disposition: attachment`), not JSON. */
+export const RunExportFile = z.object({
+  filename: z.string().min(1),
+  contentType: z.enum(["text/html; charset=utf-8", "application/json; charset=utf-8"]),
+  bytes: z.instanceof(Uint8Array),
+});
+export type RunExportFile = z.infer<typeof RunExportFile>;
+
+/** An AI call in the export: its model, tokens and cost; the prompt and answer only when asked. */
+export const RunExportModelCall = OpsModelCall.extend({
+  body: ModelCallBody.nullable().optional(),
+});
+
+/** A step in the export: the run view's step with everything that happened at it. */
+export const RunExportStep = OpsStep.extend({
+  /** The step's name in the run's version, when found. */
+  name: z.string().nullable(),
+  /** Confer verdicts, approvals (who, when), no-answer outcomes, urgent notices, the route taken. */
+  checks: TimelineChecks.nullable(),
+  ownerChecks: z.array(OwnerCheckView),
+  toolCalls: z.array(OpsToolCall),
+  /** The writes it made or proposed: before state, approver, status. */
+  actions: z.array(OpsAction),
+  /** The inbox items it opened: approvals, questions, deadlines, escalations, notices. */
+  inbox: z.array(OpsInboxItem),
+  /** The owner's decisions on it, with notes and sources. */
+  decisions: z.array(OversightDecisionView),
+  modelCalls: z.array(RunExportModelCall),
+});
+export type RunExportStep = z.infer<typeof RunExportStep>;
+
+/** The export's JSON: the run, every step in the order it ran, and the audit marks. */
+export const RunExport = z.object({
+  format: z.literal("mezonas.run-export"),
+  formatVersion: z.literal(1),
+  exportedAt: z.string(),
+  exportedBy: z.object({ id: z.string(), email: z.string(), name: z.string().nullable() }),
+  includesModelCalls: z.boolean(),
+  client: z.object({ id: z.string(), name: z.string() }),
+  agent: OpsAgentRef.nullable(),
+  agentVersion: z.object({ id: z.string(), number: z.number().int().nullable() }),
+  workflow: z.object({ slug: z.string(), name: z.string().nullable() }),
+  run: OpsRun,
+  steps: z.array(RunExportStep),
+  /** What no step row names: the run's own inbox items, writes, decisions and AI calls. */
+  unplaced: z.object({
+    inbox: z.array(OpsInboxItem),
+    actions: z.array(OpsAction),
+    decisions: z.array(OversightDecisionView),
+    modelCalls: z.array(RunExportModelCall),
+  }),
+  totals: z.object({
+    costUsd: z.string(),
+    tokensIn: z.number().int(),
+    tokensOut: z.number().int(),
+    modelCalls: z.number().int(),
+  }),
+  sourceNames: SourceNames,
+  audit: RunAuditState,
+});
+export type RunExport = z.infer<typeof RunExport>;
+
 export const TimelineStep = z.object({
   id: z.string(),
   label: z.string(),
@@ -504,6 +607,12 @@ export const TimelineStep = z.object({
   oversight: z.array(z.string()).optional(),
   // P-4: the client's side of a conversation step; never a prompt, a model or a cost (§1.66).
   conversation: ConversePortalView.optional(),
+  // R8 (§1.86): what the step's checks did: a confer (its own step, never a model, prompt or
+  // cost), the approvers and the mode, a step that went on or stopped with no answer, an urgent
+  // notice's "Seen". The screen words them in the client's language.
+  ...TimelineChecks.shape,
+  // Skill model (2026-11-10), wave A: a write step reads "Saved" or "Changed in QuickBooks".
+  write: TimelineWrite.optional(),
 });
 
 export const PortalInboxItem = z.object({
@@ -568,6 +677,11 @@ export const PortalConnection = z.object({
   available: z.boolean(),
   /** An API-key connector the client admin sets up with a form on the Access page. */
   credentialForm: z.boolean(),
+  /**
+   * Wave 3b: how it connects (its manifest's `auth`), so the portal says "you sign in" only for a
+   * tool with a sign-in. Optional: an older Worker sends none.
+   */
+  auth: ConnectorAuth.optional(),
   /**
    * A person's own account (Gmail): a client user may connect it too, and disconnect it if they
    * connected it; other tools are the client admin's.
@@ -758,6 +872,11 @@ export const SkillOption = z.object({
     }),
   ),
   requiresConnectors: z.array(z.string()),
+  // Skill model (2026-11-10), wave A: the agent's Settings show a per-skill section (its
+  // parameters, and the model an AI skill runs on). Optional, so a list without them still reads.
+  kind: SkillKindSchema.optional(),
+  parameters: SkillModelFacts.shape.parameters.optional(),
+  recommendedModel: SkillModelFacts.shape.recommendedModel.optional(),
 });
 export type SkillOption = z.infer<typeof SkillOption>;
 
@@ -774,10 +893,22 @@ export const BuilderCatalog = z.object({
       source: z.enum(["builtin", "client", "shared", "pinned"]),
       version: z.number().int().nullable(),
       definition: SkillDefinition,
+      // Skill model (2026-11-10): deterministic or AI (derived; a tool that calls a model makes
+      // a code skill AI), and whether the palette offers it for a new step. A tool wrapper, an
+      // agent-mode or a `rules_then_ai` skill is listed only where the agent already uses it, so
+      // stored steps still type; `palette: false` says not to offer it.
+      kind: SkillKindSchema.optional(),
+      palette: z.boolean().optional(),
     }),
   ),
   tools: z.array(ToolSpec),
   connectors: z.array(z.object({ id: z.string(), name: z.string(), icon: z.string().nullable() })),
+  /**
+   * Skill model (2026-11-10): the platform's and packs' tools a process may use directly as a
+   * read or write step (those the retired tool-wrapper skills wrapped). The palette offers these,
+   * not the wrappers, which are no longer in `skills` unless the agent already uses one.
+   */
+  stepTools: z.array(z.string()).optional(),
   // v0.12 W2-B: the automations a use step can pin (live versions, and those the agent pins).
   automations: z.array(BuilderAutomation).default([]),
 });
@@ -818,6 +949,26 @@ export const SkillListItem = z.object({
   usedBy: z.number().int(),
   /** Those client agents, "Bill clerk · Demo client", for the library's hover and list. */
   usedByNames: z.array(z.string()).optional(),
+  // R8 (docs/plan.md §1.86): the Library's facts. Optional, so a list without them still reads.
+  /** How it works: `rules`, `ai` or `rules_then_ai` (stored rows derive it from their mode). */
+  method: SkillMethod.optional(),
+  /** The read tools it may call (its declared reads). */
+  reads: z.array(z.string()).optional(),
+  /** The sites and pages an `ai` skill may browse; null when it browses none. */
+  browse: SkillBrowse.nullable().optional(),
+  /**
+   * A tool-mode skill that only wraps one tool: retiring (85 of the 100), kept so stored versions
+   * still run; a process reads or writes through `wraps` instead.
+   */
+  retired: z.boolean().optional(),
+  wraps: z.string().nullable().optional(),
+  // Skill model (2026-11-10): kind, its label, parameters, recommended model. Optional, so a list
+  // without them still reads. Tool-wrapper skills are no longer listed at all.
+  kind: SkillModelFacts.shape.kind.optional(),
+  kindLabel: z.string().optional(),
+  modelTools: z.array(z.string()).optional(),
+  parameters: SkillModelFacts.shape.parameters.optional(),
+  recommendedModel: SkillModelFacts.shape.recommendedModel.optional(),
 });
 export type SkillListItem = z.infer<typeof SkillListItem>;
 
@@ -1536,7 +1687,26 @@ export const opsRoutes = {
       oversight: z.array(OversightDecisionView).optional(),
       /** The records the steps cite (`sources`), by id: "Northline Panel Supply · 20418". */
       sourceNames: SourceNames.optional(),
+      // Wave 6 (§1.86 "Run audit (wave 6)"): the owner's check on each attempt at a v4 read,
+      // skill or write step, by node then attempt (match a step by `nodeId`); none for v3 runs.
+      ownerChecks: z.array(OwnerCheckView).optional(),
+      /** Wave 6: the run's place in the audit queue and its marks, newest first. */
+      audit: RunAuditState.optional(),
+      // Skill model (2026-11-10), wave A: each step's skill kind and write label, by step id.
+      stepFacts: z.record(z.string(), StepModelFacts).optional(),
     }),
+  }),
+  // Wave 6 (§1.86 "Run audit (wave 6)"): one run's whole trail as one file for an auditor.
+  opsRunExport: defineRoute({
+    method: "GET",
+    path: "/api/ops/runs/:id/export",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "A run's whole trail as one file: printable HTML or JSON; AI calls' prompts and answers only with modelCalls=1",
+    params: IdParams,
+    query: RunExportQuery,
+    response: RunExportFile,
   }),
   opsInbox: defineRoute({
     method: "GET",
@@ -2011,6 +2181,8 @@ export const routes = {
   ...reachRoutes,
   ...accessRoutes,
   ...browserRoutes,
+  // Wave 4 (docs/plan.md §1.86 "Scripts (wave 4)")
+  ...browserScriptRoutes,
   ...directoryRoutes,
   ...supervisorRoutes,
   ...qboRoutes,
@@ -2072,5 +2244,17 @@ export const routes = {
   ...translationRoutes,
   // P-8: US texting registration (docs/plan.md §1.70)
   ...a2pRoutes,
+  // R4: business hours, person hours and channels (docs/plan.md §1.86).
+  ...hoursRoutes,
+  // R8: the Library (docs/plan.md §1.86).
+  ...libraryRoutes,
+  // R5: the Undo a late no is offered (docs/plan.md §1.86).
+  ...undoRoutes,
+  // Wave 6: the audit queue, marks, stats and sampling settings (docs/plan.md §1.86).
+  ...runAuditRoutes,
+  // The skill model (owner, 2026-11-10): moving a step to another version of its skill.
+  ...skillModelRoutes,
+  // Reshape data (owner, 2026-11-11): propose a Reshape step's mapping, and its sample values.
+  ...reshapeRoutes,
 } as const;
 export type Routes = typeof routes;

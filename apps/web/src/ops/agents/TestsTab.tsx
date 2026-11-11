@@ -4,7 +4,7 @@
 // cases from this client, runs them on the template's live version in this client, and lists its
 // own test runs with a form to start one. Cases, results and cost are the back office's only.
 import {
-  type AgentBundle,
+  type AnyAgentBundle,
   Matcher,
   type SuiteRunView,
   type TestCaseView,
@@ -105,7 +105,7 @@ export function TestsTab({
   agent: AgentSummary;
   detail: AgentDetail;
   /** The live version's bundle, read: what a client agent's test run runs. */
-  liveBundle: AgentBundle | null;
+  liveBundle: AnyAgentBundle | null;
   base: string;
 }) {
   const templateId = agent.kind === "template" ? agent.id : agent.templateId;
@@ -446,7 +446,7 @@ function CasesCard({
 }
 
 function workflowsOf(bundle: unknown): { slug: string; name: string }[] {
-  const b = bundle as Partial<AgentBundle> | null;
+  const b = bundle as Partial<AnyAgentBundle> | null;
   return Array.isArray(b?.workflows)
     ? b.workflows.map((w) => ({ slug: w.slug, name: w.name }))
     : [];
@@ -603,7 +603,7 @@ function TestRunsCard({
 }: {
   agent: AgentSummary;
   detail: AgentDetail;
-  liveBundle: AgentBundle | null;
+  liveBundle: AnyAgentBundle | null;
   base: string;
 }) {
   const runs = useApi(apiRoutes.opsRuns, { query: { agent: agent.id, mode: "test", limit: 20 } });

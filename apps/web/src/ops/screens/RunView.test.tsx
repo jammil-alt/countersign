@@ -138,6 +138,8 @@ function detail(
       name: "Records clerk",
       serviceName: "Record keeping",
     },
+    // Skill model (2026-11-10): the write reads by where it writes.
+    stepFacts: { update: { write: { kind: "change_in", text: "Change in Testkit" } } },
     version: 3,
     workflow: { slug: "fix-record", name: "Fix a record", definition: WORKFLOW },
   };
@@ -147,6 +149,253 @@ describe("run checklist", () => {
   it("reads loop node ids", () => {
     expect(parseNodeId("each:2:child")).toEqual({ stepId: "child", index: 2 });
     expect(parseNodeId("update")).toEqual({ stepId: "update", index: null });
+  });
+});
+
+// R8 (ARCHITECTURE §10.14): a v4 process's run. A write's confers are rows of their own (with
+// the second check's note: the back office sees it), its approvers in the check's mode, the write
+// that went ahead with nobody answering, an urgent notice waiting for its Seen, and the owner.
+describe("back-office run view: a v4 process", () => {
+  const PROCESS = {
+    schemaVersion: 4,
+    triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+    steps: [
+      {
+        id: "post",
+        name: "Post the bill",
+        kind: "write",
+        tool: "testkit.record.update",
+        input: {},
+        checks: {
+          confer: {
+            with: [
+              { ai: { focus: "Do the lines add up?" } },
+              {
+                person: "client_admin",
+                deadline: { after: "1 day", hours: "business", ifNoAnswer: "stop" },
+              },
+            ],
+          },
+          approval: {
+            required: "required",
+            mode: "all",
+            approvers: [{ who: "client_admin" }, { who: "lead" }],
+            ifNoAnswer: "proceed",
+            onReject: "stop",
+          },
+        },
+      },
+      {
+        id: "tell",
+        name: "Tell the team",
+        kind: "notify",
+        notify: {
+          to: ["client_admin"],
+          channel: "inbox",
+          message: "Posted",
+          urgent: { ackWithin: "1 hour", ifNoAnswer: "stop" },
+        },
+      },
+    ],
+  };
+  const R = (n: number) => `00000000-0000-4000-8000-0000000f7${String(n).padStart(3, "0")}`;
+  const base = detail("resolved");
+  const data = {
+    ...base,
+    run: { ...base.run, status: "running" },
+    steps: [
+      step(R(1), "post:confer:0", "confer", "succeeded", {
+        input: { reviewer: "ai" },
+        output: { verdict: "agree", note: "The lines add up to $9,742.35.", by: "ai" },
+      }),
+      step(R(2), "post:confer:1", "confer", "succeeded", {
+        input: { reviewer: "client_admin" },
+        output: { verdict: "disagree", note: "Freight is missing", by: "client_admin" },
+      }),
+      step(R(3), "post", "write", "succeeded", {
+        output: { proceededWithoutAnswer: true },
+        summary: "Posted the bill",
+      }),
+      step(R(4), "tell", "notify", "succeeded", {
+        output: { urgent: { dueAt: "2026-11-03T11:00:00.000Z" } },
+      }),
+    ],
+    actions: [],
+    inbox: [
+      {
+        ...base.inbox[0],
+        id: R(11),
+        kind: "approval",
+        assigneeRole: "client_admin",
+        payload: { nodeId: "post:approval:1" },
+        status: "expired",
+      },
+      {
+        ...base.inbox[0],
+        id: R(12),
+        kind: "approval",
+        assigneeRole: "operator",
+        payload: { nodeId: "post:approval:1:a1" },
+        status: "expired",
+      },
+    ],
+    oversight: [
+      {
+        id: R(21),
+        runId: RUN_ID,
+        stepRunId: R(3),
+        nodeId: "post",
+        seq: 1,
+        cause: "failed",
+        action: "retry_with",
+        inputBefore: { amount: "1,2" },
+        inputAfter: { amount: "1.2" },
+        note: "The amount used a comma.",
+        proposal: null,
+        inboxItemId: null,
+        sources: [],
+        model: "claude-opus-5-5",
+        costUsd: "0.0010",
+        tokensIn: 10,
+        tokensOut: 5,
+        agentVersionId: base.run.agentVersionId,
+        createdAt: "2026-11-03T10:00:20.000Z",
+      },
+    ],
+    workflow: { slug: "fix-record", name: "Fix a record", definition: PROCESS },
+  };
+
+  it("shows confers as their own rows, approvers in the mode, no-answer, Seen and the owner", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: () => data,
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/runs/${RUN_ID}?tab=timeline`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const ai = await screen.findByTestId(`ops-run-step-${R(1)}`, {}, { timeout: 10_000 });
+    expect(ai).toHaveTextContent("Confer");
+    expect(ai).toHaveTextContent("A second check: agrees · Post the bill");
+    // The back office reads the second check's note; the client never does.
+    expect(ai).toHaveTextContent("“The lines add up to $9,742.35.”");
+    const person = screen.getByTestId(`ops-run-step-${R(2)}`);
+    expect(person).toHaveTextContent("Checked with client admin: disagrees");
+    expect(person).toHaveAttribute("data-state", "person");
+
+    const write = screen.getByTestId(`ops-run-step-${R(3)}`);
+    expect(write).toHaveTextContent("Write");
+    const approval = within(write).getByTestId(`ops-run-step-checks-${R(3)}-approval`);
+    expect(approval).toHaveTextContent("Asked together; everyone must approve");
+    expect(
+      within(approval)
+        .getAllByTestId(`ops-run-step-checks-${R(3)}-approver`)
+        .map((a) => a.textContent),
+    ).toEqual(["client admin: no answer in time", "operator: no answer in time"]);
+    expect(within(write).getByTestId(`ops-run-step-checks-${R(3)}-no-answer`)).toHaveTextContent(
+      "Went ahead: nobody answered in time",
+    );
+    expect(within(write).getByTestId(`ops-run-owner-${R(21)}`)).toHaveTextContent(
+      "The owner corrected the input and tried again after a failed step.",
+    );
+    expect(
+      within(screen.getByTestId(`ops-run-step-${R(4)}`)).getByTestId(
+        `ops-run-step-checks-${R(4)}-urgent`,
+      ),
+    ).toHaveTextContent(/^Urgent: waiting for Seen until /);
+  });
+
+  // Wave 5: the route an if took and why, by step name; a failure the run carried on past.
+  it("says which route an if took and why, and a step that failed and carried on", async () => {
+    const forked = {
+      schemaVersion: 4,
+      triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+      steps: [
+        {
+          id: "look",
+          name: "Look the PO up",
+          kind: "read",
+          tool: "testkit.record.query",
+          input: {},
+          onError: "continue",
+        },
+        {
+          id: "post",
+          name: "Approve the bill",
+          kind: "write",
+          tool: "testkit.record.update",
+          input: {},
+          checks: {
+            approval: {
+              required: "required",
+              mode: "in_turn",
+              ifNoAnswer: "stop",
+              onReject: "continue",
+            },
+          },
+        },
+        {
+          id: "route",
+          name: "If rejected",
+          kind: "if",
+          paths: [
+            {
+              id: "p-rej",
+              name: "Rejected",
+              when: {
+                match: "all",
+                rules: [{ field: "{{steps.post.outcome}}", op: "=", value: "rejected" }],
+              },
+              steps: [],
+            },
+          ],
+          otherwise: { id: "p-else", steps: [] },
+        },
+      ],
+    };
+    const runData = {
+      ...data,
+      steps: [
+        step(R(31), "look", "read", "failed", {
+          error: "The record service didn't answer",
+          outcome: "failed",
+        }),
+        step(R(32), "post", "write", "skipped", { outcome: "rejected" }),
+        step(R(33), "route", "if", "succeeded", {
+          output: { pathId: "p-rej", pathName: "Rejected" },
+        }),
+      ],
+      inbox: [],
+      oversight: [],
+      workflow: { slug: "fix-record", name: "Fix a record", definition: forked },
+    };
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: () => runData,
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/runs/${RUN_ID}?tab=timeline`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const fork = await screen.findByTestId(`ops-run-step-${R(33)}`, {}, { timeout: 10_000 });
+    expect(within(fork).getByTestId(`ops-run-step-checks-${R(33)}-route`)).toHaveTextContent(
+      "Took the route “Rejected”: Approve the bill was rejected",
+    );
+    const look = screen.getByTestId(`ops-run-step-${R(31)}`);
+    expect(within(look).getByTestId(`ops-run-step-checks-${R(31)}-carried-on`)).toHaveTextContent(
+      "Failed, and the run carried on",
+    );
+    expect(
+      within(screen.getByTestId(`ops-run-step-${R(32)}`)).queryByTestId(
+        `ops-run-step-checks-${R(32)}-carried-on`,
+      ),
+    ).toBeNull();
   });
 });
 
@@ -189,6 +438,11 @@ describe("back-office run view", () => {
     expect(rows[1]).toHaveTextContent("Update the record");
     expect(rows[1]).toHaveTextContent("Waiting for approval");
     expect(rows[1]).toHaveTextContent("$0.04");
+    expect(
+      within(rows[1] as HTMLElement).getByTestId(
+        "ops-run-step-00000000-0000-4000-8000-0000000f2001-kind",
+      ),
+    ).toHaveTextContent("Change in Testkit");
     expect(rows[3]).toHaveTextContent("hidden from client");
     expect(within(checklist).getByText("1 of 4 steps · $0.09")).toBeInTheDocument();
     // The wait, at the top and on the step, in the same words; the status is never "Running".
@@ -577,7 +831,7 @@ describe("run oversight and the same error elsewhere", () => {
     const decision = await screen.findByTestId(
       "ops-run-decision-00000000-0000-4000-8000-0000000f6001",
     );
-    expect(decision).toHaveTextContent("Retried with a corrected input after a failed step");
+    expect(decision).toHaveTextContent("Corrected the input and tried again after a failed step");
     expect(decision).toHaveTextContent("The amount used a comma.");
     expect(decision).toHaveTextContent("Normalise amounts before the update step");
     expect(decision).toHaveTextContent("Corrected input");

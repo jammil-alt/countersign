@@ -1,18 +1,21 @@
-// The builder's model: edits that keep every id, moves into and out of fork paths and loops, the
+// The builder's model: a stored v3 workflow read as a v4 process with every id kept, edits that
+// keep every id, moves into and out of if paths and loops, new steps with approval on, the
 // approval control's rules, customizations against the template, and undo/redo.
 import {
   AgentBundle,
   type AgentBundleInput,
   canonicalJson,
   nodeIds,
-  type Step,
+  type ProcessAgentBundle,
+  processes,
+  type SkillDefinition,
   type ToolSpec,
   type TypingContext,
-  type Workflow,
 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import {
   type ApprovalEnv,
+  addTrigger,
   addWorkflow,
   allowStep,
   approvalOption,
@@ -21,12 +24,18 @@ import {
   customizedSteps,
   editWorkflow,
   getContainer,
+  holdsV3,
   insertStep,
+  isLoosened,
   locate,
   moveStep,
+  type Process,
   ROOT,
+  readProcessBundle,
   redo,
   removeStep,
+  removeTrigger,
+  type Step,
   setTrigger,
   startHistory,
   toolTitle,
@@ -45,7 +54,37 @@ const UPDATE: ToolSpec = {
   source: "testkit",
   connector: "testkit",
 };
-const CTX: TypingContext = { tools: { [UPDATE.id]: UPDATE } };
+const QUERY: ToolSpec = {
+  id: "testkit.record.query",
+  description: "Read records",
+  input: { type: "object" },
+  output: { type: "object" },
+  sideEffect: "none",
+  verb: "read",
+  source: "testkit",
+  connector: "testkit",
+};
+/** A tool-mode skill that only wraps the query: it reads as a read step. */
+const WRAPPER = {
+  schemaVersion: 1,
+  id: "testkit.query",
+  name: "Query records",
+  description: "",
+  category: "testkit",
+  mode: "tool",
+  handler: QUERY.id,
+  tools: [],
+  input: { type: "object" },
+  output: { type: "object" },
+  settings: [],
+  requiresConnectors: [],
+  requiresPacks: [],
+  producesAlerts: false,
+} as unknown as SkillDefinition;
+const CTX: TypingContext = {
+  tools: { [UPDATE.id]: UPDATE, [QUERY.id]: QUERY },
+  skills: { [WRAPPER.id]: WRAPPER },
+};
 
 const INPUT: AgentBundleInput = {
   schemaVersion: 1,
@@ -53,7 +92,7 @@ const INPUT: AgentBundleInput = {
     schemaVersion: 2,
     identity: { name: "Clerk", role: "Records", mission: "Keep records right" },
     kind: "functional",
-    model: { id: "claude-opus-5-5" },
+    model: { id: "m" },
     instructions: "Work carefully.",
     skills: [],
     extraTools: ["testkit.record.update"],
@@ -102,13 +141,54 @@ const INPUT: AgentBundleInput = {
     },
   ],
 };
-const BUNDLE = AgentBundle.parse(INPUT);
-const WF = BUNDLE.workflows[0]?.workflow as Workflow;
+const STORED = AgentBundle.parse(INPUT);
+const BUNDLE: ProcessAgentBundle = readProcessBundle(STORED, CTX);
+const WF = BUNDLE.workflows[0]?.workflow as Process;
 
 const ids = (steps: Step[] | null) => (steps ?? []).map((s) => s.id);
 
 describe("builder model", () => {
-  it("keeps a bundle exactly as it was when nothing is edited, and every id through edits", () => {
+  it("reads a stored v3 workflow as a v4 process, keeping every id; v4 stays as it is", () => {
+    const v3 = STORED.workflows[0]?.workflow;
+    if (!v3) throw new Error("no workflow");
+    expect(holdsV3(STORED)).toBe(true);
+    expect(WF.schemaVersion).toBe(4);
+    expect(processes.nodeIds(WF)).toEqual(nodeIds(v3));
+    expect(locate(WF, "f")?.step.kind).toBe("if");
+    // v3's action is a write with its approval as a check (on, as invariant 8 keeps it).
+    expect(locate(WF, "u")?.step).toMatchObject({
+      kind: "write",
+      checks: { approval: { required: "required", mode: "in_turn", ifNoAnswer: "stop" } },
+    });
+    // A v4 bundle reads back unchanged, and nothing in it is v3.
+    expect(readProcessBundle(BUNDLE, CTX)).toEqual(BUNDLE);
+    expect(holdsV3(BUNDLE)).toBe(false);
+    // A skill that only wraps a read tool becomes a read step on that tool.
+    const wrapped = readProcessBundle(
+      AgentBundle.parse({
+        ...INPUT,
+        workflows: [
+          {
+            slug: "main",
+            name: "Main",
+            workflow: {
+              schemaVersion: 3,
+              trigger: { id: "t1", on: { type: "manual", input: {} } },
+              steps: [{ id: "q", kind: "skill", name: "Query", skill: "testkit.query" }],
+            },
+          },
+        ],
+      }),
+      CTX,
+    );
+    expect(wrapped.workflows[0]?.workflow.steps[0]).toMatchObject({
+      id: "q",
+      kind: "read",
+      tool: QUERY.id,
+    });
+  });
+
+  it("keeps every id through edits, and the process exactly as it was when they are undone", () => {
     const h = startHistory(BUNDLE);
     expect(canonicalJson(h.present)).toBe(canonicalJson(BUNDLE));
 
@@ -116,7 +196,7 @@ describe("builder model", () => {
     let w = updateStep(WF, "a", (s) => ({ ...s, name: "A renamed" }));
     w = moveStep(w, "u", "path:p2", 0);
     w = moveStep(w, "u", ROOT, 3);
-    expect(nodeIds(w).sort()).toEqual(nodeIds(WF).sort());
+    expect(processes.nodeIds(w).sort()).toEqual(processes.nodeIds(WF).sort());
     const back = updateStep(w, "a", (s) => ({ ...s, name: "A" }));
     expect(canonicalJson(back)).toBe(canonicalJson(WF));
   });
@@ -129,7 +209,7 @@ describe("builder model", () => {
     expect(ids(moveStep(WF, "u", ROOT, 0).steps)).toEqual(["u", "a", "f", "loop"]);
   });
 
-  it("moves steps into and out of fork paths, otherwise and loops", () => {
+  it("moves steps into and out of if paths, otherwise and loops", () => {
     const into = moveStep(WF, "a", "path:p2", 0);
     expect(ids(into.steps)).toEqual(["f", "loop", "u"]);
     expect(ids(getContainer(into, "path:p2"))).toEqual(["a"]);
@@ -145,7 +225,7 @@ describe("builder model", () => {
     expect(ids(getContainer(otherwise, "otherwise:o"))).toEqual(["c"]);
   });
 
-  it("never moves a fork or loop into itself", () => {
+  it("never moves an if or loop into itself", () => {
     expect(moveStep(WF, "f", "path:p1", 0)).toBe(WF);
     expect(moveStep(WF, "loop", "loop:loop", 0)).toBe(WF);
   });
@@ -153,26 +233,46 @@ describe("builder model", () => {
   it("makes new steps with fresh ids once, approval on for writes, and allows what they need", () => {
     let n = 0;
     const newId = () => `id-${++n}`;
-    const action = createStep(
-      { type: "action", key: "x", title: "Update record", detail: "", tool: UPDATE, group: "" },
+    const write = createStep(
+      { type: "write", key: "x", title: "Update record", detail: "", tool: UPDATE, group: "" },
       CTX,
       newId,
     );
-    expect(action).toMatchObject({
+    expect(write).toMatchObject({
       id: "id-1",
-      kind: "action",
+      kind: "write",
       tool: UPDATE.id,
-      approval: { required: "required" },
+      checks: { approval: { required: "required", mode: "in_turn", ifNoAnswer: "stop" } },
     });
-    const fork = createStep(
-      { type: "logic", key: "f", title: "Fork", detail: "", logic: "fork" },
+    const read = createStep(
+      { type: "read", key: "r", title: "Read records", detail: "", tool: QUERY, group: "" },
       CTX,
       newId,
     );
-    expect(fork).toMatchObject({ id: "id-2", paths: [{ id: "id-3" }], otherwise: { id: "id-4" } });
+    expect(read).toEqual({
+      id: "id-2",
+      kind: "read",
+      name: "Read records",
+      tool: QUERY.id,
+      input: {},
+    });
+    const ifStep = createStep(
+      { type: "logic", key: "f", title: "If", detail: "", logic: "if" },
+      CTX,
+      newId,
+    );
+    expect(ifStep).toMatchObject({
+      id: "id-3",
+      kind: "if",
+      paths: [{ id: "id-4" }],
+      otherwise: { id: "id-5" },
+    });
+    // Every new step validates as a v4 step.
+    for (const s of [write, read, ifStep]) expect(processes.Step.safeParse(s).success).toBe(true);
 
     const noTools = { ...BUNDLE, definition: { ...BUNDLE.definition, extraTools: [] } };
-    expect(allowStep(noTools, action, CTX).definition.extraTools).toEqual([UPDATE.id]);
+    expect(allowStep(noTools, write, CTX).definition.extraTools).toEqual([UPDATE.id]);
+    expect(allowStep(BUNDLE, read, CTX).definition.extraTools).toEqual([UPDATE.id, QUERY.id]);
     const skill: Step = { id: "s", kind: "skill", name: "S", skill: "docs.extract", input: {} };
     expect(allowStep(BUNDLE, skill, CTX).definition.skills).toEqual([
       { skill: "docs.extract", settings: {} },
@@ -180,45 +280,56 @@ describe("builder model", () => {
     expect(toolTitle(UPDATE)).toBe("Update a record");
   });
 
-  // P-4: conversations (docs/plan.md §1.66).
-  it("starts a conversation step with approval on, a person from the trigger and one field", () => {
+  // R7: conversations are their own step kind (ARCHITECTURE §10.14).
+  it("starts a conversation step with its first message signed, one field and a deadline", () => {
     const step = createStep(
-      {
-        type: "skill",
-        key: "skill:comms.converse",
-        title: "Talk with a person",
-        detail: "",
-        ref: "comms.converse",
-        skill: { name: "Talk with a person" } as never,
-        own: false,
-      },
+      { type: "conversation", key: "conversation", title: "Talk with a person", detail: "" },
       CTX,
       () => "c1",
     );
     expect(step).toMatchObject({
       id: "c1",
-      kind: "skill",
-      skill: "comms.converse",
-      approval: { required: "required" },
-      input: {
-        to: { contactId: "" },
-        channel: "whatsapp",
-        confirm: true,
-        result: { type: "object", properties: { answer: { type: "string" } } },
-      },
+      kind: "conversation",
+      channel: "whatsapp",
+      find: { answer: "text" },
+      messages: { first: "required", later: "required" },
+      deadline: { after: "3 days", hours: "clock", ifNoAnswer: "stop" },
+    });
+    expect(processes.Step.safeParse(step).success).toBe(true);
+    // A person step waits three days, then stops and tells the operator, as v3's default did.
+    const person = createStep(
+      { type: "person", key: "p", title: "Ask", detail: "", mode: "ask" },
+      CTX,
+      () => "p1",
+    );
+    expect(person).toMatchObject({
+      deadline: { after: "3 days", ifNoAnswer: "stop", tell: ["operator"] },
     });
   });
 
-  it("keeps the trigger's id when what starts the workflow changes; adds workflows", () => {
+  it("keeps a trigger's id when what starts the process changes; adds triggers and workflows", () => {
     const w = setTrigger(WF, { type: "schedule", cron: "0 7 * * 1-5" });
-    expect(w.trigger).toEqual({ id: "t1", on: { type: "schedule", cron: "0 7 * * 1-5" } });
+    expect(w.triggers).toEqual([{ id: "t1", on: { type: "schedule", cron: "0 7 * * 1-5" } }]);
+    const two = addTrigger(w, { type: "command", command: "go" }, () => "t9");
+    expect(two.triggers.map((t) => t.id)).toEqual(["t1", "t9"]);
+    expect(setTrigger(two, { type: "command", command: "now" }, "t9").triggers[1]?.on).toEqual({
+      type: "command",
+      command: "now",
+    });
+    expect(removeTrigger(two, "t1").triggers.map((t) => t.id)).toEqual(["t9"]);
+    // The last trigger stays: a process starts somehow.
+    expect(removeTrigger(w, "t1")).toBe(w);
     const b = addWorkflow(
       BUNDLE,
       { slug: "weekly", name: "Weekly", on: { type: "command", command: "go" } },
       () => "t2",
     );
     expect(b.workflows.map((x) => x.slug)).toEqual(["main", "weekly"]);
-    expect(b.workflows[1]?.workflow.trigger.id).toBe("t2");
+    expect(b.workflows[1]?.workflow).toEqual({
+      schemaVersion: 4,
+      triggers: [{ id: "t2", on: { type: "command", command: "go" } }],
+      steps: [],
+    });
   });
 
   describe("approval", () => {
@@ -230,10 +341,12 @@ describe("builder model", () => {
       connectorName: () => "Testkit",
       ...over,
     });
-    const update = locate(WF, "u")?.step as Step;
-    const off = {
+    const update = locate(WF, "u")?.step as Extract<Step, { kind: "write" }>;
+    const approval = update.checks?.approval;
+    if (!approval) throw new Error("no approval");
+    const off: Step = {
       ...update,
-      approval: { required: "not_required" as const, onReject: "stop" as const },
+      checks: { approval: { ...approval, required: "not_required" } },
     };
 
     it("offers run without approval where the connection allows auto and the agent acts", () => {
@@ -244,6 +357,9 @@ describe("builder model", () => {
         automatic: false,
       });
       expect(approvalOption(off, env())).toMatchObject({ automatic: true });
+      // A write with no approval check waits for the default approver.
+      const { checks: _c, ...bare } = update;
+      expect(approvalOption(bare, env())).toMatchObject({ required: true, automatic: false });
     });
 
     it("refuses it on templates, without a binding, below auto, and in suggest-only mode", () => {
@@ -267,9 +383,23 @@ describe("builder model", () => {
       });
     });
 
+    it("counts going ahead with no answer and some runs only as loosening", () => {
+      expect(isLoosened(approval)).toBe(false);
+      expect(isLoosened({ ...approval, ifNoAnswer: "proceed" })).toBe(true);
+      expect(isLoosened({ ...approval, when: { match: "all", rules: [] } })).toBe(true);
+      expect(
+        isLoosened({
+          ...approval,
+          approvers: [
+            { who: "lead", deadline: { after: "1 day", hours: "clock", ifNoAnswer: "proceed" } },
+          ],
+        }),
+      ).toBe(true);
+    });
+
     it("has no approval for steps that change no client tool, and counts the ones that wait", () => {
       expect(approvalOption(locate(WF, "a")?.step as Step, env())).toBeNull();
-      expect(workflowCounts(WF, env())).toEqual({ steps: 6, forks: 1, writes: 1, needApproval: 1 });
+      expect(workflowCounts(WF, env())).toEqual({ steps: 6, ifs: 1, writes: 1, needApproval: 1 });
       const auto = updateStep(WF, "u", () => off);
       expect(workflowCounts(auto, env()).needApproval).toBe(0);
     });
@@ -278,7 +408,7 @@ describe("builder model", () => {
   it("marks a client agent's steps added or changed against the template", () => {
     let w = updateStep(WF, "a", (s) => ({ ...s, name: "Renamed" }));
     w = insertStep(w, ROOT, 0, { id: "new", kind: "stop", name: "Stop", status: "succeeded" });
-    // A nested change is the nested step's own, not its fork's.
+    // A nested change is the nested step's own, not its if's.
     w = updateStep(w, "b", (s) => ({ ...s, name: "B2" }));
     expect(Object.fromEntries(customizedSteps(w, WF))).toEqual({
       a: "changed",
@@ -289,7 +419,7 @@ describe("builder model", () => {
   });
 
   it("undoes and redoes, and groups typing in one field into one step", () => {
-    const rename = (b: AgentBundle, name: string) =>
+    const rename = (b: ProcessAgentBundle, name: string) =>
       editWorkflow(b, "main", (w) => updateStep(w, "a", (s) => ({ ...s, name })));
     let h = startHistory(BUNDLE);
     h = commit(h, rename(h.present, "A1"), "a:name", 1000);
@@ -302,12 +432,12 @@ describe("builder model", () => {
     );
     expect(h.past).toHaveLength(2);
     h = undo(h);
-    expect(locate(h.present.workflows[0]?.workflow as Workflow, "u")).not.toBeNull();
+    expect(locate(h.present.workflows[0]?.workflow as Process, "u")).not.toBeNull();
     h = undo(h);
     expect(h.present).toBe(BUNDLE);
     h = redo(redo(h));
-    expect(locate(h.present.workflows[0]?.workflow as Workflow, "u")).toBeNull();
-    expect(locate(h.present.workflows[0]?.workflow as Workflow, "a")?.step.name).toBe("A12");
+    expect(locate(h.present.workflows[0]?.workflow as Process, "u")).toBeNull();
+    expect(locate(h.present.workflows[0]?.workflow as Process, "a")?.step.name).toBe("A12");
     // A new edit drops what could be redone.
     h = commit(undo(h), rename(h.present, "x"));
     expect(h.future).toEqual([]);

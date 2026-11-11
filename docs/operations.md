@@ -485,11 +485,43 @@ window, and verifies the number there. Group messages stay off unless the operat
 for the client (`PUT /api/ops/clients/:id/messaging/whatsapp-groups`), once Meta's groups API is
 verified (NOTES.md).
 
+### Model keys (OpenAI, xAI and Google's Gemini)
+
+Agents run on Anthropic's models unless the operator sets an agent, a skill, a step or an AI
+reviewer to another provider's (`openai:`, `xai:`, `google:` ids; `docs/plan.md` §1.2, "Models:
+xAI and Gemini"). Each provider stays off on an environment until its key is there: its models
+fail with an error naming the missing key, and everything else runs. To switch xAI or Gemini on:
+1. Check the ids and prices in `packages/llm/NOTES.md` on the provider's own pages, and correct
+   `packages/llm/src/pricing.ts` and `models.ts` by pull request first if they differ. A model
+   with no price is refused, so a wrong id fails rather than running at no cost.
+2. Make a key on Mezonas' own account, one per environment, with a monthly spending limit:
+   - xAI: https://console.x.ai → API Keys → Create API key. Name it `mezonas-staging` or
+     `mezonas-production`; it needs the Responses endpoint and the models in `MODELS`.
+   - Google: https://aistudio.google.com/apikey → Create API key, in a Google Cloud project of
+     Mezonas' own with billing on (the paid tier; the free tier may use prompts to improve
+     Google's products). Name it the same way; restrict it to the Generative Language API.
+3. GitHub → Settings → Environments → `staging` (then `production`) → Add environment secret:
+   `XAI_API_KEY` and `GEMINI_API_KEY`.
+4. Deploy (push to `main` for staging; production deploys from a `v*` tag or by hand). The deploy
+   copies each key into the Worker when it is set.
+5. On staging, set a test agent to `xAI (Grok 4.7)` and to `Google (Gemini 3.1 Pro)`, run one
+   plain answer and one with a tool, and compare each run's model cost with the provider's usage
+   page.
+6. Before a client's data goes to either, add xAI and Google (Gemini API) to the public
+   subprocessor list (`apps/site`). A client in HIPAA mode is refused both until `xai` or
+   `google` is in `BAA_PROCESSORS` (§1.2 below).
+
+To rotate a key, update the GitHub secret and redeploy. To switch a provider off, delete the
+GitHub secret and the Worker secret (`pnpm exec wrangler secret delete XAI_API_KEY --env staging`
+from `apps/api`); the deploy only adds keys, it never deletes one.
+
 ### Worker secrets (set by `deploy.yml`, never by hand)
 
 The deploy workflow loads the Worker's secrets into Cloudflare after each deploy:
-- `WORKOS_API_KEY`, `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`: copied from the GitHub **environment** (`staging` or
-  `production`) on every deploy, so rotating a key is "update the GitHub secret, redeploy".
+- `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY` and `GEMINI_API_KEY`:
+  copied from the GitHub **environment** (`staging` or `production`) on every deploy, each only when
+  it is set, so rotating a key is "update the GitHub secret, redeploy". The last three are optional
+  ("Model keys" above).
 - `ENCRYPTION_KEY` (32 random bytes, base64) and `WORKOS_COOKIE_PASSWORD`: generated once inside the job
   when the Worker doesn't have them yet, and never shown or stored anywhere else. If the job can't read
   the Worker's existing secrets it stops instead of generating, so `ENCRYPTION_KEY` is never replaced by
@@ -552,6 +584,21 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   `<APP_ORIGIN>/api/connections/bankfeed/webhook/<client id>`. Until both secrets and
   `OAUTH_STATE_SECRET` are set, the feed shows "Not available yet". What to check in Plaid's
   sandbox first: `packages/connectors/src/bankfeed/NOTES.md`.
+- Needed by the BILL connector (`billcom`, plan §1.87): `BILL_DEV_KEY`, Mezonas' BILL developer
+  key, copied like the API keys when set; `BILL_ENV` is a var in `wrangler.jsonc` (`sandbox`
+  locally and on staging, `production` in production) and picks the host, so the key must be that
+  environment's. The owner's steps, sandbox first: (1) sign up at BILL's developer portal
+  (`developer.bill.com`) and ask for a sandbox developer key; BILL gives a sandbox organization with
+  it. (2) In that organization make a user for our agents with the smallest role that reads and
+  enters bills and vendors (not an administrator), and note the organization id (it starts with
+  `008`). (3) Add `BILL_DEV_KEY` as a secret of the GitHub `staging` environment and redeploy. (4)
+  Offer BILL to the Sandbox client, enter the user's login on its portal's Accounts page, and walk
+  "To verify" in `packages/connectors/src/billcom/NOTES.md`. (5) Production: BILL's review of the
+  app and a production key, as `BILL_DEV_KEY` in the `production` environment. Without the key BILL
+  can be offered and its login entered, but every tool refuses ("BILL isn't set up here yet"). A
+  client's own BILL login is never a Worker secret: the client admin enters it in the vault.
+  Payments stay off until a second-factor path exists (plan §1.87). BILL is a processor: a client
+  in HIPAA mode can't use it until `billcom` is in `BAA_PROCESSORS`.
 - Needed by the Slack connector (W4-C, plan §1.56), the same way: `SLACK_CLIENT_ID` and
   `SLACK_CLIENT_SECRET` (our Slack app's client id and secret, redirect URL
   `<APP_ORIGIN>/connections/slack/callback`; see "Slack" above). Until both and `OAUTH_STATE_SECRET` are set, Slack shows "Not available yet".
@@ -635,8 +682,8 @@ What to check against Stripe's docs and a test-mode account before the first rea
 |---|---|---|
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
-| Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
-| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta) |
+| Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY` (xAI's Grok), `GEMINI_API_KEY` (Google's Gemini) (one per environment; a repository secret also works; the model keys after Anthropic's are optional) |
+| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `BILL_DEV_KEY` (BILL, plan §1.87), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta) |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 
@@ -784,7 +831,7 @@ decides what it does:
 
 - **Operators** (`docs/plan.md` §1.34): it reads what the back office shows for the clients you
   serve, and its one write (resolving feedback) takes two calls, a preview and a confirm.
-- **A client's admin or user** (§1.86): it reads what their portal shows them (overview, inbox,
+- **A client's admin or user** (§1.89): it reads what their portal shows them (overview, inbox,
   runs, connections, requests, records, documents, reports), for their own business only. It
   changes nothing; approvals and answers stay in the portal.
 
@@ -1031,8 +1078,10 @@ Settings page in the back office (with a reason). It can only be switched on onc
 would receive its data has a signed BAA. Those vendors are listed in `BAA_PROCESSORS` in
 `apps/api/wrangler.jsonc`, per environment. Add a vendor there by pull request only after its BAA
 is signed, and keep the signed copy. The ids are `cloudflare`, `neon`, `workos`, `anthropic`,
-`openai`, `twilio`, `meta_whatsapp`, `elevenlabs` and `resend`. The first three are needed for any
-HIPAA client. `anthropic` is needed for agents and document reading. M50: website measurement is
+`openai`, `xai`, `google`, `twilio`, `meta_whatsapp`, `elevenlabs` and `resend`. The first three are
+needed for any HIPAA client. `anthropic` is needed for agents and document reading. `openai`,
+`xai` and `google` are needed only for agents set to their models (`openai:`, `xai:`, `google:`
+ids); `google` is the Gemini API on our key, not a client's own Google account. M50: website measurement is
 held for a client in HIPAA mode whatever is listed: its site's beacons are answered and nothing is
 stored, until the owner decides (`docs/marketing/processor-terms-draft.md` §6). Web research
 (`anthropic_web`) and Hacker News (`hackernews`) are refused to it until listed.

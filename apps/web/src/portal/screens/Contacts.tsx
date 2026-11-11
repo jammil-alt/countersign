@@ -6,7 +6,8 @@
 // Access tab, and voice samples are in Settings.
 //
 // Client users read the list; the client admin also edits it, records consent, and makes a channel
-// stricter for a person (needs approval, or off: only we loosen it). Names, notes and messages stay
+// stricter for a person (needs approval, or off: only we loosen it). R8 (plan §1.86): the client
+// admin also sees and sets each contact's hours and away dates (`/api/settings/people-hours`). Names, notes and messages stay
 // as written; the words around them are in the reader's language.
 import {
   CONTACT_RELATIONSHIPS,
@@ -15,6 +16,7 @@ import {
   isOwnPerson,
   type Organization,
   type PermissionLevel,
+  type processes,
   type ReachChannel,
   type Relationship,
 } from "@countersign/core";
@@ -29,6 +31,8 @@ import {
   PersonForm,
   RELATIONSHIP_KEY,
 } from "../../directory/DirectoryPanel";
+import { listedHours } from "../../hours/format";
+import { PersonHoursEditor } from "../../hours/HoursParts";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { AccessBadge, InviteContactAction } from "../../people/People";
@@ -179,6 +183,8 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
   const list = useApi(apiRoutes.portalDirectory, { query: q.trim() ? { q: q.trim() } : {} });
   // Who each agent reaches (the client admin's view): the agents in touch with each person.
   const reach = useApi(apiRoutes.portalAgentPeople, admin ? {} : null);
+  // R8 (plan §1.86): each contact's hours and away dates, the client admin's to read and change.
+  const hours = useApi(apiRoutes.portalPeopleHours, admin ? {} : null);
   const adding = admin && params.get("add") === "1";
   const selectedId = params.get("person");
 
@@ -226,6 +232,8 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
                         body: body as ContactCreateInput,
                       });
                       list.reload();
+                      // The new contact's place on the People hours list (it may sit past the cap).
+                      hours.reload();
                       select(res.contact.id);
                     }}
                   />
@@ -238,6 +246,21 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
                   agents={agentsOf.get(selected.id) ?? []}
                   admin={admin}
                   onChanged={list.reload}
+                  hours={
+                    hours.data
+                      ? {
+                          hours: listedHours(hours.data, "contact", selected.id),
+                          business: hours.data.business.hours,
+                          save: async (next) => {
+                            await api.call(apiRoutes.portalSetContactHours, {
+                              params: { id: selected.id },
+                              body: { hours: next },
+                            });
+                            hours.reload();
+                          },
+                        }
+                      : null
+                  }
                 />
               ) : shown.length > 0 ? (
                 <Card pad testId="people-pick">
@@ -426,12 +449,22 @@ function PersonDetail({
   agents,
   admin,
   onChanged,
+  hours,
 }: {
   person: Contact;
   organizations: Organization[];
   agents: string[];
   admin: boolean;
   onChanged: () => void;
+  /**
+   * Their hours and away dates, and how to save them (the client admin's); null: not shown.
+   * `hours` undefined: not on the People hours list (past its cap), so not known here.
+   */
+  hours: {
+    hours: processes.PersonHours | null | undefined;
+    business: processes.BusinessHours;
+    save: (next: processes.PersonHours | null) => Promise<void>;
+  } | null;
 }) {
   const i18n = useI18n();
   const { t } = i18n;
@@ -508,6 +541,24 @@ function PersonDetail({
       <DetailBlock title={t("peoplePage.howReach")}>
         <ReachLevels person={p} admin={admin} onChanged={onChanged} />
       </DetailBlock>
+      {hours ? (
+        <DetailBlock title={t("hours.title")}>
+          {hours.hours === undefined ? (
+            // Saving from here would send only what the editor holds and erase hours we never
+            // read, so a contact past the list's cap gets no editor.
+            <p className="text-sm text-ink-muted" data-testid="people-detail-hours-unlisted">
+              {t("hours.contactUnlisted")}
+            </p>
+          ) : (
+            <PersonHoursEditor
+              person={{ hours: hours.hours }}
+              business={hours.business}
+              onSave={hours.save}
+              testId="people-detail-hours"
+            />
+          )}
+        </DetailBlock>
+      ) : null}
       {admin ? (
         <DetailBlock title={t("peoplePage.col.agents")}>
           {agents.length === 0 ? (

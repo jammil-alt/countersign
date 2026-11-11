@@ -1,3 +1,4 @@
+import { processes } from "@countersign/core";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { FORK_BUNDLE } from "../../test/fixtures";
@@ -57,5 +58,45 @@ describe("StepList", () => {
       within(screen.getByTestId("fork-confidence-otherwise")).getByText("Nothing · continue"),
     ).toBeInTheDocument();
     expect(within(fork).getByText("Paths join here")).toBeInTheDocument();
+  });
+});
+
+// R8 (ARCHITECTURE §10.14): the same list for a v4 process, its `if` laid out as a fork.
+describe("StepList: a v4 process", () => {
+  const process = processes.fromWorkflowV3(workflow, {
+    wrappedTool: () => null,
+    sideEffect: (tool) => (tool === "qbo.bill.update_lines" ? "external" : null),
+  });
+
+  it("names steps in the builder's words and shows a write's approval", () => {
+    render(<StepList workflow={process} />);
+    expect(screen.getByTestId("step-confidence").textContent).toContain("If");
+    expect(screen.getByTestId("fork-confidence-path-low")).toBeInTheDocument();
+    expect(screen.getByTestId("step-update").textContent).toContain("Write");
+    expect(screen.getByTestId("step-update-checks").textContent).toContain("Approval");
+    expect(screen.getByTestId("step-ask").textContent).toContain("2 days");
+  });
+
+  // Skill model (2026-11-10): with a catalog's labels, a write reads by where it writes and a
+  // skill step says its kind.
+  it("labels writes and skill kinds when the screen has a catalog", () => {
+    const withSkill: processes.Process = {
+      ...process,
+      steps: [
+        { id: "classify", name: "Classify", kind: "skill", skill: "custom:classify", input: {} },
+        ...process.steps,
+      ],
+    };
+    render(
+      <StepList
+        workflow={withSkill}
+        labels={{
+          skillKind: (ref) => (ref === "custom:classify" ? "ai" : undefined),
+          writeLabel: () => "Change in QuickBooks Online",
+        }}
+      />,
+    );
+    expect(screen.getByTestId("step-classify-skill-kind")).toHaveTextContent("AI");
+    expect(screen.getByTestId("step-update").textContent).toContain("Change in QuickBooks Online");
   });
 });

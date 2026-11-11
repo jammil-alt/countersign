@@ -360,7 +360,7 @@ export function isClientVisible(step: Step): boolean {
   );
 }
 
-export function clientLabel(step: Step): string {
+export function clientLabel(step: Pick<Step, "client" | "name">): string {
   return step.client?.label ?? step.name;
 }
 

@@ -649,6 +649,8 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
         description:
           "Create a record in a Zoho CRM module, e.g. a lead with Last_Name and Company.",
         verb: "create",
+        // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+        undo: { kind: "none" },
         summary: "Created {{module}} {{id}}",
         input: z.object({ module: ZohoModule, fields: Fields }),
         output: z.object({ module: ZohoModule, id: z.string() }),
@@ -673,6 +675,8 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
         description:
           "Change fields of a Zoho CRM record. Give the record's Modified_Time as read to refuse the change if it changed since.",
         verb: "update",
+        // R5: the before state is written back with this tool, if the record hasn't changed since.
+        undo: { kind: "restore" },
         summary: "Updated {{module}} {{id}}",
         input: z.object({
           module: ZohoModule,
@@ -731,6 +735,8 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
         entity: "note",
         description: "Add a note to a Zoho CRM record.",
         verb: "create",
+        // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+        undo: { kind: "none" },
         summary: "Added a note to {{module}} {{recordId}}",
         input: z.object({
           module: ZohoModule,
@@ -761,6 +767,8 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
         description:
           "Create a task in Zoho CRM, optionally linked to a record (a contact as Who, others as What).",
         verb: "create",
+        // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+        undo: { kind: "none" },
         summary: "Created task {{id}}",
         input: z
           .object({

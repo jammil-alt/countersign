@@ -47,7 +47,10 @@ import { auditExportRoutes } from "./routes/audit-export";
 import { bankfeedRoutes } from "./routes/bankfeed";
 import { billingRouteHandlers } from "./routes/billing";
 import { browserRoutes } from "./routes/browser";
+import { browserScriptRoutes } from "./routes/browser-scripts";
 import { callsSetupRoutes } from "./routes/calls-setup";
+// R4: business hours, person hours and channels (docs/plan.md §1.86)
+import { channelRoutes } from "./routes/channels";
 import { clientViewRoutes } from "./routes/client-view";
 // v0.12 W2-F: the command center, search and plain-words questions
 import { commandCenterRoutes } from "./routes/command-center";
@@ -66,11 +69,14 @@ import { gchatRoutes } from "./routes/gchat";
 // v0.14 W4-D: Google Sheets' picking
 import { gsheetsRoutes } from "./routes/gsheets";
 import { hookRoutes } from "./routes/hooks";
+import { hoursRoutes } from "./routes/hours";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 // v0.12 W2-C: the test bench, skill tests and the agent lab
 import { labRoutes } from "./routes/lab";
 import { languageRouteHandlers } from "./routes/language";
 import { ledgerRoutes } from "./routes/ledger";
+// R8: the Library's banks (docs/plan.md §1.86)
+import { libraryRoutes } from "./routes/library";
 import { lifecycleRoutes } from "./routes/lifecycle";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 import { notifyRouteHandlers } from "./routes/notify";
@@ -88,6 +94,8 @@ import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsModelRoutes } from "./routes/ops-models";
 // v0.13 W2-I
 import { opsOversightRoutes } from "./routes/ops-oversight";
+// Reshape data (2026-11-11)
+import { opsReshapeRoutes } from "./routes/ops-reshape";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { packInboundRoutes } from "./routes/pack-inbound";
 // M46
@@ -100,6 +108,7 @@ import { reachRoutes } from "./routes/reach";
 import { recordRouteHandlers } from "./routes/records";
 import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
+import { runAuditRouteHandlers } from "./routes/run-audit";
 import { runControlRoutes } from "./routes/run-controls";
 import { sessionRoutes } from "./routes/session";
 // v0.14 W4-C: the Slack channel picker
@@ -135,6 +144,8 @@ import {
   translationDepsFor,
   translationSweep,
 } from "./translate/service";
+// R5: the undo a late no is offered (docs/plan.md §9)
+import { undoRouteHandlers } from "./undo/routes";
 import { vaultTick } from "./vault/upkeep";
 import { zohoCronTick } from "./zoho/sync";
 
@@ -153,6 +164,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsLineageRoutes(app);
   opsSkillRoutes(app);
   opsBuilderRoutes(app);
+  // Reshape data (2026-11-11): propose a Reshape step's mapping, and its sample values.
+  opsReshapeRoutes(app);
   opsMergeRoutes(app);
   opsEventRoutes(app);
   // v0.13 W2-H: models for task skills and skill steps.
@@ -161,6 +174,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // v0.12 W1-D: before the portal's routes, so `/api/inbox/batch/resolve` is not read as an item
   // id by `/api/inbox/:id/resolve` (Hono runs handlers in the order they were added).
   deskRoutes(app);
+  undoRouteHandlers(app);
   portalRouteHandlers(app);
   // P-1: packs: enable per client, reports, review cards, actions.
   packRouteHandlers(app);
@@ -201,6 +215,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   accessRoutes(app);
   releaseRoutes(app);
   browserRoutes(app);
+  // Wave 4 (docs/plan.md §1.86 "Scripts (wave 4)")
+  browserScriptRoutes(app);
   complianceRouteHandlers(app);
   // v0.12 W1-E
   runControlRoutes(app);
@@ -230,6 +246,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   triggerRouteHandlers(app);
   // v0.13 W2-I: run oversight decisions for the agent lab
   opsOversightRoutes(app);
+  // Wave 6: the audit queue, marks, stats, sampling settings and the run export (plan §1.86)
+  runAuditRouteHandlers(app);
   // v0.14 W4-E: Google Chat's events and the portal's card
   gchatRoutes(app);
   // v0.14 W4-C: the Slack channel picker
@@ -244,6 +262,11 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   a2pRoutes(app);
   // P-7: message translation's settings (docs/plan.md §1.69)
   translationRoutes(app);
+  // R4: business hours, person hours and channels (docs/plan.md §1.86)
+  hoursRoutes(app);
+  channelRoutes(app);
+  // R8: the Library's banks (docs/plan.md §1.86)
+  libraryRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));

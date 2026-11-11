@@ -213,17 +213,12 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 label="Agent lab"
                 testId="ops-nav-lab"
               />
+              {/* R8: the Library holds skills, tools, connectors and the other banks. */}
               <SidebarLink
-                to={OPS_PATHS.skills}
+                to={OPS_PATHS.library}
                 icon="document"
-                label="Skills"
-                testId="ops-nav-skills"
-              />
-              <SidebarLink
-                to={OPS_PATHS.connectors}
-                icon="bank"
-                label="Connectors"
-                testId="ops-nav-connectors"
+                label="Library"
+                testId="ops-nav-library"
               />
               <SidebarLink
                 to={OPS_PATHS.packs}

@@ -2,7 +2,12 @@
 // client (withTenant), so a run sees its own client's rows and nothing else (invariant 1).
 
 import type { ConnectionRef } from "@countersign/connectors";
-import { autonomyFor, readApproverRuleSet, readAutonomy } from "@countersign/core";
+import {
+  type AgentBundle,
+  autonomyFor,
+  readApproverRuleSet,
+  readAutonomy,
+} from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -102,7 +107,9 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
           tenantId,
           slug: row.a.slug,
           version: row.v.version,
-          bundle: row.v.bundle,
+          // Wave 3b: the column holds v3 or v4 bundles; `PinnedAgent` (the runtime's, wave 2c's to
+          // widen) is typed v3, and the executor reads each workflow by its `schemaVersion`.
+          bundle: row.v.bundle as AgentBundle,
           bindings: row.a.bindings,
           // v0.14 W4-A
           channels: row.a.channels,
@@ -115,7 +122,7 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
       return withTenant(db, tenantId, (tx) => resolveCustomSkill(tx, { tenantId, ref }));
     },
 
-    memoryNotes(tenantId, agentId, limit): Promise<MemoryNoteRecord[]> {
+    memoryNotes(tenantId, agentId, limit, scope = "agent"): Promise<MemoryNoteRecord[]> {
       return withTenant(db, tenantId, (tx) =>
         tx
           .select({
@@ -129,11 +136,14 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
             and(
               eq(memoryNote.tenantId, tenantId),
               eq(memoryNote.agentId, agentId),
+              // v0.16: one scope: the agent's own (`agent`, as knowledge search reads it), or one
+              // the runtime keeps for itself (`browse`), which the model never gets as memory.
+              eq(memoryNote.scope, scope),
               // Notes written by test runs are tagged and never read back.
               not(like(memoryNote.scope, `${MEMORY_TEST_SCOPE_PREFIX}%`)),
             ),
           )
-          .orderBy(desc(memoryNote.createdAt))
+          .orderBy(desc(memoryNote.createdAt), desc(memoryNote.id))
           .limit(limit),
       );
     },

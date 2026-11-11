@@ -3,9 +3,17 @@
 // ports, records how it ended on `run`, rolls usage up, and dispatches the events it emitted.
 
 import {
+  // R3: an AI reviewer's check, and conversation steps (docs/plan.md §1.86).
+  conferAi,
+  conversationRunner,
+  // R3: v3 workflows read as v4 with the registries' view (docs/plan.md §1.86).
+  convertLookup,
   createDbPorts,
   dbModelCalls,
+  // R6: the owner's watch reads the agent's earlier totals.
+  dbOversightStore,
   finishRun,
+  ownerHistory,
   type RuntimeDeps,
   resolveAutomation,
   rollupUsageForRun,
@@ -23,39 +31,49 @@ import {
   type UrlSigner,
 } from "@countersign/connectors";
 import {
-  type AutomationDefinition,
+  // R6
+  type AnyAgentBundle,
+  type AnyAutomationDefinition,
+  type AnyBundleWorkflow,
   automationRefs,
   // v0.12 W2-E
   HANDOFF_OUTPUT_MAX_BYTES,
   HANDOFF_SOURCES_MAX,
+  isPlainObject,
   isUuid,
   type Locale,
   // v0.13 W2-I
   type OversightSettings,
   type Processor,
   parseCoveredProcessors,
+  processes,
   RUN_SUCCEEDED_EVENT,
   type RunSucceededPayload,
   resolveTemplate,
+  reusedStepOf,
   runErrorKey,
+  type StoredStepLike,
   shortRunId,
-  type Workflow,
 } from "@countersign/core";
 import {
   agent,
   agentVersion,
   connection,
   type Db,
+  inboxItem,
   run,
   stepRun,
   type Tx,
+  tenant,
   withTenant,
 } from "@countersign/db";
 import {
   anthropicTransport,
+  geminiTransport,
   type LlmTransport,
   openaiTransport,
   routingTransport,
+  xaiTransport,
 } from "@countersign/llm";
 import { type EventRow, emit } from "@countersign/senses";
 import {
@@ -66,7 +84,7 @@ import {
   type RunResume,
   type StepRunner,
 } from "@countersign/workflows";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { dbReleasePort, type ReleaseDeps, releaseDepsFromEnv } from "../access/release";
 // v0.12 W2-D
 import { accountViews } from "../account/views";
@@ -75,10 +93,16 @@ import { type BrowserDeps, dbBrowserServices } from "../browser/services";
 import { type VoiceDeps, voiceDepsFromEnv } from "../calls/answer";
 import { codesFor } from "../codes/client";
 import { guardModels, hipaaToolPolicy, profileReader } from "../compliance/policy";
+// R7: the v4 conversation step's engine over P-4's service.
+import { conversationEngine } from "../converse/engine";
 // P-4
 import { conversePort } from "../converse/service";
 import type { Bindings } from "../env";
+// R4: stored business hours and away dates, for deadlines.
+import { hoursFor } from "../hours/hours";
 import { connectorServicesFor } from "../messaging/services";
+import { mailerFromEnv, texterFromEnv } from "../notify/mailer";
+import { type NotifyDeps, originOf } from "../notify/outbox";
 // v0.13 W2-I
 import { oversightPort } from "../oversight/port";
 import type { Platform } from "../platform";
@@ -86,6 +110,8 @@ import { dbDocumentServices } from "../qbo/documents";
 import { dbSyncedRecords } from "../qbo/receivables";
 import { type ReachDeps, reachPort } from "../reach/service";
 import { tenantLocale } from "../routes/language";
+// Wave 6: the owner's check on every step, and the audit queue (docs/plan.md §1.86)
+import { dbOwnerCheckLog, queueFinishedRun } from "../run-audit/store";
 import { signerFor } from "../storage";
 import { createRunRow, dispatchEvents, dispatchingRunner, senseEmitter } from "./dispatch";
 import type { RunInstances, RunParams } from "./instances";
@@ -124,23 +150,31 @@ export interface RunDeps {
   // §1.77
   /** Web research for `web.search` and `web.fetch` (MARKETING_RESEARCH=on); absent: off. */
   webResearch?: boolean;
+  // Wave 2c
+  /** Email and texts, so an urgent notice's person is told at once; absent: the outbox's pass. */
+  notify?: NotifyDeps;
 }
 
 /**
  * The model transport for a deployed Worker: Anthropic models with ANTHROPIC_API_KEY, OpenAI models
- * (`openai:` ids) with OPENAI_API_KEY.
+ * (`openai:` ids) with OPENAI_API_KEY, xAI's (`xai:`) with XAI_API_KEY and Google's Gemini
+ * (`google:`) with GEMINI_API_KEY.
  */
 // DECISION: the Worker calls the model live or not at all: record/replay needs the fixture files,
 // which only tests (Node) have. A model whose provider has no key fails with an error naming the
 // missing key, so a run without a model still runs its tool-mode skills and actions.
 export function workerTransport(
-  env: Pick<Bindings, "ANTHROPIC_API_KEY" | "OPENAI_API_KEY">,
+  env: Pick<Bindings, "ANTHROPIC_API_KEY" | "OPENAI_API_KEY" | "XAI_API_KEY" | "GEMINI_API_KEY">,
 ): LlmTransport {
   const anthropicKey = env.ANTHROPIC_API_KEY?.trim();
   const openaiKey = env.OPENAI_API_KEY?.trim();
+  const xaiKey = env.XAI_API_KEY?.trim();
+  const geminiKey = env.GEMINI_API_KEY?.trim();
   return routingTransport({
     ...(anthropicKey ? { anthropic: anthropicTransport({ apiKey: anthropicKey }) } : {}),
     ...(openaiKey ? { openai: openaiTransport({ apiKey: openaiKey }) } : {}),
+    ...(xaiKey ? { xai: xaiTransport({ apiKey: xaiKey }) } : {}),
+    ...(geminiKey ? { google: geminiTransport({ apiKey: geminiKey }) } : {}),
   });
 }
 
@@ -208,6 +242,8 @@ export function runDepsFromEnv(
     modelCallBodies: new R2ObjectStore(env.ARTIFACTS),
     // §1.77: off unless the owner sets MARKETING_RESEARCH=on (docs/marketing-plan.md §11.5).
     webResearch: researchOn(env),
+    // Wave 2c: the outbox's own senders, for an urgent notice's person (notify/urgent.ts).
+    notify: { mailer: mailerFromEnv(env), texter: texterFromEnv(env), origin: originOf(env) },
   };
 }
 
@@ -223,16 +259,25 @@ const STEP_CONFIG = {
   timeout: "15 minutes",
 } as const;
 
+/** A stored workflow entry: a v3 workflow or (R3) a v4 process. */
+type StoredWorkflow = AnyBundleWorkflow["workflow"];
+
 type Loaded =
   | {
       ok: true;
-      workflow: Workflow;
+      // R3: stored as it is in the version; the executor reads a v3 one as v4 (ids kept).
+      workflow: StoredWorkflow;
       language: Locale;
+      // R3: the client's zone, for business-hours deadlines without stored hours.
+      timeZone?: string;
       resume: RunResume | null;
       // v0.12 W2-B: the automation versions its use steps pin.
-      automations?: Record<string, AutomationDefinition>;
-      // v0.13 W2-I: the agent's oversight settings, as pinned (absent: off).
+      automations?: Record<string, AnyAutomationDefinition>;
+      // v0.13 W2-I: the agent's oversight settings, as pinned (absent: off). R6: its owner's
+      // (`processes.ownerOfBundle`): a v3 agent's are exactly its stored ones.
       oversight?: OversightSettings;
+      // R6: the owner's cheap watch on every step's result (v4 processes only).
+      watch?: boolean;
     }
   | { ok: false; reason: string; cancelled?: true };
 
@@ -245,10 +290,14 @@ type Loaded =
 async function automationsOf(
   tx: Tx,
   tenantId: string,
-  workflow: Workflow,
-): Promise<Record<string, AutomationDefinition>> {
-  const out: Record<string, AutomationDefinition> = {};
-  for (const ref of automationRefs([workflow])) {
+  workflow: StoredWorkflow,
+): Promise<Record<string, AnyAutomationDefinition>> {
+  const out: Record<string, AnyAutomationDefinition> = {};
+  const refs =
+    workflow.schemaVersion === 4
+      ? processes.subProcessRefs([workflow])
+      : automationRefs([workflow]);
+  for (const ref of refs) {
     const found = await resolveAutomation(tx, { tenantId, ref });
     if (found) out[ref] = found.definition;
   }
@@ -296,6 +345,10 @@ export function runtimeFor(
       ...(deps.documents ? { content: deps.documents.content } : {}),
     },
     ...(deps.covered ? { policy: hipaaToolPolicy(profileReader(db), deps.covered) } : {}),
+    // Skill model (2026-11-10): a platform tool that called a model without declaring
+    // `usesModel` is logged (its cost is recorded all the same); pack tools can't (packs.ts).
+    onUndeclaredModelCall: (toolId) =>
+      console.warn(JSON.stringify({ msg: "tool called a model without usesModel", toolId })),
     ...(deps.credentials ? { credentials: deps.credentials } : {}),
     ...(deps.now ? { now: deps.now } : {}),
     // Contacts and consent for messaging connectors, scoped to the connection's client; the
@@ -394,19 +447,26 @@ export async function executeRun(
         .where(
           and(eq(agentVersion.id, info.agentVersionId), eq(agentVersion.tenantId, info.tenantId)),
         );
-      const wf = v?.bundle.workflows.find((w) => w.slug === info.workflowSlug);
+      // R3: a version's entries may be v3 workflows or v4 processes (AnyAgentBundle).
+      const workflows = (v?.bundle.workflows ?? []) as AnyBundleWorkflow[];
+      const wf = workflows.find((w) => w.slug === info.workflowSlug);
       if (!wf) return { ok: false, reason: `no workflow ${info.workflowSlug} in that version` };
+      const [client] = await tx
+        .select({ timeZone: tenant.timezone })
+        .from(tenant)
+        .where(eq(tenant.id, info.tenantId));
       // DECISION: the run reads the client's language once, inside this durable step, so a replay
       // writes in the same language even if the client changed it meanwhile (plan §1.18).
       return {
         ok: true,
         workflow: wf.workflow,
         language: await tenantLocale(tx, info.tenantId),
+        ...(client?.timeZone ? { timeZone: client.timeZone } : {}),
         resume: await resumeOf(tx, params, wf.workflow),
         // v0.12 W2-B
         automations: await automationsOf(tx, info.tenantId, wf.workflow),
-        // v0.13 W2-I
-        ...(v?.bundle.definition.oversight ? { oversight: v.bundle.definition.oversight } : {}),
+        // v0.13 W2-I; R6: the owner's settings and watch, from the version as pinned.
+        ...ownerSettingsOf(v?.bundle),
       };
     }),
   );
@@ -435,6 +495,8 @@ export async function executeRun(
                 },
               }),
         });
+        // Wave 6: queued for a person's audit by the client's rule, as it finishes (live only).
+        await queueFinishedRun(tx, info);
         // `run.failed` (docs/plan.md §1.28), in the transaction that records the failure, so it
         // exists exactly when the run is failed. A test run emits nothing (ARCHITECTURE §10.4).
         if (result.status === "failed") {
@@ -506,7 +568,18 @@ export async function executeRun(
     collect: emitted,
     testRun: info.mode === "test",
   });
+  // R6: the history the owner's watch compares a total with, read once (v4 processes only, so a
+  // v3 run has exactly the durable steps it had).
+  const history = loaded.watch
+    ? await runner.do("run:owner-history", () =>
+        ownerHistory(dbOversightStore(db), info.tenantId, {
+          agentId: info.agentId,
+          workflowSlug: info.workflowSlug,
+        }),
+      )
+    : null;
   info.language = loaded.language;
+  if (loaded.timeZone) info.timeZone = loaded.timeZone;
   const ctx: ExecutorContext = {
     run: info,
     agent: agentPort(
@@ -517,7 +590,8 @@ export async function executeRun(
       conversePort({ db, runtime, ...(deps.instances ? { instances: deps.instances } : {}) }),
     ),
     inbox: dbInboxPort(db, info),
-    notify: threadNotifyPort(runtime),
+    // R3: v4 notices and deadlines' `tell` read who is who in the database.
+    notify: threadNotifyPort(runtime, db, deps.notify),
     log: dbStepLog(db, info),
     catalog: {
       skills: Object.fromEntries(deps.platform.catalog.list().map((s) => [s.id, s])),
@@ -530,11 +604,32 @@ export async function executeRun(
     ...(loaded.resume ? { resume: loaded.resume } : {}),
     // v0.12 W2-B
     ...(loaded.automations ? { automations: loaded.automations } : {}),
+    // R3 (docs/plan.md §1.86): v3 workflows are read as v4 with the registries' view, the
+    // converter `toProcessBundle` uses; each converted step still runs as its stored v3 step.
+    lookup: convertLookup(deps.platform.catalog, deps.platform.tools),
     // v0.13 W2-I: run oversight; the executor asks only for steps whose failures are reviewed.
+    // R6: the agent's owner, with its watch on a v4 process.
     oversight: {
       port: oversightPort(runtime, db, info, loaded.oversight),
       settings: loaded.oversight,
+      ...(history ? { watch: { history } } : {}),
     },
+    // Wave 6: the owner's check on every attempt at a v4 step, recorded (none for a v3 run).
+    ownerChecks: dbOwnerCheckLog(db, info),
+    // R4: deadlines on business hours and away dates, as stored.
+    hours: { hoursFor: hoursFor(db) },
+    // R7: conversation steps, through P-4's service.
+    conversation: conversationRunner({
+      engine: conversationEngine({
+        db,
+        runtime,
+        ...(deps.instances ? { instances: deps.instances } : {}),
+        ...(deps.now ? { now: deps.now } : {}),
+      }),
+      runtime,
+    }),
+    // R3: AI reviewers, one model call each.
+    confer: { ai: (req) => conferAi(runtime, req) },
   };
 
   let result: RunResult;
@@ -557,6 +652,23 @@ export async function executeRun(
   return result;
 }
 
+// R6 (docs/plan.md §1.86): the agent's owner, from the version as pinned.
+/**
+ * The owner's settings (`processes.ownerOfBundle`) and whether it watches every step's result.
+ * For a v3 bundle the settings are exactly its stored `definition.oversight` (absent: off) and
+ * there is no watch, so a stored agent is overseen as it was.
+ */
+// DECISION (R6): read from the pinned version inside the run's load step, so a replay oversees with
+// the same settings; the watch's history is a durable step of its own, for v4 runs only.
+function ownerSettingsOf(bundle: unknown): { oversight?: OversightSettings; watch?: boolean } {
+  if (!bundle) return {};
+  const owner = processes.ownerOfBundle(bundle as AnyAgentBundle);
+  return {
+    ...(owner.settings ? { oversight: owner.settings } : {}),
+    ...(owner.watch ? { watch: true } : {}),
+  };
+}
+
 // ── v0.12 W2-E: what a successful run hands off (ARCHITECTURE §10.8; docs/plan.md §1.48) ───────
 
 /**
@@ -567,7 +679,7 @@ export async function executeRun(
 async function runSucceededPayload(
   tx: Tx,
   params: RunParams,
-  workflow: Workflow,
+  workflow: StoredWorkflow,
 ): Promise<RunSucceededPayload> {
   const [a] = await tx
     .select({ slug: agent.slug })
@@ -642,28 +754,53 @@ async function runSucceededPayload(
 /**
  * What a retry reuses: the run retried's rows of the top-level steps before `resumeFrom` that
  * succeeded (or were skipped), with their outputs. Read once, inside the run's load step, so a
- * replay of the instance reuses the same outputs.
+ * replay of the instance reuses the same outputs. Wave 5 review: also a step that failed and the
+ * run carried on past (`onError: continue`), never run again, and each reused step's whole record
+ * (`reusedStepOf`: outcome, approval, confer, quick answer, counts, error) from the run's rows and
+ * inbox items, so a later `if` routes as it did in the run retried.
  */
-async function resumeOf(tx: Tx, params: RunParams, workflow: Workflow): Promise<RunResume | null> {
+async function resumeOf(
+  tx: Tx,
+  params: RunParams,
+  workflow: StoredWorkflow,
+): Promise<RunResume | null> {
   if (!params.retryOf || !params.resumeFrom) return null;
   const index = workflow.steps.findIndex((s) => s.id === params.resumeFrom);
   if (index <= 0) return null;
-  const before = workflow.steps.slice(0, index).map((s) => s.id);
+  const before = workflow.steps.slice(0, index);
   const rows = await tx
-    .select({ nodeId: stepRun.nodeId, status: stepRun.status, output: stepRun.output })
+    .select({
+      nodeId: stepRun.nodeId,
+      nodeType: stepRun.nodeType,
+      status: stepRun.status,
+      input: stepRun.input,
+      output: stepRun.output,
+    })
     .from(stepRun)
-    .where(
-      and(
-        eq(stepRun.runId, params.retryOf),
-        eq(stepRun.tenantId, params.tenantId),
-        inArray(stepRun.nodeId, before),
-      ),
-    );
+    .where(and(eq(stepRun.runId, params.retryOf), eq(stepRun.tenantId, params.tenantId)))
+    // In the order they ran: the last stop inside a stopped process is the one that ended it.
+    .orderBy(asc(stepRun.startedAt), asc(stepRun.id));
+  const items = (
+    await tx
+      .select()
+      .from(inboxItem)
+      .where(and(eq(inboxItem.runId, params.retryOf), eq(inboxItem.tenantId, params.tenantId)))
+  ).map((i) => ({
+    id: i.id,
+    kind: i.kind,
+    status: i.status,
+    payload: isPlainObject(i.payload) ? (i.payload as Record<string, unknown>) : {},
+    resolution: i.resolution,
+    resolvedBy: i.resolvedBy,
+    resolvedAt: i.resolvedAt?.toISOString() ?? null,
+    createdAt: i.createdAt.toISOString(),
+  }));
   const reused: RunResume["reused"] = {};
-  for (const r of rows) {
-    if (r.status === "succeeded" || r.status === "skipped") {
-      reused[r.nodeId] = { status: r.status, output: r.output ?? null };
-    }
+  for (const step of before) {
+    const row = rows.find((r) => r.nodeId === step.id);
+    if (!row) continue;
+    const found = reusedStepOf(step as unknown as StoredStepLike, row, rows, items);
+    if (found) reused[step.id] = found;
   }
   return { from: params.resumeFrom, of: shortRunId(params.retryOf), reused };
 }

@@ -6,12 +6,14 @@ import { applyMatrixChange } from "@countersign/connectors";
 import {
   complianceOf,
   connectorShown,
-  findStep,
+  findNodeStep,
   type OpsAgentActivity,
   parseCoveredProcessors,
   processingRefusal,
   processorsForOffer,
+  type RouteSpec,
   routes,
+  stepNodeOf,
 } from "@countersign/core";
 import {
   agent,
@@ -35,15 +37,26 @@ import type { Hono } from "hono";
 import { sloanByDefault, withSloan } from "../account/sloan";
 // P-4
 import { runConversations } from "../converse/views";
-import { type AppEnv, ensureClient, HttpError, iso, mount, notFound, type Services } from "../http";
-import { resolveInboxItem } from "../inbox";
+import {
+  type AppEnv,
+  ensureClient,
+  type HandlerCtx,
+  HttpError,
+  iso,
+  mount,
+  notFound,
+  type Services,
+} from "../http";
+import { resolveInboxItem, sendResolution } from "../inbox";
 import { isInternal } from "../internal-client";
 // v0.13 W2-I
 import { runOversight } from "../oversight/views";
+import { runAuditState, runOwnerChecks } from "../run-audit/store";
 import { dispatchEvents } from "../runs/dispatch";
 import { daysOf, runsByDay } from "../runs/figures";
 import { opsStatusWhere, reachContext, runWaits } from "../runs/run-wait";
 import { runSubjects, sourceNames } from "../runs/subject";
+import { stepModelFacts } from "../skill-facts";
 import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
 import { needsUs, needsUsContext } from "./command-center";
 import { connectNoAuth } from "./connections";
@@ -60,6 +73,7 @@ import {
 } from "./mappers";
 import { inviteToClient, withApprovals } from "./onboarding";
 import { canSignIn, sourcesOf } from "./portal";
+import { stepOutcomes } from "./run-checks";
 import { ensureFilterClients, runErrorGroups, runFilterWhere, runsPerDay } from "./run-controls";
 import { turnOnSloan } from "./supervisor";
 
@@ -309,7 +323,7 @@ async function clientSummaries(
 }
 
 /** The agents runs and inbox items name, for the back office's lists. */
-async function agentRefs(tx: Tx, tenantIds: readonly string[], ids: (string | null)[]) {
+export async function agentRefs(tx: Tx, tenantIds: readonly string[], ids: (string | null)[]) {
   const wanted = [...new Set(ids.filter((v): v is string => v !== null))];
   if (wanted.length === 0) return [];
   const rows = await tx
@@ -354,9 +368,12 @@ export async function opsRunViews(
       r.status === "failed" && r.error && typeof r.error === "object"
         ? (r.error as { nodeId?: unknown }).nodeId
         : undefined;
-    // A step in a loop runs as `<loop>:<index>:<step>`: its own id is the last part.
-    const stepId = typeof nodeId === "string" ? (nodeId.split(":").at(-1) ?? nodeId) : null;
-    const step = wf && stepId ? findStep(wf.workflow, stepId)?.step : undefined;
+    // A step in a loop runs as `<loop>:<index>:<step>`, and a run can stop on one of a step's
+    // checks (`<step>:confer:<n>`, `<step>:notify:<n>`…): the step is the node before the check.
+    // Wave 3c: the check's suffix was read as the step's id, so a v4 run that stopped on a confer
+    // or an urgent notice named no step.
+    const node = typeof nodeId === "string" ? stepNodeOf(nodeId).node : null;
+    const step = wf && node ? findNodeStep(wf.workflow, node) : undefined;
     return {
       ...opsRun(r),
       waiting: waits.get(r.id) ?? null,
@@ -688,84 +705,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     };
   });
 
-  mount(app, routes.opsRun, async ({ tx, params, tenantIds, session, services }) => {
-    const [r] = await tx
-      .select()
-      .from(run)
-      .where(and(eq(run.id, params.id), inArray(run.tenantId, [...tenantIds])));
-    if (!r) throw notFound("run");
-    const steps = await tx
-      .select()
-      .from(stepRun)
-      .where(and(eq(stepRun.runId, r.id), eq(stepRun.tenantId, r.tenantId)))
-      .orderBy(stepRun.startedAt, stepRun.id);
-    const calls = steps.length
-      ? await tx
-          .select()
-          .from(toolCall)
-          .where(
-            and(
-              eq(toolCall.tenantId, r.tenantId),
-              inArray(
-                toolCall.stepRunId,
-                steps.map((s) => s.id),
-              ),
-            ),
-          )
-          .orderBy(toolCall.createdAt)
-      : [];
-    const actions = await tx
-      .select()
-      .from(externalAction)
-      .where(and(eq(externalAction.runId, r.id), eq(externalAction.tenantId, r.tenantId)))
-      .orderBy(externalAction.createdAt);
-    // v0.13 W2-H: which models each step ran on (a task skill's own, the agent's, or a step's).
-    const modelRows = await tx
-      .select({ stepRunId: modelCall.stepRunId, model: modelCall.model })
-      .from(modelCall)
-      .where(and(eq(modelCall.runId, r.id), eq(modelCall.tenantId, r.tenantId)))
-      .orderBy(modelCall.createdAt, modelCall.id);
-    const modelsByStep = new Map<string, string[]>();
-    for (const c of modelRows) {
-      const list = modelsByStep.get(c.stepRunId) ?? [];
-      if (!list.includes(c.model)) list.push(c.model);
-      modelsByStep.set(c.stepRunId, list);
-    }
-    const items = await tx
-      .select()
-      .from(inboxItem)
-      .where(and(eq(inboxItem.runId, r.id), eq(inboxItem.tenantId, r.tenantId)))
-      .orderBy(inboxItem.createdAt);
-    const [version] = await tx
-      .select({ version: agentVersion.version, bundle: agentVersion.bundle })
-      .from(agentVersion)
-      .where(and(eq(agentVersion.id, r.agentVersionId), eq(agentVersion.tenantId, r.tenantId)));
-    const wf = version?.bundle.workflows.find((w) => w.slug === r.workflowSlug);
-    const [ref] = await agentRefs(tx, tenantIds, [r.agentId]);
-    const operatorIn = await operatorApprovers(tx, session.user.id, [r.tenantId]);
-    const [view] = await opsRunViews(tx, [r], services);
-    const subjects = await runSubjects(tx, [r.tenantId], [r], services.platform);
-    const cited = steps.flatMap((s) => sourcesOf(s.output));
-    // P-4: each conversation step's transcript, with its turns' models and cost (§1.66).
-    const conversations = await runConversations(tx, r.tenantId, r.id);
-    return {
-      run: { ...(view ?? opsRun(r)), subject: subjects.get(r.id) },
-      steps: steps.map((s) => ({
-        ...opsStep(s),
-        models: modelsByStep.get(s.id) ?? [],
-        ...(conversations.has(s.id) ? { conversation: conversations.get(s.id) } : {}),
-      })),
-      toolCalls: calls.map(opsToolCall),
-      actions: actions.map((a) => opsAction(a, services.platform)),
-      inbox: items.map((i) => opsInboxItem(i, operatorIn(i.tenantId), services.platform)),
-      agent: ref ?? null,
-      version: version?.version ?? null,
-      workflow: wf ? { slug: wf.slug, name: wf.name, definition: wf.workflow } : null,
-      // v0.13 W2-I: each oversight decision with its note, input change, model and cost.
-      oversight: await runOversight(tx, r.tenantId, r.id),
-      sourceNames: await sourceNames(tx, [r.tenantId], cited),
-    };
-  });
+  mount(app, routes.opsRun, async (ctx) => (await opsRunDetail(ctx, ctx.params.id)).response);
 
   // ── Inbox ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -824,16 +764,116 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       body,
       registry: services.platform.events,
       collect,
+      // R5: a late no is offered an undo when its write's tool says how.
+      tools: services.platform.tools,
     });
-    const { resume } = outcome;
-    if (resume) {
-      ctx.afterCommit(() =>
-        services.instances.sendEvent(resume.runId, { type: resume.type, payload: resume.payload }),
-      );
+    // R7: and a conversation's own event beside it, for a v4 conversation step.
+    if (outcome.resume || outcome.conversation) {
+      ctx.afterCommit(() => sendResolution(services.instances, outcome));
     }
     if (collect.length > 0) {
       ctx.defer(() => dispatchEvents({ db: services.db, instances: services.instances }, collect));
     }
     return { item: opsInboxItem(outcome.item, by, services.platform) };
   });
+}
+
+/**
+ * The back office's run view (`opsRun`): steps, tool calls, writes, inbox items, oversight, the
+ * owner's checks and the audit state; with the rows it was built from, for the run's export.
+ */
+export async function opsRunDetail(
+  {
+    tx,
+    tenantIds,
+    session,
+    services,
+  }: Pick<HandlerCtx<RouteSpec>, "tx" | "tenantIds" | "session" | "services">,
+  id: string,
+) {
+  const [r] = await tx
+    .select()
+    .from(run)
+    .where(and(eq(run.id, id), inArray(run.tenantId, [...tenantIds])));
+  if (!r) throw notFound("run");
+  const steps = await tx
+    .select()
+    .from(stepRun)
+    .where(and(eq(stepRun.runId, r.id), eq(stepRun.tenantId, r.tenantId)))
+    .orderBy(stepRun.startedAt, stepRun.id);
+  const calls = steps.length
+    ? await tx
+        .select()
+        .from(toolCall)
+        .where(
+          and(
+            eq(toolCall.tenantId, r.tenantId),
+            inArray(
+              toolCall.stepRunId,
+              steps.map((s) => s.id),
+            ),
+          ),
+        )
+        .orderBy(toolCall.createdAt)
+    : [];
+  const actions = await tx
+    .select()
+    .from(externalAction)
+    .where(and(eq(externalAction.runId, r.id), eq(externalAction.tenantId, r.tenantId)))
+    .orderBy(externalAction.createdAt);
+  // v0.13 W2-H: which models each step ran on (a task skill's own, the agent's, or a step's).
+  const modelRows = await tx
+    .select({ stepRunId: modelCall.stepRunId, model: modelCall.model })
+    .from(modelCall)
+    .where(and(eq(modelCall.runId, r.id), eq(modelCall.tenantId, r.tenantId)))
+    .orderBy(modelCall.createdAt, modelCall.id);
+  const modelsByStep = new Map<string, string[]>();
+  for (const c of modelRows) {
+    const list = modelsByStep.get(c.stepRunId) ?? [];
+    if (!list.includes(c.model)) list.push(c.model);
+    modelsByStep.set(c.stepRunId, list);
+  }
+  const items = await tx
+    .select()
+    .from(inboxItem)
+    .where(and(eq(inboxItem.runId, r.id), eq(inboxItem.tenantId, r.tenantId)))
+    .orderBy(inboxItem.createdAt);
+  const [version] = await tx
+    .select({ version: agentVersion.version, bundle: agentVersion.bundle })
+    .from(agentVersion)
+    .where(and(eq(agentVersion.id, r.agentVersionId), eq(agentVersion.tenantId, r.tenantId)));
+  const wf = version?.bundle.workflows.find((w) => w.slug === r.workflowSlug);
+  const [ref] = await agentRefs(tx, tenantIds, [r.agentId]);
+  const operatorIn = await operatorApprovers(tx, session.user.id, [r.tenantId]);
+  const [view] = await opsRunViews(tx, [r], services);
+  const subjects = await runSubjects(tx, [r.tenantId], [r], services.platform);
+  const cited = steps.flatMap((s) => sourcesOf(s.output));
+  // P-4: each conversation step's transcript, with its turns' models and cost (§1.66).
+  const conversations = await runConversations(tx, r.tenantId, r.id);
+  const outcomes = stepOutcomes(steps, items);
+  const response = {
+    run: { ...(view ?? opsRun(r)), subject: subjects.get(r.id) },
+    steps: steps.map((s) => ({
+      ...opsStep(s),
+      models: modelsByStep.get(s.id) ?? [],
+      ...(conversations.has(s.id) ? { conversation: conversations.get(s.id) } : {}),
+      // Wave 5: how the step ended, the word a later `if` routes on.
+      ...(outcomes.has(s.id) ? { outcome: outcomes.get(s.id) } : {}),
+    })),
+    toolCalls: calls.map(opsToolCall),
+    actions: actions.map((a) => opsAction(a, services.platform)),
+    inbox: items.map((i) => opsInboxItem(i, operatorIn(i.tenantId), services.platform)),
+    agent: ref ?? null,
+    version: version?.version ?? null,
+    workflow: wf ? { slug: wf.slug, name: wf.name, definition: wf.workflow } : null,
+    // v0.13 W2-I: each oversight decision with its note, input change, model and cost.
+    oversight: await runOversight(tx, r.tenantId, r.id),
+    sourceNames: await sourceNames(tx, [r.tenantId], cited),
+    // Wave 6: the owner's check on each attempt, and the run's place in the audit queue.
+    ownerChecks: await runOwnerChecks(tx, r.tenantId, r.id),
+    audit: await runAuditState(tx, r.tenantId, r.id),
+    // Skill model (2026-11-10), wave A: each step's kind (Deterministic or AI) and write label.
+    stepFacts: wf ? await stepModelFacts(tx, r.tenantId, wf.workflow, services.platform) : {},
+  };
+  return { response, rows: { run: r, steps, items, version, workflow: wf ?? null } };
 }

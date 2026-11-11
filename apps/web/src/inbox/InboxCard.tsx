@@ -10,6 +10,7 @@ import {
   type LocalizedText,
   pickLocalized,
   type ResolveBody,
+  type UndoChangeResult,
 } from "@countersign/core";
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
@@ -25,6 +26,8 @@ import { Icon } from "../ui/icons";
 import { Badge, Button, ErrorNotice, Tag, type Tone } from "../ui/primitives";
 import { ChangeTables } from "./ChangePanel";
 import { changeHeading, connectorName, connectorOf, fieldLabel, formatValue } from "./change";
+import { LateAnswer } from "./LateAnswer";
+import { LATE_KEYS } from "./late";
 
 export type ResolveInput = z.input<typeof ResolveBody>;
 
@@ -95,6 +98,8 @@ const PLUMBING = new Set([
   // A finding's fingerprint and its state (docs/plan.md §1.28): the steps show as a list.
   "fingerprint",
   "finding",
+  // R5: an answer after the run went ahead, and its undo: shown by LateAnswer.
+  ...LATE_KEYS,
 ]);
 
 /** A finding's plain steps for the client admin (`payload.finding.steps`), if it has them. */
@@ -241,6 +246,7 @@ export function InboxCard({
   showToolId,
   testId,
   onUndo,
+  onUndoChange,
   surface = "portal",
 }: {
   item: InboxCardItem;
@@ -266,6 +272,11 @@ export function InboxCard({
   testId?: string;
   /** v0.12 W1-D: takes back an approval inside its undo window; null where nobody may. */
   onUndo?: (() => Promise<void>) | null;
+  /**
+   * R5: takes back a write that went ahead before a late no (the item's `payload.undo`), through
+   * the surface's undo route; null where nobody may.
+   */
+  onUndoChange?: (() => Promise<UndoChangeResult>) | null;
   /** Which inbox shows it: a pack's review card calls that surface's routes. */
   surface?: "portal" | "ops";
 }) {
@@ -402,6 +413,8 @@ export function InboxCard({
       ) : null}
 
       {isRelease && open && renderRelease ? renderRelease(item) : null}
+
+      <LateAnswer payload={item.payload} surface={surface} onUndo={onUndoChange ?? null} />
 
       {item.kind === "request" && open && onResolve && !isRelease && !choices && !ReviewCard ? (
         <label className="ds-field" htmlFor={`answer-${item.id}`}>

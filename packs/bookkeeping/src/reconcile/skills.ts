@@ -2,7 +2,7 @@
 // (`bookkeeping.reconcile-two`); the model only reads a statement into figures, which code then
 // checks add up, and proposes matches for what code left, which a person decides (invariant 7).
 
-import type { SkillDefinition } from "@countersign/core";
+import { lazy, lazyObject, lazyObjects, type SkillDefinition } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { z } from "zod";
 import { PACK_ID } from "../ids";
@@ -12,6 +12,7 @@ import { openReconciliationTool, pairsTool, proposeMatchTool, reconcileTool } fr
 
 const CATEGORY = "Bookkeeping";
 
+// Worker startup (2026-11-11): skills' JSON Schemas are made on first read (core `lazy`).
 function toolSkill(
   tool: PackTool,
   def: {
@@ -22,7 +23,7 @@ function toolSkill(
     settings?: SkillDefinition["settings"];
   },
 ): SkillDefinition {
-  return {
+  return lazyObject({
     schemaVersion: 1,
     id: def.id,
     name: def.name,
@@ -31,14 +32,14 @@ function toolSkill(
     mode: "tool",
     handler: tool.spec.id,
     tools: [],
-    input: tool.spec.input as Record<string, unknown>,
-    output: tool.spec.output as Record<string, unknown>,
+    input: lazy(() => tool.spec.input as Record<string, unknown>),
+    output: lazy(() => tool.spec.output as Record<string, unknown>),
     settings: def.settings ?? [],
     summary: def.summary,
     requiresConnectors: [],
     requiresPacks: [PACK_ID],
     producesAlerts: false,
-  };
+  });
 }
 
 const ReadStatementIn = z.object({ documentId: z.uuid() });
@@ -60,7 +61,7 @@ const ReadStatementOut = z.object({
   sources: z.array(z.string()),
 });
 
-export const RECONCILE_SKILLS: readonly SkillDefinition[] = [
+export const RECONCILE_SKILLS: readonly SkillDefinition[] = lazyObjects([
   toolSkill(pairsTool, {
     id: "bookkeeping.reconcile-pairs",
     name: "Accounts to reconcile",
@@ -124,7 +125,7 @@ export const RECONCILE_SKILLS: readonly SkillDefinition[] = [
       "Finish with how many you proposed and what is still unexplained, with the reconciliation and item ids as sources.",
     ].join("\n"),
     tools: [openReconciliationTool.spec.id, proposeMatchTool.spec.id],
-    input: jsonSchemaOf(z.object({ reconciliationId: z.uuid() })),
+    input: lazy(() => jsonSchemaOf(z.object({ reconciliationId: z.uuid() }))),
     output: {
       type: "object",
       properties: {
@@ -157,12 +158,12 @@ export const RECONCILE_SKILLS: readonly SkillDefinition[] = [
       "5. currency when shown (USD, CAD), else null. sources: the documentId.",
     ].join("\n"),
     tools: ["docs.read", "docs.get"],
-    input: jsonSchemaOf(ReadStatementIn),
-    output: jsonSchemaOf(ReadStatementOut),
+    input: lazy(() => jsonSchemaOf(ReadStatementIn)),
+    output: lazy(() => jsonSchemaOf(ReadStatementOut)),
     settings: [],
     summary: "Read {{items.length}} lines from {{label}}",
     requiresConnectors: [],
     requiresPacks: [PACK_ID],
     producesAlerts: false,
   },
-];
+]);

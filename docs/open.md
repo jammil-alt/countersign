@@ -70,6 +70,8 @@ emailed and the QuickBooks purchase order is created; every write is approved on
 - RFQs are English only; the vendor's language is open.
 - QuickBooks PO lines are account lines only (catalog items carry no QuickBooks item id).
 - The portal channel for conversations (§1.66).
+- **The vendor catalog** (`vendor_item`, plan §1.88): each vendor's items for the client with pack size,
+  unit conversion, last price and preferred vendor. Planned; one migration.
 
 ## 1b. The Bookkeeper (bank transactions into QuickBooks)
 
@@ -138,6 +140,7 @@ then one pass of its "To verify" list against the real service.
 | Access | Browser logins (`browser`) | Turn on Browser Run; then merge the `BROWSER` binding PR (`claude/browser-binding`, jammil-alt/countersign#55); the first real low-tier site; legal review of agent accounts. |
 | Finance | Plaid (`bankfeed`) | §1b above (K1–K3): keys, sandbox checks, production review and OAuth banks; price per bank; BAA (until then not offered to HIPAA clients). Several banks per client is built. |
 | Finance | Ramp (`ramp`) | Developer app, `RAMP_*`. |
+| Finance | BILL (`billcom`, plan §1.87) | A BILL developer key, sandbox first (`BILL_DEV_KEY`; `docs/operations.md`), a dedicated BILL user's login entered by the client admin, then `NOTES.md`'s "To verify"; production after BILL's review. Decide: which BILL role our user gets; whether BILL goes on the site's subprocessors page (it is a processor, as Plaid is); BILL's BAA (until then not offered to HIPAA clients). **Code still needed for payments:** `billcom.payment.create` is defined, off and refused until BILL's MFA-trusted session can be reached through the code service (`apps/mfa`). |
 | Finance | Stripe (billing) | Account and keys; the open prices (§4). |
 | CRM | HubSpot, Zoho CRM, Podio | A developer app each (`HUBSPOT_*`, `ZOHO_*`, `PODIO_*`). |
 | Google | Drive, Sheets | `drive.file` on the consent screen (with S4); `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER`. |
@@ -172,6 +175,15 @@ bring this forward.
   agent address form; client test cases never gating shared skills; who sets "on its own".
 - **Smaller defaults** (§7 item 10): the 60 s undo window, US federal holidays only, notification
   texts only from the client's own number, replay as a test run in the same client.
+
+### The process model's urgent notices (code; `docs/plan.md` §1.86, runtime wave 2c)
+
+- An urgent notice's person is told at once by email and text from the notify step itself
+  (`apps/api/src/notify/urgent.ts`), not through the `notification` outbox, so those sends have no
+  `notification` row (no retries after a failed send, no line in the notification counts; a failed
+  send is reported and the card waits for the items-waiting pass). Making it an outbox kind of its
+  own (`urgent`, never held for quiet hours) needs a migration of `notification_kind_check`; do it
+  in its own PR, then send from the outbox.
 
 ### Language and legal
 

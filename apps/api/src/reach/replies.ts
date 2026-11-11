@@ -38,6 +38,8 @@ import {
 import { DocumentError, storeDocument } from "@countersign/documents";
 import type { EventRow } from "@countersign/senses";
 import { and, desc, eq, ne } from "drizzle-orm";
+// R7
+import { conversationEventOfSubject, sendWithConversation } from "../converse/wake";
 import { type ContactRow, contactThread, type ThreadMessageBody } from "../messaging/contacts";
 import { reportHandled } from "../observability/report";
 import type { RunInstances } from "../runs/instances";
@@ -48,6 +50,8 @@ import { endReachOut, type ReachOutRow, reachOutEventType } from "./service";
 interface Wake {
   id: string;
   runId: string;
+  // R7: a conversation's message (`converse:` subject) wakes a v4 conversation step too.
+  subject?: string | undefined;
 }
 
 async function openFor(tx: Tx, tenantId: string, contactId: string): Promise<ReachOutRow[]> {
@@ -110,7 +114,7 @@ export async function recordReply(
     .from(contact)
     .where(and(eq(contact.id, row.contactId), eq(contact.tenantId, row.tenantId)));
   if (who) await replyLine(tx, ended, who, reply);
-  return { id: ended.id, runId: ended.runId };
+  return { id: ended.id, runId: ended.runId, subject: ended.subject };
 }
 
 async function rawText(tx: Tx, tenantId: string, id: unknown): Promise<string> {
@@ -167,7 +171,7 @@ export async function matchRepliesIn(
             { outcome: "opted_out", reason: "the contact texted STOP" },
             now,
           );
-          if (ended) woken.push({ id: ended.id, runId: ended.runId });
+          if (ended) woken.push({ id: ended.id, runId: ended.runId, subject: ended.subject });
         }
         continue;
       }
@@ -222,10 +226,12 @@ export async function wakeAll(instances: RunInstances | undefined, woken: readon
   if (!instances) return;
   for (const w of woken) {
     try {
-      await instances.sendEvent(w.runId, {
-        type: reachOutEventType(w.id),
-        payload: { reachOutId: w.id },
-      });
+      await sendWithConversation(
+        instances,
+        w.runId,
+        { type: reachOutEventType(w.id), payload: { reachOutId: w.id } },
+        conversationEventOfSubject(w.subject),
+      );
     } catch (error) {
       reportHandled(`waking run ${w.runId} for reach-out ${w.id} failed`, error, { job: "reach" });
     }

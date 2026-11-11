@@ -11,6 +11,7 @@ import {
   createTemplate,
   createVersion,
   discardDraft,
+  existingBundle,
   fork,
   getAgent,
   getVersion,
@@ -32,8 +33,8 @@ import {
   validateForPublish,
 } from "@countersign/agents";
 import {
-  type AgentBundle,
-  AgentBundle as AgentBundleSchema,
+  type AnyAgentBundle,
+  AnyAgentBundle as AnyAgentBundleSchema,
   routes,
   type SkillDefinition,
   validateWorkflow,
@@ -56,7 +57,7 @@ async function agentInScope(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">, id
   return row;
 }
 
-function routable(row: AgentRow, liveBundle: AgentBundle | null): RoutableAgent {
+function routable(row: AgentRow, liveBundle: AnyAgentBundle | null): RoutableAgent {
   return {
     id: row.id,
     tenantId: row.tenantId,
@@ -95,7 +96,7 @@ async function sandboxClient(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">): 
 async function bindTestCopy(
   ctx: Pick<HandlerCtx<never>, "tx" | "services" | "session">,
   copy: AgentRow,
-  bundle: AgentBundle,
+  bundle: AnyAgentBundle,
 ): Promise<AgentRow> {
   const tenantId = copy.tenantId as string;
   const { skills } = await skillContext(ctx.tx, {
@@ -287,7 +288,10 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
       }),
     });
     // Drafts may be saved with errors (§10.2); the editor shows what would stop a publish.
-    const errors = await validateForPublish(tx, row, v.bundle, services.platform.ctx);
+    // Skill model (2026-11-10): what publish will say about new steps, said now.
+    const errors = await validateForPublish(tx, row, v.bundle, services.platform.ctx, {
+      previous: await existingBundle(tx, v),
+    });
     return { version: versionSummary(v), errors };
   });
 
@@ -393,7 +397,9 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
     // DECISION: a test run is checked exactly as a publish is, against the agent asked for: a
     // template as a template, a client agent with its bound connections, as the builder checks it
     // before it offers Test run (docs/plan.md §1.5).
-    const errors = await validateForPublish(ctx.tx, row, v.bundle, ctx.services.platform.ctx);
+    const errors = await validateForPublish(ctx.tx, row, v.bundle, ctx.services.platform.ctx, {
+      previous: await existingBundle(ctx.tx, v),
+    });
     if (errors.length > 0) {
       throw new HttpError(422, "invalid_bundle", `v${v.version} does not validate`, errors);
     }
@@ -451,13 +457,15 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
     let skills: Record<string, SkillDefinition> = Object.fromEntries(
       platform.catalog.list().map((s) => [s.id, s]),
     );
-    let agentDef: AgentBundle["definition"] | undefined;
+    let agentDef: AnyAgentBundle["definition"] | undefined;
     if (body.agentId) {
       const row = await agentInScope(ctx, body.agentId);
       const latest = await latestVersion(tx, row.id);
       const v = row.liveVersionId ? await getVersion(tx, row.liveVersionId) : latest;
       if (v) {
-        const bundle = AgentBundleSchema.parse(v.bundle);
+        // Wave 3b: the agent's live (else latest) version may hold v4 processes; only its
+        // definition and skills are read here.
+        const bundle = AnyAgentBundleSchema.parse(v.bundle);
         agentDef = bundle.definition;
         const resolved = await skillContext(tx, {
           tenantId: row.tenantId,

@@ -1,22 +1,27 @@
 // The workflow builder on a fake API: adding from the palette, reordering and moving into and out
 // of fork paths with the keyboard (dnd-kit's keyboard sensor), deleting and undoing, the Approval
 // control's enabled and disabled rules, invalid markers with a clickable summary, and the bundle
-// it saves keeping every step, path and id.
+// it saves keeping every step, path and id. R8: the fixture is a stored v3 version; the builder
+// opens it as a v4 process and saves processes (schemaVersion 4) as a new version.
 import {
   AgentBundle,
   type AgentBundleInput,
+  AnyAgentBundle,
   type BuilderCatalog,
   canonicalJson,
   nodeIds,
   type PermissionMatrix,
+  processes,
 } from "@countersign/core";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentSummary, VersionDetail } from "../../api/routes";
 import { ApiProvider } from "../../api/useApi";
 import { fakeApi, Reply } from "../../test/fixtures";
+import { typingContext } from "./catalog";
+import { readProcessBundle } from "./model";
 import WorkflowBuilder from "./WorkflowBuilder";
 
 const AGENT_ID = "00000000-0000-4000-8000-00000000b101";
@@ -328,6 +333,8 @@ interface Setup {
   catalog?: BuilderCatalog;
   /** Whether the agent's client is the Sandbox (the Testkit is offered only there). */
   sandbox?: boolean;
+  /** The client's People list (GET /api/ops/clients/:id/hours). */
+  people?: { kind: "user" | "contact"; id: string; name: string; hours: null }[];
 }
 
 function setup(options: Setup = {}) {
@@ -340,6 +347,17 @@ function setup(options: Setup = {}) {
   const api = fakeApi({
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => options.catalog ?? CATALOG,
     "GET /api/ops/catalog/events": () => EVENTS,
+    ...(options.people
+      ? {
+          [`GET /api/ops/clients/${CLIENT_ID}/hours`]: () => ({
+            business: {
+              hours: { tz: "UTC", week: { mon: [{ from: "08:00", to: "18:00" }] } },
+              isDefault: true,
+            },
+            people: options.people,
+          }),
+        }
+      : {}),
     "GET /api/ops/clients": () => ({
       clients: [
         {
@@ -497,7 +515,7 @@ describe("WorkflowBuilder", () => {
     expect(screen.getByTestId("builder-step-find")).not.toHaveTextContent("docs.find-support");
     expect(listOrder("path:low")).toEqual(["ask"]);
     expect(screen.getByTestId("builder-counts")).toHaveTextContent(
-      "Purchasing · 5 steps · 1 fork · 1 changes a tool · 1 needs approval",
+      "Purchasing · 5 steps · 1 if · 1 changes a tool · 1 needs approval",
     );
     expect(screen.getByTestId("builder-version")).toHaveTextContent("Draft · v1");
     expect(screen.getByTestId("builder-valid")).toBeInTheDocument();
@@ -582,7 +600,7 @@ describe("WorkflowBuilder", () => {
     const user = userEvent.setup();
     await user.click(screen.getByTestId("builder-add-step"));
 
-    // The agent's own skills come first, then the library; actions are grouped by tool.
+    // The agent's own skills come first, then the library; reads and writes are grouped by connector.
     const skills = screen.getByTestId("builder-palette-skills");
     expect(
       within(skills)
@@ -598,9 +616,12 @@ describe("WorkflowBuilder", () => {
     expect(within(actions).getByRole("heading")).toHaveTextContent("Testkit");
     expect(within(actions).getByText("Update a record")).toBeInTheDocument();
     expect(actions).not.toHaveTextContent("testkit.record.update");
-    expect(within(actions).queryByText(/query/i)).toBeNull();
+    // R8: reads are offered too, as read steps, before the changes.
+    expect(
+      within(actions).getByTestId("builder-palette-item-read:testkit.record.query"),
+    ).toHaveTextContent("Read");
 
-    await user.click(screen.getByTestId("builder-palette-item-action:testkit.record.update-add"));
+    await user.click(screen.getByTestId("builder-palette-item-write:testkit.record.update-add"));
     const order = rootOrder();
     expect(order).toHaveLength(5);
     const added = order[4] as string;
@@ -883,14 +904,16 @@ describe("WorkflowBuilder", () => {
     const body = sent[0]?.body as { bundle: AgentBundle; parentVersionId: string };
     expect(body.parentVersionId).toBe(V1);
     const before = BUNDLE.workflows[0]?.workflow;
-    const after = AgentBundle.parse(body.bundle).workflows[0]?.workflow;
-    if (!before || !after) throw new Error("no workflow");
-    expect(nodeIds(after)).toEqual(nodeIds(before));
-    // Nothing but the name changed.
-    const renamed = AgentBundle.parse(body.bundle);
+    // R8: saved as a v4 process (a new version; v1 stays v3), every id kept.
+    const after = AnyAgentBundle.parse(body.bundle).workflows[0]?.workflow;
+    if (!before || after?.schemaVersion !== 4) throw new Error("no process");
+    expect(processes.nodeIds(after)).toEqual(nodeIds(before));
+    // Nothing but the name changed from the stored version read as a process.
+    const renamed = AnyAgentBundle.parse(body.bundle);
     const step = renamed.workflows[0]?.workflow.steps[0];
     if (step) step.name = "Find supporting document";
-    expect(canonicalJson(renamed)).toBe(canonicalJson(BUNDLE));
+    const ctx = typingContext({ catalog: CATALOG, events: EVENTS.events });
+    expect(canonicalJson(renamed)).toBe(canonicalJson(readProcessBundle(BUNDLE, ctx)));
     expect(await screen.findByTestId("builder-notice")).toHaveTextContent("Saved v2 as a draft.");
     expect(screen.getByTestId("builder-version")).toHaveTextContent("Draft · v2");
     expect(changed()).toBe(1);
@@ -1436,7 +1459,7 @@ describe("WorkflowBuilder with the Builder", () => {
     await ready();
     const user = userEvent.setup();
     await user.click(screen.getByTestId("builder-add-step"));
-    await user.click(screen.getByTestId("builder-palette-item-automation:polite-follow-up@2-add"));
+    await user.click(screen.getByTestId("builder-palette-item-process:polite-follow-up@2-add"));
     expect(rootOrder()).toHaveLength(5);
     expect(screen.getByTestId("builder-automation")).toHaveTextContent("Polite follow-up · v2");
   });
@@ -1456,8 +1479,766 @@ describe("WorkflowBuilder with the Builder", () => {
     await user.selectOptions(select, "claude-haiku-4-5");
     await user.click(screen.getByTestId("builder-save"));
     await waitFor(() => expect(sent).toHaveLength(1));
-    const saved = AgentBundle.parse((sent[0]?.body as { bundle: unknown } | undefined)?.bundle);
+    const saved = AnyAgentBundle.parse((sent[0]?.body as { bundle: unknown } | undefined)?.bundle);
     const find = saved.workflows[0]?.workflow.steps[0];
     expect(find?.kind === "skill" ? find.model : null).toEqual({ id: "claude-haiku-4-5" });
+  });
+});
+
+// R8 (docs/plan.md §1.86, §9; ARCHITECTURE §10.14): v4 processes, checks, deadlines and a skill
+// step's customization.
+describe("WorkflowBuilder on processes", () => {
+  /** The step as saved: the body's bundle read as v4, the step found anywhere in its process. */
+  function savedStep(sent: { body: Record<string, unknown> }[], id: string) {
+    const bundle = AnyAgentBundle.parse(sent.at(-1)?.body.bundle);
+    const process = bundle.workflows[0]?.workflow;
+    if (process?.schemaVersion !== 4) throw new Error("not saved as a process");
+    return processes.findStep(process, id)?.step;
+  }
+
+  /** The last step of the saved process (a step added in the test). */
+  function savedLast(sent: { body: Record<string, unknown> }[]) {
+    const bundle = AnyAgentBundle.parse(sent.at(-1)?.body.bundle);
+    const process = bundle.workflows[0]?.workflow;
+    if (process?.schemaVersion !== 4) throw new Error("not saved as a process");
+    return process.steps.at(-1);
+  }
+
+  async function select(user: ReturnType<typeof userEvent.setup>, id: string) {
+    await ready();
+    await user.click(screen.getByTestId(`builder-step-${id}-select`));
+  }
+
+  async function save(user: ReturnType<typeof userEvent.setup>, sent: unknown[]) {
+    const before = sent.length;
+    await user.click(screen.getByTestId("builder-save"));
+    await waitFor(() => expect(sent.length).toBe(before + 1));
+  }
+
+  it("opens a stored v3 version as a process, says so, and saves it as v4 without editing it", async () => {
+    const { sent } = setup();
+    await ready();
+    const user = userEvent.setup();
+    expect(screen.getByTestId("builder-notice")).toHaveTextContent(
+      "v1 is stored in the older workflow format",
+    );
+    // Reading it converted is not an edit: nothing to save until something changes.
+    expect(screen.getByTestId("builder-save")).toBeDisabled();
+    expect(screen.queryByTestId("builder-unsaved")).toBeNull();
+    // The v3 fork is an if, the action a write with its approval; the canvas words follow.
+    expect(screen.getByTestId("builder-step-confidence")).toHaveTextContent("If");
+    // Skill model (2026-11-10): a write to a client's tool reads "Change in <its name>".
+    expect(screen.getByTestId("builder-step-update-kind")).toHaveTextContent("Change in Testkit");
+    await select(user, "find");
+    await user.type(screen.getByTestId("builder-inspector-name"), "!");
+    await save(user, sent);
+    const body = sent[0]?.body as {
+      bundle: { workflows: { workflow: { schemaVersion: number } }[] };
+      parentVersionId: string;
+    };
+    expect(body.parentVersionId).toBe(V1);
+    expect(body.bundle.workflows.map((w) => w.workflow.schemaVersion)).toEqual([4]);
+    expect(savedStep(sent, "confidence")?.kind).toBe("if");
+    expect(savedStep(sent, "update")).toMatchObject({
+      kind: "write",
+      tool: "testkit.record.update",
+      checks: { approval: { required: "required", mode: "in_turn", ifNoAnswer: "stop" } },
+    });
+    expect(savedStep(sent, "ask")).toMatchObject({
+      kind: "person",
+      deadline: { after: "2 days", hours: "clock", ifNoAnswer: "stop" },
+    });
+    // The stored v1 is what it was: the builder sent a new version, never v1 changed.
+    expect(BUNDLE.workflows[0]?.workflow.schemaVersion).toBe(3);
+  });
+
+  // Wave 3b: Publish sends the stored v3 version while nothing changed, and the server validates
+  // it as v3; the builder's problem list and Publish button follow what would be sent.
+  it("validates an unchanged stored v3 version as v3, as its publish will, and the edited process as v4", async () => {
+    const suggesting = AgentBundle.parse({
+      ...BUNDLE_INPUT,
+      definition: { ...BUNDLE_INPUT.definition, permissions: { mode: "suggest_only" } },
+      workflows: [
+        {
+          slug: "new-bill",
+          name: "New bill",
+          workflow: {
+            schemaVersion: 3,
+            trigger: { id: "t1", on: { type: "event", event: "transaction.created" } },
+            steps: [
+              {
+                id: "update",
+                kind: "action",
+                name: "Update the record",
+                tool: "testkit.record.update",
+                input: { id: "{{trigger.billId}}" },
+                approval: { required: "not_required" },
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const { sent } = setup({ bundle: suggesting });
+    await ready();
+    const user = userEvent.setup();
+    // v3 doesn't hold a suggest-only agent's loosened action at publish (the gate still asks).
+    expect(screen.getByTestId("builder-valid")).toBeInTheDocument();
+    expect(screen.getByTestId("builder-publish")).toBeEnabled();
+    await user.click(screen.getByTestId("builder-publish"));
+    await waitFor(() => expect(sent.map((s) => s.path)).toEqual([`publish ${V1}`]));
+    // Once edited, the next save is a process, which v4 holds to an agent that acts.
+    await select(user, "update");
+    await user.type(screen.getByTestId("builder-inspector-name"), "!");
+    expect(screen.getByTestId("builder-problems")).toHaveTextContent("1 problem");
+    expect(screen.getByTestId("builder-publish")).toBeDisabled();
+  });
+
+  it("says a process step's changes are approved inside it, and offers a conversation no approval", async () => {
+    setup({
+      catalog: {
+        ...CATALOG,
+        automations: [
+          {
+            ref: "correct@1",
+            slug: "correct",
+            version: 1,
+            name: "Correct the record",
+            description: "Corrects a record",
+            source: "shared",
+            status: "live",
+            definition: {
+              schemaVersion: 1 as const,
+              slug: "correct",
+              name: "Correct the record",
+              description: "Corrects a record",
+              input: { type: "object", properties: {} },
+              output: {},
+              steps: [
+                {
+                  id: "u",
+                  kind: "action" as const,
+                  name: "Update",
+                  tool: "testkit.record.update",
+                  input: { id: "x" },
+                  approval: { required: "required" as const, onReject: "stop" as const },
+                },
+              ],
+              requires: { skills: [], tools: ["testkit.record.update"], connectors: ["testkit"] },
+            },
+            outputSchema: { type: "object", properties: {} },
+          },
+        ],
+      },
+    });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-process:correct@1-add"));
+    expect(screen.getByTestId("builder-approval-none")).toHaveTextContent(
+      "approved inside that process",
+    );
+    expect(screen.getByTestId("builder-approval-none")).not.toHaveTextContent("changes nothing");
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-conversation-add"));
+    expect(screen.getByTestId("builder-approval-conversation")).toHaveTextContent(
+      "signed under its message settings",
+    );
+    expect(screen.queryByTestId("builder-approval-add")).toBeNull();
+  });
+
+  it("offers the client's team as person reviewers, never a directory contact", async () => {
+    const DANA = "00000000-0000-4000-8000-0000000c0001";
+    const NORTHLINE = "00000000-0000-4000-8000-0000000c0002";
+    setup({
+      people: [
+        { kind: "user", id: DANA, name: "Dana Reyes", hours: null },
+        { kind: "contact", id: NORTHLINE, name: "Northline Supply", hours: null },
+      ],
+    });
+    const user = userEvent.setup();
+    await select(user, "update");
+    await user.click(screen.getByTestId("builder-confer-add"));
+    await user.click(screen.getByTestId("builder-confer-add-person"));
+    const picker = screen.getByTestId("builder-confer-1-person");
+    await waitFor(() => expect(within(picker).getByText("Dana Reyes")).toBeInTheDocument());
+    // A conferee sees the step's result: a vendor is outside the team, so never offered.
+    expect(within(picker).queryByText("Northline Supply")).toBeNull();
+  });
+
+  it("adds a second opinion: a model with a focus, then a person if it disagreed, in business hours", async () => {
+    const { sent } = setup();
+    const user = userEvent.setup();
+    await select(user, "update");
+    await user.click(screen.getByTestId("builder-confer-add"));
+    // An AI reviewer's focus becomes its instructions: written here.
+    await user.type(screen.getByTestId("builder-confer-0-focus"), "Do the amounts match?");
+    await user.click(screen.getByTestId("builder-confer-add-person"));
+    await user.selectOptions(screen.getByTestId("builder-confer-1-person"), "lead");
+    const after = screen.getByTestId("builder-confer-1-deadline-after");
+    await user.clear(after);
+    await user.type(after, "4 hours");
+    await user.selectOptions(screen.getByTestId("builder-confer-1-deadline-hours"), "business");
+    expect(screen.getByTestId("builder-confer-1-deadline-business")).toHaveTextContent(
+      "Counts only while the person asked is working",
+    );
+    // The person only when the model disagreed: its verdict is offered to the condition.
+    await user.click(screen.getByTestId("builder-confer-1-when-add"));
+    await user.click(screen.getByTestId("builder-confer-1-when-rule-0-field-pick"));
+    await user.click(
+      screen.getByTestId("builder-confer-1-when-rule-0-field-path-confer.0.verdict"),
+    );
+    await user.clear(screen.getByTestId("builder-confer-1-when-rule-0-value"));
+    await user.type(screen.getByTestId("builder-confer-1-when-rule-0-value"), "disagree");
+    expect(screen.getByTestId("builder-step-update-confer")).toHaveTextContent(
+      "Checked with a person",
+    );
+    expect(screen.getByTestId("builder-valid")).toBeInTheDocument();
+    await save(user, sent);
+    expect(savedStep(sent, "update")?.checks?.confer).toEqual({
+      with: [
+        { ai: { focus: "Do the amounts match?" } },
+        {
+          person: "lead",
+          deadline: { after: "4 hours", hours: "business", ifNoAnswer: "stop" },
+          when: {
+            match: "all",
+            rules: [{ field: "{{confer.0.verdict}}", op: "=", value: "disagree" }],
+          },
+        },
+      ],
+    });
+  });
+
+  it("runs the AI reviewer on a model picked from the models served, with its provider", async () => {
+    const { api, sent } = setup();
+    api.on("GET /api/ops/models", () => ({
+      models: [
+        {
+          id: "claude-haiku-5-5",
+          label: "Fast (Haiku)",
+          inputPerMtok: "0.10",
+          outputPerMtok: "0.50",
+        },
+        {
+          id: "xai:grok-4.7",
+          label: "xAI (Grok 4.7)",
+          inputPerMtok: "2.00",
+          outputPerMtok: "6.00",
+        },
+        {
+          id: "google:gemini-3.1-pro",
+          label: "Google (Gemini 3.1 Pro)",
+          inputPerMtok: "2.00",
+          outputPerMtok: "12.00",
+        },
+      ],
+    }));
+    const user = userEvent.setup();
+    await select(user, "update");
+    await user.click(screen.getByTestId("builder-confer-add"));
+    await user.type(screen.getByTestId("builder-confer-0-focus"), "Do the amounts match?");
+    const picker = screen.getByTestId("builder-confer-0-model");
+    await within(picker).findByText("xAI (Grok 4.7) · $2.00 / $6.00");
+    expect(
+      within(picker).getByText("Google (Gemini 3.1 Pro) · $2.00 / $12.00"),
+    ).toBeInTheDocument();
+    expect(picker).toHaveValue("");
+    await user.selectOptions(picker, "google:gemini-3.1-pro");
+    await save(user, sent);
+    expect(savedStep(sent, "update")?.checks?.confer).toEqual({
+      with: [{ ai: { focus: "Do the amounts match?", model: { id: "google:gemini-3.1-pro" } } }],
+    });
+  });
+
+  it("names approvers who all must approve, with a deadline, and escalates when nobody answers", async () => {
+    const { sent } = setup();
+    const user = userEvent.setup();
+    await select(user, "update");
+    expect(screen.getByTestId("builder-approval-default")).toHaveTextContent(
+      "The default approver",
+    );
+    await user.click(screen.getByTestId("builder-approval-add-approver"));
+    await user.click(screen.getByTestId("builder-approval-add-approver"));
+    await user.selectOptions(screen.getByTestId("builder-approver-1-who"), "lead");
+    await user.selectOptions(screen.getByTestId("builder-approval-mode"), "all");
+    await user.click(screen.getByTestId("builder-approver-0-has-deadline"));
+    await user.selectOptions(screen.getByTestId("builder-approval-then"), "escalate");
+    await user.selectOptions(screen.getByTestId("builder-approval-then-escalate-to"), "operator");
+    await save(user, sent);
+    expect(savedStep(sent, "update")?.checks?.approval).toEqual({
+      required: "required",
+      mode: "all",
+      approvers: [
+        { who: "client_admin", deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" } },
+        { who: "lead" },
+      ],
+      ifNoAnswer: {
+        escalate: {
+          to: "operator",
+          deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+        },
+      },
+      onReject: "stop",
+    });
+  });
+
+  it("offers going ahead with no answer, or some runs only, only where a write may be loosened", async () => {
+    setup({ update: "approval" });
+    const user = userEvent.setup();
+    await select(user, "update");
+    const then = screen.getByTestId("builder-approval-then");
+    expect(within(then).getByRole("option", { name: /Go ahead/ })).toBeDisabled();
+    expect(screen.getByTestId("builder-approval-then-proceed-reason")).toHaveTextContent(
+      "The Testkit connection requires approval for updates.",
+    );
+    expect(screen.queryByTestId("builder-approval-when-add")).toBeNull();
+    expect(screen.getByTestId("builder-approval-toggle")).toBeDisabled();
+  });
+
+  it("lets the operator loosen a write where it may be, and the canvas says it runs on its own", async () => {
+    const { sent } = setup();
+    const user = userEvent.setup();
+    await select(user, "update");
+    const then = screen.getByTestId("builder-approval-then");
+    expect(within(then).getByRole("option", { name: /Go ahead/ })).toBeEnabled();
+    await user.selectOptions(then, "proceed");
+    await user.click(screen.getByTestId("builder-approval-when-add"));
+    expect(screen.getByTestId("builder-approval-when")).toBeInTheDocument();
+    await user.click(screen.getByTestId("builder-approval-when-always"));
+    await user.click(screen.getByTestId("builder-approval-toggle"));
+    expect(screen.getByTestId("builder-step-update-approval")).toHaveTextContent("On its own");
+    await save(user, sent);
+    expect(savedStep(sent, "update")?.checks?.approval).toMatchObject({
+      required: "not_required",
+      ifNoAnswer: "proceed",
+    });
+  });
+
+  it("adds an urgent notice that must be seen in time", async () => {
+    const { sent } = setup();
+    const user = userEvent.setup();
+    await select(user, "update");
+    await user.click(screen.getByTestId("builder-notify-add"));
+    await user.type(screen.getByTestId("builder-notify-0-message"), "The bill changed");
+    await user.selectOptions(screen.getByTestId("builder-notify-0-to-add"), "lead");
+    await user.click(screen.getByTestId("builder-notify-0-urgent"));
+    const ack = screen.getByTestId("builder-notify-0-ack");
+    await user.clear(ack);
+    await user.type(ack, "15 minutes");
+    expect(screen.getByTestId("builder-step-update-notify")).toHaveTextContent("Urgent notice");
+    await save(user, sent);
+    expect(savedStep(sent, "update")?.checks?.notify).toEqual([
+      {
+        to: ["client_admin", "lead"],
+        channel: "inbox",
+        message: "The bill changed",
+        urgent: { ackWithin: "15 minutes", ifNoAnswer: "stop" },
+      },
+    ]);
+  });
+
+  it("edits a person step's deadline: business hours, reminders, skip, and who is told", async () => {
+    const { sent } = setup();
+    const user = userEvent.setup();
+    await select(user, "ask");
+    await user.selectOptions(screen.getByTestId("builder-person-deadline-hours"), "business");
+    await user.type(screen.getByTestId("builder-person-deadline-remind"), "1 hour, 4 hours");
+    await user.selectOptions(screen.getByTestId("builder-person-deadline-then"), "skip");
+    await user.selectOptions(screen.getByTestId("builder-person-deadline-tell-add"), "operator");
+    // A card is one line; its deadline is in its tooltip.
+    await user.hover(screen.getByTestId("builder-step-ask"));
+    expect(screen.getByTestId("builder-step-tip")).toHaveTextContent("2 days in business hours");
+    await user.unhover(screen.getByTestId("builder-step-ask"));
+    await save(user, sent);
+    expect(savedStep(sent, "ask")).toMatchObject({
+      deadline: {
+        after: "2 days",
+        hours: "business",
+        remind: ["1 hour", "4 hours"],
+        ifNoAnswer: "skip",
+        tell: ["operator"],
+      },
+    });
+  });
+
+  it("customizes a skill step against the skill's own values, and says what can't apply", async () => {
+    const when = {
+      match: "all" as const,
+      rules: [{ field: "{{input.vendor}}", op: "=" as const, value: "Home Depot" }],
+    };
+    const categorize = {
+      ref: "custom:categorize",
+      source: "shared" as const,
+      version: 1,
+      definition: {
+        schemaVersion: 1 as const,
+        id: "custom:categorize",
+        name: "Pick the account",
+        description: "Rules first, then a model",
+        category: "custom",
+        mode: "agent" as const,
+        method: "rules_then_ai" as const,
+        instructions: "Pick the account for each line.",
+        tools: [],
+        input: { type: "object", properties: { vendor: { type: "string" } } },
+        output: {
+          type: "object",
+          properties: { account: { type: "string" }, confidence: { type: "number" } },
+        },
+        settings: [
+          {
+            key: "threshold",
+            label: "Threshold",
+            type: "number" as const,
+            default: 0.8,
+            clientSpecific: false,
+          },
+        ],
+        rules: [{ id: "home-depot", name: "Home Depot", when, set: { account: "Materials" } }],
+        requiresConnectors: [],
+        requiresPacks: [],
+        producesAlerts: false,
+      },
+    };
+    const { sent } = setup({ catalog: { ...CATALOG, skills: [...CATALOG.skills, categorize] } });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-skill:custom:categorize-add"));
+    expect(screen.getByTestId("builder-customize-method")).toHaveTextContent(
+      "Rules, then AI for what they leave open",
+    );
+    expect(screen.getByTestId("builder-setting-threshold-template")).toHaveTextContent(
+      "The skill's default: 0.8",
+    );
+    await user.type(screen.getByTestId("builder-setting-threshold"), "0.9");
+    await user.type(screen.getByTestId("builder-customize-instructions"), "Prefer Materials.");
+    expect(screen.getByTestId("builder-customize-own-instructions")).toHaveTextContent(
+      "Pick the account for each line.",
+    );
+    await user.click(screen.getByTestId("builder-rule-home-depot-edit"));
+    await user.click(screen.getByTestId("builder-rule-add"));
+    await user.click(screen.getByTestId("builder-customize-keep-confidence"));
+    // A row that sets a field the step no longer passes on can't apply: core says why.
+    const set = screen.getByTestId("builder-rule-added-0-set");
+    fireEvent.change(set, { target: { value: '{"confidence": 1}' } });
+    expect(screen.getByTestId("builder-customize-problems")).toHaveTextContent(
+      "rule “Rule 2” sets confidence, not an output field",
+    );
+    fireEvent.change(set, { target: { value: '{"account": "Tools"}' } });
+    expect(screen.queryByTestId("builder-customize-problems")).toBeNull();
+    await save(user, sent);
+    const step = savedLast(sent);
+    // Wave 3b: an added row's id is a uuidv7 (merged three-way by id, never a counter that a
+    // template's and a client's rows could both take); its name is what people read.
+    const added = step?.kind === "skill" ? step.customize?.rules?.add?.[0] : undefined;
+    expect(added?.id).toMatch(
+      /^rule-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(step?.kind === "skill" ? step.customize : null).toEqual({
+      settings: { threshold: 0.9 },
+      addInstructions: "Prefer Materials.",
+      rules: {
+        add: [
+          {
+            id: added?.id,
+            name: "Rule 2",
+            when: { match: "all", rules: [] },
+            set: { account: "Tools" },
+          },
+        ],
+        edit: [{ id: "home-depot", when, set: { account: "Materials" } }],
+      },
+      keep: ["account"],
+    });
+  });
+
+  it("edits a conversation step: who, the channel, what to find, and who signs its messages", async () => {
+    const { sent } = setup();
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-conversation-add"));
+    await user.type(screen.getByTestId("builder-conversation-with"), "c-42");
+    await user.selectOptions(screen.getByTestId("builder-conversation-channel"), "call");
+    await user.type(screen.getByTestId("builder-conversation-goal"), "Confirm the delivery date");
+    const name = screen.getByTestId("builder-conversation-find-0");
+    await user.clear(name);
+    await user.type(name, "deliveryDate");
+    await user.selectOptions(screen.getByTestId("builder-conversation-find-0-type"), "date");
+    // A client agent that acts, on a connection that allows auto: later messages may go under
+    // the first yes.
+    await user.selectOptions(screen.getByTestId("builder-conversation-later"), "within_goal");
+    await save(user, sent);
+    expect(savedLast(sent)).toMatchObject({
+      kind: "conversation",
+      with: "c-42",
+      channel: "call",
+      goal: "Confirm the delivery date",
+      find: { deliveryDate: "date" },
+      messages: { first: "required", later: "within_goal" },
+      deadline: { after: "3 days", hours: "clock", ifNoAnswer: "stop" },
+    });
+  });
+
+  it("holds a skill that contacts people to approval as a write is", async () => {
+    const reach = {
+      ref: "comms.reach-out",
+      source: "builtin" as const,
+      version: null,
+      definition: {
+        schemaVersion: 1 as const,
+        id: "comms.reach-out",
+        name: "Reach out",
+        description: "Contact someone",
+        category: "comms",
+        mode: "agent" as const,
+        tools: [],
+        input: { type: "object" },
+        output: { type: "object" },
+        settings: [],
+        requiresConnectors: [],
+        requiresPacks: [],
+        producesAlerts: false,
+        reachesPeople: true,
+      },
+    };
+    setup({
+      agent: { kind: "template", tenantId: null, bindings: {} },
+      catalog: { ...CATALOG, skills: [...CATALOG.skills, reach] },
+    });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-skill:comms.reach-out-add"));
+    expect(screen.getByTestId("builder-approval")).toHaveTextContent(
+      "This step contacts people outside the client's team.",
+    );
+    expect(screen.getByTestId("builder-approval-toggle")).toBeChecked();
+    expect(screen.getByTestId("builder-approval-toggle")).toBeDisabled();
+    expect(screen.queryByTestId("builder-approval-remove")).toBeNull();
+    expect(screen.getByTestId("builder-approval-reason")).toHaveTextContent(
+      "Templates keep approval on",
+    );
+  });
+
+  it("keeps a template's conversation messages signed", async () => {
+    setup({ agent: { kind: "template", tenantId: null, bindings: {} } });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-conversation-add"));
+    expect(screen.getByTestId("builder-conversation-first")).toBeDisabled();
+    expect(
+      within(screen.getByTestId("builder-conversation-later")).getByRole("option", {
+        name: /Go under the first yes/,
+      }),
+    ).toBeDisabled();
+    expect(screen.getByTestId("builder-conversation-messages-reason")).toHaveTextContent(
+      "Templates keep approval on",
+    );
+  });
+
+  // Wave 5 (docs/plan.md §1.86 "Forks (wave 5)"): fork on how a step ended.
+  describe("forks on how a step ended", () => {
+    it("offers earlier steps' outcomes in words in an if's conditions, never a later step's", async () => {
+      const { sent } = setup();
+      const user = userEvent.setup();
+      await select(user, "confidence");
+      await user.click(screen.getByTestId("builder-path-low-rule-0-field-pick"));
+      const list = screen.getByTestId("builder-path-low-rule-0-field-paths");
+      expect(
+        within(list).getByTestId("builder-path-low-rule-0-field-path-steps.find.outcome"),
+      ).toHaveTextContent("Find supporting document: how it ended");
+      expect(
+        within(list).queryByTestId("builder-path-low-rule-0-field-path-steps.update.outcome"),
+      ).toBeNull();
+      expect(
+        within(list).queryByTestId("builder-path-low-rule-0-field-path-steps.confidence.outcome"),
+      ).toBeNull();
+      // One pick adds "how an earlier step ended", its value a dropdown in words.
+      const add = screen.getByTestId("builder-path-low-add-outcome");
+      expect(within(add).queryByRole("option", { name: /Update the record/ })).toBeNull();
+      await user.selectOptions(add, "steps.read.outcome=done");
+      await save(user, sent);
+      expect(savedStep(sent, "confidence")).toMatchObject({
+        paths: [
+          {
+            id: "low",
+            when: {
+              rules: [
+                { field: "{{steps.read.output.confidence}}", op: "<", value: 0.9 },
+                { field: "{{steps.read.outcome}}", op: "=", value: "done" },
+              ],
+            },
+          },
+          { id: "big" },
+        ],
+      });
+      const value = screen.getByTestId("builder-path-low-rule-1-value");
+      expect(within(value).getByRole("option", { name: "was rejected" })).toBeInTheDocument();
+      await user.selectOptions(value, "rejected");
+      await save(user, sent);
+      expect(
+        (savedStep(sent, "confidence") as processes.IfStep).paths[0]?.when.rules[1]?.value,
+      ).toBe("rejected");
+    });
+
+    it("adds a route right after a step, sets what it needs and says so, approval on", async () => {
+      const { sent } = setup();
+      const user = userEvent.setup();
+      await select(user, "update");
+      expect(screen.getByTestId("builder-routes-now")).toHaveTextContent(
+        "Later steps can route on: was done.",
+      );
+      await user.click(screen.getByTestId("builder-route-rejected-add"));
+      expect(screen.getByTestId("builder-route-added")).toHaveTextContent(
+        "Added “If rejected” right after this step.",
+      );
+      expect(screen.getByTestId("builder-route-added-change")).toHaveTextContent(
+        "If rejected: When a person rejects it, the step is skipped and the run goes on to the route. Approval stays on.",
+      );
+      // The route still ends the run after a no, as a no always did, and says so.
+      expect(screen.getByTestId("builder-route-added-stop")).toHaveTextContent(
+        "The route ends with a stop step, so nothing below it runs, as before. Remove that stop to carry on below.",
+      );
+      expect(screen.getByTestId("builder-routes-now")).toHaveTextContent("was rejected");
+      await save(user, sent);
+      expect(savedStep(sent, "update")?.checks?.approval).toEqual({
+        required: "required",
+        mode: "in_turn",
+        ifNoAnswer: "stop",
+        onReject: "continue",
+      });
+      expect(savedLast(sent)).toMatchObject({
+        kind: "if",
+        name: "If rejected",
+        paths: [
+          {
+            name: "Rejected",
+            when: {
+              match: "all",
+              rules: [{ field: "{{steps.update.outcome}}", op: "=", value: "rejected" }],
+            },
+            steps: [{ kind: "stop", name: "Stop the run", status: "cancelled" }],
+          },
+        ],
+        otherwise: { steps: [] },
+      });
+      expect(screen.getByTestId("builder-valid")).toBeInTheDocument();
+    });
+
+    it("saves 'if this step fails: carry on' and takes it back off", async () => {
+      const { sent } = setup();
+      const user = userEvent.setup();
+      await select(user, "find");
+      expect(screen.getByTestId("builder-on-error")).toHaveValue("fail");
+      await user.selectOptions(screen.getByTestId("builder-on-error"), "continue");
+      await save(user, sent);
+      expect(savedStep(sent, "find")?.onError).toBe("continue");
+      // A failure is something later steps can now route on.
+      expect(screen.getByTestId("builder-routes-now")).toHaveTextContent("failed");
+      await user.selectOptions(screen.getByTestId("builder-on-error"), "fail");
+      await save(user, sent);
+      expect(savedStep(sent, "find")).not.toHaveProperty("onError");
+      // A person step has no failure of its own to carry on past.
+      await user.click(screen.getByTestId("builder-step-ask-select"));
+      expect(screen.queryByTestId("builder-on-error")).toBeNull();
+    });
+  });
+});
+
+// Skill model (2026-11-10), Wave B item 9: action write steps in the builder.
+describe("action write steps", () => {
+  const PREPARE_BILL = {
+    ref: "ap.prepare-bill",
+    source: "builtin" as const,
+    version: null,
+    definition: {
+      schemaVersion: 1 as const,
+      id: "ap.prepare-bill",
+      name: "Prepare bill",
+      description: "Reads an invoice into a bill",
+      category: "documents",
+      mode: "agent" as const,
+      tools: [],
+      input: { type: "object", properties: { documentId: { type: "string" } } },
+      output: {
+        type: "object",
+        properties: {
+          vendorId: { type: "string" },
+          invoiceNumber: { type: "string" },
+          date: { type: "string" },
+          currency: { type: "string" },
+          total: { type: "string" },
+          lines: { type: "array", items: { type: "object" } },
+        },
+      },
+      settings: [],
+      requiresConnectors: [],
+      requiresPacks: [],
+      producesAlerts: false,
+    },
+  };
+  const catalog: BuilderCatalog = { ...CATALOG, skills: [...CATALOG.skills, PREPARE_BILL] };
+
+  it("offers the four actions in their own group, each added with approval on", async () => {
+    setup();
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    const group = screen.getByTestId("builder-palette-actions");
+    expect(within(group).getByRole("heading")).toHaveTextContent("Actions");
+    for (const [action, title] of [
+      ["send_email", "Send email"],
+      ["send_text", "Send text"],
+      ["create_bill", "Create bill"],
+      ["create_vendor", "Create vendor"],
+    ]) {
+      expect(within(group).getByTestId(`builder-palette-item-action:${action}`)).toHaveTextContent(
+        title as string,
+      );
+    }
+    await user.click(screen.getByTestId("builder-palette-item-action:create_bill-add"));
+    const added = rootOrder()[4] as string;
+    expect(screen.getByTestId(`builder-step-${added}-approval`)).toHaveTextContent(
+      "Needs approval",
+    );
+    // The inspector says which tool it will use for this agent: it has no accounting connection.
+    const inspector = screen.getByTestId("builder-inspector");
+    expect(within(inspector).getByTestId("builder-action-target")).toHaveTextContent(
+      "Create bill needs an accounting connection: bind QuickBooks or BILL",
+    );
+    expect(within(inspector).getByTestId("builder-input-invoiceNumber")).toBeInTheDocument();
+  });
+
+  it("after a skill whose output fits, offers the write with its fields mapped", async () => {
+    setup({ catalog });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-skill:ap.prepare-bill-add"));
+    const prep = rootOrder()[4] as string;
+    const offer = within(screen.getByTestId("builder-inspector")).getByTestId(
+      "builder-offer-create_bill",
+    );
+    expect(offer).toHaveTextContent("Add: Create bill");
+    expect(screen.queryByTestId("builder-offer-send_email")).toBeNull();
+    await user.click(offer);
+    const order = rootOrder();
+    expect(order).toHaveLength(6);
+    expect(order[4]).toBe(prep);
+    const added = order[5] as string;
+    expect(screen.getByTestId(`builder-step-${added}`)).toHaveTextContent("Create bill");
+    expect(screen.getByTestId(`builder-step-${added}-approval`)).toHaveTextContent(
+      "Needs approval",
+    );
+    // The new step is selected, its fields filled from the skill's result.
+    const inspector = screen.getByTestId("builder-inspector");
+    expect(within(inspector).getByTestId("builder-action-target")).toBeInTheDocument();
+    expect(within(inspector).getByTestId("builder-input-total")).toHaveValue(
+      `{{steps.${prep}.output.total}}`,
+    );
   });
 });

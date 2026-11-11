@@ -26,6 +26,7 @@ import {
 import { validateBundle } from "@countersign/core";
 import {
   agent,
+  agentVersion,
   connection,
   externalAction,
   ledgerAccount,
@@ -436,9 +437,16 @@ describe.skipIf(!h)("the Bookkeeper, end to end", () => {
   });
 
   it("books the week: matched, transferred, ruled, asked about the unsure one, each write signed once", async () => {
+    // Skill model (2026-11-10): the scripted run is v2's (the agent-mode skills stored agents
+    // still run); v3 is held by templates-skill-model.test.ts.
+    const [v2] = await H.t.db
+      .select({ id: agentVersion.id })
+      .from(agentVersion)
+      .where(and(eq(agentVersion.agentId, ids.template as string), eq(agentVersion.version, 2)));
     const fork = await H.call(OPERATOR, "POST", `/api/ops/templates/${ids.template}/fork`, {
       clientId: A(),
       slug: "bookkeeper-a",
+      versionId: v2?.id,
     });
     expect(fork.status, JSON.stringify(fork.json)).toBe(200);
     ids.agentId = j(fork.json).agent.id;

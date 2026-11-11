@@ -36,6 +36,8 @@ export function oversightPort(
         // v0.13 M32: a checkpoint's output.
         ...(req.output === undefined ? {} : { output: req.output }),
         automation: req.automation,
+        // R6: the cheap watch's signals that asked for this review, as data.
+        ...(req.signals?.length ? { signals: req.signals } : {}),
         settings,
       }),
   };

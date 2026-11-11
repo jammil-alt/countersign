@@ -46,6 +46,9 @@ export const portalRoutes = (
     <Route path="settings" element={<PortalSettingsScreen section="general" />} />
     <Route path="settings/approvals" element={<PortalSettingsScreen section="approvals" />} />
     <Route path="settings/team" element={<PortalSettingsScreen section="team" />} />
+    {/* R8 (docs/plan.md §1.86): business hours and channels */}
+    <Route path="settings/hours" element={<PortalSettingsScreen section="hours" />} />
+    <Route path="settings/channels" element={<PortalSettingsScreen section="channels" />} />
     <Route path="settings/billing" element={<PortalSettingsScreen section="billing" />} />
     <Route path="settings/exports" element={<PortalSettingsScreen section="exports" />} />
     <Route

@@ -1,4 +1,4 @@
-// The MCP server's audit trail (docs/plan.md §1.34, §1.86): one entry per tool call, under the
+// The MCP server's audit trail (docs/plan.md §1.34, §1.89): one entry per tool call, under the
 // signed-in person's name, with the tool, its arguments (a confirm token only as "[token]"), the
 // outcome and the time it took. Written as one JSON log line, which Workers Logs keeps (wrangler.jsonc `observability`).
 //

@@ -6,7 +6,7 @@
 // tool results, never instructions (invariant 9); every skill ends with the record ids it rests on
 // (invariant 10), and the guardrails are in the tools, never only in these words.
 
-import type { SkillDefinition } from "@countersign/core";
+import { lazy, lazyObject, type SkillDefinition } from "@countersign/core";
 import { z } from "zod";
 import { CONTENT_CHECK_TOOL, CONTENT_GET_TOOL } from "../content/tools";
 import {
@@ -38,6 +38,7 @@ const HOUSE =
   "Plain words, short sentences, sentence case. No exclamation marks, no hype, never 'AI-powered'. Say what we can't know rather than guess.";
 
 /** An agent-mode skill of the pack. */
+// Worker startup (2026-11-11): skills' JSON Schemas are made on first read (core `lazy`).
 function agentSkill(def: {
   id: string;
   name: string;
@@ -50,7 +51,7 @@ function agentSkill(def: {
   settings?: SkillDefinition["settings"];
   requiresConnectors?: string[];
 }): SkillDefinition {
-  return {
+  return lazyObject({
     schemaVersion: 1,
     id: def.id,
     name: def.name,
@@ -59,14 +60,14 @@ function agentSkill(def: {
     mode: "agent",
     instructions: [...def.instructions, HOUSE].join("\n"),
     tools: def.tools,
-    input: jsonSchemaOf(def.input),
-    output: jsonSchemaOf(def.output),
+    input: lazy(() => jsonSchemaOf(def.input)),
+    output: lazy(() => jsonSchemaOf(def.output)),
     settings: def.settings ?? [],
     summary: def.summary,
     requiresConnectors: def.requiresConnectors ?? [],
     requiresPacks: [PACK_ID],
     producesAlerts: false,
-  };
+  });
 }
 
 /** A tool-mode skill: the tool's own input and output. */
@@ -80,7 +81,7 @@ function toolSkill(
     settings?: SkillDefinition["settings"];
   },
 ): SkillDefinition {
-  return {
+  return lazyObject({
     schemaVersion: 1,
     id: def.id,
     name: def.name,
@@ -89,14 +90,14 @@ function toolSkill(
     mode: "tool",
     handler: tool.spec.id,
     tools: [],
-    input: tool.spec.input as Record<string, unknown>,
-    output: tool.spec.output as Record<string, unknown>,
+    input: lazy(() => tool.spec.input as Record<string, unknown>),
+    output: lazy(() => tool.spec.output as Record<string, unknown>),
     settings: def.settings ?? [],
     summary: def.summary,
     requiresConnectors: [],
     requiresPacks: [PACK_ID],
     producesAlerts: false,
-  };
+  });
 }
 
 const Sources = z.array(z.string().min(1).max(300)).min(1).max(50);

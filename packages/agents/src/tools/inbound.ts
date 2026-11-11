@@ -4,7 +4,7 @@
 // (`src/log/inbound-port.ts`). The text is the sender's: data in the tool result, never
 // instructions (invariants 9 and 12). It takes no id, so an agent reads only what was sent to it.
 
-import type { SkillDefinition } from "@countersign/core";
+import { lazy, lazyObjects, type SkillDefinition } from "@countersign/core";
 import { z } from "zod";
 import { defineInternalTool } from "./types";
 
@@ -63,7 +63,8 @@ export const INBOUND_TOOLS = [inboundGet] as const;
 // P-9: the message as a step's output (docs/plan.md §1.71), so a workflow passes its words to a
 // reading skill and its ids (who sent it, its raw record) to the records it opens, with no model
 // in between. The words stay data: a later skill gets them as its task input.
-export const INBOUND_SKILLS: readonly SkillDefinition[] = [
+// Worker startup (2026-11-11): the tool's schemas are read on first use (core `lazy`).
+export const INBOUND_SKILLS: readonly SkillDefinition[] = lazyObjects([
   {
     schemaVersion: 1,
     id: "comms.read-message",
@@ -74,12 +75,12 @@ export const INBOUND_SKILLS: readonly SkillDefinition[] = [
     mode: "tool",
     handler: inboundGet.spec.id,
     tools: [],
-    input: inboundGet.spec.input as Record<string, unknown>,
-    output: inboundGet.spec.output as Record<string, unknown>,
+    input: lazy(() => inboundGet.spec.input as Record<string, unknown>),
+    output: lazy(() => inboundGet.spec.output as Record<string, unknown>),
     settings: [],
     summary: "Read the message",
     requiresConnectors: [],
     requiresPacks: [],
     producesAlerts: false,
   },
-];
+]);

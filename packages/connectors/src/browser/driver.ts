@@ -22,6 +22,22 @@ export interface BrowserTable {
   rows: string[][];
 }
 
+/**
+ * Something a person recording a script may fill or click (docs/plan.md §1.86 "Scripts"): a field,
+ * a list, a button or a link, with a selector that finds it again and the words that name it.
+ * Password, hidden and one-time-code fields are never listed.
+ */
+export interface BrowserControl {
+  selector: string;
+  kind: "field" | "select" | "button" | "link";
+  label: string;
+  /**
+   * A button that sends a form: a submit-type button, or any button inside a form. Only a click
+   * marked as the script's submit may click one (./script.ts).
+   */
+  submits?: boolean;
+}
+
 export interface BrowserDownload {
   bytes: Uint8Array;
   /** From Content-Disposition, else the last part of the path. */
@@ -51,12 +67,38 @@ export interface BrowserTab {
   readText(): Promise<string>;
   /** The page's tables, with the same removals as `readText`. */
   readTables(): Promise<BrowserTable[]>;
+  /**
+   * The text of the first element `selector` names, with the same removals as `readText` (a field
+   * reads as its value); null when nothing matches. Absent: a script can't read single fields.
+   */
+  textOf?(selector: string): Promise<string | null>;
+  /** The page's visible fields, lists, buttons and links (at most 200), for the recorder. */
+  controls?(): Promise<BrowserControl[]>;
+  /**
+   * Whether clicking the element `selector` names sends a form (as `BrowserControl.submits`);
+   * false when nothing matches. Absent: the connector asks `controls` instead.
+   */
+  sendsForm?(selector: string): Promise<boolean>;
+  /**
+   * Read only (docs/plan.md §1.86 "Scripts (wave 4)"): while on, every request that could change
+   * something is refused before it leaves the browser: a navigation, fetch or XHR whose method
+   * isn't GET or HEAD (a form post, a page script's POST) is aborted and the page stays where it
+   * was. Off again for sign-out. Absent: the browser can't hold a page read only, and a script
+   * step, a recording or a test that needs it is refused.
+   */
+  readOnly?(on: boolean): Promise<void>;
   /** Fetches a file as the signed-in tab would (same cookies). */
   download(url: string): Promise<BrowserDownload>;
   cookies(): Promise<BrowserCookie[]>;
   setCookies(cookies: BrowserCookie[]): Promise<void>;
   /** A PNG of the visible page, for evidence (taken only after sign-in). */
   screenshot(): Promise<Uint8Array>;
+  /**
+   * Whether the browser behind the tab still answers. Browser Run closes a browser left idle past
+   * its keep-alive; a session held across a run's model calls asks before it reopens. Absent: the
+   * tab is taken to be alive.
+   */
+  alive?(): Promise<boolean>;
   /** Closes the tab and destroys its browser; never throws. */
   close(): Promise<void>;
 }

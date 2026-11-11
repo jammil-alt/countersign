@@ -4,17 +4,18 @@
 // step. Whatever the Builder changes lands on the canvas as an undoable edit, as from the panel.
 // DECISION: Fix talks to the Builder, not to a model of its own (2026-11-10): the Builder already
 // knows the draft and the platform's parts, keeps approval on, and its changes come with Undo.
-import type { ValidationCode, ValidationError } from "@countersign/core";
+import type { ValidationCode } from "@countersign/core";
 import { useEffect, useId, useRef, useState } from "react";
 import { Icon } from "../../ui/icons";
 import { Button } from "../../ui/primitives";
 import { errorText, isCode, Notice } from "../agents/ui";
 import type { BuilderSession } from "./BuilderPanel";
+import type { BuilderProblem } from "./catalog";
 import { BuilderMark, Composer, Turns } from "./chat";
 
 /** A problem to fix: where it is, what it says, and the validator's own words for the Builder. */
 export interface FixRequest {
-  error: ValidationError;
+  error: BuilderProblem;
   place: string;
   text: string;
   /** The validator's messages behind this line (several when references were grouped). */
@@ -96,7 +97,7 @@ export function FixDialog({
     .map((t) => (t.role === "operator" && t.text === prompt ? { ...t, text: SHORT } : t));
   const pending = session.pending === prompt ? SHORT : session.pending;
   const answered = turns.some((t) => t.role === "builder");
-  const why = WHY[fix.error.code];
+  const why = WHY[fix.error.code as ValidationCode];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">

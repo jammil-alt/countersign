@@ -4,6 +4,10 @@
 // Only src/registry/ and src/log/ import @countersign/db (CLAUDE.md invariant 2): the runtime reaches
 // storage through the ports in src/runtime/ports.ts, and agent reasoning reaches data only through tools.
 
+// v0.16: a browsing skill's help request's key in its step output, for the executor (workflows
+// can't import connectors). The lead's answer is kept by `keepBrowseHelp` (AgentPort.keepHelp),
+// never as a note the model's memory.write could also write.
+export { NEEDS_HELP_KEY } from "@countersign/connectors";
 // v0.12 W3-A: the Builder as a conversation
 export * from "./builder/aliases";
 export * from "./builder/builder";
@@ -12,6 +16,7 @@ export * from "./builder/commands";
 export * from "./builder/context";
 export * from "./builder/conversation";
 export * from "./builder/guards";
+export * from "./builder/reshape";
 export * from "./builder/skill-draft";
 export * from "./errors";
 // v0.12 W2-D
@@ -50,8 +55,11 @@ export * from "./runtime/actions";
 export * from "./runtime/attention";
 export * from "./runtime/call-tool";
 export * from "./runtime/carry";
+// R3: an AI reviewer's check
+export * from "./runtime/confer";
 export * from "./runtime/context";
 // P-4: conversations
+export * from "./runtime/conversation-step";
 export * from "./runtime/converse";
 export * from "./runtime/json-schema";
 export * from "./runtime/model";
@@ -71,6 +79,7 @@ export * from "./tools/ask";
 export * from "./tools/converse";
 export * from "./tools/directory";
 export * from "./tools/docs";
+export * from "./tools/docs-split";
 export * from "./tools/health";
 // v0.12 W2-E
 export * from "./tools/inbound";
@@ -78,6 +87,8 @@ export * from "./tools/knowledge";
 export * from "./tools/ledger";
 export * from "./tools/platform";
 export * from "./tools/reach";
+// Reshape data (2026-11-11)
+export * from "./tools/reshape";
 export * from "./tools/supervisor";
 export * from "./tools/threads";
 // P-7

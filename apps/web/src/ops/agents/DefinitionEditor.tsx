@@ -2,12 +2,19 @@
 // their settings (forms from each skill's settings schema), permissions and default approver,
 // budgets. Saving makes a new draft version from the version it was opened on; the workflows are
 // kept as they are (the builder edits them). The same editor serves templates and client agents.
-import type { AgentBundle, SkillOption } from "@countersign/core";
+import {
+  type AnyAgentBundle,
+  type OversightReview,
+  OWNER_REVIEW_CHOICES,
+  SKILL_KIND_LABEL,
+  type SkillOption,
+} from "@countersign/core";
 import { useMemo, useState } from "react";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionSummary } from "../../api/routes";
 import { useApi } from "../../api/useApi";
-import { Badge, Button, Card, SectionLabel } from "../../ui/primitives";
+import { Badge, Button, Card, SectionLabel, Tag } from "../../ui/primitives";
+import { ParameterValueInput, parameterText } from "../skills/parameters";
 import {
   APPROVER_ROLES,
   applyForm,
@@ -15,6 +22,7 @@ import {
   type DefinitionForm,
   formFromBundle,
   MODEL_OPTIONS,
+  modelOptionLabel,
   optionFor,
   type SettingValue,
   validateForm,
@@ -35,7 +43,7 @@ export function DefinitionEditor({
   agent: AgentSummary;
   /** The version the editor was opened on: the new draft's parent. */
   from: VersionSummary;
-  bundle: AgentBundle;
+  bundle: AnyAgentBundle;
   /** The skills this agent may use (GET /api/ops/agents/:id/skills). */
   skills: readonly SkillOption[];
   onSaved(result: SaveResult): void;
@@ -115,7 +123,7 @@ export function DefinitionEditor({
             >
               {[...new Set([...MODEL_OPTIONS, form.modelId])].filter(Boolean).map((m) => (
                 <option key={m} value={m}>
-                  {m}
+                  {modelOptionLabel(m)}
                 </option>
               ))}
             </Select>
@@ -225,6 +233,8 @@ export function DefinitionEditor({
         </div>
       </Card>
 
+      <OwnerReviewCard value={form.ownerReview} onChange={(v) => set("ownerReview", v)} />
+
       <Card className="p-5">
         <SectionLabel>Save as a draft</SectionLabel>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -320,6 +330,67 @@ function ModeOption({
         <span className="block text-sm text-ink-muted">{text}</span>
       </span>
     </label>
+  );
+}
+
+/**
+ * Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): what the agent's owner reviews, each choice
+ * in plain words with what it costs (core's `OWNER_REVIEW_CHOICES`). "Review every step" is a full
+ * AI review of every read, skill and write step; the others check every step by rules, free.
+ */
+// DECISION (wave 6): the setting is in Settings, Definition (it is `definition.oversight`, so a
+// change makes a new draft version, as every definition change does), as four radio choices with
+// core's words and cost. Only `review` is edited here; the owner's model and limits are kept.
+function OwnerReviewCard({
+  value,
+  onChange,
+}: {
+  value: OversightReview;
+  onChange(value: OversightReview): void;
+}) {
+  return (
+    <Card className="p-5" testId="agent-editor-owner">
+      <SectionLabel>The owner</SectionLabel>
+      <p className="mb-3 text-sm text-ink-muted">
+        The agent's owner watches its steps and decides what happens when one fails or looks off.
+        What it did on each step shows in the run.
+      </p>
+      <fieldset className="flex flex-col gap-2">
+        <legend className="sr-only">What the owner reviews</legend>
+        {OWNER_REVIEW_CHOICES.map((c) => {
+          const selected = value === c.value;
+          return (
+            <label
+              key={c.value}
+              className={`flex cursor-pointer items-start gap-3 rounded-md border px-4 py-3 ${
+                selected
+                  ? "border-slate bg-slate-tint"
+                  : "border-line bg-surface hover:bg-surface-subtle"
+              }`}
+            >
+              <input
+                type="radio"
+                name="owner-review"
+                className="mt-1 size-4 accent-slate"
+                data-testid={`agent-editor-owner-${c.value}`}
+                checked={selected}
+                onChange={() => onChange(c.value)}
+              />
+              <span>
+                <span className="block font-medium text-ink">{c.label}</span>
+                <span className="block text-sm text-ink-muted">{c.description}</span>
+                <span
+                  className="block text-sm text-ink-muted"
+                  data-testid={`agent-editor-owner-cost-${c.value}`}
+                >
+                  {c.cost ? `Cost: ${c.cost}` : "Cost: none."}
+                </span>
+              </span>
+            </label>
+          );
+        })}
+      </fieldset>
+    </Card>
   );
 }
 
@@ -423,7 +494,15 @@ function SkillsCard({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   {/* By its name; the reference only when there is no skill to name it. */}
-                  <p className="font-medium text-ink">{option?.name ?? entry.skill}</p>
+                  <p className="flex flex-wrap items-center gap-2 font-medium text-ink">
+                    {option?.name ?? entry.skill}
+                    {/* Skill model (2026-11-10): Deterministic or AI. */}
+                    {option?.kind ? (
+                      <Tag testId={`agent-editor-skill-${entry.skill}-kind`}>
+                        {SKILL_KIND_LABEL[option.kind]}
+                      </Tag>
+                    ) : null}
+                  </p>
                   {option ? (
                     <p className="text-sm text-ink-muted">{option.description}</p>
                   ) : (
@@ -461,6 +540,15 @@ function SkillsCard({
                   ))}
                 </div>
               ) : null}
+              {option ? (
+                <AgentSkillSection
+                  entry={entry}
+                  option={option}
+                  errors={errors}
+                  index={i}
+                  onChange={(next) => onChange(form.skills.map((s, j) => (j === i ? next : s)))}
+                />
+              ) : null}
             </li>
           );
         })}
@@ -486,7 +574,7 @@ function SkillsCard({
           data-testid="agent-editor-skill-add"
           disabled={!adding}
           onClick={() => {
-            onChange([...form.skills, { skill: adding, settings: {} }]);
+            onChange([...form.skills, { skill: adding, settings: {}, parameters: {}, model: "" }]);
             setAdding("");
           }}
         >
@@ -494,6 +582,100 @@ function SkillsCard({
         </Button>
       </div>
     </Card>
+  );
+}
+
+/**
+ * Skill model (2026-11-10): the agent's own use of one skill. Its parameters (each empty value
+ * takes the skill's default), and for an AI skill the model every use of it in this agent runs on
+ * (empty: the skill's recommended model). A step may still set its own, for the rare double use.
+ * Every model offered is priced; HIPAA is held at run time to the processors the client covers.
+ */
+function AgentSkillSection({
+  entry,
+  option,
+  errors,
+  index,
+  onChange,
+}: {
+  entry: DefinitionForm["skills"][number];
+  option: SkillOption;
+  errors: Record<string, string>;
+  index: number;
+  onChange(next: DefinitionForm["skills"][number]): void;
+}) {
+  const ai = option.kind === "ai";
+  const params = option.parameters ?? [];
+  const models = useApi(apiRoutes.opsModels, ai ? {} : null);
+  if (!ai && params.length === 0) return null;
+  const options = models.data?.models ?? [];
+  const recommended = option.recommendedModel?.id ?? null;
+  const testId = `agent-editor-skill-${entry.skill}`;
+  return (
+    <div
+      className="mt-3 flex flex-col gap-3 border-t border-line pt-3"
+      data-testid={`${testId}-section`}
+    >
+      {params.map((p) => {
+        const field = `skills.${index}.parameters.${p.name}`;
+        return (
+          <Field
+            key={p.name}
+            label={p.label}
+            error={errors[field]}
+            hint={
+              p.default === undefined
+                ? "The skill has no default: set it."
+                : `Empty: the skill's default, ${parameterText(p.type, p.default)}.`
+            }
+          >
+            <ParameterValueInput
+              param={p}
+              value={entry.parameters?.[p.name]}
+              testId={`${testId}-parameter-${p.name}`}
+              placeholder={p.default === undefined ? "" : parameterText(p.type, p.default)}
+              invalid={Boolean(errors[field])}
+              onChange={(v) => {
+                const parameters = { ...(entry.parameters ?? {}) };
+                if (v === undefined) delete parameters[p.name];
+                else parameters[p.name] = v;
+                onChange({ ...entry, parameters });
+              }}
+            />
+          </Field>
+        );
+      })}
+      {ai ? (
+        <Field
+          label="Model"
+          hint={
+            models.error
+              ? "Couldn't load the models; the agent keeps its setting."
+              : "Every use of this skill in this agent runs on it. Price per million tokens, in and out."
+          }
+        >
+          <Select
+            data-testid={`${testId}-model`}
+            value={entry.model ?? ""}
+            onChange={(e) => onChange({ ...entry, model: e.target.value })}
+          >
+            <option value="">
+              {recommended
+                ? `The skill's recommendation (${modelOptionLabel(recommended)})`
+                : "The agent's model"}
+            </option>
+            {entry.model && !options.some((m) => m.id === entry.model) ? (
+              <option value={entry.model}>{modelOptionLabel(entry.model)}</option>
+            ) : null}
+            {options.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label} · ${m.inputPerMtok} / ${m.outputPerMtok}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : null}
+    </div>
   );
 }
 

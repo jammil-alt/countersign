@@ -15,6 +15,8 @@ export interface TimelineWords {
   declined: string;
   waitingForApproval: string;
   waitingForAnswer: string;
+  /** A conversation or reach-out waiting for the contact's reply. */
+  waitingForReply: string;
   /** A step waiting for a person to release a vault item with a code (docs/plan.md §1.26). */
   waitingForRelease: string;
   needsOperator: string;
@@ -56,6 +58,7 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     declined: "declined",
     waitingForApproval: "waiting for approval",
     waitingForAnswer: "waiting for an answer",
+    waitingForReply: "waiting for a reply",
     waitingForRelease: "waiting for a code",
     needsOperator: "needs the operator",
     noAnswerInTime: "no answer in time",
@@ -77,6 +80,7 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     declined: "rechazado",
     waitingForApproval: "esperando aprobación",
     waitingForAnswer: "esperando una respuesta",
+    waitingForReply: "esperando una contestación",
     waitingForRelease: "esperando un código",
     needsOperator: "lo revisa nuestro equipo",
     noAnswerInTime: "sin respuesta a tiempo",
@@ -98,6 +102,7 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     declined: "refusé",
     waitingForApproval: "en attente d'approbation",
     waitingForAnswer: "en attente d'une réponse",
+    waitingForReply: "en attente d'un retour",
     waitingForRelease: "en attente d'un code",
     needsOperator: "notre équipe s'en occupe",
     noAnswerInTime: "pas de réponse à temps",
@@ -119,6 +124,7 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     declined: "recusado",
     waitingForApproval: "aguardando aprovação",
     waitingForAnswer: "aguardando uma resposta",
+    waitingForReply: "aguardando um retorno",
     waitingForRelease: "aguardando um código",
     needsOperator: "nossa equipe vai verificar",
     noAnswerInTime: "sem resposta a tempo",
@@ -140,6 +146,7 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     declined: "rifiutato",
     waitingForApproval: "in attesa di approvazione",
     waitingForAnswer: "in attesa di una risposta",
+    waitingForReply: "in attesa di un riscontro",
     waitingForRelease: "in attesa di un codice",
     needsOperator: "se ne occupa il nostro team",
     noAnswerInTime: "nessuna risposta in tempo",
@@ -161,6 +168,7 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     declined: "abgelehnt",
     waitingForApproval: "wartet auf Freigabe",
     waitingForAnswer: "wartet auf eine Antwort",
+    waitingForReply: "wartet auf eine Rückmeldung",
     waitingForRelease: "wartet auf einen Code",
     needsOperator: "unser Team kümmert sich",
     noAnswerInTime: "keine Antwort rechtzeitig",

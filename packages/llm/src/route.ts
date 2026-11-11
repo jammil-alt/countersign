@@ -1,18 +1,23 @@
 // One transport for every model: each request goes to the provider its model id names. Ids that
-// start with `openai:` go to OpenAI; every other id is an Anthropic model, as before.
+// start with `openai:` go to OpenAI, `xai:` to xAI, `google:` to Google's Gemini API; every other
+// id is an Anthropic model, as before. The prefixes are core's (`modelProvider`), so compliance
+// and the back office read a model's provider the same way.
 
-import { isOpenAIModel } from "./openai";
+import { type ModelProvider, modelProvider } from "@countersign/core";
 import type { LlmTransport } from "./transport";
 
-export type LlmProvider = "anthropic" | "openai";
+export type LlmProvider = ModelProvider;
 
+/** The Worker secret each provider's key is in. */
 export const PROVIDER_KEYS: Readonly<Record<LlmProvider, string>> = {
   anthropic: "ANTHROPIC_API_KEY",
   openai: "OPENAI_API_KEY",
+  xai: "XAI_API_KEY",
+  google: "GEMINI_API_KEY",
 };
 
 export function providerOf(model: string): LlmProvider {
-  return isOpenAIModel(model) ? "openai" : "anthropic";
+  return modelProvider(model);
 }
 
 /** A model whose provider has no key configured. The run fails with this message. */

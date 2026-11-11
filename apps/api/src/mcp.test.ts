@@ -1,4 +1,4 @@
-// The MCP server (docs/plan.md §1.34, §1.86) against a real database as cs_worker, with a fake
+// The MCP server (docs/plan.md §1.34, §1.89) against a real database as cs_worker, with a fake
 // AuthKit (a local key set): the protocol, sign-in (no token, bad, expired, wrong audience or
 // issuer, unknown user, no membership), the operator's client scope, each tool's shape, the
 // screenshot as an image block, the untrusted-data fence, the two-step resolve, the audit trail,
@@ -905,7 +905,7 @@ describe.skipIf(!h)("MCP server", () => {
       target: { id: H.A.tenantId },
     });
   });
-  // ── The client's tools (§1.86) ──────────────────────────────────────────────────────────────
+  // ── The client's tools (§1.89) ──────────────────────────────────────────────────────────────
 
   describe("client tools", () => {
     let adminA = "";

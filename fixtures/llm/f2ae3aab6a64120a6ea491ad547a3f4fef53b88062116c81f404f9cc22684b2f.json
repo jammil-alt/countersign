@@ -1,0 +1,48 @@
+{
+  "hash": "f2ae3aab6a64120a6ea491ad547a3f4fef53b88062116c81f404f9cc22684b2f",
+  "recordedAt": "2026-11-10T12:00:00.000Z",
+  "request": {
+    "model": "google:gemini-3.1-pro",
+    "system": "You check invoices for a client. Use the tools to read them.",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Who is INV-1 from, and what does it total?"
+      }
+    ]
+  },
+  "response": {
+    "id": "gem-plain-0001",
+    "type": "message",
+    "role": "assistant",
+    "model": "google:gemini-3.1-pro",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "",
+        "signature": "gemini:CpwBAdHtim9plainSignatureForFixtureOnly"
+      },
+      {
+        "type": "text",
+        "text": "Invoice INV-1 is from Acme Supply and totals $12.50.",
+        "citations": null
+      }
+    ],
+    "container": null,
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 1000,
+      "output_tokens": 90,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 200,
+      "cache_creation": null,
+      "inference_geo": null,
+      "output_tokens_details": null,
+      "server_tool_use": null,
+      "service_tier": "standard"
+    }
+  },
+  "handWritten": true
+}

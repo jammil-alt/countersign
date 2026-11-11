@@ -14,6 +14,13 @@
 .ui-page--narrow {
   max-width: 880px;
 }
+/* A page inside another (a Library bank inside the Library's frame) takes the frame's width: its
+ * auto margins would otherwise size it to its widest table, wider than a phone. */
+.ui-page .ui-page {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+}
 .ui-section {
   display: flex;
   min-width: 0;

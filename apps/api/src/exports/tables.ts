@@ -8,13 +8,7 @@
 // test runs, operator-only inbox items and messages, the event outbox, billing and feedback.
 // JSON cells are scrubbed of every forbidden field besides (csv.ts).
 
-import {
-  clientLabel,
-  findStep,
-  isClientVisible,
-  isPlainObject,
-  type Step,
-} from "@countersign/core";
+import { clientLabel, findNodeStep, isPlainObject, shownOnTimeline } from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -108,11 +102,6 @@ export function decisionOf(item: { status: string; resolution: unknown }): strin
 
 /** Inbox items a client may see: never the operator's own (escalations, budget hits, test runs). */
 const notOperatorItem = or(isNull(inboxItem.assigneeRole), ne(inboxItem.assigneeRole, "operator"));
-
-/** A step_run's node id names its step: the id, or `${loop}:${index}:${childId}` in a loop. */
-function stepOfNode(steps: (id: string) => Step | undefined, nodeId: string): Step | undefined {
-  return steps(nodeId) ?? steps(nodeId.split(":").at(-1) ?? nodeId);
-}
 
 export const EXPORT_TABLES: readonly ExportTable[] = [
   {
@@ -667,11 +656,10 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
         limit,
         ({ s, versionId, slug }) => {
           const workflow = bundles.get(versionId)?.workflows.find((w) => w.slug === slug)?.workflow;
-          const step = workflow
-            ? stepOfNode((id) => findStep(workflow, id)?.step, s.nodeId)
-            : undefined;
+          // Wave 3b: a v3 workflow's or a v4 process's step, shown by the timeline's rule.
+          const step = workflow ? findNodeStep(workflow, s.nodeId) : undefined;
           // Unknown nodes (agent tasks, internal bookkeeping) and hidden steps stay out.
-          if (!step || !isClientVisible(step)) return null;
+          if (!step || !shownOnTimeline(step)) return null;
           return [
             s.id,
             s.runId,

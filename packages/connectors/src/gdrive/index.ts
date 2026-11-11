@@ -708,6 +708,8 @@ export function createGdriveConnector(options: GdriveOptions = {}): Connector {
         description:
           "File a stored document in the client's Google Drive, in the Mezonas folder or a folder under it by path template ({yyyy}, {yy}, {MM}, {dd} from the date), e.g. Bills/{yyyy}/{MM}. Missing folders are made. Refuses when a file of that name is already there unless ifExists is keep_both.",
         verb: "create",
+        // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+        undo: { kind: "none" },
         summary: "Filed {{name}} in Google Drive",
         input: DriveUploadInput,
         output: DriveUploadOutput,

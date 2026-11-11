@@ -26,8 +26,16 @@ import {
   teamOf,
   undoItem,
 } from "../desk/desk";
-import { type AppEnv, ensureClient, mount, notFound, type Services } from "../http";
-import type { ResolveOutcome } from "../inbox";
+import {
+  type AppEnv,
+  ensureClient,
+  mount,
+  mountLong,
+  notFound,
+  type Services,
+  txOnly,
+} from "../http";
+import { type ResolveOutcome, sendResolution } from "../inbox";
 import { dispatchEvents } from "../runs/dispatch";
 import { forClient, runDepsFromEnv, runtimeFor } from "../runs/execute";
 // P-7: message translation
@@ -67,7 +75,10 @@ async function visibleItem(ctx: Scoped, id: string): Promise<void> {
   if (!(await visibleIds(ctx, [id])).has(id)) throw notFound("inbox item");
 }
 
-/** After commit: each resolution that is not held in its undo window goes to its run. */
+/**
+ * After commit: each resolution that is not held in its undo window goes to its run, with a
+ * conversation's own event beside it (wave 2c: a v4 conversation step wakes at once).
+ */
 function sendResumes(
   ctx: {
     afterCommit(task: () => Promise<unknown>): void;
@@ -77,11 +88,9 @@ function sendResumes(
   outcomes: ResolveOutcome[],
   collect: EventRow[],
 ) {
-  for (const { resume } of outcomes) {
-    if (!resume) continue;
-    ctx.afterCommit(() =>
-      services.instances.sendEvent(resume.runId, { type: resume.type, payload: resume.payload }),
-    );
+  for (const outcome of outcomes) {
+    if (!outcome.resume && !outcome.conversation) continue;
+    ctx.afterCommit(() => sendResolution(services.instances, outcome));
   }
   if (collect.length > 0) {
     ctx.defer(() => dispatchEvents({ db: services.db, instances: services.instances }, collect));
@@ -111,9 +120,12 @@ export function deskRoutes(app: Hono<AppEnv>): void {
     return { item: deskState(row) };
   });
 
-  mount(app, routes.portalEditInbox, async (ctx) => {
+  // The runtime's check and a translation open their own transactions: none is held across them
+  // (`mountLong`; a Worker's database has one pooled connection).
+  mountLong(app, routes.portalEditInbox, async (ctx) => {
     const tenantId = ctx.tenantIds[0] as string;
-    await visibleItem(ctx, ctx.params.id);
+    const inTx = txOnly(ctx.inTx);
+    await inTx((tx) => visibleItem({ ...ctx, tx }, ctx.params.id));
     const { services } = ctx;
     const runtime = runtimeFor(
       forClient(
@@ -127,13 +139,13 @@ export function deskRoutes(app: Hono<AppEnv>): void {
     );
     // P-7: a person's words translated for the message's contact (docs/plan.md §1.69).
     const tdeps = translationDepsFor(services);
-    const { row, edited, at, translation } = await editItem(ctx.tx, runtime, services.platform, {
+    const { row, edited, at, translation } = await editItem(inTx, runtime, services.platform, {
       tenantId,
       itemId: ctx.params.id,
-      by: by(ctx),
+      by: { userId: ctx.session.user.id, role: ctx.role as Approver["role"] },
       edited: ctx.body.input as Parameters<typeof editItem>[3]["edited"],
       translate: (text, reachOutId, userId) =>
-        translateForContact(ctx.tx, tdeps, { tenantId, reachOutId, text, by: userId }),
+        translateForContact(inTx, tdeps, { tenantId, reachOutId, text, by: userId }),
     });
     return {
       item: deskState(row),

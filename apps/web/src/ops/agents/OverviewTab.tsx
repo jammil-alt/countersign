@@ -1,7 +1,7 @@
 // The agent Overview tab (design screen 7, without pack KPIs): how it works as step chips from the
 // version shown, its mission, the tools it works in, the skills it uses, and its latest runs.
 // Connections, tools and skills read by their names, never their ids; empty parts are left out.
-import type { AgentBundle, SkillOption } from "@countersign/core";
+import { type AnyAgentBundle, allTriggers, processes, type SkillOption } from "@countersign/core";
 import { Link } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -12,7 +12,7 @@ import { StatusChip } from "../../ui/status";
 import { toolTitle } from "../builder/model";
 import { ClientViewCard, WhereItRuns } from "../lab/TemplateParts";
 import { runChip } from "../run/words";
-import { KIND_LABEL, triggerTitle, workflowStats } from "../workflow/describe";
+import { KIND_LABEL, PROCESS_KIND_LABEL, triggerTitle, workflowStats } from "../workflow/describe";
 import { optionFor } from "./definition-form";
 import { useConnectorNames } from "./OperationPanel";
 import { plural } from "./ui";
@@ -24,15 +24,15 @@ export function OverviewTab({
   skills,
 }: {
   agent: AgentSummary;
-  bundle: AgentBundle;
+  bundle: AnyAgentBundle;
   /** The agent page's URL. */
   base: string;
   skills: readonly SkillOption[];
 }) {
   const stats = workflowStats(bundle);
   const names = useConnectorNames(agent.id);
-  // An extra tool by what it does and where: "Update lines bill · QuickBooks Online".
-  const extraTools = bundle.definition.extraTools.map(
+  // A tool by what it does and where: "Update lines bill · QuickBooks Online".
+  const tools = toolsItWorksIn(bundle).map(
     (id) => `${toolTitle({ id })} · ${names(id.split(".")[0] ?? id)}`,
   );
   const worksIn = agent.kind === "client" ? Object.keys(agent.bindings).map(names) : [];
@@ -87,10 +87,10 @@ export function OverviewTab({
               Each client's copy is bound to that client's own connections.
             </p>
           )}
-          {extraTools.length > 0 ? (
+          {tools.length > 0 ? (
             <div>
-              <SectionLabel>Extra tools</SectionLabel>
-              <Chips testId="agent-extra-tools" items={extraTools} empty="" />
+              <SectionLabel>Tools</SectionLabel>
+              <Chips testId="agent-tools" items={tools} empty="" />
             </div>
           ) : null}
           {skillNames.length > 0 ? (
@@ -105,8 +105,40 @@ export function OverviewTab({
   );
 }
 
-function StepChips({ workflow }: { workflow: AgentBundle["workflows"][number] }) {
+/**
+ * The tools the agent works in: its definition's extra tools, then the tools of its v4 processes'
+ * read and write steps at any depth (a process names its tools on its steps, not in the
+ * definition), each once.
+ */
+export function toolsItWorksIn(bundle: AnyAgentBundle): string[] {
+  const ids = [...bundle.definition.extraTools];
+  for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion !== 4) continue;
+    for (const { step } of processes.allSteps(w.workflow)) {
+      if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
+        ids.push(step.tool);
+      }
+    }
+  }
+  return [...new Set(ids)];
+}
+
+/**
+ * A workflow's first trigger and its top-level steps as chips. R8: a v4 process too, its steps in
+ * the builder's words (an `if`, a write).
+ */
+function StepChips({ workflow }: { workflow: AnyAgentBundle["workflows"][number] }) {
   const w = workflow.workflow;
+  const first = allTriggers(w)[0];
+  const steps =
+    w.schemaVersion === 4
+      ? w.steps.map((s) => ({
+          id: s.id,
+          kind: s.kind,
+          label: PROCESS_KIND_LABEL[s.kind],
+          name: s.name,
+        }))
+      : w.steps.map((s) => ({ id: s.id, kind: s.kind, label: KIND_LABEL[s.kind], name: s.name }));
   return (
     <div className="mb-3 last:mb-0" data-testid={`agent-chips-${workflow.slug}`}>
       <p className="mb-2 text-sm font-medium text-ink">
@@ -114,9 +146,11 @@ function StepChips({ workflow }: { workflow: AgentBundle["workflows"][number] })
         {workflow.enabled ? "" : <span className="ml-2 text-ink-muted">off</span>}
       </p>
       <ol className="flex flex-wrap items-center gap-2">
-        <Chip kindId="trigger" kind={KIND_LABEL.trigger} label={triggerTitle(w.trigger)} />
-        {w.steps.map((s) => (
-          <Chip key={s.id} kindId={s.kind} kind={KIND_LABEL[s.kind]} label={s.name} />
+        {first ? (
+          <Chip kindId="trigger" kind={KIND_LABEL.trigger} label={triggerTitle(first)} />
+        ) : null}
+        {steps.map((s) => (
+          <Chip key={s.id} kindId={s.kind} kind={s.label} label={s.name} />
         ))}
       </ol>
     </div>

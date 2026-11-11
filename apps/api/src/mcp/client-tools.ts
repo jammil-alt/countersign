@@ -1,4 +1,4 @@
-// The client's MCP tools (docs/plan.md §1.86): what the portal shows a client's admin or user, for
+// The client's MCP tools (docs/plan.md §1.89): what the portal shows a client's admin or user, for
 // their own client, read only. The same `/mcp` as the back office's tools; who signs in decides
 // which set they get (./routes.ts). Every read goes through a portal route's own handler
 // (`invokeRoute`: its roles, the one-client scope, its schemas and its response contract, which

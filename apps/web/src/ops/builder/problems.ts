@@ -4,8 +4,15 @@
 // Here they become sentences a person reads: step names, field names in words, and what to do.
 // DECISION: the rewording lives in the web app, not in core (2026-11-10): the model and the API
 // keep the exact references, which they need to fix a draft; only the screen changes.
-import type { AgentBundle, Step, ValidationError, Workflow } from "@countersign/core";
-import { forkOfBranch, locate } from "./model";
+// On v4 processes (merge of main, 2026-11-11): the builder edits processes, so a step is found in
+// a process, a trigger is one of its triggers, and a path's owner is its `if`.
+import type { ProcessAgentBundle } from "@countersign/core";
+import type { BuilderProblem } from "./catalog";
+import { ifOfBranch, locate, type Process, type Step } from "./model";
+
+type ValidationError = BuilderProblem;
+type AgentBundle = ProcessAgentBundle;
+type Workflow = Process;
 
 /** A problem as the builder shows it. `group` joins several references to one step. */
 export interface ReadableProblem {
@@ -72,7 +79,7 @@ export function stepNamer(workflow: Workflow | undefined, bundle: AgentBundle): 
   return (id) => {
     const inWorkflow = workflow ? (locate(workflow, id)?.step ?? null) : null;
     if (inWorkflow) return inWorkflow.name;
-    if (workflow && workflow.trigger.id === id) return "the trigger";
+    if (workflow?.triggers.some((t) => t.id === id)) return "the trigger";
     for (const w of bundle.workflows) {
       const s: Step | null = locate(w.workflow, id)?.step ?? null;
       if (s) return s.name;
@@ -149,6 +156,9 @@ export function readableProblem(
   bundle: AgentBundle,
   workflow?: Workflow,
 ): ReadableProblem {
+  // DECISION (merge of main): a Reshape mapping's problem names the mapping's own fields
+  // ("invoiceNumber reads input.…"), which its editor shows beside each field: kept as written.
+  if (e.code === "reshape_mapping") return { error: e, text: e.message };
   const w = workflow ?? bundle.workflows.find((x) => x.slug === e.workflow)?.workflow;
   const name = stepNamer(w, bundle);
   const lead = /^\{\{\s*([^}]+?)\s*\}\}:\s*(.*)$/s.exec(e.message);
@@ -307,9 +317,9 @@ export function problemPlace(e: ValidationError, bundle: AgentBundle, slug: stri
   const w = bundle.workflows.find((x) => x.slug === e.workflow);
   if (!w) return e.workflow;
   const prefix = e.workflow === slug ? "" : `${w.name} · `;
-  if (e.stepId === w.workflow.trigger.id) return `${prefix}Trigger`;
+  if (w.workflow.triggers.some((t) => t.id === e.stepId)) return `${prefix}Trigger`;
   const owner = e.stepId
-    ? (locate(w.workflow, e.stepId)?.step ?? forkOfBranch(w.workflow, e.stepId))
+    ? (locate(w.workflow, e.stepId)?.step ?? ifOfBranch(w.workflow, e.stepId))
     : null;
   return owner ? `${prefix}${owner.name}` : w.name;
 }

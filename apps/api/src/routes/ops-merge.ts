@@ -11,6 +11,7 @@ import {
   detach,
   getAgent,
   getVersion,
+  lineageReadOptions,
   previewPromotion,
   previewUpdate,
   publish,
@@ -39,7 +40,11 @@ export function opsMergeRoutes(app: Hono<AppEnv>): void {
   // DECISION: an update always merges the template's live version (plan §1.6 "Lineage routes").
   mount(app, routes.opsUpdatePreview, async (ctx) => {
     const row = await clientAgentInScope(ctx, ctx.params.id);
-    const preview = await previewUpdate(ctx.tx, { agentId: row.id });
+    // R9: the registries, for a v3 client agent offered a template version of v4 processes.
+    const preview = await previewUpdate(ctx.tx, {
+      agentId: row.id,
+      ctx: ctx.services.platform.ctx,
+    });
     const template = await getAgent(ctx.tx, preview.theirs.agentId);
     return {
       template: agentSummary(template),
@@ -78,7 +83,11 @@ export function opsMergeRoutes(app: Hono<AppEnv>): void {
       ours: versionDetail(preview.ours),
       theirs: { ...versionDetail(preview.client), bundle: preview.stripped },
       conflicts: preview.result.conflicts,
-      leftOut: diffBundles(preview.stripped, preview.client.bundle),
+      leftOut: diffBundles(
+        preview.stripped,
+        preview.client.bundle,
+        lineageReadOptions(ctx.services.platform.ctx),
+      ),
       labels: labels(preview.base.bundle, preview.ours.bundle, preview.client.bundle),
     };
   });

@@ -1,7 +1,14 @@
 // Agent and skill versions, forking, operational fields and activation, against a real database
 // as cs_worker (RLS and grants apply).
 
-import { cloneJson, nodeIds } from "@countersign/core";
+import { TESTKIT_QUERY_TOOL } from "@countersign/connectors";
+import {
+  type AnyAgentBundle,
+  cloneJson,
+  nodeIds,
+  processes,
+  toProcessBundle,
+} from "@countersign/core";
 import { agent, agentChange, connection, run, skill } from "@countersign/db";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
@@ -26,8 +33,10 @@ import {
   publish,
   rollback,
   updateOperational,
+  validateForPublish,
 } from "./agents";
 import {
+  convertLookup,
   createSkill,
   createSkillVersion,
   publishSkill,
@@ -93,6 +102,39 @@ describe.skipIf(!harness)("agent registry", () => {
     });
   });
 
+  // R8 (docs/plan.md §1.86): the workflow builder saves v4 processes as a new version.
+  it("saves a bundle of processes as a new version, validates it as v4, and leaves the v3 one", async () => {
+    await h.ops(async (tx) => {
+      const { agent: tpl, version: v1 } = await createTemplate(tx, {
+        slug: "processes",
+        bundle: makeBundle(),
+      });
+      const v4 = toProcessBundle(v1.bundle, convertLookup(h.catalog, h.tools));
+      const v2 = await createVersion(tx, { agentId: tpl.id, bundle: v4 });
+      expect(v2.version).toBe(2);
+      const stored = v2.bundle as unknown as AnyAgentBundle;
+      expect(stored.workflows.map((w) => w.workflow.schemaVersion)).toEqual([4]);
+      const process = stored.workflows[0]?.workflow;
+      const before = v1.bundle.workflows[0]?.workflow;
+      if (process?.schemaVersion !== 4 || before?.schemaVersion !== 3) throw new Error("fixture");
+      expect(processes.nodeIds(process)).toEqual(nodeIds(before));
+      // The v3 version is as it was.
+      expect(v1.bundle.workflows[0]?.workflow.schemaVersion).toBe(3);
+      expect(await validateForPublish(tx, tpl, v2.bundle, h.ctx)).toEqual([]);
+      // A v4 problem is answered in the server's words, as the builder shows it.
+      const bad = cloneJson(v4);
+      const first = bad.workflows[0]?.workflow.steps[0];
+      if (first?.kind !== "skill") throw new Error("fixture");
+      first.skill = "test.nope";
+      const v3 = await createVersion(tx, { agentId: tpl.id, bundle: bad });
+      expect(
+        (await validateForPublish(tx, tpl, v3.bundle, h.ctx)).map((e) => [e.code, e.workflow]),
+      ).toContainEqual(["unknown_skill", v1.bundle.workflows[0]?.slug]);
+      await publish(tx, { agentId: tpl.id, versionId: v2.id, ctx: h.ctx });
+      expect((await getAgent(tx, tpl.id)).liveVersionId).toBe(v2.id);
+    });
+  });
+
   it("publish refuses a bundle that does not validate", async () => {
     await h.ops(async (tx) => {
       const bad = makeBundle();
@@ -129,7 +171,10 @@ describe.skipIf(!harness)("agent registry", () => {
     expect(forked.version.basedOnTemplateVersionId).toBe(tv.id);
     expect(forked.version.bundle).toEqual(tv.bundle);
     expect(forked.version.bundleHash).toBe(tv.bundleHash);
-    const ids = (b: typeof tv.bundle) => b.workflows.flatMap((w) => nodeIds(w.workflow));
+    const ids = (b: typeof tv.bundle) =>
+      b.workflows.flatMap((w) =>
+        w.workflow.schemaVersion === 4 ? processes.nodeIds(w.workflow) : nodeIds(w.workflow),
+      );
     expect(ids(forked.version.bundle)).toEqual(ids(tv.bundle));
     expect(ids(forked.version.bundle)).toContain(LOOKUP_STEP);
 
@@ -271,10 +316,15 @@ describe.skipIf(!harness)("agent registry", () => {
 
 describe.skipIf(!harness)("skill registry", () => {
   const h = harness as Harness;
+  // Skill model (2026-11-10): a new operator skill is an AI skill (a task on its own model) that
+  // only reads; agent mode and skills that write are retired for new versions.
   const def = (instructions: string) => ({
     ...cloneJson(ALERT_SKILL),
     id: "custom:price-check",
     name: "Price check",
+    mode: "task",
+    model: { id: "claude-haiku-5-5" },
+    tools: [TESTKIT_QUERY_TOOL],
     instructions,
     producesAlerts: false,
   });
@@ -300,7 +350,7 @@ describe.skipIf(!harness)("skill registry", () => {
       expect(back.definition.instructions).toBe("v1");
       return created.skill;
     });
-    // Operator skills must be agent mode with known tools.
+    // Operator skills must use known tools.
     expect(
       await code(
         h.ops((tx) =>

@@ -3,6 +3,7 @@
 // service for this client, the connection's sign-in counters and stop, documents for downloads,
 // screenshots kept as evidence and the session log. Each database read or write is its own short
 // transaction for the connection's client; nothing here holds a transaction across a browser call.
+// Wave 4: the client's published scripts on the connection's site (docs/plan.md §1.86).
 
 import type {
   BrowserCodesPort,
@@ -13,20 +14,38 @@ import type {
 } from "@countersign/connectors";
 import {
   BrowserConnectionState,
+  BrowserScriptDefinition,
+  emptyBrowserState,
   FINGERPRINT_KEY,
   findingFingerprint,
   type JsonObject,
+  type PublishedBrowserScript,
 } from "@countersign/core";
-import { connection, connectionChange, type Db, inboxItem, withTenant } from "@countersign/db";
+import {
+  browserScript,
+  browserScriptVersion,
+  connection,
+  connectionChange,
+  type Db,
+  inboxItem,
+  withTenant,
+} from "@countersign/db";
 import { storeDocument } from "@countersign/documents";
 import { emit } from "@countersign/senses";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { z } from "zod";
 import type { CodesClient } from "../codes/client";
 import { pinnedSite } from "./sites";
 
 export interface BrowserDeps {
-  /** A fresh browser for one site (Browser Run); absent where the deployment has none. */
-  open?: (options: { hosts: string[] }) => Promise<BrowserTab | null>;
+  /**
+   * A fresh browser for one site (Browser Run), kept open while idle for `keepAliveMs` when given;
+   * absent where the deployment has none.
+   */
+  open?: (options: {
+    hosts: string[];
+    keepAliveMs?: number | undefined;
+  }) => Promise<BrowserTab | null>;
   /** The code service; null where `CODES` is not bound. */
   codes: CodesClient | null;
   /** Where downloads and screenshots are stored. */
@@ -163,5 +182,113 @@ export function dbBrowserServices(db: Db, conn: ConnectionRef, deps: BrowserDeps
         });
       }),
     ...(deps.sleep ? { sleep: deps.sleep } : {}),
+    script: publishedScriptFor(db, conn),
   };
+}
+
+// ── Recording and testing scripts: a sign-in allowance of their own ───────────────────────────────
+
+/**
+ * Sign-ins a day for recording and testing scripts on one connection, counted apart from the
+ * agents' (the connection's caps), so a recording never uses up what the agents may spend.
+ */
+// DECISION: 30 a day, apart from the agents' allowance (docs/plan.md §1.86 "Scripts (wave 4)").
+// A recording can't hold one browser across requests (a Worker keeps nothing between them; the
+// held session lives inside one run's step), so each recorded action signs in again unless the
+// site keeps its session (low tier). The failure count and the stop stay the connection's own: it
+// is the same account, and two failed sign-ins in a row stop it for agents and recordings alike.
+export const RECORDER_SIGN_INS_PER_DAY = 30;
+
+const RecorderCount = z.object({ day: z.string(), signIns: z.number().int().min(0) });
+
+/**
+ * dbBrowserServices for a recording or a test: the day's sign-ins are counted under the
+ * connection's `recorderState`, never its `browserState`; failures and the stop are shared.
+ */
+export function recorderBrowserServices(
+  db: Db,
+  conn: ConnectionRef,
+  deps: BrowserDeps,
+): BrowserServices {
+  const base = dbBrowserServices(db, conn, deps);
+  const tenantId = conn.tenantId;
+  const mine = and(eq(connection.id, conn.id), eq(connection.tenantId, tenantId));
+  return {
+    ...base,
+    state: {
+      get: () =>
+        withTenant(db, tenantId, async (tx) => {
+          const [row] = await tx.select({ config: connection.config }).from(connection).where(mine);
+          const config = (row?.config ?? {}) as Record<string, unknown>;
+          const agents = BrowserConnectionState.safeParse(config.browserState);
+          const own = RecorderCount.safeParse(config.recorderState);
+          return {
+            day: own.success ? own.data.day : "",
+            signIns: own.success ? own.data.signIns : 0,
+            failures: agents.success ? agents.data.failures : 0,
+            stopped: agents.success ? agents.data.stopped : null,
+          };
+        }),
+      put: (state) =>
+        withTenant(db, tenantId, async (tx) => {
+          const count = JSON.stringify({ day: state.day, signIns: state.signIns });
+          const shared = JSON.stringify({ failures: state.failures, stopped: state.stopped });
+          const empty = JSON.stringify(emptyBrowserState(state.day));
+          await tx
+            .update(connection)
+            .set({
+              config: sql`${connection.config} || jsonb_build_object(
+                'recorderState', ${count}::jsonb,
+                'browserState', coalesce(${connection.config}->'browserState', ${empty}::jsonb) || ${shared}::jsonb
+              )`,
+            })
+            .where(mine);
+        }),
+      stop: base.state.stop,
+    },
+  };
+}
+
+// ── The tools' port: a client's published script, inside its own transaction ──────────────────────
+
+/**
+ * BrowserServices `script` for one connection: the published version of the client's script on
+ * the connection's site with this slug, or null (none, a draft, or a version that no longer parses).
+ */
+export function publishedScriptFor(
+  db: Db,
+  conn: ConnectionRef,
+): (slug: string) => Promise<PublishedBrowserScript | null> {
+  return (slug) =>
+    withTenant(db, conn.tenantId, async (tx) => {
+      const [row] = await tx
+        .select({ script: browserScript, version: browserScriptVersion })
+        .from(browserScript)
+        .innerJoin(
+          browserScriptVersion,
+          and(
+            eq(browserScriptVersion.scriptId, browserScript.id),
+            eq(browserScriptVersion.tenantId, browserScript.tenantId),
+            eq(browserScriptVersion.version, browserScript.publishedVersion),
+          ),
+        )
+        .where(
+          and(
+            eq(browserScript.tenantId, conn.tenantId),
+            eq(browserScript.connectionId, conn.id),
+            eq(browserScript.slug, slug),
+            isNotNull(browserScript.publishedVersion),
+          ),
+        );
+      if (!row) return null;
+      const definition = BrowserScriptDefinition.safeParse(row.version.definition);
+      if (!definition.success) return null;
+      return {
+        id: row.script.id,
+        slug: row.script.slug,
+        versionId: row.version.id,
+        version: row.version.version,
+        definition: definition.data,
+      };
+    });
 }

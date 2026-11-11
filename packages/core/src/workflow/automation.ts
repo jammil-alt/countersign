@@ -92,7 +92,7 @@ export interface FromStepsInput {
 }
 
 /** Rewrites every `{{...}}` reference in a templated JSON value; other values are copied. */
-function mapRefs(value: unknown, fn: (path: string[]) => string[]): unknown {
+export function mapTemplateRefs(value: unknown, fn: (path: string[]) => string[]): unknown {
   if (typeof value === "string") {
     if (!value.includes("{{")) return value;
     let parts: ReturnType<typeof parseTemplate>;
@@ -103,16 +103,16 @@ function mapRefs(value: unknown, fn: (path: string[]) => string[]): unknown {
     }
     return parts.map((p) => (p.type === "text" ? p.text : `{{${fn(p.path).join(".")}}}`)).join("");
   }
-  if (Array.isArray(value)) return value.map((v) => mapRefs(v, fn));
+  if (Array.isArray(value)) return value.map((v) => mapTemplateRefs(v, fn));
   if (isPlainObject(value)) {
     // fromEntries defines own properties, so a `__proto__` key stays a plain key.
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, mapRefs(v, fn)]));
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, mapTemplateRefs(v, fn)]));
   }
   return value;
 }
 
 /** A field name from words: lowercase letters, digits and `_`. */
-function fieldName(words: string, taken: Set<string>): string {
+export function inputFieldName(words: string, taken: Set<string>): string {
   const base =
     words
       .toLowerCase()
@@ -225,7 +225,7 @@ export function stepsToAutomation(input: FromStepsInput): FromStepsResult {
         root === "trigger"
           ? path.slice(1).join(" ") || "trigger"
           : `${stepName(id as string)} ${path.slice(3).join(" ")}`;
-      key = fieldName(words, inputTaken);
+      key = inputFieldName(words, inputTaken);
       inputKeys.set(expr, key);
       inputValues[key] = `{{${expr}}}`;
       const t = scope ? typeTemplatePath(scope, path) : undefined;
@@ -236,7 +236,7 @@ export function stepsToAutomation(input: FromStepsInput): FromStepsResult {
 
   const keptApprovals: Record<string, Approval> = {};
   const copied = selected.map((s) => {
-    const moved = mapRefs(renumber(s, ids), intoInput) as Step;
+    const moved = mapTemplateRefs(renumber(s, ids), intoInput) as Step;
     // DECISION: new steps start with approval on (invariant 8). A client agent keeps a setting the operator
     // loosened through the use step's `approvals`, so its runs behave as before.
     walkSteps({ steps: [moved] }, ({ step }) => {
@@ -262,13 +262,13 @@ export function stepsToAutomation(input: FromStepsInput): FromStepsResult {
     }
     let key = outputKeys.get(id);
     if (!key) {
-      key = fieldName(stepName(id), outputTaken);
+      key = inputFieldName(stepName(id), outputTaken);
       outputKeys.set(id, key);
       output[key] = `{{steps.${ids.get(id)}.output}}`;
     }
     return ["steps", useId, "output", key, ...rest];
   };
-  const after = workflow.steps.slice(last + 1).map((s) => mapRefs(s, fromOutput) as Step);
+  const after = workflow.steps.slice(last + 1).map((s) => mapTemplateRefs(s, fromOutput) as Step);
 
   const automation: AutomationDefinition = {
     schemaVersion: 1,

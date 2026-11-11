@@ -385,3 +385,82 @@ describe("C5 Contacts", () => {
     expect(within(detail).queryByTestId("people-detail-invite")).toBeNull();
   });
 });
+
+// R8 (docs/plan.md §1.86): a contact's hours and away dates, the client admin's to read and change.
+describe("a contact's hours and away dates", () => {
+  const NINE_TO_SIX = [{ from: "08:00", to: "18:00" }];
+  const business = {
+    hours: {
+      tz: "America/Chicago",
+      week: {
+        mon: NINE_TO_SIX,
+        tue: NINE_TO_SIX,
+        wed: NINE_TO_SIX,
+        thu: NINE_TO_SIX,
+        fri: NINE_TO_SIX,
+      },
+      usHolidays: true,
+      closed: [],
+    },
+    isDefault: true,
+  };
+
+  it("shows the client admin a contact's away dates and saves them on the contact", async () => {
+    const puts: unknown[] = [];
+    let marco: unknown = { away: [{ from: "2026-12-24", to: "2026-12-24" }] };
+    const api = renderAt(`/contacts?person=${MARCO}`, "client_admin", {
+      "GET /api/settings/people-hours": () => ({
+        business,
+        people: [
+          { kind: "user", id: ME, name: "Demo admin", hours: null },
+          { kind: "contact", id: MARCO, name: "Marco Díaz", hours: marco },
+          { kind: "contact", id: LISA, name: "Lisa Park", hours: null },
+        ],
+      }),
+      [`PUT /api/settings/people-hours/contacts/${MARCO}`]: ({ init }) => {
+        const body = JSON.parse(String(init.body));
+        puts.push(body);
+        marco = body.hours;
+        return { person: { kind: "contact", id: MARCO, name: "Marco Díaz", hours: marco } };
+      },
+    });
+    const detail = await screen.findByTestId(`people-detail-${MARCO}`);
+    const hours = await within(detail).findByTestId("people-detail-hours");
+    expect(hours).toHaveTextContent("Business hours");
+    expect(hours).toHaveTextContent("Dec 24, 2026");
+    await userEvent.click(within(hours).getByRole("button", { name: "Change hours" }));
+    // The one away day goes; he is back on the business's hours with no away dates: cleared.
+    await userEvent.click(within(hours).getByTestId("people-detail-hours-away-2026-12-24-remove"));
+    await userEvent.click(within(hours).getByTestId("people-detail-hours-save"));
+    await waitFor(() => expect(puts).toEqual([{ hours: null }]));
+    await waitFor(() => expect(hours).toHaveTextContent("No away dates."));
+    expect(api.calls).toContain("GET /api/settings/people-hours");
+  });
+
+  // Wave 3b: the People hours list stops at its cap. A contact past it has hours we never read,
+  // so no editor (saving one would erase their own week): the page says so instead.
+  it("gives a contact past the hours list's cap no editor, rather than reading them as having none", async () => {
+    const others = Array.from({ length: 2000 }, (_, i) => ({
+      kind: "contact",
+      id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+      name: `Contact ${i}`,
+      hours: null,
+    }));
+    const api = renderAt(`/contacts?person=${MARCO}`, "client_admin", {
+      "GET /api/settings/people-hours": () => ({ business, people: others }),
+    });
+    const detail = await screen.findByTestId(`people-detail-${MARCO}`);
+    expect(await within(detail).findByTestId("people-detail-hours-unlisted")).toHaveTextContent(
+      "This contact's hours can't be shown here",
+    );
+    expect(within(detail).queryByTestId("people-detail-hours")).toBeNull();
+    expect(api.calls.some((c) => c.startsWith("PUT /api/settings/people-hours"))).toBe(false);
+  });
+
+  it("shows a client user no one's hours", async () => {
+    const api = renderAt(`/contacts?person=${MARCO}`, "client_user");
+    const detail = await screen.findByTestId(`people-detail-${MARCO}`);
+    expect(within(detail).queryByTestId("people-detail-hours")).toBeNull();
+    expect(api.calls).not.toContain("GET /api/settings/people-hours");
+  });
+});

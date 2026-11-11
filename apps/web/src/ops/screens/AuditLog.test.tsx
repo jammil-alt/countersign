@@ -93,7 +93,7 @@ describe("ops audit log", () => {
       within(tabs)
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Feedback", "Audit log", "Requests", "Websites"]);
+    ).toEqual(["Feedback", "Audit queue", "Audit log", "Requests"]);
 
     const first = await screen.findByTestId(`ops-audit-row-${id(1)}`);
     expect(within(first).getByTestId("ops-audit-who")).toHaveTextContent(

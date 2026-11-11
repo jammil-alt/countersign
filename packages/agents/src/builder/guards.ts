@@ -1,54 +1,57 @@
 // The Builder's server guards (ARCHITECTURE §9.6, CLAUDE.md invariants 3 and 8). They hold
 // whatever the model answers: a draft's bundle is reshaped here before it is validated and saved,
 // and every change the guards make is reported as a gap (a missing capability) or a note (a rule
-// the Builder may not break).
+// the Builder may not break). Wave 3b: the Builder drafts and edits v4 processes (docs/plan.md
+// §1.86); a stored v3 version reaches it read through the converter, every id kept.
 //
-// - Only registered skills and tools: a skill step, action step, listed skill or extra tool the
-//   registries don't know is removed and listed in `gaps`.
+// - Only registered skills and tools: a skill step, read or write step, listed skill or extra
+//   tool the registries don't know is removed and listed in `gaps`.
 // - New agents are `suggest_only`; a revision keeps the mode of the version it revises.
-// - Every step that writes to a client's tool keeps approval on. A revision may keep an approval
-//   the operator switched off on that same step; the Builder never switches one off itself.
+// - Every step that writes to a client's tool keeps approval on: a new one starts with an approval
+//   check, and no approval, sub-process override or conversation's message setting is loosened
+//   unless the operator had that same loosening on that same step. The Builder never loosens one.
 // - Platform kind, budgets and memory stay the operator's: the Builder makes functional agents.
 // - Ids: a new draft's step, path and trigger ids are made here, once (uuid v7); a revision keeps
 //   every id of the version it revises and gives new nodes new ids. References follow the ids.
 
 import {
-  type AgentBundle,
-  AgentBundle as AgentBundleSchema,
-  type Approval,
-  type BundleWorkflow,
+  canonicalJson,
   isPlainObject,
   NEW_AGENT_OVERSIGHT,
   OversightSettings,
+  type ProcessAgentBundle,
+  ProcessAgentBundle as ProcessAgentBundleSchema,
   parseSkillRef,
+  processes,
   type SkillDefinition,
-  type Step,
-  stepWrites,
   type ToolSpec,
   type TypingContext,
   uuidv7,
-  walkSteps,
 } from "@countersign/core";
+import { mapProcessSteps } from "./aliases";
 import type { BuilderContext } from "./context";
+
+type Step = processes.Step;
+type ApprovalCheck = processes.ApprovalCheck;
 
 export interface GuardOptions {
   /** `draft`: a new agent; `revise`: a new version of `source`. */
   mode: "draft" | "revise";
-  /** The version a revision starts from. */
-  source?: AgentBundle;
+  /** The version a revision starts from (v3 versions read as processes, ids kept). */
+  source?: ProcessAgentBundle;
   /**
    * v0.12 W3-A: in a conversation, the operator's version the session started from (null for a
    * new agent). When given, the operator's rules (mode, budgets, memory, oversight, approvals the
-   * operator switched off) follow it, while ids and skill references follow `source`, the working
+   * operator loosened) follow it, while ids and skill references follow `source`, the working
    * draft, so the guards hold across turns.
    */
-  origin?: AgentBundle | null;
+  origin?: ProcessAgentBundle | null;
   /** Fresh node ids (uuid v7 by default; tests pass a counter). */
   newId?: () => string;
 }
 
 export interface GuardResult {
-  bundle: AgentBundle;
+  bundle: ProcessAgentBundle;
   /** Capabilities the request needs that don't exist (no skill, tool, connector, connection). */
   gaps: string[];
   /** Rules the guards enforced on the model's answer, in plain words. */
@@ -57,18 +60,9 @@ export interface GuardResult {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** Every node id of a workflow, in order: trigger, then steps, paths and otherwise branches. */
-export function workflowNodeIds(w: BundleWorkflow["workflow"]): string[] {
-  // v0.12 W3-A: other triggers (W2-E) have ids too.
-  const ids = [w.trigger.id, ...(w.moreTriggers ?? []).map((t) => t.id)];
-  walkSteps(w, ({ step }) => {
-    ids.push(step.id);
-    if (step.kind === "fork") {
-      for (const p of step.paths) ids.push(p.id);
-      ids.push(step.otherwise.id);
-    }
-  });
-  return ids;
+/** Every node id of a process, in order: triggers, then steps, paths and otherwise branches. */
+export function workflowNodeIds(w: processes.Process): string[] {
+  return processes.nodeIds(w);
 }
 
 /**
@@ -121,10 +115,10 @@ export function rewriteRefs(value: unknown, map: ReadonlyMap<string, string>): u
  * `{{steps.<id>…}}` reference pointed at the new ids.
  */
 export function assignIds(
-  bundle: AgentBundle,
+  bundle: ProcessAgentBundle,
   keep: ReadonlySet<string>,
   newId: () => string,
-): AgentBundle {
+): ProcessAgentBundle {
   const used = new Set<string>();
   const slugs = new Set<string>();
   const workflows = bundle.workflows.map((bw) => {
@@ -135,48 +129,24 @@ export function assignIds(
       if (!map.has(id)) map.set(id, next);
       return next;
     };
-    const renameSteps = (steps: Step[]): Step[] =>
-      steps.map((s): Step => {
-        const id = take(s.id);
-        if (s.kind === "fork") {
-          return {
-            ...s,
-            id,
-            paths: s.paths.map((p) => {
-              const pid = take(p.id);
-              return { ...p, id: pid, steps: renameSteps(p.steps) };
-            }),
-            otherwise: (() => {
-              const oid = take(s.otherwise.id);
-              return { ...s.otherwise, id: oid, steps: renameSteps(s.otherwise.steps) };
-            })(),
-          };
-        }
-        if (s.kind === "for_each") return { ...s, id, steps: renameSteps(s.steps) };
-        return { ...s, id };
-      });
-    const trigger = { ...bw.workflow.trigger, id: take(bw.workflow.trigger.id) };
-    // v0.12 W3-A: other triggers' ids follow the same rule.
-    const more = bw.workflow.moreTriggers?.map((t) => ({ ...t, id: take(t.id) }));
-    const steps = renameSteps(bw.workflow.steps);
+    // v0.12 W3-A: every trigger's id follows the same rule.
+    const triggers = bw.workflow.triggers.map((t) => ({ ...t, id: take(t.id) }));
+    const steps = mapProcessSteps(bw.workflow.steps, take);
     let slug = bw.slug;
     for (let n = 2; slugs.has(slug); n += 1) slug = `${bw.slug}-${n}`;
     slugs.add(slug);
-    const workflow = rewriteRefs(
-      { ...bw.workflow, trigger, ...(more ? { moreTriggers: more } : {}), steps },
-      map,
-    ) as typeof bw.workflow;
+    const workflow = rewriteRefs({ ...bw.workflow, triggers, steps }, map) as typeof bw.workflow;
     return { ...bw, slug, workflow };
   });
   return { ...bundle, workflows };
 }
 
-/** Maps every step list in a workflow, depth first, dropping steps `keep` refuses. */
-function filterSteps(steps: Step[], keepStep: (s: Step) => boolean): Step[] {
+/** Every step list, depth first, dropping steps `keep` refuses. */
+function filterSteps(steps: readonly Step[], keepStep: (s: Step) => boolean): Step[] {
   const out: Step[] = [];
   for (const s of steps) {
     if (!keepStep(s)) continue;
-    if (s.kind === "fork") {
+    if (s.kind === "if") {
       out.push({
         ...s,
         paths: s.paths.map((p) => ({ ...p, steps: filterSteps(p.steps, keepStep) })),
@@ -192,9 +162,9 @@ function filterSteps(steps: Step[], keepStep: (s: Step) => boolean): Step[] {
 }
 
 /** Applies `fn` to every step (containers after their children), returning new lists. */
-function mapSteps(steps: Step[], fn: (s: Step) => Step): Step[] {
+function mapSteps(steps: readonly Step[], fn: (s: Step) => Step): Step[] {
   return steps.map((s) => {
-    if (s.kind === "fork") {
+    if (s.kind === "if") {
       return fn({
         ...s,
         paths: s.paths.map((p) => ({ ...p, steps: mapSteps(p.steps, fn) })),
@@ -206,19 +176,70 @@ function mapSteps(steps: Step[], fn: (s: Step) => Step): Step[] {
   });
 }
 
-function stepsOf(bundle: AgentBundle): Map<string, Step> {
+/** Every process of the bundle with `fn` applied to each step. */
+function mapBundleSteps(bundle: ProcessAgentBundle, fn: (s: Step) => Step): ProcessAgentBundle {
+  return {
+    ...bundle,
+    workflows: bundle.workflows.map((bw) => ({
+      ...bw,
+      workflow: { ...bw.workflow, steps: mapSteps(bw.workflow.steps, fn) },
+    })),
+  };
+}
+
+function stepsOf(bundle: ProcessAgentBundle): Map<string, Step> {
   const out = new Map<string, Step>();
-  for (const w of bundle.workflows) walkSteps(w.workflow, ({ step }) => out.set(step.id, step));
+  for (const w of bundle.workflows) {
+    processes.walkSteps(w.workflow, ({ step }) => out.set(step.id, step));
+  }
   return out;
 }
 
-function approvalOf(step: Step): Approval | undefined {
-  return step.kind === "skill" || step.kind === "action" ? step.approval : undefined;
+/** The same step in the operator's version: same id, same kind, and a read or write's same tool. */
+function sameStep(was: Step | undefined, s: Step): Step | undefined {
+  if (!was || was.kind !== s.kind) return undefined;
+  if ((s.kind === "write" || s.kind === "read") && "tool" in was && was.tool !== s.tool) {
+    return undefined;
+  }
+  return was;
+}
+
+const same = (a: unknown, b: unknown) => canonicalJson(a ?? null) === canonicalJson(b ?? null);
+
+/** A new step's approval: on, the default approver, stopping when nobody answers (invariant 8). */
+// DECISION: as the workflow builder's `createStep`: a Builder step that writes to a client's tool
+// or reaches people starts with an explicit approval check, so the draft says what it does.
+export const DEFAULT_APPROVAL: ApprovalCheck = {
+  required: "required",
+  mode: "in_turn",
+  ifNoAnswer: "stop",
+  onReject: "stop",
+};
+
+/**
+ * The answer's approval with every loosening the operator's (`prior`) didn't have taken out: a
+ * switched-off approval, a `when`, going ahead when nobody answers (the approval's own or an
+ * approver's deadline). What the operator had, on that same step, stays.
+ */
+function holdApproval(answer: ApprovalCheck, prior: ApprovalCheck | undefined): ApprovalCheck {
+  const tight = processes.tightenedApproval(answer);
+  const out: ApprovalCheck = { ...answer };
+  if (answer.required === "not_required" && prior?.required !== "not_required") {
+    out.required = "required";
+  }
+  if (answer.when !== undefined && !same(answer.when, prior?.when)) delete out.when;
+  if (!same(answer.ifNoAnswer, prior?.ifNoAnswer)) out.ifNoAnswer = tight.ifNoAnswer;
+  if (answer.approvers) {
+    out.approvers = answer.approvers.map((a, i) =>
+      same(a, prior?.approvers?.[i]) ? a : (tight.approvers?.[i] ?? a),
+    );
+  }
+  return out;
 }
 
 /** Applies every guard to the model's bundle (already through Zod). */
 export function guardBundle(
-  input: AgentBundle,
+  input: ProcessAgentBundle,
   ctx: BuilderContext,
   options: GuardOptions,
 ): GuardResult {
@@ -241,7 +262,7 @@ export function guardBundle(
   if (source) {
     for (const s of source.definition.skills) sourceRefs.add(s.skill);
     for (const w of source.workflows) {
-      walkSteps(w.workflow, ({ step }) => {
+      processes.walkSteps(w.workflow, ({ step }) => {
         if (step.kind === "skill") sourceRefs.add(step.skill);
       });
     }
@@ -286,7 +307,7 @@ export function guardBundle(
     def.oversight = OversightSettings.parse(NEW_AGENT_OVERSIGHT);
   }
 
-  const skillList: AgentBundle["definition"]["skills"] = [];
+  const skillList: ProcessAgentBundle["definition"]["skills"] = [];
   // Unknown skills a step also asks for are reported once, by the step (below).
   const unknownListed: string[] = [];
   for (const s of def.skills) {
@@ -324,7 +345,8 @@ export function guardBundle(
         removed += 1;
         return false;
       }
-      if (s.kind === "action" && !tools.has(s.tool)) {
+      // Skill model: an action write step names no tool; it resolves from the agent's bindings.
+      if ((s.kind === "read" || s.kind === "write") && s.tool !== undefined && !tools.has(s.tool)) {
         gap(`No connected tool can "${s.name}" (asked for "${s.tool}").`);
         removed += 1;
         return false;
@@ -351,7 +373,7 @@ export function guardBundle(
     if (d) for (const t of [...(d.handler ? [d.handler] : []), ...d.tools]) allowedTools.add(t);
   }
   for (const w of workflows) {
-    walkSteps(w.workflow, ({ step }) => {
+    processes.walkSteps(w.workflow, ({ step }) => {
       if (step.kind === "skill" && step.agent === undefined) {
         const id = parseSkillRef(step.skill).id;
         if (!agentSkillIds.has(id)) {
@@ -359,7 +381,11 @@ export function guardBundle(
           def.skills.push({ skill: step.skill, settings: {} });
         }
       }
-      if (step.kind === "action" && !allowedTools.has(step.tool)) {
+      if (
+        (step.kind === "read" || step.kind === "write") &&
+        step.tool !== undefined &&
+        !allowedTools.has(step.tool)
+      ) {
         allowedTools.add(step.tool);
         def.extraTools.push(step.tool);
       }
@@ -394,31 +420,22 @@ export function guardBundle(
   // ── v0.13 W2-H / v0.12 W3-A: a step's model is one the platform prices, never on a tool skill ──
   const models = ctx.models ? new Set(ctx.models) : null;
   let modelsDropped = 0;
-  bundle = {
-    ...bundle,
-    workflows: bundle.workflows.map((bw) => ({
-      ...bw,
-      workflow: {
-        ...bw.workflow,
-        steps: mapSteps(bw.workflow.steps, (s) => {
-          if (s.kind !== "skill" || s.model === undefined) return s;
-          const d = skillsById.get(parseSkillRef(s.skill).id);
-          const unknown = models !== null && !models.has(s.model.id);
-          if (!unknown && d?.mode !== "tool") return s;
-          modelsDropped += 1;
-          const { model: _m, ...rest } = s;
-          return rest as Step;
-        }),
-      },
-    })),
-  };
+  bundle = mapBundleSteps(bundle, (s) => {
+    if (s.kind !== "skill" || s.model === undefined) return s;
+    const d = skillsById.get(parseSkillRef(s.skill).id);
+    const unknown = models !== null && !models.has(s.model.id);
+    if (!unknown && d?.mode !== "tool") return s;
+    modelsDropped += 1;
+    const { model: _m, ...rest } = s;
+    return rest as Step;
+  });
   if (modelsDropped > 0) {
     note(
       `${plural(modelsDropped, "step")} kept the model ${modelsDropped === 1 ? "its skill or agent" : "their skills or agent"} runs on: the one asked for is unknown, or the skill runs as code.`,
     );
   }
 
-  // ── Approval: on for every write step unless the operator had it off on that step ─────────────
+  // ── Approval (invariant 8): on, unless the operator had that same loosening on that step ──────
   const typing: TypingContext = {
     tools: Object.fromEntries(ctx.tools.map((t) => [t.id, t])) as Record<string, ToolSpec>,
     skills: Object.fromEntries(
@@ -430,54 +447,63 @@ export function guardBundle(
   };
   const before = operatorSource ? stepsOf(operatorSource) : new Map<string, Step>();
   let turnedOn = 0;
-  bundle = {
-    ...bundle,
-    workflows: bundle.workflows.map((bw) => ({
-      ...bw,
-      workflow: {
-        ...bw.workflow,
-        steps: mapSteps(bw.workflow.steps, (s) => {
-          // v0.12 W3-A: a use step's overrides never switch an inner step's approval off, unless
-          // the operator had that same override on that same step.
-          if (s.kind === "use_automation" && s.approvals) {
-            const was = before.get(s.id);
-            const kept = Object.entries(s.approvals).filter(([inner, a]) => {
-              if (a.required !== "not_required") return true;
-              const prior = was?.kind === "use_automation" ? was.approvals : undefined;
-              const same = prior
-                ? Object.entries(prior).some(
-                    ([k, p]) => k === inner && p.required === "not_required",
-                  )
-                : false;
-              if (!same) turnedOn += 1;
-              return same;
-            });
-            const { approvals: _drop, ...rest } = s;
-            return (
-              kept.length > 0 ? { ...rest, approvals: Object.fromEntries(kept) } : rest
-            ) as Step;
-          }
-          const approval = approvalOf(s);
-          if (approval?.required !== "not_required") return s;
-          const was = before.get(s.id);
-          const operatorChoice =
-            was !== undefined &&
-            was.kind === s.kind &&
-            approvalOf(was)?.required === "not_required" &&
-            (s.kind !== "action" || (was.kind === "action" && was.tool === s.tool));
-          const writes = stepWrites(s, typing);
-          if (operatorChoice && writes !== undefined && writes.length > 0) return s;
-          if (writes !== undefined && writes.length > 0) turnedOn += 1;
-          return { ...s, approval: { ...approval, required: "required" } } as Step;
-        }),
-      },
-    })),
-  };
+  bundle = mapBundleSteps(bundle, (s) => {
+    const was = sameStep(before.get(s.id), s);
+    let next = s;
+    // A new step that changes a client's tool or reaches people starts with approval on.
+    if (!keep.has(s.id) && next.checks?.approval === undefined) {
+      const writes = processes.stepWrites(next, typing);
+      const reaches =
+        next.kind === "skill" &&
+        skillsById.get(parseSkillRef(next.skill).id)?.reachesPeople === true;
+      if ((next.kind === "write" && writes === undefined) || (writes?.length ?? 0) > 0 || reaches) {
+        next = { ...next, checks: { ...next.checks, approval: DEFAULT_APPROVAL } };
+      }
+    }
+    const approval = next.checks?.approval;
+    if (approval && processes.approvalLoosenings(approval, "a").length > 0) {
+      const held = holdApproval(approval, was?.checks?.approval);
+      if (!same(held, approval)) {
+        turnedOn += 1;
+        next = { ...next, checks: { ...next.checks, approval: held } };
+      }
+    }
+    // v0.12 W3-A: a process step's overrides never loosen an inner step's approval, unless the
+    // operator had that same override on that same step.
+    if (next.kind === "process" && next.approvals) {
+      const prior = was?.kind === "process" ? was.approvals : undefined;
+      const kept = Object.entries(next.approvals).filter(([inner, a]) => {
+        if (processes.approvalLoosenings(a, "a").length === 0) return true;
+        const ok = prior !== undefined && Object.hasOwn(prior, inner) && same(prior[inner], a);
+        if (!ok) turnedOn += 1;
+        return ok;
+      });
+      const { approvals: _drop, ...rest } = next;
+      next = (kept.length > 0 ? { ...rest, approvals: Object.fromEntries(kept) } : rest) as Step;
+    }
+    // A conversation's messages wait for a person unless the operator had them go without.
+    if (next.kind === "conversation") {
+      const prior = was?.kind === "conversation" ? was.messages : undefined;
+      const first =
+        next.messages.first === "not_required" && prior?.first !== "not_required"
+          ? "required"
+          : next.messages.first;
+      const later =
+        next.messages.later === "within_goal" && prior?.later !== "within_goal"
+          ? "required"
+          : next.messages.later;
+      if (first !== next.messages.first || later !== next.messages.later) {
+        turnedOn += 1;
+        next = { ...next, messages: { first, later } };
+      }
+    }
+    return next;
+  });
   if (turnedOn > 0) {
     note(
       `Approval stays on for ${plural(turnedOn, "step")} that change a client's tool. You can switch it off in the workflow builder where the client's connection allows it.`,
     );
   }
 
-  return { bundle: AgentBundleSchema.parse(bundle), gaps, notes };
+  return { bundle: ProcessAgentBundleSchema.parse(bundle) as ProcessAgentBundle, gaps, notes };
 }

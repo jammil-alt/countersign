@@ -8,9 +8,10 @@
 // This file imports only drizzle-orm at runtime, so drizzle-kit can load it on its own.
 
 import type {
-  AgentBundle,
-  AutomationDefinition,
+  AnyAgentBundle,
+  AnyAutomationDefinition,
   PermissionMatrix,
+  processes,
   SkillDefinition,
 } from "@countersign/core";
 import { type SQL, sql } from "drizzle-orm";
@@ -248,7 +249,7 @@ export const membership = pgTable(
     // R4 (migration 0043, docs/plan.md §1.86): this person's own working week and away dates in
     // this client (core's `processes.PersonHours`, validated where written). Null: the client's
     // hours, never away.
-    hours: json<Record<string, unknown>>("hours"),
+    hours: json<processes.PersonHours>("hours"),
   },
   (t) => [
     primaryKey({ columns: [t.tenantId, t.userId] }),
@@ -523,7 +524,9 @@ export const agentVersion = pgTable(
     tenantId: optionalTenantId(),
     agentId: uuid("agent_id").notNull(),
     version: integer("version").notNull(),
-    bundle: json<AgentBundle>("bundle").notNull(),
+    // R8/wave 3b: a stored v3 bundle or one that holds v4 processes; readers check
+    // `schemaVersion` (or read through core's `readConverted` / `toProcessBundle`).
+    bundle: json<AnyAgentBundle>("bundle").notNull(),
     /** sha256 of the canonical JSON of the parsed bundle (core's bundleHash). */
     bundleHash: text("bundle_hash").notNull(),
     status: text("status").$type<(typeof VERSION_STATUSES)[number]>().notNull().default("draft"),
@@ -693,7 +696,7 @@ export const modelCall = pgTable(
     runId: uuid("run_id").notNull(),
     stepRunId: uuid("step_run_id").notNull(),
     agentVersionId: uuid("agent_version_id").references(() => agentVersion.id),
-    /** `anthropic` | `openai`. */
+    /** `anthropic` | `openai` | `xai` | `google` (core's `modelProvider`). */
     provider: text("provider").notNull(),
     model: text("model").notNull(),
     tokensIn: integer("tokens_in").notNull(),
@@ -1837,7 +1840,7 @@ export const contact = pgTable(
     // R4 (migration 0043, docs/plan.md §1.86): the contact's own working week and away dates
     // (core's `processes.PersonHours`, validated where written), for deadlines in business time
     // and approvals that skip someone away. Null: the client's hours, never away.
-    hours: json<Record<string, unknown>>("hours"),
+    hours: json<processes.PersonHours>("hours"),
   },
   (t) => [
     unique("contact_id_tenant_key").on(t.id, t.tenantId),
@@ -3115,7 +3118,7 @@ export const automationVersion = pgTable(
     tenantId: optionalTenantId(),
     automationId: uuid("automation_id").notNull(),
     version: integer("version").notNull(),
-    definition: json<AutomationDefinition>("definition").notNull(),
+    definition: json<AnyAutomationDefinition>("definition").notNull(),
     definitionHash: text("definition_hash").notNull(),
     status: text("status").$type<(typeof VERSION_STATUSES)[number]>().notNull().default("draft"),
     changeNote: text("change_note"),

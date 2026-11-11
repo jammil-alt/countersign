@@ -7,6 +7,8 @@
 import {
   type ActivityReport,
   Decimal,
+  MODEL_PROVIDER_NAMES,
+  modelProvider,
   routes,
   toNumeric,
   USAGE_DAILY_MAX_DAYS,
@@ -224,10 +226,10 @@ function usageWhere(tenantIds: readonly string[], query: UsageQuery): SQL[] {
   return where;
 }
 
-const VENDOR_NAME: Record<string, string> = { anthropic: "Anthropic", openai: "OpenAI" };
+const VENDOR_NAME: Record<string, string> = { ...MODEL_PROVIDER_NAMES };
 
-/** `openai:gpt-…` is OpenAI's; every other model id is Anthropic's (packages/llm). */
-const providerOf = (model: string) => (model.startsWith("openai:") ? "openai" : "anthropic");
+/** A model id's provider by its prefix (`openai:`, `xai:`, `google:`), else Anthropic's. */
+const providerOf = modelProvider;
 
 /**
  * UI cleanup: the report's splits, from rows that already exist (no migration): cost by day for

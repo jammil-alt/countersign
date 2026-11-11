@@ -9,7 +9,7 @@
 // Every function takes the caller's transaction (withTenant / withTenants): RLS decides which
 // clients' events it may write and see, so the cron sweep names the clients it sweeps.
 
-import { isUuid, type PlatformEventType } from "@countersign/core";
+import { isUuid, once, type PlatformEventType } from "@countersign/core";
 import { event, type Tx } from "@countersign/db";
 import { and, asc, gte, inArray, isNull, lt, type SQL, sql } from "drizzle-orm";
 import type { PlatformEventPayloads } from "./platform";
@@ -66,7 +66,8 @@ export interface EmitOptions {
   testRun?: boolean;
 }
 
-const defaultRegistry = platformRegistry();
+// Worker startup (2026-11-11): built on the first emit, not when the module loads.
+const defaultRegistry = once(platformRegistry);
 
 /** Validates the payload and inserts the event in `tx`. Returns the row, or null for a test run. */
 export async function emit(
@@ -74,7 +75,7 @@ export async function emit(
   input: EmitInput,
   options: EmitOptions = {},
 ): Promise<EventRow | null> {
-  const registry = options.registry ?? defaultRegistry;
+  const registry = options.registry ?? defaultRegistry();
   const payload = registry.parsePayload(input.type, input.payload);
   if (!isUuid(input.tenantId)) throw new Error(`not a client id: ${input.tenantId}`);
   if (input.subjectId != null && !isUuid(input.subjectId)) {

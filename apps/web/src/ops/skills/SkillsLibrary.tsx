@@ -1,10 +1,26 @@
-// O4 Skills and automations (`#O4-Skills` → `/ops/skills`; ARCHITECTURE §9.2, §10.7): the steps
-// agents are built from, in two tabs. Skills (the default) as cards or a list (category, version,
-// what it does, in → out, how many agents use it); Automations (`?tab=automations`: reusable step
-// chains, versioned, with their clean-run rate in live runs). Built-in skills come with the
-// platform and packs; operator skills and automations open their own pages for versions, publish,
-// rollback and tests.
-import type { AutomationListItem, SkillListItem, ToolSpec } from "@countersign/core";
+// O4 Skills and automations (`#O4-Skills`; ARCHITECTURE §9.2, §10.7): the steps agents are built
+// from, in two tabs. Skills (the default) as cards or a list (category, version, what it does,
+// in → out, how many agents use it); Automations (`?tab=automations`: reusable step chains,
+// versioned, with their clean-run rate in live runs). Built-in skills come with the platform and
+// packs; operator skills and automations open their own pages for versions, publish, rollback and
+// tests.
+//
+// R8 (docs/plan.md §1.86): the Library's Skills bank (`/ops/library/skills`; `/ops/skills`
+// redirects there). Each card says what the skill reads and the sites it browses. In the Library
+// the automations are processes, so they show in the Processes bank (`automations` off: no tabs,
+// and the automations aren't asked for).
+//
+// The skill model (owner, 2026-11-10; ARCHITECTURE §10.14): two kinds of skill, Deterministic and
+// AI, each card and row labelled with its kind and the list filtered by it. Skills that only wrap
+// a tool are no longer listed (the API leaves them out): a process uses the tool as a read or
+// write step.
+import {
+  type AutomationListItem,
+  SKILL_KIND_LABEL,
+  type SkillKind,
+  type SkillListItem,
+  type ToolSpec,
+} from "@countersign/core";
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -30,15 +46,24 @@ import { SheetSection, SideSheet } from "../../ui/sheet";
 import { StatusChip } from "../../ui/status";
 import { errorText, plural, useAction } from "../agents/ui";
 import { toolTitle } from "../builder/model";
+import { KIND_LINE } from "../library/words";
 import { TableCard } from "../screens/business";
 import { Chain, inOut, percent, stepChain, versionText } from "./parts";
 import { CATEGORIES, categoryLabel } from "./skill-form";
 
-export const SKILLS_PATH = "/ops/skills";
+export const SKILLS_PATH = "/ops/library/skills";
 export const skillPath = (id: string) => `/ops/skills/${id}`;
 export const automationPath = (id: string) => `/ops/skills/automations/${id}`;
 
 const ALL = "all";
+
+/** The kind filter: every skill, or one kind. */
+export const KIND_FILTERS = [
+  ["all", "All"],
+  ["deterministic", "Deterministic"],
+  ["ai", "AI"],
+] as const;
+type KindFilter = (typeof KIND_FILTERS)[number][0];
 
 type View = "cards" | "list";
 const VIEW_KEY = "mezonas.skills.view";
@@ -67,19 +92,23 @@ function matches(q: string, ...texts: (string | null)[]): boolean {
   return !q || texts.some((t) => t?.toLowerCase().includes(q));
 }
 
-export function SkillsScreen() {
+export function SkillsScreen({ automations: withAutomations = true }: { automations?: boolean }) {
   const library = useApi(apiRoutes.opsSkills);
-  const automations = useApi(apiRoutes.opsAutomations);
+  const automations = useApi(apiRoutes.opsAutomations, withAutomations ? {} : null);
   const [params] = useSearchParams();
   // DECISION: skills and automations are two tabs, not two stacked sections (2026-11-10): each is
-  // a long list of its own, and the category filter only means something for skills.
-  const tab = params.get("tab") === "automations" ? "automations" : "skills";
+  // a long list of its own, and the category filter only means something for skills. In the
+  // Library (`automations` off) there is no Automations tab: they are the Processes bank's.
+  const tab = withAutomations && params.get("tab") === "automations" ? "automations" : "skills";
   const [category, setCategory] = useState(ALL);
+  const [kind, setKind] = useState<KindFilter>("all");
   const [search, setSearch] = useState("");
   const [view, setView] = useSkillsView();
   const [openId, setOpenId] = useState<string | null>(null);
-  const skills = library.data?.skills ?? [];
-  const autos = automations.data?.automations ?? [];
+  // Skill model (2026-11-10): tool wrappers leave the Library (the API no longer lists them; a
+  // list from before still hides them). A process reads through the tool directly.
+  const skills = (library.data?.skills ?? []).filter((s) => s.retired !== true);
+  const autos = withAutomations ? (automations.data?.automations ?? []) : [];
   const tools = library.data?.tools ?? [];
   const q = search.trim().toLowerCase();
 
@@ -89,6 +118,7 @@ export function SkillsScreen() {
   const shownSkills = skills.filter(
     (s) =>
       (category === ALL || s.category === category) &&
+      (kind === "all" || kindOf(s) === kind) &&
       matches(q, s.name, s.description, s.ref, s.clientName),
   );
   const shownAutos = autos.filter((a) => matches(q, a.name, a.description, a.slug, a.clientName));
@@ -100,32 +130,38 @@ export function SkillsScreen() {
     <Page testId="skills-library">
       {opened ? <SkillSheet skill={opened} tools={tools} onClose={() => setOpenId(null)} /> : null}
       <PageHeader
-        title="Skills and automations"
-        subtitle="The steps agents are built from. A skill does one thing; an automation chains steps you reuse across agents."
+        title={withAutomations ? "Skills and automations" : "Skills"}
+        subtitle={
+          withAutomations
+            ? "The steps agents are built from. A skill does one thing; an automation chains steps you reuse across agents."
+            : "Skills think, tools act. A deterministic skill works by rules, the same every time; an AI skill by instructions and a model. A skill may read; a write step after it makes the change."
+        }
         actions={
           <Link to="/ops/skills/new" className={buttonClass("primary")} data-testid="skills-new">
             Make a skill
           </Link>
         }
       />
-      <div className="-mt-2" data-testid="skills-tabs">
-        <Tabs
-          items={[
-            {
-              to: SKILLS_PATH,
-              label: "Skills",
-              ...(library.data ? { count: skills.length } : {}),
-              active: tab === "skills",
-            },
-            {
-              to: `${SKILLS_PATH}?tab=automations`,
-              label: "Automations",
-              ...(automations.data ? { count: autos.length } : {}),
-              active: tab === "automations",
-            },
-          ]}
-        />
-      </div>
+      {withAutomations ? (
+        <div className="-mt-2" data-testid="skills-tabs">
+          <Tabs
+            items={[
+              {
+                to: SKILLS_PATH,
+                label: "Skills",
+                ...(library.data ? { count: skills.length } : {}),
+                active: tab === "skills",
+              },
+              {
+                to: `${SKILLS_PATH}?tab=automations`,
+                label: "Automations",
+                ...(automations.data ? { count: autos.length } : {}),
+                active: tab === "automations",
+              },
+            ]}
+          />
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center gap-3">
         {tab === "skills" ? (
           // A dropdown, not a row of buttons: the categories grow with each pack (2026-11-10).
@@ -143,6 +179,21 @@ export function SkillsScreen() {
               </option>
             ))}
           </Select>
+        ) : null}
+        {tab === "skills" ? (
+          <div className="ds-seg" data-testid="skills-kind">
+            {KIND_FILTERS.map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={kind === id}
+                data-testid={`skills-kind-${id}`}
+                onClick={() => setKind(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         ) : null}
         <div className="w-full sm:w-64">
           <TextInput
@@ -194,7 +245,7 @@ export function SkillsScreen() {
             <EmptyState
               icon="search"
               title="No skill matches"
-              line="Try another word or category."
+              line="Try another word, category or kind."
             />
           ) : null}
           {shownSkills.length > 0 && view === "cards" ? (
@@ -213,12 +264,17 @@ export function SkillsScreen() {
   );
 }
 
-function AutomationsCard({
+/** The automations as rows; the Library's Processes bank shows it as processes used in others. */
+export function AutomationsCard({
   state,
   shown,
+  title = "Automations",
+  line = "Step chains, versioned, dropped into a workflow as one block",
 }: {
   state: ApiState<ResponseOf<typeof apiRoutes.opsAutomations>>;
   shown: AutomationListItem[];
+  title?: string;
+  line?: string;
 }) {
   return (
     <Card
@@ -226,10 +282,8 @@ function AutomationsCard({
       testId="automations"
       title={
         <span className="flex flex-col">
-          Automations
-          <span className="text-sm font-normal text-ink-muted">
-            Step chains, versioned, dropped into a workflow as one block
-          </span>
+          {title}
+          <span className="text-sm font-normal text-ink-muted">{line}</span>
         </span>
       }
     >
@@ -304,6 +358,51 @@ function writes(skill: SkillListItem, tools: readonly ToolSpec[]): boolean {
   return skill.tools.some((id) => tools.find((t) => t.id === id)?.sideEffect === "external");
 }
 
+/**
+ * Skill model (2026-11-10): the skill's kind as the API derives it; a list without it reads by
+ * its method (a rules skill is deterministic, anything with a model AI).
+ */
+export function kindOf(s: Pick<SkillListItem, "kind" | "method">): SkillKind {
+  if (s.kind) return s.kind;
+  return s.method === "rules" ? "deterministic" : "ai";
+}
+
+/** Skill model: the skill's kind as a tag, its meaning on hover. */
+function KindTag({ skill: s, testId }: { skill: SkillListItem; testId?: string }) {
+  const k = kindOf(s);
+  return (
+    <Tag {...(testId ? { testId } : {})}>
+      <span title={KIND_LINE[k]}>{SKILL_KIND_LABEL[k]}</span>
+    </Tag>
+  );
+}
+
+/** R8: what the skill reads and browses. */
+function SkillReach({ skill: s }: { skill: SkillListItem }) {
+  const reads = s.reads ?? [];
+  const browse = s.browse ?? null;
+  if (reads.length === 0 && !browse) return null;
+  return (
+    <span className="flex flex-col gap-1 text-sm" data-testid={`skills-card-${s.ref}-reach`}>
+      {reads.length > 0 ? (
+        <span className="flex flex-wrap gap-x-2">
+          <span className="text-ink-muted">Reads</span>
+          <span className="reference text-ink">{reads.join(", ")}</span>
+        </span>
+      ) : null}
+      {browse ? (
+        <span className="flex flex-wrap gap-x-2">
+          <span className="text-ink-muted">Browses</span>
+          <span className="text-ink">
+            {browse.sites.join(", ")} · {browse.pages.length}{" "}
+            {browse.pages.length === 1 ? "page" : "pages"}
+          </span>
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function sourceText(s: SkillListItem): string {
   return s.source === "builtin"
     ? "Built in"
@@ -315,8 +414,26 @@ function sourceText(s: SkillListItem): string {
 const MODE_TEXT: Record<SkillListItem["mode"], string> = {
   tool: "Runs code, no model. Built in, so it can't be cloned.",
   task: "A task on its own model: the same in every agent that uses it.",
-  agent: "Runs as the agent, on the agent's model and instructions.",
+  agent:
+    "Runs as the agent, on the agent's model and instructions. Retired for new skills, so it can't be cloned: use an AI skill, then a write step.",
 };
+
+/** How the skill runs, in a sentence: an operator's rule rows aren't code. */
+function modeText(s: SkillListItem): string {
+  if (s.mode === "tool" && s.source !== "builtin") return "Runs its rule rows, no model.";
+  return MODE_TEXT[s.mode];
+}
+
+/**
+ * Whether Clone is offered. Merged with the skill model (2026-11-11): a clone is a new skill, so
+ * code, the agent's own reasoning and rules then AI aren't offered; an AI task skill and an
+ * operator's deterministic skill are. The server also refuses a skill that writes, and says so.
+ */
+function cloneable(s: SkillListItem): boolean {
+  if (s.method === "rules_then_ai") return false;
+  if (s.mode === "task") return true;
+  return s.mode === "tool" && s.source !== "builtin";
+}
 
 /** The icon for a skill's category: what area of the business it works in. */
 const CATEGORY_ICONS: [RegExp, IconName][] = [
@@ -339,19 +456,14 @@ function categoryIcon(category: string): IconName {
   return CATEGORY_ICONS.find(([re]) => re.test(c))?.[1] ?? "document";
 }
 
-/** How a skill runs, as a short word on its card. Slate where a model does the work. */
-const MODE_CHIP: Record<SkillListItem["mode"], { label: string; tone: "neutral" | "accent" }> = {
-  tool: { label: "Code", tone: "neutral" },
-  task: { label: "Task", tone: "accent" },
-  agent: { label: "Agent", tone: "accent" },
-};
-
 /**
  * A skill in the library: its category (a slate tile with the area's icon), name, two lines of
- * what it does, how it runs, whether a person signs its writes (copper, the brand's colour for
- * people and sign-offs), and three numbers (client agents using it, tools, fields in → out). The
- * whole card opens its side sheet.
+ * what it does, its kind (Deterministic or AI), what it reads and browses, whether a person signs
+ * its writes (copper, the brand's colour for people and sign-offs), and three numbers (client
+ * agents using it, tools, fields in → out). The whole card opens its side sheet.
  */
+// DECISION (merge of main): the card's "how it runs" word is the skill model's kind, Deterministic
+// or AI, in place of main's Code / Task / Agent; the sheet still says how its mode runs.
 function SkillCard({
   skill: s,
   tools,
@@ -362,7 +474,6 @@ function SkillCard({
   onOpen: () => void;
 }) {
   const draft = s.source !== "builtin" && s.liveVersion === null;
-  const mode = MODE_CHIP[s.mode];
   return (
     <Card
       dashed={draft}
@@ -392,8 +503,9 @@ function SkillCard({
           </span>
           <span className="font-medium text-ink">{s.name}</span>
           <span className="line-clamp-2 text-sm text-ink-muted">{s.description}</span>
+          <SkillReach skill={s} />
           <span className="mt-auto flex flex-wrap gap-1.5 pt-1">
-            <Badge tone={mode.tone}>{mode.label}</Badge>
+            <KindTag skill={s} testId={`skills-card-${s.ref}-kind`} />
             {writes(s, tools) ? <Badge tone="person">Sign-off</Badge> : null}
           </span>
         </span>
@@ -433,7 +545,7 @@ function SkillTable({
           <tr className="dt-cols">
             <th>Skill</th>
             <th>Category</th>
-            <th>How it runs</th>
+            <th>Kind</th>
             <th className="text-right">Agents</th>
             <th className="text-right">Tools</th>
             <th className="text-right">In → out</th>
@@ -443,7 +555,6 @@ function SkillTable({
         <tbody>
           {skills.map((s) => {
             const draft = s.source !== "builtin" && s.liveVersion === null;
-            const mode = MODE_CHIP[s.mode];
             return (
               <tr key={s.id} data-testid={`skills-row-${s.ref}`}>
                 <td>
@@ -470,7 +581,7 @@ function SkillTable({
                 <td className="whitespace-nowrap text-ink-muted">{categoryLabel(s.category)}</td>
                 <td>
                   <span className="flex gap-1.5">
-                    <Badge tone={mode.tone}>{mode.label}</Badge>
+                    <KindTag skill={s} testId={`skills-row-${s.ref}-kind`} />
                     {writes(s, tools) ? <Badge tone="person">Sign-off</Badge> : null}
                   </span>
                 </td>
@@ -529,7 +640,8 @@ function Stat({
 
 /**
  * A skill's side sheet: all it says about itself (what it does, in and out, tools, connectors, who
- * uses it, how it runs), with Edit for an operator skill and Clone for any that doesn't run code.
+ * uses it, how it runs), with Edit for an operator skill and Clone for one the skill model allows
+ * as a new skill (`cloneable`).
  */
 function SkillSheet({
   skill: s,
@@ -575,7 +687,7 @@ function SkillSheet({
               Edit
             </Link>
           ) : null}
-          {s.mode !== "tool" ? (
+          {cloneable(s) ? (
             <Button
               size="sm"
               disabled={clone.busy}
@@ -604,10 +716,12 @@ function SkillSheet({
       </SheetSection>
       <SheetSection label="How it runs">
         <span className="flex flex-wrap gap-1.5">
-          <Badge tone={MODE_CHIP[s.mode].tone}>{MODE_CHIP[s.mode].label}</Badge>
+          <KindTag skill={s} />
           {writes(s, tools) ? <Badge tone="person">Sign-off</Badge> : null}
         </span>
-        <p className="text-sm text-ink">{MODE_TEXT[s.mode]}</p>
+        <p className="text-sm text-ink">{KIND_LINE[kindOf(s)]}</p>
+        <p className="text-sm text-ink-muted">{modeText(s)}</p>
+        <SkillReach skill={s} />
         {writes(s, tools) ? (
           <p className="text-sm text-ink-muted">
             It writes to a client's tools, so a person signs each change by default.

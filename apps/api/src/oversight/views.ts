@@ -6,11 +6,11 @@
 import {
   changedFields,
   fieldLabel,
-  findStep,
+  findAnyStep,
   type OversightDecisionView,
   oversightLine,
   parseSkillRef,
-  type Workflow,
+  processes,
 } from "@countersign/core";
 import { appUser, inboxItem, oversightDecision, stepRun, type Tx } from "@countersign/db";
 import { and, asc, eq } from "drizzle-orm";
@@ -77,7 +77,7 @@ export async function timelineOversight(
   tenantId: string,
   runId: string,
   platform: Platform,
-  workflow: Pick<Workflow, "steps"> | undefined,
+  workflow: StepHolder | undefined,
 ): Promise<Map<string, string[]>> {
   const rows = await tx
     .select({
@@ -131,14 +131,26 @@ export async function timelineOversight(
   return out;
 }
 
-/** The step's input schema: its skill's (a built-in), or its action's tool's. */
-function inputSchemaOf(
+/** A v3 workflow or a v4 process, as far as finding a step goes. */
+type StepHolder = Parameters<typeof findAnyStep>[0];
+
+/**
+ * The step's input schema: its skill's (a built-in), or its tool's: a v3 action's, a v4 read's or
+ * write's (wave 3b).
+ */
+export function inputSchemaOf(
   nodeId: string,
   skillRef: string | null,
-  platform: Platform,
-  workflow: Pick<Workflow, "steps"> | undefined,
+  platform: Pick<Platform, "catalog" | "tools">,
+  workflow: StepHolder | undefined,
 ): unknown {
   if (skillRef) return platform.catalog.get(parseSkillRef(skillRef).id)?.input ?? null;
-  const step = workflow ? findStep(workflow, baseStepId(nodeId))?.step : undefined;
-  return step?.kind === "action" ? (platform.tools.get(step.tool)?.spec.input ?? null) : null;
+  const step = workflow ? findAnyStep(workflow, baseStepId(nodeId)) : undefined;
+  // Skill model: an action write step's input is the action's (its tool's is mapped from it).
+  if (step?.kind === "write" && step.action !== undefined) {
+    return processes.actionInputSchema(step.action);
+  }
+  return step?.kind === "action" || step?.kind === "read" || step?.kind === "write"
+    ? (platform.tools.get(step.tool as string)?.spec.input ?? null)
+    : null;
 }

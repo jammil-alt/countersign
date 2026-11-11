@@ -12,6 +12,8 @@ import {
   DirectorySearchOutput,
   DirectorySuggestInput,
   DirectorySuggestOutput,
+  lazy,
+  lazyObjects,
   type SkillDefinition,
   suggestionChangesAddress,
 } from "@countersign/core";
@@ -83,7 +85,8 @@ export const DIRECTORY_TOOLS: readonly InternalTool[] = [
 ];
 
 /** The built-in skill: deterministic (tool mode), so any workflow or agent can look people up. */
-export const DIRECTORY_SKILLS: readonly SkillDefinition[] = [
+// Worker startup (2026-11-11): the tool's schemas are read on first use (core `lazy`).
+export const DIRECTORY_SKILLS: readonly SkillDefinition[] = lazyObjects([
   {
     schemaVersion: 1,
     id: "directory.lookup",
@@ -94,12 +97,12 @@ export const DIRECTORY_SKILLS: readonly SkillDefinition[] = [
     mode: "tool",
     handler: "directory.search",
     tools: [],
-    input: directorySearch.spec.input as Record<string, unknown>,
-    output: directorySearch.spec.output as Record<string, unknown>,
+    input: lazy(() => directorySearch.spec.input as Record<string, unknown>),
+    output: lazy(() => directorySearch.spec.output as Record<string, unknown>),
     settings: [],
     summary: "Found {{count}} in the directory",
     requiresConnectors: [],
     requiresPacks: [],
     producesAlerts: false,
   },
-];
+]);

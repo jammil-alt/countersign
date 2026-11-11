@@ -1,4 +1,4 @@
-// Mezonas' MCP server on the Worker (docs/plan.md §1.34 and §1.86, ARCHITECTURE §14): `/mcp`,
+// Mezonas' MCP server on the Worker (docs/plan.md §1.34 and §1.89, ARCHITECTURE §14): `/mcp`,
 // signed in through this environment's WorkOS AuthKit as an OAuth 2.1 authorization server, and
 // the metadata MCP clients use to find it. One URL for everyone: an operator gets the back
 // office's tools (./ops-tools.ts), a client's admin or user the portal's (./client-tools.ts).

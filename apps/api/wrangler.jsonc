@@ -79,7 +79,9 @@
     // companies only.
     "QBO_ENV": "sandbox",
     // Which Plaid the bank feed talks to (docs/plan.md §1.52): PLAID_SECRET must be this one's.
-    "PLAID_ENV": "sandbox"
+    "PLAID_ENV": "sandbox",
+    // Which BILL the billcom connector talks to (docs/plan.md §1.87): BILL_DEV_KEY must be this one's.
+    "BILL_ENV": "sandbox"
   },
 
   // Each environment repeats every binding: wrangler does not inherit bindings into an environment.
@@ -156,6 +158,7 @@
         "LLM_MODE": "live",
         "QBO_ENV": "sandbox",
         "PLAID_ENV": "sandbox",
+        "BILL_ENV": "sandbox",
         // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".
         // Add one only once its BAA is signed. Empty: no client can be put in HIPAA mode.
         "BAA_PROCESSORS": ""
@@ -217,6 +220,8 @@
         "QBO_ENV": "production",
         // Plaid's production needs its review first; until PLAID_SECRET is set, feeds stay off.
         "PLAID_ENV": "production",
+        // BILL's production developer key comes after its review; until BILL_DEV_KEY is set, BILL refuses.
+        "BILL_ENV": "production",
         // US texting registration (docs/plan.md §1.70): Mezonas' approved ISV primary customer
         // profile in Trust Hub ("Mezonas", Twilio Approved 2026-11-09) and the Mezonas address Trust
         // Hub writes to about each client's registration. Not secrets. Staging has neither: its

@@ -7,15 +7,28 @@
 // right: the Builder conversation (BuilderPanel) or the selected step. Steps picked with "Select
 // steps" can be saved as an automation. Loaded lazily inside the /ops chunk, so its drag-and-drop
 // code is fetched only when an operator opens a workflow.
+// R8 (docs/plan.md §1.86, §9; ARCHITECTURE §10.14): it edits v4 processes. A stored v3 version
+// opens converted (`readProcessBundle`, every id kept) and the next save writes schemaVersion 4 as
+// a new version; the stored one is never edited (invariant 3).
 import {
   type AgentBundle,
-  AgentBundle as AgentBundleSchema,
+  type AnyAgentBundle,
+  AnyAgentBundle as AnyAgentBundleSchema,
+  agentSkillEntry,
+  type BuilderCatalog,
   canonicalJson,
+  effectiveModel,
+  lookupSkill,
+  type ProcessAgentBundle,
   parseSkillRef,
+  providerModelName,
   Slug,
+  skillKind,
   type TriggerOn,
-  type ValidationError,
-  type Workflow,
+  type TypingContext,
+  toolLookup,
+  toolUsesModel,
+  uuidv7,
 } from "@countersign/core";
 import {
   DndContext,
@@ -57,12 +70,22 @@ import {
   TextArea,
   useAction,
 } from "../agents/ui";
-import { KIND_LABEL, type StepLabels } from "../workflow/describe";
+import { PROCESS_KIND_LABEL, type StepLabels } from "../workflow/describe";
 import { BuilderPanel, SaveAsAutomation, useBuilderSession } from "./BuilderPanel";
-import { Canvas, collision, DragCard, type DragData, Palette, resolveDrop } from "./Canvas";
+import {
+  Canvas,
+  collision,
+  DragCard,
+  type DragData,
+  Palette,
+  resolveDrop,
+  triggerKey,
+} from "./Canvas";
 import {
   type BuilderData,
+  type BuilderProblem,
   boundMatrices,
+  catalogSkillKind,
   connectorName,
   filterSections,
   paletteConnectors,
@@ -70,13 +93,16 @@ import {
   TESTKIT,
   toolConnector,
   typingContext,
-  validateLikeServer,
+  validateProcessesLikeServer,
+  writeLabelOf,
 } from "./catalog";
 import { FixDialog, type FixRequest } from "./FixDialog";
 import { EventOptions, SmallInput, SmallSelect } from "./fields";
-import { type FocusRequest, Inspector, type Member, type Selection } from "./Inspector";
+import { type FocusRequest, Inspector, type Selection } from "./Inspector";
 import {
   type ApprovalEnv,
+  addActionAfter,
+  addTrigger,
   addWorkflow,
   allowStep,
   type ContainerId,
@@ -84,23 +110,38 @@ import {
   createStep,
   customizedSteps,
   editWorkflow,
-  forkOfBranch,
   getContainer,
   type History,
+  holdsV3,
+  ifOfBranch,
   insertStep,
   locate,
   moveStep,
   type PaletteItem,
+  type Process,
   ROOT,
+  readProcessBundle,
   redo,
   removeStep,
+  removeTrigger,
   setTrigger,
   startHistory,
   undo,
   updateStep,
   workflowCounts,
 } from "./model";
+import {
+  addRouteAfter,
+  approvalRouteNames,
+  plainOutcomeProblem,
+  testRunApprovalNote,
+} from "./outcomes";
+import { type Member, type People, personName } from "./people";
 import { type ProblemLine, problemLines, problemPlace, readableErrors } from "./problems";
+// Reshape data (2026-11-11)
+import { addReshapeBefore, addReshapeThenAction, newReshapeStep } from "./reshape";
+import { useClientScriptTools } from "./scripts";
+import { applySkillMove } from "./skill-move";
 
 type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
 
@@ -114,7 +155,8 @@ export interface WorkflowBuilderProps {
   agent: AgentSummary;
   /** The version the builder opens: the agent's latest, draft or live. */
   from: VersionDetail;
-  bundle: AgentBundle;
+  /** That version's bundle as stored: v3 workflows, v4 processes, or both. */
+  bundle: AgentBundle | AnyAgentBundle;
   /** The workflow slug from the URL. */
   workflow: string;
   /** The agent page's URL. */
@@ -130,6 +172,9 @@ export interface WorkflowBuilderProps {
 
 export default function WorkflowBuilder(props: WorkflowBuilderProps) {
   const catalog = useApi(apiRoutes.opsBuilderCatalog, { params: { id: props.agent.id } });
+  // Skill model (2026-11-10): skill versions a step moved to in this session, so the builder
+  // types the step with the version it now names (the server resolves it the same way).
+  const [moved, setMoved] = useState<BuilderCatalog["skills"]>([]);
   const events = useApi(apiRoutes.opsEventCatalog);
   const templateVersion = useApi(
     apiRoutes.opsAgentVersion,
@@ -139,9 +184,24 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
   );
   const template = useMemo(() => {
     const raw = templateVersion.data?.version.bundle;
-    const parsed = raw === undefined ? null : AgentBundleSchema.safeParse(raw);
+    const parsed = raw === undefined ? null : AnyAgentBundleSchema.safeParse(raw);
     return parsed?.success ? parsed.data : null;
   }, [templateVersion.data]);
+  // R8: who a step asks or tells, from the client's People list (with their hours).
+  const hours = useApi(
+    apiRoutes.opsClientHours,
+    props.agent.kind === "client" && props.agent.tenantId
+      ? { params: { id: props.agent.tenantId } }
+      : null,
+  );
+  const scripts = useClientScriptTools(props.agent); // Wave 4: the client's recorded scripts
+  const people = useMemo<People>(
+    () => ({
+      members: props.members ?? [],
+      people: (hours.data?.people ?? []).map((p) => ({ id: p.id, name: p.name, kind: p.kind })),
+    }),
+    [props.members, hours.data],
+  );
 
   const failed = catalog.error ?? events.error;
   if (failed) {
@@ -167,8 +227,22 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
   return (
     <BuilderBody
       {...props}
-      data={{ catalog: catalog.data, events: events.data.events }}
+      data={{
+        catalog: {
+          ...catalog.data,
+          skills: [
+            ...catalog.data.skills.filter((s) => !moved.some((m) => m.ref === s.ref)),
+            ...moved,
+          ],
+        },
+        events: events.data.events,
+        scripts,
+      }}
+      onCatalogSkill={(entry) =>
+        setMoved((list) => [...list.filter((m) => m.ref !== entry.ref), entry])
+      }
       template={template}
+      people={people}
     />
   );
 }
@@ -253,12 +327,20 @@ function writeDraft(agentId: string, draft: StoredDraft | null) {
   }
 }
 
-function restoredDraft(agentId: string, from: VersionDetail, bundle: AgentBundle) {
+/** The draft kept on this device, read as processes; null when it is the version it opened. */
+function restoredDraft(
+  agentId: string,
+  from: VersionDetail,
+  start: ProcessAgentBundle,
+  ctx: TypingContext,
+) {
   const stored = readDraft(agentId);
   if (!stored || stored.from !== from.id) return null;
-  const parsed = AgentBundleSchema.safeParse(stored.bundle);
-  if (!parsed.success || canonicalJson(parsed.data) === canonicalJson(bundle)) return null;
-  return { bundle: parsed.data, at: stored.at };
+  const parsed = AnyAgentBundleSchema.safeParse(stored.bundle);
+  if (!parsed.success) return null;
+  const bundle = readProcessBundle(parsed.data, ctx);
+  if (canonicalJson(bundle) === canonicalJson(start)) return null;
+  return { bundle, at: stored.at };
 }
 
 function clock(at: number): string {
@@ -275,21 +357,33 @@ interface Saved {
 }
 
 function BuilderBody(
-  props: WorkflowBuilderProps & { data: BuilderData; template: AgentBundle | null },
+  props: WorkflowBuilderProps & {
+    data: BuilderData;
+    template: AnyAgentBundle | null;
+    people: People;
+    /** Skill model (2026-11-10): a skill version a step moved to joins the builder's catalog. */
+    onCatalogSkill?(entry: BuilderCatalog["skills"][number]): void;
+  },
 ) {
-  const { agent, from, data, base, template } = props;
+  const { agent, from, data, base } = props;
   const navigate = useNavigate();
   const ctx = useMemo(() => typingContext(data), [data]);
-  const [restored] = useState(() => restoredDraft(agent.id, from, props.bundle));
-  const [history, setHistory] = useState<History>(() =>
-    startHistory(restored?.bundle ?? props.bundle),
+  // The version as the builder edits it: v3 workflows read as processes, every id kept. It is the
+  // starting point, not an edit: nothing is unsaved until the operator changes something.
+  const [start] = useState(() => readProcessBundle(props.bundle, ctx));
+  const opensV3 = holdsV3(props.bundle);
+  const template = useMemo(
+    () => (props.template ? readProcessBundle(props.template, ctx) : null),
+    [props.template, ctx],
   );
+  const [restored] = useState(() => restoredDraft(agent.id, from, start, ctx));
+  const [history, setHistory] = useState<History>(() => startHistory(restored?.bundle ?? start));
   const bundle = history.present;
   const [saved, setSaved] = useState<Saved>(() => ({
     id: from.id,
     version: from.version,
     status: from.status,
-    canon: canonicalJson(props.bundle),
+    canon: canonicalJson(start),
   }));
   const canon = useMemo(() => canonicalJson(bundle), [bundle]);
   const dirty = canon !== saved.canon;
@@ -339,7 +433,12 @@ function BuilderBody(
           tone: "neutral",
           body: `Restored your unsaved changes from ${clock(restored.at)}.`,
         }
-      : null,
+      : opensV3
+        ? {
+            tone: "neutral",
+            body: `v${from.version} is stored in the older workflow format. It opens here as a process with every step as it was; your next save makes a new version in the new format, and v${from.version} stays as it is.`,
+          }
+        : null,
   );
   const action = useAction();
 
@@ -391,13 +490,13 @@ function BuilderBody(
   const targetText = useMemo(() => {
     if (!workflow || addTarget === ROOT) return "at the end";
     if (addTarget.startsWith("otherwise:")) {
-      const fork = forkOfBranch(workflow, addTarget.slice("otherwise:".length));
-      return fork ? `to “Otherwise” in ${fork.name || "the fork"}` : "at the end";
+      const branch = ifOfBranch(workflow, addTarget.slice("otherwise:".length));
+      return branch ? `to “Otherwise” in ${branch.name || "the if"}` : "at the end";
     }
     if (addTarget.startsWith("path:")) {
       const id = addTarget.slice("path:".length);
-      const fork = forkOfBranch(workflow, id);
-      const path = fork?.kind === "fork" ? fork.paths.find((p) => p.id === id) : undefined;
+      const branch = ifOfBranch(workflow, id);
+      const path = branch?.kind === "if" ? branch.paths.find((p) => p.id === id) : undefined;
       return path ? `to “${path.name}”` : "at the end";
     }
     const loop = locate(workflow, addTarget.slice("loop:".length))?.step;
@@ -434,9 +533,34 @@ function BuilderBody(
         const c = toolConnector(toolId, data);
         return c ? connectorName(data, c) : undefined;
       },
+      changesClientTool: (toolId) => {
+        const tool = ctx.tools?.[toolId];
+        return tool ? tool.sideEffect === "external" : undefined;
+      },
+      // Skill model (2026-11-10): each skill step's kind, each write by where it writes.
+      skillKind: (ref) => catalogSkillKind(data, ref),
+      // Review: a read or a write on a tool that calls a model inside reads AI.
+      toolUsesModel: (toolId) => {
+        const tool = ctx.tools?.[toolId];
+        return tool ? toolUsesModel(tool) : undefined;
+      },
+      writeLabel: (toolId) => writeLabelOf(data, toolId),
+      stepModel: (step) => {
+        if (step.kind !== "skill") return undefined;
+        const def = lookupSkill(step.skill, ctx);
+        if (!def) return undefined;
+        const runs = effectiveModel({
+          skill: def,
+          agentModel: bundle.definition.model,
+          agentSkill: agentSkillEntry(bundle.definition, parseSkillRef(step.skill).id)?.model,
+          step: step.model ?? step.customize?.model,
+        });
+        return runs ? providerModelName(runs.model.id) : undefined;
+      },
       person: (id) => {
-        const m = props.members?.find((x) => x.userId === id);
-        return m ? (m.name ?? m.email) : undefined;
+        // A role reads as its own words ("client admin"); a person by their name.
+        if (["client_admin", "client_user", "operator", "lead"].includes(id)) return undefined;
+        return personName(props.people, id);
       },
       description: (step) => {
         if (step.kind === "skill") {
@@ -444,29 +568,29 @@ function BuilderBody(
             (s) => s.ref === step.skill || parseSkillRef(s.ref).id === step.skill,
           )?.definition.description;
         }
-        if (step.kind === "action") {
+        // v4: a read or a write by its tool (an action write has none: its kind says it).
+        if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
           return data.catalog.tools.find((t) => t.id === step.tool)?.description;
         }
-        if (step.kind === "use_automation") {
+        if (step.kind === "process") {
           return (
-            data.catalog.automations?.find((a) => a.ref === step.automation)?.description ??
-            undefined
+            data.catalog.automations?.find((a) => a.ref === step.process)?.description ?? undefined
           );
         }
         return undefined;
       },
     }),
-    [data, props.members],
+    [data, ctx, props.people, bundle],
   );
 
   // ── Edits ──
   const apply = useCallback(
-    (fn: (b: AgentBundle) => AgentBundle, key: string | null = null) =>
+    (fn: (b: ProcessAgentBundle) => ProcessAgentBundle, key: string | null = null) =>
       setHistory((h) => commit(h, fn(h.present), key)),
     [],
   );
   const edit = useCallback(
-    (fn: (w: Workflow) => Workflow, key: string | null = null) =>
+    (fn: (w: Process) => Process, key: string | null = null) =>
       apply((b) => editWorkflow(b, slug, fn), key),
     [apply, slug],
   );
@@ -474,8 +598,13 @@ function BuilderBody(
   const addItem = (item: PaletteItem, target?: { container: string; index: number }) => {
     if (!workflow) return;
     if (item.type === "trigger") {
-      edit((w) => setTrigger(w, item.on));
-      setSelection({ type: "trigger" });
+      // It replaces the trigger in the inspector, else the first: a trigger keeps its id.
+      const id =
+        selection?.type === "trigger" && workflow.triggers.some((t) => t.id === selection.id)
+          ? selection.id
+          : workflow.triggers[0]?.id;
+      edit((w) => setTrigger(w, item.on, id));
+      if (id) setSelection({ type: "trigger", id });
       setRail("step");
       return;
     }
@@ -508,10 +637,35 @@ function BuilderBody(
     () => (agent.kind === "client" ? boundMatrices(agent.bindings, props.connections ?? []) : {}),
     [agent, props.connections],
   );
-  const result = useMemo(
-    () => validateLikeServer(bundle, ctx, agent.kind === "client" ? { matrices } : undefined),
-    [bundle, ctx, matrices, agent.kind],
-  );
+  // While a stored v3 version is open unchanged, Publish sends that version as stored and the
+  // server validates it as v3, so the problem list and the Publish button read the stored bundle
+  // (core validates an all-v3 bundle exactly as `validateBundle` does). After the first edit they
+  // read the process the next save writes.
+  // DECISION (web, wave 3b): validate what Publish would send: the stored v3 bundle until the first
+  // edit, then the v4 process; the converted reading isn't shown as the version's own problems.
+  const unchangedV3 = opensV3 && !dirty && saved.id === from.id;
+  const result = useMemo(() => {
+    const r = validateProcessesLikeServer(unchangedV3 ? props.bundle : bundle, ctx, {
+      clientAgent: agent.kind === "client",
+      publish: agent.kind === "client" ? { matrices } : undefined,
+    });
+    // Wave 5: a condition on how a step ended says what's wrong in the builder's words.
+    const plain = <
+      P extends {
+        workflow?: string | undefined;
+        stepId: string | null;
+        field: string;
+        code: string;
+        message: string;
+      },
+    >(
+      p: P,
+    ): P => {
+      const process = bundle.workflows.find((w) => w.slug === p.workflow)?.workflow;
+      return process ? { ...p, message: plainOutcomeProblem(process, p) } : p;
+    };
+    return { ...r, errors: r.errors.map(plain), warnings: r.warnings.map(plain) };
+  }, [unchangedV3, props.bundle, bundle, ctx, matrices, agent.kind]);
   // Counted as the problems list shows them: one step's references to the same step are one.
   const problemCount = useMemo(
     () => problemLines(result.errors, bundle).length,
@@ -587,15 +741,17 @@ function BuilderBody(
   };
 
   // ── Selecting what an error names ──
-  const showError = (e: ValidationError) => {
+  const showError = (e: BuilderProblem) => {
     if (e.workflow && e.workflow !== slug) {
       navigate(`${base}/workflows/${e.workflow}`);
       return;
     }
     if (!workflow || !e.stepId) return;
-    if (e.stepId === workflow.trigger.id) setSelection({ type: "trigger" });
+    const stepId = e.stepId;
+    if (workflow.triggers.some((t) => t.id === stepId))
+      setSelection({ type: "trigger", id: stepId });
     else {
-      const owner = locate(workflow, e.stepId)?.step ?? forkOfBranch(workflow, e.stepId);
+      const owner = locate(workflow, e.stepId)?.step ?? ifOfBranch(workflow, e.stepId);
       if (!owner) return;
       setSelection({ type: "step", id: owner.id });
     }
@@ -672,6 +828,7 @@ function BuilderBody(
   const session = useBuilderSession({
     agent,
     bundle,
+    read: (b) => readProcessBundle(b, ctx),
     ensureSaved: async () => (dirty ? await save() : saved),
     onDraft: (next) => apply(() => next),
   });
@@ -688,7 +845,7 @@ function BuilderBody(
       workflowName: workflowName(line.error.workflow),
     });
   /** From the step panel, whose errors are already in plain words: the raw ones match by place. */
-  const fixError = (e: ValidationError) => {
+  const fixError = (e: BuilderProblem) => {
     const raw = result.errors.filter(
       (r) =>
         r.workflow === slug && r.stepId === e.stepId && r.field === e.field && r.code === e.code,
@@ -731,7 +888,7 @@ function BuilderBody(
     counts
       ? [
           plural(counts.steps, "step"),
-          plural(counts.forks, "fork"),
+          `${counts.ifs} if${counts.ifs === 1 ? "" : "s"}`,
           `${counts.writes} ${counts.writes === 1 ? "changes a tool" : "change tools"}`,
           `${counts.needApproval} ${counts.needApproval === 1 ? "needs" : "need"} approval`,
         ].join(" · ")
@@ -815,7 +972,7 @@ function BuilderBody(
                     data-testid="builder-discard-draft"
                     className="text-sm underline"
                     onClick={() => {
-                      setHistory(startHistory(props.bundle));
+                      setHistory(startHistory(start));
                       writeDraft(agent.id, null);
                       setDraftAt(null);
                       setNotice(null);
@@ -842,13 +999,16 @@ function BuilderBody(
         </div>
       ) : null}
 
-      {panel === "test" && workflow && entry ? (
+      {panel === "test" && workflow?.triggers[0] && entry ? (
         <TestRunPanel
           agent={agent}
           workflowName={entry.name}
           slug={slug}
+          // DECISION: a test run starts from the first trigger's sample, as v3 had one trigger.
           sample={samplePayload(workflow, data.events)}
           eventType={triggerEventType(workflow)}
+          // Wave 5 review: routes on an approval go the no-approval way in a test run.
+          approvalNote={testRunApprovalNote(approvalRouteNames(workflow))}
           busy={action.busy}
           onClose={() => setPanel(null)}
           run={async (payload, clientId) => {
@@ -872,7 +1032,7 @@ function BuilderBody(
           if (d?.type === "palette") setActiveLabel({ title: d.item.title, kind: d.item.type });
           else if (workflow) {
             const s = locate(workflow, String(e.active.id))?.step;
-            if (s) setActiveLabel({ title: s.name, kind: KIND_LABEL[s.kind] });
+            if (s) setActiveLabel({ title: s.name, kind: PROCESS_KIND_LABEL[s.kind] });
           }
         }}
         onDragOver={(e) => setOverId(e.over ? String(e.over.id) : null)}
@@ -983,18 +1143,27 @@ function BuilderBody(
                 onShow={showError}
                 onFix={fixLine}
               />
+              <Advice warnings={result.warnings.filter((w) => w.workflow === slug)} />
 
               {workflow ? (
                 <Canvas
                   workflow={workflow}
-                  selectedId={selection?.type === "trigger" ? "trigger" : (selection?.id ?? null)}
+                  selectedId={
+                    selection?.type === "trigger"
+                      ? triggerKey(selection.id)
+                      : (selection?.id ?? null)
+                  }
                   env={env}
                   errors={workflowErrors}
                   customized={customized}
                   activeId={activeId}
                   overId={overId}
                   onSelect={(id) => {
-                    setSelection(id === "trigger" ? { type: "trigger" } : { type: "step", id });
+                    setSelection(
+                      id.startsWith("trigger:")
+                        ? { type: "trigger", id: id.slice("trigger:".length) }
+                        : { type: "step", id },
+                    );
                     showRail("step");
                   }}
                   labels={labels}
@@ -1162,12 +1331,70 @@ function BuilderBody(
                     env={env}
                     errors={workflowErrors}
                     template={template ? { bundle: template, workflow: templateWorkflow } : null}
-                    members={props.members ?? []}
+                    people={props.people}
                     focus={focus}
                     connectors={connectors}
                     onStep={(id, fn, key) => edit((w) => updateStep(w, id, fn), key)}
-                    onTrigger={(on: TriggerOn, key) => edit((w) => setTrigger(w, on), key)}
+                    onTrigger={(id, on: TriggerOn, key) => edit((w) => setTrigger(w, on, id), key)}
+                    onAddTrigger={(on) => {
+                      const id = uuidv7();
+                      edit((w) => addTrigger(w, on, () => id));
+                      setSelection({ type: "trigger", id });
+                    }}
+                    onRemoveTrigger={(id) => {
+                      edit((w) => removeTrigger(w, id));
+                      setSelection(null);
+                    }}
                     onDelete={remove}
+                    // Skill model (2026-11-10): "Move to vN", references remapped, one undo.
+                    agentId={agent.id}
+                    tenantId={agent.tenantId}
+                    onMoveSkill={(move) => {
+                      props.onCatalogSkill?.({
+                        ref: move.to,
+                        source: "pinned",
+                        version: move.version,
+                        definition: move.definition,
+                        kind: skillKind(move.definition, toolLookup(data.catalog.tools)),
+                        palette: false,
+                      });
+                      edit((w) => applySkillMove(w, move.stepId, move.to, move.remaps));
+                    }}
+                    // DECISION (wave 5, web): the step stays selected after "Add a route", so its
+                    // inspector says what was set; the new if waits on the canvas for its steps.
+                    onAddRoute={(id, option) =>
+                      edit((w) => addRouteAfter(w, id, option)?.process ?? w)
+                    }
+                    // Skill model (2026-11-10): the write a skill's output fits, selected once
+                    // added so its inspector shows the tool it will use.
+                    onAddAction={(id, fit) => {
+                      const newId = uuidv7();
+                      edit((w) => addActionAfter(w, id, fit, ctx, () => newId)?.process ?? w);
+                      setSelection({ type: "step", id: newId });
+                    }}
+                    // Reshape data (2026-11-11): a Reshape step before a step whose inputs can't
+                    // be filled, or between a skill and a write it fits in part; the agent gets
+                    // the skill in the same edit, and the new step opens with its mapping.
+                    onAddReshape={(at) => {
+                      const made = [uuidv7(), uuidv7()];
+                      apply((b) => {
+                        // The same ids however often the edit is applied.
+                        let n = 0;
+                        const ids = () => made[n++] ?? uuidv7();
+                        const next = editWorkflow(
+                          b,
+                          slug,
+                          (w) =>
+                            ("before" in at
+                              ? addReshapeBefore(w, at.before, ctx, ids)
+                              : addReshapeThenAction(w, at.after, at.action, ctx, ids)
+                            )?.process ?? w,
+                        );
+                        return allowStep(next, newReshapeStep(), ctx);
+                      });
+                      setSelection({ type: "step", id: made[0] as string });
+                    }}
+                    onProcess={(fn, key) => edit(fn, key)}
                     onFix={fixError}
                   />
                 </div>
@@ -1202,10 +1429,10 @@ function Problems({
   onShow,
   onFix,
 }: {
-  errors: ValidationError[];
-  bundle: AgentBundle;
+  errors: BuilderProblem[];
+  bundle: ProcessAgentBundle;
   slug: string;
-  onShow(e: ValidationError): void;
+  onShow(e: BuilderProblem): void;
   /** Opens the Fix dialog for a line: the Builder explains it and proposes a fix. */
   onFix(line: ProblemLine): void;
 }) {
@@ -1265,6 +1492,36 @@ function Problems({
   );
 }
 
+/**
+ * The split signals (ARCHITECTURE §10.14 "When to split"): advice, never errors. The operator
+ * decides whether a long or deeply nested process is better as two agents joined by a handoff.
+ */
+function Advice({ warnings }: { warnings: readonly { message: string; code: string }[] }) {
+  if (warnings.length === 0) return null;
+  return (
+    <div
+      data-testid="builder-advice"
+      className="mb-4 rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink-muted"
+    >
+      <p className="font-medium text-ink">Worth a look</p>
+      <ul className="mt-1 flex flex-col gap-0.5">
+        {warnings.map((w) =>
+          // Wave 5: a condition on an outcome its step never reaches is its own advice.
+          w.code === "outcome_unreachable" ? (
+            <li key={`${w.code}:${w.message}`} data-testid="builder-advice-outcome">
+              {w.message}
+            </li>
+          ) : (
+            <li key={`${w.code}:${w.message}`}>
+              {w.message}. Two agents joined by a handoff may read better.
+            </li>
+          ),
+        )}
+      </ul>
+    </div>
+  );
+}
+
 // ── A template's connectors ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -1319,7 +1576,7 @@ function WorkflowSwitcher({
   adding,
   onAdd,
 }: {
-  bundle: AgentBundle;
+  bundle: Pick<ProcessAgentBundle, "workflows">;
   current: string;
   base: string;
   adding: boolean;
@@ -1375,7 +1632,7 @@ function AddWorkflowForm({
   onCreate,
   onCancel,
 }: {
-  bundle: AgentBundle;
+  bundle: Pick<ProcessAgentBundle, "workflows">;
   events: string[];
   onCreate(input: { slug: string; name: string; on: TriggerOn }): void;
   onCancel(): void;
@@ -1524,6 +1781,7 @@ function TestRunPanel({
   slug,
   sample,
   eventType,
+  approvalNote,
   busy,
   run,
   onClose,
@@ -1535,6 +1793,8 @@ function TestRunPanel({
   sample: unknown;
   /** The trigger's event type, for "Use a recent event"; null for other triggers. */
   eventType: string | null;
+  /** Wave 5 review: routes that read an approval, which reads "needed no approval" in a test. */
+  approvalNote?: string | null;
   busy: boolean;
   /** `clientId`: a template's chosen client (none: the Sandbox). */
   run(payload: unknown, clientId: string | null): Promise<string | null>;
@@ -1578,6 +1838,11 @@ function TestRunPanel({
           : "It runs on this client's data."}{" "}
         Unsaved changes are saved as a draft first.
       </p>
+      {approvalNote ? (
+        <p className="text-sm text-ink" data-testid="builder-test-approval-note">
+          {approvalNote}
+        </p>
+      ) : null}
       {isTemplate ? (
         <SmallSelect
           aria-label="Client"

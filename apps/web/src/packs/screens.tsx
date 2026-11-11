@@ -211,9 +211,55 @@ function EnableButton({
   );
 }
 
+/**
+ * Wave 3b: gives a pack's installed templates the later versions the pack carries. Each client
+ * agent forked from one is then offered the update, which the operator reviews as a merge.
+ */
+function UpdateTemplatesButton({ pack, onDone }: { pack: string; onDone: (note: string) => void }) {
+  const client = useApiClient();
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<unknown>(null);
+  return (
+    <span className="flex items-center gap-2">
+      {problem ? <ErrorNotice error={problem} /> : null}
+      <Button
+        size="sm"
+        variant="secondary"
+        data-testid={`pack-update-templates-${pack}`}
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setProblem(null);
+          try {
+            const res = await client.call(apiRoutes.opsUpdatePackTemplates, { params: { pack } });
+            const live = res.updated.filter((u) => u.published);
+            const held = res.updated.filter((u) => !u.published);
+            const parts = [
+              live.length > 0
+                ? `Published ${live.map((u) => `${u.slug} v${u.version}`).join(", ")}. Its clients are offered the update to review.`
+                : null,
+              held.length > 0
+                ? `Saved ${held.map((u) => `${u.slug} v${u.version}`).join(", ")} as a draft beside your own live version.`
+                : null,
+            ].filter((x): x is string => x !== null);
+            onDone(parts.length > 0 ? parts.join(" ") : "The templates are up to date.");
+          } catch (e) {
+            setProblem(e);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        Update templates
+      </Button>
+    </span>
+  );
+}
+
 export function OpsPacksScreen() {
   const { data, error, loading, reload } = useApi(apiRoutes.opsPacks);
   const [installed, setInstalled] = useState<string[]>([]);
+  const [updated, setUpdated] = useState<string | null>(null);
   if (loading && !data) return <Loading />;
   if (error) return <ErrorNotice error={error} onRetry={reload} />;
   if (!data) return null;
@@ -226,6 +272,11 @@ export function OpsPacksScreen() {
       {installed.length > 0 ? (
         <p className="mb-4 text-sm text-ink" data-testid="ops-packs-installed">
           Installed {installed.join(", ")} as templates.
+        </p>
+      ) : null}
+      {updated ? (
+        <p className="mb-4 text-sm text-ink" data-testid="ops-packs-updated">
+          {updated}
         </p>
       ) : null}
       {data.packs.map((p) => (
@@ -254,9 +305,27 @@ export function OpsPacksScreen() {
                       <Badge tone={t.templateId ? "positive" : "neutral"}>
                         {t.templateId ? "Installed" : "Installs when switched on"}
                       </Badge>
+                      {t.newVersions > 0 ? (
+                        <Badge tone="warning">
+                          {t.newVersions === 1
+                            ? "1 newer version"
+                            : `${t.newVersions} newer versions`}
+                        </Badge>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
+                {p.templates.some((t) => t.newVersions > 0) ? (
+                  <div className="mt-2">
+                    <UpdateTemplatesButton
+                      pack={p.id}
+                      onDone={(note) => {
+                        setUpdated(note);
+                        reload();
+                      }}
+                    />
+                  </div>
+                ) : null}
                 <SectionLabel>Reports</SectionLabel>
                 <p className="text-sm text-ink-muted">{p.screens.map((s) => s.title).join(", ")}</p>
               </div>

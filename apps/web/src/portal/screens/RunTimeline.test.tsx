@@ -126,6 +126,23 @@ describe("portal run timeline", () => {
     }
   });
 
+  // Skill model (2026-11-10), wave A: a write reads "Changed in <their tool>" or "Saved".
+  it("says where each write went, by the tool's name, and in the client's language", async () => {
+    const [first, second] = LEAKY_TIMELINE.steps as [object, object];
+    renderTimeline({
+      ...LEAKY_TIMELINE,
+      steps: [
+        { ...first, write: { kind: "change_in", connector: "QuickBooks Online" } },
+        { ...second, status: "waiting", write: { kind: "save_to_records", connector: null } },
+      ],
+    });
+    const writes = await screen.findAllByTestId("portal-run-step-write");
+    expect(writes.map((w) => w.textContent)).toEqual([
+      "Changed in QuickBooks Online",
+      "Saves to your records",
+    ]);
+  });
+
   it("says when nothing visible has happened yet", async () => {
     renderTimeline({
       ...LEAKY_TIMELINE,
@@ -251,5 +268,197 @@ describe("portal run timeline", () => {
     expect(document.body.textContent).not.toContain("Record ·");
     // Nothing waits on the reader: no call to action.
     expect(screen.queryByTestId("portal-run-approve")).toBeNull();
+  });
+});
+
+// R8 (ARCHITECTURE §10.14 "Checks", "Deadlines"): a step's checks on the client's timeline.
+describe("portal run timeline: checks", () => {
+  const S = (n: number) => `00000000-0000-4000-8000-0000000f6${String(n).padStart(3, "0")}`;
+  const step = (n: number, over: Record<string, unknown>) => ({
+    id: S(n),
+    label: "Read the invoice",
+    status: "succeeded",
+    summary: null,
+    sources: [],
+    startedAt: "2026-11-10T10:00:00.000Z",
+    finishedAt: "2026-11-10T10:01:00.000Z",
+    ...over,
+  });
+  const CHECKED = {
+    ...LEAKY_TIMELINE,
+    steps: [
+      step(1, {
+        label: "Read the invoice",
+        confer: {
+          reviewer: "ai",
+          who: null,
+          verdict: "agree",
+          note: null,
+          name: null,
+        },
+      }),
+      step(2, {
+        label: "Read the invoice",
+        confer: {
+          reviewer: "person",
+          who: CLIENT_SESSION.user.id,
+          name: "Dana",
+          verdict: "disagree",
+          note: "The freight line is missing",
+        },
+      }),
+      step(3, {
+        label: "Updated the bill",
+        noAnswer: "proceeded",
+        approval: {
+          mode: "in_turn",
+          approvers: [
+            {
+              itemId: S(11),
+              role: "client_admin",
+              userId: null,
+              name: null,
+              state: "no_answer",
+              at: null,
+            },
+            {
+              itemId: S(12),
+              role: null,
+              userId: CLIENT_SESSION.user.id,
+              name: "Dana",
+              state: "no_answer",
+              at: null,
+            },
+          ],
+        },
+      }),
+      step(4, {
+        label: "Told the team",
+        urgent: { dueAt: "2026-11-10T11:00:00.000Z", state: "waiting", seenAt: null },
+      }),
+      step(5, { label: "Asked for the PO", status: "failed", noAnswer: "stopped" }),
+    ],
+  };
+
+  it("shows confers as their own steps, approvers in their mode, and no-answer outcomes", async () => {
+    renderTimeline(CHECKED);
+    const ai = await screen.findByTestId(`portal-run-step-${S(1)}`);
+    expect(ai).toHaveTextContent("A second check: agrees");
+    expect(ai).toHaveTextContent("Checked: Read the invoice");
+    const dana = screen.getByTestId(`portal-run-step-${S(2)}`);
+    expect(dana).toHaveTextContent("Checked with Dana: disagrees");
+    expect(dana).toHaveTextContent("“The freight line is missing”");
+    // A person's answer is a person's step.
+    expect(dana).toHaveAttribute("data-state", "person");
+
+    const write = screen.getByTestId(`portal-run-step-${S(3)}`);
+    const approval = within(write).getByTestId("portal-run-step-checks-approval");
+    expect(approval).toHaveTextContent("Asked one at a time, in order");
+    expect(
+      within(approval)
+        .getAllByTestId("portal-run-step-checks-approver")
+        .map((a) => a.textContent),
+    ).toEqual(["your admin: no answer in time", "Dana: no answer in time"]);
+    expect(within(write).getByTestId("portal-run-step-checks-no-answer")).toHaveTextContent(
+      "Went ahead: nobody answered in time",
+    );
+    expect(
+      screen.getByTestId(`portal-run-step-${S(4)}`).querySelector("[data-state=waiting]"),
+    ).toHaveTextContent(/^Urgent: waiting for Seen until /);
+    expect(
+      within(screen.getByTestId(`portal-run-step-${S(5)}`)).getByTestId(
+        "portal-run-step-checks-no-answer",
+      ),
+    ).toHaveTextContent("Stopped: nobody answered in time");
+  });
+
+  it("reads in the client's language", async () => {
+    renderTimeline(CHECKED, {
+      "GET /api/session": () => ({
+        ...CLIENT_SESSION,
+        language: { effective: "es", user: "es", client: null },
+      }),
+    });
+    expect(await screen.findByTestId(`portal-run-step-${S(2)}`)).toHaveTextContent(
+      "Consultado con Dana: no está de acuerdo",
+    );
+  });
+
+  // Wave 5: the route an if took and why; a step that failed and the run carried on past.
+  const FORKED = {
+    ...LEAKY_TIMELINE,
+    steps: [
+      step(1, { label: "Approve the bill", status: "skipped", outcome: "rejected" }),
+      step(2, {
+        label: "Look the PO up",
+        status: "failed",
+        outcome: "failed",
+        carriedOn: true,
+      }),
+      step(3, {
+        label: "Pick the way",
+        summary: "Pick the way: Rejected",
+        route: {
+          path: "Rejected",
+          because: [
+            { label: "Approve the bill", outcome: "rejected" },
+            { label: "Look the PO up", outcome: "failed" },
+          ],
+        },
+      }),
+      step(4, { label: "Pick again", route: { path: null, because: [] } }),
+      step(5, {
+        label: "Check the vendor",
+        status: "skipped",
+        outcome: "stopped",
+        carriedOn: true,
+      }),
+    ],
+  };
+
+  it("says a sub-process a stop ended went on, in ink, not as a failure", async () => {
+    renderTimeline(FORKED);
+    const sub = await screen.findByTestId(`portal-run-step-${S(5)}`);
+    const carried = within(sub).getByTestId("portal-run-step-checks-carried-on");
+    expect(carried).toHaveTextContent("Stopped, and the run carried on");
+    expect(carried).not.toHaveClass("ui-tone-risk");
+  });
+
+  it("says which route an if took and why, and a failure the run carried on past", async () => {
+    renderTimeline(FORKED);
+    const fork = await screen.findByTestId(`portal-run-step-${S(3)}`);
+    expect(within(fork).getByTestId("portal-run-step-checks-route")).toHaveTextContent(
+      "Took the route “Rejected”: Approve the bill was rejected, Look the PO up failed",
+    );
+    expect(
+      within(screen.getByTestId(`portal-run-step-${S(4)}`)).getByTestId(
+        "portal-run-step-checks-route",
+      ),
+    ).toHaveTextContent("None of the routes matched, so it went on the usual way");
+    const look = screen.getByTestId(`portal-run-step-${S(2)}`);
+    const carried = within(look).getByTestId("portal-run-step-checks-carried-on");
+    expect(carried).toHaveTextContent("Failed, and the run carried on");
+    expect(carried).toHaveClass("ui-tone-risk");
+    expect(
+      within(screen.getByTestId(`portal-run-step-${S(1)}`)).queryByTestId(
+        "portal-run-step-checks-carried-on",
+      ),
+    ).toBeNull();
+  });
+
+  it("says the route in the client's language", async () => {
+    renderTimeline(FORKED, {
+      "GET /api/session": () => ({
+        ...CLIENT_SESSION,
+        language: { effective: "de", user: "de", client: null },
+      }),
+    });
+    expect(
+      within(await screen.findByTestId(`portal-run-step-${S(3)}`)).getByTestId(
+        "portal-run-step-checks-route",
+      ),
+    ).toHaveTextContent(
+      "Weg „Rejected“ genommen: Approve the bill: abgelehnt, Look the PO up: fehlgeschlagen",
+    );
   });
 });

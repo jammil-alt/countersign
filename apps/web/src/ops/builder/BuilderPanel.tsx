@@ -6,9 +6,10 @@
 // undoable edit. Nothing is saved as a version here: the operator saves, test-runs and publishes
 // as before. "Save as automation" turns the selected steps into an automation draft the same way.
 import {
-  type AgentBundle,
-  AgentBundle as AgentBundleSchema,
+  type AnyAgentBundle,
+  AnyAgentBundle as AnyAgentBundleSchema,
   canonicalJson,
+  type ProcessAgentBundle,
   Slug,
 } from "@countersign/core";
 import { useState } from "react";
@@ -22,9 +23,11 @@ import { SmallInput } from "./fields";
 
 type Detail = ResponseOf<typeof apiRoutes.opsBuilderSession>;
 
-function parsed(detail: Detail | null): AgentBundle | null {
+// R8: the conversation's draft is a v4 process bundle (wave 3b: the server reads a v3 one through
+// the converter); `read` keeps the canvas and the draft comparing like with like either way.
+function parsed(detail: Detail | null): AnyAgentBundle | null {
   if (!detail) return null;
-  const p = AgentBundleSchema.safeParse(detail.session.bundle);
+  const p = AnyAgentBundleSchema.safeParse(detail.session.bundle);
   return p.success ? p.data : null;
 }
 
@@ -43,26 +46,31 @@ export interface BuilderSession {
 export function useBuilderSession({
   agent,
   bundle,
+  read,
   ensureSaved,
   onDraft,
 }: {
   agent: AgentSummary;
   /** What the canvas shows now. */
-  bundle: AgentBundle;
+  bundle: ProcessAgentBundle;
+  /** A draft as the canvas shows it (v3 workflows read as processes, ids kept). */
+  read(bundle: AnyAgentBundle): ProcessAgentBundle;
   /** The version the canvas is saved as, saving unsaved edits first; null when saving failed. */
   ensureSaved(): Promise<{ id: string } | null>;
   /** The conversation's draft, onto the canvas. */
-  onDraft(bundle: AgentBundle): void;
+  onDraft(bundle: ProcessAgentBundle): void;
 }): BuilderSession {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const action = useAction();
-  const draft = parsed(detail);
+  const raw = parsed(detail);
+  const draft = raw ? read(raw) : null;
   const inSync = draft !== null && canonicalJson(draft) === canonicalJson(bundle);
 
   const take = (next: Detail) => {
     setDetail(next);
-    const b = parsed(next);
+    const p = parsed(next);
+    const b = p ? read(p) : null;
     if (b && canonicalJson(b) !== canonicalJson(bundle)) onDraft(b);
   };
 

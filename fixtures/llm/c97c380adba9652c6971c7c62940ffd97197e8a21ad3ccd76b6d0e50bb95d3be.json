@@ -1,0 +1,95 @@
+{
+  "hash": "c97c380adba9652c6971c7c62940ffd97197e8a21ad3ccd76b6d0e50bb95d3be",
+  "recordedAt": "2026-11-10T12:00:00.000Z",
+  "request": {
+    "model": "google:gemini-3.1-pro",
+    "system": "You check invoices for a client. Use the tools to read them.",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What does INV-1 total?"
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "gemini:EqYCAdHtim9toolCallSignatureForFixtureOnly"
+          },
+          {
+            "type": "tool_use",
+            "id": "gemini_call_gem-tool-0001_0",
+            "name": "get_invoice",
+            "input": {
+              "id": "INV-1"
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "gemini_call_gem-tool-0001_0",
+            "content": "{\"id\":\"INV-1\",\"vendor\":\"Acme Supply\",\"total\":\"12.50\",\"currency\":\"USD\"}"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "get_invoice",
+        "description": "Read one invoice by its number",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "tool_choice": {
+      "type": "auto"
+    }
+  },
+  "response": {
+    "id": "gem-tool-0002",
+    "type": "message",
+    "role": "assistant",
+    "model": "google:gemini-3.1-pro",
+    "content": [
+      {
+        "type": "text",
+        "text": "INV-1 totals $12.50.",
+        "citations": null
+      }
+    ],
+    "container": null,
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 84,
+      "output_tokens": 12,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 896,
+      "cache_creation": null,
+      "inference_geo": null,
+      "output_tokens_details": null,
+      "server_tool_use": null,
+      "service_tier": "standard"
+    }
+  },
+  "handWritten": true
+}

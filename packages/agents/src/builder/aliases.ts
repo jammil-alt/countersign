@@ -1,10 +1,11 @@
 // v0.12 W3-A: the model never sees ids it could regenerate (docs/plan.md §1.8, §1.51). Before a
-// working draft goes to the Builder, every node id (triggers, steps, fork paths, otherwise
+// working draft goes to the Builder, every node id (triggers, steps, if paths, otherwise
 // branches) is replaced by a short alias (`t1`, `s1`, `p1`, `o1`) and `{{steps.<id>…}}` references
 // follow; the answer's aliases are mapped back to the real ids. An id the model makes up maps to
-// nothing, so the guards give it a new id made by the server, once (`assignIds`).
+// nothing, so the guards give it a new id made by the server, once (`assignIds`). Wave 3b: the
+// draft is a v4 process bundle (docs/plan.md §1.86).
 
-import type { AgentBundle, Step } from "@countersign/core";
+import type { ProcessAgentBundle, processes } from "@countersign/core";
 import { rewriteRefs } from "./guards";
 
 export type NodeKind = "trigger" | "step" | "path" | "otherwise";
@@ -18,43 +19,52 @@ export interface IdAliases {
 
 const PREFIX: Record<NodeKind, string> = { trigger: "t", step: "s", path: "p", otherwise: "o" };
 
+/**
+ * Every step of a list mapped by `fn` with its if paths, otherwise branch and loop body, children
+ * first in run order. `id` names each node anew (steps, paths, otherwise).
+ */
+export function mapProcessSteps(
+  steps: readonly processes.Step[],
+  id: (old: string, kind: NodeKind) => string,
+): processes.Step[] {
+  return steps.map((s): processes.Step => {
+    const next = id(s.id, "step");
+    if (s.kind === "if") {
+      return {
+        ...s,
+        id: next,
+        paths: s.paths.map((p) => ({
+          ...p,
+          id: id(p.id, "path"),
+          steps: mapProcessSteps(p.steps, id),
+        })),
+        otherwise: {
+          ...s.otherwise,
+          id: id(s.otherwise.id, "otherwise"),
+          steps: mapProcessSteps(s.otherwise.steps, id),
+        },
+      };
+    }
+    if (s.kind === "for_each") return { ...s, id: next, steps: mapProcessSteps(s.steps, id) };
+    return { ...s, id: next };
+  });
+}
+
 /** Every node id of the bundle mapped by `fn`, and `{{steps.<id>}}` references with them. */
 export function mapNodeIds(
-  bundle: AgentBundle,
+  bundle: ProcessAgentBundle,
   fn: (id: string, kind: NodeKind) => string,
-): AgentBundle {
+): ProcessAgentBundle {
   const map = new Map<string, string>();
   const to = (id: string, kind: NodeKind) => {
     const next = fn(id, kind);
     if (!map.has(id)) map.set(id, next);
     return next;
   };
-  const mapSteps = (steps: Step[]): Step[] =>
-    steps.map((s): Step => {
-      const id = to(s.id, "step");
-      if (s.kind === "fork") {
-        return {
-          ...s,
-          id,
-          paths: s.paths.map((p) => ({ ...p, id: to(p.id, "path"), steps: mapSteps(p.steps) })),
-          otherwise: {
-            ...s.otherwise,
-            id: to(s.otherwise.id, "otherwise"),
-            steps: mapSteps(s.otherwise.steps),
-          },
-        };
-      }
-      if (s.kind === "for_each") return { ...s, id, steps: mapSteps(s.steps) };
-      return { ...s, id };
-    });
   const workflows = bundle.workflows.map((bw) => {
-    const trigger = { ...bw.workflow.trigger, id: to(bw.workflow.trigger.id, "trigger") };
-    const more = bw.workflow.moreTriggers?.map((t) => ({ ...t, id: to(t.id, "trigger") }));
-    const steps = mapSteps(bw.workflow.steps);
-    return {
-      ...bw,
-      workflow: { ...bw.workflow, trigger, ...(more ? { moreTriggers: more } : {}), steps },
-    };
+    const triggers = bw.workflow.triggers.map((t) => ({ ...t, id: to(t.id, "trigger") }));
+    const steps = mapProcessSteps(bw.workflow.steps, to);
+    return { ...bw, workflow: { ...bw.workflow, triggers, steps } };
   });
   // References are rewritten after every id is known (a reference may point forward in a bad draft).
   return {
@@ -67,7 +77,10 @@ export function mapNodeIds(
 }
 
 /** The draft as the model sees it: aliases in place of ids, and the map back. */
-export function aliasBundle(bundle: AgentBundle): { bundle: AgentBundle; aliases: IdAliases } {
+export function aliasBundle(bundle: ProcessAgentBundle): {
+  bundle: ProcessAgentBundle;
+  aliases: IdAliases;
+} {
   const toReal = new Map<string, string>();
   const toAlias = new Map<string, string>();
   const counts: Record<NodeKind, number> = { trigger: 0, step: 0, path: 0, otherwise: 0 };
@@ -84,7 +97,7 @@ export function aliasBundle(bundle: AgentBundle): { bundle: AgentBundle; aliases
 }
 
 /** The model's answer with its aliases mapped back to the real ids; other ids stay as written. */
-export function unaliasBundle(bundle: AgentBundle, aliases: IdAliases): AgentBundle {
+export function unaliasBundle(bundle: ProcessAgentBundle, aliases: IdAliases): ProcessAgentBundle {
   return mapNodeIds(bundle, (id) => aliases.toReal.get(id) ?? id);
 }
 

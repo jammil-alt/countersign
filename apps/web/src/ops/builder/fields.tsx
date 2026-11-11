@@ -11,6 +11,7 @@ import { Icon } from "../../ui/icons";
 import { cx } from "../../ui/primitives";
 import { Select, TextArea, TextInput } from "../agents/ui";
 import { eventKind, TRIGGER_KINDS, whenEvent } from "../workflow/labels";
+import type { PickPath } from "./outcomes";
 import { type Namer, referenceLabel } from "./problems";
 
 /** Step names by id, for the reference chips in fields; the inspector provides them. */
@@ -120,9 +121,12 @@ export function TemplateInput({
   const inputId = useId();
   const name = useContext(ReferenceNames);
   const q = filter.toLowerCase();
-  const shown = paths.filter(
+  // Wave 5: a path may carry its words (how an earlier step ended); search them too.
+  const shown = (paths as readonly PickPath[]).filter(
     (p) =>
-      p.path.toLowerCase().includes(q) || referenceLabel(p.path, name).toLowerCase().includes(q),
+      p.path.toLowerCase().includes(q) ||
+      (p.label?.toLowerCase().includes(q) ?? false) ||
+      referenceLabel(p.path, name).toLowerCase().includes(q),
   );
   const view = !editing && hasReference(value);
   const focusProps = {
@@ -219,8 +223,9 @@ export function TemplateInput({
                     onClick={() => insert(p.path)}
                     className="flex w-full items-baseline justify-between gap-2 rounded-sm px-1.5 py-1 text-left hover:bg-surface-subtle"
                   >
+                    {/* Wave 5: how an earlier step ended, in words; else the field in words. */}
                     <span className="truncate text-sm text-ink" title={p.path}>
-                      {referenceLabel(p.path, name)}
+                      {p.label ?? referenceLabel(p.path, name)}
                     </span>
                     <span className="shrink-0 text-xs text-ink-muted">{typeLabel(p.schema)}</span>
                   </button>

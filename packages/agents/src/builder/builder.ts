@@ -2,13 +2,14 @@
 // bundle, `reviseAgent` turns an instruction into a new version of an existing one. Both ask the
 // model for one structured answer (packages/llm `callTool`, Zod-validated), run the server guards
 // (./guards.ts) and the caller's validation, and give the model one chance to repair what failed.
-// The caller saves the result as a draft; nothing here touches the database.
+// The caller saves the result as a draft; nothing here touches the database. Wave 3b: the Builder
+// drafts and revises v4 processes (docs/plan.md §1.86); a v3 source reaches it read as processes.
 
 import {
-  type AgentBundle,
-  AgentBundle as AgentBundleSchema,
   canonicalJson,
   dec,
+  type ProcessAgentBundle,
+  ProcessAgentBundle as ProcessAgentBundleSchema,
   type ValidationError,
 } from "@countersign/core";
 import {
@@ -59,7 +60,7 @@ export const DraftAnswer = z.object({
     .max(2000)
     .optional()
     .describe("Client agents: one or two sentences the client sees"),
-  bundle: AgentBundleSchema,
+  bundle: ProcessAgentBundleSchema,
 });
 export type DraftAnswer = z.infer<typeof DraftAnswer>;
 
@@ -67,7 +68,7 @@ export const ReviseAnswer = z.object({
   summary: z.string().min(1).max(2000).describe("What changed and why, in a few plain sentences"),
   gaps: Gaps,
   changeNote: z.string().min(1).max(300).describe("One line for the version history"),
-  bundle: AgentBundleSchema,
+  bundle: ProcessAgentBundleSchema,
 });
 export type ReviseAnswer = z.infer<typeof ReviseAnswer>;
 
@@ -92,13 +93,15 @@ export const RULES = `You are the Builder for Mezonas, a managed-agents service 
 
 Rules:
 - Use only the skills and tools in the catalog, by their exact ids. Never invent a skill, tool, connector, event or agent. If the job needs something the catalog doesn't have (a connector, a data source, a skill), leave that part out and say what is missing in "gaps", one plain sentence each (e.g. "There is no card feed connector, so it can't read card charges.").
-- A workflow is a trigger and a list of steps that run top to bottom. Step kinds: skill (runs a skill), action (calls a tool whose sideEffect is "external": it changes the client's tool), person (asks or gets approval from a person), fork (ordered paths with rules; the first path whose rules match runs, else "otherwise"; then the workflow continues), for_each (runs its steps for each item of a list), wait, notify, stop.
+- Each workflow is a process ("schemaVersion": 4): one or more "triggers", then "steps" that run top to bottom. Step kinds: read (calls a tool whose sideEffect is "none"), write (calls a tool that changes something: "external" changes the client's tool, "internal" a platform record), skill (runs a skill), person (asks or gets approval from a person, with a "deadline"), conversation (talks with a contact until its goal is met, with a "deadline"), notify (a note to the client's team or ours), if (ordered paths with rules; the first path whose rules match runs, else "otherwise"; then the process continues), for_each (runs its steps for each item of a list), wait, stop, process (runs an automation from the catalog: "process" is its ref, "slug@version").
+- A skill whose mode is "tool" only wraps one tool: use a read or write step on that tool instead.
+- Checks on a step ("checks"): "approval" (a person's yes before the step's write), "confer" (a second opinion), "notify" (tell someone after).
 - Triggers: "manual" (with an input JSON Schema), "event" (an event type from the catalog), "schedule" (cron), "command".
-- References inside step inputs, titles, messages and rules: {{trigger.<path>}}, {{steps.<step id>.output.<path>}}, {{item}} inside a for_each. Refer only to steps that run before.
-- New agents have permissions.mode "suggest_only". Every step that changes a client's tool keeps approval "required". Never switch an approval off: only the operator does that.
+- References inside step inputs, titles, messages and rules: {{trigger.<path>}}, {{steps.<step id>.output.<path>}}, {{item}} and {{index}} inside a for_each. Refer only to steps that run before.
+- New agents have permissions.mode "suggest_only". Every step that changes a client's tool keeps its approval check on ({"required": "required"}, with no "when", never going ahead when nobody answers). Never loosen an approval or a conversation's message settings: only the operator does that.
 - New agents review their own failed steps: definition.oversight is {"review": "failures"}.
-- A skill step may set "model" ({"id": one of the catalog's models}) when its job needs a different model from its skill's or the agent's (a long document on a stronger one, a simple read on a fast one); leave it out otherwise, and never on a skill whose mode is "tool".
-- Agent kind is "functional". Give each step, fork path, otherwise branch and trigger a short id, unique in the bundle.
+- A skill step may set "model" ({"id": one of the catalog's models}) when its job needs a different model from its skill's or the agent's (a long document on a stronger one, a simple read on a fast one); leave it out otherwise.
+- Agent kind is "functional". Give each step, if path, otherwise branch and trigger a short id, unique in the bundle.
 - Prefer a template that already does the job: name it in "startFromTemplate" (drafts only).
 - Write names, summaries and gaps in plain words, short sentences, sentence case; no hype, no exclamation marks.`;
 
@@ -113,7 +116,7 @@ export interface BuilderOptions {
   /** Default `DEFAULT_MODELS.builder`. */
   model?: ModelId;
   /** Validates a guarded bundle as a publish would (the caller knows the agent and its client). */
-  validate(bundle: AgentBundle): Promise<ValidationError[]>;
+  validate(bundle: ProcessAgentBundle): Promise<ValidationError[]>;
   /** Fresh node ids (default uuid v7). */
   newId?: () => string;
   /** Repair rounds after a failed answer (default 1). */
@@ -122,7 +125,7 @@ export interface BuilderOptions {
 }
 
 export interface BuilderResult {
-  bundle: AgentBundle;
+  bundle: ProcessAgentBundle;
   summary: string;
   gaps: string[];
   notes: string[];
@@ -164,7 +167,7 @@ export function totalCost(calls: readonly LlmCallRecord[]): string | null {
   return sum.toFixed(6);
 }
 
-export async function ask<T extends { bundle: AgentBundle; gaps: string[] }>(
+export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[] }>(
   input: {
     schema: z.ZodType<T>;
     toolName: string;
@@ -172,11 +175,11 @@ export async function ask<T extends { bundle: AgentBundle; gaps: string[] }>(
     label: string;
     ctx: BuilderContext;
     first: string;
-    guard: (answer: T) => { bundle: AgentBundle; gaps: string[]; notes: string[] };
+    guard: (answer: T) => { bundle: ProcessAgentBundle; gaps: string[]; notes: string[] };
     // v0.12 W3-A: a conversation's own system prompt, and how a guarded bundle and the errors are
     // shown back to the model in a repair round (aliases, never the ids it could regenerate).
     system?: string;
-    present?: (bundle: AgentBundle) => AgentBundle;
+    present?: (bundle: ProcessAgentBundle) => ProcessAgentBundle;
     presentText?: (text: string) => string;
     /** Errors the draft had before this answer (keys from `errorKey`): not the model's to repair. */
     known?: ReadonlySet<string>;
@@ -184,7 +187,7 @@ export async function ask<T extends { bundle: AgentBundle; gaps: string[] }>(
   options: BuilderOptions,
 ): Promise<{
   answer: T;
-  bundle: AgentBundle;
+  bundle: ProcessAgentBundle;
   gaps: string[];
   notes: string[];
   errors: ValidationError[];
@@ -327,7 +330,7 @@ ${input.description}
  */
 export async function reviseAgent(
   input: {
-    source: AgentBundle;
+    source: ProcessAgentBundle;
     instruction?: string;
     request?: string;
     ctx: BuilderContext;

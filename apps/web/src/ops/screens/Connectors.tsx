@@ -5,6 +5,8 @@
 // client's connection starts with, who is waiting to connect, and whether a client is offered it.
 // Below, the default access matrix with entities (never looser than the platform's defaults).
 // Clients sign in to their own tools in the portal; we never see their credentials.
+// R8: the Library's Connectors bank (`/ops/library/connectors`), with a search over names,
+// descriptions and tools; website logins are connectors too (`/ops/library/browser-sites`).
 import { CONNECTOR_STATUS_VALUES, type ConnectorStatus } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -29,6 +31,8 @@ import {
   Tag,
 } from "../../ui/primitives";
 import { type ChipState, StatusChip } from "../../ui/status";
+import { BankSearch } from "../library/LibraryFrame";
+import { matches } from "../library/paths";
 import { OPS_PATHS } from "../paths";
 
 type Connector = ResponseOf<typeof apiRoutes.opsConnectors>["connectors"][number];
@@ -103,6 +107,7 @@ export function OpsConnectorsScreen() {
   const [saveError, setSaveError] = useState<unknown>(null);
   const [filter, setFilter] = useState<ConnectorStatus | "all">("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorNotice error={error} onRetry={reload} />;
@@ -120,7 +125,9 @@ export function OpsConnectorsScreen() {
   }
 
   const all = data.connectors;
-  const shown = filter === "all" ? all : all.filter((c) => c.status === filter);
+  const shown = (filter === "all" ? all : all.filter((c) => c.status === filter)).filter((c) =>
+    matches(search, c.name, c.id, c.description, ...c.tools.map((t) => t.id)),
+  );
   const selected = shown.find((c) => c.id === selectedId) ?? shown[0];
   const filters: [ConnectorStatus | "all", string][] = [
     ["all", `All · ${all.length}`],
@@ -157,10 +164,16 @@ export function OpsConnectorsScreen() {
             </button>
           ))}
         </div>
-        <span className="text-sm text-ink-muted">
-          Clients connect in their portal. We never see their credentials.
-        </span>
+        <BankSearch
+          value={search}
+          onChange={setSearch}
+          label="Search connectors"
+          testId="connectors-search"
+        />
       </div>
+      <p className="-mt-4 text-sm text-ink-muted">
+        Clients connect in their portal. We never see their credentials.
+      </p>
       {saveError ? <ErrorNotice error={saveError} /> : null}
       {all.length === 0 ? (
         <EmptyState>No connector is registered here.</EmptyState>
@@ -241,7 +254,9 @@ export function OpsConnectorsScreen() {
               </table>
             </div>
             {shown.length === 0 ? (
-              <p className="ui-card__body text-sm text-ink-muted">No connector has this status.</p>
+              <p className="ui-card__body text-sm text-ink-muted">
+                {search.trim() ? "No connector matches." : "No connector has this status."}
+              </p>
             ) : null}
           </Card>
           <Section title="Default access for new clients">

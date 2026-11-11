@@ -201,6 +201,8 @@ function vendorCreateTool(clientFor: ClientFor): ToolDefinition {
     description:
       "Add a vendor to QuickBooks: its display name (new to the company), company name, email, phone, billing address and payment terms. Refused if a vendor with the same name is there. The output's id is the new vendor's, for a later step.",
     verb: "create",
+    // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+    undo: { kind: "none" },
     summary: "Added vendor {{displayName}} to QuickBooks",
     display: vendorCreateDisplay,
     input: VendorCreateInput,
