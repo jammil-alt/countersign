@@ -888,6 +888,11 @@ export const externalAction = pgTable(
     error: json("error"),
     /** The record's state before the change, where the system allows reading it. */
     before: json("before"),
+    /**
+     * The record's state the write left (migration 0044, R5 undo): what an undo compares with the
+     * record now, so it never reverses someone else's later change. Null for writes before 0044.
+     */
+    after: json("after"),
     createdAt: createdAt(),
     executedAt: ts("executed_at"),
     /**
