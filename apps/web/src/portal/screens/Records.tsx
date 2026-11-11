@@ -4,7 +4,7 @@
 // its record page, but a receivable's: no route serves one receivable yet, so its row doesn't link.
 import type { RecordList, RecordListKind, RecordSource } from "@countersign/core";
 import { RECORD_LIST_PAGE } from "@countersign/core";
-import { useEffect, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -12,10 +12,13 @@ import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { day, txnKind } from "../../records/RecordDetail";
 import { shortTime } from "../../runs/format";
+import { useDebounced, useStale } from "../../runs/useDebounced";
+import { cx } from "../../ui/cx";
 import { Icon } from "../../ui/icons";
 import { Loaded, Page } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, PageHeader, Tabs } from "../../ui/primitives";
 import { useRowLink } from "../../ui/rows";
+import { SkeletonRows } from "../../ui/skeleton";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { money } from "../documents";
 
@@ -61,25 +64,29 @@ export function PortalRecordsScreen() {
     setParams(next, { replace: true });
   };
 
-  // The search box updates the URL once typing pauses.
+  // The search box updates the URL once typing pauses; the list follows in a transition.
   const [text, setText] = useState(q);
   useEffect(() => setText(q), [q]);
+  const typed = useDebounced(text.trim());
   // biome-ignore lint/correctness/useExhaustiveDependencies: `set` reads the current params.
   useEffect(() => {
-    if (text.trim() === q) return;
-    const timer = setTimeout(() => set({ q: text.trim(), page: "" }), 300);
-    return () => clearTimeout(timer);
-  }, [text, q]);
+    // Only a pause on what is in the box: a tab that empties it never brings back the word typed
+    // before.
+    if (typed !== text.trim() || typed === q) return;
+    startTransition(() => set({ q: typed, page: "" }));
+  }, [typed]);
 
-  const state = useApi(apiRoutes.portalRecords, {
-    query: {
-      kind,
-      ...(q ? { q } : {}),
-      offset: (page - 1) * RECORD_LIST_PAGE,
-      limit: RECORD_LIST_PAGE,
-    },
-  });
+  const query = {
+    kind,
+    ...(q ? { q } : {}),
+    offset: (page - 1) * RECORD_LIST_PAGE,
+    limit: RECORD_LIST_PAGE,
+  };
+  // A search, a tab or a page of the client's records: the rows stay, dimmed, while the next
+  // answer loads.
+  const state = useApi(apiRoutes.portalRecords, { query, keep: true });
   const { data } = state;
+  const stale = useStale(state, JSON.stringify(query));
   const sources = new Map((data?.sources ?? []).map((s) => [s.id, s]));
 
   return (
@@ -121,12 +128,16 @@ export function PortalRecordsScreen() {
           </span>
         ) : null}
       </label>
-      <Loaded state={state}>
+      <Loaded state={state} skeleton={<SkeletonRows rows={8} columns={5} />}>
         {(list) =>
           list.page.rows.length === 0 ? (
             <EmptyState>{q ? t("records.noMatch", { q }) : t("records.empty")}</EmptyState>
           ) : (
-            <div className="flex flex-col gap-3">
+            <div
+              aria-busy={stale}
+              data-testid="portal-records-list"
+              className={cx("flex flex-col gap-3 transition-opacity", stale && "opacity-60")}
+            >
               {/* One account: named once above the table, not on every row (QA round 1). */}
               {list.sources.length === 1 && list.sources[0] ? (
                 <p className="text-sm text-ink-muted" data-testid="portal-records-account">

@@ -151,6 +151,34 @@ describe("portal directory", () => {
     );
   });
 
+  it("asks once when typing stops, and dims the last rows until the answer comes", async () => {
+    const queries: string[] = [];
+    const answers: (() => void)[] = [];
+    const api = fakeApi({
+      ...portalBase(),
+      "GET /api/directory": ({ url }) => {
+        queries.push(url.search);
+        const body = { people: [pat], organizations: [], pendingSuggestions: 0 };
+        if (!url.searchParams.get("q")) return body;
+        return new Promise((resolve) => {
+          answers.push(() => resolve(body));
+        });
+      },
+    });
+    renderAt("/contacts", api);
+    await screen.findByTestId(`people-row-${PAT}`);
+    await userEvent.type(screen.getByTestId("people-search"), "birch");
+    await waitFor(() => expect(queries.filter((q) => q.includes("q="))).toEqual(["?q=birch"]));
+    // The last answer's rows stay, dimmed and busy, while the search's answer loads.
+    expect(screen.getByTestId(`people-row-${PAT}`)).toBeInTheDocument();
+    expect(screen.getByTestId("people-list")).toHaveAttribute("aria-busy", "true");
+    for (const answer of answers) answer();
+    await waitFor(() =>
+      expect(screen.getByTestId("people-list")).toHaveAttribute("aria-busy", "false"),
+    );
+    expect(queries.filter((q) => q.includes("q="))).toEqual(["?q=birch"]);
+  });
+
   it("previews a CSV and applies the chosen rows, with a result per row", async () => {
     const applied: unknown[] = [];
     const api = fakeApi({
@@ -325,6 +353,26 @@ describe("back office directory", () => {
     expect(screen.getByRole("link", { name: "Directory" })).toBeInTheDocument();
     expect(screen.getByTestId(`directory-person-${PAT}-edit`)).toBeInTheDocument();
     expect(screen.getByTestId("directory-tab-import")).toBeInTheDocument();
+  });
+
+  it("searches the client's directory once typing stops", async () => {
+    const queries: string[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${DEMO}`]: () => ({
+        client: { id: DEMO, name: "Demo client", timezone: "America/Chicago" },
+        agents: [],
+      }),
+      [`GET /api/ops/clients/${DEMO}/directory`]: ({ url }) => {
+        queries.push(url.search);
+        return { people: [pat], organizations: [birch()], pendingSuggestions: 0 };
+      },
+    });
+    renderAt(`/ops/clients/${DEMO}/directory`, api);
+    expect(await screen.findByTestId(`directory-person-${PAT}`)).toBeInTheDocument();
+    await userEvent.type(screen.getByTestId("directory-search"), "pat");
+    await waitFor(() => expect(queries.filter((q) => q.includes("q="))).toEqual(["?q=pat"]));
+    expect(screen.getByTestId(`directory-person-${PAT}`)).toBeInTheDocument();
   });
 
   it("invites one of the client's own people to sign in, with a status on each person", async () => {

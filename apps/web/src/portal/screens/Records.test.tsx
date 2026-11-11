@@ -152,7 +152,21 @@ describe("portal records list", () => {
     );
     await userEvent.type(screen.getByTestId("portal-records-search"), "nothing");
     expect(await screen.findByText("Nothing matches “nothing”.")).toBeInTheDocument();
-    expect(asked.some((s) => s.includes("q=nothing"))).toBe(true);
+    // Asked once, when typing stopped, not once a letter.
+    expect(asked.filter((s) => s.includes("q="))).toEqual([expect.stringContaining("q=nothing")]);
+  });
+
+  it("a tab that clears the search never brings the typed word back", async () => {
+    const asked = show();
+    await screen.findByTestId("portal-records-transactions");
+    await userEvent.type(screen.getByTestId("portal-records-search"), "nothing");
+    expect(await screen.findByText("Nothing matches “nothing”.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("link", { name: /Vendors/ }));
+    expect(await screen.findByTestId("portal-records-vendors")).toBeInTheDocument();
+    expect(screen.getByTestId("portal-records-search")).toHaveValue("");
+    await new Promise((r) => setTimeout(r, 500));
+    expect(screen.getByTestId("portal-records-vendors")).toBeInTheDocument();
+    expect(asked.filter((s) => s.includes("q="))).toHaveLength(1);
   });
 
   it("lists receivables: what each customer still owes, an open one past due marked overdue", async () => {

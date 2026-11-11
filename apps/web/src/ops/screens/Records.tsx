@@ -12,15 +12,18 @@ import type {
   RecordSource,
 } from "@countersign/core";
 import { RECORD_LIST_PAGE } from "@countersign/core";
-import { useEffect, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { figure, money } from "../../portal/documents";
 import { day, txnKind } from "../../records/RecordDetail";
 import { shortTime } from "../../runs/format";
+import { useDebounced, useStale } from "../../runs/useDebounced";
 import { Icon } from "../../ui/icons";
-import { Badge, Button, EmptyState, ErrorNotice, Loading, Tabs } from "../../ui/primitives";
+import { Loaded } from "../../ui/page";
+import { Badge, Button, EmptyState, ErrorNotice, Tabs } from "../../ui/primitives";
+import { SkeletonRows } from "../../ui/skeleton";
 import { count, plural } from "../../usage/format";
 import { Select } from "../agents/ui";
 import { ClientFrame } from "../client/ClientFrame";
@@ -68,26 +71,34 @@ export function OpsRecordsScreen() {
     setParams(next, { replace: true });
   };
 
-  // The search box updates the URL once typing pauses.
+  // The search box updates the URL once typing pauses; the list follows in a transition.
   const [text, setText] = useState(q);
   useEffect(() => setText(q), [q]);
+  const typed = useDebounced(text.trim());
   // biome-ignore lint/correctness/useExhaustiveDependencies: `set` reads the current params.
   useEffect(() => {
-    if (text.trim() === q) return;
-    const timer = setTimeout(() => set({ q: text.trim(), page: "" }), 300);
-    return () => clearTimeout(timer);
-  }, [text, q]);
+    // Only a pause on what is in the box: a tab or "Clear" that empties it never brings back the
+    // word typed before.
+    if (typed !== text.trim() || typed === q) return;
+    startTransition(() => set({ q: typed, page: "" }));
+  }, [typed]);
 
-  const { data, error, loading, reload } = useApi(apiRoutes.opsClientRecords, {
+  const query = {
+    kind,
+    ...(q ? { q } : {}),
+    ...(source ? { source } : {}),
+    offset: (page - 1) * RECORD_LIST_PAGE,
+    limit: RECORD_LIST_PAGE,
+  };
+  const state = useApi(apiRoutes.opsClientRecords, {
     params: { id: clientId },
-    query: {
-      kind,
-      ...(q ? { q } : {}),
-      ...(source ? { source } : {}),
-      offset: (page - 1) * RECORD_LIST_PAGE,
-      limit: RECORD_LIST_PAGE,
-    },
+    query,
+    // A search, a filter or a page of one client's records: its rows stay, dimmed, while the
+    // next answer loads.
+    keep: true,
   });
+  const { data, error, reload } = state;
+  const stale = useStale(state, JSON.stringify(query));
   const sources = new Map((data?.sources ?? []).map((s) => [s.id, s]));
   const base = `/ops/clients/${clientId}`;
   const tabTo = (k: RecordListKind) => {
@@ -158,47 +169,57 @@ export function OpsRecordsScreen() {
           </Select>
         </label>
       </div>
-      {loading && !data ? <Loading /> : null}
-      {error ? <ErrorNotice error={error} onRetry={reload} /> : null}
-      {data && data.page.rows.length === 0 ? (
-        <EmptyState
-          testId="ops-records-empty"
-          line={
-            q
-              ? `Nothing matches "${q}".`
-              : source
-                ? `No ${data.page.kind} from this source yet.`
-                : EMPTY[data.page.kind]
-          }
-          action={
-            q || source
-              ? {
-                  label: "Clear the search",
-                  onClick: () => {
-                    setText("");
-                    set({ q: "", source: "", page: "" });
-                  },
-                }
-              : { label: "See connections", to: `${base}/connections` }
-          }
-        />
-      ) : null}
-      {data && data.page.rows.length > 0 ? (
-        <>
-          <div className="dt dt-ana">
-            <div>
-              {data.page.kind === "transactions" ? (
-                <TransactionsTable rows={data.page.rows} sources={sources} base={base} />
-              ) : data.page.kind === "vendors" ? (
-                <VendorsTable rows={data.page.rows} sources={sources} base={base} />
-              ) : data.page.kind === "items" ? (
-                <ItemsTable rows={data.page.rows} sources={sources} base={base} />
-              ) : null}
+      {data && error ? <ErrorNotice error={error} onRetry={reload} /> : null}
+      <Loaded state={state} skeleton={<SkeletonRows rows={8} columns={6} />}>
+        {(list) =>
+          list.page.rows.length === 0 ? (
+            <EmptyState
+              testId="ops-records-empty"
+              line={
+                q
+                  ? `Nothing matches "${q}".`
+                  : source
+                    ? `No ${list.page.kind} from this source yet.`
+                    : EMPTY[list.page.kind]
+              }
+              action={
+                q || source
+                  ? {
+                      label: "Clear the search",
+                      onClick: () => {
+                        setText("");
+                        set({ q: "", source: "", page: "" });
+                      },
+                    }
+                  : { label: "See connections", to: `${base}/connections` }
+              }
+            />
+          ) : (
+            <div
+              aria-busy={stale}
+              data-testid="ops-records-list"
+              className={stale ? "opacity-60 transition-opacity" : "transition-opacity"}
+            >
+              <div className="dt dt-ana">
+                <div>
+                  {list.page.kind === "transactions" ? (
+                    <TransactionsTable rows={list.page.rows} sources={sources} base={base} />
+                  ) : list.page.kind === "vendors" ? (
+                    <VendorsTable rows={list.page.rows} sources={sources} base={base} />
+                  ) : list.page.kind === "items" ? (
+                    <ItemsTable rows={list.page.rows} sources={sources} base={base} />
+                  ) : null}
+                </div>
+              </div>
+              <Pager
+                data={list}
+                onPage={(p) => set({ page: p === 1 ? "" : String(p) })}
+                page={page}
+              />
             </div>
-          </div>
-          <Pager data={data} onPage={(p) => set({ page: p === 1 ? "" : String(p) })} page={page} />
-        </>
-      ) : null}
+          )
+        }
+      </Loaded>
     </ClientFrame>
   );
 }
