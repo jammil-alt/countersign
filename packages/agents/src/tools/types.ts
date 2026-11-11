@@ -181,6 +181,43 @@ export interface DocumentsPort {
   ): Promise<FindSupportOutcome>;
   /** The one synced bill an invoice belongs to (packages/documents' matchBill); reads only. */
   matchBill(tenantId: string, input: MatchBillInput): Promise<MatchBillResult>;
+  // Skill model (2026-11-10): "Read document" (an AI skill) and "record the reading" (a write).
+  /**
+   * The document's file, whole, for an AI skill's model call (packages/documents' readingFile).
+   * Absent where nothing provides it: an AI skill that reads a document then fails with a reason.
+   */
+  file?(tenantId: string, documentId: string): Promise<DocumentFile>;
+  /** Records a reading a skill step made as the document's latest extraction (no model here). */
+  record?(
+    tenantId: string,
+    input: {
+      documentId: string;
+      reading: unknown;
+      readBy: string;
+      agentVersionId: string;
+      testRun: boolean;
+      asQuote: boolean;
+    },
+  ): Promise<RecordedReading>;
+}
+
+/** A document's file as a model reads it. */
+export interface DocumentFile {
+  documentId: string;
+  filename: string;
+  mimeType: string;
+  bytes: Uint8Array;
+}
+
+/** What recording a reading answers. */
+export interface RecordedReading {
+  documentId: string;
+  extractionId: string;
+  status: "extracted" | "needs_review";
+  totalsMatch: boolean;
+  problems: string[];
+  lineCount: number;
+  duplicateOfDocumentId: string | null;
 }
 
 /** One thing `knowledge.search` found: an FAQ, policy, document or memory note. */
@@ -449,7 +486,7 @@ export interface PlatformStore {
   ): Promise<{ id: string }>;
 }
 
-function jsonSchemaOf(schema: z.ZodType): Record<string, unknown> {
+export function jsonSchemaOf(schema: z.ZodType): Record<string, unknown> {
   const json = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<
     string,
     unknown
@@ -471,6 +508,8 @@ export function defineInternalTool<I extends z.ZodType, O extends z.ZodType>(def
   run(input: z.output<I>, ctx: ToolInvocation): Promise<z.input<O>>;
   /** v0.12 W2-C: reads only its input, so it may run on the test bench. */
   pure?: boolean;
+  /** Skill model (2026-11-10): the tool's code calls a model inside it, and why (`ToolSpec`). */
+  usesModel?: string;
 }): InternalTool {
   return {
     ...(def.pure ? { pure: true } : {}),
@@ -483,6 +522,7 @@ export function defineInternalTool<I extends z.ZodType, O extends z.ZodType>(def
       verb: def.sideEffect === "none" ? "read" : (def.verb ?? "create"),
       source: def.source ?? "platform",
       ...(def.summary === undefined ? {} : { summary: def.summary }),
+      ...(def.usesModel === undefined ? {} : { usesModel: def.usesModel }),
     },
     input: def.input,
     output: def.output,

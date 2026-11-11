@@ -90,6 +90,7 @@ import {
   // Wave 6
   type OwnerCheckLog,
   type PendingApproval,
+  type ResolvedAction,
   type RunInfo,
   type StepCatalog,
   type StepLog,
@@ -266,6 +267,13 @@ interface WorkOptions {
   afterRun?: (output: unknown) => Promise<void>;
   /** The confer verdicts so far, for the owner's watch. */
   verdicts?: () => ConferEntry[] | undefined;
+  /**
+   * Skill model (2026-11-10): an action write step's input, resolved, as its tool takes it
+   * (`processes.actionToolInput`). Throws `processes.ActionInputError` when the tool can't take it.
+   */
+  mapInput?: (input: unknown) => unknown;
+  /** The connection an action's channel resolved to (`ActionStepRequest.binding`). */
+  binding?: { connector: string; connectionId: string };
 }
 
 /** What `Executor.work` comes back with: the step ran on, or why it didn't (wave 5). */
@@ -1056,7 +1064,33 @@ class Executor {
    * proposed no write, runs first, confers on its output, and its approval is a sign-off of that
    * output. Converted v3 steps carry only an approval, which the gate takes exactly as before.
    */
-  async workStep(step: WorkStep, name: string, frame: Frame): Promise<void> {
+  async workStep(
+    step: WorkStep,
+    name: string,
+    frame: Frame,
+    mapInput?: (input: unknown) => unknown,
+    binding?: { connector: string; connectionId: string },
+  ): Promise<void> {
+    // Skill model (2026-11-10): an action resolves to its tool first (durably), then runs exactly
+    // as a write step calling that tool, its input mapped to the tool's when each attempt starts.
+    if (step.kind === "write" && step.action !== undefined) {
+      const { action, via: _via, ...rest } = step;
+      const resolved = await this.resolveAction(name, action, step.via);
+      const concrete: processes.WriteStep = {
+        ...rest,
+        tool: resolved.tool,
+        name: processes.actionStepLabel(action, resolved.connector, step.name),
+      };
+      return this.workStep(
+        concrete,
+        name,
+        frame,
+        (input) => processes.actionToolInput(action, resolved.tool, input),
+        resolved.connectionId
+          ? { connector: resolved.connector, connectionId: resolved.connectionId }
+          : undefined,
+      );
+    }
     const origin = this.origin(step);
     const checks = step.checks;
     const check = checks?.approval;
@@ -1145,6 +1179,8 @@ class Executor {
       // R6: the owner watches the native step itself (a converted step as its stored v3 step).
       ...(!origin ? { watched: step } : {}),
       verdicts: () => conferred,
+      ...(mapInput ? { mapInput } : {}),
+      ...(binding ? { binding } : {}),
     };
     if (step.kind === "skill" && checks?.confer) {
       opts.beforeApproval = async (proposal) => {
@@ -1260,6 +1296,43 @@ class Executor {
     const ended =
       why ?? (step.kind === "read" && processes.isEmptyOutput(output) ? "empty" : "done");
     this.record(frame, step, output, recorded(ended));
+  }
+
+  /**
+   * Skill model (2026-11-10): the tool an action write step runs with for this run's agent
+   * (`AgentPort.resolveAction`), resolved once in a durable step (`<name>:action`), so a replay,
+   * and every attempt and approval of the step, resolve the same way.
+   */
+  // DECISION: an action that doesn't resolve (its connection unbound since publish, two without
+  // `via`) fails the step before anything is proposed, like a tool that isn't registered; nothing
+  // was written, and the run ends there (it isn't a failure `onError: continue` goes on past).
+  async resolveAction(
+    name: string,
+    action: processes.WriteAction,
+    via: string | undefined,
+  ): Promise<Exclude<ResolvedAction, { refused: string }>> {
+    const label = processes.ACTION_SPECS[action].label;
+    const port = this.ctx.agent.resolveAction;
+    if (!port) throw new Error(`refused: ${label} can't run here: nothing resolves it to a tool`);
+    const r = await this.runner.do(`${name}:action`, () =>
+      port.call(this.ctx.agent, {
+        run: this.ctx.run,
+        nodeId: name,
+        action,
+        ...(via !== undefined ? { via } : {}),
+      }),
+    );
+    if ("refused" in r) throw new Error(`refused: ${r.refused}`);
+    if (processes.actionTool(action, r.connector) !== r.tool) {
+      throw new Error(`refused: ${label} doesn't run with ${r.tool}`);
+    }
+    return r;
+  }
+
+  /** A work step's input for an attempt: resolved, and as an action's tool takes it. */
+  stepInput(step: SkillStep | ActionStep, frame: Frame, opts: WorkOptions): unknown {
+    const input = resolveTemplate(step.input, frame.scope);
+    return opts.mapInput ? opts.mapInput(input) : input;
   }
 
   /**
@@ -1469,7 +1542,16 @@ class Executor {
     const first = await this.runner.do(
       at,
       async (tried) => {
-        const input = retry ? retry.input : resolveTemplate(step.input, frame.scope);
+        // Skill model: an action's input the tool can't take is refused before anything is sent.
+        let input: unknown;
+        let refused: string | undefined;
+        try {
+          input = retry ? retry.input : this.stepInput(step, frame, opts);
+        } catch (error) {
+          if (!(error instanceof processes.ActionInputError)) throw error;
+          input = resolveTemplate(step.input, frame.scope);
+          refused = `refused: ${error.message}`;
+        }
         const start = {
           runId: run.id,
           nodeId: name,
@@ -1494,15 +1576,21 @@ class Executor {
           // v0.13 W2-I
           ...(keyNode ? { keyNode } : {}),
         };
-        const outcome =
-          step.kind === "skill"
-            ? await agent.runSkill({
-                ...request,
-                step,
-                // R3: the runtime applies a v4 step's added instructions and rule rows.
-                ...(opts.customize ? { customize: opts.customize } : {}),
-              })
-            : await agent.runAction({ ...request, step });
+        const outcome: StepOutcome =
+          refused !== undefined
+            ? { kind: "failed", error: refused }
+            : step.kind === "skill"
+              ? await agent.runSkill({
+                  ...request,
+                  step,
+                  // R3: the runtime applies a v4 step's added instructions and rule rows.
+                  ...(opts.customize ? { customize: opts.customize } : {}),
+                })
+              : await agent.runAction({
+                  ...request,
+                  step,
+                  ...(opts.binding ? { binding: opts.binding } : {}),
+                });
         return { stepRunId, outcome: await this.settle(step, stepRunId, outcome, false) };
       },
       this.ctx.stepConfig,
@@ -1528,6 +1616,7 @@ class Executor {
           rejected,
           at,
           keyNode,
+          opts.binding,
         );
         continue;
       }
@@ -1539,7 +1628,7 @@ class Executor {
       if (opts.beforeApproval) {
         await opts.beforeApproval({
           at: at === name && n === 1 ? name : base,
-          input: retry ? retry.input : resolveTemplate(step.input, frame.scope),
+          input: retry ? retry.input : this.stepInput(step, frame, opts),
           output: outcome.output,
         });
       }
@@ -1828,6 +1917,8 @@ class Executor {
     // v0.13 W2-I: an oversight retry's durable names and key node.
     at: string = name,
     keyNode?: string,
+    // Review: an action's resolved channel, for the run again after the wait.
+    binding?: { connector: string; connectionId: string },
   ): Promise<StepOutcome> {
     const { agent, run } = this.ctx;
     const { waitDone, afterWait } = agent;
@@ -1842,6 +1933,7 @@ class Executor {
       stepRunId,
       wait,
       ...(keyNode ? { keyNode } : {}),
+      ...(binding ? { binding } : {}),
     };
     const done = await this.runner.do(`${base}:check`, () => waitDone.call(agent, request));
     let timedOut = false;
@@ -2297,7 +2389,7 @@ class Executor {
     const { run, log, agent } = this.ctx;
     const label = clientLabel(view);
     // The answer goes into the input as one more field: an input that isn't an object can't hold it.
-    const base = resolveTemplate(view.input, frame.scope);
+    const base = this.stepInput(view, frame, opts);
     if (!isPlainObject(base)) {
       throw new Error(
         "the skill needs help, but its input isn't an object the answer can be added to",
@@ -3311,7 +3403,7 @@ class Executor {
       }
       if (seq === 1) {
         try {
-          input = resolveTemplate(step.input, frame.scope);
+          input = this.stepInput(step, frame, opts);
         } catch {
           await flag("input_unresolved");
           break;

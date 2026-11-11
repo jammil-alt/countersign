@@ -72,6 +72,8 @@ import {
 } from "@countersign/connectors";
 import { SkillDefinition } from "@countersign/core";
 import { EventTypeRegistry } from "@countersign/senses";
+// Skill model (2026-11-10): publish checks a message action against the agent's channels.
+import { actionChannels } from "./channels/resolve";
 import type { Bindings } from "./env";
 import { DEPLOYMENT_PACKS, packToolSource, type RegisteredPack } from "./packs";
 
@@ -187,7 +189,7 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
     catalog,
     events,
     packs,
-    ctx: { tools, catalog, events: events.byType() },
+    ctx: { tools, catalog, events: events.byType(), actionChannels },
   };
 }
 

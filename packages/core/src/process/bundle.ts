@@ -11,14 +11,20 @@ import { AgentBundle, AnyAgentBundle, holdsProcess } from "../schemas/agent";
 import { parseSkillRef } from "../schemas/common";
 import {
   definitionModelErrors,
+  definitionSkillErrors,
   type ValidationContext,
   type ValidationError,
   validateBundle as validateV3Bundle,
   validateWorkflow,
 } from "../workflow/validate";
 import { walkSteps as walkV3Steps } from "../workflow/walk";
-import { type ProcessValidationCode, type ProcessWarning, validateProcess } from "./validate";
-import { nodeIds } from "./walk";
+import {
+  type ProcessValidationCode,
+  type ProcessValidationContext,
+  type ProcessWarning,
+  validateProcess,
+} from "./validate";
+import { nodeIds, walkSteps } from "./walk";
 
 /** A bundle error: v3's shape, with v4's codes. */
 export type BundleValidationError = Omit<ValidationError, "code"> & {
@@ -52,13 +58,54 @@ function v3Ids(
 }
 
 /**
+ * Every trigger, step and path id in a bundle's workflows (v3 or v4): what a version made from it
+ * already has, so a step not among them is new (`ProcessValidationContext.existingStepIds`).
+ */
+export function bundleNodeIds(bundle: Pick<AnyAgentBundle, "workflows">): Set<string> {
+  const out = new Set<string>();
+  for (const w of bundle.workflows) {
+    const ids = w.workflow.schemaVersion === 4 ? nodeIds(w.workflow) : v3Ids(w.workflow);
+    for (const id of ids) out.add(id);
+  }
+  return out;
+}
+
+/**
+ * Skill model (2026-11-10, review): each skill step's skill id (no `@version`) by step id, in a
+ * bundle's workflows (v3 or v4): with `bundleNodeIds`, a step that kept its id but changed its
+ * skill counts as new (`ProcessValidationContext.existingStepSkills`).
+ */
+export function bundleStepSkills(bundle: Pick<AnyAgentBundle, "workflows">): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion === 4) {
+      walkSteps(w.workflow, ({ step }) => {
+        if (step.kind === "skill") out.set(step.id, parseSkillRef(step.skill).id);
+      });
+    } else {
+      walkV3Steps(w.workflow, ({ step }) => {
+        if (step.kind === "skill") out.set(step.id, parseSkillRef(step.skill).id);
+      });
+    }
+  }
+  return out;
+}
+
+/**
  * Validates a bundle that may hold v4 processes. All v3: `validateBundle`, unchanged. Schema
  * errors inside one workflow are reported by that workflow's own validator (so they name its
  * step and field); the other checks need a parsed bundle.
  */
 export function validateAnyBundle(
   input: unknown,
-  ctx: Omit<ValidationContext, "agent"> = {},
+  // Skill model (2026-11-10): what a client agent's action write steps resolve from at publish.
+  ctx: Omit<ValidationContext, "agent"> &
+    Pick<ProcessValidationContext, "actions"> & {
+      /** Skill model (2026-11-10): the node ids of the version this one was made from. */
+      existingStepIds?: ReadonlySet<string>;
+      /** Skill model (2026-11-10, review): each skill step's skill id in that version. */
+      existingStepSkills?: ReadonlyMap<string, string>;
+    } = {},
 ): AnyBundleValidationResult {
   const v3 = AgentBundle.safeParse(input);
   if (v3.success && !holdsProcess(v3.data)) {
@@ -116,6 +163,9 @@ export function validateAnyBundle(
   });
 
   errors.push(...definitionModelErrors(bundle.definition, ctx.models));
+  errors.push(
+    ...definitionSkillErrors(bundle.definition, ctx, { complete: ctx.publish !== undefined }),
+  );
 
   // Ids unique across workflows (each workflow's own duplicates are its validator's).
   const seen = new Set<string>();

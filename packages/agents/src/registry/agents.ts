@@ -68,6 +68,28 @@ export interface RegistryContext {
   tools: ToolRegistry;
   catalog: SkillCatalog;
   events?: Record<string, EventTypeSpec>;
+  /**
+   * Skill model (2026-11-10): the email and text channels a client agent's actions send on (its
+   * own, else the account's: apps/api's `channelFor`), each with its connection's matrix. Absent:
+   * a message action's channel isn't checked at publish, and its approval can't be loosened.
+   */
+  actionChannels?: (
+    tx: Tx,
+    tenantId: string,
+    agentId: string | null,
+  ) => Promise<processes.ActionBindings["channels"]>;
+}
+
+/** Whether a bundle holds an action write step (a v4 process's). */
+function holdsAction(bundle: AnyAgentBundle): boolean {
+  let found = false;
+  for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion !== 4) continue;
+    processes.walkSteps(w.workflow, ({ step }) => {
+      if (step.kind === "write" && step.action !== undefined) found = true;
+    });
+  }
+  return found;
 }
 
 /** Parses a bundle (schema only: drafts may be saved with semantic errors, §10.2). */
@@ -314,6 +336,11 @@ export async function validateForPublish(
   row: Pick<AgentRow, "tenantId" | "kind" | "bindings"> & { slug?: string; id?: string },
   bundle: AnyAgentBundle,
   ctx: RegistryContext,
+  // Skill model (2026-11-10): what already exists (`existingBundle`). A skill step the bundle given
+  // doesn't have is new, and a new step may not use a retired kind of skill (`rules_then_ai`, agent
+  // mode) or a skill that writes. `"none"`: a first version made here, every step is new. Null or
+  // left out: no step is new (a stored version, checked as it is).
+  options: { previous?: ExistingSteps | null } = {},
 ): Promise<ValidationError[]> {
   const { skills, missing } = await skillContext(tx, {
     tenantId: row.tenantId,
@@ -328,8 +355,23 @@ export async function validateForPublish(
   });
   // R8: a bundle that holds v4 processes is validated as one (core's `validateAnyBundle`, which
   // validates an all-v3 bundle exactly as `validateBundle` does).
+  const previous = options.previous;
+  const existing =
+    previous === "none"
+      ? new Set<string>()
+      : previous
+        ? processes.bundleNodeIds(previous)
+        : undefined;
+  // Review: a step that kept its id but changed its skill is new too.
+  const existingSkills =
+    previous && previous !== "none" ? processes.bundleStepSkills(previous) : undefined;
   const validate = holdsProcess(bundle)
-    ? (b: unknown, c: Parameters<typeof validateBundle>[1]) => processes.validateAnyBundle(b, c)
+    ? (b: unknown, c: Parameters<typeof validateBundle>[1]) =>
+        processes.validateAnyBundle(b, {
+          ...c,
+          ...(existing ? { existingStepIds: existing } : {}),
+          ...(existingSkills ? { existingStepSkills: existingSkills } : {}),
+        })
     : validateBundle;
   const result = validate(bundle, {
     skills: { ...used.skills, ...skills },
@@ -346,6 +388,17 @@ export async function validateForPublish(
             grants: await boundGrants(tx, row),
             entities: boundEntities(row.bindings, ctx.tools),
           },
+          // Skill model (2026-11-10): action write steps resolve from the bindings and channels.
+          ...(holdsAction(bundle)
+            ? {
+                actions: {
+                  bound: Object.keys(row.bindings),
+                  ...(ctx.actionChannels && row.tenantId
+                    ? { channels: await ctx.actionChannels(tx, row.tenantId, row.id ?? null) }
+                    : {}),
+                },
+              }
+            : {}),
         }
       : {}),
     // v0.12 W2-G: a client agent's pack panels must name packs its client has enabled.
@@ -395,6 +448,55 @@ export async function validateForPublish(
 }
 
 /**
+ * Skill model (2026-11-10): what a version's steps are checked against as already there
+ * (`validateForPublish`'s `previous`): a bundle (a step it lacks is new), or `"none"` (every step
+ * is new).
+ */
+export type ExistingSteps = AnyAgentBundle | "none";
+
+/**
+ * Skill model (2026-11-10): what already exists for a version, which says which of its steps are
+ * new: the nearest published version (live or retired) it was edited from, through any drafts in
+ * between; with none, the template version a client agent is based on (itself checked the same
+ * way when it is a draft); else nothing (`"none"`: every step is new).
+ */
+// DECISION (review): only a published version counts as already there. A first version is new work
+// unless it is a fork: a fork's v1 is checked against the template version it copies (published,
+// so nothing in it is new), and every other v1 (a new agent the operator or the Builder wrote, a
+// template made in the back office) has every step new. A draft saved on a draft is checked
+// against the published version under both, so a step a draft added is still new in the next.
+// Versions installed from code (a seeded or pack template's first version) say so at publish
+// (`publish`'s `installed`); the seed writes its rows directly and publishes nothing.
+export async function existingBundle(
+  tx: Tx,
+  v: Pick<AgentVersionRow, "parentVersionId" | "basedOnTemplateVersionId">,
+): Promise<ExistingSteps> {
+  const seen = new Set<string>();
+  const read = (id: string) =>
+    tx
+      .select({
+        bundle: agentVersion.bundle,
+        status: agentVersion.status,
+        parentVersionId: agentVersion.parentVersionId,
+        basedOnTemplateVersionId: agentVersion.basedOnTemplateVersionId,
+      })
+      .from(agentVersion)
+      .where(eq(agentVersion.id, id))
+      .then((rows) => rows[0]);
+  for (let id = v.parentVersionId; id && !seen.has(id); ) {
+    seen.add(id);
+    const row = await read(id);
+    if (!row) break;
+    if (row.status !== "draft") return parseVersionBundle(row.bundle);
+    id = row.parentVersionId;
+  }
+  if (!v.basedOnTemplateVersionId) return "none";
+  const tv = await read(v.basedOnTemplateVersionId);
+  if (!tv) return "none";
+  return tv.status !== "draft" ? parseVersionBundle(tv.bundle) : existingBundle(tx, tv);
+}
+
+/**
  * Publishes a version: validation must pass (§10.2), the previous live version is retired, the new
  * one goes live and becomes `live_version_id`, all in the caller's transaction. Publishing a
  * template changes no client agent (invariant 11). Client agents also snapshot the shared skills
@@ -402,7 +504,22 @@ export async function validateForPublish(
  */
 export async function publish(
   tx: Tx,
-  input: { agentId: string; versionId: string; actorId?: string | null; ctx: RegistryContext },
+  input: {
+    agentId: string;
+    versionId: string;
+    actorId?: string | null;
+    ctx: RegistryContext;
+    /**
+     * Review: what counts as already there, in place of `existingBundle`'s. A rollback passes the
+     * published version it copies: every step in it was published before, so none is new.
+     */
+    existingFrom?: ExistingSteps;
+    /**
+     * A version installed from code (a seeded or pack template's first version): its steps are
+     * the platform's, not new work, so none is new.
+     */
+    installed?: boolean;
+  },
 ): Promise<AgentVersionRow> {
   const row = await lockAgent(tx, input.agentId);
   const v = await getVersion(tx, input.versionId);
@@ -411,7 +528,11 @@ export async function publish(
   if (row.status === "disabled") {
     throw new AgentsError("invalid_state", "it was discarded: restore it before publishing");
   }
-  const errors = await validateForPublish(tx, row, v.bundle, input.ctx);
+  const errors = await validateForPublish(tx, row, v.bundle, input.ctx, {
+    previous: input.installed
+      ? parseVersionBundle(v.bundle)
+      : (input.existingFrom ?? (await existingBundle(tx, v))),
+  });
   if (errors.length > 0) {
     throw new AgentsError("invalid_bundle", `v${v.version} does not validate`, errors);
   }
@@ -468,11 +589,17 @@ export async function rollback(
     releaseNote: target.releaseNote,
     basedOnTemplateVersionId: target.basedOnTemplateVersionId,
   });
+  // DECISION (review): a rollback restores a version that was published (live or retired): its
+  // steps are checked as that version's, never as new against the version it replaces (a retired or
+  // a writing skill in it keeps running, invariant 3). A version never published (a draft) is new
+  // work: its copy is checked as any version is (`existingBundle`), against the live version.
+  const published = target.status === "live" || target.status === "retired";
   return publish(tx, {
     agentId: row.id,
     versionId: copy.id,
     actorId: input.actorId ?? null,
     ctx: input.ctx,
+    ...(published ? { existingFrom: parseVersionBundle(target.bundle) } : {}),
   });
 }
 
@@ -875,7 +1002,10 @@ export function requiredConnectors(
     if (w.workflow.schemaVersion === 4) {
       processes.walkSteps(w.workflow, ({ step }) => {
         if (step.kind === "skill") addSkill(step.skill);
-        if (step.kind === "read" || step.kind === "write") toolIds.add(step.tool);
+        // Skill model: an action write step's tool is resolved from the bindings when it runs.
+        if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
+          toolIds.add(step.tool);
+        }
       });
       continue;
     }

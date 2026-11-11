@@ -11,6 +11,9 @@ import { browseProblems, createSkill, createSkillVersion, rollbackSkill } from "
 
 const def = (sites: string[], instructions = "Find the order's delivery date on the portal.") => ({
   ...cloneJson(LOOKUP_SKILL),
+  // Skill model (2026-11-10): new versions are AI skills on their own model, never agent mode.
+  mode: "task",
+  model: { id: "claude-haiku-5-5" },
   id: "custom:order-status",
   name: "Order status",
   instructions,

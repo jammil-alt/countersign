@@ -16,22 +16,29 @@ import {
   pathOptions,
   processes,
   REACH_OUT_SKILL,
+  SKILL_KIND_LABEL,
   type Trigger,
   type TriggerOn,
   type TypingContext,
+  toolUsesModel,
   triggerOnSchema,
+  writesToClientTool,
 } from "@countersign/core";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { apiRoutes } from "../../api/routes";
-import { useApi } from "../../api/useApi";
 import { Icon } from "../../ui/icons";
 import { Button, cx } from "../../ui/primitives";
-import { PROCESS_KIND_LABEL } from "../workflow/describe";
+import { actionKindLabel, PROCESS_KIND_LABEL } from "../workflow/describe";
 import { toolLabel, whenEvent } from "../workflow/labels";
 import { processClientVisible } from "./Canvas";
 // P-4
 import { ConversationFields, ConverseFields } from "./ConverseFields";
-import { type BuilderData, type BuilderProblem, connectorName } from "./catalog";
+import {
+  type BuilderData,
+  type BuilderProblem,
+  catalogSkillKind,
+  connectorName,
+  writeLabelOf,
+} from "./catalog";
 import { ChecksPanel, NotifyEditor } from "./checks";
 import { CustomizeSection } from "./customize";
 import { DeadlineEditor } from "./deadline";
@@ -47,6 +54,7 @@ import {
 } from "./fields";
 import {
   type ApprovalEnv,
+  actionTarget,
   type IfPath,
   looseningBlocked,
   newPath,
@@ -64,6 +72,7 @@ import {
 import { type People, PersonPicker } from "./people";
 import { ReachOutFields } from "./ReachOutFields";
 import { RulesEditor } from "./rules";
+import { RunsOnRow, type SkillMove, StepParameters, VersionSection } from "./skill-step";
 
 export type { Member } from "./people";
 export { parseRuleValue, ruleValueText } from "./rules";
@@ -100,6 +109,18 @@ export interface InspectorProps {
   onDelete(id: string): void;
   /** Wave 5: put an `if` right after the step, routed on how it ended ("Add a route for this"). */
   onAddRoute?(stepId: string, option: RouteOption): void;
+  /**
+   * Skill model (2026-11-10): put the write a skill's output fits right after it ("Add: Create
+   * bill"), its input pre-mapped from that output.
+   */
+  onAddAction?(stepId: string, fit: processes.ActionFit): void;
+  // Skill model (2026-11-10): a skill step's version move.
+  /** The agent being edited, for "what moves if this step goes to vN". */
+  agentId?: string | undefined;
+  /** Its client (null for a template): whose operator skills its references name. */
+  tenantId?: string | null | undefined;
+  /** Move a skill step to another version of its skill, with its references remapped. */
+  onMoveSkill?(move: SkillMove): void;
 }
 
 function errorsFor(errors: readonly BuilderProblem[], node: string): FieldErrors {
@@ -244,14 +265,41 @@ function StepInspector(props: InspectorProps & { step: Step }) {
     [workflow, step.id, ctx],
   );
   const set: SetStep = (key, fn) => onStep(step.id, fn, `${step.id}:${key}`);
-  const label = PROCESS_KIND_LABEL[step.kind];
+  // Skill model (2026-11-10): a write by where it writes, a skill step with its kind.
+  const label =
+    step.kind === "write"
+      ? step.action !== undefined
+        ? actionKindLabel(
+            step.action,
+            step.via
+              ? props.data.catalog.connectors.find((c) => c.id === step.via)?.name
+              : undefined,
+          )
+        : writeLabelOf(props.data, step.tool as string)
+      : PROCESS_KIND_LABEL[step.kind];
+  // Review: a read or a write on a tool that calls a model inside reads AI too.
+  const kind =
+    step.kind === "skill"
+      ? catalogSkillKind(props.data, step.skill)
+      : (step.kind === "read" || step.kind === "write") &&
+          step.tool !== undefined &&
+          toolUsesModel(ctx.tools?.[step.tool])
+        ? ("ai" as const)
+        : undefined;
+  const skill = step.kind === "skill" ? lookupSkill(step.skill, ctx) : undefined;
+  const intro =
+    step.kind === "write"
+      ? step.action !== undefined || writesToClientTool(ctx.tools?.[step.tool as string])
+        ? `${label}: it changes the client's tool behind its checks. Approval is on by default.`
+        : "Saves to our own records. Approval is off by default; add one below if someone should say yes first."
+      : STEP_INTRO[step.kind];
 
   return (
     <div className="flex flex-col gap-4">
       <Heading
-        eyebrow={`${stepNumber(workflow, step.id)} · ${label}`}
+        eyebrow={`${stepNumber(workflow, step.id)} · ${label}${kind ? ` · ${SKILL_KIND_LABEL[kind]}` : ""}`}
         title={step.name || label}
-        intro={STEP_INTRO[step.kind]}
+        intro={intro}
       />
       <NodeErrors errors={errors} node={step.id} />
       <Row label="Name" field="name" errors={fieldErrors}>
@@ -265,9 +313,27 @@ function StepInspector(props: InspectorProps & { step: Step }) {
 
       <KindFields {...props} paths={paths} fieldErrors={fieldErrors} set={set} />
 
-      {step.kind === "skill" ? (
+      {step.kind === "skill" && skill ? (
         <>
-          <ModelRow step={step} ctx={ctx} fieldErrors={fieldErrors} set={set} />
+          <RunsOnRow
+            step={step}
+            skill={skill}
+            bundle={props.bundle}
+            ctx={ctx}
+            fieldErrors={fieldErrors}
+            set={set}
+          />
+          <StepParameters step={step} skill={skill} bundle={props.bundle} set={set} />
+          {props.agentId && props.onMoveSkill ? (
+            <VersionSection
+              step={step}
+              skill={skill}
+              agentId={props.agentId}
+              tenantId={props.tenantId ?? null}
+              workflow={workflow}
+              onMove={props.onMoveSkill}
+            />
+          ) : null}
           <CustomizeSection
             step={step}
             ctx={ctx}
@@ -308,6 +374,13 @@ function StepInspector(props: InspectorProps & { step: Step }) {
       {props.onAddRoute ? (
         <RoutesSection step={step} onAdd={(option) => props.onAddRoute?.(step.id, option)} />
       ) : null}
+      {step.kind === "skill" && props.onAddAction ? (
+        <ActionOffers
+          step={step}
+          ctx={props.ctx}
+          onAdd={(fit) => props.onAddAction?.(step.id, fit)}
+        />
+      ) : null}
       {/* DECISION (wave 5, web): an if is hidden from the client by default, as before; the operator
           may show it, and its row then says the route it took and why, naming only steps the
           client sees. */}
@@ -330,66 +403,6 @@ function StepInspector(props: InspectorProps & { step: Step }) {
   );
 }
 
-// v0.13 W2-H: the model a skill step runs on (ARCHITECTURE §10.11), from GET /api/ops/models,
-// over the skill's own (a task skill) or the agent's (an agent skill). A rules skill runs code and
-// takes no model, so the row isn't offered for one.
-function ModelRow({
-  step,
-  ctx,
-  fieldErrors,
-  set,
-}: {
-  step: Extract<Step, { kind: "skill" }>;
-  ctx: TypingContext;
-  fieldErrors: FieldErrors;
-  set: SetStep;
-}) {
-  const skill = lookupSkill(step.skill, ctx);
-  // P-4: a conversation runs as code, but each turn is a model call in the agent's voice.
-  const noModel = skill?.mode === "tool" && parseSkillRef(step.skill).id !== CONVERSE_SKILL;
-  const models = useApi(apiRoutes.opsModels, noModel ? null : {});
-  if (noModel) return null;
-  const options = models.data?.models ?? [];
-  const current = step.model?.id ?? "";
-  const fallback = skill?.mode === "task" ? "The skill's model" : "The agent's model";
-  return (
-    <Row
-      label="Model"
-      field="model"
-      errors={fieldErrors}
-      hint={
-        models.error
-          ? "Couldn't load the models; the step keeps its own."
-          : "Price per million tokens, in and out."
-      }
-    >
-      <SmallSelect
-        data-field="model"
-        data-testid="builder-inspector-model"
-        value={current}
-        onChange={(e) => {
-          const id = e.target.value;
-          set("model", (s) => {
-            if (s.kind !== "skill") return s;
-            const { model: _m, ...rest } = s;
-            return id ? { ...rest, model: { id } } : rest;
-          });
-        }}
-      >
-        <option value="">{fallback}</option>
-        {current && !options.some((m) => m.id === current) ? (
-          <option value={current}>A model no longer offered</option>
-        ) : null}
-        {options.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label} · ${m.inputPerMtok} / ${m.outputPerMtok}
-          </option>
-        ))}
-      </SmallSelect>
-    </Row>
-  );
-}
-
 /** A read or write step's tool: what it does, through which connector, and its undo. */
 function ToolFields(
   props: InspectorProps & {
@@ -400,14 +413,18 @@ function ToolFields(
   },
 ) {
   const { step, paths, fieldErrors, set, ctx, data } = props;
-  const tool = ctx.tools?.[step.tool];
+  if (step.kind === "write" && step.action !== undefined) {
+    return <ActionFields {...props} step={step} />;
+  }
+  const toolId = step.tool as string;
+  const tool = ctx.tools?.[toolId];
   const connector = tool ? (tool.connector ?? tool.source) : null;
   const undo = step.kind === "write" && tool ? processes.describeUndo(tool) : null;
   return (
     <>
       <Row label={step.kind === "read" ? "Reads" : "Changes"} field="tool" errors={fieldErrors}>
         <p className="text-sm text-ink" data-field="tool" tabIndex={-1}>
-          {toolLabel(step.tool)}
+          {toolLabel(toolId)}
           {connector && connector !== "platform" ? (
             <span className="text-ink-muted"> · {connectorName(data, connector)}</span>
           ) : null}
@@ -431,6 +448,123 @@ function ToolFields(
         />
       </Section>
     </>
+  );
+}
+
+/**
+ * Skill model (2026-11-10): an action write step. What it does, the tool it will use for this
+ * agent (a client agent's accounting connection, `via` among two; a message's channel), and its
+ * provider-neutral input.
+ */
+function ActionFields(
+  props: InspectorProps & {
+    step: Extract<Step, { kind: "write" }>;
+    paths: PathOption[];
+    fieldErrors: FieldErrors;
+    set: SetStep;
+  },
+) {
+  const { step, paths, fieldErrors, set, env } = props;
+  const action = step.action as processes.WriteAction;
+  const spec = processes.ACTION_SPECS[action];
+  const target = actionTarget(step, env);
+  const accounting = processes.isAccountingAction(action);
+  const bound = Object.keys(env.matrices).filter((c) =>
+    (processes.ACCOUNTING_CONNECTORS as readonly string[]).includes(c),
+  );
+  return (
+    <>
+      <Row label="Does" field="action" errors={fieldErrors}>
+        <p className="text-sm text-ink" data-field="action" tabIndex={-1}>
+          {spec.label}
+        </p>
+      </Row>
+      <p className="text-sm text-ink-muted">{spec.description}</p>
+      {target ? (
+        <p
+          className={cx("text-sm", target.problem ? "text-risk" : "text-ink")}
+          data-testid="builder-action-target"
+        >
+          {target.text}
+        </p>
+      ) : null}
+      {accounting && (bound.length > 1 || step.via !== undefined) ? (
+        <Row label="In" field="via" errors={fieldErrors}>
+          <select
+            className="ds-input"
+            data-field="via"
+            data-testid="builder-action-via"
+            value={step.via ?? ""}
+            onChange={(e) => {
+              const via = e.target.value;
+              set("via", (s) => {
+                if (s.kind !== "write") return s;
+                const { via: _old, ...rest } = s;
+                return (via ? { ...rest, via } : rest) as Step;
+              });
+            }}
+          >
+            <option value="">Choose a system</option>
+            {processes.ACCOUNTING_CONNECTORS.map((c) => (
+              <option key={c} value={c}>
+                {processes.ACTION_CONNECTOR_NAMES[c] ?? c}
+              </option>
+            ))}
+          </select>
+        </Row>
+      ) : null}
+      <Section title="Input">
+        <SchemaForm
+          schema={processes.actionInputSchema(action)}
+          value={step.input}
+          onChange={(input) => set("input", (s) => ({ ...s, input }) as Step)}
+          paths={paths}
+          prefix="input"
+          errors={fieldErrors}
+          testPrefix="builder-input"
+        />
+      </Section>
+    </>
+  );
+}
+
+/**
+ * Skill model (2026-11-10): after a skill whose output fits an action's input (the same field
+ * names and types, or the skill says so), the builder offers that write with its fields mapped.
+ */
+function ActionOffers({
+  step,
+  ctx,
+  onAdd,
+}: {
+  step: Extract<Step, { kind: "skill" }>;
+  ctx: TypingContext;
+  onAdd(fit: processes.ActionFit): void;
+}) {
+  const fits = processes.actionFits(step.id, processes.stepOutputSchema(step, ctx));
+  if (fits.length === 0) return null;
+  return (
+    <Section title="Next step">
+      <p className="text-sm text-ink-muted">
+        This skill's result has what these need. Each is added after it, its fields filled from the
+        result, with approval on.
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {fits.map((fit) => (
+          <li key={fit.action} className="flex items-center justify-between gap-2">
+            <span className="text-sm text-ink">{Object.keys(fit.input).length} fields filled</span>
+            <Button
+              variant="ghost"
+              data-testid={`builder-offer-${fit.action}`}
+              onClick={() => onAdd(fit)}
+            >
+              <Icon name="add" />
+              Add: {processes.ACTION_SPECS[fit.action].label}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Section>
   );
 }
 

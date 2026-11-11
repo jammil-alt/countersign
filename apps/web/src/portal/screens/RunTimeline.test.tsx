@@ -126,6 +126,23 @@ describe("portal run timeline", () => {
     }
   });
 
+  // Skill model (2026-11-10), wave A: a write reads "Changed in <their tool>" or "Saved".
+  it("says where each write went, by the tool's name, and in the client's language", async () => {
+    const [first, second] = LEAKY_TIMELINE.steps as [object, object];
+    renderTimeline({
+      ...LEAKY_TIMELINE,
+      steps: [
+        { ...first, write: { kind: "change_in", connector: "QuickBooks Online" } },
+        { ...second, status: "waiting", write: { kind: "save_to_records", connector: null } },
+      ],
+    });
+    const writes = await screen.findAllByTestId("portal-run-step-write");
+    expect(writes.map((w) => w.textContent)).toEqual([
+      "Changed in QuickBooks Online",
+      "Saves to your records",
+    ]);
+  });
+
   it("says when nothing visible has happened yet", async () => {
     renderTimeline({
       ...LEAKY_TIMELINE,

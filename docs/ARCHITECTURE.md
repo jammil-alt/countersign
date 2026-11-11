@@ -4,6 +4,13 @@
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
 
+> **v0.16, the skill model (2026-11-10, owner):** **Two kinds of skill: deterministic or AI.** A
+> skill that needs both is two skills chained; skills never write (a write is "Save to records" or
+> "Change in <connector>"); every skill version has typed parameters and a Deterministic or AI label;
+> rule rows compare inputs, parameters and today; an AI skill's model is the step's, else the agent's
+> for the skill, else the skill's recommended. `rules_then_ai`, agent-mode skills and the tool-wrapper
+> skills retire for new use. Changed: §10.14 ("The skill model"); `docs/plan.md` §1.86.
+
 > **v0.16 (2026-11-10, owner):** **Six words for the work: connector, tool, skill, trigger, process
 > and person.** Skills think, tools act: a skill turns data into data by rules, a model, or rules then
 > a model, and may read but never writes; a write is a step of its own. A process is triggers plus
@@ -2329,7 +2336,7 @@ so §11–§20 keep their numbers and every reference to them holds.
 |---|---|---|
 | **Connector** | A client's account in one system: its read tools, its write tools and its events. A browser site is a connector too (below) | §6.1, §6.10 |
 | **Tool** | One fixed action that reads or writes. It never decides: same input, same call | §9.4 |
-| **Skill** | Data in, data out, by rules, by a model, or rules then a model. May read through connectors; never writes | §9.2 |
+| **Skill** | Data in, data out: deterministic (rules or built-in code) or AI (instructions and a model), never both (the skill model, below). May read through connectors; never writes | §9.2 |
 | **Trigger** | What starts a process: the six kinds of §10.8 | §10.8 |
 | **Process** | One or more triggers, then steps top to bottom, each step able to carry checks | §10.1, §10.7 |
 | **Person** | Someone on the client's People list (a client user or a directory contact), or the lead | §4, §1.42 of the plan |
@@ -2344,9 +2351,72 @@ process makes is a step the operator placed, the client can see, and approval ca
 Library (below) replaces "automation" with "process": a process used inside another is a `process`
 step, as `use_automation` was (§10.7).
 
+#### The skill model (owner, 2026-11-10)
+
+Decided, and it supersedes the method table below (`rules_then_ai` and the four skill modes):
+**two kinds of skill only.**
+
+| Kind | Runs as | Example |
+|---|---|---|
+| **Deterministic** | Typed data in, rules (rule rows as data, or built-in code), typed data out, the same every time | Check totals; Look up existing; Check matches (the hard rules that veto) |
+| **AI** | Typed data in (text and documents too), instructions and a model, JSON out checked against the skill's output schema and handed to the next step | Read document; Match the unmatched (with retrieval as a read) |
+
+- **Nothing in between.** A skill that needs both is two skills chained: Read document (AI) then
+  Check totals (deterministic); Look up existing (deterministic), Match the unmatched (AI), Check
+  matches (deterministic: never match when a key attribute differs, never compare prices across
+  units without a conversion, invariant 7). Routing on confidence is an `if` step, not logic in a
+  skill.
+- **Skills never write and never message anyone**, our own records included. Every write is a write
+  step calling one tool: a write to our records (a tool with side effect `internal`) shows as
+  **"Save to records"**, approval off by default (the operator may turn it on); a write to a client's
+  tool (`external`) shows as **"Change in <connector>"**, approval on by default (invariant 8). Same
+  step underneath (core `writeStepLabel`, `defaultWriteApproval`).
+- **Every skill version** has an input and an output schema (fixed per version), **parameters**
+  (named, typed values the agent sets: a number, text, a date, an amount, or buckets such as 0–15
+  Current, 16–30 Due, 31+ Past due), tests, and a label shown everywhere: Deterministic or AI.
+  Prefer a parameter to a near-duplicate skill.
+- **Rule rows**: when the conditions hold, set the outputs. Conditions compare input fields,
+  parameters and today's date (=, <, >, between, in a list, days between two dates); outputs are fixed
+  values, copied input fields, or simple calculations (days between, sum, difference, percent change,
+  the parameter's bucket a value falls in). Anything more is a built-in code skill (core `skills/rules`).
+- **Models**: an AI skill version has a recommended model; a client agent may set its own per skill
+  (`definition.skills[].model`, every use of the skill in that agent); a step may still override it.
+  Most specific wins: step, then agent × skill, then the skill's recommended, then the agent's
+  (core `effectiveModel`). Every model is priced (cost caps) and held to HIPAA's processors, as before.
+- **Versions** are immutable; a step pins one (or follows the live one at the agent's publish). A
+  compatible move (only optional fields, or parameters with defaults, added) is one click; a breaking
+  one lists every reference downstream to remap before the step is saved (core `skillVersionChange`,
+  `skillMoveImpact`; `POST /api/ops/agents/:id/skill-move`).
+- **Setup is the operator's** (the back office). Clients give feedback, and keep only signing in to
+  their own tools, tightening permissions and approver rules, and their hours and people.
+- **Hidden AI**: built-in code that calls a model (document extraction, item matching's attribute
+  fallback and adjudication, translation, web research, the conversation engine) declares it on its
+  tool (`ToolSpec.usesModel`), so its skill reads as AI; a built-in's kind is derived, never stored.
+- **Retired for new use**: the 92 built-in skills that are only a tool by another name leave the
+  Library and the palette (a process uses the tool as a read or write step; stored references still
+  run), and agent-mode skills (the agent's reasoning loop proposing writes) give way to AI skills
+  followed by write steps. Stored versions and stored steps keep running (invariant 3). A skill
+  whose own tools write (Read quote and Read statement, which record a reading) is retired for new
+  steps too, and the tools a split replaced (document extraction, item matching) are offered as
+  steps only where an agent already calls them; a tool step that calls a model reads AI. A step is
+  new unless the last published version it was edited from has it (a fork's first version: its
+  template version); every step of any other first version the operator or the Builder writes is
+  new, and the Builder is offered only what the palette offers.
+- **AI then a check**: where an AI skill's answer feeds a write, a deterministic skill checks it
+  first and an If step routes a failure to a person (the Bill clerk: Prepare bill, Check bill,
+  Create bill; invariant 7).
+- **Templates on the skill model**: each seeded and pack template that used a retired kind of skill
+  has a new version built only from AI skills, deterministic skills, read steps and write steps (the
+  Bill clerk's v3, the Document clerk's v2, Sloan's v5, the Bookkeeper's v3, the marketing set's
+  v3). The reading skills run on the cheap model, set on the agent's skill; analysis on the skill's
+  recommended model. Stored versions are unchanged, and a client's agent moves only by the usual
+  reviewed update (invariant 11). Sloan keeps its four processes: the owner's one exception to one
+  agent, one process.
+
 #### Skill methods and reads
 
-A skill declares one **method** (R2; replaces §9.2's `mode`):
+Superseded in part by the skill model above (2026-11-10): `rules_then_ai` is retired for new skill
+versions and new steps. A skill declares one **method** (R2; replaces §9.2's `mode`):
 
 | Method | Runs as | Use |
 |---|---|---|
@@ -2624,6 +2694,23 @@ v4 process, keeping **every step, path and trigger id**, so merges still line up
 The converter is pure and adds nothing a v3 workflow didn't say: no confer, no notify checks, no
 business hours. New versions are saved as v4 (seeds and pack templates in R9); old versions read as
 v4 through the converter wherever v4 is needed.
+
+#### Action write steps (skill model, owner 2026-11-10)
+
+A write step names a **tool**, or an **action**: `send_email`, `send_text`, `create_bill`,
+`create_vendor`, with a provider-neutral input (core `processes.ACTION_INPUTS`; money as decimal
+strings). The action resolves from the agent's bindings when the step runs, once, in a durable step
+(`<step>:action`), so a replay resolves the same way: an accounting action to the one accounting
+connection the agent is bound to (QuickBooks or BILL; with both the step names `via`), a message
+action to the agent's own email or text channel, else the account's (`channelFor`). It then runs
+exactly as a write step calling that tool: its input mapped to the tool's
+(`processes.actionToolInput`), one external action with its idempotency key, before state and undo,
+the gate. Every action is external, so its approval is on by default (invariant 8). Publish checks
+an action against the client agent's bindings and channels (no accounting connection, or two
+without `via`, is refused); a template checks its input only. The run view names where it went
+("Create bill · in QuickBooks"). The builder offers the actions as a palette group and, after a
+skill whose output fits an action's input, the matching write with its fields mapped. Design
+decisions: docs/plan.md §1.86 "Skill model (2026-11-10)".
 
 ---
 

@@ -25,7 +25,9 @@ function skillDef(slug: string, over: Json = {}) {
     name: "Summarize records",
     description: "Reads records and writes a short summary",
     category: "writing",
-    mode: "agent",
+    // Skill model (2026-11-10): new operator skills are AI skills (agent mode retired).
+    mode: "task",
+    model: { id: "claude-haiku-5-5" },
     instructions: "Summarize the records you are given.",
     tools: ["testkit.record.query"],
     input: { type: "object", properties: { about: { type: "string" } } },

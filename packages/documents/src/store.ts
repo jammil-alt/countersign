@@ -12,7 +12,14 @@ export type DocumentSource = DocumentRow["source"];
 export class DocumentError extends Error {
   override name = "DocumentError";
   constructor(
-    readonly code: "unsupported_type" | "too_large" | "empty" | "not_found" | "not_extractable",
+    readonly code:
+      | "unsupported_type"
+      | "too_large"
+      | "empty"
+      | "not_found"
+      | "not_extractable"
+      // Skill model (2026-11-10): a "Read document" skill's answer that doesn't fit the reading.
+      | "invalid_reading",
     message: string,
   ) {
     super(message);

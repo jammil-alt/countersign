@@ -1,14 +1,27 @@
 // The operator skill editor (ARCHITECTURE §9.2, design screen 3): what it does, how (instructions),
 // the tools it may use, what goes in and comes out (fields that make the JSON Schema), and its
 // settings. Saving makes a new draft version; nothing changes for agents until it is published.
-import type { ToolSpec } from "@countersign/core";
-import { useState } from "react";
-import { Button, Card, SectionLabel, Tag } from "../../ui/primitives";
+//
+// The skill model (owner, 2026-11-10; ARCHITECTURE §10.14): first, which kind. An AI skill has
+// instructions, a recommended model and tools that only read; a deterministic skill has rule rows.
+// Both have parameters, named typed values each agent sets. A skill never writes: a write step
+// after it makes the change. What would stop the server from saving the version shows as it is
+// typed.
+import { SKILL_KIND_LABEL, SKILL_KINDS, type SkillKind, type ToolSpec } from "@countersign/core";
+import { useMemo, useState } from "react";
+import { apiRoutes } from "../../api/routes";
+import { useApi } from "../../api/useApi";
+import { Button, Card, SectionLabel } from "../../ui/primitives";
+import { modelOptionLabel } from "../agents/definition-form";
 import { Field, Select, TextArea, TextInput } from "../agents/ui";
 import { toolTitle } from "../builder/model";
+import { ParametersEditor } from "./parameters";
+import { RuleRowsEditor } from "./RuleRows";
 import {
   CATEGORIES,
   categoryLabel,
+  definitionFromForm,
+  definitionProblems,
   FIELD_TYPE_LABEL,
   FIELD_TYPES,
   type FieldRow,
@@ -18,8 +31,73 @@ import {
   type SettingType,
   type SkillForm,
   type SkillFormErrors,
+  SLUG_RE as SLUG_OK,
   slugify,
 } from "./skill-form";
+
+const KIND_HINT: Record<SkillKind, string> = {
+  ai: "Instructions and a model. Its answer is JSON, checked against what comes out.",
+  deterministic: "Rule rows: the same answer every time, no model.",
+};
+
+/** AI or deterministic, and for an AI skill the model it recommends (each agent may override). */
+function KindCard({
+  form,
+  errors,
+  onChange,
+}: {
+  form: SkillForm;
+  errors: SkillFormErrors;
+  onChange(next: SkillForm): void;
+}) {
+  const models = useApi(apiRoutes.opsModels, form.kind === "ai" ? {} : null);
+  const options = models.data?.models ?? [];
+  return (
+    <Card className="p-5">
+      <SectionLabel>What kind of skill</SectionLabel>
+      <div className="ds-seg" data-testid="skill-kind">
+        {SKILL_KINDS.map((k) => (
+          <button
+            key={k}
+            type="button"
+            aria-pressed={form.kind === k}
+            data-testid={`skill-kind-${k}`}
+            onClick={() => onChange({ ...form, kind: k })}
+          >
+            {SKILL_KIND_LABEL[k]}
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 text-sm text-ink-muted" data-testid="skill-kind-hint">
+        {KIND_HINT[form.kind]} A skill never changes anything: put a write step after it.
+      </p>
+      {form.kind === "ai" ? (
+        <div className="mt-4 max-w-md">
+          <Field
+            label="Recommended model"
+            error={errors.model}
+            hint="Each agent may run it on another, in its Settings. Priced per million tokens."
+          >
+            <Select
+              data-testid="skill-model-select"
+              value={form.model}
+              onChange={(e) => onChange({ ...form, model: e.target.value })}
+            >
+              {form.model && !options.some((m) => m.id === form.model) ? (
+                <option value={form.model}>{modelOptionLabel(form.model)}</option>
+              ) : null}
+              {options.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label} · ${m.inputPerMtok} / ${m.outputPerMtok}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+      ) : null}
+    </Card>
+  );
+}
 
 function Check({
   checked,
@@ -284,7 +362,8 @@ export function SkillEditor({
   const set = <K extends keyof SkillForm>(key: K, value: SkillForm[K]) =>
     onChange({ ...form, [key]: value });
   const groups = new Map<string, ToolSpec[]>();
-  for (const t of tools) {
+  // Skill model (2026-11-10): an AI skill may only read; writes are steps of their own.
+  for (const t of tools.filter((x) => x.sideEffect === "none")) {
     const g = t.connector ?? t.source;
     groups.set(g, [...(groups.get(g) ?? []), t]);
   }
@@ -294,8 +373,18 @@ export function SkillEditor({
     ? CATEGORIES
     : [...CATEGORIES, [form.category, categoryLabel(form.category)] as const];
 
+  const ai = form.kind === "ai";
+  const problems = useMemo(() => {
+    if (!SLUG_OK.test(form.slug) || !form.name.trim()) return [];
+    return definitionProblems(definitionFromForm(form, tools), tools);
+  }, [form, tools]);
+  const scope = {
+    inputs: form.input.map((r) => r.key).filter(Boolean),
+    parameters: form.parameters.filter((p) => p.name),
+  };
   return (
     <div className="flex flex-col gap-5">
+      <KindCard form={form} errors={errors} onChange={onChange} />
       <Card className="p-5">
         <SectionLabel>What it does</SectionLabel>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -354,56 +443,59 @@ export function SkillEditor({
               onChange={(e) => set("description", e.target.value)}
             />
           </Field>
-          <Field
-            label="Instructions"
-            className="md:col-span-2"
-            error={errors.instructions}
-            hint="How the agent does it, in plain language. Added to the agent's own instructions."
-          >
-            <TextArea
-              data-testid="skill-instructions-input"
-              rows={6}
-              value={form.instructions}
-              invalid={Boolean(errors.instructions)}
-              onChange={(e) => set("instructions", e.target.value)}
-            />
-          </Field>
+          {ai ? (
+            <Field
+              label="Instructions"
+              className="md:col-span-2"
+              error={errors.instructions}
+              hint="How the model does it, in plain language: firm rules first, then judgment."
+            >
+              <TextArea
+                data-testid="skill-instructions-input"
+                rows={6}
+                value={form.instructions}
+                invalid={Boolean(errors.instructions)}
+                onChange={(e) => set("instructions", e.target.value)}
+              />
+            </Field>
+          ) : null}
         </div>
       </Card>
 
-      <Card className="p-5">
-        <SectionLabel>Tools it may use</SectionLabel>
-        <p className="mb-3 text-sm text-ink-muted">
-          Tools that change a client's tool always follow that client's permissions, and wait for
-          approval unless you switch it off on the step.
-        </p>
-        <div className="flex flex-col gap-4" data-testid="skill-tools">
-          {[...groups.entries()].map(([g, list]) => (
-            <div key={g}>
-              <p className="mb-1.5 text-sm font-medium text-ink">{groupName(g)}</p>
-              <div className="flex flex-col gap-1.5">
-                {list.map((t) => (
-                  <Check
-                    key={t.id}
-                    testId={`skill-tool-${t.id}`}
-                    checked={form.tools.includes(t.id)}
-                    onChange={(on) =>
-                      set(
-                        "tools",
-                        on ? [...form.tools, t.id] : form.tools.filter((x) => x !== t.id),
-                      )
-                    }
-                  >
-                    <span>{toolTitle(t)}</span>
-                    <span className="text-ink-muted">{t.description}</span>
-                    {t.sideEffect === "external" ? <Tag>Changes the tool</Tag> : null}
-                  </Check>
-                ))}
+      {ai ? (
+        <Card className="p-5">
+          <SectionLabel>Tools it may read with</SectionLabel>
+          <p className="mb-3 text-sm text-ink-muted">
+            An AI skill only reads, through the client's connections. A change is a write step after
+            the skill: "Save to records" or "Change in" the client's tool.
+          </p>
+          <div className="flex flex-col gap-4" data-testid="skill-tools">
+            {[...groups.entries()].map(([g, list]) => (
+              <div key={g}>
+                <p className="mb-1.5 text-sm font-medium text-ink">{groupName(g)}</p>
+                <div className="flex flex-col gap-1.5">
+                  {list.map((t) => (
+                    <Check
+                      key={t.id}
+                      testId={`skill-tool-${t.id}`}
+                      checked={form.tools.includes(t.id)}
+                      onChange={(on) =>
+                        set(
+                          "tools",
+                          on ? [...form.tools, t.id] : form.tools.filter((x) => x !== t.id),
+                        )
+                      }
+                    >
+                      <span>{toolTitle(t)}</span>
+                      <span className="text-ink-muted">{t.description}</span>
+                    </Check>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </Card>
+            ))}
+          </div>
+        </Card>
+      ) : null}
 
       <Card className="p-5">
         <SectionLabel>What goes in</SectionLabel>
@@ -444,6 +536,36 @@ export function SkillEditor({
           </div>
         </div>
       </Card>
+
+      <Card className="p-5">
+        <SectionLabel>Parameters</SectionLabel>
+        <ParametersEditor
+          rows={form.parameters}
+          errors={errors}
+          onChange={(rows) => set("parameters", rows)}
+        />
+      </Card>
+
+      {ai ? null : (
+        <Card className="p-5">
+          <SectionLabel>Rule rows</SectionLabel>
+          <RuleRowsEditor
+            rows={form.rules}
+            scope={scope}
+            outputs={form.output.map((r) => r.key).filter(Boolean)}
+            error={errors.rules}
+            onChange={(rows) => set("rules", rows)}
+          />
+        </Card>
+      )}
+
+      {problems.length > 0 ? (
+        <ul className="ds-banner flex-col gap-1 text-sm" data-testid="skill-problems">
+          {problems.map((p) => (
+            <li key={p}>{p}</li>
+          ))}
+        </ul>
+      ) : null}
 
       <Card className="p-5">
         <SectionLabel>Settings</SectionLabel>

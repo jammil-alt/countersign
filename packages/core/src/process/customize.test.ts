@@ -191,7 +191,11 @@ describe("applyCustomization", () => {
     });
     expect(settings).toEqual({ min_confidence: 0.95 });
     expect(definition.instructions).toContain("Fuel is Vehicle.");
-    expect(customizeSkill(categorize, undefined)).toEqual({ definition: categorize, settings: {} });
+    expect(customizeSkill(categorize, undefined)).toEqual({
+      definition: categorize,
+      settings: {},
+      parameters: {},
+    });
     // The skill's defaults, under the agent's, under the step's, under the customization's.
     expect(
       stepSkillSettings(categorize, {

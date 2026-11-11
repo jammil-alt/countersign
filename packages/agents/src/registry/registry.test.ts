@@ -1,6 +1,7 @@
 // Agent and skill versions, forking, operational fields and activation, against a real database
 // as cs_worker (RLS and grants apply).
 
+import { TESTKIT_QUERY_TOOL } from "@countersign/connectors";
 import {
   type AnyAgentBundle,
   cloneJson,
@@ -315,10 +316,15 @@ describe.skipIf(!harness)("agent registry", () => {
 
 describe.skipIf(!harness)("skill registry", () => {
   const h = harness as Harness;
+  // Skill model (2026-11-10): a new operator skill is an AI skill (a task on its own model) that
+  // only reads; agent mode and skills that write are retired for new versions.
   const def = (instructions: string) => ({
     ...cloneJson(ALERT_SKILL),
     id: "custom:price-check",
     name: "Price check",
+    mode: "task",
+    model: { id: "claude-haiku-5-5" },
+    tools: [TESTKIT_QUERY_TOOL],
     instructions,
     producesAlerts: false,
   });
@@ -344,7 +350,7 @@ describe.skipIf(!harness)("skill registry", () => {
       expect(back.definition.instructions).toBe("v1");
       return created.skill;
     });
-    // Operator skills must be agent mode with known tools.
+    // Operator skills must use known tools.
     expect(
       await code(
         h.ops((tx) =>

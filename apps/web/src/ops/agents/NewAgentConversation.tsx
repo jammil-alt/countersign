@@ -455,7 +455,8 @@ function Access({
   for (const w of bundle.workflows) {
     const walk = (steps: readonly Step[]) => {
       for (const s of steps) {
-        if (s.kind === "write") add(s.tool);
+        // An action write step's tool is resolved when it runs.
+        if (s.kind === "write" && s.tool !== undefined) add(s.tool);
         if (s.kind === "if") {
           for (const p of s.paths) walk(p.steps);
           walk(s.otherwise.steps);

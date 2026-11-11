@@ -10,6 +10,7 @@ import { PACK_ID } from "./ids";
 import { PRICE_DEFAULTS } from "./pricing/rules";
 import { PURCHASING_SKILLS } from "./purchasing/skills";
 import { PURCHASING_TOOLS } from "./purchasing/tools";
+import { REPLACEMENT_SKILLS, SPLIT_SKILLS, SPLIT_TOOLS } from "./split";
 import {
   catalogDuplicates,
   MATERIALS_TOOLS,
@@ -24,7 +25,8 @@ import {
 export { PACK_ID };
 
 // P-5: the Purchasing area's tools, after the catalog's and the prices'.
-const ALL_TOOLS: readonly PackTool[] = [...MATERIALS_TOOLS, ...PURCHASING_TOOLS];
+// Skill model (2026-11-10): the split's reads and its Save to records write.
+const ALL_TOOLS: readonly PackTool[] = [...MATERIALS_TOOLS, ...PURCHASING_TOOLS, ...SPLIT_TOOLS];
 
 const schema = (tool: PackTool, key: "input" | "output") =>
   tool.spec[key] as Record<string, unknown>;
@@ -204,6 +206,11 @@ export const MATERIALS_SKILLS: readonly SkillDefinition[] = [
   },
   // P-5: the Purchasing area's skills (docs/plan.md §1.67).
   ...PURCHASING_SKILLS,
+  // Skill model (2026-11-10): Look up existing, Match the unmatched, Check matches, Compare to
+  // historicals.
+  ...SPLIT_SKILLS,
+  // Read a vendor's quote and Choose items to merge: AI skills that write nothing.
+  ...REPLACEMENT_SKILLS,
 ];
 
 export const materialsManifest: PackManifest = PackManifest.parse({

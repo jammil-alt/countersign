@@ -4,11 +4,17 @@
 // and tool ids never show: a step reads by its name, an action by its tool in words.
 // R8: a v4 process too (the templates' v4 versions): its first trigger and its steps in the
 // builder's words; a write with no approval check needs the default approver (invariant 8).
-import type { processes, Workflow } from "@countersign/core";
+import { processes, type Workflow } from "@countersign/core";
 import type { ReactNode } from "react";
 import { Tag } from "../../ui/primitives";
 import type { StepItem } from "../../ui/steps";
 import { toolTitle } from "../builder/model";
+
+/** Skill model: an action write step's name ("Create bill"); its tool is resolved when it runs. */
+function actionLabel(action: processes.WriteAction | undefined): string {
+  return action ? processes.ACTION_SPECS[action].label : "A change";
+}
+
 import {
   KIND_LABEL,
   PROCESS_KIND_LABEL,
@@ -52,8 +58,8 @@ export function workflowStepItems(workflow: Workflow | processes.Process): StepI
         detail:
           step.kind === "write"
             ? approves
-              ? needsApproval(step.tool)
-              : `${toolTitle({ id: step.tool })} · on its own`
+              ? needsApproval(step.tool ?? actionLabel(step.action))
+              : `${step.tool ? toolTitle({ id: step.tool }) : actionLabel(step.action)} · on its own`
             : step.kind === "skill"
               ? undefined
               : (processStepDetail(step) ?? undefined),

@@ -3438,6 +3438,409 @@ packages/workflows `recordCheck`; apps/api `run-audit/` and `routes/run-audit.ts
   the owner's model and limits are kept, and an agent with no owner settings stays with none while
   it is off.
 
+**Skill model (2026-11-10)** (the owner agreed it; decided, ARCHITECTURE §10.14 "The skill model";
+it supersedes R2's `rules_then_ai` method and the four skill modes). Two kinds of skill only:
+**deterministic** (typed data in, rule rows or built-in code, typed data out, the same every time)
+and **AI** (typed data in, instructions and a model, JSON out checked against the output schema). A
+skill needing both is two skills chained; routing on confidence is an `if` step. Skills never write
+or message anyone: a write step shows as "Save to records" (`internal`, approval off by default) or
+"Change in <connector>" (`external`, approval on). Every skill version has fixed input and output
+schemas, typed parameters the agent sets, tests and a Deterministic or AI label. An AI skill's model
+is the step's, else the agent's for the skill, else the skill's recommended. Setup is the
+operator's. The core stream (`skills/core`) built: core `skills/` (`skillKind`, `skillModelFacts`,
+`newSkillVersionProblems`, `retiredSkillReason`, `parameterValueProblems`,
+`resolveSkillParameters`, `evaluateSkillRules`, `isoToday`, `effectiveModel`, `skillVersionChange`,
+`skillMoveImpact`, `skillStepReferences`, `writeStepLabel`, `defaultWriteApproval`), the schema's
+`SkillParameter`, rule rows' `conditions` and `compute`, `ToolSpec.usesModel`, the agent's
+`skills[].parameters` and `skills[].model`, the runtime running rule skills, the Library and
+builder catalog without tool wrappers, and `POST /api/ops/agents/:id/skill-move`. No migration.
+- // DECISION: a skill's kind is derived, never stored (`skillKind`): `ai`, `rules_then_ai`, `task`
+  or `agent` is AI; a `tool`-mode skill is deterministic unless a tool it calls declares
+  `usesModel`, so built-in definitions and their pinned hashes stay as they are (invariant 3).
+- // DECISION: the code-side declaration is `ToolSpec.usesModel` (a reason, optional), not a list in
+  core: core never names a pack's tools. Declared: `docs.extract`, `docs.read`, `comms.translate`,
+  `web.search`, `web.fetch`, `comms.converse`, `materials.catalog.create_item`,
+  `materials.match_line`. apps/api hands a pack tool the model only when it declares it (every other
+  gets `llm: null`); a platform tool that records a model call without declaring it is reported by
+  the runtime's `onUndeclaredModelCall` after its cost is recorded (tests throw there; apps/api logs).
+- // DECISION: a deterministic operator skill is `mode: "tool"` with rule rows and no handler (the
+  schema now takes rule rows in place of a handler); a handler stays built-in code, ours only.
+- // DECISION: rule rows keep `when` (plain rules over `{{input.…}}`, `{{parameters.…}}`,
+  `{{today}}`) and `set`, both now optional, and gain typed `conditions` and `compute`; a row sets at
+  least one field, and each once. Rows are tried top to bottom, the first match wins; no match fails
+  the step "no rule row matched this input". A condition reading a missing value never holds (`!=`
+  included). Numbers, decimal strings and amounts compare as decimals (two amounts only in one
+  currency), dates as dates; a timestamp counts by the date written in it. Sums and differences keep
+  the operands' form (numbers stay numbers, amounts in one currency an amount, else a decimal
+  string); a percent change is rounded to 2 places, null from 0. Buckets are inclusive, ordered,
+  non-overlapping, only the last open-ended: "30+" after "16–30" is written `from: 31`.
+- // DECISION: today in a rule skill's run is the run clock's date in UTC (the runtime doesn't know
+  the client's zone there); `isoToday(now, tz)` takes a zone where a caller has one.
+- // DECISION: parameter values live on the agent's existing `skills[]` entry (`parameters`, `model`,
+  optional, no default) rather than a new `skillSettings` map; a step's own values ride its
+  customization (`customize.parameters`). Layers: the skill's default, the agent's, the step's. A
+  parameter with no default must be set by every agent that uses the skill: publish refuses it
+  (`parameter_invalid`), and a run without it fails in plain words. An AI skill reads its parameters
+  in the system prompt ("Parameters for this task"), as settings are read.
+- // DECISION: `effectiveModel` returns null for a code skill (no model a step picks); an agent-mode
+  skill (stored) runs on the agent's model under the agent × skill and step overrides. Pricing holds
+  for the agent's per-skill model (`definitionModelErrors`); HIPAA holds at run time on whatever model
+  resolves (the transport's `guardModels`), as before.
+- // DECISION: new skill versions (create, save) refuse `rules_then_ai`, agent mode, a tool that
+  writes among a skill's tools or reads, and rule rows beside a handler; a rollback copies a stored
+  version as it was (`restoring`). The Builder's skill drafts are AI skills: an answer asking for
+  agent mode is drafted as `task` with a note, and a write tool it names is left out with a note.
+- // DECISION: a new step is one whose id the version's parent version lacks
+  (`ProcessValidationContext.existingStepIds`, `processes.bundleNodeIds`); publish, test runs and
+  saved drafts refuse a retired kind of operator-written (`custom:`) skill in a new step
+  (`skill_retired`). A first version (a seed's, a template's, a fork's) has no parent, so nothing in
+  it counts as new. The platform's own agent-mode built-ins (Sloan, the supervisor, pack templates)
+  are still installed from code with new steps in their seeded versions, so they are not held to it;
+  they are off the palette instead.
+- // DECISION: version moves: compatible means only optional input fields, output fields, or
+  parameters with a default added. Breaks are `removed` (with `renamedTo` when exactly one field of
+  the same type was added beside it), `type_changed`, `now_optional`, `required_added`,
+  `parameter_removed`, `parameter_type_changed`, `parameter_required_added`. The move route takes the
+  builder's unsaved process and answers the breaks, every reference downstream (`*` for a reference
+  to the whole output; the step's own input for an input break) and the validation errors the move
+  adds (the same validator, errors diffed before and after).
+- // DECISION: tool-wrapper skills leave the skills list (`GET /api/ops/skills`), the agent's skill
+  picker and the builder catalog's `skills`, except a wrapper the agent's latest version already
+  names (listed, `palette: false`, so its stored steps still type). The catalog gains `stepTools`
+  (the platform's and packs' tools a step may call directly: what the wrappers wrapped, less the
+  conversation's and reach-out's handlers), which the web builder should read instead of deriving
+  them from the wrappers. Each catalog skill carries `kind` and `palette` (false for a wrapper, an
+  agent-mode or a `rules_then_ai` skill). The Library index's counts are unchanged.
+- // DECISION: `writeStepLabel(step, tool, connectorName)` treats an unknown tool as a client's tool
+  ("Change in …", approval on): the safe side of invariant 8; `defaultWriteApproval` is the builder's
+  one rule for a new write step's approval.
+- Open question (owner): whether "today" in a rule skill should be the client's calendar day (the
+  runtime would need the client's zone); today it is UTC.
+- Open question: the 15 built-in skills that are not wrappers include agent-mode ones (Sloan's, the
+  supervisor's, the packs' AI templates' skills); they keep running as stored, and their split into
+  AI skills plus write steps is a later stream's.
+
+**Skill model (2026-11-10): the splits** (Wave B, branch `skills/splits`). The hidden AI split into
+Deterministic and AI skills, and writes moved out of skills into write steps. New built-ins with new
+ids (the old ones stay registered and unchanged for stored agents, their hashes pinned; 123
+built-ins, 92 wrappers): `docs.read-document` (AI) and `docs.check-totals`;
+`materials.lookup-existing`, `materials.match-unmatched` (AI), `materials.check-matches`,
+`materials.compare-prices`, `materials.read-quote-document` (AI), `materials.choose-merges` (AI);
+`bookkeeping.propose-accounts`, `bookkeeping.suggest-matches`, `bookkeeping.read-statement-document`
+(AI); `marketing.write-report`, `-titles`, `-article`, `-forum-reply`, `-post` (AI). New tools:
+`docs.totals.check` (read), `docs.reading.record` (Save to records), `materials.lines.lookup`,
+`materials.matches.check`, `materials.prices.compare` (reads), `materials.matches.record` (Save to
+records). Step patterns for the template stream: `vendorInvoiceProcess`, `readInvoiceSteps`,
+`matchLinesSteps`, `priceSteps`, `readQuoteSteps`, `reviewMergeSteps` (Materials),
+`categorizeSteps`, `leftoverSteps` (Bookkeeping), `weeklyReportSteps`, `forumReplySteps`,
+`socialPostSteps` (Marketing). No migration.
+- // DECISION: an AI skill reads a document through its input: a field marked `x-document: true`
+  names one of the client's documents, and the runtime attaches its file (a PDF as a `document`
+  block, an image as an `image` block) before the input JSON, as data (invariant 9), through the
+  run's documents port (one client, invariant 1). Only `task` skills attach; a field left empty
+  attaches nothing; a document that can't be read fails the step in plain words.
+- // DECISION: an AI skill reads a document whole, in one call: a PDF over 100 pages (or 22 MB) is
+  refused with a pointer to `docs.extract`, which still reads long PDFs in parts.
+- // DECISION: "Save to records: the reading" (`docs.reading.record`) writes the extraction exactly
+  as `docs.extract` does (shared `writeReading`), with `model` the skill that read it and tokens and
+  cost 0 (the model call is the Read document step's, counted there once). Totals that don't add up
+  mark the document `needs_review` but raise no inbox item: the process routes it (If, then a
+  person).
+- // DECISION: a built-in deterministic code skill lists its handler in `tools` too, which tells it
+  from a tool wrapper (`isToolWrapper`: a handler and no tools): it stays in the Library and the
+  palette, and `isToolWrapper` keeps meaning the 92 skills that are only a tool.
+- // DECISION: a built-in code skill's parameters reach its handler with its settings
+  (`ctx.settings`, a parameter over a setting of the same name), so Check matches' threshold and
+  Compare to historicals' price rules are parameters.
+- // DECISION: an AI skill's declared `reads` are tools its model may call (retrieval); an AI
+  (`task`) skill's model is offered only the agent's extra tools that read, never one that writes
+  (agent-mode skills keep them all, gated as before).
+- // DECISION: Match the unmatched names lines by their number on the document (`lineNo`), not
+  their id: a shorter request, and the same request (so the same recorded answer) for the same
+  document. Check matches maps the answers back by `lineNo`.
+- // DECISION: Check matches keeps every rule of `match_line` and adds two: the model may match only
+  a candidate Look up existing offered, and a new item needs every required attribute (the model's
+  reading fills only attributes the parsers left unstated, never changes a stated one). A vetoed
+  answer's confidence is capped at 0.5; below the threshold (`match_confidence_auto`, 0.90) a person
+  decides. In category `other` there are no key attributes to veto on (the golden set's two worst-
+  case false positives are freight and fuel surcharge lines).
+- // DECISION: Look up existing recalls a line already decided (as `match_lines`), and Save to records
+  skips a line whose latest decision is matched or new item, so a retried step adds nothing.
+- // DECISION: retrieval is the catalog's trigram search (`materials.catalog.search`); there is no
+  vector search: `catalog_item.embedding` exists but nothing writes it.
+- // DECISION: Compare to historicals is the price check run as a test reading (it records nothing);
+  the alerts are then raised by a write step calling `materials.prices.check`, which works them out
+  again from the recorded prices (a step's output never becomes an alert's content).
+- // DECISION: `materials.match_lines` declares `usesModel` (it matches each line as `match_line`
+  does): undeclared, the core stream's pack adapter handed it no model, so every close call went to
+  review. A source-scan test (`apps/api/src/model-tools.test.ts`) inventories each file of tool
+  code that reaches a model and checks the declarations match it, both ways.
+- // DECISION: the matching golden set runs through the chain pairwise (the line, and the one item it
+  could be): Look up existing decides exactly what the old rules did, and the chain holds 95%
+  precision on "same" with a model that always says matched (97.1%), one never sure (100%, the old
+  result) and one that agrees with the labels (100%). Those answers are written by hand. The model
+  skills' own requests replay hand-written, provider-shaped answers (`fixtures/llm`, marked
+  `handWritten`): no API key here.
+- // DECISION: the patterns are code (functions returning v4 steps with fixed ids and an optional
+  prefix), not stored automations: the template stream copies them into templates, and apps/api's
+  `skill-splits.test.ts` validates each against the platform's registries.
+- // DECISION: the platform's agent-mode built-ins are documented, not rebuilt here: Sloan's
+  `account.chat` is a conversation (it stays one); `supervisor.triage`, `writing.draft-in-voice` and
+  `qbo.map-invoice-lines` write nothing (each becomes an AI task skill over read steps when its
+  template moves: for the Bill clerk, reads → Map lines (AI) → `docs.bill_lines` (a read) →
+  Change in QuickBooks: `qbo.bill.update_lines`, approval on).
+- Open question: the builder catalog's `stepTools` lists only tools a wrapper wrapped, so the new
+  tools (`docs.reading.record`, `materials.matches.record`, `materials.lines.lookup`, …) aren't
+  offered as read or write steps in the palette; `stepTools` should list every non-hidden platform
+  and pack tool that isn't a conversation's or a reach-out's handler.
+- Open question: whether an AI skill should read a PDF over 100 pages in parts (several calls,
+  merged as `docs.extract` does) rather than refuse it.
+- Open question: whether a model match in category `other` (no key attributes) should always go to
+  a person.
+
+**Skill model (2026-11-10)** (owner, 2026-11-10; ARCHITECTURE §10.14 "Action write steps"). Wave B
+item 9, action write steps (`skills/actions`; no migration):
+- DECISION: a v4 write step names `tool` or `action` (`send_email`, `send_text`, `create_bill`,
+  `create_vendor`), never both, with `via` (a connector id) on an accounting action only. The
+  actions, their inputs, their tools per connector and the mapping to each tool's input are one
+  module, core `processes` (`packages/core/src/process/actions.ts`): `WRITE_ACTIONS`,
+  `ACTION_SPECS`, `ACTION_INPUTS`, `actionInputSchema`, `actionTool`, `resolveActionConnector`,
+  `actionToolInput`, `actionStepLabel`, `actionFits`.
+- DECISION: what a provider can't take is refused before anything is sent, never guessed (core
+  `ActionInputError`, the step's row failed "refused: …", nothing written): a vendor named without
+  its id (QuickBooks and BILL take vendors by id; look it up in a read step first), a BILL bill
+  without a due date or with an item line, an email with `cc` (no email tool sends one yet).
+- DECISION: `via` is for accounting actions only; a message goes on the channel `channelFor`
+  resolves (the agent's own, else the account's), never picked per step. Two bindings of one
+  accounting connector (`qbo`, `qbo:2`) count as one connector.
+- DECISION: at publish a client agent's actions are checked against its bound connectors and, for
+  messages, the channels `RegistryContext.actionChannels` resolves (apps/api `actionChannels`, each
+  with its connection's matrix). A loosened approval is held to the resolved connection's matrix
+  and the agent's mode; where the connection can't be resolved at publish, a loosening is refused
+  (approval stays on). Templates check the input shape only.
+- DECISION: an action brings its resolved tool in, as a conversation's channel brings its send
+  tool: the agent needn't list the tool. The gate still holds the call to the connection's matrix,
+  the agent's grant, its mode and the go-live stage (invariants 8, 13).
+- DECISION: the executor resolves the action once per step in a durable step (`<step>:action`,
+  `AgentPort.resolveAction`), then runs a write step on the resolved tool, its input mapped when
+  each attempt starts (an oversight retry's corrected input is the tool's). A resolution that is
+  refused, or names a tool the action doesn't run with, fails the step before anything is
+  proposed; the run ends there (it is not a failure `onError: continue` goes on past).
+- DECISION: a message action's channel connection goes to the gate as the agent's binding for that
+  connector for this one call (`ActionStepRequest.binding`): the account's channel is the agent's
+  when it has none (§10.14), and its matrix decides, as for a reach-out.
+- DECISION: an action's output is its tool's, known only at run time, so later steps read it
+  untyped. The run's rows name where it went: the step's name with "· in QuickBooks" (core
+  `actionStepLabel`), which is also what its approval card and timeline line show.
+- DECISION: the builder's offer after a skill is by field names and JSON types only (or the skill
+  output schema's `x-action` and `x-action-fields` hints), never a decision; the operator reviews
+  the pre-mapped input and the validator types it.
+- Open question: a vendor by name. Resolving `vendorName` to an id needs a read inside the write
+  step; today a read step does it first.
+
+**Skill model (2026-11-10), wave A: the back office** (branch `skills/web`). Labels everywhere: a
+skill reads Deterministic or AI on Library cards (with an All / Deterministic / AI filter), its page,
+the builder's palette, canvas and inspector, the read-only step list and the run view's rows; a
+write step reads "Save to records" or "Change in <connector>" in the palette, canvas, inspector, run
+view and (in six languages) the client's timeline ("Changed in QuickBooks Online", "Saved to your
+records"). The skill editor makes an AI skill (instructions, a recommended model, read-only tools)
+or a deterministic one (rule rows), both with parameters; the owner's aging example is built from
+the screen in a test. The agent's Settings have a section per skill (its parameters, and an AI
+skill's model); a skill step's inspector says "Runs on: <model> (<where from>)", takes a step's own
+model and parameter values, shows the version it pins and moves it ("Move to vN"). API additions,
+all optional fields: `SkillOption.kind`, `.parameters`, `.recommendedModel`;
+`opsRun.stepFacts` (by step id: `skillKind`, `write: {kind, text}`); `TimelineStep.write` (`kind`,
+`connector`, the connector's name only). No migration.
+- // DECISION (web): the palette offers the server's `stepTools` when the catalog has them (else
+  derives them from wrappers, as before), and never a skill the catalog marks `palette: false`. A
+  write item's line is its label ("Save to records", "Change in Testkit"); its tag stays "Write".
+- // DECISION (web): a stored agent-mode or rules-then-AI operator skill opens in the editor as AI and
+  saves as an AI skill (`mode: "task"`, its recommended model, rule rows and write tools dropped); a
+  new AI skill recommends Haiku (packages/llm's classification default). The editor shows what
+  would stop the server from saving (the schema, `skillRuleProblems`, `newSkillVersionProblems`) as
+  it is typed.
+- // DECISION (web): rule rows the editor adds are `row-<n>` (the first free n); a version replaces
+  its rows whole, so ids need only be unique in it. A step's own added rows keep their uuid ids.
+  The editor lists a row's outputs in the order of the skill's output fields.
+- // DECISION (web): the agent's per-skill section writes `parameters` and `model` onto the agent's
+  `skills[]` entry only when set, so an entry the editor didn't change saves as stored. A parameter
+  with no default must be set before the editor saves (publish refuses it anyway).
+- // DECISION (web): the step inspector's model picker sets the step's own `model` (the most
+  specific); "Runs on" names the model `effectiveModel` resolves and core's
+  `MODEL_SOURCE_WORDS`. A code skill shows no picker: it runs no model, or its tool picks its own.
+- // DECISION (web): "Move to vN" lists every other version of an operator skill (drafts marked); a
+  built-in "moves with the platform". The move asks the server, pre-picks a renamed field
+  (`renamedTo`), and is applied only once each reference to a removed output field has a field to
+  read; a reference to the whole output and the step's own input are fixed by hand after. The moved
+  version joins the builder's catalog as a `pinned` entry for the session, so the step types; the
+  agent's `skills[]` keeps naming the skill by id.
+- // DECISION (web): a Save to records step's approval empty state says approval is off by default;
+  "Add an approval" turns it on (unchanged control). The canvas line of a skill step ends "runs on
+  <model id>".
+- // DECISION (API): `stepFacts` resolves an operator skill in the run's client; the client's timeline
+  gets a write's kind and the connector's manifest name only (null for our own records or an unknown
+  tool, worded "your tool").
+- Left as they are (owner question pending): the client admin's recording of browser scripts on
+  the portal's Accounts page, and the client's tightening of approver rules (Settings → Approvals).
+  The portal offers no agent or skill setup (a web test pins its routes).
+- Open question: the conversation skill's per-step model picker is gone with the old model row
+  (`comms.converse` declares `usesModel`, so the step shows "its built-in code calls a model"); a
+  conversation step of its own kind is unchanged.
+
+**Skill model (2026-11-10): the templates** (Wave B item 10, branch `skills/templates`, on the
+merged `skills/splits`, `skills/actions` and `skills/web`; no migration). Each seeded and pack
+template that used a retired kind of skill gets a new version built from AI skills, deterministic
+skills, read steps and write steps; stored versions are never edited (invariant 3) and a client's
+fork moves only by the reviewed update merge (invariant 11). Seeds (`packages/db/seed/agents/`, each
+an `extends` file, and apps/api's `account/templates.ts` for the install route): **Bill clerk v3**
+(Choose items and accounts, `qbo.choose-invoice-lines`, AI over the invoice and bill it is given,
+items as a read, in place of `qbo.map-invoice-lines`; with no bill: Find the vendor (a read) → Prepare
+bill, `docs.prepare-bill` (AI) → Create bill, the `create_bill` action, approval on → tell the
+client admin; no vendor: ask), **Document clerk v2** (when a document couldn't be read, or by hand:
+Read document (AI) → Check totals → a person when they don't add up → Save to records), **Sloan v5**
+(Explain a problem, `supervisor.explain`, AI with the health tools and `agents.ask` as reads, in
+place of `supervisor.triage`). Packs: **Bookkeeper v3** (Propose accounts and Suggest matches with
+a Save to records step for each, in place of `categorize` and `explain-leftovers`; Read a statement
+document in place of `read-statement`, under its step id), and the **marketing set's v3** (each
+agent-mode skill as read steps → its AI skill → a check in code → Save to records or Change in the
+site or LinkedIn). New built-ins: `qbo.choose-invoice-lines`, `docs.prepare-bill`,
+`supervisor.explain`; core gains `processes.replaceSteps` and `processes.processTools`. Tests:
+apps/api `templates-skill-model.test.ts` (each version validates against the platform, names no
+retired skill, keeps approval on changes and the cheap model on reading; the installs, the update
+offer, and fork + publish with QuickBooks, and with QuickBooks and BILL).
+- // DECISION: tool wrappers leave every new version's skill list; the tools its read and write
+  steps call are listed as the agent's tools (`extraTools`, `processes.processTools`), so the
+  validator's `tool_not_allowed` holds as before.
+- // DECISION: the reading skills (Read document, Read a statement document, Choose items and
+  accounts) run on the cheap model (`claude-haiku-5-5`, the classification default), set on the
+  agent's `skills[]` entry so the builder shows "the agent's"; analysis AI skills (Prepare bill,
+  Explain a problem, Propose accounts, Suggest matches, the marketing writers) run on their
+  recommended model, the platform's reasoning default. New AI skills recommend a model (a task
+  skill must name one).
+- // DECISION: Sloan (the supervisor) keeps its four processes (a failed run, a connection needing
+  a person, the daily check, the chat) in v5: the owner's exception to one agent, one process.
+  `account.chat` stays the conversation it is (agent mode, the one kept); its report and daily
+  check stay Save to records steps on `supervisor.report` and `supervisor.check`.
+- // DECISION: the Bill clerk now adds a bill when none matches (status `none`) and the vendor is in
+  QuickBooks: Prepare bill (AI) then Create bill (approval on, the client signs). An ambiguous match
+  still asks which bill; a vendor not found asks about the vendor. The vendor and accounts are read
+  from QuickBooks (the Bill clerk is a QuickBooks agent); Prepare bill only chooses among the ids it
+  is given, so it names no connector.
+- // DECISION: Create bill names no `via`: an agent bound to QuickBooks only resolves it there; one
+  bound to QuickBooks and BILL is refused at publish (`action_needs_via`) until the operator names
+  the system on the step, as a new version of the client's agent (the test does it for BILL).
+- // DECISION: the Document clerk's v2 runs when the background reading failed
+  (`document.extraction_failed`) or by hand with a document id; it doesn't read every upload again
+  (the platform's background extraction does that, outside any agent). `docs.find-support` is left
+  out: no process used it.
+- // DECISION: the Builder's and the Coordinator's templates get no new version: their latest name
+  no skill and hold no process, so there is nothing retired in them (an identical version would have
+  the same hash). The Demo client's records clerk (a client agent, one Change in Testkit step) uses
+  no skill either; seed-demo's agents are history of a demo client and move like any client's.
+- // DECISION: three versions carry the validator's advice to split (never an error): the Bill
+  clerk's process (25 steps), the Bookkeeper's daily process (23) and the forum watch (a reply four
+  levels in). Splitting them is the one-process-per-agent work.
+- // DECISION: the marketing set's v3: settings the agent-mode skills read (topics, the disclosure,
+  how many proposals) become literal step inputs the operator customizes per client. The forum
+  watch searches one query for a few recent stories and takes each new one in turn; a pasted
+  thread is read on its own. A social post about a guide reads the guide, otherwise the report
+  given (or the newest); the report path keeps v2's step ids. Article drafts run on a person's
+  topic only: Thursday's schedule chose its own topic inside the agent's loop, and is left out.
+- // DECISION: the marketing-agents, bookkeeping and reconcile tests fork the template's v2
+  explicitly (their scripted runs are of the agent-mode skills stored agents still run); v3 is held
+  by the new test (validation, install, update offer, fork and publish), not run end to end there.
+- // DECISION: the builder catalog's `stepTools` lists every platform and pack tool (a connector's
+  are offered under its connector), less a conversation's and a reach-out's handlers, not only what
+  a wrapper wrapped: the splits' and templates' tools (`docs.reading.record`,
+  `bookkeeping.booking.propose`, `marketing.report.record`, …) are offered as read and write steps.
+  This answers the splits' open question.
+- // DECISION (merge): an action write step reads "Change in <its via connector>", else "Change in
+  the agent's accounting / email / texts" in the builder, and "Change in the client's tool" in the
+  run view; the client's timeline says "Changed in <via's name>", else "your tool".
+- Open question: a scheduled article draft needs a "Choose a topic" AI skill (search figures and the
+  guides in, a topic out) before Write an article; not built.
+- Open question: for a BILL-only client the Bill clerk can't publish (its fill-in path changes
+  QuickBooks bills); and with `via: "billcom"` its vendor and account reads are still QuickBooks'.
+  A Bill clerk for BILL needs those reads swapped (`billcom.vendor.search`) as the operator's
+  customization, or a BILL template of its own.
+
+**Skill model (2026-11-10)**: the review of `skills/templates`, fixed on `skills/fix`.
+
+- Retired for new use, added: skills that write. `materials.read-quote` and
+  `bookkeeping.read-statement` are task skills whose own tools include `docs.read`, which records a
+  reading; they leave the palette (`palette: false`) and a new step using them is refused
+  (`skill_retired`), built-ins included. Their replacements, `materials.read-quote-document` and
+  `bookkeeping.read-statement-document`, only read. Stored steps keep running (invariant 3).
+- // DECISION: "a skill writes" is core's `skillWriteTools` / `skillIsWriter`: any tool or read of
+  the skill whose `sideEffect` isn't `none`, our own records included. `newStepSkillReason` joins it
+  with `retiredSkillReason`; the catalog's `palette` flag is `!isToolWrapper && newStepSkillReason
+  === null`. The validator refuses writing skills in new steps for built-ins too; retired kinds
+  (agent mode, rules then AI) stay held to `custom:` skills, since the platform's seeded and pack
+  versions still add steps on agent-mode built-ins.
+- // DECISION: a step is new when its id isn't in the parent version, or (new) when it was there
+  with another skill id (`existingStepSkills`, core `processes.bundleStepSkills`; `@version` aside,
+  so a version move is not new). A rollback is checked against the version it restores
+  (`publish`'s `existingFrom`), so restoring a published version never trips the new-step checks.
+- // DECISION: the builder's `stepTools` leaves out the hidden AI the splits replaced
+  (`SPLIT_MODEL_TOOLS` in apps/api: `docs.extract`, `docs.read`, `materials.match_line`,
+  `materials.match_lines`, `materials.catalog.create_item`) and the account agent's handlers
+  (`account.*`), each kept where the agent's latest version already calls it as a step. The list is
+  named where platform and packs are wired, not as a new field on every tool spec.
+- // DECISION: a read or write step on a tool that declares `usesModel` (web search and fetch,
+  translate, a stored step on document extraction) reads AI: "Read · AI" / "Write · AI" in the
+  palette, "· AI" in the inspector's eyebrow and on the canvas, and an AI tag in the run view
+  (`StepModelFacts.usesModel`). Operator only; the portal shows no kind.
+- // DECISION: the Bill clerk's v3 checks Prepare bill with code before Create bill: "Check bill"
+  (`docs.check-bill` on `docs.bill.check`, deterministic, `sideEffect: none`) compares the prepared
+  bill with the invoice as read and the vendors and accounts read, in decimals (vendor and accounts
+  among those read; number, date, currency and total the invoice's; lines adding up; line amounts
+  the invoice's lines, freight, surcharges and tax). An If step sends a bill that fails to the
+  client admin ("Ask about the bill we prepared"); only a bill that passes reaches Create bill.
+  Its input is typed loosely (as Prepare bill's) and the tool's schema parses what it checks.
+  Built-ins: 127.
+- // DECISION: an action write step is held to its connection at publish whatever its approval: a
+  verb the matrix turns off (`verb_off`), or a record type the matrix or the agent's grant turns off
+  (`entity_off`, from the resolved tool's own entity; a message channel has none). A sub-process
+  override is still held only when it loosens.
+- // DECISION: a wait's request carries an action's resolved channel (`WaitRequest.binding`), so a
+  message action that runs again after a release goes through the same connection.
+- // DECISION (second review, `skills/fix2`): what a version's steps are checked against is
+  `existingBundle`: the nearest published (live or retired) version it was edited from, through any
+  drafts in between; with none, the template version a client agent is based on (checked the same
+  way when that is a draft); else nothing, and every step is new (`validateForPublish`'s
+  `previous: "none"`). It replaces "a first version has no parent, so nothing in it counts as new":
+  a first version the operator or the Builder writes (a client agent from scratch, a copy of an
+  unlinked agent, a template made in the back office) has every step new; a fork's v1 is checked
+  against the template version it copies, so nothing in it is new. Publish, saved drafts, test runs
+  and the Builder's drafts, revisions, conversations and saves all use it.
+- // DECISION (second review): a template's first version installed from code (a seeded platform
+  template's install, a pack's) is published with `installed: true`, which counts none of its
+  steps as new: its steps are the platform's, not new work. The seed writes its rows directly and
+  publishes nothing, so it is unchanged. A later version installed from code is checked against
+  the version before it, as before.
+- // DECISION (second review): only a published version counts as already there, so a step a draft
+  added is still new in a draft saved on it. A rollback passes the version it restores as what
+  exists only when that version was published (live or retired); a rollback to a draft is checked
+  as any version is, against the live version (`opsRollback` still takes any version id of the
+  agent).
+- // DECISION (second review): the AI Builder is offered what the palette offers for a new step: its
+  context's skills leave out tool wrappers and every skill `newStepSkillReason` refuses (a retired
+  kind, a skill that writes), and its tools leave out `SPLIT_MODEL_TOOLS` and `account.*`, each kept
+  where the version being revised (else the agent's latest) already uses it, with the tools a kept
+  skill calls, so a revision keeps its stored steps. The Builder's skill drafts get the same tools.
+  The live templates it is shown as starting points still list their skills as they are.
+- Not fixed: Check matches still applies `match_confidence_auto` inside the skill (below it a line
+  is "unsure" and needs review). Moving it to an If step means a For each over the checked lines
+  with an If per line and a review flag on `materials.matches.record`, which changes the matching
+  patterns, their golden and what the review queue gets; left for the owner's call. The patterns
+  already route the person step on `anyNeedsReview` with an If.
+- Not fixed (owner's items): Marketing v3's article drafts run only on a person's topic (no Thursday
+  schedule); the social posts and forum watch change behaviour on update; a BILL-only client can't
+  publish the Bill clerk's v3; the client's browser-script recording and approver-rule tightening
+  are still on the portal; `doc_extraction.model` records the skill id (`docs.read-document`), not
+  the model that read the document (the skill's answer doesn't carry its model); "today" in rule
+  skills is UTC.
+
 ### 1.87 BILL connector (owner: "bill.com integrated", 2026-11-10; no migration)
 
 Connector `billcom` in `packages/connectors/src/billcom/` against a fake (`fakeBillcom` in

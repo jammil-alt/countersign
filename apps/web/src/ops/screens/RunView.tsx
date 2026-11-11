@@ -19,6 +19,8 @@ import {
   routeOfRow,
   runErrorCode,
   runStartedBy,
+  SKILL_KIND_LABEL,
+  type StepModelFacts,
   shortRunId,
   stepNodeOf,
   type TimelineChecks,
@@ -60,7 +62,13 @@ import { StatusChip } from "../../ui/status";
 import { type StepItem, StepList, type StepState } from "../../ui/steps";
 import { Transcript } from "../../ui/transcript";
 import { usePageClient } from "../pickedClient";
-import { checklistRows, type RanWorkflow, type RunStepRow, ranWorkflow } from "../run/checklist";
+import {
+  checklistRows,
+  parseNodeId,
+  type RanWorkflow,
+  type RunStepRow,
+  ranWorkflow,
+} from "../run/checklist";
 // Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): the owner's checks, the audit, the export.
 import { OwnerCheckLines, RunAuditCard, RunExportCard } from "../run/RunAudit";
 import { ModelCalls, RunControls } from "../run/RunControls";
@@ -489,6 +497,20 @@ function checksFor(
   return out;
 }
 
+/** A row's step facts (its skill's kind, its write's label), by the step id it ran or will run. */
+function stepFactsOf(
+  data: RunDetail,
+  row: RunStepRow,
+  nodeId: string | undefined,
+): StepModelFacts | undefined {
+  const stepId = nodeId
+    ? parseNodeId(nodeId).stepId
+    : row.key.startsWith("pending:")
+      ? row.key.slice("pending:".length)
+      : null;
+  return stepId ? data.stepFacts?.[stepId] : undefined;
+}
+
 function Timeline({
   data,
   workflow,
@@ -539,6 +561,15 @@ function Timeline({
       r.internal ? "hidden from client" : null,
     ].filter(Boolean);
     const failed = r.status === "failed" || (failedNode !== null && s?.nodeId === failedNode);
+    // Skill model (2026-11-10): a write by where it writes, a skill step with its kind.
+    const facts = r.check ? undefined : stepFactsOf(data, r, s?.nodeId);
+    const kindText = facts?.write?.text ?? r.kind;
+    // Review: a read or a write on a tool that calls a model inside reads AI too.
+    const skillKind = facts?.skillKind
+      ? SKILL_KIND_LABEL[facts.skillKind]
+      : facts?.usesModel
+        ? SKILL_KIND_LABEL.ai
+        : null;
     const decisions = s ? oversight.filter((d) => d.stepRunId === s.id) : [];
     // Wave 6: the owner's check on each attempt at this step (v4 read, skill and write steps).
     const ownerChecks = s ? (data.ownerChecks ?? []).filter((c) => c.nodeId === s.nodeId) : [];
@@ -550,7 +581,8 @@ function Timeline({
       title: (
         <span className="ops-step-head">
           <span className="flex flex-wrap items-center gap-2">
-            <Tag>{r.kind}</Tag>
+            <Tag testId={`ops-run-step-${r.key}-kind`}>{kindText}</Tag>
+            {skillKind ? <Tag testId={`ops-run-step-${r.key}-skill-kind`}>{skillKind}</Tag> : null}
             <span className={failed ? "ui-tone-risk" : undefined}>
               {i > 0 ? `${i} · ` : ""}
               {checks.confer ? `${conferTitle(i18n, checks.confer)} · ${r.title}` : r.title}

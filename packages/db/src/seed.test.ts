@@ -84,11 +84,15 @@ describe("seed files", () => {
     // R9: each template's latest version holds v4 processes (or drops unregistered skills).
     expect(later.map((v) => `${v.slug}.v${v.version}`)).toEqual([
       "bill-clerk.v2",
+      // Skill model (2026-11-10): the Bill clerk's v3, the Document clerk's v2 and Sloan's v5.
+      "bill-clerk.v3",
       "builder.v2",
       "coordinator.v2",
+      "document-clerk.v2",
       "supervisor.v2",
       "supervisor.v3",
       "supervisor.v4",
+      "supervisor.v5",
     ]);
     const v2 = v3Bundle(later.find((v) => v.slug === "supervisor" && v.version === 2));
     if (!v1 || !v2) throw new Error("no supervisor seed");
@@ -323,8 +327,9 @@ describe.skipIf(!online)("seed", () => {
   it("inserts the operator, two clients and five live templates; twice is the same as once", async () => {
     const first = await seed(t.db);
     const afterFirst = await counts();
-    // Five v1s, the supervisor's v2 to v4, and the Bill clerk's, Builder's and Coordinator's v2.
-    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 5, versions: 11 });
+    // Five v1s, the supervisor's v2 to v5, the Bill clerk's v2 and v3, and the Builder's,
+    // Coordinator's and Document clerk's v2.
+    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 5, versions: 14 });
     expect(first.demoDesk).toBeNull();
 
     const second = await seed(t.db);
@@ -351,15 +356,15 @@ describe.skipIf(!online)("seed", () => {
     ]);
     const versions = await t.db.select().from(agentVersion);
     const supervisor = first.templates.supervisor;
-    // Each template's live version is its last seeded one: the supervisor's v4 (R9, v4 processes),
-    // whose parent is v3 and v3's v2; the Bill clerk's, Builder's and Coordinator's v2; the
-    // Document clerk's v1 (it has no workflow and no unregistered skill). The others are retired.
+    // Each template's live version is its last seeded one: the supervisor's v5 (the skill model),
+    // whose parent is v4, v4's v3 and v3's v2; the Bill clerk's v3 (its parent v2); the Builder's,
+    // Coordinator's and Document clerk's v2. The others are retired.
     const lastSeeded: Record<string, number> = {
-      "bill-clerk": 2,
+      "bill-clerk": 3,
       builder: 2,
       coordinator: 2,
-      "document-clerk": 1,
-      supervisor: 4,
+      "document-clerk": 2,
+      supervisor: 5,
     };
     for (const r of templates) {
       expect(r.kind).toBe("template");
@@ -370,7 +375,12 @@ describe.skipIf(!online)("seed", () => {
         const at = (n: number) => versions.find((v) => v.agentId === r.id && v.version === n);
         expect(at(2)?.parentVersionId).toBe(supervisor?.versionId);
         expect(at(3)?.parentVersionId).toBe(at(2)?.id);
-        expect(live?.parentVersionId).toBe(at(3)?.id);
+        expect(at(4)?.parentVersionId).toBe(at(3)?.id);
+        expect(live?.parentVersionId).toBe(at(4)?.id);
+      } else if (r.slug === "bill-clerk") {
+        const at = (n: number) => versions.find((v) => v.agentId === r.id && v.version === n);
+        expect(at(2)?.parentVersionId).toBe(first.templates[r.slug]?.versionId);
+        expect(live?.parentVersionId).toBe(at(2)?.id);
       } else if (lastSeeded[r.slug] === 2) {
         expect(live?.parentVersionId).toBe(first.templates[r.slug]?.versionId);
       }

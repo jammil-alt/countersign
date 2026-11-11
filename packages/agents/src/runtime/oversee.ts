@@ -258,7 +258,8 @@ const none = (reason: string): OverseeVerdict => ({ action: "none", reason });
 function writes(deps: RuntimeDeps, step: OwnerWatchedStep, def: SkillDefinition | null) {
   const external = (toolId: string) => deps.tools.get(toolId)?.spec.sideEffect === "external";
   if (step.kind === "action" || step.kind === "write" || step.kind === "read") {
-    return external(step.tool);
+    // Skill model: an action not yet resolved to its tool is external (every action is).
+    return step.tool === undefined || external(step.tool);
   }
   if (step.kind === "conversation") return true;
   if (!def) return true;
@@ -356,9 +357,10 @@ function describe(
       fixed: def?.fixedInputs ?? [],
     };
   }
-  const spec = deps.tools.get(step.tool)?.spec;
+  const toolId = step.tool ?? `the ${step.kind === "write" ? step.action : step.kind} action`;
+  const spec = step.tool === undefined ? undefined : deps.tools.get(step.tool)?.spec;
   const lines = [
-    `Step "${step.name}" (id ${step.id}) calls the tool ${step.tool}.`,
+    `Step "${step.name}" (id ${step.id}) calls the tool ${toolId}.`,
     spec ? `The tool: ${spec.description}` : "The tool could not be loaded.",
     spec ? `Its input schema: ${JSON.stringify(spec.input)}` : "",
   ];

@@ -238,23 +238,39 @@ describe.skipIf(!h)("the Library", () => {
     expect(theirs.uses.map((u: { processKind: string }) => u.processKind)).toEqual(["template"]);
   });
 
-  it("gives the skills list each skill's method, reads, browsing and whether it retires", async () => {
+  // Skill model (2026-11-10): a skill that only wraps a tool leaves the list (a process uses the
+  // tool directly); every skill says its kind, label, parameters and recommended model.
+  it("gives the skills list each skill's method, kind, reads, browsing and parameters, wrappers left out", async () => {
     const res = await H.call(OPERATOR, "GET", "/api/ops/skills");
     expect(res.status, JSON.stringify(res.json)).toBe(200);
-    const skills = j(res.json).skills as { ref: string; retired: boolean }[];
-    expect(skills.find((s) => s.ref === TESTKIT_QUERY_TOOL)).toMatchObject({
-      method: "rules",
-      reads: [],
-      browse: null,
-      retired: true,
-      wraps: TESTKIT_QUERY_TOOL,
-    });
-    const thinking = skills.find((s) => !s.retired) as unknown as {
+    const skills = j(res.json).skills as {
+      ref: string;
+      retired: boolean;
       wraps: string | null;
       method: string;
-    };
-    expect(thinking.wraps).toBeNull();
-    expect(["rules", "ai", "rules_then_ai"]).toContain(thinking.method);
+      kind: string;
+      kindLabel: string;
+      parameters: unknown[];
+      recommendedModel: unknown;
+      modelTools: string[];
+    }[];
+    expect(skills.find((s) => s.ref === TESTKIT_QUERY_TOOL)).toBeUndefined();
+    expect(skills.length).toBeGreaterThan(0);
+    for (const s of skills) {
+      expect(s.retired, s.ref).toBe(false);
+      expect(s.wraps).toBeNull();
+      expect(["rules", "ai", "rules_then_ai"]).toContain(s.method);
+      expect({ kind: s.kind, label: s.kindLabel }).toEqual(
+        s.kind === "ai"
+          ? { kind: "ai", label: "AI" }
+          : { kind: "deterministic", label: "Deterministic" },
+      );
+      expect(Array.isArray(s.parameters)).toBe(true);
+      // A code skill is AI only because a tool it calls calls a model.
+      if (s.method === "rules") expect(s.kind === "ai").toBe(s.modelTools.length > 0);
+    }
+    const task = skills.find((s) => s.recommendedModel !== null);
+    expect(task?.kind).toBe("ai");
   });
 
   it("counts every bank", async () => {

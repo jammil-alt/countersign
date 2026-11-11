@@ -6,13 +6,15 @@ import {
   type AnyAgentBundle,
   type OversightReview,
   OWNER_REVIEW_CHOICES,
+  SKILL_KIND_LABEL,
   type SkillOption,
 } from "@countersign/core";
 import { useMemo, useState } from "react";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionSummary } from "../../api/routes";
 import { useApi } from "../../api/useApi";
-import { Badge, Button, Card, SectionLabel } from "../../ui/primitives";
+import { Badge, Button, Card, SectionLabel, Tag } from "../../ui/primitives";
+import { ParameterValueInput, parameterText } from "../skills/parameters";
 import {
   APPROVER_ROLES,
   applyForm,
@@ -492,7 +494,15 @@ function SkillsCard({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   {/* By its name; the reference only when there is no skill to name it. */}
-                  <p className="font-medium text-ink">{option?.name ?? entry.skill}</p>
+                  <p className="flex flex-wrap items-center gap-2 font-medium text-ink">
+                    {option?.name ?? entry.skill}
+                    {/* Skill model (2026-11-10): Deterministic or AI. */}
+                    {option?.kind ? (
+                      <Tag testId={`agent-editor-skill-${entry.skill}-kind`}>
+                        {SKILL_KIND_LABEL[option.kind]}
+                      </Tag>
+                    ) : null}
+                  </p>
                   {option ? (
                     <p className="text-sm text-ink-muted">{option.description}</p>
                   ) : (
@@ -530,6 +540,15 @@ function SkillsCard({
                   ))}
                 </div>
               ) : null}
+              {option ? (
+                <AgentSkillSection
+                  entry={entry}
+                  option={option}
+                  errors={errors}
+                  index={i}
+                  onChange={(next) => onChange(form.skills.map((s, j) => (j === i ? next : s)))}
+                />
+              ) : null}
             </li>
           );
         })}
@@ -555,7 +574,7 @@ function SkillsCard({
           data-testid="agent-editor-skill-add"
           disabled={!adding}
           onClick={() => {
-            onChange([...form.skills, { skill: adding, settings: {} }]);
+            onChange([...form.skills, { skill: adding, settings: {}, parameters: {}, model: "" }]);
             setAdding("");
           }}
         >
@@ -563,6 +582,100 @@ function SkillsCard({
         </Button>
       </div>
     </Card>
+  );
+}
+
+/**
+ * Skill model (2026-11-10): the agent's own use of one skill. Its parameters (each empty value
+ * takes the skill's default), and for an AI skill the model every use of it in this agent runs on
+ * (empty: the skill's recommended model). A step may still set its own, for the rare double use.
+ * Every model offered is priced; HIPAA is held at run time to the processors the client covers.
+ */
+function AgentSkillSection({
+  entry,
+  option,
+  errors,
+  index,
+  onChange,
+}: {
+  entry: DefinitionForm["skills"][number];
+  option: SkillOption;
+  errors: Record<string, string>;
+  index: number;
+  onChange(next: DefinitionForm["skills"][number]): void;
+}) {
+  const ai = option.kind === "ai";
+  const params = option.parameters ?? [];
+  const models = useApi(apiRoutes.opsModels, ai ? {} : null);
+  if (!ai && params.length === 0) return null;
+  const options = models.data?.models ?? [];
+  const recommended = option.recommendedModel?.id ?? null;
+  const testId = `agent-editor-skill-${entry.skill}`;
+  return (
+    <div
+      className="mt-3 flex flex-col gap-3 border-t border-line pt-3"
+      data-testid={`${testId}-section`}
+    >
+      {params.map((p) => {
+        const field = `skills.${index}.parameters.${p.name}`;
+        return (
+          <Field
+            key={p.name}
+            label={p.label}
+            error={errors[field]}
+            hint={
+              p.default === undefined
+                ? "The skill has no default: set it."
+                : `Empty: the skill's default, ${parameterText(p.type, p.default)}.`
+            }
+          >
+            <ParameterValueInput
+              param={p}
+              value={entry.parameters?.[p.name]}
+              testId={`${testId}-parameter-${p.name}`}
+              placeholder={p.default === undefined ? "" : parameterText(p.type, p.default)}
+              invalid={Boolean(errors[field])}
+              onChange={(v) => {
+                const parameters = { ...(entry.parameters ?? {}) };
+                if (v === undefined) delete parameters[p.name];
+                else parameters[p.name] = v;
+                onChange({ ...entry, parameters });
+              }}
+            />
+          </Field>
+        );
+      })}
+      {ai ? (
+        <Field
+          label="Model"
+          hint={
+            models.error
+              ? "Couldn't load the models; the agent keeps its setting."
+              : "Every use of this skill in this agent runs on it. Price per million tokens, in and out."
+          }
+        >
+          <Select
+            data-testid={`${testId}-model`}
+            value={entry.model ?? ""}
+            onChange={(e) => onChange({ ...entry, model: e.target.value })}
+          >
+            <option value="">
+              {recommended
+                ? `The skill's recommendation (${modelOptionLabel(recommended)})`
+                : "The agent's model"}
+            </option>
+            {entry.model && !options.some((m) => m.id === entry.model) ? (
+              <option value={entry.model}>{modelOptionLabel(entry.model)}</option>
+            ) : null}
+            {options.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label} · ${m.inputPerMtok} / ${m.outputPerMtok}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : null}
+    </div>
   );
 }
 

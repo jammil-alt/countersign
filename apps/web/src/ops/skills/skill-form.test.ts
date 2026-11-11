@@ -50,8 +50,20 @@ describe("skill form", () => {
       ["lines", "array", false],
     ]);
     expect(validateSkillForm(form)).toEqual({});
+    // Skill model (2026-11-10): a stored agent-mode skill opens as AI and saves as an AI skill
+    // (a task on its recommended model); everything else round-trips as it was.
+    expect(form.kind).toBe("ai");
     const back = definitionFromForm(form, TOOLS, stored);
-    expect(SkillDefinition.parse(clean(back))).toEqual(stored);
+    expect(SkillDefinition.parse(clean(back))).toEqual({
+      ...stored,
+      mode: "task",
+      model: { id: "claude-haiku-5-5" },
+    });
+    // An AI skill saved once round-trips exactly.
+    const task = SkillDefinition.parse(clean(back));
+    expect(
+      SkillDefinition.parse(clean(definitionFromForm(formFromDefinition(task), TOOLS, task))),
+    ).toEqual(task);
   });
 
   it("builds JSON Schema from fields and derives connectors from tools", () => {
@@ -73,7 +85,7 @@ describe("skill form", () => {
       required: ["about"],
     });
     expect(def.requiresConnectors).toEqual(["testkit"]);
-    expect(def.mode).toBe("agent");
+    expect(def.mode).toBe("task");
     expect(SkillDefinition.safeParse(clean(def)).success).toBe(true);
   });
 

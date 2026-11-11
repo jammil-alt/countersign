@@ -84,8 +84,9 @@ async function pairs(): Promise<Pair[]> {
   out.push({ name: "seed demo client agent v2", v3: demo.bundle, v4: demoV2.bundle });
   for (const m of [bookkeepingManifest, marketingManifest]) {
     for (const t of m.templates) {
+      // Skill model (2026-11-10): a v3 follows (templates-skill-model.test.ts holds it).
       const [v2, ...more] = t.versions ?? [];
-      expect(more, t.slug).toEqual([]);
+      expect(more, t.slug).toHaveLength(1);
       if (!v2) throw new Error(`${t.slug} has no v2`);
       out.push({ name: `${m.id} ${t.slug} v2`, v3: t.bundle, v4: v2 });
     }
@@ -137,7 +138,7 @@ describe("the v4 versions of the seeds and pack templates", () => {
         const loose = processes.approvalLoosenings(step.checks?.approval, "checks.approval");
         expect(loose, step.id).toEqual([]);
         // A write to a client's tool says so, with approval required (invariant 8).
-        if (step.kind === "write" && ctx.tools[step.tool]?.sideEffect === "external") {
+        if (step.kind === "write" && ctx.tools[step.tool ?? ""]?.sideEffect === "external") {
           expect(step.checks?.approval?.required, step.id).toBe("required");
         }
         // A skill step thinks: it never names a skill that only wraps a tool (R2 retires them).
@@ -181,9 +182,28 @@ describe("R2: the skills the latest seeds and templates name", () => {
 
   // DECISION (R2): every tool-mode built-in only wraps its tool, so `isToolWrapper` is the mark the
   // builder and the Library read a retired skill by; no field of its own is needed.
+  // Skill model (2026-11-10): the splits' built-in code skills (Check totals, Look up existing,
+  // Check matches, Compare to historicals) are tool mode too, and list their handler in `tools`,
+  // which is what tells them from a wrapper; they stay in the Library.
   it("mark every tool-mode skill as retired by `isToolWrapper`, and nothing else", () => {
     const builtins = platform.catalog.list();
-    expect(builtins.filter((s) => s.mode === "tool")).toEqual(builtins.filter(isToolWrapper));
+    const code = (s: (typeof builtins)[number]) =>
+      s.handler !== undefined && s.tools.includes(s.handler);
+    expect(builtins.filter((s) => s.mode === "tool" && !code(s))).toEqual(
+      builtins.filter(isToolWrapper),
+    );
+    expect(
+      builtins
+        .filter((s) => s.mode === "tool" && code(s))
+        .map((s) => s.id)
+        .sort(),
+    ).toEqual([
+      "docs.check-bill",
+      "docs.check-totals",
+      "materials.check-matches",
+      "materials.compare-prices",
+      "materials.lookup-existing",
+    ]);
   });
 });
 
@@ -288,32 +308,36 @@ describe.skipIf(!h)("installing the v4 versions", () => {
 
     const packs = await H.call(OPERATOR, "GET", "/api/ops/packs");
     const listed = j(packs.json).packs.find((p: { id: string }) => p.id === "bookkeeping");
+    // Skill model (2026-11-10): the pack's v2 and v3 both wait.
     expect(listed.templates).toEqual([
-      expect.objectContaining({ slug: "bookkeeper", templateId: tpl.id, newVersions: 1 }),
+      expect.objectContaining({ slug: "bookkeeper", templateId: tpl.id, newVersions: 2 }),
     ]);
 
     const update = await H.call(OPERATOR, "POST", "/api/ops/packs/bookkeeping/templates/update");
     expect(update.status, JSON.stringify(update.json)).toBe(200);
     expect(j(update.json).updated).toEqual([
       { slug: "bookkeeper", templateId: tpl.id, version: 2, published: true },
+      { slug: "bookkeeper", templateId: tpl.id, version: 3, published: true },
     ]);
     const { live, versions } = await versionsOf("bookkeeper");
     expect(versions.map((v) => [v.version, v.status, v.authorType])).toEqual([
       [1, "retired", "pack"],
-      [2, "live", "pack"],
+      [2, "retired", "pack"],
+      [3, "live", "pack"],
     ]);
-    expect(live).toBe(versions[1]?.id);
+    expect(live).toBe(versions[2]?.id);
     const v2 = versions[1]?.bundle;
     expect(v2?.workflows.map((w) => w.workflow.schemaVersion)).toEqual([4, 4, 4, 4]);
 
-    // The fork is offered the v4 version as an update (one version behind); nothing of it moved:
-    // it changes only by its own reviewed merge (packages/agents readers-v4.test.ts takes one).
+    // The fork is offered the later versions as an update (two versions behind); nothing of it
+    // moved: it changes only by its own reviewed merge (packages/agents readers-v4.test.ts takes
+    // one).
     const usedBy = await H.call(OPERATOR, "GET", `/api/ops/templates/${tpl.id}/used-by`);
     expect(usedBy.status, JSON.stringify(usedBy.json)).toBe(200);
     const entry = j(usedBy.json).agents.find(
       (x: { agent: { id: string } }) => x.agent.id === forkId,
     );
-    expect(entry).toMatchObject({ baseVersion: 1, behind: 1 });
+    expect(entry).toMatchObject({ baseVersion: 1, behind: 2 });
     const [forkVersion] = await H.t.db
       .select()
       .from(agentVersion)
@@ -331,7 +355,7 @@ describe.skipIf(!h)("installing the v4 versions", () => {
       `/api/ops/clients/${H.B.tenantId}/packs/bookkeeping/enable`,
     );
     expect(j(other.json).installed).toEqual([]);
-    expect((await versionsOf("bookkeeper")).versions).toHaveLength(2);
+    expect((await versionsOf("bookkeeper")).versions).toHaveLength(3);
   });
 
   it("never retires an operator's own live version: the pack's later version waits as a draft", async () => {
@@ -380,7 +404,7 @@ describe.skipIf(!h)("installing the v4 versions", () => {
     ]);
   });
 
-  it("installs the marketing agents fresh as v1 then v2, v2 live", async () => {
+  it("installs the marketing agents fresh as v1, v2 then v3, v3 live", async () => {
     const enable = await H.call(
       OPERATOR,
       "POST",
@@ -396,9 +420,11 @@ describe.skipIf(!h)("installing the v4 versions", () => {
         t.slug,
       ).toEqual([
         [1, "retired"],
-        [2, "live"],
+        [2, "retired"],
+        // Skill model (2026-11-10): the v3 (templates-skill-model.test.ts holds it).
+        [3, "live"],
       ]);
-      expect(live).toBe(versions[1]?.id);
+      expect(live).toBe(versions[2]?.id);
     }
     const again = await H.call(
       OPERATOR,

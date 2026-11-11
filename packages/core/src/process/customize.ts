@@ -20,6 +20,7 @@ import {
   type SkillSetting,
   skillMethod,
 } from "../schemas/skill";
+import { parameterValueProblem, SkillCompute, SkillCondition } from "../schemas/skill-model";
 import { jsonTypeOf, schemaTypes, typesCompatible } from "../template/typer";
 
 /** A rule row the step edits, by id: the fields given replace the row's. */
@@ -28,6 +29,9 @@ export const SkillRuleEdit = z.strictObject({
   name: z.string().max(200).optional(),
   when: Rules.optional(),
   set: z.record(z.string().min(1), z.unknown()).optional(),
+  // Skill model (2026-11-10): a row's typed conditions and calculations.
+  conditions: z.array(SkillCondition).max(20).optional(),
+  compute: z.record(z.string().min(1), SkillCompute).optional(),
 });
 export type SkillRuleEdit = z.infer<typeof SkillRuleEdit>;
 
@@ -49,6 +53,9 @@ export const SkillCustomization = z
     model: ModelChoice.optional(),
     /** Output fields this step keeps (top-level); absent keeps them all. */
     keep: z.array(z.string().min(1)).min(1).max(100).optional(),
+    // Skill model (2026-11-10): the step's own values for the skill's parameters, over the
+    // agent's (the rare step that uses a skill differently from the rest of the agent).
+    parameters: z.record(z.string(), z.unknown()).optional(),
   })
   .meta({ id: "SkillCustomization" });
 export type SkillCustomization = z.infer<typeof SkillCustomization>;
@@ -182,6 +189,8 @@ function apply(def: SkillDefinition, raw: unknown): Applied {
         ...(e.name !== undefined ? { name: e.name } : {}),
         ...(e.when !== undefined ? { when: e.when } : {}),
         ...(e.set !== undefined ? { set: e.set } : {}),
+        ...(e.conditions !== undefined ? { conditions: e.conditions } : {}),
+        ...(e.compute !== undefined ? { compute: e.compute } : {}),
       };
     }
     for (const r of c.rules.add ?? []) {
@@ -189,6 +198,19 @@ function apply(def: SkillDefinition, raw: unknown): Applied {
       else index.set(r.id, rows.push(r) - 1);
     }
     out.rules = rows;
+  }
+
+  if (c.parameters) {
+    const byName = new Map((def.parameters ?? []).map((p) => [p.name, p]));
+    for (const [name, value] of Object.entries(c.parameters)) {
+      const param = byName.get(name);
+      if (!param) {
+        problems.push(`no parameter ${name}`);
+        continue;
+      }
+      const problem = parameterValueProblem(param, value);
+      if (problem) problems.push(problem);
+    }
   }
 
   if (c.model) {
@@ -226,6 +248,10 @@ function apply(def: SkillDefinition, raw: unknown): Applied {
         const problem = setProblem(r.id, k, v, props as Record<string, unknown>);
         if (problem) problems.push(problem);
       }
+      for (const k of Object.keys(r.compute ?? {})) {
+        if (!Object.hasOwn(props, k))
+          problems.push(`rule ${r.id} works out ${k}, not an output field`);
+      }
     }
   }
 
@@ -252,6 +278,8 @@ export interface CustomizedSkill {
   definition: SkillDefinition;
   /** The customization's own settings, by key: the executor layers them over every other. */
   settings: Record<string, unknown>;
+  /** The customization's own parameter values, by name: layered over the agent's. */
+  parameters: Record<string, unknown>;
 }
 
 /**
@@ -265,6 +293,7 @@ export function customizeSkill(
   return {
     definition: applyCustomization(def, customization),
     settings: { ...(customization?.settings ?? {}) },
+    parameters: { ...(customization?.parameters ?? {}) },
   };
 }
 

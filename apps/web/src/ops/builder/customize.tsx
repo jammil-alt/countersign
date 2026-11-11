@@ -10,16 +10,20 @@ import {
   lookupSkill,
   type ProcessAgentBundle,
   processes,
+  SKILL_KIND_LABEL,
   type SkillDefinition,
   type SkillSetting,
+  skillKind,
   skillMethod,
   type TypingContext,
+  toolLookup,
   uuidv7,
 } from "@countersign/core";
 import type { ReactNode } from "react";
 import { TextArea } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
 import { Badge, Button } from "../../ui/primitives";
+import { ruleRowText } from "../skills/rule-rows";
 import { rulesText } from "../workflow/describe";
 import {
   type FieldErrors,
@@ -69,6 +73,8 @@ function tidy(c: Customization): Customization | undefined {
   if (add || edit) out.rules = { ...(add ? { add } : {}), ...(edit ? { edit } : {}) };
   if (c.model) out.model = c.model;
   if (c.keep?.length) out.keep = c.keep;
+  // Skill model (2026-11-10): the step's own parameter values (skill-step.tsx edits them).
+  if (c.parameters && Object.keys(c.parameters).length) out.parameters = c.parameters;
   return Object.keys(out).length ? out : undefined;
 }
 
@@ -173,8 +179,10 @@ export function CustomizeSection(props: CustomizeProps) {
   return (
     <div className="flex flex-col gap-4" data-testid="builder-customize">
       <p className="text-xs text-ink-muted" data-testid="builder-customize-method">
-        Works by: {METHOD_LABEL[method] ?? method}. This step customizes the skill for this process;
-        the skill itself stays as it is in the Library.
+        {/* Skill model (2026-11-10): the kind first; a stored retiring method says itself. */}
+        {SKILL_KIND_LABEL[skillKind(skill, toolLookup(ctx.tools ?? {}))]}
+        {method === "rules_then_ai" ? ` · ${METHOD_LABEL[method]}` : ""}. This step customizes the
+        skill for this process; the skill itself stays as it is in the Library.
       </p>
       {problems.length ? (
         <ul className="ds-banner flex-col gap-1 text-sm" data-testid="builder-customize-problems">
@@ -456,8 +464,18 @@ function RulesPart(
                   </Row>
                 </>
               ) : (
-                <p className="reference text-ink-muted">
-                  if {rulesText(when)} then {JSON.stringify(set)}
+                <p className="reference text-ink-muted" data-testid={`builder-rule-${row.id}-text`}>
+                  {/* Skill model (2026-11-10): a row with typed conditions or outputs in words. */}
+                  {row.conditions?.length || row.compute
+                    ? ruleRowText(row, {
+                        inputs: [],
+                        parameters: (skill.parameters ?? []).map((p) => ({
+                          name: p.name,
+                          label: p.label,
+                          type: p.type,
+                        })),
+                      })
+                    : `if ${rulesText(when)} then ${JSON.stringify(set)}`}
                 </p>
               )}
             </li>

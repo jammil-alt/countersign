@@ -5,6 +5,15 @@
 // that manifest.ts adds up; a builder exports new things from its area, not from here.
 // apps/api registers it. May import core, db and llm; never agents or workflows.
 
+// Skill model (2026-11-10): the AI skills that replace the agent-mode ones, and their step
+// patterns, for the template stream.
+export {
+  forumReplySteps,
+  MARKETING_SPLIT_SKILLS,
+  MARKETING_SPLIT_WRITES,
+  socialPostSteps,
+  weeklyReportSteps,
+} from "./agents/splits";
 export {
   MARKETING_ACTIONS,
   MARKETING_AREAS,

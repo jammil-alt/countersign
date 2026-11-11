@@ -3,7 +3,7 @@
 // back, how it works, and the editor that saves a new draft), its tests (cases, the latest suite
 // run, whether publishing needs them), versions (publish, roll back) and the agents that use it.
 // Versions are immutable (invariant 3): every save is a new draft; a rollback copies an older one.
-import type { SkillListItem } from "@countersign/core";
+import { type SkillListItem, skillKindLabel } from "@countersign/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -166,6 +166,10 @@ function SkillPageBody({
           title={<span className="reference">{skill.ref.replace(/^custom:/, "")}</span>}
           badge={
             <span className="flex gap-1.5">
+              {/* Skill model (2026-11-10): the latest version's kind. */}
+              {latest ? (
+                <Tag testId="skill-page-kind">{skillKindLabel(latest.definition)}</Tag>
+              ) : null}
               {skill.liveVersion ? (
                 <Badge tone="positive">Live · v{skill.liveVersion}</Badge>
               ) : null}

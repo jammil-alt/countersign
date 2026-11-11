@@ -37,6 +37,13 @@ export interface RuntimeDeps {
   policy?: ToolPolicy;
   // P-1: passed through to pack tools as `ToolInvocation.packServices` (apps/api: db, transport).
   packServices?: Readonly<Record<string, unknown>>;
+  /**
+   * Skill model (2026-11-10): a tool that doesn't declare `usesModel` made a model call (its
+   * cost reached the step). The call is still recorded, so no cost is lost; this says it
+   * happened. Tests throw here, so a tool that calls a model without saying so fails its test;
+   * apps/api logs it. Absent: a warning on the logger.
+   */
+  onUndeclaredModelCall?: (toolId: string) => void;
 }
 
 export interface ToolPolicy {

@@ -151,6 +151,21 @@ const SKILLS = {
       retired: true,
       wraps: "qbo.bill.query",
     }),
+    // Skill model (2026-11-10): the API says the kind; the aging skill is rule rows.
+    skill({
+      id: "age.receivables",
+      ref: "age.receivables",
+      name: "Age receivables",
+      description: "Puts each open invoice in an aging bucket.",
+      category: "data",
+      method: "rules",
+      kind: "deterministic",
+      kindLabel: "Deterministic",
+      reads: [],
+      browse: null,
+      retired: false,
+      wraps: null,
+    }),
   ],
   tools: [],
   connectors: [],
@@ -383,32 +398,38 @@ describe("the Library", () => {
     expect(screen.getByTestId("process-collector")).toBeInTheDocument();
   });
 
-  it("says each skill's method, reads and browsing, and keeps tool wrappers on their own tab", async () => {
+  // Skill model (2026-11-10): two kinds only, each card labelled, the list filtered by kind;
+  // tool wrappers are not listed at all.
+  it("says each skill's kind, reads and browsing, filters by kind, and lists no tool wrapper", async () => {
     const { user } = renderAt("/ops/library/skills", { "GET /api/ops/skills": () => SKILLS });
     const ai = await screen.findByTestId("skills-card-docs.extract");
-    expect(within(ai).getByTestId("skills-card-docs.extract-method")).toHaveTextContent("AI");
+    expect(within(ai).getByTestId("skills-card-docs.extract-kind")).toHaveTextContent("AI");
     expect(within(ai).getByTestId("skills-card-docs.extract-reach")).toHaveTextContent(
       /Reads\s*docs\.get/,
     );
     const match = screen.getByTestId("skills-card-materials.match");
-    expect(within(match).getByTestId("skills-card-materials.match-method")).toHaveTextContent(
-      "Rules then AI",
-    );
+    // A stored rules-then-AI skill runs a model: AI.
+    expect(within(match).getByTestId("skills-card-materials.match-kind")).toHaveTextContent("AI");
     expect(within(match).getByTestId("skills-card-materials.match-reach")).toHaveTextContent(
       /Browses\s*supplier-portal · 2 pages/,
     );
-    // The wrapper is retiring: not on All.
+    // The wrapper is gone: a process reads through the tool directly.
     expect(screen.queryByTestId("skills-card-qbo.bill.query")).toBeNull();
-    await user.click(screen.getByTestId("skills-tab-retired"));
-    const wrapper = screen.getByTestId("skills-card-qbo.bill.query");
-    expect(within(wrapper).getByTestId("skills-card-qbo.bill.query-retired")).toHaveTextContent(
-      "Retired",
-    );
-    expect(within(wrapper).getByTestId("skills-card-qbo.bill.query-wraps")).toHaveTextContent(
-      "Use a step on qbo.bill.query instead",
-    );
-    expect(screen.getByTestId("skills-retired-note")).toBeInTheDocument();
+    expect(screen.queryByTestId("skills-tab-retired")).toBeNull();
+    // The kind filter: AI only, then deterministic only.
+    await user.click(screen.getByTestId("skills-kind-ai"));
+    expect(screen.getByTestId("skills-card-docs.extract")).toBeInTheDocument();
+    expect(screen.queryByTestId("skills-card-age.receivables")).toBeNull();
+    await user.click(screen.getByTestId("skills-kind-deterministic"));
     expect(screen.queryByTestId("skills-card-docs.extract")).toBeNull();
+    expect(
+      within(screen.getByTestId("skills-card-age.receivables")).getByTestId(
+        "skills-card-age.receivables-kind",
+      ),
+    ).toHaveTextContent("Deterministic");
+    await user.click(screen.getByTestId("skills-kind-all"));
+    expect(screen.getByTestId("skills-card-docs.extract")).toBeInTheDocument();
+    expect(screen.getByTestId("skills-card-age.receivables")).toBeInTheDocument();
   });
 
   it("groups tools by connector with what each does and how a write is undone", async () => {

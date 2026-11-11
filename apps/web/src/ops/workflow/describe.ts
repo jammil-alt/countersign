@@ -5,6 +5,8 @@ import {
   processes,
   type Rule,
   type Rules,
+  SKILL_KIND_LABEL,
+  type SkillKind,
   type Step,
   type StepKind,
   type Trigger,
@@ -127,6 +129,68 @@ export interface StepLabels {
    * A v4 write with no approval check reads "needs approval" unless this says false.
    */
   changesClientTool?(toolId: string): boolean | undefined;
+  /** Skill model (2026-11-10): a skill's kind by its reference; undefined when unknown. */
+  skillKind?(ref: string): SkillKind | undefined;
+  /**
+   * Skill model (2026-11-10, review): whether a tool calls a model inside it (`usesModel`), so a
+   * read or a write step on it reads AI; undefined when unknown.
+   */
+  toolUsesModel?(toolId: string): boolean | undefined;
+  /**
+   * Skill model (2026-11-10): how a write step reads, by its tool ("Save to records", "Change in
+   * QuickBooks Online"); undefined when unknown (the step then reads "Write").
+   */
+  writeLabel?(toolId: string): string | undefined;
+  /**
+   * Skill model (2026-11-10): the model a skill step runs on, in a word ("claude-sonnet-5-5"), as
+   * core's `effectiveModel` resolves it; undefined for a step that runs none.
+   */
+  stepModel?(step: processes.Step): string | undefined;
+}
+
+/**
+ * A v4 step's kind in words, as the step list, the canvas and the inspector show it: a write by
+ * where it writes ("Save to records", "Change in QuickBooks Online"), else its kind's word.
+ */
+export function processKindLabel(step: processes.Step, labels: StepLabels = {}): string {
+  if (step.kind === "write") {
+    if (step.action !== undefined)
+      return actionKindLabel(step.action, step.via ? labels.connector?.(step.via) : undefined);
+    return labels.writeLabel?.(step.tool as string) ?? PROCESS_KIND_LABEL.write;
+  }
+  return PROCESS_KIND_LABEL[step.kind];
+}
+
+/** Where an action write step with no `via` changes things, until the agent's bindings say. */
+const ACTION_SYSTEM_WORD: Record<processes.WriteAction, string> = {
+  send_email: "the agent's email",
+  send_text: "the agent's texts",
+  create_bill: "the agent's accounting",
+  create_vendor: "the agent's accounting",
+};
+
+/**
+ * Skill model (2026-11-10): an action write step always changes a client's tool, so it reads
+ * "Change in <system>": the system its `via` names, else the kind the agent's bindings resolve.
+ */
+// DECISION: an action step's kind label names its `via` connector when it has one, else "the
+// agent's accounting" / "email" / "texts"; the system itself is resolved per agent (the inspector's
+// "Uses" row shows which).
+export function actionKindLabel(action: processes.WriteAction, viaName?: string | null): string {
+  return `Change in ${viaName ?? ACTION_SYSTEM_WORD[action]}`;
+}
+
+/**
+ * "Deterministic" or "AI" for a skill step whose skill the labels know; "AI" for a read or a
+ * write step whose tool calls a model inside (the hidden AI is never unlabelled); null otherwise.
+ */
+export function stepSkillKindLabel(step: processes.Step, labels: StepLabels = {}): string | null {
+  if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
+    return labels.toolUsesModel?.(step.tool) ? SKILL_KIND_LABEL.ai : null;
+  }
+  if (step.kind !== "skill") return null;
+  const kind = labels.skillKind?.(step.skill);
+  return kind ? SKILL_KIND_LABEL[kind] : null;
 }
 
 /** The second line under a step's name: what it does in words, never its ids. */
@@ -251,7 +315,13 @@ export function processStepDetail(step: ProcessStep, labels: StepLabels = {}): s
     case "skill": {
       const name = labels.skill?.(step.skill);
       const what = name && name !== step.name ? name : null;
-      return [what, step.agent ? `by ${step.agent}` : null].filter(Boolean).join(" · ") || null;
+      // Skill model (2026-11-10): the model it runs on, wherever the step is shown.
+      const model = labels.stepModel?.(step);
+      return (
+        [what, step.agent ? `by ${step.agent}` : null, model ? `runs on ${model}` : null]
+          .filter(Boolean)
+          .join(" · ") || null
+      );
     }
     case "read":
       return [labels.connector?.(step.tool), toolLabel(step.tool)].filter(Boolean).join(" · ");
@@ -263,13 +333,23 @@ export function processStepDetail(step: ProcessStep, labels: StepLabels = {}): s
       // DECISION (web, wave 3b): without a tool registry at hand (the read-only step lists), an
       // unchecked write reads "needs approval": the safe side, as core counts an unknown tool as
       // an external write.
+      // Skill model: an action write step names what it does; its system is the agent's.
+      if (step.action !== undefined) {
+        const waits = approval ? approval.required === "required" : true;
+        return [
+          processes.ACTION_SPECS[step.action].label,
+          step.via ? labels.connector?.(step.via) : null,
+          waits ? "needs approval" : "on its own",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      }
+      const tool = step.tool as string;
       const waits = approval
         ? approval.required === "required"
-        : labels.changesClientTool?.(step.tool) !== false;
+        : labels.changesClientTool?.(tool) !== false;
       const words = waits ? "needs approval" : approval ? "on its own" : null;
-      return [labels.connector?.(step.tool), toolLabel(step.tool), words]
-        .filter(Boolean)
-        .join(" · ");
+      return [labels.connector?.(tool), toolLabel(tool), words].filter(Boolean).join(" · ");
     }
     case "person":
       return `${step.mode === "approve" ? "Approve" : "Ask"} · ${whoText(step.assignee, labels)} · ${deadlineText(step.deadline)}`;

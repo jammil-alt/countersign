@@ -5,7 +5,7 @@
 // step and node) so an `if` routes in the retry as it did in the run retried. Fix 3: a model-mode
 // skill's carried write, read by `stepWrites` through this run's tool calls.
 
-import { dbCarriedActions } from "@countersign/agents";
+import { dbCarriedActions, getVersion, parseVersionBundle, publish } from "@countersign/agents";
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { bundleHash, processes } from "@countersign/core";
 import {
@@ -16,6 +16,7 @@ import {
   inboxItem,
   stepRun,
   toolCall,
+  withOperator,
 } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { inboxEventType } from "@countersign/workflows";
@@ -27,6 +28,7 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  storedSkill,
   testBundle,
 } from "./api.test-helper";
 import { executeRun } from "./runs/execute";
@@ -302,30 +304,23 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
   it("ends a retry at a model skill that asked for help after its carried write failed after sending", async () => {
     // A model-mode skill that pays: it makes the write itself, then asks for help, and nobody
     // answers. The route goes on past `failed` or `needs_help`.
-    const created = await H.call(OPERATOR, "POST", "/api/ops/skills", {
-      definition: {
-        schemaVersion: 1,
-        id: "custom:pay-vendor",
-        name: "Pay vendor",
-        description: "Pays the vendor's record",
-        category: "writing",
-        mode: "agent",
-        instructions: "Update the record to pay it.",
-        tools: [TESTKIT_UPDATE_TOOL],
-        input: { type: "object", properties: { id: { type: "string" } } },
-        output: {
-          type: "object",
-          properties: { paid: { type: "boolean" }, needsHelp: { type: "object" } },
-        },
+    // Skill model (2026-11-10): a new agent-mode skill is refused; this one was stored before,
+    // and a stored version keeps running (invariant 3).
+    await storedSkill(H, {
+      schemaVersion: 1,
+      id: "custom:pay-vendor",
+      name: "Pay vendor",
+      description: "Pays the vendor's record",
+      category: "writing",
+      mode: "agent",
+      instructions: "Update the record to pay it.",
+      tools: [TESTKIT_UPDATE_TOOL],
+      input: { type: "object", properties: { id: { type: "string" } } },
+      output: {
+        type: "object",
+        properties: { paid: { type: "boolean" }, needsHelp: { type: "object" } },
       },
     });
-    expect(created.status, JSON.stringify(created.json)).toBe(200);
-    const published = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/skills/${j(created.json).skill.id}/versions/${j(created.json).version.id}/publish`,
-    );
-    expect(published.status, JSON.stringify(published.json)).toBe(200);
     const update = H.backend.update.bind(H.backend);
     H.backend.update = () => {
       throw new Error("HTTP 502 from the provider");
@@ -382,13 +377,17 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
         "act",
         ["custom:pay-vendor"],
       );
-      // Publishing copies the shared skill into the client, where its runs read it.
-      const pub = await H.call(
-        OPERATOR,
-        "POST",
-        `/api/ops/agents/${agentId}/versions/${version}/publish`,
+      // Publishing copies the shared skill into the client, where its runs read it. The version
+      // stands for one published before the skill model: its steps are already there (review: a
+      // version never published is new work, so the API's publish would refuse its step).
+      await withOperator(H.db, [H.A.tenantId], async (tx) =>
+        publish(tx, {
+          agentId,
+          versionId: version,
+          ctx: H.platform.ctx,
+          existingFrom: parseVersionBundle((await getVersion(tx, version)).bundle),
+        }),
       );
-      expect(pub.status, JSON.stringify(pub.json)).toBe(200);
       // Nobody answers the request for help (the default wait times out).
       const first = params(version);
       const result = await executeRun(

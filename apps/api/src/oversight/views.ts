@@ -10,6 +10,7 @@ import {
   type OversightDecisionView,
   oversightLine,
   parseSkillRef,
+  processes,
 } from "@countersign/core";
 import { appUser, inboxItem, oversightDecision, stepRun, type Tx } from "@countersign/db";
 import { and, asc, eq } from "drizzle-orm";
@@ -145,7 +146,11 @@ export function inputSchemaOf(
 ): unknown {
   if (skillRef) return platform.catalog.get(parseSkillRef(skillRef).id)?.input ?? null;
   const step = workflow ? findAnyStep(workflow, baseStepId(nodeId)) : undefined;
+  // Skill model: an action write step's input is the action's (its tool's is mapped from it).
+  if (step?.kind === "write" && step.action !== undefined) {
+    return processes.actionInputSchema(step.action);
+  }
   return step?.kind === "action" || step?.kind === "read" || step?.kind === "write"
-    ? (platform.tools.get(step.tool)?.spec.input ?? null)
+    ? (platform.tools.get(step.tool as string)?.spec.input ?? null)
     : null;
 }

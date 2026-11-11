@@ -103,6 +103,9 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
   // P-5: an internal tool that changes the pack's records in place (a request's status) says so.
   verb?: "update";
   summary?: string;
+  // Skill model (2026-11-10): the tool calls a model inside it, and why. Only a tool that says so
+  // is handed the model (apps/api's pack adapter gives every other `llm: null`).
+  usesModel?: string;
   input: I;
   output: O;
   run(input: z.output<I>, ctx: PackToolContext): Promise<z.input<O>>;
@@ -117,6 +120,7 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
       verb: def.sideEffect === "none" ? "read" : (def.verb ?? "create"),
       source: "materials",
       ...(def.summary ? { summary: def.summary } : {}),
+      ...(def.usesModel ? { usesModel: def.usesModel } : {}),
     },
     input: def.input,
     output: def.output,
@@ -166,6 +170,7 @@ export const catalogSearch = defineTool({
 
 export const catalogCreateItem = defineTool({
   id: "materials.catalog.create_item",
+  usesModel: "reads a name its rules can't parse with a model (its category and attributes)",
   description:
     "Adds an item to the client's catalog from a description such as '3/4 BB/BB BALTIC BIRCH 5X5'. Answers the existing item instead when one has the same key attributes. Refuses a description that doesn't state the category's required attributes.",
   sideEffect: "internal",
@@ -272,6 +277,8 @@ const sourcesOf = (r: MatchLineResult) => [
 
 export const matchLineTool = defineTool({
   id: "materials.match_line",
+  usesModel:
+    "falls back to a model to read a line's attributes, and to adjudicate a close match; the hard rules veto it",
   description:
     "Matches one document line to the client's catalog: the vendor's alias, then the rules, then a model check of the closest candidates. Lines below the confidence threshold are left for a person (needsReview).",
   sideEffect: "internal",
@@ -286,6 +293,10 @@ export const matchLineTool = defineTool({
 
 export const matchLinesTool = defineTool({
   id: "materials.match_lines",
+  // Skill model (2026-11-10): it matches each line as match_line does, model included; undeclared,
+  // it was handed no model and sent every close call to review.
+  usesModel:
+    "falls back to a model to read a line's attributes, and to adjudicate a close match; the hard rules veto it",
   description:
     "Matches every line of a document's latest extraction to the client's catalog, and lists the lines a person needs to review.",
   sideEffect: "internal",
@@ -405,7 +416,7 @@ export const catalogDuplicates = defineTool({
 
 // ── Prices and alerts (ARCHITECTURE §12.4) ───────────────────────────────────────────────────────
 
-const pricingContext = (ctx: PackToolContext) => ({
+export const pricingContext = (ctx: PackToolContext) => ({
   tenantId: ctx.tenantId,
   agentVersionId: ctx.agentVersionId,
   runId: ctx.runId,
@@ -450,7 +461,7 @@ export const pricesRecord = defineTool({
   run: (input, ctx) => recordPrices(ctx.db, pricingContext(ctx), input),
 });
 
-const AlertOut = z.object({
+export const AlertOut = z.object({
   id: z.string().nullable(),
   kind: z.string(),
   severity: z.string(),

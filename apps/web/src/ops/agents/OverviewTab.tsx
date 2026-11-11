@@ -109,7 +109,9 @@ export function toolsItWorksIn(bundle: AnyAgentBundle): string[] {
   for (const w of bundle.workflows) {
     if (w.workflow.schemaVersion !== 4) continue;
     for (const { step } of processes.allSteps(w.workflow)) {
-      if (step.kind === "read" || step.kind === "write") ids.push(step.tool);
+      if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
+        ids.push(step.tool);
+      }
     }
   }
   return [...new Set(ids)];

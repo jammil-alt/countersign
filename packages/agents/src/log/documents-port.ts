@@ -12,6 +12,8 @@ import {
   findSupport,
   getDocument,
   matchBill,
+  readingFile,
+  recordReading,
 } from "@countersign/documents";
 import { createLlmClient, type LlmCallRecord, type LlmTransport } from "@countersign/llm";
 import type { DocumentForTool, DocumentsPort } from "../tools/types";
@@ -126,6 +128,38 @@ export function dbDocumentsPort(db: Db, options: DbDocumentsOptions): DocumentsP
 
     matchBill(tenantId, input) {
       return withTenant(db, tenantId, (tx) => matchBill(tx, tenantId, input));
+    },
+
+    // Skill model (2026-11-10): the file an AI skill reads, and recording what it read.
+    async file(tenantId, documentId) {
+      const f = await readingFile({ db, content: options.content }, tenantId, documentId);
+      return {
+        documentId: f.documentId,
+        filename: f.filename,
+        mimeType: f.mimeType,
+        bytes: f.bytes,
+      };
+    },
+
+    async record(tenantId, input) {
+      const r = await recordReading(db, {
+        tenantId,
+        documentId: input.documentId,
+        reading: input.reading,
+        readBy: input.readBy,
+        agentVersionId: input.agentVersionId,
+        testRun: input.testRun,
+        asQuote: input.asQuote,
+      });
+      return {
+        documentId: r.documentId,
+        extractionId: r.extractionId,
+        status: r.status,
+        totalsMatch: r.totalsMatch,
+        problems: r.problems,
+        lineCount: r.lineCount,
+        duplicateOfDocumentId: r.duplicateOf?.documentId ?? null,
+      };
     },
   };
 }

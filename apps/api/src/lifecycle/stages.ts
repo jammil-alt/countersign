@@ -104,8 +104,10 @@ export async function bundleWrites(
     bundle,
     (step) => {
       if (step.kind === "skill") addSkill(step.skill);
-      if (step.kind === "action" || step.kind === "read" || step.kind === "write") {
-        toolIds.add(step.tool);
+      // Skill model (2026-11-10): an action write step always writes (every action is external).
+      if (step.kind === "write" && step.tool === undefined) reaches = true;
+      else if (step.kind === "action" || step.kind === "read" || step.kind === "write") {
+        toolIds.add(step.tool as string);
       }
       if (step.kind === "conversation") reaches = true;
     },
@@ -124,7 +126,8 @@ export async function bundleWrites(
           for (const t of inner ? skillTools(inner) : []) toolIds.add(t);
         }
         if (step.kind === "conversation") reaches = true;
-        if (step.kind === "write" || step.kind === "read") toolIds.add(step.tool);
+        if (step.kind === "write" && step.tool === undefined) reaches = true;
+        else if (step.kind === "write" || step.kind === "read") toolIds.add(step.tool as string);
       });
       continue;
     }

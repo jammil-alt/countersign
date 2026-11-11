@@ -32,5 +32,6 @@ export {
 } from "./reconcile/store";
 export { bankPairKey, RECONCILE_TOOLS } from "./reconcile/tools";
 export * from "./schema";
+export * from "./splits";
 export { BOOKKEEPER_SLUG, BOOKKEEPER_TEMPLATE } from "./template";
 export { BOOKKEEPING_TOOLS, thresholdFrom } from "./tools";

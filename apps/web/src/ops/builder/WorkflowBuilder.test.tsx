@@ -1439,7 +1439,8 @@ describe("WorkflowBuilder on processes", () => {
     expect(screen.queryByTestId("builder-unsaved")).toBeNull();
     // The v3 fork is an if, the action a write with its approval; the canvas words follow.
     expect(screen.getByTestId("builder-step-confidence")).toHaveTextContent("If");
-    expect(screen.getByTestId("builder-step-update")).toHaveTextContent("Write");
+    // Skill model (2026-11-10): a write to a client's tool reads "Change in <its name>".
+    expect(screen.getByTestId("builder-step-update-kind")).toHaveTextContent("Change in Testkit");
     await select(user, "find");
     await user.type(screen.getByTestId("builder-inspector-name"), "!");
     await save(user, sent);
@@ -2054,5 +2055,99 @@ describe("WorkflowBuilder on processes", () => {
       await user.click(screen.getByTestId("builder-step-ask-select"));
       expect(screen.queryByTestId("builder-on-error")).toBeNull();
     });
+  });
+});
+
+// Skill model (2026-11-10), Wave B item 9: action write steps in the builder.
+describe("action write steps", () => {
+  const PREPARE_BILL = {
+    ref: "ap.prepare-bill",
+    source: "builtin" as const,
+    version: null,
+    definition: {
+      schemaVersion: 1 as const,
+      id: "ap.prepare-bill",
+      name: "Prepare bill",
+      description: "Reads an invoice into a bill",
+      category: "documents",
+      mode: "agent" as const,
+      tools: [],
+      input: { type: "object", properties: { documentId: { type: "string" } } },
+      output: {
+        type: "object",
+        properties: {
+          vendorId: { type: "string" },
+          invoiceNumber: { type: "string" },
+          date: { type: "string" },
+          currency: { type: "string" },
+          total: { type: "string" },
+          lines: { type: "array", items: { type: "object" } },
+        },
+      },
+      settings: [],
+      requiresConnectors: [],
+      requiresPacks: [],
+      producesAlerts: false,
+    },
+  };
+  const catalog: BuilderCatalog = { ...CATALOG, skills: [...CATALOG.skills, PREPARE_BILL] };
+
+  it("offers the four actions in their own group, each added with approval on", async () => {
+    setup();
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    const group = screen.getByTestId("builder-palette-actions");
+    expect(within(group).getByRole("heading")).toHaveTextContent("Actions");
+    for (const [action, title] of [
+      ["send_email", "Send email"],
+      ["send_text", "Send text"],
+      ["create_bill", "Create bill"],
+      ["create_vendor", "Create vendor"],
+    ]) {
+      expect(within(group).getByTestId(`builder-palette-item-action:${action}`)).toHaveTextContent(
+        title as string,
+      );
+    }
+    await user.click(screen.getByTestId("builder-palette-item-action:create_bill-add"));
+    const added = rootOrder()[4] as string;
+    expect(screen.getByTestId(`builder-step-${added}-approval`)).toHaveTextContent(
+      "Needs approval",
+    );
+    // The inspector says which tool it will use for this agent: it has no accounting connection.
+    const inspector = screen.getByTestId("builder-inspector");
+    expect(within(inspector).getByTestId("builder-action-target")).toHaveTextContent(
+      "Create bill needs an accounting connection: bind QuickBooks or BILL",
+    );
+    expect(within(inspector).getByTestId("builder-input-invoiceNumber")).toBeInTheDocument();
+  });
+
+  it("after a skill whose output fits, offers the write with its fields mapped", async () => {
+    setup({ catalog });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-skill:ap.prepare-bill-add"));
+    const prep = rootOrder()[4] as string;
+    const offer = within(screen.getByTestId("builder-inspector")).getByTestId(
+      "builder-offer-create_bill",
+    );
+    expect(offer).toHaveTextContent("Add: Create bill");
+    expect(screen.queryByTestId("builder-offer-send_email")).toBeNull();
+    await user.click(offer);
+    const order = rootOrder();
+    expect(order).toHaveLength(6);
+    expect(order[4]).toBe(prep);
+    const added = order[5] as string;
+    expect(screen.getByTestId(`builder-step-${added}`)).toHaveTextContent("Create bill");
+    expect(screen.getByTestId(`builder-step-${added}-approval`)).toHaveTextContent(
+      "Needs approval",
+    );
+    // The new step is selected, its fields filled from the skill's result.
+    const inspector = screen.getByTestId("builder-inspector");
+    expect(within(inspector).getByTestId("builder-action-target")).toBeInTheDocument();
+    expect(within(inspector).getByTestId("builder-input-total")).toHaveValue(
+      `{{steps.${prep}.output.total}}`,
+    );
   });
 });

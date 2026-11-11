@@ -80,7 +80,9 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
         name: "Match a receipt",
         description: "Finds the record a card receipt belongs to",
         category: "data",
-        mode: "agent",
+        // Skill model (2026-11-10): new operator skills are AI skills (agent mode retired).
+        mode: "task",
+        model: { id: "claude-haiku-5-5" },
         instructions: "Match it.",
         tools: [TESTKIT_QUERY_TOOL],
         input: { type: "object", properties: { text: { type: "string" } } },

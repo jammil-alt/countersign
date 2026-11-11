@@ -9,6 +9,7 @@ import { CONVERSE_SKILL, converseProblems, typedResultOutput } from "../converse
 import { isUuid } from "../ids";
 import { isPlainObject } from "../json";
 import { levelFor } from "../permissions/decide";
+import { bindingConnector } from "../permissions/grants";
 import type { AgentDefinition } from "../schemas/agent";
 import {
   type AnyAutomationDefinition,
@@ -21,6 +22,7 @@ import type { AgentMode } from "../schemas/permissions";
 import type { Rules } from "../schemas/rules";
 import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
 import type { Trigger, Step as V3Step } from "../schemas/workflow";
+import { retiredSkillReason, skillWriteTools, toolLookup } from "../skills/kind";
 import { collectRefs, hasTemplate, singleRef } from "../template/template";
 import {
   automationOutputSchema,
@@ -60,6 +62,17 @@ import {
   valueTypes,
 } from "../workflow/validate";
 import { walkSteps as walkV3Steps } from "../workflow/walk";
+// Skill model (2026-11-10): action write steps, resolved from the agent's bindings.
+import {
+  ACCOUNTING_CONNECTORS,
+  type ActionBindings,
+  type ActionProblemCode,
+  type ActionResolution,
+  actionBindingsFromMatrices,
+  actionInputSchema,
+  isAccountingAction,
+  resolveActionConnector,
+} from "./actions";
 // R7: the conversation step's own checks, output and send tools (one copy, invariant 4).
 import {
   CONVERSATION_SEND_VERB,
@@ -81,6 +94,7 @@ import {
   Process as ProcessSchema,
   type Step,
   type SubProcessStep,
+  type WriteStep,
 } from "./schema";
 import { stepCount, walkSteps } from "./walk";
 
@@ -108,7 +122,9 @@ export type ProcessValidationCode =
   | "outcome_unknown"
   // Wave 5 review: a step's error message where it would leave us (a write's input, a
   // conversation, an email or text): only its code goes there.
-  | "error_message_not_here";
+  | "error_message_not_here"
+  // Skill model (2026-11-10): an action write step that doesn't resolve from the agent's bindings.
+  | ActionProblemCode;
 
 /**
  * `conversationProblems`' codes. A templated goal is reported as `input_not_fixed`, as every other
@@ -187,6 +203,25 @@ export interface ProcessValidationContext extends TypingContext {
   // live). Until a caller passes one, `{{settings.…}}` is in scope and untyped, like an unknown
   // trigger payload: any path reads.
   settings?: JsonSchema;
+  /**
+   * Skill model (2026-11-10): the step ids of the version this one was made from. A skill step
+   * whose id isn't among them is new, and a new step may not use a retired kind of skill
+   * (`rules_then_ai`, agent mode). Absent: no step counts as new (stored versions, templates).
+   */
+  existingStepIds?: ReadonlySet<string>;
+  /**
+   * Skill model (2026-11-10, review): the skill id (without its `@version`) of each skill step of
+   * the version this one was made from. With `existingStepIds`, a step whose skill id changed
+   * counts as new too, so swapping an existing step's skill can't get around the new-step checks.
+   */
+  existingStepSkills?: ReadonlyMap<string, string>;
+  /**
+   * Skill model (2026-11-10): what a client agent's action write steps resolve from at publish:
+   * its bound connectors and the channels `channelFor` resolves for it (its own, else the
+   * account's). Absent with `publish`: the bound connectors are the matrices' keys and channels
+   * aren't known here. Absent without `publish` (templates, drafts): only the input is checked.
+   */
+  actions?: ActionBindings;
 }
 
 // ── Schema errors, located ───────────────────────────────────────────────────────────────────
@@ -306,8 +341,11 @@ export interface ProcessScope {
 export function stepOutputSchema(step: Step, ctx: TypingContext): JsonSchema | undefined {
   switch (step.kind) {
     case "read":
-    case "write":
       return ctx.tools?.[step.tool]?.output;
+    // DECISION (skill model): an action's output is its provider tool's, known only once it
+    // resolves at run time, so later steps read it untyped (any path reads).
+    case "write":
+      return step.tool === undefined ? undefined : ctx.tools?.[step.tool]?.output;
     case "skill": {
       const def = lookupSkill(step.skill, ctx);
       if (def?.resultFromInput)
@@ -597,14 +635,39 @@ function checkFixedText(c: Checker, nodeId: string, value: string, f: string, wh
  * tool when external; a skill whose tools write (v3 skills, until R2 retires them); a skill that
  * reaches people counts through `reachesPeople`. Undefined when the registries don't know.
  */
-export function stepWrites(step: Step, ctx: TypingContext): ToolSpec[] | undefined {
+export function stepWrites(
+  step: Step,
+  ctx: TypingContext & Pick<ProcessValidationContext, "actions" | "publish">,
+): ToolSpec[] | undefined {
   if (step.kind === "write") {
-    const tool = ctx.tools?.[step.tool];
+    // An action: the tool it resolves to from the agent's bindings, when that is known here.
+    if (step.action !== undefined) {
+      const r = writeActionResolution(step, ctx);
+      const tool = r?.ok ? ctx.tools?.[r.tool] : undefined;
+      return tool ? [tool] : undefined;
+    }
+    const tool = step.tool === undefined ? undefined : ctx.tools?.[step.tool];
     if (!tool) return undefined;
     return tool.sideEffect === "external" ? [tool] : [];
   }
   if (step.kind === "skill") return skillWrites(step.skill, ctx);
   return [];
+}
+
+/**
+ * Skill model (2026-11-10): the connector and tool an action write step resolves to here, from
+ * `ctx.actions` (or, at publish, the bound connectors). Undefined when not known (a template, a
+ * draft, or a channel the caller didn't resolve): the runtime resolves it.
+ */
+export function writeActionResolution(
+  step: Pick<WriteStep, "action" | "via">,
+  ctx: Pick<ProcessValidationContext, "actions" | "publish">,
+): ActionResolution | undefined {
+  if (step.action === undefined) return undefined;
+  const bindings =
+    ctx.actions ?? (ctx.publish ? actionBindingsFromMatrices(ctx.publish.matrices) : undefined);
+  if (!bindings) return undefined;
+  return resolveActionConnector(step.action, step.via, bindings);
 }
 
 /** Whether the step contacts people: a conversation, or a skill that reaches people. */
@@ -752,6 +815,10 @@ function needsAct(c: Checker, stepId: string, loose: readonly Loosening[]) {
 function checkApproval(c: Checker, step: Step) {
   const { ctx } = c;
   const loose = approvalLoosenings(step.checks?.approval, "checks.approval");
+  if (step.kind === "write" && step.action !== undefined) {
+    checkActionLoose(c, step.id, step, loose, "action", true);
+    return;
+  }
   const writes = stepWrites(step, ctx);
   const reaches = stepReaches(step, ctx);
   const off = loose.find((l) => l.what === "not_required");
@@ -826,6 +893,152 @@ function checkApproval(c: Checker, step: Step) {
     ...(step.kind === "conversation" ? conversationLoosenings(step) : []),
   ]);
   if (step.kind === "conversation") checkFirstMessage(c, step);
+}
+
+/** The matrix of the connection an action resolved to (its channel's, or its bound connector's). */
+function actionMatrix(
+  ctx: ProcessValidationContext,
+  r: Extract<ActionResolution, { ok: true }>,
+): { found: boolean; matrix: Parameters<typeof levelFor>[0] } {
+  if (r.channel) {
+    const line = ctx.actions?.channels?.[r.channel];
+    return { found: line != null, matrix: line?.matrix };
+  }
+  const matrices = ctx.publish?.matrices ?? {};
+  const key = Object.keys(matrices).find((k) => bindingConnector(k) === r.connector);
+  return { found: key !== undefined, matrix: key === undefined ? undefined : matrices[key] };
+}
+
+/**
+ * Skill model (2026-11-10): an action write step's approval (or a sub-process override of it).
+ * Every action is external, so any loosening is held to invariant 8: never for a tool a person
+ * always signs, and at publish only where the connection it resolves to allows `auto` for the
+ * verb and the agent acts. A loosening whose connection isn't known at publish is refused.
+ */
+// DECISION: at publish, an action whose connection can't be resolved here (the caller didn't pass
+// the agent's channels) keeps its approval: a loosening is refused rather than checked at the call.
+// Review: the step's own check (`own`) holds it to its connection at publish whatever its
+// approval, as a tool write step is: a verb the matrix turns off, or a record type the matrix or
+// the agent's grant turns off, is reported with approval on too (the gate would refuse every run).
+// A sub-process override is held to it only when it loosens; the used process's own step reports.
+function checkActionLoose(
+  c: Checker,
+  reportAt: string,
+  step: Pick<WriteStep, "action" | "via">,
+  loose: readonly Loosening[],
+  at: string,
+  own = false,
+) {
+  const { ctx } = c;
+  const r = writeActionResolution(step, ctx);
+  const tool = r?.ok ? ctx.tools?.[r.tool] : undefined;
+  if (tool && isAlwaysSigned(tool)) {
+    for (const l of loose) {
+      c.add(reportAt, l.field, "approval_always", `"${tool.id}" always needs a person to sign it`);
+    }
+  }
+  if (!ctx.publish || (loose.length === 0 && !own)) return;
+  if (loose.length === 0 && !r?.ok) return;
+  if (!r?.ok) {
+    if (r === undefined) {
+      for (const l of loose) {
+        c.add(
+          reportAt,
+          l.field,
+          "approval_required_by_connection",
+          "which connection sends it is known only when it runs: approval stays on",
+        );
+      }
+    }
+    // A connection that doesn't resolve is reported by the step's own check.
+    needsAct(c, reportAt, loose);
+    return;
+  }
+  const { found, matrix } = actionMatrix(ctx, r);
+  const verb = tool?.verb ?? "create";
+  const level = found ? levelFor(matrix, verb) : "approval";
+  if (level === "off") {
+    c.add(
+      reportAt,
+      at,
+      "verb_off",
+      `this connection doesn't allow ${VERB_NOUN[verb]} ("${r.tool}")`,
+    );
+  } else if (own && tool && entityOffForAction(c, reportAt, r, tool, at)) {
+    // Reported there.
+  } else if (level !== "auto") {
+    for (const l of loose) {
+      c.add(
+        reportAt,
+        l.field,
+        "approval_required_by_connection",
+        `this connection requires approval for ${VERB_NOUN[verb]}${LOOSENED[l.what]}`,
+      );
+    }
+  }
+  needsAct(c, reportAt, loose);
+}
+
+/**
+ * Review: the record type an accounting action's tool works on, held to the bound connection's
+ * matrix and the agent's grant (`checkEntityOff`); a message action's channel has none.
+ */
+function entityOffForAction(
+  c: Checker,
+  reportAt: string,
+  r: Extract<ActionResolution, { ok: true }>,
+  tool: ToolSpec,
+  at: string,
+): boolean {
+  if (r.channel) return false;
+  const key = Object.keys(c.ctx.publish?.matrices ?? {}).find(
+    (k) => bindingConnector(k) === r.connector,
+  );
+  // The action's input is provider-neutral, so only a tool's own entity is read here.
+  return key !== undefined && checkEntityOff(c, reportAt, tool, key, undefined, at);
+}
+
+/**
+ * Skill model (2026-11-10): an action write step. Its input against the action's provider-neutral
+ * input; `via` only on an accounting action, naming QuickBooks or BILL; at publish it must resolve
+ * from the agent's bindings (no accounting connection, or two without `via`, are errors), and the
+ * tool it resolves to must be known.
+ */
+// DECISION: an action brings its resolved tool in, as a conversation's channel brings its send
+// tool: the agent needn't list it in its tools or skills. The gate still holds the call to the
+// connection's matrix, the agent's grant and its mode (invariant 13).
+function checkWriteAction(
+  c: Checker,
+  step: WriteStep & { action: NonNullable<WriteStep["action"]> },
+  scope: ProcessScope,
+) {
+  const { ctx } = c;
+  checkRefs(c, step.id, step.input, ["input"], scope);
+  checkErrorMessage(c, step.id, step.input, ["input"]);
+  checkInput(c, step.id, step.input, actionInputSchema(step.action), scope);
+  if (step.via !== undefined) {
+    if (!isAccountingAction(step.action)) {
+      c.add(
+        step.id,
+        "via",
+        "action_via_not_here",
+        "a message goes on the agent's channel, else the account's: it can't name a connection",
+      );
+      return;
+    }
+    if (!(ACCOUNTING_CONNECTORS as readonly string[]).includes(step.via)) {
+      c.add(step.id, "via", "action_via_unknown", `"${step.via}" isn't QuickBooks or BILL`);
+      return;
+    }
+  }
+  const r = writeActionResolution(step, ctx);
+  if (r && !r.ok) {
+    c.add(step.id, r.code === "action_no_connection" ? "action" : "via", r.code, r.message);
+    return;
+  }
+  if (r?.ok && ctx.tools && !ctx.tools[r.tool]) {
+    c.add(step.id, "action", "unknown_tool", `no tool "${r.tool}"`);
+  }
 }
 
 /**
@@ -928,27 +1141,43 @@ function checkToolStep(
   allowed: Set<string> | undefined,
 ) {
   const { ctx } = c;
+  if (step.kind === "write" && step.action !== undefined) {
+    checkWriteAction(c, { ...step, action: step.action }, scope);
+    return;
+  }
   checkRefs(c, step.id, step.input, ["input"], scope);
   if (step.kind === "write") checkErrorMessage(c, step.id, step.input, ["input"]);
-  const tool = ctx.tools?.[step.tool];
-  if (ctx.tools && !tool) c.add(step.id, "tool", "unknown_tool", `no tool "${step.tool}"`);
+  const toolId = step.tool as string;
+  const tool = ctx.tools?.[toolId];
+  if (ctx.tools && !tool) c.add(step.id, "tool", "unknown_tool", `no tool "${toolId}"`);
   if (!tool) return;
   if (step.kind === "read" && tool.sideEffect !== "none") {
-    c.add(step.id, "tool", "read_not_read", `"${step.tool}" changes something: use a write step`);
+    c.add(step.id, "tool", "read_not_read", `"${toolId}" changes something: use a write step`);
   }
   if (step.kind === "write" && tool.sideEffect === "none") {
-    c.add(step.id, "tool", "write_not_write", `"${step.tool}" only reads: use a read step`);
+    c.add(step.id, "tool", "write_not_write", `"${toolId}" only reads: use a read step`);
   }
-  if (allowed && !allowed.has(step.tool)) {
+  if (allowed && !allowed.has(toolId)) {
     c.add(
       step.id,
       "tool",
       "tool_not_allowed",
-      `the agent can't use "${step.tool}": add it to its tools or skills`,
+      `the agent can't use "${toolId}": add it to its tools or skills`,
     );
   }
   checkInput(c, step.id, step.input, tool.input, scope);
   checkFixed(c, step.id, step.input, tool.fixedInputs);
+}
+
+/**
+ * Whether a skill step is new in this version: its id isn't in the version it was made from, or
+ * (when the caller passes each step's skill) it was there with another skill. Without
+ * `existingStepIds` no step is new (stored versions, templates).
+ */
+function newSkillStep(ctx: ProcessValidationContext, stepId: string, skillId: string): boolean {
+  if (!ctx.existingStepIds) return false;
+  if (!ctx.existingStepIds.has(stepId)) return true;
+  return ctx.existingStepSkills !== undefined && ctx.existingStepSkills.get(stepId) !== skillId;
 }
 
 function checkSkillStep(c: Checker, step: Extract<Step, { kind: "skill" }>, scope: ProcessScope) {
@@ -966,6 +1195,31 @@ function checkSkillStep(c: Checker, step: Extract<Step, { kind: "skill" }>, scop
     c.add(step.id, "agent", "agent_not_commandable", `the agent may not ask "${step.agent}"`);
   }
   if (skill) checkInput(c, step.id, step.input, skill.input, scope);
+  // Skill model (2026-11-10): a new step uses a deterministic or an AI skill, never a retired kind.
+  // DECISION: held to operator-written skills (`custom:`) only. The platform's own agent-mode
+  // built-ins (Sloan's, the supervisor's, the packs' templates') are still installed from code,
+  // with new steps in their seeded versions; they are left off the builder's palette instead, and
+  // their split into AI skills and write steps is a later stream's.
+  const retired = skill ? retiredSkillReason(skill) : null;
+  const skillId = parseSkillRef(step.skill).id;
+  const operatorSkill = skillId.startsWith("custom:");
+  const isNew = newSkillStep(ctx, step.id, skillId);
+  if (retired && operatorSkill && isNew) {
+    c.add(step.id, "skill", "skill_retired", retired);
+  }
+  // Skill model (2026-11-10, review): skills never write, built-ins included. A skill whose own
+  // tools or reads change something (`materials.read-quote` and `bookkeeping.read-statement` call
+  // `docs.read`, which records a reading) is refused in a new step; steps already using it keep
+  // running (invariant 3), and the split's replacement only reads.
+  const writes = skill && isNew && ctx.tools ? skillWriteTools(skill, toolLookup(ctx.tools)) : [];
+  if (!retired && writes.length > 0) {
+    c.add(
+      step.id,
+      "skill",
+      "skill_retired",
+      `Skills never write: "${writes[0]}" changes something. Use the skill that only reads, then a write step.`,
+    );
+  }
   checkStepModel(c, step, skill);
   // A built-in skill's own fixed inputs, and (until R2) a skill whose model could call a tool that
   // runs only from fixed text.
@@ -1016,10 +1270,15 @@ interface InnerStep {
   reaches: boolean;
   /** Its kind has an approval an override can set (v3 skill or action; v4 skill, read or write). */
   approvable: boolean;
+  /** Skill model: a v4 action write step (its connection resolves from the using agent). */
+  action?: Pick<WriteStep, "action" | "via">;
 }
 
 /** Every inner step of a pinned automation by id: v3 steps (v1) or v4 process steps (v2). */
-function innerSteps(def: AnyAutomationDefinition, ctx: TypingContext): Map<string, InnerStep> {
+function innerSteps(
+  def: AnyAutomationDefinition,
+  ctx: TypingContext & Pick<ProcessValidationContext, "actions" | "publish">,
+): Map<string, InnerStep> {
   const out = new Map<string, InnerStep>();
   if (def.schemaVersion === 2) {
     walkSteps(def, ({ step }) => {
@@ -1029,6 +1288,9 @@ function innerSteps(def: AnyAutomationDefinition, ctx: TypingContext): Map<strin
         writes: stepWrites(step, ctx),
         reaches: stepReaches(step, ctx),
         approvable: step.kind === "skill" || step.kind === "write" || step.kind === "read",
+        ...(step.kind === "write" && step.action !== undefined
+          ? { action: { action: step.action, ...(step.via ? { via: step.via } : {}) } }
+          : {}),
       });
     });
     return out;
@@ -1129,6 +1391,11 @@ function checkSubProcess(c: Checker, step: SubProcessStep, scope: ProcessScope) 
     const loose: Loosening[] = override
       ? approvalLoosenings(override, `approvals.${target.id}`)
       : target.ownLoose;
+    // Skill model: an inner action is held to the connection it resolves to for this agent.
+    if (target.action) {
+      checkActionLoose(c, step.id, target.action, loose, "process");
+      continue;
+    }
     const writes = target.writes ?? [];
     for (const tool of writes) {
       const connector = tool.connector ?? tool.source;

@@ -85,6 +85,14 @@ export const ToolSpec = z
     // DECISION: optional, so specs stored or built before R5 still parse; every connector write
     // tool declares it (a connectors test), and a write without it is treated as `none`.
     undo: ToolUndo.optional(),
+    // Skill model (2026-11-10): a tool whose code calls a model inside (reading a document,
+    // matching by a model's reading, translating, a web search) says so, with why, so a skill
+    // that calls it is labelled AI, never deterministic (`skillKind`). Only a tool that declares
+    // it is handed a model (apps/api's pack adapter), and a model call from a tool that doesn't
+    // is caught (the runtime's `onUndeclaredModelCall`).
+    // DECISION: optional and absent on every tool that calls no model, so specs stored before it
+    // parse unchanged.
+    usesModel: z.string().min(1).max(300).optional(),
   })
   .refine((t) => t.approval === undefined || t.sideEffect === "external", {
     message: "only external tools can always need a person's signature",
@@ -122,6 +130,11 @@ export type ToolSpec = z.infer<typeof ToolSpec>;
 /** External tools are the builder's "actions": they change a client's tool. */
 export function isExternalTool(tool: Pick<ToolSpec, "sideEffect">): boolean {
   return tool.sideEffect === "external";
+}
+
+/** Whether the tool's code calls a model inside it (it declares `usesModel`). */
+export function toolUsesModel(tool: Pick<ToolSpec, "usesModel"> | undefined): boolean {
+  return tool?.usesModel !== undefined;
 }
 
 /** §1.73: whether every call of the tool waits for a person's signature, whatever else says. */

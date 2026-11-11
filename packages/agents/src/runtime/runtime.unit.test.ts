@@ -68,6 +68,8 @@ describe("tool registry", () => {
       "directory.get",
       "directory.search",
       "directory.suggest",
+      // Review: Check bill.
+      "docs.bill.check",
       "docs.bill_lines",
       "docs.extract",
       "docs.find_support",
@@ -76,6 +78,8 @@ describe("tool registry", () => {
       "docs.plan_bill",
       // P-9
       "docs.read",
+      "docs.reading.record",
+      "docs.totals.check",
       "health.agents",
       "health.connections",
       "health.inbox",

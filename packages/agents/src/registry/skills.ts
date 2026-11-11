@@ -8,10 +8,12 @@ import {
   type BrowserTier,
   hashJson,
   isToolWrapper,
+  newSkillVersionProblems,
   parseSkillRef,
   processes,
   SkillDefinition,
   Slug,
+  skillRuleProblems,
   skillTools,
   walkSteps,
 } from "@countersign/core";
@@ -169,10 +171,17 @@ export function customSlug(id: string): string {
 }
 
 /**
- * Parses an operator-written skill: Zod, `task` or `agent` mode (v0.13; never `tool`, which is
- * code), a task's model one the platform prices, tools that exist (§9.2).
+ * Parses an operator-written skill: Zod, a task's model one the platform prices, tools that exist
+ * (§9.2). Skill model (2026-11-10): a new version is deterministic (rule rows, never a handler:
+ * built-in code is ours) or AI (`task`, on its recommended model); `rules_then_ai`, agent mode and
+ * a skill that writes are refused in plain words (`newSkillVersionProblems`). `restoring` (a
+ * rollback copying a stored version) skips those: a stored version keeps working as it was.
  */
-export function parseOperatorSkill(input: unknown, tools?: ToolRegistry): SkillDefinition {
+export function parseOperatorSkill(
+  input: unknown,
+  tools?: ToolRegistry,
+  options: { restoring?: boolean } = {},
+): SkillDefinition {
   const parsed = SkillDefinition.safeParse(input);
   if (!parsed.success) {
     throw new AgentsError("invalid_definition", parsed.error.message, parsed.error.issues);
@@ -182,7 +191,15 @@ export function parseOperatorSkill(input: unknown, tools?: ToolRegistry): SkillD
   if (!isCustomSkill(def.id) || !Slug.safeParse(customSlug(def.id)).success) {
     problems.push(`an operator skill's id is custom:<slug>, not ${def.id}`);
   }
-  if (def.mode === "tool") problems.push("operator skills are task or agent mode, not tool");
+  if (def.mode === "tool" && def.handler !== undefined) {
+    problems.push("an operator skill is rule rows or a task on a model, never built-in code");
+  }
+  if (!options.restoring) {
+    problems.push(
+      ...newSkillVersionProblems(def, tools ? (id) => tools.get(id)?.spec : undefined),
+      ...skillRuleProblems(def),
+    );
+  }
   if (def.model && !knownModelIds().includes(def.model.id)) {
     problems.push(`unknown model ${def.model.id}`);
   }
@@ -265,10 +282,14 @@ export async function createSkillVersion(
     authorId?: string | null;
     changeNote?: string | null;
     tools?: ToolRegistry;
+    /** A rollback copying a stored version: the skill model's new-version checks don't apply. */
+    restoring?: boolean;
   },
 ): Promise<SkillVersionRow> {
   const row = await lockSkill(tx, input.skillId);
-  const def = parseOperatorSkill(input.definition, input.tools);
+  const def = parseOperatorSkill(input.definition, input.tools, {
+    ...(input.restoring ? { restoring: true } : {}),
+  });
   await assertBrowseSites(tx, def);
   if (customSlug(def.id) !== row.slug) {
     throw new AgentsError("invalid_definition", `a version of ${row.slug} can't be ${def.id}`);
@@ -348,6 +369,7 @@ export async function rollbackSkill(
     parentVersionId: row.liveVersionId,
     authorId: input.authorId ?? null,
     changeNote: `Rollback to v${target.version}`,
+    restoring: true,
   });
   return publishSkill(tx, { skillId: row.id, versionId: copy.id });
 }

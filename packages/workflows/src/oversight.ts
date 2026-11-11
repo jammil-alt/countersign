@@ -122,7 +122,9 @@ export function ownerStepInput(step: OwnerWatchedStep): unknown {
  */
 export function ownerErrorKey(step: OwnerWatchedStep, reason: string | undefined): string {
   const tool =
-    step.kind === "action" || step.kind === "read" || step.kind === "write" ? step.tool : null;
+    step.kind === "action" || step.kind === "read" || step.kind === "write"
+      ? (step.tool ?? null)
+      : null;
   return runErrorKey({ tool, kind: step.kind }, reason ?? null);
 }
 

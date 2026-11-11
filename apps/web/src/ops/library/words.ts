@@ -1,6 +1,12 @@
 // R8: the Library's words for the process model (ARCHITECTURE §10.14): v4 step kinds, skill
 // methods, a tool's side effect and undo, and where a condition sits. Pure.
-import type { LibraryConditionUse, LibraryTool, processes, SkillListItem } from "@countersign/core";
+import type {
+  LibraryConditionUse,
+  LibraryTool,
+  processes,
+  SkillKind,
+  SkillListItem,
+} from "@countersign/core";
 import { PROCESS_KIND_LABEL } from "../workflow/describe";
 
 /**
@@ -23,6 +29,12 @@ export const METHOD_LINE: Record<Method, string> = {
   rules: "Code over plain rules, no model",
   ai: "A model call with typed input and output",
   rules_then_ai: "Rules first; the model only for what they leave open",
+};
+
+/** Skill model (2026-11-10): what each kind of skill is, in a line (a card's hover). */
+export const KIND_LINE: Record<SkillKind, string> = {
+  deterministic: "Rules or built-in code: the same answer every time, no model",
+  ai: "Instructions and a model; its answer is checked against the output fields",
 };
 
 /** "Reads", "Changes our records", "Changes the client's tool". */
