@@ -859,7 +859,15 @@ export function requiredConnectors(
 // merge requires, §10.4) proves the same thing as one after.
 export async function activationProblems(
   tx: Tx,
-  input: { agentId: string; ctx: RegistryContext },
+  input: {
+    agentId: string;
+    ctx: RegistryContext;
+    /**
+     * Whether the live version needs a passing test run on the client (default yes). Only the
+     * platform's own account agent, turned on by default, is activated without one.
+     */
+    requireTestRun?: boolean | undefined;
+  },
 ): Promise<string[]> {
   const row = await getAgent(tx, input.agentId);
   if (row.kind !== "client" || !row.tenantId) return ["only client agents run"];
@@ -933,6 +941,7 @@ export async function activationProblems(
     problems.push(`v${live.version}${e.stepId ? ` step ${e.stepId}` : ""}: ${e.message}`);
   }
 
+  if (input.requireTestRun === false) return problems;
   const [passed] = await tx
     .select({ id: run.id })
     .from(run)
@@ -973,10 +982,20 @@ async function setRunStatus(
 /** Activates a client agent, or refuses with every reason it can't run yet. */
 export async function activate(
   tx: Tx,
-  input: { agentId: string; actorId?: string | null; ctx: RegistryContext },
+  input: {
+    agentId: string;
+    actorId?: string | null;
+    ctx: RegistryContext;
+    /** See `activationProblems`. */
+    requireTestRun?: boolean;
+  },
 ): Promise<AgentRow> {
   const row = await lockAgent(tx, input.agentId);
-  const problems = await activationProblems(tx, { agentId: row.id, ctx: input.ctx });
+  const problems = await activationProblems(tx, {
+    agentId: row.id,
+    ctx: input.ctx,
+    requireTestRun: input.requireTestRun,
+  });
   if (problems.length > 0) {
     throw new AgentsError("activation_refused", problems.join("; "), problems);
   }

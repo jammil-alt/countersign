@@ -942,7 +942,10 @@ export const opsRoutes = {
       language: Locale.optional(),
       /** Its client admin, invited in the same step. */
       admin: InviteBody.omit({ role: true }).optional(),
-      /** Add the supervisor (docs/plan.md §1.28) as a draft to test and activate. */
+      /**
+       * Sloan, the account agent (docs/plan.md §1.47 "On by default"): on unless `false`, which
+       * leaves the client without it until the operator adds it from the client's page.
+       */
       supervisor: z.boolean().optional(),
     }),
     response: z.object({ client: ClientSummary, admin: InviteResult.nullable() }),

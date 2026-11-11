@@ -868,12 +868,16 @@ nothing itself.
 1. **The template** is the platform template `supervisor` (`packages/db/seed/agents/`). Where it
    isn't installed yet (production, where the seed never runs), adding the supervisor installs its
    newest seeded version first, so nothing is done by hand.
-2. **Add it.** New clients: "Add the supervisor" is ticked on the new-client form. Existing clients:
-   the client page → Health → **Add the supervisor**. Either way it is forked from the template's
-   live version and published as the client's agent `supervisor` ("Account check"); a client that
-   has one keeps it.
-3. **Test and activate it** like any agent: test-run `daily-check` (a test run reads and writes
-   nothing; its output says what it would have reported), then Activate. It needs no connection.
+2. **It is on by default** (since 2026-11-10, `docs/plan.md` §1.47 "On by default"). New clients:
+   "Turn on Sloan" is ticked on the new-client form (untick it to leave a client without it).
+   Existing clients: the cron's hourly pass (minute 23) turns it on for every client without one,
+   and for one added but never activated; or the client page → Health → **Turn on Sloan**. Either
+   way it is forked from the template's live version, published as the client's agent `supervisor`
+   ("Sloan, your account agent"), activated without a test run (it writes nothing to a client's
+   tools) and goes straight to live ("no writes"). A client whose Sloan was activated, paused,
+   moved back, retired or discarded keeps it as it is; so does the Sandbox (no client people).
+3. **To test it** anyway: test-run `daily-check` (a test run reads and writes nothing; its output
+   says what it would have reported). It needs no connection.
 4. **What it does then.** On every failed live run and every connection that needs a person it looks
    into it (the model, with the health tools and, at most, one question to the agent involved) and
    reports: one item for the client admin, one for us, once per open issue. Every day at 08:00 in the

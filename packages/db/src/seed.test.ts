@@ -3,7 +3,7 @@
 // RLS says they are: templates for operator sessions only.
 
 import { bundleHash, validateBundle } from "@countersign/core";
-import { eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withOperator, withTenant } from "./client";
 import {
@@ -129,7 +129,8 @@ describe.skipIf(!online)("seed", () => {
   it("inserts the operator, two clients and five live templates; twice is the same as once", async () => {
     const first = await seed(t.db);
     const afterFirst = await counts();
-    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 5, versions: 7 });
+    // Five templates (seven versions) and the Demo client's Sloan (§1.47 "On by default").
+    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 6, versions: 8 });
     expect(first.demoDesk).toBeNull();
 
     const second = await seed(t.db);
@@ -197,6 +198,43 @@ describe.skipIf(!online)("seed", () => {
     expect(op?.email).toBe(SEED_USERS.operator.email);
   });
 
+  // docs/plan.md §1.47 "On by default": every client has Sloan on; the Sandbox has no client people.
+  it("turns Sloan on for the Demo client, once, from the supervisor's live version", async () => {
+    const { tenants, sloan } = await seed(t.db);
+    expect(sloan).toBeTruthy();
+    const [row] = await t.db
+      .select()
+      .from(agent)
+      .where(eq(agent.id, sloan as string));
+    expect(row).toMatchObject({
+      tenantId: tenants.demo,
+      kind: "client",
+      slug: "supervisor",
+      runStatus: "active",
+      stage: "live",
+      serviceName: "Sloan, your account agent",
+      testCopy: false,
+      bindings: {},
+    });
+    const [template] = await t.db
+      .select()
+      .from(agent)
+      .where(eq(agent.id, row?.templateId as string));
+    const [v1] = await t.db
+      .select()
+      .from(agentVersion)
+      .where(eq(agentVersion.id, row?.liveVersionId as string));
+    expect(v1?.basedOnTemplateVersionId).toBe(template?.liveVersionId);
+    expect(v1?.bundle.definition.identity.name).toBe("Sloan");
+    const again = await seed(t.db);
+    expect(again.sloan).toBe(sloan);
+    const all = await t.db
+      .select()
+      .from(agent)
+      .where(eq(agent.templateId, template?.id as string));
+    expect(all.map((a) => a.tenantId)).toEqual([tenants.demo]);
+  });
+
   it("leaves templates visible to operator sessions only", async () => {
     const { tenants } = await seed(t.db);
     const asClient = await withTenant(t.db, tenants.demo, async (tx) => {
@@ -217,7 +255,7 @@ describe.skipIf(!online)("seed", () => {
     const [row] = await t.db.$client<Record<string, number>[]>`select
         (select count(*)::int from connection) as connections,
         (select count(*)::int from raw_record) as records,
-        (select count(*)::int from agent where tenant_id is not null) as agents,
+        (select count(*)::int from agent where tenant_id is not null and slug <> 'supervisor') as agents,
         (select count(*)::int from run) as runs,
         (select count(*)::int from step_run) as steps,
         (select count(*)::int from tool_call) as calls,
@@ -249,11 +287,15 @@ describe.skipIf(!online)("seed", () => {
         runs: await tx.select().from(run).where(eq(run.tenantId, tenants.demo)),
         steps: await tx.select().from(stepRun).where(eq(stepRun.tenantId, tenants.demo)),
         calls: await tx.select().from(toolCall).where(eq(toolCall.tenantId, tenants.demo)),
-        agents: await tx.select().from(agent).where(eq(agent.tenantId, tenants.demo)),
+        // The Desk's agent; the Demo client's Sloan is seeded too (§1.47) and left out here.
+        agents: await tx
+          .select()
+          .from(agent)
+          .where(and(eq(agent.tenantId, tenants.demo), ne(agent.slug, "supervisor"))),
         versions: await tx
           .select()
           .from(agentVersion)
-          .where(eq(agentVersion.tenantId, tenants.demo)),
+          .where(and(eq(agentVersion.tenantId, tenants.demo), eq(agentVersion.agentId, d.agentId))),
         connections: await tx
           .select()
           .from(connection)

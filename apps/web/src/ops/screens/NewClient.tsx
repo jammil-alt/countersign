@@ -112,7 +112,8 @@ export function NewClientScreen() {
   const [approvals, setApprovals] = useState<ExternalApprover>("client_admin");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminName, setAdminName] = useState("");
-  // DECISION: onboarding offers the supervisor ticked; it arrives as a draft to test and activate.
+  // DECISION (2026-11-10): Sloan, the account agent, is on for every client by default
+  // (docs/plan.md §1.47 "On by default"); unticking leaves this client without it.
   const [supervisor, setSupervisor] = useState(true);
   const [busy, setBusy] = useState(false);
   const [problems, setProblems] = useState<{
@@ -274,7 +275,7 @@ export function NewClientScreen() {
           </div>
         </Card>
 
-        <Card title="Supervisor">
+        <Card title="Account agent">
           <label className="flex cursor-pointer items-start gap-3 px-6 py-4">
             <input
               type="checkbox"
@@ -284,11 +285,12 @@ export function NewClientScreen() {
               onChange={() => setSupervisor((v) => !v)}
             />
             <span className="min-w-0">
-              <span className="block font-medium text-ink">Add the supervisor</span>
+              <span className="block font-medium text-ink">Turn on Sloan</span>
               <span className="block text-sm text-ink-muted">
-                It watches their runs, connections and waiting items, and tells their admin in plain
-                steps and us with the details. It changes nothing itself. You test and activate it
-                like any agent.
+                Sloan answers their people's questions about their account, watches their runs,
+                connections and waiting items, and tells their admin in plain steps and us with the
+                details. It changes nothing in their tools. On from the start; you can pause it from
+                the client's page.
               </span>
             </span>
           </label>

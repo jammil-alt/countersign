@@ -53,7 +53,7 @@ function seeded(slug: string, version: number): unknown {
 
 export async function installPlatformTemplate(
   tx: Tx,
-  input: { slug: string; version: number; actorId: string; platform: Platform },
+  input: { slug: string; version: number; actorId: string | null; platform: Platform },
 ): Promise<InstalledPlatformTemplate> {
   const bundle = parseBundle(seeded(input.slug, input.version));
   if (bundle.definition.kind !== "platform") {
