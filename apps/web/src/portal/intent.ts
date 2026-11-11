@@ -68,7 +68,7 @@ export function targetOf(href: string): IntentTarget | null {
   }
   const run = path.match(/^\/runs\/([^/]+)$/);
   if (run?.[1]) return { kind: "run", id: decodeURIComponent(run[1]) };
-  const agent = path.match(/^\/agents\/([^/]+)(?:\/(?:runs|access))?$/);
+  const agent = path.match(/^\/agents\/([^/]+)(?:\/(?:runs|settings|access))?$/);
   if (agent?.[1]) return { kind: "agent", id: decodeURIComponent(agent[1]) };
   if (path === "/inbox") return { kind: "inbox" };
   return null;

@@ -1,4 +1,4 @@
-// Hand off (owner, 2026-11-11; docs/plan.md §1.95), end to end in Node with the real runtime and
+// Hand off (owner, 2026-11-11; docs/plan.md §1.96), end to end in Node with the real runtime and
 // database: a live run of AP bill clerk whose last step hands off to Price checker at its step 2.
 // Price checker's run starts there with the mapped input, its trigger records the handoff, and
 // both run pages say so; the handoff rules hold (never the same agent, at most three deep, the

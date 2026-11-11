@@ -1,4 +1,4 @@
-// Hand off (owner, 2026-11-11; docs/plan.md §1.95) in the builder, on a fake API: the palette
+// Hand off (owner, 2026-11-11; docs/plan.md §1.96) in the builder, on a fake API: the palette
 // offers "Hand off to another agent" at the bottom; the inspector picks one of the client's other
 // agents, then a step of its live version (numbered and named), then maps that step's input from
 // this run; the canvas row says where the work goes.

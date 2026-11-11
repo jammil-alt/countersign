@@ -140,6 +140,8 @@ export function opsStep(s: StepRunRow) {
     tokensOut: s.tokensOut,
     startedAt: iso(s.startedAt),
     finishedAt: iso(s.finishedAt),
+    // Step panel (§1.95)
+    attempts: s.attempts,
   };
 }
 

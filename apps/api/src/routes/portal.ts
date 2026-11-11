@@ -19,6 +19,7 @@ import {
   type ConnectorAuth,
   checkKindOf,
   clientLabel,
+  clientStepData,
   connectionLabel,
   connectorShown,
   findNodeStep,
@@ -498,21 +499,20 @@ export async function portalRunView(
 
   const [[summary], steps, oversight, conversations, runItems, actions] = await Promise.all([
     summarize(tx, tenantId, [head], platform),
-    // Only the columns the timeline and its checks read: never cost or tokens, and of the
-    // step's input only `reviewer` (all a confer's check reads of it).
+    // Only the columns the timeline, its checks and the step panel read: never cost or tokens
+    // (only whether it asked a model at all), and the input only to pass it through
+    // `clientStepData` (step panel, §1.95).
     tx
       .select({
         id: stepRun.id,
         nodeId: stepRun.nodeId,
         nodeType: stepRun.nodeType,
         status: stepRun.status,
-        input: sql<
-          Record<string, unknown>
-        >`jsonb_build_object('reviewer', ${stepRun.input}->'reviewer')`.mapWith(
-          (v: unknown) => (typeof v === "string" ? JSON.parse(v) : v) as Record<string, unknown>,
-        ),
+        input: stepRun.input,
         output: stepRun.output,
         summary: stepRun.summary,
+        attempts: stepRun.attempts,
+        askedModel: sql<boolean>`(${stepRun.tokensIn} + ${stepRun.tokensOut}) > 0`,
         startedAt: stepRun.startedAt,
         finishedAt: stepRun.finishedAt,
       })
@@ -556,6 +556,11 @@ export async function portalRunView(
         tool: externalAction.tool,
         status: externalAction.status,
         executedAt: externalAction.executedAt,
+        // Step panel (§1.95): the change as the Inbox showed it.
+        stepRunId: externalAction.stepRunId,
+        before: externalAction.before,
+        input: externalAction.input,
+        editedInput: externalAction.editedInput,
       })
       .from(externalAction)
       .where(and(eq(externalAction.runId, runId), eq(externalAction.tenantId, tenantId)))
@@ -637,6 +642,11 @@ export async function portalRunView(
         sources: check?.confer ? [] : sourcesOf(s.output),
         startedAt: iso(s.startedAt),
         finishedAt: iso(s.finishedAt),
+        // Step panel (§1.95): what the client may read of what went in and came out, never on
+        // a check's row (a confer's question is ours to word).
+        ...(checkKindOf(s.nodeId) ? {} : clientIo(s.input, s.output)),
+        ...(s.attempts > 1 ? { attempts: s.attempts } : {}),
+        ...(s.askedModel ? { ai: true as const } : {}),
         // v0.13 W2-I
         ...(oversight.has(s.id) ? { oversight: oversight.get(s.id) } : {}),
         // P-4
@@ -701,8 +711,18 @@ export async function portalRunView(
       display: changeDisplay(platform, a.tool),
       status: a.status,
       executedAt: iso(a.executedAt),
+      stepRunId: a.stepRunId,
+      before: clientStepData(a.before) ?? null,
+      input: clientStepData(a.editedInput ?? a.input) ?? null,
     })),
   };
+}
+
+/** Step panel (§1.95): a step's input and output as a client may read them, when there is any. */
+function clientIo(input: unknown, output: unknown): { input?: unknown; output?: unknown } {
+  const i = clientStepData(input);
+  const o = clientStepData(output);
+  return { ...(i === undefined ? {} : { input: i }), ...(o === undefined ? {} : { output: o }) };
 }
 
 /**

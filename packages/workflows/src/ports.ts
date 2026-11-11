@@ -693,7 +693,7 @@ export const NeedsHelp = z.object({
 });
 export type NeedsHelp = z.infer<typeof NeedsHelp>;
 
-// ── Hand off (owner, 2026-11-11; docs/plan.md §1.95) ─────────────────────────────────────────
+// ── Hand off (owner, 2026-11-11; docs/plan.md §1.96) ─────────────────────────────────────────
 
 /** A hand-off step's ask: start `to.agent`'s live version at `to.step` with `input`. */
 export interface HandoffRequest {

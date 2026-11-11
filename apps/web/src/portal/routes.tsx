@@ -40,7 +40,8 @@ export const portalRoutes = (
     {/* An agent: Overview, Runs, Access */}
     <Route path="agents/:id" element={<AgentScreen tab="overview" />} />
     <Route path="agents/:id/runs" element={<AgentScreen tab="runs" />} />
-    <Route path="agents/:id/access" element={<AgentScreen tab="access" />} />
+    <Route path="agents/:id/settings" element={<AgentScreen tab="settings" />} />
+    <Route path="agents/:id/access" element={<Redirect to="/agents/:id/settings" />} />
 
     {/* Settings (the avatar menu and the sidebar's foot), one section at a time */}
     <Route path="settings" element={<PortalSettingsScreen section="general" />} />

@@ -476,6 +476,29 @@ a.ui-stat--link:focus-visible {
   font: 500 14px / 22px var(--font-sans);
   color: var(--ink);
 }
+/* A step that opens its details (the run pages' step panel): the title and detail as one button. */
+.ui-steps__open {
+  all: unset;
+  display: flex;
+  box-sizing: border-box;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  margin: -2px calc(var(--space-2) * -1);
+  padding: 2px var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.ui-steps__open:hover {
+  background: var(--surface-subtle);
+}
+.ui-steps__open:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.ui-steps__item.is-selected .ui-steps__open {
+  border-color: var(--slate);
+  background: var(--slate-tint);
+}
 
 /* ── Activity and before/after ── */
 .ui-activity {
@@ -652,11 +675,122 @@ a.ui-stat--link:focus-visible {
   padding: var(--space-3) var(--space-5);
   border-top: 1px solid var(--line);
 }
+.ui-sheet--wide {
+  width: 560px;
+}
+.ui-sheet__tabs {
+  padding: 0 var(--space-5);
+}
 @media (max-width: 767.98px) {
   .ui-sheet {
     width: 100%;
     max-width: none;
   }
+}
+
+/* The run pages' step panel (runs/StepPanel.tsx): facts, data read as fields, lists and tables. */
+.ui-stepfacts {
+  display: grid;
+  grid-template-columns: minmax(6rem, auto) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+.ui-stepfacts dt {
+  color: var(--ink-muted);
+}
+.ui-stepfacts dd {
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.ui-stepdata {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr);
+  gap: var(--space-1-5) var(--space-3);
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+.ui-stepdata dt {
+  color: var(--ink-muted);
+}
+.ui-stepdata dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.ui-stepdata__nest {
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--line);
+}
+.ui-stepdata__table {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.ui-stepdata__table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 18px;
+}
+.ui-stepdata__table th {
+  padding: var(--space-1-5) var(--space-2);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-subtle);
+  color: var(--ink-muted);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+.ui-stepdata__table td {
+  padding: var(--space-1-5) var(--space-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  vertical-align: top;
+}
+.ui-stepdata__table tr:last-child td {
+  border-bottom: 0;
+}
+.ui-stepdata__item {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.ui-stepraw {
+  overflow: auto;
+  max-height: 320px;
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  font: 400 12px / 18px var(--font-mono);
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ui-stepdatalist {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  list-style: none;
+}
+.ui-stepdatalist li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  padding: var(--space-2-5) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.ui-stepdatalist li:last-child {
+  border-bottom: 0;
 }
 
 /* A category tile: the area's icon in slate on its tint (skill cards and sheets). */

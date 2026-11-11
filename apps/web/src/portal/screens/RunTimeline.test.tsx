@@ -476,7 +476,7 @@ describe("portal run timeline: checks", () => {
   });
 });
 
-// Hand off (owner, 2026-11-11; docs/plan.md §1.95)
+// Hand off (owner, 2026-11-11; docs/plan.md §1.96)
 describe("portal run timeline: hand-offs", () => {
   const OTHER = "00000000-0000-4000-8000-0000000f1abc";
   const FROM = "00000000-0000-4000-8000-0000000f1def";

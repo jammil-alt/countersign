@@ -7,6 +7,8 @@
 // oversight's decisions, and the raw trigger, inputs, outputs and tool calls). Beside it: about
 // this run and the same error elsewhere. Retry, cancel and replay. Polls every 2 s while it goes.
 // P-4
+// Step panel (docs/plan.md §1.95): each checklist row opens its details beside the run
+// (`?step=<step run id>`): input, output, model calls, tool calls, changes and data.
 
 import {
   approvalOf,
@@ -42,22 +44,14 @@ import { ConversationControls } from "../../runs/ConversationControls";
 import { duration, isRunGoing, shortTime, stepStatusLabel, usd } from "../../runs/format";
 import { roleLabel, qualifiedToolLabel as toolLabel } from "../../runs/labels";
 import { conferTitle, StepChecks } from "../../runs/StepChecks";
+import { useStepParam } from "../../runs/StepPanel";
 import { opsRunTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { BeforeAfter } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
 import { Loaded, Page, PageGrid, Section } from "../../ui/page";
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorNotice,
-  PageHeader,
-  Tag,
-  type Tone,
-} from "../../ui/primitives";
+import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader, Tag } from "../../ui/primitives";
 import { SkeletonCard, SkeletonLine } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { type StepItem, StepList, type StepState } from "../../ui/steps";
@@ -73,8 +67,10 @@ import {
 // Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): the owner's checks, the audit, the export.
 import { OwnerCheckLines, RunAuditCard, RunExportCard } from "../run/RunAudit";
 import { ModelCalls, RunControls } from "../run/RunControls";
+import { OpsStepPanel } from "../run/StepPanel";
 import { type RunWait, runWaiting, waitingOn, waitingWhat } from "../run/waiting";
 import {
+  actionBadge,
   NOBODY_TO_ACT_WORDS,
   OVERSIGHT_CAUSE_WORDS,
   OWNER_ACTION_WORDS,
@@ -401,6 +397,7 @@ export function OpsRunScreen() {
             failedNode={error.nodeId}
             oversight={oversight}
             wait={wait}
+            calls={calls.data?.modelCalls ?? null}
             onConversation={async (stepRunId, action, reason) => {
               await api.call(apiRoutes.opsConversationControl, {
                 params: { id: run.tenantId, runId: run.id, stepRunId },
@@ -659,6 +656,7 @@ function Timeline({
   failedNode,
   oversight,
   wait,
+  calls,
   onConversation,
 }: {
   data: RunDetail;
@@ -667,6 +665,8 @@ function Timeline({
   failedNode: string | null;
   oversight: Decision[];
   wait: Wait | null;
+  /** The run's model calls, for the step panel; null until they come. */
+  calls: ResponseOf<typeof apiRoutes.opsRunModelCalls>["modelCalls"] | null;
   // P-6: take a live conversation over, or end it (§1.68).
   onConversation?: (
     stepRunId: string,
@@ -682,6 +682,9 @@ function Timeline({
     data.steps.flatMap((s) => (s.outcome ? [[s.nodeId, s.outcome] as const] : [])),
   );
   const done = rows.filter((r) => r.status === "succeeded").length;
+  // Step panel (§1.95): the open row, by its step run id (or its key before it has run).
+  const { stepId, openStep, closeStep } = useStepParam();
+  let panel: ReactNode = null;
   const items: StepItem[] = rows.map((r, i) => {
     const s = r.stepRunId ? steps.get(r.stepRunId) : undefined;
     const checks = s ? checksFor(s, data, workflow, outcomes) : {};
@@ -714,9 +717,31 @@ function Timeline({
     const decisions = s ? oversight.filter((d) => d.stepRunId === s.id) : [];
     // Wave 6: the owner's check on each attempt at this step (v4 read, skill and write steps).
     const ownerChecks = s ? (data.ownerChecks ?? []).filter((c) => c.nodeId === s.nodeId) : [];
+    const rowId = r.stepRunId ?? r.key;
+    if (rowId === stepId) {
+      panel = (
+        <OpsStepPanel
+          key={rowId}
+          data={data}
+          row={r}
+          step={s}
+          index={i}
+          count={rows.length}
+          kind={kindText}
+          skillKind={skillKind}
+          checks={checks}
+          decisions={decisions}
+          ownerChecks={ownerChecks}
+          calls={calls}
+          onClose={closeStep}
+        />
+      );
+    }
     return {
       key: r.key,
       testId: `ops-run-step-${r.key}`,
+      onOpen: () => openStep(rowId),
+      selected: rowId === stepId,
       state: stepState(r, s?.nodeType, checks),
       time: r.at ? shortTime(r.at) : "next",
       title: (
@@ -837,6 +862,7 @@ function Timeline({
       pad
     >
       <StepList steps={items} />
+      {panel}
     </Card>
   );
 }
@@ -1067,30 +1093,6 @@ function Changes({
       </p>
     </div>
   );
-}
-
-function actionBadge(a: Action, testRun: boolean): { label: string; tone: Tone } {
-  switch (a.status) {
-    case "proposed":
-      return testRun
-        ? { label: "Would have done", tone: "neutral" }
-        : { label: "Needs approval", tone: "warning" };
-    case "approved":
-    case "executing":
-      // A person signed it: copper marks a person's touch.
-      return { label: "Approved", tone: "person" };
-    case "done":
-      return {
-        label: a.executedAt ? `Done · ${shortTime(a.executedAt)}` : "Done",
-        tone: "positive",
-      };
-    case "rejected":
-      return { label: "Rejected", tone: "neutral" };
-    case "failed":
-      return { label: "Failed", tone: "risk" };
-    default:
-      return { label: a.status, tone: "neutral" };
-  }
 }
 
 function ActionPanel({

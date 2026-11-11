@@ -1,4 +1,4 @@
-// Hand off (owner, 2026-11-11; docs/plan.md §1.95): the client's agents a hand-off step can start,
+// Hand off (owner, 2026-11-11; docs/plan.md §1.96): the client's agents a hand-off step can start,
 // with their live versions' top-level steps (names, kinds, input schemas, what each reads). The
 // server validates hand-off steps with it at publish, and the builder gets the same list, so both
 // say the same thing (invariant 4: one validator).

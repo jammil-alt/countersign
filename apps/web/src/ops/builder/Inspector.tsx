@@ -971,7 +971,7 @@ function KindFields(
   }
 }
 
-// ── Hand off (owner, 2026-11-11; docs/plan.md §1.95) ─────────────────────────────────────────────
+// ── Hand off (owner, 2026-11-11; docs/plan.md §1.96) ─────────────────────────────────────────────
 
 /**
  * A hand-off step: the client's other agent, the top-level step of its live version where its run

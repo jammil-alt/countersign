@@ -1,4 +1,4 @@
-// Hand off (owner, 2026-11-11; docs/plan.md §1.95): a client agent's builder gets its client's
+// Hand off (owner, 2026-11-11; docs/plan.md §1.96): a client agent's builder gets its client's
 // agents with their live versions' top-level steps, for the hand-off step's pickers, its input
 // fields and the validator (the server checks against the same list).
 import { processes } from "@countersign/core";

@@ -1,15 +1,16 @@
 // C2 the agent page (`/agents/:id`, Review 1): a header with its state and Pause, then three tabs.
-// Overview: its own view first (the default: pack reports, then this month's activity), upload for
-// an agent that reads documents, the run going now step by step and its latest work. Runs: its runs.
-// Access: what it can reach, and who it contacts. The client admin pauses and resumes it (a pause we
+// This month's figures sit above the tabs. Overview: its recent runs beside what waits on you from
+// it, then its own view and upload for an agent that reads documents. Runs: its runs.
+// Agent settings: what it does, when it runs, how to reach it, what it can reach, and who it contacts. The client admin pauses and resumes it (a pause we
 // made is ours to lift); Run now starts a workflow from its form. Never a bundle or a cost.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
+import { EN } from "../../i18n/i18n";
 import { CLIENT_SESSION, fakeApi, Reply, tableService, tableView } from "../../test/fixtures";
-import { formFields } from "./Agent";
+import { formFields, triggerWords } from "./Agent";
 
 const SVC = "00000000-0000-4000-8000-00000000b001";
 const RUN = "00000000-0000-4000-8000-0000000f1001";
@@ -180,6 +181,51 @@ const ACCESS = {
   people: [],
 };
 
+const trigger = (o: Record<string, unknown>) => ({
+  job: "Check invoices",
+  type: "event",
+  event: null,
+  cron: null,
+  tz: null,
+  skipsHolidays: false,
+  clientCanRun: false,
+  channels: [],
+  lastStartedAt: null,
+  ...o,
+});
+
+const TRIGGERS = {
+  commandName: "pia",
+  triggers: [
+    trigger({ event: "document.extracted", lastStartedAt: "2026-11-06T09:08:00.000Z" }),
+    trigger({
+      job: "Weekly price review",
+      type: "schedule",
+      cron: "0 8 * * 1",
+      skipsHolidays: true,
+    }),
+  ],
+};
+
+const CHANNELS = {
+  account: [],
+  agents: [
+    {
+      agentId: SVC,
+      name: "Pia",
+      channels: [
+        {
+          kind: "email",
+          connectionId: "c1",
+          connector: "resend",
+          address: "pia.harbor-millwork-abc@in.mezonas.com",
+          source: "agent",
+        },
+      ],
+    },
+  ],
+};
+
 const control = (pause: unknown = null) => ({
   services: [
     {
@@ -199,7 +245,26 @@ const base = {
   "GET /api/feedback/status": () => ({ enabled: false }),
   [`GET /api/services/${SVC}`]: () => DETAIL,
   "GET /api/runs": () => ({ runs: DETAIL.recentRuns }),
+  "GET /api/inbox": () => ({ items: [] }),
+  [`GET /api/services/${SVC}/triggers`]: () => TRIGGERS,
+  "GET /api/settings/channels": () => CHANNELS,
 };
+
+function inboxItem(id: string, serviceId: string, title: string) {
+  return {
+    id,
+    kind: "external_action",
+    title,
+    payload: {},
+    status: "open",
+    runId: null,
+    dueAt: null,
+    createdAt: "2026-11-06T09:00:00.000Z",
+    resolvedAt: null,
+    resolvedBy: null,
+    service: { id: serviceId, name: serviceId === SVC ? "Pia" : "Cole" },
+  };
+}
 
 function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
   return render(
@@ -218,8 +283,24 @@ describe("the agent page", () => {
       ...base,
       "GET /api/runs": ({ url }) => {
         asked.push(url.searchParams.get("agents"));
-        return { runs: DETAIL.recentRuns };
+        return {
+          runs: DETAIL.recentRuns.map((r) => ({
+            ...r,
+            subject: {
+              kind: "document",
+              vendor: "Northline Panel Supply",
+              number: "20418",
+              filename: null,
+            },
+          })),
+        };
       },
+      "GET /api/inbox": () => ({
+        items: [
+          inboxItem("i1", SVC, "Approve the bill for Northline Panel Supply"),
+          inboxItem("i2", "other", "Someone else's"),
+        ],
+      }),
       "GET /api/table": () => TABLE,
       [`GET /api/runs/${RUN}`]: () => RUN_VIEW,
       "GET /api/access": () => ACCESS,
@@ -255,36 +336,40 @@ describe("the agent page", () => {
       "href",
       `/agents/${SVC}/runs`,
     );
-    expect(within(screen.getByRole("main")).getByRole("link", { name: "Access" })).toHaveAttribute(
-      "href",
-      `/agents/${SVC}/access`,
-    );
+    expect(
+      within(screen.getByRole("main")).getByRole("link", { name: "Agent settings" }),
+    ).toHaveAttribute("href", `/agents/${SVC}/settings`);
     // It reads no documents: no upload here.
     expect(screen.queryByTestId("agent-documents")).toBeNull();
 
-    // Right now: the run's steps, done, current and still to do.
-    const steps = await screen.findByTestId("agent-now-steps");
-    const items = within(steps).getAllByRole("listitem");
-    expect(items.map((li) => li.getAttribute("data-state"))).toEqual(["done", "current", "todo"]);
-    expect(items[0]).toHaveTextContent("14 of 14 read");
-    expect(screen.getByTestId("agent-now")).toHaveTextContent("Step 2 of 3");
-    expect(
-      within(screen.getByTestId("agent-now")).getByRole("link", { name: "Open the run" }),
-    ).toHaveAttribute("href", `/runs/${RUN}`);
-    // Latest work: finished runs only (the live run is above), newest first.
-    const latest = screen.getByTestId("agent-latest");
-    expect(latest).not.toHaveTextContent("Read 14 line items");
-    expect(latest.textContent?.indexOf("Checked the bill")).toBeLessThan(
-      latest.textContent?.indexOf("Looked for the bill") ?? -1,
+    // Overview: its recent runs on the left, titled by what they are about, with all of them a
+    // click away; what waits on you from it on the right, opening in the Inbox.
+    const recent = await screen.findByTestId(`agent-recent-run-${OLD_RUN}`);
+    expect(recent).toHaveTextContent("Northline Panel Supply · Invoice 20418");
+    expect(recent).toHaveTextContent("Took 3 min");
+    expect(within(recent).getByRole("link")).toHaveAttribute("href", `/runs/${OLD_RUN}`);
+    expect(screen.getByTestId("agent-recent-all")).toHaveAttribute("href", `/agents/${SVC}/runs`);
+    const action = await screen.findByTestId("agent-action-i1");
+    expect(action).toHaveTextContent("Approve the bill for Northline Panel Supply");
+    expect(within(action).getByRole("link", { name: "Review and approve" })).toHaveAttribute(
+      "href",
+      "/inbox?item=i1",
     );
+    // Another agent's item is not this one's.
+    expect(screen.queryByTestId("agent-action-i2")).toBeNull();
+    // The runs sit beside the action items, not under them.
+    expect(screen.getByTestId("agent-recent").closest(".ui-split__main")).not.toBeNull();
+    expect(screen.getByTestId("agent-actions").closest(".ui-split__rail")).not.toBeNull();
 
-    // Its own figures come first: this month's, as a strip of tiles with its template's KPIs,
-    // and the full report a click away. No pack reports: no empty block of its own.
+    // Its own figures come first, above the tabs: this month's, as a strip of tiles with its
+    // template's KPIs, and the full report a click away. No pack reports: no empty block of its own.
     expect(screen.queryByTestId("agent-own-view")).toBeNull();
     const month = screen.getByTestId("agent-month");
-    expect(month.compareDocumentPosition(screen.getByTestId("agent-now"))).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
+    expect(
+      month.compareDocumentPosition(
+        within(screen.getByRole("main")).getByRole("link", { name: "Overview" }),
+      ),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(within(month).getByTestId("agent-full-report")).toHaveAttribute(
       "href",
       `/reports?service=${SVC}`,
@@ -302,16 +387,36 @@ describe("the agent page", () => {
     expect(screen.queryByTestId("agent-kpi-waiting")).toBeNull();
     expect(screen.queryByTestId("agent-reach")).toBeNull();
 
-    // Runs: its runs, the list filtered to it.
+    // Runs: its runs, the list filtered to it; the figures stay above.
     await userEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Runs" }));
     const row = await screen.findByTestId(`portal-service-run-${OLD_RUN}`);
+    expect(screen.getByTestId("agent-month")).toBeInTheDocument();
     expect(within(row).getByRole("link")).toHaveAttribute("href", `/runs/${OLD_RUN}`);
     expect(row).toHaveTextContent("Took 3 min");
     expect(row).toHaveTextContent("Done");
     expect(asked).toContain(SVC);
 
-    // Access: what it can reach, verb by verb; changes are made on Accounts.
-    await userEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Access" }));
+    // Agent settings: what it does and its jobs, when it runs, how to reach it, and what it can
+    // reach, verb by verb (changes are made on Accounts).
+    await userEvent.click(
+      within(screen.getByRole("main")).getByRole("link", { name: "Agent settings" }),
+    );
+    const about = await screen.findByTestId("agent-about");
+    expect(about).toHaveTextContent("What Pia does");
+    expect(about).toHaveTextContent(DETAIL.service.description);
+    expect(await within(about).findByTestId("agent-jobs")).toHaveTextContent(
+      "Check invoicesWeekly price review",
+    );
+    expect(await screen.findByTestId("agent-trigger-0")).toHaveTextContent(
+      "When a document has been read",
+    );
+    expect(screen.getByTestId("agent-trigger-0")).toHaveTextContent("Last started");
+    expect(screen.getByTestId("agent-trigger-1")).toHaveTextContent(
+      "Every Monday at 8:00 AMWeekly price review · Skips holidaysNot started yet",
+    );
+    const contact = await screen.findByTestId("agent-contact");
+    expect(contact).toHaveTextContent("pia.harbor-millwork-abc@in.mezonas.com");
+    expect(within(contact).getByTestId("agent-contact-command")).toHaveTextContent("/pia");
     const reach = await screen.findByTestId(`agent-reach-${QBO}`);
     expect(reach).toHaveTextContent("QuickBooks Online · Harbor Millwork");
     expect(reach).not.toHaveTextContent("9341455130122716");
@@ -390,7 +495,9 @@ describe("the agent page", () => {
     await waitFor(() =>
       expect(screen.getByTestId("agent-state")).toHaveTextContent("Waiting on you"),
     );
-    expect(await screen.findByTestId("agent-now-state")).toHaveTextContent("Waiting on you");
+    expect(await screen.findByTestId(`agent-recent-run-${RUN}-state`)).toHaveTextContent(
+      "Waiting on you",
+    );
     await userEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Runs" }));
     const row = await screen.findByTestId(`portal-service-run-${RUN}`);
     expect(within(row).getByTestId(`portal-service-run-${RUN}-state`)).toHaveAttribute(
@@ -404,13 +511,32 @@ describe("the agent page", () => {
     expect(old).toHaveTextContent("Waited 21 h on you");
   });
 
+  it("filters its recent runs by status", async () => {
+    const asked: (string | null)[] = [];
+    const api = fakeApi({
+      ...base,
+      "GET /api/runs": ({ url }) => {
+        asked.push(url.searchParams.get("statuses"));
+        return { runs: url.searchParams.get("statuses") ? [] : DETAIL.recentRuns };
+      },
+    });
+    renderAt(`/agents/${SVC}`, api);
+    expect(await screen.findByTestId(`agent-recent-run-${OLD_RUN}`)).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("agent-recent-filter-notFinished"));
+    expect(await screen.findByTestId("agent-recent")).toHaveTextContent("No runs match.");
+    expect(asked).toContain("failed,cancelled");
+  });
+
   it("still shows the agent when only its own route answers", async () => {
     const api = fakeApi(base);
     renderAt(`/services/${SVC}`, api);
     expect(await screen.findByRole("heading", { name: "Pia" })).toBeInTheDocument();
     expect(screen.getByTestId("agent-state")).toHaveTextContent("Ready");
-    // Nothing ran: the section is left out.
-    expect(screen.queryByTestId("agent-now")).toBeNull();
+    // Its runs still list; nothing waits on you from it, and the column says so.
+    expect(await screen.findByTestId(`agent-recent-run-${OLD_RUN}`)).toBeInTheDocument();
+    expect(await screen.findByTestId("agent-actions")).toHaveTextContent(
+      "Nothing waits on you from Pia.",
+    );
     expect(screen.queryByTestId("agent-reach")).toBeNull();
   });
 
@@ -444,7 +570,7 @@ describe("the agent page", () => {
     );
   });
 
-  it("shows the client admin who it contacts on its Access tab, and a client user only its reach", async () => {
+  it("shows the client admin who it contacts on Agent settings, reached from the old Access address", async () => {
     const api = fakeApi({
       ...base,
       "GET /api/access": () => ACCESS,
@@ -616,7 +742,7 @@ describe("the agent page", () => {
       "GET /api/table": () => TABLE,
       "GET /api/access": () => ACCESS,
     });
-    renderAt(`/agents/${SVC}/access`, api);
+    renderAt(`/agents/${SVC}/settings`, api);
     await waitFor(() => expect(screen.getByTestId("agent-state")).toHaveTextContent("Arbeitet"));
     expect(await screen.findByTestId(`agent-reach-${QBO}-update`)).toHaveTextContent(
       "Ändern: braucht Ihre Freigabe",
@@ -647,5 +773,21 @@ describe("run forms", () => {
       { key: "d", label: "d", kind: "choice", choices: ["x", "y"], required: false },
     ]);
     expect(formFields({ properties: { rows: { type: "array" } } })).toBeNull();
+  });
+});
+
+describe("trigger words", () => {
+  const words = (o: Record<string, unknown>, name: string | null = "pia") =>
+    triggerWords(trigger(o) as Parameters<typeof triggerWords>[0], name, EN);
+  it("says each kind of trigger plainly, never its rules", () => {
+    expect(words({ type: "schedule", cron: "0 7 * * 1-5" })).toBe("Weekdays at 7:00 AM");
+    expect(words({ type: "schedule", cron: "30 18 * * *" })).toBe("Every day at 6:30 PM");
+    expect(words({ type: "schedule", cron: "*/5 * * * *" })).toBe("On a schedule");
+    expect(words({ type: "manual", clientCanRun: true })).toBe("When you start it with Run now");
+    expect(words({ type: "command" })).toBe("When someone types /pia in a thread");
+    expect(words({ type: "message", channels: ["email", "sms"] })).toBe(
+      "When someone messages it by Email or Text",
+    );
+    expect(words({ event: "some.internal_event" })).toBe("When something it watches happens");
   });
 });

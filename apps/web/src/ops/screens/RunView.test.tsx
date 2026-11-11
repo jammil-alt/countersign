@@ -906,7 +906,135 @@ describe("run oversight and the same error elsewhere", () => {
   });
 });
 
-// Hand off (owner, 2026-11-11; docs/plan.md §1.95): the sender's step links to the run it
+// Step panel (docs/plan.md §1.95): a checklist row opens beside the run with what the step did,
+// its tries, models, tokens and cost, what went in and came out as fields, each model call with
+// its prompt and answer, its change before and after, and on Data what it touched, with links.
+describe("back-office step panel", () => {
+  const STEP_ID = "00000000-0000-4000-8000-0000000f2001";
+  const CALL = "00000000-0000-4000-8000-0000000f5001";
+  const RECORD = "00000000-0000-4000-8000-0000000f8001";
+  const DOC = "00000000-0000-4000-8000-0000000d0001";
+  const base = detail("resolved");
+  const data = {
+    ...base,
+    steps: [
+      step(STEP_ID, "update", "action", "succeeded", {
+        skillRef: "testkit.record.update",
+        input: { id: "r1", amount: "12.00", documentId: DOC },
+        output: { id: "r1", updated: true, sources: [RECORD] },
+        summary: "Updated record r1",
+        costUsd: "0.0123",
+        tokensIn: 1200,
+        tokensOut: 80,
+        attempts: 2,
+        models: ["claude-opus-5-5"],
+        finishedAt: "2026-11-03T10:00:40.000Z",
+      }),
+    ],
+    actions: [
+      {
+        ...base.actions[0],
+        status: "done",
+        approvedBy: "00000000-0000-4000-8000-0000000aa001",
+        approvedAt: "2026-11-03T10:00:30.000Z",
+        executedAt: "2026-11-03T10:00:35.000Z",
+      },
+    ],
+    sourceNames: { [RECORD]: "Oak board · r1" },
+  };
+  const modelCall = {
+    id: CALL,
+    runId: RUN_ID,
+    stepRunId: STEP_ID,
+    agentVersionId: null,
+    provider: "anthropic",
+    model: "claude-opus-5-5",
+    tokensIn: 1200,
+    tokensOut: 80,
+    costUsd: "0.0123",
+    durationMs: 900,
+    stopReason: "end_turn",
+    createdAt: "2026-11-03T10:00:20.000Z",
+  };
+
+  function renderRun(path: string) {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: () => data,
+      [`GET /api/ops/runs/${RUN_ID}/model-calls`]: () => ({ modelCalls: [modelCall] }),
+      [`GET /api/ops/model-calls/${CALL}`]: () => ({
+        modelCall,
+        body: { request: { system: "Read the record" }, answer: { text: "ok" }, error: null },
+      }),
+    });
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    return api;
+  }
+
+  it("opens from a row with what it did, models, prompt and answer, and the change", async () => {
+    const user = userEvent.setup();
+    renderRun(`/ops/runs/${RUN_ID}?tab=timeline`);
+    await user.click(await screen.findByTestId(`ops-run-step-${STEP_ID}-open`));
+    const panel = await screen.findByTestId("ops-run-step-panel");
+    expect(within(panel).getByRole("heading", { name: "Update the record" })).toHaveFocus();
+    expect(within(panel).getByTestId("ops-run-step-panel-summary")).toHaveTextContent(
+      "Updated record r1",
+    );
+    const facts = within(panel).getByTestId("ops-run-step-panel-facts");
+    expect(facts).toHaveTextContent("2 (retried 1 time)");
+    expect(facts).toHaveTextContent("claude-opus-5-5");
+    expect(facts).toHaveTextContent("1.2k in / 80 out");
+    expect(facts).toHaveTextContent("$0.01");
+    expect(facts).toHaveTextContent("30 s");
+
+    const input = within(panel).getByTestId("ops-run-step-panel-input");
+    expect(input).toHaveTextContent("Amount");
+    expect(input).toHaveTextContent("12");
+    expect(input.textContent).not.toContain("{");
+
+    const calls = await within(panel).findByTestId("ops-run-step-panel-model-calls");
+    expect(calls).toHaveTextContent("anthropic · claude-opus-5-5");
+    await user.click(within(calls).getByTestId(`ops-run-step-panel-call-${CALL}-open`));
+    expect(await within(calls).findByTestId(`ops-model-body-${CALL}`)).toHaveTextContent(
+      "Read the record",
+    );
+
+    const change = within(panel).getByTestId(
+      "ops-run-step-panel-change-00000000-0000-4000-8000-0000000f4001",
+    );
+    expect(change).toHaveTextContent("Done");
+    expect(change).toHaveTextContent("Approved");
+    expect(within(change).getByTestId("change")).toHaveTextContent("12.00");
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("ops-run-step-panel")).toBeNull());
+  });
+
+  it("opens from a shared address and lists on Data the change, record and document", async () => {
+    const user = userEvent.setup();
+    renderRun(`/ops/runs/${RUN_ID}?step=${STEP_ID}`);
+    const panel = await screen.findByTestId("ops-run-step-panel");
+    await user.click(within(panel).getByTestId("ops-run-step-panel-tab-data"));
+    const list = within(panel).getByTestId("ops-run-step-data");
+    expect(within(list).getByRole("link", { name: "Oak board · r1" })).toHaveAttribute(
+      "href",
+      `/ops/clients/${TENANT}/records/${RECORD}`,
+    );
+    expect(within(list).getByRole("link", { name: "Document ·0d0001" })).toHaveAttribute(
+      "href",
+      `/ops/clients/${TENANT}/documents/${DOC}`,
+    );
+    expect(within(list).getByTestId("ops-run-step-data-change")).toHaveTextContent("Done");
+  });
+});
+
+// Hand off (owner, 2026-11-11; docs/plan.md §1.96): the sender's step links to the run it
 // started; the run started says where it came from and the step it started at.
 describe("back-office run view: hand-offs", () => {
   const OTHER = "00000000-0000-4000-8000-0000000f1abc";

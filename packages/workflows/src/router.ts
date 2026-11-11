@@ -449,7 +449,7 @@ async function routeW2E(
   return out;
 }
 
-// ── Hand off (owner, 2026-11-11; docs/plan.md §1.95) ────────────────────────────────────────────
+// ── Hand off (owner, 2026-11-11; docs/plan.md §1.96) ────────────────────────────────────────────
 
 /** Why a hand-off step started nothing. */
 export type HandoffRefusal =

@@ -1,4 +1,4 @@
-// Hand off (owner, 2026-11-11; docs/plan.md §1.95): what a hand-off step needs to know about the
+// Hand off (owner, 2026-11-11; docs/plan.md §1.96): what a hand-off step needs to know about the
 // agent it hands off to. The server builds it from the client's other client agents' live
 // versions; the builder gets the same list from the server, so both validate with the same facts.
 

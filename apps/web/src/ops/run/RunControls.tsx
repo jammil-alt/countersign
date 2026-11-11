@@ -215,7 +215,8 @@ function ModelCallRow({
   );
 }
 
-function ModelCallBody({ id }: { id: string }) {
+/** One model call's request and answer, asked for when shown. */
+export function ModelCallBody({ id }: { id: string }) {
   const state = useApi(apiRoutes.opsModelCall, { params: { id } });
   return (
     <Loaded state={state}>

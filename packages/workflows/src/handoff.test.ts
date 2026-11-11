@@ -1,4 +1,4 @@
-// Hand off (owner, 2026-11-11; docs/plan.md §1.95): a hand-off step starts another agent's run at
+// Hand off (owner, 2026-11-11; docs/plan.md §1.96): a hand-off step starts another agent's run at
 // one of its steps; a run so started skips its earlier steps and takes the input handed over.
 import type { AnyAgentBundle, processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";

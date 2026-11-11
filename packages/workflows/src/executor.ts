@@ -153,7 +153,7 @@ export interface ExecutorContext {
   conversation?: ConversationPort;
   /** AI reviewers for confer checks; absent: an AI reviewer's verdict is `no_answer`. */
   confer?: ConferPort;
-  // Hand off (owner, 2026-11-11; docs/plan.md §1.95)
+  // Hand off (owner, 2026-11-11; docs/plan.md §1.96)
   /** Hand-off steps start other agents' runs through it; absent, a live hand-off step fails. */
   handoff?: HandoffPort;
   /**
@@ -3064,7 +3064,7 @@ class Executor {
     });
   }
 
-  // ── Hand off (owner, 2026-11-11; docs/plan.md §1.95) ──────────────────────────────────────────
+  // ── Hand off (owner, 2026-11-11; docs/plan.md §1.96) ──────────────────────────────────────────
 
   /**
    * A hand-off step: its input resolved over this run, then another agent's run started at the

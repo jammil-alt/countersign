@@ -268,6 +268,18 @@ describe.skipIf(!h)("triggers, six kinds", () => {
         403,
       );
     });
+
+    it("tells the client how it starts in plain facts, never its hook or rules, and only its own", async () => {
+      const res = await H.call(user("a"), "GET", `/api/services/${hooky}/triggers`);
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      expect(j(res.json).triggers).toEqual([
+        expect.objectContaining({ type: "webhook", event: null, cron: null, channels: [] }),
+      ]);
+      expect(j(res.json).triggers[0].lastStartedAt).not.toBeNull();
+      expect(JSON.stringify(res.json)).not.toContain(hook.id);
+      expect(JSON.stringify(res.json)).not.toContain("dedupeKey");
+      expect((await H.call(admin("b"), "GET", `/api/services/${hooky}/triggers`)).status).toBe(404);
+    });
   });
 
   describe("message", () => {

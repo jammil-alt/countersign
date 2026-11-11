@@ -1,4 +1,4 @@
-// Hand off (owner, 2026-11-11; docs/plan.md §1.95): a hand-off step starts another client agent's
+// Hand off (owner, 2026-11-11; docs/plan.md §1.96): a hand-off step starts another client agent's
 // run at one of its steps. The router decides (`handoffRunRequest`: same client, started, never
 // the same agent, at most three handoffs deep); this writes the run row in the client's scope and
 // starts its instance, as a dispatched run starts. And the other way: what a handed-off run's
