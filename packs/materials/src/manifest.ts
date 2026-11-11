@@ -261,6 +261,12 @@ export const materialsManifest: PackManifest = lazyParse(PackManifest, () => ({
       title: "Catalog",
       roles: ["client_admin", "client_user"],
     },
+    // §1.88: the vendor catalog, read only in the portal (the client's own data).
+    {
+      route: "/reports/materials/vendor-catalog",
+      title: "Vendor catalog",
+      roles: ["client_admin", "client_user"],
+    },
     // P-9: purchase requests, their quotes and orders (docs/plan.md §1.71).
     {
       route: "/reports/materials/requests",

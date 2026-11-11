@@ -61,6 +61,7 @@ import {
   admin,
   createApiHarness,
   FakeWorkflowStep,
+  forbiddenKeys,
   OPERATOR,
 } from "./api.test-helper";
 import { createPlatform, deploymentConnectors } from "./platform";
@@ -657,7 +658,7 @@ describe.skipIf(!h)("the vendor catalog's pattern, end to end", () => {
     expect(bb).toMatchObject({ lastPrice: "66.0000", lastPriceOn: "2026-11-02" });
   });
 
-  it("serves the vendor's catalog and a master item's vendors to the operator, audited", async () => {
+  it("serves the vendor's catalog and a master item's vendors to the operator and, read only, the client", async () => {
     const cat = await H.call(
       OPERATOR,
       "GET",
@@ -677,9 +678,35 @@ describe.skipIf(!h)("the vendor catalog's pattern, end to end", () => {
     );
     expect(side.status, JSON.stringify(side.json)).toBe(200);
     expect((side.json as J).report.vendors.map((v: J) => v.id)).toEqual([VI.bb34]);
-    // The portal doesn't read the back office's vendor catalog.
+    // The client reads its own vendor catalog in the portal (§1.88 web), read only.
     const portal = await H.call(admin("a"), "GET", "/api/reports/materials/vendor-catalog");
-    expect(portal.status).toBe(404);
+    expect(portal.status, JSON.stringify(portal.json)).toBe(200);
+    expect((portal.json as J).report.vendors.map((v: J) => v.vendorId)).toContain(vendorId);
+    const portalItems = await H.call(
+      admin("a"),
+      "GET",
+      `/api/reports/materials/vendor-catalog/items/${vendorId}`,
+    );
+    expect(portalItems.status, JSON.stringify(portalItems.json)).toBe(200);
+    expect((portalItems.json as J).report.items.map((i: J) => i.id)).toContain(VI.bb34);
+    const portalSide = await H.call(
+      admin("a"),
+      "GET",
+      `/api/reports/materials/master-vendors/items/${M.baltic34}`,
+    );
+    expect(portalSide.status, JSON.stringify(portalSide.json)).toBe(200);
+    expect((portalSide.json as J).report.vendors.map((v: J) => v.id)).toEqual([VI.bb34]);
+    for (const res of [portal, portalItems, portalSide]) {
+      expect(forbiddenKeys(res.json, /cost|token|prompt|instruction/i)).toEqual([]);
+    }
+    // The actions stay the operator's.
+    const clientPrefers = await H.call(
+      admin("a"),
+      "POST",
+      `/api/ops/clients/${tenantId()}/packs/materials/actions/vendor-item-preferred`,
+      { vendorItemId: VI.bb34 },
+    );
+    expect(clientPrefers.status).toBe(403);
     // Preferred, then discontinued: a person's actions, each with its audit row.
     const pref = await H.call(
       OPERATOR,

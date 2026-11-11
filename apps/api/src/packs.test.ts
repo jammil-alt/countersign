@@ -102,6 +102,8 @@ describe.skipIf(!h)("packs on the platform", () => {
     expect(materials.screens.map((s: J) => s.title)).toEqual([
       "Price watch",
       "Catalog",
+      // §1.88
+      "Vendor catalog",
       // P-9
       "Purchase requests",
     ]);
