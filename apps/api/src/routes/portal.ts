@@ -496,8 +496,24 @@ export async function portalRunView(
 
   const [[summary], steps, oversight, conversations, runItems, actions] = await Promise.all([
     summarize(tx, tenantId, [head], platform),
+    // Only the columns the timeline and its checks read: never cost or tokens, and of the
+    // step's input only `reviewer` (all a confer's check reads of it).
     tx
-      .select()
+      .select({
+        id: stepRun.id,
+        nodeId: stepRun.nodeId,
+        nodeType: stepRun.nodeType,
+        status: stepRun.status,
+        input: sql<
+          Record<string, unknown>
+        >`jsonb_build_object('reviewer', ${stepRun.input}->'reviewer')`.mapWith(
+          (v: unknown) => (typeof v === "string" ? JSON.parse(v) : v) as Record<string, unknown>,
+        ),
+        output: stepRun.output,
+        summary: stepRun.summary,
+        startedAt: stepRun.startedAt,
+        finishedAt: stepRun.finishedAt,
+      })
       .from(stepRun)
       .where(and(eq(stepRun.runId, runId), eq(stepRun.tenantId, tenantId)))
       .orderBy(stepRun.startedAt, stepRun.id),
