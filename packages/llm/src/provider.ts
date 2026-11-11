@@ -208,7 +208,8 @@ export async function httpPostJson(
  * carries its whole transcript, as with Anthropic.
  */
 export function httpTransport(wire: ProviderWire, options: HttpTransportOptions): LlmTransport {
-  const base = (options.baseURL ?? wire.defaultBaseURL).replace(/\/+$/, "");
+  let base = options.baseURL ?? wire.defaultBaseURL;
+  while (base.endsWith("/")) base = base.slice(0, -1);
   return {
     async create(request, opts) {
       const json = await httpPostJson(

@@ -237,7 +237,7 @@ const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 // version's step inputs or settings is treated as the client's record or connection id and is not
 // promoted (ARCHITECTURE §9.3 "Client-specific values ... are left out").
 export function holdsRecordId(value: unknown): boolean {
-  if (typeof value === "string") return UUID_IN_TEXT.test(value.replace(/\{\{[^}]*\}\}/g, ""));
+  if (typeof value === "string") return UUID_IN_TEXT.test(value.replace(/\{\{[^{}]*\}\}/g, ""));
   if (Array.isArray(value)) return value.some(holdsRecordId);
   if (isPlainObject(value)) return Object.values(value).some(holdsRecordId);
   return false;
