@@ -32,9 +32,10 @@ describe("the still frame", () => {
   });
 
   it("needs no script: index.html has no inline script and no inline handler", () => {
-    for (const tag of html.match(/<script\b[^>]*>/g) ?? []) expect(tag).toMatch(/\ssrc=/);
+    // Tag names in HTML are case-insensitive, so every check is too.
+    for (const tag of html.match(/<script\b[^>]*>/gi) ?? []) expect(tag).toMatch(/\ssrc=/i);
     expect(html).not.toMatch(/\son[a-z]+=/i);
-    expect(html).not.toContain("<style");
+    expect(html).not.toMatch(/<style\b/i);
   });
 
   it("has a status for screen readers and hides its shapes from them", () => {
