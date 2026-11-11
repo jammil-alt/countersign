@@ -126,6 +126,19 @@ describe("portal run timeline", () => {
     }
   });
 
+  it("asks for nothing it waits on when the run is over: the run, its audit and its agent's other runs", async () => {
+    const api = renderTimeline(LEAKY_TIMELINE, {
+      [`GET /api/runs/${RUN_ID}/audit`]: () => ({ entries: [] }),
+      "GET /api/runs": () => ({ runs: [] }),
+      "GET /api/inbox": () => ({ items: [] }),
+    });
+    await screen.findByTestId("portal-run-timeline");
+    await screen.findByTestId("portal-run-other");
+    await waitFor(() => expect(api.calls).toContain(`GET /api/runs/${RUN_ID}/audit`));
+    expect(api.calls).not.toContain("GET /api/inbox");
+    expect(api.calls.filter((c) => c === `GET /api/runs/${RUN_ID}`)).toHaveLength(1);
+  });
+
   // Skill model (2026-11-10), wave A: a write reads "Changed in <their tool>" or "Saved".
   it("says where each write went, by the tool's name, and in the client's language", async () => {
     const [first, second] = LEAKY_TIMELINE.steps as [object, object];

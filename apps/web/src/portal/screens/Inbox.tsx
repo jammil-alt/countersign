@@ -17,14 +17,8 @@ import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { Select } from "../../ui/forms";
 import { Page } from "../../ui/page";
-import {
-  buttonClass,
-  Card,
-  EmptyState,
-  ErrorNotice,
-  Loading,
-  PageHeader,
-} from "../../ui/primitives";
+import { buttonClass, Card, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
+import { Skeleton, SkeletonText } from "../../ui/skeleton";
 import { useRefreshInboxCount } from "../inboxCount";
 import { askSloan, PORTAL_PATHS } from "../paths";
 
@@ -42,6 +36,8 @@ export function viewOf(params: URLSearchParams): { view: View; later: boolean } 
 
 /** How many of the latest done items show under "Waiting on you" ("Done this week"). */
 const DONE_PREVIEW = 5;
+/** The most items the API lists (`GET /api/inbox`): a full list may hold fewer than the count. */
+const INBOX_LIST_MAX = 200;
 const WEEK_MS = 7 * 24 * 60 * 60_000;
 
 export function PortalInboxScreen() {
@@ -68,6 +64,17 @@ export function PortalInboxScreen() {
   const done = useApi(apiRoutes.portalInbox, { query: { status: "resolved" } });
   const team = useApi(apiRoutes.portalTeam);
   usePoll(waiting.reload, true, 20_000, waiting.loading);
+  // The frame's count is this list's length (open, not put off). The frame asks for it again on a
+  // page change only when it is a few seconds old (docs/audit-plan.md 2.1), so a list that says
+  // otherwise refreshes it: an item that opened since shows in the count as it shows here.
+  const overview = useApi(apiRoutes.portalOverview);
+  // Only a list just answered is compared: a stored one refreshing behind may be older than the count.
+  const openCount = waiting.refreshing ? undefined : waiting.data?.items.length;
+  const countShown = overview.data?.needsYou.inbox;
+  useEffect(() => {
+    if (openCount === undefined || countShown === undefined) return;
+    if (openCount < INBOX_LIST_MAX && openCount !== countShown) refreshCount();
+  }, [openCount, countShown, refreshCount]);
 
   // A viewer (`canSign` false) sees the Desk without its buttons; until the team loads, the API
   // is the judge.
@@ -270,9 +277,13 @@ export function PortalInboxScreen() {
                 <ErrorNotice error={state.error} onRetry={state.reload} />
               </div>
             ) : !state.data ? (
-              <div className="px-5">
-                <Loading />
-              </div>
+              <Skeleton>
+                <div className="flex flex-col gap-5 p-5">
+                  <SkeletonText lines={2} />
+                  <SkeletonText lines={2} />
+                  <SkeletonText lines={2} />
+                </div>
+              </Skeleton>
             ) : (
               <>
                 <DeskList
