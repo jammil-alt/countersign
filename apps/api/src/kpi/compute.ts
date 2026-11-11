@@ -51,10 +51,8 @@ const LIMIT = sql.raw(String(KPI_SOURCES_MAX));
 /** `numeric` text Postgres reads: digits with an optional sign and fraction. */
 const NUMERIC_TEXT = "^-?[0-9]+(\\.[0-9]+)?$";
 
-async function one(tx: Tx, query: SQL): Promise<Row> {
-  const rows = [...(await tx.execute<Row>(query))];
-  return rows[0] ?? { v: "0", ids: [] };
-}
+/** Plain measures asked in one statement at most; more go in another (parameters stay well under 65k). */
+const PER_STATEMENT = 200;
 
 /** The live runs of the agent whose time falls in the period: finished, else created. */
 // DECISION: a run belongs to the period it finished in (`finished_at`), or, while it is still
@@ -63,7 +61,8 @@ function runsQuery(scope: KpiScope, m: Extract<Plain, { kind: "runs" }>, b: KpiB
   const at = sql`coalesce(r.finished_at, r.created_at)`;
   const status = m.status ?? "any";
   return sql`select count(*)::text as v,
-      to_jsonb((array_agg(r.id::text order by ${at} desc))[1:${LIMIT}]) as ids
+      to_jsonb((array_agg(r.id::text order by ${at} desc))[1:${LIMIT}]) as ids,
+      null::jsonb as currencies
     from run r
     where r.tenant_id = ${scope.tenantId} and r.agent_id = ${scope.agentId} and r.mode = 'live'
       and ${at} >= ${b.from.toISOString()}::timestamptz and ${at} < ${b.to.toISOString()}::timestamptz
@@ -74,7 +73,8 @@ function runsQuery(scope: KpiScope, m: Extract<Plain, { kind: "runs" }>, b: KpiB
 /** Writes done to the client's tools by the agent's live runs, executed in the period. */
 function actionsQuery(scope: KpiScope, m: Extract<Plain, { kind: "actions" }>, b: KpiBounds): SQL {
   return sql`select count(*)::text as v,
-      to_jsonb((array_agg(ea.id::text order by ea.executed_at desc))[1:${LIMIT}]) as ids
+      to_jsonb((array_agg(ea.id::text order by ea.executed_at desc))[1:${LIMIT}]) as ids,
+      null::jsonb as currencies
     from external_action ea
     join run r on r.id = ea.run_id and r.tenant_id = ea.tenant_id
     ${m.connector ? sql`join connection c on c.id = ea.connection_id and c.tenant_id = ea.tenant_id` : sql``}
@@ -120,34 +120,17 @@ function stepQuery(scope: KpiScope, m: Extract<Plain, { kind: "sum" | "count" }>
       and ${present}`;
 }
 
-/** One measure's value over the period: plain measures in one SQL each, ratios from two. */
-export async function measureValue(
-  tx: Tx,
-  scope: KpiScope,
-  m: Measure,
-  b: KpiBounds,
-): Promise<MeasureResult> {
-  if (m.kind === "ratio") {
-    const [num, den] = [
-      await measureValue(tx, scope, m.numerator, b),
-      await measureValue(tx, scope, m.denominator, b),
-    ];
-    const sources = capped([...num.sources, ...den.sources]);
-    if (num.value === null || den.value === null || new Decimal(den.value).isZero()) {
-      return { value: null, sources, currency: null };
-    }
-    // DECISION: a ratio is kept to 4 decimal places (0.8750), rounded half up.
-    const ratio = new Decimal(num.value).div(den.value).toDecimalPlaces(4).toFixed(4);
-    return { value: ratio, sources, currency: null };
-  }
-  const row = await one(
-    tx,
-    m.kind === "runs"
-      ? runsQuery(scope, m, b)
-      : m.kind === "actions"
-        ? actionsQuery(scope, m, b)
-        : stepQuery(scope, m, b),
-  );
+/** A plain measure's one-row query. */
+function plainQuery(scope: KpiScope, m: Plain, b: KpiBounds): SQL {
+  return m.kind === "runs"
+    ? runsQuery(scope, m, b)
+    : m.kind === "actions"
+      ? actionsQuery(scope, m, b)
+      : stepQuery(scope, m, b);
+}
+
+/** A plain measure's row as its value. */
+function plainResult(m: Plain, row: Row): MeasureResult {
   const sources = capped(row.ids ?? []);
   const raw = row.v ?? "0";
   if ((m.kind === "sum" || m.kind === "count") && m.money) {
@@ -159,6 +142,111 @@ export async function measureValue(
   return { value: new Decimal(raw).toFixed(), sources, currency: null };
 }
 
+/** A ratio from its two sides. */
+function ratioResult(num: MeasureResult, den: MeasureResult): MeasureResult {
+  const sources = capped([...num.sources, ...den.sources]);
+  if (num.value === null || den.value === null || new Decimal(den.value).isZero()) {
+    return { value: null, sources, currency: null };
+  }
+  // DECISION: a ratio is kept to 4 decimal places (0.8750), rounded half up.
+  const ratio = new Decimal(num.value).div(den.value).toDecimalPlaces(4).toFixed(4);
+  return { value: ratio, sources, currency: null };
+}
+
+export interface MeasureAsk {
+  scope: KpiScope;
+  measure: Measure;
+  bounds: KpiBounds;
+}
+
+/**
+ * Many measures' values over their periods, in the order asked: every plain measure (a ratio's two
+ * sides included) in one statement, each its own one-row aggregate joined with `union all`.
+ */
+// DECISION (audit-plan 6.1): one statement for every KPI of every agent, so the count no longer
+// grows per agent or per KPI. Each part is the same one-row query as before, tagged by position.
+export async function measureValues(tx: Tx, asks: readonly MeasureAsk[]): Promise<MeasureResult[]> {
+  const plain: { scope: KpiScope; m: Plain; b: KpiBounds }[] = [];
+  type Shape = number | [Shape, Shape];
+  const leaf = (scope: KpiScope, m: Measure, b: KpiBounds): Shape => {
+    if (m.kind === "ratio") return [leaf(scope, m.numerator, b), leaf(scope, m.denominator, b)];
+    plain.push({ scope, m, b });
+    return plain.length - 1;
+  };
+  const shape = asks.map((a) => leaf(a.scope, a.measure, a.bounds));
+  const rows: Row[] = new Array(plain.length);
+  for (let lo = 0; lo < plain.length; lo += PER_STATEMENT) {
+    const part = plain.slice(lo, lo + PER_STATEMENT);
+    const query = sql.join(
+      part.map(
+        (p, i) =>
+          sql`select ${sql.raw(String(lo + i))}::int as i, q.v, q.ids, q.currencies from (${plainQuery(p.scope, p.m, p.b)}) q`,
+      ),
+      sql` union all `,
+    );
+    for (const r of await tx.execute<Row & { i: number }>(query)) rows[Number(r.i)] = r;
+  }
+  const result = (i: number) =>
+    plainResult((plain[i] as (typeof plain)[number]).m, rows[i] ?? { v: "0", ids: [] });
+  const resolve = (s: Shape): MeasureResult =>
+    typeof s === "number" ? result(s) : ratioResult(resolve(s[0]), resolve(s[1]));
+  return shape.map(resolve);
+}
+
+/** One measure's value over the period. */
+export async function measureValue(
+  tx: Tx,
+  scope: KpiScope,
+  m: Measure,
+  b: KpiBounds,
+): Promise<MeasureResult> {
+  return (await measureValues(tx, [{ scope, measure: m, bounds: b }]))[0] as MeasureResult;
+}
+
+export interface KpiAsk {
+  scope: KpiScope;
+  kpis: readonly Kpi[];
+  boundsOf: (k: Kpi) => KpiBounds;
+}
+
+/** Several agents' KPIs in `locale`, in one statement; one list per ask, in order. */
+export async function computeKpisMany(
+  tx: Tx,
+  asks: readonly KpiAsk[],
+  locale: Locale,
+): Promise<KpiValue[][]> {
+  const flat = asks.flatMap((a) =>
+    a.kpis.map((k) => ({ k, scope: a.scope, bounds: a.boundsOf(k) })),
+  );
+  if (flat.length === 0) return asks.map(() => []);
+  const values = await measureValues(
+    tx,
+    flat.map((f) => ({ scope: f.scope, measure: f.k.measure, bounds: f.bounds })),
+  );
+  const out: KpiValue[] = flat.map(({ k, bounds: b }, i) => {
+    const r = values[i] as MeasureResult;
+    const currency = k.format === "money" ? (r.currency ?? KPI_DEFAULT_CURRENCY) : null;
+    return {
+      id: k.id,
+      label: pickLocalized(k.label, locale),
+      period: k.period,
+      format: k.format,
+      value: r.value,
+      display: formatKpi(r.value, k.format, locale, currency ?? undefined),
+      currency,
+      sources: r.sources,
+      from: b.from.toISOString(),
+      to: b.to.toISOString(),
+    };
+  });
+  let at = 0;
+  return asks.map((a) => {
+    const mine = out.slice(at, at + a.kpis.length);
+    at += a.kpis.length;
+    return mine;
+  });
+}
+
 /** Each KPI's label and value in `locale`, every one over the bounds `boundsOf` gives it. */
 export async function computeKpis(
   tx: Tx,
@@ -166,23 +254,10 @@ export async function computeKpis(
   kpis: readonly Kpi[],
   input: { locale: Locale; boundsOf: (k: Kpi) => KpiBounds },
 ): Promise<KpiValue[]> {
-  const out: KpiValue[] = [];
-  for (const k of kpis) {
-    const b = input.boundsOf(k);
-    const r = await measureValue(tx, scope, k.measure, b);
-    const currency = k.format === "money" ? (r.currency ?? KPI_DEFAULT_CURRENCY) : null;
-    out.push({
-      id: k.id,
-      label: pickLocalized(k.label, input.locale),
-      period: k.period,
-      format: k.format,
-      value: r.value,
-      display: formatKpi(r.value, k.format, input.locale, currency ?? undefined),
-      currency,
-      sources: r.sources,
-      from: b.from.toISOString(),
-      to: b.to.toISOString(),
-    });
-  }
-  return out;
+  const [mine] = await computeKpisMany(
+    tx,
+    [{ scope, kpis, boundsOf: input.boundsOf }],
+    input.locale,
+  );
+  return mine ?? [];
 }

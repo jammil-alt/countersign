@@ -4332,6 +4332,23 @@ pages switch in a follow-up.
 5. Home's "Not now" removes the row at once and puts it back if refused; the Runs list keeps its rows
    across a status or start filter, never across a change of agent.
 
+**The heavy handlers** (phase 6: #264, #265, #266; server only):
+
+1. A handler reads its main row once, then asks the rest together inside the one scoped transaction
+   (never its own connection), and selects only the columns and JSON paths it shows.
+2. Run pages get a light status route (`GET /api/runs/:id/status`, `GET /api/ops/runs/:id/status`):
+   one statement whose key is an md5 of the content of every row the page shows (its
+   conversations' translations included), not a timestamp, which can miss changes or move
+   backwards. The web switches to polling it in a follow-up.
+3. Portal Home's table reads every agent's latest run, step and wait in one lateral query and every
+   KPI of every agent in one statement; nothing grows per agent or per KPI. The KPIs stay on the
+   table (a route of their own was not needed).
+4. `opsClient` returns each agent's go-live (`goLive`), built in bulk from one writes context
+   (`writesContext`) for all of the client's bundles; the client overview drops its per-agent
+   calls in a follow-up (2.6).
+5. `portalService` returns the stage, now, runs now and KPIs from one projection of the bundle; no
+   bundle, prompt or cost reaches the portal (invariant 11, contract tests).
+
 **Running the run.** Worker sessions cannot force-push, so a worker brings its branch up to date by
 merging `speed/run` into it, and the lead merges each PR with a merge commit (never a squash). The
 tree merged is the one the gates ran on. `pnpm typecheck` runs out of memory in a 15 GB cloud

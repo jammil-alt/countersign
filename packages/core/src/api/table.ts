@@ -8,25 +8,14 @@ import { z } from "zod";
 import { isUuid } from "../ids";
 import { WeeklyEditBody, WeeklyTableView, WeekStartParam } from "../weekly/schemas";
 import { defineRoute } from "./contract";
-import { ActivityRuns, AgentRunsNow, DayRuns } from "./usage";
+import { ActivityRuns, AgentRunsNow, DayRuns, ServiceNow } from "./usage";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
 const OPS = ["operator"] as const;
 const CLIENT = ["client_admin", "client_user"] as const;
 
-/** What a service is doing now: its latest live run. */
-export const ServiceNow = z.object({
-  runId: z.string(),
-  status: z.string(),
-  /** The current top-level step: "3 of 6 · Match items". Null once the run is done. */
-  step: z
-    .object({ index: z.number().int(), total: z.number().int(), label: z.string() })
-    .nullable(),
-  /** When the run started, or when it began waiting. */
-  since: z.string().nullable(),
-  /** It waits on someone of the client (an open Desk item of this run for anyone of the client). */
-  waitingOnYou: z.boolean(),
-});
+// 6.6: defined beside the service page's answer, which carries it too.
+export { ServiceNow };
 
 export const TableService = z.object({
   id: z.string(),

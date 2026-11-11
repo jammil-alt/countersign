@@ -159,7 +159,7 @@ about 2.2 MB, pdf-lib 0.8 MB.
 
 ### Results
 
-**Status (lead), 2026-11-11 13:50 UTC:** steps 1 to 3 done and going to `main` as the front-end cut (`speed/cut`). Phase 6 (6.1–6.4, 6.6, 6.7) in progress on `speed/run`. The owner chose to merge the five held PRs (#250, #252, #253, #254, #255) to `main` one at a time once their CI is green. Not started: 4.2, phase 3, the rest of phase 6, phases 7, 8 and 10 (the next run).
+**Status (lead), 2026-11-11 14:30 UTC:** steps 1 to 3 on `main` (#263). Held PRs going to `main` one at a time on the owner's word: #250 and #252 merged; #255, #254, #253 next (paused: GitHub's runners cannot reach the Ubuntu mirrors, so CI and deploys fail before any test). Phase 6 part (6.1–6.4, 6.6 server, 6.7) merged in `speed/run` (#264–#266), going to `main` as one PR. Not started (next run): 4.2, phase 3, the rest of phase 6, phases 7, 8 and 10, and the web follow-ups (2.2's run pages, 2.6, the status-route polls, 6.6's page).
 
 Add a row after each phase. "To content" is the script's `settled` time with `LATENCY_MS=100`
 (appendix A): it is not a real-world time, but it shows waits in a row.
@@ -173,6 +173,10 @@ Add a row after each phase. "To content" is the script's `settled` time with `LA
 | 2026-11-11 | `aa4fe50` | frame and Home (#257: 1.5 Home, 2.3) | 6 / 93 / 0.9 s | 11 / 149 / 0.7 s | 4 / 60 / 1.0 s | 10 / 108 / 1.0 s | 603 kB |
 | 2026-11-11 | `84b38d5` | first load (#261: 1.1, 4.1, 4.3–4.5) | 6 / 93 / 0.9 s | 11 / 149 / 0.7 s | 4 / 60 / 1.0 s | 10 / 108 / 1.0 s | **429 kB** |
 | 2026-11-11 | `b840a1c` | step 3 done (#258, #259, #260, #262) | 6 / 93 / 0.7 s | 11 / 149 / 0.6 s | 4 / 60 / 1.0 s | 9 / 101 / 0.9 s | 431 kB |
+| 2026-11-11 | `b58efef` | phase 6 part (#264, #265, #266) | 6 / 69 / – | 11 / 122 / – | 4 / 60 / – | 9 / 101 / – | 431 kB |
+
+**After phase 6's part (`b58efef`)**: portal fresh 82 / 988 → 82 / 883, moves 33 / 406 → 33 / 379; back office
+114 / 1,216 → 114 / 1,215 (its gains wait on the web follow-ups). Plain runs only, so no "to content".
 
 **Totals over every screen at `b840a1c`** (calls / SQL; phase 0 → step 3): back office fresh
 131 / 1,402 → 114 / 1,216, moves 79 / 974 → 51 / 607; portal fresh 85 / 1,030 → 82 / 988, moves
@@ -503,7 +507,7 @@ back-office routes; this phase does the same everywhere else. Reads asked togeth
 change the scope while they are in flight. Where a screen needs one fast part and one slow part,
 split the route so the fast part is not held back (rule 4), rather than making one large answer.
 
-- [ ] **6.1 Portal Home's table** (`apps/api/src/routes/table.ts`, `portalTable`; 40 statements,
+- [x] **6.1 Portal Home's table** (#266: 40 → 16 statements) (`apps/api/src/routes/table.ts`, `portalTable`; 40 statements,
   polled every 20 s).
   Check: `activity()` (`routes/usage.ts`) runs twice; a `for` loop over agents reads the latest
   run, then the run's whole bundle and step; `weekKpis` (`apps/api/src/kpi/view.ts`) loads each
@@ -513,19 +517,19 @@ split the route so the fast part is not held back (rule 4), rather than making o
   slim count in place of the second `activity()`. If the KPIs stay slow, serve them from their
   own route so the agents show first.
 
-- [ ] **6.2 Run pages** (`opsRun` in `routes/ops-clients.ts`; `portalRunView` in
+- [x] **6.2 Run pages** (#264 portal, #265 back office; the web's switch to the status routes is a follow-up) (`opsRun` in `routes/ops-clients.ts`; `portalRunView` in
   `routes/portal.ts`).
   Check: the version bundle is loaded twice in the back office; the portal reads the run row
   three times; whole `tool_call` rows with `input` and `output` are selected.
   Do: read the run row, then ask the rest together and pass the bundle down. Add a light
   "status and updated at" route; the page polls that and reloads the full view only on a change.
 
-- [ ] **6.3 Run lists** (`opsRunViews` in `routes/ops-clients.ts`).
+- [x] **6.3 Run lists** (#265) (`opsRunViews` in `routes/ops-clients.ts`).
   Check: it selects `agent_version.bundle` whole for every version in the list, to show a
   workflow name and an error step. Home polls this every 10 s.
   Do: select the names with a JSON path, and select the `run` columns the list shows.
 
-- [ ] **6.4 Portal overview** (`portalOverview` in `routes/portal.ts`): ask its reads together;
+- [x] **6.4 Portal overview** (#264) (`portalOverview` in `routes/portal.ts`): ask its reads together;
   `count(*)` instead of selecting every open inbox id; see 7.3 for its events scan.
 
 - [ ] **6.5 Portal access** (`routes/access.ts`, `apps/api/src/access/release.ts`).
@@ -534,14 +538,14 @@ split the route so the fast part is not held back (rule 4), rather than making o
   Do: call `liveReleases` once for all connections; one `inArray` for contacts. Home needs only
   tool icons: give it those from a cheaper answer.
 
-- [ ] **6.6 Portal agent page.**
+- [ ] **6.6 Portal agent page.** Server done (#266); the page dropping `portalTable` is a web follow-up.
   Check: `portalService` (`routes/usage.ts`) loads the whole live bundle for one boolean;
   `portalServiceView` loads it again; the page (`portal/screens/Agent.tsx`) calls `portalTable`
   to read one agent's stage.
   Do: `portalService` returns the stage, `readsDocuments` and the KPIs from one projection of the
   bundle; the page drops `portalTable`. Invariant 11: no bundle, prompt or cost in the answer.
 
-- [ ] **6.7 Back-office client page.**
+- [x] **6.7 Back-office client page.** (#265; 2.6, the web side, is a follow-up)
   Check: `agentActivity` in `routes/ops-clients.ts` is five reads in a row, one over all of the
   client's runs; the overview screen then asks `go-live` once per agent.
   Do: ask together, a lateral `limit 1` per agent, and return each agent's stage in `opsClient`
