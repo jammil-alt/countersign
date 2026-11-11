@@ -58,7 +58,7 @@ jobs:
             echo "::error::The seed never runs on production; run again with 'Run the seed first' unticked."
             exit 1
           fi
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -68,7 +68,7 @@ jobs:
         run: |
           set -euo pipefail
           branch=$([ "$TARGET" = production ] && echo main || echo staging)
-          url=$(npx --yes neonctl@4 connection-string "$branch" \
+          url=$(npx --yes neonctl@4.22.0 connection-string "$branch" \
             --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
           echo "::add-mask::$url"
           export DIRECT_DATABASE_URL="$url"
