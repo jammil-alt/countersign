@@ -89,7 +89,8 @@ const error = (status: number, code: string, message: string) =>
 function parseFilters(raw: string | undefined): { field: string; op: string; value: string }[] {
   if (!raw) return [];
   const out: { field: string; op: string; value: string }[] = [];
-  const re = /([A-Za-z.]+):([a-z]+):("([^"]*)"|[^,]*)/g;
+  // Bounded parts, so a long run of dots or letters can't make the match slow (CodeQL).
+  const re = /([A-Za-z.]{1,64}):([a-z]{1,16}):("([^"]{0,500})"|[^,]{0,500})/g;
   for (const m of raw.matchAll(re)) {
     out.push({ field: m[1] ?? "", op: m[2] ?? "", value: m[4] ?? m[3] ?? "" });
   }

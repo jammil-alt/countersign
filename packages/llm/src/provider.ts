@@ -154,7 +154,8 @@ function isTimeout(error: unknown): boolean {
  */
 export function httpTransport(wire: ProviderWire, options: HttpTransportOptions): LlmTransport {
   const doFetch = options.fetch ?? ((input, init) => fetch(input, init));
-  const base = (options.baseURL ?? wire.defaultBaseURL).replace(/\/+$/, "");
+  let base = options.baseURL ?? wire.defaultBaseURL;
+  while (base.endsWith("/")) base = base.slice(0, -1);
   const timeoutMs = options.timeoutMs ?? 600_000;
   const maxRetries = options.maxRetries ?? 2;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));

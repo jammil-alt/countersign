@@ -138,11 +138,24 @@ const READ_TABLES = `(() => { ${WALK}
   return tables;
 })()`;
 
+/**
+ * A string as a JavaScript literal inside a script the page runs: JSON's quoting, plus the
+ * characters that could end a script element or a line in older parsers written as escapes.
+ */
+// DECISION (CodeQL js/bad-code-sanitization): selectors are the operator's, but a script built from
+// text escapes everything that could change its meaning, not only quotes.
+function scriptString(value: string): string {
+  return JSON.stringify(value).replace(
+    /[<>/\u2028\u2029]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
 /** One element's text, with READ_TEXT's removals (a field reads as its value); null when none. */
 function textOfScript(selector: string): string {
   return `(() => { ${WALK}
   let el = null;
-  try { el = document.querySelector(${JSON.stringify(selector)}); } catch { return null; }
+  try { el = document.querySelector(${scriptString(selector)}); } catch { return null; }
   if (!el || !visibleAncestors(el)) return null;
   const f = fieldText(el);
   if (f !== null) return f.trim();
@@ -210,7 +223,7 @@ return out;
 function sendsFormScript(selector: string): string {
   return `(() => { ${WALK}
   let el = null;
-  try { el = document.querySelector(${JSON.stringify(selector)}); } catch { return false; }
+  try { el = document.querySelector(${scriptString(selector)}); } catch { return false; }
   return el ? sendsForm(el) : false;
 })()`;
 }

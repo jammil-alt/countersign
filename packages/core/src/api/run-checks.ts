@@ -496,9 +496,7 @@ export function approvalOfStoredStep(
   for (const i of mine) {
     const nodeId = typeof i.payload.nodeId === "string" ? i.payload.nodeId : null;
     if (!nodeId) gate += 1;
-    const key = nodeId
-      ? nodeId.replace(/(:esc\d+)+$/, "").replace(/:a\d+$/, "")
-      : `${row.nodeId}:approval:${gate}`;
+    const key = nodeId ? approvalKeyOf(nodeId) : `${row.nodeId}:approval:${gate}`;
     groups.set(key, [...(groups.get(key) ?? []), i]);
   }
   const decisions = [...groups.values()]
@@ -667,4 +665,15 @@ export function reusedStepOf(
     stepOutput: stepOutputOf(row, items, step.kind),
     record: recordOfStoredStep(step, row, rows, items),
   };
+}
+
+/**
+ * An approval item's node without its escalation and approver suffixes (`…:esc1:esc2`, `…:a3`),
+ * by segments rather than one pattern, so a long node id can't make the match slow.
+ */
+function approvalKeyOf(nodeId: string): string {
+  const parts = nodeId.split(":");
+  while (parts.length > 1 && /^esc\d+$/.test(parts[parts.length - 1] ?? "")) parts.pop();
+  if (parts.length > 1 && /^a\d+$/.test(parts[parts.length - 1] ?? "")) parts.pop();
+  return parts.join(":");
 }
