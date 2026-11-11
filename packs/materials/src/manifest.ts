@@ -27,7 +27,11 @@ import {
   pricesDigest,
   pricesRecord,
 } from "./tools";
-import { SUPERSEDED_BY_VENDOR_SKILLS, VENDOR_SKILLS } from "./vendor/skills";
+import {
+  SUPERSEDED_BY_LIBRARY_SKILLS,
+  VENDOR_LIBRARY_SKILLS,
+  VENDOR_SKILLS,
+} from "./vendor/skills";
 import { VENDOR_TOOLS } from "./vendor/tools";
 
 export { PACK_ID };
@@ -227,8 +231,9 @@ export const MATERIALS_SKILLS: readonly SkillDefinition[] = lazyObjects([
   ...SPLIT_SKILLS,
   // Read a vendor's quote and Choose items to merge: AI skills that write nothing.
   ...REPLACEMENT_SKILLS,
-  // §1.88: the vendor-first matching skills (Match vendor, Match by SKU (vendor), Semantic match
-  // (vendor), Master item manager); Check matches is reused after each AI one.
+  // §1.88: the vendor-first matching skills built in (Match vendor and Match by SKU (vendor); the
+  // AI ones built before the Library's, kept for stored steps); Check matches is reused after each
+  // AI one.
   ...VENDOR_SKILLS,
 ]);
 
@@ -247,9 +252,11 @@ export const materialsManifest: PackManifest = lazyParse(PackManifest, () => ({
   tools: ALL_TOOLS.map((t) => t.spec),
   skills: MATERIALS_SKILLS,
   templates: [],
-  // §1.88: Look up existing and Match the unmatched stay registered for stored steps; new steps
-  // use the vendor-first skills.
-  superseded: SUPERSEDED_BY_VENDOR_SKILLS,
+  // §1.88 (the owner's rule of 2026-11-11): the vendor-first AI skills ship as shared Library
+  // skills the operator edits (installed once when the pack is first switched on); the built-ins
+  // built before stay registered for stored steps, and new steps take the Library ones.
+  librarySkills: VENDOR_LIBRARY_SKILLS,
+  superseded: SUPERSEDED_BY_LIBRARY_SKILLS,
   screens: [
     {
       route: "/reports/materials/prices",

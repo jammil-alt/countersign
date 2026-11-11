@@ -23,7 +23,8 @@ const builtins = platform.catalog.list();
 // Review: Check bill, the deterministic check after Prepare bill.
 // Reshape data (2026-11-11): data.reshape, a built-in code skill (not a wrapper).
 // §1.88: the vendor-first matching adds four: Match vendor, Match by SKU (vendor), Semantic match
-// (vendor), Master item manager.
+// (vendor), Master item manager (the AI two kept for stored steps: new steps take the Library
+// skills the pack installs, which are not built-ins).
 const BUILTINS = 132;
 const WRAPPERS = 92;
 

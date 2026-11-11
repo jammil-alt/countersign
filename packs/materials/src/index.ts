@@ -79,7 +79,13 @@ export {
   VendorMatchError,
   vendorItemText,
 } from "./vendor/pipeline";
-export { SUPERSEDED_BY_VENDOR_SKILLS, VENDOR_SKILLS } from "./vendor/skills";
+export {
+  MASTER_ITEM_MANAGER,
+  SEMANTIC_MATCH_VENDOR,
+  SUPERSEDED_BY_LIBRARY_SKILLS,
+  VENDOR_LIBRARY_SKILLS,
+  VENDOR_SKILLS,
+} from "./vendor/skills";
 export {
   cleanSku,
   discontinue,

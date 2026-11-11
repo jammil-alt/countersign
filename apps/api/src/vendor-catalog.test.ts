@@ -9,6 +9,7 @@
 // `handWritten`): no API key here. Rebuild them after changing a prompt or the request's shape:
 //   WRITE_SKILL_FIXTURES=1 COUNTERSIGN_REQUIRE_DB=1 pnpm --filter @countersign/api exec vitest run src/vendor-catalog.test.ts
 
+import { parseOperatorSkill } from "@countersign/agents";
 import {
   AnyAgentBundle,
   type AnyAgentBundleInput,
@@ -26,6 +27,7 @@ import {
   docExtraction,
   docLine,
   document,
+  skill,
   stepRun,
   transaction,
   vendor,
@@ -44,17 +46,19 @@ import {
   descriptionHash,
   itemAlias,
   itemMatch,
+  MASTER_ITEM_MANAGER,
   masterText,
   normalize,
   parseLine,
   priceObservation,
+  SEMANTIC_MATCH_VENDOR,
   VENDOR_CATALOG_SKILLS,
   VENDOR_CATALOG_TOOLS,
   vendorCatalogProcess,
   vendorItem,
   vendorItemText,
 } from "@countersign/pack-materials";
-import { and, eq, like } from "drizzle-orm";
+import { and, eq, isNull, like } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
@@ -77,9 +81,10 @@ const lookup = toolLookup(platform.tools.specs());
 const KINDS = {
   "materials.match-vendor": "deterministic",
   "materials.match-sku-vendor": "deterministic",
-  "materials.semantic-match-vendor": "ai",
-  "materials.master-item-manager": "ai",
 } as const;
+
+/** The pack's shared Library skills (the AI ones), as it installs them. */
+const LIBRARY = platform.packs.flatMap((p) => p.manifest.librarySkills ?? []);
 
 function bundle(): AnyAgentBundleInput {
   return {
@@ -116,18 +121,45 @@ describe("the vendor-first skills on the platform", () => {
     }
   });
 
-  it("keeps Look up existing and Match the unmatched for stored steps, off the palette", () => {
+  it("ships the AI skills as Library skills: operator skills the operator edits, AI, never writing", () => {
+    expect(LIBRARY.map((s) => [s.id, s.name])).toEqual([
+      [SEMANTIC_MATCH_VENDOR, "Semantic match (vendor)"],
+      [MASTER_ITEM_MANAGER, "Master item manager"],
+    ]);
+    for (const def of LIBRARY) {
+      // What a new operator skill version must be: it parses as one, with the platform's tools.
+      expect(parseOperatorSkill(def, platform.tools).id, def.id).toBe(def.id);
+      expect(skillKind(def, lookup), def.id).toBe("ai");
+      expect(newSkillVersionProblems(def, lookup), def.id).toEqual([]);
+      expect(newStepSkillReason(def, lookup, platform.superseded), def.id).toBeNull();
+    }
+    // The deterministic skills take what may change as the agent's parameters.
+    const params = (id: string) => platform.catalog.get(id)?.parameters?.map((p) => p.name);
+    expect(params("materials.match-vendor")).toEqual(["match_on", "min_name_similarity"]);
+    expect(params("materials.match-sku-vendor")).toEqual([
+      "vendor_shortlist_size",
+      "master_shortlist_size",
+    ]);
+  });
+
+  it("keeps the built-in AI skills for stored steps only; Look up existing and Match the unmatched stay offered", () => {
     for (const [id, by] of [
-      ["materials.lookup-existing", "materials.match-sku-vendor"],
-      ["materials.match-unmatched", "materials.semantic-match-vendor"],
+      ["materials.semantic-match-vendor", SEMANTIC_MATCH_VENDOR],
+      ["materials.master-item-manager", MASTER_ITEM_MANAGER],
     ] as const) {
       const def = platform.catalog.get(id);
       expect(def, id).toBeDefined();
       if (def) expect(newStepSkillReason(def, lookup, platform.superseded)).toContain(by);
     }
-    // Check matches is reused after each AI skill.
-    const check = platform.catalog.get("materials.check-matches");
-    expect(check && newStepSkillReason(check, lookup, platform.superseded)).toBeNull();
+    // Nothing already built leaves the palette; Check matches is reused after each AI skill.
+    for (const id of [
+      "materials.lookup-existing",
+      "materials.match-unmatched",
+      "materials.check-matches",
+    ]) {
+      const def = platform.catalog.get(id);
+      expect(def && newStepSkillReason(def, lookup, platform.superseded), id).toBeNull();
+    }
   });
 
   it("writes only through Save to records tools; the searches and the embedding say they use a model", () => {
@@ -162,7 +194,7 @@ describe("the vendor-first skills on the platform", () => {
 
   it("the pattern validates against the platform's registries", () => {
     const result = processes.validateAnyBundle(AnyAgentBundle.parse(bundle()), {
-      skills: Object.fromEntries(platform.catalog.list().map((s) => [s.id, s])),
+      skills: Object.fromEntries([...platform.catalog.list(), ...LIBRARY].map((s) => [s.id, s])),
       tools: platform.tools.specs(),
       events: platform.events.byType(),
     });
@@ -328,14 +360,19 @@ describe.skipIf(!h)("the vendor catalog's pattern, end to end", () => {
   let versionId = "";
   let adminId = "";
 
-  async function invoice(name: string, date: string, lines: Line[]): Promise<string> {
+  async function invoice(
+    name: string,
+    date: string,
+    lines: Line[],
+    from: { vendorName?: string; known?: boolean } = {},
+  ): Promise<string> {
     const [bill] = await H.t.db
       .insert(transaction)
       .values({
         tenantId: tenantId(),
         kind: "bill",
         connector: "upload",
-        vendorId,
+        vendorId: from.known === false ? null : vendorId,
         total: "1000.00",
         externalId: name,
       })
@@ -360,7 +397,11 @@ describe.skipIf(!h)("the vendor catalog's pattern, end to end", () => {
         tenantId: tenantId(),
         documentId: doc?.id ?? "",
         model: "test-model",
-        header: { vendorName: "Northline Panel Supply", invoiceDate: date, invoiceNumber: name },
+        header: {
+          vendorName: from.vendorName ?? "Northline Panel Supply",
+          invoiceDate: date,
+          invoiceNumber: name,
+        },
         subtotal: "1000",
         total: "1000",
         linesSum: "1000",
@@ -430,6 +471,13 @@ describe.skipIf(!h)("the vendor catalog's pattern, end to end", () => {
       `/api/ops/clients/${tenantId()}/packs/materials/enable`,
     );
     expect(enable.status, JSON.stringify(enable.json)).toBe(200);
+    // Switching the pack on installed its Library skills: shared, v1 published.
+    const shared = await H.t.db.select().from(skill).where(isNull(skill.tenantId));
+    for (const slug of ["semantic-match-vendor", "master-item-manager"]) {
+      const row = shared.find((s) => s.slug === slug);
+      expect(row, slug).toBeDefined();
+      expect(row?.liveVersionId, slug).not.toBeNull();
+    }
     const [v] = await H.t.db
       .insert(vendor)
       .values({
@@ -549,8 +597,16 @@ describe.skipIf(!h)("the vendor catalog's pattern, end to end", () => {
       method: "llm",
       catalogItemId: M.baltic34,
     });
+    // The 3/4" item a key attribute rules out never reached the model for the 1/2" line (the
+    // shortlist is filtered by code), but stays on the line for the person's card; the model
+    // said "not in this vendor's catalog", and a new item needs the size the line doesn't state.
+    const open4 = out("similar").open.find((l: J) => l.lineNo === 4);
+    expect(open4.candidates).toEqual([]);
+    const kept4 = byLine(check, 4).candidates as J[];
+    expect(kept4.map((c) => c.catalogItemId)).toContain(M.baltic34);
+    expect(kept4.every((c) => c.vetoed)).toBe(true);
     expect(byLine(check, 4)).toMatchObject({ decision: "unsure", needsReview: true });
-    expect(byLine(check, 4).vetoed).toMatch(/differs/);
+    expect(byLine(check, 4).vetoed).toMatch(/needs size/);
     // 4. The master item manager's read linked the oak by its key attributes; the model linked the
     // melamine; the cherry is new everywhere.
     expect(out("o-masters").open.map((l: J) => l.lineNo)).toEqual([6]);
@@ -577,7 +633,9 @@ describe.skipIf(!h)("the vendor catalog's pattern, end to end", () => {
     });
     expect(reg.lines.find((l: J) => l.lineNo === 3)).toMatchObject({ vendorItemId: VI.bb34 });
     expect(reg.needsPerson[0]).toMatchObject({ lineNo: 4, description: 'BALTIC BIRCH PLY 1/2"' });
-    expect(out("o-m-embed")).toMatchObject({ embedded: 4, catalogItems: 1, vendorItems: 3 });
+    // The new items, and the client's backlog with them: the five master items and two vendor
+    // items set up before the embedding template was named.
+    expect(out("o-m-embed")).toMatchObject({ embedded: 11, catalogItems: 6, vendorItems: 5 });
     // 6. The person was asked, and their answer was registered as theirs.
     expect(asked).toHaveLength(1);
     expect(out("o-m-register-answer")).toMatchObject({ registered: 1, newVendorItems: 1 });
@@ -656,6 +714,24 @@ describe.skipIf(!h)("the vendor catalog's pattern, end to end", () => {
     // An older invoice never overwrites a newer last price.
     const [bb] = await H.t.db.select().from(vendorItem).where(eq(vendorItem.id, VI.bb34));
     expect(bb).toMatchObject({ lastPrice: "66.0000", lastPriceOn: "2026-11-02" });
+  });
+
+  it("goes on with the vendor a person names when none matched", async () => {
+    // A document with no purchase's vendor, from a name we don't know.
+    const documentId = await invoice("NPS-0995", "2026-10-21", SECOND, {
+      vendorName: "NPS Wholesale",
+      known: false,
+    });
+    const calls = { create: 0, embed: 0 };
+    const { out, asked } = await run(documentId, { vendorId }, calls);
+    expect(out("vendor")).toMatchObject({ matched: false });
+    expect(asked).toHaveLength(1);
+    expect(out("vendor-named")).toMatchObject({ matched: true, vendorId, method: "id" });
+    expect(out("n-sku").known.map((k: J) => k.via)).toEqual(["wording", "sku"]);
+    expect(out("n-s-r-register")).toMatchObject({ registered: 2, needsPersonCount: 0 });
+    // The path stopped there: the steps after the question never ran on the unmatched vendor.
+    expect(out("sku")).toBeNull();
+    expect(calls.create).toBe(0);
   });
 
   it("serves the vendor's catalog and a master item's vendors to the operator and, read only, the client", async () => {
@@ -748,28 +824,61 @@ describe.skipIf(!h)("the vendor catalog's pattern, end to end", () => {
     expect([403, 404]).toContain(other.status);
   });
 
-  // §1.88 web: the two AI skills open in the skill editor as an operator skill draft (Clone), in
-  // the shape they were built with, and the draft saves again unchanged but for its instructions.
-  it("clones Semantic match (vendor) and the Master item manager into operator skill drafts", async () => {
-    for (const id of ["materials.semantic-match-vendor", "materials.master-item-manager"]) {
-      const builtin = platform.catalog.get(id);
-      const res = await H.call(OPERATOR, "POST", `/api/ops/skills/${id}/clone`, {});
-      expect(res.status, JSON.stringify(res.json)).toBe(200);
-      const { skill, version } = res.json as J;
-      expect(skill).toMatchObject({ source: "shared", mode: "task" });
-      expect(version.definition).toMatchObject({
+  // The owner's rule (2026-11-11): the AI skills are the operator's to edit in the Library (Edit,
+  // not Clone): instructions, model, parameters and tests, versioned; a new version published is
+  // what the agent takes at its next publish.
+  it("lets the operator edit, test and publish the Library's AI skills; the agent takes them at its next publish", async () => {
+    const list = await H.call(OPERATOR, "GET", "/api/ops/skills");
+    expect(list.status, JSON.stringify(list.json)).toBe(200);
+    for (const def of LIBRARY) {
+      const item = ((list.json as J).skills as J[]).find((s) => s.ref === def.id);
+      expect(item, def.id).toMatchObject({ source: "shared", liveVersion: 1, kind: "ai" });
+      const page = await H.call(OPERATOR, "GET", `/api/ops/skills/${item.id}`);
+      expect(page.status, JSON.stringify(page.json)).toBe(200);
+      const [v1] = (page.json as J).versions as J[];
+      expect(v1.definition).toMatchObject({
+        id: def.id,
         mode: "task",
-        instructions: builtin?.instructions,
-        reads: builtin?.reads,
-        model: builtin?.model,
+        instructions: def.instructions,
+        reads: def.reads,
+        model: def.model,
       });
-      expect(version.definition.output).toEqual(builtin?.output);
-      const saved = await H.call(OPERATOR, "POST", `/api/ops/skills/${skill.id}/versions`, {
-        definition: { ...version.definition, instructions: `${builtin?.instructions}\nBe brief.` },
-        parentVersionId: version.id,
+      // A parameter, another model and new instructions: a second version, then published.
+      const saved = await H.call(OPERATOR, "POST", `/api/ops/skills/${item.id}/versions`, {
+        definition: {
+          ...v1.definition,
+          instructions: `${def.instructions}\nBe brief.`,
+          model: { id: "claude-sonnet-5-5" },
+          parameters: [
+            { name: "house_rule", label: "A house rule", type: "text", default: "none" },
+          ],
+        },
+        parentVersionId: v1.id,
       });
       expect(saved.status, JSON.stringify(saved.json)).toBe(200);
-      expect((saved.json as J).version).toMatchObject({ version: 2, status: "draft" });
+      const v2 = (saved.json as J).version;
+      expect(v2).toMatchObject({ version: 2, status: "draft" });
+      const test = await H.call(OPERATOR, "POST", "/api/ops/tests", {
+        targetKind: "skill",
+        targetId: item.id,
+        name: "No lines, no answers",
+        input: { lines: [] },
+        expected: { answers: [] },
+      });
+      expect(test.status, JSON.stringify(test.json)).toBe(200);
+      const pub = await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/skills/${item.id}/versions/${v2.id}/publish`,
+      );
+      expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     }
+    // The agent still runs the version it was published with (its client's copy, v1) until its
+    // own next publish takes v2 (invariant 11).
+    const copies = await H.t.db.select().from(skill).where(eq(skill.tenantId, tenantId()));
+    expect(copies.map((c) => c.slug).sort()).toEqual([
+      "shared:master-item-manager",
+      "shared:semantic-match-vendor",
+    ]);
   });
 });
