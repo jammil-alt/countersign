@@ -2,7 +2,7 @@
 // and the rows on screen marked as answering the last search while the next one loads.
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SEARCH_PAUSE_MS, useAnswered, useDebounced } from "./useDebounced";
+import { SEARCH_PAUSE_MS, useAnswered, useDebounced, useSearchBox } from "./useDebounced";
 
 describe("useDebounced", () => {
   beforeEach(() => {
@@ -79,5 +79,48 @@ describe("useAnswered", () => {
     rerender({ data: first, q: "oak" });
     rerender({ data: second, q: "oak" });
     expect(result.current).toEqual({ query: "oak", stale: false });
+  });
+});
+
+describe("useSearchBox", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("keeps keys pressed while the pushed word's list renders", () => {
+    const push = vi.fn();
+    const { rerender, result } = renderHook(({ q }) => useSearchBox(q, push), {
+      initialProps: { q: "" },
+    });
+    act(() => result.current[1]("oak"));
+    act(() => vi.advanceTimersByTime(SEARCH_PAUSE_MS));
+    expect(push).toHaveBeenCalledWith("oak");
+    // "s" is typed before the URL's new q reaches the box.
+    act(() => result.current[1]("oaks"));
+    rerender({ q: "oak" });
+    expect(result.current[0]).toBe("oaks");
+    act(() => vi.advanceTimersByTime(SEARCH_PAUSE_MS));
+    expect(push).toHaveBeenLastCalledWith("oaks");
+  });
+
+  it("resets to a q from elsewhere, and never pushes the old word back", () => {
+    const push = vi.fn();
+    const { rerender, result } = renderHook(({ q }) => useSearchBox(q, push), {
+      initialProps: { q: "" },
+    });
+    act(() => result.current[1]("oak"));
+    act(() => vi.advanceTimersByTime(SEARCH_PAUSE_MS));
+    rerender({ q: "oak" });
+    // A tab clears the search.
+    rerender({ q: "" });
+    expect(result.current[0]).toBe("");
+    act(() => vi.advanceTimersByTime(SEARCH_PAUSE_MS * 2));
+    expect(push).toHaveBeenCalledTimes(1);
+    // A link to the same word later still shows it in the box.
+    rerender({ q: "oak" });
+    expect(result.current[0]).toBe("oak");
   });
 });

@@ -4,7 +4,6 @@
 // its record page, but a receivable's: no route serves one receivable yet, so its row doesn't link.
 import type { RecordList, RecordListKind, RecordSource } from "@countersign/core";
 import { RECORD_LIST_PAGE } from "@countersign/core";
-import { startTransition, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -12,7 +11,7 @@ import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { day, txnKind } from "../../records/RecordDetail";
 import { shortTime } from "../../runs/format";
-import { useAnswered, useDebounced } from "../../runs/useDebounced";
+import { useAnswered, useSearchBox } from "../../runs/useDebounced";
 import { cx } from "../../ui/cx";
 import { Icon } from "../../ui/icons";
 import { Loaded, Page } from "../../ui/page";
@@ -73,22 +72,7 @@ export function PortalRecordsScreen() {
   };
 
   // The search box updates the URL once typing pauses; the list follows in a transition.
-  const [text, setText] = useState(q);
-  // A new `q` from the URL (a tab, "Clear", a link) resets the box in the same render, so the
-  // effect below never sees the old word beside the new `q` and pushes it back.
-  const [boxFor, setBoxFor] = useState(q);
-  if (boxFor !== q) {
-    setBoxFor(q);
-    setText(q);
-  }
-  const typed = useDebounced(text.trim());
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `set` reads the current params.
-  useEffect(() => {
-    // Only a pause on what is in the box: a tab that empties it never brings back the word typed
-    // before, and the same word typed again after one is asked for again.
-    if (typed !== text.trim() || typed === q) return;
-    startTransition(() => set({ q: typed, page: "" }));
-  }, [typed, text, q]);
+  const [text, setText] = useSearchBox(q, (word) => set({ q: word, page: "" }));
 
   const query = {
     kind,

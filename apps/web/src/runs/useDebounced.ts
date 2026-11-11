@@ -38,3 +38,35 @@ export function useAnswered<Q>(data: unknown, query: Q): { query: Q; stale: bool
     stale: data !== undefined && JSON.stringify(answered) !== JSON.stringify(query),
   };
 }
+
+/**
+ * A search box whose word lives in the URL (`q`): what the box shows, and its setter. The word
+ * goes to `push` once typing pauses, in a transition. A new `q` from elsewhere (a tab, "Clear", a
+ * link) resets the box in the same render, so the old word is never pushed back; the `q` the box
+ * itself just pushed does not, so keys pressed while that list renders stay in the box.
+ */
+export function useSearchBox(
+  q: string,
+  push: (q: string) => void,
+): [text: string, setText: (text: string) => void] {
+  const [text, setText] = useState(q);
+  const [boxFor, setBoxFor] = useState(q);
+  const pushed = useRef<string | null>(null);
+  if (boxFor !== q) {
+    setBoxFor(q);
+    if (q !== pushed.current) {
+      pushed.current = null;
+      setText(q);
+    }
+  }
+  const typed = useDebounced(text.trim());
+  const latest = useRef(push);
+  latest.current = push;
+  useEffect(() => {
+    // Only a pause on what is in the box; the same word typed again after a reset is asked again.
+    if (typed !== text.trim() || typed === q) return;
+    pushed.current = typed;
+    startTransition(() => latest.current(typed));
+  }, [typed, text, q]);
+  return [text, setText];
+}
