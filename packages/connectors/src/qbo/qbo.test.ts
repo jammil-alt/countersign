@@ -344,6 +344,27 @@ describe("qbo connector: manifest and sign-in", () => {
 });
 
 describe("qbo connector: read tools", () => {
+  it("finds bills from the last N days, from today's date, when no from date is given", async () => {
+    const s = setup();
+    const { ctx } = await signedIn(s);
+    await runReadTool(s.connector, QBO_TOOLS.billQuery, { lastDays: 30 }, ctx());
+    await runReadTool(s.connector, QBO_TOOLS.purchaseQuery, { lastDays: 30 }, ctx());
+    await runReadTool(
+      s.connector,
+      QBO_TOOLS.billQuery,
+      { lastDays: 30, from: "2026-01-01" },
+      ctx(),
+    );
+    const queries = s.qbo
+      .apiCalls("GET", "query")
+      .map((r) => decodeURIComponent(r.url.replace(/\+/g, " ")));
+    // NOW is 2026-11-05: 30 days before is 2026-10-06.
+    expect(queries.filter((u) => u.includes("from Bill"))[0]).toContain("TxnDate >= '2026-10-06'");
+    expect(queries.find((u) => u.includes("from Purchase"))).toContain("TxnDate >= '2026-10-06'");
+    // A from date, when given, wins.
+    expect(queries.filter((u) => u.includes("from Bill"))[1]).toContain("TxnDate >= '2026-01-01'");
+  });
+
   it("queries bills with lines and money as decimal strings, and pages with `more`", async () => {
     const s = setup();
     const { ctx } = await signedIn(s);
