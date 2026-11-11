@@ -605,7 +605,7 @@ describe("the account carried in the session cookie (docs/plan.md §1.93)", () =
     const { adapter } = setup();
     const id = await identify(adapter, sealed, now);
     if (!id.ok || !id.carry) throw new Error("no carry");
-    const cookies = await id.carry(next);
+    const cookies = await id.carry(next, at(now));
     return { cookies, value: cookieValue(cookies, SESSION_COOKIE) };
   }
 
@@ -703,7 +703,7 @@ describe("the account carried in the session cookie (docs/plan.md §1.93)", () =
     const request = async (now: number) => {
       const id = await identify(adapter, cookie, now);
       if (!id.ok || !id.carry) throw new Error("refused");
-      return id.carry(account(now));
+      return id.carry(account(now), at(now));
     };
 
     // Well before the refresh is due, the account is sealed in with the token, which is unspent.
@@ -728,7 +728,42 @@ describe("the account carried in the session cookie (docs/plan.md §1.93)", () =
       at(due + 60),
     );
     if (!outage.ok || !outage.carry) throw new Error("refused");
-    expect(await outage.carry(account(due + 60))).toEqual([]);
+    expect(await outage.carry(account(due + 60), at(due + 60))).toEqual([]);
+  });
+
+  it("admitted on a grace, writes nothing, not even the person's activity", async () => {
+    const refused = fakeWorkOS({
+      refresh: vi.fn(async () => {
+        throw new WorkOSError("refresh token already used", 400, "invalid_grant");
+      }),
+    });
+    const { adapter } = setup(refused);
+    const { sealed } = await sessionCookieFor();
+    const { value } = await carried(sealed, account(T0 - 10));
+    // The person's own request, a minute and more after their last: `lat` would move.
+    const request = new Request(`${ORIGIN}/api/session`, {
+      headers: { cookie: `${SESSION_COOKIE}=${value}`, "x-countersign-activity": "1" },
+    });
+    const id = await adapter.identify(request, at(T0 + REFRESH_INTERVAL_SEC + 1));
+    if (!id.ok || !id.carry) throw new Error("refused");
+    expect(id.setCookies).toEqual([]);
+    expect(
+      await id.carry(account(T0 + REFRESH_INTERVAL_SEC + 1), at(T0 + REFRESH_INTERVAL_SEC + 1)),
+    ).toEqual([]);
+  });
+
+  it("judges a slow request when it answers: no write after another tab may have refreshed", async () => {
+    const { adapter } = setup();
+    const { sealed } = await sessionCookieFor();
+    const { value } = await carried(sealed, account(T0 - 10));
+    // Started two minutes before the refresh was due, so safe then.
+    const id = await identify(adapter, value ?? "", T0 + REFRESH_INTERVAL_SEC - 120);
+    if (!id.ok || !id.carry) throw new Error("refused");
+    // Answering after the refresh was due: another tab may have spent rt_1 by now.
+    expect(await id.carry(account(T0 + 100), at(T0 + REFRESH_INTERVAL_SEC + 1))).toEqual([]);
+    // Answering in time, it is written.
+    const quick = await id.carry(account(T0 + 100), at(T0 + REFRESH_INTERVAL_SEC - 119));
+    expect(quick).toHaveLength(1);
   });
 
   it("is not carried when the cookie would pass 4 KB: the session is sealed without it", async () => {

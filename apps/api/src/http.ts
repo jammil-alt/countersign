@@ -644,6 +644,11 @@ function mountWith<R extends RouteSpec>(
       const nowSec = epochSec(now);
       // The session and its scope from the user's account, or the refusal (with its cookies).
       const decide = (account: Parameters<typeof sessionFromAccount>[0]) => {
+        // Each decision starts clean: a carried account that refused, then a read that refused
+        // too, is audited as what was read, never as what the cookie carried (§1.93).
+        actor = { actorKind: "anonymous" };
+        auditTenant = null;
+        setCookies = [];
         const result = sessionFromAccount(
           account,
           choice.adapter.kind,
@@ -782,7 +787,7 @@ function mountWith<R extends RouteSpec>(
       // The cookie carries what this request read, or nothing once the handler changed the
       // person's own memberships; a request that used the carried account leaves it as it is.
       if (identified.carry && (changed || read)) {
-        setCookies = await identified.carry(changed ? null : read);
+        setCookies = await identified.carry(changed ? null : read, new Date());
       }
       for (const cookie of setCookies) c.header("Set-Cookie", cookie, { append: true });
       return send(c, spec, output);

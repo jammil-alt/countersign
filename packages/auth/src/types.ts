@@ -103,7 +103,11 @@ export type Identification =
        * or carries none (`null`, or an account too big for a cookie). Absent: this adapter
        * carries no account, and `setCookies` is what to send.
        */
-      readonly carry?: (account: CarriedAccount | null) => Promise<readonly string[]>;
+      readonly carry?: (
+        account: CarriedAccount | null,
+        /** When the response is sent; default now. A slow request is judged at its end. */
+        now?: Date,
+      ) => Promise<readonly string[]>;
     }
   | AuthRefusal;
 

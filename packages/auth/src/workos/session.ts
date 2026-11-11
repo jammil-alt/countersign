@@ -193,7 +193,11 @@ export async function resolveSession(
       !(error instanceof WorkOSError) || error.status === null || error.status >= 500;
     const grace = unreachable ? OUTAGE_GRACE_SEC : RACE_GRACE_SEC;
     if (now < session.rat + grace) {
-      return { status: "valid", session: touched, rotated: touched !== session, grace: true };
+      // DECISION: admitted on a grace, the cookie is never re-sealed, not even to move `lat`: it
+      // holds the refresh token this request failed to use, which another tab may have spent
+      // already, and a cookie written now could land last and end the session at the next
+      // refresh (docs/plan.md §1.93). The next request that refreshes moves `lat`.
+      return { status: "valid", session, rotated: false, grace: true };
     }
     return {
       status: "invalid",
