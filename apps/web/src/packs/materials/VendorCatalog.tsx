@@ -179,7 +179,7 @@ function ItemActions({
   };
   return (
     <span
-      className="flex flex-wrap items-center gap-2"
+      className="flex items-center gap-2 whitespace-nowrap"
       data-testid={`vendor-item-actions-${item.id}`}
     >
       {item.preferred ? null : (
@@ -270,7 +270,7 @@ export function MasterItemView({ clientId }: { clientId?: string }) {
             <p className="mb-3 text-sm text-ink-muted">
               {t("materials.item.vendorsNote", { unit })}
             </p>
-            <div className="dt dt-ledger">
+            <div className="dt dt-ana">
               <div className="dt-scroll">
                 <table data-testid="vendor-catalog-master-table">
                   <thead>
@@ -299,7 +299,7 @@ export function MasterItemView({ clientId }: { clientId?: string }) {
                             {v.vendorName}
                           </Link>
                         </td>
-                        <td className="reference">{v.sku ?? "–"}</td>
+                        <td className="reference whitespace-nowrap">{v.sku ?? "–"}</td>
                         <td>{v.name}</td>
                         <td className="muted">{v.packSize ?? "–"}</td>
                         <td>
@@ -312,7 +312,7 @@ export function MasterItemView({ clientId }: { clientId?: string }) {
                         <td className="n">
                           {v.lastPrice ? fmt.unitPrice(v.lastPrice, v.currency) : "–"}
                         </td>
-                        <td className="n">{day(v.lastPriceOn, intl)}</td>
+                        <td className="n whitespace-nowrap">{day(v.lastPriceOn, intl)}</td>
                         <td className="n">
                           {v.listPrice ? fmt.unitPrice(v.listPrice, v.currency) : "–"}
                         </td>
@@ -366,7 +366,7 @@ function OneVendor({ clientId, vendorId }: { clientId?: string | undefined; vend
   }
   return (
     <section data-testid="vendor-catalog-vendor">
-      <div className="dt dt-ledger" style={{ "--dt-max-h": "560px" } as CSSProperties}>
+      <div className="dt dt-ana" style={{ "--dt-max-h": "560px" } as CSSProperties}>
         <div className="dt-bar">
           <span className="dt-title">{data.vendor.name}</span>
           <span className="ds-num text-ink-muted" data-testid="vendor-catalog-count">
@@ -410,7 +410,7 @@ function OneVendor({ clientId, vendorId }: { clientId?: string | undefined; vend
                   const source = v.lastPriceSource ? SOURCE_LABEL[v.lastPriceSource] : undefined;
                   return (
                     <tr key={v.id} data-testid="vendor-catalog-row">
-                      <td className="reference">{v.sku ?? "–"}</td>
+                      <td className="reference whitespace-nowrap">{v.sku ?? "–"}</td>
                       <td>{v.name}</td>
                       <td>
                         <Link
@@ -428,7 +428,7 @@ function OneVendor({ clientId, vendorId }: { clientId?: string | undefined; vend
                       <td className="n">
                         {v.lastPrice ? fmt.unitPrice(v.lastPrice, v.currency) : "–"}
                       </td>
-                      <td className="n">{day(v.lastPriceOn, intl)}</td>
+                      <td className="n whitespace-nowrap">{day(v.lastPriceOn, intl)}</td>
                       <td className="muted">{source ? t(source) : (v.lastPriceSource ?? "–")}</td>
                       <td className="n">
                         {v.listPrice ? (
@@ -505,7 +505,11 @@ export function VendorCatalogView({ clientId }: { clientId?: string }) {
             >
               {vendors.map((v) => (
                 <option key={v.vendorId} value={v.vendorId}>
-                  {t("materials.vendors.option", { name: v.name, count: v.items })}
+                  {t("materials.vendors.option", {
+                    name: v.name,
+                    // Every item the table lists: active and discontinued.
+                    count: v.items + v.discontinued,
+                  })}
                 </option>
               ))}
             </select>

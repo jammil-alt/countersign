@@ -747,4 +747,29 @@ describe.skipIf(!h)("the vendor catalog's pattern, end to end", () => {
     );
     expect([403, 404]).toContain(other.status);
   });
+
+  // §1.88 web: the two AI skills open in the skill editor as an operator skill draft (Clone), in
+  // the shape they were built with, and the draft saves again unchanged but for its instructions.
+  it("clones Semantic match (vendor) and the Master item manager into operator skill drafts", async () => {
+    for (const id of ["materials.semantic-match-vendor", "materials.master-item-manager"]) {
+      const builtin = platform.catalog.get(id);
+      const res = await H.call(OPERATOR, "POST", `/api/ops/skills/${id}/clone`, {});
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      const { skill, version } = res.json as J;
+      expect(skill).toMatchObject({ source: "shared", mode: "task" });
+      expect(version.definition).toMatchObject({
+        mode: "task",
+        instructions: builtin?.instructions,
+        reads: builtin?.reads,
+        model: builtin?.model,
+      });
+      expect(version.definition.output).toEqual(builtin?.output);
+      const saved = await H.call(OPERATOR, "POST", `/api/ops/skills/${skill.id}/versions`, {
+        definition: { ...version.definition, instructions: `${builtin?.instructions}\nBe brief.` },
+        parentVersionId: version.id,
+      });
+      expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+      expect((saved.json as J).version).toMatchObject({ version: 2, status: "draft" });
+    }
+  });
 });

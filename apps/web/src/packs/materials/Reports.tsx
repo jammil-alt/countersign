@@ -476,7 +476,7 @@ export function CatalogView({ clientId, clientName }: { clientId?: string; clien
       {data.items.length === 0 ? (
         <EmptyState>{t("materials.catalog.empty")}</EmptyState>
       ) : (
-        <div className="dt dt-ledger" style={{ "--dt-max-h": "640px" } as CSSProperties}>
+        <div className="dt dt-ana" style={{ "--dt-max-h": "640px" } as CSSProperties}>
           <div className="dt-bar">
             <span className="dt-title">{t("materials.catalog.items")}</span>
             <span className="ds-num text-ink-muted">{fmt.number(items.length)}</span>
