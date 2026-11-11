@@ -5,6 +5,7 @@
 import { isToolWrapper, skillKind, toolLookup } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import {
+  BillCheckIn,
   CHECK_BILL_SKILL,
   checkPreparedBill,
   DOCS_SPLIT_SKILLS,
@@ -55,7 +56,7 @@ const vendors = [{ id: "56", name: "Acme Lumber" }];
 const accounts = [{ id: "80" }, { id: "81" }, { id: "82" }];
 
 const check = (over: Partial<typeof bill> = {}, lists = { vendors, accounts }) =>
-  docsBillCheck.input.parse({ bill: { ...bill, ...over }, invoice, ...lists });
+  BillCheckIn.parse({ bill: { ...bill, ...over }, invoice, ...lists });
 
 describe("Check bill", () => {
   it("passes a bill that is the invoice, on a vendor and accounts read", () => {

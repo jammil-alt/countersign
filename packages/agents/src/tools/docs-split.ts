@@ -159,7 +159,8 @@ type InvoiceForCheck = z.infer<typeof InvoiceForCheck>;
 
 const IdRow = z.object({ id: z.string() });
 
-const BillCheckIn = z.object({
+/** What Check bill takes: the prepared bill, the invoice as read, the vendors and accounts read. */
+export const BillCheckIn = z.object({
   bill: PreparedBill,
   invoice: InvoiceForCheck,
   vendors: z.array(IdRow),
