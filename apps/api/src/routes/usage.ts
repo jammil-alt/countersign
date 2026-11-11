@@ -8,6 +8,7 @@ import {
   type ActivityReport,
   type AnyBundleWorkflow,
   type AnyStep,
+  type ClientView,
   clientLabel,
   Decimal,
   MODEL_PROVIDER_NAMES,
@@ -56,7 +57,13 @@ import {
 } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, HttpError, mount, notFound } from "../http";
-import { agentKpisNow, liveProjections, readerLocale } from "../kpi/view";
+import {
+  agentKpisNow,
+  clientViewSql,
+  parseClientView,
+  readerLocale,
+  readsDocumentsSql,
+} from "../kpi/view";
 import { tenantRow } from "../notify/people";
 import type { Platform } from "../platform";
 import { clientState, forClient, noRuns, OPEN_RUN, runCounts } from "../runs/client-status";
@@ -836,10 +843,17 @@ export async function activity(
 // ── What a service is doing now (audit-plan 6.1, 6.6) ──────────────────────────────────────────
 
 type AnyWorkflow = AnyBundleWorkflow["workflow"];
+type AgentRow = typeof agent.$inferSelect;
 
 /** A service's latest live run, its current step and what it has going: one row per service. */
 export interface AgentNowRow {
   agentId: string;
+  /** The agent's row. */
+  agent: AgentRow;
+  /** Its live version's client view (a path into the bundle, checked), null without one. */
+  view: ClientView | null;
+  /** Its live version starts from documents (`readsDocuments`, read in SQL). */
+  readsDocuments: boolean;
   latest: {
     id: string;
     status: string;
@@ -865,7 +879,12 @@ export interface AgentNowRow {
 // per agent. The definitions are the ones the loop used: the latest live run by creation, its
 // newest running or waiting step, "waits on you" as `clientWaits` and open runs as
 // `openRunsByAgent` (runs/client-status.ts).
-export async function agentsNow(tx: Tx, tenantId: string, only?: string): Promise<AgentNowRow[]> {
+export async function agentsNow(
+  tx: Tx,
+  tenantId: string,
+  /** Which agents: the Table's services (the default), or one service by id. */
+  which: { service: string } | null = null,
+): Promise<AgentNowRow[]> {
   const latest = tx
     .select({
       id: run.id,
@@ -930,6 +949,9 @@ export async function agentsNow(tx: Tx, tenantId: string, only?: string): Promis
   const rows = await tx
     .select({
       agentId: agent.id,
+      agent,
+      view: clientViewSql,
+      readsDocuments: readsDocumentsSql,
       latest: {
         id: latest.id,
         status: latest.status,
@@ -952,13 +974,22 @@ export async function agentsNow(tx: Tx, tenantId: string, only?: string): Promis
       running: going.running,
     })
     .from(agent)
+    // The live version, for its client view and documents flag only (JSON paths, not the bundle).
+    .leftJoin(
+      agentVersion,
+      and(eq(agentVersion.id, agent.liveVersionId), eq(agentVersion.tenantId, agent.tenantId)),
+    )
     .leftJoinLateral(latest, sql`true`)
     .leftJoinLateral(current, sql`true`)
     .leftJoinLateral(waits, sql`true`)
     .leftJoinLateral(going, sql`true`)
-    .where(and(isLiveService(tenantId), ...(only ? [eq(agent.id, only)] : [])));
+    .where(which ? and(isService(tenantId), eq(agent.id, which.service)) : isLiveService(tenantId))
+    .orderBy(agent.slug);
   return rows.map((r) => ({
     agentId: r.agentId,
+    agent: r.agent,
+    view: r.agent.liveVersionId ? parseClientView(r.agent.liveVersionId, r.view) : null,
+    readsDocuments: r.readsDocuments === true,
     latest: r.latest?.id ? (r.latest as NonNullable<AgentNowRow["latest"]>) : null,
     step: r.step?.nodeId ? (r.step as NonNullable<AgentNowRow["step"]>) : null,
     steps: Array.isArray(r.steps) ? r.steps : null,
@@ -1053,37 +1084,28 @@ export function usageRouteHandlers(app: Hono<AppEnv>): void {
 
   mount(app, routes.portalService, async ({ tx, tenantIds, params, services, session }) => {
     const tenantId = tenantIds[0] as string;
-    const [[a], t] = await Promise.all([
-      tx
-        .select()
-        .from(agent)
-        .where(and(isService(tenantId), eq(agent.id, params.id))),
+    // audit-plan 6.6: the agent with what it is doing now and one projection of its live bundle
+    // (its client view and whether it reads documents), never the whole bundle; then the rest
+    // asked together.
+    const [[row], t] = await Promise.all([
+      agentsNow(tx, tenantId, { service: params.id }),
       tenantRow(tx, tenantId),
     ]);
-    if (!a) throw notFound("service");
+    if (!row) throw notFound("service");
     if (!t) throw notFound("client");
+    const a = row.agent;
     const timezone = t.timezone;
     const now = new Date();
     const to = todayIn(timezone, now);
     const from = monthStart(to);
-    // audit-plan 6.6: one projection of the live bundle (its client view and whether it reads
-    // documents) in place of the whole bundle, read once; the rest asked together.
-    const [report, recentRuns, projections, [going]] = await Promise.all([
+    const view = row.view;
+    const [report, recentRuns, kpis] = await Promise.all([
       activity(tx, services.platform, { tenantId, timezone, from, to, service: a.id }),
       runSummaries(tx, tenantId, [eq(run.agentId, a.id)], 10, services.platform),
-      liveProjections(tx, [a]),
-      agentsNow(tx, tenantId, a.id),
-    ]);
-    const live = projections.get(a.id);
-    const view = live?.view ?? null;
-    const kpis =
       view && view.kpis.length > 0
-        ? await agentKpisNow(tx, a, view, {
-            locale: readerLocale(t, session.user.id),
-            timezone,
-            now,
-          })
-        : [];
+        ? agentKpisNow(tx, a, view, { locale: readerLocale(t, session.user.id), timezone, now })
+        : Promise.resolve([]),
+    ]);
     const mine = report.services.find((s) => s.id === a.id);
     // UI cleanup: the template's slug (a name, never its bundle) keys the page's own view.
     // DECISION: it is the slug the client agent carries: a fork takes its template's slug unless
@@ -1107,11 +1129,10 @@ export function usageRouteHandlers(app: Hono<AppEnv>): void {
       recentRuns,
       packs: report.packs,
       template,
-      readsDocuments: live?.readsDocuments ?? false,
+      readsDocuments: row.readsDocuments,
       stage: a.stage,
-      // A retired service is not in the Table's list; it has nothing going.
-      now: going ? serviceNow(going) : null,
-      runsNow: going?.runsNow ?? { running: 0, waitingOnYou: 0 },
+      now: serviceNow(row),
+      runsNow: row.runsNow,
       kpis,
     };
   });

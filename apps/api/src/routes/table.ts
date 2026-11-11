@@ -19,7 +19,6 @@ import {
 } from "@countersign/core";
 import {
   agent,
-  agentVersion,
   appUser,
   connection,
   externalAction,
@@ -37,7 +36,7 @@ import type { Hono } from "hono";
 import { clientTitles } from "../change-display";
 import { type AppEnv, ensureClient, mount, notFound } from "../http";
 // v0.12 W2-G
-import { clientViewSql, parseClientView, readerLocale, weekKpisOf } from "../kpi/view";
+import { readerLocale, weekKpisOf } from "../kpi/view";
 import { leadUserId, type TenantRow, tenantRow } from "../notify/people";
 import { LEAD_SUBJECT } from "../notify/scan";
 import type { Platform } from "../platform";
@@ -57,19 +56,6 @@ async function clientOf(tx: Tx, tenantId: string): Promise<TenantRow> {
 }
 
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
-
-/** The Table's services with the client view of their live version (a JSON path, never the bundle). */
-function servicesWithViews(tx: Tx, tenantId: string) {
-  return tx
-    .select({ a: agent, view: clientViewSql })
-    .from(agent)
-    .leftJoin(
-      agentVersion,
-      and(eq(agentVersion.id, agent.liveVersionId), eq(agentVersion.tenantId, agent.tenantId)),
-    )
-    .where(isLiveService(tenantId))
-    .orderBy(agent.slug);
-}
 
 /**
  * Live runs started this week and last week by the client's states, per agent, in one read
@@ -267,14 +253,14 @@ export async function buildTable(
     portalInboxFilter(viewer.role, viewer.userId),
     or(isNull(inboxItem.snoozedUntil), lte(inboxItem.snoozedUntil, now)),
   );
-  const [agentRows, counts, changes, read, daily, nowRows, desk, steps, lead] = await Promise.all([
-    servicesWithViews(tx, t.id),
+  const [counts, changes, read, daily, nowRows, desk, steps, lead] = await Promise.all([
     // QA round 1: runs started this week by how they stand, as Reports counts them.
     weekRunCounts(tx, t.id, bounds, lastBounds),
     weekChanges(tx, t.id, bounds, lastBounds),
     weekDocumentsRead(tx, t.id, bounds, lastBounds),
     runsByDay(tx, [eq(run.tenantId, t.id), eq(run.mode, "live")], { timezone: t.timezone, now }),
-    // What each agent has going now (any run, not only its latest) for its state, and its latest.
+    // The services, each with its live client view, its latest run and what it has going now (any
+    // run, not only its latest) for its state.
     agentsNow(tx, t.id),
     tx
       .select()
@@ -284,18 +270,14 @@ export async function buildTable(
     recentSteps(tx, t.id),
     leadOf(tx, t),
   ]);
-  const agents = agentRows.map((r) => r.a);
-  const nowOf = new Map(nowRows.map((r) => [r.agentId, r]));
+  const agents = nowRows.map((r) => r.agent);
   const top = desk.slice(0, 3);
 
   const [kpis, workflows, titles] = await Promise.all([
     // v0.12 W2-G: each service's KPIs for this week, in the viewer's language.
     weekKpisOf(
       tx,
-      agentRows.map((r) => ({
-        agent: r.a,
-        view: r.a.liveVersionId ? parseClientView(r.a.liveVersionId, r.view) : null,
-      })),
+      nowRows.map((r) => ({ agent: r.agent, view: r.view })),
       { locale, bounds: { from: bounds.from, to: now } },
     ),
     workflowsOf(
@@ -306,18 +288,18 @@ export async function buildTable(
     clientTitles(tx, top, platform, locale),
   ]);
 
-  const out: TableView["services"] = agents.map((a) => {
-    const going = nowOf.get(a.id);
+  const out: TableView["services"] = nowRows.map((going) => {
+    const a = going.agent;
     return {
       id: a.id,
       name: serviceName(a),
       description: clientDescription(a),
       status: a.runStatus ?? "draft",
       stage: a.stage,
-      now: going ? serviceNow(going) : null,
+      now: serviceNow(going),
       runsDone: counts.byAgent.get(a.id)?.succeeded ?? 0,
       runs: counts.byAgent.get(a.id) ?? noRuns(),
-      runsNow: going?.runsNow ?? { running: 0, waitingOnYou: 0 },
+      runsNow: going.runsNow,
       perDay: daysOf(daily.byAgent, a.id),
       changes: changes.byAgent.get(a.id) ?? 0,
       documentsRead: read.byAgent.get(a.id)?.size ?? 0,
