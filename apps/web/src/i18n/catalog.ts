@@ -3,14 +3,12 @@
 // key, an extra key or a missing parameter fails the typecheck; plurals pick their form with
 // Intl.PluralRules in the reader's language.
 // DECISION: a small catalog of our own, no library: typed keys, `{name}` placeholders and
-// Intl.PluralRules are all the portal needs, and every language ships in the bundle (a few KB each).
-import type { Locale } from "@countersign/core";
-import { de } from "./messages/de";
+// Intl.PluralRules are all the portal needs.
+// DECISION: only English ships in the bundle (docs/audit-plan.md 4.1); every other language is its
+// own chunk, loaded once the session names it (session/session.tsx waits for it before it shows
+// anything signed in or signed out, so no screen reads a language that is not there yet).
+import { LOCALES, type Locale } from "@countersign/core";
 import { en } from "./messages/en";
-import { es } from "./messages/es";
-import { fr } from "./messages/fr";
-import { it } from "./messages/it";
-import { ptBR } from "./messages/pt-BR";
 
 /** A message whose words depend on a number. `other` is required; `one` is what English needs. */
 export interface PluralForms {
@@ -50,18 +48,80 @@ export type PlainKey = {
 /** `t("runs.title")`, `t("run.took", { duration })`, `t("overview.inboxItems", { count: 3 })`. */
 export type Translate = <K extends MessageKey>(key: K, ...args: TArgs<K>) => string;
 
-export const CATALOGS: Record<Locale, Messages> = {
-  en,
-  es,
-  fr,
-  "pt-BR": ptBR,
-  it,
-  de,
+/** Each language other than English, as its own chunk. */
+const LOADERS: Record<Exclude<Locale, "en">, () => Promise<Messages>> = {
+  es: () => import("./messages/es").then((m) => m.es),
+  fr: () => import("./messages/fr").then((m) => m.fr),
+  "pt-BR": () => import("./messages/pt-BR").then((m) => m.ptBR),
+  it: () => import("./messages/it").then((m) => m.it),
+  de: () => import("./messages/de").then((m) => m.de),
 };
 
-/** A translator for one language; numbers in parameters are formatted with `intl`'s conventions. */
+/** The languages loaded so far: English always. */
+const loaded = new Map<Locale, Messages>([["en", en]]);
+const loading = new Map<Locale, Promise<Messages>>();
+
+/** The catalog for `locale` if it has loaded; English is always there. */
+export function loadedCatalog(locale: Locale): Messages | undefined {
+  return loaded.get(locale);
+}
+
+/**
+ * Loads one language's catalog (once; callers share the request). A language whose chunk can't be
+ * fetched reads in English rather than fail the screen: the promise never rejects.
+ */
+export function loadCatalog(locale: Locale): Promise<Messages> {
+  const have = loaded.get(locale);
+  if (have) return Promise.resolve(have);
+  const pending = loading.get(locale);
+  if (pending) return pending;
+  const load = LOADERS[locale as Exclude<Locale, "en">];
+  const promise = load().then(
+    (messages) => {
+      loaded.set(locale, messages);
+      loading.delete(locale);
+      return messages;
+    },
+    () => {
+      // Offline, or a deploy replaced the chunk: English this time, and the next call tries again.
+      loading.delete(locale);
+      return en as Messages;
+    },
+  );
+  loading.set(locale, promise);
+  return promise;
+}
+
+/**
+ * Every language's catalog by name, as loaded so far (a language not loaded yet reads undefined).
+ * For tests that check the catalogs side by side, after `loadAllCatalogs`; screens use
+ * `createTranslator`.
+ */
+export const CATALOGS = Object.defineProperties(
+  {},
+  Object.fromEntries(
+    LOCALES.map((locale) => [locale, { enumerable: true, get: () => loaded.get(locale) }]),
+  ),
+) as Readonly<Record<Locale, Messages>>;
+
+/** Tests of the lazy path only: back to English alone, as a fresh page starts. */
+export function unloadCatalogs(): void {
+  for (const locale of [...loaded.keys()]) if (locale !== "en") loaded.delete(locale);
+  loading.clear();
+}
+
+/** Every language at once: tests that read the words of several languages side by side. */
+export async function loadAllCatalogs(): Promise<void> {
+  await Promise.all((Object.keys(LOADERS) as Locale[]).map(loadCatalog));
+}
+
+/**
+ * A translator for one language; numbers in parameters are formatted with `intl`'s conventions.
+ * A language that has not loaded yet reads in English (never in keys); the session waits for the
+ * language before it shows a screen, so a person does not see that.
+ */
 export function createTranslator(locale: Locale, intl: string = locale): Translate {
-  const messages = CATALOGS[locale];
+  const messages = loaded.get(locale) ?? (en as Messages);
   const rules = new Intl.PluralRules(locale);
   const numbers = new Intl.NumberFormat(intl);
   return ((key: MessageKey, params?: Record<string, string | number>) => {
