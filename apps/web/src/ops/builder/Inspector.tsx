@@ -71,6 +71,9 @@ import {
 } from "./outcomes";
 import { type People, PersonPicker } from "./people";
 import { ReachOutFields } from "./ReachOutFields";
+// Reshape data (2026-11-11)
+import { inputsUnfilled, isReshape, type ReshapeOffer, reshapeOffers } from "./reshape";
+import { ReshapeFields } from "./reshape-step";
 import { RulesEditor } from "./rules";
 import { RunsOnRow, type SkillMove, StepParameters, VersionSection } from "./skill-step";
 
@@ -114,6 +117,14 @@ export interface InspectorProps {
    * bill"), its input pre-mapped from that output.
    */
   onAddAction?(stepId: string, fit: processes.ActionFit): void;
+  // Reshape data (2026-11-11)
+  /**
+   * Put a Reshape step before a step whose inputs earlier steps can't fill, or after a skill whose
+   * output fits a write only in part (then the write), its mapping proposed and the step wired.
+   */
+  onAddReshape?(at: { before: string } | { after: string; action: processes.WriteAction }): void;
+  /** One edit across steps (a Reshape step and the step it feeds), one undo. */
+  onProcess?(fn: (w: Process) => Process, key: string): void;
   // Skill model (2026-11-10): a skill step's version move.
   /** The agent being edited, for "what moves if this step goes to vN". */
   agentId?: string | undefined;
@@ -334,14 +345,16 @@ function StepInspector(props: InspectorProps & { step: Step }) {
               onMove={props.onMoveSkill}
             />
           ) : null}
-          <CustomizeSection
-            step={step}
-            ctx={ctx}
-            bundle={props.bundle}
-            template={props.template}
-            errors={fieldErrors}
-            set={set}
-          />
+          {isReshape(step) ? null : (
+            <CustomizeSection
+              step={step}
+              ctx={ctx}
+              bundle={props.bundle}
+              template={props.template}
+              errors={fieldErrors}
+              set={set}
+            />
+          )}
         </>
       ) : null}
       {LOGIC.has(step.kind) ? null : (
@@ -374,12 +387,36 @@ function StepInspector(props: InspectorProps & { step: Step }) {
       {props.onAddRoute ? (
         <RoutesSection step={step} onAdd={(option) => props.onAddRoute?.(step.id, option)} />
       ) : null}
-      {step.kind === "skill" && props.onAddAction ? (
+      {step.kind === "skill" && props.onAddAction && !isReshape(step) ? (
         <ActionOffers
           step={step}
           ctx={props.ctx}
           onAdd={(fit) => props.onAddAction?.(step.id, fit)}
+          {...(props.onAddReshape
+            ? {
+                onReshape: (action: processes.WriteAction) =>
+                  props.onAddReshape?.({ after: step.id, action }),
+              }
+            : {})}
         />
+      ) : null}
+      {props.onAddReshape && inputsUnfilled(step, errors) ? (
+        <Section title="Inputs">
+          <p className="text-sm text-ink-muted">
+            Some of this step's inputs can't be filled from what earlier steps give. A Reshape step
+            before it can turn their results into what it takes.
+          </p>
+          <div>
+            <Button
+              variant="ghost"
+              data-testid="builder-offer-reshape-before"
+              onClick={() => props.onAddReshape?.({ before: step.id })}
+            >
+              <Icon name="add" />
+              Add a Reshape step before this
+            </Button>
+          </div>
+        </Section>
       ) : null}
       {/* DECISION (wave 5, web): an if is hidden from the client by default, as before; the operator
           may show it, and its row then says the route it took and why, naming only steps the
@@ -536,34 +573,70 @@ function ActionOffers({
   step,
   ctx,
   onAdd,
+  onReshape,
 }: {
   step: Extract<Step, { kind: "skill" }>;
   ctx: TypingContext;
   onAdd(fit: processes.ActionFit): void;
+  /** Reshape data (2026-11-11): a write the output fits only in part, through a Reshape step. */
+  onReshape?(action: processes.WriteAction): void;
 }) {
-  const fits = processes.actionFits(step.id, processes.stepOutputSchema(step, ctx));
-  if (fits.length === 0) return null;
+  const output = processes.stepOutputSchema(step, ctx);
+  const fits = processes.actionFits(step.id, output);
+  const partial: ReshapeOffer[] = onReshape ? reshapeOffers(step.id, output) : [];
+  if (fits.length === 0 && partial.length === 0) return null;
   return (
     <Section title="Next step">
-      <p className="text-sm text-ink-muted">
-        This skill's result has what these need. Each is added after it, its fields filled from the
-        result, with approval on.
-      </p>
-      <ul className="flex flex-col gap-1.5">
-        {fits.map((fit) => (
-          <li key={fit.action} className="flex items-center justify-between gap-2">
-            <span className="text-sm text-ink">{Object.keys(fit.input).length} fields filled</span>
-            <Button
-              variant="ghost"
-              data-testid={`builder-offer-${fit.action}`}
-              onClick={() => onAdd(fit)}
-            >
-              <Icon name="add" />
-              Add: {processes.ACTION_SPECS[fit.action].label}
-            </Button>
-          </li>
-        ))}
-      </ul>
+      {partial.length > 0 ? (
+        <>
+          <p className="text-sm text-ink-muted">
+            This skill's result has part of what these need. A Reshape step turns it into the rest
+            of their fields; each is added after it, with approval on.
+          </p>
+          <ul className="flex flex-col gap-1.5">
+            {partial.map((o) => (
+              <li key={o.action} className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm text-ink">
+                  {processes.ACTION_SPECS[o.action].label}: {o.mapped} of {o.of} fields
+                </span>
+                <Button
+                  variant="ghost"
+                  data-testid={`builder-offer-reshape-${o.action}`}
+                  onClick={() => onReshape?.(o.action)}
+                >
+                  <Icon name="add" />
+                  Add a Reshape step
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {fits.length === 0 ? null : (
+        <>
+          <p className="text-sm text-ink-muted">
+            This skill's result has what these need. Each is added after it, its fields filled from
+            the result, with approval on.
+          </p>
+          <ul className="flex flex-col gap-1.5">
+            {fits.map((fit) => (
+              <li key={fit.action} className="flex items-center justify-between gap-2">
+                <span className="text-sm text-ink">
+                  {Object.keys(fit.input).length} fields filled
+                </span>
+                <Button
+                  variant="ghost"
+                  data-testid={`builder-offer-${fit.action}`}
+                  onClick={() => onAdd(fit)}
+                >
+                  <Icon name="add" />
+                  Add: {processes.ACTION_SPECS[fit.action].label}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </Section>
   );
 }
@@ -596,36 +669,47 @@ function KindFields(
           {skill?.description ? (
             <p className="text-sm text-ink-muted">{skill.description}</p>
           ) : null}
-          <Section title="Input">
-            {id === REACH_OUT_SKILL ? (
-              <ReachOutFields
-                step={step}
-                bundle={props.bundle}
-                paths={paths}
-                fieldErrors={fieldErrors}
-                set={setInput}
-              />
-            ) : // P-4: a stored conversation keeps its own form (it still runs as a skill step).
-            id === CONVERSE_SKILL ? (
-              <ConverseFields
-                step={step}
-                bundle={props.bundle}
-                paths={paths}
-                fieldErrors={fieldErrors}
-                set={setInput}
-              />
-            ) : (
-              <SchemaForm
-                schema={skill?.input}
-                value={step.input}
-                onChange={(input) => set("input", (s) => ({ ...s, input }) as Step)}
-                paths={paths}
-                prefix="input"
-                errors={fieldErrors}
-                testPrefix="builder-input"
-              />
-            )}
-          </Section>
+          {isReshape(step) ? (
+            <ReshapeFields
+              step={step}
+              workflow={props.workflow}
+              ctx={ctx}
+              agentId={props.agentId}
+              errors={props.errors.filter((e) => e.stepId === step.id)}
+              onProcess={(fn, key) => props.onProcess?.(fn, key)}
+            />
+          ) : (
+            <Section title="Input">
+              {id === REACH_OUT_SKILL ? (
+                <ReachOutFields
+                  step={step}
+                  bundle={props.bundle}
+                  paths={paths}
+                  fieldErrors={fieldErrors}
+                  set={setInput}
+                />
+              ) : // P-4: a stored conversation keeps its own form (it still runs as a skill step).
+              id === CONVERSE_SKILL ? (
+                <ConverseFields
+                  step={step}
+                  bundle={props.bundle}
+                  paths={paths}
+                  fieldErrors={fieldErrors}
+                  set={setInput}
+                />
+              ) : (
+                <SchemaForm
+                  schema={skill?.input}
+                  value={step.input}
+                  onChange={(input) => set("input", (s) => ({ ...s, input }) as Step)}
+                  paths={paths}
+                  prefix="input"
+                  errors={fieldErrors}
+                  testPrefix="builder-input"
+                />
+              )}
+            </Section>
+          )}
         </>
       );
     }
