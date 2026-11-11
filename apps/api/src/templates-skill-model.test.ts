@@ -136,6 +136,39 @@ describe("the skill model's template versions", () => {
     for (const w of b.bundle.workflows) expect(w.workflow.schemaVersion, w.slug).toBe(4);
   });
 
+  it("creates a bill only once Check bill passed what Prepare bill answered (review)", () => {
+    const clerk = all.find((b) => b.name === "seed bill-clerk v3");
+    expect(clerk).toBeDefined();
+    if (!clerk) return;
+    let creates = 0;
+    for (const w of clerk.bundle.workflows) {
+      if (w.workflow.schemaVersion !== 4) continue;
+      const checks = new Set(
+        processes
+          .allSteps(w.workflow)
+          .map((l) => l.step)
+          .filter((s) => s.kind === "skill" && s.skill === "docs.check-bill")
+          .map((s) => s.id),
+      );
+      processes.walkSteps(w.workflow, ({ step, ifs, before }) => {
+        if (step.kind !== "write" || step.action !== "create_bill") return;
+        creates += 1;
+        // An enclosing If's path reads a Check bill step's `ok`, and the check ran before it.
+        const guarded = ifs.some(({ step: ifStep, branchId }) => {
+          const path = ifStep.paths.find((p) => p.id === branchId);
+          return (path?.when.rules ?? []).some((r) =>
+            [...checks].some(
+              (id) =>
+                "field" in r && r.field === `{{steps.${id}.output.ok}}` && before.includes(id),
+            ),
+          );
+        });
+        expect(guarded, step.id).toBe(true);
+      });
+    }
+    expect(creates).toBe(1);
+  });
+
   it.each(all)("$name names no retired kind of skill and keeps approval on changes", (b) => {
     for (const step of stepsOf(b.bundle)) {
       if (step.kind === "skill") {

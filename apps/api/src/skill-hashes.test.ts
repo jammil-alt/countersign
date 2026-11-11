@@ -20,7 +20,8 @@ const builtins = platform.catalog.list();
 // totals; Look up existing, Match the unmatched, Check matches, Compare to historicals, Read a
 // vendor's quote, Choose items to merge; Bookkeeping's three and Marketing's five AI skills.
 // The templates add three AI skills: Choose items and accounts, Prepare bill, Explain a problem.
-const BUILTINS = 126;
+// Review: Check bill, the deterministic check after Prepare bill.
+const BUILTINS = 127;
 const WRAPPERS = 92;
 
 describe("built-in skills under the R2 skill schema", () => {

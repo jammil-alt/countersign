@@ -198,6 +198,7 @@ describe("R2: the skills the latest seeds and templates name", () => {
         .map((s) => s.id)
         .sort(),
     ).toEqual([
+      "docs.check-bill",
       "docs.check-totals",
       "materials.check-matches",
       "materials.compare-prices",

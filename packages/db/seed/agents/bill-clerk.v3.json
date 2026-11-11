@@ -12,6 +12,10 @@
       {
         "skill": "docs.prepare-bill",
         "settings": {}
+      },
+      {
+        "skill": "docs.check-bill",
+        "settings": {}
       }
     ],
     "extraTools": [
@@ -472,45 +476,113 @@
                             }
                           },
                           {
-                            "id": "create",
-                            "name": "Create bill",
+                            "id": "check-bill",
+                            "name": "Check bill",
                             "client": {
-                              "visible": true,
-                              "label": "Added the bill"
+                              "visible": false
                             },
-                            "kind": "write",
-                            "action": "create_bill",
+                            "kind": "skill",
+                            "skill": "docs.check-bill",
                             "input": {
-                              "vendorId": "{{steps.prepare.output.vendorId}}",
-                              "invoiceNumber": "{{steps.prepare.output.invoiceNumber}}",
-                              "date": "{{steps.prepare.output.date}}",
-                              "dueDate": "{{steps.prepare.output.dueDate}}",
-                              "lines": "{{steps.prepare.output.lines}}",
-                              "total": "{{steps.prepare.output.total}}",
-                              "currency": "{{steps.prepare.output.currency}}",
-                              "memo": "{{steps.prepare.output.memo}}"
-                            },
-                            "checks": {
-                              "approval": {
-                                "required": "required",
-                                "mode": "in_turn",
-                                "ifNoAnswer": "stop"
-                              }
+                              "bill": "{{steps.prepare.output}}",
+                              "invoice": "{{steps.invoice.output.extraction}}",
+                              "vendors": "{{steps.vendor.output.vendors}}",
+                              "accounts": "{{steps.accounts.output.accounts}}"
                             }
                           },
                           {
-                            "id": "created",
-                            "name": "Say the bill was added",
+                            "id": "bill-checked",
+                            "name": "Bill matches the invoice?",
                             "client": {
-                              "visible": true,
-                              "label": "Told you about the new bill"
+                              "visible": false
                             },
-                            "kind": "notify",
-                            "notify": {
-                              "to": ["client_admin"],
-                              "channel": "inbox",
-                              "message": "We added bill {{steps.prepare.output.invoiceNumber}} from {{steps.match.output.invoice.vendorName}} for {{steps.prepare.output.total}} {{steps.prepare.output.currency}}, with its {{steps.prepare.output.lines.length}} lines.",
-                              "sources": ["{{steps.prepare.output.sources}}"]
+                            "kind": "if",
+                            "paths": [
+                              {
+                                "id": "path-bill-ok",
+                                "name": "It matches",
+                                "when": {
+                                  "match": "all",
+                                  "rules": [
+                                    {
+                                      "field": "{{steps.check-bill.output.ok}}",
+                                      "op": "is",
+                                      "value": true
+                                    }
+                                  ]
+                                },
+                                "steps": [
+                                  {
+                                    "id": "create",
+                                    "name": "Create bill",
+                                    "client": {
+                                      "visible": true,
+                                      "label": "Added the bill"
+                                    },
+                                    "kind": "write",
+                                    "action": "create_bill",
+                                    "input": {
+                                      "vendorId": "{{steps.prepare.output.vendorId}}",
+                                      "invoiceNumber": "{{steps.prepare.output.invoiceNumber}}",
+                                      "date": "{{steps.prepare.output.date}}",
+                                      "dueDate": "{{steps.prepare.output.dueDate}}",
+                                      "lines": "{{steps.prepare.output.lines}}",
+                                      "total": "{{steps.prepare.output.total}}",
+                                      "currency": "{{steps.prepare.output.currency}}",
+                                      "memo": "{{steps.prepare.output.memo}}"
+                                    },
+                                    "checks": {
+                                      "approval": {
+                                        "required": "required",
+                                        "mode": "in_turn",
+                                        "ifNoAnswer": "stop"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "id": "created",
+                                    "name": "Say the bill was added",
+                                    "client": {
+                                      "visible": true,
+                                      "label": "Told you about the new bill"
+                                    },
+                                    "kind": "notify",
+                                    "notify": {
+                                      "to": ["client_admin"],
+                                      "channel": "inbox",
+                                      "message": "We added bill {{steps.prepare.output.invoiceNumber}} from {{steps.match.output.invoice.vendorName}} for {{steps.prepare.output.total}} {{steps.prepare.output.currency}}, with its {{steps.prepare.output.lines.length}} lines.",
+                                      "sources": ["{{steps.prepare.output.sources}}"]
+                                    }
+                                  }
+                                ]
+                              }
+                            ],
+                            "otherwise": {
+                              "id": "path-bill-differs",
+                              "steps": [
+                                {
+                                  "id": "bill-differs",
+                                  "name": "Ask about the bill we prepared",
+                                  "client": {
+                                    "visible": true,
+                                    "label": "Asked you about the new bill"
+                                  },
+                                  "kind": "person",
+                                  "mode": "ask",
+                                  "assignee": "client_admin",
+                                  "title": "The bill we prepared for invoice {{steps.match.output.invoice.number}} from {{steps.match.output.invoice.vendorName}} doesn't match the invoice, so we didn't add it",
+                                  "payload": {
+                                    "problems": "{{steps.check-bill.output.problems}}",
+                                    "sources": "{{steps.check-bill.output.sources}}"
+                                  },
+                                  "deadline": {
+                                    "after": "7 days",
+                                    "hours": "clock",
+                                    "ifNoAnswer": "proceed"
+                                  },
+                                  "channel": "inbox"
+                                }
+                              ]
                             }
                           }
                         ]
