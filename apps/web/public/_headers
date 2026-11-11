@@ -16,6 +16,14 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
   Cross-Origin-Opener-Policy: same-origin
 
+# docs/audit-plan.md 4.4: the build's files under /assets/ carry a hash of their contents in their
+# names, so one is never asked for twice. Cloudflare applies every rule a path matches, so these
+# files keep the security headers of /* above; only Cache-Control is added (Cloudflare's default
+# for static assets, `public, max-age=0, must-revalidate`, is replaced). Files at the root
+# (index.html, the favicons) are not hashed and keep the default.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
 # v0.14 W4-D: Google Sheets' picking page only (docs/plan.md §1.52), loaded as a document of its own.
 # It replaces the policy above with the same one plus Google's two scripts (the Picker's loader on
 # apis.google.com, and Google Identity Services' client, which gets the Picker its token in a

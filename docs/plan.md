@@ -4264,6 +4264,23 @@ factor (`portalReleaseRequest`, `opsRelease`, `opsAgentGrants`).
 6. 1.6's "prefetch the next screen once Home settles" is not built: it raises Home's calls, which
    gate 2 forbids. Left for the owner (the same for the portal's Home → Inbox).
 
+**The first load** (#261: 1.1, 4.1, 4.3, 4.4, 4.5):
+
+1. A still frame inside `#root` (top bar, sidebar rows, a heading and two cards, on the shell's own
+   classes), the same picture as its React twin `session/StillFrame.tsx`, which covers the session,
+   its language and the `OpsApp` chunk; a test keeps the two identical. No script, CSP untouched.
+2. The frame follows the OS theme only: showing a stored light or dark choice before the bundle runs
+   needs a blocking script, which 1.1 rules out.
+3. Only English is in the bundle. Nothing is downloaded while the session is unknown; the session's
+   language once known, the browser's only signed out. A chunk that fails reads in English and is
+   asked for again on the next session refresh.
+4. The session call starts before React mounts; the frame's first calls are prefetched only after it
+   answers, never beside it (a WorkOS refresh rotates the refresh token, and a racing request with
+   the old cookie revokes the session), by `session.operator`, so nothing refused is asked.
+5. `OpsApp` starts loading at module load on `/ops` addresses.
+6. `/assets/*` is cached for good (`immutable`); both Geist faces are preloaded, and a build missing
+   either fails. Tests load all six catalogs in `test/setup.ts`; the app loads one.
+
 **Running the run.** Worker sessions cannot force-push, so a worker brings its branch up to date by
 merging `speed/run` into it, and the lead merges each PR with a merge commit (never a squash). The
 tree merged is the one the gates ran on. `pnpm typecheck` runs out of memory in a 15 GB cloud
