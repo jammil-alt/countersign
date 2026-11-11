@@ -57,10 +57,20 @@ jobs:
 
       - run: pnpm typecheck
 
+      # The web app's first load against its budget (scripts/web-size.mjs, docs/audit-plan.md 9.6),
+      # so it can't grow unnoticed. The budget is set in the script.
+      - run: pnpm --filter @countersign/web build
+
+      - run: pnpm size:web
+
   check:
     runs-on: ubuntu-latest
     # A full run takes about 8 minutes (2026-11-08); the limit leaves room for a slow runner.
     timeout-minutes: 30
+    # A database test whose server is unreachable fails here instead of skipping
+    # (packages/db/src/testing.ts), so a broken service container can't pass as green.
+    env:
+      COUNTERSIGN_REQUIRE_DB: "1"
     services:
       postgres:
         image: pgvector/pgvector:pg16
