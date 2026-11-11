@@ -102,3 +102,29 @@ export function sinceDate(iso: string): string {
   const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   return `${day}, ${time}`;
 }
+
+/**
+ * Escalations' two calls for a view, a status and a client, in one place so anything that fills
+ * the store ahead of the screen (1.6) uses the same options in the same order and shares its
+ * stored answer. Defaults: Needs us, open, every client.
+ */
+export function escalationsCalls({
+  view = "us",
+  status = "open",
+  client = "",
+}: {
+  view?: "us" | "clients";
+  status?: "open" | "resolved";
+  client?: string;
+} = {}) {
+  return {
+    inbox: {
+      query: {
+        assigned: view === "clients" ? "all" : "operator",
+        status,
+        ...(client ? { client } : {}),
+      },
+    },
+    needsUs: { query: client ? { client } : {} },
+  } as const;
+}

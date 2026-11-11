@@ -173,6 +173,12 @@ export class ApiStore {
     return e.epoch < writes || this.now() - e.at >= FRESH_MS;
   }
 
+  /** Whether the stored answer for `key` was asked before the last successful write. */
+  staleByWrite(key: string): boolean {
+    const e = this.entries.get(key);
+    return e?.data !== undefined && e.epoch < writes;
+  }
+
   subscribe(key: string, fn: Listener): () => void {
     let set = this.listeners.get(key);
     if (!set) {
