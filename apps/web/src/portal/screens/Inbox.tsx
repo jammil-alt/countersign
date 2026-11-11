@@ -42,6 +42,8 @@ export function viewOf(params: URLSearchParams): { view: View; later: boolean } 
 
 /** How many of the latest done items show under "Waiting on you" ("Done this week"). */
 const DONE_PREVIEW = 5;
+/** The most items the API lists (`GET /api/inbox`): a full list may hold fewer than the count. */
+const INBOX_LIST_MAX = 200;
 const WEEK_MS = 7 * 24 * 60 * 60_000;
 
 export function PortalInboxScreen() {
@@ -68,6 +70,16 @@ export function PortalInboxScreen() {
   const done = useApi(apiRoutes.portalInbox, { query: { status: "resolved" } });
   const team = useApi(apiRoutes.portalTeam);
   usePoll(waiting.reload, true, 20_000, waiting.loading);
+  // The frame's count is this list's length (open, not put off). The frame asks for it again on a
+  // page change only when it is a few seconds old (docs/audit-plan.md 2.1), so a list that says
+  // otherwise refreshes it: an item that opened since shows in the count as it shows here.
+  const overview = useApi(apiRoutes.portalOverview);
+  const openCount = waiting.data?.items.length;
+  const countShown = overview.data?.needsYou.inbox;
+  useEffect(() => {
+    if (openCount === undefined || countShown === undefined) return;
+    if (openCount < INBOX_LIST_MAX && openCount !== countShown) refreshCount();
+  }, [openCount, countShown, refreshCount]);
 
   // A viewer (`canSign` false) sees the Desk without its buttons; until the team loads, the API
   // is the judge.

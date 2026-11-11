@@ -37,10 +37,19 @@ import {
   Tabs,
   Tag,
 } from "../../ui/primitives";
+import {
+  Skeleton,
+  SkeletonBlock,
+  SkeletonCard,
+  SkeletonLine,
+  SkeletonRows,
+  SkeletonStats,
+} from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { type StepItem, StepList, type StepState } from "../../ui/steps";
 import { periodLabel } from "../../usage/format";
 import { stageWord } from "../agentState";
+import { useKnownAgent, useRememberRuns } from "../known";
 import { PORTAL_PATHS } from "../paths";
 import { agentChip, type RunFields, runChip, runOpen } from "../status";
 import { accountAddress } from "./Accounts";
@@ -52,66 +61,52 @@ const RUN_POLL_MS = 5_000;
 
 export type AgentTab = "overview" | "runs" | "access";
 
+/**
+ * The page: its header and tabs draw at once from what the frame's overview already says of the
+ * agent (its name, what it does, its state), and every call that needs only the agent's id starts
+ * here together (docs/audit-plan.md 1.4, 1.5). Each part waits only for its own answer.
+ */
 export function AgentScreen({ tab = "overview" }: { tab?: AgentTab }) {
   const { id = "" } = useParams();
-  const detail = useApi(apiRoutes.portalService, { params: { id } });
-  return (
-    <Page testId="portal-agent">
-      <Loaded state={detail}>
-        {(data) => <AgentPage id={id} tab={tab} detail={data} reload={detail.reload} />}
-      </Loaded>
-    </Page>
-  );
-}
-
-type Detail = ResponseOf<typeof apiRoutes.portalService>;
-
-function useIsAdmin(): boolean {
-  const session = useSession();
-  const client =
-    session.tenants.find((c) => c.id === session.activeTenantId) ?? session.tenants[0] ?? null;
-  return client?.role === "client_admin";
-}
-
-function AgentPage({
-  id,
-  tab,
-  detail,
-  reload,
-}: {
-  id: string;
-  tab: AgentTab;
-  detail: Detail;
-  reload: () => void;
-}) {
   const { t } = useI18n();
   const isAdmin = useIsAdmin();
-  const { service } = detail;
-
+  const known = useKnownAgent(id);
+  const detail = useApi(apiRoutes.portalService, { params: { id } });
   // What it is doing now and its stage come from Home's route; its controls are the client admin's.
   const table = useApi(apiRoutes.portalTable);
   const controls = useApi(apiRoutes.portalServiceControls, isAdmin ? {} : null);
+  // The Overview tab's own calls start with the rest, not once the agent has answered.
+  const overviewTab = tab === "overview";
+  const view = useApi(apiRoutes.portalServiceView, overviewTab ? { params: { id } } : null);
+  const forms = useApi(apiRoutes.portalRunForms, overviewTab ? { params: { id } } : null);
+
   const live = table.data?.services.find((s) => s.id === id) ?? null;
   const control = controls.data?.services.find((s) => s.id === id) ?? null;
-  const chip = agentChip(
-    {
-      status: service.status,
-      stage: live?.stage ?? null,
-      now: live?.now ?? null,
-      runsNow: live?.runsNow,
-    },
-    t,
-  );
-  const stage = stageWord(live?.stage ?? null, t);
-  const name = service.name;
+  const service = detail.data?.service ?? null;
+  const name = service?.name ?? known?.name ?? null;
+  const status = service?.status ?? known?.status ?? null;
+  const chip =
+    status === null
+      ? null
+      : agentChip(
+          {
+            status,
+            stage: live?.stage ?? known?.stage ?? null,
+            now: live?.now ?? null,
+            runsNow: live?.runsNow ?? known?.runsNow,
+          },
+          t,
+        );
+  const stage = stageWord(live?.stage ?? known?.stage ?? null, t);
+  const description = service ? service.description : (known?.description ?? null);
   const refresh = () => {
-    reload();
+    detail.reload();
     table.reload();
     controls.reload();
   };
 
   return (
-    <>
+    <Page testId="portal-agent">
       <PageHeader
         eyebrow={
           <Link to={PORTAL_PATHS.home} className="hover:underline">
@@ -119,20 +114,28 @@ function AgentPage({
           </Link>
         }
         beside={<HeaderSwitcher />}
-        leading={<AgentBadge name={name} seed={id} size="lg" />}
-        title={name}
+        leading={
+          name !== null ? (
+            <AgentBadge name={name} seed={id} size="lg" />
+          ) : detail.error ? null : (
+            <SkeletonBlock height={52} className="w-[52px] shrink-0" />
+          )
+        }
+        title={name ?? (detail.error ? "" : <SkeletonLine width={220} size="title" />)}
         badge={
-          <span className="flex items-center gap-2">
-            <StatusChip state={chip.state} testId="agent-state">
-              {chip.label}
-            </StatusChip>
-            {stage ? <Tag>{stage}</Tag> : null}
-          </span>
+          chip ? (
+            <span className="flex items-center gap-2">
+              <StatusChip state={chip.state} testId="agent-state">
+                {chip.label}
+              </StatusChip>
+              {stage ? <Tag>{stage}</Tag> : null}
+            </span>
+          ) : null
         }
         // DECISION: no line when the agent has no description (the role is written for us).
-        subtitle={service.description ?? undefined}
+        subtitle={description ?? undefined}
         actions={
-          isAdmin && control ? (
+          isAdmin && control && name !== null ? (
             <PauseControl control={control} name={name} onChange={refresh} />
           ) : null
         }
@@ -145,37 +148,75 @@ function AgentPage({
           { to: PORTAL_PATHS.agentAccess(id), label: t("agent.tab.access") },
         ]}
       />
-      {tab === "runs" ? (
+      {detail.error && !detail.data ? (
+        // Not the client's agent, or not there: no tab has anything to show.
+        <Loaded state={detail}>{() => null}</Loaded>
+      ) : tab === "runs" ? (
         <AgentRuns id={id} />
       ) : tab === "access" ? (
-        <AgentAccess id={id} name={name} isAdmin={isAdmin} />
+        <AgentAccess id={id} name={name ?? ""} isAdmin={isAdmin} />
       ) : (
         <>
-          <AgentFiguresStrip
-            id={id}
-            detail={detail}
-            perDay={live?.perDay}
-            waiting={live?.runsNow?.waitingOnYou ?? 0}
-          />
-          <PageGrid rail={<RunNow id={id} name={name} />}>
-            <OwnView id={id} detail={detail} />
-            {detail.readsDocuments ? <Documents isAdmin={isAdmin} /> : null}
-            <RightNow
-              runId={live?.now?.runId ?? null}
-              going={live?.now ? runOpen(live.now) : false}
-            />
-            <LatestWork
-              name={name}
-              recent={finishedWork(
-                (table.data?.recent ?? []).filter((r) => r.service.id === id),
-                [...detail.recentRuns, ...(live?.now ? [{ id: live.now.runId, ...live.now }] : [])],
-              )}
-            />
+          <Loaded state={detail} skeleton={<SkeletonStats count={3} />}>
+            {(data) => (
+              <AgentFiguresStrip
+                id={id}
+                detail={data}
+                kpis={view.data?.kpis ?? []}
+                perDay={live?.perDay}
+                waiting={live?.runsNow?.waitingOnYou ?? 0}
+              />
+            )}
+          </Loaded>
+          <PageGrid rail={<RunNow id={id} name={name ?? ""} forms={forms.data?.forms ?? []} />}>
+            {detail.data ? (
+              <>
+                <OwnView id={id} detail={detail.data} />
+                {detail.data.readsDocuments ? <Documents isAdmin={isAdmin} /> : null}
+              </>
+            ) : (
+              <Skeleton>
+                <SkeletonCard lines={4} />
+              </Skeleton>
+            )}
+            {table.data ? (
+              <RightNow
+                runId={live?.now?.runId ?? null}
+                going={live?.now ? runOpen(live.now) : false}
+              />
+            ) : table.error ? null : (
+              <Skeleton>
+                <SkeletonCard lines={3} />
+              </Skeleton>
+            )}
+            {detail.data && table.data ? (
+              <LatestWork
+                name={name ?? ""}
+                recent={finishedWork(
+                  table.data.recent.filter((r) => r.service.id === id),
+                  [
+                    ...detail.data.recentRuns,
+                    ...(live?.now ? [{ id: live.now.runId, ...live.now }] : []),
+                  ],
+                )}
+              />
+            ) : null}
           </PageGrid>
         </>
       )}
-    </>
+    </Page>
   );
+}
+
+type Detail = ResponseOf<typeof apiRoutes.portalService>;
+type ViewKpi = ResponseOf<typeof apiRoutes.portalServiceView>["kpis"][number];
+type FormList = ResponseOf<typeof apiRoutes.portalRunForms>["forms"];
+
+function useIsAdmin(): boolean {
+  const session = useSession();
+  const client =
+    session.tenants.find((c) => c.id === session.activeTenantId) ?? session.tenants[0] ?? null;
+  return client?.role === "client_admin";
 }
 
 // ── The agent's own view (the slot) ──────────────────────────────────────────────────────────────
@@ -252,8 +293,9 @@ function AgentRuns({ id }: { id: string }) {
   const { t } = i18n;
   const runs = useApi(apiRoutes.portalRuns, { query: { agents: id, limit: 50 } });
   usePoll(runs.reload, runs.data?.runs.some((r) => runOpen(r)) ?? false, RUN_POLL_MS, runs.loading);
+  useRememberRuns(runs.data?.runs);
   return (
-    <Loaded state={runs}>
+    <Loaded state={runs} skeleton={<SkeletonRows rows={6} columns={3} />}>
       {(data) =>
         data.runs.length === 0 ? (
           <EmptyState>{t("service.noRuns")}</EmptyState>
@@ -549,20 +591,21 @@ export function finishedWork(recent: Recent[], runs: (RunFields & { id: string }
 function AgentFiguresStrip({
   id,
   detail,
+  kpis: allKpis,
   perDay,
   waiting,
 }: {
   id: string;
   detail: Detail;
+  kpis: readonly ViewKpi[];
   perDay: readonly DayRuns[] | undefined;
   waiting: number;
 }) {
   const i18n = useI18n();
   const { t, fmt } = i18n;
-  const view = useApi(apiRoutes.portalServiceView, { params: { id } });
   const { thisMonth } = detail;
   // The client view's KPIs: labels and values, never their definition.
-  const kpis = (view.data?.kpis ?? []).filter((k) => k.display !== null);
+  const kpis = allKpis.filter((k) => k.display !== null);
   const runs14 = (perDay ?? []).reduce((n, d) => n + d.runs, 0);
   const reportPath = `${PORTAL_PATHS.reports}?service=${id}`;
   return (
@@ -652,7 +695,15 @@ function Reach({ id, name }: { id: string; name: string }) {
     // The vault is never stored (docs/audit-plan.md 1.2).
     cache: "none",
   });
-  if (!access.data) return null;
+  if (!access.data) {
+    return access.error ? (
+      <ErrorNotice error={access.error} onRetry={access.reload} />
+    ) : (
+      <Skeleton>
+        <SkeletonCard lines={4} />
+      </Skeleton>
+    );
+  }
   const items = reachOf(id, access.data);
   return (
     <Card
@@ -767,10 +818,9 @@ export function formFields(input: Record<string, unknown>): FieldSpec[] | null {
   return out;
 }
 
-function RunNow({ id, name }: { id: string; name: string }) {
+function RunNow({ id, name, forms }: { id: string; name: string; forms: FormList }) {
   const { t } = useI18n();
-  const forms = useApi(apiRoutes.portalRunForms, { params: { id } });
-  const usable = (forms.data?.forms ?? []).flatMap((f) => {
+  const usable = forms.flatMap((f) => {
     const fields = formFields(f.input);
     return fields ? [{ form: f, fields }] : [];
   });

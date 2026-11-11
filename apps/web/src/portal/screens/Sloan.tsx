@@ -15,7 +15,6 @@ import type { PlainKey } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
 import { InboxCard, isAccountChangeItem } from "../../inbox/InboxCard";
 import { SourceLinks } from "../../records/SourceLinks";
-import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
@@ -26,11 +25,14 @@ import { Button, Card, ErrorNotice, Loading, PageHeader, Tabs } from "../../ui/p
 import { StatusChip } from "../../ui/status";
 import { useRefreshInboxCount } from "../inboxCount";
 import { PORTAL_PATHS } from "../paths";
+import { type Backoff, useBackoffPoll } from "../poll";
 import { agentChip } from "../status";
 import { ChangeRequests } from "./Requests";
 
 /** How often an open conversation looks for Sloan's answer while it waits for one. */
-const ANSWER_POLL_MS = 3_000;
+// Sloan's answer is asked for every 3 s at first, then less often up to 30 s, and never in a
+// hidden tab (docs/audit-plan.md 2.7); a new message starts it again from 3 s.
+const ANSWER_POLL: Backoff = { firstMs: 3_000, maxMs: 30_000 };
 
 /** What Sloan does and doesn't do, in the portal's words (ARCHITECTURE §9.8). */
 const CAN: [PlainKey, boolean][] = [
@@ -186,7 +188,7 @@ function Conversation({
   const list = messages.data?.messages ?? [];
   const last = list[list.length - 1];
   const waitingForAnswer = !!last && last.sender.you;
-  usePoll(messages.reload, waitingForAnswer, ANSWER_POLL_MS, messages.loading);
+  useBackoffPoll(messages.reload, waitingForAnswer, ANSWER_POLL, messages.loading, last?.id);
 
   // Opening a conversation reads it up to now.
   const marked = useRef<string | null>(null);
