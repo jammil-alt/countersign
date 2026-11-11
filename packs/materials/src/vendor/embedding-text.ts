@@ -36,52 +36,54 @@ const WHOLE = "(?![\\d,]|[./]\\d)";
 // per unit, a date with matching separators, a labelled quantity, and order or shipping words:
 // a bare fraction, a size (4X8), a thickness (.75, 18MM) or a thread (1/4-20) is never touched,
 // because those are what the item is.
+// DECISION: far longer than EMBEDDING_TEXT_MAX_WORDS words ever needs; what is past it is never embedded.
+const STRIP_MAX_CHARS = 6000;
+
 const STRIP: readonly RegExp[] = [
   // Prices: price: 68.50, EXT: $980.00, @ $68.50/SHT, $68.50, USD 68.50, 68.50 USD, 68.50/EA.
   // A labelled price (first, with its label) is a whole figure, never a fraction's numerator
   // ("TOTAL 5/8 EDGE"); the grade EXT ("CDX PLYWOOD EXT 3/4") is a price label only with a colon,
   // an equals sign or a money mark.
   new RegExp(
-    `\\bext(?:ended)?\\.?(?:\\s+(?:price|amount|amt))?\\s*(?:[:=]\\s*\\$?|\\$)\\s*${NUM}${WHOLE}`,
+    `\\bext(?:ended)?\\.?(?: (?:price|amount|amt))? ?(?:[:=] ?\\$?|\\$) ?${NUM}${WHOLE}`,
     "gi",
   ),
-  new RegExp(
-    `\\b(?:unit\\s+)?(?:price|cost|amount|total)\\s*[:=]?\\s*\\$?\\s*${NUM}${WHOLE}`,
-    "gi",
-  ),
-  new RegExp(`@\\s*\\$?\\s*${NUM}(?:\\s*\\/\\s*${UNIT}\\b)?`, "gi"),
-  new RegExp(`\\$\\s*${NUM}(?:\\s*\\/\\s*${UNIT}\\b)?`, "gi"),
-  new RegExp(`\\b(?:usd|cad|eur|gbp)\\s*${NUM}`, "gi"),
-  new RegExp(`\\b${NUM}\\s*(?:usd|cad|eur|gbp|dollars?)\\b`, "gi"),
-  new RegExp(`\\b\\d[\\d,]*\\.\\d{2}\\s*\\/\\s*${UNIT}\\b`, "gi"),
+  new RegExp(`\\b(?:unit )?(?:price|cost|amount|total) ?[:=]? ?\\$? ?${NUM}${WHOLE}`, "gi"),
+  new RegExp(`@ ?\\$? ?${NUM}(?: ?\\/ ?${UNIT}\\b)?`, "gi"),
+  new RegExp(`\\$ ?${NUM}(?: ?\\/ ?${UNIT}\\b)?`, "gi"),
+  new RegExp(`\\b(?:usd|cad|eur|gbp) ?${NUM}`, "gi"),
+  new RegExp(`\\b${NUM} ?(?:usd|cad|eur|gbp|dollars?)\\b`, "gi"),
+  new RegExp(`\\b\\d[\\d,]*\\.\\d{2} ?\\/ ?${UNIT}\\b`, "gi"),
   // Dates: 11/02/2026, 2026-11-02, 02.11.26, Nov 2, 2026.
   /\b\d{4}-\d{1,2}-\d{1,2}\b/g,
   /\b\d{1,2}([/.-])\d{1,2}\1\d{2,4}\b/g,
-  new RegExp(`\\b${MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?\\b(?:,?\\s+\\d{4}\\b)?`, "gi"),
+  new RegExp(`\\b${MONTH}\\.? \\d{1,2}(?:st|nd|rd|th)?\\b(?:,? \\d{4}\\b)?`, "gi"),
   // Quantities, labelled: QTY 40, Qty: 40, ordered 40, shipped 12, B/O 3.
   new RegExp(
-    `(?:\\b(?:qty|quantity|ordered|shipped|back\\s*ordered|backordered)|\\bb\\/o)\\.?\\s*[:#]?\\s*${NUM}`,
+    `(?:\\b(?:qty|quantity|ordered|shipped|back ?ordered|backordered)|\\bb\\/o)\\.? ?[:#]? ?${NUM}`,
     "gi",
   ),
   // Pack quantities, the vendor's (vendor_item.pack_size): BOX OF 50, PACK OF 2, 100/BOX, 50 PER CASE.
-  /\b(?:box|bx|pack|pk|pkg|case|cs|bag|carton|ctn|bundle|bdl|bucket|pail)\s+of\s+\d+\b/gi,
-  /\b\d+\s*(?:\/|per\s+)(?:box|bx|pack|pk|pkg|case|cs|bag|carton|ctn|bundle|bdl)\b/gi,
+  /\b(?:box|bx|pack|pk|pkg|case|cs|bag|carton|ctn|bundle|bdl|bucket|pail) of \d+\b/gi,
+  /\b\d+ ?(?:\/|per )(?:box|bx|pack|pk|pkg|case|cs|bag|carton|ctn|bundle|bdl)\b/gi,
   // Order and shipping terms: PO# 1234, order no. 55, invoice # A-1, FOB origin, net 30, ship via
   // UPS, freight, delivery charge, prepaid, collect, will call, drop ship, due on receipt.
-  /\b(?:p\.?o\.?|order|so|invoice|inv|job)\s*(?:no\.?|number|#)\s*:?\s*[\w-]+/gi,
-  /\bpo\s*#?\s*\d[\w-]*/gi,
-  /\bf\.?o\.?b\.?\s+(?:origin|destination|shipping point|\w+)/gi,
-  /\bnet\s*\d+(?:\s*days)?\b/gi,
-  /\bship(?:ped)?\s+via\s+\S+/gi,
-  /\bdue\s+(?:on\s+)?(?:receipt|\d+\s+days)\b/gi,
-  /\b(?:freight|shipping|delivery|handling|fuel surcharge)(?:\s+(?:charges?|included|incl\.?|extra|prepaid|collect))?\b/gi,
-  /\b(?:prepaid|collect|will\s+call|drop\s+ship(?:ped)?|back\s*order(?:ed)?)\b/gi,
-  /\bterms?\s*:\s*\S+/gi,
+  /\b(?:p\.?o\.?|order|so|invoice|inv|job) ?(?:no\.?|number|#) ?:? ?[\w-]+/gi,
+  /\bpo ?#? ?\d[\w-]*/gi,
+  /\bf\.?o\.?b\.? (?:origin|destination|shipping point|\w+)/gi,
+  /\bnet ?\d+(?: ?days)?\b/gi,
+  /\bship(?:ped)? via \S+/gi,
+  /\bdue (?:on )?(?:receipt|\d+ days)\b/gi,
+  /\b(?:freight|shipping|delivery|handling|fuel surcharge)(?: (?:charges?|included|incl\.?|extra|prepaid|collect))?\b/gi,
+  /\b(?:prepaid|collect|will call|drop ship(?:ped)?|back ?order(?:ed)?)\b/gi,
+  /\bterms? ?: ?\S+/gi,
 ];
 
 /** A name or description with prices, quantities, dates and order or shipping terms taken out. */
 export function stripTerms(text: string): string {
-  let out = text;
+  // Whitespace first, as single spaces, and a bounded length, so every pattern below matches one
+  // optional space where a gap may be (` ?`) and runs in time linear in the text (CodeQL).
+  let out = text.slice(0, STRIP_MAX_CHARS).replace(/\s+/g, " ");
   for (const re of STRIP) out = out.replace(re, " ");
   return trimEdges(out.replace(/\(\s*\)|\[\s*\]/g, " ").replace(/\s+/g, " "));
 }
