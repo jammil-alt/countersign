@@ -8,13 +8,13 @@
 // gives the same answers apart from a few parameters, named in `ResponsesDialect`. The HTTP side
 // (retries, time limits, errors) is ./provider.ts, shared with every provider but Anthropic.
 
-import type Anthropic from "@anthropic-ai/sdk";
 import { MODEL_PREFIXES, providerModelName } from "@countersign/core";
 import {
   fromOpenAIEmbeddings,
   type OAEmbeddingsResponse,
   toOpenAIEmbeddingsRequest,
 } from "./embeddings";
+import type * as Anthropic from "./messages";
 import {
   type HttpTransportOptions,
   httpPostJson,
