@@ -222,7 +222,8 @@ export function toGeminiContents(messages: readonly Anthropic.MessageParam[]): G
       for (const block of m.content) {
         if (block.type === "thinking") {
           // Only Gemini's own signatures go back; Anthropic thinking is dropped, as for OpenAI.
-          if (block.signature.startsWith(GEMINI_SIGNATURE_PREFIX)) {
+          // A thinking block from a stream may carry no signature (./messages.ts).
+          if (block.signature?.startsWith(GEMINI_SIGNATURE_PREFIX)) {
             signature = block.signature.slice(GEMINI_SIGNATURE_PREFIX.length);
           }
         } else if (block.type === "redacted_thinking") {

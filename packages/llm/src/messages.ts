@@ -232,13 +232,13 @@ export interface ToolCaller {
 const textBlockSchema = z.looseObject({
   type: z.literal("text"),
   text: z.string(),
-  citations: z.array(z.unknown()).nullable(),
+  citations: z.array(z.unknown()).nullable().optional(),
 });
 
 const thinkingBlockSchema = z.looseObject({
   type: z.literal("thinking"),
   thinking: z.string(),
-  signature: z.string(),
+  signature: z.string().optional(),
 });
 
 const redactedThinkingBlockSchema = z.looseObject({
@@ -267,7 +267,7 @@ const webSearchResultSchema = z.looseObject({
   url: z.string(),
   title: z.string(),
   page_age: z.string().nullable().optional(),
-  encrypted_content: z.string(),
+  encrypted_content: z.string().optional(),
 });
 
 const webSearchToolResultBlockSchema = z.looseObject({
@@ -294,7 +294,7 @@ const documentBlockSchema = z.looseObject({
       data: z.string(),
     }),
   ]),
-  title: z.string().nullable(),
+  title: z.string().nullable().optional(),
   citations: z.looseObject({ enabled: z.boolean() }).nullable().optional(),
 });
 
@@ -373,7 +373,8 @@ export const messageSchema = z.looseObject({
   role: z.literal("assistant"),
   model: z.string(),
   content: z.array(contentBlockSchema),
-  stop_reason: z.enum(STOP_REASONS).nullable(),
+  // A stop reason the API adds later is kept, not refused: callers compare with the ones they know.
+  stop_reason: z.string().nullable(),
   stop_sequence: z.string().nullable().optional(),
   usage: usageSchema,
 });
@@ -399,13 +400,15 @@ export type TextCitation = CitationsWebSearchResultLocation | CitationOtherLocat
 export interface TextBlock {
   type: "text";
   text: string;
-  citations: TextCitation[] | null;
+  /** Absent at a streamed block's start when it has none. */
+  citations?: TextCitation[] | null;
 }
 
 export interface ThinkingBlock {
   type: "thinking";
   thinking: string;
-  signature: string;
+  /** Arrives in its own delta after the thinking; sent back unchanged. */
+  signature?: string;
 }
 
 export interface RedactedThinkingBlock {
@@ -433,8 +436,8 @@ export interface WebSearchResultBlock {
   type: "web_search_result";
   url: string;
   title: string;
-  page_age: string | null;
-  encrypted_content: string;
+  page_age?: string | null;
+  encrypted_content?: string;
 }
 
 export interface WebSearchToolResultBlock {
@@ -447,7 +450,7 @@ export interface WebSearchToolResultBlock {
 export interface DocumentBlock {
   type: "document";
   source: Base64PDFSource | PlainTextSource;
-  title: string | null;
+  title?: string | null;
   citations?: { enabled: boolean } | null;
 }
 
@@ -496,7 +499,8 @@ export interface Message {
   role: "assistant";
   model: string;
   content: ContentBlock[];
-  stop_reason: StopReason | null;
+  /** One of `STOP_REASONS`, or one the API added since (kept as it came). */
+  stop_reason: StopReason | (string & {}) | null;
   stop_sequence?: string | null;
   usage: Usage;
   [k: string]: unknown;

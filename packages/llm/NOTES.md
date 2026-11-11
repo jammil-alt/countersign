@@ -105,9 +105,10 @@ call; the fake-fetch tests in `src/anthropic.test.ts` pin each one.
 | Fact | Status |
 |---|---|
 | `POST https://api.anthropic.com/v1/messages`, `anthropic-version: 2026-10-21`, the key as `Authorization: Bearer <key>`, `accept: application/json`, JSON body | As the SDK sent them; **UNCHECKED** with a live call on staging |
-| The body is the request plus `stream: true`; the answer is server-sent events (`message_start`, `content_block_start/delta/stop`, `message_delta`, `message_stop`, `ping`, `error`) put together into one message | As the SDK's `messages.stream().finalMessage()` did |
+| The body is the request plus `stream: true`; the answer is server-sent events (`message_start`, `content_block_start/delta/stop`, `message_delta`, `message_stop`, `ping`, `error`) put together into one message; a stream that ends before `message_stop` is an error (`stream ended without producing a Message with role=assistant`), never a partial answer | As the SDK's `messages.stream().finalMessage()` did |
+| Fields we only carry may be missing: a text block's `citations` and a thinking block's `signature` at a streamed block's start, a search result's `encrypted_content`, a fetched page's `title`; a stop reason we don't know is kept | Read from the SDK's types and the stream's block-start shapes |
 | `message_delta.usage`: `output_tokens` always; `input_tokens`, cache counts, `server_tool_use`, `output_tokens_details` only when they apply, as whole-message totals | As the SDK read them |
 | Retries: 2, after a dropped connection, a time-out, or 408, 409, 429, 5xx; `x-should-retry` overrides; waits `retry-after-ms`, else `retry-after` (seconds or a date), else 0.5 s doubling to 8 s less up to 25% | As the SDK did |
-| The 10-minute time limit covers the wait for the answer to start, not the stream after it | As the SDK did |
+| The 10-minute time limit covers the wait for the answer to start, not the stream after it; a connection error the runtime words as a time-out (`timed out` in it or its cause) counts as one | As the SDK did |
 | Errors: `<status> <body as JSON>` (`529 {"type":"error","error":{"type":"overloaded_error",…}}`), a stream's `error` event as its body in JSON, `Connection error.`, `Request timed out.`, `Request was aborted.`; class name `Error` | As the SDK worded them, so run error keys read the same |
 | SDK telemetry headers (`x-stainless-*`, `user-agent`) | Not sent: nothing reads them |

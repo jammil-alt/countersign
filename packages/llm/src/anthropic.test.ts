@@ -8,6 +8,7 @@ import {
   AnthropicError,
   anthropicRetryDelayMs,
   anthropicTransport,
+  looksTimedOut,
   MessageAccumulator,
   parseMessage,
   readServerSentEvents,
@@ -274,7 +275,7 @@ describe("anthropicTransport: the answer", () => {
     });
   });
 
-  it("gives a tool call with no input pieces an empty input, and a cut-off one {}", () => {
+  it("gives a tool call with no input pieces an empty input, and one cut off at max_tokens {}", () => {
     const acc = new MessageAccumulator();
     acc.add(start().data);
     acc.add({
@@ -293,8 +294,45 @@ describe("anthropicTransport: the answer", () => {
       index: 1,
       delta: { type: "input_json_delta", partial_json: '{"id": "IN' },
     });
+    acc.add({ type: "content_block_stop", index: 1 });
+    acc.add({ type: "message_stop" });
     const message = acc.message() as { content: { input: unknown }[] };
     expect(message.content.map((b) => b.input)).toEqual([{}, {}]);
+  });
+
+  it("takes blocks as they start in a stream: no citations, no signature yet", async () => {
+    // The documented block-start shapes: a text block has no `citations` key, a thinking block
+    // no `signature` (it arrives in its own delta, and may not come at all).
+    const { fn } = scriptedFetch(
+      sse([
+        start(),
+        ev("content_block_start", { index: 0, content_block: { type: "thinking", thinking: "" } }),
+        ev("content_block_delta", { index: 0, delta: { type: "thinking_delta", thinking: "Hm." } }),
+        ev("content_block_stop", { index: 0 }),
+        ev("content_block_start", { index: 1, content_block: { type: "text", text: "" } }),
+        ev("content_block_delta", { index: 1, delta: { type: "text_delta", text: "Hi" } }),
+        ev("content_block_stop", { index: 1 }),
+        ...stop("end_turn", 3),
+      ]),
+    );
+    const message = await transport(fn).t.create(req());
+    expect(message.content).toEqual([
+      { type: "thinking", thinking: "Hm." },
+      { type: "text", text: "Hi" },
+    ]);
+  });
+
+  it("keeps a stop reason the API added later, rather than failing the call", async () => {
+    const { fn } = scriptedFetch(
+      sse([
+        start(),
+        ev("content_block_start", { index: 0, content_block: { type: "text", text: "" } }),
+        ev("content_block_stop", { index: 0 }),
+        ...stop("some_new_reason", 1),
+      ]),
+    );
+    const message = await transport(fn).t.create(req());
+    expect(message.stop_reason).toBe("some_new_reason");
   });
 
   it("works through the client: usage and cost as before", async () => {
@@ -323,6 +361,23 @@ describe("anthropicTransport: the answer", () => {
     const { fn } = scriptedFetch(sse([{ event: "ping", data: { type: "ping" } }]));
     await expect(transport(fn).t.create(req())).rejects.toThrow(
       "request ended without sending any chunks",
+    );
+  });
+
+  it("fails a stream that ended before message_stop, with the SDK's words", async () => {
+    const { fn } = scriptedFetch(
+      sse([
+        start(),
+        ev("content_block_start", { index: 0, content_block: { type: "text", text: "" } }),
+        ev("content_block_delta", { index: 0, delta: { type: "text_delta", text: "Half an ans" } }),
+      ]),
+    );
+    const error = await transport(fn)
+      .t.create(req())
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AnthropicError);
+    expect((error as Error).message).toBe(
+      "stream ended without producing a Message with role=assistant",
     );
   });
 
@@ -416,6 +471,23 @@ describe("anthropicTransport: retries and errors", () => {
     expect(error).toBeInstanceOf(AnthropicConnectionError);
     expect(error.message).toBe("Connection error.");
     expect(error.cause).toBeInstanceOf(TypeError);
+  });
+
+  it("reads a connection error the runtime words as a time-out as one, as the SDK did", async () => {
+    const undici = new TypeError("fetch failed", {
+      cause: new Error("ConnectTimeoutError: Connect Timeout Error (timeout: 10000ms)"),
+    });
+    const deno = new TypeError("tcp connect error: Operation timed out (os error 60)");
+    const { fn, calls } = scriptedFetch(undici, deno);
+    const error = (await transport(fn, { maxRetries: 1 })
+      .t.create(req())
+      .catch((e: unknown) => e)) as AnthropicConnectionError;
+    expect(calls).toHaveLength(2);
+    expect(error.message).toBe("Request timed out.");
+    expect(error.reason).toBe("timeout");
+    expect(looksTimedOut(undici)).toBe(true);
+    expect(looksTimedOut(deno)).toBe(true);
+    expect(looksTimedOut(new TypeError("fetch failed"))).toBe(false);
   });
 
   it("times out the wait for the answer to start, retries, then says `Request timed out.`", async () => {
@@ -539,18 +611,45 @@ describe("the message schema", () => {
     }
   });
 
-  it("keeps a block of a type we never ask for, but not a known type with the wrong shape", () => {
+  it("keeps a block of a type we never ask for, but not a known type with a wrong field", () => {
     const base = start().data.message;
     const other = { type: "code_execution_tool_result", tool_use_id: "s1", content: {} };
     expect(parseMessage({ ...base, stop_reason: "end_turn", content: [other] }).content).toEqual([
       other,
     ]);
-    for (const wrong of [
-      { type: "text" },
+    // Fields we read are checked; fields we only carry (citations, signatures, encrypted
+    // content, a fetched page's title) may be absent.
+    const carried = [
+      { type: "text", text: "x" },
+      { type: "thinking", thinking: "" },
       {
         type: "web_search_tool_result",
         tool_use_id: "s1",
-        content: [{ type: "web_search_result" }],
+        content: [{ type: "web_search_result", url: "https://a.test", title: "A" }],
+      },
+      {
+        type: "web_fetch_tool_result",
+        tool_use_id: "s2",
+        content: {
+          type: "web_fetch_result",
+          url: "https://a.test",
+          content: {
+            type: "document",
+            source: { type: "text", media_type: "text/plain", data: "x" },
+          },
+        },
+      },
+    ];
+    expect(parseMessage({ ...base, stop_reason: "end_turn", content: carried }).content).toEqual(
+      carried,
+    );
+    for (const wrong of [
+      { type: "text", text: 5 },
+      { type: "tool_use", id: "t1", input: {} },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "s1",
+        content: [{ type: "web_search_result", title: "no url" }],
       },
     ]) {
       expect(() => parseMessage({ ...base, stop_reason: "end_turn", content: [wrong] })).toThrow(

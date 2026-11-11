@@ -242,6 +242,7 @@ type Snapshot = {
 export class MessageAccumulator {
   #snapshot: Snapshot | null = null;
   readonly #json = new Map<number, string>();
+  #stopped = false;
 
   /** Adds one event (`ping` and unknown events are ignored). */
   add(event: { type: string; [k: string]: unknown }): void {
@@ -314,22 +315,30 @@ export class MessageAccumulator {
         }
         return;
       }
+      case "message_stop":
+        this.#stopped = true;
+        return;
       default:
         return;
     }
   }
 
-  /** The message so far; throws when the stream sent none. */
+  /**
+   * The finished message. As the SDK did, a stream that sent no message at all, or that ended
+   * before `message_stop`, is an error (with the SDK's words), not a partial answer.
+   */
   message(): unknown {
     if (!this.#snapshot) {
       throw new AnthropicError("request ended without sending any chunks", null, undefined, null);
     }
-    // A block whose stop never came (the stream ended early) still gets its input.
-    for (const [index, json] of this.#json) {
-      const block = this.#snapshot.content[index];
-      if (block) block.input = parseToolInput(json);
+    if (!this.#stopped) {
+      throw new AnthropicError(
+        "stream ended without producing a Message with role=assistant",
+        null,
+        undefined,
+        null,
+      );
     }
-    this.#json.clear();
     return this.#snapshot;
   }
 }
@@ -356,6 +365,15 @@ export function anthropicHeaders(apiKey: string): Record<string, string> {
     "anthropic-version": ANTHROPIC_VERSION,
     authorization: `Bearer ${apiKey}`,
   };
+}
+
+/**
+ * A connection error the runtime itself reports as a time-out (Node's undici: `ConnectTimeoutError`
+ * in the cause; Deno: "Operation timed out"). The SDK tested the error and its cause the same way.
+ */
+export function looksTimedOut(error: unknown): boolean {
+  const cause = error instanceof Error && "cause" in error ? String(error.cause) : "";
+  return /timed? ?out/i.test(String(error) + cause);
 }
 
 /** Throws a caller's abort as the SDK did. */
@@ -403,7 +421,7 @@ export function anthropicTransport(options: AnthropicTransportOptions): LlmTrans
     } catch (error) {
       signal?.removeEventListener("abort", onAbort);
       if (signal?.aborted) throw new AnthropicConnectionError("aborted", error);
-      return { ok: false as const, timedOut, error };
+      return { ok: false as const, timedOut: timedOut || looksTimedOut(error), error };
     } finally {
       clearTimeout(timer);
     }
