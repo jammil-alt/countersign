@@ -328,6 +328,14 @@ describe.skipIf(!h)("KPIs, the client view, credits and the audit export", () =>
     });
 
     it("shows this week's KPIs on the Table and in the Weekly Table", async () => {
+      // 6.6: the agent page's answer carries the same KPIs as its view, labels and values only.
+      const page = await ok(user("a"), "GET", `/api/services/${agentId}`);
+      const shown = await ok(user("a"), "GET", `/api/services/${agentId}/view`);
+      // Each over its own period ending now: the two answers differ only in when "now" was.
+      const sansNow = (ks: { to: string }[]) => ks.map(({ to: _, ...k }) => k);
+      expect(sansNow(page.kpis)).toEqual(sansNow(shown.kpis));
+      expect(page.kpis.length).toBeGreaterThan(0);
+      expect(forbiddenKeys(page)).toEqual([]);
       const table = await ok(user("a"), "GET", "/api/table");
       const service = table.services.find((s: { id: string }) => s.id === agentId);
       const caught = service.kpis.find((k: { key: string }) => k.key === "caught");
