@@ -5,7 +5,9 @@ needs on our own domain (a homepage that describes the app, with a privacy polic
 
 | Path | Page |
 |---|---|
-| `/` | Landing page: what we do, how it works, how we keep data safe, contact, and "Terms and policies" at the bottom |
+| `/` | What we do: the hero, the tools we work in, the connectors, the team, the gap chart and the purchasing run |
+| `/hire` | Hire, don't build: three paths, the use cases, how we work with you, and the comparison |
+| `/security` | Security: data security and integrity, the masking demo, the Worksheet and what we're allowed to do |
 | `/terms` | Terms of service (B2B managed service) |
 | `/privacy` | Privacy policy, with the Google user data section and Google's Limited Use sentence |
 | `/subprocessors` | Our providers and the services clients connect themselves |
@@ -17,11 +19,25 @@ needs on our own domain (a homepage that describes the app, with a privacy polic
 ## How it is built
 
 Plain HTML and CSS. `build.mjs` (Node, no dependencies) wraps each page in `src/pages/` in
-`src/layout.html` (header, footer, favicon, meta tags), inlines icons written as
+`src/layout.html` (header, the call to action, footer with "Terms and policies", favicon, meta
+tags), renders the marketing pages' diagrams and demos written as `{{component name}}`
+(`src/components.mjs`, from the lists in `src/content/`), inlines icons written as
 `{{icon mz-name}}`, highlights bracketed placeholders, and copies the design system's
-`tokens.css`, component CSS, Geist fonts and logos from `@countersign/design-system` into
-`dist/`. No framework and no cookies. Nothing runs in the browser unless measuring is on, and
-then only the one inline script ("Measuring" below).
+`tokens.css`, component CSS, Geist fonts and logos from `@countersign/design-system`, and the
+connectors' logos from `src/logos`, into `dist/`. No framework and no cookies.
+
+The pages' copy is in `src/pages/*.html`; the lists the demos show (team, connectors, gap rows,
+the purchasing run, use cases, the four steps, the security lists) are in `src/content/*.mjs`, so
+they change without touching a component. Every state a demo shows is rendered into the page;
+`src/site.js` (one small file, `defer`) only switches between them on a 1.1-second clock while a
+demo is on screen, and holds still with reduced motion. It fetches nothing, stores nothing and
+sends nothing (`src/site.test.ts` checks). Without scripts, each demo shows its first state.
+Measuring is separate: off unless it is turned on, and then one inline script ("Measuring"
+below).
+
+The connectors shown are the ones the platform has (`packages/connectors`); add one to
+`src/content/what.mjs` with its logo in `src/logos` when it is built. Third-party logos are kept
+as delivered (Biome skips the folder).
 
 The site imports nothing from the platform: its only workspace dependency is the design system's
 files, and it has no runtime dependencies (`scripts/check-deps.mjs` holds it to that). The
@@ -80,31 +96,61 @@ site's settings in the back office.
 
 ### Tracked names
 
-Each link and button on the landing page, and the header and footer on every page, has a
-`data-track` name, unique on its page. A new tracked element gets a name here too
+Each link and button on the marketing pages (`/`, `/hire`, `/security`), and the header, call to
+action and footer on every page, has a `data-track` name, unique on its page. A new tracked element gets a name here too
 (`src/measure.test.ts` checks both ways).
 
 | Name | Element |
 |---|---|
 | `nav-logo-home` | Header: the logo |
-| `nav-how-it-works` | Header: How it works |
+| `nav-what-we-do` | Header: What we do |
+| `nav-hire` | Header: Hire, don't build |
 | `nav-security` | Header: Security |
-| `nav-policies` | Header: Policies |
-| `nav-contact` | Header: Contact |
+| `nav-contact` | Header: Get your diagnostic |
+| `cta-start` | Call to action, every page: Get started (an email to us) |
+| `contact-email` | Call to action, every page: the email address (text, not a link; a click or tap on it) |
 | `footer-terms` | Footer: Terms of service |
 | `footer-privacy` | Footer: Privacy policy |
 | `footer-subprocessors` | Footer: Subprocessors |
 | `footer-sms-terms` | Footer: Text message terms |
 | `footer-no-measure` | Footer: How we measure (only while measuring) |
 | `footer-contact` | Footer: Contact |
-| `hero-talk` | Landing: "Talk to us" |
-| `hero-how` | Landing: "How it works" |
-| `security-privacy` | Landing, Security: the privacy policy link |
-| `contact-email` | Landing, Contact: the email address (text, not a link; a click or tap on it) |
-| `policies-terms` | Landing, Terms and policies: the terms |
-| `policies-privacy` | Landing, Terms and policies: the privacy policy |
-| `policies-subprocessors` | Landing, Terms and policies: the subprocessors |
-| `policies-sms-terms` | Landing, Terms and policies: the text message terms |
+| `hero-talk` | What we do: "Get your diagnostic" |
+| `hero-run` | What we do: "Watch a purchase" |
+| `connectors-all` | What we do, Connectors: the All filter |
+| `connectors-acct` | What we do, Connectors: the Accounting filter |
+| `connectors-pay` | What we do, Connectors: the Payments and banking filter |
+| `connectors-crm` | What we do, Connectors: the CRM and sales filter |
+| `connectors-comm` | What we do, Connectors: the Email and chat filter |
+| `connectors-files` | What we do, Connectors: the Files filter |
+| `connectors-mkt` | What we do, Connectors: the Marketing filter |
+| `connectors-ask` | What we do, Connectors: "Ask about your stack" |
+| `gap-today` | What we do, gap chart: Today |
+| `gap-with` | What we do, gap chart: With Mezonas |
+| `run-toggle` | What we do, purchasing run: Pause, Play or Replay |
+| `run-stage-1` | What we do, purchasing run: stage 1, Crew asks |
+| `run-stage-2` | What we do, purchasing run: stage 2, Pia builds the list |
+| `run-stage-3` | What we do, purchasing run: stage 3, Pia asks vendors |
+| `run-stage-4` | What we do, purchasing run: stage 4, Compares quotes |
+| `run-stage-5` | What we do, purchasing run: stage 5, You sign |
+| `run-sign` | What we do, purchasing run: Sign |
+| `run-quotes` | What we do, purchasing run: See all quotes |
+| `usecase-sales` | Hire, don't build: the use case `sales` (`src/content/hire.mjs`) |
+| `usecase-quote` | Hire, don't build: the use case `quote` (`src/content/hire.mjs`) |
+| `usecase-buy` | Hire, don't build: the use case `buy` (`src/content/hire.mjs`) |
+| `usecase-paid` | Hire, don't build: the use case `paid` (`src/content/hire.mjs`) |
+| `usecase-close` | Hire, don't build: the use case `close` (`src/content/hire.mjs`) |
+| `usecase-jobs` | Hire, don't build: the use case `jobs` (`src/content/hire.mjs`) |
+| `usecase-cash` | Hire, don't build: the use case `cash` (`src/content/hire.mjs`) |
+| `process-find` | Hire, don't build, how we work with you: Find |
+| `process-design` | Hire, don't build, how we work with you: Design |
+| `process-build` | Hire, don't build, how we work with you: Build |
+| `process-run` | Hire, don't build, how we work with you: Run |
+| `process-toggle` | Hire, don't build, how we work with you: Pause or Play |
+| `mask-real` | Security, the masking demo: What you see |
+| `mask-ai` | Security, the masking demo: What the AI sees |
+| `security-privacy` | Security: the privacy policy link |
+| `security-subprocessors` | Security: the subprocessors link |
 | `no-measure-privacy` | `/no-measure`: the privacy policy link |
 
 Guide pages add `guide-all` and `guide-talk`, and the guides index `guides-<slug>` for each guide

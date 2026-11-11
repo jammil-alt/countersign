@@ -4,8 +4,11 @@
 // src/layout.html, and the design system's CSS, fonts and logos are copied next to it.
 //
 // DECISION: plain HTML and CSS with this one dependency-free script, rather than a framework or
-// a bundler. The site is four pages of text; the script only shares the header and footer,
-// inlines icons and marks placeholders. Nothing runs in the browser, unless measuring is on.
+// a bundler. The script shares the header, call to action and footer, renders the marketing
+// pages' diagrams and demos from src/content (`{{component name}}`, src/components.mjs), inlines
+// icons and marks placeholders. In the browser, src/site.js only switches the demos between the
+// states already in the page: it fetches nothing, stores nothing and sends nothing. Measuring is
+// separate and off unless the build is given its address (below).
 //
 // Measuring (docs/marketing-plan.md §4.3; docs/plan.md §1.72, the "Site:" rows) is off unless
 // the build is given the collector's address (MEZONAS_MEASURE_URL). Off, the output is byte for
@@ -17,6 +20,7 @@ import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { renderComponents } from "./src/components.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = join(here, "src");
@@ -155,6 +159,8 @@ export function build(outDir = join(here, "dist"), now = new Date(), options = {
   copyDir(join(designSystem, "fonts"), join(ds, "fonts"), /\.(woff2|txt)$/);
   copyDir(join(designSystem, "assets/Logos"), join(ds, "logos"), /\.(svg|png)$/);
   copyFileSync(join(src, "site.css"), join(outDir, "site.css"));
+  copyFileSync(join(src, "site.js"), join(outDir, "site.js"));
+  copyDir(join(src, "logos"), join(outDir, "logos"), /\.(svg|png)$/);
 
   let layout = readFileSync(join(src, "layout.html"), "utf8");
   if (measureUrl) {
@@ -180,7 +186,7 @@ export function build(outDir = join(here, "dist"), now = new Date(), options = {
     if (onlyMeasuring && !measureUrl) continue;
     const path = name === "index" ? "/" : `/${name}`;
     const legal = meta.legal === "true";
-    const marked = markPlaceholders(inlineIcons(body));
+    const marked = markPlaceholders(inlineIcons(renderComponents(body, file)));
     const draft =
       legal && marked.found.length > 0
         ? '<div class="wrap"><p class="draft-note" role="note"><strong>Draft for legal review.' +

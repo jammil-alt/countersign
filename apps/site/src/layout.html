@@ -19,6 +19,7 @@
     <link rel="stylesheet" href="/design-system/tokens.css">
     <link rel="stylesheet" href="/design-system/components.css">
     <link rel="stylesheet" href="/site.css">
+    <script src="/site.js" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -27,14 +28,14 @@
         <a class="site-logo" href="/" data-track="nav-logo-home">
           <picture>
             <source srcset="/design-system/logos/mezonas-logo-paper.svg" media="(prefers-color-scheme: dark)">
-            <img src="/design-system/logos/mezonas-logo.svg" alt="Mezonas home" width="173" height="24">
+            <img src="/design-system/logos/mezonas-logo.svg" alt="Mezonas home" width="159" height="22">
           </picture>
         </a>
         <nav class="site-nav" aria-label="Main">
-          <a href="/#how-it-works" data-track="nav-how-it-works">How it works</a>
-          <a href="/#security" data-track="nav-security">Security</a>
-          <a href="/#policies" data-track="nav-policies">Policies</a>
-          <a href="/#contact" data-track="nav-contact">Contact</a>
+          <a class="site-nav__tab" href="/" data-track="nav-what-we-do">What we do</a>
+          <a class="site-nav__tab" href="/hire" data-track="nav-hire">Hire, don't build</a>
+          <a class="site-nav__tab" href="/security" data-track="nav-security">Security</a>
+          <a class="mk-btn mk-btn--primary site-nav__cta" href="#diagnostic" data-track="nav-contact">Get your diagnostic</a>
         </nav>
       </div>
     </header>
@@ -42,6 +43,16 @@
       {{draft}}
       {{body}}
     </main>
+    <section class="mk-cta" id="diagnostic" aria-labelledby="diagnostic-title">
+      <div class="wrap mk-cta__inner">
+        <div class="mk-cta__text">
+          <h2 class="mk-h2" id="diagnostic-title">Start with a back-office diagnostic.</h2>
+          <p>We read a year of your books and show you where the gaps are.</p>
+          <p class="mk-cta__mail">Or write to us at <span class="mk-cta__email" data-track="contact-email">jammil@twelvethirty-4.com</span>.</p>
+        </div>
+        <a class="mk-btn mk-btn--paper" href="mailto:jammil@twelvethirty-4.com?subject=Back-office%20diagnostic" data-track="cta-start">Get started</a>
+      </div>
+    </section>
     <footer class="site-footer">
       <div class="wrap site-footer__inner">
         <div class="site-footer__brand">
@@ -49,11 +60,12 @@
           <p class="site-footer__copy">© {{year}} Twelve Thirty-Four Consulting LLC. All rights reserved.</p>
         </div>
         <nav class="site-footer__nav" aria-label="Footer">
+          <span class="site-footer__label">Terms and policies</span>
           <a href="/terms" data-track="footer-terms">Terms of service</a>
           <a href="/privacy" data-track="footer-privacy">Privacy policy</a>
           <a href="/subprocessors" data-track="footer-subprocessors">Subprocessors</a>
           <a href="/sms-terms" data-track="footer-sms-terms">Text message terms</a>
-          <a href="/#contact" data-track="footer-contact">Contact</a>
+          <a href="#diagnostic" data-track="footer-contact">Contact</a>
         </nav>
       </div>
     </footer>
