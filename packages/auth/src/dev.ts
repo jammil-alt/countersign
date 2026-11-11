@@ -14,8 +14,13 @@ export const DEV_USER_HEADER = "x-countersign-dev-user";
 const DEV_COOKIE_MAX_AGE_SEC = 30 * 24 * 60 * 60;
 // DECISION: the dev sign-in has no cookie password, so its carried account is sealed under a key
 // made at random for this isolate. A restart makes old cookies unopenable, which only means one
-// read and a fresh cookie. The dev adapter never runs in production.
-const ACCOUNT_KEY = randomToken(32);
+// read and a fresh cookie. The dev adapter never runs in production. Made on first use: a Worker
+// may not make random values at load.
+let accountKey: string | undefined;
+const ACCOUNT_KEY = () => {
+  accountKey ??= randomToken(32);
+  return accountKey;
+};
 
 export interface RuntimeEnv {
   readonly NODE_ENV?: string | undefined;
@@ -71,7 +76,7 @@ export function createDevAdapter(options: {
       const sealed = requestCookie(request, DEV_ACCOUNT_COOKIE);
       // Bound to the user the email names now: another user's carried account is never used.
       const account = sealed
-        ? expandAccount(await unseal(sealed, ACCOUNT_KEY, "account"), user.id)
+        ? expandAccount(await unseal(sealed, ACCOUNT_KEY(), "account"), user.id)
         : null;
       return {
         ok: true,
@@ -80,7 +85,7 @@ export function createDevAdapter(options: {
         account,
         async carry(next) {
           if (next) {
-            const value = await seal(compactAccount(next), ACCOUNT_KEY, "account");
+            const value = await seal(compactAccount(next), ACCOUNT_KEY(), "account");
             const cookie = serializeCookie(DEV_ACCOUNT_COOKIE, value, {
               maxAgeSec: DEV_COOKIE_MAX_AGE_SEC,
               secure: false,
