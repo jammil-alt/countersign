@@ -24,6 +24,20 @@ export const MAX_AGE_MS = 5 * 60_000;
 // part of the screen mounts with the same key: that is what makes a screen ask each route once.
 // A mount after that shows the stored answer and refreshes behind it; `reload` always asks.
 export const FRESH_MS = 10_000;
+// DECISION (2.5, the lead's answer): a catalog (`life: "catalog"` on `useApi`: the event, builder
+// and connector catalogs, the models list, the clients' names) changes only on a deploy, a pack
+// switch or a write, so its answer stays fresh for five minutes instead of ten seconds. A write
+// still marks it stale like every other answer (the plan's one invalidation rule: creating a
+// client changes the clients' names), the store still empties on every scope change and sign-out,
+// and `reload` still asks.
+export const CATALOG_FRESH_MS = MAX_AGE_MS;
+
+/** How long an answer stays fresh: the default, or a catalog's longer life. */
+export type Life = "catalog";
+
+export function freshFor(life: Life | undefined): number {
+  return life === "catalog" ? CATALOG_FRESH_MS : FRESH_MS;
+}
 // DECISION: at most 200 answers are kept; the least recently used answer no screen is showing goes
 // first. A day of use stays bounded, and 200 covers every screen of a session's last five minutes.
 export const MAX_ENTRIES = 200;
@@ -165,12 +179,21 @@ export class ApiStore {
     return now - at >= MAX_AGE_MS;
   }
 
-  /** Whether a mount should ask again: no answer, a stale one, or one older than `FRESH_MS`. */
-  needsFetch(key: string): boolean {
+  /**
+   * Whether a mount should ask again: no answer, a stale one, or one older than `fresh` (`FRESH_MS`,
+   * or a catalog's `CATALOG_FRESH_MS`).
+   */
+  needsFetch(key: string, fresh: number = FRESH_MS): boolean {
     const e = this.entries.get(key);
     if (!e || e.data === undefined) return !e?.fetching;
     if (e.fetching) return false;
-    return e.epoch < writes || this.now() - e.at >= FRESH_MS;
+    return e.epoch < writes || this.now() - e.at >= fresh;
+  }
+
+  /** Whether the stored answer for `key` was asked before the last successful write. */
+  staleByWrite(key: string): boolean {
+    const e = this.entries.get(key);
+    return e?.data !== undefined && e.epoch < writes;
   }
 
   subscribe(key: string, fn: Listener): () => void {
@@ -233,11 +256,15 @@ export class ApiStore {
   }
 
   /** Fills the store for a page about to open, unless a fresh answer is already there (1.6). */
-  prefetch<R extends RouteSpec>(route: R, options: Omit<CallOptions<R>, "signal"> = {}): void {
+  prefetch<R extends RouteSpec>(
+    route: R,
+    options: Omit<CallOptions<R>, "signal"> = {},
+    life?: Life,
+  ): void {
     const key = this.key(route, options);
     const e = this.entries.get(key);
     if (e?.data !== undefined && this.tooOld(e.at)) this.entries.delete(key);
-    if (this.needsFetch(key)) void this.fetch(key, route, options);
+    if (this.needsFetch(key, freshFor(life))) void this.fetch(key, route, options);
   }
 
   private update(key: string, next: (e: Entry) => Entry): void {

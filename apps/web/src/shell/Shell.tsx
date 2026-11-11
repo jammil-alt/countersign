@@ -545,10 +545,10 @@ export function SidebarAgentSkeleton({ rows }: { rows: number }) {
           className="ds-navitem ui-navitem ui-navagent ui-navskel"
         >
           <span className="flex min-w-0 items-center gap-2.5">
-            <span className="ui-agentbadge ui-agentbadge--sm ui-navskel__badge" />
+            <span className="ui-agentbadge ui-agentbadge--sm ui-skel" />
             <span className="ui-navitem__label flex min-w-0 flex-col gap-1">
-              <span className="ui-navskel__bar ui-navskel__bar--name" />
-              <span className="ui-navskel__bar ui-navskel__bar--line" />
+              <span className="ui-skel ui-navskel__bar--name" />
+              <span className="ui-skel ui-navskel__bar--line" />
             </span>
           </span>
         </div>

@@ -9,7 +9,7 @@
 // `/api/overview` for the findings, `/api/access` for each agent's tools, `/api/weekly` for the
 // summary). Never a bundle, an instruction, a prompt or a cost (invariant 11).
 import type { PortalAccessView, PortalFinding, TableView } from "@countersign/core";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
@@ -33,6 +33,7 @@ import {
   PageHeader,
   Tag,
 } from "../../ui/primitives";
+import { Skeleton, SkeletonCard, SkeletonStats } from "../../ui/skeleton";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { longDay, partOfDay, sameDay, stageWord } from "../agentState";
 import { INBOX_COUNT_POLL_MS, useRefreshInboxCount } from "../inboxCount";
@@ -56,28 +57,31 @@ const KIND_LABEL: Record<string, PlainKey> = {
 const APPROVED = new Set(["external_action", "approval", "change_request"]);
 
 export function HomeScreen() {
-  const table = useApi(apiRoutes.portalTable);
-  usePoll(table.reload, true, INBOX_COUNT_POLL_MS, table.loading);
-  return (
-    <Page testId="portal-home">
-      <Loaded state={table}>{(data) => <Home data={data} reload={table.reload} />}</Loaded>
-    </Page>
-  );
-}
-
-function Home({ data, reload }: { data: TableView; reload: () => void }) {
   const i18n = useI18n();
   const { t } = i18n;
   const session = useSession();
+  // Every call Home needs starts here, together (docs/audit-plan.md 1.5): the agents and figures,
+  // the findings (the frame's own overview, shared), each agent's tools and the weekly summary.
+  // Each section waits only for its own answer.
+  const table = useApi(apiRoutes.portalTable);
   const overview = useApi(apiRoutes.portalOverview);
-  // Each agent's tools are the connections it is granted; the cards go without them if this fails.
+  // Each agent's tools are the connections it is granted; the cards go without them until this
+  // answers, or if it fails.
   const access = useApi(apiRoutes.portalAccess, {
     // The vault is never stored (docs/audit-plan.md 1.2).
     cache: "none",
   });
   const weekly = useApi(apiRoutes.portalWeekly, { query: {} });
+  usePoll(table.reload, true, INBOX_COUNT_POLL_MS, table.loading);
+  const data = table.data;
+  // DECISION (lead, speed run): Home does not ask for the Inbox once it has settled (1.6): it
+  // would add a call to Home, and no screen's calls may go up (gate 2). Left for the owner; links
+  // to the Inbox still ask for it on hover or focus.
+
   const now = new Date();
-  const tz = data.client.timezone;
+  // DECISION: the greeting and the date draw at once, in the browser's zone until the client's
+  // own zone comes with the table (the same zone for nearly everyone): the title never waits.
+  const tz = data?.client.timezone;
   const first = session.user.name?.trim().split(/\s+/)[0];
   const part = partOfDay(now, tz);
   const greeting = first ? t(`table.greeting.${part}`, { name: first }) : t(`table.hello.${part}`);
@@ -85,7 +89,7 @@ function Home({ data, reload }: { data: TableView; reload: () => void }) {
   const sent = weekly.data?.table ?? null;
 
   return (
-    <>
+    <Page testId="portal-home">
       <PageHeader
         eyebrow={longDay(now, i18n.intl, tz)}
         title={greeting}
@@ -100,22 +104,55 @@ function Home({ data, reload }: { data: TableView; reload: () => void }) {
           </Link>
         }
       />
-      {data.services.length > 0 ? <HomeFigures data={data} /> : null}
+      {data ? (
+        data.services.length > 0 ? (
+          <HomeFigures data={data} />
+        ) : null
+      ) : table.error ? null : (
+        <Skeleton>
+          <SkeletonStats count={4} />
+        </Skeleton>
+      )}
       <PageGrid
         rail={
-          <>
-            {data.desk.open > 0 || findings.length > 0 ? (
-              <NeedsYou desk={data.desk} findings={findings} tz={tz} onChange={reload} />
-            ) : null}
-            {data.recent.length > 0 ? <Latest recent={data.recent} /> : null}
-          </>
+          data ? (
+            <>
+              {data.desk.open > 0 || findings.length > 0 ? (
+                <NeedsYou
+                  desk={data.desk}
+                  findings={findings}
+                  tz={data.client.timezone}
+                  onChange={table.reload}
+                />
+              ) : null}
+              {data.recent.length > 0 ? <Latest recent={data.recent} /> : null}
+            </>
+          ) : table.error ? null : (
+            <Skeleton>
+              <SkeletonCard lines={4} />
+            </Skeleton>
+          )
         }
       >
-        <Agents services={data.services} access={access.data} />
-        {data.lead?.message ? <LeadNote lead={data.lead} /> : null}
+        <Section title={t("home.agents")} testId="home-agents">
+          <Loaded state={table} skeleton={<AgentsSkeleton />}>
+            {(d) => <Agents services={d.services} access={access.data} />}
+          </Loaded>
+        </Section>
+        {data?.lead?.message ? <LeadNote lead={data.lead} /> : null}
         {sent ? <WeeklyCard table={sent} /> : null}
       </PageGrid>
-    </>
+    </Page>
+  );
+}
+
+/** Two agent cards' worth of shapes, as the agents' grid draws them. */
+function AgentsSkeleton() {
+  return (
+    <Columns count={2}>
+      <SkeletonCard lines={4} />
+      <SkeletonCard lines={4} />
+    </Columns>
   );
 }
 
@@ -214,18 +251,13 @@ function Agents({
   access: PortalAccessView | undefined;
 }) {
   const { t } = useI18n();
+  if (services.length === 0) return <EmptyState>{t("overview.noServices")}</EmptyState>;
   return (
-    <Section title={t("home.agents")} testId="home-agents">
-      {services.length === 0 ? (
-        <EmptyState>{t("overview.noServices")}</EmptyState>
-      ) : (
-        <Columns count={2}>
-          {services.map((s) => (
-            <AgentCard key={s.id} service={s} tools={toolsOf(s.id, access)} />
-          ))}
-        </Columns>
-      )}
-    </Section>
+    <Columns count={2}>
+      {services.map((s) => (
+        <AgentCard key={s.id} service={s} tools={toolsOf(s.id, access)} />
+      ))}
+    </Columns>
   );
 }
 
@@ -464,9 +496,34 @@ function NeedsYou({
   const { t } = useI18n();
   // DECISION (owner, design pass 2): Home shows at most three short rows, the Inbox's top first,
   // then the supervisor's findings in what room is left; the rest is one link to the Inbox.
-  const rows = desk.top.slice(0, NEEDS_YOU_ROWS);
+  // DECISION: "Not now" is reversible and ours alone (1.8): the row goes at once and comes back,
+  // with the server's reason, if the snooze is refused. Plain state rather than `useOptimistic`:
+  // the row must stay gone after the answer, until the refreshed table no longer lists it.
+  const [putOff, setPutOff] = useState<ReadonlySet<string>>(new Set());
+  const [refused, setRefused] = useState<unknown>(null);
+  // Only items the table still lists are held back: once a refreshed table leaves an item out, it
+  // is counted out of `desk.open` by the server, and it is forgotten here, so it shows again if it
+  // comes back (a snooze that ended while Home stayed open).
+  const hidden = desk.top.filter((item) => putOff.has(item.id));
+  const topIds = desk.top.map((item) => item.id).join(",");
+  useEffect(() => {
+    const listed = new Set(topIds.split(","));
+    setPutOff((old) => {
+      const kept = [...old].filter((id) => listed.has(id));
+      return kept.length === old.size ? old : new Set(kept);
+    });
+  }, [topIds]);
+  const shown = desk.top.filter((item) => !putOff.has(item.id));
+  const rows = shown.slice(0, NEEDS_YOU_ROWS);
   const shownFindings = findings.slice(0, NEEDS_YOU_ROWS - rows.length);
-  const more = Math.max(0, desk.open - rows.length);
+  const more = Math.max(0, desk.open - hidden.length - rows.length);
+  const putOffItem = (id: string, back: boolean) =>
+    setPutOff((old) => {
+      const next = new Set(old);
+      if (back) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   return (
     <Card
       titleAbove
@@ -482,9 +539,27 @@ function NeedsYou({
         </Link>
       }
     >
+      {refused ? (
+        <div className="ui-card__body">
+          <ErrorNotice error={refused} />
+        </div>
+      ) : null}
       <div className="divide-y divide-line">
         {rows.map((item) => (
-          <DeskRow key={item.id} item={item} tz={tz} onChange={onChange} />
+          <DeskRow
+            key={item.id}
+            item={item}
+            tz={tz}
+            onPutOff={() => {
+              setRefused(null);
+              putOffItem(item.id, false);
+            }}
+            onRefused={(e) => {
+              putOffItem(item.id, true);
+              setRefused(e);
+            }}
+            onChange={onChange}
+          />
         ))}
         {shownFindings.map((f) => (
           <FindingRow key={f.id} finding={f} />
@@ -494,13 +569,23 @@ function NeedsYou({
   );
 }
 
-function DeskRow({ item, tz, onChange }: { item: DeskItem; tz: string; onChange: () => void }) {
+function DeskRow({
+  item,
+  tz,
+  onPutOff,
+  onRefused,
+  onChange,
+}: {
+  item: DeskItem;
+  tz: string;
+  onPutOff: () => void;
+  onRefused: (error: unknown) => void;
+  onChange: () => void;
+}) {
   const i18n = useI18n();
   const { t } = i18n;
   const api = useApiClient();
   const refreshCount = useRefreshInboxCount();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
   const kind = KIND_LABEL[item.kind];
   const due = item.dueAt ? new Date(item.dueAt) : null;
 
@@ -508,8 +593,7 @@ function DeskRow({ item, tz, onChange }: { item: DeskItem; tz: string; onChange:
   // the change shows with its before and after; "Not now" snoozes it to tomorrow 8:00, and the
   // Inbox offers the other times.
   const notNow = async () => {
-    setBusy(true);
-    setError(null);
+    onPutOff();
     try {
       await api.call(apiRoutes.portalSnoozeInbox, {
         params: { id: item.id },
@@ -518,8 +602,7 @@ function DeskRow({ item, tz, onChange }: { item: DeskItem; tz: string; onChange:
       refreshCount();
       onChange();
     } catch (e) {
-      setError(e);
-      setBusy(false);
+      onRefused(e);
     }
   };
 
@@ -540,7 +623,6 @@ function DeskRow({ item, tz, onChange }: { item: DeskItem; tz: string; onChange:
         ) : null}
       </span>
       <p className="line-clamp-2 font-medium text-ink">{item.title}</p>
-      {error ? <ErrorNotice error={error} /> : null}
       <span className="flex flex-wrap gap-2">
         <Link
           to={`${PORTAL_PATHS.inbox}?item=${encodeURIComponent(item.id)}`}
@@ -552,7 +634,6 @@ function DeskRow({ item, tz, onChange }: { item: DeskItem; tz: string; onChange:
         <Button
           variant="ghost"
           size="sm"
-          disabled={busy}
           onClick={notNow}
           data-testid={`table-desk-later-${item.id}`}
         >

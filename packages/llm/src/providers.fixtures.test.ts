@@ -8,10 +8,10 @@
 // whose hashes no longer appear:
 //   WRITE_PROVIDER_FIXTURES=1 pnpm --filter @countersign/llm exec vitest run src/providers.fixtures.test.ts
 
-import type Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it } from "vitest";
 import { createLlmClient, type LlmCallRecord } from "./client";
 import { GeminiError, geminiTransport } from "./gemini";
+import type * as Anthropic from "./messages";
 import { MODELS } from "./models";
 import { fileFixtureStore } from "./node";
 import type { HttpTransportOptions } from "./provider";

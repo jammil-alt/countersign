@@ -5,11 +5,14 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { reportScreenCrash, startErrorTracking } from "./observability";
+import { startSessionEarly } from "./session/early";
 import { applyStoredTheme } from "./shell/theme";
 import "./styles.css";
 
 startErrorTracking();
 applyStoredTheme();
+// Who is signed in, asked before React mounts; the session provider takes the answer (4.3).
+startSessionEarly();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("index.html has no #root");

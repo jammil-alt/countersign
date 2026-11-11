@@ -416,7 +416,7 @@ function ReleaseOps({
               disabled={!person || action.busy}
               onClick={() => void turnOn()}
             >
-              Turn on
+              {action.busy ? "Turning on…" : "Turn on"}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
               Cancel

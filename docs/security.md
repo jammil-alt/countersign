@@ -42,6 +42,22 @@ branches.
   signed in; it never creates a session. Each refusal is in the audit log with its reason.
 - WorkOS sessions are capped at the same 12 hours and 30 minutes. That also covers the Ops MCP
   connector, which signs in with 5-minute WorkOS access tokens instead of our cookie.
+- **A person's clients and roles are read again at most every 5 minutes** (`docs/plan.md` §1.93,
+  the owner's D2). The sealed session cookie carries them with the time they were read; a request
+  inside those 5 minutes uses them instead of reading them.
+  - When someone else removes a person from a client or lowers their role, that person's open
+    session keeps the old access for up to 5 minutes. A removed operator can still approve, sign
+    and change that client's agents and settings; a removed or demoted client admin can still
+    invite people, and an invitation made then stays. Checks that read memberships themselves (a
+    client user's right to sign, approver rules, who is notified) see the change at once.
+  - Removing someone cannot shorten their window. Ending their WorkOS session ends it at the next
+    refresh, within the same 5 minutes.
+  - A request that names a client, or needs a role, the carried list lacks reads it again first.
+    A client added by someone else is missing from lists across clients, and a role raised within
+    a client shows the old one, for up to 5 minutes.
+  - Sign-out, the idle limit and a new sign-in drop them, and creating a client drops the
+    creator's at once. Row-level security never reads memberships: it reads only the clients the
+    request set.
 - Roles are `operator`, `client_admin` and `client_user`. Only operators reach `/api/ops` and the
   MCP connector's back-office tools; a client's admin or user signing in to the same connector gets
   read-only tools over the portal's routes, for one of their own clients per call (`docs/plan.md`

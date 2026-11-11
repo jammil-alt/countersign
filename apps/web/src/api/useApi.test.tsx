@@ -92,6 +92,58 @@ describe("useApi's store", () => {
     expect(count(api.calls, "GET /api/ops/catalog/events")).toBe(1);
   });
 
+  it("keeps a catalog fresh for five minutes, and asks again after a write (2.5)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { api, wrapper } = setup({
+      "GET /api/ops/catalog/events": () => ({ events: [] }),
+      [`POST /api/ops/runs/${CLIENT_B}/cancel`]: () => ({ runId: CLIENT_B, status: "cancelled" }),
+    });
+    const KEY = "GET /api/ops/catalog/events";
+    const first = renderHook(() => useApi(routes.opsEventCatalog, { life: "catalog" }), {
+      wrapper,
+    });
+    await waitFor(() => expect(first.result.current.data).toEqual({ events: [] }));
+    first.unmount();
+
+    // A minute later another screen mounts it: a default answer would be asked again, a
+    // catalog's is not.
+    vi.setSystemTime(Date.now() + 60_000);
+    const later = renderHook(() => useApi(routes.opsEventCatalog, { life: "catalog" }), {
+      wrapper,
+    });
+    expect(later.result.current.data).toEqual({ events: [] });
+    expect(count(api.calls, KEY)).toBe(1);
+    // The same answer without the catalog life is refreshed on mount.
+    const plain = renderHook(() => useApi(routes.opsEventCatalog, {}), { wrapper });
+    await waitFor(() => expect(count(api.calls, KEY)).toBe(2));
+    plain.unmount();
+    later.unmount();
+
+    // A write marks it stale like every other answer.
+    const writer = renderHook(() => useApiClient(), { wrapper });
+    await act(() => writer.result.current.call(routes.opsCancelRun, { params: { id: CLIENT_B } }));
+    renderHook(() => useApi(routes.opsEventCatalog, { life: "catalog" }), { wrapper });
+    await waitFor(() => expect(count(api.calls, KEY)).toBe(3));
+  });
+
+  it("prefetches a catalog with its life: a fresh catalog is not asked twice (2.5)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { api, wrapper } = setup({
+      "GET /api/ops/catalog/events": () => ({ events: [] }),
+    });
+    const tools = renderHook(() => ({ prefetch: usePrefetch(), store: useApiStore() }), {
+      wrapper,
+    });
+    tools.result.current.prefetch(routes.opsEventCatalog, {}, "catalog");
+    await waitFor(() => expect(count(api.calls, "GET /api/ops/catalog/events")).toBe(1));
+    vi.setSystemTime(Date.now() + 60_000);
+    tools.result.current.prefetch(routes.opsEventCatalog, {}, "catalog");
+    expect(count(api.calls, "GET /api/ops/catalog/events")).toBe(1);
+    // Without the life, a minute-old answer is asked again.
+    tools.result.current.prefetch(routes.opsEventCatalog, {});
+    await waitFor(() => expect(count(api.calls, "GET /api/ops/catalog/events")).toBe(2));
+  });
+
   it("marks every stored answer stale after a successful write", async () => {
     let name = "Acme";
     const { api, wrapper } = setup({
@@ -159,6 +211,32 @@ describe("useApi's store", () => {
       wrapper,
     });
     expect(cached.result.current.data).toBeUndefined();
+  });
+
+  it("says which stored answers were asked before a write, whatever their age", async () => {
+    const { wrapper } = setup({
+      [`GET /api/ops/feedback/${CLIENT_A}/screenshot`]: () => client(CLIENT_A, "Acme"),
+      [`POST /api/ops/runs/${CLIENT_B}/cancel`]: () => ({ runId: CLIENT_B, status: "cancelled" }),
+    });
+    const hook = renderHook(
+      () => ({
+        state: useApi(ROUTE, { params: { id: CLIENT_A } }),
+        call: useApiClient(),
+        store: useApiStore(),
+      }),
+      { wrapper },
+    );
+    await waitFor(() => expect(hook.result.current.state.data?.url).toBe("Acme"));
+    const { store } = hook.result.current;
+    const key = store.key(ROUTE, { params: { id: CLIENT_A } });
+    expect(store.staleByWrite(key)).toBe(false);
+    expect(store.staleByWrite(store.key(ROUTE, { params: { id: CLIENT_B } }))).toBe(false);
+    await act(() =>
+      hook.result.current.call.call(routes.opsCancelRun, { params: { id: CLIENT_B } }),
+    );
+    expect(store.staleByWrite(key)).toBe(true);
+    act(() => hook.result.current.state.reload());
+    await waitFor(() => expect(store.staleByWrite(key)).toBe(false));
   });
 
   it("prefetch fills the store without a component", async () => {
