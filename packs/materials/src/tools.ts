@@ -73,6 +73,14 @@ export function packToolContext(source: ToolContextSource): PackToolContext {
             tokensOut: r.usage.outputTokens,
           });
         },
+        // §1.88: an embedding's cost goes on the step like a model call's (input tokens only).
+        onEmbed: async (r) => {
+          await source.recordUsage?.({
+            costUsd: r.costUsd ?? "0",
+            tokensIn: r.usage.inputTokens,
+            tokensOut: 0,
+          });
+        },
       })
     : null;
   return {

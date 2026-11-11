@@ -5,7 +5,15 @@
 // for any client served, the back office, as JSON or CSV; and a pack's review card on an inbox
 // item. Nothing here names a pack: each comes from the platform's registered packs (packs.ts).
 
-import { createTemplate, createVersion, mayResolve, publish } from "@countersign/agents";
+import {
+  createSkill,
+  createTemplate,
+  createVersion,
+  customSlug,
+  mayResolve,
+  publish,
+  publishSkill,
+} from "@countersign/agents";
 import {
   type AnyAgentBundle,
   bundleHash,
@@ -15,7 +23,16 @@ import {
   type Role,
   routes,
 } from "@countersign/core";
-import { agent, agentVersion, inboxItem, run, type Tx, tenant, tenantPack } from "@countersign/db";
+import {
+  agent,
+  agentVersion,
+  inboxItem,
+  run,
+  skill,
+  type Tx,
+  tenant,
+  tenantPack,
+} from "@countersign/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
@@ -180,6 +197,48 @@ async function installTemplates(
     });
     await addLaterVersions(tx, services, pack, made.agent.id, t, actorId, true);
     installed.push({ slug: t.slug, templateId: made.agent.id });
+  }
+  return installed;
+}
+
+/**
+ * §1.88: installs the pack's shared Library skills that aren't there yet: an operator skill each
+ * (`custom:<slug>`, tenant_id null), v1 by the pack, published so agents can use it. A shared skill
+ * of that slug already there is left as it is: from its install on, it is the operator's to edit,
+ * version, test and publish in the Library, and the pack never changes it.
+ */
+// DECISION (review of vendor/web3, finding 1): installed when the pack is switched on for a client
+// (as its templates are) and by "Update templates", so a deployment that had the pack on before
+// gets them; a Library skill is never re-installed over the operator's versions.
+export async function installLibrarySkills(
+  tx: Tx,
+  services: Services,
+  pack: RegisteredPack,
+  actorId: string,
+): Promise<{ ref: string; skillId: string }[]> {
+  const defs = pack.manifest.librarySkills ?? [];
+  if (defs.length === 0) return [];
+  const slugs = defs.map((d) => customSlug(d.id));
+  const have = new Set(
+    (
+      await tx
+        .select({ slug: skill.slug })
+        .from(skill)
+        .where(and(isNull(skill.tenantId), inArray(skill.slug, slugs)))
+    ).map((r) => r.slug),
+  );
+  const installed: { ref: string; skillId: string }[] = [];
+  for (const def of defs) {
+    if (have.has(customSlug(def.id))) continue;
+    const made = await createSkill(tx, {
+      tenantId: null,
+      definition: def,
+      authorId: actorId,
+      changeNote: `Installed with the ${pack.manifest.name} pack ${pack.manifest.version}`,
+      tools: services.platform.tools,
+    });
+    await publishSkill(tx, { skillId: made.skill.id, versionId: made.version.id });
+    installed.push({ ref: def.id, skillId: made.skill.id });
   }
   return installed;
 }
@@ -469,6 +528,7 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
       .values({ tenantId: params.id, pack: pack.manifest.id, version: pack.manifest.version })
       .onConflictDoNothing();
     const installed = await installTemplates(tx, services, pack, session.user.id);
+    await installLibrarySkills(tx, services, pack, session.user.id);
     const packs = await clientPacks(tx, services, params.id);
     const view = packs.find((p) => p.id === pack.manifest.id);
     if (!view) throw notFound("pack");
@@ -477,6 +537,7 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsUpdatePackTemplates, async ({ tx, params, services, session }) => {
     const pack = packOf(services, params.pack);
+    await installLibrarySkills(tx, services, pack, session.user.id);
     return { updated: await updatePackTemplates(tx, services, pack, session.user.id) };
   });
 

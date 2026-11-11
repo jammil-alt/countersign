@@ -24,11 +24,19 @@ import { ReconciliationsView } from "./bookkeeping/Reconciliations";
 import { CatalogView, PackReportLinks, PriceWatchView } from "./materials/Reports";
 // P-9
 import { RequestsView, RequestView } from "./materials/Requests";
+// §1.88
+import { MasterItemView, VendorCatalogView } from "./materials/VendorCatalog";
 
 // ── Portal ───────────────────────────────────────────────────────────────────────────────────────
 
 export const PortalPriceWatchScreen = () => <PriceWatchView />;
-export const PortalCatalogScreen = () => <CatalogView />;
+// §1.88: the catalog, or one master item's page (its vendors side by side) when the route names it.
+export function PortalCatalogScreen() {
+  const { id } = useParams();
+  return id ? <MasterItemView /> : <CatalogView />;
+}
+// §1.88: the vendor catalog, read only; `…/vendor-catalog/:id` opens that vendor.
+export const PortalVendorCatalogScreen = () => <VendorCatalogView />;
 // P-9: the list, or one request's page when the route names it.
 export function PortalRequestsScreen() {
   const { id } = useParams();
@@ -62,10 +70,20 @@ export function OpsClientPriceWatchScreen() {
 }
 
 export function OpsClientCatalogScreen() {
+  const { clientId = "", id } = useParams();
+  return (
+    <ClientFrame clientId={clientId}>
+      {id ? <MasterItemView clientId={clientId} /> : <CatalogView clientId={clientId} />}
+    </ClientFrame>
+  );
+}
+
+// §1.88: a client's vendor catalog, with the operator's actions.
+export function OpsClientVendorCatalogScreen() {
   const { clientId = "" } = useParams();
   return (
     <ClientFrame clientId={clientId}>
-      <CatalogView clientId={clientId} />
+      <VendorCatalogView clientId={clientId} />
     </ClientFrame>
   );
 }

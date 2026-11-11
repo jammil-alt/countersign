@@ -480,6 +480,8 @@ describe("pack pages", () => {
     expect(reports.map((r) => [EN.t(r.titleKey), packReportPath(r)])).toEqual([
       ["Price watch", "/reports/materials/prices"],
       ["Catalog", "/reports/materials/catalog"],
+      // §1.88
+      ["Vendor catalog", "/reports/materials/vendor-catalog"],
       // P-9
       ["Purchase requests", "/reports/materials/requests"],
     ]);
@@ -488,6 +490,7 @@ describe("pack pages", () => {
     expect(reports.map((r) => de.t(r.titleKey))).toEqual([
       "Preisbeobachtung",
       "Katalog",
+      "Lieferantenkatalog",
       "Bestellanfragen",
     ]);
     expect(de.t("materials.catalog.description")).toMatch(/Lieferant/);

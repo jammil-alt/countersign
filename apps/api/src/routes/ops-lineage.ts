@@ -399,7 +399,8 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
         version,
         definition,
         kind: skillKind(def, lookup),
-        palette: !isToolWrapper(def) && newStepSkillReason(def, lookup) === null,
+        palette:
+          !isToolWrapper(def) && newStepSkillReason(def, lookup, platform.superseded) === null,
       };
     };
     const latest = await latestVersion(tx, row.id);

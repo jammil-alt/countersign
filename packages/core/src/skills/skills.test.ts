@@ -814,6 +814,16 @@ describe("moving a step to another version", () => {
     expect(newStepSkillReason(reader, toolLookup(tools))).toMatch(/Skills never write/);
     expect(newStepSkillReason(v1, toolLookup(tools))).toBeNull();
   });
+
+  it("keeps a skill a pack replaced off new steps, naming its replacement (§1.88)", () => {
+    const superseded = { "materials.lookup-existing": "materials.match-sku-vendor" };
+    const old = { ...v1, id: "materials.lookup-existing" };
+    expect(newStepSkillReason(old, undefined, superseded)).toMatch(
+      /Replaced for new steps by materials.match-sku-vendor/,
+    );
+    expect(newStepSkillReason({ ...v1, id: "materials.other" }, undefined, superseded)).toBeNull();
+    expect(newStepSkillReason(old, undefined)).toBeNull();
+  });
 });
 
 describe("write steps: Save to records or Change in a client's tool", () => {

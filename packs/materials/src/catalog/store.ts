@@ -175,6 +175,8 @@ export async function createItem(
   tenantId: string,
   parsed: ParsedLine,
   by: Creator,
+  /** §1.88: a master item from the vendor path keeps no vendor's wording (`firstDescription`). */
+  options: { vendorNeutral?: boolean } = {},
 ): Promise<{ item: CatalogItemRow; created: boolean }> {
   const signature = keySignature(parsed.category, parsed.attributes);
   const [row] = await tx
@@ -189,7 +191,9 @@ export async function createItem(
       ...("agentVersionId" in by
         ? { createdByAgentVersionId: by.agentVersionId }
         : { createdByUserId: by.userId }),
-      ext: { parsedBy: parsed.parsedBy, firstDescription: parsed.normalized },
+      ext: options.vendorNeutral
+        ? { parsedBy: parsed.parsedBy }
+        : { parsedBy: parsed.parsedBy, firstDescription: parsed.normalized },
     })
     .onConflictDoNothing()
     .returning();
@@ -256,21 +260,30 @@ export async function learnAlias(
     normalizedDescription: string;
     catalogItemId: string;
     source: "auto" | "human";
+    /** §1.88: the vendor item the wording names, when known (0047). */
+    vendorItemId?: string | null | undefined;
   },
 ): Promise<void> {
   const rows: { sku: string | null; hash: string | null }[] = [
     ...(alias.vendorSku ? [{ sku: alias.vendorSku, hash: null }] : []),
     { sku: null, hash: alias.descriptionHash },
   ];
+  const vendorItemId = alias.vendorItemId ?? null;
   for (const r of rows) {
+    // §1.88: an alias that changes item takes the new vendor item (or none); one that keeps its
+    // item keeps the vendor item it had when none is given.
     await tx.execute(sql`
       insert into item_alias
         (tenant_id, vendor_id, vendor_sku, description_hash, normalized_description,
-         catalog_item_id, source)
+         catalog_item_id, source, vendor_item_id)
       values (${tenantId}, ${alias.vendorId}, ${r.sku}, ${r.hash}, ${alias.normalizedDescription},
-              ${alias.catalogItemId}, ${alias.source})
+              ${alias.catalogItemId}, ${alias.source}, ${vendorItemId})
       on conflict (tenant_id, vendor_id, coalesce(vendor_sku, ''), coalesce(description_hash, ''))
-      do update set catalog_item_id = excluded.catalog_item_id,
+      do update set vendor_item_id = case
+                      when item_alias.catalog_item_id = excluded.catalog_item_id
+                        then coalesce(excluded.vendor_item_id, item_alias.vendor_item_id)
+                      else excluded.vendor_item_id end,
+                    catalog_item_id = excluded.catalog_item_id,
                     source = excluded.source,
                     normalized_description = excluded.normalized_description,
                     updated_at = now()

@@ -19,7 +19,7 @@ import {
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { parseLine } from "../catalog/keys";
 import type { CatalogItemRow } from "../catalog/store";
-import { convert } from "../pricing/uom";
+import { convert, readUom } from "../pricing/uom";
 import {
   itemAlias,
   priceObservation,
@@ -29,6 +29,12 @@ import {
   quoteRequest,
   type RequestStatus,
 } from "../schema";
+import {
+  priceForVendorItem,
+  recordLastPrice,
+  recordLeadTime,
+  resolveVendorItem,
+} from "../vendor/store";
 // P-9
 import { vendorContacts } from "./contacts";
 import {
@@ -706,6 +712,57 @@ export function quotedLineProblems(
 }
 
 /**
+ * A quoted line fills the vendor's item for it (docs/plan.md §1.88: "filled further by quotes"):
+ * its last price (`quote`, the newer date winning) and its lead time. It never makes a vendor
+ * item: Register item does, when the vendor's invoice comes.
+ */
+// DECISION: the vendor item is the vendor's for that master item in the quoted unit, else its
+// only one; the price reaches it only in its own unit (`priceForVendorItem`). A quote states the
+// vendor's lead time as of its date: an older quote never replaces a newer one (`recordLeadTime`).
+async function quoteToVendorItem(
+  tx: Tx,
+  tenantId: string,
+  q: {
+    vendorId: string;
+    item: CatalogItemRow;
+    unit: string | null;
+    unitPrice: string | null;
+    unitPriceStd: string | null;
+    leadTimeDays: number | null;
+    on: string;
+    sourceId: string;
+    currency: string;
+  },
+): Promise<void> {
+  const unit = q.unit?.trim() ? (readUom(q.unit) ?? q.unit.trim().toLowerCase()) : null;
+  const vi = await resolveVendorItem(tx, tenantId, {
+    vendorId: q.vendorId,
+    catalogItemId: q.item.id,
+    sku: null,
+    vendorUom: unit,
+  });
+  if (vi?.status !== "active") return;
+  const last = priceForVendorItem(vi, {
+    price: q.unitPrice,
+    unit,
+    priceStd: q.unitPriceStd,
+    standardUom: q.item.standardUom,
+  });
+  if (last) {
+    await recordLastPrice(tx, tenantId, vi.id, {
+      ...last,
+      on: q.on,
+      source: "quote",
+      sourceId: q.sourceId,
+      currency: q.currency,
+    });
+  }
+  if (q.leadTimeDays !== null) {
+    await recordLeadTime(tx, tenantId, vi.id, q.leadTimeDays, q.on);
+  }
+}
+
+/**
  * Records a vendor's answer: its lines (validated against the request's), the answer's message
  * or document, and the status `received` (or `declined`). The request is `quoted` once no RFQ is
  * still waiting on an answer. An answer already recorded is given back unchanged.
@@ -784,6 +841,21 @@ export async function recordQuote(
         .returning();
       if (!row) throw new Error("quote_line insert returned nothing");
       recorded.push({ ...quoteLineView(row), conversion: std.conversion });
+      if (asked.item && (l.available ?? true)) {
+        await quoteToVendorItem(tx, ctx.tenantId, {
+          vendorId: q.vendorId,
+          item: asked.item,
+          unit,
+          unitPrice,
+          unitPriceStd: std.unitPriceStd,
+          leadTimeDays: l.leadTimeDays ?? null,
+          on: (input.receivedAt ? new Date(input.receivedAt) : new Date())
+            .toISOString()
+            .slice(0, 10),
+          sourceId: row.id,
+          currency,
+        });
+      }
     }
     const now = new Date();
     await tx

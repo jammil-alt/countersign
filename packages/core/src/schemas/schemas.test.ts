@@ -146,6 +146,47 @@ describe("refinements", () => {
     const bad = { ...p, events: [{ ...p.events[0], type: "other.thing" }] };
     expect(PackManifest.safeParse(bad).success).toBe(false);
   });
+
+  it("takes a pack's Library skills as operator skills, and a replacement among them", () => {
+    const task = {
+      schemaVersion: 1,
+      name: "Pick one",
+      description: "",
+      category: "Demo",
+      mode: "task",
+      model: { id: "claude-haiku-5-5" },
+      instructions: "Pick one.",
+      tools: [],
+      input: { type: "object" },
+      output: { type: "object" },
+      settings: [],
+      requiresConnectors: [],
+      requiresPacks: ["demo"],
+      producesAlerts: false,
+    };
+    const p = {
+      id: "demo",
+      name: "Demo",
+      version: "1.0.0",
+      description: "",
+      events: [],
+      tools: [],
+      skills: [{ ...task, id: "demo.pick" }],
+      templates: [],
+      screens: [],
+      librarySkills: [{ ...task, id: "custom:pick-one" }],
+      superseded: { "demo.pick": "custom:pick-one" },
+    };
+    expect(PackManifest.safeParse(p).success).toBe(true);
+    // A Library skill is an operator skill: custom:<slug>.
+    expect(
+      PackManifest.safeParse({ ...p, librarySkills: [{ ...task, id: "demo.pick-two" }] }).success,
+    ).toBe(false);
+    // A replacement must be one of the pack's skills or Library skills.
+    expect(
+      PackManifest.safeParse({ ...p, superseded: { "demo.pick": "custom:other" } }).success,
+    ).toBe(false);
+  });
 });
 
 describe("helpers", () => {

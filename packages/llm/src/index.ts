@@ -3,6 +3,7 @@
 // Allowed workspace dependencies: core. See docs/plan.md §2.
 // Worker-safe: nothing exported here touches Node APIs. The file fixture store is in ./node.ts.
 export * from "./client";
+export * from "./embeddings";
 export * from "./fake";
 export * from "./gemini";
 export * from "./models";

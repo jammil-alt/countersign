@@ -478,11 +478,19 @@ export function SkillEditor({
                     <Check
                       key={t.id}
                       testId={`skill-tool-${t.id}`}
-                      checked={form.tools.includes(t.id)}
+                      // §1.88 web: a declared read (retrieval) shows ticked beside the tools.
+                      checked={form.tools.includes(t.id) || (form.reads ?? []).includes(t.id)}
                       onChange={(on) =>
-                        set(
-                          "tools",
-                          on ? [...form.tools, t.id] : form.tools.filter((x) => x !== t.id),
+                        onChange(
+                          on
+                            ? { ...form, tools: [...form.tools, t.id] }
+                            : {
+                                ...form,
+                                tools: form.tools.filter((x) => x !== t.id),
+                                ...(form.reads
+                                  ? { reads: form.reads.filter((x) => x !== t.id) }
+                                  : {}),
+                              },
                         )
                       }
                     >

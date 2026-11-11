@@ -148,56 +148,78 @@ function isTimeout(error: unknown): boolean {
   return error instanceof Error && error.name === "TimeoutError";
 }
 
+/** Who a JSON POST goes to, for `httpPostJson`: the vendor's words, error class and headers. */
+export type PostTarget = Pick<ProviderWire, "vendor" | "errorClass" | "headers">;
+
+/**
+ * One JSON POST to a provider with the shared retries, time limit and errors; the answer's JSON.
+ * The model transports use it, and so do embeddings (./embeddings.ts, §1.88).
+ */
+export async function httpPostJson(
+  target: PostTarget,
+  options: HttpTransportOptions,
+  url: string,
+  payload: unknown,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const doFetch = options.fetch ?? ((input, init) => fetch(input, init));
+  const timeoutMs = options.timeoutMs ?? 600_000;
+  const maxRetries = options.maxRetries ?? 2;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const body = JSON.stringify(payload);
+  for (let attempt = 0; ; attempt += 1) {
+    const signals = [AbortSignal.timeout(timeoutMs)];
+    if (signal) signals.push(signal);
+    let res: Response;
+    try {
+      res = await doFetch(url, {
+        method: "POST",
+        headers: { ...target.headers(options.apiKey), "content-type": "application/json" },
+        body,
+        signal: AbortSignal.any(signals),
+      });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (attempt < maxRetries) {
+        await sleep(retryDelayMs(attempt, null));
+        continue;
+      }
+      if (isTimeout(error)) {
+        throw new target.errorClass(
+          `${target.vendor} timed out after ${Math.round(timeoutMs / 1000)} s`,
+          null,
+          null,
+          "timeout",
+        );
+      }
+      throw error;
+    }
+    if (res.ok) return res.json();
+    if (RETRY_STATUS.has(res.status) && attempt < maxRetries) {
+      await sleep(retryDelayMs(attempt, res.headers.get("retry-after")));
+      continue;
+    }
+    throw providerError(target.errorClass, target.vendor, res.status, await res.text());
+  }
+}
+
 /**
  * The transport for one provider. Nothing is kept at the provider between calls: every request
  * carries its whole transcript, as with Anthropic.
  */
 export function httpTransport(wire: ProviderWire, options: HttpTransportOptions): LlmTransport {
-  const doFetch = options.fetch ?? ((input, init) => fetch(input, init));
   let base = options.baseURL ?? wire.defaultBaseURL;
   while (base.endsWith("/")) base = base.slice(0, -1);
-  const timeoutMs = options.timeoutMs ?? 600_000;
-  const maxRetries = options.maxRetries ?? 2;
-  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-
   return {
     async create(request, opts) {
-      const url = wire.url(base, request);
-      const body = JSON.stringify(wire.body(request));
-      for (let attempt = 0; ; attempt += 1) {
-        const signals = [AbortSignal.timeout(timeoutMs)];
-        if (opts?.signal) signals.push(opts.signal);
-        let res: Response;
-        try {
-          res = await doFetch(url, {
-            method: "POST",
-            headers: { ...wire.headers(options.apiKey), "content-type": "application/json" },
-            body,
-            signal: AbortSignal.any(signals),
-          });
-        } catch (error) {
-          if (opts?.signal?.aborted) throw error;
-          if (attempt < maxRetries) {
-            await sleep(retryDelayMs(attempt, null));
-            continue;
-          }
-          if (isTimeout(error)) {
-            throw new wire.errorClass(
-              `${wire.vendor} timed out after ${Math.round(timeoutMs / 1000)} s`,
-              null,
-              null,
-              "timeout",
-            );
-          }
-          throw error;
-        }
-        if (res.ok) return wire.answer(await res.json(), request);
-        if (RETRY_STATUS.has(res.status) && attempt < maxRetries) {
-          await sleep(retryDelayMs(attempt, res.headers.get("retry-after")));
-          continue;
-        }
-        throw providerError(wire.errorClass, wire.vendor, res.status, await res.text());
-      }
+      const json = await httpPostJson(
+        wire,
+        options,
+        wire.url(base, request),
+        wire.body(request),
+        opts?.signal,
+      );
+      return wire.answer(json, request);
     },
   };
 }

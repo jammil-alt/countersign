@@ -4,6 +4,7 @@
 // free of Node APIs; the file-backed store is in ./node.ts.
 
 import { canonicalJson, sha256Hex } from "@countersign/core";
+import type { EmbedFn, EmbedRequest, EmbedResponse } from "./embeddings";
 import type { LlmMessage, LlmRequest, LlmTransport } from "./transport";
 
 export const LLM_MODES = ["live", "record", "replay"] as const;
@@ -44,15 +45,56 @@ export interface RecordedCall {
   /** What was hashed, kept for reading a fixture and for diffing a miss. */
   readonly request: Record<string, unknown>;
   readonly response: LlmMessage;
+  /** Written by hand (no API key), not recorded from the provider. */
+  readonly handWritten?: boolean;
+}
+
+/**
+ * §1.88: an embedding call, kept in the same store. Its hash covers `kind`, the model, the texts
+ * and the size, so it never meets a message call's hash.
+ */
+export interface RecordedEmbedding {
+  readonly hash: string;
+  readonly recordedAt: string;
+  readonly kind: "embedding";
+  readonly request: EmbeddingHashedPart;
+  readonly response: EmbedResponse;
+  readonly handWritten?: boolean;
+}
+
+export type RecordedEntry = RecordedCall | RecordedEmbedding;
+
+export function isRecordedEmbedding(entry: RecordedEntry): entry is RecordedEmbedding {
+  return (entry as { kind?: unknown }).kind === "embedding";
+}
+
+export interface EmbeddingHashedPart {
+  readonly kind: "embedding";
+  readonly model: string;
+  readonly input: readonly string[];
+  readonly dimensions: number;
+}
+
+export function embeddingHashedPart(request: EmbedRequest): EmbeddingHashedPart {
+  return {
+    kind: "embedding",
+    model: request.model,
+    input: [...request.input],
+    dimensions: request.dimensions,
+  };
+}
+
+export function embeddingRequestHash(request: EmbedRequest): Promise<string> {
+  return sha256Hex(canonicalJson(embeddingHashedPart(request)));
 }
 
 export interface FixtureStore {
-  read(hash: string): Promise<RecordedCall | null>;
-  write(call: RecordedCall): Promise<void>;
+  read(hash: string): Promise<RecordedEntry | null>;
+  write(call: RecordedEntry): Promise<void>;
 }
 
-export function memoryFixtureStore(initial: readonly RecordedCall[] = []): FixtureStore & {
-  readonly calls: Map<string, RecordedCall>;
+export function memoryFixtureStore(initial: readonly RecordedEntry[] = []): FixtureStore & {
+  readonly calls: Map<string, RecordedEntry>;
 } {
   const calls = new Map(initial.map((c) => [c.hash, c]));
   return {
@@ -104,7 +146,14 @@ export function withRecording(inner: LlmTransport | null, options: RecordingOpti
       async create(request) {
         const hash = await requestHash(request);
         const hit = await store.read(hash);
-        if (!hit) throw new ReplayMissError(hash, request.model);
+        if (!hit || isRecordedEmbedding(hit)) throw new ReplayMissError(hash, request.model);
+        return structuredClone(hit.response);
+      },
+      // §1.88
+      async embed(request) {
+        const hash = await embeddingRequestHash(request);
+        const hit = await store.read(hash);
+        if (!hit || !isRecordedEmbedding(hit)) throw new ReplayMissError(hash, request.model);
         return structuredClone(hit.response);
       },
     };
@@ -122,5 +171,21 @@ export function withRecording(inner: LlmTransport | null, options: RecordingOpti
       });
       return response;
     },
+    ...(inner.embed
+      ? {
+          embed: async (request: EmbedRequest, opts?: { signal?: AbortSignal }) => {
+            const hash = await embeddingRequestHash(request);
+            const response = await (inner.embed as EmbedFn)(request, opts);
+            await store.write({
+              hash,
+              recordedAt: now().toISOString(),
+              kind: "embedding",
+              request: embeddingHashedPart(request),
+              response,
+            });
+            return response;
+          },
+        }
+      : {}),
   };
 }

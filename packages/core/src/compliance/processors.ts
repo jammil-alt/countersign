@@ -93,6 +93,24 @@ export function processorForModel(modelId: string): Processor {
   return modelProvider(modelId);
 }
 
+/**
+ * §1.88: what makes the vendor catalog's embeddings (master items, vendor items, new lines),
+ * and so where their text goes. A client in HIPAA mode is refused them until that provider's BAA
+ * is recorded, as its model calls are (apps/api's `guardModels` holds `embed` to it).
+ */
+// DECISION: embeddings are a feature of their own here (not hidden in "a model call"): an item's
+// text goes to OpenAI even when every agent of the client runs on Anthropic's models.
+export const EMBEDDING_FEATURE = {
+  id: "materials.embeddings",
+  what: "The vendor catalog's search by meaning (embeddings of item names)",
+  model: "openai:text-embedding-3-large",
+} as const;
+
+/** The processor an embedding model's provider is: `openai:` ids go to OpenAI. */
+export function processorForEmbedding(modelId: string): Processor {
+  return modelProvider(modelId);
+}
+
 // DECISION: connectors are named here by id rather than each manifest declaring its processors:
 // the list is the platform's data-flow inventory (SOC 2 C1, HIPAA §164.308(b)) in one place, and a
 // new connector that sends data to a vendor of ours must be added here (a test lists them).

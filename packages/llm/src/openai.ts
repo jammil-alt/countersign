@@ -11,7 +11,13 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { MODEL_PREFIXES, providerModelName } from "@countersign/core";
 import {
+  fromOpenAIEmbeddings,
+  type OAEmbeddingsResponse,
+  toOpenAIEmbeddingsRequest,
+} from "./embeddings";
+import {
   type HttpTransportOptions,
+  httpPostJson,
   httpTransport,
   ProviderError,
   type ProviderErrorClass,
@@ -488,5 +494,28 @@ export function responsesTransport(
 }
 
 export function openaiTransport(options: OpenAITransportOptions): LlmTransport {
-  return responsesTransport(OPENAI_DIALECT, options);
+  let base = options.baseURL ?? OPENAI_DIALECT.defaultBaseURL;
+  while (base.endsWith("/")) base = base.slice(0, -1);
+  const target = {
+    vendor: OPENAI_DIALECT.vendor,
+    errorClass: OPENAI_DIALECT.errorClass,
+    headers: (apiKey: string) => ({ authorization: `Bearer ${apiKey}` }),
+  };
+  return {
+    ...responsesTransport(OPENAI_DIALECT, options),
+    // §1.88: embeddings for the vendor catalog (`POST /v1/embeddings`).
+    async embed(request, opts) {
+      if (!isOpenAIModel(request.model)) {
+        throw new OpenAIRequestError(`${request.model} is not an OpenAI model`);
+      }
+      const json = await httpPostJson(
+        target,
+        options,
+        `${base}/embeddings`,
+        toOpenAIEmbeddingsRequest(request, openAIModelName(request.model)),
+        opts?.signal,
+      );
+      return fromOpenAIEmbeddings(json as OAEmbeddingsResponse, request);
+    },
+  };
 }
