@@ -220,7 +220,7 @@ async function clientWalk(w) {
     });
   });
   if (hasAgent !== "skip" && agentPage) {
-    for (const tab of ["runs", "access"]) {
+    for (const tab of ["runs", "settings"]) {
       await w.step(`Agent, ${tab}`, () => w.follow(`${agentPage}/${tab}`, { scope: "main" }));
     }
   }

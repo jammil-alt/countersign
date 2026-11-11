@@ -44,7 +44,7 @@ type Service = TableView["services"][number];
 type DeskItem = TableView["desk"]["top"][number];
 type SentWeekly = NonNullable<ResponseOf<typeof apiRoutes.portalWeekly>["table"]>;
 
-const KIND_LABEL: Record<string, PlainKey> = {
+export const KIND_LABEL: Record<string, PlainKey> = {
   external_action: "inbox.kind.external_action",
   approval: "inbox.kind.approval",
   request: "inbox.kind.request",
@@ -54,7 +54,7 @@ const KIND_LABEL: Record<string, PlainKey> = {
 };
 
 /** Items whose main action is an approval; the rest are answered or checked in the Inbox. */
-const APPROVED = new Set(["external_action", "approval", "change_request"]);
+export const APPROVED = new Set(["external_action", "approval", "change_request"]);
 
 export function HomeScreen() {
   const i18n = useI18n();
