@@ -241,11 +241,10 @@ describe("Home", () => {
       await screen.findByRole("heading", { name: /^Good (morning|afternoon|evening), Dana$/ }),
     ).toBeInTheDocument();
     // The week's figures, four at most, each a link to its list; no line under the title
-    // repeats them.
-    expect(screen.queryByTestId("home-week-line")).toBeNull();
-    // The title draws before the table answers (frame first, docs/audit-plan.md 1.4): the figures
-    // come with the table.
+    // repeats them. The title draws before the table answers (frame first, docs/audit-plan.md
+    // 1.4), so both are checked once the figures have come with the table.
     const figures = await screen.findByTestId("home-figures");
+    expect(screen.queryByTestId("home-week-line")).toBeNull();
     const runs = within(figures).getByTestId("home-kpi-runs");
     expect(runs).toHaveAttribute("href", "/runs");
     expect(runs).toHaveTextContent("Runs done · this week38");
