@@ -21,8 +21,9 @@ import { parseLine } from "../catalog/keys";
 import { latestMatch, liveItem } from "../catalog/store";
 import { materialsEventRegistry } from "../events";
 import { priceObservation } from "../schema";
+import { cleanSku, recordLastPrice, resolveVendorItem } from "../vendor/store";
 import type { Observation } from "./rules";
-import { convert } from "./uom";
+import { convert, readUom } from "./uom";
 
 export class PricingError extends Error {
   override name = "PricingError";
@@ -139,6 +140,10 @@ export async function loadPricedDocument(
 interface Draft extends Observation {
   line: LinePrice;
   ext: Record<string, unknown>;
+  // §1.88: what finds the line's vendor item, and its price in the vendor's unit.
+  sku: string | null;
+  vendorUom: string;
+  unitPriceRaw: string;
 }
 
 /** What recording would write for each line of the document (nothing is written here). */
@@ -229,6 +234,11 @@ export async function priceLines(
         landedUnitPriceStd: toNumeric(landed),
         freightShare: toNumeric(share),
       },
+      sku: cleanSku(l.vendorSku),
+      vendorUom: l.uomRaw?.trim()
+        ? (readUom(l.uomRaw) ?? l.uomRaw.trim().toLowerCase())
+        : item.standardUom,
+      unitPriceRaw: toNumeric(unitRaw),
     });
   }
   return { drafts, lines: out };
@@ -274,12 +284,22 @@ export async function recordPrices(
           )
           .orderBy(desc(priceObservation.observedOn), desc(priceObservation.createdAt))
           .limit(1);
+        // §1.88: the vendor item the price is for, when the vendor catalog has it (this step
+        // makes none: Register item does); its last price follows, the newer date winning.
+        const vi = await resolveVendorItem(tx, ctx.tenantId, {
+          vendorId: d.vendorId,
+          catalogItemId: d.catalogItemId,
+          sku: d.sku,
+          vendorUom: d.vendorUom,
+        });
+        const viFits = vi && vi.catalogItemId === d.catalogItemId ? vi : null;
         const [row] = await tx
           .insert(priceObservation)
           .values({
             tenantId: ctx.tenantId,
             catalogItemId: d.catalogItemId,
             vendorId: d.vendorId,
+            vendorItemId: viFits?.id ?? null,
             observedOn: d.observedOn,
             unitPriceStd: d.unitPriceStd,
             qtyStd: d.qtyStd,
@@ -294,6 +314,16 @@ export async function recordPrices(
           .returning({ id: priceObservation.id });
         if (!row) continue;
         d.line.observationId = row.id;
+        if (viFits) {
+          await recordLastPrice(tx, ctx.tenantId, viFits.id, {
+            price: d.unitPriceRaw,
+            priceStd: d.unitPriceStd,
+            on: d.observedOn,
+            source: "invoice",
+            sourceId: d.docLineId ?? null,
+            currency: doc.currency,
+          });
+        }
         const payload = {
           observationId: row.id,
           catalogItemId: d.catalogItemId,

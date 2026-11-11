@@ -41,7 +41,7 @@ import {
 const Category = z.enum(CATEGORIES);
 const Attributes = z.record(z.string(), z.string());
 
-const Scored = z.object({
+export const Scored = z.object({
   catalogItemId: z.string(),
   name: z.string(),
   category: Category,
@@ -53,7 +53,7 @@ const Scored = z.object({
   vetoed: z.boolean(),
 });
 
-const LookedUp = z.object({
+export const LookedUp = z.object({
   docLineId: z.string(),
   lineNo: z.number().int().positive(),
   description: z.string(),
@@ -69,7 +69,7 @@ const LookedUp = z.object({
   candidates: z.array(Scored),
 });
 
-const Open = z.object({
+export const Open = z.object({
   lineNo: z.number().int().positive(),
   description: z.string(),
   category: Category,
@@ -80,7 +80,7 @@ const Open = z.object({
   ),
 });
 
-const Answer = z.object({
+export const Answer = z.object({
   lineNo: z.number().int().positive(),
   decision: z.enum(["matched", "new_item", "unsure"]),
   catalogItemId: z.string().nullable(),
@@ -89,7 +89,7 @@ const Answer = z.object({
   attributes: Attributes.optional(),
 });
 
-const Checked = z.object({
+export const Checked = z.object({
   docLineId: z.string(),
   lineNo: z.number().int().positive(),
   decision: z.enum(["matched", "new_item", "unsure"]),
@@ -266,7 +266,7 @@ export const SPLIT_TOOLS: readonly PackTool[] = [
 const schema = (tool: PackTool, key: "input" | "output") =>
   tool.spec[key] as Record<string, unknown>;
 
-const THRESHOLD: SkillParameter = {
+export const THRESHOLD: SkillParameter = {
   name: "match_confidence_auto",
   label: "Accept a match at or above this confidence",
   type: "number",

@@ -58,3 +58,28 @@ export {
   type ToolContextSource,
   thresholdFrom,
 } from "./tools";
+// §1.88: the vendor catalog, its matching pipeline, skills and pattern.
+export * from "./vendor/patterns";
+export {
+  type LoadedDocument,
+  lookupBySku,
+  masterText,
+  matchVendor,
+  type RegisterResult,
+  registerLines,
+  VendorMatchError,
+  vendorItemText,
+} from "./vendor/pipeline";
+export { SUPERSEDED_BY_VENDOR_SKILLS, VENDOR_SKILLS } from "./vendor/skills";
+export {
+  cleanSku,
+  discontinue,
+  setPreferred,
+  VendorItemError,
+  type VendorItemView,
+  vendorCatalog,
+  vendorItemById,
+  vendorItemView,
+  vendorsForItem,
+} from "./vendor/store";
+export { embedTexts, VENDOR_TOOLS, writeEmbeddings } from "./vendor/tools";
