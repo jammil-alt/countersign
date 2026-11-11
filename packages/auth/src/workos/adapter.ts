@@ -3,6 +3,7 @@
 // app_user, refuse the uninvited) is the directory's job, done by the API with packages/db.
 
 import { SESSION_ACTIVITY_HEADER } from "@countersign/core";
+import { compactAccount, cookieFits, expandAccount } from "../account";
 import { requestCookie } from "../cookies";
 import { randomToken, timingSafeEqual } from "../seal";
 import {
@@ -131,10 +132,29 @@ export function createWorkOSAdapter(options: {
         if (opened.sid) await workos.revokeSession(opened.sid).catch(() => undefined);
         return refuse("session_invalid", resolved.reason, [clearSessionCookie()]);
       }
+      const session = resolved.session;
       const setCookies = resolved.rotated
-        ? [sessionCookie(await sealSession(resolved.session, password), resolved.session, now)]
+        ? [sessionCookie(await sealSession(session, password), session, now)]
         : [];
-      return { ok: true, userId: resolved.session.uid, setCookies };
+      return {
+        ok: true,
+        userId: session.uid,
+        setCookies,
+        account: expandAccount(session.acct, session.uid),
+        // The same session, sealed again with the account just read (or without one).
+        async carry(account) {
+          const { acct: _old, ...rest } = session;
+          if (account) {
+            const next = { ...rest, acct: compactAccount(account) };
+            const cookie = sessionCookie(await sealSession(next, password), next, now);
+            // DECISION: an account too big for a cookie (an operator with very many clients) is
+            // not carried; that person's requests read it each time, as before (§1.91).
+            if (cookieFits(cookie)) return [cookie];
+          }
+          if (session.acct === undefined) return setCookies;
+          return [sessionCookie(await sealSession(rest, password), rest, now)];
+        },
+      };
     },
 
     async signIn({ returnTo, restart }, nowDate) {

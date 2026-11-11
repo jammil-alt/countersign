@@ -4229,6 +4229,25 @@ That was two `begin`s, two `commit`s and a membership read of two statements bef
 | Measured | Local, demo seed: `GET /api/feedback/status` went from 7 statements, 2 `begin`s to 6 and 1; every back-office and portal screen's statements went down by 2 to 21, and `begin`s about halved. |
 | Checked | `scope.test.ts` (the switch, a drizzle select issued at once, one backend, rollback, a pooled connection clean after every kind of failure), `rls.test.ts` (as `cs_worker`: the sign-in half sees only the user's memberships, the handler only the scoped clients), `apps/api/src/http.test.ts` (through `mount` and `invokeRoute`). |
 
+### 1.91 Speed: memberships in the sealed session cookie (speed run 5.2, 2026-11-11)
+
+The owner's D2 ("Yes"): a person's memberships ride in the sealed cookie for a few minutes, so most
+session requests skip reading them. It delays a removed member's loss of access by that long.
+
+| Topic | Decision |
+|---|---|
+| The window | `ACCOUNT_WINDOW_SEC` = 5 minutes (`packages/auth/src/account.ts`), the same as the WorkOS refresh interval. The cookie carries the user (id, email, name) and their memberships (client id, name, role) with `at`, the second they were read; the operator flag and the clients served are worked out from them as before. // DECISION |
+| Fresh | Younger than the window: `mount` builds the session and scope from the cookie and opens one transaction already in that scope (`withOperator` or `withTenant`); no `app.user_id`, no account read. The handler, the scope and the audit row are as in §1.90. |
+| Stale or none | The request reads the account in its one transaction (§1.90) and the response seals the cookie again with what it read. `mountLong` does the same around its own read. |
+| Never delays a grant | A carried account that would refuse the request (a client it doesn't list, a role it lacks) is not used: the account is read before any refusal. // DECISION |
+| Where | WorkOS: in the session cookie (`acct`), so it rotates with it and goes with it on sign-out, the idle lock and expiry; a new sign-in starts without one. Dev sign-in: its own sealed cookie (`cs_dev_account`) under a key made at random per isolate, cleared on sign-in and sign-out. Either way it is bound to the user the identity names: another user's account is never used. A cookie that does not open is refused (WorkOS) or ignored and replaced (dev). `acct` is parsed apart from the session, so a shape we stop reading costs a read, not a sign-out. // DECISION |
+| Size | A `Set-Cookie` over 4096 bytes is not sent with an account: an operator with very many clients (about 30 with long names) reads it on each request, as before 5.2. // DECISION |
+| Own changes | A handler that changes the signed-in person's own memberships calls `accountChanged()`; the response drops the carried account. The only such route is creating a client (the creating operator serves it). Invites add other people; no route removes members or changes a role. |
+| Not carried | `GET /api/session` still reads the account each time (the app's first call, and the only place client names are shown from it). The MCP server reads it per call (bearer tokens, no cookie). |
+| What RLS relies on | No policy reads `membership` except `own_memberships`, which only the sign-in half uses. Every client table checks `app.tenant_ids`, which is set from the scope. So for up to the window, a removed member's open session reaches what the carried membership allowed: that client's rows, through the routes their role allows. Code that reads `membership` live (who may sign, approver rules, notifications) already sees them gone. |
+| Measured | Local, demo seed: `GET /api/feedback/status` with a fresh cookie runs without the account statement and the sign-in `set_config`. |
+| Checked | `apps/api/src/session-account.test.ts` (the window, a removed member, another user's cookie, tampering, an own change, sign-out and sign-in, the size fallback), `packages/auth/src/workos/workos.test.ts` (carry, rotation, idle lock, sign-out, tampering, another user, size), `packages/auth/src/account.test.ts`. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

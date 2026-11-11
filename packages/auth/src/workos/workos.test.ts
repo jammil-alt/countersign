@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { type CarriedAccount, MAX_COOKIE_BYTES } from "../account";
 import { readCookie } from "../cookies";
 import { getSession } from "../session";
 import type { ProvisionInput, ProvisionOutcome } from "../types";
@@ -580,5 +581,118 @@ describe("workosStateOf", () => {
         APP_ORIGIN: `${ORIGIN}/ignored/path`,
       }),
     ).toMatchObject({ state: "on", config: { appOrigin: ORIGIN } });
+  });
+});
+
+describe("the account carried in the session cookie (docs/plan.md §1.91)", () => {
+  const account = (at: number, clients = 1) => ({
+    at,
+    user: { id: USER_ID, email: "admin@millwork.test", name: "Ada M" },
+    memberships: Array.from({ length: clients }, (_, i) => ({
+      tenantId: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+      tenantName: `A client with a long enough name to fill a cookie ${i}`,
+      role: "operator" as const,
+    })),
+  });
+  const identify = async (
+    adapter: ReturnType<typeof setup>["adapter"],
+    sealed: string,
+    now: number,
+  ) => adapter.identify(withCookie(`${SESSION_COOKIE}=${sealed}`), at(now));
+  /** The cookie `carry` sends, sealed again with `next`. */
+  async function carried(sealed: string, next: CarriedAccount | null, now = T0 + 1) {
+    const { adapter } = setup();
+    const id = await identify(adapter, sealed, now);
+    if (!id.ok || !id.carry) throw new Error("no carry");
+    const cookies = await id.carry(next);
+    return { cookies, value: cookieValue(cookies, SESSION_COOKIE) };
+  }
+
+  it("a new sign-in carries none; carry seals the account in, and identify hands it back", async () => {
+    const { adapter } = setup();
+    const { sealed } = await sessionCookieFor();
+    const first = await identify(adapter, sealed, T0 + 1);
+    expect(first).toMatchObject({ ok: true, account: null });
+    const { cookies, value } = await carried(sealed, account(T0 + 1));
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0]).toMatch(/^__Host-cs_session=.*; HttpOnly; Secure; SameSite=Lax$/);
+    const next = await identify(adapter, value ?? "", T0 + 2);
+    expect(next).toMatchObject({ ok: true, userId: USER_ID, account: account(T0 + 1) });
+  });
+
+  it("is kept when the session refreshes, and goes with the cookie on the idle lock", async () => {
+    const workos = fakeWorkOS();
+    const { adapter } = setup(workos);
+    const { sealed } = await sessionCookieFor();
+    const { value } = await carried(sealed, account(T0 + 1));
+    const due = await identify(adapter, value ?? "", T0 + REFRESH_INTERVAL_SEC);
+    if (!due.ok) throw new Error(due.code);
+    expect(workos.refresh).toHaveBeenCalled();
+    const rotated = cookieValue(due.setCookies, SESSION_COOKIE) ?? "";
+    expect(await identify(adapter, rotated, T0 + REFRESH_INTERVAL_SEC + 1)).toMatchObject({
+      ok: true,
+      account: account(T0 + 1),
+    });
+    const idle = await identify(adapter, value ?? "", T0 + IDLE_TIMEOUT_SEC);
+    expect(idle).toMatchObject({ ok: false, code: "session_invalid" });
+    if (!idle.ok) expect(idle.setCookies[0]).toMatch(/^__Host-cs_session=;/);
+  });
+
+  it("goes with the cookie on sign-out", async () => {
+    const { adapter } = setup();
+    const { sealed } = await sessionCookieFor();
+    const { value } = await carried(sealed, account(T0 + 1));
+    const out = await adapter.signOut(withCookie(`${SESSION_COOKIE}=${value}`));
+    expect(out.setCookies).toEqual([
+      expect.stringMatching(/^__Host-cs_session=; Path=\/; Max-Age=0/),
+    ]);
+  });
+
+  it("drops a stale account when asked, and a tampered cookie is refused", async () => {
+    const { sealed } = await sessionCookieFor();
+    const { value } = await carried(sealed, account(T0 + 1));
+    const dropped = await carried(value ?? "", null, T0 + 2);
+    const { adapter } = setup();
+    expect(await identify(adapter, dropped.value ?? "", T0 + 3)).toMatchObject({
+      ok: true,
+      account: null,
+    });
+    const v = value ?? "";
+    const tampered = `${v.slice(0, -3)}${v.endsWith("A") ? "B" : "A"}xx`;
+    expect(await identify(adapter, tampered, T0 + 3)).toMatchObject({
+      ok: false,
+      code: "session_invalid",
+    });
+  });
+
+  it("never hands back an account sealed for another user", async () => {
+    const { sealed } = await sessionCookieFor();
+    const other = {
+      ...account(T0 + 1),
+      user: { id: "someone-else", email: "x@y.test", name: null },
+    };
+    const { value } = await carried(sealed, other);
+    const { adapter } = setup();
+    expect(await identify(adapter, value ?? "", T0 + 2)).toMatchObject({ ok: true, account: null });
+  });
+
+  it("is not carried when the cookie would pass 4 KB: the session is sealed without it", async () => {
+    const { sealed } = await sessionCookieFor();
+    const { cookies, value } = await carried(sealed, account(T0 + 1, 3));
+    expect(cookies[0]?.length).toBeLessThanOrEqual(MAX_COOKIE_BYTES);
+    const { adapter } = setup();
+    expect(await identify(adapter, value ?? "", T0 + 2)).toMatchObject({
+      account: account(T0 + 1, 3),
+    });
+    // Too many clients: no account in the cookie, and a stale one is taken out.
+    const big = await carried(value ?? "", account(T0 + 2, 60), T0 + 2);
+    expect(big.cookies).toHaveLength(1);
+    expect(big.cookies[0]?.length).toBeLessThanOrEqual(MAX_COOKIE_BYTES);
+    expect(await identify(adapter, big.value ?? "", T0 + 3)).toMatchObject({
+      ok: true,
+      account: null,
+    });
+    // With none to take out, nothing is sent.
+    expect((await carried(sealed, account(T0 + 2, 60))).cookies).toEqual([]);
   });
 });

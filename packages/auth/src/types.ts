@@ -2,6 +2,7 @@
 // directory with packages/db; auth's own logic never touches the database.
 
 import type { Role } from "@countersign/core";
+import type { CarriedAccount } from "./account";
 
 export interface AuthUser {
   /** app_user.id */
@@ -88,7 +89,22 @@ export function isRefusal(value: unknown): value is AuthRefusal {
 
 /** What an adapter learns from a request: which app_user it is, and cookies to set. */
 export type Identification =
-  | { readonly ok: true; readonly userId: string; readonly setCookies: readonly string[] }
+  | {
+      readonly ok: true;
+      readonly userId: string;
+      readonly setCookies: readonly string[];
+      /**
+       * The account the sealed cookie carries for this user, fresh or not (`accountFresh`
+       * decides); absent when it carries none (docs/plan.md §1.91).
+       */
+      readonly account?: CarriedAccount | null;
+      /**
+       * The cookies to send in place of `setCookies` so the cookie carries `account` from now on,
+       * or carries none (`null`, or an account too big for a cookie). Absent: this adapter
+       * carries no account, and `setCookies` is what to send.
+       */
+      readonly carry?: (account: CarriedAccount | null) => Promise<readonly string[]>;
+    }
   | AuthRefusal;
 
 /**

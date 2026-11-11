@@ -15,8 +15,11 @@ const decoder = new TextDecoder();
 /** Shorter than this and the password is treated as missing: sign-in is misconfigured. */
 export const MIN_COOKIE_PASSWORD_LENGTH = 32;
 
-/** `mcp-confirm`: the two-step write tokens of the MCP server (apps/api/src/mcp). */
-export type SealPurpose = "session" | "state" | "mcp-confirm";
+/**
+ * `mcp-confirm`: the two-step write tokens of the MCP server (apps/api/src/mcp). `account`: the dev
+ * sign-in's carried account (../dev.ts); WorkOS carries it inside `session`.
+ */
+export type SealPurpose = "session" | "state" | "mcp-confirm" | "account";
 
 const FORMAT = "v1";
 

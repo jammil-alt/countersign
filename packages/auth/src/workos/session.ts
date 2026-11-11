@@ -1,10 +1,11 @@
 // The sealed session cookie: what is in it, how long it lasts, and when it is refreshed (ported
 // from Plenary Labs' apps/api/src/identity/session.ts).
 //
-// It holds the app user, the WorkOS user, the WorkOS refresh token and session id, and three
-// times. Sealed with AES-GCM (../seal.ts): a changed byte is a cookie that does not open, treated
-// exactly like no cookie. Memberships are not in it; they are read per request, so removing
-// someone from a client takes effect at once.
+// It holds the app user, the WorkOS user, the WorkOS refresh token and session id, three times,
+// and the account (the user's memberships) as last read, for ACCOUNT_WINDOW_SEC (../account.ts,
+// docs/plan.md §1.91). Sealed with AES-GCM (../seal.ts): a changed byte is a cookie that does not
+// open, treated exactly like no cookie. A new sign-in starts without an account; sign-out and the
+// idle lock clear the cookie, and the account with it.
 //
 // Lifetime (docs/plan.md §1.35):
 //   - `exp`: an absolute limit, 12 hours after sign-in (SESSION_MAX_AGE_SEC in core). A cookie
@@ -61,6 +62,11 @@ export const SessionPayload = z.object({
   exp: z.int(),
   /** Last activity (seconds); absent on cookies from before the idle limit. */
   lat: z.int().optional(),
+  /**
+   * The account as last read (`compactAccount`), checked by `expandAccount` when used: a shape we
+   * no longer read is a read, never a signed-out session.
+   */
+  acct: z.unknown().optional(),
 });
 export type SessionPayload = z.infer<typeof SessionPayload>;
 
