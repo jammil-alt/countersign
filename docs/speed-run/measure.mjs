@@ -1,5 +1,6 @@
-import { createRequire } from "node:module";
 import fs from "node:fs";
+import { createRequire } from "node:module";
+
 const { chromium } = createRequire(import.meta.url)("playwright");
 
 const LOG = process.env.LOG ?? "/var/log/postgresql/postgresql-16-main.log";
@@ -127,7 +128,16 @@ for (const mode of ["fresh", "move"]) {
       .filter(([, n]) => n > 1)
       .map(([k, n]) => `${k} x${n}`);
     const sql = sqlSince(offset);
-    out.push({ mode, name, api: calls.length, sql, paint, settled, repeated, calls: Object.keys(counts) });
+    out.push({
+      mode,
+      name,
+      api: calls.length,
+      sql,
+      paint,
+      settled,
+      repeated,
+      calls: Object.keys(counts),
+    });
     console.log(
       mode.padEnd(6),
       name.padEnd(22),
