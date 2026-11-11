@@ -2,7 +2,12 @@ import { routes } from "@countersign/core";
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SessionProvider, useSessionState } from "../session/session";
+import {
+  SESSION_SCOPE_KEY,
+  SessionProvider,
+  scopeFingerprint,
+  useSessionState,
+} from "../session/session";
 import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION, Reply } from "../test/fixtures";
 import { ApiStore, MAX_ENTRIES } from "./store";
 import { ApiProvider, useApi, useApiClient, useApiStore, usePrefetch } from "./useApi";
@@ -367,7 +372,7 @@ describe("the store and the session", () => {
     expect(store?.size).toBe(0);
   });
 
-  it("forgets everything when another tab signs someone else in", async () => {
+  it("forgets everything when another tab finds someone else signed in", async () => {
     let session: unknown = OPERATOR_SESSION;
     let name = "First user's view";
     const gate = deferred<unknown>();
@@ -384,11 +389,18 @@ describe("the store and the session", () => {
       </ApiProvider>,
     );
     await waitFor(() => expect(screen.getByTestId("shown")).toHaveTextContent("First user's view"));
-    // Another tab signed someone else in: the cookie is theirs now, and the tab says so.
-    session = { ...CLIENT_SESSION, user: { ...CLIENT_SESSION.user, id: "someone-else" } };
+    // Another tab loaded fresh with someone else signed in (as a WorkOS sign-in arrives): the
+    // cookie is theirs now, and that tab's fingerprint says so.
+    const other = { ...CLIENT_SESSION, user: { ...CLIENT_SESSION.user, id: "someone-else" } };
+    session = other;
     name = "Second user's view";
     act(() => {
-      window.dispatchEvent(new StorageEvent("storage", { key: "cs.sessionChange", newValue: "1" }));
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: SESSION_SCOPE_KEY,
+          newValue: scopeFingerprint(`someone-else\u0001${other.activeTenantId ?? ""}`),
+        }),
+      );
     });
     expect(screen.getByTestId("shown")).toHaveTextContent("loading");
     gate.resolve(client(CLIENT_A, name));
@@ -397,6 +409,61 @@ describe("the store and the session", () => {
     );
     expect(document.body.textContent).not.toContain("First user's view");
     expect(count(api.calls, "GET /api/session")).toBe(2);
+  });
+
+  it("shares this tab's fingerprint, and ignores another tab's that is the same", async () => {
+    localStorage.clear();
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/feedback/${CLIENT_A}/screenshot`]: () => client(CLIENT_A, "Acme"),
+    });
+    render(
+      <ApiProvider client={api.client}>
+        <SessionProvider>
+          <Shown />
+        </SessionProvider>
+      </ApiProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("shown")).toHaveTextContent("Acme"));
+    // A fresh load writes who is signed in, as a hash: no id, no answer.
+    const mine = scopeFingerprint(`${OPERATOR_SESSION.user.id}\u0001`);
+    expect(localStorage.getItem(SESSION_SCOPE_KEY)).toBe(mine);
+    expect(localStorage.getItem(SESSION_SCOPE_KEY)).not.toContain(OPERATOR_SESSION.user.id);
+    // Another tab of the same session says the same: nothing is dropped or asked.
+    act(() => {
+      window.dispatchEvent(new StorageEvent("storage", { key: SESSION_SCOPE_KEY, newValue: mine }));
+    });
+    expect(screen.getByTestId("shown")).toHaveTextContent("Acme");
+    expect(count(api.calls, "GET /api/session")).toBe(1);
+  });
+
+  it("keeps a signed-out tab working when another tab signs in or out", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => new Reply(401, { error: { code: "unauthenticated" } }),
+      "GET /api/auth/provider": () => ({ provider: "dev", message: null }),
+    });
+    // What a signed-out tab shows: the sign-in page, which reads the provider.
+    function SignInish() {
+      const { data, loading } = useApi(routes.authProvider);
+      return <p data-testid="signin">{loading ? "loading" : (data?.provider ?? "none")}</p>;
+    }
+    render(
+      <ApiProvider client={api.client}>
+        <SessionProvider>
+          <SignInish />
+        </SessionProvider>
+      </ApiProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("signin")).toHaveTextContent("dev"));
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: SESSION_SCOPE_KEY, newValue: "someone" }),
+      );
+    });
+    // It asks who is signed in (still no one here) and the sign-in page keeps answering.
+    await waitFor(() => expect(count(api.calls, "GET /api/session")).toBe(2));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId("signin")).toHaveTextContent("dev");
   });
 
   it("empties the store when the active client changes", async () => {

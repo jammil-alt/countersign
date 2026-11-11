@@ -18,14 +18,28 @@ import { idleTooLong, watchInput } from "./activity";
 // this only signs the browser out cleanly instead of failing its next call.
 const IDLE_CHECK_MS = 30_000;
 
-// A sign-in or sign-out in one tab tells the others (docs/audit-plan.md 1.2): they empty their
-// store and ask who is signed in, so one person's answers never show under another's session.
-// Only a time is written, never an answer.
-const SESSION_CHANGE_KEY = "cs.sessionChange";
+// Who is signed in, shared between tabs (docs/audit-plan.md 1.2). Every answer to `/api/session`
+// and every sign-out writes a fingerprint of this tab's scope (a hash of user and client, never an
+// answer); a tab that sees another fingerprint than its own empties its store and asks who is
+// signed in, so one person's stored answers never show under another's session. A fresh page load
+// counts too, so a WorkOS sign-in (which arrives as one) reaches the tabs already open.
+export const SESSION_SCOPE_KEY = "cs.sessionScope";
 
-function announceSessionChange(): void {
+/** FNV-1a of the scope, in hex: who it is can't be read back from it. "" when signed out. */
+export function scopeFingerprint(scope: string | null): string {
+  if (!scope) return "";
+  let h = 0x811c9dc5;
+  for (let i = 0; i < scope.length; i++) {
+    h ^= scope.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16);
+}
+
+function shareScope(scope: string | null): void {
   try {
-    globalThis.localStorage?.setItem(SESSION_CHANGE_KEY, String(Date.now()));
+    // Writing the value already there tells no one (no storage event), so this costs nothing.
+    globalThis.localStorage?.setItem(SESSION_SCOPE_KEY, scopeFingerprint(scope));
   } catch {
     // Storage blocked: other tabs find out on their next call, which the API refuses or answers.
   }
@@ -69,13 +83,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // until the signed-in screens have gone (the effect below opens it).
     if (next.status === "signed_in") {
       store.open();
-      const scope = `${next.session.user.id}\u0001${next.session.activeTenantId ?? ""}`;
-      if (store.setScope(scope)) announceSessionChange();
+      store.setScope(`${next.session.user.id}\u0001${next.session.activeTenantId ?? ""}`);
     } else {
-      // A session that ended closes the store; a page that opened signed out has nothing to drop.
+      // A session that ended closes the store (the effect below opens it once its screens have
+      // gone); a tab that was already signed out has nothing to drop and stays open.
       if (store.signedIn) store.close();
+      else store.open();
       store.setScope("");
     }
+    shareScope(store.currentScope);
     setState(next);
     if (next.status === "signed_in") {
       identifyForErrors({ id: next.session.user.id, operator: next.session.operator });
@@ -90,7 +106,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // nothing more until the signed-in screens have gone: they would ask with the old cookie.
     store.close();
     store.setScope("");
-    announceSessionChange();
+    shareScope("");
     let redirectTo: string | null = null;
     try {
       redirectTo = (await client.call(apiRoutes.signOut)).redirectTo;
@@ -113,12 +129,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (status === "signed_out" || status === "error") store.open();
   }, [status, store]);
 
-  // Another tab signed in or out: forget everything and ask who is signed in here now.
+  // Another tab found someone else (or no one) signed in: forget everything and ask who is
+  // signed in here now. The same fingerprint as this tab's changes nothing.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onStorage = (e: StorageEvent) => {
-      if (e.key !== SESSION_CHANGE_KEY) return;
-      store.close();
+      if (e.key !== SESSION_SCOPE_KEY) return;
+      if ((e.newValue ?? "") === scopeFingerprint(store.currentScope)) return;
+      if (store.signedIn) store.close();
       void refresh();
     };
     window.addEventListener("storage", onStorage);

@@ -114,6 +114,16 @@ export class ApiStore {
     this.clear();
   }
 
+  /** Who the answers are for: a user and client, "" signed out, null not yet known. */
+  get currentScope(): string | null {
+    return this.scope;
+  }
+
+  /** The store's clock (tests give it another). */
+  clock(): number {
+    return this.now();
+  }
+
   /** Whether a signed-in scope is set (a user, not "" or not yet known). */
   get signedIn(): boolean {
     return this.scope !== null && this.scope !== "";

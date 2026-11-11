@@ -130,7 +130,7 @@ export function useApi<R extends RouteSpec>(
   // An answer older than five minutes is not shown: when this hook first reads a key, an answer
   // already that old counts as none (and the effect below asks again). Nothing in the store moves.
   const seen = useRef<{ key: string | null; at: number }>({ key: null, at: 0 });
-  if (seen.current.key !== key) seen.current = { key, at: Date.now() };
+  if (seen.current.key !== key) seen.current = { key, at: store.clock() };
 
   const ref = useRef({ key, route, callOptions });
   ref.current = { key, route, callOptions };
