@@ -3480,7 +3480,7 @@ STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY   # R2 
 ENCRYPTION_KEY                         # 32 bytes base64; wraps each client's data key (§6.9)
 BAA_PROCESSORS                         # vendors with a signed BAA (HIPAA mode, §16); wrangler.jsonc
 BROWSER (service binding → apps/browser), CODES (service binding → apps/mfa)   # v0.10
-# apps/browser only: BROWSER (Browser Run binding); no secrets (docs/plan.md §1.91)
+# apps/browser only: BROWSER (Browser Run binding); no secrets (docs/plan.md §1.92)
 AGENT_EMAIL_DOMAIN                     # e.g. agents.<domain>, routed to apps/mfa by Email Routing
 # apps/mfa only: MFA_ENCRYPTION_KEY (32 bytes base64), MFA_TWILIO_ACCOUNT_SID, MFA_TWILIO_AUTH_TOKEN,
 #   IDENTITY and DIRECTORY (Durable Object bindings), AGENT_EMAIL_DOMAIN, MFA_ORIGIN, MFA_DAILY_CAP

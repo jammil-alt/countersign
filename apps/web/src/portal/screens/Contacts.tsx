@@ -180,7 +180,11 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
     });
     if (next !== "organizations") setRelationship(next);
   }
-  const list = useApi(apiRoutes.portalDirectory, { query: q.trim() ? { q: q.trim() } : {} });
+  const list = useApi(apiRoutes.portalDirectory, {
+    query: q.trim() ? { q: q.trim() } : {},
+    // A search of the one list: its rows stay while the next answer loads.
+    keep: true,
+  });
   // Who each agent reaches (the client admin's view): the agents in touch with each person.
   const reach = useApi(apiRoutes.portalAgentPeople, admin ? {} : null);
   // R8 (plan §1.86): each contact's hours and away dates, the client admin's to read and change.

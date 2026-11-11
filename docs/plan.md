@@ -573,7 +573,7 @@ client, second factors kept apart, and each agent given only the tools it needs 
 | Agent identities | Email `agent-<short id>@<AGENT_EMAIL_DOMAIN>`; a phone number only when a site sends codes by text, bought by the code service in its own Twilio subaccount (`MFA_TWILIO_*`), separate from clients' messaging subaccounts. A browser connection's config names its identity (`identityId`, not secret). |
 | Browser sites (phase 3, migration 0012) | `browser_site` and `browser_site_version` (operator tables, `tenant_id` null, visible only to operator sessions, versions immutable like skills): `slug`, `name`, `tier` (`low`, `medium`, `high`, `blocked`), `login` (`url`, `origins`, selectors for username, password and submit, `secondFactor`: `none`, `totp`, `sms` or `email` with `sender` and `pattern`, `signedIn` check by URL pattern or selector), `signOut`, `allow` and `block` URL patterns (the platform's blocked defaults always apply), `notes` (terms checked, by whom). A client's browser connection names the site and pins the version it was set up on; the client can make it stricter (sign-in by a person only, or no writes), never looser. |
 | Binding browser sites | Bindings are keyed by connector; browser connections bind by site: the key is `browser:<site slug>`, and browser tools take `site` in their input. Connector manifests gain an optional `bindingKey(input)`; the runtime uses it when present (no special case for `browser` in `packages/agents`). // DECISION |
-| Browser driver | `packages/connectors/src/browser/` talks to a `BrowserDriver` interface (open page, go to, fill, click, read text, read tables, download, cookies, close). The browser service (`apps/browser`, Worker `mezonas-browser`, §1.91) implements it on the Browser Run binding (`BROWSER`, `@cloudflare/playwright`) and serves the tab over RPC; `apps/api` reaches it only through its `BROWSER` service binding and drives the tab one call at a time (connectors' `remoteBrowserTab`), keeping every decision. Tests implement it on local Playwright against fixture pages served by the test. Sign-in, sign-out and URL checks are code in the connector; the model gets only `browser.page.read` (text and tables of an allowed URL, password fields removed), `browser.file.download` (into documents, as uploads are) and, after the pilot, `browser.form.submit` (external, behind approval, the page's fields before as its before state). |
+| Browser driver | `packages/connectors/src/browser/` talks to a `BrowserDriver` interface (open page, go to, fill, click, read text, read tables, download, cookies, close). The browser service (`apps/browser`, Worker `mezonas-browser`, §1.92) implements it on the Browser Run binding (`BROWSER`, `@cloudflare/playwright`) and serves the tab over RPC; `apps/api` reaches it only through its `BROWSER` service binding and drives the tab one call at a time (connectors' `remoteBrowserTab`), keeping every decision. Tests implement it on local Playwright against fixture pages served by the test. Sign-in, sign-out and URL checks are code in the connector; the model gets only `browser.page.read` (text and tables of an allowed URL, password fields removed), `browser.file.download` (into documents, as uploads are) and, after the pilot, `browser.form.submit` (external, behind approval, the page's fields before as its before state). |
 | Sessions and stops | One browser per step, closed at its end. Low tier: the session's cookies may be saved encrypted in the connection's credentials and reused until they fail. Two failed sign-ins set the connection to `needs_attention` and stop further sign-ins; a CAPTCHA, an unexpected page or a new-device check fails the step with a reason and raises an inbox item. Caps: sign-ins per connection per day (default 10) and optional hours, checked in code. Screenshots after sign-in only, kept with the step as evidence. High-tier sites: no autonomous sign-in; a person signs in through Browser Run's human handoff, which comes after the pilot. |
 | Human release (phase 4, owner 2026-11-05; migration 0013) | Optional per connection, off by default: `connection.config.release = {mode: 'off' \| 'code', personId (a user of the client with a verified phone or email), channel: 'sms' \| 'email', window: 'run' \| {hours: 1–24}}`. Table `access_release` (tenant table, RLS forced): `id`, `tenant_id`, `connection_id`, `agent_id`, `run_id`, `person_id`, `channel`, `code_hash` (HMAC-SHA256 under a key derived from `ENCRYPTION_KEY`, never the code), `expires_at` (10 minutes), `tries` (max 5), `status` (`pending`, `released`, `expired`, `failed`, `revoked`, `void`), `released_at`, `valid_until`, `revoked_by`; append-mostly (status columns only). The gate (`callTool`) checks for a valid release before any call through a connection with `mode: 'code'`; without one the step creates a request (voiding older pending ones), sends the code (text through the client's Twilio messaging when it has a number, else email through Mezonas' sending domain), raises an inbox item for that person and waits on it like an approval; entering the code in the portal or replying to the message from the person's own number or address resolves it. Window `run`: valid for that run only; hours: valid for that connection and agent until `valid_until`. Wait timeout: the code's 10 minutes, re-sendable up to 3 times by the person; then the step fails `access_not_released`. The model never sees a code; inbound messages carrying one are consumed by the release check and never reach an agent's thread. Client admin: turn on or off, pick the person and window, revoke live releases (Access page). Operator: turn on only. Test runs need a release too. |
 | Pilot | A fixture supplier portal in tests (low tier, emailed codes); then one real low-tier site the owner names, read and download only. |
@@ -2363,7 +2363,7 @@ also reloaded the whole clients list every 20 s for one number, in background ta
 | Reads asked at once | The command center, Needs us, the feed and the clients list ask their independent reads together in the request's transaction, which postgres-js pipelines (as search and billing already did). None of them changes the scope while reads are in flight. // DECISION |
 | The platform per request | `services().platform` is built on first use, not for every request: the tool registry and skill catalog take tens of ms in a fresh isolate and most reads never use them. // DECISION |
 | Polling | `usePoll` and the command center's feed skip ticks while the tab is hidden and catch up once on return. The back office's Escalations badge refreshes from `/api/ops/needs-us` (the same count), not the whole clients list; the list loads once, and again when the session's clients change. // DECISION |
-| Not done | Converting tool schemas to JSON Schema lazily: tool skills copy them when their modules load, so it moved no work off startup (measured). Dropping the Anthropic SDK (3 MB) or moving Playwright (3.2 MB, loaded only for website logins) out of the bundle to cut the 12 MB script: possible, at the cost of our own model transport or a separate Worker for browser logins; the owner's call. The owner said yes to both (D3, 2026-11-11): Playwright moved to its own Worker (§1.91); our own transport is its own PR. |
+| Not done | Converting tool schemas to JSON Schema lazily: tool skills copy them when their modules load, so it moved no work off startup (measured). Dropping the Anthropic SDK (3 MB) or moving Playwright (3.2 MB, loaded only for website logins) out of the bundle to cut the 12 MB script: possible, at the cost of our own model transport or a separate Worker for browser logins; the owner's call. The owner said yes to both (D3, 2026-11-11): Playwright moved to its own Worker (§1.92); our own transport is its own PR. |
 
 ### 1.83 Speed: one round trip per query (2026-11-09)
 
@@ -4213,12 +4213,44 @@ the same URL: `https://staging.mezonas.com/mcp` and `https://app.mezonas.com/mcp
 | Metadata | The protected resource's `resource_name` is now "Mezonas (<environment>)"; the back-office server info stays `mezonas-ops`, the client's is `mezonas` / "Mezonas". No new var, secret, binding or migration: staging and production already have `WORKOS_AUTHKIT_DOMAIN`. |
 | Not built | Client writes through the connector (approve or answer an inbox item, raise a request), each two-step as §1.34's; a per-client switch to turn the connector off; a portal page that says how to connect. |
 
-### 1.91 Website logins in their own Worker (owner's D3, 2026-11-11)
+### 1.91 Speed run: what the run decided (2026-11-11; `docs/audit-plan.md`)
+
+The decisions taken while running the speed and structure plan, item by item, as each merged into
+`speed/run`. Held items record theirs in their own PRs (§1.90 one transaction per request, §1.92
+website logins in their own Worker, §1.93 memberships in the cookie).
+
+**1.2 and 1.9, the store under `useApi`** (`apps/web/src/api/store.ts`, #251):
+
+1. Nothing older than five minutes is shown (`MAX_AGE_MS`).
+2. Fresh for ten seconds (`FRESH_MS`): a component that mounts while the stored answer is under
+   10 s old, with no write since, does not ask again. A change of options, and `reload`, always ask.
+3. The first session answer names the scope without emptying the store; every later change empties it.
+4. One store per `ApiProvider` (tests that render twice with one fake client expect a second ask).
+5. Keeping the last answer while a new query loads is opt-in (`keep: true`), and only for the same
+   route and path params: a query can name another entity (`?client=`, `?agent=`).
+6. Any successful write, through any client, marks every stored answer stale.
+7. Sign-out closes the store until the signed-in screens are gone. Tabs share who is signed in as a
+   fingerprint (a hash of user and client, never an answer or an id) in `cs.sessionScope`; a tab
+   that sees another fingerprint than its own empties its store and asks who is signed in.
+8. The operator's client picker does not empty the store: an operator call names its client in the
+   address, so answers for two clients never share a key.
+9. At most 200 answers, least recently used first.
+
+`cache: "none"` on every answer holding a short-lived link or a secret: signed document links,
+the feedback screenshot, client exports, webhook setup, the vault (`portalAccess`) and second
+factor (`portalReleaseRequest`, `opsRelease`, `opsAgentGrants`).
+
+**Running the run.** Worker sessions cannot force-push, so a worker brings its branch up to date by
+merging `speed/run` into it, and the lead merges each PR with a merge commit (never a squash). The
+tree merged is the one the gates ran on. `pnpm typecheck` runs out of memory in a 15 GB cloud
+container at full parallelism; the run uses `pnpm -r --workspace-concurrency=4 typecheck` there.
+
+### 1.92 Website logins in their own Worker (owner's D3, 2026-11-11)
 
 The owner answered D3 of `docs/audit-plan.md` (4.7) "yes, both": website logins move to their own
 Worker, and our own model transport replaces the Anthropic SDK (a separate PR). This is the first.
-`apps/api`'s dry-run (staging) went from 13,515 KiB (gzip 2,883) to 10,108 KiB (gzip 2,228); the new
-Worker is 4,164 KiB (gzip 773).
+`apps/api`'s dry-run (staging) went from 13,515 KiB (gzip 2,883) to 10,110 KiB (gzip 2,228); the new
+Worker is 4,165 KiB (gzip 773).
 
 | Topic | Decision |
 |---|---|

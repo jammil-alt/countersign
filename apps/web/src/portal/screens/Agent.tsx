@@ -648,7 +648,10 @@ const VERBS = ["read", "create", "update", "delete"] as const;
 /** What the agent may do through each connection it is bound to: the effective level per verb. */
 function Reach({ id, name }: { id: string; name: string }) {
   const { t } = useI18n();
-  const access = useApi(apiRoutes.portalAccess);
+  const access = useApi(apiRoutes.portalAccess, {
+    // The vault is never stored (docs/audit-plan.md 1.2).
+    cache: "none",
+  });
   if (!access.data) return null;
   const items = reachOf(id, access.data);
   return (
