@@ -2395,7 +2395,13 @@ Decided, and it supersedes the method table below (`rules_then_ai` and the four 
 - **Retired for new use**: the 92 built-in skills that are only a tool by another name leave the
   Library and the palette (a process uses the tool as a read or write step; stored references still
   run), and agent-mode skills (the agent's reasoning loop proposing writes) give way to AI skills
-  followed by write steps. Stored versions and stored steps keep running (invariant 3).
+  followed by write steps. Stored versions and stored steps keep running (invariant 3). A skill
+  whose own tools write (Read quote and Read statement, which record a reading) is retired for new
+  steps too, and the tools a split replaced (document extraction, item matching) are offered as
+  steps only where an agent already calls them; a tool step that calls a model reads AI.
+- **AI then a check**: where an AI skill's answer feeds a write, a deterministic skill checks it
+  first and an If step routes a failure to a person (the Bill clerk: Prepare bill, Check bill,
+  Create bill; invariant 7).
 - **Templates on the skill model**: each seeded and pack template that used a retired kind of skill
   has a new version built only from AI skills, deterministic skills, read steps and write steps (the
   Bill clerk's v3, the Document clerk's v2, Sloan's v5, the Bookkeeper's v3, the marketing set's

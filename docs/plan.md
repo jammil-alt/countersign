@@ -3764,6 +3764,58 @@ offer, and fork + publish with QuickBooks, and with QuickBooks and BILL).
   A Bill clerk for BILL needs those reads swapped (`billcom.vendor.search`) as the operator's
   customization, or a BILL template of its own.
 
+**Skill model (2026-11-10)**: the review of `skills/templates`, fixed on `skills/fix`.
+
+- Retired for new use, added: skills that write. `materials.read-quote` and
+  `bookkeeping.read-statement` are task skills whose own tools include `docs.read`, which records a
+  reading; they leave the palette (`palette: false`) and a new step using them is refused
+  (`skill_retired`), built-ins included. Their replacements, `materials.read-quote-document` and
+  `bookkeeping.read-statement-document`, only read. Stored steps keep running (invariant 3).
+- // DECISION: "a skill writes" is core's `skillWriteTools` / `skillIsWriter`: any tool or read of
+  the skill whose `sideEffect` isn't `none`, our own records included. `newStepSkillReason` joins it
+  with `retiredSkillReason`; the catalog's `palette` flag is `!isToolWrapper && newStepSkillReason
+  === null`. The validator refuses writing skills in new steps for built-ins too; retired kinds
+  (agent mode, rules then AI) stay held to `custom:` skills, since the platform's seeded and pack
+  versions still add steps on agent-mode built-ins.
+- // DECISION: a step is new when its id isn't in the parent version, or (new) when it was there
+  with another skill id (`existingStepSkills`, core `processes.bundleStepSkills`; `@version` aside,
+  so a version move is not new). A rollback is checked against the version it restores
+  (`publish`'s `existingFrom`), so restoring a published version never trips the new-step checks.
+- // DECISION: the builder's `stepTools` leaves out the hidden AI the splits replaced
+  (`SPLIT_MODEL_TOOLS` in apps/api: `docs.extract`, `docs.read`, `materials.match_line`,
+  `materials.match_lines`, `materials.catalog.create_item`) and the account agent's handlers
+  (`account.*`), each kept where the agent's latest version already calls it as a step. The list is
+  named where platform and packs are wired, not as a new field on every tool spec.
+- // DECISION: a read or write step on a tool that declares `usesModel` (web search and fetch,
+  translate, a stored step on document extraction) reads AI: "Read · AI" / "Write · AI" in the
+  palette, "· AI" in the inspector's eyebrow and on the canvas, and an AI tag in the run view
+  (`StepModelFacts.usesModel`). Operator only; the portal shows no kind.
+- // DECISION: the Bill clerk's v3 checks Prepare bill with code before Create bill: "Check bill"
+  (`docs.check-bill` on `docs.bill.check`, deterministic, `sideEffect: none`) compares the prepared
+  bill with the invoice as read and the vendors and accounts read, in decimals (vendor and accounts
+  among those read; number, date, currency and total the invoice's; lines adding up; line amounts
+  the invoice's lines, freight, surcharges and tax). An If step sends a bill that fails to the
+  client admin ("Ask about the bill we prepared"); only a bill that passes reaches Create bill.
+  Its input is typed loosely (as Prepare bill's) and the tool's schema parses what it checks.
+  Built-ins: 127.
+- // DECISION: an action write step is held to its connection at publish whatever its approval: a
+  verb the matrix turns off (`verb_off`), or a record type the matrix or the agent's grant turns off
+  (`entity_off`, from the resolved tool's own entity; a message channel has none). A sub-process
+  override is still held only when it loosens.
+- // DECISION: a wait's request carries an action's resolved channel (`WaitRequest.binding`), so a
+  message action that runs again after a release goes through the same connection.
+- Not fixed: Check matches still applies `match_confidence_auto` inside the skill (below it a line
+  is "unsure" and needs review). Moving it to an If step means a For each over the checked lines
+  with an If per line and a review flag on `materials.matches.record`, which changes the matching
+  patterns, their golden and what the review queue gets; left for the owner's call. The patterns
+  already route the person step on `anyNeedsReview` with an If.
+- Not fixed (owner's items): Marketing v3's article drafts run only on a person's topic (no Thursday
+  schedule); the social posts and forum watch change behaviour on update; a BILL-only client can't
+  publish the Bill clerk's v3; the client's browser-script recording and approver-rule tightening
+  are still on the portal; `doc_extraction.model` records the skill id (`docs.read-document`), not
+  the model that read the document (the skill's answer doesn't carry its model); "today" in rule
+  skills is UTC.
+
 ### 1.87 BILL connector (owner: "bill.com integrated", 2026-11-10; no migration)
 
 Connector `billcom` in `packages/connectors/src/billcom/` against a fake (`fakeBillcom` in
