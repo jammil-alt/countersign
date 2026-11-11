@@ -29,7 +29,7 @@ function entries(html) {
     const isPreload = tag.startsWith("<link") && /rel=["']modulepreload["']/.test(tag);
     if (!isScript && !isPreload) continue;
     const url = tag.match(/\b(?:src|href)=["']([^"']+)["']/)?.[1];
-    if (url && url.startsWith("/") && !url.startsWith("//")) found.push(normalize(url.slice(1)));
+    if (url?.startsWith("/") && !url.startsWith("//")) found.push(normalize(url.slice(1)));
   }
   return found;
 }
@@ -37,7 +37,8 @@ function entries(html) {
 /** Relative static imports and re-exports (`import … from "./x.js"`, `import "./x.js"`), not `import()`. */
 function staticImports(code) {
   const found = [];
-  const pattern = /\b(?:import|export)\s*(?:[\w$*{},\s]*?\s*from\s*)?["'](\.{1,2}\/[^"']+\.js)["']/g;
+  const pattern =
+    /\b(?:import|export)\s*(?:[\w$*{},\s]*?\s*from\s*)?["'](\.{1,2}\/[^"']+\.js)["']/g;
   for (const m of code.matchAll(pattern)) found.push(m[1]);
   return found;
 }
@@ -52,7 +53,8 @@ export function firstLoad(distDir) {
     const file = queue.shift();
     if (files.has(file)) continue;
     const path = join(distDir, file);
-    if (!existsSync(path)) throw new Error(`index.html needs ${file}, which the build did not write`);
+    if (!existsSync(path))
+      throw new Error(`index.html needs ${file}, which the build did not write`);
     const code = readFileSync(path);
     files.set(file, { raw: code.length, gzip: gzipSync(code).length });
     for (const spec of staticImports(code.toString("utf8"))) {
@@ -71,7 +73,9 @@ function main() {
   for (const [file, size] of [...files].sort((a, b) => b[1].gzip - a[1].gzip)) {
     raw += size.raw;
     gzip += size.gzip;
-    console.log(`  ${file.padEnd(48)} ${kB(size.raw).toFixed(1).padStart(9)} kB  ${kB(size.gzip).toFixed(1).padStart(8)} kB gzipped`);
+    console.log(
+      `  ${file.padEnd(48)} ${kB(size.raw).toFixed(1).padStart(9)} kB  ${kB(size.gzip).toFixed(1).padStart(8)} kB gzipped`,
+    );
   }
   const total = kB(gzip);
   console.log(
