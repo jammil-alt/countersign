@@ -3,8 +3,8 @@
 // Components shared by both surfaces call useI18n(): outside a provider they get English, so the
 // back office needs nothing.
 import { DEFAULT_LOCALE, type Locale } from "@countersign/core";
-import { createContext, type ReactNode, useContext, useEffect, useMemo } from "react";
-import { createTranslator, type Translate } from "./catalog";
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { createTranslator, loadCatalog, loadedCatalog, type Translate } from "./catalog";
 import { createFormatters, type Formatters, intlLocaleFor } from "./format";
 
 export interface I18n {
@@ -48,8 +48,23 @@ export function I18nProvider({
 }) {
   const tags = browser ?? browserLanguages();
   const key = tags.join(",");
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for `tags`' contents.
-  const value = useMemo(() => createI18n(locale, tags), [locale, key]);
+  // A language not loaded yet reads in English until it arrives, then in its own words: never in
+  // keys. The session loads it before it shows anything (session/session.tsx), so this is only for
+  // a provider given a language no one loaded (docs/audit-plan.md 4.1).
+  const [arrived, setArrived] = useState<Locale | null>(null);
+  const ready = loadedCatalog(locale) !== undefined;
+  useEffect(() => {
+    if (ready) return;
+    let live = true;
+    void loadCatalog(locale).then(() => {
+      if (live) setArrived(locale);
+    });
+    return () => {
+      live = false;
+    };
+  }, [locale, ready]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for `tags`' contents; `ready` and `arrived` rebuild it when the language arrives.
+  const value = useMemo(() => createI18n(locale, tags), [locale, key, ready, arrived]);
   useEffect(() => {
     // Screen readers, hyphenation and spell checking follow the page's language.
     document.documentElement.lang = locale;

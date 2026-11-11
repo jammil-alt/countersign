@@ -1,4 +1,9 @@
-import type { SessionResponse } from "@countersign/core";
+import {
+  browserLocale,
+  DEFAULT_LOCALE,
+  type Locale,
+  type SessionResponse,
+} from "@countersign/core";
 import {
   createContext,
   type ReactNode,
@@ -11,8 +16,11 @@ import {
 import { isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApiClient, useApiStore } from "../api/useApi";
+import { loadCatalog } from "../i18n/catalog";
+import { browserLanguages } from "../i18n/i18n";
 import { identifyForErrors } from "../observability";
 import { idleTooLong, watchInput } from "./activity";
+import { prefetchFrame, takeEarlySession } from "./early";
 
 // DECISION: the app checks for idleness every 30 seconds; the API refuses an idle session anyway,
 // this only signs the browser out cleanly instead of failing its next call.
@@ -45,6 +53,17 @@ function shareScope(scope: string | null): void {
   }
 }
 
+/**
+ * The language a state reads in: the session's; signed out (or failed), the browser's; English
+ * while the session is not known yet, so nothing is downloaded for a language that may not be the
+ * session's (the still frame has one word, for screen readers).
+ */
+export function stateLocale(state: SessionState): Locale {
+  if (state.status === "signed_in") return state.session.language.effective;
+  if (state.status === "loading") return DEFAULT_LOCALE;
+  return browserLocale(browserLanguages()) ?? DEFAULT_LOCALE;
+}
+
 export type SessionState =
   | { status: "loading" }
   | { status: "signed_out" }
@@ -67,8 +86,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async (): Promise<SessionState> => {
     let next: SessionState;
+    // The first load asked before React mounted (main.tsx); every later refresh asks here.
+    const early = takeEarlySession();
     try {
-      next = { status: "signed_in", session: await client.call(apiRoutes.session) };
+      next = { status: "signed_in", session: await (early ?? client.call(apiRoutes.session)) };
     } catch (error) {
       next =
         isApiError(error) && error.unauthenticated
@@ -78,6 +99,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
               error,
             };
     }
+    // On the first load, the frame's calls start once the session has answered (never beside it:
+    // early.ts), while the language loads and React renders (docs/audit-plan.md 4.3). The store's
+    // scope is not set yet; its first setting keeps what is already there.
+    if (early && next.status === "signed_in") prefetchFrame(store, next.session);
+    // Nothing shows until its language is here, so no screen reads in a language still loading
+    // (docs/audit-plan.md 4.1). English is in the bundle; a language that fails to load reads in
+    // English this time and is asked for again on the next refresh.
+    await loadCatalog(stateLocale(next));
     // Stored answers belong to one user and one active client: anything else empties the store
     // before a screen can read it (docs/audit-plan.md 1.2). Signed out, the store stays closed
     // until the signed-in screens have gone (the effect below opens it).
