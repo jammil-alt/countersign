@@ -20,6 +20,7 @@ import {
   type Trigger,
   type TriggerOn,
   type TypingContext,
+  toolUsesModel,
   triggerOnSchema,
   writesToClientTool,
 } from "@countersign/core";
@@ -276,7 +277,15 @@ function StepInspector(props: InspectorProps & { step: Step }) {
           )
         : writeLabelOf(props.data, step.tool as string)
       : PROCESS_KIND_LABEL[step.kind];
-  const kind = step.kind === "skill" ? catalogSkillKind(props.data, step.skill) : undefined;
+  // Review: a read or a write on a tool that calls a model inside reads AI too.
+  const kind =
+    step.kind === "skill"
+      ? catalogSkillKind(props.data, step.skill)
+      : (step.kind === "read" || step.kind === "write") &&
+          step.tool !== undefined &&
+          toolUsesModel(ctx.tools?.[step.tool])
+        ? ("ai" as const)
+        : undefined;
   const skill = step.kind === "skill" ? lookupSkill(step.skill, ctx) : undefined;
   const intro =
     step.kind === "write"

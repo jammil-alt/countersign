@@ -564,7 +564,12 @@ function Timeline({
     // Skill model (2026-11-10): a write by where it writes, a skill step with its kind.
     const facts = r.check ? undefined : stepFactsOf(data, r, s?.nodeId);
     const kindText = facts?.write?.text ?? r.kind;
-    const skillKind = facts?.skillKind ? SKILL_KIND_LABEL[facts.skillKind] : null;
+    // Review: a read or a write on a tool that calls a model inside reads AI too.
+    const skillKind = facts?.skillKind
+      ? SKILL_KIND_LABEL[facts.skillKind]
+      : facts?.usesModel
+        ? SKILL_KIND_LABEL.ai
+        : null;
     const decisions = s ? oversight.filter((d) => d.stepRunId === s.id) : [];
     // Wave 6: the owner's check on each attempt at this step (v4 read, skill and write steps).
     const ownerChecks = s ? (data.ownerChecks ?? []).filter((c) => c.nodeId === s.nodeId) : [];

@@ -132,6 +132,11 @@ export interface StepLabels {
   /** Skill model (2026-11-10): a skill's kind by its reference; undefined when unknown. */
   skillKind?(ref: string): SkillKind | undefined;
   /**
+   * Skill model (2026-11-10, review): whether a tool calls a model inside it (`usesModel`), so a
+   * read or a write step on it reads AI; undefined when unknown.
+   */
+  toolUsesModel?(toolId: string): boolean | undefined;
+  /**
    * Skill model (2026-11-10): how a write step reads, by its tool ("Save to records", "Change in
    * QuickBooks Online"); undefined when unknown (the step then reads "Write").
    */
@@ -175,8 +180,14 @@ export function actionKindLabel(action: processes.WriteAction, viaName?: string 
   return `Change in ${viaName ?? ACTION_SYSTEM_WORD[action]}`;
 }
 
-/** "Deterministic" or "AI" for a skill step whose skill the labels know; null otherwise. */
+/**
+ * "Deterministic" or "AI" for a skill step whose skill the labels know; "AI" for a read or a
+ * write step whose tool calls a model inside (the hidden AI is never unlabelled); null otherwise.
+ */
 export function stepSkillKindLabel(step: processes.Step, labels: StepLabels = {}): string | null {
+  if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
+    return labels.toolUsesModel?.(step.tool) ? SKILL_KIND_LABEL.ai : null;
+  }
   if (step.kind !== "skill") return null;
   const kind = labels.skillKind?.(step.skill);
   return kind ? SKILL_KIND_LABEL[kind] : null;

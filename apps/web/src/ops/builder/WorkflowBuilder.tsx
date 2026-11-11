@@ -27,6 +27,7 @@ import {
   type TriggerOn,
   type TypingContext,
   toolLookup,
+  toolUsesModel,
   uuidv7,
 } from "@countersign/core";
 import {
@@ -507,6 +508,11 @@ function BuilderBody(
       },
       // Skill model (2026-11-10): each skill step's kind, each write by where it writes.
       skillKind: (ref) => catalogSkillKind(data, ref),
+      // Review: a read or a write on a tool that calls a model inside reads AI.
+      toolUsesModel: (toolId) => {
+        const tool = ctx.tools?.[toolId];
+        return tool ? toolUsesModel(tool) : undefined;
+      },
       writeLabel: (toolId) => writeLabelOf(data, toolId),
       stepModel: (step) => {
         if (step.kind !== "skill") return undefined;

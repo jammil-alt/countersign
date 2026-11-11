@@ -5,10 +5,12 @@
 import {
   type BuilderCatalog,
   type ProcessAgentBundle,
+  type processes,
   type SkillDefinition,
   uuidv7,
 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
+import { stepSkillKindLabel } from "../workflow/describe";
 import {
   type BuilderData,
   catalogSkillKind,
@@ -150,5 +152,14 @@ describe("the palette under the skill model", () => {
     expect(saved.checks?.approval).toBeUndefined();
     const changed = createStep(change as PaletteItem, ctx, uuidv7);
     expect(changed.checks?.approval?.required).toBe("required");
+  });
+
+  it("labels a read or a write on a tool that calls a model AI (review)", () => {
+    const labels = { toolUsesModel: (id: string) => id === "web.search" };
+    const read = { id: "r", name: "Search", kind: "read", tool: "web.search", input: {} };
+    const plain = { ...read, tool: "alerts.list" };
+    expect(stepSkillKindLabel(read as processes.Step, labels)).toBe("AI");
+    expect(stepSkillKindLabel(plain as processes.Step, labels)).toBeNull();
+    expect(stepSkillKindLabel(read as processes.Step)).toBeNull();
   });
 });

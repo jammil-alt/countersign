@@ -79,9 +79,20 @@ const CATALOG: BuilderCatalog = {
       verb: "create",
       source: "platform",
     },
+    // Review: a tool that calls a model inside (hidden AI), offered as a read labelled AI.
+    {
+      id: "web.search",
+      description: "Searches the web",
+      input: io({ query: { type: "string" } }),
+      output: io({ results: { type: "array" } }),
+      sideEffect: "none",
+      verb: "read",
+      source: "platform",
+      usesModel: "searches through the model vendor's server-side search tool",
+    },
   ],
   connectors: [],
-  stepTools: ["alerts.raise"],
+  stepTools: ["alerts.raise", "web.search"],
   automations: [],
 };
 
@@ -403,5 +414,19 @@ describe("the builder under the skill model", () => {
     const added = savedProcess(sent).steps.at(-1);
     expect(added).toMatchObject({ kind: "write", tool: "alerts.raise" });
     expect(added?.checks?.approval?.required).toBe("required");
+  });
+
+  it("labels a read on a tool that calls a model AI, in the palette, the inspector and the step", async () => {
+    const { user } = setup();
+    await screen.findByTestId("builder-canvas");
+    await user.click(screen.getByTestId("builder-add-step"));
+    expect(screen.getByTestId("builder-palette-item-read:web.search-kind")).toHaveTextContent(
+      "Read · AI",
+    );
+    expect(screen.getByTestId("builder-palette-item-write:alerts.raise")).not.toHaveTextContent(
+      "AI",
+    );
+    await user.click(screen.getByTestId("builder-palette-item-read:web.search-add"));
+    expect(screen.getByTestId("builder-inspector")).toHaveTextContent("· AI");
   });
 });

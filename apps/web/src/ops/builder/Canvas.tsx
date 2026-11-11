@@ -9,7 +9,7 @@
 // within its list, into and out of if paths and for-each blocks, with the pointer or the keyboard
 // (Space, arrows, Space).
 
-import { SKILL_KIND_LABEL } from "@countersign/core";
+import { SKILL_KIND_LABEL, toolUsesModel } from "@countersign/core";
 import {
   type CollisionDetection,
   closestCenter,
@@ -768,9 +768,14 @@ function PaletteCard({
     data,
   });
   const own = item.type === "skill" && item.own;
-  // Skill model (2026-11-10): a skill says its kind, Deterministic or AI.
+  // Skill model (2026-11-10): a skill says its kind, Deterministic or AI; a read or a write whose
+  // tool calls a model inside (web search, translate) says AI too, never passing as plain code.
   const kind =
-    item.type === "skill" && item.kind ? SKILL_KIND_LABEL[item.kind] : ITEM_KIND[item.type];
+    item.type === "skill" && item.kind
+      ? SKILL_KIND_LABEL[item.kind]
+      : (item.type === "read" || item.type === "write") && toolUsesModel(item.tool)
+        ? `${ITEM_KIND[item.type]} · ${SKILL_KIND_LABEL.ai}`
+        : ITEM_KIND[item.type];
   return (
     <li
       ref={setNodeRef}
