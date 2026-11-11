@@ -1,6 +1,7 @@
-// The demo seed (SEED_DEMO=1): Harbor Millwork with weeks of runs; running it twice changes
-// nothing, it leaves the Demo client and the Sandbox as they were, its rows are its own under RLS,
-// and its versions, changes and findings keep the platform's invariants.
+// The demo seed (SEED_DEMO=1): Harbor Millwork and Fox River Cabinetry with weeks of runs each;
+// running it twice changes nothing, it leaves the Demo client and the Sandbox as they were, each
+// client's rows are its own under RLS, and its versions, changes and findings keep the platform's
+// invariants.
 
 import {
   type AgentBundle,
@@ -23,7 +24,7 @@ import {
   TENANT_TABLES,
 } from "./schema";
 import { type SeedResult, seed } from "./seed";
-import { HARBOR, HARBOR_PEOPLE, seedDemo } from "./seed-demo";
+import { FOX_RIVER_PROFILE, HARBOR, HARBOR_PEOPLE, seedDemo } from "./seed-demo";
 import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
 const online = await databaseAvailable();
@@ -77,6 +78,49 @@ describe.skipIf(!online)("demo seed", () => {
     expect(first.counts.documents).toBe(34);
     expect(afterFirst[`run:${first.tenantId}`]).toBe(first.counts.runs);
     expect(afterFirst[`usage_daily:${first.tenantId}`]).toBeGreaterThan(30);
+  });
+
+  it("adds Fox River Cabinetry as a second client of its own, leaving Harbor Millwork as it was", async () => {
+    const harbor = await seedDemo(t.db, { operatorId: base.users.operator });
+    const before = await counts();
+    const fox = await seedDemo(t.db, {
+      operatorId: base.users.operator,
+      profile: FOX_RIVER_PROFILE,
+    });
+    const after = await counts();
+    expect(fox.tenantId).not.toBe(harbor.tenantId);
+    // Every row it adds is its own; nothing of Harbor Millwork or the others changed.
+    for (const [key, n] of Object.entries(before)) expect(after[key], key).toBe(n);
+    for (const key of Object.keys(after)) {
+      if (!(key in before)) expect(key.endsWith(`:${fox.tenantId}`), key).toBe(true);
+    }
+    // The same weeks of work: four agents and as many runs and documents, its own people.
+    expect(Object.keys(fox.agents).sort()).toEqual(Object.keys(harbor.agents).sort());
+    // About as many runs: its times are later, so a daily check can fall either side of "now".
+    expect(Math.abs(fox.counts.runs - harbor.counts.runs)).toBeLessThanOrEqual(2);
+    expect(fox.counts.documents).toBe(34);
+    expect(after[`run:${fox.tenantId}`]).toBe(fox.counts.runs);
+    const users = await t.db.$client<{ email: string; role: string }[]>`
+      select u.email, m.role from membership m join app_user u on u.id = m.user_id
+      where m.tenant_id = ${fox.tenantId} order by u.email`;
+    expect(users).toEqual([
+      { email: FOX_RIVER_PROFILE.people.admin.email, role: "client_admin" },
+      { email: "operator@example.com", role: "operator" },
+      { email: FOX_RIVER_PROFILE.people.user.email, role: "client_user" },
+    ]);
+    const [client] = await t.db.$client<{ name: string }[]>`
+      select name from tenant where id = ${fox.tenantId}`;
+    expect(client?.name).toBe("Fox River Cabinetry");
+    // Its invoices are its own numbers, not Harbor Millwork's.
+    const numbers = await t.db.$client<{ n: string }[]>`
+      select distinct d.tenant_id::text as n from document d
+      where d.filename = 'Northline_Invoice_20398.pdf'`;
+    expect(numbers.map((r) => r.n)).toEqual([harbor.tenantId]);
+    // Twice is the same as once.
+    expect(
+      await seedDemo(t.db, { operatorId: base.users.operator, profile: FOX_RIVER_PROFILE }),
+    ).toEqual(fox);
+    expect(await counts()).toEqual(after);
   });
 
   it("gives the client its people, its lead and four live client agents", async () => {
