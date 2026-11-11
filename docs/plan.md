@@ -4240,6 +4240,16 @@ website logins in their own Worker, §1.93 memberships in the cookie).
 the feedback screenshot, client exports, webhook setup, the vault (`portalAccess`) and second
 factor (`portalReleaseRequest`, `opsRelease`, `opsAgentGrants`).
 
+**1.3, skeletons in place of Loading** (`apps/web/src/ui/skeleton.tsx`, #256):
+
+1. A data load's label is read by screen readers, not shown; `Loading progress` shows its words for
+   work the person started (saving, connecting), so a write is never only a grey shape (rule 7).
+2. `Loaded`'s default skeleton is a page body (a heading line and two cards); screens pass their own.
+3. Skeleton shapes use `--line` (the border token): `--surface-subtle` nearly vanished on a dark card.
+4. A block `Loading` is 640px wide at most and takes its parent's width (a shrink-to-fit parent
+   left it 0 wide).
+5. One fade for every skeleton, the sidebar's included: opacity only, 1.6 s, none under reduced motion.
+
 **Running the run.** Worker sessions cannot force-push, so a worker brings its branch up to date by
 merging `speed/run` into it, and the lead merges each PR with a merge commit (never a squash). The
 tree merged is the one the gates ran on. `pnpm typecheck` runs out of memory in a 15 GB cloud

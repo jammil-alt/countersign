@@ -159,7 +159,7 @@ about 2.2 MB, pdf-lib 0.8 MB.
 
 ### Results
 
-**Status (lead), 2026-11-11 08:30 UTC:** phase 0 and 1.2 with 1.9 merged (#251). Next: 1.3 alone, then the five screen workers. Held for the owner, ready: 5.1 (#252), phase 9 (#253), 4.7 transport (#250); in review: 4.7 logins (#254); in progress: 5.2.
+**Status (lead), 2026-11-11 10:10 UTC:** phase 0, 1.2 with 1.9 (#251) and 1.3 (#256) merged: the foundations are done. Now: the five screen workers (step 3). Held for the owner, ready: 5.1 (#252), 5.2 (#255, on #252), phase 9 (#253), 4.7 transport (#250), 4.7 logins (#254).
 
 Add a row after each phase. "To content" is the script's `settled` time with `LATENCY_MS=100`
 (appendix A): it is not a real-world time, but it shows waits in a row.
@@ -169,6 +169,10 @@ Add a row after each phase. "To content" is the script's `settled` time with `LA
 | 2026-11-11 | `d2e13ae` | baseline | 7 / 107 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 11 / 122 / 1.0 s | 526 kB |
 | 2026-11-11 | `1c30e45` | phase 0 (re-measured) | 7 / 107 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 11 / 123 / 1.0 s | 601 kB |
 | 2026-11-11 | `5ad1239` | 1.2, 1.9 (the store, #251) | 6 / 93 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 10 / 108 / 1.0 s | 602 kB |
+| 2026-11-11 | `9392ff2` | 1.3 (skeletons, #256) | 6 / 93 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 10 / 108 / 1.1 s | 603 kB |
+
+From 1.3 on, the script's `paint` (first contentful paint) is not comparable with earlier rows: a
+skeleton is shapes, not text, so the browser counts the first paint only when words arrive.
 
 With 100 ms added per request, a screen that needed one round trip past the session would settle
 in about 0.4 s. Moving inside the app at the baseline: portal agent 0.34 s (three calls in a row),
@@ -229,7 +233,7 @@ within a tenth of a second.
   **Done (#251):** rows show at once on the way back (1 call, the frame's); `catalog/events` once.
   Decisions in `docs/plan.md` §1.91.
 
-- [ ] **1.3 Skeletons in place of "Loading".**
+- [x] **1.3 Skeletons in place of "Loading".**
   Check: `Loaded` (`apps/web/src/ui/page.tsx`) shows the `Loading` text; the loading, error, data
   triple is written by hand in 60 or more places.
   Do: `Skeleton` parts built from the design system's tokens (a line, a card, table rows, a stat):
@@ -238,6 +242,8 @@ within a tenth of a second.
   content. Move the hand-written triples to `Loaded` as each screen is touched.
   Done when: no screen shows the loading text after the frame is up, and content arriving does
   not move what is already on screen.
+  **Done (#256):** loading text seen on 0 of 60 screen loads at `LATENCY_MS=300` (58 before); the
+  boot screens draw a skeleton. Each screen's own shape comes with its screen worker (step 3).
 
 - [ ] **1.4 The frame does not wait for the page.**
   Check: `ClientFrame` (`apps/web/src/ops/client/ClientFrame.tsx`) sits inside each client
