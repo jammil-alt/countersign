@@ -4395,6 +4395,22 @@ session requests skip reading them. It delays a removed member's loss of access 
 | Measured | Local, demo seed, on top of §1.90: `GET /api/feedback/status` with a fresh cookie went from 6 statements to 4 (the account statement and the sign-in `set_config` are gone; one `begin` either way), `GET /api/ops/counts` from 15 to 13. Every back-office and portal screen's statements went down (by 2 to 40) and no screen's API calls changed. |
 | Checked | `apps/api/src/session-account.test.ts` (the window, a removed member, another user's cookie, tampering, an own change and a client created through the app, sign-out and sign-in, the size fallback), `packages/auth/src/workos/workos.test.ts` (carry, rotation, idle lock, sign-out, tampering, another user, size, and parallel requests across a refresh against a WorkOS that refuses spent tokens: no spent token is written back), `packages/auth/src/account.test.ts`. |
 
+### 1.94 Test runs: stand-in output for writes (owner's list #12, 2026-11-11)
+
+A test run never writes, so a write step gave later steps no output: an attach step that needs the
+new bill's id failed its input, the run failed, and Start trial waited for a passing test run that
+could never come.
+
+| Topic | Decision |
+|---|---|
+| Stand-in | A write tool may declare `testOutput(input)` (`defineWriteTool`): a pure function, in the tool's own output shape, that reads and calls nothing. `standInOutput` (connectors) validates its input and output with the tool's schemas. // DECISION |
+| Runtime | In a test run a write still settles as `would_have_done`, recorded as proposed and never executed; with a stand-in it carries it (`standIn`). A write step's output is then the stand-in's fields over `{ wouldHaveDone, actionId, before }`, with `standIn: true`, so `{{steps.x.output.id}}` reads it; the tool call's logged output says `standIn: true`. A tool without one behaves as before. An agent-mode skill's model is not told the stand-in (its replayed requests stay the same). |
+| Timeline | "Would create the bill (test run, not written; stand-in values)", in each language. |
+| QuickBooks | Every create whose output names a new record: bill, vendor, purchase order, purchase, deposit, transfer, account, class, location. Ids and versions are "0" (`QBO_STAND_IN`): digits, so `QboId` takes them, and never a record QuickBooks made (it numbers from 1). Other fields echo the input (number, total, line count, name). `qbo.attachable.upload` has none: nothing reads on from an attachment. // DECISION |
+| Passing | Unchanged: a test run whose writes were all would-have-done ends `succeeded`, which is what Start trial reads (`activationProblems`). |
+| Not covered | A later step that reads the provider again (look up the vendor just made) still finds nothing, and a later write's own checks still read QuickBooks: a bill for the stand-in vendor "0" is refused as not the company's. Such a flow passes a test run only if it uses the create's output and the next write doesn't check that record. |
+| Checked | `apps/api/src/actions.test.ts` (a test run of create bill then attach with the bill's id: succeeded, both writes proposed, no POST to QuickBooks, the stand-in marked; the attach, with no stand-in, as before), `packages/connectors/src/qbo/qbo.test.ts` (each create declares one, valid and calling nothing), `packages/agents/src/log/runtime.test.ts` (no stand-in without one). |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

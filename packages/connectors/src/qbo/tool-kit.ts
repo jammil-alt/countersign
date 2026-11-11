@@ -354,6 +354,13 @@ export const QBO_TOOLS = {
   purchaseOrderQuery: "qbo.purchaseorder.query",
 } as const;
 
+/**
+ * What a test run's later steps get for a record a create would have made (docs/plan.md §1.94):
+ * id and version "0", which pass `QboId` and are plainly not real.
+ */
+// DECISION: "0" for every stand-in id; QuickBooks numbers its own records from 1.
+export const QBO_STAND_IN = { id: "0", syncToken: "0", alreadyDone: false } as const;
+
 /** A write refused because it would change the transaction's total (or its tax). */
 export class QboTotalWouldChangeError extends QboApiError {
   constructor(message: string) {

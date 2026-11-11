@@ -15,6 +15,7 @@ import {
   IsoDate,
   lineRefsProblem,
   NewLine,
+  QBO_STAND_IN,
   QBO_TOOLS,
   QboTotalWouldChangeError,
   RefNames,
@@ -142,6 +143,12 @@ export function billCreateTool(clientFor: ClientFor): ToolDefinition {
       total: DecimalString,
       lineCount: z.number().int(),
       alreadyDone: z.boolean(),
+    }),
+    testOutput: (input) => ({
+      ...QBO_STAND_IN,
+      docNumber: input.docNumber,
+      total: input.expectedTotal,
+      lineCount: input.lines.length,
     }),
     // DECISION: a new bill has no prior state; `before` keeps what the approval card names it by
     // (the vendor as QuickBooks has it, the names of the lines' items and accounts).

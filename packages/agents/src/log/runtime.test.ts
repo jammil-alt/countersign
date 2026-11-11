@@ -410,6 +410,8 @@ describe.skipIf(!harness)("runtime", () => {
     const out = await callTool(h.deps(), s, update("1.23"));
     expect(out.status).toBe("would_have_done");
     if (out.status !== "would_have_done") return;
+    // §1.94: a tool with no stand-in hands later steps nothing, as before.
+    expect(out).not.toHaveProperty("standIn");
     const [action] = await h.client(h.A, (tx) =>
       tx.select().from(externalAction).where(eq(externalAction.id, out.actionId)),
     );

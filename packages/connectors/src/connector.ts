@@ -226,6 +226,11 @@ export interface WriteToolHandler {
    * state field by field (agents' `restoreInput`), and a reverse is refused.
    */
   undoInput?: UndoInputHook;
+  /**
+   * A test run's stand-in for what the write would return (`standInOutput`), so later steps can
+   * use it; never written. Absent: a test run's later steps get no output from this write.
+   */
+  testOutput?(input: unknown): unknown;
 }
 
 export type ToolHandler = ReadToolHandler | WriteToolHandler;
@@ -371,8 +376,14 @@ export function defineWriteTool<
     output: z.output<O>;
     current: z.output<B> | null;
   }): unknown;
+  /**
+   * What the write would return, for a test run's later steps (docs/plan.md §1.94): the tool's
+   * own output shape with obviously fake ids. Pure: it reads nothing and calls nothing.
+   */
+  testOutput?(input: z.output<I>): z.input<O>;
 }): ToolDefinition {
   const undoInput = def.undoInput;
+  const testOutput = def.testOutput;
   const beforeSchema = def.beforeSchema.nullable();
   return {
     spec: {
@@ -399,6 +410,7 @@ export function defineWriteTool<
       beforeSchema,
       before: (input, ctx) => def.before(input as z.output<I>, ctx),
       run: (input, ctx, before) => def.run(input as z.output<I>, ctx, before as z.output<B> | null),
+      ...(testOutput ? { testOutput: (input: unknown) => testOutput(input as z.output<I>) } : {}),
       ...(undoInput
         ? {
             undoInput: (args: UndoInputArgs) => {
