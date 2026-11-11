@@ -1,63 +1,81 @@
-// The Browser Run opener's launch options (docs/plan.md §1.86): a held session's browser stays
-// open as long as its run may wait between calls, within Browser Run's documented range; one
-// tool call's keeps Browser Run's default. `@cloudflare/playwright` is stood in for: it needs the
-// Worker.
+// The opener apps/api uses (docs/plan.md §1.26 "Browser driver"): the browser service behind the
+// `BROWSER` service binding, stood in for here. Without the binding there is no browser; with it,
+// a site's hosts and a held session's keep-alive are passed on as asked, and the tab answers
+// through the service (the launch options themselves are apps/browser's driver.test.ts).
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { BrowserOpenInput, BrowserService, BrowserTabService } from "@countersign/connectors";
+import { describe, expect, it } from "vitest";
+import { browserRunOpener } from "./driver";
 
-const launched: Record<string, unknown>[] = [];
-const contexts: Record<string, unknown>[] = [];
-const page = { isClosed: () => false, context: () => ({ cookies: async () => [] }) };
+function service(opened: "tab" | "no_browser" | "invalid" = "tab") {
+  const asked: BrowserOpenInput[] = [];
+  const calls: string[] = [];
+  let at = "about:blank";
+  const tab = {
+    goto: async (url: string) => {
+      calls.push(`goto ${url}`);
+      at = url;
+      return { url: at, value: null };
+    },
+    has: async () => ({ url: at, value: true }),
+    alive: async () => true,
+    close: async () => {
+      calls.push("close");
+    },
+  } as unknown as BrowserTabService;
+  const binding: BrowserService = {
+    open: async (input) => {
+      asked.push(input);
+      return opened === "tab"
+        ? { ok: true, url: at, tab }
+        : { ok: false, error: { code: opened, message: `${opened} answer` } };
+    },
+  };
+  return { binding, asked, calls };
+}
 
-vi.mock("@cloudflare/playwright", () => ({
-  launch: async (_binding: unknown, options: Record<string, unknown>) => {
-    launched.push(options);
-    return {
-      newContext: async (options: Record<string, unknown>) => {
-        contexts.push(options);
-        return { newPage: async () => page };
-      },
-      close: async () => undefined,
-    };
-  },
-}));
-
-const { BROWSER_RUN_KEEP_ALIVE, browserRunKeepAlive, browserRunOpener } = await import("./driver");
-
-describe("Browser Run opener", () => {
-  beforeEach(() => {
-    launched.length = 0;
-    contexts.length = 0;
+describe("browserRunOpener", () => {
+  it("is absent without the BROWSER service binding (local development)", () => {
+    expect(browserRunOpener({})).toBeUndefined();
   });
 
-  it("makes a context with no downloads and no service workers (read only can't see theirs)", async () => {
-    const open = browserRunOpener({ BROWSER: {} as never });
+  it("passes the hosts and a held session's keep-alive to the service", async () => {
+    const s = service();
+    const open = browserRunOpener({ BROWSER: s.binding });
     if (!open) throw new Error("no opener");
     await open({ hosts: ["portal.supplier.test"] });
-    expect(contexts).toEqual([{ acceptDownloads: false, serviceWorkers: "block" }]);
-  });
-
-  it("keeps a held session's browser for its run's wait, within Browser Run's range", async () => {
-    const open = browserRunOpener({ BROWSER: {} as never });
-    if (!open) throw new Error("no opener");
-    const one = await open({ hosts: ["portal.supplier.test"] });
-    await open({ hosts: ["portal.supplier.test"], keepAliveMs: 5 * 60_000 });
-    await open({ hosts: ["portal.supplier.test"], keepAliveMs: 60 * 60_000 });
-    await open({ hosts: ["portal.supplier.test"], keepAliveMs: 1 });
-    expect(launched.map((o) => o.keep_alive)).toEqual([
-      BROWSER_RUN_KEEP_ALIVE.default,
-      300_000,
-      BROWSER_RUN_KEEP_ALIVE.max,
-      BROWSER_RUN_KEEP_ALIVE.min,
+    await open({ hosts: ["portal.supplier.test"], keepAliveMs: 300_000 });
+    expect(s.asked).toEqual([
+      { hosts: ["portal.supplier.test"] },
+      { hosts: ["portal.supplier.test"], keepAliveMs: 300_000 },
     ]);
-    expect(launched[0]).toMatchObject({ recording: false });
-    expect(await one?.alive?.()).toBe(true);
   });
 
-  it("clamps to Browser Run's documented 10 s to 10 min", () => {
-    expect(BROWSER_RUN_KEEP_ALIVE).toEqual({ min: 10_000, max: 600_000, default: 60_000 });
-    expect(browserRunKeepAlive(undefined)).toBe(60_000);
-    expect(browserRunKeepAlive(Number.NaN)).toBe(60_000);
-    expect(browserRunKeepAlive(299_999.6)).toBe(300_000);
+  it("drives the service's tab, tracking where it is", async () => {
+    const s = service();
+    const tab = await browserRunOpener({ BROWSER: s.binding })?.({ hosts: ["a.test"] });
+    if (!tab) throw new Error("no tab");
+    await tab.goto("https://a.test/login");
+    expect(tab.url()).toBe("https://a.test/login");
+    expect(await tab.has("#user")).toBe(true);
+    expect(await tab.alive?.()).toBe(true);
+    await tab.close();
+    expect(s.calls).toEqual(["goto https://a.test/login", "close"]);
+  });
+
+  it("answers null when the service has no browser, and fails on a refusal", async () => {
+    const none = browserRunOpener({ BROWSER: service("no_browser").binding });
+    expect(await none?.({ hosts: ["a.test"] })).toBeNull();
+    const refused = browserRunOpener({ BROWSER: service("invalid").binding });
+    await expect(refused?.({ hosts: ["a.test"] })).rejects.toThrow(/refused: invalid answer/);
+  });
+
+  it("refuses an answer outside the contract", async () => {
+    for (const answer of [null, { ok: true, url: "about:blank" }, { ok: "yes" }, { ok: false }]) {
+      const open = browserRunOpener({
+        BROWSER: { open: async () => answer } as unknown as BrowserService,
+      });
+      await expect(open?.({ hosts: ["a.test"] })).rejects.toThrow(/unexpected answer to open/);
+    }
   });
 });

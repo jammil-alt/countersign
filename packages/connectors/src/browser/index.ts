@@ -34,7 +34,7 @@ import { BrowserRefused } from "./sign-in";
 export * from "./driver";
 export * from "./fake";
 export * from "./ids";
-export * from "./playwright";
+export * from "./remote";
 export * from "./scope";
 export * from "./script";
 export * from "./services";

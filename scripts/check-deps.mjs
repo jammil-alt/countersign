@@ -7,7 +7,10 @@
 // 5. apps/mfa (the code service, its own Worker) depends on @countersign/core only, and nothing
 //    depends on it: apps/api reaches it only through a service binding (plan §1.26);
 // 6. apps/site (the public site, mezonas.com) depends on the design system's files only, has no
-//    runtime dependencies, and nothing depends on it (plan §1.29).
+//    runtime dependencies, and nothing depends on it (plan §1.29);
+// 7. apps/browser (the browser service, its own Worker) runs Playwright and nothing of the
+//    platform: its code imports connectors' and core's types only (tests may use them), and nothing
+//    depends on it: apps/api reaches it only through a service binding (plan §1.26).
 // Pass a directory to check another tree (scripts/check-deps.test.mjs does).
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
@@ -27,6 +30,8 @@ const AGENTS_DB_ALLOWED = ["packages/agents/src/registry/", "packages/agents/src
 const APP_ALLOWED = {
   "apps/mfa": new Set(["@countersign/core"]),
   "apps/site": new Set(["@countersign/design-system"]),
+  // Types (the browser service's contract) and tests only: see BROWSER_TYPES_ONLY below.
+  "apps/browser": new Set(["@countersign/connectors", "@countersign/core"]),
 };
 /**
  * Apps whose runtime dependencies are a fixed list: the code service keeps no database, storage or
@@ -37,11 +42,21 @@ const APP_RUNTIME_ALLOWED = {
   // No runtime dependencies: the site is static files, a small Worker for guides (off unless
   // SITE_GUIDES=on) and, only in a measuring build, one inlined script (docs/plan.md §1.29).
   "apps/site": new Set(),
+  // The browser service: Browser Run's Playwright and input checks, nothing else (plan §1.26).
+  "apps/browser": new Set(["@cloudflare/playwright", "zod"]),
 };
+/**
+ * Apps whose code (tests aside) may import workspace packages for their types only, so no platform
+ * code ends up in the Worker.
+ */
+const TYPES_ONLY_APPS = new Set(["apps/browser"]);
+const VALUE_IMPORT_RE =
+  /(?:^|[;\n])\s*(?:import|export)\s+(?!type\s)[^;]*?from\s*['"](@countersign\/[a-z-]+)|import\s*\(\s*['"](@countersign\/[a-z-]+)/g;
 /** Packages no other workspace package may depend on, with the reason. */
 const NO_DEPENDENTS = new Map([
   ["@countersign/mfa", "reached only by service binding"],
   ["@countersign/site", "the public site, not a library"],
+  ["@countersign/browser", "reached only by service binding"],
 ]);
 
 function* files(dir) {
@@ -95,6 +110,15 @@ for (const dir of pkgDirs) {
   for (const file of files(join(root, dir))) {
     const rel = relative(root, file);
     const src = readFileSync(file, "utf8");
+    if (
+      TYPES_ONLY_APPS.has(dir) &&
+      !/\.test\.[cm]?tsx?$/.test(file) &&
+      !/\.config\.ts$/.test(file)
+    ) {
+      for (const m of src.matchAll(VALUE_IMPORT_RE)) {
+        errors.push(`${rel}: imports ${m[1] ?? m[2]} as a value; this Worker takes its types only`);
+      }
+    }
     for (const [, spec] of src.matchAll(IMPORT_RE)) {
       if (spec === pkg.name) continue;
       if (!allowed.has(spec))

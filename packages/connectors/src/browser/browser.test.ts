@@ -9,8 +9,11 @@ import { failure, ORIGIN, PASSWORD, type S, setUp, USERNAME } from "./browser.te
 import {
   BROWSER_FILE_DOWNLOAD_TOOL,
   BROWSER_PAGE_READ_TOOL,
+  type BrowserTab,
+  type BrowserTabService,
   BrowseScope,
   HELD_SESSION_REOPENS,
+  remoteBrowserTab,
 } from "./index";
 
 /** Every value typed, with where it was typed. */
@@ -147,6 +150,112 @@ describe("browser connector: pages", () => {
     expect(await failure(s.read(`${ORIGIN}/invoices`, "other-site"))).toMatch(
       /for supplier, not other-site/,
     );
+  });
+});
+
+/**
+ * The fake tab as apps/api holds a browser-service tab (./remote.ts): `url()` is the address as of
+ * the last call, while the page's own address is `live`. A page that moves by itself (`moveTo`)
+ * changes `live` only, as a real one does between calls; the service's `fill` holds the typing to
+ * the origins it is given, on the live address (apps/browser's serveTab).
+ */
+function asRemote(inner: BrowserTab) {
+  let movedTo: string | null = null;
+  const live = () => movedTo ?? inner.url();
+  const on = async <T>(value: Promise<T>) => ({ value: await value, url: live() });
+  const unset = async (p: Promise<void>) => {
+    await p;
+    return { url: live(), value: null };
+  };
+  const service: BrowserTabService = {
+    goto: (u) => unset(inner.goto(u)),
+    where: async () => ({ url: live(), value: null }),
+    fill: async (sel, value, onlyOn) => {
+      if (onlyOn && !onlyOn.some((o) => live().startsWith(`${o}/`) || live() === o)) {
+        throw new Error("the page is not on an allowed origin; nothing was typed");
+      }
+      return unset(inner.fill(sel, value));
+    },
+    click: (sel) => unset(inner.click(sel)),
+    has: (sel) => on(inner.has(sel)),
+    readText: () => on(inner.readText()),
+    readTables: () => on(inner.readTables()),
+    textOf: (sel) => on(inner.textOf?.(sel) ?? Promise.resolve(null)),
+    controls: () => on(inner.controls?.() ?? Promise.resolve([])),
+    sendsForm: (sel) => on(inner.sendsForm?.(sel) ?? Promise.resolve(false)),
+    readOnly: (v) => unset(inner.readOnly?.(v) ?? Promise.resolve()),
+    download: (u) => on(inner.download(u)),
+    cookies: () => on(inner.cookies()),
+    setCookies: (c) => unset(inner.setCookies(c)),
+    screenshot: () => on(inner.screenshot()),
+    alive: async () => true,
+    close: () => inner.close(),
+  };
+  return {
+    tab: remoteBrowserTab(service, inner.url()),
+    moveTo(address: string) {
+      movedTo = address;
+    },
+  };
+}
+
+describe("browser connector: a remote tab whose page moves during the code wait", () => {
+  it("asks the browser where it is before typing the code, types nothing, and stops", async () => {
+    const s = setUp();
+    await s.identify();
+    let remote: ReturnType<typeof asRemote> | null = null;
+    const open = s.driver.open.bind(s.driver);
+    s.driver.open = async () => {
+      remote = asRemote(await open());
+      return remote.tab;
+    };
+    // The page navigates by itself while sign-in waits for the code: no call reaches the tab
+    // between the claim and the typing, so apps/api's copy of the address is from before it.
+    const claim = s.codes.claim.bind(s.codes);
+    s.codes.claim = async (input) => {
+      const r = await claim(input);
+      if (r.ok && r.value.status === "code") remote?.moveTo("https://login.evil.test/verify");
+      return r;
+    };
+    expect(await failure(s.read(`${ORIGIN}/invoices`))).toMatch(
+      /BrowserStop: .*login\.evil\.test.*nothing was typed/,
+    );
+    const values = typed(s).map((t) => t.value);
+    expect(values).toContain(USERNAME);
+    expect(values).toHaveLength(2);
+    expect(s.stops).toHaveLength(1);
+  });
+
+  it("the tab refuses the typing itself when the page moves after the check", async () => {
+    const s = setUp();
+    await s.identify();
+    let remote: ReturnType<typeof asRemote> | null = null;
+    const open = s.driver.open.bind(s.driver);
+    s.driver.open = async () => {
+      const r = asRemote(await open());
+      remote = r;
+      // Live address answered right before the code's fill, then the page moves: only the tab's
+      // own check on the fill stands between the code and the other origin.
+      const where = r.tab.where?.bind(r.tab);
+      let asks = 0;
+      r.tab.where = async () => {
+        const at = (await where?.()) ?? r.tab.url();
+        if (codeClaimed && ++asks === 1) remote?.moveTo("https://login.evil.test/verify");
+        return at;
+      };
+      return r.tab;
+    };
+    let codeClaimed = false;
+    const claim = s.codes.claim.bind(s.codes);
+    s.codes.claim = async (input) => {
+      const r = await claim(input);
+      if (r.ok && r.value.status === "code") codeClaimed = true;
+      return r;
+    };
+    expect(await failure(s.read(`${ORIGIN}/invoices`))).toMatch(
+      /BrowserStop: .*login\.evil\.test.*nothing was typed/,
+    );
+    expect(typed(s)).toHaveLength(2);
   });
 });
 

@@ -1,0 +1,42 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  // The browser service (docs/plan.md §1.26 "Browser driver"). A Worker of its own with the
+  // Browser Run binding (`BROWSER`) and Playwright, so apps/api carries neither. It has no
+  // Hyperdrive, no R2, no secrets and none of apps/api's keys. apps/api reaches its RPC only
+  // through its `BROWSER` service binding (entrypoint `Browsers`); it has no public route at all.
+  //
+  // Top level = local development only (`wrangler dev`, the Workers tests): no Browser Run, so
+  // browser tools are off locally. deploy.yml always passes --env=staging or --env=production.
+  "name": "mezonas-browser-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  // Nothing public: no workers.dev, no preview URLs, no routes.
+  "workers_dev": false,
+  "preview_urls": false,
+  // apps/api's wrangler dev is on 8787, the code service's on 8788.
+  "dev": { "port": 8789 },
+  "vars": { "ENVIRONMENT": "development" },
+
+  // Each environment repeats every binding: wrangler does not inherit bindings into an environment.
+  // Browser Run must be on for the account before the first deploy (docs/operations.md, "Browser
+  // logins").
+  "env": {
+    "staging": {
+      "name": "mezonas-browser-staging",
+      "workers_dev": false,
+      "preview_urls": false,
+      // Browser Run: one browser per website-login tool call (or held session).
+      "browser": { "binding": "BROWSER" },
+      "vars": { "ENVIRONMENT": "staging" }
+    },
+    "production": {
+      "name": "mezonas-browser",
+      "workers_dev": false,
+      "preview_urls": false,
+      "browser": { "binding": "BROWSER" },
+      "vars": { "ENVIRONMENT": "production" }
+    }
+  }
+}

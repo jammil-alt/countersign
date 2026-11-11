@@ -131,3 +131,66 @@ test("nothing may depend on apps/site", () => {
   assert.equal(r.ok, false);
   assert.match(r.out, /the public site, not a library/);
 });
+
+const connectors = { "packages/connectors/package.json": { name: "@countersign/connectors" } };
+const browserApp = (src, extra = {}) => ({
+  "apps/browser/package.json": {
+    name: "@countersign/browser",
+    dependencies: { "@cloudflare/playwright": "1.3.6", zod: "^4" },
+    devDependencies: {
+      "@countersign/connectors": "workspace:*",
+      "@countersign/core": "workspace:*",
+    },
+    ...extra,
+  },
+  "apps/browser/src/service.ts": src,
+});
+
+test("apps/browser may take connectors' types", () => {
+  const r = check({
+    ...core,
+    ...connectors,
+    ...browserApp('import type { BrowserTab } from "@countersign/connectors";\n'),
+    "apps/browser/src/chromium.test.ts": 'import { signIn } from "@countersign/connectors";\n',
+  });
+  assert.equal(r.ok, true, r.out);
+});
+
+test("apps/browser's code may not import the platform as values", () => {
+  const r = check({
+    ...core,
+    ...connectors,
+    ...browserApp('import { remoteBrowserTab } from "@countersign/connectors";\n'),
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.out, /imports @countersign\/connectors as a value/);
+});
+
+test("apps/browser may not take a database client or another workspace package", () => {
+  const r = check({
+    ...core,
+    ...connectors,
+    ...db,
+    ...browserApp('import type { BrowserTab } from "@countersign/connectors";\n', {
+      dependencies: { "@cloudflare/playwright": "1.3.6", postgres: "^3" },
+      devDependencies: { "@countersign/db": "workspace:*" },
+    }),
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.out, /postgres is not an allowed runtime dependency/);
+  assert.match(r.out, /apps\/browser\/package.json: may depend only on/);
+});
+
+test("nothing may depend on apps/browser", () => {
+  const r = check({
+    ...core,
+    ...connectors,
+    ...browserApp('import type { BrowserTab } from "@countersign/connectors";\n'),
+    "apps/api/package.json": {
+      name: "@countersign/api",
+      dependencies: { "@countersign/browser": "workspace:*" },
+    },
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.out, /depends on @countersign\/browser, which is reached only by service binding/);
+});
