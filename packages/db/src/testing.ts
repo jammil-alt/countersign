@@ -1,6 +1,12 @@
 // Throwaway databases for tests (CLAUDE.md "Testing"): one per test file, migrated, with Neon's
 // roles, dropped at the end. Node only; not exported from the Worker-safe index.
 //
+// Migrated databases are copies of a template (`CREATE DATABASE … TEMPLATE`): every migration is
+// applied once, into `cs_template_<hash>`, and each test file gets its own copy of that. The hash
+// covers the migrations and this setup, so a changed migration builds a new template; nothing a
+// test does reaches the template (it takes no connections). Databases made with `migrate: false`
+// are built from nothing, as before.
+//
 // Roles are made the way scripts/setup-postgres.sh makes them (neon_superuser as an empty
 // stand-in, cs_owner with CREATEROLE and BYPASSRLS, cs_runtime by the first migration, cs_worker by
 // scripts/provision-worker-role.mjs), so what the tests prove holds on Neon too. Migrations run as
@@ -11,10 +17,18 @@
 // COUNTERSIGN_REQUIRE_DB=1 (CI), where they fail.
 
 import { execFile } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { sql } from "drizzle-orm";
@@ -155,6 +169,103 @@ function migrationsUpTo(tag: string): string {
   return dir;
 }
 
+/**
+ * Bumped when the template's set-up changes in a way the hashed files don't show (extensions, roles,
+ * the order of steps), so an old template is not reused.
+ */
+const TEMPLATE_SETUP = 1;
+
+/** What the template is built from: every migration file, the role script and the set-up version. */
+function templateHash(): string {
+  const hash = createHash("sha256").update(`setup ${TEMPLATE_SETUP}\n`);
+  const files = [
+    join(MIGRATIONS, "meta", "_journal.json"),
+    ...readdirSync(MIGRATIONS)
+      .filter((f) => f.endsWith(".sql"))
+      .sort()
+      .map((f) => join(MIGRATIONS, f)),
+    PROVISION,
+  ];
+  for (const file of files) hash.update(`${basename(file)}\n`).update(readFileSync(file));
+  return hash.digest("hex").slice(0, 16);
+}
+
+const TEMPLATE_PREFIX = "cs_template_";
+
+/** An empty database with the extensions, made the way scripts/setup-postgres.sh makes it. */
+async function createBareDatabase(admin: postgres.Sql, name: string, url: string): Promise<void> {
+  await admin.unsafe(`CREATE DATABASE ${name} OWNER cs_owner`);
+  // As scripts/setup-postgres.sh does: the superuser makes the extensions, the owner migrates.
+  const inDb = postgres(url, { max: 1, onnotice: () => {} });
+  try {
+    await inDb.unsafe(
+      "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE EXTENSION IF NOT EXISTS pgcrypto",
+    );
+  } finally {
+    await inDb.end();
+  }
+}
+
+let template: Promise<string> | undefined;
+
+/**
+ * The migrated template's name, building it first if no test process has yet. Test files run in
+ * separate processes (and packages in separate vitest runs), so the build is serialized by an
+ * advisory lock on the server, not in memory. A template is only renamed to its final name once
+ * it is complete, so a run killed halfway leaves nothing that a later run would trust.
+ */
+function migratedTemplate(admin: postgres.Sql): Promise<string> {
+  template ??= (async () => {
+    const name = `${TEMPLATE_PREFIX}${templateHash()}`;
+    const exists = async (on: postgres.Sql | postgres.TransactionSql) =>
+      (await on`select 1 from pg_database where datname = ${name}`).length > 0;
+    if (await exists(admin)) return name;
+    await admin.begin(async (tx) => {
+      // DECISION: a transaction-scoped advisory lock (docs/audit-plan.md 9.5). CREATE DATABASE
+      // can't run inside a transaction, so the build runs on its own connection while this one
+      // holds the lock; the lock goes with the transaction, even if the build throws.
+      await tx`select pg_advisory_xact_lock(hashtext('countersign:test-template'))`;
+      if (await exists(tx)) return;
+      const lockedOut = postgres(adminUrl(), { max: 1, onnotice: () => {} });
+      try {
+        await buildTemplate(lockedOut, name);
+      } finally {
+        await lockedOut.end();
+      }
+    });
+    return name;
+  })();
+  // A failed build is not cached: the next file tries again and reports its own error.
+  template.catch(() => {
+    template = undefined;
+  });
+  return template;
+}
+
+async function buildTemplate(admin: postgres.Sql, name: string): Promise<void> {
+  const building = `${name}_building`;
+  await admin.unsafe(`DROP DATABASE IF EXISTS ${building} WITH (FORCE)`);
+  const url = withDatabase(adminUrl(), building);
+  await createBareDatabase(admin, building, url);
+  await migrateAsOwner(url);
+  await ensureWorker(admin, url);
+  // Complete: give it its name, and take connections away so nothing changes it after this.
+  await admin.unsafe(`ALTER DATABASE ${building} RENAME TO ${name}`);
+  await admin.unsafe(`ALTER DATABASE ${name} WITH ALLOW_CONNECTIONS false IS_TEMPLATE true`);
+  // Older templates (earlier migrations) are dropped; one still being copied is left for later.
+  const old = await admin<{ datname: string }[]>`
+    select datname from pg_database
+    where datname like ${`${TEMPLATE_PREFIX}%`} and datname <> ${name}`;
+  for (const { datname } of old) {
+    try {
+      await admin.unsafe(`ALTER DATABASE ${datname} WITH IS_TEMPLATE false`);
+      await admin.unsafe(`DROP DATABASE ${datname}`);
+    } catch {
+      // In use by another run's CREATE DATABASE; the next build drops it.
+    }
+  }
+}
+
 export interface TestDatabase {
   name: string;
   /** Superuser connection string to this database. */
@@ -183,18 +294,12 @@ export async function createTestDatabase(
   const url = withDatabase(adminUrl(), name);
   try {
     await ensureNeonRoles(admin);
-    await admin.unsafe(`CREATE DATABASE ${name} OWNER cs_owner`);
-    // As scripts/setup-postgres.sh does: the superuser makes the extensions, the owner migrates.
-    const inDb = postgres(url, { max: 1, onnotice: () => {} });
-    try {
-      await inDb.unsafe(
-        "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE EXTENSION IF NOT EXISTS pgcrypto",
-      );
-    } finally {
-      await inDb.end();
-    }
-    if (options.migrate !== false) {
-      await migrateAsOwner(url);
+    if (options.migrate === false) {
+      await createBareDatabase(admin, name, url);
+    } else {
+      const from = await migratedTemplate(admin);
+      await admin.unsafe(`CREATE DATABASE ${name} TEMPLATE ${from} OWNER cs_owner`);
+      // The role is cluster-wide: a template from an earlier run still needs today's cs_worker.
       await ensureWorker(admin, url);
     }
   } finally {

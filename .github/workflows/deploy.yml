@@ -25,9 +25,12 @@ on:
 permissions:
   contents: read
 
+# Deploys to one target queue, never cancel: a second push that cancelled a running deploy could stop
+# it between the migration and the Worker, leaving the new schema under the old Worker for good.
+# GitHub keeps one waiting run per group, so a burst of pushes still deploys only the newest.
 concurrency:
   group: deploy-${{ github.event.inputs.target || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging') }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   checks:
@@ -122,7 +125,7 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
         if: steps.ready.outputs.ready == 'true'
 
       - uses: actions/setup-node@v7
@@ -139,10 +142,11 @@ jobs:
         run: |
           set -euo pipefail
           branch=$([ "$TARGET" = production ] && echo main || echo staging)
-          url=$(npx --yes neonctl@4 connection-string "$branch" \
+          url=$(npx --yes neonctl@4.22.0 connection-string "$branch" \
             --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
           echo "::add-mask::$url"
-          DIRECT_DATABASE_URL="$url" pnpm --filter @countersign/db run --if-present db:migrate
+          # No --if-present: a renamed script must fail the deploy, not skip the migration.
+          DIRECT_DATABASE_URL="$url" pnpm --filter @countersign/db run db:migrate
 
       # The code service (apps/mfa, ARCHITECTURE §6.9) first: apps/api's `CODES` service binding
       # points at it. Its own Worker, Durable Objects and secrets; never apps/api's.
@@ -187,7 +191,9 @@ jobs:
           VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN_WEB || secrets.SENTRY_DSN_WEB }}
           VITE_SENTRY_RELEASE: ${{ github.sha }}
           SENTRY_SOURCEMAPS: ${{ secrets.SENTRY_AUTH_TOKEN != '' && '1' || '' }}
-        run: pnpm --filter @countersign/web run --if-present build
+        # No --if-present, as for db:migrate: a renamed script must fail here, not leave the Worker
+        # to deploy without the app it serves.
+        run: pnpm --filter @countersign/web run build
 
       # Readable browser stack traces in Sentry: upload the web build's source maps for this
       # release, then delete them so they are never served. A notice or a warning, never a failure.
@@ -329,7 +335,7 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
         if: steps.ready.outputs.ready == 'true'
 
       - uses: actions/setup-node@v7
