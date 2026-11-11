@@ -203,6 +203,9 @@ describe("R2: the skills the latest seeds and templates name", () => {
       "materials.check-matches",
       "materials.compare-prices",
       "materials.lookup-existing",
+      // §1.88
+      "materials.match-sku-vendor",
+      "materials.match-vendor",
     ]);
   });
 });

@@ -83,6 +83,8 @@ export interface Platform {
   catalog: SkillCatalog;
   events: EventTypeRegistry;
   // P-1: the packs it registered, with their reports, review cards and actions.
+  /** §1.88: the packs' skills replaced for new steps (id → its replacement), for the palette. */
+  superseded: Readonly<Record<string, string>>;
   packs: readonly RegisteredPack[];
   /** What publishing and validation need: tools, skills, event types. */
   ctx: RegistryContext;
@@ -189,6 +191,7 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
     catalog,
     events,
     packs,
+    superseded: Object.assign({}, ...packs.map((p) => p.manifest.superseded ?? {})),
     ctx: { tools, catalog, events: events.byType(), actionChannels },
   };
 }
