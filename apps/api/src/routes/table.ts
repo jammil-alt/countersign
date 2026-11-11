@@ -246,7 +246,7 @@ function recentSteps(tx: Tx, tenantId: string) {
 // the two weeks' counts, each service's latest run with its step and wait, the Desk, the recent
 // steps, the lead); then the KPIs, the workflows the steps are named from, and the Desk titles.
 // No count grows per agent or per KPI.
-async function buildTable(
+export async function buildTable(
   tx: Tx,
   t: TenantRow,
   viewer: { userId: string; role: Parameters<typeof portalInboxFilter>[0] },
