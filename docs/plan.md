@@ -4048,26 +4048,6 @@ steps under the skill model, as agents need them; templates are the owner's, bui
   empty fields left out; prices, quantities, dates and order or shipping terms stripped; capped at a
   few hundred words; the embedding is made again when its name, description or specs change.
 
-### 1.89 The client's MCP: the portal as a Claude connector (owner, 2026-11-10)
-
-Owner, 2026-11-10: "create an MCP for both Staging and Prod that has access to their account
-information, so that clients can connect to their account and see their information and we can
-use the same for the ops". §1.34's "client-facing MCP server, later" is built on its plumbing, on
-the same URL: `https://staging.mezonas.com/mcp` and `https://app.mezonas.com/mcp`. Code:
-`apps/api/src/mcp/client-tools.ts`, the sign-in and dispatch in `routes.ts`. (Numbered §1.86 on
-`main`, where it was written; renumbered when merged beside the process model's §1.86.)
-
-| Topic | Decision |
-|---|---|
-| One URL | One `/mcp` per environment for everyone, so there is one connector to add. Who signs in decides the tools: an operator gets §1.34's back-office tools, even where they also hold a client role (the back office already reaches the clients they serve); anyone else with a client role (`client_admin`, `client_user`) gets the client tools. A member of no client: 403. Sign-in is §1.34's (AuthKit, the same WorkOS environment as the portal); the person must have signed in to Mezonas in a browser once, and membership is read on every call, so removing someone cuts the connector off at once. // DECISION |
-| What it shows | Read only: `whoami`, `overview`, `inbox_list`, `runs_list`, `run_get`, `connections_list`, `requests_list`, `records_search`, `record_get`, `documents_list`, `document_get`, `reports_list`, `report_get`. Each runs a portal route's own handler through `invokeRoute` (its roles, so a client user sees what the portal shows them; its schemas; its response contract, which carries no agent bundle, instruction, prompt or cost: invariant 11). A back-office route (`routeFamily` `ops`) is refused in the client tools' `route()` before it runs. Approving, answering and every change stay in the portal, where a person signs (invariant 8). // DECISION |
-| One client per call | Each call narrows the session to one client (`buildSession` with the client asked for), so every read runs in `withTenant` for exactly one client, as a portal request does (invariant 1). Someone in one client never names it; someone in several passes `client` (whoami lists them) on each call, and leaving it out is the tool error `choose_client`. Nothing is remembered between calls. // DECISION |
-| Documents | `document_get` leaves out the file's 5-minute link: anyone holding it can download the file for those minutes, and a chat transcript is kept far longer. The portal opens the file. // DECISION |
-| Fence, audit, limits | As §1.34: every result in one `<untrusted-data>` block, secret-named fields replaced; one log line per call (`event: "mcp.tool_call"`, now with `audience` `ops` or `client`, and the client as `target`); each portal read is also an `audit_event` row (`mcp GET /api/…`, the client, the person and their role, §1.35); 120 calls a minute per person. The client tools' instructions say what the fence is and that the tools only read. |
-| HIPAA mode | Not refused: the client signs in and connects its own MCP client (claude.ai or another) to its own data, so that client is the client's vendor, not a processor of ours (`packages/core/src/compliance/processors.ts`). T1 (the operator's connector and HIPAA clients) is unchanged. // DECISION |
-| Metadata | The protected resource's `resource_name` is now "Mezonas (<environment>)"; the back-office server info stays `mezonas-ops`, the client's is `mezonas` / "Mezonas". No new var, secret, binding or migration: staging and production already have `WORKOS_AUTHKIT_DOMAIN`. |
-| Not built | Client writes through the connector (approve or answer an inbox item, raise a request), each two-step as §1.34's; a per-client switch to turn the connector off; a portal page that says how to connect. |
-
 **Built: the data and the engine** (branch `vendor/data`, 2026-11-11; migration 0047). Platform
 pieces only; templates are the owner's. Migration 0047 (its own commit): `vendor_item`,
 `item_alias.vendor_item_id` and `price_observation.vendor_item_id` (nullable), forced RLS, no DELETE,
@@ -4170,12 +4150,68 @@ the builder's palette and the skill editor for the vendor-first skills. Code:
 | Sweep | // DECISION: the seeded database has no client with Materials on, so the route sweep doesn't reach these screens; they were opened in Chromium in the four looks (light and dark, desktop and phone) against wrangler dev with a throwaway fixture (the pack on for the Demo client, two vendors, two master items, three vendor items) and passed the sweep's checks. |
 
 Still open after the screens:
-- The skills refactor: Semantic match (vendor) and the Master item manager shipped as shared,
-  versioned Library skills (Edit, not Clone), and Match vendor's identifiers and the shortlist size
-  as per-agent parameters. Today a clone is a separate skill an agent must be pointed at.
+- (Built below, "The review's fixes".) The skills refactor: Semantic match (vendor) and the Master
+  item manager shipped as shared, versioned Library skills (Edit, not Clone), and Match vendor's
+  identifiers and the shortlist size as per-agent parameters. Today a clone is a separate skill an
+  agent must be pointed at.
 - Whether the client may mark a preferred vendor (the portal shows it; only the operator sets it).
 - The seed: a client with Materials on and a few vendor items, so the route sweep reaches these
   screens on its own.
+
+**The review's fixes** (branch `vendor/fix3`, from `vendor/web3`, 2026-11-11; migration 0047's
+backfill made re-runnable, in a commit of its own). The owner's rules for this work (2026-11-11):
+the AI skills are editable Library skills, the deterministic ones built-in code with what may change
+as per-agent parameters, only what the feature needs, no template made or edited, nothing already
+built removed. These rules replace the "forget about the skills" deferral above (under "Finished
+and verified"), which nothing earlier in the repo recorded. Code: `packs/materials/src/vendor/skills.ts`,
+`apps/api/src/routes/packs.ts` (`installLibrarySkills`), core `PackManifest.librarySkills`.
+
+| Topic | Decision |
+|---|---|
+| The AI skills are the Library's | // DECISION: Semantic match (vendor) (`custom:semantic-match-vendor`) and the Master item manager (`custom:master-item-manager`) ship as shared Library skills: operator skills (`custom:<slug>`, tenant_id null) the pack names in its manifest (`librarySkills`, core checks each is an operator skill) and apps/api installs once, v1 by the pack and published, the first time the pack is switched on for a client (as its templates are) and by "Update templates". From then on each is the operator's: Edit in the Library (instructions, model, parameters, tests, versions, publish); the pack never re-installs over it. The same instructions, model, schemas and reads as before, backed by the pack's tools (`materials.vendor_items.list`, `materials.catalog.search`). An agent references them as it does any shared skill: publishing a client agent snapshots the live version into the client (`shared:<slug>`), and a newer version reaches the client at the agent's next publish (invariant 11). The pattern (`vendorCatalogSteps`) names them. |
+| The built-in AI skills | // DECISION: `materials.semantic-match-vendor` and `materials.master-item-manager` stay registered (nothing built is removed; a stored step that names one still runs), renamed "(built-in)" so the Library tells them from its own, and replaced for new steps by the Library skills (the pack's `superseded`, core `newStepSkillReason`): off the palette and the Builder. They never reached staging. |
+| Look up existing, Match the unmatched | // DECISION: back on the palette and in the Builder (the owner: nothing already built is removed; §1.88 doesn't ask to retire them). This replaces "New steps" above: `superseded` now names only the built-in AI skills the Library's replace. |
+| Match vendor's parameters | // DECISION: `match_on` (text, comma-separated words: document, tax id, email domain, name; default all four) is what Match vendor may match on; the order tried stays the code's (a purchase or a tax id is surer than a name), a vendor id given is always taken, and a word it doesn't know fails the step in plain words. A list has no parameter type of its own (number, text, date, amount, buckets), so it is text. `min_name_similarity` stays. |
+| The shortlist sizes | // DECISION: `vendor_shortlist_size` and `master_shortlist_size` (1 to 10, default 5) are Match by SKU (vendor)'s parameters, the step that opens the vendor-level path: its output carries them (`shortlist`), and the pattern's two reads take them as their `limit` (`materials.vendor_items.similar`, `materials.master_items.candidates`). A read step gets no agent parameters of its own, and the AI skills come after their shortlist. `decideByRules` keeps as many candidates as the shortlist (`keep`). |
+| The shortlist is filtered by code | // DECISION: what the AI skills choose from leaves out the candidates a key attribute rules out (`openLines(…, { withoutVetoed: true })`); the line keeps them for the person's card and for Check matches. Match the unmatched keeps its requests as they were (its stored steps replay). A line with every candidate ruled out goes to the model with none: it can only say new or unsure, and Check matches still holds a new item to every required attribute. |
+| The last price in the vendor's unit | // DECISION: Register item and `materials.prices.record` reach the vendor item's last price through `priceForVendorItem` (the line's unit, else per standard unit through its conversion), and leave it as it was when they can't: a SKU's item priced per board foot never takes an MBF line's figure. This completes "A price in the vendor's unit" above. |
+| A merge moves the vendor items | // DECISION: `mergeItems` moves the merged items' vendor items to the item that stays (`moveVendorItemsOnMerge`): a moved one loses `preferred` when that item already has a preferred one and forgets what it was embedded from; one without a SKU that would collide with the staying item's for the same vendor and unit is folded into it (its aliases and prices name the staying one, which takes its last price when newer) and discontinued where it was (`ext.foldedInto`; no DELETE grant). Register item also moves, without asking anyone, a vendor item left on an item merged into the line's. |
+| Vendor-neutral master items | // DECISION: a master item Register item makes keeps no pack size (`withoutPackaging`), no `ext.firstDescription`, and, where its name falls back on the line's words (category `other`), none of the SKU, pack count, prices or terms (`neutralName`). The line's pack goes on the vendor item (`pack_size`, "100 per box"). A line converts by its own words over the master item's specs, never the master item's pack size, else by the vendor item's own conversion for that unit (`convertLine`), in Register item and in `materials.prices.record`; quotes and the purchase comparison still read the master item's attributes as before (an open question below). |
+| A no-vendor document | // DECISION: the person asked which vendor sent it answers `{ vendorId }`; Match vendor takes that vendor (`vendor-named`) and the lines go on with it (steps 2 to 6 again, ids prefixed `n-`), then the path stops. Rejecting stops the run, as before. Creating a vendor is not in the pattern: the person names one we have. This replaces "None: the pattern asks a person and stops" in "Match vendor" above. |
+| The lead time's date | // DECISION: a quote's lead time is kept with its date (`ext.leadTimeOn`, no new column): an older quote never replaces a newer lead time; on the same date the later wins (`recordLeadTime`). |
+| The embedding backlog | // DECISION: the pattern's embedding step also makes up to 50 of the client's due embeddings (`missing` beside the ids, `EMBED_BACKLOG_PER_RUN`): what the backfill made, or what was embedded under older text. No cron: the cost lands on the run, as every model call's does, and HIPAA mode holds through the run's model guard. An operator may still add a step with `missing` alone. |
+| Labelled prices in the embedding text | // DECISION: a labelled price is a whole figure (never a fraction's numerator: "TOTAL 5/8 EDGE" stays), and EXT is a price label only with a colon, an equals sign or a money mark ("CDX PLYWOOD EXT 3/4" stays). The labelled forms are stripped first, with their label. |
+| 0047's backfill run again | // DECISION: its first INSERT is `ON CONFLICT DO NOTHING` (the second already looked first), so a repair or a replay by hand adds nothing. 0047 has not reached staging or main, so it was changed in place, in a migration-only commit of its own (a fixup into its first commit would have flattened the branch's merges). |
+| Not done: a line embedded twice | // DECISION: a line new to its vendor is embedded by the semantic read and again by the master items' read (their texts differ when Check matches added attributes). Carrying the vectors between the steps would put about 8 KB per line into every run's stored step outputs, for an embedding that costs a few millionths of a dollar; left as it is. |
+
+Still open after the fixes:
+- Whether the Library skills should ship test cases with the pack (today the operator adds them;
+  a shared case needs a recorded answer to replay).
+- A later pack version that changes a Library skill: today the pack never touches an installed one;
+  offering the pack's newer definition as a draft beside the operator's is for when one exists.
+- Quotes (`quotes.ts`) and the purchase comparison (`compare.ts`) still convert with the master
+  item's attributes, pack size included, for master items made before this; whether to move them to
+  `convertLine` is the owner's call (it changes prices already compared).
+
+### 1.89 The client's MCP: the portal as a Claude connector (owner, 2026-11-10)
+
+Owner, 2026-11-10: "create an MCP for both Staging and Prod that has access to their account
+information, so that clients can connect to their account and see their information and we can
+use the same for the ops". §1.34's "client-facing MCP server, later" is built on its plumbing, on
+the same URL: `https://staging.mezonas.com/mcp` and `https://app.mezonas.com/mcp`. Code:
+`apps/api/src/mcp/client-tools.ts`, the sign-in and dispatch in `routes.ts`. (Numbered §1.86 on
+`main`, where it was written; renumbered when merged beside the process model's §1.86.)
+
+| Topic | Decision |
+|---|---|
+| One URL | One `/mcp` per environment for everyone, so there is one connector to add. Who signs in decides the tools: an operator gets §1.34's back-office tools, even where they also hold a client role (the back office already reaches the clients they serve); anyone else with a client role (`client_admin`, `client_user`) gets the client tools. A member of no client: 403. Sign-in is §1.34's (AuthKit, the same WorkOS environment as the portal); the person must have signed in to Mezonas in a browser once, and membership is read on every call, so removing someone cuts the connector off at once. // DECISION |
+| What it shows | Read only: `whoami`, `overview`, `inbox_list`, `runs_list`, `run_get`, `connections_list`, `requests_list`, `records_search`, `record_get`, `documents_list`, `document_get`, `reports_list`, `report_get`. Each runs a portal route's own handler through `invokeRoute` (its roles, so a client user sees what the portal shows them; its schemas; its response contract, which carries no agent bundle, instruction, prompt or cost: invariant 11). A back-office route (`routeFamily` `ops`) is refused in the client tools' `route()` before it runs. Approving, answering and every change stay in the portal, where a person signs (invariant 8). // DECISION |
+| One client per call | Each call narrows the session to one client (`buildSession` with the client asked for), so every read runs in `withTenant` for exactly one client, as a portal request does (invariant 1). Someone in one client never names it; someone in several passes `client` (whoami lists them) on each call, and leaving it out is the tool error `choose_client`. Nothing is remembered between calls. // DECISION |
+| Documents | `document_get` leaves out the file's 5-minute link: anyone holding it can download the file for those minutes, and a chat transcript is kept far longer. The portal opens the file. // DECISION |
+| Fence, audit, limits | As §1.34: every result in one `<untrusted-data>` block, secret-named fields replaced; one log line per call (`event: "mcp.tool_call"`, now with `audience` `ops` or `client`, and the client as `target`); each portal read is also an `audit_event` row (`mcp GET /api/…`, the client, the person and their role, §1.35); 120 calls a minute per person. The client tools' instructions say what the fence is and that the tools only read. |
+| HIPAA mode | Not refused: the client signs in and connects its own MCP client (claude.ai or another) to its own data, so that client is the client's vendor, not a processor of ours (`packages/core/src/compliance/processors.ts`). T1 (the operator's connector and HIPAA clients) is unchanged. // DECISION |
+| Metadata | The protected resource's `resource_name` is now "Mezonas (<environment>)"; the back-office server info stays `mezonas-ops`, the client's is `mezonas` / "Mezonas". No new var, secret, binding or migration: staging and production already have `WORKOS_AUTHKIT_DOMAIN`. |
+| Not built | Client writes through the connector (approve or answer an inbox item, raise a request), each two-step as §1.34's; a per-client switch to turn the connector off; a portal page that says how to connect. |
 
 ## 2. Package layering
 
