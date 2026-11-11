@@ -9,7 +9,7 @@
 // `/api/overview` for the findings, `/api/access` for each agent's tools, `/api/weekly` for the
 // summary). Never a bundle, an instruction, a prompt or a cost (invariant 11).
 import type { PortalAccessView, PortalFinding, TableView } from "@countersign/core";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
@@ -501,10 +501,22 @@ function NeedsYou({
   // the row must stay gone after the answer, until the refreshed table no longer lists it.
   const [putOff, setPutOff] = useState<ReadonlySet<string>>(new Set());
   const [refused, setRefused] = useState<unknown>(null);
+  // Only items the table still lists are held back: once a refreshed table leaves an item out, it
+  // is counted out of `desk.open` by the server, and it is forgotten here, so it shows again if it
+  // comes back (a snooze that ended while Home stayed open).
+  const hidden = desk.top.filter((item) => putOff.has(item.id));
+  const topIds = desk.top.map((item) => item.id).join(",");
+  useEffect(() => {
+    const listed = new Set(topIds.split(","));
+    setPutOff((old) => {
+      const kept = [...old].filter((id) => listed.has(id));
+      return kept.length === old.size ? old : new Set(kept);
+    });
+  }, [topIds]);
   const shown = desk.top.filter((item) => !putOff.has(item.id));
   const rows = shown.slice(0, NEEDS_YOU_ROWS);
   const shownFindings = findings.slice(0, NEEDS_YOU_ROWS - rows.length);
-  const more = Math.max(0, desk.open - putOff.size - rows.length);
+  const more = Math.max(0, desk.open - hidden.length - rows.length);
   const putOffItem = (id: string, back: boolean) =>
     setPutOff((old) => {
       const next = new Set(old);

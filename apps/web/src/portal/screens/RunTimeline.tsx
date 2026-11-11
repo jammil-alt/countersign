@@ -110,16 +110,15 @@ export function PortalRunScreen() {
   const { data, loading, reload } = state;
   usePoll(reload, data ? runOpen(data.run) : false, 2_000, loading);
   const run = data?.run ?? known;
-  // What waits on the reader: their own open Inbox items for this run (the Inbox's filter). Asked
-  // with the run unless what is known of it says it waits on nobody.
-  // DECISION: a run nothing is known of yet may wait on the reader, so its Inbox items are asked
-  // with it; once the run answers that it doesn't wait, the list is not used.
+  // What waits on the reader: their own open Inbox items for this run (the Inbox's filter), asked
+  // as soon as the run, or its row in a list, says it waits on them.
+  // DECISION (review of #259): a run nothing is known of yet is not assumed to wait: its Inbox
+  // items are asked once it answers that it does, so a finished run's page asks no more than before
+  // (gate 2). A run opened from a list, Home or the overview knows at once.
   const openApprovals = data ? data.approvals.filter((a) => a.status === "open") : [];
   const waits = data
     ? runState(data.run) === "waiting" || openApprovals.length > 0
-    : known
-      ? runState(known) === "waiting"
-      : true;
+    : known !== null && runState(known) === "waiting";
   const inbox = useApi(apiRoutes.portalInbox, waits ? { query: { status: "open" } } : null);
   const mine = (inbox.data?.items ?? [])
     .filter((i) => i.runId === id)

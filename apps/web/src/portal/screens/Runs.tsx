@@ -107,7 +107,12 @@ export function PortalRunsScreen() {
         ...(startedBy ? { startedBy } : {}),
       };
   // A filter of this one list keeps its last rows, dimmed, while the new ones load (1.8).
-  const runs = useApi(apiRoutes.portalRuns, { query, keep: true });
+  // DECISION (review of #259): not when the agent changes: a query naming another agent shows
+  // nothing of the last one (docs/plan.md §1.91, 5); a change of status or start keeps the rows.
+  const agentsKey = JSON.stringify(query.agents ?? null);
+  const answeredAgents = useRef(agentsKey);
+  const runs = useApi(apiRoutes.portalRuns, { query, keep: answeredAgents.current === agentsKey });
+  if (runs.data && !runs.refreshing) answeredAgents.current = agentsKey;
   usePoll(runs.reload, runs.data?.runs.some((r) => runOpen(r)) ?? false, 5_000, runs.loading);
   useRememberRuns(runs.data?.runs);
   const queryKey = JSON.stringify(query);

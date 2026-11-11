@@ -154,7 +154,7 @@ export function AgentScreen({ tab = "overview" }: { tab?: AgentTab }) {
       ) : tab === "runs" ? (
         <AgentRuns id={id} />
       ) : tab === "access" ? (
-        <AgentAccess id={id} name={name ?? ""} isAdmin={isAdmin} />
+        <AgentAccess id={id} name={name} isAdmin={isAdmin} />
       ) : (
         <>
           <Loaded state={detail} skeleton={<SkeletonStats count={3} />}>
@@ -329,13 +329,23 @@ function AgentRuns({ id }: { id: string }) {
 // ── Access ───────────────────────────────────────────────────────────────────────────────────────
 
 /** What it may do in your tools (read-only here), and who it contacts (the client admin's). */
-function AgentAccess({ id, name, isAdmin }: { id: string; name: string; isAdmin: boolean }) {
+/** Before the agent's name is known (a direct load), the titles that name it are skeletons. */
+function AgentAccess({ id, name, isAdmin }: { id: string; name: string | null; isAdmin: boolean }) {
   const { t } = useI18n();
   return (
     <div className="flex flex-col gap-8">
       <Reach id={id} name={name} />
       {isAdmin ? (
-        <Section title={t("agent.contacts", { name })} testId="agent-contacts">
+        <Section
+          title={
+            name !== null ? (
+              t("agent.contacts", { name })
+            ) : (
+              <SkeletonLine width="half" size="heading" />
+            )
+          }
+          testId="agent-contacts"
+        >
           <p className="text-sm text-ink-muted">{t("agent.contactsHelp")}</p>
           <PortalPeopleList agentId={id} />
         </Section>
@@ -689,13 +699,13 @@ function AgentFiguresStrip({
 const VERBS = ["read", "create", "update", "delete"] as const;
 
 /** What the agent may do through each connection it is bound to: the effective level per verb. */
-function Reach({ id, name }: { id: string; name: string }) {
+function Reach({ id, name }: { id: string; name: string | null }) {
   const { t } = useI18n();
   const access = useApi(apiRoutes.portalAccess, {
     // The vault is never stored (docs/audit-plan.md 1.2).
     cache: "none",
   });
-  if (!access.data) {
+  if (!access.data || name === null) {
     return access.error ? (
       <ErrorNotice error={access.error} onRetry={access.reload} />
     ) : (

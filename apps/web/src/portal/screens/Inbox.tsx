@@ -68,7 +68,8 @@ export function PortalInboxScreen() {
   // page change only when it is a few seconds old (docs/audit-plan.md 2.1), so a list that says
   // otherwise refreshes it: an item that opened since shows in the count as it shows here.
   const overview = useApi(apiRoutes.portalOverview);
-  const openCount = waiting.data?.items.length;
+  // Only a list just answered is compared: a stored one refreshing behind may be older than the count.
+  const openCount = waiting.refreshing ? undefined : waiting.data?.items.length;
   const countShown = overview.data?.needsYou.inbox;
   useEffect(() => {
     if (openCount === undefined || countShown === undefined) return;
