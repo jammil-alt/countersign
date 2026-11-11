@@ -589,15 +589,17 @@ export async function rollback(
     releaseNote: target.releaseNote,
     basedOnTemplateVersionId: target.basedOnTemplateVersionId,
   });
-  // DECISION (review): a rollback restores a version that was published: its steps are checked as
-  // that version's, never as new against the version it replaces (a retired or a writing skill in
-  // it keeps running, invariant 3).
+  // DECISION (review): a rollback restores a version that was published (live or retired): its
+  // steps are checked as that version's, never as new against the version it replaces (a retired or
+  // a writing skill in it keeps running, invariant 3). A version never published (a draft) is new
+  // work: its copy is checked as any version is (`existingBundle`), against the live version.
+  const published = target.status === "live" || target.status === "retired";
   return publish(tx, {
     agentId: row.id,
     versionId: copy.id,
     actorId: input.actorId ?? null,
     ctx: input.ctx,
-    existingFrom: parseVersionBundle(target.bundle),
+    ...(published ? { existingFrom: parseVersionBundle(target.bundle) } : {}),
   });
 }
 
