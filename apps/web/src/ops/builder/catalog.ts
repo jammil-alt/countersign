@@ -30,6 +30,7 @@ import {
 } from "@countersign/core";
 import type { z } from "zod";
 import {
+  connectorLabel,
   eventKind,
   TRIGGER_KINDS,
   type TriggerKind,
@@ -139,7 +140,8 @@ export function validateProcessesLikeServer(
 }
 
 export function connectorName(data: BuilderData, id: string): string {
-  return data.catalog.connectors.find((c) => c.id === id)?.name ?? id;
+  // §1.88 web: a pack's tools are grouped under its id ("materials"), read as words ("Materials").
+  return data.catalog.connectors.find((c) => c.id === id)?.name ?? connectorLabel(id);
 }
 
 // ── The skill model (owner, 2026-11-10; ARCHITECTURE §10.14) ─────────────────────────────────────

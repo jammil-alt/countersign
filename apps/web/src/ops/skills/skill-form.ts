@@ -80,6 +80,11 @@ export interface SkillForm {
   category: string;
   instructions: string;
   tools: string[];
+  /**
+   * An AI skill's declared reads (`definition.reads`): retrieval its model may call, e.g. Semantic
+   * match (vendor) reading the vendor's catalog (§1.88). Shown and unticked with its tools.
+   */
+  reads?: string[];
   input: FieldRow[];
   output: FieldRow[];
   settings: SettingRow[];
@@ -204,6 +209,7 @@ export function formFromDefinition(def: SkillDefinition): SkillForm {
     category: def.category,
     instructions: def.instructions ?? "",
     tools: [...def.tools],
+    reads: [...(def.reads ?? [])],
     input: fieldsFromSchema(def.input),
     output: fieldsFromSchema(def.output),
     settings: def.settings.map((s) => ({
@@ -340,6 +346,18 @@ export function definitionFromForm(
     delete kept.reads;
   }
   const parameters = form.parameters.map(parameterFromRow);
+  // §1.88 web: an AI skill's declared reads are the form's (unticked ones leave); a tool known to
+  // write never is one. One the list doesn't know stays for the server to check.
+  // DECISION (§1.88 web): reads stay `reads`, apart from `tools`, so an opened built-in's clone
+  // saves the same shape it was cloned with.
+  if (ai && form.reads !== undefined) {
+    const reads = form.reads.filter((id) => {
+      const t = tools.find((x) => x.id === id) as Partial<Pick<ToolSpec, "sideEffect">> | undefined;
+      return t === undefined || t.sideEffect === undefined || t.sideEffect === "none";
+    });
+    if (reads.length > 0) kept.reads = reads;
+    else delete kept.reads;
+  }
   return {
     ...kept,
     schemaVersion: 1,

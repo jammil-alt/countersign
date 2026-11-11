@@ -354,7 +354,8 @@ function DefinitionTab({
   const save = useAction();
   const errors = validateSkillForm(form);
   const def = latest?.definition;
-  const toolNames = (def?.tools ?? []).map(
+  // §1.88 web: its declared reads (retrieval, e.g. the vendor's catalog) are tools it may use too.
+  const toolNames = [...new Set([...(def?.tools ?? []), ...(def?.reads ?? [])])].map(
     (id) => library.tools.find((t) => t.id === id)?.description ?? id,
   );
 
