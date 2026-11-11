@@ -15,7 +15,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
-import { duration, isRunGoing, shortTime, usd } from "../../runs/format";
+import { duration, isRunGoing, runsPollMs, shortTime, usd } from "../../runs/format";
 import { opsRunShortTitle, opsRunTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
@@ -178,7 +178,9 @@ export function OpsRunsScreen() {
     query: { ...query, ...(grouped ? { groupBy: "error" as const } : {}) } as never,
   });
   const { data, loading, reload } = state;
-  usePoll(reload, data?.runs.some((r) => isRunGoing(r.status)) ?? false, 5_000, loading);
+  // Every 5 s while a run works, every 30 s while runs only wait on a person (2.2).
+  const pollMs = data ? runsPollMs(data.runs, 5_000) : null;
+  usePoll(reload, pollMs !== null, pollMs ?? 5_000, loading);
   const views = useApi(apiRoutes.opsSavedViews, { query: { surface: "ops_runs" } });
 
   const agents = useMemo(() => new Map((data?.agents ?? []).map((a) => [a.id, a])), [data?.agents]);
