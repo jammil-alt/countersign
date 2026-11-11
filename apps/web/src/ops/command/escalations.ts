@@ -102,3 +102,29 @@ export function sinceDate(iso: string): string {
   const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   return `${day}, ${time}`;
 }
+
+/**
+ * Escalations' two calls for a view, a status and a client (docs/audit-plan.md 1.6): the screen
+ * makes them and Home prefetches the default ones, so both use the same options, in the same
+ * order, and share one stored answer. Defaults: Needs us, open, every client.
+ */
+export function escalationsCalls({
+  view = "us",
+  status = "open",
+  client = "",
+}: {
+  view?: "us" | "clients";
+  status?: "open" | "resolved";
+  client?: string;
+} = {}) {
+  return {
+    inbox: {
+      query: {
+        assigned: view === "clients" ? "all" : "operator",
+        status,
+        ...(client ? { client } : {}),
+      },
+    },
+    needsUs: { query: client ? { client } : {} },
+  } as const;
+}

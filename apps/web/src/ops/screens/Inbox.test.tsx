@@ -239,6 +239,65 @@ describe("escalations", () => {
     expect(screen.getByTestId("ops-inbox-client")).toBeInTheDocument();
   });
 
+  it("hands its Needs us to the frame's badge, which asks for no counts of its own", async () => {
+    // docs/audit-plan.md 2.3: Escalations and the frame count Needs us once.
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/inbox": () => ({ items: [], agents: [] }),
+      "GET /api/ops/needs-us": () => ({ count: 1, escalations: [stuck] }),
+      "GET /api/ops/counts": () => ({ needsUs: 1, clients: [] }),
+    });
+    const { unmount } = render(
+      <MemoryRouter initialEntries={["/ops/inbox"]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    await screen.findByTestId(`ops-inbox-needs-${DEMO_RUN}`);
+    await waitFor(() =>
+      expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Escalations1"),
+    );
+    expect(api.calls).not.toContain("GET /api/ops/counts");
+    expect(api.calls.filter((c) => c === "GET /api/ops/needs-us")).toHaveLength(1);
+    unmount();
+
+    // Narrowed to one client, its count is not the total: the frame asks for its own.
+    render(
+      <MemoryRouter initialEntries={[`/ops/inbox?client=${DEMO}`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    await screen.findByTestId(`ops-inbox-needs-${DEMO_RUN}`);
+    await waitFor(() => expect(api.calls).toContain("GET /api/ops/counts"));
+  });
+
+  it("keeps the list on screen, dimmed, while Resolved loads", async () => {
+    // docs/audit-plan.md 1.8: a filter answers at once.
+    let answer: (v: unknown) => void = () => {};
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/inbox": () => ({ items: [item(SANDBOX_ITEM, SANDBOX, true)], agents: [] }),
+      "GET /api/ops/needs-us": () => NONE_NEED_US,
+    });
+    render(
+      <MemoryRouter initialEntries={["/ops/inbox"]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    await screen.findByTestId(`inbox-item-${SANDBOX_ITEM}`);
+    api.on("GET /api/ops/inbox", () => new Promise((resolve) => (answer = resolve)));
+    await userEvent.click(screen.getByTestId("ops-inbox-filter-resolved"));
+    expect(screen.getByTestId("ops-inbox-list")).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByTestId(`inbox-item-${SANDBOX_ITEM}`)).toBeInTheDocument();
+    answer({ items: [], agents: [] });
+    expect(await screen.findByText("Nothing resolved yet")).toBeInTheDocument();
+  });
+
   it("opens a run page's link (assigned=all) on what waits on clients", async () => {
     const queries: URLSearchParams[] = [];
     const api = fakeApi({

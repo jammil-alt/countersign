@@ -54,15 +54,22 @@ type SharedCounts = ResponseOf<typeof apiRoutes.opsCounts> | null;
 const ShareCountsContext = createContext<((counts: SharedCounts | undefined) => void) | null>(null);
 
 /**
- * For a page that computes the badges' counts itself (the command center, §1.84): hands them to
- * the frame, which then asks for none of its own while the page is open. `null` while loading.
+ * For a page that computes the badges' counts itself (the command center, §1.84; Escalations,
+ * docs/audit-plan.md 2.3): hands them to the frame, which then asks for none of its own while the
+ * page is open. `null` while loading; `undefined` when the page has none to give (Escalations
+ * narrowed to one client), so the frame asks for its own.
  */
-export function useShareCounts(counts: SharedCounts): void {
+export function useShareCounts(counts: SharedCounts | undefined): void {
   const share = useContext(ShareCountsContext);
   useEffect(() => {
     share?.(counts);
   }, [share, counts]);
   useEffect(() => () => share?.(undefined), [share]);
+}
+
+/** The place a back-office address is in: its first segment after `/ops` ("" for Home). */
+export function opsPlace(pathname: string): string {
+  return pathname.replace(/^\/ops\/?/, "").split("/")[0] ?? "";
 }
 
 export function OpsLayout({ children }: { children: ReactNode }) {
@@ -104,13 +111,16 @@ function OpsFrame({ children }: { children: ReactNode }) {
   const own = settled && shared === undefined;
   const countsState = useApi(apiRoutes.opsCounts, own ? {} : null);
   const { reload: reloadCounts } = countsState;
-  const { pathname } = useLocation();
-  const firstPath = useRef(pathname);
+  // DECISION: the counts reload when the place changes (the first path segment after `/ops`:
+  // Home, Escalations, Runs, Clients, …), not on every move inside one place, such as an agent's
+  // tabs or a run opened from Runs (docs/audit-plan.md 2.3). The 20 s poll keeps them current.
+  const place = opsPlace(useLocation().pathname);
+  const lastPlace = useRef(place);
   useEffect(() => {
-    if (pathname === firstPath.current) return;
-    firstPath.current = pathname;
+    if (place === lastPlace.current) return;
+    lastPlace.current = place;
     if (own) reloadCounts();
-  }, [pathname, own, reloadCounts]);
+  }, [place, own, reloadCounts]);
   usePoll(reloadCounts, own, INBOX_COUNT_POLL_MS, countsState.loading);
   const counts = own ? countsState.data : (shared ?? undefined);
   const needsUs = counts?.needsUs;
