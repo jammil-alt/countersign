@@ -88,12 +88,14 @@ export function TriggersPanel({
 }) {
   const isClient = agent.kind === "client";
   const fired = useApi(apiRoutes.opsAgentTriggers, isClient ? { params: { id: agent.id } } : null);
-  const events = useApi(apiRoutes.opsEventCatalog);
+  const events = useApi(apiRoutes.opsEventCatalog, { life: "catalog" });
   const [adding, setAdding] = useState(false);
   const [saved, setSaved] = useState<{ version: number; errors: string[]; what: string } | null>(
     null,
   );
   const action = useAction();
+  // The trigger whose Remove was pressed: only its button says "Removing…" (1.8).
+  const [removing, setRemoving] = useState<string | null>(null);
 
   if (!latest || !bundle) return null;
   const rows = triggerRows(bundle);
@@ -188,15 +190,17 @@ export function TriggersPanel({
               isClient={isClient}
               lastFired={lastFired(r.trigger.id)}
               busy={action.busy}
+              removing={action.busy && removing === r.trigger.id}
               name={agent.name}
               address={fired.data?.address ?? null}
               commandName={fired.data?.commandName ?? null}
-              onRemove={() =>
-                saveBundle(
+              onRemove={() => {
+                setRemoving(r.trigger.id);
+                return saveBundle(
                   removeTrigger(bundle, r.workflow, r.trigger.id),
                   `Removed a ${TRIGGER_KIND_LABEL[r.trigger.on.type].toLowerCase()} trigger`,
-                )
-              }
+                );
+              }}
             />
           ))}
         </ul>
@@ -226,6 +230,7 @@ function TriggerItem({
   isClient,
   lastFired,
   busy,
+  removing,
   name,
   address,
   commandName,
@@ -237,6 +242,8 @@ function TriggerItem({
   isClient: boolean;
   lastFired: Fired["triggers"][number]["lastFired"] | undefined;
   busy: boolean;
+  /** This row's Remove is on its way to the server. */
+  removing: boolean;
   name: string;
   address: string | null;
   commandName: string | null;
@@ -292,7 +299,7 @@ function TriggerItem({
             disabled={busy}
             onClick={onRemove}
           >
-            Remove
+            {removing ? "Removing…" : "Remove"}
           </button>
         )}
       </div>

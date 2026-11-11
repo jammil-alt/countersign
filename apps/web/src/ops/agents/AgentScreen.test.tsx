@@ -250,6 +250,26 @@ describe("AgentScreen", () => {
     expect(screen.getByTestId("location")).toHaveTextContent(`${BASE}/settings/definition`);
   });
 
+  it("prefetches a tab's data on hover: a client agent's Runs, never a template's (1.6)", async () => {
+    const client = setup(BASE, { "GET /api/ops/runs": () => ({ runs: [] }) });
+    await screen.findByTestId("agent-bar");
+    await client.user.hover(screen.getByRole("link", { name: "Runs" }));
+    await waitFor(() => expect(client.api.calls).toContain("GET /api/ops/runs"));
+    cleanup();
+
+    const template = setup(
+      "/ops/templates/material-costs",
+      { [`GET /api/ops/agents/${ID}`]: () => ({ ...AGENT_DETAIL, agent: TEMPLATE }) },
+      "/ops/templates/material-costs",
+    );
+    await screen.findByTestId("agent-bar");
+    await template.user.hover(screen.getByRole("link", { name: "Runs" }));
+    await template.user.hover(screen.getByRole("link", { name: /Versions/ }));
+    expect(template.api.calls).not.toContain("GET /api/ops/runs");
+    expect(template.api.calls).not.toContain(`GET /api/ops/agents/${ID}/activation`);
+    expect(template.api.calls).not.toContain(`GET /api/ops/agents/${ID}/go-live`);
+  });
+
   it("says a template is a template, and names its client copies", async () => {
     // The lab's view as it was left (its tab and search), for "All agents" to go back to.
     window.sessionStorage.setItem("mezonas.lab.query", "tab=all&q=bill");
@@ -343,8 +363,10 @@ describe("AgentScreen", () => {
       [`GET /api/ops/agents/${ID}`]: () => new Promise((r) => (answer = r)),
     });
     const frame = await screen.findByTestId("agent-skeleton");
+    // The back link to the client's agents, and the tabs, before the agent arrives (1.4).
+    expect(within(frame).getByTestId("agent-back")).toHaveTextContent("All Harbor Millwork agents");
     expect(
-      within(frame)
+      within(within(frame).getByRole("navigation"))
         .getAllByRole("link")
         .map((l) => l.textContent),
     ).toEqual(["Overview", "Workflow", "Runs", "Versions", "Settings"]);

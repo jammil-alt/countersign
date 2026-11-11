@@ -173,6 +173,8 @@ describe("back-office records", () => {
     await waitFor(() => expect(urls.at(-1)?.searchParams.get("q")).toBe("webhook test"));
     expect(urls.at(-1)?.searchParams.get("source")).toBe(QBO);
     expect(urls.at(-1)?.searchParams.get("kind")).toBe("transactions");
+    // Asked once, when typing stopped, not once a letter.
+    expect(urls.filter((u) => u.searchParams.get("q")).length).toBe(1);
   }, 20_000);
 
   it("shows vendors and items under their tabs", async () => {

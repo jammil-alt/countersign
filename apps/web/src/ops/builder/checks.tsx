@@ -340,7 +340,7 @@ function ReviewerModel({
   value: string;
   onChange(id: string): void;
 }) {
-  const models = useApi(apiRoutes.opsModels, {});
+  const models = useApi(apiRoutes.opsModels, { life: "catalog" });
   const options = models.data?.models ?? [];
   return (
     <Row
