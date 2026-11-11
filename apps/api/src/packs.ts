@@ -154,6 +154,9 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = lazyObjects([
     reports: MATERIALS_REPORTS,
     reviews: MATERIALS_REVIEWS,
     actions: MATERIALS_ACTIONS,
+    // §1.88: the portal reads the reports its screens name (prices, catalog, requests); the vendor
+    // catalog's reports are the back office's until the owner decides what the client sees.
+    portalReports: screenReports(materialsManifest),
   },
   // M43 (docs/plan.md §1.72): the Marketing area, Mezonas's own website first. §1.73: its tools
   // come from its areas, adapted like Materials' (the pack's tool context is a part of theirs).

@@ -4,7 +4,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { FixtureStore, RecordedCall } from "./record";
+import type { FixtureStore, RecordedEntry } from "./record";
 
 /** `<repo>/fixtures/llm`. */
 export const DEFAULT_FIXTURE_DIR = resolve(
@@ -23,7 +23,7 @@ export function fileFixtureStore(dir: string = DEFAULT_FIXTURE_DIR): FixtureStor
   return {
     async read(hash) {
       try {
-        return JSON.parse(await readFile(pathOf(hash), "utf8")) as RecordedCall;
+        return JSON.parse(await readFile(pathOf(hash), "utf8")) as RecordedEntry;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
         throw error;

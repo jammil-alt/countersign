@@ -24,6 +24,8 @@ import { ReconciliationsView } from "./bookkeeping/Reconciliations";
 import { CatalogView, PackReportLinks, PriceWatchView } from "./materials/Reports";
 // P-9
 import { RequestsView, RequestView } from "./materials/Requests";
+// §1.88
+import { VendorCatalogView } from "./materials/VendorCatalog";
 
 // ── Portal ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -66,6 +68,16 @@ export function OpsClientCatalogScreen() {
   return (
     <ClientFrame clientId={clientId}>
       <CatalogView clientId={clientId} />
+    </ClientFrame>
+  );
+}
+
+// §1.88: a client's vendor catalog (back office only).
+export function OpsClientVendorCatalogScreen() {
+  const { clientId = "" } = useParams();
+  return (
+    <ClientFrame clientId={clientId}>
+      <VendorCatalogView clientId={clientId} />
     </ClientFrame>
   );
 }
@@ -365,6 +377,13 @@ export function OpsPacksScreen() {
   );
 }
 
+// DECISION (§1.88): the vendor catalog is a back-office screen until the owner decides what the
+// client sees; it is linked here beside the pack's portal screens, not named in its manifest
+// (whose screens the portal reads).
+const BACK_OFFICE_SCREENS: Readonly<Record<string, { route: string; title: string }[]>> = {
+  materials: [{ route: "/reports/materials/vendor-catalog", title: "Vendor catalog" }],
+};
+
 /** The client page's packs: which are on, switch one on, and that client's reports. */
 export function ClientPacks({ clientId }: { clientId: string }) {
   const { data, error, reload } = useApi(apiRoutes.opsClientPacks, { params: { id: clientId } });
@@ -389,7 +408,10 @@ export function ClientPacks({ clientId }: { clientId: string }) {
             </div>
             {p.enabled && p.screens.length > 0 ? (
               <div className="mt-4">
-                <PackReportLinks screens={p.screens} base={`/ops/clients/${clientId}`} />
+                <PackReportLinks
+                  screens={[...p.screens, ...(BACK_OFFICE_SCREENS[p.id] ?? [])]}
+                  base={`/ops/clients/${clientId}`}
+                />
               </div>
             ) : null}
             {/* P-9 */}

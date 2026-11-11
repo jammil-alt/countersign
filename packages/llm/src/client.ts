@@ -4,6 +4,16 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import {
+  checkEmbeddings,
+  DEFAULT_EMBEDDING_MODEL,
+  EMBEDDING_DIMENSIONS,
+  EMBEDDING_PRICES,
+  EmbeddingsNotSupportedError,
+  type EmbedRequest,
+  type EmbedResponse,
+  embeddingCostOf,
+} from "./embeddings";
 import { DEFAULT_MODEL, type ModelId } from "./models";
 import { costOf, type ModelPrice, PRICES, priceFor } from "./pricing";
 import { providerOf } from "./route";
@@ -43,6 +53,12 @@ export interface LlmClientOptions {
   readonly defaultMaxTokens?: number;
   readonly prices?: Readonly<Record<ModelId, ModelPrice>>;
   readonly onCall?: (record: LlmCallRecord, exchange: LlmExchange) => void | Promise<void>;
+  /**
+   * §1.88: an embedding call's record (input tokens and cost; no output). Kept apart from
+   * `onCall`, whose exchange is a message call's request and answer.
+   */
+  readonly onEmbed?: (record: LlmCallRecord) => void | Promise<void>;
+  readonly embeddingPrices?: Readonly<Record<ModelId, string>>;
   /** Monotonic-ish milliseconds, for durations. Tests pass a fixed clock. */
   readonly clock?: () => number;
 }
@@ -103,12 +119,31 @@ export class LlmToolError extends Error {
   }
 }
 
+/** §1.88: texts to embed; the model and size default to the vendor catalog's. */
+export interface EmbedInput {
+  readonly texts: readonly string[];
+  readonly model?: ModelId;
+  readonly dimensions?: number;
+  readonly label?: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface EmbedResult {
+  readonly embeddings: number[][];
+  readonly record: LlmCallRecord;
+}
+
 export interface LlmClient {
   message(
     input: MessageInput,
     options?: { label?: string; signal?: AbortSignal },
   ): Promise<LlmCallResult>;
   callTool<T>(input: CallToolInput<T>): Promise<CallToolResult<T>>;
+  /**
+   * §1.88: one embedding call. Refused before it is made when the model has no price; its cost
+   * goes to `onEmbed` (successes and failures alike), as a message's goes to `onCall`.
+   */
+  embed(input: EmbedInput): Promise<EmbedResult>;
 }
 
 /** The JSON Schema the API sees for a Zod schema: its input form, without `$schema`. */
@@ -269,5 +304,54 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
     return { ...result, value: parsed.data };
   }
 
-  return { message, callTool };
+  async function embed(input: EmbedInput): Promise<EmbedResult> {
+    const model = input.model ?? DEFAULT_EMBEDDING_MODEL;
+    const embeddingPrices = options.embeddingPrices ?? EMBEDDING_PRICES;
+    // DECISION: every embedding model must be priced, whoever provides it (as a prefixed
+    // provider's message model must): an unpriced call could not be stopped by any cost limit.
+    if (embeddingPrices[model] === undefined) throw new UnpricedModelError(model);
+    if (!transport.embed) {
+      throw new EmbeddingsNotSupportedError("this transport offers no embeddings");
+    }
+    const request: EmbedRequest = {
+      model,
+      input: input.texts,
+      dimensions: input.dimensions ?? EMBEDDING_DIMENSIONS,
+    };
+    const started = clock();
+    const label = input.label === undefined ? {} : { label: input.label };
+    let response: EmbedResponse;
+    try {
+      response = checkEmbeddings(
+        request,
+        await transport.embed(request, input.signal ? { signal: input.signal } : {}),
+      );
+    } catch (error) {
+      await options.onEmbed?.({
+        model,
+        ok: false,
+        usage: ZERO_USAGE,
+        costUsd: null,
+        durationMs: clock() - started,
+        stopReason: null,
+        error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+        ...label,
+      });
+      throw error;
+    }
+    const record: LlmCallRecord = {
+      // Priced by the platform id asked for: the provider answers with its own name.
+      model,
+      ok: true,
+      usage: { ...ZERO_USAGE, inputTokens: response.usage.inputTokens },
+      costUsd: embeddingCostOf(model, response.usage.inputTokens, embeddingPrices),
+      durationMs: clock() - started,
+      stopReason: null,
+      ...label,
+    };
+    await options.onEmbed?.(record);
+    return { embeddings: response.embeddings, record };
+  }
+
+  return { message, callTool, embed };
 }

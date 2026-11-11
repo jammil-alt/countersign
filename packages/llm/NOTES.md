@@ -77,3 +77,21 @@ signatures only in an extension field); see the DECISION in `src/gemini.ts`.
    (`fixtures/llm/README.md`).
 4. Name xAI and Google on the public subprocessor list (`apps/site`) before a client's data goes to
    them; a client in HIPAA mode is refused both until `xai` / `google` are in `BAA_PROCESSORS`.
+
+## OpenAI embeddings (`src/embeddings.ts`, docs/plan.md §1.88)
+
+Written 2026-11-11 without network access to OpenAI's documentation and without a key. The vendor
+catalog embeds master items, vendor items and new lines with `openai:text-embedding-3-large` at
+1,024 dimensions (the size of `catalog_item.embedding` and `vendor_item.embedding`). The tests
+answer in OpenAI's shape (`fixtures/llm/providers/openai/`, hand-written) and the matching tests
+replay hand-written vectors (`fixtures/llm`, marked `handWritten`).
+
+| Fact | Status |
+|---|---|
+| `POST https://api.openai.com/v1/embeddings` with `Authorization: Bearer $OPENAI_API_KEY`, body `{model, input: string[], dimensions, encoding_format: "float"}` | Known; **UNCHECKED** with a live call |
+| The model id `text-embedding-3-large` (platform id `openai:text-embedding-3-large`), and `-3-small` | **UNCHECKED**: check https://platform.openai.com/docs/models that both are still served |
+| `dimensions` shortens a `-3` model's vector (3,072 for large) to the size asked; 1,024 is allowed | Known for the `-3` models; **UNCHECKED** that quality at 1,024 holds on our matching goldens |
+| The answer: `data[]` with `index` and `embedding` (floats), `model`, `usage.prompt_tokens` | Known; we sort by `index` and refuse an answer whose count or size differs from the request |
+| Price: $0.13 per 1M input tokens for `-3-large`, $0.02 for `-3-small`; no output tokens | **UNCHECKED**: check https://openai.com/api/pricing (`EMBEDDING_PRICES`) |
+| At most 2,048 inputs and 8,192 tokens per input per call | Known; we send at most 100 short texts per call (`EMBED_BATCH_MAX`) |
+| Zero data retention and a BAA are offered for the API (HIPAA clients) | **UNCHECKED** for embeddings specifically; until `openai` is in `BAA_PROCESSORS`, a HIPAA client's embeddings are refused like its OpenAI model calls |

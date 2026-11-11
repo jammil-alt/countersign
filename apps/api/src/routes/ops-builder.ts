@@ -170,7 +170,8 @@ async function builderContext(
   const usedTools = new Set([...bundleStepTools(from), ...(from?.definition.extraTools ?? [])]);
   const lookup = toolLookup(platform.tools.specs());
   const offered = (def: SkillDefinition) =>
-    usedSkills.has(def.id) || (!isToolWrapper(def) && newStepSkillReason(def, lookup) === null);
+    usedSkills.has(def.id) ||
+    (!isToolWrapper(def) && newStepSkillReason(def, lookup, platform.superseded) === null);
   const skills: BuilderSkill[] = platform.catalog
     .list()
     .filter(offered)

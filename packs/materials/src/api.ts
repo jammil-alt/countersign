@@ -3,7 +3,8 @@
 // platform's generic pack routes (/api/reports/:pack/:report, /api/inbox/:id/pack-review) and
 // does the sign-in, roles and client scope; these get one client's transaction or database.
 
-import type { Db, Tx } from "@countersign/db";
+import { type Db, type Tx, vendor, withTenant } from "@countersign/db";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { decideLine } from "./catalog/match";
 import { mergeItems } from "./catalog/merge";
@@ -20,6 +21,15 @@ import {
   vendorChoiceView,
 } from "./purchasing/reviews";
 import { catalogCsv, catalogReport, priceWatch, priceWatchCsv, reviewLines } from "./reports";
+import { vendorItem } from "./schema";
+import {
+  discontinue,
+  setPreferred,
+  VendorItemError,
+  vendorCatalog,
+  vendorItemView,
+  vendorsForItem,
+} from "./vendor/store";
 
 export interface PackReportHandler {
   title: string;
@@ -44,6 +54,41 @@ export const MATERIALS_REPORTS: Readonly<Record<string, PackReportHandler>> = {
     title: "Catalog",
     json: async (tx, tenantId) => ({ ...(await catalogReport(tx, tenantId)) }),
     csv: async (tx, tenantId) => catalogCsv(await catalogReport(tx, tenantId)),
+  },
+  // §1.88: the vendor catalog, back office only (apps/api lets the portal read only the reports
+  // its screens name). The list is every vendor with its items; an item is one vendor's catalog.
+  "vendor-catalog": {
+    title: "Vendor catalog",
+    json: async (tx, tenantId) => ({ vendors: await vendorCatalogIndex(tx, tenantId) }),
+    csv: async (tx, tenantId) => vendorCatalogCsv(await vendorCatalogIndex(tx, tenantId)),
+    item: async (tx, tenantId, vendorId) => {
+      const [v] = await tx
+        .select({ id: vendor.id, name: vendor.name })
+        .from(vendor)
+        .where(and(eq(vendor.id, vendorId), eq(vendor.tenantId, tenantId)))
+        .limit(1);
+      if (!v) return null;
+      return {
+        vendor: v,
+        items: await vendorCatalog(tx, tenantId, vendorId, { includeDiscontinued: true }),
+      };
+    },
+  },
+  // §1.88: a master item's vendors side by side, in its standard unit (an item: the master item).
+  "master-vendors": {
+    title: "Master item vendors",
+    json: async (tx, tenantId) => ({ vendors: await vendorCatalogIndex(tx, tenantId) }),
+    csv: async (tx, tenantId) => vendorCatalogCsv(await vendorCatalogIndex(tx, tenantId)),
+    item: async (tx, tenantId, catalogItemId) => {
+      try {
+        return {
+          ...(await vendorsForItem(tx, tenantId, catalogItemId, { includeDiscontinued: true })),
+        };
+      } catch (error) {
+        if (error instanceof VendorItemError && error.code === "not_found") return null;
+        throw error;
+      }
+    },
   },
   // P-5: purchase requests with their quotes and orders (docs/plan.md §1.67); no screen yet.
   requests: {
@@ -128,6 +173,37 @@ export const MATERIALS_ACTIONS: Readonly<Record<string, PackActionHandler>> = {
         ...(await mergeItems(db, { tenantId: ctx.tenantId, userId: ctx.userId, ...input })),
       };
     },
+  },
+  // §1.88: the vendor catalog's back-office changes: the client's first choice for a master
+  // item, and an item the vendor no longer sells. A person's, so the audit row names them.
+  "vendor-item-preferred": {
+    input: z.strictObject({ vendorItemId: z.uuid() }),
+    run: (db, ctx) =>
+      vendorRefusal(() =>
+        withTenant(db, ctx.tenantId, async (tx) => {
+          const r = await setPreferred(
+            tx,
+            ctx.tenantId,
+            (ctx.input as { vendorItemId: string }).vendorItemId,
+          );
+          return { item: vendorItemView(r.item), cleared: r.cleared };
+        }),
+      ),
+  },
+  "vendor-item-discontinue": {
+    input: z.strictObject({ vendorItemId: z.uuid() }),
+    run: (db, ctx) =>
+      vendorRefusal(() =>
+        withTenant(db, ctx.tenantId, async (tx) => ({
+          item: vendorItemView(
+            await discontinue(
+              tx,
+              ctx.tenantId,
+              (ctx.input as { vendorItemId: string }).vendorItemId,
+            ),
+          ),
+        })),
+      ),
   },
   // P-9: "Import bill prices" in the back office (docs/plan.md §1.71).
   "import-bill-prices": {
@@ -225,6 +301,60 @@ export const MATERIALS_REVIEWS: Readonly<Record<string, PackReviewHandler>> = {
     decide: (db, input) => reviewError(() => decideVendorChoice(db, input)),
   },
 };
+
+/** A refusal the route answers as 422 (its `PackRefusal`), from the vendor catalog's errors. */
+class PackRefusal extends Error {
+  override name = "PackRefusal";
+}
+
+async function vendorRefusal<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof VendorItemError) throw new PackRefusal(error.message);
+    throw error;
+  }
+}
+
+/** Every vendor with items in the client's vendor catalog: counts and the last price's date. */
+export async function vendorCatalogIndex(tx: Tx, tenantId: string) {
+  const rows = await tx
+    .select({
+      vendorId: vendor.id,
+      name: vendor.name,
+      items: sql<number>`count(*) filter (where ${vendorItem.status} = 'active')::int`,
+      discontinued: sql<number>`count(*) filter (where ${vendorItem.status} = 'discontinued')::int`,
+      preferred: sql<number>`count(*) filter (where ${vendorItem.preferred})::int`,
+      lastPriceOn: sql<string | null>`max(${vendorItem.lastPriceOn})::text`,
+    })
+    .from(vendorItem)
+    .innerJoin(
+      vendor,
+      and(eq(vendor.id, vendorItem.vendorId), eq(vendor.tenantId, vendorItem.tenantId)),
+    )
+    .where(eq(vendorItem.tenantId, tenantId))
+    .groupBy(vendor.id, vendor.name)
+    .orderBy(asc(vendor.name));
+  return rows.map((r) => ({
+    ...r,
+    items: Number(r.items),
+    discontinued: Number(r.discontinued),
+    preferred: Number(r.preferred),
+  }));
+}
+
+function vendorCatalogCsv(rows: Awaited<ReturnType<typeof vendorCatalogIndex>>): string {
+  const cell = (v: unknown) => {
+    const s = v === null || v === undefined ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [
+    "vendor,items,discontinued,preferred,last_price_on",
+    ...rows.map((r) =>
+      [r.name, r.items, r.discontinued, r.preferred, r.lastPriceOn].map(cell).join(","),
+    ),
+  ].join("\n");
+}
 
 /** The pack's refusals and bad input as the card's 422. */
 async function reviewError(run: () => Promise<void>): Promise<void> {

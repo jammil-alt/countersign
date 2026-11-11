@@ -27,12 +27,20 @@ import {
   pricesDigest,
   pricesRecord,
 } from "./tools";
+import { SUPERSEDED_BY_VENDOR_SKILLS, VENDOR_SKILLS } from "./vendor/skills";
+import { VENDOR_TOOLS } from "./vendor/tools";
 
 export { PACK_ID };
 
 // P-5: the Purchasing area's tools, after the catalog's and the prices'.
 // Skill model (2026-11-10): the split's reads and its Save to records write.
-const ALL_TOOLS: readonly PackTool[] = [...MATERIALS_TOOLS, ...PURCHASING_TOOLS, ...SPLIT_TOOLS];
+// §1.88: the vendor catalog's reads, its Save to records writes and the embedding write.
+const ALL_TOOLS: readonly PackTool[] = [
+  ...MATERIALS_TOOLS,
+  ...PURCHASING_TOOLS,
+  ...SPLIT_TOOLS,
+  ...VENDOR_TOOLS,
+];
 
 // Worker startup (2026-11-11): a tool's schema is read on first use (core `lazy`); the list below
 // goes through `lazyObjects`.
@@ -219,6 +227,9 @@ export const MATERIALS_SKILLS: readonly SkillDefinition[] = lazyObjects([
   ...SPLIT_SKILLS,
   // Read a vendor's quote and Choose items to merge: AI skills that write nothing.
   ...REPLACEMENT_SKILLS,
+  // §1.88: the vendor-first matching skills (Match vendor, Match by SKU (vendor), Semantic match
+  // (vendor), Master item manager); Check matches is reused after each AI one.
+  ...VENDOR_SKILLS,
 ]);
 
 // Worker startup (2026-11-11): parsed on first read (core `lazyParse`); apps/api's
@@ -227,7 +238,8 @@ export const materialsManifest: PackManifest = lazyParse(PackManifest, () => ({
   id: PACK_ID,
   name: "Materials",
   // P-5: 0.2.0 adds purchase requests, quotes, purchase orders and prices from QuickBooks bills.
-  version: "0.2.0",
+  // §1.88: 0.3.0 adds the vendor catalog and the vendor-first matching skills.
+  version: "0.3.0",
   description:
     "Material cost management and purchasing: the client's catalog of materials, matching invoice lines across vendors, prices and alerts, purchase requests, quotes and purchase orders.",
   requiresConnectors: [],
@@ -235,6 +247,9 @@ export const materialsManifest: PackManifest = lazyParse(PackManifest, () => ({
   tools: ALL_TOOLS.map((t) => t.spec),
   skills: MATERIALS_SKILLS,
   templates: [],
+  // §1.88: Look up existing and Match the unmatched stay registered for stored steps; new steps
+  // use the vendor-first skills.
+  superseded: SUPERSEDED_BY_VENDOR_SKILLS,
   screens: [
     {
       route: "/reports/materials/prices",

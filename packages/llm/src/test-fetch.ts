@@ -50,14 +50,17 @@ export interface ProviderFixture {
 }
 
 /** A hand-written provider answer, e.g. `providerFixture("xai", "plain")`. */
-export function providerFixture(provider: "xai" | "gemini", name: string): ProviderFixture {
+export function providerFixture(
+  provider: "xai" | "gemini" | "openai",
+  name: string,
+): ProviderFixture {
   return JSON.parse(
     readFileSync(resolve(PROVIDER_FIXTURE_DIR, provider, `${name}.json`), "utf8"),
   ) as ProviderFixture;
 }
 
 /** The fixture as the HTTP response the provider would send. */
-export function fixtureResponse(provider: "xai" | "gemini", name: string): Response {
+export function fixtureResponse(provider: "xai" | "gemini" | "openai", name: string): Response {
   const f = providerFixture(provider, name);
   return json(f.body, f.status, f.headers ?? {});
 }

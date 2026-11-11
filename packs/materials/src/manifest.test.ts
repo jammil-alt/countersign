@@ -87,7 +87,7 @@ describe("the Purchasing area's tools and skills", () => {
   ];
 
   it("registers every tool as a read or the pack's own write, with sources on every output", () => {
-    expect(materialsManifest.version).toBe("0.2.0");
+    expect(materialsManifest.version).toBe("0.3.0");
     for (const id of PURCHASING) {
       const spec = materialsManifest.tools.find((t) => t.id === id);
       expect(spec, id).toBeDefined();

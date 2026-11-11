@@ -111,11 +111,17 @@ export function skillIsWriter(
  * here (`isToolWrapper`): its tool is offered as a step instead.
  */
 export function newStepSkillReason(
-  def: Pick<SkillDefinition, "mode" | "method" | "handler" | "tools" | "reads">,
+  def: Pick<SkillDefinition, "mode" | "method" | "handler" | "tools" | "reads"> & { id?: string },
   tools?: SkillToolLookup,
+  /** §1.88: skills replaced for new steps (a pack's `superseded`), id → the replacement's id. */
+  superseded?: Readonly<Record<string, string>>,
 ): string | null {
   const retired = retiredSkillReason(def);
   if (retired) return retired;
+  const by = def.id !== undefined ? superseded?.[def.id] : undefined;
+  if (by) {
+    return `Replaced for new steps by ${by}: steps that already use this skill keep running it.`;
+  }
   const writes = skillWriteTools(def, tools);
   if (writes.length > 0) {
     return `Skills never write: this one changes something through "${writes[0]}". Use the skill that only reads, then a write step.`;

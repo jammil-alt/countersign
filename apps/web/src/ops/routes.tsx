@@ -38,6 +38,7 @@ import {
   // P-9
   OpsClientRequestScreen,
   OpsClientRequestsScreen,
+  OpsClientVendorCatalogScreen,
   OpsPacksScreen,
 } from "../packs/screens";
 import { OpsRecordScreen } from "../records/RecordScreens";
@@ -169,6 +170,11 @@ export const opsRoutes = (
     <Route
       path="clients/:clientId/reports/materials/catalog"
       element={<OpsClientCatalogScreen />}
+    />
+    {/* §1.88: a client's vendor catalog */}
+    <Route
+      path="clients/:clientId/reports/materials/vendor-catalog"
+      element={<OpsClientVendorCatalogScreen />}
     />
     {/* P-9: a client's purchase requests and one request's page */}
     <Route

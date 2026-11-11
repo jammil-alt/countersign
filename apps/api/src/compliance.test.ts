@@ -229,6 +229,39 @@ describe.skipIf(!h)("compliance", () => {
       await expect(
         allowed.create({ model: "openai:gpt-5.5", max_tokens: 10, messages: [] }),
       ).rejects.toBeInstanceOf(ComplianceRefusal);
+
+      // §1.88: the vendor catalog's embeddings go to OpenAI: refused to the HIPAA client.
+      const embedding = {
+        model: "openai:text-embedding-3-large",
+        input: ["3/4 baltic birch"],
+        dimensions: 4,
+      };
+      const withEmbed: LlmTransport = {
+        create: vi.fn(async () => ({}) as never),
+        embed: vi.fn(async () => ({
+          model: "x",
+          embeddings: [[0, 0, 0, 1]],
+          usage: { inputTokens: 1 },
+        })),
+      };
+      const refusedEmbed = await guardModels(
+        withEmbed,
+        A.tenantId,
+        profileReader(harness.db),
+        covered,
+      )
+        .embed?.(embedding)
+        .catch((e: unknown) => e);
+      expect(refusedEmbed).toBeInstanceOf(ComplianceRefusal);
+      expect(String((refusedEmbed as Error).message)).toContain("OpenAI");
+      await guardModels(withEmbed, B.tenantId, profileReader(harness.db), covered).embed?.(
+        embedding,
+      );
+      expect(withEmbed.embed).toHaveBeenCalledTimes(1);
+      // A transport with no embeddings stays without them.
+      expect(
+        guardModels(inner, A.tenantId, profileReader(harness.db), covered).embed,
+      ).toBeUndefined();
     });
   });
 

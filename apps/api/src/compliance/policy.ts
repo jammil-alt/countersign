@@ -9,11 +9,12 @@ import {
   complianceOf,
   type Processor,
   processingRefusal,
+  processorForEmbedding,
   processorForModel,
   processorsForTool,
 } from "@countersign/core";
 import { type Db, tenant } from "@countersign/db";
-import type { LlmTransport } from "@countersign/llm";
+import type { EmbedRequest, LlmTransport } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 
 export class ComplianceRefusal extends Error {
@@ -69,5 +70,20 @@ export function guardModels(
       if (refusal) throw new ComplianceRefusal(refusal);
       return inner.create(request, options);
     },
+    // §1.88: embeddings are held to the same rule, by their own model's provider.
+    ...(inner.embed
+      ? {
+          embed: async (request: EmbedRequest, options?: { signal?: AbortSignal }) => {
+            const refusal = processingRefusal(
+              await profiles(tenantId),
+              covered,
+              [processorForEmbedding(request.model)],
+              `Embedding with ${request.model}`,
+            );
+            if (refusal) throw new ComplianceRefusal(refusal);
+            return (inner.embed as NonNullable<LlmTransport["embed"]>)(request, options);
+          },
+        }
+      : {}),
   };
 }

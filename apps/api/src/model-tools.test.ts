@@ -33,6 +33,14 @@ const INVENTORY: Record<string, readonly string[]> = {
     "materials.match_line",
     "materials.match_lines",
   ],
+  // §1.88: the vendor catalog's searches by meaning, the embedding write, and the upsert, which
+  // embeds a vendor item when it is saved (OpenAI embeddings).
+  "packs/materials/src/vendor/tools.ts": [
+    "materials.vendor_items.similar",
+    "materials.master_items.candidates",
+    "materials.embeddings.write",
+    "materials.vendor_item.upsert",
+  ],
 };
 const DECLARED_WITHOUT_CODE = ["comms.converse"];
 

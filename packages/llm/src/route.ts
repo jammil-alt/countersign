@@ -4,6 +4,7 @@
 // and the back office read a model's provider the same way.
 
 import { type ModelProvider, modelProvider } from "@countersign/core";
+import { EmbeddingsNotSupportedError } from "./embeddings";
 import type { LlmTransport } from "./transport";
 
 export type LlmProvider = ModelProvider;
@@ -40,6 +41,19 @@ export function routingTransport(
       if (!transport)
         return Promise.reject(new ProviderNotConfiguredError(provider, request.model));
       return transport.create(request, options);
+    },
+    // §1.88: embeddings go where their model id says, like any call.
+    embed(request, options) {
+      const provider = providerOf(request.model);
+      const transport = providers[provider];
+      if (!transport)
+        return Promise.reject(new ProviderNotConfiguredError(provider, request.model));
+      if (!transport.embed) {
+        return Promise.reject(
+          new EmbeddingsNotSupportedError(`${provider} offers no embeddings (${request.model})`),
+        );
+      }
+      return transport.embed(request, options);
     },
   };
 }
