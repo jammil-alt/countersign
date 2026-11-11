@@ -437,9 +437,29 @@ describe("command center", () => {
     const list = within(runs).getByTestId("ops-recent-list");
     expect(list).toHaveAttribute("aria-busy", "true");
     expect(within(runs).getByTestId(`ops-recent-${RUN2}`)).toBeInTheDocument();
+    expect(list).toHaveAttribute("inert");
     answer({ runs: [opsRun(RUN, DEMO, AGENT, "failed", "2026-11-09T08:23:00.000Z")], agents: [] });
     await waitFor(() => expect(within(runs).queryByTestId(`ops-recent-${RUN2}`)).toBeNull());
     expect(within(runs).getByTestId("ops-recent-list")).not.toHaveAttribute("aria-busy");
+
+    // Back to every status: the stored answer, not dimmed, while it refreshes behind.
+    api.on("GET /api/ops/runs", () => new Promise(() => {}));
+    await userEvent.selectOptions(within(runs).getByTestId("ops-recent-status"), "all");
+    expect(await within(runs).findByTestId(`ops-recent-${RUN2}`)).toBeInTheDocument();
+    expect(within(runs).getByTestId("ops-recent-list")).not.toHaveAttribute("aria-busy");
+  });
+
+  it("never shows one client's runs under another while a client filter loads", async () => {
+    // Review of #257: `keep` is never for a query that names a client (§1.91).
+    const api = routes();
+    renderAt(api);
+    const runs = await screen.findByTestId("ops-command-runs");
+    await within(runs).findByTestId(`ops-recent-${RUN}`);
+    api.on("GET /api/ops/runs", () => new Promise(() => {}));
+    await userEvent.selectOptions(within(runs).getByTestId("ops-recent-client"), DEMO);
+    expect(within(runs).queryByTestId(`ops-recent-${RUN}`)).toBeNull();
+    expect(within(runs).queryByTestId("ops-recent-list")).toBeNull();
+    expect(within(runs).getByRole("status")).toBeInTheDocument();
   });
 
   it("says so when nothing needs us", async () => {

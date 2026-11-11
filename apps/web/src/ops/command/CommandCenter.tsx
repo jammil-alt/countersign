@@ -38,6 +38,7 @@ import { OPS_PATHS } from "../paths";
 import { failedRunsSince, RUNNING_RUNS, runsLink, WAITING_RUNS } from "../run/links";
 import { age, oversightLine, percent, plural, runChip } from "../run/words";
 import { escalationAction, escalationChip, escalationLine, escalationTone } from "./escalations";
+import { useKept } from "./kept";
 import { usePrefetchOnIntent } from "./prefetch";
 
 /** How often the figures reload, and the recent runs. */
@@ -740,17 +741,17 @@ function RecentRuns() {
   const [client, setClient] = useState("");
   const [state, setState] = useState<RunState>("all");
   const statuses = RUN_STATES.find(([v]) => v === state)?.[2] ?? null;
-  // A filter keeps the rows on screen, dimmed, while the narrower list loads (1.8): the press
-  // answers at once and nothing jumps.
-  const runs = useApi(apiRoutes.opsRuns, {
-    query: {
-      mode: "live",
-      limit: String(RECENT_RUNS_SHOWN),
-      ...(client ? { client } : {}),
-      ...(statuses ? { status: statuses.join(",") } : {}),
-    },
-    keep: true,
-  });
+  // A status filter keeps the rows on screen, dimmed, while the narrower list loads (1.8): the
+  // press answers at once and nothing jumps. A client filter does not (`keep` is never for a query
+  // that names a client, §1.91): one client's runs never show under another's name.
+  const query = {
+    mode: "live" as const,
+    limit: String(RECENT_RUNS_SHOWN),
+    ...(client ? { client } : {}),
+    ...(statuses ? { status: statuses.join(",") } : {}),
+  };
+  const runs = useApi(apiRoutes.opsRuns, { query, keep: !client });
+  const kept = useKept(JSON.stringify(query), runs.data);
   usePoll(runs.reload, true, RUNS_POLL_MS, runs.loading);
   const intent = usePrefetchOnIntent();
 
@@ -820,8 +821,9 @@ function RecentRuns() {
           }
           return (
             <div
-              className={cx("transition-opacity", runs.refreshing && "opacity-60")}
-              aria-busy={runs.refreshing || undefined}
+              className={cx("transition-opacity", kept && "opacity-60")}
+              aria-busy={kept || undefined}
+              inert={kept}
               data-testid="ops-recent-list"
               {...intent}
             >

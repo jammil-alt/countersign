@@ -39,6 +39,7 @@ import {
   type Urgency,
   urgencyOf,
 } from "../command/escalations";
+import { useKept } from "../command/kept";
 import { usePrefetchOnIntent } from "../command/prefetch";
 import { useShareCounts } from "../OpsLayout";
 import { age, NOBODY_TO_ACT_WORDS, plural } from "../run/words";
@@ -100,7 +101,7 @@ export function OpsInboxScreen() {
   const needs = useApi(apiRoutes.opsNeedsUs, calls.needsUs);
   const { data, loading, reload } = state;
   // A switch of view or status is showing the last list while the new one loads.
-  const refreshing = Boolean(state.refreshing) && !state.loading;
+  const kept = useKept(JSON.stringify(calls.inbox), data);
   usePoll(reload, status === "open", 20_000, loading);
   usePoll(needs.reload, true, 20_000, needs.loading);
   // DECISION: Needs us across every client is the frame's count, so this page hands it to the
@@ -199,6 +200,7 @@ export function OpsInboxScreen() {
                 await api.call(apiRoutes.opsUndoInbox, { params: { id: item.id } });
                 setRecent((r) => r.filter((i) => i.id !== item.id));
                 reload();
+                needs.reload();
               }
             : null
         }
@@ -207,6 +209,7 @@ export function OpsInboxScreen() {
         onUndoChange={async () => {
           const out = await api.call(apiRoutes.opsUndoChange, { params: { id: item.id } });
           reload();
+          needs.reload();
           return out;
         }}
         surface="ops"
@@ -253,6 +256,17 @@ export function OpsInboxScreen() {
       />
       {view === "us" && status === "open" && needs.data === undefined && !needs.error ? (
         <SkeletonStats count={URGENCY.length} />
+      ) : view === "us" &&
+        status === "open" &&
+        needs.data !== undefined &&
+        escalations.length === 0 ? (
+        // Where the figures' skeleton was: the page's answer, so nothing below moves up.
+        <EmptyState
+          tone="done"
+          testId="ops-inbox-clear"
+          title="Nothing needs us"
+          line="Approvals delegated to us, escalations and stuck approvals show here."
+        />
       ) : view === "us" && status === "open" && escalations.length > 0 ? (
         <UrgencyFigures
           escalations={escalations}
@@ -330,7 +344,10 @@ export function OpsInboxScreen() {
       <Loaded state={state} skeleton={<InboxSkeleton />}>
         {() =>
           items.length === 0 ? (
-            view === "us" && status === "open" && rows.length > 0 ? null : status === "open" &&
+            view === "us" &&
+            status === "open" &&
+            (rows.length > 0 ||
+              (needs.data !== undefined && escalations.length === 0)) ? null : status === "open" &&
               view === "us" &&
               urgency ? (
               <EmptyState
@@ -358,8 +375,9 @@ export function OpsInboxScreen() {
           ) : (
             <div
               data-testid="ops-inbox-list"
-              className={cx("flex flex-col gap-4 transition-opacity", refreshing && "opacity-60")}
-              aria-busy={refreshing || undefined}
+              className={cx("flex flex-col gap-4 transition-opacity", kept && "opacity-60")}
+              aria-busy={kept || undefined}
+              inert={kept}
               {...intent}
             >
               {items.map(card)}

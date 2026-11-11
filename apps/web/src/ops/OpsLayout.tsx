@@ -100,10 +100,11 @@ function OpsFrame({ children }: { children: ReactNode }) {
   }, [tenantKey, reloadClients]);
 
   // The badges (UI cleanup, stream A): Escalations' count and each client's Needs us and runs
-  // waiting, refreshed on each page change and every 20 s, as the portal's Desk count does.
+  // waiting, refreshed when the place changes (below) and every 20 s, as the portal's Desk count
+  // does.
   // DECISION: one Needs us per refresh (docs/plan.md §1.84). A page that computes them already (the
-  // command center) hands them over through `useShareCounts`, and the frame asks for nothing while
-  // it does; elsewhere the frame asks GET /api/ops/counts. The frame waits for its first effects
+  // command center, Escalations) hands them over through `useShareCounts`, and the frame asks for
+  // nothing while it does; elsewhere the frame asks GET /api/ops/counts. The frame waits for its first effects
   // before asking, so a page that shares is known first and no request is sent for nothing.
   const [shared, setShared] = useState<SharedCounts | undefined>(undefined);
   const [settled, setSettled] = useState(false);

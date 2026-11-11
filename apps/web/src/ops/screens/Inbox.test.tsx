@@ -155,10 +155,16 @@ describe("escalations", () => {
     const card = await screen.findByTestId(`inbox-item-${SANDBOX_ITEM}`);
     await userEvent.click(within(card).getByTestId("inbox-item-approve"));
     const recent = await screen.findByTestId("ops-inbox-recent");
+    // Nothing needs us now: said once, where the urgency figures were.
+    expect(await screen.findByText("Nothing needs us.")).toBeInTheDocument();
+    expect(screen.getByTestId("ops-inbox-clear")).toBeInTheDocument();
+    expect(screen.getAllByText("Nothing needs us")).toHaveLength(1);
     await userEvent.click(within(recent).getByTestId("inbox-item-undo"));
     await waitFor(() => expect(undone).toEqual([SANDBOX_ITEM]));
     await waitFor(() => expect(screen.queryByTestId("ops-inbox-recent")).toBeNull());
     expect(await screen.findByTestId(`inbox-item-${SANDBOX_ITEM}`)).toBeInTheDocument();
+    // Undo puts it back in Needs us too (review of #257): the count is asked again.
+    expect(await screen.findByText("1 thing needs us.")).toBeInTheDocument();
   });
 
   it("lists what else needs us, and what waits in a client's inbox, from the address", async () => {
@@ -296,6 +302,13 @@ describe("escalations", () => {
     expect(screen.getByTestId(`inbox-item-${SANDBOX_ITEM}`)).toBeInTheDocument();
     answer({ items: [], agents: [] });
     expect(await screen.findByText("Nothing resolved yet")).toBeInTheDocument();
+
+    // Back to Open: its stored answer shows at once, not dimmed, while it refreshes behind.
+    api.on("GET /api/ops/inbox", () => new Promise(() => {}));
+    await userEvent.click(screen.getByTestId("ops-inbox-filter-open"));
+    const list = await screen.findByTestId("ops-inbox-list");
+    expect(list).not.toHaveAttribute("aria-busy");
+    expect(list).not.toHaveAttribute("inert");
   });
 
   it("opens a run page's link (assigned=all) on what waits on clients", async () => {
