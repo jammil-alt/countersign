@@ -11,7 +11,7 @@
 // the top bar's switcher is the one "All clients" control. We resolve only what the server marks as
 // ours; resolving resumes the waiting run; an approval can be taken back inside its undo window.
 import type { Escalation, OpsAgentRef } from "@countersign/core";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
@@ -21,21 +21,27 @@ import { OPEN_RESOLVED, StatusFilter } from "../../inbox/StatusFilter";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { AgentBadge } from "../../ui/badges";
+import { cx } from "../../ui/cx";
 import { KpiStrip, StatTile } from "../../ui/figures";
 import { Icon } from "../../ui/icons";
 import { Loaded, Page, Section } from "../../ui/page";
 import { buttonClass, Card, EmptyState, PageHeader } from "../../ui/primitives";
+import { SkeletonCard, SkeletonStats } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import {
   escalationAction,
   escalationChip,
   escalationLine,
+  escalationsCalls,
   escalationTone,
   sinceDate,
   URGENCY,
   type Urgency,
   urgencyOf,
 } from "../command/escalations";
+import { useKept } from "../command/kept";
+import { usePrefetchOnIntent } from "../command/prefetch";
+import { useShareCounts } from "../OpsLayout";
 import { age, NOBODY_TO_ACT_WORDS, plural } from "../run/words";
 // P-6
 import { SCRIPT_DRAFT_SUBJECT, ScriptOfferLink } from "./BrowserScripts";
@@ -87,17 +93,29 @@ export function OpsInboxScreen() {
   const [status, setStatus] = useState<"open" | "resolved">("open");
   // What we just resolved, kept on screen with Undo while its window lasts.
   const [recent, setRecent] = useState<Item[]>([]);
-  const state = useApi(apiRoutes.opsInbox, {
-    query: {
-      assigned: view === "clients" ? "all" : "operator",
-      status,
-      ...(client ? { client } : {}),
-    },
-  });
-  const needs = useApi(apiRoutes.opsNeedsUs, { query: client ? { client } : {} });
+  const calls = escalationsCalls({ view, status, client });
+  // DECISION: switching the view or Open/Resolved keeps the list on screen, dimmed, while the new
+  // one loads (docs/audit-plan.md 1.8); narrowing to one client does not (`keep` is never for a
+  // query that names a client, §1.91), so another client's items never show under its chip.
+  const state = useApi(apiRoutes.opsInbox, { ...calls.inbox, keep: !client });
+  const needs = useApi(apiRoutes.opsNeedsUs, calls.needsUs);
   const { data, loading, reload } = state;
+  // A switch of view or status is showing the last list while the new one loads.
+  const kept = useKept(JSON.stringify(calls.inbox), data);
   usePoll(reload, status === "open", 20_000, loading);
   usePoll(needs.reload, true, 20_000, needs.loading);
+  // DECISION: Needs us across every client is the frame's count, so this page hands it to the
+  // frame, which asks GET /api/ops/counts for nothing while it is open (docs/audit-plan.md 2.3),
+  // as the command center does. Narrowed to one client it has no total to give, and the frame asks.
+  // Per-client counts are not in this answer; no screen under Escalations shows them.
+  const needsCount = needs.data?.count;
+  const shared = useMemo(
+    () =>
+      client ? undefined : needsCount === undefined ? null : { needsUs: needsCount, clients: [] },
+    [client, needsCount],
+  );
+  useShareCounts(shared);
+  const intent = usePrefetchOnIntent();
 
   const setParam = (key: string, value: string | null) => {
     const next = new URLSearchParams(params);
@@ -182,6 +200,7 @@ export function OpsInboxScreen() {
                 await api.call(apiRoutes.opsUndoInbox, { params: { id: item.id } });
                 setRecent((r) => r.filter((i) => i.id !== item.id));
                 reload();
+                needs.reload();
               }
             : null
         }
@@ -190,6 +209,7 @@ export function OpsInboxScreen() {
         onUndoChange={async () => {
           const out = await api.call(apiRoutes.opsUndoChange, { params: { id: item.id } });
           reload();
+          needs.reload();
           return out;
         }}
         surface="ops"
@@ -220,7 +240,6 @@ export function OpsInboxScreen() {
     );
   };
 
-  const needsCount = needs.data?.count;
   return (
     <Page testId="ops-escalations">
       <PageHeader
@@ -235,7 +254,20 @@ export function OpsInboxScreen() {
                 : `${plural(needsCount, "thing needs", "things need")} us.`
         }
       />
-      {view === "us" && status === "open" && escalations.length > 0 ? (
+      {view === "us" && status === "open" && needs.data === undefined && !needs.error ? (
+        <SkeletonStats count={URGENCY.length} />
+      ) : view === "us" &&
+        status === "open" &&
+        needs.data !== undefined &&
+        escalations.length === 0 ? (
+        // Where the figures' skeleton was: the page's answer, so nothing below moves up.
+        <EmptyState
+          tone="done"
+          testId="ops-inbox-clear"
+          title="Nothing needs us"
+          line="Approvals delegated to us, escalations and stuck approvals show here."
+        />
+      ) : view === "us" && status === "open" && escalations.length > 0 ? (
         <UrgencyFigures
           escalations={escalations}
           now={now}
@@ -297,7 +329,11 @@ export function OpsInboxScreen() {
           </span>
         ) : null}
       </div>
-      {view === "us" && status === "open" && rows.length > 0 ? <NeedsUsRows rows={rows} /> : null}
+      {view === "us" && status === "open" && rows.length > 0 ? (
+        <div {...intent}>
+          <NeedsUsRows rows={rows} />
+        </div>
+      ) : null}
       {recent.length > 0 ? (
         <Section title="Just resolved" meta="You can undo an approval for a short while.">
           <div className="flex flex-col gap-4" data-testid="ops-inbox-recent">
@@ -305,10 +341,13 @@ export function OpsInboxScreen() {
           </div>
         </Section>
       ) : null}
-      <Loaded state={state}>
+      <Loaded state={state} skeleton={<InboxSkeleton />}>
         {() =>
           items.length === 0 ? (
-            view === "us" && status === "open" && rows.length > 0 ? null : status === "open" &&
+            view === "us" &&
+            status === "open" &&
+            (rows.length > 0 ||
+              (needs.data !== undefined && escalations.length === 0)) ? null : status === "open" &&
               view === "us" &&
               urgency ? (
               <EmptyState
@@ -334,13 +373,30 @@ export function OpsInboxScreen() {
               />
             )
           ) : (
-            <div data-testid="ops-inbox-list" className="flex flex-col gap-4">
+            <div
+              data-testid="ops-inbox-list"
+              className={cx("flex flex-col gap-4 transition-opacity", kept && "opacity-60")}
+              aria-busy={kept || undefined}
+              inert={kept}
+              {...intent}
+            >
               {items.map(card)}
             </div>
           )
         }
       </Loaded>
     </Page>
+  );
+}
+
+/** The items while they load: cards the height of an inbox card. */
+function InboxSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <SkeletonCard lines={3} />
+      <SkeletonCard lines={3} />
+      <SkeletonCard lines={2} />
+    </div>
   );
 }
 
