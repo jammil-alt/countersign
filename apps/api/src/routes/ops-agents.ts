@@ -11,6 +11,7 @@ import {
   createTemplate,
   createVersion,
   discardDraft,
+  existingBundle,
   fork,
   getAgent,
   getVersion,
@@ -19,7 +20,6 @@ import {
   listTemplates,
   listVersionHeads,
   type OperationalPatch,
-  parentBundle,
   pause,
   publish,
   requiredConnectors,
@@ -290,7 +290,7 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
     // Drafts may be saved with errors (§10.2); the editor shows what would stop a publish.
     // Skill model (2026-11-10): what publish will say about new steps, said now.
     const errors = await validateForPublish(tx, row, v.bundle, services.platform.ctx, {
-      previous: await parentBundle(tx, v),
+      previous: await existingBundle(tx, v),
     });
     return { version: versionSummary(v), errors };
   });
@@ -398,7 +398,7 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
     // template as a template, a client agent with its bound connections, as the builder checks it
     // before it offers Test run (docs/plan.md §1.5).
     const errors = await validateForPublish(ctx.tx, row, v.bundle, ctx.services.platform.ctx, {
-      previous: await parentBundle(ctx.tx, v),
+      previous: await existingBundle(ctx.tx, v),
     });
     if (errors.length > 0) {
       throw new HttpError(422, "invalid_bundle", `v${v.version} does not validate`, errors);

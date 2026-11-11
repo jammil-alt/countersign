@@ -115,6 +115,8 @@ export async function installPlatformTemplate(
       await publish(tx, {
         agentId: templateId,
         versionId: made.version.id,
+        // Review: the platform's first version, from code: none of its steps is new work.
+        installed: true,
         actorId: input.actorId,
         ctx: input.platform.ctx,
       });

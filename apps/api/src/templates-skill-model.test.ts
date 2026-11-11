@@ -461,6 +461,13 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
     // As staging has it: v1 and v2, the pack's, v2 live.
     const tpl = await withOperator(H.db, [H.A.tenantId], async (tx) => {
       const made = await createTemplate(tx, { slug: t.slug, bundle: t.bundle, authorType: "pack" });
+      // Review: the pack's install published v1 (from code), so v2 is checked against it.
+      await publish(tx, {
+        agentId: made.agent.id,
+        versionId: made.version.id,
+        installed: true,
+        ctx: H.platform.ctx,
+      });
       const second = await createVersion(tx, {
         agentId: made.agent.id,
         bundle: v2,

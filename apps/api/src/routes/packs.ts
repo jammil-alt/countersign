@@ -173,6 +173,8 @@ async function installTemplates(
     await publish(tx, {
       agentId: made.agent.id,
       versionId: made.version.id,
+      // Review: the pack's first version, from code: none of its steps is new work.
+      installed: true,
       actorId,
       ctx: services.platform.ctx,
     });

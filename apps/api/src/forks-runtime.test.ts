@@ -5,7 +5,7 @@
 // step and node) so an `if` routes in the retry as it did in the run retried. Fix 3: a model-mode
 // skill's carried write, read by `stepWrites` through this run's tool calls.
 
-import { dbCarriedActions } from "@countersign/agents";
+import { dbCarriedActions, getVersion, parseVersionBundle, publish } from "@countersign/agents";
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { bundleHash, processes } from "@countersign/core";
 import {
@@ -16,6 +16,7 @@ import {
   inboxItem,
   stepRun,
   toolCall,
+  withOperator,
 } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { inboxEventType } from "@countersign/workflows";
@@ -376,13 +377,17 @@ describe.skipIf(!h)("forks on a failure or an answer, against the database", () 
         "act",
         ["custom:pay-vendor"],
       );
-      // Publishing copies the shared skill into the client, where its runs read it.
-      const pub = await H.call(
-        OPERATOR,
-        "POST",
-        `/api/ops/agents/${agentId}/versions/${version}/publish`,
+      // Publishing copies the shared skill into the client, where its runs read it. The version
+      // stands for one published before the skill model: its steps are already there (review: a
+      // version never published is new work, so the API's publish would refuse its step).
+      await withOperator(H.db, [H.A.tenantId], async (tx) =>
+        publish(tx, {
+          agentId,
+          versionId: version,
+          ctx: H.platform.ctx,
+          existingFrom: parseVersionBundle((await getVersion(tx, version)).bundle),
+        }),
       );
-      expect(pub.status, JSON.stringify(pub.json)).toBe(200);
       // Nobody answers the request for help (the default wait times out).
       const first = params(version);
       const result = await executeRun(
