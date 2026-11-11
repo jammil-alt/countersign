@@ -14,6 +14,18 @@ export interface BrowserCookie {
   httpOnly: boolean;
   secure: boolean;
   sameSite: "Strict" | "Lax" | "None";
+  /** A partitioned (CHIPS) cookie's top-level site, as Playwright keeps it; absent otherwise. */
+  partitionKey?: string;
+}
+
+/** What a `fill` may ask of the tab before it types. */
+export interface BrowserFillOptions {
+  /**
+   * Origins (`https://host[:port]`) the tab must be on, by the browser's own address at the moment
+   * of typing; on any other address nothing is typed and the fill fails. Sign-in passes the site's
+   * login origins, so a secret is never typed where a page moved by itself.
+   */
+  onlyOn?: readonly string[];
 }
 
 /** A table on the page: header cells and body rows, as text. */
@@ -52,10 +64,16 @@ export interface BrowserDownload {
 export interface BrowserTab {
   /** The address the tab is on now (after redirects and scripts). */
   url(): string;
+  /**
+   * The address, asked of the browser itself. A remote tab's `url()` is the address as of its last
+   * call, which can be minutes old after a wait (a sign-in's code); sign-in asks this before it
+   * types. Absent: `url()` is already live.
+   */
+  where?(): Promise<string>;
   /** Opens an address and waits for the page to load. */
   goto(url: string): Promise<void>;
   /** Types into the element `selector` names (replacing what was there). */
-  fill(selector: string, value: string): Promise<void>;
+  fill(selector: string, value: string, options?: BrowserFillOptions): Promise<void>;
   /** Clicks it and waits for the page to settle. */
   click(selector: string): Promise<void>;
   /** Whether an element matching `selector` is on the page. */
@@ -113,7 +131,7 @@ export interface BrowserDriver {
 // through its `BROWSER` service binding. The service makes no decision: apps/api's connector keeps
 // the permission gate, pinned origins, the blocked tier, the vault, the audit and external actions,
 // and drives the tab below one primitive at a time. A secret typed by `fill` crosses for that one
-// call and is never logged, stored or returned.
+// call, with the origins apps/api allows it on, and is never written to a log, stored or returned.
 
 /**
  * What a tab call answers over RPC: its value, and the address the tab was on when the call ended
@@ -127,7 +145,10 @@ export interface BrowserTabAnswer<T> {
 /** One tab in the browser service, as apps/api holds it: every `BrowserTab` method, over RPC. */
 export interface BrowserTabService {
   goto(url: string): Promise<BrowserTabAnswer<null>>;
-  fill(selector: string, value: string): Promise<BrowserTabAnswer<null>>;
+  /** `onlyOn`: the fill's origins (`BrowserFillOptions`), checked on the live address. */
+  fill(selector: string, value: string, onlyOn?: string[]): Promise<BrowserTabAnswer<null>>;
+  /** The live address (`BrowserTab.where`), in the answer's `url`. */
+  where(): Promise<BrowserTabAnswer<null>>;
   click(selector: string): Promise<BrowserTabAnswer<null>>;
   has(selector: string): Promise<BrowserTabAnswer<boolean>>;
   readText(): Promise<BrowserTabAnswer<string>>;

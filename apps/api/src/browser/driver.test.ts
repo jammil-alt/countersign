@@ -69,4 +69,13 @@ describe("browserRunOpener", () => {
     const refused = browserRunOpener({ BROWSER: service("invalid").binding });
     await expect(refused?.({ hosts: ["a.test"] })).rejects.toThrow(/refused: invalid answer/);
   });
+
+  it("refuses an answer outside the contract", async () => {
+    for (const answer of [null, { ok: true, url: "about:blank" }, { ok: "yes" }, { ok: false }]) {
+      const open = browserRunOpener({
+        BROWSER: { open: async () => answer } as unknown as BrowserService,
+      });
+      await expect(open?.({ hosts: ["a.test"] })).rejects.toThrow(/unexpected answer to open/);
+    }
+  });
 });

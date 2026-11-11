@@ -249,13 +249,15 @@ in by our code (docs/plan.md §1.26). Browser Run and Playwright run in the **br
 
 - **What it has.** Its own `wrangler.jsonc` with the Browser Run binding (`"browser": {"binding":
   "BROWSER"}`) in staging and production only, and nothing else: no secrets, no Hyperdrive, no R2,
-  no route, no workers.dev or preview URL. It logs nothing.
+  no route, no workers.dev or preview URL. Our code in it writes no log line; Workers Logs keeps
+  each invocation's metadata and any thrown error's message, and no message carries a typed value
+  or a cookie.
 - **How apps/api reaches it.** Only through apps/api's `BROWSER` service binding, entrypoint
   `Browsers` (`apps/api/wrangler.jsonc`): `open({hosts, keepAliveMs})` answers one tab that apps/api
   drives one call at a time (go to, fill, click, read, download, close). apps/api keeps every
   decision: the permission gate, pinned origins, the blocked tier, the vault read, the audit and
-  external actions. A site's password or a code crosses for one `fill` call and is never logged,
-  kept or returned; codes still come only from the code service.
+  external actions. A site's password or a code crosses for one `fill` call, held to the login
+  origins `apps/api` gives it, and is never written to a log, kept or returned; codes still come only from the code service.
 - **Deploy order.** `deploy.yml` deploys the code service, then the browser service, then apps/api,
   whose service bindings need both Workers to exist. The browser service needs no secret.
 - **Locally** neither Worker is bound: `pnpm dev` runs without them, website logins show "Not

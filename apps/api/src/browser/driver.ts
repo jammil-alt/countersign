@@ -6,8 +6,27 @@
 // audit, external actions) stays here, in the connector that drives the tab. Closing the tab
 // destroys the browser.
 
-import { type BrowserTab, remoteBrowserTab } from "@countersign/connectors";
+import { type BrowserTab, type BrowserTabService, remoteBrowserTab } from "@countersign/connectors";
+import { z } from "zod";
 import type { Bindings } from "../env";
+
+/**
+ * `open`'s answer (connectors' `BrowserOpenAnswer`), checked (invariant 5). The tab is an RPC stub,
+ * so only its presence is checked here; each of its answers is checked by `remoteBrowserTab`.
+ */
+const OpenAnswer = z.discriminatedUnion("ok", [
+  z.object({
+    ok: z.literal(true),
+    url: z.string(),
+    tab: z.custom<BrowserTabService>(
+      (v) => v !== null && (typeof v === "object" || typeof v === "function"),
+    ),
+  }),
+  z.object({
+    ok: z.literal(false),
+    error: z.object({ code: z.enum(["no_browser", "invalid"]), message: z.string() }),
+  }),
+]);
 
 /** Opens a fresh browser for one site in the browser service; undefined without the binding. */
 // DECISION: the binding keeps the name `BROWSER` (now a service binding, not Browser Run itself),
@@ -20,10 +39,13 @@ export function browserRunOpener(
   const service = env.BROWSER;
   if (!service) return undefined;
   return async ({ hosts, keepAliveMs }) => {
-    const opened = await service.open({
+    const answer = await service.open({
       hosts,
       ...(keepAliveMs === undefined ? {} : { keepAliveMs }),
     });
+    const parsed = OpenAnswer.safeParse(answer);
+    if (!parsed.success) throw new Error("the browser service gave an unexpected answer to open");
+    const opened = parsed.data;
     if (opened.ok) return remoteBrowserTab(opened.tab, opened.url);
     // No Browser Run behind the service: the same as no browser here.
     if (opened.error.code === "no_browser") return null;

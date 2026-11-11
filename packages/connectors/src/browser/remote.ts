@@ -16,6 +16,7 @@ const Cookie = z.object({
   httpOnly: z.boolean(),
   secure: z.boolean(),
   sameSite: z.enum(["Strict", "Lax", "None"]),
+  partitionKey: z.string().optional(),
 });
 const Table = z.object({ headers: z.array(z.string()), rows: z.array(z.array(z.string())) });
 const Control = z
@@ -84,8 +85,17 @@ export function remoteBrowserTab(stub: BrowserTabService, url: string): BrowserT
     goto: async (to) => {
       await take("goto", none, stub.goto(to));
     },
-    fill: async (selector, value) => {
-      await take("fill", none, stub.fill(selector, value));
+    where: async () => {
+      await take("where", none, stub.where());
+      return current;
+    },
+    fill: async (selector, value, options) => {
+      const onlyOn = options?.onlyOn;
+      await take(
+        "fill",
+        none,
+        onlyOn ? stub.fill(selector, value, [...onlyOn]) : stub.fill(selector, value),
+      );
     },
     click: async (selector) => {
       await take("click", none, stub.click(selector));
@@ -100,7 +110,10 @@ export function remoteBrowserTab(stub: BrowserTabService, url: string): BrowserT
       await take("readOnly", none, stub.readOnly(on));
     },
     download: (from) => take("download", Download, stub.download(from)),
-    cookies: () => take("cookies", z.array(Cookie), stub.cookies()),
+    cookies: async () =>
+      (await take("cookies", z.array(Cookie), stub.cookies())).map(({ partitionKey, ...c }) =>
+        partitionKey === undefined ? c : { ...c, partitionKey },
+      ),
     setCookies: async (cookies) => {
       await take("setCookies", none, stub.setCookies(cookies));
     },

@@ -113,6 +113,53 @@ describe("serveTab", () => {
     );
   });
 
+  it("types only on the origins it is given, by the browser's own address now", async () => {
+    let live = "https://portal.supplier.test/verify";
+    const t = tab({
+      url: () => "https://portal.supplier.test/verify",
+      where: async () => live,
+    });
+    const served = serveTab(t);
+    const origins = ["https://portal.supplier.test"];
+    await served.fill("#code", "735019", origins);
+    expect(t.log).toEqual(["fill #code"]);
+    // The page moved by itself; the tab's last-known address still says the login origin.
+    live = "https://login.evil.test/verify";
+    await expect(served.fill("#code", "735019", origins)).rejects.toThrow(
+      /^the page is not on an allowed origin; nothing was typed$/,
+    );
+    expect(t.log).toEqual(["fill #code"]);
+    expect(await served.where()).toEqual({ url: "https://login.evil.test/verify", value: null });
+    await expect(served.fill("#code", "1", [])).rejects.toThrow("invalid origins");
+  });
+
+  it("keeps a partitioned cookie's partition both ways", async () => {
+    const kept: unknown[] = [];
+    const cookie = {
+      name: "sid",
+      value: "v",
+      domain: "portal.supplier.test",
+      path: "/",
+      expires: -1,
+      httpOnly: true,
+      secure: true,
+      sameSite: "None" as const,
+      partitionKey: "https://supplier.test",
+    };
+    const served = serveTab(
+      tab({
+        cookies: async () => [cookie],
+        setCookies: async (c) => {
+          kept.push(...c);
+        },
+      }),
+    );
+    const remote = remoteBrowserTab(served, "about:blank");
+    expect(await remote.cookies()).toEqual([cookie]);
+    await remote.setCookies([cookie]);
+    expect(kept).toEqual([cookie]);
+  });
+
   it("refuses input outside the contract before the browser sees it", async () => {
     const t = tab();
     const served = serveTab(t);

@@ -78,6 +78,9 @@ branches.
   - write-only, and never shown to anyone, the operator included;
   - never given to a model; tool code gets them for one step (invariant 13).
 - **Second-factor codes** live only in the separate code service (`apps/mfa`), with its own key.
+- **Browser logins** are typed by the separate browser service (`apps/browser`), which holds no
+  secrets: `apps/api` hands it a password or a code for one `fill`, held to the site's login
+  origins, and it never stores, logs or returns one.
 
 ## 5. Where client data may go
 

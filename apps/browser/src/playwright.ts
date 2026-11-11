@@ -57,6 +57,15 @@ export interface PlaywrightTabOptions {
   navigationWaitMs?: number;
 }
 
+/** An address's origin (`https://host[:port]`); empty for anything that isn't one. */
+function originOf(address: string): string {
+  try {
+    return new URL(address).origin;
+  } catch {
+    return "";
+  }
+}
+
 /**
  * The page walk behind `readText` and `readTables`: password inputs, hidden inputs, one-time-code
  * and password-autocomplete fields, scripts and elements hidden from view are left out; other form
@@ -278,7 +287,15 @@ export function playwrightTab(page: PlaywrightPageLike, options: PlaywrightTabOp
     async goto(url) {
       await page.goto(url, { waitUntil: "load", timeout });
     },
-    async fill(selector, value) {
+    // The browser's own address: Playwright keeps it from the browser's navigation events.
+    where: async () => page.url(),
+    async fill(selector, value, fillOptions) {
+      const onlyOn = fillOptions?.onlyOn;
+      // DECISION: checked here, on the page's address at the moment of typing, as well as by the
+      // connector before: a page that moved by itself gets nothing (docs/plan.md §1.26).
+      if (onlyOn && !onlyOn.includes(originOf(page.url()))) {
+        throw new Error("the page is not on an allowed origin; nothing was typed");
+      }
       await page.fill(selector, value, { timeout });
     },
     async click(selector) {

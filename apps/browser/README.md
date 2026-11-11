@@ -7,6 +7,8 @@ tool calls, so apps/api carries neither. It decides nothing. apps/api reaches it
 pinned origins, the blocked tier, the vault read, the audit and external actions. It has no
 secrets, no database, no storage and no route (`scripts/check-deps.mjs` holds its code to
 connectors' and core's types, and its runtime dependencies to `@cloudflare/playwright` and zod).
+Our code writes no log line; Workers Logs keeps invocation metadata and thrown errors' messages,
+none of which carries a typed value or a cookie.
 
 | File | What |
 |---|---|
@@ -27,7 +29,9 @@ connectors' and core's types, and its runtime dependencies to `@cloudflare/playw
 3. apps/api drives the tab through connectors' `remoteBrowserTab`: go to the login page, check its
    origin, fill the username and password (each crosses for that one call), click, claim the code
    from the code service and fill it, read, download, sign out. Every answer brings the tab's
-   address back, which the connector checks.
+   address back, which the connector checks. Before each sign-in `fill` the connector asks the
+   browser where it is now (`where`), and the fill carries the login origins, so the service types
+   nothing on any other address, even if the page moved during the code wait.
 4. `close` closes the browser. If apps/api lets go of the tab without closing it, the runtime
    disposes the target and the service closes the browser.
 
