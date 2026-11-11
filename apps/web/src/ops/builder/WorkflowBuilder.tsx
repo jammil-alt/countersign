@@ -819,8 +819,19 @@ function BuilderBody(
     }
   };
 
+  // Publishing (the save before it included): the button says so at once and can't be pressed
+  // twice; nothing reads as published before the server says it is (1.8, invariant 8).
+  const [publishing, setPublishing] = useState(false);
   const onPublish = async () => {
     setNotice(null);
+    setPublishing(true);
+    try {
+      await publishLatest();
+    } finally {
+      setPublishing(false);
+    }
+  };
+  const publishLatest = async () => {
     const v = dirty ? await save() : saved;
     if (!v) return;
     const res = await action.call(apiRoutes.opsPublish, {
@@ -961,11 +972,15 @@ function BuilderBody(
               <Button
                 variant="primary"
                 data-testid="builder-publish"
-                disabled={publishBlocked !== null || action.busy}
+                disabled={publishBlocked !== null || action.busy || publishing}
                 title={publishBlocked ?? undefined}
                 onClick={onPublish}
               >
-                {dirty ? "Save and publish" : `Publish v${saved.version}`}
+                {publishing
+                  ? "Publishing…"
+                  : dirty
+                    ? "Save and publish"
+                    : `Publish v${saved.version}`}
               </Button>
             )}
           </>

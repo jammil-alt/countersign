@@ -511,11 +511,13 @@ describe("back-office run view", () => {
     // Still waiting: nothing reads as approved before the server says so.
     expect(screen.getByTestId("ops-run-status")).toHaveTextContent("Waiting for approval");
     answer({ item: { ...detail("resolved").inbox[0] } });
+    // Answered: the block stays shut until the run reloads without this wait, so a second press
+    // can't send the decision again.
     await waitFor(() =>
-      expect(within(block).getByTestId("ops-run-waiting-approve")).not.toHaveTextContent(
-        "Sending…",
-      ),
+      expect(within(block).getByTestId("ops-run-waiting-approve")).toHaveTextContent("Approved"),
     );
+    expect(within(block).getByTestId("ops-run-waiting-approve")).toBeDisabled();
+    expect(within(block).getByTestId("ops-run-waiting-reject")).toBeDisabled();
   });
 
   it("shows a refused decision beside the buttons (1.8)", async () => {

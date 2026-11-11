@@ -82,6 +82,7 @@ function AgentTabs({
   versions,
   workflowActive,
   agentId,
+  isClient = false,
 }: {
   base: string;
   keep: string;
@@ -90,6 +91,8 @@ function AgentTabs({
   workflowActive: boolean;
   /** Known: hovering or focusing a tab fetches that tab's own data (1.5, 1.6). */
   agentId?: string | undefined;
+  /** A client agent; a template's Runs and Versions tabs prefetch nothing. */
+  isClient?: boolean;
 }) {
   const intent = useIntent();
   // The tabs are shared links (ui/primitives' `Tabs`): which one the pointer or focus is on is
@@ -98,6 +101,8 @@ function AgentTabs({
     if (!agentId || !(target instanceof Element)) return null;
     const href = target.closest("a")?.getAttribute("href") ?? "";
     const tab = href.slice(base.length).split(/[/?]/)[1] ?? "";
+    // A template has no runs, activation or go-live stage: its Runs and Versions tabs ask none.
+    if (!isClient && (tab === "runs" || tab === "versions")) return null;
     const run = TAB_PREFETCH[tab];
     return run ? intent(`${agentId}:${tab}`, (p) => run(p, agentId)) : null;
   };
@@ -172,6 +177,7 @@ export function AgentFrameSkeleton({
       versions={null}
       workflowActive={workflowActive}
       agentId={summary?.id}
+      isClient={summary?.kind === "client"}
     />
   ) : (
     <div className="h-4" />
@@ -354,6 +360,7 @@ export function AgentScreen({
       versions={versions.length}
       workflowActive={builder !== null || workflowTab !== null}
       agentId={view.id}
+      isClient={view.kind === "client"}
     />
   );
   const lineage = (

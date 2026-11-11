@@ -534,7 +534,7 @@ function ChangeForm({
               data-testid="ops-ledger-sign"
               onClick={() => void sign()}
             >
-              Sign and save
+              {busy ? "Signing…" : "Sign and save"}
             </Button>
           </div>
         </>

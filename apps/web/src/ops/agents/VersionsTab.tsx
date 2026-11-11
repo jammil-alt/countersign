@@ -234,7 +234,8 @@ export function VersionsTab({
                           {action.busy && pressed === v.id ? "Publishing…" : "Publish"}
                         </Button>
                       ) : v.id !== liveId ? (
-                        confirming === v.id ? (
+                        // The confirm stays, disabled and saying so, until the answer (1.8).
+                        confirming === v.id || (action.busy && pressed === v.id) ? (
                           <Button
                             data-testid={`agent-version-${v.version}-rollback-confirm`}
                             disabled={action.busy}

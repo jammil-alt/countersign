@@ -298,7 +298,8 @@ function StatusCard({
           </Button>
         ) : null}
         {status !== "retired" ? (
-          retiring ? (
+          // The confirm button stays, disabled and saying "Retiring…", until the server answers.
+          retiring || busyWith("retire") ? (
             <Button
               data-testid="agent-retire-confirm"
               disabled={action.busy}

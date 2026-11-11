@@ -339,6 +339,7 @@ export function OpsRunScreen() {
         />
         {wait ? (
           <WaitingBlock
+            key={wait.item.id}
             wait={wait}
             data={data}
             onResolve={resolve}
@@ -455,7 +456,10 @@ function WaitingBlock({
   // block goes only when the server has the decision (rule 7, invariant 8).
   const [pressed, setPressed] = useState<"approve" | "reject" | null>(null);
   const [problem, setProblem] = useState<unknown>(null);
-  const busy = pressed !== null;
+  // The server has the decision: the block stays shut until the run reloads without this wait
+  // (the block is keyed by its item), so a second press can't send it twice.
+  const [sent, setSent] = useState<"approve" | "reject" | null>(null);
+  const busy = pressed !== null || sent !== null;
   const item = wait.item;
   const action = data.actions.find((a) => a.inboxItemId === item.id);
   const connector = action
@@ -467,6 +471,7 @@ function WaitingBlock({
     setProblem(null);
     try {
       await onResolve(item.id, { decision });
+      setSent(decision);
     } catch (e) {
       setProblem(e);
     } finally {
@@ -505,7 +510,7 @@ function WaitingBlock({
               disabled={busy}
               onClick={() => void act("reject")}
             >
-              {pressed === "reject" ? "Sending…" : "Reject"}
+              {pressed === "reject" ? "Sending…" : sent === "reject" ? "Rejected" : "Reject"}
             </Button>
             <Button
               data-testid="ops-run-waiting-approve"
@@ -515,9 +520,11 @@ function WaitingBlock({
             >
               {pressed === "approve"
                 ? "Sending…"
-                : connector
-                  ? `Approve and update ${connector}`
-                  : "Approve"}
+                : sent === "approve"
+                  ? "Approved"
+                  : connector
+                    ? `Approve and update ${connector}`
+                    : "Approve"}
             </Button>
           </div>
         ) : wait.mine ? (

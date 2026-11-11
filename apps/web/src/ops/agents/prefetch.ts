@@ -46,14 +46,12 @@ export function prefetchAgent(prefetch: Prefetch, agentId: string): void {
   prefetch(apiRoutes.opsAgent, { params: { id: agentId } });
 }
 
+// The agent and run pages are in the back office's own chunk, already loaded wherever these links
+// are, so there is no chunk to start on hover; the Workflow tab's builder is its own chunk (below).
+
 /** A run page's first call. */
 export function prefetchRun(prefetch: Prefetch, runId: string): void {
   prefetch(apiRoutes.opsRun, { params: { id: runId } });
-}
-
-/** A client page's first call (its frame). */
-export function prefetchClient(prefetch: Prefetch, clientId: string): void {
-  prefetch(apiRoutes.opsClient, { params: { id: clientId } });
 }
 
 /**
