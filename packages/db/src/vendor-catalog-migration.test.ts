@@ -125,7 +125,7 @@ describe.skipIf(!online)("0047 on a database the previous Worker used", () => {
     >`select id, catalog_item_id, sku, name, vendor_uom, std_per_vendor_uom::text,
         last_price::text, last_price_std::text, last_price_on::text, last_price_source,
         last_price_source_id::text, status, preferred
-      from vendor_item where tenant_id = ${tenantId} order by sku nulls last`;
+      from vendor_item where tenant_id = ${tenantId} order by sku collate "C" nulls last`;
 
   it("adds vendor_item with forced row-level security, as the pack's", async () => {
     const [row] = await t.db.$client<
@@ -200,7 +200,8 @@ describe.skipIf(!online)("0047 on a database the previous Worker used", () => {
     const [bb, screws] = await vendorItems(A.tenantId);
     const aliases = await t.db.$client<{ key: string; vendor_item_id: string | null }[]>`
       select coalesce(vendor_sku, normalized_description) as key, vendor_item_id::text
-      from item_alias where tenant_id = ${A.tenantId} order by key`;
+      from item_alias where tenant_id = ${A.tenantId}
+      order by coalesce(vendor_sku, normalized_description) collate "C"`;
     expect(aliases).toEqual([
       { key: "#8 x 1 1/4 wood screw", vendor_item_id: screws?.id },
       { key: "3/4 bb/bb baltic birch 5x5", vendor_item_id: bb?.id },
