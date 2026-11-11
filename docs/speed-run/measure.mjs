@@ -52,7 +52,7 @@ const email = who === "ops" ? "operator@example.com" : "dana@harbor-millwork.exa
 // Statements logged since `offset`, leaving out begin, commit and rollback.
 const sqlSince = (offset) => {
   let work = 0;
-  for (const line of fs.readFileSync(LOG, "utf8").slice(offset).split("\n")) {
+  for (const line of fs.readFileSync(LOG).subarray(offset).toString("utf8").split("\n")) {
     const m = line.match(/LOG:\s+(?:statement|execute [^:]*):\s*(.*)$/);
     if (m && !/^(begin|commit|rollback)/i.test(m[1].trim())) work++;
   }
