@@ -171,9 +171,16 @@ function migrationsUpTo(tag: string): string {
 
 /**
  * Bumped when the template's set-up changes in a way the hashed files don't show (extensions, roles,
- * the order of steps), so an old template is not reused.
+ * the order of steps), so an old template is not reused. The hash does not cover the versions of
+ * the extensions on the server (pgvector, pg_trgm, pgcrypto) or of drizzle-orm's migrator: a
+ * local server or drizzle upgrade keeps the old template until this is bumped or the template is
+ * dropped by hand (`DROP DATABASE` after `ALTER DATABASE … IS_TEMPLATE false`). CI always builds
+ * a fresh one.
  */
 const TEMPLATE_SETUP = 1;
+
+/** A template not built for this long is another checkout's old one, and is dropped. */
+const TEMPLATE_KEEP_DAYS = 7;
 
 /** What the template is built from: every migration file, the role script and the set-up version. */
 function templateHash(): string {
@@ -249,19 +256,34 @@ async function buildTemplate(admin: postgres.Sql, name: string): Promise<void> {
   await createBareDatabase(admin, building, url);
   await migrateAsOwner(url);
   await ensureWorker(admin, url);
-  // Complete: give it its name, and take connections away so nothing changes it after this.
+  // Complete: take connections away so nothing changes it after this, then give it its name. The
+  // comment records when it was built, for the clean-up below.
+  await admin.unsafe(`ALTER DATABASE ${building} WITH ALLOW_CONNECTIONS false IS_TEMPLATE true`);
   await admin.unsafe(`ALTER DATABASE ${building} RENAME TO ${name}`);
-  await admin.unsafe(`ALTER DATABASE ${name} WITH ALLOW_CONNECTIONS false IS_TEMPLATE true`);
-  // Older templates (earlier migrations) are dropped; one still being copied is left for later.
-  const old = await admin<{ datname: string }[]>`
-    select datname from pg_database
-    where datname like ${`${TEMPLATE_PREFIX}%`} and datname <> ${name}`;
-  for (const { datname } of old) {
+  await admin.unsafe(`COMMENT ON DATABASE ${name} IS 'built ${new Date().toISOString()}'`);
+  await dropOldTemplates(admin, name);
+}
+
+/**
+ * Drops the templates of other migrations built more than TEMPLATE_KEEP_DAYS ago. Several local
+ * checkouts can share one server, each with its own template, so a newer one is kept: dropping it
+ * would only make that checkout build it again. A template dropped under a running test process
+ * is rebuilt by `createTestDatabase`; one being copied right now makes the drop wait.
+ */
+async function dropOldTemplates(admin: postgres.Sql, current: string): Promise<void> {
+  const rows = await admin<{ datname: string; note: string | null }[]>`
+    select datname, shobj_description(oid, 'pg_database') as note from pg_database
+    where datistemplate and starts_with(datname, ${TEMPLATE_PREFIX}) and datname <> ${current}
+      and right(datname, 9) <> '_building'`;
+  const cutoff = Date.now() - TEMPLATE_KEEP_DAYS * 24 * 60 * 60 * 1000;
+  for (const { datname, note } of rows) {
+    const built = Date.parse(note?.match(/^built (\S+)$/)?.[1] ?? "");
+    if (built > cutoff) continue;
     try {
       await admin.unsafe(`ALTER DATABASE ${datname} WITH IS_TEMPLATE false`);
       await admin.unsafe(`DROP DATABASE ${datname}`);
     } catch {
-      // In use by another run's CREATE DATABASE; the next build drops it.
+      // Gone already, or locked by another run; the next build tries again.
     }
   }
 }
@@ -297,8 +319,18 @@ export async function createTestDatabase(
     if (options.migrate === false) {
       await createBareDatabase(admin, name, url);
     } else {
-      const from = await migratedTemplate(admin);
-      await admin.unsafe(`CREATE DATABASE ${name} TEMPLATE ${from} OWNER cs_owner`);
+      try {
+        await admin.unsafe(
+          `CREATE DATABASE ${name} TEMPLATE ${await migratedTemplate(admin)} OWNER cs_owner`,
+        );
+      } catch (error) {
+        // Another checkout's clean-up dropped the template this process had found: build it again.
+        if ((error as { code?: string }).code !== "3D000") throw error;
+        template = undefined;
+        await admin.unsafe(
+          `CREATE DATABASE ${name} TEMPLATE ${await migratedTemplate(admin)} OWNER cs_owner`,
+        );
+      }
       // The role is cluster-wide: a template from an earlier run still needs today's cs_worker.
       await ensureWorker(admin, url);
     }

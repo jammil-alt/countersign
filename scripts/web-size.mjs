@@ -13,11 +13,12 @@ import { dirname, join, normalize, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
-// DECISION: the budget is today's first load plus 2%, so it stops growth now: 596.0 kB measured
-// as above on 2026-11-11 (speed/run at 7bdef95; Vite's own printout says 601 kB for the same three
-// files, at another gzip level), so 608 kB. It is lowered to phase 4's target, 300 kB, once phase 4
-// lands (docs/audit-plan.md). The one place it is set; kB here are 1,000 bytes, as Vite prints.
-export const BUDGET_KB = 608;
+// DECISION: the budget is today's first load plus 2%, so it stops growth now: 627.9 kB measured
+// as above on 2026-11-11 (speed/run at 7bdef95), built with a Sentry DSN as deploys are (596.0 kB
+// without one; checks.yml builds with a placeholder DSN), so 641 kB. It is lowered to phase 4's
+// target, 300 kB, once phase 4 lands (docs/audit-plan.md). The one place it is set; kB here are
+// 1,000 bytes, as Vite prints.
+export const BUDGET_KB = 641;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = process.argv[2] ?? join(root, "apps/web/dist");

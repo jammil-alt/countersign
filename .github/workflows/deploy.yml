@@ -145,8 +145,9 @@ jobs:
           url=$(npx --yes neonctl@4.22.0 connection-string "$branch" \
             --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
           echo "::add-mask::$url"
-          # No --if-present: a renamed script must fail the deploy, not skip the migration.
-          DIRECT_DATABASE_URL="$url" pnpm --filter @countersign/db run db:migrate
+          # No --if-present, and --fail-if-no-match: a renamed script or package must fail the deploy, not
+          # skip the migration.
+          DIRECT_DATABASE_URL="$url" pnpm --filter @countersign/db --fail-if-no-match run db:migrate
 
       # The code service (apps/mfa, ARCHITECTURE §6.9) first: apps/api's `CODES` service binding
       # points at it. Its own Worker, Durable Objects and secrets; never apps/api's.
@@ -191,9 +192,9 @@ jobs:
           VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN_WEB || secrets.SENTRY_DSN_WEB }}
           VITE_SENTRY_RELEASE: ${{ github.sha }}
           SENTRY_SOURCEMAPS: ${{ secrets.SENTRY_AUTH_TOKEN != '' && '1' || '' }}
-        # No --if-present, as for db:migrate: a renamed script must fail here, not leave the Worker
-        # to deploy without the app it serves.
-        run: pnpm --filter @countersign/web run build
+        # No --if-present, and --fail-if-no-match, as for db:migrate: a renamed script or package must fail
+        # here, not leave the Worker to deploy without the app it serves.
+        run: pnpm --filter @countersign/web --fail-if-no-match run build
 
       # Readable browser stack traces in Sentry: upload the web build's source maps for this
       # release, then delete them so they are never served. A notice or a warning, never a failure.
