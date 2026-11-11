@@ -186,7 +186,9 @@ const COPY_DEFINITION = {
   producesAlerts: false,
 };
 
-const COPY = SKILLS.find((s) => s.id === COPY_ID) as ReturnType<typeof listItem>;
+const COPY = SKILLS.find((s) => (s as { id?: string }).id === COPY_ID) as ReturnType<
+  typeof listItem
+>;
 
 const COPY_VERSION = {
   id: COPY_V1,
