@@ -26,9 +26,10 @@ export interface TimelineWords {
   sent: string;
   /**
    * A test run's write, recorded as proposed and never made (ARCHITECTURE §10.4), from the step's
-   * operator-written name: "Would itemize the bill (test run, not written)".
+   * operator-written name: "Would itemize the bill (test run, not written)". `standIn`: later
+   * steps got the tool's stand-in values for what it would have returned (docs/plan.md §1.94).
    */
-  wouldWrite(step: string): string;
+  wouldWrite(step: string, standIn?: boolean): string;
   /** A test run's notify step, which sends nothing: "Would say what changed (test run, not sent)". */
   wouldSend(step: string): string;
   stopped: Record<"succeeded" | "failed" | "cancelled", string>;
@@ -64,7 +65,8 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     noAnswerInTime: "no answer in time",
     otherwise: "Otherwise",
     sent: "sent",
-    wouldWrite: (s) => `Would ${afterWould(s)} (test run, not written)`,
+    wouldWrite: (s, standIn) =>
+      `Would ${afterWould(s)} (test run, not written${standIn ? "; stand-in values" : ""})`,
     wouldSend: (s) => `Would ${afterWould(s)} (test run, not sent)`,
     stopped: { succeeded: "succeeded", failed: "failed", cancelled: "cancelled" },
     items: (n) => plural("en", n, "item", "items"),
@@ -86,7 +88,8 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     noAnswerInTime: "sin respuesta a tiempo",
     otherwise: "En otro caso",
     sent: "enviado",
-    wouldWrite: (s) => `Propuesto: ${s} (prueba, sin escribir)`,
+    wouldWrite: (s, standIn) =>
+      `Propuesto: ${s} (prueba, sin escribir${standIn ? "; valores de muestra" : ""})`,
     wouldSend: (s) => `Propuesto: ${s} (prueba, sin enviar)`,
     stopped: { succeeded: "terminado", failed: "falló", cancelled: "cancelado" },
     items: (n) => plural("es", n, "elemento", "elementos"),
@@ -108,7 +111,8 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     noAnswerInTime: "pas de réponse à temps",
     otherwise: "Sinon",
     sent: "envoyé",
-    wouldWrite: (s) => `Proposé : ${s} (test, rien n'est écrit)`,
+    wouldWrite: (s, standIn) =>
+      `Proposé : ${s} (test, rien n'est écrit${standIn ? " ; valeurs fictives" : ""})`,
     wouldSend: (s) => `Proposé : ${s} (test, rien n'est envoyé)`,
     stopped: { succeeded: "terminé", failed: "échec", cancelled: "annulé" },
     items: (n) => plural("fr", n, "élément", "éléments"),
@@ -130,7 +134,8 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     noAnswerInTime: "sem resposta a tempo",
     otherwise: "Caso contrário",
     sent: "enviado",
-    wouldWrite: (s) => `Proposto: ${s} (teste, nada gravado)`,
+    wouldWrite: (s, standIn) =>
+      `Proposto: ${s} (teste, nada gravado${standIn ? "; valores fictícios" : ""})`,
     wouldSend: (s) => `Proposto: ${s} (teste, nada enviado)`,
     stopped: { succeeded: "concluído", failed: "falhou", cancelled: "cancelado" },
     items: (n) => plural("pt-BR", n, "item", "itens"),
@@ -152,7 +157,8 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     noAnswerInTime: "nessuna risposta in tempo",
     otherwise: "Altrimenti",
     sent: "inviato",
-    wouldWrite: (s) => `Proposto: ${s} (prova, non scritto)`,
+    wouldWrite: (s, standIn) =>
+      `Proposto: ${s} (prova, non scritto${standIn ? "; valori fittizi" : ""})`,
     wouldSend: (s) => `Proposto: ${s} (prova, non inviato)`,
     stopped: { succeeded: "completato", failed: "non riuscito", cancelled: "annullato" },
     items: (n) => plural("it", n, "elemento", "elementi"),
@@ -174,7 +180,8 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     noAnswerInTime: "keine Antwort rechtzeitig",
     otherwise: "Sonst",
     sent: "gesendet",
-    wouldWrite: (s) => `Vorgeschlagen: ${s} (Testlauf, nicht geschrieben)`,
+    wouldWrite: (s, standIn) =>
+      `Vorgeschlagen: ${s} (Testlauf, nicht geschrieben${standIn ? "; Platzhalterwerte" : ""})`,
     wouldSend: (s) => `Vorgeschlagen: ${s} (Testlauf, nicht gesendet)`,
     stopped: { succeeded: "abgeschlossen", failed: "fehlgeschlagen", cancelled: "abgebrochen" },
     items: (n) => plural("de", n, "Eintrag", "Einträge"),

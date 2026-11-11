@@ -77,6 +77,11 @@ export type StepOutcome =
        * says what would have been done, not what was. Only honoured in a test run.
        */
       notWritten?: boolean;
+      /**
+       * With `notWritten`: `output` is the tool's stand-in for what the write would have returned
+       * (docs/plan.md §1.94), so later steps run on it; the timeline says so.
+       */
+      standIn?: boolean;
       costUsd?: string;
       tokensIn?: number;
       tokensOut?: number;

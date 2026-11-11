@@ -22,7 +22,7 @@ import {
   fakeResend,
 } from "@countersign/connectors/testing";
 import { routes } from "@countersign/core";
-import { agent, externalAction, stepRun } from "@countersign/db";
+import { agent, externalAction, run as runRow, stepRun, toolCall } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -71,7 +71,7 @@ afterAll(() => h?.close());
 
 const QBO_VENDOR = "57";
 
-function processBundle(steps: unknown[]) {
+function processBundle(steps: unknown[], extraTools: string[] = []) {
   return {
     schemaVersion: 1,
     definition: {
@@ -81,7 +81,7 @@ function processBundle(steps: unknown[]) {
       model: { id: "claude-opus-5-5", maxTokens: 1024 },
       instructions: "Only do what the process says.",
       skills: [],
-      extraTools: [],
+      extraTools,
       canCommand: [],
       // Even in act mode, an action's write waits for approval (invariant 8).
       permissions: { mode: "act" },
@@ -171,10 +171,11 @@ describe.skipIf(!h)("action write steps through the API", () => {
     slug: string,
     steps: unknown[],
     bindings: Record<string, string>,
+    extraTools: string[] = [],
   ) {
     const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${tenantId}/agents`, {
       slug,
-      bundle: processBundle(steps),
+      bundle: processBundle(steps, extraTools),
     });
     expect(created.status, JSON.stringify(created.json)).toBe(200);
     const id = j(created.json).agent.id as string;
@@ -275,6 +276,88 @@ describe.skipIf(!h)("action write steps through the API", () => {
     // Retried from the start: the stored resolution and the action's key make it once.
     await executeRun(deps(), params, cloudflareStepRunner(approver("a")));
     expect(posts()).toBe(before + 1);
+  });
+
+  it("a test run's bill hands its attach step a stand-in id: it passes, and nothing is written", async () => {
+    const steps = [
+      {
+        id: "bill",
+        kind: "write",
+        name: "Create the bill in QuickBooks",
+        tool: "qbo.bill.create",
+        input: {
+          vendorId: QBO_VENDOR,
+          docNumber: "INV-41010",
+          txnDate: "2026-11-05",
+          expectedTotal: "640.40",
+          lines: [{ description: "Plywood", amount: "640.40", accountId: "80" }],
+        },
+      },
+      {
+        id: "attach",
+        kind: "write",
+        name: "Attach the invoice to the bill",
+        tool: "qbo.attachable.upload",
+        input: {
+          documentId: crypto.randomUUID(),
+          entity: "Bill",
+          entityId: "{{steps.bill.output.id}}",
+        },
+      },
+    ];
+    const a = await agentWith(H.A.tenantId, "qbo-test-run", steps, { qbo: conn.qboA }, [
+      "qbo.bill.create",
+      "qbo.attachable.upload",
+    ]);
+    expect(a.pub.status, JSON.stringify(a.pub.json)).toBe(200);
+    const writes = () => qbo.apiCalls("POST").length;
+    const before = writes();
+    const res = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${a.id}/versions/${a.version}/test-run`,
+      {
+        workflow: "main",
+      },
+    );
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const params = H.instances.started.get(j(res.json).runId);
+    if (!params) throw new Error("not started");
+    const result = await executeRun(deps(), params, cloudflareStepRunner(approver("a")));
+    expect(result).toEqual({ status: "succeeded" });
+    expect(writes()).toBe(before);
+    const [row] = await H.t.db.select().from(runRow).where(eq(runRow.id, params.runId));
+    expect(row).toMatchObject({ mode: "test", status: "succeeded", agentVersionId: a.version });
+    // Both writes recorded as proposed, never made; the attach names the bill's stand-in id.
+    const actions = await actionsOf(params.runId);
+    expect(actions.map((x) => [x.tool, x.status]).sort()).toEqual([
+      ["qbo.attachable.upload", "proposed"],
+      ["qbo.bill.create", "proposed"],
+    ]);
+    expect(actions.find((x) => x.tool === "qbo.attachable.upload")?.input).toMatchObject({
+      entity: "Bill",
+      entityId: "0",
+    });
+    const rows = await H.t.db.select().from(stepRun).where(eq(stepRun.runId, params.runId));
+    const bill = rows.find((r) => r.nodeId === "bill");
+    expect(bill).toMatchObject({
+      status: "succeeded",
+      output: { id: "0", standIn: true, wouldHaveDone: true },
+      summary: "Would create the bill in QuickBooks (test run, not written; stand-in values)",
+    });
+    // The attach has no stand-in of its own: it says what it would have done, as before.
+    const attach = rows.find((r) => r.nodeId === "attach");
+    expect(attach).toMatchObject({
+      status: "succeeded",
+      output: { wouldHaveDone: true },
+      summary: "Would attach the invoice to the bill (test run, not written)",
+    });
+    expect(attach?.output).not.toHaveProperty("standIn");
+    const calls = await H.t.db
+      .select()
+      .from(toolCall)
+      .where(eq(toolCall.stepRunId, bill?.id ?? ""));
+    expect(calls[0]?.output).toMatchObject({ status: "would_have_done", standIn: true });
   });
 
   it("create_bill on a BILL-bound agent: BILL's tool, behind the client's approval", async () => {

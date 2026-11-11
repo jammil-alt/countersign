@@ -345,13 +345,19 @@ export function agentPort(
       switch (o.status) {
         case "done":
           return { kind: "done", output: o.output };
-        case "would_have_done":
+        case "would_have_done": {
           // A test run: recorded as proposed, never executed (ARCHITECTURE §10.4).
+          const proposed = { wouldHaveDone: true, actionId: o.actionId, before: o.before ?? null };
+          // §1.94: the tool's stand-in output, its fields where later steps read the real ones.
+          if (!isPlainObject(o.standIn))
+            return { kind: "done", output: proposed, notWritten: true };
           return {
             kind: "done",
-            output: { wouldHaveDone: true, actionId: o.actionId, before: o.before ?? null },
+            output: { ...proposed, ...o.standIn, standIn: true },
             notWritten: true,
+            standIn: true,
           };
+        }
         case "awaiting_approval":
           return (
             firstWaiting({

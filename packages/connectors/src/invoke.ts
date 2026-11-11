@@ -178,3 +178,16 @@ export async function executeWrite(
   const summary = summarize(spec, output);
   return summary === undefined ? { output, before } : { output, before, summary };
 }
+
+/**
+ * A test run's stand-in for what a write would return (docs/plan.md §1.94), or undefined when the
+ * tool declares none. Input and output are validated like a write's (invariant 5); nothing is
+ * read or written.
+ */
+export function standInOutput(connector: Connector, toolId: string, input: unknown): unknown {
+  const { handler } = lookup(connector, toolId);
+  if (handler.kind !== "write") throw new ToolCallError("not_a_write", toolId, "tool only reads");
+  if (!handler.testOutput) return undefined;
+  const parsed = parse(handler.input, input, "invalid_input", toolId);
+  return parse(handler.output, handler.testOutput(parsed), "invalid_output", toolId);
+}

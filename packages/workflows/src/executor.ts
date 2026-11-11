@@ -966,9 +966,10 @@ class Executor {
     output: unknown,
     rejected: boolean,
     notWritten = false,
+    standIn = false,
   ): string {
     if (rejected) return `${stepStateLabel(step, false)}: ${this.words.notApproved}`;
-    if (notWritten) return this.words.wouldWrite(step.name);
+    if (notWritten) return this.words.wouldWrite(step.name, standIn);
     const catalog = this.ctx.catalog ?? {};
     const template =
       step.kind === "skill"
@@ -1014,6 +1015,7 @@ class Executor {
             done.output,
             turnedDown,
             this.testRun && done.notWritten === true,
+            done.standIn === true,
           ),
           ...extra,
         };

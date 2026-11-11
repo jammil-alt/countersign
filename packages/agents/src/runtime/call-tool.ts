@@ -11,6 +11,7 @@ import {
   isBrowseHelpTag,
   type RunSessions,
   runReadTool,
+  standInOutput,
   ToolRefused,
 } from "@countersign/connectors";
 import {
@@ -59,8 +60,11 @@ export type ToolOutcome =
     }
   /** A write waiting for a person: the action and its inbox item. */
   | { status: "awaiting_approval"; actionId: string; inboxItemId: string | null; before: unknown }
-  /** Test runs: the write was recorded as proposed and will never run. */
-  | { status: "would_have_done"; actionId: string; before: unknown }
+  /**
+   * Test runs: the write was recorded as proposed and will never run. `standIn`: what the tool
+   * says it would have returned (docs/plan.md §1.94), for later steps; absent when it says nothing.
+   */
+  | { status: "would_have_done"; actionId: string; before: unknown; standIn?: unknown }
   /**
    * The connection needs a person to release it (docs/plan.md §1.26): a code went to them and their
    * inbox item is open. The step waits; once released, it runs again from the start.
@@ -212,7 +216,9 @@ export async function callTool(
             ? { error: outcome.error }
             : outcome.status === "awaiting_release"
               ? { status: outcome.status, releaseId: outcome.releaseId }
-              : { status: outcome.status },
+              : outcome.status === "would_have_done" && outcome.standIn !== undefined
+                ? { status: outcome.status, standIn: true, output: outcome.standIn }
+                : { status: outcome.status },
     durationMs: Date.now() - started,
     externalActionId: actionId ?? null,
   });
@@ -503,7 +509,7 @@ async function dispatch(
         }
       : null,
   });
-  return settle(deps, step, action);
+  return settle(deps, step, tool, action);
 }
 
 /**
@@ -577,17 +583,29 @@ async function resumeProposed(
       error: `this step's change ${existing.idempotencyKey} was proposed for ${existing.tool}`,
     };
   }
-  return settle(deps, step, existing);
+  return settle(deps, step, tool, existing);
 }
 
 /** What a proposed action means for the step now: waiting, refused, or executed once. */
 async function settle(
   deps: RuntimeDeps,
   step: StepContext,
+  tool: RegisteredTool,
   action: ExternalActionRecord,
 ): Promise<ToolOutcome> {
   if (step.mode === "test") {
-    return { status: "would_have_done", actionId: action.id, before: action.before };
+    // DECISION (docs/plan.md §1.94): a test run's write hands later steps the tool's stand-in
+    // output, so the rest of the flow runs; the tool's own pure function, never the provider.
+    const standIn =
+      tool.kind === "connector"
+        ? standInOutput(tool.connector, tool.spec.id, action.input)
+        : undefined;
+    return {
+      status: "would_have_done",
+      actionId: action.id,
+      before: action.before,
+      ...(standIn === undefined ? {} : { standIn }),
+    };
   }
   switch (action.status) {
     case "proposed":

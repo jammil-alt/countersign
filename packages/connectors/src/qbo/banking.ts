@@ -15,6 +15,7 @@ import {
   IsoDate,
   lineRefsProblem,
   NewLine,
+  QBO_STAND_IN,
   QboTotalWouldChangeError,
   sum,
   wireLine,
@@ -375,6 +376,7 @@ export function purchaseCreateTool(clientFor: ClientFor): ToolDefinition {
     display: purchaseCreateDisplay,
     input: PurchaseCreateInput,
     output: Created,
+    testOutput: (input) => ({ ...QBO_STAND_IN, total: input.expectedTotal }),
     beforeSchema: Before,
     async before(input, ctx) {
       const client = await clientFor(ctx);
@@ -484,6 +486,7 @@ export function depositCreateTool(clientFor: ClientFor): ToolDefinition {
     display: depositCreateDisplay,
     input: DepositCreateInput,
     output: Created,
+    testOutput: (input) => ({ ...QBO_STAND_IN, total: input.expectedTotal }),
     beforeSchema: Before,
     async before(input, ctx) {
       const client = await clientFor(ctx);
@@ -592,6 +595,7 @@ export function transferCreateTool(clientFor: ClientFor): ToolDefinition {
     display: transferCreateDisplay,
     input: TransferCreateInput,
     output: Created,
+    testOutput: (input) => ({ ...QBO_STAND_IN, total: input.amount }),
     beforeSchema: z.object({
       from: z.object({ id: z.string(), name: z.string() }),
       to: z.object({ id: z.string(), name: z.string() }),

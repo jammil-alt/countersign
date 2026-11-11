@@ -14,7 +14,7 @@ import { z } from "zod";
 import { defineWriteTool, type ToolContext, type ToolDefinition } from "../connector";
 import { QboApiError, type QboClient, qboLiteral, qboRequestId } from "./api";
 import { QboId, SyncToken } from "./records";
-import { type ClientFor, notFound, stale } from "./tool-kit";
+import { type ClientFor, notFound, QBO_STAND_IN, stale } from "./tool-kit";
 
 export const LEDGER_WRITE_TOOLS = {
   accountCreate: "qbo.account.create",
@@ -411,6 +411,7 @@ function createTool(
     display: createDisplay(entity),
     input,
     output: Created,
+    testOutput: (i) => ({ ...QBO_STAND_IN, name: i.name, fullName: i.name }),
     beforeSchema: z.object({ parent: z.object({ id: z.string(), name: z.string() }).nullable() }),
     async before(i, ctx) {
       const { parent } = await check(await clientFor(ctx), i as In, ctx);

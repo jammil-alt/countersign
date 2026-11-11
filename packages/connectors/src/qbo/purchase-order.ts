@@ -20,6 +20,7 @@ import {
   NewLine,
   Page,
   page,
+  QBO_STAND_IN,
   QBO_TOOLS,
   QboAddressInput,
   QboTotalWouldChangeError,
@@ -171,6 +172,13 @@ export function purchaseOrderCreateTool(clientFor: ClientFor): ToolDefinition {
       status: z.string().nullable(),
       lineCount: z.number().int(),
       alreadyDone: z.boolean(),
+    }),
+    testOutput: (input) => ({
+      ...QBO_STAND_IN,
+      docNumber: input.docNumber ?? null,
+      total: input.expectedTotal,
+      status: null,
+      lineCount: input.lines.length,
     }),
     // DECISION: a new order has no prior state; `before` keeps what the approval card names it by:
     // the vendor as QuickBooks has it, the names of the lines' items, accounts, classes and
