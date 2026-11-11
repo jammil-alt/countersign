@@ -4250,6 +4250,20 @@ factor (`portalReleaseRequest`, `opsRelease`, `opsAgentGrants`).
    left it 0 wide).
 5. One fade for every skeleton, the sidebar's included: opacity only, 1.6 s, none under reduced motion.
 
+**The back-office frame, Home and Escalations** (#257):
+
+1. The frame's counts reload when the place changes (the first path segment after `/ops`), or inside
+   a place when a write came after them (`ApiStore.staleByWrite`); the 20 s poll keeps them current.
+2. Escalations hands the frame Needs us across every client; narrowed to one client it shares
+   nothing and the frame asks for its own counts.
+3. A list keeps its last rows, dimmed and `inert`, while a view, status or filter loads, never across
+   a client filter (`keep: !client`); dimming shows only for a kept answer, not on polls.
+4. Fetch on intent prefetches only the first call of the run, agent and client pages, from delegated
+   handlers on each list (`ops/command/prefetch.ts`).
+5. Home's sections each load on their own; a failed first load is one notice.
+6. 1.6's "prefetch the next screen once Home settles" is not built: it raises Home's calls, which
+   gate 2 forbids. Left for the owner (the same for the portal's Home → Inbox).
+
 **Running the run.** Worker sessions cannot force-push, so a worker brings its branch up to date by
 merging `speed/run` into it, and the lead merges each PR with a merge commit (never a squash). The
 tree merged is the one the gates ran on. `pnpm typecheck` runs out of memory in a 15 GB cloud

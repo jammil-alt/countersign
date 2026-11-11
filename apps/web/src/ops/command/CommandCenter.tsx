@@ -26,16 +26,20 @@ import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge, AgentHuesProvider } from "../../ui/badges";
+import { cx } from "../../ui/cx";
 import { hasRuns, Sparkbars, Sparkline, StatTile } from "../../ui/figures";
 import { Select } from "../../ui/forms";
 import { Columns, Loaded, Page } from "../../ui/page";
 import { Button, buttonClass, Card, EmptyState, PageHeader, Tag } from "../../ui/primitives";
+import { SkeletonLine, SkeletonRows, SkeletonStat } from "../../ui/skeleton";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { useShareCounts } from "../OpsLayout";
 import { OPS_PATHS } from "../paths";
 import { failedRunsSince, RUNNING_RUNS, runsLink, WAITING_RUNS } from "../run/links";
 import { age, oversightLine, percent, plural, runChip } from "../run/words";
 import { escalationAction, escalationChip, escalationLine, escalationTone } from "./escalations";
+import { useKept } from "./kept";
+import { usePrefetchOnIntent } from "./prefetch";
 
 /** How often the figures reload, and the recent runs. */
 export const COMMAND_POLL_MS = 30_000;
@@ -70,6 +74,11 @@ export function CommandCenterScreen() {
   );
   useShareCounts(counts);
 
+  // DECISION: each section has its own `Loaded` and skeleton (docs/audit-plan.md 1.5), and Recent
+  // runs sits outside them, so its call starts with the command center's in the first render and
+  // the page shows after one round trip past the session. A failed first load is one notice, not
+  // one per section.
+  const firstLoadFailed = state.data === undefined && Boolean(state.error);
   return (
     <Page testId="ops-command">
       <PageHeader
@@ -88,23 +97,122 @@ export function CommandCenterScreen() {
           </span>
         }
       />
-      <Loaded state={state}>
-        {(data) => (
-          <AgentHuesProvider agents={data.agents.map((a) => ({ id: a.id, group: a.client.id }))}>
-            <Figures data={data} />
-            {/* What needs us beside what just ran: the two lists read side by side. */}
-            <Columns count={2}>
-              <NeedsUs escalations={data.escalations} count={data.needUs.count} />
-              <RecentRuns />
-            </Columns>
-            <AllAgents agents={data.agents} behind={behind} />
-            <ClientHealth data={data} />
-            <LowConfidence data={data} />
-            <Oversight data={data.oversight} />
-          </AgentHuesProvider>
-        )}
-      </Loaded>
+      {firstLoadFailed ? (
+        <Loaded state={state}>{() => null}</Loaded>
+      ) : (
+        <AgentHuesProvider
+          agents={(state.data?.agents ?? []).map((a) => ({ id: a.id, group: a.client.id }))}
+        >
+          <Loaded state={state} skeleton={<FiguresSkeleton />}>
+            {(data) => <Figures data={data} />}
+          </Loaded>
+          {/* What needs us beside what just ran: the two lists read side by side. */}
+          <Columns count={2}>
+            <Loaded
+              state={state}
+              skeleton={<ListCardSkeleton title="Needs us" kind="needs" rows={NEEDS_US_SHOWN} />}
+            >
+              {(data) => <NeedsUs escalations={data.escalations} count={data.needUs.count} />}
+            </Loaded>
+            <RecentRuns />
+          </Columns>
+          <Loaded state={state} skeleton={<AgentsSkeleton />}>
+            {(data) => <AllAgents agents={data.agents} behind={behind} />}
+          </Loaded>
+          {state.data ? (
+            <>
+              <ClientHealth data={state.data} />
+              <LowConfidence data={state.data} />
+              <Oversight data={state.data.oversight} />
+            </>
+          ) : null}
+        </AgentHuesProvider>
+      )}
     </Page>
+  );
+}
+
+// ── Skeletons ──
+
+/** The figures' place: a row of stat tiles (Needs us, waiting, runs today, failed). */
+function FiguresSkeleton() {
+  return (
+    <div aria-hidden className="ops-tiles">
+      {[0, 1, 2, 3].map((i) => (
+        <SkeletonStat key={i} />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A list card while it loads: its title at once, then rows built from the real rows' own classes
+ * (a Needs us row, or a Recent runs row), so the card is the height it will be.
+ */
+function ListCardSkeleton({
+  title,
+  kind,
+  rows,
+}: {
+  title: string;
+  kind: "needs" | "runs";
+  rows: number;
+}) {
+  return (
+    <Card titleAbove title={title}>
+      <ListRowsSkeleton kind={kind} rows={rows} />
+    </Card>
+  );
+}
+
+function ListRowsSkeleton({ kind, rows }: { kind: "needs" | "runs"; rows: number }) {
+  return (
+    <div aria-hidden>
+      {Array.from({ length: rows }, (_, i) =>
+        kind === "needs" ? (
+          // biome-ignore lint/suspicious/noArrayIndexKey: identical placeholder rows.
+          <div key={i} className="ops-row ops-row--compact">
+            <span className="ui-skel" style={{ width: 28, height: 28 }} />
+            <span className="ops-row__text">
+              <SkeletonLine width={i % 2 ? "half" : "long"} />
+              <SkeletonLine width="full" size="small" />
+              <SkeletonLine width="half" size="small" />
+            </span>
+            <span className="ops-row__end">
+              <SkeletonLine width={88} size="small" />
+              <SkeletonLine width={56} size="small" />
+            </span>
+          </div>
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: identical placeholder rows.
+          <div key={i} className="ui-activity">
+            <span className="ui-activity__time">
+              <SkeletonLine width={44} size="small" />
+              <SkeletonLine width={36} size="small" />
+            </span>
+            <span className="ui-activity__text">
+              <SkeletonLine width={i % 2 ? "half" : "long"} />
+              <SkeletonLine width="half" size="small" />
+            </span>
+            <span className="ui-activity__end">
+              <SkeletonLine width={72} size="small" />
+            </span>
+          </div>
+        ),
+      )}
+    </div>
+  );
+}
+
+/** All agents while it loads: its title at once, a table of six columns under it. */
+function AgentsSkeleton() {
+  return (
+    <section className="ui-cardgroup">
+      <div className="ui-section__head">
+        <h3 className="type-subheading text-ink">All agents</h3>
+      </div>
+      <SkeletonRows rows={6} columns={6} />
+    </section>
   );
 }
 
@@ -264,6 +372,7 @@ function NeedsUs({ escalations, count }: { escalations: Escalation[]; count: num
   const narrowed = Boolean(client || kind);
   const shown = all ? filtered : filtered.slice(0, NEEDS_US_SHOWN);
   const total = narrowed ? filtered.length : count;
+  const intent = usePrefetchOnIntent();
 
   const filters =
     escalations.length > 0 ? (
@@ -343,35 +452,37 @@ function NeedsUs({ escalations, count }: { escalations: Escalation[]; count: num
           }}
         />
       ) : (
-        shown.map((e) => {
-          const chip = escalationChip(e);
-          const action = escalationAction(e);
-          const who = e.agent ? (e.agent.serviceName ?? e.agent.name) : null;
-          return (
-            <div
-              key={`${e.kind}:${e.id}`}
-              className="ops-row ops-row--link ops-row--compact ui-accent ui-accent--left"
-              data-tone={escalationTone(chip.state)}
-              data-testid={`ops-needs-${e.id}`}
-            >
-              {who ? <AgentBadge name={who} seed={e.agent?.id} size="sm" /> : <span />}
-              <span className="ops-row__text">
-                <span className="truncate text-sm font-medium text-ink">
-                  {[who, e.client.name].filter(Boolean).join(" · ")}
+        <div data-testid="ops-needs-list" {...intent}>
+          {shown.map((e) => {
+            const chip = escalationChip(e);
+            const action = escalationAction(e);
+            const who = e.agent ? (e.agent.serviceName ?? e.agent.name) : null;
+            return (
+              <div
+                key={`${e.kind}:${e.id}`}
+                className="ops-row ops-row--link ops-row--compact ui-accent ui-accent--left"
+                data-tone={escalationTone(chip.state)}
+                data-testid={`ops-needs-${e.id}`}
+              >
+                {who ? <AgentBadge name={who} seed={e.agent?.id} size="sm" /> : <span />}
+                <span className="ops-row__text">
+                  <span className="truncate text-sm font-medium text-ink">
+                    {[who, e.client.name].filter(Boolean).join(" · ")}
+                  </span>
+                  <span className="ops-row__clamp text-xs text-ink-muted" title={escalationLine(e)}>
+                    {escalationLine(e)}
+                  </span>
                 </span>
-                <span className="ops-row__clamp text-xs text-ink-muted" title={escalationLine(e)}>
-                  {escalationLine(e)}
+                <span className="ops-row__end">
+                  <StatusChip state={chip.state}>{chip.words}</StatusChip>
+                  <Link to={action.to} className="ops-row__link text-xs text-link">
+                    {action.label}
+                  </Link>
                 </span>
-              </span>
-              <span className="ops-row__end">
-                <StatusChip state={chip.state}>{chip.words}</StatusChip>
-                <Link to={action.to} className="ops-row__link text-xs text-link">
-                  {action.label}
-                </Link>
-              </span>
-            </div>
-          );
-        })
+              </div>
+            );
+          })}
+        </div>
       )}
     </Card>
   );
@@ -436,6 +547,7 @@ function AllAgents({ agents, behind }: { agents: Agent[]; behind: Map<string, nu
     }
     return [...out].sort(([a], [b]) => a.localeCompare(b));
   }, [agents, by]);
+  const intent = usePrefetchOnIntent();
 
   return (
     <Card
@@ -474,7 +586,7 @@ function AllAgents({ agents, behind }: { agents: Agent[]; behind: Map<string, nu
           action={{ label: "Open agent lab", to: OPS_PATHS.lab }}
         />
       ) : (
-        <div className="dt dt-ana overflow-x-auto rounded-none border-0">
+        <div className="dt dt-ana overflow-x-auto rounded-none border-0" {...intent}>
           <table>
             <thead>
               <tr className="dt-cols">
@@ -629,15 +741,19 @@ function RecentRuns() {
   const [client, setClient] = useState("");
   const [state, setState] = useState<RunState>("all");
   const statuses = RUN_STATES.find(([v]) => v === state)?.[2] ?? null;
-  const runs = useApi(apiRoutes.opsRuns, {
-    query: {
-      mode: "live",
-      limit: String(RECENT_RUNS_SHOWN),
-      ...(client ? { client } : {}),
-      ...(statuses ? { status: statuses.join(",") } : {}),
-    },
-  });
+  // A status filter keeps the rows on screen, dimmed, while the narrower list loads (1.8): the
+  // press answers at once and nothing jumps. A client filter does not (`keep` is never for a query
+  // that names a client, §1.91): one client's runs never show under another's name.
+  const query = {
+    mode: "live" as const,
+    limit: String(RECENT_RUNS_SHOWN),
+    ...(client ? { client } : {}),
+    ...(statuses ? { status: statuses.join(",") } : {}),
+  };
+  const runs = useApi(apiRoutes.opsRuns, { query, keep: !client });
+  const kept = useKept(JSON.stringify(query), runs.data);
   usePoll(runs.reload, true, RUNS_POLL_MS, runs.loading);
+  const intent = usePrefetchOnIntent();
 
   // Two compact dropdowns, so the heading stays one line in its half of the row (beside Needs us).
   const filters = (
@@ -680,7 +796,7 @@ function RecentRuns() {
       testId="ops-command-runs"
       className="ops-recent"
     >
-      <Loaded state={runs}>
+      <Loaded state={runs} skeleton={<ListRowsSkeleton kind="runs" rows={RECENT_RUNS_SHOWN} />}>
         {(data) => {
           const agents = new Map(data.agents.map((a) => [a.id, a.name]));
           if (data.runs.length === 0) {
@@ -704,7 +820,13 @@ function RecentRuns() {
             );
           }
           return (
-            <>
+            <div
+              className={cx("transition-opacity", kept && "opacity-60")}
+              aria-busy={kept || undefined}
+              inert={kept}
+              data-testid="ops-recent-list"
+              {...intent}
+            >
               {data.runs.map((r) => {
                 const chip = runChip(r);
                 return (
@@ -741,7 +863,7 @@ function RecentRuns() {
                   All runs
                 </Link>
               </div>
-            </>
+            </div>
           );
         }}
       </Loaded>
@@ -762,6 +884,7 @@ const HEALTH_CHIP: Record<keyof typeof HEALTH_WORDS, ChipState> = {
 
 function ClientHealth({ data }: { data: CommandCenter }) {
   const agents = new Map(data.agentsLive.clients.map((c) => [c.id, c.agents]));
+  const intent = usePrefetchOnIntent();
   return (
     <Card
       titleAbove
@@ -778,7 +901,11 @@ function ClientHealth({ data }: { data: CommandCenter }) {
       {data.health.length === 0 ? (
         <p className="ui-card__body text-ink-muted">No clients yet.</p>
       ) : (
-        data.health.map((c) => <HealthRow key={c.id} client={c} agents={agents.get(c.id) ?? 0} />)
+        <div {...intent}>
+          {data.health.map((c) => (
+            <HealthRow key={c.id} client={c} agents={agents.get(c.id) ?? 0} />
+          ))}
+        </div>
       )}
     </Card>
   );

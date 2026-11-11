@@ -9,6 +9,7 @@ import { useI18n } from "../i18n/i18n";
 import { cx } from "../ui/cx";
 import { Icon } from "../ui/icons";
 import { ErrorNotice } from "../ui/primitives";
+import { Skeleton, SkeletonLine } from "../ui/skeleton";
 
 export interface SearchHit {
   /** Unique across the groups. */
@@ -219,11 +220,7 @@ export function SearchDialog({
         <div className="ui-search__results">
           {state.error ? <ErrorNotice error={state.error} /> : null}
           {!q.trim() ? <p className="ui-search__note">{t("search.hint")}</p> : null}
-          {q.trim() && state.loading && found.length === 0 ? (
-            <p role="status" className="ui-search__note">
-              {t("common.loading")}
-            </p>
-          ) : null}
+          {q.trim() && state.loading && found.length === 0 ? <SearchSkeleton /> : null}
           {q.trim() && !state.loading && !state.error && state.searched && found.length === 0 ? (
             <p className="ui-search__note" data-testid="search-empty">
               {t("search.empty", { q: state.searched })}
@@ -273,5 +270,32 @@ export function SearchDialog({
       </div>
     </div>,
     document.body,
+  );
+}
+
+/** How many hit rows the skeleton draws while the first answer is out. */
+export const SEARCH_SKELETON_ROWS = 4;
+
+/**
+ * The results' place while a search is out (docs/audit-plan.md 1.3): a group's label and a few
+ * hits, each a title and its muted line, in the hits' own classes so the list does not jump when
+ * the answer comes. Screen readers hear "Loading…".
+ */
+function SearchSkeleton() {
+  return (
+    <Skeleton testId="search-loading">
+      <div className="ui-search__group">
+        <div className="ui-search__label">
+          <SkeletonLine width={64} size="small" />
+        </div>
+        {Array.from({ length: SEARCH_SKELETON_ROWS }, (_, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: identical placeholder rows.
+          <div key={i} aria-hidden className="ui-search__hit items-center">
+            <SkeletonLine width={i % 2 ? "half" : "long"} className="flex-1" />
+            <SkeletonLine width={96} size="small" />
+          </div>
+        ))}
+      </div>
+    </Skeleton>
   );
 }
