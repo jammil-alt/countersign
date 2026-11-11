@@ -1,6 +1,6 @@
 // Polls that back off (docs/audit-plan.md 2.7): a wait that goes on is asked about less and less
 // often, and never in a hidden tab (`usePoll` skips those ticks and asks once on the way back).
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePoll } from "../runs/usePoll";
 
 export interface Backoff {
@@ -35,12 +35,21 @@ export function useBackoffPoll(
   restart: unknown = null,
 ): void {
   const [tick, setTick] = useState(0);
+  // The ticks so far, also kept outside React's state, so a tick never runs past `maxTries` even
+  // before the render that stops the timer.
+  const ticks = useRef(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a restart starts the backoff again.
-  useEffect(() => setTick(0), [active, restart]);
-  const done = backoff.maxTries !== undefined && tick >= backoff.maxTries;
+  useEffect(() => {
+    ticks.current = 0;
+    setTick(0);
+  }, [active, restart]);
+  const { maxTries } = backoff;
+  const done = maxTries !== undefined && tick >= maxTries;
   const step = useCallback(() => {
+    if (maxTries !== undefined && ticks.current >= maxTries) return;
+    ticks.current += 1;
     reload();
-    setTick((n) => n + 1);
-  }, [reload]);
+    setTick(ticks.current);
+  }, [reload, maxTries]);
   usePoll(step, active && !done, backoffMs(tick, backoff), busy);
 }

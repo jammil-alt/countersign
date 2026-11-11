@@ -17,14 +17,8 @@ import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { Select } from "../../ui/forms";
 import { Page } from "../../ui/page";
-import {
-  buttonClass,
-  Card,
-  EmptyState,
-  ErrorNotice,
-  Loading,
-  PageHeader,
-} from "../../ui/primitives";
+import { buttonClass, Card, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
+import { Skeleton, SkeletonText } from "../../ui/skeleton";
 import { useRefreshInboxCount } from "../inboxCount";
 import { askSloan, PORTAL_PATHS } from "../paths";
 
@@ -282,9 +276,13 @@ export function PortalInboxScreen() {
                 <ErrorNotice error={state.error} onRetry={state.reload} />
               </div>
             ) : !state.data ? (
-              <div className="px-5">
-                <Loading />
-              </div>
+              <Skeleton>
+                <div className="flex flex-col gap-5 p-5">
+                  <SkeletonText lines={2} />
+                  <SkeletonText lines={2} />
+                  <SkeletonText lines={2} />
+                </div>
+              </Skeleton>
             ) : (
               <>
                 <DeskList

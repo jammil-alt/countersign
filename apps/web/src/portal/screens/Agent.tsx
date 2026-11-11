@@ -389,7 +389,7 @@ function PauseControl({
             run(() => api.call(apiRoutes.portalResumeService, { params: { id: control.id } }))
           }
         >
-          {t("agent.resume")}
+          {busy ? t("common.sending") : t("agent.resume")}
         </Button>
         {error ? <ErrorNotice error={error} /> : null}
       </span>
@@ -436,7 +436,7 @@ function PauseControl({
           disabled={busy || !reason.trim()}
           data-testid="agent-pause-confirm"
         >
-          {t("agent.pauseConfirm", { name })}
+          {busy ? t("common.sending") : t("agent.pauseConfirm", { name })}
         </Button>
         <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
           {t("common.cancel")}
@@ -943,7 +943,8 @@ function RunFormRow({
         className="self-start"
         data-testid={`agent-run-${form.workflow}`}
       >
-        {t("agent.run")}
+        {/* 1.8: the press shows at once; the run's link comes with the server's answer. */}
+        {busy ? t("common.sending") : t("agent.run")}
       </Button>
     </form>
   );

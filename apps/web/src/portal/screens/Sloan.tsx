@@ -22,6 +22,7 @@ import { Select, TextArea } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
 import { Page, PageGrid, Section } from "../../ui/page";
 import { Button, Card, ErrorNotice, Loading, PageHeader, Tabs } from "../../ui/primitives";
+import { Skeleton, SkeletonCard } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { useRefreshInboxCount } from "../inboxCount";
 import { PORTAL_PATHS } from "../paths";
@@ -150,7 +151,9 @@ export function PortalSloanScreen() {
           {threads.error ? <ErrorNotice error={threads.error} onRetry={threads.reload} /> : null}
           <PageGrid rail={<SloanRail />}>
             {threads.loading && !threads.data ? (
-              <Loading />
+              <Skeleton>
+                <SkeletonCard lines={4} />
+              </Skeleton>
             ) : (
               <Conversation
                 key={current ?? "new"}
