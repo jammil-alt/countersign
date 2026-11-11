@@ -7,6 +7,9 @@
 import { AgentsError } from "@countersign/agents";
 import {
   type AuthRefusal,
+  accountFresh,
+  type CarriedAccount,
+  epochSec,
   requireRole,
   type Session,
   sessionFromAccount,
@@ -333,6 +336,11 @@ export interface HandlerCtx<R extends RouteSpec> extends PublicCtx<R> {
   afterCommit(task: () => Promise<unknown>): void;
   /** Runs after the response (e.g. dispatching emitted events). */
   defer(task: () => Promise<unknown>): void;
+  /**
+   * This request changed the signed-in person's own memberships (a client they now serve): the
+   * response drops the account their cookie carries, so the next request reads it (§1.93).
+   */
+  accountChanged(): void;
 }
 
 type Result<R extends RouteSpec> = z.input<R["response"]>;
@@ -628,12 +636,19 @@ function mountWith<R extends RouteSpec>(
       const choice = services.auth();
       if (!choice.ok) return refused(choice.refusal);
       // Who is asking, from the cookie (a WorkOS refresh included): no database transaction yet.
-      const identified = await choice.adapter.identify(c.req.raw, new Date());
+      const now = new Date();
+      const identified = await choice.adapter.identify(c.req.raw, now);
       if (!identified.ok) return refused(identified);
       const { userId } = identified;
       const requested = requestedClient(c);
+      const nowSec = epochSec(now);
       // The session and its scope from the user's account, or the refusal (with its cookies).
       const decide = (account: Parameters<typeof sessionFromAccount>[0]) => {
+        // Each decision starts clean: a carried account that refused, then a read that refused
+        // too, is audited as what was read, never as what the cookie carried (§1.93).
+        actor = { actorKind: "anonymous" };
+        auditTenant = null;
+        setCookies = [];
         const result = sessionFromAccount(
           account,
           choice.adapter.kind,
@@ -650,19 +665,49 @@ function mountWith<R extends RouteSpec>(
         return { ok: true as const, session, scope };
       };
 
+      // The account the cookie carries, while it is younger than the window (docs/plan.md §1.93):
+      // the session and scope come from it and the account is not read. Only a carried account
+      // that admits the request is used; one that would refuse it is read again first, so a
+      // request naming a new client or needing a new role is not delayed (lists across clients
+      // and a role raised in place wait for the window: §1.93).
+      const carried =
+        identified.account && accountFresh(identified.account, nowSec) ? identified.account : null;
+      const fromCookie = carried ? decide(carried) : null;
+      const admitted = fromCookie?.ok ? fromCookie : null;
+      // An account read by this request, to carry from now on; and whether the handler changed it.
+      let read: CarriedAccount | null = null;
+      let changed = false;
+      const accountChanged = () => {
+        changed = true;
+      };
+      const readAccount = <
+        A extends { user: Session["user"] | null } & Pick<CarriedAccount, "memberships">,
+      >(
+        account: A,
+      ): A => {
+        read = account.user
+          ? { at: nowSec, user: account.user, memberships: account.memberships }
+          : null;
+        return account;
+      };
+
       let output: unknown;
       if (mode === "long") {
         // No transaction is held across a slow handler: the account in one of its own (withUser),
-        // then the handler's short `inTx` transactions in the scope.
+        // unless the cookie carries it, then the handler's short `inTx` transactions in the scope.
         const directory = authDirectory(services.db);
-        const decided = decide(
-          directory.account
-            ? await directory.account(userId)
-            : {
-                user: await directory.user(userId),
-                memberships: await directory.memberships(userId),
-              },
-        );
+        const decided =
+          admitted ??
+          decide(
+            readAccount(
+              directory.account
+                ? await directory.account(userId)
+                : {
+                    user: await directory.user(userId),
+                    memberships: await directory.memberships(userId),
+                  },
+            ),
+          );
         if (!decided.ok) return refused(decided);
         const { session, scope } = decided;
         const input = await parseInput(c, spec);
@@ -674,11 +719,29 @@ function mountWith<R extends RouteSpec>(
           operator: scope.operator,
           defer: (task) => c.get("req").deferred.push(task),
           inTx: (work) => inScope(c, scope, work),
+          accountChanged,
           ...input,
           services,
         } as LongHandlerCtx<R>);
         // No request transaction to commit with: its own, once the handler's work is done.
         await auditAlone(services.db, c, entry("ok", 200));
+      } else if (admitted) {
+        // One transaction in the carried scope: no account read, no `app.user_id` at all.
+        if (spec.body) await c.req.text().catch(() => undefined);
+        const { session, scope } = admitted;
+        output = await inScope(c, scope, async (scoped) => {
+          const input = await parseInput(c, spec);
+          const out = await (handler as (ctx: HandlerCtx<R>) => Promise<unknown>)({
+            c,
+            session,
+            ...scoped,
+            accountChanged,
+            ...input,
+            services,
+          });
+          await auditInTx(scoped.tx, c, entry("ok", 200));
+          return out;
+        });
       } else {
         // One transaction (docs/plan.md §1.90): the user and memberships under `app.user_id`, then
         // the scope in place of it, then the handler and the ok audit row, committed together.
@@ -692,7 +755,7 @@ function mountWith<R extends RouteSpec>(
           services.db,
           userId,
           async (tx) => {
-            const decided = decide(await accountInTx(tx, userId));
+            const decided = decide(readAccount(await accountInTx(tx, userId)));
             if (!decided.ok) return { ok: false as const, refusal: decided };
             checkScope(decided.scope);
             const input = await parseInput(c, spec);
@@ -707,6 +770,7 @@ function mountWith<R extends RouteSpec>(
               c,
               session,
               ...scopedFor(c, scope, tx, after),
+              accountChanged,
               ...input,
               services,
             });
@@ -719,6 +783,11 @@ function mountWith<R extends RouteSpec>(
         if (!result.ok) return refused(result.refusal);
         await runAfterCommit(after);
         output = result.value;
+      }
+      // The cookie carries what this request read, or nothing once the handler changed the
+      // person's own memberships; a request that used the carried account leaves it as it is.
+      if (identified.carry && (changed || read)) {
+        setCookies = await identified.carry(changed ? null : read, new Date());
       }
       for (const cookie of setCookies) c.header("Set-Cookie", cookie, { append: true });
       return send(c, spec, output);
@@ -820,7 +889,9 @@ export async function invokeRoute<R extends RouteSpec>(
   });
   try {
     const output = await inScope(c, scope, async (scoped) => {
-      const out = await handler({ c, session, ...scoped, ...input, services });
+      // No cookie here: the MCP server reads the account on each call (docs/plan.md §1.90).
+      const accountChanged = () => undefined;
+      const out = await handler({ c, session, ...scoped, accountChanged, ...input, services });
       await auditInTx(scoped.tx, c, entry("ok", 200));
       return out;
     });

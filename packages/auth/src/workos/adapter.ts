@@ -3,6 +3,7 @@
 // app_user, refuse the uninvited) is the directory's job, done by the API with packages/db.
 
 import { SESSION_ACTIVITY_HEADER } from "@countersign/core";
+import { compactAccount, cookieFits, expandAccount } from "../account";
 import { requestCookie } from "../cookies";
 import { randomToken, timingSafeEqual } from "../seal";
 import {
@@ -22,6 +23,7 @@ import {
   newSession,
   openSession,
   openState,
+  RACE_GRACE_SEC,
   resolveSession,
   restartNonce,
   SESSION_COOKIE,
@@ -131,10 +133,41 @@ export function createWorkOSAdapter(options: {
         if (opened.sid) await workos.revokeSession(opened.sid).catch(() => undefined);
         return refuse("session_invalid", resolved.reason, [clearSessionCookie()]);
       }
+      const session = resolved.session;
       const setCookies = resolved.rotated
-        ? [sessionCookie(await sealSession(resolved.session, password), resolved.session, now)]
+        ? [sessionCookie(await sealSession(session, password), session, now)]
         : [];
-      return { ok: true, userId: resolved.session.uid, setCookies };
+      return {
+        ok: true,
+        userId: session.uid,
+        setCookies,
+        account: expandAccount(session.acct, session.uid),
+        // The same session, sealed again with the account just read (or without one).
+        async carry(account, at = new Date()) {
+          // DECISION: the account is sealed in only when this request's refresh token is safe to
+          // write back (docs/plan.md §1.93): this request refreshed it, or it is not due within
+          // RACE_GRACE_SEC. A request admitted on a grace, or one racing a refresh in another
+          // tab, holds a token another request may have spent; a cookie it wrote could land last
+          // and sign the person out at the next refresh. It sends what identify decided, and the
+          // account is read again next time.
+          // Judged when the response is sent, not when identify ran: a slow request (mountLong)
+          // that started well before the refresh was due may end after another tab refreshed.
+          const sent = epochSec(at);
+          const refreshed = session.rt !== opened.rt;
+          const settled = !resolved.grace && (refreshed || sent < session.rat - RACE_GRACE_SEC);
+          if (!settled) return setCookies;
+          const { acct: _old, ...rest } = session;
+          if (account) {
+            const next = { ...rest, acct: compactAccount(account) };
+            const cookie = sessionCookie(await sealSession(next, password), next, sent);
+            // DECISION: an account too big for a cookie (an operator with very many clients) is
+            // not carried; that person's requests read it each time, as before (§1.93).
+            if (cookieFits(cookie)) return [cookie];
+          }
+          if (session.acct === undefined) return setCookies;
+          return [sessionCookie(await sealSession(rest, password), rest, sent)];
+        },
+      };
     },
 
     async signIn({ returnTo, restart }, nowDate) {
