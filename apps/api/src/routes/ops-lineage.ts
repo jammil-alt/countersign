@@ -181,6 +181,8 @@ export function stepTools(platform: Platform, used: ReadonlySet<string> = new Se
   for (const def of platform.catalog.list()) {
     if (isToolWrapper(def) && def.handler && !stepOnly.has(def.handler)) out.add(def.handler);
   }
+  // Reshape data (2026-11-11): its handler runs only as the Reshape step's (with its mapping).
+  stepOnly.add(processes.RESHAPE_TOOL);
   for (const t of Object.values(platform.tools.specs())) {
     if (stepOnly.has(t.id) || connectors.has(t.connector ?? t.source)) continue;
     out.add(t.id);

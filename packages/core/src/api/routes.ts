@@ -71,6 +71,8 @@ import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { requestRoutes } from "./requests";
+// Reshape data (2026-11-11): the builder's proposal and samples for a Reshape step.
+import { reshapeRoutes } from "./reshape";
 import { RunAuditState, runAuditRoutes } from "./run-audit";
 // R8: the timeline's check fields
 import { OUTCOME_WORDS, TimelineChecks } from "./run-checks";
@@ -2230,5 +2232,7 @@ export const routes = {
   ...runAuditRoutes,
   // The skill model (owner, 2026-11-10): moving a step to another version of its skill.
   ...skillModelRoutes,
+  // Reshape data (owner, 2026-11-11): propose a Reshape step's mapping, and its sample values.
+  ...reshapeRoutes,
 } as const;
 export type Routes = typeof routes;

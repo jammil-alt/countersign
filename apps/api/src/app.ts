@@ -93,6 +93,8 @@ import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsModelRoutes } from "./routes/ops-models";
 // v0.13 W2-I
 import { opsOversightRoutes } from "./routes/ops-oversight";
+// Reshape data (2026-11-11)
+import { opsReshapeRoutes } from "./routes/ops-reshape";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { packInboundRoutes } from "./routes/pack-inbound";
 // M46
@@ -161,6 +163,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsLineageRoutes(app);
   opsSkillRoutes(app);
   opsBuilderRoutes(app);
+  // Reshape data (2026-11-11): propose a Reshape step's mapping, and its sample values.
+  opsReshapeRoutes(app);
   opsMergeRoutes(app);
   opsEventRoutes(app);
   // v0.13 W2-H: models for task skills and skill steps.

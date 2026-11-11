@@ -118,6 +118,11 @@ export interface RunAgentInput {
    * its settings into `settings`, its model into `model`, and keeps only its `keep` fields.
    */
   customize?: processes.SkillCustomization | undefined;
+  /**
+   * Reshape data (2026-11-11): a `data.reshape` step's mapping (`processes.ReshapeMapping`), which
+   * its handler runs on the input. Ignored for any other skill.
+   */
+  reshape?: processes.ReshapeMapping | undefined;
 }
 
 export interface AskBudget {
@@ -587,6 +592,32 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     if (!out.ok) return fail(`invalid output: ${out.message}`);
     const row = (def.rules ?? []).find((r) => r.id === result.ruleId);
     return finish(out.value, `Rule: ${row?.name ?? row?.id ?? result.ruleId}`);
+  }
+
+  // 2b. Reshape data (2026-11-11): the step's mapping, run by the skill's pure handler. The same
+  // input and day give the same output; no model, no write.
+  if (def.id === processes.RESHAPE_SKILL) {
+    if (!input.reshape) {
+      return fail("Reshape data has no mapping: map its fields in the builder");
+    }
+    if (!def.handler) return fail(`skill ${def.id} has no handler`);
+    const o = await callTool(deps, step, {
+      toolId: def.handler,
+      input: {
+        data: checkedInput.value,
+        mapping: input.reshape,
+        today: isoToday(deps.now?.() ?? new Date()),
+      },
+      allowed,
+    });
+    if (o.status === "refused") return fail(`refused: ${o.reason}`);
+    if (o.status === "failed") return fail(o.error);
+    if (o.status !== "done") return fail("Reshape data didn't finish");
+    const shaped = (o.output as { output?: unknown } | null)?.output;
+    const out = checkAgainst(processes.reshapeOutputSchema(input.reshape), shaped);
+    if (!out.ok) return fail(`invalid output: ${out.message}`);
+    const count = Object.keys(out.value as object).length;
+    return finish(out.value, `Reshaped into ${count} ${count === 1 ? "field" : "fields"}`);
   }
 
   // 2. Tool mode: the handler, through the gate.

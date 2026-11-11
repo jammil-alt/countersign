@@ -14,6 +14,8 @@ import {
   LEDGER_SKILLS,
   PLATFORM_TOOLS,
   REACH_SKILLS,
+  // Reshape data (2026-11-11)
+  RESHAPE_SKILLS,
   type RegistryContext,
   SkillCatalog,
   SUPERVISOR_SKILLS,
@@ -163,6 +165,8 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       ...INBOUND_SKILLS,
       // P-7: message translation (comms.translate)
       ...TRANSLATE_SKILLS,
+      // Reshape data (2026-11-11): data.reshape, the built-in deterministic mapping step.
+      ...RESHAPE_SKILLS,
       ...SUPERVISOR_SKILLS,
       // v0.12 W2-D: Sloan's conversation (account.chat)
       ...ACCOUNT_SKILLS,

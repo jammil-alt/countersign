@@ -65,6 +65,7 @@ export * from "./api/qbo";
 export * from "./api/reach";
 export * from "./api/records";
 export * from "./api/requests";
+export * from "./api/reshape";
 export * from "./api/routes";
 // Wave 6: the audit queue, marks, stats and sampling settings (docs/plan.md §1.86).
 export * from "./api/run-audit";

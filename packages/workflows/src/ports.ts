@@ -160,6 +160,11 @@ export interface SkillStepRequest {
    * keeps only the customized output's fields. Sent only to a port that `appliesCustomization`.
    */
   customize?: processes.SkillCustomization;
+  /**
+   * Reshape data (2026-11-11): a `data.reshape` step's mapping (`processes.ReshapeMapping`), which
+   * the runtime runs on `input`, deterministically. Sent only for that skill's steps.
+   */
+  reshape?: processes.ReshapeMapping;
 }
 
 export interface ActionStepRequest {
