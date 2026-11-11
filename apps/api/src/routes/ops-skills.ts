@@ -18,6 +18,7 @@ import {
 import {
   ApiId,
   isToolWrapper,
+  newStepSkillReason,
   parseSkillRef,
   routes,
   type SkillDefinition,
@@ -410,7 +411,11 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
   // DECISION: clone copies the source's definition (a built-in's code definition, or an operator
   // skill's live, else latest, version) into a new operator skill's v1 draft, named "<name> (copy)".
   // A built-in clone is shared unless a client is given; an operator skill's stays in its scope.
-  // Tool-mode skills run code, which operator skills can't (§9.2), so they are refused.
+  // Skills that run code (built-ins' handlers), which operator skills can't (§9.2), are refused.
+  // DECISION (merge with the skill model, 2026-11-11): a clone is a new skill version, so what the
+  // skill model retires for new use is refused too, up front and in its words (core's
+  // `newStepSkillReason`: the agent's own reasoning, rules then AI, a skill that writes). An
+  // operator's deterministic skill (rule rows, no code) clones.
   mount(app, routes.opsCloneSkill, async (ctx) => {
     const { tx, params, body, session, services } = ctx;
     const builtin = services.platform.catalog.get(params.id);
@@ -432,10 +437,17 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
       tenantId = body.clientId ?? row.tenantId;
     }
     if (tenantId) ensureClient(ctx, tenantId);
-    if (source.mode === "tool") {
+    if (source.handler !== undefined || (source.mode === "tool" && !source.rules?.length)) {
       throw new AgentsError(
         "invalid_definition",
         `${source.id} runs code, so it can't be cloned into an operator skill`,
+      );
+    }
+    const retired = newStepSkillReason(source, toolLookup(services.platform.tools.specs()));
+    if (retired) {
+      throw new AgentsError(
+        "invalid_definition",
+        `${source.id} can't be cloned into a new skill. ${retired}`,
       );
     }
     const { handler: _code, ...rest } = source;

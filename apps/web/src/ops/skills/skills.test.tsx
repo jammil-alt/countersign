@@ -79,7 +79,8 @@ const ITEM = {
   name: "Match card charge",
   description: "Pairs a card charge with its receipt.",
   category: "data",
-  mode: "agent",
+  // An AI task skill: the skill model lets it be cloned (an agent-mode one is retired).
+  mode: "task",
   source: "shared",
   clientId: null,
   clientName: null,

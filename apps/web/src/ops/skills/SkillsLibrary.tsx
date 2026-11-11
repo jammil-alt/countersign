@@ -414,8 +414,26 @@ function sourceText(s: SkillListItem): string {
 const MODE_TEXT: Record<SkillListItem["mode"], string> = {
   tool: "Runs code, no model. Built in, so it can't be cloned.",
   task: "A task on its own model: the same in every agent that uses it.",
-  agent: "Runs as the agent, on the agent's model and instructions.",
+  agent:
+    "Runs as the agent, on the agent's model and instructions. Retired for new skills, so it can't be cloned: use an AI skill, then a write step.",
 };
+
+/** How the skill runs, in a sentence: an operator's rule rows aren't code. */
+function modeText(s: SkillListItem): string {
+  if (s.mode === "tool" && s.source !== "builtin") return "Runs its rule rows, no model.";
+  return MODE_TEXT[s.mode];
+}
+
+/**
+ * Whether Clone is offered. Merged with the skill model (2026-11-11): a clone is a new skill, so
+ * code, the agent's own reasoning and rules then AI aren't offered; an AI task skill and an
+ * operator's deterministic skill are. The server also refuses a skill that writes, and says so.
+ */
+function cloneable(s: SkillListItem): boolean {
+  if (s.method === "rules_then_ai") return false;
+  if (s.mode === "task") return true;
+  return s.mode === "tool" && s.source !== "builtin";
+}
 
 /** The icon for a skill's category: what area of the business it works in. */
 const CATEGORY_ICONS: [RegExp, IconName][] = [
@@ -622,7 +640,8 @@ function Stat({
 
 /**
  * A skill's side sheet: all it says about itself (what it does, in and out, tools, connectors, who
- * uses it, how it runs), with Edit for an operator skill and Clone for any that doesn't run code.
+ * uses it, how it runs), with Edit for an operator skill and Clone for one the skill model allows
+ * as a new skill (`cloneable`).
  */
 function SkillSheet({
   skill: s,
@@ -668,7 +687,7 @@ function SkillSheet({
               Edit
             </Link>
           ) : null}
-          {s.mode !== "tool" ? (
+          {cloneable(s) ? (
             <Button
               size="sm"
               disabled={clone.busy}
@@ -701,7 +720,7 @@ function SkillSheet({
           {writes(s, tools) ? <Badge tone="person">Sign-off</Badge> : null}
         </span>
         <p className="text-sm text-ink">{KIND_LINE[kindOf(s)]}</p>
-        <p className="text-sm text-ink-muted">{MODE_TEXT[s.mode]}</p>
+        <p className="text-sm text-ink-muted">{modeText(s)}</p>
         <SkillReach skill={s} />
         {writes(s, tools) ? (
           <p className="text-sm text-ink-muted">

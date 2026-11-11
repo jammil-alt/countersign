@@ -166,9 +166,23 @@ describe.skipIf(!h)("skills library", () => {
   });
 
   it("clones a built-in or an operator skill into a new draft, and refuses one that runs code", async () => {
-    const library = (await H.call(OPERATOR, "GET", "/api/ops/skills")).json as { skills: Json[] };
+    const library = (await H.call(OPERATOR, "GET", "/api/ops/skills")).json as {
+      skills: Json[];
+      tools: Json[];
+    };
     const builtins = library.skills.filter((s) => s.source === "builtin");
-    const reasoning = builtins.find((s) => s.mode !== "tool");
+    const writes = new Set(
+      library.tools.filter((t) => t.sideEffect !== "none").map((t) => String(t.id)),
+    );
+    // The skill model: a clone is a new skill, so only an AI task skill that only reads clones;
+    // the agent's own reasoning is retired for new skills.
+    const reasoning = builtins.find(
+      (s) =>
+        s.mode === "task" &&
+        s.method !== "rules_then_ai" &&
+        !(s.tools as string[]).some((t) => writes.has(t)),
+    );
+    const agentMode = builtins.find((s) => s.mode === "agent");
     const code = builtins.find((s) => s.mode === "tool");
     if (!reasoning || !code) throw new Error("the harness has no built-in of each kind");
 
@@ -208,6 +222,11 @@ describe.skipIf(!h)("skills library", () => {
     expect((await H.call(OPERATOR, "POST", `/api/ops/skills/${code.id}/clone`, {})).status).toBe(
       422,
     );
+    if (agentMode) {
+      const refused = await H.call(OPERATOR, "POST", `/api/ops/skills/${agentMode.id}/clone`, {});
+      expect(refused.status).toBe(422);
+      expect(JSON.stringify(refused.json)).toContain("can't be cloned into a new skill");
+    }
     expect((await H.call(OPERATOR, "POST", "/api/ops/skills/no.such.skill/clone", {})).status).toBe(
       404,
     );
