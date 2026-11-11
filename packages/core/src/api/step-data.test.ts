@@ -11,6 +11,8 @@ describe("clientStepData", () => {
       models: ["claude-x"],
       tokensIn: 120,
       nested: { systemPrompt: "x", accessToken: "secret", note: "Matched by SKU" },
+      syncToken: "3",
+      modelName: "x",
     });
     expect(out).toEqual({
       bill: { number: "20418", total: "1250.0000", lines: [{ sku: "MDF-18" }] },

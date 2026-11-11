@@ -7,9 +7,11 @@ import { FORBIDDEN_PORTAL_FIELD, FORBIDDEN_SECRET_FIELD } from "./contract";
 
 /**
  * Keys a step's data never shows a client, beyond the contract's portal and secret fields: the
- * model a step ran on and the agent's own working (the run oversight's note stays ours, §10.11).
+ * model a step ran on, the agent's own working (the run oversight's note stays ours, §10.11), and
+ * any key naming a model or a token (a QuickBooks `syncToken` is no secret, but means nothing to
+ * a client and the portal's responses carry no such key).
  */
-const CLIENT_HIDDEN_KEY = /^(models?|provider|modelId|model_id|reasoning|thinking|rationale)$/i;
+const CLIENT_HIDDEN_KEY = /^(provider|reasoning|thinking|rationale)$|model|token/i;
 
 /** How deep the portal copy goes; anything deeper is left out rather than sent unread. */
 const MAX_DEPTH = 8;

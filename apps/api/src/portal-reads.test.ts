@@ -189,9 +189,20 @@ describe.skipIf(!h)("portal reads (speed run 6.2, 6.4)", () => {
         executedAt: expect.any(String),
       }),
     ]);
-    // Only the columns the view shows: never the change's before state or input.
+    // Only the columns the view shows: the step panel (§1.95) shows the change before and after,
+    // by its step, as the client's Inbox does.
     expect(Object.keys(body.actions[0]).sort()).toEqual(
-      ["description", "display", "executedAt", "id", "status", "tool"].sort(),
+      [
+        "before",
+        "description",
+        "display",
+        "executedAt",
+        "id",
+        "input",
+        "status",
+        "stepRunId",
+        "tool",
+      ].sort(),
     );
 
     // Before 6.2 the same call sent 13: the run row three times, the whole bundle twice.
