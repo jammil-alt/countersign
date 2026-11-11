@@ -44,10 +44,10 @@ import { at, clientState, countState, noRuns } from "../runs/client-status";
 import { dispatchEvents } from "../runs/dispatch";
 import { daysOf, runsByDay } from "../runs/figures";
 import { paperFor, weeklyPdf } from "../weekly/pdf";
-import { clientDescription, serviceName } from "../weekly/stats";
+import { clientDescription, isLiveService, serviceName } from "../weekly/stats";
 import { editWeek, replyToDecision, weeklyRow, weeklyRows, weeklyView } from "../weekly/tables";
 import { portalInboxFilter, sourcesOf } from "./portal";
-import { agentsNow, documentsReadSql, isLiveService, serviceNow, workflowsOf } from "./usage";
+import { agentsNow, documentsReadSql, serviceNow, workflowsOf } from "./usage";
 
 async function clientOf(tx: Tx, tenantId: string): Promise<TenantRow> {
   const t = await tenantRow(tx, tenantId);

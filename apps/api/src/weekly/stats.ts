@@ -25,7 +25,7 @@ import {
   type Tx,
   tenant,
 } from "@countersign/db";
-import { and, eq, gte, inArray, isNotNull, lt } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, lt, type SQL } from "drizzle-orm";
 // v0.12 W2-G
 import { readerLocale, weekKpis } from "../kpi/view";
 import type { Platform } from "../platform";
@@ -130,20 +130,21 @@ async function documentsRead(tx: Tx, tenantId: string, b: { from: Date; to: Date
   return rows.map((r) => r.id);
 }
 
+/**
+ * The client's services offered now: client agents that are not test copies, active or paused.
+ * One predicate for the Weekly Table and the portal's Table (`agentsNow`, routes/usage.ts).
+ */
+export const isLiveService = (tenantId: string): SQL =>
+  and(
+    eq(agent.tenantId, tenantId),
+    eq(agent.kind, "client"),
+    eq(agent.testCopy, false),
+    inArray(agent.runStatus, ["active", "paused"]),
+  ) as SQL;
+
 /** The client's services: client agents that are not test copies and not drafts. */
 export async function services(tx: Tx, tenantId: string): Promise<AgentRow[]> {
-  return tx
-    .select()
-    .from(agent)
-    .where(
-      and(
-        eq(agent.tenantId, tenantId),
-        eq(agent.kind, "client"),
-        eq(agent.testCopy, false),
-        inArray(agent.runStatus, ["active", "paused"]),
-      ),
-    )
-    .orderBy(agent.slug);
+  return tx.select().from(agent).where(isLiveService(tenantId)).orderBy(agent.slug);
 }
 
 /** The week's figures, computed now. */

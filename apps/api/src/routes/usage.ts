@@ -67,7 +67,7 @@ import {
 import { tenantRow } from "../notify/people";
 import type { Platform } from "../platform";
 import { clientState, forClient, noRuns, OPEN_RUN, runCounts } from "../runs/client-status";
-import { clientDescription } from "../weekly/stats";
+import { clientDescription, isLiveService } from "../weekly/stats";
 import { runSummaries } from "./portal";
 
 // ── Days and months ──────────────────────────────────────────────────────────────────────────────
@@ -670,15 +670,6 @@ const isService = (tenantId: string) =>
     inArray(agent.runStatus, ["active", "paused", "retired"]),
   ) as SQL;
 
-/** The Table's services: the client agents active or paused now (`services`, weekly/stats.ts). */
-export const isLiveService = (tenantId: string) =>
-  and(
-    eq(agent.tenantId, tenantId),
-    eq(agent.kind, "client"),
-    eq(agent.testCopy, false),
-    inArray(agent.runStatus, ["active", "paused"]),
-  ) as SQL;
-
 async function clientTimezone(tx: Tx, tenantId: string): Promise<string> {
   const [t] = await tx
     .select({ timezone: tenant.timezone })
@@ -907,7 +898,7 @@ export async function agentsNow(
       and(
         eq(stepRun.tenantId, agent.tenantId),
         sql`${stepRun.runId} = ${latest.id}`,
-        sql`${latest.status} in ('queued', 'running', 'waiting')`,
+        inArray(latest.status, OPEN_RUN),
         inArray(stepRun.status, ["running", "waiting"]),
       ),
     )
@@ -923,7 +914,7 @@ export async function agentsNow(
       and(
         eq(inboxItem.tenantId, agent.tenantId),
         sql`${inboxItem.runId} = ${latest.id}`,
-        sql`${latest.status} in ('queued', 'running', 'waiting')`,
+        inArray(latest.status, OPEN_RUN),
         eq(inboxItem.status, "open"),
         forClient(),
       ),

@@ -80,7 +80,8 @@ describe.skipIf(!h)("the Table's statements", () => {
   const tenantId = () => H.A.tenantId;
   let made = 0;
 
-  async function addAgent(): Promise<string> {
+  /** An agent with `done` succeeded runs and one running; `view: false` gives it no client view. */
+  async function addAgent(done: number, view = true): Promise<string> {
     made += 1;
     const [a] = await H.t.db
       .insert(agent)
@@ -100,7 +101,7 @@ describe.skipIf(!h)("the Table's statements", () => {
         tenantId: tenantId(),
         agentId: a.id,
         version: 1,
-        bundle: viewBundle(`Clerk ${made}`),
+        bundle: view ? viewBundle(`Clerk ${made}`) : testBundle(`Clerk ${made}`),
         bundleHash: `count-${made}`,
         status: "live",
         authorType: "operator",
@@ -108,8 +109,9 @@ describe.skipIf(!h)("the Table's statements", () => {
       .returning();
     if (!v) throw new Error("no version");
     await H.t.db.update(agent).set({ liveVersionId: v.id }).where(eq(agent.id, a.id));
+    const statuses = [...Array(done).fill("succeeded"), "running"] as ("succeeded" | "running")[];
     await H.t.db.insert(run).values(
-      (["succeeded", "running"] as const).map((status) => ({
+      statuses.map((status) => ({
         tenantId: tenantId(),
         agentId: a.id,
         agentVersionId: v.id,
@@ -130,28 +132,49 @@ describe.skipIf(!h)("the Table's statements", () => {
     );
   };
 
-  it("sends the same few statements for one agent and for four, with their KPIs", async () => {
-    await addAgent();
+  it("sends the same few statements for one agent and for five, each with its own KPIs", async () => {
+    await addAgent(1);
     const one = await table();
     expect(one.out.services).toHaveLength(1);
     expect(one.out.services[0]?.kpis.map((k) => k.key)).toEqual(["done", "share"]);
-    for (let i = 0; i < 3; i += 1) await addAgent();
-    const four = await table();
-    expect(four.out.services).toHaveLength(4);
-    for (const s of four.out.services) {
-      expect(s.kpis).toEqual([
-        expect.objectContaining({ key: "done", value: "1" }),
-        expect.objectContaining({ key: "share", value: "50%" }),
-      ]);
-      expect(s.runsNow).toEqual({ running: 1, waitingOnYou: 0 });
+    // Different figures per agent, and one with no client view between ones with KPIs, so the
+    // KPI lists cannot slide onto the wrong agent.
+    await addAgent(3);
+    await addAgent(2, false);
+    await addAgent(4);
+    await addAgent(0);
+    const five = await table();
+    const want: [string, { done: string; share: string } | null, number][] = [
+      ["Clerk 1", { done: "1", share: "50%" }, 2],
+      ["Clerk 2", { done: "3", share: "75%" }, 4],
+      ["Clerk 3", null, 3],
+      ["Clerk 4", { done: "4", share: "80%" }, 5],
+      ["Clerk 5", { done: "0", share: "0%" }, 1],
+    ];
+    expect(five.out.services.map((s) => s.name)).toEqual(want.map(([name]) => name));
+    for (const [i, [name, kpis, total]] of want.entries()) {
+      const s = five.out.services[i];
+      expect(
+        s?.kpis.map((k) => [k.key, k.value]),
+        name,
+      ).toEqual(
+        kpis
+          ? [
+              ["done", kpis.done],
+              ["share", kpis.share],
+            ]
+          : [],
+      );
+      expect(s?.runs?.total, name).toBe(total);
+      expect(s?.runsNow, name).toEqual({ running: 1, waitingOnYou: 0 });
     }
-    expect(four.n).toBe(one.n);
-    expect(four.n).toBeLessThanOrEqual(TABLE_STATEMENTS);
+    expect(five.n).toBe(one.n);
+    expect(five.n).toBeLessThanOrEqual(TABLE_STATEMENTS);
   });
 
   it("reads every agent's latest run in one statement", async () => {
     const { n, out } = await counted(tenantId(), (tx) => agentsNow(tx, tenantId()));
-    expect(out).toHaveLength(4);
+    expect(out).toHaveLength(5);
     expect(n).toBe(1);
   });
 });
