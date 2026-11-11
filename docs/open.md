@@ -70,6 +70,8 @@ emailed and the QuickBooks purchase order is created; every write is approved on
 - RFQs are English only; the vendor's language is open.
 - QuickBooks PO lines are account lines only (catalog items carry no QuickBooks item id).
 - The portal channel for conversations (§1.66).
+- **The vendor catalog** (`vendor_item`, plan §1.88): each vendor's items for the client with pack size,
+  unit conversion, last price and preferred vendor. Planned; one migration.
 
 ## 1b. The Bookkeeper (bank transactions into QuickBooks)
 
