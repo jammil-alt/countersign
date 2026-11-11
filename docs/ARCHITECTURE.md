@@ -515,7 +515,7 @@ Out (designed for, not built):
 | DB | Postgres 16 with `pgvector`, `pg_trgm` | Neon, reached from Workers through Hyperdrive; local via Docker |
 | ORM / migrations | Drizzle | Platform schema in `packages/db`, pack schemas in their packs, one migration sequence |
 | Durable jobs / workflows | Cloudflare Workflows | `step.do` with retries, `step.waitForEvent`, `step.sleep`; Worker cron for schedules |
-| LLM | Anthropic API via `@anthropic-ai/sdk`, and OpenAI's Responses API for `openai:` model ids (owner, 2026-11-04), tool use + structured outputs | Models below |
+| LLM | Anthropic API over our own transport on `fetch` (no SDK; `packages/llm/src/anthropic.ts`, owner, 2026-11-11), and OpenAI's Responses API for `openai:` model ids (owner, 2026-11-04), tool use + structured outputs | Models below |
 | Object storage | Cloudflare R2 (Worker binding; S3 API for signed URLs) | Original documents, never mutated |
 | Auth | WorkOS (AuthKit), sealed session cookie; behind `packages/auth` | Same as Plenary Labs |
 | Validation | Zod for every definition, tool input/output, API body | Shared with the builder through `packages/core` |

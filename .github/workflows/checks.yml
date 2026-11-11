@@ -132,7 +132,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ -d apps/api/node_modules/playwright ]; then
-            pnpm --filter @countersign/api exec playwright install --with-deps chromium
+            # The runner image already has Chromium's libraries; --with-deps adds fonts from the
+            # Ubuntu mirrors. When the mirrors can't be reached, go on with the browser alone: no
+            # test compares pixels, so the fonts change no result.
+            timeout 300 pnpm --filter @countersign/api exec playwright install --with-deps chromium \
+              || pnpm --filter @countersign/api exec playwright install chromium
           else
             echo "apps/api has no Playwright: nothing to install."
           fi
@@ -216,9 +220,13 @@ jobs:
       - if: steps.scope.outputs.run == 'true'
         run: pnpm install --frozen-lockfile
 
+      # As above: the fonts from the Ubuntu mirrors when they can be reached, the browser alone when
+      # not. The sweep saves screenshots; it compares none.
       - name: Chromium
         if: steps.scope.outputs.run == 'true'
-        run: pnpm --filter @countersign/web exec playwright install --with-deps chromium
+        run: |
+          timeout 300 pnpm --filter @countersign/web exec playwright install --with-deps chromium \
+            || pnpm --filter @countersign/web exec playwright install chromium
 
       # The local passwords .env.example expects, so `wrangler dev` reads it as it is. SEED_E2E=1
       # also seeds the Desk item the walkthroughs sign and undo (never set on staging).

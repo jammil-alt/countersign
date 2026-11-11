@@ -22,19 +22,27 @@ function shape(markup: string): string {
 }
 
 describe("the still frame", () => {
+  // Comments removed until none is left, so a comment rebuilt by removing another can't survive.
+  const withoutComments = (text: string): string => {
+    let out = text;
+    for (let before = ""; before !== out; ) {
+      before = out;
+      out = out.replace(/<!--[\s\S]*?-->/g, "");
+    }
+    return out;
+  };
   const root = html.match(/<div id="root">([\s\S]*?)<\/div>\s*<script/)?.[1] ?? "";
 
   it("sits in index.html's #root, with the same shape React draws", () => {
     expect(root).toContain('data-testid="still-frame"');
-    expect(shape(root.replace(/<!--[\s\S]*?-->/g, "").trim())).toBe(
-      shape(renderToStaticMarkup(<StillFrame />)),
-    );
+    expect(shape(withoutComments(root).trim())).toBe(shape(renderToStaticMarkup(<StillFrame />)));
   });
 
   it("needs no script: index.html has no inline script and no inline handler", () => {
-    for (const tag of html.match(/<script\b[^>]*>/g) ?? []) expect(tag).toMatch(/\ssrc=/);
+    // Tag names in HTML are case-insensitive, so every check is too.
+    for (const tag of html.match(/<script\b[^>]*>/gi) ?? []) expect(tag).toMatch(/\ssrc=/i);
     expect(html).not.toMatch(/\son[a-z]+=/i);
-    expect(html).not.toContain("<style");
+    expect(html).not.toMatch(/<style\b/i);
   });
 
   it("has a status for screen readers and hides its shapes from them", () => {

@@ -2,7 +2,6 @@
 // worked out at call time and handed to `onCall` (successes and failures alike) so the caller can
 // write it on the step run (ARCHITECTURE §13).
 
-import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import {
   checkEmbeddings,
@@ -14,6 +13,7 @@ import {
   type EmbedResponse,
   embeddingCostOf,
 } from "./embeddings";
+import type * as Anthropic from "./messages";
 import { DEFAULT_MODEL, type ModelId } from "./models";
 import { costOf, type ModelPrice, PRICES, priceFor } from "./pricing";
 import { providerOf } from "./route";
@@ -147,7 +147,7 @@ export interface LlmClient {
 }
 
 /** The JSON Schema the API sees for a Zod schema: its input form, without `$schema`. */
-export function toolInputSchema(schema: z.ZodType): Anthropic.Tool.InputSchema {
+export function toolInputSchema(schema: z.ZodType): Anthropic.ToolInputSchema {
   const json = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<
     string,
     unknown
@@ -156,7 +156,7 @@ export function toolInputSchema(schema: z.ZodType): Anthropic.Tool.InputSchema {
   if (json.type !== "object") {
     throw new Error("a tool's input schema must be an object schema");
   }
-  return json as Anthropic.Tool.InputSchema;
+  return json as Anthropic.ToolInputSchema;
 }
 
 /**

@@ -13,8 +13,11 @@ export {
   readOperatorCatalogue,
   type Schema,
   ScopeError,
+  type SessionDecision,
+  type SessionScope,
   type Tx,
   withOperator,
+  withSession,
   withTenant,
   withTenants,
   withUser,
@@ -22,6 +25,7 @@ export {
 export * from "./directory";
 export * from "./ledger";
 export {
+  accountIn,
   membershipsOfUser,
   type UserMembership,
   userMemberships,

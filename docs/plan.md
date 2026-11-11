@@ -4213,6 +4213,22 @@ the same URL: `https://staging.mezonas.com/mcp` and `https://app.mezonas.com/mcp
 | Metadata | The protected resource's `resource_name` is now "Mezonas (<environment>)"; the back-office server info stays `mezonas-ops`, the client's is `mezonas` / "Mezonas". No new var, secret, binding or migration: staging and production already have `WORKOS_AUTHKIT_DOMAIN`. |
 | Not built | Client writes through the connector (approve or answer an inbox item, raise a request), each two-step as §1.34's; a per-client switch to turn the connector off; a portal page that says how to connect. |
 
+### 1.90 Speed: one transaction per session request (speed run 5.1, 2026-11-11)
+
+Each session route opened two transactions: `getSession` read the user and memberships in
+`withUser`, then `inScope` opened `withOperator` or `withTenant` for the handler and its audit row.
+That was two `begin`s, two `commit`s and a membership read of two statements before any work.
+
+| Topic | Decision |
+|---|---|
+| One transaction | `withSession` (`packages/db`) sets only `app.user_id`, reads the account, works out the scope, then sets `app.tenant_ids` and `app.operator` and clears `app.user_id` in the same transaction, issued before the handler can issue anything (as §1.82's scope). The handler never runs with `app.user_id` set. A scope without `operator` must name exactly one client (`ScopeError`). // DECISION |
+| Before the transaction | The adapter's `identify` (the cookie, a WorkOS refresh, the idle lock) and the request body are read first, so neither a slow token refresh nor a slow upload holds a connection and a transaction. The body is parsed inside, after the scope check, so a refusal still comes before a 400. // DECISION |
+| Refusals | A missing user, no access, the wrong client or role leave the transaction (it wrote nothing) and write their audit row alone, as before (§1.35). Errors are audited alone, as before. |
+| The account in one statement | `accountIn`: the user row with its memberships as a JSON array (the same join, retired-client rule and order). `userWithMemberships`, `GET /api/session` and slow routes use it too. // DECISION |
+| Slow routes and MCP | `mountLong` keeps a transaction of its own for the account, since it holds none across the handler. `invokeRoute` builds its handler's context with `mount`'s helpers, one scoped transaction with the user cleared. The MCP server's `authenticate` still reads memberships in its own transaction once per call: not folded in. |
+| Measured | Local, demo seed: `GET /api/feedback/status` went from 7 statements, 2 `begin`s to 6 and 1; every back-office and portal screen's statements went down by 2 to 21, and `begin`s about halved. |
+| Checked | `scope.test.ts` (the switch, a drizzle select issued at once, one backend, rollback, a pooled connection clean after every kind of failure), `rls.test.ts` (as `cs_worker`: the sign-in half sees only the user's memberships, the handler only the scoped clients), `apps/api/src/http.test.ts` (through `mount` and `invokeRoute`). |
+
 ### 1.91 Speed run: what the run decided (2026-11-11; `docs/audit-plan.md`)
 
 The decisions taken while running the speed and structure plan, item by item, as each merged into
@@ -4320,6 +4336,30 @@ pages switch in a follow-up.
 merging `speed/run` into it, and the lead merges each PR with a merge commit (never a squash). The
 tree merged is the one the gates ran on. `pnpm typecheck` runs out of memory in a 15 GB cloud
 container at full parallelism; the run uses `pnpm -r --workspace-concurrency=4 typecheck` there.
+
+### 1.93 Speed: memberships in the sealed session cookie (speed run 5.2, 2026-11-11)
+
+The owner's D2 ("Yes"): a person's memberships ride in the sealed cookie for a few minutes, so most
+session requests skip reading them. It delays a removed member's loss of access by that long.
+
+| Topic | Decision |
+|---|---|
+| The window | `ACCOUNT_WINDOW_SEC` = 5 minutes (`packages/auth/src/account.ts`), the same as the WorkOS refresh interval on purpose: an account read by the request that refreshes the session goes stale when the next refresh is due, so the request that reseals it is usually the one that refreshed. A shorter window only means more reads; a longer one, more delay. The cookie carries the user (id, email, name) and their memberships (client id, name, role) with `at`, the second they were read; the operator flag and the clients served are worked out from them as before. // DECISION |
+| Fresh | Younger than the window: `mount` builds the session and scope from the cookie and opens one transaction already in that scope (`withOperator` or `withTenant`); no `app.user_id`, no account read. The handler, the scope and the audit row are as in §1.90. |
+| Stale or none | The request reads the account in its one transaction (§1.90) and the response seals the cookie again with what it read. `mountLong` does the same around its own read. |
+| Grants | A carried account that would refuse the request (a client it doesn't list, a role it lacks) is not used: the account is read before any refusal. // DECISION. So a request that names a new client, or needs a role the person was just given, is never delayed. Two grants do wait for the window: a list across clients (no client named, so nothing is refused) leaves a client added by someone else out, and a role raised in place within a client the route already admits (a client user made admin) shows the old role. |
+| The refresh race | The account is sealed into the WorkOS cookie only when its refresh token is safe to write back: the request refreshed it, or it is not due within `RACE_GRACE_SEC`. A request admitted on the race or outage grace (`resolveSession` says `grace`), or one just before a refresh another tab may be making, holds a token that may be spent; a cookie it wrote could land last and sign the person out at the next refresh. Such a request sends only what `identify` decided, and the account is read again next time. Admitted on a grace, `identify` itself writes nothing either, not even a moved `lat` (before 5.2 it did, with the old token); the next request that refreshes moves it. A slow request is judged when it answers (`carry` takes the time), not when it was identified. // DECISION |
+| Where | WorkOS: in the session cookie (`acct`), so it rotates with it and goes with it on sign-out, the idle lock and expiry; a new sign-in starts without one. Dev sign-in: its own sealed cookie (`cs_dev_account`) under a key made at random per isolate, cleared on sign-in and sign-out. Either way it is bound to the user the identity names: another user's account is never used. A cookie that does not open is refused (WorkOS) or ignored and replaced (dev). `acct` is parsed apart from the session, so a shape we stop reading costs a read, not a sign-out. // DECISION |
+| Size | A `Set-Cookie` over 4096 bytes is not sent with an account: an operator with very many clients (about 30 with long names) reads it on each request, as before 5.2. // DECISION |
+| Own changes | A handler that changes the signed-in person's own memberships calls `accountChanged()`; the response drops the carried account. The only such route is creating a client (the creating operator serves it). Invites add other people; no route removes members or changes a role. |
+| Not carried | `GET /api/session` still reads the account each time (the app's first call, and the only place client names are shown from it). The MCP server reads it per call (bearer tokens, no cookie). |
+| What RLS relies on | No policy reads `membership` except `own_memberships`, which only the sign-in half uses. Every client table checks `app.tenant_ids`, which is set from the scope. So for up to the window, a removed or demoted member's open session does what the carried membership allowed: that client's rows, through every route their old role reaches. |
+| For the owner: what the window lets a removed person do | A removed operator can still act in that client as an operator for up to 5 minutes: approve and sign (`withCanSign` takes an operator's word without reading `membership`), change and publish its agents, change its settings. A removed or demoted client admin can still invite people to that client, and an invitation made in the window stays after it. Code that reads `membership` itself sees the change at once: a removed client user's approvals are refused (`withCanSign` reads their `can_sign`), as are approver rules and who is notified. No route removes a member today; when one is built, it changes someone else's membership, so it cannot drop that person's cookie: their window still runs. Ending their WorkOS session ends it at the next refresh, within the same 5 minutes (and the 60 s race grace). |
+| Audit rows in the window | Rows written from a carried account name the user and role as carried: a role someone else changed shows the old one for up to 5 minutes. A refusal is written after a fresh read, and each decision starts from an anonymous actor, so a refusal never names what the cookie carried. |
+| Sign-out with a request in flight | A request that started before sign-out and answers after it can set the session cookie again (with an account, or with a refreshed token, as it could before 5.2). Sign-out ends the WorkOS session, so that cookie stops at its next refresh: within 5 minutes and the 60 s race grace. With the dev sign-in the user cookie is gone, so a stray account cookie names no one. |
+| A race with an own change | A request that read a stale account just before `accountChanged()` committed, and whose response lands after it, seals the old memberships back in. The new client then misses from lists across clients for up to the window; opening it (it is named) reads the account again. |
+| Measured | Local, demo seed, on top of §1.90: `GET /api/feedback/status` with a fresh cookie went from 6 statements to 4 (the account statement and the sign-in `set_config` are gone; one `begin` either way), `GET /api/ops/counts` from 15 to 13. Every back-office and portal screen's statements went down (by 2 to 40) and no screen's API calls changed. |
+| Checked | `apps/api/src/session-account.test.ts` (the window, a removed member, another user's cookie, tampering, an own change and a client created through the app, sign-out and sign-in, the size fallback), `packages/auth/src/workos/workos.test.ts` (carry, rotation, idle lock, sign-out, tampering, another user, size, and parallel requests across a refresh against a WorkOS that refuses spent tokens: no spent token is written back), `packages/auth/src/account.test.ts`. |
 
 ## 2. Package layering
 
