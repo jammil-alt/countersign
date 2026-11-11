@@ -14,12 +14,15 @@ import { AgentBadge, PersonBadge } from "../../ui/badges";
 import { hasRuns, ProgressBar, Sparkline } from "../../ui/figures";
 import { Select } from "../../ui/forms";
 import { PageGrid, Section } from "../../ui/page";
-import { Button, Card, EmptyState, ErrorNotice, Loading } from "../../ui/primitives";
+import { Button, Card, EmptyState, ErrorNotice } from "../../ui/primitives";
+import { Skeleton, SkeletonCard, SkeletonLine, SkeletonRows } from "../../ui/skeleton";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { STAGE_LABEL } from "../agents/GoLivePanel";
+import { prefetchAgent, useIntent } from "../agents/prefetch";
 import { OPS_PATHS } from "../paths";
 import { runsLink } from "../run/links";
 import { plural, RUN_STATUS_WORDS } from "../run/words";
+import type { AgentLinkState } from "../screens/AgentPage";
 import { ClientHealthSection } from "../screens/ClientHealth";
 import { ClientFrame, clientPagePath, type OpsClient, useClientPage } from "./ClientFrame";
 
@@ -42,14 +45,16 @@ function Overview({ clientId }: { clientId: string }) {
   const inbox = useApi(apiRoutes.opsInbox, {
     query: { client: clientId, status: "open", assigned: "operator" },
   });
+  // Started with the client and the inbox, not after them (1.5): the rail's lead and threads.
+  const threads = useApi(apiRoutes.opsThreads, { params: { id: clientId } });
   const data = client.data;
-  if (!data) return client.error ? null : <Loading />;
+  if (!data) return client.error ? null : <OverviewSkeleton />;
 
   const agents = data.agents.filter((a) => !a.testCopy);
   const waiting = inbox.data?.items ?? [];
 
   return (
-    <PageGrid rail={<Rail clientId={clientId} data={data} />}>
+    <PageGrid rail={<Rail clientId={clientId} data={data} threads={threads} />}>
       {waiting.length > 0 ? (
         <Section
           title="Waiting on us"
@@ -208,6 +213,7 @@ function StageRow({
   activity: OpsAgentActivity | undefined;
 }) {
   const state = useApi(apiRoutes.opsAgentGoLive, { params: { id: agent.id } });
+  const intent = useIntent();
   const g = state.data?.goLive;
   const stage = g?.stage ?? "bench";
   const step = STAGES.indexOf(stage) + 1;
@@ -228,7 +234,9 @@ function StageRow({
       <span className="ui-activity__text flex min-w-0 flex-col gap-1.5">
         <Link
           to={`${OPS_PATHS.client(clientId)}/agents/${agent.slug}`}
+          state={{ agentId: agent.id } satisfies AgentLinkState}
           className="font-medium text-ink hover:underline"
+          {...intent(agent.id, (p) => prefetchAgent(p, agent.id))}
         >
           {agent.serviceName ?? agent.name}
         </Link>
@@ -284,8 +292,36 @@ function StageRow({
 
 type Threads = ApiState<ResponseOf<typeof apiRoutes.opsThreads>>;
 
-function Rail({ clientId, data }: { clientId: string; data: OpsClient }) {
-  const threads = useApi(apiRoutes.opsThreads, { params: { id: clientId } });
+/** The Overview's shape while the client loads: the agents' rows, and the rail's two cards. */
+function OverviewSkeleton() {
+  return (
+    <Skeleton testId="ops-client-overview-skeleton">
+      <PageGrid
+        rail={
+          <>
+            <SkeletonCard lines={2} />
+            <SkeletonCard lines={3} />
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <SkeletonLine size="heading" width="short" />
+          <SkeletonRows rows={3} columns={2} />
+        </div>
+      </PageGrid>
+    </Skeleton>
+  );
+}
+
+function Rail({
+  clientId,
+  data,
+  threads,
+}: {
+  clientId: string;
+  data: OpsClient;
+  threads: Threads;
+}) {
   return (
     <>
       <LeadCard clientId={clientId} data={data} threads={threads} />
@@ -361,14 +397,17 @@ function LeadCard({
                 onClick={() => void save()}
                 data-testid="ops-client-lead-save"
               >
-                Set lead
+                {busy ? "Saving…" : "Set lead"}
               </Button>
             </div>
           ) : null}
           {problem ? <ErrorNotice error={problem} /> : null}
         </div>
       ) : threads.error ? null : (
-        <Loading />
+        <Skeleton>
+          <SkeletonLine width="half" />
+          <SkeletonLine width="long" size="small" />
+        </Skeleton>
       )}
     </Card>
   );

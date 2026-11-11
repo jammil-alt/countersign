@@ -248,7 +248,11 @@ function Note({ text }: { text: string }) {
 
 function Screenshot({ item }: { item: FeedbackItem }) {
   // A 5-minute link, asked for when the card shows.
-  const { data, error } = useApi(apiRoutes.opsFeedbackScreenshot, { params: { id: item.id } });
+  const { data, error } = useApi(apiRoutes.opsFeedbackScreenshot, {
+    params: { id: item.id },
+    // A 5-minute link to the picture: never stored.
+    cache: "none",
+  });
   if (error) return <p className="text-sm text-ink-muted">Couldn't load the picture.</p>;
   return (
     <a

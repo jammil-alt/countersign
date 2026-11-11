@@ -40,7 +40,7 @@ export function OpsOAuthCallbackScreen() {
           </Link>
         </div>
       ) : (
-        <Loading label="Connecting…" />
+        <Loading progress label="Connecting…" />
       )}
     </div>
   );

@@ -222,9 +222,9 @@ export function WhatsappMetaSignupScreen() {
         {phase === "unavailable" ? (
           <p className="text-sm text-ink-muted">{t("whatsappMeta.signup.notSetUp")}</p>
         ) : phase === "loading" ? (
-          <Loading label={t("whatsappMeta.signup.loading")} />
+          <Loading progress label={t("whatsappMeta.signup.loading")} />
         ) : phase === "saving" ? (
-          <Loading label={t("whatsappMeta.signup.saving")} />
+          <Loading progress label={t("whatsappMeta.signup.saving")} />
         ) : (
           <>
             {phase === "cancelled" ? (

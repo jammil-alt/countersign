@@ -3,6 +3,7 @@
 // back office's Sandbox upload (`POST /api/ops/clients/:id/uploads`) answers the same.
 import { buildPath, routes, SESSION_ACTIVITY_HEADER } from "@countersign/core";
 import { ApiError, type ResponseOf } from "./client";
+import { noteWrite } from "./store";
 
 export type UploadResponse = ResponseOf<typeof routes.portalUploads>;
 
@@ -53,6 +54,9 @@ export async function uploadFiles(
       body: json,
     });
   }
+  // The server took the files (2xx), whatever the answer looks like: stored answers (documents,
+  // inbox) are stale from now.
+  noteWrite();
   const parsed = routes.portalUploads.response.safeParse(json);
   if (!parsed.success) {
     throw new ApiError({

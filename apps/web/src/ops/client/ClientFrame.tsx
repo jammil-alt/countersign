@@ -6,14 +6,16 @@
 // renders inside this frame, which loads the client once and hands it down (`useClientPage`). The
 // client's runs are on the Runs page, filtered to it, linked from the Overview.
 import { goLiveCounts } from "@countersign/core";
-import { createContext, type ReactNode, useContext } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { createContext, type ReactNode, useContext, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { Link, Outlet, useLocation, useParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
 import { AgentHuesProvider } from "../../ui/badges";
 import { Page } from "../../ui/page";
 import { ErrorNotice, PageHeader, SubTabs, Tabs, Tag } from "../../ui/primitives";
+import { SkeletonLine } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { useAgentsChanged } from "../agents/ui";
 import { useClientSummary } from "../OpsLayout";
@@ -145,6 +147,49 @@ export function ClientKpiLine({ data }: { data: OpsClient }) {
   );
 }
 
+/**
+ * Where a tab's screen puts its intro and its buttons when the frame is the layout route above it
+ * (`ClientLayout`): the frame owns the elements, the screen renders into them through a portal, so
+ * the header never remounts on a tab click (docs/audit-plan.md 1.4).
+ */
+interface FrameSlots {
+  clientId: string;
+  intro: HTMLElement | null;
+  actions: HTMLElement | null;
+}
+
+const FrameSlotsContext = createContext<FrameSlots | null>(null);
+
+/**
+ * The client page's layout route (`../routes.tsx`): the header, tabs and the client's one load,
+ * kept mounted while the tabs change below it in `<Outlet />`.
+ */
+// DECISION: the frame is a pathless layout route around the tabs' own routes, so every
+// `path="…"` line stays as it was (the route sweep reads them). A tab's screen still wraps itself
+// in `ClientFrame`; inside the layout that only hands its intro and buttons to the frame's slots,
+// so the screens (some in other folders and packs) need no change and still render alone in tests.
+export function ClientLayout() {
+  const { clientId = "" } = useParams();
+  const [intro, setIntro] = useState<HTMLElement | null>(null);
+  const [actions, setActions] = useState<HTMLElement | null>(null);
+  const slots = useMemo(() => ({ clientId, intro, actions }), [clientId, intro, actions]);
+  return (
+    <FrameSlotsContext.Provider value={slots}>
+      <FrameView
+        clientId={clientId}
+        actions={<span ref={setActions} className="contents" />}
+        intro={<div ref={setIntro} data-testid="ops-client-intro" />}
+      >
+        <Outlet />
+      </FrameView>
+    </FrameSlotsContext.Provider>
+  );
+}
+
+/**
+ * A tab's screen in its frame. Under `ClientLayout` (the app) it renders its content and hands
+ * `intro` and `actions` to the layout's header; on its own (a screen test) it draws the frame.
+ */
 export function ClientFrame({
   clientId,
   intro,
@@ -158,11 +203,49 @@ export function ClientFrame({
   actions?: ReactNode;
   children: ReactNode;
 }) {
+  const slots = useContext(FrameSlotsContext);
+  if (slots && slots.clientId === clientId) {
+    return (
+      <>
+        {intro && slots.intro
+          ? createPortal(<p className="mt-4 text-ink-muted">{intro}</p>, slots.intro)
+          : null}
+        {actions && slots.actions ? createPortal(actions, slots.actions) : null}
+        {children}
+      </>
+    );
+  }
+  return (
+    <FrameView
+      clientId={clientId}
+      actions={actions}
+      intro={intro ? <p className="mt-4 text-ink-muted">{intro}</p> : null}
+    >
+      {children}
+    </FrameView>
+  );
+}
+
+function FrameView({
+  clientId,
+  intro,
+  actions,
+  children,
+}: {
+  clientId: string;
+  intro?: ReactNode;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
   const client = useApi(apiRoutes.opsClient, { params: { id: clientId } });
   useAgentsChanged(client.reload);
   const { pathname } = useLocation();
+  // The title at once from the frame's clients list (the session's client names), before the
+  // client itself has loaded (1.4).
+  const summary = useClientSummary(clientId);
   const data = client.data;
-  const sandbox = data?.client.settings.sandbox === true;
+  const sandbox = (data?.client.settings.sandbox ?? summary?.sandbox) === true;
+  const name = data?.client.name ?? summary?.name;
   const at = clientPageOf(pathname, clientId);
   const tab = CLIENT_TABS.find((t) => t.id === at.tab);
 
@@ -177,9 +260,21 @@ export function ClientFrame({
                   Clients
                 </Link>
               }
-              title={data?.client.name ?? "Client"}
+              title={
+                name ?? (
+                  <span data-testid="ops-client-title-skeleton">
+                    <SkeletonLine size="title" width={240} />
+                  </span>
+                )
+              }
               badge={sandbox ? <Tag>Sandbox</Tag> : null}
-              subtitle={data ? <ClientKpiLine data={data} /> : undefined}
+              subtitle={
+                data ? (
+                  <ClientKpiLine data={data} />
+                ) : client.error ? undefined : (
+                  <SkeletonLine width={320} />
+                )
+              }
               actions={actions}
             />
             {client.error ? <ErrorNotice error={client.error} onRetry={client.reload} /> : null}
@@ -208,7 +303,7 @@ export function ClientFrame({
                 />
               </div>
             ) : null}
-            {intro ? <p className="mt-4 text-ink-muted">{intro}</p> : null}
+            {intro}
           </div>
           {children}
         </Page>

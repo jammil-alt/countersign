@@ -48,7 +48,8 @@ import { useApi } from "../../api/useApi";
 import { HeaderSwitcher } from "../../shell/HeaderSwitcher";
 import { AgentBadge } from "../../ui/badges";
 import { Icon } from "../../ui/icons";
-import { Badge, Button, buttonClass, cx, ErrorNotice, Loading } from "../../ui/primitives";
+import { Badge, Button, buttonClass, cx, ErrorNotice } from "../../ui/primitives";
+import { Skeleton, SkeletonBlock } from "../../ui/skeleton";
 import { slugify } from "../agents/definition-form";
 import {
   JSON_INPUT_PROPS,
@@ -70,6 +71,7 @@ import {
   TextArea,
   useAction,
 } from "../agents/ui";
+import { useOpsClients } from "../OpsLayout";
 import { PROCESS_KIND_LABEL, type StepLabels } from "../workflow/describe";
 import { BuilderPanel, SaveAsAutomation, useBuilderSession } from "./BuilderPanel";
 import {
@@ -171,11 +173,14 @@ export interface WorkflowBuilderProps {
 }
 
 export default function WorkflowBuilder(props: WorkflowBuilderProps) {
-  const catalog = useApi(apiRoutes.opsBuilderCatalog, { params: { id: props.agent.id } });
+  const catalog = useApi(apiRoutes.opsBuilderCatalog, {
+    params: { id: props.agent.id },
+    life: "catalog",
+  });
   // Skill model (2026-11-10): skill versions a step moved to in this session, so the builder
   // types the step with the version it now names (the server resolves it the same way).
   const [moved, setMoved] = useState<BuilderCatalog["skills"]>([]);
-  const events = useApi(apiRoutes.opsEventCatalog);
+  const events = useApi(apiRoutes.opsEventCatalog, { life: "catalog" });
   const templateVersion = useApi(
     apiRoutes.opsAgentVersion,
     props.agent.kind === "client" && props.agent.templateId && props.from.basedOnTemplateVersionId
@@ -220,7 +225,9 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
   if (!catalog.data || !events.data) {
     return (
       <Frame {...props}>
-        <Loading label="Loading skills, tools and events…" />
+        <Skeleton label="Loading skills, tools and events…" testId="builder-skeleton">
+          <SkeletonBlock height={480} />
+        </Skeleton>
       </Frame>
     );
   }
@@ -504,11 +511,18 @@ function BuilderBody(
   }, [workflow, addTarget]);
 
   // ── Whose tools the palette offers ──
+  // DECISION (2.5): the frame's clients list (OpsLayout's `clients?view=names`) says whether the
+  // client is the Sandbox; the builder asks for its own only outside the frame (a screen test), or
+  // while the frame's is still on its way (the same request then, shared by the store).
+  const frameClients = useOpsClients();
+  const asks = agent.kind === "client" && !agent.testCopy;
   const clients = useApi(
     apiRoutes.opsClients,
-    agent.kind === "client" && !agent.testCopy ? { query: { view: "names" } } : null,
+    asks && frameClients === null ? { query: { view: "names" }, life: "catalog" } : null,
   );
-  const sandbox = clients.data?.clients.find((c) => c.id === agent.tenantId)?.sandbox === true;
+  const sandbox =
+    asks &&
+    (frameClients ?? clients.data?.clients)?.find((c) => c.id === agent.tenantId)?.sandbox === true;
   const connectors = useMemo(
     () =>
       paletteConnectors({
@@ -805,8 +819,19 @@ function BuilderBody(
     }
   };
 
+  // Publishing (the save before it included): the button says so at once and can't be pressed
+  // twice; nothing reads as published before the server says it is (1.8, invariant 8).
+  const [publishing, setPublishing] = useState(false);
   const onPublish = async () => {
     setNotice(null);
+    setPublishing(true);
+    try {
+      await publishLatest();
+    } finally {
+      setPublishing(false);
+    }
+  };
+  const publishLatest = async () => {
     const v = dirty ? await save() : saved;
     if (!v) return;
     const res = await action.call(apiRoutes.opsPublish, {
@@ -947,11 +972,15 @@ function BuilderBody(
               <Button
                 variant="primary"
                 data-testid="builder-publish"
-                disabled={publishBlocked !== null || action.busy}
+                disabled={publishBlocked !== null || action.busy || publishing}
                 title={publishBlocked ?? undefined}
                 onClick={onPublish}
               >
-                {dirty ? "Save and publish" : `Publish v${saved.version}`}
+                {publishing
+                  ? "Publishing…"
+                  : dirty
+                    ? "Save and publish"
+                    : `Publish v${saved.version}`}
               </Button>
             )}
           </>
@@ -1806,7 +1835,10 @@ function TestRunPanel({
   const sampleText = hasSample ? JSON.stringify(sample, null, 2) : "";
   const isTemplate = agent.kind === "template";
   // A template can run on the Sandbox's fixture data or on a client the operator serves.
-  const clients = useApi(apiRoutes.opsClients, isTemplate ? { query: { view: "names" } } : null);
+  const clients = useApi(
+    apiRoutes.opsClients,
+    isTemplate ? { query: { view: "names" }, life: "catalog" } : null,
+  );
   const [clientId, setClientId] = useState("");
   // Recent events come from the client the run will read: the agent's own, or the template's
   // chosen client (the Sandbox when none is chosen).

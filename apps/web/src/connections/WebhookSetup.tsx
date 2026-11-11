@@ -37,6 +37,8 @@ export function WebhookSetup({ connectionId }: { connectionId: string }) {
   const { t } = i18n;
   const { data, error, loading, reload } = useApi(apiRoutes.portalWebhook, {
     params: { id: connectionId },
+    // Hook URLs carry their secret tokens, and the signing secret: never stored.
+    cache: "none",
   });
   const [name, setName] = useState("");
   const [outbound, setOutbound] = useState<string | null>(null);

@@ -9,6 +9,7 @@
 // client), Working (a run is going) or Ready (live and idle).
 import { runState as sharedRunState } from "@countersign/core";
 import type { Translate } from "../i18n/catalog";
+import { runPollMs, runsPollMs } from "../runs/format";
 import type { ChipState } from "../ui/status";
 
 export type RunState = "running" | "waiting" | "done" | "failed" | "stopped";
@@ -61,6 +62,22 @@ export function runStateWords(s: RunState, t: Translate): string {
 export function runOpen(r: RunFields): boolean {
   const s = runState(r);
   return s === "running" || s === "waiting";
+}
+
+/**
+ * How often a portal screen asks again about a run: `fast` while it works, every 30 s while it waits
+ * on you, never once it has finished (null). `runOpen` still says what the run is shown as.
+ */
+export function portalRunPollMs(r: RunFields, fast: number): number | null {
+  return runPollMs({ status: r.status, waiting: r.waitingOnYou }, fast);
+}
+
+/** A list's poll: the fastest any of its runs needs, or null when none is open. */
+export function portalRunsPollMs(runs: readonly RunFields[], fast: number): number | null {
+  return runsPollMs(
+    runs.map((r) => ({ status: r.status, waiting: r.waitingOnYou })),
+    fast,
+  );
 }
 
 /**
