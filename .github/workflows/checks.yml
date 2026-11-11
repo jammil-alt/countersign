@@ -110,16 +110,16 @@ jobs:
           fi
 
       # The browser connector's tests drive real Chromium through Playwright (docs/plan.md §1.26,
-      # phase 3). Installed with apps/api's own Playwright, so the browser always matches its
-      # version; skipped where apps/api has no Playwright yet.
+      # phase 3). Installed with apps/browser's own Playwright, so the browser always matches its
+      # version; skipped where apps/browser has no Playwright yet.
       - name: Chromium for the browser tests
         if: steps.scope.outputs.tests != 'none'
         run: |
           set -euo pipefail
-          if [ -d apps/api/node_modules/playwright ]; then
-            pnpm --filter @countersign/api exec playwright install --with-deps chromium
+          if [ -d apps/browser/node_modules/playwright ]; then
+            pnpm --filter @countersign/browser exec playwright install --with-deps chromium
           else
-            echo "apps/api has no Playwright: nothing to install."
+            echo "apps/browser has no Playwright: nothing to install."
           fi
 
       - name: A local Postgres with Neon's roles
