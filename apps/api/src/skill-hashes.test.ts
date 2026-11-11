@@ -21,7 +21,9 @@ const builtins = platform.catalog.list();
 // vendor's quote, Choose items to merge; Bookkeeping's three and Marketing's five AI skills.
 // The templates add three AI skills: Choose items and accounts, Prepare bill, Explain a problem.
 // Review: Check bill, the deterministic check after Prepare bill.
-const BUILTINS = 127;
+// §1.88: the vendor-first matching adds four: Match vendor, Match by SKU (vendor), Semantic match
+// (vendor), Master item manager.
+const BUILTINS = 131;
 const WRAPPERS = 92;
 
 describe("built-in skills under the R2 skill schema", () => {
