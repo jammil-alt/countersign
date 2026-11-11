@@ -1,9 +1,9 @@
 // The vendor catalog's steps in the builder (docs/plan.md §1.88), on a fake API: the palette offers
-// Match vendor and Match by SKU (vendor) as Deterministic skills, Semantic match (vendor) and the
-// Master item manager as AI skills, Check matches beside them, and keeps the split's Look up
-// existing off (superseded); the Materials pack's tools sit under "Materials", the retrieval reads
-// as reads and Register item as a Save to records step whose approval is off until the operator
-// turns it on.
+// Match vendor and Match by SKU (vendor) as Deterministic skills, the Library's Semantic match
+// (vendor) and Master item manager as AI skills, Check matches beside them, and the split's Look
+// up existing still (the built-in AI skills kept for stored steps are off); the Materials pack's
+// tools sit under "Materials", the retrieval reads as reads and Register item as a Save to records
+// step whose approval is off until the operator turns it on.
 import {
   AnyAgentBundle,
   type AnyAgentBundleInput,
@@ -51,10 +51,15 @@ function skill(
   } as SkillDefinition;
 }
 
-const entry = (def: SkillDefinition, kind: "ai" | "deterministic", palette = true) => ({
+const entry = (
+  def: SkillDefinition,
+  kind: "ai" | "deterministic",
+  palette = true,
+  source: "builtin" | "shared" = "builtin",
+) => ({
   ref: def.id,
-  source: "builtin" as const,
-  version: null,
+  source,
+  version: source === "shared" ? 1 : null,
   definition: def,
   kind,
   palette,
@@ -86,17 +91,30 @@ const CATALOG = {
       }),
       "deterministic",
     ),
+    // The AI skills are the Library's: shared operator skills the pack installed.
     entry(
-      skill("materials.semantic-match-vendor", "Semantic match (vendor)", "task", {
+      skill("custom:semantic-match-vendor", "Semantic match (vendor)", "task", {
         reads: ["materials.vendor_items.list"],
       }),
       "ai",
+      true,
+      "shared",
     ),
     entry(
-      skill("materials.master-item-manager", "Master item manager", "task", {
+      skill("custom:master-item-manager", "Master item manager", "task", {
         reads: ["materials.catalog.search"],
       }),
       "ai",
+      true,
+      "shared",
+    ),
+    // The built-ins built before them, kept for stored steps: off the palette.
+    entry(
+      skill("materials.semantic-match-vendor", "Semantic match (vendor, built-in)", "task", {
+        reads: ["materials.vendor_items.list"],
+      }),
+      "ai",
+      false,
     ),
     entry(
       skill("materials.check-matches", "Check matches", "tool", {
@@ -105,14 +123,13 @@ const CATALOG = {
       }),
       "deterministic",
     ),
-    // Superseded by Match by SKU (vendor) for new steps; listed so stored steps type.
+    // Still offered beside the vendor-first skills: nothing already built leaves the palette.
     entry(
       skill("materials.lookup-existing", "Look up existing", "tool", {
         handler: "materials.lines.lookup",
         tools: ["materials.lines.lookup"],
       }),
       "deterministic",
-      false,
     ),
   ],
   tools: [
@@ -253,7 +270,7 @@ function savedSteps(sent: { path: string; body: Record<string, unknown> }[]) {
 }
 
 describe("the vendor catalog's steps in the builder", () => {
-  it("offers the vendor-first skills with their kinds, and not the superseded Look up existing", async () => {
+  it("offers the vendor-first skills with their kinds (the AI ones the Library's), and still Look up existing", async () => {
     const { user } = setup();
     await screen.findByTestId("builder-canvas");
     await user.click(screen.getByTestId("builder-add-step"));
@@ -261,15 +278,19 @@ describe("the vendor catalog's steps in the builder", () => {
     for (const [ref, kind] of [
       ["materials.match-vendor", "Deterministic"],
       ["materials.match-sku-vendor", "Deterministic"],
-      ["materials.semantic-match-vendor", "AI"],
-      ["materials.master-item-manager", "AI"],
+      ["custom:semantic-match-vendor", "AI"],
+      ["custom:master-item-manager", "AI"],
       ["materials.check-matches", "Deterministic"],
+      ["materials.lookup-existing", "Deterministic"],
     ] as const) {
       expect(
         within(skills).getByTestId(`builder-palette-item-skill:${ref}-kind`),
       ).toHaveTextContent(kind);
     }
-    expect(screen.queryByTestId("builder-palette-item-skill:materials.lookup-existing")).toBeNull();
+    // The built-in kept for stored steps is not offered for a new one.
+    expect(
+      screen.queryByTestId("builder-palette-item-skill:materials.semantic-match-vendor"),
+    ).toBeNull();
     // The pack's step tools under its name: the retrieval reads, then Register item.
     const pack = screen.getByTestId("builder-palette-connector:materials");
     expect(pack).toHaveTextContent("Materials");
@@ -313,19 +334,19 @@ describe("the vendor catalog's steps in the builder", () => {
     expect(savedSteps(sent).at(-1)?.checks?.approval?.required).toBe("required");
   });
 
-  it("adds Semantic match (vendor) as an AI skill step", async () => {
+  it("adds the Library's Semantic match (vendor) as an AI skill step", async () => {
     const { sent, user } = setup();
     await screen.findByTestId("builder-canvas");
     await user.click(screen.getByTestId("builder-add-step"));
     await user.click(
-      screen.getByTestId("builder-palette-item-skill:materials.semantic-match-vendor-add"),
+      screen.getByTestId("builder-palette-item-skill:custom:semantic-match-vendor-add"),
     );
     expect(screen.getByTestId("builder-inspector")).toHaveTextContent("AI");
     await user.click(screen.getByTestId("builder-save"));
     await waitFor(() => expect(sent.some((s) => s.path === "save")).toBe(true));
     expect(savedSteps(sent).at(-1)).toMatchObject({
       kind: "skill",
-      skill: "materials.semantic-match-vendor",
+      skill: "custom:semantic-match-vendor",
     });
   });
 });

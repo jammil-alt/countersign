@@ -6,6 +6,8 @@
 // The pack's tables aren't in this package's schema (the platform never imports a pack), so this
 // test speaks SQL.
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withTenant } from "./client";
 import { type ClientFixture, insertClient } from "./fixtures.test-helper";
@@ -164,6 +166,22 @@ describe.skipIf(!online)("0047 on a database the previous Worker used", () => {
       preferred: false,
     });
     expect(screws?.name).toBe("#8 x 1 1/4 wood screw");
+  });
+
+  it("adds nothing when its backfill runs again (a repair, a replay by hand)", async () => {
+    const sql = readFileSync(
+      fileURLToPath(new URL("../migrations/0047_vendor_catalog.sql", import.meta.url)),
+      "utf8",
+    );
+    const inserts = sql
+      .split("--> statement-breakpoint")
+      .filter((s) => /INSERT INTO vendor_item/.test(s));
+    expect(inserts).toHaveLength(2);
+    const count = async () =>
+      (await t.db.$client<{ n: number }[]>`select count(*)::int as n from vendor_item`)[0]?.n;
+    const before = await count();
+    for (const statement of inserts) await t.db.$client.unsafe(statement);
+    expect(await count()).toBe(before);
   });
 
   it("takes the newest price by date as the last price, with its source", async () => {

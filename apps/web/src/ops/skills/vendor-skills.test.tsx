@@ -1,8 +1,9 @@
 // The vendor catalog's skills in the Library (docs/plan.md §1.88): Match vendor and Match by SKU
-// (vendor) are Deterministic built-in code (no Clone); Semantic match (vendor) and the Master item
-// manager are AI skills that open in the skill editor as an operator skill through Clone, with
-// their instructions, model, the vendor catalog read they retrieve with and their nested output,
-// and save as a draft in the same shape.
+// (vendor) are Deterministic built-in code (no Clone) with the agent's parameters; Semantic match
+// (vendor) and the Master item manager are the Library's own AI skills (shared operator skills the
+// pack installed), so they open in the skill editor with Edit, with their instructions, model, the
+// vendor catalog read they retrieve with and their nested output, and save a new version in the
+// same shape.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
@@ -12,6 +13,7 @@ import { fakeApi, OPERATOR_SESSION } from "../../test/fixtures";
 
 const COPY_ID = "00000000-0000-4000-8000-00000000c0c1";
 const COPY_V1 = "00000000-0000-4000-8000-00000000c0d1";
+const MANAGER_ID = "00000000-0000-4000-8000-00000000c0c2";
 
 const listItem = (over: Record<string, unknown>) => ({
   description: "",
@@ -43,6 +45,12 @@ const SKILLS = [
     tools: ["materials.vendor.match"],
     parameters: [
       {
+        name: "match_on",
+        label: "Match the vendor on",
+        type: "text",
+        default: "document, tax id, email domain, name",
+      },
+      {
         name: "min_name_similarity",
         label: "Take a vendor whose name is at least this close (1 = the same name only)",
         type: "number",
@@ -59,26 +67,49 @@ const SKILLS = [
     kind: "deterministic",
     kindLabel: "Deterministic",
     tools: ["materials.vendor_items.lookup"],
+    parameters: [
+      {
+        name: "vendor_shortlist_size",
+        label: "Shortlist of the vendor's own items",
+        type: "number",
+        default: 5,
+      },
+      {
+        name: "master_shortlist_size",
+        label: "Shortlist of master items",
+        type: "number",
+        default: 5,
+      },
+    ],
   }),
+  // The Library's own: shared operator skills the Materials pack installed, v1 live.
   listItem({
-    id: "materials.semantic-match-vendor",
-    ref: "materials.semantic-match-vendor",
+    id: COPY_ID,
+    ref: "custom:semantic-match-vendor",
     name: "Semantic match (vendor)",
     description: "Decides whether each open line is one of the vendor's own items.",
     mode: "task",
     method: "ai",
+    source: "shared",
+    liveVersion: 1,
+    latestVersion: 1,
+    latestStatus: "live",
     kind: "ai",
     kindLabel: "AI",
     reads: ["materials.vendor_items.list"],
     recommendedModel: { id: "claude-haiku-5-5" },
   }),
   listItem({
-    id: "materials.master-item-manager",
-    ref: "materials.master-item-manager",
+    id: MANAGER_ID,
+    ref: "custom:master-item-manager",
     name: "Master item manager",
     description: "Links a line new to its vendor to a master item, or creates one.",
     mode: "task",
     method: "ai",
+    source: "shared",
+    liveVersion: 1,
+    latestVersion: 1,
+    latestStatus: "live",
     kind: "ai",
     kindLabel: "AI",
     reads: ["materials.catalog.search"],
@@ -155,25 +186,14 @@ const COPY_DEFINITION = {
   producesAlerts: false,
 };
 
-const COPY = listItem({
-  id: COPY_ID,
-  ref: "custom:semantic-match-vendor",
-  name: "Semantic match (vendor)",
-  mode: "task",
-  source: "shared",
-  latestVersion: 1,
-  latestStatus: "draft",
-  kind: "ai",
-  kindLabel: "AI",
-  reads: ["materials.vendor_items.list"],
-});
+const COPY = SKILLS.find((s) => s.id === COPY_ID) as ReturnType<typeof listItem>;
 
 const COPY_VERSION = {
   id: COPY_V1,
   version: 1,
-  status: "draft",
+  status: "live",
   definition: COPY_DEFINITION,
-  changeNote: "Cloned from materials.semantic-match-vendor",
+  changeNote: "Installed with the Materials pack 0.3.0",
   authorId: null,
   parentVersionId: null,
   createdAt: "2026-11-11T00:00:00.000Z",
@@ -198,7 +218,7 @@ function renderAt(path: string, routes: Parameters<typeof fakeApi>[0]) {
 }
 
 describe("the vendor catalog's skills in the Library", () => {
-  it("labels each by its kind; the deterministic ones are code, the AI ones clone", async () => {
+  it("labels each by its kind; the deterministic ones are code, the AI ones the Library's to edit", async () => {
     window.localStorage.removeItem("mezonas.skills.view");
     const { user } = renderAt("/ops/library/skills", {
       "GET /api/ops/skills": () => ({ skills: SKILLS, tools: TOOLS, connectors: [] }),
@@ -206,15 +226,15 @@ describe("the vendor catalog's skills in the Library", () => {
     for (const [ref, kind] of [
       ["materials.match-vendor", "Deterministic"],
       ["materials.match-sku-vendor", "Deterministic"],
-      ["materials.semantic-match-vendor", "AI"],
-      ["materials.master-item-manager", "AI"],
+      ["custom:semantic-match-vendor", "AI"],
+      ["custom:master-item-manager", "AI"],
     ] as const) {
       expect(await screen.findByTestId(`skills-card-${ref}-kind`)).toHaveTextContent(kind);
     }
     // The AI filter shows only the two AI skills.
     await user.click(screen.getByTestId("skills-kind-ai"));
     expect(screen.queryByTestId("skills-card-materials.match-vendor")).toBeNull();
-    expect(screen.getByTestId("skills-card-materials.master-item-manager")).toBeInTheDocument();
+    expect(screen.getByTestId("skills-card-custom:master-item-manager")).toBeInTheDocument();
     await user.click(screen.getByTestId("skills-kind-all"));
 
     await user.click(screen.getByTestId("skills-card-materials.match-vendor-open"));
@@ -223,22 +243,16 @@ describe("the vendor catalog's skills in the Library", () => {
     expect(within(sheet).queryByRole("button", { name: "Clone" })).toBeNull();
     await user.click(screen.getByTestId("skill-sheet-close"));
 
-    await user.click(screen.getByTestId("skills-card-materials.master-item-manager-open"));
+    await user.click(screen.getByTestId("skills-card-custom:master-item-manager-open"));
     sheet = screen.getByTestId("skill-sheet");
-    expect(
-      within(sheet).getByTestId("skills-card-materials.master-item-manager-clone"),
-    ).toBeVisible();
+    expect(within(sheet).getByTestId("skills-card-custom:master-item-manager-edit")).toBeVisible();
   });
 
-  it("opens Semantic match (vendor) in the skill editor and saves a draft in the same shape", async () => {
+  it("opens the Library's Semantic match (vendor) with Edit and saves a new version in the same shape", async () => {
     window.localStorage.removeItem("mezonas.skills.view");
     const saved: unknown[] = [];
-    const { api, user } = renderAt("/ops/library/skills", {
+    const { user } = renderAt("/ops/library/skills", {
       "GET /api/ops/skills": () => ({ skills: SKILLS, tools: TOOLS, connectors: [] }),
-      "POST /api/ops/skills/materials.semantic-match-vendor/clone": () => ({
-        skill: COPY,
-        version: COPY_VERSION,
-      }),
       [`GET /api/ops/skills/${COPY_ID}`]: () => ({
         skill: COPY,
         versions: [COPY_VERSION],
@@ -257,9 +271,8 @@ describe("the vendor catalog's skills in the Library", () => {
         return { version: { ...COPY_VERSION, id: COPY_V1.replace(/d1$/, "d2"), version: 2 } };
       },
     });
-    await user.click(await screen.findByTestId("skills-card-materials.semantic-match-vendor-open"));
-    await user.click(screen.getByTestId("skills-card-materials.semantic-match-vendor-clone"));
-    expect(api.calls).toContain("POST /api/ops/skills/materials.semantic-match-vendor/clone");
+    await user.click(await screen.findByTestId("skills-card-custom:semantic-match-vendor-open"));
+    await user.click(screen.getByTestId("skills-card-custom:semantic-match-vendor-edit"));
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent(`/ops/skills/${COPY_ID}`),
     );
@@ -298,7 +311,7 @@ describe("the vendor catalog's skills in the Library", () => {
   it("drops a read the operator unticks", async () => {
     const saved: unknown[] = [];
     const { user } = renderAt(`/ops/skills/${COPY_ID}`, {
-      "GET /api/ops/skills": () => ({ skills: [...SKILLS, COPY], tools: TOOLS, connectors: [] }),
+      "GET /api/ops/skills": () => ({ skills: SKILLS, tools: TOOLS, connectors: [] }),
       [`GET /api/ops/skills/${COPY_ID}`]: () => ({
         skill: COPY,
         versions: [COPY_VERSION],
