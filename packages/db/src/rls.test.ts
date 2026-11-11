@@ -10,12 +10,13 @@ import {
   ScopeError,
   type Tx,
   withOperator,
+  withSession,
   withTenant,
   withTenants,
   withUser,
 } from "./client";
 import { type ClientFixture, insertClient, insertOperatorRows } from "./fixtures.test-helper";
-import { userMemberships } from "./queries";
+import { accountIn, userMemberships } from "./queries";
 import { OPERATOR_TABLES, TENANT_TABLES, type TenantTable } from "./schema";
 import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
@@ -220,6 +221,152 @@ describe.skipIf(!online)("row-level security, as cs_worker", () => {
     });
     const memberships = await userMemberships(t.db, B.userId);
     expect(memberships).toEqual([{ tenantId: B.tenantId, tenantName: "B", role: "client_admin" }]);
+  });
+});
+
+describe.skipIf(!online)("one transaction per session request (withSession), as cs_worker", () => {
+  let t: TestDatabase;
+  let A: ClientFixture;
+  let B: ClientFixture;
+  let C: ClientFixture;
+
+  beforeAll(async () => {
+    const created = await createTestDatabase();
+    if (!created) throw new Error("database vanished");
+    t = created;
+    A = await insertClient(t.db, "A");
+    B = await insertClient(t.db, "B");
+    C = await insertClient(t.db, "C");
+    await insertOperatorRows(t.db);
+  });
+  afterAll(async () => {
+    await t?.drop();
+  });
+
+  const userSetting = (tx: Tx) =>
+    tx
+      .execute<{ u: string | null }>(sql`select current_setting('app.user_id', true) as u`)
+      .then((rows) => [...rows][0]?.u ?? null);
+
+  it("reads the account under the user only, then runs the handler with the scope only", async () => {
+    const seen = await withSession(
+      t.db,
+      A.userId,
+      async (tx) => {
+        await asWorker(tx);
+        const account = await accountIn(tx, A.userId);
+        // The sign-in half sees the user's own memberships and no client's rows.
+        const memberships = await tx.execute<{ user_id: string }>(
+          sql`select user_id::text from membership`,
+        );
+        expect([...memberships].map((r) => r.user_id)).toEqual([A.userId]);
+        // Every other tenant table is empty here (membership shows the user's own row, above).
+        for (const table of TENANT_TABLES) {
+          if (table === "membership") continue;
+          expect(await tenantIdsIn(tx, table), table).toEqual([]);
+        }
+        return {
+          ok: true as const,
+          scope: { tenantIds: account.memberships.map((m) => m.tenantId), operator: false },
+          value: account,
+        };
+      },
+      async (tx, account) => {
+        // The handler: app.user_id is cleared, and every tenant table shows the scoped client only.
+        expect(await userSetting(tx)).toBe("");
+        for (const table of TENANT_TABLES) {
+          const ids = await tenantIdsIn(tx, table);
+          expect(ids.length, `${table} shows A's rows`).toBeGreaterThan(0);
+          expect(new Set(ids), table).toEqual(new Set([A.tenantId]));
+        }
+        return account;
+      },
+    );
+    expect(seen.ok).toBe(true);
+    if (seen.ok) {
+      expect(seen.value.user?.id).toBe(A.userId);
+      expect(seen.value.memberships).toEqual([
+        { tenantId: A.tenantId, tenantName: "A", role: "client_admin" },
+      ]);
+    }
+  });
+
+  it("an operator scope shows the clients named and the templates, never another client", async () => {
+    await withSession(
+      t.db,
+      A.userId,
+      async (tx) => {
+        await asWorker(tx);
+        return {
+          ok: true as const,
+          scope: { tenantIds: [A.tenantId, B.tenantId], operator: true },
+          value: null,
+        };
+      },
+      async (tx) => {
+        expect(await userSetting(tx)).toBe("");
+        for (const table of TENANT_TABLES) {
+          const ids = new Set(await tenantIdsIn(tx, table));
+          expect(ids.has(C.tenantId), table).toBe(false);
+          expect(ids.has(A.tenantId), table).toBe(true);
+          expect(ids.has(B.tenantId), table).toBe(true);
+        }
+        // Statements issued together at the handler's start still run in the scope.
+        const [first, second] = await Promise.all([tenantIdsIn(tx, "event"), userSetting(tx)]);
+        expect(first).not.toContain(C.tenantId);
+        expect(second).toBe("");
+      },
+    );
+  });
+
+  it("a refusal ends without running the handler", async () => {
+    let ran = false;
+    const out = await withSession(
+      t.db,
+      A.userId,
+      async () => ({ ok: false as const, refusal: "forbidden" }),
+      async () => {
+        ran = true;
+      },
+    );
+    expect(out).toEqual({ ok: false, refusal: "forbidden" });
+    expect(ran).toBe(false);
+  });
+
+  it("a scope that is not client ids fails closed and the handler never runs", async () => {
+    let ran = false;
+    await expect(
+      withSession(
+        t.db,
+        A.userId,
+        async () => ({
+          ok: true as const,
+          scope: { tenantIds: ["nope"], operator: true },
+          value: 1,
+        }),
+        async () => {
+          ran = true;
+        },
+      ),
+    ).rejects.toBeInstanceOf(ScopeError);
+    expect(ran).toBe(false);
+    await expect(
+      withSession(
+        t.db,
+        "nope",
+        async () => ({ ok: false as const, refusal: 1 }),
+        async () => 1,
+      ),
+    ).rejects.toBeInstanceOf(ScopeError);
+  });
+
+  it("the account read leaves out a missing user, and its memberships match userMemberships", async () => {
+    const missing = await withUser(t.db, "00000000-0000-4000-8000-0000000000ab", (tx) =>
+      accountIn(tx, "00000000-0000-4000-8000-0000000000ab"),
+    );
+    expect(missing).toEqual({ user: null, memberships: [] });
+    const viaAccount = await withUser(t.db, B.userId, (tx) => accountIn(tx, B.userId));
+    expect(viaAccount.memberships).toEqual(await userMemberships(t.db, B.userId));
   });
 });
 

@@ -16,8 +16,10 @@ import {
   workosStateOf,
 } from "@countersign/auth";
 import {
+  accountIn,
   appUser,
   type Db,
+  type Tx,
   type UserMembership,
   userMemberships,
   userWithMemberships,
@@ -52,6 +54,16 @@ export function authDirectory(db: Db): AuthDirectory & DevDirectory {
       return { user, memberships: memberships.map(toMembership) };
     },
   };
+}
+
+/**
+ * A session's user and memberships, read inside the request's own transaction while it names the
+ * user (`withSession`'s first half, docs/plan.md §1.84): what `authDirectory(db).account` reads in
+ * a transaction of its own.
+ */
+export async function accountInTx(tx: Tx, userId: string) {
+  const { user, memberships } = await accountIn(tx, userId);
+  return { user, memberships: memberships.map(toMembership) };
 }
 
 /**

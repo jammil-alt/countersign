@@ -74,10 +74,31 @@ export async function getSession(
   const account = directory.account
     ? await directory.account(userId)
     : { user: await directory.user(userId), memberships: null };
-  const { user } = account;
-  if (!user) return refuse("session_invalid", "the signed-in user no longer exists");
-  const memberships = account.memberships ?? (await directory.memberships(userId));
-  const built = buildSession(user, memberships, options.adapter.kind, options.tenantId);
+  const memberships =
+    account.user && !account.memberships
+      ? await directory.memberships(userId)
+      : (account.memberships ?? []);
+  return sessionFromAccount(
+    { user: account.user, memberships },
+    options.adapter.kind,
+    options.tenantId,
+    setCookies,
+  );
+}
+
+/**
+ * The second half of `getSession`, for a caller that identified the request itself and read the
+ * account where it chose (apps/api reads it inside the request's own transaction, docs/plan.md
+ * §1.84): the session for the requested client, or the refusal, with the identity's cookies.
+ */
+export function sessionFromAccount(
+  account: { readonly user: Session["user"] | null; readonly memberships: readonly Membership[] },
+  adapter: Session["adapter"],
+  tenantId: string | null | undefined,
+  setCookies: readonly string[],
+): SessionResult {
+  if (!account.user) return refuse("session_invalid", "the signed-in user no longer exists");
+  const built = buildSession(account.user, account.memberships, adapter, tenantId);
   if (!built.ok) return { ...built, setCookies: [...built.setCookies, ...setCookies] };
   return { ok: true, session: built.session, setCookies };
 }

@@ -5,6 +5,8 @@
 //   app.tenant_ids  `{uuid,…}`: the clients this transaction may see and write;
 //   app.operator    `on` in back-office sessions: templates and shared skills (tenant_id null);
 //   app.user_id     sign-in only: that user's own memberships.
+// A session request reads its user and memberships and then runs its handler in one transaction
+// (`withSession`): `app.user_id` first, then the clients in place of it before the handler starts.
 // Each helper opens a transaction and sets them first with set_config(…, true), so they end at
 // COMMIT and a pooled (Hyperdrive) connection hands nothing to the next request. There is no API for
 // a session-level SET: it would leak exactly that way. Without them every tenant table reads as
@@ -232,4 +234,59 @@ export async function narrowToTenant<T>(
  */
 export function withUser<T>(db: Db, userId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
   return inScope(db, { tenantIds: [], operator: false, userId }, fn);
+}
+
+/** The clients a session request may touch, once its user and memberships have been read. */
+export interface SessionScope {
+  readonly tenantIds: readonly string[];
+  /** `app.operator`: the back office (templates and shared skills too). */
+  readonly operator: boolean;
+}
+
+/** What `withSession`'s sign-in half decides: a scope (and what it learnt), or a refusal. */
+export type SessionDecision<D, R> =
+  | { readonly ok: true; readonly scope: SessionScope; readonly value: D }
+  | { readonly ok: false; readonly refusal: R };
+
+/**
+ * One session request in one transaction (docs/plan.md §1.84, 5.1). First as `withUser`: only
+ * `app.user_id` is set, so `decide` sees this user's own memberships and no client's rows, and
+ * works out the scope. Then, in the same transaction and before `fn` issues anything,
+ * `app.tenant_ids` and `app.operator` are set to that scope and `app.user_id` is cleared: `fn`
+ * runs exactly as it would inside `withOperator` or `withTenants`, never with the user's id set.
+ *
+ * A refusal from `decide` ends the transaction (it wrote nothing) and comes back as
+ * `{ ok: false }`; `fn` never runs. A throw anywhere rolls the whole transaction back.
+ */
+// DECISION: one transaction instead of `withUser` then `withOperator`/`withTenant` (two `begin`s
+// and two `commit`s per request). The scope switch is issued before `fn` can issue a statement,
+// as `inScope` issues the scope: postgres-js runs a connection's statements in order, so every
+// statement of `fn` runs with the clients set and the user cleared; a failed switch aborts the
+// transaction and `fn`'s statements fail with it.
+export async function withSession<D, R, T>(
+  db: Db,
+  userId: string,
+  decide: (tx: Tx) => Promise<SessionDecision<D, R>>,
+  fn: (tx: Tx, value: D) => Promise<T>,
+): Promise<{ readonly ok: true; readonly value: T } | { readonly ok: false; readonly refusal: R }> {
+  if (!isUuid(userId)) throw new ScopeError(`not a user id: ${userId}`);
+  return db.transaction(async (tx) => {
+    const signIn = tx
+      .execute(sql`select
+        set_config('app.tenant_ids', '{}', true),
+        set_config('app.operator', 'off', true),
+        set_config('app.user_id', ${userId}, true)`)
+      .then(() => undefined);
+    const [, decided] = await Promise.all([signIn, (async () => decide(tx))()]);
+    if (!decided.ok) return { ok: false as const, refusal: decided.refusal };
+    const ids = checkIds(decided.scope.tenantIds);
+    const scoped = tx
+      .execute(sql`select
+        set_config('app.tenant_ids', ${ids}, true),
+        set_config('app.operator', ${decided.scope.operator ? "on" : "off"}, true),
+        set_config('app.user_id', '', true)`)
+      .then(() => undefined);
+    const [, out] = await Promise.all([scoped, (async () => fn(tx, decided.value))()]);
+    return { ok: true as const, value: out };
+  });
 }

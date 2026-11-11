@@ -4,7 +4,7 @@
 
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type Tx, withOperator, withTenant, withUser } from "./client";
+import { type Tx, withOperator, withSession, withTenant, withUser } from "./client";
 import { type ClientFixture, insertClient } from "./fixtures.test-helper";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
@@ -68,6 +68,68 @@ describe.skipIf(!online)("a transaction's scope", () => {
     ).rejects.toThrow("late");
     const left = await t.db.execute<{ n: number }>(
       sql`select count(*)::int as n from pg_class where relname = 'scope_probe'`,
+    );
+    expect([...left][0]?.n).toBe(0);
+  });
+
+  it("withSession: the user first, then the scope in its place, in one transaction", async () => {
+    const user = "00000000-0000-4000-8000-0000000000aa";
+    const out = await withSession(
+      t.db,
+      user,
+      async (tx) => {
+        const signIn = await settings(tx);
+        const pid = await tx
+          .execute<{ pid: number; xid: string }>(
+            sql`select pg_backend_pid() as pid, txid_current()::text as xid`,
+          )
+          .then((rows) => [...rows][0]);
+        return {
+          ok: true as const,
+          scope: { tenantIds: [A.tenantId], operator: false },
+          value: { signIn, pid },
+        };
+      },
+      async (tx, before) => {
+        // Issued at once, as a pipelined handler issues its first statements.
+        const [handler, same] = await Promise.all([
+          settings(tx),
+          tx
+            .execute<{ pid: number; xid: string }>(
+              sql`select pg_backend_pid() as pid, txid_current()::text as xid`,
+            )
+            .then((rows) => [...rows][0]),
+        ]);
+        return { before, handler, same };
+      },
+    );
+    if (!out.ok) throw new Error("refused");
+    expect(out.value.before.signIn).toEqual({ ids: "{}", op: "off", user });
+    expect(out.value.handler).toEqual({ ids: `{${A.tenantId}}`, op: "off", user: "" });
+    // One transaction: the same backend and the same transaction id on both sides.
+    expect(out.value.same).toEqual(out.value.before.pid);
+  });
+
+  it("withSession rolls the whole transaction back when the handler fails", async () => {
+    await expect(
+      withSession(
+        t.db,
+        "00000000-0000-4000-8000-0000000000aa",
+        async (tx) => {
+          await tx.execute(sql`create temporary table session_probe (n int)`);
+          return {
+            ok: true as const,
+            scope: { tenantIds: [A.tenantId], operator: true },
+            value: 0,
+          };
+        },
+        async () => {
+          throw new Error("handler");
+        },
+      ),
+    ).rejects.toThrow("handler");
+    const left = await t.db.execute<{ n: number }>(
+      sql`select count(*)::int as n from pg_class where relname = 'session_probe'`,
     );
     expect([...left][0]?.n).toBe(0);
   });
