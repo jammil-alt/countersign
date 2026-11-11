@@ -72,7 +72,7 @@ describe("dev adapter", () => {
     expect(s.user.id).toBe("u-admin");
     expect(s.adapter).toBe("dev");
 
-    const cookie = adapter.signIn("staff@millwork.test").split(";")[0] ?? "";
+    const cookie = adapter.signIn("staff@millwork.test")[0]?.split(";")[0] ?? "";
     const viaCookie = new Request("http://localhost/api/session", { headers: { cookie } });
     expect(ok(await getSession(viaCookie, { adapter, directory })).user.id).toBe("u-staff");
   });
