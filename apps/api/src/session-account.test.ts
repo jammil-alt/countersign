@@ -216,6 +216,26 @@ describe.skipIf(!h)("memberships carried in the cookie", () => {
     expect(res.carried).toBe(`${DEV_ACCOUNT_COOKIE}=`);
   });
 
+  it("a client the operator creates is in scope on the very next request", async () => {
+    const carriedFrom = (headers: Headers) => cookieOf(headers, DEV_ACCOUNT_COOKIE);
+    const list = await harness.call(OPERATOR, "GET", "/api/ops/clients");
+    const carried = carriedFrom(list.headers);
+    expect(carried).toBeDefined();
+    const created = await harness.call(
+      OPERATOR,
+      "POST",
+      "/api/ops/clients",
+      { name: "Created through the app" },
+      { cookie: carried ?? "" },
+    );
+    expect(created.status, JSON.stringify(created.json)).toBe(200);
+    // The response drops the carried account; the browser then sends none.
+    expect(carriedFrom(created.headers)).toBe(`${DEV_ACCOUNT_COOKIE}=`);
+    const id = (created.json as { client: { id: string } }).client.id;
+    const next = await harness.call(OPERATOR, "GET", `/api/ops/clients/${id}`);
+    expect(next.status).toBe(200);
+  });
+
   it("sign-out and a sign-in drop the carried account", async () => {
     const first = await request(OPERATOR, opsSpec.path);
     const out = await app.request(
