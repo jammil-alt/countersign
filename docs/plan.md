@@ -3485,6 +3485,29 @@ every item each vendor sells this client, specifically, with its last price.
 | Migration | One, its own commit and PR, additive only: the new table, `item_alias.vendor_item_id` and `price_observation.vendor_item_id` (nullable), and a backfill of vendor items from existing aliases and the latest price per vendor and master item, so the catalog starts full. The previous Worker keeps working (new columns nullable, nothing removed). |
 | Open for the owner | Whether the client may mark preferred vendors; whether a list price from a vendor's price list should alert when an invoice differs from it. |
 
+**The matching pipeline that goes with the vendor catalog** (owner, 2026-11-11). Built as skills and
+steps under the skill model, as agents need them; templates are the owner's, built per agent.
+
+| # | Step | Kind |
+|---|---|---|
+| 1 | Match vendor: the invoice's vendor to our vendor record (vendor id, email domain, tax id, known names); none → a person, or Create vendor behind approval | Deterministic |
+| 2 | Match by SKU at the vendor level: the line against this vendor's `vendor_item` rows by SKU, then by a description alias the vendor used before | Deterministic |
+| 3 | Semantic match at the vendor level: semantic (vector similarity) search over this vendor's items, then the AI picks one or says "not in this vendor's catalog", with a confidence; then Check matches (the hard rules veto) | AI with retrieval, then deterministic |
+| 4 | **Master item manager**: for an item new to this vendor, classifies it (category and attributes; the category parsers first, the model fills what they can't read), looks across every vendor's master items (exact key attributes first, then semantic search) and decides: link to an existing master item, or create a new one | AI (deterministic parsing and lookup inside its reads) |
+| 5 | Register item: a Save to records step writes the vendor item, its alias, and either the link or the new master item, and records the price (the vendor item's last price). **An optional approval** sits on this step, set per agent (off unless the operator turns it on), so a person can confirm new master items | Save to records |
+| 6 | Anything unsure (low confidence, a hard-rule veto) → a person; their answer becomes an alias, caught at step 2 next time | If → person |
+
+- DECISION (owner, 2026-11-11): the master item manager decides create-or-link itself; the approval
+  that can confirm it is the optional approval on the Register item step, since a skill never writes.
+- DECISION (owner left it to us, 2026-11-11): embeddings come from **OpenAI** (`text-embedding-3-large`
+  at 1,024 dimensions, the existing `catalog_item.embedding` column's size; `text-embedding-3-small`
+  if cost matters more), behind the existing `openai:` provider and `OPENAI_API_KEY`. Why: OpenAI
+  already holds a processor entry, its API offers a BAA with zero data retention for HIPAA clients,
+  and its embeddings are well proven on short product text. Google's Gemini embeddings are the
+  alternative if quality tests on the matching goldens favour them. Unchecked: current model names
+  and prices (check OpenAI's pricing page). Embeddings are made when a master item or vendor item is
+  saved; known lines never need one.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
