@@ -173,11 +173,14 @@ export interface WorkflowBuilderProps {
 }
 
 export default function WorkflowBuilder(props: WorkflowBuilderProps) {
-  const catalog = useApi(apiRoutes.opsBuilderCatalog, { params: { id: props.agent.id } });
+  const catalog = useApi(apiRoutes.opsBuilderCatalog, {
+    params: { id: props.agent.id },
+    life: "catalog",
+  });
   // Skill model (2026-11-10): skill versions a step moved to in this session, so the builder
   // types the step with the version it now names (the server resolves it the same way).
   const [moved, setMoved] = useState<BuilderCatalog["skills"]>([]);
-  const events = useApi(apiRoutes.opsEventCatalog);
+  const events = useApi(apiRoutes.opsEventCatalog, { life: "catalog" });
   const templateVersion = useApi(
     apiRoutes.opsAgentVersion,
     props.agent.kind === "client" && props.agent.templateId && props.from.basedOnTemplateVersionId
@@ -515,7 +518,7 @@ function BuilderBody(
   const asks = agent.kind === "client" && !agent.testCopy;
   const clients = useApi(
     apiRoutes.opsClients,
-    asks && frameClients === null ? { query: { view: "names" } } : null,
+    asks && frameClients === null ? { query: { view: "names" }, life: "catalog" } : null,
   );
   const sandbox =
     asks &&
@@ -1817,7 +1820,10 @@ function TestRunPanel({
   const sampleText = hasSample ? JSON.stringify(sample, null, 2) : "";
   const isTemplate = agent.kind === "template";
   // A template can run on the Sandbox's fixture data or on a client the operator serves.
-  const clients = useApi(apiRoutes.opsClients, isTemplate ? { query: { view: "names" } } : null);
+  const clients = useApi(
+    apiRoutes.opsClients,
+    isTemplate ? { query: { view: "names" }, life: "catalog" } : null,
+  );
   const [clientId, setClientId] = useState("");
   // Recent events come from the client the run will read: the agent's own, or the template's
   // chosen client (the Sandbox when none is chosen).

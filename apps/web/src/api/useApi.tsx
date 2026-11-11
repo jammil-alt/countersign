@@ -12,7 +12,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { type ApiClient, api, type CallOptions, type ResponseOf } from "./client";
-import { ApiStore, noteWrites } from "./store";
+import { ApiStore, freshFor, type Life, noteWrites } from "./store";
 
 interface ApiContextValue {
   client: ApiClient;
@@ -55,13 +55,17 @@ export function useApiStore(): ApiStore {
   return useContext(ApiContext).store;
 }
 
-/** Fills the store for a page about to open (on hover or focus of its link), without a component. */
+/**
+ * Fills the store for a page about to open (on hover or focus of its link), without a component.
+ * `life` as the page's own `useApi` call gives it.
+ */
 export function usePrefetch(): <R extends RouteSpec>(
   route: R,
   options?: Omit<CallOptions<R>, "signal">,
+  life?: Life,
 ) => void {
   const store = useApiStore();
-  return useCallback((route, options = {}) => store.prefetch(route, options), [store]);
+  return useCallback((route, options = {}, life) => store.prefetch(route, options, life), [store]);
 }
 
 export type ApiOptions<R extends RouteSpec> = Omit<CallOptions<R>, "signal"> & {
@@ -77,6 +81,12 @@ export type ApiOptions<R extends RouteSpec> = Omit<CallOptions<R>, "signal"> & {
    * client, agent or run, which must show nothing of the last one.
    */
   keep?: boolean;
+  /**
+   * `"catalog"`: an answer that changes only on a deploy, a pack switch or a write (the event,
+   * builder and connector catalogs, models, the clients' names) stays fresh for five minutes, so
+   * a screen mounting later does not ask again. A write still marks it stale.
+   */
+  life?: Life;
 };
 
 export interface ApiState<T> {
@@ -116,12 +126,13 @@ export function useApi<R extends RouteSpec>(
   let key: string | null = null;
   let callOptions: Omit<CallOptions<R>, "signal"> | null = null;
   if (options !== null) {
-    const { cache, keep: _keep, ...rest } = options;
+    const { cache, keep: _keep, life: _life, ...rest } = options;
     callOptions = rest;
     const shared = store.key(route, rest);
     key = cache === "none" ? `none:${hookId}:${shared}` : shared;
   }
   const noCache = options?.cache === "none";
+  const fresh = freshFor(options?.life);
   // With `keep`, the list the call is about: the route and its path params, so a search keeps its
   // rows and nothing else does.
   const list =
@@ -149,9 +160,9 @@ export function useApi<R extends RouteSpec>(
     const first = !mounted.current;
     mounted.current = true;
     if (key === null || opts === null) return;
-    if (!first || store.needsFetch(key)) void store.fetch(key, r, opts);
+    if (!first || store.needsFetch(key, fresh)) void store.fetch(key, r, opts);
     return noCache ? () => store.forget(key) : undefined;
-  }, [store, key, noCache]);
+  }, [store, key, noCache, fresh]);
   useEffect(
     () => () => {
       mounted.current = false;

@@ -88,7 +88,7 @@ export function TriggersPanel({
 }) {
   const isClient = agent.kind === "client";
   const fired = useApi(apiRoutes.opsAgentTriggers, isClient ? { params: { id: agent.id } } : null);
-  const events = useApi(apiRoutes.opsEventCatalog);
+  const events = useApi(apiRoutes.opsEventCatalog, { life: "catalog" });
   const [adding, setAdding] = useState(false);
   const [saved, setSaved] = useState<{ version: number; errors: string[]; what: string } | null>(
     null,

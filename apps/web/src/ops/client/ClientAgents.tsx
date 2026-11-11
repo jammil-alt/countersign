@@ -46,7 +46,7 @@ export function ClientAgentsScreen() {
 function Agents({ clientId }: { clientId: string }) {
   const { data, error } = useClientPage();
   // Connector names for the cards' tool tags (never the raw ids).
-  const catalog = useApi(apiRoutes.connectors);
+  const catalog = useApi(apiRoutes.connectors, { life: "catalog" });
   if (!data) {
     return error ? null : (
       <Section title="Agents" testId="ops-client-agents-section">

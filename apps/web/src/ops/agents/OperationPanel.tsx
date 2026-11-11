@@ -344,7 +344,7 @@ export function TestRun({
   const [started, setStarted] = useState<string | null>(null);
   const parsed = parsePayload(payload);
   const action = useAction();
-  const catalog = useApi(apiRoutes.opsEventCatalog);
+  const catalog = useApi(apiRoutes.opsEventCatalog, { life: "catalog" });
   const chosen = workflows.find((w) => w.slug === workflow)?.workflow ?? null;
   const eventType = triggerEventType(chosen);
   const sample = chosen && catalog.data ? samplePayload(chosen, catalog.data.events) : undefined;
@@ -465,14 +465,14 @@ export function TestRun({
 }
 
 /**
- * Connector names by id ("qbo" → "QuickBooks Online"), from the connectors catalog: what the
- * operator reads instead of connector ids. `agentId` is kept for callers.
+ * Connector names by id ("qbo" → "QuickBooks Online"), from the agent's builder catalog: what the
+ * operator reads instead of connector ids.
  */
-// DECISION (1.5): the names come from the connectors catalog (`GET /api/ops/connectors`, 38 kB),
-// not the agent's builder catalog (595 kB), which only the Workflow tab needs whole. The catalog
-// lists every connector, the test-only ones too, so a test copy's names read the same.
-export function useConnectorNames(_agentId?: string): (id: string) => string {
-  const catalog = useApi(apiRoutes.opsConnectors);
+// DECISION (1.5, the lead's call on the per-screen gate): the names stay on the builder catalog,
+// which the Workflow tab needs whole, so the move to that tab finds it in the store. A catalog's
+// life keeps it fresh for five minutes; the agent page asks it beside the agent on the Overview.
+export function useConnectorNames(agentId: string): (id: string) => string {
+  const catalog = useApi(apiRoutes.opsBuilderCatalog, { params: { id: agentId }, life: "catalog" });
   return (id: string) => {
     const [connector, site] = id.split(":");
     const name =

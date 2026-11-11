@@ -137,7 +137,7 @@ const TAB_PREFETCH: Record<string, (p: Prefetch, id: string) => void> = {
     p(apiRoutes.opsActivation, { params: { id } });
     p(apiRoutes.opsAgentGoLive, { params: { id } });
   },
-  settings: (p) => p(apiRoutes.opsConnectors),
+  settings: (p, id) => p(apiRoutes.opsBuilderCatalog, { params: { id } }, "catalog"),
 };
 
 /**
@@ -266,6 +266,13 @@ export function AgentScreen({
   const agent = useApi(apiRoutes.opsAgent, { params: { id: agentId } });
   const data = agent.data ?? (initial?.agent.id === agentId ? initial : undefined);
   const skills = useApi(apiRoutes.opsAgentSkills, { params: { id: agentId } });
+  // The Overview's connector names (`useConnectorNames`), asked beside the agent instead of after
+  // it: the same key, so the tab joins this request (1.5).
+  const overview = useMatch({ path: base, end: true });
+  useApi(
+    apiRoutes.opsBuilderCatalog,
+    overview ? { params: { id: agentId }, life: "catalog" } : null,
+  );
   // A client agent's template: its name and versions, for the bar and the Versions tab.
   const templateId = data?.agent.kind === "client" ? data.agent.templateId : null;
   const template = useApi(apiRoutes.opsAgent, templateId ? { params: { id: templateId } } : null);
