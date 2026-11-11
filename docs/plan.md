@@ -3929,6 +3929,13 @@ steps under the skill model, as agents need them; templates are the owner's, bui
   alternative if quality tests on the matching goldens favour them. Unchecked: current model names
   and prices (check OpenAI's pricing page). Embeddings are made when a master item or vendor item is
   saved; known lines never need one.
+- DECISION (owner, 2026-11-11): the text embedded for a master item or a vendor item is one fixed
+  template, **name + description + specs**, because a detail may appear in any of them:
+  `Name: <name>` / `Description: <description as written; for a vendor item, the vendor's own
+  wording>` / `Specs: category <c>; <attribute> <value>; …` (from the parsed attributes, units
+  normalized, e.g. 3/4in (18mm)). Same order and labels for both, so comparisons are like for like;
+  empty fields left out; prices, quantities, dates and order or shipping terms stripped; capped at a
+  few hundred words; the embedding is made again when its name, description or specs change.
 
 ## 2. Package layering
 
