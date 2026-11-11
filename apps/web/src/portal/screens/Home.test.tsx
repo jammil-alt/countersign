@@ -243,7 +243,9 @@ describe("Home", () => {
     // The week's figures, four at most, each a link to its list; no line under the title
     // repeats them.
     expect(screen.queryByTestId("home-week-line")).toBeNull();
-    const figures = screen.getByTestId("home-figures");
+    // The title draws before the table answers (frame first, docs/audit-plan.md 1.4): the figures
+    // come with the table.
+    const figures = await screen.findByTestId("home-figures");
     const runs = within(figures).getByTestId("home-kpi-runs");
     expect(runs).toHaveAttribute("href", "/runs");
     expect(runs).toHaveTextContent("Runs done · this week38");
