@@ -83,11 +83,18 @@ const STRIP: readonly RegExp[] = [
 export function stripTerms(text: string): string {
   let out = text;
   for (const re of STRIP) out = out.replace(re, " ");
-  return out
-    .replace(/\(\s*\)|\[\s*\]/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/^[\s,;:/|-]+|[\s,;:/|-]+$/g, "")
-    .trim();
+  return trimEdges(out.replace(/\(\s*\)|\[\s*\]/g, " ").replace(/\s+/g, " "));
+}
+
+const EDGE = new Set([" ", "\t", "\n", "\r", ",", ";", ":", "/", "|", "-"]);
+
+/** Without separators left at either end, by index rather than a pattern (CodeQL: no slow match). */
+function trimEdges(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && EDGE.has(text[start] ?? "")) start += 1;
+  while (end > start && EDGE.has(text[end - 1] ?? "")) end -= 1;
+  return text.slice(start, end).trim();
 }
 
 // DECISION: attributes that are packaging, not the thing: a pack size is the vendor's (vendor_item

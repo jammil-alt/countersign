@@ -494,7 +494,8 @@ export function responsesTransport(
 }
 
 export function openaiTransport(options: OpenAITransportOptions): LlmTransport {
-  const base = (options.baseURL ?? OPENAI_DIALECT.defaultBaseURL).replace(/\/+$/, "");
+  let base = options.baseURL ?? OPENAI_DIALECT.defaultBaseURL;
+  while (base.endsWith("/")) base = base.slice(0, -1);
   const target = {
     vendor: OPENAI_DIALECT.vendor,
     errorClass: OPENAI_DIALECT.errorClass,
