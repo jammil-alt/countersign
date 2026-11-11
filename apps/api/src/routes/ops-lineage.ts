@@ -217,7 +217,7 @@ export const SPLIT_MODEL_TOOLS: ReadonlySet<string> = new Set([
 export const ACCOUNT_TOOL_PREFIX = "account.";
 
 /** The tools an agent's processes call as read or write steps (core's `processTools`). */
-function bundleStepTools(bundle: AnyAgentBundle | null | undefined): Set<string> {
+export function bundleStepTools(bundle: AnyAgentBundle | null | undefined): Set<string> {
   if (!bundle) return new Set();
   const v4 = bundle.workflows
     .map((w) => w.workflow)

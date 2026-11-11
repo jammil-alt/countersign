@@ -16,6 +16,7 @@ import {
   type BuilderTemplate,
   blankAgentDraft,
   builderSlug,
+  bundleSkillRefs,
   bundleStepsToAutomation,
   convertLookup,
   createAutomation,
@@ -26,7 +27,9 @@ import {
   createVersion,
   draftAgent,
   EMPTY_SKILL_DRAFT,
+  type ExistingSteps,
   entryKey,
+  existingBundle,
   getAgent,
   getVersion,
   guardBundle,
@@ -51,9 +54,15 @@ import {
   type ClosestTemplate,
   closestBundles,
   diffBundles,
+  isToolWrapper,
+  newStepSkillReason,
   type ProcessAgentBundle,
   parseCommand,
+  parseSkillRef,
   routes,
+  type SkillDefinition,
+  skillTools,
+  toolLookup,
   toProcessBundle,
   uuidv7,
   type ValidationError,
@@ -93,7 +102,13 @@ import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound 
 import { workerTransport } from "../runs/execute";
 import { agentSummary, versionSummary } from "./mappers";
 import { builderAutomations } from "./ops-automations";
-import { bundleLabels, operatorSkills } from "./ops-lineage";
+import {
+  ACCOUNT_TOOL_PREFIX,
+  bundleLabels,
+  bundleStepTools,
+  operatorSkills,
+  SPLIT_MODEL_TOOLS,
+} from "./ops-lineage";
 
 type Ctx = HandlerCtx<never>;
 
@@ -127,21 +142,49 @@ async function agentInScope(ctx: Pick<Ctx, "tx" | "tenantIds">, id: string): Pro
   return row;
 }
 
-/** What the Builder knows for a template (clientId null) or one client's agent. */
+/**
+ * What the Builder knows for a template (clientId null) or one client's agent. `source` is the
+ * version being revised (else `self`'s latest): what it already uses stays offered.
+ */
+// DECISION (review): the Builder is offered what the builder's palette offers for a new step: no
+// tool wrapper, no skill of a retired kind or that writes (core's `newStepSkillReason`), and no
+// tool the splits replaced or account handler (`stepTools`' rule), each kept where the version
+// being revised already uses it, so a revision keeps its stored steps.
 async function builderContext(
   ctx: Pick<Ctx, "tx" | "tenantIds" | "services">,
   clientId: string | null,
   self?: AgentRow,
+  source?: AnyAgentBundle | null,
 ): Promise<BuilderContext> {
   const { tx, services } = ctx;
   const { platform } = services;
+  const from =
+    source !== undefined
+      ? source
+      : self
+        ? ((await latestVersion(tx, self.id))?.bundle ?? null)
+        : null;
+  const usedSkills = new Set(
+    (from ? bundleSkillRefs(from) : []).map((ref) => parseSkillRef(ref).id),
+  );
+  const usedTools = new Set([...bundleStepTools(from), ...(from?.definition.extraTools ?? [])]);
+  const lookup = toolLookup(platform.tools.specs());
+  const offered = (def: SkillDefinition) =>
+    usedSkills.has(def.id) || (!isToolWrapper(def) && newStepSkillReason(def, lookup) === null);
   const skills: BuilderSkill[] = platform.catalog
     .list()
+    .filter(offered)
     .map((definition) => ({ ref: definition.id, definition, source: "builtin" }));
   for (const s of await operatorSkills(ctx, clientId)) {
+    if (!offered(s.def)) continue;
     if (!skills.some((x) => x.ref === s.def.id)) {
       skills.push({ ref: s.def.id, definition: s.def, source: s.source });
     }
+  }
+  // A skill the version already uses keeps the tools it calls, so its steps still type.
+  for (const s of skills) {
+    if (!usedSkills.has(s.ref)) continue;
+    for (const t of [...skillTools(s.definition), ...(s.definition.reads ?? [])]) usedTools.add(t);
   }
   const templates: BuilderTemplate[] = [];
   for (const t of await listTemplates(tx)) {
@@ -177,7 +220,14 @@ async function builderContext(
     agentSlugs = templates.map((t) => t.slug);
   }
   return {
-    tools: platform.tools.list().map((t) => t.spec),
+    tools: platform.tools
+      .list()
+      .map((t) => t.spec)
+      .filter(
+        (t) =>
+          usedTools.has(t.id) ||
+          !(SPLIT_MODEL_TOOLS.has(t.id) || t.id.startsWith(ACCOUNT_TOOL_PREFIX)),
+      ),
     skills,
     connectors: platform.connectors
       .list()
@@ -246,7 +296,11 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
       },
       {
         llm: createLlmClient({ transport: transport(ctx) }),
-        validate: (bundle) => validateForPublish(tx, pseudo, stored(bundle), services.platform.ctx),
+        // Review: a new agent from the Builder is a first version: every step is new.
+        validate: (bundle) =>
+          validateForPublish(tx, pseudo, stored(bundle), services.platform.ctx, {
+            previous: "none",
+          }),
       },
     ).catch(builderHttpError);
 
@@ -286,6 +340,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
       created.agent,
       created.version.bundle,
       services.platform.ctx,
+      { previous: await existingBundle(tx, created.version) },
     );
     const template = result.startFromTemplate
       ? (await listTemplates(tx)).find((t) => t.slug === result.startFromTemplate)
@@ -325,7 +380,8 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
       request = typeof text === "string" && text.trim() ? text : item.title;
     }
 
-    const bctx = await builderContext(ctx, row.tenantId, row);
+    const bctx = await builderContext(ctx, row.tenantId, row, from.bundle);
+    const previous = await existingUnder(tx, from.id);
     const lookup = convertLookup(services.platform.catalog, services.platform.tools);
     const result = await reviseAgent(
       {
@@ -336,7 +392,8 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
       },
       {
         llm: createLlmClient({ transport: transport(ctx) }),
-        validate: (bundle) => validateForPublish(tx, row, stored(bundle), services.platform.ctx),
+        validate: (bundle) =>
+          validateForPublish(tx, row, stored(bundle), services.platform.ctx, { previous }),
       },
     ).catch(builderHttpError);
 
@@ -429,6 +486,31 @@ async function sessionAgent(
   };
 }
 
+/**
+ * Review: what a draft saved as a child of `parentId` is checked against as already there
+ * (`existingBundle`); with no parent, a first version (`"none"`: every step new).
+ */
+async function existingUnder(tx: Ctx["tx"], parentId: string | null): Promise<ExistingSteps> {
+  if (!parentId) return "none";
+  const parent = await getVersion(tx, parentId);
+  return existingBundle(tx, {
+    parentVersionId: parent.id,
+    basedOnTemplateVersionId: parent.basedOnTemplateVersionId,
+  });
+}
+
+/** Review: what a conversation's draft is checked against: the version it would be saved under. */
+async function sessionExisting(
+  ctx: SessionCtx,
+  s: SessionRow,
+  turns: Parameters<typeof lastSavedVersion>[1],
+): Promise<ExistingSteps> {
+  const parentId =
+    lastSavedVersion(s, turns) ??
+    (s.agentId ? ((await latestVersion(ctx.tx, s.agentId))?.id ?? null) : null);
+  return existingUnder(ctx.tx, parentId);
+}
+
 /** The operator's version the conversation started from (its rules hold across turns). */
 async function originOf(ctx: SessionCtx, s: SessionRow): Promise<ProcessAgentBundle | null> {
   return s.kind === "agent" && s.baseVersionId
@@ -476,7 +558,9 @@ async function sessionDetail(ctx: SessionCtx, s: SessionRow) {
     shown = bundle;
     const { validateAs } = await sessionAgent(ctx, s);
     errors = checkErrors(
-      await validateForPublish(ctx.tx, validateAs, stored(bundle), ctx.services.platform.ctx),
+      await validateForPublish(ctx.tx, validateAs, stored(bundle), ctx.services.platform.ctx, {
+        previous: await sessionExisting(ctx, s, turns),
+      }),
     );
     closest = await closestTemplates(ctx, bundle, s.agentId);
   } else {
@@ -684,6 +768,7 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     const working = asProcesses(ctx, s.bundle);
     const { row, validateAs } = await sessionAgent(ctx, s);
     const bctx = await conversationContext(ctx, s.tenantId, working, row ?? undefined);
+    const previous = await sessionExisting(ctx, s, turns);
     const read = readCommand(body.text, { bundle: working, automations: bctx.automations ?? [] });
     if (!read.ok) throw new HttpError(422, read.code, read.message);
     const command = read.command;
@@ -701,7 +786,7 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
       {
         llm,
         validate: (bundle) =>
-          validateForPublish(tx, validateAs, stored(bundle), services.platform.ctx),
+          validateForPublish(tx, validateAs, stored(bundle), services.platform.ctx, { previous }),
       },
     ).catch(builderHttpError);
     await addTurn(tx, s, {
@@ -882,6 +967,7 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     if (s.kind === "agent") {
       const bundle = asProcesses(ctx, s.bundle);
       let row: AgentRow;
+      let saved: Parameters<typeof existingBundle>[1];
       if (!s.agentId) {
         const slug = await freeSlug(
           ctx,
@@ -906,6 +992,7 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
             });
         row = created.agent;
         version = { id: created.version.id, version: created.version.version };
+        saved = created.version;
       } else {
         row = await getAgent(tx, s.agentId);
         const v = await createVersion(tx, {
@@ -917,8 +1004,11 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
           changeNote: `Builder: ${changeNote}`.slice(0, 300),
         });
         version = { id: v.id, version: v.version };
+        saved = v;
       }
-      errors = await validateForPublish(tx, row, stored(bundle), services.platform.ctx);
+      errors = await validateForPublish(tx, row, stored(bundle), services.platform.ctx, {
+        previous: await existingBundle(tx, saved),
+      });
       agentOut = { id: row.id, slug: row.slug };
       await updateSession(tx, s.id, { agentId: row.id, status: "saved" });
     } else {
