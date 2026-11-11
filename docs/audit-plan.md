@@ -159,7 +159,7 @@ about 2.2 MB, pdf-lib 0.8 MB.
 
 ### Results
 
-**Status (lead), 2026-11-11 12:00 UTC:** foundations merged (#251, #256); step 3 under way: the frame and Home merged (#257); portal (#259), first load (#261), agent pages (#258) and polling (#260) in review fixes. Held for the owner, ready: 5.1 (#252), 5.2 (#255), phase 9 (#253), 4.7 transport (#250), 4.7 logins (#254).
+**Status (lead), 2026-11-11 12:20 UTC:** foundations merged (#251, #256); step 3: the frame and Home (#257) and the first load (#261) merged; agent pages (#258) and polling (#260) approved and next; portal (#259) in a last fix. Held for the owner, ready: 5.1 (#252), 5.2 (#255), phase 9 (#253), 4.7 transport (#250), 4.7 logins (#254).
 
 Add a row after each phase. "To content" is the script's `settled` time with `LATENCY_MS=100`
 (appendix A): it is not a real-world time, but it shows waits in a row.
@@ -171,6 +171,7 @@ Add a row after each phase. "To content" is the script's `settled` time with `LA
 | 2026-11-11 | `5ad1239` | 1.2, 1.9 (the store, #251) | 6 / 93 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 10 / 108 / 1.0 s | 602 kB |
 | 2026-11-11 | `9392ff2` | 1.3 (skeletons, #256) | 6 / 93 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 10 / 108 / 1.1 s | 603 kB |
 | 2026-11-11 | `aa4fe50` | frame and Home (#257: 1.5 Home, 2.3) | 6 / 93 / 0.9 s | 11 / 149 / 0.7 s | 4 / 60 / 1.0 s | 10 / 108 / 1.0 s | 603 kB |
+| 2026-11-11 | `84b38d5` | first load (#261: 1.1, 4.1, 4.3–4.5) | 6 / 93 / 0.9 s | 11 / 149 / 0.7 s | 4 / 60 / 1.0 s | 10 / 108 / 1.0 s | **429 kB** |
 
 From 1.3 on, the script's `paint` (first contentful paint) is not comparable with earlier rows: a
 skeleton is shapes, not text, so the browser counts the first paint only when words arrive.
@@ -201,7 +202,7 @@ Target: the frame paints without waiting for page data; a screen seen in the las
 shows its content at once; no full-page loading text after the first paint; a press answers
 within a tenth of a second.
 
-- [ ] **1.1 Something on screen before the bundle runs.**
+- [x] **1.1 Something on screen before the bundle runs.** (#261)
   Check: `apps/web/index.html` has an empty `#root`.
   Do: put a still frame inside `#root` (the page colour, the sidebar's shape, the mark), styled
   from the main stylesheet with the design system's tokens, in both themes. React replaces it on
@@ -409,7 +410,7 @@ a list of a thousand rows scrolls smoothly. Web and API change together here, a 
 Target: web first load under 300 kB gzipped for the portal; hashed files are never asked for
 twice; no chunk over 300 kB.
 
-- [ ] **4.1 Load one language.**
+- [x] **4.1 Load one language.** (#261)
   Check: `apps/web/src/i18n/catalog.ts` imports all six catalogs.
   Do: keep `en` in the bundle; `import()` the others when the session's language is known.
   Done when: the `ui` chunk no longer contains `de`, `es`, `fr`, `it`, `pt-BR`.
@@ -423,14 +424,14 @@ twice; no chunk over 300 kB.
   lines in place. Screen tests render lazy chunks; watch the 20 s test timeout.
   Done when: the build prints no size warning.
 
-- [ ] **4.3 Start the session call and the back-office chunk early.**
+- [x] **4.3 Start the session call and the back-office chunk early.** (#261)
   Check: `App.tsx` imports `OpsApp` only after `RequireSession` passes, which is after
   `/api/session` returns, which starts in an effect after the bundle runs (`session/session.tsx`).
   Do: start the session fetch before React mounts, and start the `OpsApp` import at module load
   when the path begins `/ops`. The frame's first calls (`opsClients?view=names`, the overview)
   can start with the session call and be dropped if it refuses.
 
-- [ ] **4.4 Cache hashed files for good.**
+- [x] **4.4 Cache hashed files for good.** (#261)
   Check: `curl -sI https://staging.mezonas.com/assets/<file>.js` shows
   `Cache-Control: public, max-age=0, must-revalidate` (seen locally under `wrangler dev`; it is
   Cloudflare's default for static assets).
@@ -438,7 +439,7 @@ twice; no chunk over 300 kB.
   `Cache-Control: public, max-age=31536000, immutable`. The `/*` security headers must still apply
   to those files; check with `curl` on staging.
 
-- [ ] **4.5 Preload the two fonts** (`packages/design-system` Geist files, about 57 kB each) from
+- [x] **4.5 Preload the two fonts** (#261) (`packages/design-system` Geist files, about 57 kB each) from
   `apps/web/index.html`, so text does not wait for the CSS to be parsed. The design system's own
   files stay as delivered.
 
