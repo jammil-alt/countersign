@@ -417,6 +417,8 @@ export function agentPort(
         const input = await stepInputOf(release.db, tenantId, request.stepRunId);
         const { step } = request;
         const again = { ...request, input };
+        // Review: a message action runs again through the channel it resolved to (carried on the
+        // wait's request), not the agent's own bindings alone.
         return step.kind === "skill"
           ? port.runSkill({ ...again, step, approval: step.approval ?? DEFAULT_APPROVAL })
           : port.runAction({ ...again, step, approval: step.approval });

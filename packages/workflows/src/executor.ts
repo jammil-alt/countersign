@@ -1616,6 +1616,7 @@ class Executor {
           rejected,
           at,
           keyNode,
+          opts.binding,
         );
         continue;
       }
@@ -1916,6 +1917,8 @@ class Executor {
     // v0.13 W2-I: an oversight retry's durable names and key node.
     at: string = name,
     keyNode?: string,
+    // Review: an action's resolved channel, for the run again after the wait.
+    binding?: { connector: string; connectionId: string },
   ): Promise<StepOutcome> {
     const { agent, run } = this.ctx;
     const { waitDone, afterWait } = agent;
@@ -1930,6 +1933,7 @@ class Executor {
       stepRunId,
       wait,
       ...(keyNode ? { keyNode } : {}),
+      ...(binding ? { binding } : {}),
     };
     const done = await this.runner.do(`${base}:check`, () => waitDone.call(agent, request));
     let timedOut = false;

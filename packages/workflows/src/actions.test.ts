@@ -192,6 +192,39 @@ describe("action write steps", () => {
     expect(h.row("each:0:mail")?.summary).toBe("Send email · through our sending: done");
   });
 
+  it("a message action that waits (a release) runs again through its resolved channel (review)", async () => {
+    const h = new Harness();
+    const channel = { connector: "gmail", connectionId: "conn-account" };
+    resolving(h, () => ({ tool: "gmail.send", connector: "gmail", connectionId: "conn-account" }));
+    h.handlers.mail = () => ({
+      kind: "waiting",
+      wait: { eventType: "release-1", timeout: "1 hour", state: { release: "r1" } },
+    });
+    const bindings: unknown[] = [];
+    h.agent.waitDone = async () => true;
+    h.agent.afterWait = async (req) => {
+      bindings.push(req.binding);
+      return { kind: "done", output: { sent: true } };
+    };
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context(),
+      proc([
+        {
+          id: "mail",
+          kind: "write",
+          name: "Send email",
+          action: "send_email",
+          input: { to: "a@b.co", subject: "Hello", body: "Your order shipped" },
+        },
+      ]),
+      {},
+    );
+    expect(result.status).toBe("succeeded");
+    expect(h.agentCalls[0]).toMatchObject({ binding: channel });
+    expect(bindings).toEqual([channel]);
+  });
+
   it("a tool write step runs as before: no resolution", async () => {
     const h = new Harness();
     const asked = resolving(h, () => ({ refused: "no" }));

@@ -121,6 +121,11 @@ export interface WaitRequest {
   wait: StepWait;
   // v0.13 W2-I: as on the step's request, for a step that runs again once its wait is over.
   keyNode?: string;
+  /**
+   * Skill model (2026-11-10, review): as on the action's request (`ActionStepRequest.binding`), so
+   * a message action that runs again after its wait still goes through its resolved channel.
+   */
+  binding?: { connector: string; connectionId: string };
 }
 
 export interface SkillStepRequest {
