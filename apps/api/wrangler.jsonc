@@ -88,8 +88,9 @@
   // Resource names match .github/workflows/bootstrap.yml; domains are on the mezonas.com zone
   // (docs/operations.md, "Environments"). `CODES` (the code service, apps/mfa) is bound in the
   // deployed environments only: locally it is absent and the code service is off. `BROWSER`
-  // (Cloudflare Browser Run, for website logins, docs/plan.md §1.26) likewise: Browser Run must be
-  // on for the account before a deploy with it (docs/operations.md, "Browser logins").
+  // (the browser service, apps/browser, which runs Browser Run for website logins, docs/plan.md
+  // §1.26) likewise: locally it is absent and browser tools are off (docs/operations.md, "Browser
+  // logins").
   "env": {
     "staging": {
       "name": "mezonas-staging",
@@ -126,12 +127,12 @@
           "class_name": "CaptureWorkflow"
         }
       ],
-      // The code service (apps/mfa), its RPC entry point only. deploy.yml deploys it first.
+      // The code service (apps/mfa) and the browser service (apps/browser, one browser per
+      // website-login tool call), their RPC entry points only. deploy.yml deploys both first.
       "services": [
-        { "binding": "CODES", "service": "mezonas-codes-staging", "entrypoint": "Codes" }
+        { "binding": "CODES", "service": "mezonas-codes-staging", "entrypoint": "Codes" },
+        { "binding": "BROWSER", "service": "mezonas-browser-staging", "entrypoint": "Browsers" }
       ],
-      // Browser Run: one browser per website-login tool call.
-      "browser": { "binding": "BROWSER" },
       "ratelimits": [
         {
           "name": "MCP_RATE_LIMIT",
@@ -191,8 +192,10 @@
           "class_name": "CaptureWorkflow"
         }
       ],
-      "services": [{ "binding": "CODES", "service": "mezonas-codes", "entrypoint": "Codes" }],
-      "browser": { "binding": "BROWSER" },
+      "services": [
+        { "binding": "CODES", "service": "mezonas-codes", "entrypoint": "Codes" },
+        { "binding": "BROWSER", "service": "mezonas-browser", "entrypoint": "Browsers" }
+      ],
       "ratelimits": [
         {
           "name": "MCP_RATE_LIMIT",

@@ -4228,6 +4228,7 @@ apps/api ─▶ workflows ─▶ agents ─▶ documents ─▶ connectors ─�
    └─▶ packs/materials ─▶ documents, connectors, llm, senses, db, core   (never agents or workflows)
 apps/web ─▶ core                    (route contract, schemas, workflow validation; HTTP to apps/api)
 apps/mfa ─▶ core                    (the code service, §1.26: its own Worker; apps/api reaches it only by service binding)
+apps/browser ─▶ connectors, core     (types and tests only: the browser service, §1.26, its own Worker with Browser Run; apps/api reaches it only by service binding)
 apps/site ─▶ design-system          (the public site, §1.29: no runtime dependencies)
 ```
 
@@ -4247,6 +4248,7 @@ apps/site ─▶ design-system          (the public site, §1.29: no runtime dep
 | `apps/api` | any |
 | `apps/web` | core |
 | `apps/mfa` | core |
+| `apps/browser` | connectors, core (types only in its code; tests may use them); runtime: `@cloudflare/playwright`, zod |
 | `apps/site` | design-system (files only) |
 
 \* only from `agents/src/registry/` and `agents/src/log/` (see §1.2).

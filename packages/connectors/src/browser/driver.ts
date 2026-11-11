@@ -107,3 +107,59 @@ export interface BrowserTab {
 export interface BrowserDriver {
   open(): Promise<BrowserTab>;
 }
+
+// The browser service (apps/browser, Worker `mezonas-browser`; docs/plan.md §1.26 "Browser
+// driver"): Browser Run and Playwright live in a Worker of their own, and apps/api reaches it only
+// through its `BROWSER` service binding. The service makes no decision: apps/api's connector keeps
+// the permission gate, pinned origins, the blocked tier, the vault, the audit and external actions,
+// and drives the tab below one primitive at a time. A secret typed by `fill` crosses for that one
+// call and is never logged, stored or returned.
+
+/**
+ * What a tab call answers over RPC: its value, and the address the tab was on when the call ended
+ * (an RPC tab can't answer `url()` without a round trip, so each call brings it back).
+ */
+export interface BrowserTabAnswer<T> {
+  url: string;
+  value: T;
+}
+
+/** One tab in the browser service, as apps/api holds it: every `BrowserTab` method, over RPC. */
+export interface BrowserTabService {
+  goto(url: string): Promise<BrowserTabAnswer<null>>;
+  fill(selector: string, value: string): Promise<BrowserTabAnswer<null>>;
+  click(selector: string): Promise<BrowserTabAnswer<null>>;
+  has(selector: string): Promise<BrowserTabAnswer<boolean>>;
+  readText(): Promise<BrowserTabAnswer<string>>;
+  readTables(): Promise<BrowserTabAnswer<BrowserTable[]>>;
+  textOf(selector: string): Promise<BrowserTabAnswer<string | null>>;
+  controls(): Promise<BrowserTabAnswer<BrowserControl[]>>;
+  sendsForm(selector: string): Promise<BrowserTabAnswer<boolean>>;
+  readOnly(on: boolean): Promise<BrowserTabAnswer<null>>;
+  download(url: string): Promise<BrowserTabAnswer<BrowserDownload>>;
+  cookies(): Promise<BrowserTabAnswer<BrowserCookie[]>>;
+  setCookies(cookies: BrowserCookie[]): Promise<BrowserTabAnswer<null>>;
+  screenshot(): Promise<BrowserTabAnswer<Uint8Array>>;
+  alive(): Promise<boolean>;
+  close(): Promise<void>;
+}
+
+/** What `open` asks for: the site's hosts (at most 50) and, for a held session, its keep-alive. */
+export interface BrowserOpenInput {
+  hosts: string[];
+  keepAliveMs?: number | undefined;
+}
+
+/** What `open` answers: the tab and its address, or why there is none. */
+export type BrowserOpenAnswer =
+  | { ok: true; url: string; tab: BrowserTabService }
+  | { ok: false; error: { code: "no_browser" | "invalid"; message: string } };
+
+/**
+ * The browser service's RPC entrypoint (`Browsers`): a fresh browser with one tab, held to `hosts`;
+ * `no_browser` when the service has no Browser Run binding (local development). The tab lives until
+ * `close`, or until apps/api lets go of it (the service then closes the browser).
+ */
+export interface BrowserService {
+  open(input: BrowserOpenInput): Promise<BrowserOpenAnswer>;
+}

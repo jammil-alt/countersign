@@ -2,7 +2,9 @@
 // serves on 127.0.0.1: sign-in with an emailed code from a fake code service, reading a page with
 // its password and hidden inputs removed, downloading an invoice PDF into documents, signing out,
 // and origin pinning (a login page that moves to another origin gets nothing typed). The same
-// Playwright adapter runs on Browser Run in the Worker.
+// Playwright adapter runs on Browser Run in the browser service (apps/browser); the last tests drive
+// it through the service's contract (serveTab here, connectors' remoteBrowserTab in apps/api), as
+// apps/api does over the `BROWSER` service binding.
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -11,13 +13,13 @@ import {
   BROWSER_PAGE_READ_TOOL,
   type BrowserServices,
   type BrowserSessionRecord,
+  type BrowserTab,
   createBrowserConnector,
   FakeCodesService,
   fakeCodesPort,
   memoryCredentials,
   noopLogger,
-  type PlaywrightPageLike,
-  playwrightTab,
+  remoteBrowserTab,
   runReadTool,
   type ToolContext,
 } from "@countersign/connectors";
@@ -28,6 +30,8 @@ import {
 } from "@countersign/core";
 import { type Browser, chromium } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { type PlaywrightPageLike, playwrightTab } from "./playwright";
+import { serveTab } from "./serve";
 
 const TENANT = "0190f5e8-8a3c-7d6e-8f00-00000000aaaa";
 const VERSION = "0190f5e8-8a3c-7d6e-8f00-00000000eeee";
@@ -196,7 +200,10 @@ afterAll(async () => {
   await new Promise((resolve) => other?.close(resolve));
 });
 
-function setUp() {
+/** How apps/api holds the tab: through the service's contract (the RPC hop itself left out). */
+const throughService = (tab: BrowserTab): BrowserTab => remoteBrowserTab(serveTab(tab), tab.url());
+
+function setUp(wrap: (tab: BrowserTab) => BrowserTab = (tab) => tab) {
   const profile = BrowserSiteProfile.parse({
     login: {
       url: `${origin}/login`,
@@ -233,11 +240,13 @@ function setUp() {
     async open() {
       const context = await browser.newContext({ acceptDownloads: false, serviceWorkers: "block" });
       const p = await context.newPage();
-      return playwrightTab(p as unknown as PlaywrightPageLike, {
-        close: () => context.close(),
-        timeoutMs: 10_000,
-        navigationWaitMs: 2_000,
-      });
+      return wrap(
+        playwrightTab(p as unknown as PlaywrightPageLike, {
+          close: () => context.close(),
+          timeoutMs: 10_000,
+          navigationWaitMs: 2_000,
+        }),
+      );
     },
     codes: fakeCodesPort(codes, TENANT),
     state: {
@@ -369,5 +378,57 @@ describe("the browser connector in Chromium", () => {
     expect(seen.posts.length).toBe(posts);
     expect(s.stops).toHaveLength(1);
     expect(s.records[0]).toMatchObject({ outcome: "stopped" });
+  });
+});
+
+describe("the browser connector in Chromium, through the browser service's contract", () => {
+  it("signs in with the emailed code and reads a page; nothing secret comes back", async () => {
+    const s = setUp(throughService);
+    const before = seen.signOuts;
+    const r = await runReadTool(
+      s.connector,
+      BROWSER_PAGE_READ_TOOL,
+      { site: "supplier", url: `${origin}/invoices` },
+      s.ctx,
+    );
+    const all = JSON.stringify(r.output);
+    expect(all).toContain("INV-1001");
+    for (const hidden of ["should-never-show", "csrf-secret-123", PASSWORD, CODE]) {
+      expect(all, hidden).not.toContain(hidden);
+    }
+    const login = seen.posts.filter((p) => p.path === "/login").at(-1);
+    expect(new URLSearchParams(login?.body).get("username")).toBe(USERNAME);
+    expect(seen.signOuts).toBe(before + 1);
+    expect(s.records[0]).toMatchObject({ signIn: "fresh", outcome: "done", signedOut: true });
+  });
+
+  it("downloads the invoice PDF across the contract", async () => {
+    const s = setUp(throughService);
+    const r = await runReadTool(
+      s.connector,
+      BROWSER_FILE_DOWNLOAD_TOOL,
+      { site: "supplier", url: `${origin}/invoices/INV-1001.pdf` },
+      s.ctx,
+    );
+    expect(r.output).toMatchObject({ filename: "INV-1001.pdf", sizeBytes: PDF.length });
+  });
+
+  it("still types nothing when the login page moves to another origin", async () => {
+    const s = setUp(throughService);
+    const posts = seen.posts.length;
+    moveLogin = true;
+    try {
+      await expect(
+        runReadTool(
+          s.connector,
+          BROWSER_PAGE_READ_TOOL,
+          { site: "supplier", url: `${origin}/invoices` },
+          s.ctx,
+        ),
+      ).rejects.toThrow(/which is not the site's login address; nothing was typed/);
+    } finally {
+      moveLogin = false;
+    }
+    expect(seen.posts.length).toBe(posts);
   });
 });

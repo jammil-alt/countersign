@@ -1,16 +1,24 @@
 // A BrowserTab over a Playwright page, shared by Cloudflare Browser Run (`@cloudflare/playwright`,
-// apps/api) and local Chromium (`playwright`, the tests), which have the same page API. The types
-// here are structural, so this package needs neither library nor DOM types: page scripts are
-// strings our code wrote, evaluated in the page. The model never runs anything in a page.
+// this Worker) and local Chromium (`playwright`, the tests), which have the same page API. The
+// types here are structural, so the adapter needs neither library nor DOM types: page scripts are
+// strings our code wrote, evaluated in the page. The model never runs anything in a page. Moved
+// here from @countersign/connectors with Playwright itself (docs/plan.md §1.26 "Browser driver").
 
-import { fromBase64 } from "../runtime";
 import type {
   BrowserControl,
   BrowserCookie,
   BrowserDownload,
   BrowserTab,
   BrowserTable,
-} from "./driver";
+} from "@countersign/connectors";
+
+/** Standard base64 to bytes (a page's `btoa` output). */
+function fromBase64(input: string): Uint8Array {
+  const bin = atob(input);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
 
 /** The part of Playwright's `Route` read-only mode uses. */
 export interface PlaywrightRouteLike {

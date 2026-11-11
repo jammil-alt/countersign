@@ -25,6 +25,7 @@ Mezonas is the product name and the name of every public resource; `countersign`
 | Code service Worker (apps/mfa) | `mezonas-codes-staging` | `mezonas-codes` |
 | Code service address (Twilio's webhooks only) | `https://codes-staging.mezonas.com` | `https://codes.mezonas.com` |
 | Agent email (code service) | `agents.staging.mezonas.com` | `agents.mezonas.com` |
+| Browser service Worker (apps/browser; no address, service binding only) | `mezonas-browser-staging` | `mezonas-browser` |
 | WorkOS | staging environment | production environment |
 | MCP server (Claude connector, operators) | `https://staging.mezonas.com/mcp` | `https://app.mezonas.com/mcp` |
 | Rate limit namespace (`MCP_RATE_LIMIT`) | `1101` | `1102` |
@@ -243,15 +244,33 @@ domain, and generates `MFA_ENCRYPTION_KEY` once. What a person does, per environ
 ### Browser logins (Access phase 3)
 
 Agents sign in to websites with no API as a client's agent account, on Cloudflare Browser Run, signed
-in by our code (docs/plan.md §1.26). The code is deployed with apps/api; what a person does:
+in by our code (docs/plan.md §1.26). Browser Run and Playwright run in the **browser service**
+(`apps/browser`, Worker `mezonas-browser-staging` / `mezonas-browser`), so apps/api carries neither:
+
+- **What it has.** Its own `wrangler.jsonc` with the Browser Run binding (`"browser": {"binding":
+  "BROWSER"}`) in staging and production only, and nothing else: no secrets, no Hyperdrive, no R2,
+  no route, no workers.dev or preview URL. It logs nothing.
+- **How apps/api reaches it.** Only through apps/api's `BROWSER` service binding, entrypoint
+  `Browsers` (`apps/api/wrangler.jsonc`): `open({hosts, keepAliveMs})` answers one tab that apps/api
+  drives one call at a time (go to, fill, click, read, download, close). apps/api keeps every
+  decision: the permission gate, pinned origins, the blocked tier, the vault read, the audit and
+  external actions. A site's password or a code crosses for one `fill` call and is never logged,
+  kept or returned; codes still come only from the code service.
+- **Deploy order.** `deploy.yml` deploys the code service, then the browser service, then apps/api,
+  whose service bindings need both Workers to exist. The browser service needs no secret.
+- **Locally** neither Worker is bound: `pnpm dev` runs without them, website logins show "Not
+  available yet" and agents' browser tools are refused. The chromium tests (`apps/browser`) drive
+  the same Playwright adapter in local Chromium.
+
+What a person does:
 
 - [ ] **Turn on Browser Run** for the Cloudflare account (Workers & Pages → Browser Rendering; it
-      needs the Workers Paid plan). Check its limits for the account: concurrent browsers, browsers
-      per minute, and that `guardrails` (allowed domains) and `recording: false` are accepted.
-- [ ] **Merge the binding PR** (`claude/browser-binding`) only after that: it adds `"browser":
-      {"binding": "BROWSER"}` to `apps/api/wrangler.jsonc`, and a deploy with the binding fails on an
-      account without Browser Run. Without the binding, website logins show "Not available yet" and
-      agents' browser tools are refused.
+      needs the Workers Paid plan) **before the first deploy of the browser service**: a deploy with
+      the binding fails on an account without Browser Run. Check its limits for the account:
+      concurrent browsers, browsers per minute, and that `guardrails` (allowed domains) and
+      `recording: false` are accepted.
+- [ ] **Check the RPC tab on staging** (`apps/browser/NOTES.md`): a website login's tab is an RPC
+      target that lives across calls; check one sign-in, read and sign-out end to end.
 - [ ] **Add the first real site** in the back office (Websites → Add a site), after checking its
       terms allow automated access; write who checked and when in the notes. Pick a low-tier site
       (supplier portal, price list, invoice downloads) and allow only the pages the pilot reads, e.g.
@@ -536,6 +555,8 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   subaccount) copied when set, and `MFA_ENCRYPTION_KEY` (32 random bytes, base64) generated once
   inside the job exactly as `ENCRYPTION_KEY` is, never replacing an existing one. apps/api never has
   these, and the code service never has apps/api's.
+- The browser service (`mezonas-browser-staging` / `mezonas-browser`) has no secrets: it is deployed
+  in its own step after the code service and before apps/api, and gets none of apps/api's.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (Gmail, M10; see "Google" above) and `QBO_CLIENT_ID`,
   `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER` (QuickBooks Online, M9) are copied like the API keys when
   set. Staging has the development keys of both apps (2026-11-05).
@@ -1161,8 +1182,8 @@ be disabled, as in `db:purge-client`.
   configs and R2 buckets (§1). Safe to re-run; each run rotates `cs_worker`'s passwords.
 - **`deploy.yml`**: on push to `main` (staging) or a `v*` tag (production): the full check, then
   migrates the target's Neon branch as `cs_owner`, deploys the code service (`apps/mfa`) and its
-  secrets, builds `apps/web` and runs `wrangler deploy` for apps/api (whose `CODES` binding needs the
-  code service deployed first). Its `site` job builds `apps/site` and deploys `mezonas-site`, from
+  secrets, then the browser service (`apps/browser`), builds `apps/web` and runs `wrangler deploy`
+  for apps/api (whose `CODES` and `BROWSER` bindings need both deployed first). Its `site` job builds `apps/site` and deploys `mezonas-site`, from
   `main` only. After the Worker deploys, **`scripts/smoke.sh`** checks the app from the outside
   (`/api/health` answers, the page and its script load, `/api/session` refuses with a JSON 401),
   retrying for 2 minutes; a failure marks the deploy failed. Run it by hand against either
