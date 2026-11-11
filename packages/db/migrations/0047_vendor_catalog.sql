@@ -103,7 +103,9 @@ JOIN catalog_item ci ON ci.id = a.catalog_item_id AND ci.tenant_id = a.tenant_id
 WHERE a.vendor_sku IS NOT NULL AND length(btrim(a.vendor_sku)) BETWEEN 1 AND 100
   AND ci.merged_into_id IS NULL
 ORDER BY a.tenant_id, a.vendor_id, upper(btrim(a.vendor_sku)), (a.source = 'human') DESC,
-  a.updated_at DESC, a.id DESC;
+  a.updated_at DESC, a.id DESC
+-- Run again (a repair, a replay by hand), a SKU already there is left as it is.
+ON CONFLICT DO NOTHING;
 --> statement-breakpoint
 -- 2. A vendor item without a SKU for each vendor and master item its wordings or prices name and
 -- step 1 didn't cover.
