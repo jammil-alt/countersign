@@ -53,11 +53,15 @@ function shareScope(scope: string | null): void {
   }
 }
 
-/** The language a state reads in: the session's, else the browser's, else English. */
+/**
+ * The language a state reads in: the session's; signed out (or failed), the browser's; English
+ * while the session is not known yet, so nothing is downloaded for a language that may not be the
+ * session's (the still frame has one word, for screen readers).
+ */
 export function stateLocale(state: SessionState): Locale {
-  return state.status === "signed_in"
-    ? state.session.language.effective
-    : (browserLocale(browserLanguages()) ?? DEFAULT_LOCALE);
+  if (state.status === "signed_in") return state.session.language.effective;
+  if (state.status === "loading") return DEFAULT_LOCALE;
+  return browserLocale(browserLanguages()) ?? DEFAULT_LOCALE;
 }
 
 export type SessionState =
@@ -82,10 +86,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async (): Promise<SessionState> => {
     let next: SessionState;
-    // The first load asked before React mounted (main.tsx); the frame's first calls go with it,
-    // into the store only, so nothing shows before the session is known (docs/audit-plan.md 4.3).
+    // The first load asked before React mounted (main.tsx); every later refresh asks here.
     const early = takeEarlySession();
-    const framed = early !== null && prefetchFrame(store, globalThis.location?.pathname ?? "/");
     try {
       next = { status: "signed_in", session: await (early ?? client.call(apiRoutes.session)) };
     } catch (error) {
@@ -97,10 +99,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
               error,
             };
     }
-    // The frame's calls went with a cookie that has no session: their refusals are dropped.
-    if (framed && next.status !== "signed_in") store.clear();
+    // On the first load, the frame's calls start once the session has answered (never beside it:
+    // early.ts), while the language loads and React renders (docs/audit-plan.md 4.3). The store's
+    // scope is not set yet; its first setting keeps what is already there.
+    if (early && next.status === "signed_in") prefetchFrame(store, next.session);
     // Nothing shows until its language is here, so no screen reads in a language still loading
-    // (docs/audit-plan.md 4.1). English is in the bundle; a language that fails to load reads in it.
+    // (docs/audit-plan.md 4.1). English is in the bundle; a language that fails to load reads in
+    // English this time and is asked for again on the next refresh.
     await loadCatalog(stateLocale(next));
     // Stored answers belong to one user and one active client: anything else empties the store
     // before a screen can read it (docs/audit-plan.md 1.2). Signed out, the store stays closed
