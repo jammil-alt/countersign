@@ -1,7 +1,7 @@
 // O1 Command center: up to four figures, each a link to its filtered list; "Needs us" with a way
 // into each escalation (an approval stuck at a client among them); all agents by client, template
 // or status; the live feed; client health with the supervisor's findings.
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -383,6 +383,83 @@ describe("command center", () => {
     expect(findings).toHaveTextContent("What the supervisor found");
     await userEvent.click(findings);
     expect(await within(health).findByText("Cole failed 3 times this week")).toBeInTheDocument();
+  });
+
+  it("asks for the recent runs with the command center, each section in its own place", async () => {
+    // docs/audit-plan.md 1.5: Recent runs does not wait for the command center's answer.
+    let answer: (v: unknown) => void = () => {};
+    const api = routes({
+      "GET /api/ops/command-center": () => new Promise((resolve) => (answer = resolve)),
+    });
+    renderAt(api);
+    const row = await screen.findByTestId(`ops-recent-${RUN}`);
+    expect(row).toBeInTheDocument();
+    expect(api.calls).toContain("GET /api/ops/command-center");
+    // The figures, Needs us and All agents hold their places with skeletons, titled at once.
+    expect(screen.queryByTestId("ops-command-figures")).toBeNull();
+    expect(screen.getByText("Needs us")).toBeInTheDocument();
+    expect(screen.getByText("All agents")).toBeInTheDocument();
+    expect(screen.getAllByRole("status").length).toBeGreaterThanOrEqual(3);
+    answer(center());
+    expect(await screen.findByTestId("ops-command-figures")).toBeInTheDocument();
+    expect(screen.queryAllByRole("status")).toHaveLength(0);
+  });
+
+  it("prefetches a run on hover or focus, once, and nothing on a touch", async () => {
+    // docs/audit-plan.md 1.6. Home prefetches no other screen on its own (gate 2: no screen's
+    // calls go up).
+    const api = routes({ [`GET /api/ops/runs/${RUN}`]: () => ({}) });
+    renderAt(api);
+    await screen.findByTestId("ops-command-figures");
+
+    const row = await screen.findByTestId(`ops-recent-${RUN}`);
+    const link = row.querySelector("a") as HTMLAnchorElement;
+    // A touch (scrolling the list on a phone) fetches nothing.
+    fireEvent.pointerOver(link, { pointerType: "touch" });
+    expect(api.calls).not.toContain(`GET /api/ops/runs/${RUN}`);
+    fireEvent.pointerOver(link, { pointerType: "mouse" });
+    fireEvent.pointerOver(link, { pointerType: "mouse" });
+    fireEvent.focus(link);
+    await waitFor(() => expect(api.calls).toContain(`GET /api/ops/runs/${RUN}`));
+    expect(api.calls.filter((c) => c === `GET /api/ops/runs/${RUN}`)).toHaveLength(1);
+    expect(api.calls).not.toContain("GET /api/ops/inbox");
+  });
+
+  it("keeps the recent runs on screen, dimmed, while a filter's list loads", async () => {
+    // docs/audit-plan.md 1.8: a filter answers at once.
+    let answer: (v: unknown) => void = () => {};
+    const api = routes();
+    renderAt(api);
+    const runs = await screen.findByTestId("ops-command-runs");
+    await within(runs).findByTestId(`ops-recent-${RUN}`);
+    api.on("GET /api/ops/runs", () => new Promise((resolve) => (answer = resolve)));
+    await userEvent.selectOptions(within(runs).getByTestId("ops-recent-status"), "failed");
+    const list = within(runs).getByTestId("ops-recent-list");
+    expect(list).toHaveAttribute("aria-busy", "true");
+    expect(within(runs).getByTestId(`ops-recent-${RUN2}`)).toBeInTheDocument();
+    expect(list).toHaveAttribute("inert");
+    answer({ runs: [opsRun(RUN, DEMO, AGENT, "failed", "2026-11-09T08:23:00.000Z")], agents: [] });
+    await waitFor(() => expect(within(runs).queryByTestId(`ops-recent-${RUN2}`)).toBeNull());
+    expect(within(runs).getByTestId("ops-recent-list")).not.toHaveAttribute("aria-busy");
+
+    // Back to every status: the stored answer, not dimmed, while it refreshes behind.
+    api.on("GET /api/ops/runs", () => new Promise(() => {}));
+    await userEvent.selectOptions(within(runs).getByTestId("ops-recent-status"), "all");
+    expect(await within(runs).findByTestId(`ops-recent-${RUN2}`)).toBeInTheDocument();
+    expect(within(runs).getByTestId("ops-recent-list")).not.toHaveAttribute("aria-busy");
+  });
+
+  it("never shows one client's runs under another while a client filter loads", async () => {
+    // Review of #257: `keep` is never for a query that names a client (§1.91).
+    const api = routes();
+    renderAt(api);
+    const runs = await screen.findByTestId("ops-command-runs");
+    await within(runs).findByTestId(`ops-recent-${RUN}`);
+    api.on("GET /api/ops/runs", () => new Promise(() => {}));
+    await userEvent.selectOptions(within(runs).getByTestId("ops-recent-client"), DEMO);
+    expect(within(runs).queryByTestId(`ops-recent-${RUN}`)).toBeNull();
+    expect(within(runs).queryByTestId("ops-recent-list")).toBeNull();
+    expect(within(runs).getByRole("status")).toBeInTheDocument();
   });
 
   it("says so when nothing needs us", async () => {

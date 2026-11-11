@@ -159,7 +159,7 @@ about 2.2 MB, pdf-lib 0.8 MB.
 
 ### Results
 
-**Status (lead), 2026-11-11 10:10 UTC:** phase 0, 1.2 with 1.9 (#251) and 1.3 (#256) merged: the foundations are done. Now: the five screen workers (step 3). Held for the owner, ready: 5.1 (#252), 5.2 (#255, on #252), phase 9 (#253), 4.7 transport (#250), 4.7 logins (#254).
+**Status (lead), 2026-11-11 12:00 UTC:** foundations merged (#251, #256); step 3 under way: the frame and Home merged (#257); portal (#259), first load (#261), agent pages (#258) and polling (#260) in review fixes. Held for the owner, ready: 5.1 (#252), 5.2 (#255), phase 9 (#253), 4.7 transport (#250), 4.7 logins (#254).
 
 Add a row after each phase. "To content" is the script's `settled` time with `LATENCY_MS=100`
 (appendix A): it is not a real-world time, but it shows waits in a row.
@@ -170,6 +170,7 @@ Add a row after each phase. "To content" is the script's `settled` time with `LA
 | 2026-11-11 | `1c30e45` | phase 0 (re-measured) | 7 / 107 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 11 / 123 / 1.0 s | 601 kB |
 | 2026-11-11 | `5ad1239` | 1.2, 1.9 (the store, #251) | 6 / 93 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 10 / 108 / 1.0 s | 602 kB |
 | 2026-11-11 | `9392ff2` | 1.3 (skeletons, #256) | 6 / 93 / 0.8 s | 11 / 149 / 0.8 s | 4 / 60 / 1.1 s | 10 / 108 / 1.1 s | 603 kB |
+| 2026-11-11 | `aa4fe50` | frame and Home (#257: 1.5 Home, 2.3) | 6 / 93 / 0.9 s | 11 / 149 / 0.7 s | 4 / 60 / 1.0 s | 10 / 108 / 1.0 s | 603 kB |
 
 From 1.3 on, the script's `paint` (first contentful paint) is not comparable with earlier rows: a
 skeleton is shapes, not text, so the browser counts the first paint only when words arrive.
@@ -331,7 +332,7 @@ is settled by the cache in 1.2; these items are what is left.
   Do: poll fast only for `queued` and `running`. For `waiting`, poll every 30 s.
   Done when: a run page left open on a waiting run makes 2 requests a minute, not 30.
 
-- [ ] **2.3 Escalations and the frame count Needs us once.**
+- [x] **2.3 Escalations and the frame count Needs us once.** (#257)
   Check: `ops/OpsLayout.tsx` polls `/api/ops/counts` and reloads it on every route change, agent
   tab clicks included; `ops/screens/Inbox.tsx` also polls `opsNeedsUs`.
   Do: have Escalations call `useShareCounts` as the command center does; reload counts on a route

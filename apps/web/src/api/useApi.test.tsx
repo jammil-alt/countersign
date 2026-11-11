@@ -213,6 +213,32 @@ describe("useApi's store", () => {
     expect(cached.result.current.data).toBeUndefined();
   });
 
+  it("says which stored answers were asked before a write, whatever their age", async () => {
+    const { wrapper } = setup({
+      [`GET /api/ops/feedback/${CLIENT_A}/screenshot`]: () => client(CLIENT_A, "Acme"),
+      [`POST /api/ops/runs/${CLIENT_B}/cancel`]: () => ({ runId: CLIENT_B, status: "cancelled" }),
+    });
+    const hook = renderHook(
+      () => ({
+        state: useApi(ROUTE, { params: { id: CLIENT_A } }),
+        call: useApiClient(),
+        store: useApiStore(),
+      }),
+      { wrapper },
+    );
+    await waitFor(() => expect(hook.result.current.state.data?.url).toBe("Acme"));
+    const { store } = hook.result.current;
+    const key = store.key(ROUTE, { params: { id: CLIENT_A } });
+    expect(store.staleByWrite(key)).toBe(false);
+    expect(store.staleByWrite(store.key(ROUTE, { params: { id: CLIENT_B } }))).toBe(false);
+    await act(() =>
+      hook.result.current.call.call(routes.opsCancelRun, { params: { id: CLIENT_B } }),
+    );
+    expect(store.staleByWrite(key)).toBe(true);
+    act(() => hook.result.current.state.reload());
+    await waitFor(() => expect(store.staleByWrite(key)).toBe(false));
+  });
+
   it("prefetch fills the store without a component", async () => {
     const { api, wrapper } = setup({
       [`GET /api/ops/feedback/${CLIENT_A}/screenshot`]: () => client(CLIENT_A, "Acme"),
