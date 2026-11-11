@@ -4106,7 +4106,7 @@ by side), actions `vendor-item-preferred` and `vendor-item-discontinue` (operato
 | Recording prices elsewhere | // DECISION: `materials.prices.record` also sets the price's vendor item and its last price where the vendor catalog has one; it never makes a vendor item (Register item does). |
 | The pattern's branches | // DECISION: an If repeats the steps after it in each branch with their own ids (`o-`/`s-`, then `m-`/`r-`): a step inside an If path isn't readable after it, and an AI skill with nothing to decide would still call its model. |
 | New steps | // DECISION: `PackManifest.superseded` names a pack's skills another of its skills replaces for new steps (Look up existing → Match by SKU (vendor), Match the unmatched → Semantic match (vendor)); core's `newStepSkillReason` keeps them off the palette and the Builder, and stored steps keep running them. Built-in definitions (and their hashes) are unchanged. |
-| Who sees the catalog | // DECISION: the vendor catalog's reports are the back office's: the portal reads only the Materials reports its screens name (`portalReports`), until the owner decides what the client sees. Preferred and discontinued are operator actions (`/api/ops/clients/:id/packs/materials/actions/…`, audited, a refusal 422). |
+| Who sees the catalog | // DECISION: superseded by "The portal sees it" under The screens below. Was: the vendor catalog's reports are the back office's: the portal reads only the Materials reports its screens name (`portalReports`), until the owner decides what the client sees. Preferred and discontinued are operator actions (`/api/ops/clients/:id/packs/materials/actions/…`, audited, a refusal 422). |
 | Tests | // DECISION: `apps/api/src/vendor-catalog.test.ts` runs the pattern through the workflow engine on hand-written replays (`fixtures/llm`, `handWritten`; the embeddings are character-trigram vectors): a known SKU, a known wording, a semantic hit, a line new to the vendor linked by the rules and one by the Master item manager, a new master item, a hard-rule veto that goes to a person, and the next invoice caught at step 2 with no model call and an older price not overwriting a newer one. The split's matching golden (`fixtures/matching`) covers the rules both paths share (`decideByRules`, `checkMatches`). |
 | Start commit | The task named `4d66da642ab1…`, which doesn't exist; the branch starts at `4d66da64` (`4d66da649b54…`, `claude/busy-euler-cgu5kr`), the commit with that prefix and §1.88. |
 
@@ -4144,13 +4144,38 @@ threshold); the rest of §1.88 is finished:
 | The back office screen | // DECISION: Vendor catalog (`apps/web/src/packs/materials/VendorCatalog.tsx`), linked from the client's Packs tab, not named in the manifest (whose screens the portal reads): the vendors, one vendor's items (SKU, name, master item, pack, unit, last price with date and source, list price), a master item's vendors side by side per its standard unit, and Make preferred and Discontinue. English, as the back office's other screens. |
 
 Still open, beside the list above:
-- The portal: §1.88's table says the client sees the vendor catalog (it is their data); today it is
+- (Built below, "The screens".) The portal: §1.88's table says the client sees the vendor catalog (it is their data); today it is
   the back office's. A portal screen needs its words in the six languages; the owner to confirm.
 - The skills: Semantic match (vendor) and Master item manager as editable Library skills, and the
   deterministic skills' values (vendor identifiers, shortlist size) as per-agent parameters, wait
   for the owner's skill refactor.
 - An import screen (upload a price list in the back office) and a person's place for its unplaced
   rows; today the tool is a step an operator puts in a process.
+
+**The screens** (branch `vendor/web3`, from `vendor/engine3`, 2026-11-11; no migration). Purchasing
+gets its vendor catalog in the back office and, read only, in the portal; a master item's page;
+the builder's palette and the skill editor for the vendor-first skills. Code:
+`apps/web/src/packs/materials/VendorCatalog.tsx`, `apps/web/src/ops/skills/skill-form.ts`.
+
+| Topic | Decision |
+|---|---|
+| The portal sees it | // DECISION: the client reads its vendor catalog, read only (it is their data; the brief for this stream). The Materials manifest names the Vendor catalog as a screen (`/reports/materials/vendor-catalog`), so `screenReports` lets the portal read it, and apps/api adds `master-vendors` to the pack's `portalReports` for the catalog's item page. Preferred and discontinue stay operator actions (a client admin gets 403); the portal screens show no buttons. The responses carry no cost, prompt or instruction field (checked in `vendor-catalog.test.ts`). This replaces "Who sees the catalog" above. |
+| One screen, two shells | // DECISION: `VendorCatalogView` and `MasterItemView` take an optional `clientId`, as the other Materials reports do: with one they read the back office's routes and show the operator's actions; without, the portal's. Every word but the two buttons is a message key (`materials.vendors.*`, `materials.item.*`) in the six languages; the back office reads them in English. |
+| One vendor's items | // DECISION: SKU, their name, the master item (a link to its page), pack, the vendor's unit with what it holds in the standard unit ("bundle (5 × sheet)", from `std_per_vendor_uom`), last price, its date and source, list price (its date on hover), and a status word: Preferred, Discontinued or Active. The vendor is in the path (`…/vendor-catalog/:id`; none: the first), so a vendor's catalog can be linked; the picker counts every item its table lists. |
+| Search | // DECISION: one box over the shown vendor's items: SKU, their name, the master item's name and the pack, case-folded in the reader's locale, on the page (a vendor's catalog is at most 2,000 rows, `vendorCatalog`'s cap). |
+| A master item's page | // DECISION: `…/reports/materials/catalog/:id` in both shells (the Catalog's item names link there): its name, category, unit and attributes (the measured millimetres left out), and its vendors side by side per the standard unit, the preferred one first, then the active ones in the API's order (cheapest per standard unit, no conversion last), discontinued last (`preferredFirst`). A vendor's name opens its catalog. The back office has Make preferred and Discontinue on each row. |
+| Tables | // DECISION: the analytical table (`dt dt-ana`), not the ledger: the ledger's column heads stick 24px down for a group row these tables don't have and covered their first row. The Catalog's table changes with them. |
+| Palette | // DECISION: nothing new in the builder's logic: the catalog's `kind` labels the skills (Match vendor, Match by SKU (vendor), Check matches: Deterministic; Semantic match (vendor), Master item manager: AI), `palette: false` keeps Look up existing and Match the unmatched off, and Register item is a write on an `internal` tool, so it reads "Save to records" with approval off until the operator adds it (core `defaultWriteApproval`). The web gives the vendor catalog's tools plain names (`runs/labels.ts`: `materials.vendor_items.register` is "Register item"), and a pack's step tools sit under the pack's name in words ("Materials", `connectorLabel`) rather than its id. |
+| AI skills in the editor | // DECISION: under the owner's word of 2026-11-11 ("forget about the skills, we will have to refactor them after") the two AI skills are still built-ins, so they open in the skill editor as any built-in AI skill does: the Library's Clone makes a shared operator skill draft and opens its page, with instructions, model, tests and versions. The editor now carries a skill's declared `reads` (the form's `reads`): shown ticked beside its tools, listed as tools it may use, kept as `reads` on save (unticked ones leave; a tool known to write never stays). Before, a clone's retrieval read was invisible and could not be removed. The API test clones both and saves a second version of each. |
+| Sweep | // DECISION: the seeded database has no client with Materials on, so the route sweep doesn't reach these screens; they were opened in Chromium in the four looks (light and dark, desktop and phone) against wrangler dev with a throwaway fixture (the pack on for the Demo client, two vendors, two master items, three vendor items) and passed the sweep's checks. |
+
+Still open after the screens:
+- The skills refactor: Semantic match (vendor) and the Master item manager shipped as shared,
+  versioned Library skills (Edit, not Clone), and Match vendor's identifiers and the shortlist size
+  as per-agent parameters. Today a clone is a separate skill an agent must be pointed at.
+- Whether the client may mark a preferred vendor (the portal shows it; only the operator sets it).
+- The seed: a client with Materials on and a few vendor items, so the route sweep reaches these
+  screens on its own.
 
 ## 2. Package layering
 
