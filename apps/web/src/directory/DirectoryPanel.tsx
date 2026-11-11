@@ -144,8 +144,12 @@ export function languageUsedText(used: LanguageUsed, i18n: I18n): string {
 function useDirectoryApi(surface: DirectorySurface, query: DirectoryListQuery) {
   const api = useApiClient();
   const ops = surface.kind === "ops" ? surface.clientId : null;
-  const opsList = useApi(apiRoutes.opsDirectory, ops ? { params: { id: ops }, query } : null);
-  const portalList = useApi(apiRoutes.portalDirectory, ops ? null : { query });
+  const opsList = useApi(
+    apiRoutes.opsDirectory,
+    // A search and filters of one client's directory: its rows stay while the next answer loads.
+    ops ? { params: { id: ops }, query, keep: true } : null,
+  );
+  const portalList = useApi(apiRoutes.portalDirectory, ops ? null : { query, keep: true });
   const p = (extra: Record<string, string> = {}) => ({ id: ops ?? "", ...extra });
   return {
     list: ops ? opsList : portalList,

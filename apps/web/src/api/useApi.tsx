@@ -67,9 +67,16 @@ export function usePrefetch(): <R extends RouteSpec>(
 export type ApiOptions<R extends RouteSpec> = Omit<CallOptions<R>, "signal"> & {
   /**
    * `"none"`: never stored or shared. For answers that hold a short-lived link or a value that
-   * must not linger (signed document links, export downloads, webhook tokens).
+   * must not linger: signed document links, export downloads, webhook tokens, and the
+   * second-factor and vault routes (access, releases, grants).
    */
   cache?: "none";
+  /**
+   * While a new query loads, keep showing this hook's last answer (`refreshing` true). Only for a
+   * search or a filter of one list (a typed `q`, a view); never where the query names another
+   * client, agent or run, which must show nothing of the last one.
+   */
+  keep?: boolean;
 };
 
 export interface ApiState<T> {
@@ -100,25 +107,30 @@ export function useApi<R extends RouteSpec>(
 ): ApiState<ResponseOf<R>> {
   const store = useApiStore();
   const hookId = useId();
+  // Read so that emptying the store (which changes every key) re-renders this hook onto its new key
+  // even when it had nothing stored yet.
+  useSyncExternalStore(
+    useCallback((fn: () => void) => store.subscribeClear(fn), [store]),
+    () => store.version,
+  );
   let key: string | null = null;
   let callOptions: Omit<CallOptions<R>, "signal"> | null = null;
   if (options !== null) {
-    const { cache, ...rest } = options;
+    const { cache, keep: _keep, ...rest } = options;
     callOptions = rest;
     const shared = store.key(route, rest);
     key = cache === "none" ? `none:${hookId}:${shared}` : shared;
   }
   const noCache = options?.cache === "none";
-  // The entity the call is about: the route and its path params. A change of query (a filter, a
-  // search) is the same list asked another way; a change of params is another entity.
-  const entity = callOptions === null ? null : store.key(route, { params: callOptions.params });
+  // With `keep`, the list the call is about: the route and its path params, so a search keeps its
+  // rows and nothing else does.
+  const list =
+    options?.keep && callOptions !== null ? store.key(route, { params: callOptions.params }) : null;
 
-  // An answer older than five minutes is not shown: dropped the first time a key is read here.
-  const seen = useRef<string | null>(null);
-  if (key !== null && seen.current !== key) {
-    store.dropIfOld(key);
-    seen.current = key;
-  }
+  // An answer older than five minutes is not shown: when this hook first reads a key, an answer
+  // already that old counts as none (and the effect below asks again). Nothing in the store moves.
+  const seen = useRef<{ key: string | null; at: number }>({ key: null, at: 0 });
+  if (seen.current.key !== key) seen.current = { key, at: Date.now() };
 
   const ref = useRef({ key, route, callOptions });
   ref.current = { key, route, callOptions };
@@ -156,14 +168,19 @@ export function useApi<R extends RouteSpec>(
   }, [store, tick]);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
-  // DECISION: while a new query on the same entity loads, the last answer for that entity stays
-  // (dimmed by `refreshing` where a screen shows it), as typing and filtering ask (plan 1.8); an
-  // answer for other params (another run, another agent) is never shown under the new ones (1.9).
-  const own = entry?.data as ResponseOf<R> | undefined;
-  const last = useRef<{ entity: string; data: ResponseOf<R> } | null>(null);
-  if (own !== undefined && entity !== null) last.current = { entity, data: own };
+  // DECISION: a change of options shows nothing of the last answer (1.9), unless the call site
+  // asks to `keep` it while a search or filter of the same list loads (plan 1.8, "keep the old
+  // rows, dimmed, while new ones load"). Keeping is opt-in: a query that names another client or
+  // agent is another entity, and only the call site knows which a query is.
+  const stored = entry?.data as ResponseOf<R> | undefined;
+  const own =
+    stored !== undefined && entry !== undefined && !store.tooOld(entry.at, seen.current.at)
+      ? stored
+      : undefined;
+  const last = useRef<{ list: string; data: ResponseOf<R> } | null>(null);
+  if (own !== undefined && list !== null) last.current = { list, data: own };
   const kept =
-    own === undefined && entity !== null && last.current?.entity === entity
+    own === undefined && list !== null && last.current?.list === list
       ? last.current.data
       : undefined;
   const data = own ?? kept;

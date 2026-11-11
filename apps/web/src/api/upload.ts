@@ -54,6 +54,9 @@ export async function uploadFiles(
       body: json,
     });
   }
+  // The server took the files (2xx), whatever the answer looks like: stored answers (documents,
+  // inbox) are stale from now.
+  noteWrite();
   const parsed = routes.portalUploads.response.safeParse(json);
   if (!parsed.success) {
     throw new ApiError({
@@ -64,7 +67,5 @@ export async function uploadFiles(
       body: json,
     });
   }
-  // An upload is a write: stored answers (documents, inbox) are stale from now.
-  noteWrite();
   return parsed.data;
 }

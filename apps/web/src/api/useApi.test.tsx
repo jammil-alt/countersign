@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionProvider, useSessionState } from "../session/session";
 import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION, Reply } from "../test/fixtures";
-import { ApiStore } from "./store";
+import { ApiStore, MAX_ENTRIES } from "./store";
 import { ApiProvider, useApi, useApiClient, useApiStore, usePrefetch } from "./useApi";
 
 // A small route with params (`GET /api/ops/feedback/:id/screenshot`) stands for any; its answer's
@@ -182,6 +182,27 @@ describe("useApi's store", () => {
   });
 });
 
+describe("the store's size", () => {
+  it(`keeps at most ${MAX_ENTRIES} answers, letting the least recently used go`, async () => {
+    const api = fakeApi({});
+    api.on("GET /api/ops/clients", () => ({ clients: [] }));
+    const store = new ApiStore(api.client);
+    for (let i = 0; i < MAX_ENTRIES + 20; i++) {
+      store.prefetch(routes.opsClients, { query: { view: "names" }, page: i } as never);
+    }
+    await waitFor(() => expect(api.calls).toHaveLength(MAX_ENTRIES + 20));
+    await waitFor(() => expect(store.size).toBe(MAX_ENTRIES));
+    // The first asked went first; the last are kept.
+    expect(store.get(store.key(routes.opsClients, { query: { view: "names" }, page: 0 }))).toBe(
+      undefined,
+    );
+    expect(
+      store.get(store.key(routes.opsClients, { query: { view: "names" }, page: MAX_ENTRIES + 19 }))
+        ?.data,
+    ).toEqual({ clients: [] });
+  });
+});
+
 describe("a failed refresh keeps the page (1.9)", () => {
   it("keeps the data and shows the error beside it, and a later reload still asks", async () => {
     let fail = false;
@@ -224,6 +245,26 @@ describe("a failed refresh keeps the page (1.9)", () => {
     await waitFor(() => expect(result.current.data?.url).toBe("Birch"));
   });
 
+  it("shows nothing of the last answer when a query names another entity", async () => {
+    const gate = deferred<unknown>();
+    const { wrapper } = setup({
+      "GET /api/ops/clients": ({ url }) =>
+        url.searchParams.get("view") === "names" ? gate.promise : { clients: [] },
+    });
+    // Without `keep`, a query change (here `?view=`, as `?client=` or `?agent=` would be) is
+    // another answer altogether.
+    const { result, rerender } = renderHook(
+      ({ view }: { view?: "names" }) => useApi(routes.opsClients, view ? { query: { view } } : {}),
+      { wrapper, initialProps: {} },
+    );
+    await waitFor(() => expect(result.current.data).toEqual({ clients: [] }));
+    rerender({ view: "names" });
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.loading).toBe(true);
+    gate.resolve({ clients: [] });
+    await waitFor(() => expect(result.current.data).toEqual({ clients: [] }));
+  });
+
   it("keeps the last rows while a new query on the same list loads", async () => {
     const gate = deferred<unknown>();
     const { wrapper } = setup({
@@ -231,7 +272,8 @@ describe("a failed refresh keeps the page (1.9)", () => {
         url.searchParams.get("view") === "names" ? gate.promise : { clients: [] },
     });
     const { result, rerender } = renderHook(
-      ({ view }: { view?: "names" }) => useApi(routes.opsClients, view ? { query: { view } } : {}),
+      ({ view }: { view?: "names" }) =>
+        useApi(routes.opsClients, view ? { query: { view }, keep: true } : { keep: true }),
       { wrapper, initialProps: {} },
     );
     await waitFor(() => expect(result.current.data).toEqual({ clients: [] }));
@@ -289,7 +331,7 @@ describe("the store and the session", () => {
     );
   });
 
-  it("empties the store on sign-out (and so on the idle lock, which signs out)", async () => {
+  it("empties the store on sign-out, and asks nothing more with the old cookie", async () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
       "POST /api/auth/sign-out": () => ({ ok: true, redirectTo: null }),
@@ -300,19 +342,61 @@ describe("the store and the session", () => {
       store = useApiStore();
       return null;
     }
+    // As the app does: the signed-in screens show only while signed in.
+    function Gate() {
+      const { state } = useSessionState();
+      return state.status === "signed_in" ? <Shown /> : <p data-testid="out">{state.status}</p>;
+    }
     render(
       <ApiProvider client={api.client}>
         <SessionProvider>
-          <Shown />
+          <Gate />
           <Controls />
           <Grab />
         </SessionProvider>
       </ApiProvider>,
     );
     await waitFor(() => expect(screen.getByTestId("shown")).toHaveTextContent("Acme"));
-    const before = store?.key(ROUTE, { params: { id: CLIENT_A } }) ?? "";
+    const asked = api.calls.length;
     act(() => screen.getByTestId("sign-out").click());
-    expect(store?.get(before)).toBeUndefined();
+    expect(await screen.findByTestId("out")).toHaveTextContent("signed_out");
+    // Long after the sign-out (the idle lock signs out the same way): nothing was asked again and
+    // nothing of the session is kept.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(api.calls.slice(asked)).toEqual(["POST /api/auth/sign-out"]);
+    expect(store?.size).toBe(0);
+  });
+
+  it("forgets everything when another tab signs someone else in", async () => {
+    let session: unknown = OPERATOR_SESSION;
+    let name = "First user's view";
+    const gate = deferred<unknown>();
+    const api = fakeApi({
+      "GET /api/session": () => session,
+      [`GET /api/ops/feedback/${CLIENT_A}/screenshot`]: () =>
+        name === "First user's view" ? client(CLIENT_A, name) : gate.promise,
+    });
+    render(
+      <ApiProvider client={api.client}>
+        <SessionProvider>
+          <Shown />
+        </SessionProvider>
+      </ApiProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("shown")).toHaveTextContent("First user's view"));
+    // Another tab signed someone else in: the cookie is theirs now, and the tab says so.
+    session = { ...CLIENT_SESSION, user: { ...CLIENT_SESSION.user, id: "someone-else" } };
+    name = "Second user's view";
+    act(() => {
+      window.dispatchEvent(new StorageEvent("storage", { key: "cs.sessionChange", newValue: "1" }));
+    });
+    expect(screen.getByTestId("shown")).toHaveTextContent("loading");
+    gate.resolve(client(CLIENT_A, name));
+    await waitFor(() =>
+      expect(screen.getByTestId("shown")).toHaveTextContent("Second user's view"),
+    );
+    expect(document.body.textContent).not.toContain("First user's view");
+    expect(count(api.calls, "GET /api/session")).toBe(2);
   });
 
   it("empties the store when the active client changes", async () => {

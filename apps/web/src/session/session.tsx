@@ -18,6 +18,19 @@ import { idleTooLong, watchInput } from "./activity";
 // this only signs the browser out cleanly instead of failing its next call.
 const IDLE_CHECK_MS = 30_000;
 
+// A sign-in or sign-out in one tab tells the others (docs/audit-plan.md 1.2): they empty their
+// store and ask who is signed in, so one person's answers never show under another's session.
+// Only a time is written, never an answer.
+const SESSION_CHANGE_KEY = "cs.sessionChange";
+
+function announceSessionChange(): void {
+  try {
+    globalThis.localStorage?.setItem(SESSION_CHANGE_KEY, String(Date.now()));
+  } catch {
+    // Storage blocked: other tabs find out on their next call, which the API refuses or answers.
+  }
+}
+
 export type SessionState =
   | { status: "loading" }
   | { status: "signed_out" }
@@ -52,12 +65,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             };
     }
     // Stored answers belong to one user and one active client: anything else empties the store
-    // before a screen can read it (docs/audit-plan.md 1.2).
-    store.setScope(
-      next.status === "signed_in"
-        ? `${next.session.user.id}\u0001${next.session.activeTenantId ?? ""}`
-        : "",
-    );
+    // before a screen can read it (docs/audit-plan.md 1.2). Signed out, the store stays closed
+    // until the signed-in screens have gone (the effect below opens it).
+    if (next.status === "signed_in") {
+      store.open();
+      const scope = `${next.session.user.id}\u0001${next.session.activeTenantId ?? ""}`;
+      if (store.setScope(scope)) announceSessionChange();
+    } else {
+      // A session that ended closes the store; a page that opened signed out has nothing to drop.
+      if (store.signedIn) store.close();
+      store.setScope("");
+    }
     setState(next);
     if (next.status === "signed_in") {
       identifyForErrors({ id: next.session.user.id, operator: next.session.operator });
@@ -68,9 +86,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [client, store]);
 
   const signOut = useCallback(async () => {
-    // Signing out (by hand or after the idle limit) forgets every stored answer at once.
+    // Signing out (by hand or after the idle limit) forgets every stored answer at once, and asks
+    // nothing more until the signed-in screens have gone: they would ask with the old cookie.
+    store.close();
     store.setScope("");
-    store.clear();
+    announceSessionChange();
     let redirectTo: string | null = null;
     try {
       redirectTo = (await client.call(apiRoutes.signOut)).redirectTo;
@@ -85,6 +105,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Signed out (or the session failed): the signed-in screens are gone now, so the store may
+  // answer the sign-in page again.
+  const status = state.status;
+  useEffect(() => {
+    if (status === "signed_out" || status === "error") store.open();
+  }, [status, store]);
+
+  // Another tab signed in or out: forget everything and ask who is signed in here now.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== SESSION_CHANGE_KEY) return;
+      store.close();
+      void refresh();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [refresh, store]);
 
   // Signed in: count the person's input, and sign out after 30 minutes without any (§1.35).
   const signedIn = state.status === "signed_in";

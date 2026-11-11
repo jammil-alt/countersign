@@ -71,7 +71,10 @@ function Home({ data, reload }: { data: TableView; reload: () => void }) {
   const session = useSession();
   const overview = useApi(apiRoutes.portalOverview);
   // Each agent's tools are the connections it is granted; the cards go without them if this fails.
-  const access = useApi(apiRoutes.portalAccess);
+  const access = useApi(apiRoutes.portalAccess, {
+    // The vault is never stored (docs/audit-plan.md 1.2).
+    cache: "none",
+  });
   const weekly = useApi(apiRoutes.portalWeekly, { query: {} });
   const now = new Date();
   const tz = data.client.timezone;
