@@ -56,7 +56,7 @@ import { ledgerRoutes } from "./ledger";
 // R8: the Library's banks
 import { libraryRoutes } from "./library";
 // v0.12 W1-A: go-live stages and client controls
-import { lifecycleRoutes } from "./lifecycle";
+import { GoLive, lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
 import { modelRoutes } from "./models";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
@@ -251,6 +251,21 @@ export const AgentSummary = z.object({
   createdAt: Timestamp,
 });
 export type AgentSummary = z.infer<typeof AgentSummary>;
+
+/**
+ * A run's status and a key that changes whenever anything its back-office page shows changes (the
+ * run, its steps, tool calls, model calls, writes, inbox items, conversations, oversight
+ * decisions, owner's checks and audit), for polling: reload the run only when the key moves.
+ */
+export const OpsRunStatus = z.object({
+  id: z.string(),
+  status: z.string(),
+  /** Whether the run waits on a person (as the runs list's `waiting` filter reads it). */
+  waiting: z.boolean(),
+  /** An opaque digest of what the run page shows; compare it, never parse it. */
+  key: z.string(),
+});
+export type OpsRunStatus = z.infer<typeof OpsRunStatus>;
 
 /**
  * UI cleanup (design pass): a client agent's work at a glance, for the client page's Overview: its
@@ -1128,6 +1143,10 @@ export const opsRoutes = {
       ),
       /** UI cleanup (design pass): each client agent's work at a glance (test copies left out). */
       activity: z.array(OpsAgentActivity).optional(),
+      // Speed run 6.7: each agent's go-live stage, as `opsAgentGoLive` answers it, for the same
+      // agents as `activity`, so the overview asks no per-agent call (2.6).
+      /** Each client agent's go-live stage (test copies left out). */
+      goLive: z.array(z.object({ agentId: z.string(), goLive: GoLive })).optional(),
     }),
   }),
   opsClientConnections: defineRoute({
@@ -1695,6 +1714,17 @@ export const opsRoutes = {
       // Skill model (2026-11-10), wave A: each step's skill kind and write label, by step id.
       stepFacts: z.record(z.string(), StepModelFacts).optional(),
     }),
+  }),
+  // Speed run 6.2: what a run page polls; it reloads the full view (`opsRun`) only on a change.
+  opsRunStatus: defineRoute({
+    method: "GET",
+    path: "/api/ops/runs/:id/status",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "A run's status and a key that changes when anything its page shows changes, for polling",
+    params: IdParams,
+    response: OpsRunStatus,
   }),
   // Wave 6 (§1.86 "Run audit (wave 6)"): one run's whole trail as one file for an auditor.
   opsRunExport: defineRoute({
