@@ -1,4 +1,4 @@
-import type Anthropic from "@anthropic-ai/sdk";
+import type * as Anthropic from "./messages";
 
 /** Token counts for one call, normalised from the API's usage block. */
 export interface LlmUsage {

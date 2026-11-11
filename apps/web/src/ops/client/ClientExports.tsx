@@ -60,7 +60,11 @@ export function ClientExportsSection({ clientId }: { clientId: string }) {
 
 function DataExports({ clientId }: { clientId: string }) {
   const api = useApiClient();
-  const state = useApi(apiRoutes.opsClientExports, { params: { id: clientId } });
+  const state = useApi(apiRoutes.opsClientExports, {
+    params: { id: clientId },
+    // A ready export carries a download link that works for a few minutes: never stored.
+    cache: "none",
+  });
   const building = state.data?.exports.some((e) => e.status === "running") ?? false;
   usePoll(state.reload, building, EXPORT_POLL_MS, state.loading);
   const [busy, setBusy] = useState(false);

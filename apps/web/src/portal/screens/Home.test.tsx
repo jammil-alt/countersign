@@ -7,7 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
-import { CLIENT_SESSION, fakeApi, tableService, tableView } from "../../test/fixtures";
+import { CLIENT_SESSION, fakeApi, Reply, tableService, tableView } from "../../test/fixtures";
 import { tomorrowMorning } from "./Home";
 
 const PIA = "00000000-0000-4000-8000-00000000b001";
@@ -217,6 +217,16 @@ const WEEKLY = {
   weeks: ["2026-11-02"],
 };
 
+/** The snooze route's answer for an item put off until tomorrow morning. */
+const snoozed = (id: string) => ({
+  id,
+  status: "open",
+  deliverAfter: null,
+  snoozedUntil: tomorrowMorning(),
+  batchKey: null,
+  resolvedAt: null,
+});
+
 describe("Home", () => {
   it("shows each agent, what needs you, the latest work, and each count once", async () => {
     const api = fakeApi({
@@ -231,9 +241,10 @@ describe("Home", () => {
       await screen.findByRole("heading", { name: /^Good (morning|afternoon|evening), Dana$/ }),
     ).toBeInTheDocument();
     // The week's figures, four at most, each a link to its list; no line under the title
-    // repeats them.
+    // repeats them. The title draws before the table answers (frame first, docs/audit-plan.md
+    // 1.4), so both are checked once the figures have come with the table.
+    const figures = await screen.findByTestId("home-figures");
     expect(screen.queryByTestId("home-week-line")).toBeNull();
-    const figures = screen.getByTestId("home-figures");
     const runs = within(figures).getByTestId("home-kpi-runs");
     expect(runs).toHaveAttribute("href", "/runs");
     expect(runs).toHaveTextContent("Runs done · this week38");
@@ -411,6 +422,50 @@ describe("Home", () => {
     const until = new Date(tomorrowMorning());
     expect(until.getHours()).toBe(8);
     expect(until.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("counts what Not now put off once, and shows an item that comes back", async () => {
+    let table = TABLE;
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(),
+      "GET /api/table": () => table,
+      "GET /api/access": () => ACCESS,
+      [`POST /api/inbox/${ITEM}/snooze`]: () => {
+        table = { ...TABLE, desk: { open: 4, top: TABLE.desk.top.slice(1) } };
+        return { item: snoozed(ITEM) };
+      },
+      [`POST /api/inbox/${ITEM_2}/snooze`]: () => {
+        // Put off too; the first item's snooze has ended, so it is listed again.
+        table = { ...TABLE, desk: { open: 4, top: TABLE.desk.top.slice(0, 1) } };
+        return { item: snoozed(ITEM_2) };
+      },
+    });
+    renderAt("/", api);
+    await userEvent.click(await screen.findByTestId(`table-desk-later-${ITEM}`));
+    await waitFor(() => expect(screen.queryByTestId(`table-desk-item-${ITEM}`)).toBeNull());
+    // Four open, one shown: three more, the put-off item not taken off a second time.
+    await waitFor(() =>
+      expect(screen.getByTestId("home-open-inbox")).toHaveTextContent("3 more in your inbox"),
+    );
+    await userEvent.click(screen.getByTestId(`table-desk-later-${ITEM_2}`));
+    expect(await screen.findByTestId(`table-desk-item-${ITEM}`)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId(`table-desk-item-${ITEM_2}`)).toBeNull());
+  });
+
+  it("puts a row back, with the reason, when Not now is refused", async () => {
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(),
+      "GET /api/table": () => TABLE,
+      "GET /api/access": () => ACCESS,
+      [`POST /api/inbox/${ITEM}/snooze`]: () =>
+        new Reply(409, { error: { code: "conflict", message: "Already answered" } }),
+    });
+    renderAt("/", api);
+    await userEvent.click(await screen.findByTestId(`table-desk-later-${ITEM}`));
+    expect(await screen.findByText(/Already answered/)).toBeInTheDocument();
+    expect(screen.getByTestId(`table-desk-item-${ITEM}`)).toBeInTheDocument();
   });
 
   it("replies to the lead in the lead thread", async () => {

@@ -123,7 +123,10 @@ export function AccountsScreen() {
     "client_user";
   const isAdmin = role === "client_admin";
   const connections = useApi(apiRoutes.portalConnections);
-  const vault = useApi(apiRoutes.portalAccess);
+  const vault = useApi(apiRoutes.portalAccess, {
+    // The vault is never stored (docs/audit-plan.md 1.2).
+    cache: "none",
+  });
   const [adding, setAdding] = useState<boolean | null>(null);
   // The website whose "Enter a login" opened the vault: its setup comes first, chosen.
   const [chosenSite, setChosenSite] = useState<string | null>(null);

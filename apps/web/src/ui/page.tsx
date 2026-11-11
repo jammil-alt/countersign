@@ -1,10 +1,11 @@
 // Page layout (docs/design/prototype.html `.wrap`, `.split`, `.cols`): a page's column, its
 // sections with a heading and a right-side meta, a main column with a right rail, an even grid,
-// and one way to show a load's loading, error and data states. Styles in ./page.css.
+// and one way to show a load's loading (a skeleton), error and data states. Styles in ./page.css.
 import type { ReactNode } from "react";
 import type { ApiState } from "../api/useApi";
 import { cx } from "./cx";
-import { ErrorNotice, Loading } from "./primitives";
+import { ErrorNotice } from "./primitives";
+import { Skeleton, SkeletonPage } from "./skeleton";
 
 /** A page's column: 1200px at most, sections 32px apart. `narrow` reads better for forms. */
 export function Page({
@@ -71,17 +72,21 @@ export function Columns({ count, children }: { count: 2 | 3 | 4; children: React
 }
 
 /**
- * A load's three states, the same everywhere: Loading on the first load, the error with Try
- * again, else the data (kept on screen while it reloads).
+ * A load's three states, the same everywhere: a skeleton on the first load (the screen's own
+ * `skeleton`, shaped like its content, else a page body's), the error with Try again, else the
+ * data (kept on screen while it refreshes).
  */
 export function Loaded<T>({
   state,
   children,
+  skeleton,
 }: {
   state: ApiState<T>;
   children: (data: T) => ReactNode;
+  /** The shapes to hold the content's place (`SkeletonRows`, `SkeletonStats`, …). */
+  skeleton?: ReactNode;
 }) {
   if (state.data !== undefined) return <>{children(state.data)}</>;
   if (state.error) return <ErrorNotice error={state.error} onRetry={state.reload} />;
-  return <Loading />;
+  return <Skeleton>{skeleton ?? <SkeletonPage />}</Skeleton>;
 }

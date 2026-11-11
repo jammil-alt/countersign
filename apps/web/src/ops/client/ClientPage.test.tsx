@@ -103,6 +103,28 @@ function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
 }
 
 describe("the client page", () => {
+  it("keeps its header still across the tabs and loads the client once (1.4)", async () => {
+    const user = userEvent.setup();
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${CLIENT}`]: () => ({ ...DETAIL, activity: ACTIVITY }),
+      "GET /api/ops/clients": () => ({ clients: [] }),
+      "GET /api/ops/inbox": () => ({ items: [], agents: [] }),
+    });
+    renderAt(`/ops/clients/${CLIENT}`, api);
+    const title = await screen.findByRole("heading", { level: 1, name: "Harbor Millwork" });
+    const tabs = within(screen.getByTestId("ops-client-tabs"));
+    for (const tab of ["Agents", "Data", "Setup", "Packs", "Settings", "Overview"]) {
+      await user.click(tabs.getByRole("link", { name: tab }));
+      // The same heading element: the frame was not remounted.
+      expect(screen.getByRole("heading", { level: 1, name: "Harbor Millwork" })).toBe(title);
+    }
+    // A tab's own intro and buttons still reach the frame's header (Agents' New agent).
+    await user.click(tabs.getByRole("link", { name: "Agents" }));
+    expect(await screen.findByTestId("ops-client-new-agent")).toBeInTheDocument();
+    expect(api.calls.filter((c) => c === `GET /api/ops/clients/${CLIENT}`)).toHaveLength(1);
+  });
+
   it("opens on the Overview: what waits, go-live stages, threads, and sets the lead", async () => {
     const leads: unknown[] = [];
     let lead: { userId: string; name: string; email: string } | null = null;
