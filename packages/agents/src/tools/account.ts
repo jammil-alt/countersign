@@ -23,6 +23,8 @@ import {
   AccountWaitExplanation,
   AccountWaitingItem,
   type Locale,
+  lazy,
+  lazyObjects,
   PauseBody,
   ServiceControl,
   type SkillDefinition,
@@ -389,11 +391,15 @@ export const ACCOUNT_CHAT_TOOLS = [
   "threads.post",
 ] as const;
 
+// Worker startup (2026-11-11): made on first read (core `lazy`); the skills below are lazyObjects.
 const json = (schema: z.ZodType) =>
-  z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>;
+  lazy(
+    () =>
+      z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>,
+  );
 
 /** `account.chat`: Sloan answers one message in an account thread (the template's `chat`). */
-export const ACCOUNT_SKILLS: readonly SkillDefinition[] = [
+export const ACCOUNT_SKILLS: readonly SkillDefinition[] = lazyObjects([
   {
     schemaVersion: 1,
     id: ACCOUNT_CHAT_SKILL,
@@ -431,6 +437,6 @@ export const ACCOUNT_SKILLS: readonly SkillDefinition[] = [
     requiresPacks: [],
     producesAlerts: false,
   },
-];
+]);
 
 export type { AccountChangeInput };

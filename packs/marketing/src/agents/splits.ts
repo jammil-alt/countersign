@@ -17,7 +17,7 @@
 //
 // The old skills stay registered, unchanged, for stored agents (invariant 3).
 
-import type { processes, SkillDefinition } from "@countersign/core";
+import { lazy, lazyObject, type processes, type SkillDefinition } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { z } from "zod";
 import { CONTENT_GET_TOOL } from "../content/tools";
@@ -38,6 +38,7 @@ const HOUSE =
   "Plain words, short sentences, sentence case. No exclamation marks, no hype, never 'AI-powered'. Say what we can't know rather than guess.";
 const MODEL = { id: DEFAULT_MODELS.reasoning, maxTokens: 8192 };
 
+// Worker startup (2026-11-11): skills' JSON Schemas are made on first read (core `lazy`).
 function aiSkill(def: {
   id: string;
   name: string;
@@ -49,7 +50,7 @@ function aiSkill(def: {
   reads?: string[];
   requiresConnectors?: string[];
 }): SkillDefinition {
-  return {
+  return lazyObject({
     schemaVersion: 1,
     id: def.id,
     name: def.name,
@@ -61,13 +62,13 @@ function aiSkill(def: {
     tools: [],
     ...(def.reads ? { reads: def.reads } : {}),
     input: def.input,
-    output: jsonSchemaOf(def.output),
+    output: lazy(() => jsonSchemaOf(def.output)),
     settings: [],
     summary: def.summary,
     requiresConnectors: def.requiresConnectors ?? [],
     requiresPacks: [PACK_ID],
     producesAlerts: false,
-  };
+  });
 }
 
 const object = (props: Record<string, unknown>, required: string[]) => ({

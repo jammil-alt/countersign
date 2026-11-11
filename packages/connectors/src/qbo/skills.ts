@@ -4,13 +4,17 @@
 // amounts, quantities and prices are taken from the invoice by `docs.bill_lines`, in code, and
 // every write stays an action behind approval (invariant 8). apps/api registers it.
 
-import type { SkillDefinition } from "@countersign/core";
+import { lazy, lazyObjects, type SkillDefinition } from "@countersign/core";
 import { z } from "zod";
 import { QboId } from "./records";
 import { QBO_TOOLS } from "./tools";
 
+// Worker startup (2026-11-11): made on first read (core `lazy`); the skills below are lazyObjects.
 const json = (schema: z.ZodType) =>
-  z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>;
+  lazy(
+    () =>
+      z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>,
+  );
 
 export const QBO_MAP_LINES_SKILL = "qbo.map-invoice-lines";
 /** Skill model (2026-11-10): the same choice as an AI skill that is given what it reads. */
@@ -30,7 +34,7 @@ const LineChoices = z.object({
   sources: z.array(z.string()),
 });
 
-export const QBO_SKILLS: readonly SkillDefinition[] = [
+export const QBO_SKILLS: readonly SkillDefinition[] = lazyObjects([
   {
     schemaVersion: 1,
     id: QBO_MAP_LINES_SKILL,
@@ -106,4 +110,4 @@ export const QBO_SKILLS: readonly SkillDefinition[] = [
     requiresPacks: [],
     producesAlerts: false,
   },
-];
+]);

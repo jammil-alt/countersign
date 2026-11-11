@@ -3,7 +3,7 @@
 // (invariant 9): whatever an entry or a document says is data the agent weighs, never an
 // instruction it follows, and every result cites the records it came from (invariant 10).
 
-import { type SkillDefinition, VoiceSampleChannel } from "@countersign/core";
+import { lazy, lazyObjects, type SkillDefinition, VoiceSampleChannel } from "@countersign/core";
 import { z } from "zod";
 import { memoryScope } from "./memory-scope";
 import { defineInternalTool, type InternalTool, type ToolInvocation } from "./types";
@@ -158,13 +158,17 @@ export const DraftInVoiceOutput = z.object({
   sources: z.array(z.string()),
 });
 
+// Worker startup (2026-11-11): made on first read (core `lazy`); the skills below are lazyObjects.
 const json = (schema: z.ZodType) =>
-  z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>;
+  lazy(
+    () =>
+      z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>,
+  );
 
 export const KNOWLEDGE_TOOLS: readonly InternalTool[] = [knowledgeSearch, knowledgeVoiceSamples];
 
 /** The built-in skill over it: deterministic (tool mode), so any workflow or agent can use it. */
-export const KNOWLEDGE_SKILLS: readonly SkillDefinition[] = [
+export const KNOWLEDGE_SKILLS: readonly SkillDefinition[] = lazyObjects([
   {
     schemaVersion: 1,
     id: "knowledge.search",
@@ -175,8 +179,8 @@ export const KNOWLEDGE_SKILLS: readonly SkillDefinition[] = [
     mode: "tool",
     handler: "knowledge.search",
     tools: [],
-    input: knowledgeSearch.spec.input as Record<string, unknown>,
-    output: knowledgeSearch.spec.output as Record<string, unknown>,
+    input: lazy(() => knowledgeSearch.spec.input as Record<string, unknown>),
+    output: lazy(() => knowledgeSearch.spec.output as Record<string, unknown>),
     settings: [],
     summary: "Looked up {{count}} things we know about: {{query}}",
     requiresConnectors: [],
@@ -210,4 +214,4 @@ export const KNOWLEDGE_SKILLS: readonly SkillDefinition[] = [
     requiresPacks: [],
     producesAlerts: false,
   },
-];
+]);

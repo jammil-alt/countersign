@@ -6,6 +6,8 @@
 // here only refuses to run anywhere else, e.g. from a model in agent mode.
 
 import {
+  lazy,
+  lazyObject,
   REACH_OUT_FIXED_INPUTS,
   REACH_OUT_SKILL,
   ReachOutInput,
@@ -30,10 +32,14 @@ export const reachOutTool = defineInternalTool({
   },
 });
 
+// Worker startup (2026-11-11): made on first read (core `lazy`); the skills below are lazyObjects.
 const json = (schema: z.ZodType) =>
-  z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>;
+  lazy(
+    () =>
+      z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>,
+  );
 
-export const REACH_OUT_SKILL_DEF: SkillDefinition = {
+export const REACH_OUT_SKILL_DEF: SkillDefinition = lazyObject({
   schemaVersion: 1,
   id: REACH_OUT_SKILL,
   name: "Reach out to a person",
@@ -52,6 +58,6 @@ export const REACH_OUT_SKILL_DEF: SkillDefinition = {
   producesAlerts: false,
   fixedInputs: [...REACH_OUT_FIXED_INPUTS],
   reachesPeople: true,
-};
+});
 
 export const REACH_SKILLS: readonly SkillDefinition[] = [REACH_OUT_SKILL_DEF];

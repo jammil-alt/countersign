@@ -14,7 +14,7 @@
 //
 // The old skills stay registered, unchanged, for stored agents (invariant 3).
 
-import type { processes, SkillDefinition } from "@countersign/core";
+import { lazy, lazyObject, type processes, type SkillDefinition } from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { z } from "zod";
 import { PACK_ID } from "./ids";
@@ -41,7 +41,8 @@ const AccountNote = z.object({
   sources: z.array(Id).min(1).max(20),
 });
 
-export const PROPOSE_ACCOUNTS_SKILL: SkillDefinition = {
+// Worker startup (2026-11-11): skills' JSON Schemas are made on first read (core `lazy`).
+export const PROPOSE_ACCOUNTS_SKILL: SkillDefinition = lazyObject({
   schemaVersion: 1,
   id: "bookkeeping.propose-accounts",
   name: "Propose accounts",
@@ -67,21 +68,23 @@ export const PROPOSE_ACCOUNTS_SKILL: SkillDefinition = {
     },
     required: ["transactions", "accounts"],
   },
-  output: jsonSchemaOf(
-    z.object({
-      proposals: z.array(Proposal),
-      notes: z.array(AccountNote),
-      sources: z.array(z.string()),
-    }),
+  output: lazy(() =>
+    jsonSchemaOf(
+      z.object({
+        proposals: z.array(Proposal),
+        notes: z.array(AccountNote),
+        sources: z.array(z.string()),
+      }),
+    ),
   ),
   settings: [],
   summary: "Proposed accounts for {{proposals.length}} transactions",
   requiresConnectors: [],
   requiresPacks: [PACK_ID],
   producesAlerts: false,
-};
+});
 
-export const SUGGEST_MATCHES_SKILL: SkillDefinition = {
+export const SUGGEST_MATCHES_SKILL: SkillDefinition = lazyObject({
   schemaVersion: 1,
   id: "bookkeeping.suggest-matches",
   name: "Suggest matches for what is left",
@@ -102,25 +105,27 @@ export const SUGGEST_MATCHES_SKILL: SkillDefinition = {
     properties: { reconciliation: { type: "object" } },
     required: ["reconciliation"],
   },
-  output: jsonSchemaOf(
-    z.object({
-      proposals: z.array(
-        z.object({
-          aItemIds: z.array(Id).min(1).max(20),
-          bItemIds: z.array(Id).min(1).max(20),
-          reason: z.string().min(1).max(500),
-          confidence: z.number().min(0).max(1),
-        }),
-      ),
-      sources: z.array(z.string()),
-    }),
+  output: lazy(() =>
+    jsonSchemaOf(
+      z.object({
+        proposals: z.array(
+          z.object({
+            aItemIds: z.array(Id).min(1).max(20),
+            bItemIds: z.array(Id).min(1).max(20),
+            reason: z.string().min(1).max(500),
+            confidence: z.number().min(0).max(1),
+          }),
+        ),
+        sources: z.array(z.string()),
+      }),
+    ),
   ),
   settings: [],
   summary: "Suggested {{proposals.length}} matches",
   requiresConnectors: [],
   requiresPacks: [PACK_ID],
   producesAlerts: false,
-};
+});
 
 const StatementLine = z.object({
   id: z.string(),
@@ -130,7 +135,7 @@ const StatementLine = z.object({
   description: z.string().nullable(),
 });
 
-export const READ_STATEMENT_DOCUMENT_SKILL: SkillDefinition = {
+export const READ_STATEMENT_DOCUMENT_SKILL: SkillDefinition = lazyObject({
   schemaVersion: 1,
   id: "bookkeeping.read-statement-document",
   name: "Read a statement document",
@@ -153,22 +158,24 @@ export const READ_STATEMENT_DOCUMENT_SKILL: SkillDefinition = {
     properties: { documentId: { type: "string", format: "uuid", "x-document": true } },
     required: ["documentId"],
   },
-  output: jsonSchemaOf(
-    z.object({
-      label: z.string(),
-      opening: z.string().nullable(),
-      closing: z.string(),
-      currency: z.string().nullable(),
-      items: z.array(StatementLine),
-      sources: z.array(z.string()),
-    }),
+  output: lazy(() =>
+    jsonSchemaOf(
+      z.object({
+        label: z.string(),
+        opening: z.string().nullable(),
+        closing: z.string(),
+        currency: z.string().nullable(),
+        items: z.array(StatementLine),
+        sources: z.array(z.string()),
+      }),
+    ),
   ),
   settings: [],
   summary: "Read {{items.length}} lines from {{label}}",
   requiresConnectors: [],
   requiresPacks: [PACK_ID],
   producesAlerts: false,
-};
+});
 
 export const BOOKKEEPING_SPLIT_SKILLS: readonly SkillDefinition[] = [
   PROPOSE_ACCOUNTS_SKILL,
