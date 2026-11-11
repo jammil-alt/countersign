@@ -61,7 +61,8 @@ jobs:
       # so it can't grow unnoticed. The budget is set in the script. Built with a DSN, as deploy.yml
       # builds it: Sentry is in the first load only when the build has one. A made-up public DSN on
       # an unused address; this build is measured, never served.
-      - run: pnpm --filter @countersign/web build
+      # --manifest writes dist/.vite/manifest.json, the chunk graph the script reads.
+      - run: pnpm --filter @countersign/web build --manifest
         env:
           VITE_SENTRY_DSN: https://0@o0.ingest.sentry.io/0
 

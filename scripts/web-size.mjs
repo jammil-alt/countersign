@@ -1,67 +1,62 @@
 // The web app's first load, gzipped, against a budget (docs/audit-plan.md 9.6). Run after
-// `pnpm --filter @countersign/web build`; checks.yml runs it on every pull request and deploy.
+// `pnpm --filter @countersign/web build --manifest`; checks.yml runs it on every pull request and
+// deploy.
 //
-// The first load is every script a fresh visit fetches before any lazy screen: the scripts and
-// module preloads in apps/web/dist/index.html and, followed through their static imports, every
-// chunk they need. Lazy chunks (`import()`) and CSS are left out. Measured this way rather than by
-// chunk name, so splitting or renaming chunks (phase 4) can't hide growth.
+// The first load is every script a fresh visit fetches before any lazy screen: the entry chunk of
+// index.html and every chunk it needs through static imports, as Vite's build manifest
+// (dist/.vite/manifest.json) lists them. Lazy chunks (`dynamicImports`) and CSS are left out.
+// Measured this way rather than by chunk name, so splitting or renaming chunks (phase 4) can't hide
+// growth. Read from the manifest, not by parsing the HTML or the chunks, so what counts is what
+// the bundler itself wrote down.
 //
 //   node scripts/web-size.mjs [dist]    exits 1 when the first load is over the budget
 
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, normalize, relative } from "node:path";
+import { dirname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
-// DECISION: the budget is today's first load plus 2%, so it stops growth now: 627.9 kB measured
-// as above on 2026-11-11 (speed/run at 7bdef95), built with a Sentry DSN as deploys are (596.0 kB
-// without one; checks.yml builds with a placeholder DSN), so 641 kB. It is lowered to phase 4's
-// target, 300 kB, once phase 4 lands (docs/audit-plan.md). The one place it is set; kB here are
-// 1,000 bytes, as Vite prints.
-export const BUDGET_KB = 641;
+// DECISION: the budget is today's first load plus 2%, so it stops growth now: 460.4 kB measured
+// as above on 2026-11-11 (speed/run at b840a1c), built with a Sentry DSN as deploys are (checks.yml
+// builds with a placeholder DSN), so 470 kB. It is lowered to phase 4's target, 300 kB, once phase
+// 4 lands (docs/audit-plan.md). The one place it is set; kB here are 1,000 bytes, as Vite prints.
+export const BUDGET_KB = 470;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = process.argv[2] ?? join(root, "apps/web/dist");
 
-/** `src`/`href` of the scripts and module preloads in index.html, as files under dist. */
-function entries(html) {
-  const found = [];
-  for (const tag of html.match(/<(script|link)\b[^>]*>/g) ?? []) {
-    const isScript = tag.startsWith("<script") && /type=["']module["']/.test(tag);
-    const isPreload = tag.startsWith("<link") && /rel=["']modulepreload["']/.test(tag);
-    if (!isScript && !isPreload) continue;
-    const url = tag.match(/\b(?:src|href)=["']([^"']+)["']/)?.[1];
-    if (url?.startsWith("/") && !url.startsWith("//")) found.push(normalize(url.slice(1)));
+/**
+ * The files of the entry chunks and of every chunk they import statically, from a Vite manifest:
+ * `{ [key]: { file, isEntry?, imports?: key[], dynamicImports?: key[] } }`.
+ */
+export function firstLoadFiles(manifest) {
+  const entries = Object.keys(manifest).filter((key) => manifest[key].isEntry);
+  if (entries.length === 0) throw new Error("the manifest has no entry chunk");
+  const seen = new Set();
+  const queue = [...entries];
+  while (queue.length > 0) {
+    const key = queue.shift();
+    if (seen.has(key)) continue;
+    const chunk = manifest[key];
+    if (!chunk) throw new Error(`the manifest names ${key} but has no entry for it`);
+    seen.add(key);
+    queue.push(...(chunk.imports ?? []));
   }
-  return found;
-}
-
-/** Relative static imports and re-exports (`import … from "./x.js"`, `import "./x.js"`), not `import()`. */
-function staticImports(code) {
-  const found = [];
-  const pattern =
-    /\b(?:import|export)\s*(?:[\w$*{},\s]*?\s*from\s*)?["'](\.{1,2}\/[^"']+\.js)["']/g;
-  for (const m of code.matchAll(pattern)) found.push(m[1]);
-  return found;
+  return [...seen].map((key) => manifest[key].file);
 }
 
 export function firstLoad(distDir) {
-  const index = join(distDir, "index.html");
-  if (!existsSync(index)) throw new Error(`${index} not found: build the web app first`);
+  const manifestPath = join(distDir, ".vite", "manifest.json");
+  if (!existsSync(manifestPath)) {
+    throw new Error(`${manifestPath} not found: build the web app with --manifest first`);
+  }
   const files = new Map();
-  const queue = entries(readFileSync(index, "utf8"));
-  if (queue.length === 0) throw new Error("index.html loads no module script");
-  while (queue.length > 0) {
-    const file = queue.shift();
-    if (files.has(file)) continue;
+  for (const file of firstLoadFiles(JSON.parse(readFileSync(manifestPath, "utf8")))) {
     const path = join(distDir, file);
     if (!existsSync(path))
-      throw new Error(`index.html needs ${file}, which the build did not write`);
+      throw new Error(`the manifest names ${file}, which the build did not write`);
     const code = readFileSync(path);
     files.set(file, { raw: code.length, gzip: gzipSync(code).length });
-    for (const spec of staticImports(code.toString("utf8"))) {
-      queue.push(relative(distDir, join(dirname(path), spec)));
-    }
   }
   return files;
 }

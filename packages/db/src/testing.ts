@@ -199,9 +199,27 @@ function templateHash(): string {
 
 const TEMPLATE_PREFIX = "cs_template_";
 
+/**
+ * A database name as a quoted SQL identifier, for the DDL below (CREATE, ALTER, DROP and COMMENT ON
+ * DATABASE take no bind parameters). Only the names this file makes are accepted, so nothing else
+ * can reach that SQL: `cs_test_<random hex>` and `cs_template_<hash>`, with lowercase letters,
+ * digits and underscores.
+ */
+function dbIdent(name: string): string {
+  if (!/^cs_(test|template)_[a-z0-9_]{1,40}$/.test(name)) {
+    throw new Error(`not a test database name: ${JSON.stringify(name)}`);
+  }
+  return `"${name}"`;
+}
+
+/** An SQL string literal, quotes doubled. */
+function sqlLiteral(text: string): string {
+  return `'${text.replaceAll("'", "''")}'`;
+}
+
 /** An empty database with the extensions, made the way scripts/setup-postgres.sh makes it. */
 async function createBareDatabase(admin: postgres.Sql, name: string, url: string): Promise<void> {
-  await admin.unsafe(`CREATE DATABASE ${name} OWNER cs_owner`);
+  await admin.unsafe(`CREATE DATABASE ${dbIdent(name)} OWNER cs_owner`);
   // As scripts/setup-postgres.sh does: the superuser makes the extensions, the owner migrates.
   const inDb = postgres(url, { max: 1, onnotice: () => {} });
   try {
@@ -251,16 +269,20 @@ function migratedTemplate(admin: postgres.Sql): Promise<string> {
 
 async function buildTemplate(admin: postgres.Sql, name: string): Promise<void> {
   const building = `${name}_building`;
-  await admin.unsafe(`DROP DATABASE IF EXISTS ${building} WITH (FORCE)`);
+  await admin.unsafe(`DROP DATABASE IF EXISTS ${dbIdent(building)} WITH (FORCE)`);
   const url = withDatabase(adminUrl(), building);
   await createBareDatabase(admin, building, url);
   await migrateAsOwner(url);
   await ensureWorker(admin, url);
   // Complete: take connections away so nothing changes it after this, then give it its name. The
   // comment records when it was built, for the clean-up below.
-  await admin.unsafe(`ALTER DATABASE ${building} WITH ALLOW_CONNECTIONS false IS_TEMPLATE true`);
-  await admin.unsafe(`ALTER DATABASE ${building} RENAME TO ${name}`);
-  await admin.unsafe(`COMMENT ON DATABASE ${name} IS 'built ${new Date().toISOString()}'`);
+  await admin.unsafe(
+    `ALTER DATABASE ${dbIdent(building)} WITH ALLOW_CONNECTIONS false IS_TEMPLATE true`,
+  );
+  await admin.unsafe(`ALTER DATABASE ${dbIdent(building)} RENAME TO ${dbIdent(name)}`);
+  await admin.unsafe(
+    `COMMENT ON DATABASE ${dbIdent(name)} IS ${sqlLiteral(`built ${new Date().toISOString()}`)}`,
+  );
   await dropOldTemplates(admin, name);
 }
 
@@ -280,8 +302,8 @@ async function dropOldTemplates(admin: postgres.Sql, current: string): Promise<v
     const built = Date.parse(note?.match(/^built (\S+)$/)?.[1] ?? "");
     if (built > cutoff) continue;
     try {
-      await admin.unsafe(`ALTER DATABASE ${datname} WITH IS_TEMPLATE false`);
-      await admin.unsafe(`DROP DATABASE ${datname}`);
+      await admin.unsafe(`ALTER DATABASE ${dbIdent(datname)} WITH IS_TEMPLATE false`);
+      await admin.unsafe(`DROP DATABASE ${dbIdent(datname)}`);
     } catch {
       // Gone already, or locked by another run; the next build tries again.
     }
@@ -321,14 +343,14 @@ export async function createTestDatabase(
     } else {
       try {
         await admin.unsafe(
-          `CREATE DATABASE ${name} TEMPLATE ${await migratedTemplate(admin)} OWNER cs_owner`,
+          `CREATE DATABASE ${dbIdent(name)} TEMPLATE ${dbIdent(await migratedTemplate(admin))} OWNER cs_owner`,
         );
       } catch (error) {
         // Another checkout's clean-up dropped the template this process had found: build it again.
         if ((error as { code?: string }).code !== "3D000") throw error;
         template = undefined;
         await admin.unsafe(
-          `CREATE DATABASE ${name} TEMPLATE ${await migratedTemplate(admin)} OWNER cs_owner`,
+          `CREATE DATABASE ${dbIdent(name)} TEMPLATE ${dbIdent(await migratedTemplate(admin))} OWNER cs_owner`,
         );
       }
       // The role is cluster-wide: a template from an earlier run still needs today's cs_worker.
@@ -347,7 +369,7 @@ export async function createTestDatabase(
       await closeDb(db);
       const a = postgres(adminUrl(), { max: 1, onnotice: () => {} });
       try {
-        await a.unsafe(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+        await a.unsafe(`DROP DATABASE IF EXISTS ${dbIdent(name)} WITH (FORCE)`);
       } finally {
         await a.end();
       }
