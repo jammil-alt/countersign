@@ -8,7 +8,9 @@ import {
   type RunWait,
   runState,
 } from "@countersign/core";
+import { shortTime } from "../../runs/format";
 import { qualifiedToolLabel } from "../../runs/labels";
+import type { Tone } from "../../ui/primitives";
 import { type ChipState, runChipState } from "../../ui/status";
 
 /** "under an hour", "14 h", "3 days": how long since `iso`, at `now`. */
@@ -204,4 +206,32 @@ export function errorGroupLabel(key: string): string {
     ? qualifiedToolLabel(where)
     : (ERROR_WHERE_WORDS[where] ?? where.replace(/[_-]/g, " "));
   return `${place} · ${code}`;
+}
+
+/** A change to a client's tool, by its state: "Needs approval", "Approved", "Done · 9:02". */
+export function actionBadge(
+  a: { status: string; executedAt: string | null },
+  testRun: boolean,
+): { label: string; tone: Tone } {
+  switch (a.status) {
+    case "proposed":
+      return testRun
+        ? { label: "Would have done", tone: "neutral" }
+        : { label: "Needs approval", tone: "warning" };
+    case "approved":
+    case "executing":
+      // A person signed it: copper marks a person's touch.
+      return { label: "Approved", tone: "person" };
+    case "done":
+      return {
+        label: a.executedAt ? `Done · ${shortTime(a.executedAt)}` : "Done",
+        tone: "positive",
+      };
+    case "rejected":
+      return { label: "Rejected", tone: "neutral" };
+    case "failed":
+      return { label: "Failed", tone: "risk" };
+    default:
+      return { label: a.status, tone: "neutral" };
+  }
 }

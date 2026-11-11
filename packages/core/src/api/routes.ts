@@ -369,6 +369,8 @@ export const OpsStep = z.object({
   // Wave 5 (§1.86 "Forks (wave 5)"): how the step ended (`outcomeOfStepRow`); absent for a check's
   // row, a step under way, or a kind with no outcome.
   outcome: z.enum(OUTCOME_WORDS).optional(),
+  // Step panel (§1.95): how many times the step was tried (a retried step keeps its row).
+  attempts: z.number().int().optional(),
 });
 
 export const OpsToolCall = z.object({
@@ -628,6 +630,14 @@ export const TimelineStep = z.object({
   ...TimelineChecks.shape,
   // Skill model (2026-11-10), wave A: a write step reads "Saved" or "Changed in QuickBooks".
   write: TimelineWrite.optional(),
+  // Step panel (§1.95): what the client may read of the step's input and output (`clientStepData`:
+  // never instructions, a prompt, a model or a cost); absent for a confer's row or when empty.
+  input: z.unknown().optional(),
+  output: z.unknown().optional(),
+  /** How many times the step was tried; more than one means it was retried. */
+  attempts: z.number().int().optional(),
+  /** The step asked an AI model (never which one, or its prompt or cost): "AI read this". */
+  ai: z.literal(true).optional(),
 });
 
 export const PortalInboxItem = z.object({
@@ -1992,6 +2002,11 @@ export const portalRoutes = {
           display: ChangeDisplayView.nullable().optional(),
           status: z.string(),
           executedAt: NullableTimestamp,
+          // Step panel (§1.95): the step that made it, and the record before and the change (the
+          // signer's edit when there was one), as the Inbox shows them.
+          stepRunId: z.string().nullable().optional(),
+          before: z.unknown().optional(),
+          input: z.unknown().optional(),
         }),
       ),
     }),
