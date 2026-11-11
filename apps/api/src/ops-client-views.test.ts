@@ -20,6 +20,7 @@ import {
   run,
   stepRun,
   toolCall,
+  withTenant,
 } from "@countersign/db";
 import { inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -31,6 +32,7 @@ import {
   storedSkill,
   testBundle,
 } from "./api.test-helper";
+import { bundleWrites, bundleWritesWith, writesContext } from "./lifecycle/stages";
 
 const h = await createApiHarness();
 afterAll(() => h?.close());
@@ -509,5 +511,36 @@ describe.skipIf(!h)("the back office's run page, run lists and client page", () 
     }
     await agentOf("recounter-two", withSkill());
     expect(await statements(client)).toBe(one);
+  });
+
+  it("bundleWritesWith over one shared context says what bundleWrites says for each bundle", async () => {
+    // Needs the client's custom skill from the test above.
+    const base = twoWorkflows() as AgentBundleInput;
+    const bundles = [
+      // Writes through an external tool.
+      twoWorkflows(),
+      // Writes through the client's custom skill only.
+      AgentBundleSchema.parse({
+        ...base,
+        definition: { ...base.definition, extraTools: [], skills: [{ skill: "custom:recount" }] },
+        workflows: base.workflows.filter((w) => w.slug === "note"),
+      }),
+      // Writes nothing: one note.
+      AgentBundleSchema.parse({
+        ...base,
+        definition: { ...base.definition, extraTools: [] },
+        workflows: base.workflows.filter((w) => w.slug === "note"),
+      }),
+    ];
+    const ctx = H.platform.ctx;
+    const tenantId = A().tenantId;
+    const { alone, shared } = await withTenant(H.db, tenantId, async (tx) => {
+      const each: boolean[] = [];
+      for (const b of bundles) each.push(await bundleWrites(tx, tenantId, b, ctx));
+      const context = await writesContext(tx, tenantId, bundles, ctx);
+      return { alone: each, shared: bundles.map((b) => bundleWritesWith(b, context, ctx)) };
+    });
+    expect(alone).toEqual([true, true, false]);
+    expect(shared).toEqual(alone);
   });
 });
