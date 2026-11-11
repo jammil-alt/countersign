@@ -910,3 +910,104 @@ a.ui-stat--link:focus-visible {
 .ui-back:hover {
   color: var(--slate);
 }
+
+/* ── Skeletons (skeleton.tsx): placeholders the size of the content while it loads. The shape is
+ * the quiet surface on a card's white, in a small radius; the line's box is the text's height so
+ * a line of words takes exactly its place. A slow fade at most, and none when reduced motion is
+ * asked for. ── */
+.ui-skel {
+  display: block;
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  animation: ui-skel-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ui-skel-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-skel {
+    animation: none;
+  }
+}
+.ui-skel-wrap {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+/* `Loading` in a panel or a card: about the old line of text's height, with its air. */
+.ui-skel-wrap--block {
+  padding: var(--space-3) 0;
+}
+.ui-skel-wrap--line {
+  display: inline-flex;
+  width: 120px;
+  vertical-align: middle;
+}
+.ui-skel-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  height: 20px;
+}
+.ui-skel-line > .ui-skel {
+  height: 10px;
+}
+.ui-skel-line--small > .ui-skel {
+  height: 8px;
+}
+.ui-skel-line--heading {
+  height: 28px;
+}
+.ui-skel-line--heading > .ui-skel {
+  height: 16px;
+}
+.ui-skel-line--title {
+  height: 42px;
+}
+.ui-skel-line--title > .ui-skel {
+  height: 24px;
+}
+.ui-skel-text,
+.ui-skel-page {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.ui-skel-page {
+  gap: var(--space-4);
+}
+.ui-skel-block {
+  width: 100%;
+}
+.ui-skel-card {
+  cursor: default;
+}
+.ui-skel-stat__value {
+  display: flex;
+  height: 34px;
+  align-items: center;
+}
+.ui-skel-stat__value > .ui-skel {
+  width: 40%;
+  height: 24px;
+}
+.ui-skel-row {
+  display: grid;
+  min-height: var(--row-h);
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+.ui-skel-row:last-child {
+  border-bottom: 0;
+}
+@media (max-width: 767.98px) {
+  .ui-kpis .ui-skel-stat__value {
+    height: 30px;
+  }
+}

@@ -221,15 +221,7 @@
   background: transparent;
   cursor: default;
 }
-.ui-navskel__badge {
-  background: var(--surface-subtle);
-  border-color: transparent;
-}
-.ui-navskel__bar {
-  display: block;
-  border-radius: var(--radius-sm);
-  background: var(--surface-subtle);
-}
+/* The shapes are the shared skeleton's (ui/page.css `.ui-skel`); only their sizes are here. */
 .ui-navskel__bar--name {
   width: 96px;
   height: 14px;

@@ -9,6 +9,7 @@ import { errorText } from "../i18n/errors";
 import { useI18n } from "../i18n/i18n";
 import { cx } from "./cx";
 import { Icon, type IconName } from "./icons";
+import { Skeleton, SkeletonLine, SkeletonText } from "./skeleton";
 
 export { cx } from "./cx";
 
@@ -361,12 +362,19 @@ export function SubTabs({
   );
 }
 
-export function Loading({ label }: { label?: string }) {
-  const { t } = useI18n();
+/**
+ * Something still loading, as a skeleton (./skeleton.tsx), never a line of text: three lines of
+ * text by default (a panel, a card, a section), or `size="line"` for a small slot beside other
+ * words. `label` says what loads, for screen readers only ("Loading the price…"); without one
+ * they hear "Loading…". A screen that knows its content's shape passes it to `Loaded` instead.
+ */
+// DECISION: the label is read, not shown (docs/audit-plan.md 1.3: no loading text after the frame
+// is up). A screen that must show progress in words ("Saving…") says it in its own control.
+export function Loading({ label, size = "block" }: { label?: string; size?: "block" | "line" }) {
   return (
-    <p role="status" className="py-6 text-ink-muted">
-      {label ?? t("common.loading")}
-    </p>
+    <Skeleton label={label} className={`ui-skel-wrap--${size}`}>
+      {size === "line" ? <SkeletonLine /> : <SkeletonText lines={3} />}
+    </Skeleton>
   );
 }
 
