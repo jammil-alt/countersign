@@ -4213,6 +4213,22 @@ the same URL: `https://staging.mezonas.com/mcp` and `https://app.mezonas.com/mcp
 | Metadata | The protected resource's `resource_name` is now "Mezonas (<environment>)"; the back-office server info stays `mezonas-ops`, the client's is `mezonas` / "Mezonas". No new var, secret, binding or migration: staging and production already have `WORKOS_AUTHKIT_DOMAIN`. |
 | Not built | Client writes through the connector (approve or answer an inbox item, raise a request), each two-step as §1.34's; a per-client switch to turn the connector off; a portal page that says how to connect. |
 
+### 1.90 Speed: one transaction per session request (speed run 5.1, 2026-11-11)
+
+Each session route opened two transactions: `getSession` read the user and memberships in
+`withUser`, then `inScope` opened `withOperator` or `withTenant` for the handler and its audit row.
+That was two `begin`s, two `commit`s and a membership read of two statements before any work.
+
+| Topic | Decision |
+|---|---|
+| One transaction | `withSession` (`packages/db`) sets only `app.user_id`, reads the account, works out the scope, then sets `app.tenant_ids` and `app.operator` and clears `app.user_id` in the same transaction, issued before the handler can issue anything (as §1.82's scope). The handler never runs with `app.user_id` set. A scope without `operator` must name exactly one client (`ScopeError`). // DECISION |
+| Before the transaction | The adapter's `identify` (the cookie, a WorkOS refresh, the idle lock) and the request body are read first, so neither a slow token refresh nor a slow upload holds a connection and a transaction. The body is parsed inside, after the scope check, so a refusal still comes before a 400. // DECISION |
+| Refusals | A missing user, no access, the wrong client or role leave the transaction (it wrote nothing) and write their audit row alone, as before (§1.35). Errors are audited alone, as before. |
+| The account in one statement | `accountIn`: the user row with its memberships as a JSON array (the same join, retired-client rule and order). `userWithMemberships`, `GET /api/session` and slow routes use it too. // DECISION |
+| Slow routes and MCP | `mountLong` keeps a transaction of its own for the account, since it holds none across the handler. `invokeRoute` builds its handler's context with `mount`'s helpers, one scoped transaction with the user cleared. The MCP server's `authenticate` still reads memberships in its own transaction once per call: not folded in. |
+| Measured | Local, demo seed: `GET /api/feedback/status` went from 7 statements, 2 `begin`s to 6 and 1; every back-office and portal screen's statements went down by 2 to 21, and `begin`s about halved. |
+| Checked | `scope.test.ts` (the switch, a drizzle select issued at once, one backend, rollback, a pooled connection clean after every kind of failure), `rls.test.ts` (as `cs_worker`: the sign-in half sees only the user's memberships, the handler only the scoped clients), `apps/api/src/http.test.ts` (through `mount` and `invokeRoute`). |
+
 ### 1.91 Speed run: what the run decided (2026-11-11; `docs/audit-plan.md`)
 
 The decisions taken while running the speed and structure plan, item by item, as each merged into
