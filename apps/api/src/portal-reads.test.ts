@@ -5,7 +5,7 @@
 // (invariant 1).
 
 import { FORBIDDEN_PORTAL_FIELD } from "@countersign/core";
-import { type Db, inboxItem, run, stepRun, withTenant } from "@countersign/db";
+import { contact, type Db, inboxItem, reachOut, run, stepRun, withTenant } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -241,6 +241,74 @@ describe.skipIf(!h)("portal reads (speed run 6.2, 6.4)", () => {
     expect(j((await H.call(user("a"), "GET", `/api/runs/${runId}/status`)).json).changeKey).toBe(
       status.changeKey,
     );
+  });
+
+  it("gives a new key when a step goes waiting, a step finishes, or a conversation replies", async () => {
+    const key = async () =>
+      j((await H.call(user("a"), "GET", `/api/runs/${runId}/status`)).json).changeKey as string;
+    const [step] = await H.t.db
+      .select({ id: stepRun.id, status: stepRun.status, finishedAt: stepRun.finishedAt })
+      .from(stepRun)
+      .where(and(eq(stepRun.runId, runId), eq(stepRun.nodeId, "update")));
+    if (!step) throw new Error("no step");
+    const seen = new Set([await key()]);
+    const fresh = async () => {
+      const k = await key();
+      expect(seen.has(k), "the key did not change").toBe(false);
+      seen.add(k);
+    };
+
+    // Running, then waiting: no timestamp moves.
+    await H.t.db
+      .update(stepRun)
+      .set({ status: "running", finishedAt: null })
+      .where(eq(stepRun.id, step.id));
+    await fresh();
+    await H.t.db.update(stepRun).set({ status: "waiting" }).where(eq(stepRun.id, step.id));
+    await fresh();
+    // The step finishes.
+    await H.t.db
+      .update(stepRun)
+      .set({ status: "succeeded", finishedAt: new Date() })
+      .where(eq(stepRun.id, step.id));
+    await fresh();
+
+    // A conversation on the run: it starts, then the person replies (status and times may stay).
+    const [person] = await H.t.db
+      .insert(contact)
+      .values({ tenantId: H.A.tenantId, name: "Dana", email: "dana@example.com" })
+      .returning({ id: contact.id });
+    const [r] = await H.t.db
+      .select({ agentVersionId: run.agentVersionId })
+      .from(run)
+      .where(eq(run.id, runId));
+    if (!person || !r) throw new Error("no contact or run");
+    const [talk] = await H.t.db
+      .insert(reachOut)
+      .values({
+        tenantId: H.A.tenantId,
+        agentId,
+        agentVersionId: r.agentVersionId,
+        runId,
+        nodeId: "update",
+        contactId: person.id,
+        subject: `reach:${runId}:test`,
+        purpose: "Confirm the amount",
+        urgency: "normal",
+        plan: {},
+        status: "open",
+      })
+      .returning({ id: reachOut.id, updatedAt: reachOut.updatedAt });
+    if (!talk) throw new Error("no conversation");
+    await fresh();
+    await H.t.db
+      .update(reachOut)
+      .set({ reply: { text: "Yes, 12.00", rawRecordId: null }, updatedAt: talk.updatedAt })
+      .where(eq(reachOut.id, talk.id));
+    await fresh();
+    // The page itself still answers with the conversation on the run.
+    expect((await H.call(user("a"), "GET", `/api/runs/${runId}`)).status).toBe(200);
+    await H.t.db.delete(reachOut).where(eq(reachOut.id, talk.id));
   });
 
   it("hides test runs and other clients' runs from the status route", async () => {

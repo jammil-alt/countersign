@@ -703,9 +703,14 @@ export async function portalRunView(
  * that changes whenever anything the page shows changes (a step can go from running to waiting,
  * or be retried, without a timestamp moving). Test runs are hidden, as from the view.
  */
-// DECISION: the key is an md5 over the rows the view reads (steps' state, summary and output;
-// the run's items, changes, conversations and oversight), not a stored counter: no write path
-// has to remember to bump it. It is a change detector only, never shown.
+// DECISION: the key is an md5 over the content of every row the view reads (the run's status,
+// times, error and trigger; each step's status, attempts, times, summary and output; each client
+// item's state, title, payload and resolution; each change's status, time, input and before; each
+// conversation's status, turns, plan and reply; each oversight decision), not timestamps alone
+// and not a stored counter: a step going from running to waiting, a reply landing or a write's
+// status changing moves no timestamp, and no write path has to remember to bump anything. It is
+// a change detector only, never shown. Cost, models and tool calls are left out: the portal
+// shows none of them (invariant 11), so their changes need no reload.
 export async function portalRunStatus(tx: Tx, tenantId: string, runId: string) {
   const rows = await tx.execute<{
     id: string;
@@ -721,32 +726,33 @@ export async function portalRunStatus(tx: Tx, tenantId: string, runId: string) {
           and (i.assignee_role is null or i.assignee_role <> 'operator')
       )) as waiting,
       to_json(greatest(r.created_at, r.started_at, r.finished_at, s.at, i.at, x.at, c.at, o.at)) #>> '{}' as updated_at,
-      md5(concat_ws('|', r.status, md5(coalesce(r.error::text, '')), s.k, i.k, x.k, c.k, o.k)) as change_key
+      md5(concat_ws('|', r.status, r.started_at, r.finished_at, md5(coalesce(r.error::text, '')), md5(r.trigger::text), s.k, i.k, x.k, c.k, o.k)) as change_key
     from run r
     left join lateral (
       select max(greatest(started_at, finished_at)) as at,
-        string_agg(concat_ws(':', id, status, attempts, md5(coalesce(summary, '')), md5(coalesce(output::text, ''))), ',' order by id) as k
+        string_agg(concat_ws(':', id, node_id, status, attempts, started_at, finished_at, md5(coalesce(summary, '')), md5(coalesce(output::text, ''))), ',' order by id) as k
       from step_run where tenant_id = r.tenant_id and run_id = r.id
     ) s on true
     left join lateral (
       select max(greatest(created_at, resolved_at)) as at,
-        string_agg(concat_ws(':', id, status, resolved_by, md5(payload::text), md5(coalesce(resolution::text, ''))), ',' order by id) as k
+        string_agg(concat_ws(':', id, kind, status, resolved_by, resolved_at, assignee_user_id, assignee_role, md5(title), md5(payload::text), md5(coalesce(resolution::text, ''))), ',' order by id) as k
       from inbox_item
       where tenant_id = r.tenant_id and run_id = r.id
         and (assignee_role is null or assignee_role <> 'operator')
     ) i on true
     left join lateral (
       select max(greatest(created_at, approved_at, executed_at, edited_at)) as at,
-        string_agg(concat_ws(':', id, status), ',' order by id) as k
+        string_agg(concat_ws(':', id, tool, status, executed_at, md5(input::text), md5(coalesce(before::text, ''))), ',' order by id) as k
       from external_action where tenant_id = r.tenant_id and run_id = r.id
     ) x on true
     left join lateral (
       select max(greatest(created_at, updated_at, ended_at)) as at,
-        string_agg(concat_ws(':', id, status, outcome, md5(coalesce(reply::text, ''))), ',' order by id) as k
+        string_agg(concat_ws(':', id, step_run_id, status, outcome, ended_at, updated_at, md5(plan::text), md5(attempts::text), md5(coalesce(reply::text, ''))), ',' order by id) as k
       from reach_out where tenant_id = r.tenant_id and run_id = r.id
     ) c on true
     left join lateral (
-      select max(created_at) as at, count(*)::text as k
+      select max(created_at) as at,
+        string_agg(concat_ws(':', id, step_run_id, action, inbox_item_id), ',' order by id) as k
       from oversight_decision where tenant_id = r.tenant_id and run_id = r.id
     ) o on true
     where r.id = ${runId} and r.tenant_id = ${tenantId} and r.mode = 'live'
