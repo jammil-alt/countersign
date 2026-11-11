@@ -139,6 +139,9 @@ export const HANDOFF_PAYLOAD: JsonSchema = OBJ(
     output: {},
     sources: IDS,
     depth: { type: "integer" },
+    // Hand off (2026-11-11): a hand-off step's run starts at `at` with `input` as that step's input.
+    at: { type: "string" },
+    input: {},
   },
   ["from", "output", "sources", "depth"],
 );
@@ -160,9 +163,19 @@ export interface HandoffRunPayload {
   output: unknown;
   sources: string[];
   depth: number;
+  // Hand off (owner, 2026-11-11): a run a hand-off step started (`handoffRunRequest`).
+  /** The top-level step the run starts at; the steps before it are skipped. */
+  at?: string;
+  /** That step's input, as the hand-off step mapped it. */
+  input?: unknown;
 }
 
 // ── Run ids ──────────────────────────────────────────────────────────────────────────────────────
+
+/** Hand off (2026-11-11): the run a hand-off step starts; asking twice derives the same run. */
+export async function handoffRunId(input: { fromRunId: string; nodeId: string }): Promise<string> {
+  return uuidv5(`handoff:${input.fromRunId}:${input.nodeId}`, RUN_ID_NAMESPACE);
+}
 
 /** A webhook trigger's run with a `dedupeKey`: the same key twice derives the same run. */
 export async function webhookRunId(input: {

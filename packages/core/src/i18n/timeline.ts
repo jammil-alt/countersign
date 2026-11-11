@@ -36,6 +36,13 @@ export interface TimelineWords {
   items(n: number): string;
   waiting(duration: string): string;
   waited(duration: string): string;
+  // Hand off (owner, 2026-11-11)
+  /** A hand-off step that started another agent's run: "Handed off to Price checker (run R-1a2b3c)". */
+  handedOff(agent: string, run: string): string;
+  /** A test run's hand-off, which starts nothing: "Would hand off to Price checker at 5 · Itemize the invoice (test run, nothing started)". */
+  wouldHandOff(agent: string, at: string): string;
+  /** A hand-off to an agent that isn't started: "Price checker isn't started, so the hand-off didn't run". */
+  handOffNotStarted(agent: string): string;
 }
 
 /**
@@ -72,6 +79,9 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     items: (n) => plural("en", n, "item", "items"),
     waiting: (d) => `waiting ${d}`,
     waited: (d) => `waited ${d}`,
+    handedOff: (a, r) => `Handed off to ${a} (run ${r})`,
+    wouldHandOff: (a, at) => `Would hand off to ${a} at ${at} (test run, nothing started)`,
+    handOffNotStarted: (a) => `${a} isn't started, so the hand-off didn't run`,
   },
   es: {
     done: "hecho",
@@ -95,6 +105,9 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     items: (n) => plural("es", n, "elemento", "elementos"),
     waiting: (d) => `esperando ${d}`,
     waited: (d) => `esperó ${d}`,
+    handedOff: (a, r) => `Pasado a ${a} (ejecución ${r})`,
+    wouldHandOff: (a, at) => `Se pasaría a ${a} en ${at} (prueba, no se inició nada)`,
+    handOffNotStarted: (a) => `${a} no está iniciado, así que no se pasó el trabajo`,
   },
   fr: {
     done: "terminé",
@@ -118,6 +131,9 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     items: (n) => plural("fr", n, "élément", "éléments"),
     waiting: (d) => `en attente : ${d}`,
     waited: (d) => `attendu : ${d}`,
+    handedOff: (a, r) => `Transmis à ${a} (exécution ${r})`,
+    wouldHandOff: (a, at) => `Serait transmis à ${a} à l'étape ${at} (test, rien n'est lancé)`,
+    handOffNotStarted: (a) => `${a} n'est pas démarré : le travail n'a pas été transmis`,
   },
   "pt-BR": {
     done: "concluído",
@@ -141,6 +157,9 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     items: (n) => plural("pt-BR", n, "item", "itens"),
     waiting: (d) => `aguardando ${d}`,
     waited: (d) => `aguardou ${d}`,
+    handedOff: (a, r) => `Passado para ${a} (execução ${r})`,
+    wouldHandOff: (a, at) => `Passaria para ${a} em ${at} (teste, nada iniciado)`,
+    handOffNotStarted: (a) => `${a} não está ativo, então o trabalho não foi passado`,
   },
   it: {
     done: "fatto",
@@ -164,6 +183,9 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     items: (n) => plural("it", n, "elemento", "elementi"),
     waiting: (d) => `in attesa: ${d}`,
     waited: (d) => `atteso: ${d}`,
+    handedOff: (a, r) => `Passato a ${a} (esecuzione ${r})`,
+    wouldHandOff: (a, at) => `Passerebbe a ${a} al passo ${at} (prova, nulla avviato)`,
+    handOffNotStarted: (a) => `${a} non è avviato, quindi il lavoro non è stato passato`,
   },
   de: {
     done: "erledigt",
@@ -187,5 +209,8 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     items: (n) => plural("de", n, "Eintrag", "Einträge"),
     waiting: (d) => `wartet: ${d}`,
     waited: (d) => `gewartet: ${d}`,
+    handedOff: (a, r) => `Übergeben an ${a} (Ablauf ${r})`,
+    wouldHandOff: (a, at) => `Würde an ${a} bei ${at} übergeben (Testlauf, nichts gestartet)`,
+    handOffNotStarted: (a) => `${a} ist nicht gestartet, daher wurde nicht übergeben`,
   },
 };

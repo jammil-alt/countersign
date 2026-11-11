@@ -331,7 +331,9 @@ export type PaletteItem =
   | { type: "person"; key: string; title: string; detail: string; mode: "approve" | "ask" }
   | { type: "conversation"; key: string; title: string; detail: string }
   | { type: "notify"; key: string; title: string; detail: string }
-  | { type: "logic"; key: string; title: string; detail: string; logic: LogicKind };
+  | { type: "logic"; key: string; title: string; detail: string; logic: LogicKind }
+  // Hand off (owner, 2026-11-11): another agent of the client, started at one of its steps.
+  | { type: "handoff"; key: string; title: string; detail: string };
 
 /** "testkit.record.update" → "Update a record": the tool's label (workflow/labels.ts). */
 export function toolTitle(tool: Pick<ToolSpec, "id">): string {
@@ -446,6 +448,9 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
         name: "Notify",
         notify: { to: ["client_admin"], channel: "inbox", message: "" },
       };
+    // Hand off: the inspector's pickers choose the agent and the step.
+    case "handoff":
+      return { id, kind: "handoff", name: "Hand off", to: { agent: "", step: "" }, input: {} };
     case "logic":
       switch (item.logic) {
         case "if":

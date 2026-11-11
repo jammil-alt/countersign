@@ -14,6 +14,7 @@ import {
   checkKindOf,
   conferOf,
   errorGroupKey,
+  isPlainObject,
   noAnswerOf,
   processes,
   routeOfRow,
@@ -326,7 +327,14 @@ export function OpsRunScreen() {
                 {short}
               </span>
               {` · started ${shortTime(run.startedAt ?? run.createdAt)}`}
-              {startedBy ? ` ${STARTED_BY_WORDS[startedBy] ?? ""}` : ""}
+              {data.handedOffFrom ? null : startedBy ? ` ${STARTED_BY_WORDS[startedBy] ?? ""}` : ""}
+              {/* Hand off (2026-11-11): the run that handed this one off, and where it started. */}
+              {data.handedOffFrom ? (
+                <>
+                  {" · "}
+                  <HandedOffFrom from={data.handedOffFrom} />
+                </>
+              ) : null}
             </>
           }
           actions={
@@ -735,6 +743,16 @@ function Timeline({
               names={data.sourceNames}
             />
           ) : null}
+          {/* Hand off (2026-11-11): the run this step started. */}
+          {handoffRunOf(s) ? (
+            <Link
+              to={`/ops/runs/${handoffRunOf(s)}`}
+              className="text-sm text-link hover:underline"
+              data-testid={`ops-run-step-handoff-${r.key}`}
+            >
+              Open run {shortRunId(handoffRunOf(s) ?? "")}
+            </Link>
+          ) : null}
           {/* R8: what the owner did here (§10.14 "Agents and their owner"). */}
           <StepChecks checks={checks} testId={`ops-run-step-checks-${r.key}`} />
           {decisions.map((d) => (
@@ -863,6 +881,24 @@ function ToolCallsBlock({ calls }: { calls: RunDetail["toolCalls"] }) {
         .join("\n\n")}
     </pre>
   );
+}
+
+/** "Handed off from AP bill clerk (run R-1a2b3c) · started at 5 · Itemize the invoice". */
+function HandedOffFrom({ from }: { from: NonNullable<RunDetail["handedOffFrom"]> }) {
+  return (
+    <span data-testid="ops-run-handoff">
+      <Link to={`/ops/runs/${from.fromRunId}`} className="text-link hover:underline">
+        Handed off from {from.fromAgent} (run {shortRunId(from.fromRunId)})
+      </Link>
+      {from.at ? ` · started at ${from.at}` : null}
+    </span>
+  );
+}
+
+/** The run a hand-off step started: its output's `runId`, else null. */
+function handoffRunOf(step: { nodeType: string; output?: unknown } | undefined): string | null {
+  if (step?.nodeType !== "handoff" || !isPlainObject(step.output)) return null;
+  return typeof step.output.runId === "string" ? step.output.runId : null;
 }
 
 // ── Rail ──

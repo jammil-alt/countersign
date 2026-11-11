@@ -46,6 +46,8 @@ export * from "./registry/agents";
 // v0.12 W2-B
 export * from "./registry/automations";
 export * from "./registry/grants";
+// Hand off (owner, 2026-11-11): the client's agents a hand-off step can start.
+export * from "./registry/handoff";
 export * from "./registry/lineage";
 export * from "./registry/people";
 export * from "./registry/runtime-store";

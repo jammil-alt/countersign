@@ -382,7 +382,8 @@ export function carriedOn(
 // ── Which steps the client sees ─────────────────────────────────────────────────────────────────
 
 /** Kinds only v4 has that the client sees by default: the work, never the logic. */
-const V4_SHOWN = new Set(["read", "write", "conversation", "process"]);
+// Hand off (2026-11-11): "Handed off to Price checker" is work the client sees too.
+const V4_SHOWN = new Set(["read", "write", "conversation", "process", "handoff"]);
 /** Kinds both schemas share that the client sees by default (v3's `isClientVisible`). */
 const SHOWN = new Set(["skill", "action", "person", "notify", "use_automation"]);
 

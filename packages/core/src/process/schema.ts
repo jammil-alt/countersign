@@ -296,6 +296,23 @@ export const SubProcessStep = z.object({
   approvals: z.record(NodeId, ApprovalCheck).optional(),
 });
 
+/**
+ * Hand off (owner, 2026-11-11): starts a run of another agent of the same client (`to.agent`, its
+ * slug) at one of the top-level steps of its live version (`to.step`), with `input` mapped from
+ * this run as that step's input. Its earlier steps are skipped. This run goes on at once: the run
+ * it starts is its own, with its own approvals. Its output is `{ runId, agent, step }`.
+ */
+export const HandoffStep = z.object({
+  ...base,
+  kind: z.literal("handoff"),
+  // Empty while the builder's pickers are unset; validation asks for both.
+  to: z.strictObject({
+    agent: z.union([Slug, z.literal("")]),
+    step: z.union([NodeId, z.literal("")]),
+  }),
+  input: TemplateObject.default({}),
+});
+
 export type ReadStep = z.infer<typeof ReadStep>;
 export type SkillStep = z.infer<typeof SkillStep>;
 export type WriteStep = z.infer<typeof WriteStep>;
@@ -305,6 +322,7 @@ export type NotifyStep = z.infer<typeof NotifyStep>;
 export type WaitStep = z.infer<typeof WaitStep>;
 export type StopStep = z.infer<typeof StopStep>;
 export type SubProcessStep = z.infer<typeof SubProcessStep>;
+export type HandoffStep = z.infer<typeof HandoffStep>;
 
 type Base = z.infer<z.ZodObject<typeof base>>;
 
@@ -337,7 +355,8 @@ export type Step =
   | ForEachStep
   | WaitStep
   | StopStep
-  | SubProcessStep;
+  | SubProcessStep
+  | HandoffStep;
 export type StepKind = Step["kind"];
 
 export const STEP_KINDS = [
@@ -352,6 +371,7 @@ export const STEP_KINDS = [
   "wait",
   "stop",
   "process",
+  "handoff",
 ] as const satisfies readonly StepKind[];
 
 export const IfStep = z.object({
@@ -390,6 +410,7 @@ export const Step: z.ZodType<Step> = z
     WaitStep,
     StopStep,
     SubProcessStep,
+    HandoffStep,
   ])
   .meta({ id: "ProcessStep" }) as unknown as z.ZodType<Step>;
 

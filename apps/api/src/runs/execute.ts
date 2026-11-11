@@ -114,6 +114,8 @@ import { tenantLocale } from "../routes/language";
 import { dbOwnerCheckLog, queueFinishedRun } from "../run-audit/store";
 import { signerFor } from "../storage";
 import { createRunRow, dispatchEvents, dispatchingRunner, senseEmitter } from "./dispatch";
+// Hand off (owner, 2026-11-11): hand-off steps, and a handed-off run's entry step.
+import { handoffPort, handoffStart } from "./handoff";
 import type { RunInstances, RunParams } from "./instances";
 import { agentPort, dbInboxPort, dbStepLog, threadNotifyPort } from "./ports";
 
@@ -630,6 +632,9 @@ export async function executeRun(
     }),
     // R3: AI reviewers, one model call each.
     confer: { ai: (req) => conferAi(runtime, req) },
+    // Hand off (owner, 2026-11-11): other agents' runs started at a step, and this run's own start.
+    handoff: handoffPort({ db, instances: deps.instances }, params),
+    ...handoffStart(params),
   };
 
   let result: RunResult;

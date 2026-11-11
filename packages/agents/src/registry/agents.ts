@@ -53,6 +53,8 @@ import {
   automationPublishErrors,
   snapshotSharedAutomations,
 } from "./automations";
+// Hand off (owner, 2026-11-11): only functions cross this cycle too.
+import { handoffAgents, holdsHandoff } from "./handoff";
 // lineage imports this module too; only functions cross, so the cycle is safe at load time.
 import { stripForPromotion } from "./lineage";
 import { type SkillCatalog, skillContext, snapshotSharedSkills } from "./skills";
@@ -415,6 +417,15 @@ export async function validateForPublish(
     // v0.12 W2-B
     automations: used.automations,
     clientAgent: row.kind === "client",
+    // Hand off (2026-11-11): a client agent's hand-off steps, against the client's other agents.
+    ...(row.kind === "client" && row.tenantId && holdsHandoff(bundle)
+      ? {
+          handoff: {
+            ...(row.slug !== undefined ? { self: row.slug } : {}),
+            agents: await handoffAgents(tx, row.tenantId, ctx),
+          },
+        }
+      : {}),
   });
   // v4's codes are v3's and more; the API answers `code` as a string either way.
   const errors = [

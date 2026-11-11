@@ -55,6 +55,11 @@ export interface BuilderData {
   events: CatalogEvent[];
   /** Wave 4: a client agent's client's published scripts (./scripts.ts). */
   scripts?: readonly BrowserScriptTool[] | undefined;
+  /**
+   * Hand off (2026-11-11): a client agent's own slug and its client's agents with their live
+   * steps, for the hand-off step's pickers and the validator; absent for a template.
+   */
+  handoff?: { self: string; agents: readonly processes.HandoffAgent[] } | undefined;
 }
 
 /** The typing and validation context: skills by the reference bundles use, tools, event types. */
@@ -119,12 +124,15 @@ export function validateProcessesLikeServer(
   agent: {
     clientAgent: boolean;
     publish?: { matrices: Record<string, Partial<PermissionMatrix> | undefined> } | undefined;
+    handoff?: BuilderData["handoff"];
   },
 ): { valid: boolean; errors: BuilderProblem[]; warnings: processes.BundleWarning[] } {
   const r = processes.validateAnyBundle(bundle, {
     ...ctx,
     ...(agent.publish ? { publish: agent.publish } : {}),
     clientAgent: agent.clientAgent,
+    // Hand off (2026-11-11): the server checks hand-off steps against the same list.
+    ...(agent.handoff ? { handoff: agent.handoff } : {}),
   });
   const missing: BuilderProblem[] = bundle.definition.skills
     .filter((s) => !lookupSkill(s.skill, ctx))
@@ -514,6 +522,24 @@ export function paletteSections(
       label: "Logic",
       items: LOGIC.map((l) => ({ type: "logic", key: `logic:${l.logic}`, ...l })),
     },
+    // Hand off (owner, 2026-11-11): at the bottom, for a client agent.
+    ...(data.handoff
+      ? [
+          {
+            key: "handoff",
+            label: "Other agents",
+            items: [
+              {
+                type: "handoff" as const,
+                key: "handoff",
+                title: "Hand off to another agent",
+                detail:
+                  "Start another of this client's agents at one of its steps, with this run's results",
+              },
+            ],
+          },
+        ]
+      : []),
   ];
 }
 

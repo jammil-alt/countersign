@@ -1768,6 +1768,10 @@ export const en = {
   "runsPage.perDay": "Runs per day",
   "runDetail.run": "run {id}",
   "runDetail.copyLink": "Copy link",
+  // Hand off (2026-11-11)
+  "runDetail.handedOffFrom": "Handed off from {agent} (run {id})",
+  "runDetail.startedAtStep": "started at {step}",
+  "runDetail.openRun": "Open run {id}",
   "runDetail.review": "Review and approve",
   "runDetail.about": "About this run",
   "runDetail.changes": "Changes",

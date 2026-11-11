@@ -6,6 +6,7 @@ import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
 // Wave 6: the run audit (the owner's check on every step, the audit queue, the export)
 import { OwnerCheckView } from "../oversight/check";
+import { STEP_KINDS } from "../process/schema";
 import { ROLES, Role } from "../roles";
 import { JsonSchema } from "../schemas/common";
 import { ConnectorAuth } from "../schemas/connector";
@@ -514,6 +515,36 @@ export const ServiceSummary = z.object({
 });
 export type ServiceSummary = z.infer<typeof ServiceSummary>;
 
+/**
+ * Hand off (owner, 2026-11-11; docs/plan.md §1.95): a run another agent handed off, as its header
+ * says it: "Handed off from AP bill clerk (run R-1a2b3c) · started at 5 · Itemize the invoice".
+ * The agent's name as the client knows it, and the step's number and name; never a bundle.
+ */
+export const RunHandoffView = z.object({
+  fromRunId: z.string(),
+  fromAgent: z.string(),
+  /** "5 · Itemize the invoice": where a hand-off step started it; null for a handoff trigger. */
+  at: z.string().nullable(),
+});
+export type RunHandoffView = z.infer<typeof RunHandoffView>;
+
+/** Hand off (2026-11-11): one of a client's agents as a hand-off step's target (`processes.HandoffAgent`). */
+export const HandoffAgentView = z.object({
+  slug: z.string(),
+  name: z.string(),
+  workflow: z.string().nullable(),
+  steps: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      kind: z.enum(STEP_KINDS),
+      input: JsonSchema.optional(),
+      reads: z.array(z.string()),
+      ids: z.array(z.string()),
+    }),
+  ),
+});
+
 export const PortalRunSummary = z.object({
   id: z.string(),
   service: z.object({ id: z.string(), name: z.string() }),
@@ -526,6 +557,8 @@ export const PortalRunSummary = z.object({
   waitedMs: z.number().int().nonnegative().optional(),
   /** What the run is about, for its title: see RunSubject. */
   subject: RunSubject.optional(),
+  // Hand off (2026-11-11): the run that handed this one off (the run's own page only).
+  handedOffFrom: RunHandoffView.optional(),
 });
 
 /** Record names by id, for the receipts a run's steps cite (never "Record ·3f9a1c"). */
@@ -628,6 +661,8 @@ export const TimelineStep = z.object({
   ...TimelineChecks.shape,
   // Skill model (2026-11-10), wave A: a write step reads "Saved" or "Changed in QuickBooks".
   write: TimelineWrite.optional(),
+  // Hand off (2026-11-11): the run a hand-off step started, for its link.
+  handoff: z.object({ runId: z.string() }).optional(),
 });
 
 export const PortalInboxItem = z.object({
@@ -1298,6 +1333,16 @@ export const opsRoutes = {
     query: IncludeDiscarded,
     response: z.object({ agents: z.array(AgentSummary) }),
   }),
+  // Hand off (owner, 2026-11-11): the builder's agent and step pickers, and its validation.
+  opsClientHandoffAgents: defineRoute({
+    method: "GET",
+    path: "/api/ops/clients/:id/handoff-agents",
+    auth: "session",
+    roles: OPS,
+    summary: "A client's agents as hand-off targets: their live versions' top-level steps",
+    params: IdParams,
+    response: z.object({ agents: z.array(HandoffAgentView) }),
+  }),
   opsCreateClientAgent: defineRoute({
     method: "POST",
     path: "/api/ops/clients/:id/agents",
@@ -1713,6 +1758,8 @@ export const opsRoutes = {
       audit: RunAuditState.optional(),
       // Skill model (2026-11-10), wave A: each step's skill kind and write label, by step id.
       stepFacts: z.record(z.string(), StepModelFacts).optional(),
+      // Hand off (2026-11-11): the run that handed this one off.
+      handedOffFrom: RunHandoffView.optional(),
     }),
   }),
   // Speed run 6.2: what a run page polls; it reloads the full view (`opsRun`) only on a change.

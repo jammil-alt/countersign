@@ -124,6 +124,8 @@ export interface StepLabels {
   automation?(ref: string): string | undefined;
   connector?(toolId: string): string | undefined;
   person?(id: string): string | undefined;
+  /** Hand off (2026-11-11): the target agent's name and its step's "5 · Itemize the invoice". */
+  handoff?(to: { agent: string; step: string }): { name: string; at: string } | undefined;
   /** What a step's skill, tool or automation does, in its own words (the canvas's tooltip). */
   description?(step: processes.Step): string | undefined;
   /**
@@ -293,6 +295,7 @@ export const PROCESS_KIND_LABEL: Record<ProcessStep["kind"] | "trigger", string>
   wait: "Wait",
   stop: "Stop",
   process: "Process",
+  handoff: "Hand off",
 };
 
 const NOTIFY_CHANNEL: Record<string, string> = {
@@ -382,6 +385,14 @@ export function processStepDetail(step: ProcessStep, labels: StepLabels = {}): s
       const [slug = step.process, v] = step.process.split("@");
       const name = labels.automation?.(step.process) ?? slug.replace(/[-_]+/g, " ");
       return v ? `${name} · v${v}` : name;
+    }
+    // Hand off: "Hand off to Price checker at 5 · Itemize the invoice".
+    case "handoff": {
+      if (!step.to.agent) return "Choose the agent to hand off to";
+      const named = labels.handoff?.(step.to);
+      const name = named?.name ?? step.to.agent;
+      const at = named?.at ?? step.to.step;
+      return at ? `Hand off to ${name} at ${at}` : `Hand off to ${name}`;
     }
   }
 }

@@ -80,6 +80,8 @@ import {
   conversationProblems,
   conversationSendTools,
 } from "./conversation";
+// Hand off (owner, 2026-11-11): the client's other agents a hand-off step can start.
+import { HANDOFF_ENTRY_KINDS, type HandoffAgent, handoffTargetOf, skippedReads } from "./handoff";
 // Wave 5: how each step ended, for an `if` to route on (`steps.<id>.outcome` and the rest).
 import { outcomeVocabulary, stepRecordFields, stepRecordSchema } from "./outcomes";
 // Reshape data (2026-11-11): its output, and the checks on its mapping.
@@ -98,6 +100,7 @@ import {
   type Deadline,
   type DeadlineThen,
   type ForEachStep,
+  type HandoffStep,
   type NotifyCheck,
   type Process,
   Process as ProcessSchema,
@@ -135,7 +138,13 @@ export type ProcessValidationCode =
   // Skill model (2026-11-10): an action write step that doesn't resolve from the agent's bindings.
   | ActionProblemCode
   // Reshape data (2026-11-11): a mapping that doesn't type-check, or doesn't fit the next step.
-  | "reshape_mapping";
+  | "reshape_mapping"
+  // Hand off (2026-11-11): the agent and step a hand-off starts (`checkHandoffStep`).
+  | "handoff_same_agent"
+  | "handoff_unknown_agent"
+  | "handoff_no_live"
+  | "handoff_unknown_step"
+  | "handoff_entry_kind";
 
 /**
  * `conversationProblems`' codes. A templated goal is reported as `input_not_fixed`, as every other
@@ -166,7 +175,9 @@ export type ProcessWarningCode =
   | "split_deep"
   // Wave 5: a condition testing an outcome the step, as it is set up, never ends with (`failed`
   // on a step without `onError: continue`: the run has stopped before the condition is read).
-  | "outcome_unreachable";
+  | "outcome_unreachable"
+  // Hand off (2026-11-11): a later step of the target reads a step the hand-off skips.
+  | "handoff_skips_outputs";
 
 export interface ProcessWarning {
   stepId: string | null;
@@ -233,6 +244,12 @@ export interface ProcessValidationContext extends TypingContext {
    * aren't known here. Absent without `publish` (templates, drafts): only the input is checked.
    */
   actions?: ActionBindings;
+  /**
+   * Hand off (2026-11-11): the client's other client agents a hand-off step can start, with their
+   * live versions' top-level steps (`handoffTargetSteps`), and this agent's own slug. Absent
+   * (templates, a draft not yet in a client): only the step's own references are checked.
+   */
+  handoff?: { self?: string | undefined; agents: readonly HandoffAgent[] };
 }
 
 // ── Schema errors, located ───────────────────────────────────────────────────────────────────
@@ -351,6 +368,8 @@ export interface ProcessScope {
 /** What a v4 step outputs, for later steps' templates. Unknown (any path reads) when unknown. */
 export function stepOutputSchema(step: Step, ctx: TypingContext): JsonSchema | undefined {
   switch (step.kind) {
+    case "handoff":
+      return HANDOFF_OUTPUT;
     case "read":
       return ctx.tools?.[step.tool]?.output;
     // DECISION (skill model): an action's output is its provider tool's, known only once it
@@ -1608,7 +1627,86 @@ const NO_ON_ERROR: Partial<Record<Step["kind"], string>> = {
   stop: "a stop ends the run: it has no error to go on past",
   wait: "a wait can't fail",
   person: "a person step can't fail by itself: its deadline says what happens with no answer",
+  // DECISION (hand off): a hand-off that can't start ends the run; going on past it is not offered.
+  handoff: "a hand-off that can't start ends the run",
 };
+
+/** Hand off (2026-11-11): what a hand-off step outputs. */
+export const HANDOFF_OUTPUT: JsonSchema = {
+  type: "object",
+  properties: {
+    runId: { type: "string" },
+    agent: { type: "string" },
+    step: { type: "string" },
+  },
+  required: ["agent", "step"],
+  additionalProperties: false,
+};
+
+/**
+ * Hand off (2026-11-11): its input reads this run; with the client's agents known, the target is
+ * another agent of the same client, the step is a work step of its live version, the input fits
+ * that step's input (the step-input checks), and a warning names the target's later steps that
+ * read a step the hand-off skips.
+ */
+function checkHandoffStep(c: Checker, step: HandoffStep, scope: ProcessScope) {
+  checkRefs(c, step.id, step.input, ["input"], scope);
+  if (step.to.agent === "") {
+    c.add(step.id, "to.agent", "handoff_unknown_agent", "choose the agent to hand off to");
+    return;
+  }
+  if (step.to.step === "") {
+    c.add(step.id, "to.step", "handoff_unknown_step", "choose the step it starts at");
+  }
+  const known = c.ctx.handoff;
+  if (!known || step.to.step === "") return;
+  if (known.self !== undefined && step.to.agent === known.self) {
+    c.add(step.id, "to.agent", "handoff_same_agent", "a hand-off goes to another agent");
+    return;
+  }
+  const target = handoffTargetOf(known.agents, step);
+  if (!target) {
+    c.add(
+      step.id,
+      "to.agent",
+      "handoff_unknown_agent",
+      `no agent "${step.to.agent}" in this client`,
+    );
+    return;
+  }
+  const name = target.agent.name;
+  if (target.agent.workflow === null) {
+    c.add(step.id, "to.agent", "handoff_no_live", `${name} has no live version to hand off to`);
+    return;
+  }
+  if (!target.step) {
+    c.add(
+      step.id,
+      "to.step",
+      "handoff_unknown_step",
+      `${name}'s live version has no step "${step.to.step}"`,
+    );
+    return;
+  }
+  if (!HANDOFF_ENTRY_KINDS.has(target.step.kind)) {
+    c.add(
+      step.id,
+      "to.step",
+      "handoff_entry_kind",
+      "a hand-off starts at a read, skill or write step",
+    );
+    return;
+  }
+  checkInput(c, step.id, step.input, target.step.input, scope);
+  for (const { step: later, skipped } of skippedReads(target.agent.steps, step.to.step)) {
+    c.warn?.(
+      step.id,
+      "to.step",
+      "handoff_skips_outputs",
+      `${name}'s "${later.name}" reads ${skipped.map((s) => `"${s.name}"`).join(", ")}, which the hand-off skips`,
+    );
+  }
+}
 
 function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<string> | undefined) {
   switch (step.kind) {
@@ -1650,6 +1748,9 @@ function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<str
       break;
     case "process":
       checkSubProcess(c, step, scope);
+      break;
+    case "handoff":
+      checkHandoffStep(c, step, scope);
       break;
     default:
       break;

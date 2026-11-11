@@ -13,6 +13,8 @@ export * from "./conditions";
 export * from "./conversation";
 export * from "./convert";
 export * from "./customize";
+// Hand off (owner, 2026-11-11): what a hand-off step knows of the agent it hands off to.
+export * from "./handoff";
 export * from "./hours";
 // Wave 5: how a step ended, for an `if` to route on.
 export * from "./outcomes";

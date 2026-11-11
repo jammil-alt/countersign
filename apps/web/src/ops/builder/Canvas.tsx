@@ -155,6 +155,7 @@ const KIND_ICON: Record<Step["kind"], IconName> = {
   wait: "calendar",
   stop: "close",
   process: "table",
+  handoff: "arrow",
 };
 
 /** The state a selected card shows: the design system's selection (slate). */

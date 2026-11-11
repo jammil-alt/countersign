@@ -53,6 +53,8 @@ import {
   SmallSelect,
   TemplateInput,
 } from "./fields";
+// Hand off (owner, 2026-11-11)
+import { handoffChoices, handoffName } from "./handoff";
 import {
   type ApprovalEnv,
   actionTarget,
@@ -948,6 +950,8 @@ function KindFields(
         </>
       );
     }
+    case "handoff":
+      return <HandoffFields {...props} step={step} />;
     case "stop":
       return (
         <Row label="End the run as" field="status" errors={fieldErrors}>
@@ -965,6 +969,86 @@ function KindFields(
         </Row>
       );
   }
+}
+
+// ── Hand off (owner, 2026-11-11; docs/plan.md §1.95) ─────────────────────────────────────────────
+
+/**
+ * A hand-off step: the client's other agent, the top-level step of its live version where its run
+ * starts (numbered and named; its earlier steps are skipped), then that step's input, mapped from
+ * this run with the same fields and references as any step's input.
+ */
+function HandoffFields(
+  props: InspectorProps & {
+    step: Extract<Step, { kind: "handoff" }>;
+    paths: PathOption[];
+    fieldErrors: FieldErrors;
+    set: SetStep;
+  },
+) {
+  const { step, paths, fieldErrors, set } = props;
+  const agents = handoffChoices(props.data);
+  const target = agents.find((a) => a.slug === step.to.agent);
+  const entry = target?.steps.find((s) => s.id === step.to.step);
+  const setTo = (key: string, to: { agent: string; step: string }) =>
+    // A new agent or step takes a new input: the old one was mapped for another step. A name the
+    // builder gave follows the pick ("Hand off to Price checker at 5 · Itemize the invoice").
+    set(key, (s) =>
+      s.kind === "handoff" ? { ...s, to, input: {}, name: handoffName(props.data, s.name, to) } : s,
+    );
+  return (
+    <>
+      <Row label="Agent" field="to.agent" errors={fieldErrors}>
+        <SmallSelect
+          data-field="to.agent"
+          data-testid="builder-handoff-agent"
+          value={step.to.agent}
+          onChange={(e) => setTo("to.agent", { agent: e.target.value, step: "" })}
+        >
+          <option value="">Choose an agent…</option>
+          {agents.map((a) => (
+            <option key={a.slug} value={a.slug} disabled={a.workflow === null}>
+              {a.workflow === null ? `${a.name} (no live version)` : a.name}
+            </option>
+          ))}
+        </SmallSelect>
+      </Row>
+      <Row
+        label="Starts at"
+        field="to.step"
+        errors={fieldErrors}
+        hint="Its steps before this one are skipped. This run goes on without waiting."
+      >
+        <SmallSelect
+          data-field="to.step"
+          data-testid="builder-handoff-step"
+          value={step.to.step}
+          disabled={!target}
+          onChange={(e) => setTo("to.step", { agent: step.to.agent, step: e.target.value })}
+        >
+          <option value="">Choose a step…</option>
+          {(target?.steps ?? []).map((s, i) => (
+            <option key={s.id} value={s.id} disabled={!processes.HANDOFF_ENTRY_KINDS.has(s.kind)}>
+              {i + 1} · {s.name}
+            </option>
+          ))}
+        </SmallSelect>
+      </Row>
+      {entry ? (
+        <Section title="Input">
+          <SchemaForm
+            schema={entry.input}
+            value={step.input}
+            onChange={(input) => set("input", (s) => ({ ...s, input }) as Step)}
+            paths={paths}
+            prefix="input"
+            errors={fieldErrors}
+            testPrefix="builder-input"
+          />
+        </Section>
+      ) : null}
+    </>
+  );
 }
 
 /** A skill's category as a heading word: "documents" → "Documents". */

@@ -140,7 +140,11 @@ export function PortalRunScreen() {
       ) : (
         <>
           {run ? (
-            <RunHeader run={run} />
+            <>
+              <RunHeader run={run} />
+              {/* Hand off (2026-11-11): the run that handed this one off, and where it started. */}
+              {data?.run.handedOffFrom ? <HandedOffFrom from={data.run.handedOffFrom} /> : null}
+            </>
           ) : (
             <Skeleton>
               <span className="flex items-center gap-4">
@@ -278,6 +282,19 @@ function RunHeader({ run }: { run: RunRow }) {
   );
 }
 
+/** "Handed off from AP bill clerk (run R-1a2b3c) · started at 5 · Itemize the invoice". */
+function HandedOffFrom({ from }: { from: NonNullable<RunRow["handedOffFrom"]> }) {
+  const { t } = useI18n();
+  return (
+    <p className="text-sm text-ink-muted" data-testid="portal-run-handoff">
+      <Link to={`${PORTAL_PATHS.runs}/${from.fromRunId}`} className="text-link hover:underline">
+        {t("runDetail.handedOffFrom", { agent: from.fromAgent, id: shortRunId(from.fromRunId) })}
+      </Link>
+      {from.at ? ` · ${t("runDetail.startedAtStep", { step: from.at })}` : null}
+    </p>
+  );
+}
+
 /** The run's own answer: what happened step by step, the changes waiting, made and approved. */
 function RunBody({
   data,
@@ -325,6 +342,16 @@ function RunBody({
           <p className="text-sm text-ink-muted" data-testid="portal-run-step-write">
             {writeLine(t, s.write, s.status)}
           </p>
+        ) : null}
+        {/* Hand off (2026-11-11): the run this step started. */}
+        {s.handoff ? (
+          <Link
+            to={`${PORTAL_PATHS.runs}/${s.handoff.runId}`}
+            className="text-sm text-link hover:underline"
+            data-testid="portal-run-step-handoff"
+          >
+            {t("runDetail.openRun", { id: shortRunId(s.handoff.runId) })}
+          </Link>
         ) : null}
         {/* R8: approvers and the mode, no-answer outcomes, an urgent notice's Seen. */}
         <StepChecks checks={s} testId="portal-run-step-checks" />

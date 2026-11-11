@@ -47,6 +47,7 @@ import {
   resolveTemplate,
   runErrorKey,
   type SkillStep,
+  shortRunId,
   singleRef,
   stepStateLabel,
   TIMELINE_WORDS,
@@ -78,6 +79,7 @@ import {
   type ConversationRequest,
   type ConversationResult,
   conversationEventType,
+  type HandoffPort,
   type HoursAnswer,
   type HoursPort,
   type InboxPort,
@@ -151,6 +153,14 @@ export interface ExecutorContext {
   conversation?: ConversationPort;
   /** AI reviewers for confer checks; absent: an AI reviewer's verdict is `no_answer`. */
   confer?: ConferPort;
+  // Hand off (owner, 2026-11-11; docs/plan.md §1.95)
+  /** Hand-off steps start other agents' runs through it; absent, a live hand-off step fails. */
+  handoff?: HandoffPort;
+  /**
+   * A run a hand-off step started: it starts at the top-level step `at` (the steps before it are
+   * skipped: no rows, no outputs) and that step's input is `input`, as handed over.
+   */
+  start?: { at: string; input: unknown };
 }
 
 /** What a retry starts from. Small JSON: apps/api loads it in a durable step. */
@@ -520,6 +530,12 @@ export async function executeWorkflow(
       ),
     };
   }
+  // Hand off: the step the run starts at is in the version it is pinned to (checked when it was
+  // started); a version without it fails rather than running from its first step.
+  if (ctx.start && !loaded.process.steps.some((s) => s.id === ctx.start?.at)) {
+    const reason = `the step "${ctx.start.at}" this hand-off starts at isn't in this version`;
+    return { status: "failed", reason, errorKey: runErrorKey({ tool: null, kind: "run" }, reason) };
+  }
   const ex = new Executor(runner, ctx, expansions, loaded.origins, overrides);
   // DECISION (wave 5): outcomes are recorded for native v4 processes only; a converted v3 workflow's
   // scope stays `{ output }` (its conditions can't name an outcome, and nothing it reads changes).
@@ -663,7 +679,14 @@ class Executor {
   async runList(steps: readonly processes.Step[], frame: Frame): Promise<void> {
     const resume = frame.top ? this.ctx.resume : undefined;
     let reached = !resume || !steps.some((s) => s.id === resume.from);
+    // Hand off: a run a hand-off started skips the top-level steps before its entry step.
+    const start = frame.top ? this.ctx.start : undefined;
+    let entered = !start;
     for (const step of steps) {
+      if (start && !entered) {
+        if (step.id !== start.at) continue;
+        entered = true;
+      }
       if (resume && !reached) {
         if (step.id === resume.from) reached = true;
         else if (resume.reused[step.id]) {
@@ -747,6 +770,9 @@ class Executor {
         // v0.12 W2-B
         case "process":
           return await this.useAutomation(step, name, frame);
+        // Hand off (owner, 2026-11-11)
+        case "handoff":
+          return await this.handoff(step, name, frame);
       }
     } catch (error) {
       if (error instanceof RunEnd) {
@@ -1138,7 +1164,7 @@ class Executor {
       if (!checks?.confer) return;
       conferred = await this.confer(step, at, frame.scope, checks.confer, data);
     };
-    const input = () => resolveTemplate(step.input, frame.scope);
+    const input = () => this.inputOf(step, frame);
     if (step.kind === "write") await conferOn(name, { input: input() });
     const conferOutput = async (output: unknown) => {
       // A skill whose proposed writes were conferred on isn't conferred on again.
@@ -1334,9 +1360,19 @@ class Executor {
     return r;
   }
 
+  /**
+   * A step's input resolved over the run; hand off: the entry step of a run a hand-off started
+   * takes the input handed over instead (data, never rendered as a template: invariant 9).
+   */
+  inputOf(step: { id: string; input: unknown }, frame: Frame): unknown {
+    const start = this.ctx.start;
+    if (start && frame.prefix === "" && step.id === start.at) return start.input;
+    return resolveTemplate(step.input, frame.scope);
+  }
+
   /** A work step's input for an attempt: resolved, and as an action's tool takes it. */
   stepInput(step: SkillStep | ActionStep, frame: Frame, opts: WorkOptions): unknown {
-    const input = resolveTemplate(step.input, frame.scope);
+    const input = this.inputOf(step, frame);
     return opts.mapInput ? opts.mapInput(input) : input;
   }
 
@@ -1554,7 +1590,7 @@ class Executor {
           input = retry ? retry.input : this.stepInput(step, frame, opts);
         } catch (error) {
           if (!(error instanceof processes.ActionInputError)) throw error;
-          input = resolveTemplate(step.input, frame.scope);
+          input = this.inputOf(step, frame);
           refused = `refused: ${error.message}`;
         }
         const start = {
@@ -3026,6 +3062,64 @@ class Executor {
       outcome: ended.outcome,
       ...(ended.error ? { error: processes.plainError(ended.error) } : {}),
     });
+  }
+
+  // ── Hand off (owner, 2026-11-11; docs/plan.md §1.95) ──────────────────────────────────────────
+
+  /**
+   * A hand-off step: its input resolved over this run, then another agent's run started at the
+   * step it names, with that input (the port: same client, started, not this agent, at most three
+   * handoffs deep). It doesn't wait: the run it starts is its own. A test run starts nothing and
+   * says what it would have handed off. A refusal fails the step in plain words.
+   */
+  async handoff(step: processes.HandoffStep, name: string, frame: Frame): Promise<void> {
+    const { run, log } = this.ctx;
+    const port = this.ctx.handoff;
+    const ended = await this.runner.do(name, async () => {
+      const input = resolveTemplate(step.input, frame.scope);
+      const id = await log.start({ runId: run.id, nodeId: name, nodeType: "handoff", input });
+      const request = { run, nodeId: name, to: step.to, input };
+      if (this.testRun) {
+        const names = port ? await port.names(request) : { name: step.to.agent, at: step.to.step };
+        const output = { agent: step.to.agent, step: step.to.step };
+        await log.update(id, {
+          status: "succeeded",
+          output,
+          summary: this.words.wouldHandOff(names.name, names.at),
+        });
+        return { output };
+      }
+      const r = port
+        ? await port.start(request)
+        : { refused: "hand-offs can't start runs here" as string };
+      if ("refused" in r) {
+        await log.update(id, {
+          status: "failed",
+          error: r.refused,
+          summary:
+            "notStarted" in r && r.notStarted
+              ? this.words.handOffNotStarted(r.name ?? step.to.agent)
+              : `${stepStateLabel(asLabelled(step), false)}: ${this.words.failed}`,
+        });
+        return { refused: r.refused };
+      }
+      const output = { runId: r.runId, agent: step.to.agent, step: step.to.step };
+      await log.update(id, {
+        status: "succeeded",
+        output,
+        summary: this.words.handedOff(r.name, shortRunId(r.runId)),
+      });
+      return { output };
+    });
+    if ("refused" in ended) {
+      throw new RunEnd({
+        status: "failed",
+        reason: ended.refused,
+        nodeId: name,
+        errorKey: this.errorKeyOf(step, ended.refused),
+      });
+    }
+    this.record(frame, step, ended.output);
   }
 
   async notifyV3(step: NotifyStep, name: string, frame: Frame): Promise<void> {

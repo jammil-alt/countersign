@@ -13,6 +13,7 @@ import {
   evaluateRules,
   eventRunId,
   type HandoffRunPayload,
+  handoffRunId,
   type InboundMessagePayload,
   isDayOff,
   MAX_HANDOFF_DEPTH,
@@ -91,10 +92,17 @@ export type RunTrigger =
   | {
       triggerId: string;
       type: "handoff";
-      eventId: string;
-      eventType: string;
+      /** A handoff trigger's `run.succeeded`; absent when a hand-off step started the run. */
+      eventId?: string;
+      eventType?: string;
       fromRunId: string;
       depth: number;
+      // Hand off (owner, 2026-11-11): a hand-off step's run.
+      /** The top-level step the run starts at (the steps before it are skipped). */
+      at?: string;
+      /** The sending agent (its id) and its hand-off step. */
+      fromAgentId?: string;
+      fromStep?: string;
     };
 
 // v0.12 W2-E
@@ -439,6 +447,94 @@ async function routeW2E(
     }
   }
   return out;
+}
+
+// ── Hand off (owner, 2026-11-11; docs/plan.md §1.95) ────────────────────────────────────────────
+
+/** Why a hand-off step started nothing. */
+export type HandoffRefusal =
+  | "same_agent"
+  | "too_deep"
+  | "unknown_agent"
+  | "not_started"
+  | "unknown_step";
+
+/** What a hand-off step asks for, from the run it is in. */
+export interface HandoffAsk {
+  tenantId: string;
+  from: {
+    runId: string;
+    agentId: string;
+    agentSlug: string;
+    workflowSlug: string;
+    /** The hand-off step's durable name. */
+    nodeId: string;
+    /** The sending run's own handoff depth (0 unless a handoff started it). */
+    depth: number;
+  };
+  to: { agent: string; step: string };
+  input: unknown;
+}
+
+/**
+ * The run a hand-off step starts: the live version of the target (another client agent of the same
+ * client, started), its enabled process whose top-level steps hold `to.step`, starting there with
+ * the mapped input. The rules of handoff triggers hold: never the same agent, at most three
+ * handoffs deep (ARCHITECTURE §10.8). The run id derives from the sending run and step, so asking
+ * twice starts one run.
+ */
+export async function handoffRunRequest(
+  ask: HandoffAsk,
+  target: (RoutableAgent & { slug: string }) | null,
+): Promise<{ run: RunRequest } | { refused: HandoffRefusal }> {
+  if (ask.to.agent === ask.from.agentSlug || target?.id === ask.from.agentId) {
+    return { refused: "same_agent" };
+  }
+  const depth = ask.from.depth + 1;
+  if (depth > MAX_HANDOFF_DEPTH) return { refused: "too_deep" };
+  if (target?.kind !== "client" || target.tenantId !== ask.tenantId) {
+    return { refused: "unknown_agent" };
+  }
+  if (!isRunnable(target)) return { refused: "not_started" };
+  // DECISION: a hand-off starts the live version's first enabled workflow (an agent owns one
+  // process; a stored v3 agent may hold more), as packages/agents' `handoffAgents` lists it.
+  const wf = target.liveBundle.workflows.find((w) => w.enabled);
+  if (!wf?.workflow.steps.some((s) => s.id === ask.to.step)) {
+    return { refused: "unknown_step" };
+  }
+  const payload: HandoffRunPayload = {
+    from: {
+      agentId: ask.from.agentId,
+      agentSlug: ask.from.agentSlug,
+      workflowSlug: ask.from.workflowSlug,
+      runId: ask.from.runId,
+    },
+    output: null,
+    sources: [],
+    depth,
+    at: ask.to.step,
+    input: ask.input,
+  };
+  return {
+    run: {
+      runId: await handoffRunId({ fromRunId: ask.from.runId, nodeId: ask.from.nodeId }),
+      tenantId: target.tenantId,
+      agentId: target.id,
+      agentVersionId: target.liveVersionId,
+      workflowSlug: wf.slug,
+      mode: "live",
+      trigger: {
+        triggerId: ask.from.nodeId,
+        type: "handoff",
+        fromRunId: ask.from.runId,
+        depth,
+        at: ask.to.step,
+        fromAgentId: ask.from.agentId,
+        fromStep: ask.from.nodeId,
+      },
+      payload,
+    },
+  };
 }
 
 export interface DueSchedulesInput {

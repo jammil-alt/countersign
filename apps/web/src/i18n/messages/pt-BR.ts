@@ -1820,6 +1820,10 @@ export const ptBR: Messages = {
   "runsPage.perDay": "Execuções por dia",
   "runDetail.run": "execução {id}",
   "runDetail.copyLink": "Copiar link",
+  // Hand off (2026-11-11)
+  "runDetail.handedOffFrom": "Passado por {agent} (execução {id})",
+  "runDetail.startedAtStep": "começou em {step}",
+  "runDetail.openRun": "Abrir execução {id}",
   "runDetail.review": "Revisar e aprovar",
   "runDetail.about": "Sobre esta execução",
   "runDetail.changes": "Alterações",
