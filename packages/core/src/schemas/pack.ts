@@ -30,8 +30,23 @@ export const PackManifest = z
       }),
     ),
     screens: z.array(z.object({ route: z.string(), title: z.string(), roles: z.array(Role) })),
+    // §1.88: the pack's skills another of its skills replaces for new steps (skill id → its
+    // replacement's id). Stored steps keep running the old one (invariant 3); the palette and the
+    // Builder offer the replacement instead (core's `newStepSkillReason`).
+    superseded: z.record(z.string(), z.string()).optional(),
   })
   .superRefine((p, ctx) => {
+    for (const [from, to] of Object.entries(p.superseded ?? {})) {
+      for (const id of [from, to]) {
+        if (!p.skills.some((s) => s.id === id)) {
+          ctx.addIssue({
+            code: "custom",
+            message: `superseded names ${id}, which isn't one of the pack's skills`,
+            path: ["superseded", from],
+          });
+        }
+      }
+    }
     p.tools.forEach((t, i) => {
       if (t.source !== p.id) {
         ctx.addIssue({
