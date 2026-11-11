@@ -35,9 +35,8 @@ sends nothing (`src/site.test.ts` checks). Without scripts, each demo shows its 
 Measuring is separate: off unless it is turned on, and then one inline script ("Measuring"
 below).
 
-The connectors shown are the ones the platform has (`packages/connectors`); add one to
-`src/content/what.mjs` with its logo in `src/logos` when it is built. Third-party logos are kept
-as delivered (Biome skips the folder).
+The connectors shown are the owner's list (`src/content/what.mjs`), with their logos in
+`src/logos`. Third-party logos are kept as delivered (Biome skips the folder).
 
 The site imports nothing from the platform: its only workspace dependency is the design system's
 files, and it has no runtime dependencies (`scripts/check-deps.mjs` holds it to that). The

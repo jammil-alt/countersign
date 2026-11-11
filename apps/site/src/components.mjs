@@ -95,7 +95,7 @@ function hub() {
 
 /** One connector tile. */
 function tile(/** @type {(typeof CONNECTORS)[number]} */ k) {
-  return `<span class="mk-conn__logo"><img src="/logos/${k.logo}" alt="" style="height: ${k.height}px;" loading="lazy"></span><span class="mk-conn__text"><span class="mk-conn__name">${esc(k.name)}</span><span class="mk-conn__cat">${esc(CONNECTOR_CATEGORIES[k.cat]?.label ?? "")}</span></span>`;
+  return `<span class="mk-conn__logo"><img src="/logos/${k.logo}" alt="" style="height: ${k.height}px;" loading="lazy"></span><span class="mk-conn__text"><span class="mk-conn__name">${esc(k.name)}</span><span class="mk-conn__cat">${esc(k.also ? "Accounting and CRM" : (CONNECTOR_CATEGORIES[k.cat]?.label ?? ""))}</span></span>`;
 }
 
 function connectors() {
@@ -119,7 +119,8 @@ function connectors() {
     return `<div class="mk-marquee"><ul class="mk-marquee__track${reverse ? " mk-marquee__track--rev" : ""}">${items}</ul></div>`;
   };
   const grid = CONNECTORS.map(
-    (k) => `<li class="mk-conn" data-cat="${k.cat}">${tile(k)}</li>`,
+    (k) =>
+      `<li class="mk-conn" data-cat="${[k.cat, k.also].filter(Boolean).join(" ")}">${tile(k)}</li>`,
   ).join("");
   return `<div class="mk-conns" data-connectors>
         <div class="mk-section-head mk-section-head--split">

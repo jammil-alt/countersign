@@ -54,7 +54,7 @@
         press(pills, pill);
         rows.hidden = cat !== "all";
         grid.hidden = cat === "all";
-        for (const item of grid.children) item.hidden = item.dataset.cat !== cat;
+        for (const item of grid.children) item.hidden = !item.dataset.cat.split(" ").includes(cat);
       });
     }
   }

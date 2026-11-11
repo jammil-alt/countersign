@@ -74,28 +74,33 @@ export const CONNECTOR_CATEGORIES = {
 };
 
 /**
- * The connectors shown, each one a connector the platform has (packages/connectors). The design
- * also showed Xero, NetSuite, Odoo, Pipedrive, Microsoft 365 and Google Ads; they come back
- * here when they are built (HANDOFF: "keep it to what you can actually connect").
- * `logo` is a file in src/logos, shown `height` pixels tall.
- * @type {{ name: string, cat: keyof typeof CONNECTOR_CATEGORIES, logo: string, height: number }[]}
+ * The connectors shown, in the design's order (the owner's list). `also` puts a connector in a
+ * second category too (Odoo is accounting and CRM). `logo` is a file in src/logos, shown
+ * `height` pixels tall.
+ * @type {{ name: string, cat: keyof typeof CONNECTOR_CATEGORIES, also?: keyof typeof CONNECTOR_CATEGORIES, logo: string, height: number }[]}
  */
 export const CONNECTORS = [
   { name: "QuickBooks", cat: "acct", logo: "quickbooks.svg", height: 30 },
+  { name: "Xero", cat: "acct", logo: "xero.svg", height: 30 },
+  { name: "NetSuite", cat: "acct", logo: "netsuite.svg", height: 30 },
   { name: "BILL", cat: "acct", logo: "bill.png", height: 28 },
+  { name: "Odoo", cat: "acct", also: "crm", logo: "odoo.png", height: 18 },
   { name: "Stripe", cat: "pay", logo: "stripe.svg", height: 26 },
   { name: "Plaid", cat: "pay", logo: "plaid.png", height: 30 },
   { name: "Ramp", cat: "pay", logo: "ramp.svg", height: 22 },
   { name: "HubSpot", cat: "crm", logo: "hubspot.svg", height: 28 },
+  { name: "Pipedrive", cat: "crm", logo: "pipedrive.svg", height: 18 },
   { name: "Zoho", cat: "crm", logo: "zoho.svg", height: 24 },
   { name: "Podio", cat: "crm", logo: "podio.svg", height: 30 },
   { name: "Gmail", cat: "comm", logo: "gmail.svg", height: 24 },
   { name: "Outlook", cat: "comm", logo: "outlook.svg", height: 30 },
+  { name: "Microsoft 365", cat: "comm", logo: "microsoft-365.svg", height: 30 },
   { name: "Slack", cat: "comm", logo: "slack.svg", height: 28 },
   { name: "Google Chat", cat: "comm", logo: "google-chat.svg", height: 28 },
   { name: "WhatsApp", cat: "comm", logo: "whatsapp.svg", height: 30 },
   { name: "Google Drive", cat: "files", logo: "google-drive.svg", height: 28 },
   { name: "Google Sheets", cat: "files", logo: "google-sheets.svg", height: 30 },
+  { name: "Google Ads", cat: "mkt", logo: "google-ads.svg", height: 26 },
   { name: "Bing", cat: "mkt", logo: "bing.svg", height: 30 },
   { name: "LinkedIn", cat: "mkt", logo: "linkedin.svg", height: 28 },
 ];

@@ -5,7 +5,7 @@
 export const SECURITY = [
   {
     t: "Walled off per client",
-    d: "Separate storage and encryption keys. No shared memory between clients.",
+    d: "Each client’s data is kept apart down to the row, and its logins are encrypted with its own key. No shared memory between clients.",
   },
   { t: "Least access", d: "Read-only where possible, send-only email. Agents can’t move money." },
   {
@@ -13,7 +13,10 @@ export const SECURITY = [
     d: "Account numbers and personal details are replaced before any model sees them.",
   },
   { t: "Never used for training", d: "Enterprise terms with every AI provider bar it." },
-  { t: "Every access logged", d: "Including our own team’s. SOC 2 in progress." },
+  {
+    t: "Every access logged",
+    d: "Including our own team’s. Held to enterprise-grade security compliance standards.",
+  },
 ];
 
 export const INTEGRITY = [
