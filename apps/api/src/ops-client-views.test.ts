@@ -15,6 +15,7 @@ import {
   agentVersion,
   contact,
   inboxItem,
+  messageTranslation,
   modelCall,
   reachOut,
   run,
@@ -442,6 +443,19 @@ describe.skipIf(!h)("the back office's run page, run lists and client page", () 
         .update(reachOut)
         .set({ reply: { text: "Yes, that's right" } })
         .where(sql`${reachOut.id} = ${reach.id}`),
+    );
+    await moves("the reply's translation landing after the reply", () =>
+      H.t.db.insert(messageTranslation).values({
+        tenantId,
+        reachOutId: reach.id,
+        runId: waitingRun,
+        direction: "in",
+        sourceLanguage: "es",
+        targetLanguage: "en",
+        detectedBy: "rule",
+        status: "translated",
+        text: "Yes, that's right",
+      }),
     );
     await moves("an inbox item snoozed", () =>
       H.t.db

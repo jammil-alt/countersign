@@ -600,10 +600,11 @@ const rowsHash = (from: SQL) =>
  * in one statement, so the run page can poll this and reload the full view only on a change.
  */
 // DECISION (review of #265): the key is built from content, not timestamps: an md5 of the run's
-// row and of every row of each table the page shows (a whole row's text, so a tool call
-// finishing, a cost added, a step waiting, a reply, a snooze or a write reset all change it,
-// though none of them moves a timestamp). Names the page looks up elsewhere (documents, vendors,
-// people) are left out: they do not change with the run.
+// row and of every row of each table the page shows, its conversations' translations included
+// (a whole row's text, so a tool call finishing, a cost added, a step waiting, a reply, its
+// translation, a snooze or a write reset all change it, though none of them moves a timestamp).
+// Names the page looks up elsewhere (documents, vendors, people) are left out: they do not change
+// with the run.
 async function opsRunStatus(tx: Tx, tenantIds: readonly string[], id: string) {
   // Qualified by hand: a one-table select leaves its columns unqualified (`waitsOnPerson`).
   const mine = sql.raw(`x.run_id = "run"."id" and x.tenant_id = "run"."tenant_id"`);
@@ -613,6 +614,16 @@ async function opsRunStatus(tx: Tx, tenantIds: readonly string[], id: string) {
     rowsHash(
       sql`from tool_call x join step_run s on s.id = x.step_run_id and s.tenant_id = x.tenant_id
         where s.run_id = "run"."id" and s.tenant_id = "run"."tenant_id"`,
+    ),
+    // The translations of the run's conversations: of a reach-out, or of a reply's raw record
+    // (`runConversations` → `translationsFor`). A reply's id is checked before it is cast.
+    rowsHash(
+      sql`from message_translation x where x.tenant_id = "run"."tenant_id" and (
+        x.reach_out_id in (select ro.id from reach_out ro
+          where ro.run_id = "run"."id" and ro.tenant_id = "run"."tenant_id")
+        or x.raw_record_id in (select (ro.reply ->> 'rawRecordId')::uuid from reach_out ro
+          where ro.run_id = "run"."id" and ro.tenant_id = "run"."tenant_id"
+            and ro.reply ->> 'rawRecordId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'))`,
     ),
   ];
   const [row] = await tx
