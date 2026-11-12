@@ -4454,6 +4454,27 @@ are skipped). The two run side by side: AP bill clerk doesn't wait.
 | Run views | The sender's step: "Handed off to Price checker (run R-1a2b3c)", linking to the run (back office and portal: `TimelineStep.handoff`). The run started: "Handed off from AP bill clerk (run R-1a2b3c) · started at 5 · Itemize the invoice" in its header (`RunHandoffView`, `handedOffFrom`). Portal words in all six languages; the portal gets names and a run id only (invariant 11). |
 | Checked | `packages/core/src/process/handoff.test.ts`, `packages/workflows/src/handoff.test.ts`, `apps/api/src/handoff-runtime.test.ts` (a real run of A handing off to B at its step 2, the trigger, both pages, the rules, a test run, a target not started, save-time validation), `apps/web/src/ops/builder/handoff.builder.test.tsx`, and the run views' tests. |
 
+### 1.97 Microsoft 365 and calendars: OneDrive, Excel, Teams, Outlook Calendar, Google Calendar (owner, 2026-11-12)
+
+"Can we add connectors for Teams, OneDrive, SharePoint, Excel? Also is there a calendar extension
+too?" Outside ARCHITECTURE v0.15's §6.11 list until v0.16 is written; added there as rows 9–13.
+Microsoft's docs were read where noted (`learn.microsoft.com`, 2026-11-12); everything is built
+against fakes and each connector's `NOTES.md` lists what is still unchecked. SharePoint is not
+built: it waits for `Sites.Selected`, which the client's admin grants per site.
+
+| Topic | Decision |
+|---|---|
+| Owner's choices | The strict file access (Microsoft itself limits what we reach where it can), a Mezonas bot for Teams, both calendars, and a separate Entra app per Microsoft connector (the recommendations of 2026-11-12, taken as given when the owner said "start"). // DECISION |
+| One Entra app each | Microsoft keeps consent per app and account and puts every consented Graph scope in a grant, so a shared app would let an Outlook grant carry Excel's file access, which Outlook's check refuses. Env names: `OUTLOOK_CLIENT_*` (as before), `ONEDRIVE_CLIENT_*`, `EXCEL_CLIENT_*`, `OUTLOOK_CALENDAR_CLIENT_*`; the Teams bot has its own (below). One Partner Network id verifies the publisher of all of them. // DECISION |
+| Shared sign-in | `packages/connectors/src/microsoft/identity.ts`: authorize on `common` with `prompt=select_account`, the code exchange with the exact-scope check (each asked Graph scope present; beyond them only OpenID's, `profile` and `User.Read`), the address from the ID token (issuer, audience, expiry checked; signature not, as Outlook), rotating refresh, and Graph calls that refresh once after a 401 and call nothing but `graph.microsoft.com`. Outlook moved onto it with its exports and tests unchanged; `microsoft/fake.ts` is the shared fake. |
+| OneDrive | `onedrive`, `Files.ReadWrite.AppFolder` only: Microsoft keeps us in `Apps/<app name>`, which is the connection's folder (made at sign-in by `special/approot`). Microsoft marks the delegated scope preview and lists it for personal accounts; whether work accounts get it is the first check (`onedrive/NOTES.md`), and the fallback (`Files.ReadWrite` with our own folder check) is the owner's call. // DECISION |
+| Same tools as Drive | OneDrive supplies `drive.file.upload` and `drive.file.list` in the shared `drive` namespace with Google Drive's exact schemas (§1.57's rule), so one workflow files by month in either drive and the agent's binding decides (`apps/api/src/onedrive.test.ts`). OneDrive's forbidden name characters become `-` rather than refusing a name Drive takes; the before state shows the name as it will be. // DECISION |
+| OneDrive once | Graph takes no idempotency key, but we can read our own folder: the attempt is recorded (`attempts`, as Slack) with the folder, exact name and size before the upload, which goes with `conflictBehavior=fail`; `keep_both` picks the free `name (n).ext` itself first. A retry with an open attempt looks for that name: the same size is ours (done), nothing there means the simple upload never landed and it goes again, anything else is unconfirmed for the operator. The list's page token is only Graph's `$skiptoken`. // DECISION |
+| No revoke | As Outlook: Microsoft has no per-app revoke of a delegated grant; disconnect drops our tokens and the person removes the app in their account. |
+| Compliance | None is a processor of ours: the client's own Microsoft and Google accounts, and our Teams bot posts into the client's own Teams as Google Chat's app does (`processors.ts`). |
+| Portal | Groups (OneDrive and Excel under files, Teams under messages, the calendars under other), marks (the calendars take Outlook's and Google's files; Teams, Excel and OneDrive their initials on their colour until the owner has files: Simple Icons doesn't carry Microsoft's marks) and run labels. |
+| Not wired | `deploy.yml` doesn't copy the new secrets yet: a CI/deploy change gets its own PR (CLAUDE.md). Until it does, each new connector shows "Not available yet" on staging. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

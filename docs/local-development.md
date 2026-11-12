@@ -52,6 +52,9 @@ pnpm --filter @countersign/web sweep   # with pnpm dev running: every screen in 
 | Podio | Sign-in starts but needs a real Podio API key to finish; tests use a fake Podio | `PODIO_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
 | Google Drive | Sign-in starts but needs the Google client to finish; tests use a fake Drive | `GOOGLE_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
 | Outlook | Sign-in starts but needs an Entra app to finish; tests use a fake Microsoft | `OUTLOOK_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
+| OneDrive, Excel, Outlook Calendar | Sign-in starts but needs each one's Entra app to finish; tests use a fake Microsoft (§1.97) | `ONEDRIVE_CLIENT_*`, `EXCEL_CLIENT_*`, `OUTLOOK_CALENDAR_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
+| Microsoft Teams | Off until our bot's keys are set; Teams must reach the messaging endpoint over https (a tunnel); tests use a fake Bot Framework | `TEAMS_BOT_*` |
+| Google Calendar | Sign-in starts but needs the Google client to finish; tests use a fake Google Calendar | `GOOGLE_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
 | Slack | Sign-in starts but needs our Slack app to finish (Slack may want an https redirect: a tunnel); tests use a fake Slack | `SLACK_CLIENT_*`, `OAUTH_STATE_SECRET`, `ENCRYPTION_KEY` |
 | Email (sending) | Off; doc requests stay in the inbox | `RESEND_API_KEY` |
 | Email forwarding (receiving) | Post a `.eml` to `wrangler dev` (below) | `EMAIL_FORWARDING_DOMAIN` (e.g. `in.mezonas.test`) |
