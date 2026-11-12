@@ -53,6 +53,11 @@ export interface Secrets {
   /** The Entra app registration "Mezonas": Outlook, send only (ARCHITECTURE §6.11). */
   OUTLOOK_CLIENT_ID?: string;
   OUTLOOK_CLIENT_SECRET?: string;
+  // §1.97: each Microsoft connector has its own Entra app (Microsoft keeps consent per app, so a
+  // shared one would put every connector's scopes in each grant).
+  /** The Entra app for OneDrive: `Files.ReadWrite.AppFolder` only. Name it "Mezonas" (the folder's name). */
+  ONEDRIVE_CLIENT_ID?: string;
+  ONEDRIVE_CLIENT_SECRET?: string;
   // v0.14 W4-E: the Google Chat app (docs/plan.md §1.60).
   /** The Chat app's service account key JSON, as one secret (`chat.bot`); never logged. */
   GOOGLE_CHAT_SERVICE_ACCOUNT?: string;

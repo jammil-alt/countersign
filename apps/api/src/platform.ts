@@ -48,6 +48,7 @@ import {
   // v0.12 W3-B
   createHubspotConnector,
   createLinkedInConnector,
+  createOnedriveConnector,
   createOutlookConnector,
   createPodioConnector,
   createQboConnector,
@@ -240,6 +241,9 @@ type OAuthEnvKey =
   // v0.12 W3-B: Outlook's Entra app.
   | "OUTLOOK_CLIENT_ID"
   | "OUTLOOK_CLIENT_SECRET"
+  // §1.97: the other Microsoft connectors' Entra apps, one each.
+  | "ONEDRIVE_CLIENT_ID"
+  | "ONEDRIVE_CLIENT_SECRET"
   // v0.14 W4-E: the Google Chat app.
   | "GOOGLE_CHAT_SERVICE_ACCOUNT"
   | "GOOGLE_CHAT_PROJECT_NUMBER"
@@ -283,6 +287,8 @@ export function platformFor(
     env.RAMP_CLIENT_ID ?? "-",
     env.HUBSPOT_CLIENT_ID ?? "-",
     env.OUTLOOK_CLIENT_ID ?? "-",
+    // §1.97
+    env.ONEDRIVE_CLIENT_ID ?? "-",
     // v0.14 W4-E: whether the key is set, never the key.
     env.GOOGLE_CHAT_SERVICE_ACCOUNT ? "gchat" : "-",
     env.GOOGLE_CHAT_PROJECT_NUMBER ?? "-",
@@ -389,6 +395,10 @@ export function deploymentConnectors(
         ? { clientId: env.OUTLOOK_CLIENT_ID, clientSecret: env.OUTLOOK_CLIENT_SECRET }
         : {},
     ),
+    // §1.97: OneDrive (the app folder only, Google Drive's tools), on its own Entra app: registered
+    // everywhere, signing in once ONEDRIVE_CLIENT_ID, ONEDRIVE_CLIENT_SECRET and OAUTH_STATE_SECRET
+    // are set.
+    createOnedriveConnector(oauthClient(env.ONEDRIVE_CLIENT_ID, env.ONEDRIVE_CLIENT_SECRET, env)),
     // v0.14 W4-E: Google Chat, the app of Mezonas' own: registered everywhere; a client connects it
     // once GOOGLE_CHAT_SERVICE_ACCOUNT and GOOGLE_CHAT_PROJECT_NUMBER are set.
     createGchatConnector({

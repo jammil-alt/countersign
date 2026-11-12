@@ -15,6 +15,9 @@
 // those vendors already have; we only read them, with a key the client enters, and send them
 // nothing (docs/plan.md §1.75). Mezonas has no contract with either for this. M50: `gsc_oauth`,
 // the same Search Console account by Google sign-in, is not a processor either (§1.78).
+// §1.97: none of the Microsoft connectors or Google Calendar are (`onedrive`, `excel`,
+// `outlook_calendar`, `gcal`: the client's own accounts, which only the client signs in to; `teams`:
+// our bot posts into the client's own Teams, as Google Chat's app does into its Chat).
 // §1.87: BILL (`billcom`) is, though the organization is the client's own: every call goes out
 // under Mezonas' developer key and agreement with BILL, as Plaid's do (the owner's brief).
 

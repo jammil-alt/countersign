@@ -55,6 +55,9 @@ const IMAGES: Record<string, string> = {
   stripe: stripeLogo,
   slack: slackLogo,
   outlook: outlookLogo,
+  // §1.97: the calendars take their provider's file (Outlook's, Google's "G").
+  outlook_calendar: outlookLogo,
+  gcal: googleLogo,
   zoho_crm: zohoLogo,
   linkedin: linkedinLogo,
   bing_webmaster: bingLogo,
@@ -71,8 +74,13 @@ const LOGOS: Record<string, { fill: string; path: string }> = {
   elevenlabs: { fill: "#000000", path: "M4.6035 0v24h4.9317V0zm9.8613 0v24h4.9317V0z" },
 };
 
-// A provider with no logo file and no published path: its initials (none today).
-const MONOGRAMS: Record<string, { fill: string | null; letters: string }> = {};
+// A provider with no logo file and no published path: its initials on its colour. §1.97: Microsoft's
+// Teams, Excel and OneDrive marks are not in Simple Icons and the owner has no files for them yet.
+const MONOGRAMS: Record<string, { fill: string | null; letters: string }> = {
+  teams: { fill: "#5B5FC7", letters: "T" },
+  excel: { fill: "#107C41", letters: "X" },
+  onedrive: { fill: "#0078D4", letters: "OD" },
+};
 
 const ICONS: Record<string, IconName> = {
   bankfeed: "bank",
