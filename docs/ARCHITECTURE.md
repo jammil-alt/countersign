@@ -7,15 +7,15 @@
 > **v0.17, area owners (2026-11-12, owner):** **One named owner per business area per client, not
 > per process.** Pia owns Purchasing and oversees all its processes, on the model the operator picks
 > for her (any priced provider, Grok included), with her notes (Markdown in her version) and memory
-> notes. Sloan becomes the client's chat and its room: its daily check and its two watches move
+> notes. Sloan becomes the client's chat: its daily check and its two watches move
 > into platform code. Between runs an owner drafts lasting fixes as new
 > versions from failures, people's edits, rejections and the client's requests, tests them on test
 > runs, and suggests them for approval: the client admin for the client's own settings, the
 > operator for the process, anything that loosens never. Clients talk to owners in chat and may
 > rename them; names rotate from a pool of short names; messages out are signed "Pia, purchasing
-> agent for {client}" with "Powered by mezonas.com". Sloan's room is the portal's home: the account
-> at a glance, with a live chat on every screen that guides, imports lists, explains what could be
-> built and drafts feedback to us. Changed: §10.15 (new), the glossary, Sloan (§9.8);
+> agent for {client}" with "Powered by mezonas.com". Home shows the account at a glance with Sloan's
+> chat beside it, on every screen; the chat guides, imports lists, explains what could be built,
+> drafts feedback to us, and keeps each person's conversations, picking up their context next time. Changed: §10.15 (new), the glossary, Sloan (§9.8);
 > `docs/plan.md` §1.96, §10. Invariants 9 and 11 gain a sentence each once the owner agrees.
 
 > **v0.16, the skill model (2026-11-10, owner):** **Two kinds of skill: deterministic or AI.** A
@@ -2877,7 +2877,7 @@ never promotes.
 
 #### Talking to an owner
 
-Clients talk to their owners in the portal's chat (below, "Sloan's room"): "@Pia" in any
+Clients talk to their owners in the portal's chat (below, "Home"): "@Pia" in any
 conversation, or "Ask Pia" on her card, makes Pia the one answering. An owner's chat is an account
 thread (§11.2) with the owner as its subject, answered on the owner's model, and follows Sloan's
 rules (invariant 11): it sees only what the portal shows, for its own area (runs, errors in the
@@ -2914,11 +2914,12 @@ Sloan's next template version (v6) keeps only `chat`; stored versions are unchan
 Its findings, fingerprints and the `health.*` tools stay, now called by the platform; Sloan reads
 them when someone asks ("Is anything broken?"). Sloan stays free.
 
-#### Sloan's room
+#### Home
 
-Sloan's place in the portal is a **room**: one screen that shows the whole account at a glance, with
-Sloan's chat beside it. It is the portal's home (`/`), replacing the Table's layout with the same
-facts and more. Every panel shows what the portal already may show (invariant 11).
+**Home** is the portal's first screen (`/`): the whole account at a glance, with Sloan's chat beside
+it, so it works as Sloan's room. It replaces the Table's layout with the same facts and more. Its
+panels are the platform's facts, not Sloan's work: Sloan owns no area, process or screen. Every panel
+shows what the portal already may show (invariant 11).
 
 | Panel | What it shows |
 |---|---|
@@ -2934,6 +2935,23 @@ facts and more. Every panel shows what the portal already may show (invariant 11
 panel, over the page, with the conversation kept across screens. Sloan is told which screen the
 person is on (its path and the record shown, never more than the screen shows), so "what is this?"
 works. `/sloan` keeps the full history.
+
+**Conversation history.** Every chat, with Sloan or with an owner, is an account thread (§11.2) and
+is kept. The chat panel opens the person's latest conversation; "New conversation" starts another;
+History lists the rest, newest first, searchable by words and by agent, and writing in an old one
+continues it with all of it in view. Context also carries across conversations, per person:
+- When a conversation has been quiet for 30 minutes, the platform writes a short summary of it
+  (what was asked, what was done, what is still open), on Sloan's model, as Sloan's cost (free to
+  the client). It is a `memory_note` with `scope = 'person'` and the person's id.
+- A new conversation starts with the person's last 10 summaries and what is still open for them
+  (their requests, drafts waiting on them, imports not confirmed), read from the records, not
+  remembered. "Where were we on the vendor import?" works the next day.
+- `account.history` searches the person's own past conversations and returns snippets with links,
+  for anything older.
+- Only the person's own: Sloan never brings one person's conversation into another's, and an owner
+  carries context only from its own chats with that person, within its area. Summaries go in as
+  data (invariant 9). The person can delete one ("Forget this"), and history follows the client's
+  retention.
 
 **What Sloan does in the chat**, each through an `account.*` tool, for the person asking:
 - **Guides:** how to do something in the portal, from a plain-language guide per screen

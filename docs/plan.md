@@ -4425,11 +4425,11 @@ surfaces: the back office's `/ops/runs/:id` and the client's `/runs/:id`.
 | Data tab | When the step made, changed or cited anything: its changes, the records it cites (`sources`) and the documents it names (`documentId`, `documentIds`; `stepDocumentIds`), each with its page. Records and documents have no link to a step run of their own, so the tab reads the step's data. |
 | Checked | `packages/core/src/api/step-data.test.ts`, `apps/web/src/runs/StepPanel.test.tsx`, `apps/web/src/portal/screens/RunStepPanel.test.tsx`, `apps/web/src/ops/screens/RunView.test.tsx` ("back-office step panel"), `apps/api/src/runs.test.ts` (the client's timeline carries the step's input and the change by its step, and `forbiddenKeys` finds none). |
 
-### 1.96 Area owners, owner chat and Sloan's room (ARCHITECTURE v0.17 §10.15, owner 2026-11-12)
+### 1.96 Area owners, owner chat and Home (ARCHITECTURE v0.17 §10.15, owner 2026-11-12)
 
 The owner (R6) moves from one per process to one named owner per business area per client, drafts
-changes between runs for approval, and talks with the client; Sloan becomes the client's chat and
-its room. Built in the O-stream (§10), one milestone at a time.
+changes between runs for approval, and talks with the client; Sloan becomes the client's chat,
+beside Home. Built in the O-stream (§10), one milestone at a time.
 
 | Topic | Decision |
 |---|---|
@@ -4447,7 +4447,8 @@ its room. Built in the O-stream (§10), one milestone at a time.
 | Watch after a change | 10 runs or 7 days against the 10 runs before; worse suggests a rollback, marked urgent, to the same approver. |
 | Signals | 3 in 14 days for repeated failures, corrections and edits on one field. // DECISION: low enough to catch a habit in a week of normal use, high enough to ignore a one-off. |
 | Owner chat | An account thread with the owner as subject; `@Name` or "Ask Name" routes to it. Read tools scoped to the owner's area; drafts through the paths above. Counts in usage like any model call; Sloan stays free. |
-| Sloan's room | The portal's home (`/`), replacing the Table's layout: Now, Owners, Recent actions, Health, Conversations, Ideas, Quick actions (ARCHITECTURE §10.15). |
+| Home | The portal's home (`/`), replacing the Table's layout: Now, Your agents, Recent actions, Health, Conversations, Ideas, Quick actions (ARCHITECTURE §10.15). Named Home, not Sloan's room (owner, 2026-11-12): its panels are the platform's facts. |
+| Conversation history | Every chat is kept as an account thread; the panel opens the latest, with New and a searchable History. After 30 quiet minutes the platform writes a summary as a `memory_note` (`scope = 'person'`, the person's id; migration O1); a new conversation starts with the person's last 10 summaries and their open items from the records; `account.history` searches older ones. Per person only; deletable. // DECISION: 30 minutes, 10 summaries. |
 | Live chat | A Sloan button top right on every portal screen opens a side panel kept across screens; the screen's path and record go with each message as context. |
 | Sloan's new tools | `account.help` (the per-screen guide in `packages/core/src/help/`), `account.import_list` (the directory's CSV import: preview, suggested mapping, confirm), `account.switch_account` and `account.open` (links), `account.capabilities` (areas and published templates not in use: names and one line), `account.draft_feedback` (shown to the person before it is sent). |
 
@@ -4462,8 +4463,6 @@ HAL), Sloan, and anything starting with S.
 
 Open for the owner:
 1. **The name pool** above: keep, cut or add.
-2. **Sloan's room as the portal's home**, replacing the Table's layout (recommended), or a room of
-   its own beside it.
 
 ## 2. Package layering
 
@@ -5949,7 +5948,8 @@ checked on staging: Browser Run's support for a context-wide `route` and `servic
 Each milestone ends green. Migrations in their own PR (O1).
 
 - **O1 Migration (0048).** `agent.kind` gains `owner`; `agent.area`; `run.owner_version_id`; the
-  unique owner per client and area; checks updated so an owner has a tenant and no stage.
+  unique owner per client and area; checks updated so an owner has a tenant and no stage;
+  `memory_note.person_id` (null except for `scope = 'person'`).
 - **O2 Core.** The owner bundle schema, areas and their defaults, settings precedence, `remember` on
   decisions, the name pool and rotation, the signature words, the change classifier with tests.
 - **O3 Runtime.** Owners created per client and area (on first fork into an area, and a backfill for
@@ -5962,10 +5962,11 @@ Each milestone ends green. Migrations in their own PR (O1).
 - **O5 Sloan as the chat.** Template v6 (chat only); the daily check on the Worker's cron; failed
   runs and connections filed by code. Done when: a client's daily check, a failed run and a lapsed
   connection each produce today's items with no Sloan run.
-- **O6 Sloan's room and the live chat.** The portal home as the room; the top-right chat panel on
-  every screen with the screen as context; Sloan's new tools (guide, list import, switch, open,
-  capabilities, feedback). Done when: a client imports a vendor list from the chat, after a preview,
-  and the room shows it in Recent actions.
+- **O6 Home and the live chat.** Home; the top-right chat panel on every screen with the screen as
+  context; conversation history with per-person summaries and `account.history`; Sloan's new tools
+  (guide, list import, switch, open, capabilities, feedback). Done when: a client imports a vendor
+  list from the chat, after a preview, and Home shows it in Recent actions; the next day, in a new
+  conversation, "where were we on the import?" is answered from yesterday's summary.
 - **O7 Owner chat and renaming.** `@Name` threads answered by the owner within its area; the client
   admin renames an owner. Done when: a client asks Pia what failed this week and gets this week's
   failures with links, and a rename shows everywhere at once.
@@ -5975,5 +5976,5 @@ Each milestone ends green. Migrations in their own PR (O1).
   asks Pia to run the vendor follow-up weekly; the client admin confirms the draft, the operator
   approves it, and the next runs follow the new schedule.
 
-Status (2026-11-12): designed (ARCHITECTURE v0.17); nothing built yet. Waiting only on §1.96's two
-open questions, which affect O2 (names) and O6 (the room).
+Status (2026-11-12): designed (ARCHITECTURE v0.17); nothing built yet. Waiting only on §1.96's open
+question (the name pool, for O2).
