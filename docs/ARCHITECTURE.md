@@ -7,11 +7,15 @@
 > **v0.17, area owners (2026-11-12, owner):** **One named owner per business area per client, not
 > per process.** Pia owns Purchasing and oversees all its processes, on the model the operator picks
 > for her (any priced provider, Grok included), with her notes (Markdown in her version) and memory
-> notes. Sloan becomes only the client's chat: its daily check and its two watches move into
-> platform code. Between runs an owner drafts lasting fixes as new
+> notes. Sloan becomes the client's chat and its room: its daily check and its two watches move
+> into platform code. Between runs an owner drafts lasting fixes as new
 > versions from failures, people's edits, rejections and the client's requests, tests them on test
-> runs, and hands them over by class: a **tune** it may apply if the operator allowed it, a
-> **reshape** the operator signs, anything that loosens never. Changed: §10.15 (new), the glossary, Sloan (§9.8);
+> runs, and suggests them for approval: the client admin for the client's own settings, the
+> operator for the process, anything that loosens never. Clients talk to owners in chat and may
+> rename them; names rotate from a pool of short names; messages out are signed "Pia, purchasing
+> agent for {client}" with "Powered by mezonas.com". Sloan's room is the portal's home: the account
+> at a glance, with a live chat on every screen that guides, imports lists, explains what could be
+> built and drafts feedback to us. Changed: §10.15 (new), the glossary, Sloan (§9.8);
 > `docs/plan.md` §1.96, §10. Invariants 9 and 11 gain a sentence each once the owner agrees.
 
 > **v0.16, the skill model (2026-11-10, owner):** **Two kinds of skill: deterministic or AI.** A
@@ -2802,11 +2806,26 @@ next time ("Acme's invoices put the PO number in the footer"). Each becomes a `m
 owner, written by code from the decision (an internal write, logged with `agent_version_id`), shown
 and deletable on the owner's page. The owner still calls no tools.
 
+**Names.** Short names, 3 or 4 letters, from one pool of 40 in `packages/core/src/owners/names.ts`
+(`docs/plan.md` §1.96), rotated: each client starts at its own place in the pool, and a client's
+owners never share a first letter or start with S (Sloan). The client admin may rename an owner in
+the portal; the name is a field on the owner's row (`agent.name`), not a new version, so renaming
+never touches what the owner does. The only edit a client makes to an agent.
+
 **Names shown.** The back office shows "Owner: Pia (Purchasing)" on each process and run, and Pia's
 decisions under her name. The portal's words take the name ("Pia corrected the vendor name and
 tried again"), never her notes, prompts or cost (invariant 11). An owner is always marked as an
-agent (ink, the agent marker; never copper, which is for people). A message an agent sends outside
-the client (a vendor, a customer) is signed as an agent: "Pia, Mezonas agent for {client}".
+agent (ink, the agent marker; never copper, which is for people).
+
+**Signature.** A message an agent sends outside the client (a vendor, a customer) is signed with the
+owner's name and the area's function, and a small line under it:
+
+    Pia, purchasing agent for Acme Supply
+    Powered by mezonas.com
+
+`general` signs as "operations agent". Email carries both lines in the signature block; a text or
+WhatsApp message carries "Powered by mezonas.com" on the first message of each conversation only,
+for length. The words are the platform's, in the client's language; the operator can't remove them.
 
 #### Changes the owner drafts
 
@@ -2839,21 +2858,44 @@ bundle diff, never decided by the model.
    evidence, and the class below. At most one open draft per process; a declined fix is not drafted
    again for 30 days (fingerprinted like proposals).
 
-**Three classes.** `packages/core/src/process/change-class.ts` classifies a diff; the strictest
-change in it sets the class.
+**Every change is suggested and approved** (owner, 2026-11-12). The owner never applies a change
+itself. `packages/core/src/process/change-class.ts` classifies a draft from its diff, by code, and
+the class says who approves:
 
-| Class | What it covers | Who applies it |
+| Class | What it covers | Who approves |
 |---|---|---|
-| **Tune** | The owner's own notes and memory; wording in a skill step's settings or a message template; a skill parameter within its declared range; timeouts and retry counts; a deadline made longer; a step's model, priced no higher than the current one | The owner, as a new version, **only if the operator switched on "Pia may tune" for that owner** (off by default). The operator is told; one click rolls it back |
-| **Reshape** | Changes the steps without loosening: add, remove or move a step that doesn't write; add a check (confer, approval, notify); tighten a condition; add a route that ends in asking a person | The operator, on the inbox item (one click with the diff and test results) |
-| **Never** | Anything that loosens or widens: approval `required` → `not_required`; removing an approval or check; a new write step or write tool; a new connector, tool, grant, permission, mode or stage; who approves; the owner's own limits; another process, another client or a template | Not drafted. It stays a proposal in words; the operator does it in the builder if they agree |
+| **Client settings** | Who is contacted, business hours, channels: what the client already edits in its portal (§10.14, "The Library and the client's settings") | The client admin, on the Desk or in the chat, as Sloan's drafted changes are today; applied by the portal's own code |
+| **Process** | Anything in the process that doesn't loosen: a schedule or how often it runs, wording, a parameter, a timeout, a model priced no higher; adding, removing or moving a step that doesn't write; adding a check; tightening a condition | The operator, with one click on the diff and test results. If the client asked for it, the client admin first confirms "that's what I meant", then it goes to the operator |
+| **Never** | Anything that loosens or widens: approval `required` → `not_required`; removing an approval or check; a new write step or write tool; a new connector, tool, grant, permission, mode or stage; who approves; the owner's own limits; another process, another client or a template | Not drafted. The owner says so in plain words and files it for the lead; the operator does it in the builder if they agree |
 
 **After a change.** New runs use the new version; runs in flight keep the version they pinned. For
 10 runs or 7 days the owner compares failures, corrections and edits with the 10 runs before. If
-they got worse, it rolls a tune back on its own (a new version restoring the previous bundle,
-invariant 3) and tells the operator; a reshape it flags for the operator. A fix that would help
-every client using the template is offered to the operator as "Promote to the template?", through
-the existing promote path; the owner never promotes.
+they got worse, it suggests rolling back (a new version restoring the previous bundle, invariant 3),
+marked urgent, for the same approver. A fix that would help every client using the template is
+offered to the operator as "Promote to the template?", through the existing promote path; the owner
+never promotes.
+
+#### Talking to an owner
+
+Clients talk to their owners in the portal's chat (below, "Sloan's room"): "@Pia" in any
+conversation, or "Ask Pia" on her card, makes Pia the one answering. An owner's chat is an account
+thread (§11.2) with the owner as its subject, answered on the owner's model, and follows Sloan's
+rules (invariant 11): it sees only what the portal shows, for its own area (runs, errors in the
+platform's words, what is waiting, what changed, schedules, who is contacted); it writes only
+internal records for the person asking; it never loosens a rule; no notes, prompts or cost reach the
+client.
+
+What a client can ask Pia for:
+- **Updates:** "What failed this week?", "Why is the Acme bill waiting?", "When does the price check
+  run next?" Answered from the area's runs and items, with links.
+- **Changes:** "Run the vendor follow-up every Tuesday instead of daily", "Send RFQs to Dana, not
+  Sam", "Stop texting after 6 pm". Pia drafts it as above (client settings or process), shows the
+  client what will change, and says who approves and when it applies.
+- **Something she can't do:** a loosening, a new connector, another area. She says so and files a
+  request for the lead, in the client's words.
+
+An owner's chat counts in the client's usage like any model call (operator side only); Sloan stays
+free.
 
 #### Sloan is the chat
 
@@ -2872,17 +2914,53 @@ Sloan's next template version (v6) keeps only `chat`; stored versions are unchan
 Its findings, fingerprints and the `health.*` tools stay, now called by the platform; Sloan reads
 them when someone asks ("Is anything broken?"). Sloan stays free.
 
+#### Sloan's room
+
+Sloan's place in the portal is a **room**: one screen that shows the whole account at a glance, with
+Sloan's chat beside it. It is the portal's home (`/`), replacing the Table's layout with the same
+facts and more. Every panel shows what the portal already may show (invariant 11).
+
+| Panel | What it shows |
+|---|---|
+| **Now** | Running, waiting on you (signal, with the word and the count), failed today, next scheduled run |
+| **Owners** | A card per owner: name, area, health in a word (Working, Needs you, Stopped), runs and corrections this week, the last thing it did, "Ask Pia" |
+| **Recent actions** | One feed, newest first: owners' corrections and retries, changes suggested and applied, Sloan's own actions (a list imported, a request filed, an agent paused), each with its link |
+| **Health** | Connections, website logins and codes from the daily check, each with what to do ("Reconnect QuickBooks") |
+| **Conversations** | New conversations with vendors and customers (§10.12) and new chats with owners, unread first |
+| **Ideas** | What else Mezonas could do for this client: areas and templates it doesn't use yet, in a line each, with "Ask us about this" |
+| **Quick actions** | Upload a list, Switch account, Open an agent, Send feedback to us |
+
+**The live chat.** A Sloan button at the top right of every portal screen opens the chat in a side
+panel, over the page, with the conversation kept across screens. Sloan is told which screen the
+person is on (its path and the record shown, never more than the screen shows), so "what is this?"
+works. `/sloan` keeps the full history.
+
+**What Sloan does in the chat**, each through an `account.*` tool, for the person asking:
+- **Guides:** how to do something in the portal, from a plain-language guide per screen
+  (`packages/core/src/help/`, read as data), with a link to the screen.
+- **Imports a list:** a CSV or spreadsheet of employees, vendors or customers attached in the chat
+  goes through the directory's import (preview, column mapping Sloan suggests, duplicates shown);
+  nothing is saved until the person confirms.
+- **Switches account** for a person who belongs to more than one client, and **opens an agent**,
+  a run or a screen, as links.
+- **Explains what could be built:** the areas and published templates this client doesn't use, by
+  name and one-line description (never prompts or cost), and what each would need.
+- **Drafts feedback or a request to us:** in the person's words, shown to them before it is sent;
+  sent as feedback (§1.10 of the plan) or a request (§11).
+- **Passes a question to an owner** ("@Pia"), and to the lead, as today.
+
 **What the client sees.** In the portal, a process's "What changed" lists each applied change in
 platform words ("Pia now reads the PO number from the invoice footer, after 4 of your edits"), with
-"Tell Pia" if it got worse. Clients don't approve or undo changes; agents remain the operator's to
-build (invariant 11).
+"Tell Pia" if it got worse. Clients approve changes to their own settings and confirm the ones they
+asked for; changes to a process remain the operator's to approve (invariant 11).
 
-**What this changes in the invariants** (pending the owner's yes, `docs/plan.md` §1.96):
+**The invariants** (owner's yes, 2026-11-12; CLAUDE.md):
 - Invariant 9 gains: "Between runs, an owner may draft a new version of a process it oversees; it
-  applies one itself only for a tune the operator allowed, and never one that loosens."
-- Invariant 11 gains: "An owner's tune is a new version authored by the owner (`author_type =
-  'agent'`) under the operator's switch; the operator can roll it back."
-- §10.11's "nothing changes a bundle on its own" holds for runs; between runs it is as above.
+  is applied only once approved, and an owner never drafts one that loosens."
+- Invariant 11 gains: "Clients may rename their area owners and talk to them; an owner in chat keeps
+  Sloan's rules for its own area."
+- §10.11's "nothing changes a bundle on its own" still holds: an owner's draft changes nothing until
+  someone approves it.
 
 ---
 

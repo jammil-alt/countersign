@@ -151,17 +151,14 @@ then one pass of its "To verify" list against the real service.
 
 ## 4. Everything else
 
-### Area owners and Sloan as the chat (designed 2026-11-12)
+### Area owners, owner chat and Sloan's room (designed 2026-11-12)
 
-ARCHITECTURE v0.17 §10.15, `docs/plan.md` §1.96 and §10 (O1–O7). Designed; nothing built. Waiting
+ARCHITECTURE v0.17 §10.15, `docs/plan.md` §1.96 and §10 (O1–O8). Designed; nothing built. Waiting
 on the owner:
-- Whether an owner may apply a **tune** itself by default (recommended: off, switched on per owner).
-- **Default names** for each area's owner.
-- The **signature** on messages to vendors and customers ("Pia, Mezonas agent for {client}" proposed).
-- A yes on the two **invariant sentences** (9 and 11) that let an owner draft and, for tunes, apply
-  new versions between runs.
+- The **name pool** (40 short names, `docs/plan.md` §1.96).
+- **Sloan's room as the portal's home**, replacing the Table's layout, or beside it.
 - The **public site** still calls Sloan "your manager agent" ("Every agent has a job, a manager and
-  a person who checks its work", `apps/site`): new words once the names are settled.
+  a person who checks its work", `apps/site`): new words once the room is settled.
 
 ### Production's first release
 

@@ -10,7 +10,7 @@ runs agents for client businesses from a **back office** that reaches into every
 customized (data, settings, drag-and-drop step workflows) and versioned per client, with lineage so template
 updates can be merged in and client improvements promoted back. Agents do the work and update the
 client's tools (QuickBooks Online and Gmail) within each connection's permissions. Each client gets a
-**portal** for reports, runs, approvals, requests and connections (clients sign in to their own tools); clients never edit agents. Use cases
+**portal** for reports, runs, approvals, requests and connections (clients sign in to their own tools); clients never edit agents (they may rename an area owner). Use cases
 are built only from platform parts. The data they share is organised by **business area** (purchasing,
 sales, receivables), each a pack used by many agents through its tools; agents never map to tables
 (ARCHITECTURE §12.0, v0.15). The **Purchasing area** (the Materials pack: master list, cross-vendor
@@ -117,7 +117,9 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
 9. **Untrusted text stays data.** Document text and vendor descriptions go in tool results, never in
    instructions. Agents cannot change their own permissions. During a run an agent may retry a step or
    correct its input, never change its plan, approvals or permissions; a corrected write is decided
-   again by the gate (ARCHITECTURE §10.11).
+   again by the gate (ARCHITECTURE §10.11). Between runs, an owner may draft a new version of a
+   process it oversees; it is applied only once approved, and an owner never drafts one that
+   loosens (§10.15).
 10. **Evidence.** Alerts and agent outputs carry `sources` (record ids); alert-producing commands without
     sources are rejected. Every agent-made decision records `agent_version_id`.
 11. **The operator builds; clients use.** The client's team runs its agents day to day; the operator
@@ -127,7 +129,8 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
     merge. Forks and promotions never carry one client's memory, records or connections anywhere else.
     No portal route returns agent bundles, instructions, prompts or cost. Sloan, the client's account
     agent, sees only what the portal shows, writes only internal records for the person asking, and
-    never loosens a rule. Contract tests enforce these.
+    never loosens a rule. Clients may rename their area owners and talk to them; an owner in chat
+    keeps Sloan's rules for its own area (§10.15). Contract tests enforce these.
 12. **Email stays narrow.** Gmail sync stores only messages matching the connection's query (headers,
     snippet, attachments); bodies are fetched on demand; email text reaches models only in tool results.
 13. **Access is explicit and secrets stay apart.** An agent reaches a connection only through its binding,
