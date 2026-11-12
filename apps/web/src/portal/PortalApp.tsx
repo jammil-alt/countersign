@@ -22,6 +22,7 @@ import { INBOX_COUNT_POLL_MS, InboxCountProvider } from "./inboxCount";
 import { useIntentZone } from "./intent";
 import { askSloan, PORTAL_PATHS } from "./paths";
 import { portalRoutes } from "./routes";
+import { SloanPanelProvider, useSloanPanel } from "./SloanPanel";
 
 /** A page change asks the overview again only when its answer is older than this. */
 export const OVERVIEW_STALE_MS = 5_000;
@@ -73,7 +74,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
   );
 
   return (
-    <>
+    <SloanPanelProvider>
       <AppShell
         surface="portal"
         home="/"
@@ -176,7 +177,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
         </InboxCountProvider>
       </AppShell>
       {feedback.data?.enabled ? <FeedbackButton surface="portal" /> : null}
-    </>
+    </SloanPanelProvider>
   );
 }
 
@@ -189,6 +190,8 @@ export function AskSloanButton() {
   const { t } = useI18n();
   const label = t("shell.askSloanButton");
   const hint = t("shell.askSloanHint");
+  // v0.17 (§10.15 "Home"): opens Sloan's chat beside the screen; its link goes to /sloan.
+  const panel = useSloanPanel();
   return (
     <NavLink
       to={PORTAL_PATHS.sloan}
@@ -196,6 +199,12 @@ export function AskSloanButton() {
       title={hint}
       aria-label={`${label}. ${hint}`}
       data-testid="shell-ask-sloan"
+      onClick={(e) => {
+        // A plain click opens the panel; a new-tab click still goes to the full page.
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+        e.preventDefault();
+        panel.open();
+      }}
     >
       <AgentBadge name="Sloan" size="sm" />
       <span className="ui-topbar__asklabel">{label}</span>

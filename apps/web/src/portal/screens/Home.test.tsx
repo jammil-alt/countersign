@@ -635,4 +635,47 @@ describe("Home's account check", () => {
     await userEvent.click(screen.getByTestId("desk-done"));
     expect(sent).toEqual([{ decision: "approve" }]);
   });
+
+  // v0.17 (ARCHITECTURE §10.15 "Home"): who looks after what, ideas, and Ask opening the chat.
+  it("shows each area owner with its week, the ideas, and opens Sloan's chat at Ask", async () => {
+    const threads: unknown[] = [];
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(),
+      "GET /api/table": () =>
+        tableView({
+          ...TABLE,
+          owners: [
+            {
+              id: "00000000-0000-4000-8000-0000000a0a01",
+              name: "Pia",
+              area: "purchasing",
+              processes: 3,
+              health: "needs_you",
+              runs: 21,
+              corrected: 3,
+              last: "Pia corrected the vendor name and tried again",
+            },
+          ],
+          ideas: [{ area: "sales", title: "Sales", line: "Follow up quotes that went quiet." }],
+        }),
+      "GET /api/access": () => ACCESS,
+      "GET /api/weekly": () => ({ table: null, weeks: [] }),
+      "GET /api/threads": () => {
+        threads.push(1);
+        return { threads: [] };
+      },
+    });
+    renderAt("/", api);
+    const card = await screen.findByTestId("home-owner-purchasing");
+    expect(card).toHaveTextContent("Pia");
+    expect(card).toHaveTextContent("Needs you");
+    expect(card).toHaveTextContent("Runs this week: 21. Corrected and tried again: 3.");
+    expect(card).toHaveTextContent("Pia corrected the vendor name and tried again");
+    expect(screen.getByTestId("home-ideas")).toHaveTextContent("Follow up quotes that went quiet.");
+    await userEvent.click(within(card).getByRole("button", { name: "Ask Pia" }));
+    const panel = await screen.findByTestId("portal-sloan-panel");
+    expect(within(panel).getByRole("textbox")).toHaveValue("@Pia ");
+    expect(threads.length).toBeGreaterThan(0);
+  });
 });

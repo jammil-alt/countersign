@@ -169,19 +169,22 @@ export function PortalSloanScreen() {
   );
 }
 
-function Conversation({
+export function Conversation({
   threadId,
   start,
   onStarted,
+  prefill,
 }: {
   threadId: string | null;
   start: () => Promise<string | null>;
   onStarted: (id: string) => void;
+  /** v0.17: text put in the box when the chat panel opens ("@Pia "). */
+  prefill?: string | undefined;
 }) {
   const { t } = useI18n();
   const api = useApiClient();
   const [params] = useSearchParams();
-  const [text, setText] = useState(() => params.get("ask") ?? "");
+  const [text, setText] = useState(() => prefill || (params.get("ask") ?? ""));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const messages = useApi(

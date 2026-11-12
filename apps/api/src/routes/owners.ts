@@ -10,68 +10,15 @@ import {
   OwnerDefinition,
   ownerNameProblem,
   type PortalOwnerView,
-  processArea,
   routes,
 } from "@countersign/core";
-import {
-  agent,
-  agentVersion,
-  areaOwner,
-  areaOwnerVersion,
-  memoryNote,
-  type Tx,
-} from "@countersign/db";
+import { agent, areaOwner, areaOwnerVersion, memoryNote, type Tx } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
-import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
-import { ensureAreaOwner, packsOf } from "../owners/store";
+import { ensureAreaOwner, processesOf } from "../owners/store";
 import type { Platform } from "../platform";
-
-/** A client's processes (its client agents, test copies left out), each with its area. */
-async function processesOf(
-  tx: Tx,
-  tenantId: string,
-  platform: Platform,
-): Promise<{ agentId: string; name: string; area: OwnerArea; areaSet: boolean }[]> {
-  const rows = await tx
-    .select({
-      id: agent.id,
-      name: agent.name,
-      serviceName: agent.serviceName,
-      area: agent.area,
-      bundle: agentVersion.bundle,
-    })
-    .from(agent)
-    .leftJoin(
-      agentVersion,
-      and(eq(agentVersion.id, agent.liveVersionId), eq(agentVersion.tenantId, agent.tenantId)),
-    )
-    .where(
-      and(
-        eq(agent.tenantId, tenantId),
-        eq(agent.kind, "client"),
-        eq(agent.testCopy, false),
-        ne(agent.status, "disabled"),
-      ),
-    )
-    .orderBy(asc(agent.name));
-  return rows.map((r) => {
-    const definition = (
-      r.bundle as { definition?: { area?: string; skills?: { skill: string }[] } }
-    )?.definition;
-    return {
-      agentId: r.id,
-      name: r.serviceName ?? r.name,
-      area: processArea({
-        set: r.area,
-        declared: definition?.area,
-        requiresPacks: packsOf(definition?.skills, (id) => platform.catalog.get(id)),
-      }),
-      areaSet: r.area !== null,
-    };
-  });
-}
 
 async function ownerView(
   tx: Tx,

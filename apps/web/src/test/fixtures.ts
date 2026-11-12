@@ -61,6 +61,9 @@ export function tableService(
 export function tableView(over: Partial<TableView> = {}): TableView {
   return {
     client: { id: "00000000-0000-4000-8000-00000000a002", name: "Demo client", timezone: "UTC" },
+    // v0.17: no owners or ideas unless the test says so.
+    owners: [],
+    ideas: [],
     week: {
       weekStart: "2026-11-02",
       from: "2026-11-02T00:00:00.000Z",

@@ -12,8 +12,15 @@ import {
   processArea,
   type SkillDefinition,
 } from "@countersign/core";
-import { agent, areaOwner, areaOwnerVersion, memoryNote, type Tx } from "@countersign/db";
-import { and, desc, eq } from "drizzle-orm";
+import {
+  agent,
+  agentVersion,
+  areaOwner,
+  areaOwnerVersion,
+  memoryNote,
+  type Tx,
+} from "@countersign/db";
+import { and, asc, desc, eq, ne } from "drizzle-orm";
 
 /** The packs a bundle's skills need, read from the skill catalog. */
 export function packsOf(
@@ -140,4 +147,49 @@ export async function ownerMemory(
     .orderBy(desc(memoryNote.createdAt))
     .limit(limit);
   return rows.map((r) => r.note);
+}
+
+/** A client's processes (its client agents, test copies left out), each with its area. */
+export async function processesOf(
+  tx: Tx,
+  tenantId: string,
+  platform: { catalog: { get(id: string): Pick<SkillDefinition, "requiresPacks"> | undefined } },
+): Promise<{ agentId: string; name: string; area: OwnerArea; areaSet: boolean }[]> {
+  const rows = await tx
+    .select({
+      id: agent.id,
+      name: agent.name,
+      serviceName: agent.serviceName,
+      area: agent.area,
+      bundle: agentVersion.bundle,
+    })
+    .from(agent)
+    .leftJoin(
+      agentVersion,
+      and(eq(agentVersion.id, agent.liveVersionId), eq(agentVersion.tenantId, agent.tenantId)),
+    )
+    .where(
+      and(
+        eq(agent.tenantId, tenantId),
+        eq(agent.kind, "client"),
+        eq(agent.testCopy, false),
+        ne(agent.status, "disabled"),
+      ),
+    )
+    .orderBy(asc(agent.name));
+  return rows.map((r) => {
+    const definition = (
+      r.bundle as { definition?: { area?: string; skills?: { skill: string }[] } }
+    )?.definition;
+    return {
+      agentId: r.id,
+      name: r.serviceName ?? r.name,
+      area: processArea({
+        set: r.area,
+        declared: definition?.area,
+        requiresPacks: packsOf(definition?.skills, (id) => platform.catalog.get(id)),
+      }),
+      areaSet: r.area !== null,
+    };
+  });
 }

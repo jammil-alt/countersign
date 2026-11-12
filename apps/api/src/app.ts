@@ -6,6 +6,7 @@ import { routes } from "@countersign/core";
 import type { Db } from "@countersign/db";
 import { Hono } from "hono";
 import { sloanTick } from "./account/sloan";
+import { summarizeQuietConversations } from "./account/summaries";
 import { bankfeedCron } from "./bankfeed/sync";
 import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
@@ -315,6 +316,8 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
         healthTick: async (tenantId, at, timeZone) => {
           const run = forClient(runDepsFromEnv(env, { db, platform, instances }), tenantId);
           await platformHealthTick({ db, runtime: runtimeFor(run) }, tenantId, at, timeZone);
+          // v0.17: each person's quiet conversations summarized for next time (§10.15).
+          await summarizeQuietConversations({ db, transport: run.transport }, tenantId, at);
         },
       },
       scheduledTime,

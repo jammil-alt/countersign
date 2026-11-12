@@ -25,10 +25,12 @@ import {
   type AccountRunView,
   type AccountService,
   type AccountWaitExplanation,
+  AREA_IDEAS,
   acceptingTriggers,
   acceptsSloan,
   isPlainObject,
   mayAskFor,
+  OWNER_AREAS,
   passToAgentEvent,
   ThreadMessagePostedPayload,
 } from "@countersign/core";
@@ -36,14 +38,18 @@ import {
   agent,
   agentVersion,
   appUser,
+  areaOwner,
   type Db,
   event,
   membership,
+  memoryNote,
+  message,
   run,
   type Tx,
+  thread,
   withTenant,
 } from "@countersign/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { AgentsError } from "../errors";
 import type {
   AccountCall,
@@ -277,6 +283,85 @@ export function dbAccountPort(
   const paused: AccountPauseOutcome = { status: "test_run", service: null };
 
   return {
+    // v0.17 (ARCHITECTURE §10.15 "Conversation history"): the asker's own, never anyone else's.
+    history: (tenantId, call, input) =>
+      scoped(tenantId, call, "read", async (s) => {
+        const userId = s.asker.userId;
+        if (!userId) return { summaries: [], messages: [] };
+        const summaries = await s.tx
+          .select({ note: memoryNote.note, at: memoryNote.createdAt, threadId: message.threadId })
+          .from(memoryNote)
+          .leftJoin(
+            message,
+            and(
+              eq(message.id, memoryNote.sourceMessageId),
+              eq(message.tenantId, memoryNote.tenantId),
+            ),
+          )
+          .where(
+            and(
+              eq(memoryNote.tenantId, tenantId),
+              eq(memoryNote.scope, "person"),
+              eq(memoryNote.personId, userId),
+            ),
+          )
+          .orderBy(desc(memoryNote.createdAt))
+          .limit(input.limit);
+        const words = input.query?.trim();
+        const messages = words
+          ? await s.tx
+              .select({
+                threadId: message.threadId,
+                title: thread.title,
+                body: message.body,
+                at: message.createdAt,
+              })
+              .from(message)
+              .innerJoin(
+                thread,
+                and(eq(thread.id, message.threadId), eq(thread.tenantId, message.tenantId)),
+              )
+              .where(
+                and(
+                  eq(message.tenantId, tenantId),
+                  eq(thread.subjectType, "account"),
+                  eq(thread.createdBy, userId),
+                  sql`${message.body}->>'text' ilike ${`%${words.replace(/[%_]/g, "")}%`}`,
+                ),
+              )
+              .orderBy(desc(message.createdAt))
+              .limit(input.limit)
+          : [];
+        return {
+          summaries: summaries.map((r) => ({
+            note: r.note,
+            at: r.at.toISOString(),
+            threadId: r.threadId ?? null,
+          })),
+          messages: messages.map((m) => ({
+            threadId: m.threadId,
+            title: m.title,
+            text: String((m.body as { text?: unknown }).text ?? "").slice(0, 500),
+            at: m.at.toISOString(),
+          })),
+        };
+      }),
+    // v0.17: the areas this client doesn't use yet (an area is in use once it has an owner).
+    ideas: (tenantId, call) =>
+      scoped(tenantId, call, "read", async (s) => {
+        const used = new Set(
+          (
+            await s.tx
+              .select({ area: areaOwner.area })
+              .from(areaOwner)
+              .where(eq(areaOwner.tenantId, tenantId))
+          ).map((r) => r.area),
+        );
+        return OWNER_AREAS.filter((a) => a !== "general" && !used.has(a)).map((a) => ({
+          area: a,
+          ...AREA_IDEAS[a],
+        }));
+      }),
     services: (tenantId, call) => scoped(tenantId, call, "read", (s) => views.services(s)),
     runs: (tenantId, call, query) => scoped(tenantId, call, "read", (s) => views.runs(s, query)),
     run: (tenantId, call, runId) => scoped(tenantId, call, "read", (s) => views.run(s, runId)),

@@ -25,6 +25,7 @@ import { Delta, hasRuns, KpiStrip, Sparkline, StatTile } from "../../ui/figures"
 import { Field, TextArea } from "../../ui/forms";
 import { Columns, Loaded, Page, PageGrid, Section } from "../../ui/page";
 import {
+  Badge,
   Button,
   buttonClass,
   Card,
@@ -38,6 +39,7 @@ import { type ChipState, StatusChip } from "../../ui/status";
 import { longDay, partOfDay, sameDay, stageWord } from "../agentState";
 import { INBOX_COUNT_POLL_MS, useRefreshInboxCount } from "../inboxCount";
 import { PORTAL_PATHS } from "../paths";
+import { useSloanPanel } from "../SloanPanel";
 import { agentChip, runChip, runOpen } from "../status";
 
 type Service = TableView["services"][number];
@@ -126,6 +128,9 @@ export function HomeScreen() {
                 />
               ) : null}
               {data.recent.length > 0 ? <Latest recent={data.recent} /> : null}
+              {/* v0.17 (§10.15 "Home"): what else we could do, and the quick actions. */}
+              {data.ideas.length > 0 ? <Ideas ideas={data.ideas} /> : null}
+              <QuickActions />
             </>
           ) : table.error ? null : (
             <Skeleton>
@@ -134,6 +139,7 @@ export function HomeScreen() {
           )
         }
       >
+        {data && data.owners.length > 0 ? <Owners owners={data.owners} /> : null}
         <Section title={t("home.agents")} testId="home-agents">
           <Loaded state={table} skeleton={<AgentsSkeleton />}>
             {(d) => <Agents services={d.services} access={access.data} />}
@@ -770,5 +776,96 @@ function FindingRow({ finding: f }: { finding: PortalFinding }) {
         {t("table.openItem")}
       </Link>
     </div>
+  );
+}
+
+// ── v0.17 (ARCHITECTURE §10.15 "Home"): owners, ideas and quick actions ─────────────────────────
+
+// Waiting on you is signal (the design system's warning tone), always with its word.
+const HEALTH_TONE = { working: "positive", needs_you: "warning", paused: "neutral" } as const;
+
+/** The client's area owners: who looks after what, how its week went, and Ask. */
+function Owners({ owners }: { owners: TableView["owners"] }) {
+  const { t } = useI18n();
+  const panel = useSloanPanel();
+  return (
+    <Section title={t("home.owners")} testId="home-owners">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        {owners.map((o) => (
+          <Card key={o.id} pad testId={`home-owner-${o.area}`}>
+            <div className="flex items-center gap-3">
+              <AgentBadge name={o.name} size="sm" />
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-ink">{o.name}</p>
+              </div>
+              <Badge tone={HEALTH_TONE[o.health]}>{t(`home.owner.health.${o.health}`)}</Badge>
+            </div>
+            <p className="mt-3 text-sm text-ink-muted">
+              {t("home.owner.week", { runs: o.runs, corrected: o.corrected })}
+            </p>
+            {o.last ? <p className="mt-1 text-sm text-ink">{o.last}</p> : null}
+            <Button
+              size="sm"
+              className="mt-3"
+              data-testid={`home-owner-ask-${o.area}`}
+              onClick={() => panel.open(`@${o.name} `)}
+            >
+              {t("home.owner.ask", { name: o.name })}
+            </Button>
+          </Card>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+/** The areas the client doesn't use yet, each with "Ask us about this". */
+function Ideas({ ideas }: { ideas: TableView["ideas"] }) {
+  const { t } = useI18n();
+  const panel = useSloanPanel();
+  return (
+    <Card pad title={t("home.ideas")} testId="home-ideas">
+      <ul className="flex flex-col gap-3">
+        {ideas.map((i) => (
+          <li key={i.area} className="text-sm">
+            <p className="font-medium text-ink">{i.title}</p>
+            <p className="text-ink-muted">{i.line}</p>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="mt-1 px-0"
+              data-testid={`home-idea-${i.area}`}
+              onClick={() => panel.open(t("home.ideas.prompt", { title: i.title }))}
+            >
+              {t("home.ideas.ask")}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function QuickActions() {
+  const { t } = useI18n();
+  const panel = useSloanPanel();
+  return (
+    <Card pad title={t("home.quick")} testId="home-quick">
+      <div className="flex flex-col gap-2">
+        <Link
+          to={PORTAL_PATHS.contactsImport}
+          className={buttonClass("secondary")}
+          data-testid="home-quick-upload"
+        >
+          {t("home.quick.upload")}
+        </Link>
+        <Button
+          data-testid="home-quick-feedback"
+          onClick={() => panel.open(t("home.quick.feedbackPrompt"))}
+        >
+          {t("home.quick.feedback")}
+        </Button>
+      </div>
+    </Card>
   );
 }

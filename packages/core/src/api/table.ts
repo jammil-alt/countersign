@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import { isUuid } from "../ids";
+import { OWNER_AREAS } from "../owners/areas";
 import { WeeklyEditBody, WeeklyTableView, WeekStartParam } from "../weekly/schemas";
 import { defineRoute } from "./contract";
 import { ActivityRuns, AgentRunsNow, DayRuns, ServiceNow } from "./usage";
@@ -50,6 +51,30 @@ export const TableService = z.object({
     }),
   ),
 });
+
+/** v0.17 (ARCHITECTURE §10.15 "Home"): one of the client's area owners, as Home shows it. */
+export const HomeOwner = z.object({
+  id: z.string(),
+  name: z.string(),
+  area: z.enum(OWNER_AREAS),
+  processes: z.number().int(),
+  /** In a word: waiting on someone at the client, every process paused, or working. */
+  health: z.enum(["working", "needs_you", "paused"]),
+  /** Its processes' live runs this week, and how many of its decisions tried again. */
+  runs: z.number().int(),
+  corrected: z.number().int(),
+  /** The last thing it did, in the platform's words ("Pia corrected the input and tried again"). */
+  last: z.string().nullable(),
+});
+export type HomeOwner = z.infer<typeof HomeOwner>;
+
+/** An area the client doesn't use yet, in a line (Home's Ideas). */
+export const HomeIdea = z.object({
+  area: z.enum(OWNER_AREAS),
+  title: z.string(),
+  line: z.string(),
+});
+export type HomeIdea = z.infer<typeof HomeIdea>;
 
 export const TableView = z.object({
   client: z.object({ id: z.string(), name: z.string(), timezone: z.string() }),
@@ -107,6 +132,9 @@ export const TableView = z.object({
       message: z.object({ id: z.string(), text: z.string(), at: z.string() }).nullable(),
     })
     .nullable(),
+  // v0.17: the client's area owners and the areas it doesn't use yet (§10.15 "Home").
+  owners: z.array(HomeOwner).default([]),
+  ideas: z.array(HomeIdea).default([]),
 });
 export type TableView = z.infer<typeof TableView>;
 

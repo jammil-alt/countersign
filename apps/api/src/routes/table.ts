@@ -39,6 +39,7 @@ import { type AppEnv, ensureClient, mount, notFound } from "../http";
 import { readerLocale, weekKpisOf } from "../kpi/view";
 import { leadUserId, type TenantRow, tenantRow } from "../notify/people";
 import { LEAD_SUBJECT } from "../notify/scan";
+import { homeOwners } from "../owners/home";
 import type { Platform } from "../platform";
 import { at, clientState, countState, noRuns } from "../runs/client-status";
 import { dispatchEvents } from "../runs/dispatch";
@@ -46,6 +47,7 @@ import { daysOf, runsByDay } from "../runs/figures";
 import { paperFor, weeklyPdf } from "../weekly/pdf";
 import { clientDescription, isLiveService, serviceName } from "../weekly/stats";
 import { editWeek, replyToDecision, weeklyRow, weeklyRows, weeklyView } from "../weekly/tables";
+import { tenantLocale } from "./language";
 import { portalInboxFilter, sourcesOf } from "./portal";
 import { agentsNow, documentsReadSql, serviceNow, workflowsOf } from "./usage";
 
@@ -329,6 +331,9 @@ export async function buildTable(
   return {
     client: { id: t.id, name: t.name, timezone: t.timezone },
     week: { weekStart, from: bounds.from.toISOString(), to: bounds.to.toISOString() },
+    // v0.17: filled in by the route (`homeOwners`), on the same transaction.
+    owners: [],
+    ideas: [],
     services: out,
     figures: {
       runsDone: counts.all.succeeded,
@@ -408,7 +413,20 @@ const pdfs = new WeakMap<Request, { bytes: Uint8Array; filename: string }>();
 export function tableRouteHandlers(app: Hono<AppEnv>): void {
   mount(app, routes.portalTable, async ({ tx, tenantIds, role, session, services }) => {
     const t = await clientOf(tx, tenantIds[0] as string);
-    return buildTable(tx, t, { userId: session.user.id, role }, new Date(), services.platform);
+    const table = await buildTable(
+      tx,
+      t,
+      { userId: session.user.id, role },
+      new Date(),
+      services.platform,
+    );
+    // v0.17 (§10.15 "Home"): the owners and ideas ride on Home's one call (no screen's calls go up).
+    const home = await homeOwners(tx, t.id, {
+      since: new Date(table.week.from),
+      locale: await tenantLocale(tx, t.id),
+      catalog: services.platform.catalog,
+    });
+    return { ...table, ...home };
   });
 
   mount(app, routes.portalWeekly, async ({ tx, tenantIds, query }) => {

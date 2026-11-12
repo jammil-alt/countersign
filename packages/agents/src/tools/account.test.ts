@@ -39,6 +39,10 @@ describe("the account tools", () => {
         "account.draft_change",
         "account.pass_to_lead",
         "account.pass_to_agent",
+        // v0.17: the guide, the asker's history and the client's ideas.
+        "account.help",
+        "account.history",
+        "account.ideas",
         "knowledge.search",
         "directory.search",
         "threads.read",

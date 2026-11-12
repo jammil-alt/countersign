@@ -147,6 +147,8 @@ export * from "./directory/search";
 export * from "./directory/voice-samples";
 export * from "./documents/extraction";
 export * from "./duration";
+// v0.17: area owners (ARCHITECTURE §10.15)
+export * from "./help/guide";
 // v0.12 W2-E
 export * from "./holidays/us";
 export * from "./i18n/desk";
@@ -190,7 +192,6 @@ export * from "./notify/render";
 export * from "./oversight/check";
 // v0.13 W2-I: run oversight
 export * from "./oversight/decision";
-// v0.17: area owners (ARCHITECTURE §10.15)
 export * from "./owners/areas";
 export * from "./owners/definition";
 export * from "./owners/names";

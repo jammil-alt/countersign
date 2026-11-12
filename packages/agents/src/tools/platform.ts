@@ -4,7 +4,7 @@
 
 import { z } from "zod";
 // v0.12 W2-D
-import { ACCOUNT_TOOLS } from "./account";
+import { ACCOUNT_GUIDE_TOOLS, ACCOUNT_TOOLS } from "./account";
 import { agentsAsk } from "./ask";
 // P-4
 import { converseTool } from "./converse";
@@ -111,6 +111,8 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   ...SUPERVISOR_TOOLS,
   // v0.12 W2-D: Sloan's account tools
   ...ACCOUNT_TOOLS,
+  // v0.17: Sloan's guide, history and ideas (ARCHITECTURE §10.15)
+  ...ACCOUNT_GUIDE_TOOLS,
   // v0.12 W2-E
   ...INBOUND_TOOLS,
   // P-7: message translation (docs/plan.md §1.69)
