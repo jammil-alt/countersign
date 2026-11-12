@@ -14,10 +14,10 @@ import { quoteLines, quoteRow, vendorAliases } from "./quotes";
 import { type PurchasingContext, PurchasingError, requestLines, requestRow } from "./requests";
 
 // The design system's ink, muted ink, slate and border (packages/design-system/tokens.css).
-const INK = rgb(0x15 / 255, 0x1a / 255, 0x21 / 255);
-const MUTED = rgb(0x53 / 255, 0x5b / 255, 0x65 / 255);
+const INK = rgb(0x1a / 255, 0x1f / 255, 0x26 / 255);
+const MUTED = rgb(0x5b / 255, 0x63 / 255, 0x6d / 255);
 const SLATE = rgb(0x23 / 255, 0x41 / 255, 0x5e / 255);
-const LINE = rgb(0xdc / 255, 0xdf / 255, 0xe2 / 255);
+const LINE = rgb(0xe6 / 255, 0xe8 / 255, 0xea / 255);
 const MARGIN = 56;
 
 export interface PoLine {

@@ -355,7 +355,7 @@ function stepHtml(s: RunExportStep, n: number, withBodies: boolean): string {
 // Values from the Mezonas design system's tokens (packages/design-system/tokens.css): the export is
 // one file with nothing to load, so they are written out here.
 const STYLE = `
-:root{--paper:#F4F5F3;--surface:#FFFFFF;--ink:#151A21;--ink-muted:#535B65;--line:#DCDFE2;--slate:#23415E;--risk:#A3302A;--positive:#1F6B4A;--copper:#9A4D27;color-scheme:light}
+:root{--paper:#FAFAF9;--surface:#FFFFFF;--ink:#1A1F26;--ink-muted:#5B636D;--line:#E6E8EA;--slate:#23415E;--risk:#A3302A;--positive:#1F6B4A;--copper:#9A4D27;color-scheme:light}
 @media (prefers-color-scheme: dark){:root{--paper:#0F1318;--surface:#171C23;--ink:#E6E9EC;--ink-muted:#9DA5AF;--line:#2A313A;--slate:#8FB0D2;--risk:#E8807A;--positive:#7CC4A0;--copper:#D9895E;color-scheme:dark}}
 body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 "Geist",ui-sans-serif,system-ui,sans-serif}
 main{max-width:1000px;margin:0 auto;padding:24px 16px}
@@ -367,7 +367,7 @@ dl{display:grid;grid-template-columns:max-content 1fr;gap:2px 16px;margin:0}dt{c
 pre{font:12px/1.4 "Geist Mono",ui-monospace,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin:0;background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
 table{width:100%;border-collapse:collapse;font-size:13px}th,td{border:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top}
 .problem{color:var(--risk)}.right{color:var(--positive)}.person{color:var(--copper)}
-@media print{:root{--paper:#FFFFFF;--surface:#FFFFFF;--ink:#151A21;--ink-muted:#535B65;--line:#DCDFE2;--risk:#A3302A;--positive:#1F6B4A;--copper:#9A4D27;color-scheme:light}main{max-width:none;padding:0}details>summary{list-style:none}}
+@media print{:root{--paper:#FFFFFF;--surface:#FFFFFF;--ink:#1A1F26;--ink-muted:#5B636D;--line:#E6E8EA;--risk:#A3302A;--positive:#1F6B4A;--copper:#9A4D27;color-scheme:light}main{max-width:none;padding:0}details>summary{list-style:none}}
 `;
 
 /** The printable page: self-contained (no script, no link), prints to PDF. */
