@@ -12,10 +12,11 @@ import {
   type Locale,
   readWhyApproval,
 } from "@countersign/core";
-import { inboxItem, run } from "@countersign/db";
-import { and, desc, eq, inArray, type SQL } from "drizzle-orm";
+import { areaOwner, inboxItem, run } from "@countersign/db";
+import { and, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
 import { controllableAgents, pauseAgent, resumeAgent, serviceControl } from "../lifecycle/pause";
+import { processesOf } from "../owners/store";
 import type { Platform } from "../platform";
 import { tenantLocale } from "../routes/language";
 import {
@@ -195,6 +196,23 @@ export function accountViews(platform: Platform): AccountViews {
         },
       }).catch(refusalOf);
       return { status: "passed", requestId: row.id };
+    },
+    // v0.17 (§10.15 "Talking to an owner"): an owner by its name, with its area's services.
+    async owner(s, name) {
+      const [o] = await s.tx
+        .select({ id: areaOwner.id, name: areaOwner.name, area: areaOwner.area })
+        .from(areaOwner)
+        .where(
+          and(
+            eq(areaOwner.tenantId, s.tenantId),
+            sql`lower(${areaOwner.name}) = ${name.trim().replace(/^@/, "").toLowerCase()}`,
+          ),
+        );
+      if (!o) return null;
+      const services = (await processesOf(s.tx, s.tenantId, platform))
+        .filter((p) => p.area === o.area)
+        .map((p) => ({ id: p.agentId, name: p.name }));
+      return { ...o, services };
     },
   };
 }

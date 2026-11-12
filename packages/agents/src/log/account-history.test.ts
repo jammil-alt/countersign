@@ -6,11 +6,18 @@
 import { agent, agentVersion, areaOwner, memoryNote, message, run, thread } from "@countersign/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type AccountHistory, accountHelp, accountHistory, accountIdeas } from "../tools/account";
+import {
+  type AccountHistory,
+  accountHelp,
+  accountHistory,
+  accountIdeas,
+  accountReplyAs,
+} from "../tools/account";
 import type { ToolInvocation } from "../tools/types";
 import { type AccountViews, dbAccountPort } from "./account-port";
 import { createHarness, type Harness, makeBundle } from "./harness.test-helper";
 import { dbPlatformStore } from "./platform-store";
+import { dbThreadsPort } from "./threads-port";
 
 const h = await createHarness();
 
@@ -159,5 +166,30 @@ describe.skipIf(!h)("Sloan's history, ideas and guide", () => {
       ctx(),
     )) as { entries: { id: string; path: string }[] };
     expect(out.entries[0]).toMatchObject({ id: "directory-import", path: "/contacts?import=1" });
+  });
+
+  // v0.17 O7 (§10.15 "Talking to an owner"): Sloan answers as the client's own area owner.
+  it("answers as the client's owner, under its name, and never as another client's", async () => {
+    const [pia] = await H.t.db
+      .select({ id: areaOwner.id })
+      .from(areaOwner)
+      .where(eq(areaOwner.tenantId, H.A.tenantId));
+    const [theirs] = await H.t.db
+      .insert(areaOwner)
+      .values({ tenantId: H.B.tenantId, area: "purchasing", name: "Teo" })
+      .returning({ id: areaOwner.id });
+    const withThreads = { ...ctx(), threadId: ADMIN_THREAD, threads: dbThreadsPort(H.db) };
+    const out = (await accountReplyAs.run(
+      { ownerId: pia?.id as string, text: "It was signed this morning.", sources: [ADMIN_MESSAGE] },
+      withThreads,
+    )) as { messageId: string };
+    const [row] = await H.t.db.select().from(message).where(eq(message.id, out.messageId));
+    expect(row?.body).toMatchObject({ text: "It was signed this morning.", as: { name: "Pia" } });
+    await expect(
+      accountReplyAs.run(
+        { ownerId: theirs?.id as string, text: "Hello", sources: [ADMIN_MESSAGE] },
+        withThreads,
+      ),
+    ).rejects.toThrow("isn't this client's");
   });
 });

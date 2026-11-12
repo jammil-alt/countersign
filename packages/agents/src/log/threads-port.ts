@@ -17,6 +17,7 @@ import {
   agent,
   agentVersion,
   appUser,
+  areaOwner,
   type Db,
   membership,
   run,
@@ -149,6 +150,19 @@ export function dbThreadsPort(db: Db, options: { emit?: Emit } = {}): ThreadsPor
             );
           }
         }
+        // v0.17: an answer in an area owner's name: the owner must be this client's.
+        let as: { ownerId: string; name: string } | null = null;
+        if (input.as) {
+          if (input.audience !== "client") {
+            throw new AgentsError("invalid_state", "only an answer to the client is an owner's");
+          }
+          const [o] = await tx
+            .select({ id: areaOwner.id, name: areaOwner.name })
+            .from(areaOwner)
+            .where(and(eq(areaOwner.id, input.as.ownerId), eq(areaOwner.tenantId, tenantId)));
+          if (!o) throw new AgentsError("invalid_state", "that owner isn't this client's");
+          as = { ownerId: o.id, name: o.name };
+        }
         const posted = await postMessage(
           tx,
           {
@@ -160,6 +174,7 @@ export function dbThreadsPort(db: Db, options: { emit?: Emit } = {}): ThreadsPor
             kind: "text",
             body: {
               text: input.text,
+              ...(as ? { as } : {}),
               stepId: input.stepId,
               runId: input.runId,
               ...(input.mode === "test" ? { testRunId: input.runId } : {}),

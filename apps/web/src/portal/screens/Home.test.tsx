@@ -678,4 +678,42 @@ describe("Home's account check", () => {
     expect(within(panel).getByRole("textbox")).toHaveValue("@Pia ");
     expect(threads.length).toBeGreaterThan(0);
   });
+
+  it("lets the client admin rename an owner", async () => {
+    const renamed: unknown[] = [];
+    const OWNER = "00000000-0000-4000-8000-0000000a0a01";
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(),
+      "GET /api/table": () =>
+        tableView({
+          ...TABLE,
+          owners: [
+            {
+              id: OWNER,
+              name: "Pia",
+              area: "purchasing",
+              processes: 1,
+              health: "working",
+              runs: 0,
+              corrected: 0,
+              last: null,
+            },
+          ],
+        }),
+      "GET /api/access": () => ACCESS,
+      "GET /api/weekly": () => ({ table: null, weeks: [] }),
+      [`PATCH /api/owners/${OWNER}`]: ({ init }) => {
+        renamed.push(JSON.parse(String(init.body)));
+        return { owner: { id: OWNER, name: "Wren", area: "purchasing", avatar: null } };
+      },
+    });
+    renderAt("/", api);
+    await userEvent.click(await screen.findByTestId("home-owner-rename-purchasing"));
+    const input = screen.getByTestId("home-owner-rename-input-purchasing");
+    await userEvent.clear(input);
+    await userEvent.type(input, "Wren");
+    await userEvent.click(screen.getByTestId("home-owner-rename-save-purchasing"));
+    await waitFor(() => expect(renamed).toEqual([{ name: "Wren" }]));
+  });
 });

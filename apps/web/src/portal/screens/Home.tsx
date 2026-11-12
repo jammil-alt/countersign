@@ -13,7 +13,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
-import { useApi, useApiClient } from "../../api/useApi";
+import { useApi, useApiClient, useApiStore } from "../../api/useApi";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { shortTime } from "../../runs/format";
@@ -22,7 +22,7 @@ import { useSession } from "../../session/session";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
 import { Delta, hasRuns, KpiStrip, Sparkline, StatTile } from "../../ui/figures";
-import { Field, TextArea } from "../../ui/forms";
+import { Field, TextArea, TextInput } from "../../ui/forms";
 import { Columns, Loaded, Page, PageGrid, Section } from "../../ui/page";
 import {
   Badge,
@@ -788,6 +788,11 @@ const HEALTH_TONE = { working: "positive", needs_you: "warning", paused: "neutra
 function Owners({ owners }: { owners: TableView["owners"] }) {
   const { t } = useI18n();
   const panel = useSloanPanel();
+  const session = useSession();
+  // v0.17: the client admin may rename an owner (the one change a client makes to an agent).
+  const isAdmin =
+    (session.tenants.find((c) => c.id === session.activeTenantId)?.role ??
+      session.tenants[0]?.role) === "client_admin";
   return (
     <Section title={t("home.owners")} testId="home-owners">
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -804,14 +809,16 @@ function Owners({ owners }: { owners: TableView["owners"] }) {
               {t("home.owner.week", { runs: o.runs, corrected: o.corrected })}
             </p>
             {o.last ? <p className="mt-1 text-sm text-ink">{o.last}</p> : null}
-            <Button
-              size="sm"
-              className="mt-3"
-              data-testid={`home-owner-ask-${o.area}`}
-              onClick={() => panel.open(`@${o.name} `)}
-            >
-              {t("home.owner.ask", { name: o.name })}
-            </Button>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                data-testid={`home-owner-ask-${o.area}`}
+                onClick={() => panel.open(`@${o.name} `)}
+              >
+                {t("home.owner.ask", { name: o.name })}
+              </Button>
+              {isAdmin ? <RenameOwner id={o.id} name={o.name} area={o.area} /> : null}
+            </div>
           </Card>
         ))}
       </div>
@@ -867,5 +874,62 @@ function QuickActions() {
         </Button>
       </div>
     </Card>
+  );
+}
+
+/** The client admin's rename of an owner: 2 to 12 letters, not Sloan; the API says why not. */
+function RenameOwner({ id, name, area }: { id: string; name: string; area: string }) {
+  const { t } = useI18n();
+  const api = useApiClient();
+  const refresh = useApiStore();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(name);
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  if (!editing) {
+    return (
+      <Button
+        size="sm"
+        variant="ghost"
+        data-testid={`home-owner-rename-${area}`}
+        onClick={() => setEditing(true)}
+      >
+        {t("home.owner.rename")}
+      </Button>
+    );
+  }
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.call(apiRoutes.ownerRename, { params: { id }, body: { name: value.trim() } });
+      setEditing(false);
+      refresh.clear();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <form className="flex flex-wrap items-center gap-2" onSubmit={save}>
+      <TextInput
+        aria-label={t("home.owner.renameLabel", { name })}
+        value={value}
+        className="w-32"
+        data-testid={`home-owner-rename-input-${area}`}
+        onChange={(e) => setValue(e.target.value)}
+      />
+      <Button
+        type="submit"
+        size="sm"
+        disabled={busy}
+        data-testid={`home-owner-rename-save-${area}`}
+      >
+        {t("home.owner.save")}
+      </Button>
+      {error ? <ErrorNotice error={error} /> : null}
+    </form>
   );
 }

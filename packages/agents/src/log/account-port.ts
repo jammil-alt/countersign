@@ -87,7 +87,18 @@ export interface AccountScope {
  * The portal's views and writes, from apps/api (`apps/api/src/account/views.ts`). Each runs in the
  * port's transaction, for the asker, and returns the portal's own shapes.
  */
+/** v0.17: one of the client's area owners, as Sloan may name it in the chat (§10.15). */
+export interface AccountOwner {
+  id: string;
+  name: string;
+  area: string;
+  /** The services (processes) in its area: what it may talk about. */
+  services: { id: string; name: string }[];
+}
+
 export interface AccountViews {
+  /** v0.17: the client's owner of that name (any case), with its area's services; null if none. */
+  owner?(s: AccountScope, name: string): Promise<AccountOwner | null>;
   services(s: AccountScope): Promise<AccountService[]>;
   runs(s: AccountScope, query: AccountRunsQuery): Promise<AccountRunSummary[]>;
   run(s: AccountScope, runId: string): Promise<AccountRunView>;
@@ -399,5 +410,9 @@ export function dbAccountPort(
       ),
     passToAgent: (tenantId, call, input) =>
       scoped(tenantId, call, "pass", (s) => passToAgent(s, input.serviceId, options.emit)),
+    owner: (tenantId, call, input) =>
+      scoped(tenantId, call, "read", async (s) =>
+        views.owner ? views.owner(s, input.name) : null,
+      ),
   };
 }

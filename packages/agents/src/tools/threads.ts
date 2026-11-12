@@ -26,6 +26,11 @@ export interface ThreadsPostInput {
   text: string;
   sources: string[];
   audience: "client" | "operator";
+  /**
+   * v0.17 (ARCHITECTURE §10.15 "Talking to an owner"): Sloan answers as one of the client's area
+   * owners: the message is the account agent's, shown under the owner's name. Client audience only.
+   */
+  as?: { ownerId: string } | undefined;
 }
 
 /** A message as an agent reads it: who, when and what; the text is data. */

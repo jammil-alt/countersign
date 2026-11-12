@@ -248,7 +248,8 @@ async function portalMessages(
       const a =
         (m.senderId ? byAgent.get(m.senderId) : undefined) ??
         (m.agentVersionId ? byVersion.get(m.agentVersionId) : undefined);
-      name = a ? serviceName(a) : null;
+      // v0.17 (§10.15 "Talking to an owner"): Sloan's answer in an owner's name shows under it.
+      name = ownerName(m.body) ?? (a ? serviceName(a) : null);
     }
     return {
       id: m.id,
@@ -338,7 +339,9 @@ async function opsMessages(tx: Tx, tenantId: string, rows: MessageRow[]): Promis
       const a =
         (m.senderId ? byAgent.get(m.senderId) : undefined) ??
         (m.agentVersionId ? byVersion.get(m.agentVersionId) : undefined);
-      name = a?.name ?? null;
+      // v0.17: the back office sees whose voice it was, beside the agent that wrote it.
+      const owner = ownerName(m.body);
+      name = owner ? `${owner} (${a?.name ?? "Sloan"})` : (a?.name ?? null);
     }
     return {
       id: m.id,
@@ -606,4 +609,10 @@ export async function sessionLead(
 export async function leadFirstName(tx: Tx, tenantId: string): Promise<string | null> {
   const lead = await leadOf(tx, tenantId);
   return lead ? firstName(leadDisplayName(lead)) : null;
+}
+
+/** v0.17: the owner an account agent's answer was written as, when it was (`body.as`). */
+function ownerName(body: unknown): string | null {
+  const as = (body as { as?: { name?: unknown } } | null)?.as;
+  return typeof as?.name === "string" ? as.name : null;
 }

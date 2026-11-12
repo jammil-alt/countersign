@@ -43,6 +43,8 @@ describe("the account tools", () => {
         "account.help",
         "account.history",
         "account.ideas",
+        "account.owner",
+        "account.reply_as",
         "knowledge.search",
         "directory.search",
         "threads.read",
