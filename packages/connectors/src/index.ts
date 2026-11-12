@@ -57,6 +57,8 @@ export * from "./microsoft/identity";
 export * from "./oauth/flow";
 export * from "./oauth/state";
 export * from "./oauth/tokens";
+// §1.97: OneDrive, the app folder only (Google Drive's tools).
+export * from "./onedrive/index";
 export * from "./outlook/index";
 export * from "./permissions";
 export * from "./podio/index";

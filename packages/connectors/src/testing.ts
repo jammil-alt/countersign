@@ -408,6 +408,7 @@ export {
   type FakeMicrosoftIdentity,
   fakeMicrosoftIdentity,
 } from "./microsoft/fake";
+export { type FakeDriveItem, type FakeOnedrive, fakeOnedrive } from "./onedrive/fake";
 // v0.12 W3-B
 export {
   FAKE_MICROSOFT,
