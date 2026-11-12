@@ -9,23 +9,23 @@
 // feeds, uploads, email sending) take a Mezonas icon, since they carry no third-party brand. These
 // colours belong to the providers' marks, not to our palette: nothing else uses them.
 import type { IconName } from "../ui/icons";
-import billLogo from "./logos/bill.png";
-import bingLogo from "./logos/bing.svg";
-import gmailLogo from "./logos/gmail.svg";
-import googleLogo from "./logos/google.svg";
-import googleChatLogo from "./logos/google-chat.svg";
-import googleDriveLogo from "./logos/google-drive.svg";
-import googleSheetsLogo from "./logos/google-sheets.svg";
-import hubspotLogo from "./logos/hubspot.svg";
-import linkedinLogo from "./logos/linkedin.svg";
-import outlookLogo from "./logos/outlook.svg";
-import podioLogo from "./logos/podio.svg";
-import quickbooksLogo from "./logos/quickbooks.svg";
-import rampLogo from "./logos/ramp.svg";
-import slackLogo from "./logos/slack.svg";
-import stripeLogo from "./logos/stripe.svg";
-import whatsappLogo from "./logos/whatsapp.svg";
-import zohoLogo from "./logos/zoho.svg";
+import billLogo from "./logos/bill.png?no-inline";
+import bingLogo from "./logos/bing.svg?no-inline";
+import gmailLogo from "./logos/gmail.svg?no-inline";
+import googleLogo from "./logos/google.svg?no-inline";
+import googleChatLogo from "./logos/google-chat.svg?no-inline";
+import googleDriveLogo from "./logos/google-drive.svg?no-inline";
+import googleSheetsLogo from "./logos/google-sheets.svg?no-inline";
+import hubspotLogo from "./logos/hubspot.svg?no-inline";
+import linkedinLogo from "./logos/linkedin.svg?no-inline";
+import outlookLogo from "./logos/outlook.svg?no-inline";
+import podioLogo from "./logos/podio.svg?no-inline";
+import quickbooksLogo from "./logos/quickbooks.svg?no-inline";
+import rampLogo from "./logos/ramp.svg?no-inline";
+import slackLogo from "./logos/slack.svg?no-inline";
+import stripeLogo from "./logos/stripe.svg?no-inline";
+import whatsappLogo from "./logos/whatsapp.svg?no-inline";
+import zohoLogo from "./logos/zoho.svg?no-inline";
 
 export type ConnectorBrand =
   /** The provider's full-colour logo file, on white (the owner's files, 2026-11-11). */
@@ -40,7 +40,8 @@ export type ConnectorBrand =
 // DECISION (owner, 2026-11-11, extended 2026-11-12): the owner's logo files (the same set as the
 // site's, apps/site/src/logos) win over the one-colour Simple Icons paths and the initials, in the
 // back office and the portal alike. Search Console takes Google's "G". BILL's file is the site's
-// PNG, shrunk for a tile. google-ads.svg is kept for a Google Ads connector, which doesn't exist yet.
+// PNG, shrunk for a tile. Imported `?no-inline`, so each is its own file, not inlined into the
+// first-load script (scripts/web-size.mjs). google-ads.svg is kept for a Google Ads connector, which doesn't exist yet.
 const IMAGES: Record<string, string> = {
   qbo: quickbooksLogo,
   gmail: gmailLogo,
