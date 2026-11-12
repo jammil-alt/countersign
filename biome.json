@@ -12,7 +12,8 @@
       "!**/worker-configuration.d.ts",
       "!fixtures/llm",
       "!docs/design",
-      "!packages/design-system"
+      "!packages/design-system",
+      "!apps/site/src/logos"
     ]
   },
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },

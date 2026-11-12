@@ -7,6 +7,10 @@
 // Clients sign in to their own tools in the portal; we never see their credentials.
 // R8: the Library's Connectors bank (`/ops/library/connectors`), with a search over names,
 // descriptions and tools; website logins are connectors too (`/ops/library/browser-sites`).
+//
+// Plain words (2026-11-12): each row reads by its name and one line (`connectorLine`); the row opens the
+// connector in a side sheet (its whole description, status and note, tools, default access, who
+// waits, offer), as the Skills and Tools banks do, in place of the rail beside the table.
 import { CONNECTOR_STATUS_VALUES, type ConnectorStatus } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -16,8 +20,9 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { ConnectorMark } from "../../connections/ConnectorMark";
 import { MatrixTable } from "../../connections/MatrixTable";
 import { useSession } from "../../session/session";
+import { saysMore } from "../../ui/brief";
 import { Field, Select, TextInput } from "../../ui/forms";
-import { Page, PageGrid, Section } from "../../ui/page";
+import { Page, Section } from "../../ui/page";
 import {
   Badge,
   Button,
@@ -30,9 +35,11 @@ import {
   PageHeader,
   Tag,
 } from "../../ui/primitives";
+import { SheetSection, SideSheet } from "../../ui/sheet";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { BankSearch } from "../library/LibraryFrame";
 import { matches } from "../library/paths";
+import { connectorLine, toolName } from "../library/plain";
 import { OPS_PATHS } from "../paths";
 
 type Connector = ResponseOf<typeof apiRoutes.opsConnectors>["connectors"][number];
@@ -128,7 +135,7 @@ export function OpsConnectorsScreen() {
   const shown = (filter === "all" ? all : all.filter((c) => c.status === filter)).filter((c) =>
     matches(search, c.name, c.id, c.description, ...c.tools.map((t) => t.id)),
   );
-  const selected = shown.find((c) => c.id === selectedId) ?? shown[0];
+  const selected = selectedId ? all.find((c) => c.id === selectedId) : undefined;
   const filters: [ConnectorStatus | "all", string][] = [
     ["all", `All · ${all.length}`],
     ...CONNECTOR_STATUS_VALUES.filter((s) => all.some((c) => c.status === s)).map(
@@ -143,7 +150,7 @@ export function OpsConnectorsScreen() {
     <Page testId="ops-connectors">
       <PageHeader
         title="Connectors"
-        subtitle="Every integration we offer: its app, its tools, and how it's holding up across clients."
+        subtitle="The systems an agent can work in, such as QuickBooks or Gmail. Each gives agents a set of tools. Clients sign in to their own; we never see their credentials."
         actions={
           <Link to={OPS_PATHS.browserSites} className={buttonClass("secondary")}>
             Allowed browser sites
@@ -171,26 +178,21 @@ export function OpsConnectorsScreen() {
           testId="connectors-search"
         />
       </div>
-      <p className="-mt-4 text-sm text-ink-muted">
-        Clients connect in their portal. We never see their credentials.
-      </p>
       {saveError ? <ErrorNotice error={saveError} /> : null}
       {all.length === 0 ? (
         <EmptyState>No connector is registered here.</EmptyState>
       ) : (
-        <PageGrid
-          rail={
-            selected ? (
-              <ConnectorPanel
-                // A new selection starts with its own note.
-                key={selected.id}
-                connector={selected}
-                onSave={(body) => put(selected.id, body)}
-                onOffered={reload}
-              />
-            ) : null
-          }
-        >
+        <>
+          {selected ? (
+            <ConnectorPanel
+              // A new selection starts with its own note.
+              key={selected.id}
+              connector={selected}
+              onSave={(body) => put(selected.id, body)}
+              onOffered={reload}
+              onClose={() => setSelectedId(null)}
+            />
+          ) : null}
           <Card>
             <div className="dt dt-ana overflow-x-auto">
               <table data-testid="connectors-table">
@@ -218,14 +220,22 @@ export function OpsConnectorsScreen() {
                         <td>
                           <button
                             type="button"
-                            className="flex items-center gap-3 text-left"
+                            className="group flex items-center gap-3 text-left"
+                            aria-haspopup="dialog"
                             data-testid={`connector-${c.id}-open`}
                             onClick={() => setSelectedId(c.id)}
                           >
                             <ConnectorMark name={c.name} connector={c.id} size="sm" />
                             <span className="flex flex-col">
-                              <span className="font-medium text-ink">{c.name}</span>
-                              <span className="text-sm text-ink-muted">{c.description}</span>
+                              <span className="font-medium text-ink group-hover:underline">
+                                {c.name}
+                              </span>
+                              <span
+                                className="max-w-xl text-sm text-ink-muted"
+                                data-testid={`connector-${c.id}-line`}
+                              >
+                                {connectorLine(c)}
+                              </span>
                             </span>
                           </button>
                         </td>
@@ -278,7 +288,7 @@ export function OpsConnectorsScreen() {
               }}
             />
           </Section>
-        </PageGrid>
+        </>
       )}
     </Page>
   );
@@ -290,32 +300,18 @@ const LEVEL_WORDS = {
   off: ["Off", "neutral"],
 } as const;
 
-/** A tool as two or three words: "update invoice", else its id's last part. */
-function toolWords(t: Connector["tools"][number]): string {
-  if (t.entity) return `${t.verb} ${t.entity.replace(/_/g, " ")}`;
-  const last = t.id.split(".").slice(1).join(" ");
-  return (last || t.id).replace(/_/g, " ");
-}
-
 const TOOLS_SHOWN = 9;
-
-function RailBlock({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-2 border-t border-line px-6 py-4">
-      <h3 className="eyebrow text-ink-muted">{title}</h3>
-      {children}
-    </div>
-  );
-}
 
 function ConnectorPanel({
   connector: c,
   onSave,
   onOffered,
+  onClose,
 }: {
   connector: Connector;
   onSave: (body: { status?: ConnectorStatus; note?: string }) => Promise<void>;
   onOffered(): void;
+  onClose(): void;
 }) {
   const [note, setNote] = useState(c.note);
   const [busy, setBusy] = useState(false);
@@ -333,80 +329,89 @@ function ConnectorPanel({
   const tools = allTools ? c.tools : c.tools.slice(0, TOOLS_SHOWN);
   const m = c.defaultAccess.matrix;
   return (
-    <Card testId="connector-panel">
-      <div className="flex flex-col gap-4 px-6 py-5">
-        <div className="flex items-start gap-3">
+    <SideSheet
+      testId="connector-panel"
+      onClose={onClose}
+      eyebrow={
+        <span className="flex flex-wrap items-center gap-2.5">
           <ConnectorMark name={c.name} connector={c.id} size="sm" />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <h2 className="type-subheading text-ink">{c.name}</h2>
-            <span className="text-sm text-ink-muted">{KIND_LABEL[c.auth]}</span>
-          </div>
+          <span className="text-sm text-ink-muted">{KIND_LABEL[c.auth]}</span>
           <ConnectorStatusChip status={c.status} testId="connector-panel-status" />
-        </div>
-        {c.available ? null : (
-          <Badge tone="neutral" className="self-start">
-            Not set up on this deployment
-          </Badge>
-        )}
-        {c.testOnly ? (
-          <Badge tone="neutral" className="self-start" testId="connector-panel-test-only">
-            For testing only: real clients never see it
-          </Badge>
-        ) : null}
-        <Field
-          label="Status"
-          {...(c.statusSource === "deployment"
-            ? {
-                hint:
-                  c.status === null
-                    ? "Nobody has set a status. Choose one when you start building it."
-                    : "Live because clients can connect it here. Choose a status to set your own.",
-              }
-            : {})}
+        </span>
+      }
+      title={c.name}
+    >
+      <p className="text-ink">{connectorLine(c)}</p>
+      {saysMore(c.description, connectorLine(c)) ? (
+        <SheetSection label="In full">
+          <p className="text-sm text-ink" data-testid="connector-panel-description">
+            {c.description}
+          </p>
+        </SheetSection>
+      ) : null}
+      {c.available ? null : (
+        <Badge tone="neutral" className="self-start">
+          Not set up on this deployment
+        </Badge>
+      )}
+      {c.testOnly ? (
+        <Badge tone="neutral" className="self-start" testId="connector-panel-test-only">
+          For testing only: real clients never see it
+        </Badge>
+      ) : null}
+      <Field
+        label="Status"
+        {...(c.statusSource === "deployment"
+          ? {
+              hint:
+                c.status === null
+                  ? "Nobody has set a status. Choose one when you start building it."
+                  : "Live because clients can connect it here. Choose a status to set your own.",
+            }
+          : {})}
+      >
+        <Select
+          aria-label={`Status of ${c.name}`}
+          data-testid={`connector-${c.id}-status`}
+          value={c.status ?? ""}
+          disabled={busy}
+          onChange={(e) => void save({ status: e.target.value as ConnectorStatus })}
         >
-          <Select
-            aria-label={`Status of ${c.name}`}
-            data-testid={`connector-${c.id}-status`}
-            value={c.status ?? ""}
-            disabled={busy}
-            onChange={(e) => void save({ status: e.target.value as ConnectorStatus })}
+          {c.status === null ? <option value="">Not set up</option> : null}
+          {CONNECTOR_STATUS_VALUES.map((s) => (
+            <option key={s} value={s}>
+              {STATUS_LABEL[s]}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Note for the team">
+        <div className="flex gap-2">
+          <TextInput
+            aria-label={`Note on ${c.name}`}
+            data-testid={`connector-${c.id}-note`}
+            value={note}
+            maxLength={2000}
+            placeholder="What we're waiting on"
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <Button
+            variant="ghost"
+            disabled={busy || note === c.note || c.status === null}
+            onClick={() => void save({ note })}
           >
-            {c.status === null ? <option value="">Not set up</option> : null}
-            {CONNECTOR_STATUS_VALUES.map((s) => (
-              <option key={s} value={s}>
-                {STATUS_LABEL[s]}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Note for the team">
-          <div className="flex gap-2">
-            <TextInput
-              aria-label={`Note on ${c.name}`}
-              data-testid={`connector-${c.id}-note`}
-              value={note}
-              maxLength={2000}
-              placeholder="What we're waiting on"
-              onChange={(e) => setNote(e.target.value)}
-            />
-            <Button
-              variant="ghost"
-              disabled={busy || note === c.note || c.status === null}
-              onClick={() => void save({ note })}
-            >
-              Save
-            </Button>
-          </div>
-        </Field>
-      </div>
+            Save
+          </Button>
+        </div>
+      </Field>
 
-      <RailBlock title="Tools it gives agents">
+      <SheetSection label="Tools it gives agents">
         {c.tools.length === 0 ? (
           <p className="text-sm text-ink-muted">None.</p>
         ) : (
           <div className="flex flex-wrap gap-1.5" data-testid="connector-panel-tools">
             {tools.map((t) => (
-              <Tag key={t.id}>{toolWords(t)}</Tag>
+              <Tag key={t.id}>{toolName(t.id)}</Tag>
             ))}
             {c.tools.length > TOOLS_SHOWN ? (
               <Button size="sm" variant="link" onClick={() => setAllTools((v) => !v)}>
@@ -415,9 +420,9 @@ function ConnectorPanel({
             ) : null}
           </div>
         )}
-      </RailBlock>
+      </SheetSection>
 
-      <RailBlock title="Default access for new clients">
+      <SheetSection label="Default access for new clients">
         <dl className="flex flex-col gap-2 text-sm">
           {(
             [
@@ -436,9 +441,9 @@ function ConnectorPanel({
           ))}
         </dl>
         <p className="text-sm text-ink-muted">{SOURCE_LABEL[c.defaultAccess.source]}</p>
-      </RailBlock>
+      </SheetSection>
 
-      <RailBlock title="Waiting to connect">
+      <SheetSection label="Waiting to connect">
         {c.waiting.length === 0 ? (
           <p className="text-sm text-ink-muted" data-testid={`connector-${c.id}-waiting`}>
             No one.
@@ -457,12 +462,12 @@ function ConnectorPanel({
             ))}
           </ul>
         )}
-      </RailBlock>
+      </SheetSection>
 
-      <RailBlock title="Offer to a client">
+      <SheetSection label="Offer to a client">
         <OfferControl connector={c} onChanged={onOffered} />
-      </RailBlock>
-    </Card>
+      </SheetSection>
+    </SideSheet>
   );
 }
 

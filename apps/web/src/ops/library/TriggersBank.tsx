@@ -3,13 +3,19 @@
 // with the templates that start that way; then every event a trigger can wait for (the event
 // catalogue), with who emits it and the templates waiting for it. Triggers are added in the
 // builder, on a process; this bank only reads.
+//
+// Plain words (2026-11-12): each event reads by its name in words and one line (`brief`); the row
+// opens a side sheet with the whole description, its id and the templates waiting for it.
 import type { LibraryProcess } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { eventLabel } from "../../runs/labels";
+import { brief, saysMore } from "../../ui/brief";
 import { Columns, Loaded, Section } from "../../ui/page";
 import { Card, EmptyState, PageHeader, Tag } from "../../ui/primitives";
+import { SheetSection, SideSheet } from "../../ui/sheet";
 import { KIND_TITLE, TRIGGER_KINDS, type TriggerKind } from "../triggers/AddTrigger";
 import { KINDS } from "../triggers/TriggersScreen";
 import { BankSearch, LibraryFrame } from "./LibraryFrame";
@@ -37,6 +43,12 @@ function usesBy(
   );
 }
 
+/** "document.extracted" → "A document has been read". */
+function eventTitle(type: string): string {
+  const words = eventLabel(type);
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 function UseLinks({ uses, testId }: { uses: readonly Use[]; testId: string }) {
   if (uses.length === 0) return <span className="text-ink-muted">No template yet</span>;
   return (
@@ -59,6 +71,7 @@ export function TriggersBank() {
   const events = useApi(apiRoutes.opsEventCatalog);
   const processes = useApi(apiRoutes.opsLibraryProcesses);
   const [search, setSearch] = useState("");
+  const [openType, setOpenType] = useState<string | null>(null);
   const templates = processes.data?.processes ?? [];
   const kinds = TRIGGER_KINDS.filter((k) =>
     matches(search, KIND_TITLE[k], KINDS[k].tag, KINDS[k].text, KINDS[k].examples),
@@ -108,10 +121,46 @@ export function TriggersBank() {
       <Loaded state={events}>
         {(data) => {
           const shown = data.events.filter((e) =>
-            matches(search, e.type, e.description, e.connector ?? "platform"),
+            matches(search, eventTitle(e.type), e.type, e.description, e.connector ?? "platform"),
           );
+          const opened = openType ? data.events.find((e) => e.type === openType) : undefined;
           return (
             <Section title="Events" meta={counted(data.events.length, "event")}>
+              {opened ? (
+                <SideSheet
+                  testId="trigger-event-sheet"
+                  onClose={() => setOpenType(null)}
+                  eyebrow={
+                    <span className="text-sm text-ink-muted">
+                      Event · {opened.connector ?? "Platform"}
+                    </span>
+                  }
+                  title={eventTitle(opened.type)}
+                >
+                  <p className="text-ink">{brief(opened.description)}</p>
+                  {saysMore(opened.description) ? (
+                    <SheetSection label="In full">
+                      <p className="text-sm text-ink" data-testid="trigger-event-sheet-description">
+                        {opened.description}
+                      </p>
+                    </SheetSection>
+                  ) : null}
+                  <SheetSection label="Templates waiting for it">
+                    {processes.data ? (
+                      <UseLinks
+                        uses={usesBy(
+                          templates,
+                          (t) => t.kind === "event" && t.event === opened.type,
+                        )}
+                        testId="trigger-event-sheet-uses"
+                      />
+                    ) : null}
+                  </SheetSection>
+                  <SheetSection label="Id">
+                    <span className="reference text-ink-muted">{opened.type}</span>
+                  </SheetSection>
+                </SideSheet>
+              ) : null}
               {shown.length === 0 ? (
                 <EmptyState>No event matches.</EmptyState>
               ) : (
@@ -129,9 +178,19 @@ export function TriggersBank() {
                         {shown.map((e) => (
                           <tr key={e.type} data-testid={`trigger-event-${e.type}`}>
                             <td>
-                              <span className="flex flex-col gap-1">
-                                <span className="reference text-ink">{e.type}</span>
-                                <span className="text-sm text-ink-muted">{e.description}</span>
+                              <span className="flex min-w-[16rem] flex-col gap-0.5 py-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenType(e.type)}
+                                  aria-haspopup="dialog"
+                                  data-testid={`trigger-event-${e.type}-open`}
+                                  className="self-start text-left font-medium text-ink hover:underline"
+                                >
+                                  {eventTitle(e.type)}
+                                </button>
+                                <span className="max-w-xl text-sm text-ink-muted">
+                                  {brief(e.description)}
+                                </span>
                               </span>
                             </td>
                             <td className="text-sm text-ink">{e.connector ?? "Platform"}</td>

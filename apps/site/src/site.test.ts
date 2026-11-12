@@ -86,19 +86,27 @@ describe("pages", () => {
   it("builds every page", () => {
     expect(pages.map((p) => p.name).sort()).toEqual([
       "404",
+      "hire",
       "index",
       "privacy",
+      "security",
       "sms-terms",
       "subprocessors",
       "terms",
     ]);
     for (const p of pages) expect(existsSync(join(out, p.file))).toBe(true);
-    for (const f of ["robots.txt", "sitemap.xml", "site.css", "design-system/tokens.css"]) {
+    for (const f of [
+      "robots.txt",
+      "sitemap.xml",
+      "site.css",
+      "site.js",
+      "design-system/tokens.css",
+    ]) {
       expect(existsSync(join(out, f)), f).toBe(true);
     }
   });
 
-  it.each(["index", "terms", "privacy", "subprocessors", "sms-terms", "404"])(
+  it.each(["index", "hire", "security", "terms", "privacy", "subprocessors", "sms-terms", "404"])(
     "%s has a title, description, favicon, landmarks and one h1",
     (name) => {
       const { html, title, description } = page(name);
@@ -150,6 +158,59 @@ describe("pages", () => {
     for (const { name, html } of pages) {
       const all = attrs(html, "id");
       expect(new Set(all).size, name).toBe(all.length);
+    }
+  });
+});
+
+describe("the demos' script", () => {
+  it("only switches what the page shows: it fetches, stores and sends nothing", () => {
+    // The code without its comments, which say what it doesn't do.
+    const code = readFileSync(join(out, "site.js"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    for (const banned of [
+      "fetch",
+      "XMLHttpRequest",
+      "sendBeacon",
+      "WebSocket",
+      "localStorage",
+      "sessionStorage",
+      "indexedDB",
+      "cookie",
+      "import(",
+      "eval",
+      "innerHTML",
+    ]) {
+      expect(code, banned).not.toContain(banned);
+    }
+  });
+
+  it("finds every demo it drives on the pages", () => {
+    const html = pages.map((p) => p.html).join("\n");
+    for (const hook of [
+      "data-connectors",
+      "data-gap",
+      "data-run",
+      "data-usecases",
+      "data-process",
+      "data-mask",
+    ]) {
+      expect(html, hook).toContain(hook);
+    }
+  });
+
+  it("starts the header's menu button hidden on every page, so the tabs show without it", () => {
+    for (const p of pages) {
+      const button = p.html.match(/<button[^>]*data-menu-toggle[^>]*>/)?.[0] ?? "";
+      expect(button, p.name).toMatch(/ hidden>$/);
+      expect(button, p.name).toContain('aria-controls="site-nav"');
+      expect(p.html, p.name).toContain('id="site-nav"');
+    }
+  });
+
+  it("puts every connector's logo in the build", () => {
+    for (const src of attrs(page("index").html, "src").filter((s) => s.startsWith("/logos/"))) {
+      expect(existsSync(join(out, src)), src).toBe(true);
     }
   });
 });

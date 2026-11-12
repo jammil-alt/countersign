@@ -115,6 +115,14 @@ badge's colour). `ui-kpiline` is a slim line of figures under a title (the clien
 each a route: the client page's Data and Setup), `SectionLabel`, `AgentAvatar`, `Loading`,
 `ErrorNotice`, `EmptyState`, `Placeholder`. Forms are in `forms.tsx`, icons in `icons.tsx`.
 
+## Long descriptions (`brief.ts`, `sheet.tsx`)
+
+A list shows a title and one plain line; the whole text opens in a `SideSheet` from the row or card
+("In full", a `SheetSection`). `brief(text)` makes the line: the first sentence, without asides in
+brackets, field names in backticks or the list after a colon, cut at 120 characters with "…".
+`saysMore(full, line)` says whether the sheet needs the "In full" section. Tools read by the
+written titles and lines in `../ops/library/plain.ts` (`toolName`, `toolLine`, `connectorLine`).
+
 ## The frame (`../shell`)
 
 `AppShell` (top bar, sidebar, page; `topAction` beside the Inbox: the portal's Ask Sloan;

@@ -454,7 +454,11 @@ beforeEach(() => {
     const nodes = [...document.querySelectorAll("[data-dnd-node]")];
     let target: Element = this;
     if (this.matches("[data-drag-overlay]") || this.querySelector("[data-drag-overlay]")) {
-      target = document.querySelector('[aria-pressed="true"]')?.closest("[data-dnd-node]") ?? this;
+      // The handle being dragged (the zoom switch's pressed button isn't one).
+      target =
+        document
+          .querySelector('[data-dnd-node] [aria-pressed="true"]')
+          ?.closest("[data-dnd-node]") ?? this;
     }
     const i = nodes.indexOf(target);
     if (i === -1) return realRect.call(this);
@@ -534,6 +538,62 @@ describe("WorkflowBuilder", () => {
     // The fork scrolls sideways in its own box; the top-level steps keep to the canvas.
     expect(screen.getByTestId("builder-fork-confidence-scroll")).toHaveClass("overflow-x-auto");
     expect(screen.getByTestId("builder-canvas").style.minWidth).toBe("");
+  });
+
+  it("draws a fork as lettered paths that end or join, and zooms out to titles and a map", async () => {
+    // Otherwise stops the run: that path ends instead of rejoining the line.
+    const input = structuredClone(BUNDLE_INPUT);
+    const steps = input.workflows?.[0]?.workflow.steps as { id: string; otherwise?: unknown }[];
+    const fork = steps.find((s) => s.id === "confidence");
+    if (fork) {
+      fork.otherwise = {
+        id: "else",
+        steps: [{ id: "halt", kind: "stop", name: "Stop here", status: "succeeded" }],
+      };
+    }
+    setup({ bundle: AgentBundle.parse(input) });
+    await ready();
+    const user = userEvent.setup();
+
+    // The fork's card lists its paths by letter before the line splits.
+    const paths = screen.getByTestId("builder-step-confidence-paths");
+    expect(
+      within(paths)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent),
+    ).toEqual(["AAny line below 90%", "BBig change", "COtherwise"]);
+    expect(screen.getByRole("region", { name: "Path A: Any line below 90%" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Path C: Otherwise" })).toBeInTheDocument();
+    // A path's steps are numbered by its letter; top-level numbers stay as they were.
+    expect(screen.getByTestId("builder-step-ask-path-number")).toHaveTextContent("A1");
+    expect(screen.getByTestId("builder-step-halt-path-number")).toHaveTextContent("C1");
+    expect(screen.getByTestId("builder-step-update-number")).toHaveTextContent("4");
+    // Otherwise ends; the paths that carry on don't.
+    expect(screen.getByTestId("builder-fork-confidence-otherwise-ends")).toHaveTextContent(
+      "Ends here",
+    );
+    expect(screen.queryByTestId("builder-fork-confidence-path-low-ends")).toBeNull();
+
+    // Steps: titles only, nothing to drag or drop.
+    await user.click(screen.getByTestId("builder-zoom-out"));
+    expect(screen.getByTestId("builder-canvas")).toHaveAttribute("data-zoom", "steps");
+    expect(screen.getByTestId("builder-zoom-steps")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("builder-step-read")).toHaveTextContent("Read a document");
+    expect(screen.queryByTestId("builder-step-read-handle")).toBeNull();
+    expect(screen.queryByTestId("builder-drop-root")).toBeNull();
+
+    // Map: shapes named for screen readers, no text on them.
+    await user.click(screen.getByTestId("builder-zoom-map"));
+    expect(screen.getByTestId("builder-zoom-out")).toBeDisabled();
+    const ask = screen.getByTestId("builder-step-ask-select");
+    expect(ask).toHaveAccessibleName("Person: Ask Jammil");
+    expect(ask).toHaveTextContent("");
+
+    // A click zooms back in on the step and opens it.
+    await user.click(ask);
+    expect(screen.getByTestId("builder-canvas")).toHaveAttribute("data-zoom", "detail");
+    expect(screen.getByTestId("builder-step-ask")).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("builder-rail-step")).toHaveAttribute("aria-selected", "true");
   });
 
   it("shows the selected step on the canvas and opens it in the side panel", async () => {

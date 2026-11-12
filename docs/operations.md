@@ -160,8 +160,8 @@ What the owner does, once:
 - [ ] **Deploy.** Merge the deploy PR (`claude/site-deploy`), or, if it is already merged, re-run
       the `site` job of the latest Deploy run on `main` (Actions → Deploy → the run → Re-run failed
       jobs). The custom domains create their own records; they show in DNS as type "Worker".
-- [ ] **Check** `https://mezonas.com`, `/terms`, `/privacy`, `/subprocessors` and
-      `https://www.mezonas.com`.
+- [ ] **Check** `https://mezonas.com`, `/hire`, `/security`, `/terms`, `/privacy`,
+      `/subprocessors` and `https://www.mezonas.com`.
 - [ ] **Then submit Google's verification.** The site must be live first: Google checks the
       homepage and its privacy policy link on the verified domain. Homepage `https://mezonas.com`,
       privacy policy `https://mezonas.com/privacy`, terms `https://mezonas.com/terms`. Fill in the
@@ -647,6 +647,9 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   writes to about each client's profile and trust product). Without them the back office's
   "Submit to Twilio" answers 503. Submitting charges Twilio's registration fees to Mezonas' account;
   they come back as the client's credits. Run the mock brand checklist in NOTES.md once first.
+  Staging shares production's Twilio account (the same `TWILIO_ACCOUNT_SID`, the main account, not
+  a subaccount) and so its approved primary profile; both environments set the same two values.
+  Each client still gets its own subaccount, made by whichever environment the client is in.
 - Needed for calls (plan §1.23; wiring into `deploy.yml` is the coordinator's): `ELEVENLABS_API_KEY`
   (Mezonas' ElevenLabs workspace, Conversational AI) and `ELEVENLABS_WEBHOOK_SECRET` (the signing
   secret of ElevenLabs' post-call webhook, pointed at `<APP_ORIGIN>/api/elevenlabs/post-call`; it

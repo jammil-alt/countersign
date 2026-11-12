@@ -1,0 +1,54 @@
+<!--
+title: Security
+description: How Mezonas keeps your data secure and your books intact: each client walled off, least access, every change approved by a person and logged with its receipts.
+-->
+<section class="mk-hero" aria-labelledby="security-title">
+  <div class="wrap mk-stack mk-stack--22">
+    <p class="eyebrow">Security</p>
+    <h1 class="mk-h1" id="security-title">Your data, secured. Your books, intact.</h1>
+    <p class="mk-lead mk-lead--640">Most AI vendors only talk about security. We also protect the accuracy of your books.</p>
+  </div>
+</section>
+
+<section class="mk-band mk-sec mk-sec--56" aria-labelledby="pillars-title">
+  <div class="wrap">
+    <h2 class="visually-hidden" id="pillars-title">Data security and data integrity</h2>
+    <div class="mk-pillars">
+      <div class="mk-card mk-pillar">
+        <div class="mk-pillar__head">
+          <span class="mk-ib mk-tone--agent"><svg class="mk-ico mk-ico--24" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="5" y="10" width="14" height="10"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg></span>
+          <span class="mk-stack"><h3 class="mk-h3">Data security</h3><span class="mk-small mk-muted">Who and what can touch your data</span></span>
+        </div>
+        {{component security-list}}
+      </div>
+      <div class="mk-card mk-pillar mk-pillar--integrity">
+        <div class="mk-pillar__head">
+          <span class="mk-ib mk-tone--person"><svg class="mk-ico mk-ico--24" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20l4-1 11-11-3-3L5 16zM14 7l3 3"></path></svg></span>
+          <span class="mk-stack"><h3 class="mk-h3">Data integrity</h3><span class="mk-small mk-muted">Whether your numbers stay right</span></span>
+        </div>
+        {{component integrity-list}}
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mk-sec" aria-labelledby="shown-title">
+  <div class="wrap">
+    <h2 class="visually-hidden" id="shown-title">Security and integrity, shown</h2>
+    <div class="mk-shown">
+      {{component masking}}
+      <div class="mk-card mk-card--lg mk-shown__ws">
+        <div class="mk-stack mk-stack--4"><p class="eyebrow">Integrity, shown</p><p class="mk-card-title">Every change leaves a Worksheet.</p></div>
+        {{component worksheet}}
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mk-band mk-sec" aria-labelledby="perms-title">
+  <div class="wrap mk-stack mk-stack--24">
+    <h2 class="mk-h2" id="perms-title">What we connect, and what we're allowed to do.</h2>
+    {{component permissions}}
+    <p class="mk-small mk-muted">The details are in our <a href="/privacy" data-track="security-privacy">privacy policy</a> and on the list of <a href="/subprocessors" data-track="security-subprocessors">subprocessors</a>.</p>
+  </div>
+</section>

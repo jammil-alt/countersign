@@ -443,7 +443,6 @@ describe("the Library", () => {
     expect(within(qbo).getByTestId("tool-qbo.bill.query-undo")).toHaveTextContent(
       "Nothing to undo",
     );
-    expect(within(qbo).getByTestId("tool-qbo.bill.query-wrapped")).toHaveTextContent("retiring");
     expect(within(qbo).getByTestId("tool-qbo.bill.update-does")).toHaveTextContent(
       "Changes the client's tool · update",
     );
@@ -458,6 +457,16 @@ describe("the Library", () => {
     );
     expect(screen.getByTestId("tool-website.page.publish-undo")).toHaveTextContent("No undo");
     expect(screen.getByTestId("tool-alerts.raise-undo")).toHaveTextContent("Our records only");
+
+    // Each row reads by a plain title and one line; the side sheet has the rest.
+    expect(within(qbo).getByTestId("tool-qbo.bill.query-open")).toHaveTextContent("Find bills");
+    await user.click(within(qbo).getByTestId("tool-qbo.bill.query-open"));
+    const sheet = screen.getByTestId("tool-sheet");
+    expect(within(sheet).getByRole("heading", { name: "Find bills" })).toBeInTheDocument();
+    expect(within(sheet).getByTestId("tool-qbo.bill.query-wrapped")).toHaveTextContent("retiring");
+    expect(sheet).toHaveTextContent("qbo.bill.query");
+    await user.click(screen.getByTestId("tool-sheet-close"));
+    expect(screen.queryByTestId("tool-sheet")).toBeNull();
 
     await user.click(screen.getByTestId("tools-filter-writes"));
     expect(screen.queryByTestId("tool-qbo.bill.query")).toBeNull();
@@ -484,6 +493,14 @@ describe("the Library", () => {
     expect(screen.getByTestId("trigger-kind-schedule-uses")).toHaveTextContent("Collector");
     expect(screen.getByTestId("trigger-kind-manual-uses")).toHaveTextContent("Bill keeper");
     expect(screen.getByTestId("trigger-kind-webhook")).toHaveTextContent("No template yet");
+
+    // An event reads by its name in words; its id and the rest are in the side sheet.
+    await user.click(screen.getByTestId("trigger-event-document.extracted-open"));
+    const sheet = screen.getByTestId("trigger-event-sheet");
+    expect(within(sheet).getByRole("heading", { name: "A document has been read" })).toBeVisible();
+    expect(sheet).toHaveTextContent("document.extracted");
+    expect(within(sheet).getByTestId("trigger-event-sheet-uses")).toHaveTextContent("Bill keeper");
+    await user.click(screen.getByTestId("trigger-event-sheet-close"));
 
     await user.type(screen.getByTestId("triggers-search"), "crm");
     expect(screen.queryByTestId("trigger-event-document.extracted")).toBeNull();

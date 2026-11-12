@@ -71,7 +71,7 @@ function renderAt(api: ReturnType<typeof fakeApi>) {
 }
 
 describe("ops connectors catalog", () => {
-  it("lists connectors with status, clients and errors, and shows the selected one", async () => {
+  it("lists connectors with status, clients and errors, and opens one in a side sheet", async () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
       "GET /api/ops/connectors": () => ({ connectors: [qbo(), gmail] }),
@@ -84,27 +84,39 @@ describe("ops connectors catalog", () => {
     expect(within(row).getByTestId("connector-qbo-errors")).toHaveTextContent(
       "3 failed calls, 1 connection in error",
     );
+    // The row says it in one line; the sheet opens from it with the whole description.
+    expect(screen.getByTestId("connector-qbo-line")).toHaveTextContent(
+      "Bills, invoices, vendors, customers and payments in your QuickBooks Online.",
+    );
+    expect(screen.queryByTestId("connector-panel")).toBeNull();
+    await userEvent.click(screen.getByTestId("connector-qbo-open"));
     const panel = screen.getByTestId("connector-panel");
+    expect(within(panel).getByRole("heading", { name: "QuickBooks Online" })).toBeInTheDocument();
+    expect(within(panel).getByTestId("connector-panel-description")).toHaveTextContent(
+      "Bills and invoices in your QuickBooks.",
+    );
     expect(within(panel).getByTestId("connector-qbo-status")).toHaveValue("live");
     const waiting = within(panel).getByTestId("connector-qbo-waiting");
     expect(waiting).toHaveTextContent("Lakeside Millwork");
     expect(waiting).toHaveTextContent("Pia needs it");
     expect(within(panel).getAllByText("Needs approval")).toHaveLength(2);
     expect(panel).toHaveTextContent("Platform defaults");
-    expect(within(panel).getByText("update invoice")).toBeInTheDocument();
+    // Its tools by their plain names.
+    expect(within(panel).getByText("Add a note to a customer invoice")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("connector-panel-close"));
+    expect(screen.queryByTestId("connector-panel")).toBeNull();
     // The default access shows the connector's entities under it, on demand.
     await userEvent.click(screen.getByTestId("matrix-entities-toggle-qbo"));
     expect(screen.getByTestId("matrix-entity-qbo-invoice")).toHaveTextContent("Invoices");
 
-    // Filter by status; the rail follows the selection.
+    // Filter by status, then open what's left.
     await userEvent.click(screen.getByTestId("connectors-filter-in_review"));
     expect(screen.queryByTestId("connector-qbo")).toBeNull();
+    await userEvent.click(screen.getByTestId("connector-gmail-open"));
     const gmailPanel = screen.getByTestId("connector-panel");
     expect(within(gmailPanel).getByRole("heading", { name: "Gmail" })).toBeInTheDocument();
     // No internal ids on the page.
     expect(gmailPanel).not.toHaveTextContent("connectors/gmail");
-    await userEvent.click(screen.getByTestId("connectors-filter-all"));
-    await userEvent.click(screen.getByTestId("connector-gmail-open"));
     expect(screen.getByTestId("connector-gmail")).toHaveAttribute("aria-selected", "true");
   });
 
@@ -137,11 +149,13 @@ describe("ops connectors catalog", () => {
     renderAt(api);
     const row = await screen.findByTestId("connector-qbo");
     expect(within(row).getByText("Live")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("connector-qbo-open"));
     expect(screen.getByTestId("connector-panel")).toHaveTextContent(
       "Live because clients can connect it here.",
     );
     expect(within(screen.getByTestId("connector-zoho_crm")).getByText("Not set up")).toBeVisible();
     expect(screen.queryByText("Not set")).toBeNull();
+    await userEvent.click(screen.getByTestId("connector-panel-close"));
     await userEvent.click(screen.getByTestId("connector-testkit-open"));
     expect(screen.getByTestId("connector-panel-test-only")).toHaveTextContent(
       "real clients never see it",
@@ -159,9 +173,11 @@ describe("ops connectors catalog", () => {
       },
     });
     renderAt(api);
-    const panel = await screen.findByTestId("connector-panel");
+    await userEvent.click(await screen.findByTestId("connector-qbo-open"));
+    const panel = screen.getByTestId("connector-panel");
     await userEvent.selectOptions(within(panel).getByTestId("connector-qbo-status"), "beta");
     await waitFor(() => expect(puts).toEqual([{ status: "beta" }]));
+    await userEvent.click(screen.getByTestId("connector-panel-close"));
     await userEvent.click(screen.getByTestId("matrix-entities-toggle-qbo"));
     await userEvent.selectOptions(
       screen.getByTestId("matrix-entity-invoice-scope-select"),
@@ -198,7 +214,8 @@ describe("ops connectors catalog", () => {
       },
     });
     renderAt(api);
-    await userEvent.selectOptions(await screen.findByTestId("connector-offer-client"), CLIENT_ID);
+    await userEvent.click(await screen.findByTestId("connector-qbo-open"));
+    await userEvent.selectOptions(screen.getByTestId("connector-offer-client"), CLIENT_ID);
     expect(await screen.findByTestId("connector-offer-state")).toHaveTextContent("Not offered.");
     await userEvent.click(screen.getByTestId("connector-offer-toggle"));
     await waitFor(() => expect(offers).toEqual([{ offered: ["gmail", "qbo"] }]));

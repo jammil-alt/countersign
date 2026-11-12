@@ -38,7 +38,7 @@ export function LibraryIndexScreen() {
     <LibraryFrame>
       <PageHeader
         title="Library"
-        subtitle="The banks you build from. A process takes triggers, skills, tools and checks from here; each client's agent is one process and its owner."
+        subtitle="Everything agents are built from. A process puts a trigger, skills and tools in order; each client's agent is one process."
         actions={
           <Link to="/ops/templates/new" className={buttonClass("primary")}>
             Make a template
