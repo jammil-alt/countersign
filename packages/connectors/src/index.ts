@@ -52,6 +52,8 @@ export * from "./linkedin/index";
 export * from "./logger";
 export * from "./messaging/services";
 export * from "./messaging/spec";
+// §1.97: the Microsoft connectors' shared sign-in.
+export * from "./microsoft/identity";
 export * from "./oauth/flow";
 export * from "./oauth/state";
 export * from "./oauth/tokens";

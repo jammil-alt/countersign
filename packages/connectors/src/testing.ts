@@ -400,6 +400,14 @@ export {
   type FakeLinkedInPost,
   fakeLinkedIn,
 } from "./linkedin/fake";
+// §1.97: the Microsoft connectors' shared fake sign-in.
+export {
+  FAKE_MICROSOFT_APP,
+  type FakeMicrosoftApp,
+  type FakeMicrosoftGrant,
+  type FakeMicrosoftIdentity,
+  fakeMicrosoftIdentity,
+} from "./microsoft/fake";
 // v0.12 W3-B
 export {
   FAKE_MICROSOFT,
