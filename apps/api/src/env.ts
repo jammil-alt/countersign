@@ -58,6 +58,13 @@ export interface Secrets {
   /** The Entra app for OneDrive: `Files.ReadWrite.AppFolder` only. Name it "Mezonas" (the folder's name). */
   ONEDRIVE_CLIENT_ID?: string;
   ONEDRIVE_CLIENT_SECRET?: string;
+  /** The Entra app for Excel: `Files.ReadWrite`, our code keeping to the workbooks the client picks. */
+  EXCEL_CLIENT_ID?: string;
+  EXCEL_CLIENT_SECRET?: string;
+  /** The Teams bot (an Azure Bot, single tenant): its Entra app's id, secret and Mezonas' tenant. */
+  TEAMS_BOT_APP_ID?: string;
+  TEAMS_BOT_APP_SECRET?: string;
+  TEAMS_BOT_TENANT_ID?: string;
   // v0.14 W4-E: the Google Chat app (docs/plan.md §1.60).
   /** The Chat app's service account key JSON, as one secret (`chat.bot`); never logged. */
   GOOGLE_CHAT_SERVICE_ACCOUNT?: string;

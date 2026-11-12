@@ -37,6 +37,7 @@ export * from "./api/conversations";
 export * from "./api/desk";
 export * from "./api/directory";
 export * from "./api/documents";
+export * from "./api/excel";
 export * from "./api/exports";
 export * from "./api/feedback";
 // v0.14 W4-E: Google Chat
@@ -90,6 +91,7 @@ export * from "./api/step-data";
 export * from "./api/step-in";
 export * from "./api/supervisor";
 export * from "./api/table";
+export * from "./api/teams";
 // v0.12 W2-C: the test bench
 export * from "./api/testbench";
 export * from "./api/threads";

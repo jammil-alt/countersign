@@ -34,6 +34,7 @@ import {
   // M45 (docs/plan.md §1.75)
   createBingWebmasterConnector,
   createBrowserConnector,
+  createExcelConnector,
   // v0.14 W4-E
   createGchatConnector,
   createGdriveConnector,
@@ -57,6 +58,7 @@ import {
   createResendConnector,
   // v0.14 W4-C
   createSlackConnector,
+  createTeamsConnector,
   createTestkitConnector,
   createTwilioConnector,
   createUploadConnector,
@@ -244,6 +246,11 @@ type OAuthEnvKey =
   // §1.97: the other Microsoft connectors' Entra apps, one each.
   | "ONEDRIVE_CLIENT_ID"
   | "ONEDRIVE_CLIENT_SECRET"
+  | "EXCEL_CLIENT_ID"
+  | "EXCEL_CLIENT_SECRET"
+  | "TEAMS_BOT_APP_ID"
+  | "TEAMS_BOT_APP_SECRET"
+  | "TEAMS_BOT_TENANT_ID"
   // v0.14 W4-E: the Google Chat app.
   | "GOOGLE_CHAT_SERVICE_ACCOUNT"
   | "GOOGLE_CHAT_PROJECT_NUMBER"
@@ -289,6 +296,11 @@ export function platformFor(
     env.OUTLOOK_CLIENT_ID ?? "-",
     // §1.97
     env.ONEDRIVE_CLIENT_ID ?? "-",
+    env.EXCEL_CLIENT_ID ?? "-",
+    // Whether the bot's secret is set, never the secret.
+    env.TEAMS_BOT_APP_ID ?? "-",
+    env.TEAMS_BOT_TENANT_ID ?? "-",
+    env.TEAMS_BOT_APP_SECRET ? "teams" : "-",
     // v0.14 W4-E: whether the key is set, never the key.
     env.GOOGLE_CHAT_SERVICE_ACCOUNT ? "gchat" : "-",
     env.GOOGLE_CHAT_PROJECT_NUMBER ?? "-",
@@ -399,6 +411,16 @@ export function deploymentConnectors(
     // everywhere, signing in once ONEDRIVE_CLIENT_ID, ONEDRIVE_CLIENT_SECRET and OAUTH_STATE_SECRET
     // are set.
     createOnedriveConnector(oauthClient(env.ONEDRIVE_CLIENT_ID, env.ONEDRIVE_CLIENT_SECRET, env)),
+    // §1.97: Excel (the workbooks the client picks), on its own Entra app: registered everywhere,
+    // signing in once EXCEL_CLIENT_ID, EXCEL_CLIENT_SECRET and OAUTH_STATE_SECRET are set.
+    createExcelConnector(oauthClient(env.EXCEL_CLIENT_ID, env.EXCEL_CLIENT_SECRET, env)),
+    // §1.97: Microsoft Teams, our bot: registered everywhere; a client connects it once
+    // TEAMS_BOT_APP_ID, TEAMS_BOT_APP_SECRET and TEAMS_BOT_TENANT_ID are set.
+    createTeamsConnector({
+      appId: env.TEAMS_BOT_APP_ID,
+      appSecret: env.TEAMS_BOT_APP_SECRET,
+      tenantId: env.TEAMS_BOT_TENANT_ID,
+    }),
     // v0.14 W4-E: Google Chat, the app of Mezonas' own: registered everywhere; a client connects it
     // once GOOGLE_CHAT_SERVICE_ACCOUNT and GOOGLE_CHAT_PROJECT_NUMBER are set.
     createGchatConnector({

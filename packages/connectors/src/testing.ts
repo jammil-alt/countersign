@@ -349,6 +349,16 @@ export {
   type FakeRegisteredCall,
   fakeElevenLabs,
 } from "./elevenlabs/fake";
+export {
+  FAKE_EXCEL_ACCOUNT,
+  FAKE_EXCEL_APP,
+  type FakeCell,
+  type FakeDriveItem as FakeExcelDriveItem,
+  type FakeExcel,
+  type FakeFormula,
+  type FakeWorksheet,
+  fakeExcel,
+} from "./excel/fake";
 // v0.14 W4-E: Google Chat (docs/plan.md §1.60).
 export {
   FAKE_GCHAT,
@@ -440,6 +450,15 @@ export {
   fakeSlack,
 } from "./slack/fake";
 export * from "./stripe/fake";
+export {
+  FAKE_TEAMS,
+  type FakeActivityOptions,
+  type FakeTeams,
+  type FakeTeamsPost,
+  type FakeTeamsReply,
+  type FakeTokenOptions,
+  fakeTeams,
+} from "./teams/fake";
 export { FAKE_TWILIO_MAIN, type FakeTwilio, fakeTwilio } from "./twilio/fake";
 // P-8: the fake A2P 10DLC resources (Trust Hub, brands, services, campaigns)
 export { FAKE_PRIMARY_PROFILE, type FakeA2p } from "./twilio/fake-a2p";

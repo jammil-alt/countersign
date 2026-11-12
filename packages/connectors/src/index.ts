@@ -28,6 +28,8 @@ export * from "./connector";
 export * from "./credentials";
 export * from "./credentials-accessor";
 export * from "./elevenlabs/index";
+// §1.97: Excel, the workbooks the client picks.
+export * from "./excel/index";
 // v0.14 W4-E
 export * from "./gchat/index";
 export * from "./gdrive/index";
@@ -78,6 +80,8 @@ export * from "./storage/object-store";
 export * from "./storage/r2";
 export * from "./storage/signed-url";
 export * from "./stripe/index";
+// §1.97: Microsoft Teams, a Mezonas bot posting to bound channels.
+export * from "./teams/index";
 export * from "./tenant-keys";
 export * from "./testkit/index";
 export * from "./twilio/index";
