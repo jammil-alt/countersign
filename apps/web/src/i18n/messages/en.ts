@@ -1982,6 +1982,8 @@ export const en = {
   "home.owner.rename": "Rename",
   "home.owner.renameLabel": "New name for {name}",
   "home.owner.save": "Save",
+  "stepPanel.tell": "Tell us what was wrong",
+  "stepPanel.tellPrompt": 'About "{step}" in this run: ',
   "home.owners": "Who looks after what",
   "home.owner.health.working": "Working",
   "home.owner.health.needs_you": "Needs you",

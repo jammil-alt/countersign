@@ -202,6 +202,7 @@ export * from "./permissions/grants";
 export * from "./permissions/release";
 // R1: processes, workflow schemaVersion 4 (docs/plan.md §1.86, §9), as the `processes` namespace.
 export * as processes from "./process";
+export * from "./process/change-class";
 export * from "./reach/rules";
 export * from "./roles";
 export * from "./rules/compile";

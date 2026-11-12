@@ -52,6 +52,7 @@ import {
   AnyAgentBundle,
   type BuilderChange,
   type ClosestTemplate,
+  classifyChange,
   closestBundles,
   diffBundles,
   isToolWrapper,
@@ -419,6 +420,9 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
         changes: diffBundles(from.bundle, v.bundle, { lookup }),
         labels: bundleLabels(from.bundle, v.bundle),
       },
+      // v0.17 (§10.15): what the draft would do, by code: a process change to approve, or one
+      // that loosens or widens (an owner never drafts those; the operator decides).
+      changeClass: classifyChange(from.bundle, v.bundle),
     };
   });
 }

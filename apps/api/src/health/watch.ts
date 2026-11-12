@@ -16,6 +16,7 @@ import {
 import { SUPERVISOR_SLUG } from "@countersign/core";
 import { agent, agentVersion, type Db, event, withTenant } from "@countersign/db";
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { ownerSuggestions } from "../owners/signals";
 
 /** How far back each tick looks for events: findings are fingerprinted, so a second look is free. */
 // DECISION (O5): 10 minutes, so a tick or two missed loses nothing; an issue still open is never
@@ -94,9 +95,9 @@ export async function platformHealthTick(
   tenantId: string,
   at: Date,
   timeZone: string | null | undefined,
-): Promise<{ reported: number; checked: boolean }> {
+): Promise<{ reported: number; checked: boolean; suggested: number }> {
   const sloan = await sloanOf(deps.db, tenantId);
-  if (!sloan) return { reported: 0, checked: false };
+  if (!sloan) return { reported: 0, checked: false, suggested: 0 };
   const scope: SupervisorScope = {
     tenantId,
     agentId: sloan.agentId,
@@ -145,5 +146,17 @@ export async function platformHealthTick(
     local.hour === DAILY_CHECK_AT.hour &&
     local.minute === DAILY_CHECK_AT.minute;
   if (due) await dailyCheck(scope);
-  return { reported, checked: due };
+  // v0.17 O8: the owners' suggestions, once a day at the same hour, whatever Sloan's version.
+  const suggested =
+    local.hour === DAILY_CHECK_AT.hour && local.minute === DAILY_CHECK_AT.minute
+      ? await ownerSuggestions({ db: deps.db, catalog: deps.runtime.catalog }, tenantId, at).catch(
+          (error: unknown) => {
+            console.warn(
+              `owner suggestions failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            return 0;
+          },
+        )
+      : 0;
+  return { reported, checked: due, suggested };
 }

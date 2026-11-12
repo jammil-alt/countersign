@@ -26,9 +26,10 @@ import {
   stepChipState,
 } from "../../runs/StepPanel";
 import { writeLine } from "../../runs/write";
-import { Badge, Tag, type Tone } from "../../ui/primitives";
+import { Badge, Button, Tag, type Tone } from "../../ui/primitives";
 import { SheetSection } from "../../ui/sheet";
 import { StatusChip } from "../../ui/status";
+import { useSloanPanel } from "../SloanPanel";
 
 type RunData = ResponseOf<typeof apiRoutes.portalRun>;
 type Step = RunData["steps"][number];
@@ -109,6 +110,7 @@ export function PortalStepPanel({
   const i18n = useI18n();
   const { t, locale } = i18n;
   const time = (iso: string | null) => (iso ? shortTime(iso, undefined, i18n) : null);
+  const panel = useSloanPanel();
   const actions = data.actions.filter((a) => a.stepRunId === step.id);
   const entries = portalStepData(step, actions, data.sourceNames, i18n);
   const title = step.confer ? conferTitle(i18n, step.confer) : step.label;
@@ -238,6 +240,16 @@ export function PortalStepPanel({
               </div>
             </SheetSection>
           ) : null}
+          {/* v0.17 (§10.15): tell the agent's owner what was wrong, in the chat. */}
+          <div>
+            <Button
+              size="sm"
+              data-testid="portal-run-step-panel-tell"
+              onClick={() => panel.open(t("stepPanel.tellPrompt", { step: step.label }))}
+            >
+              {t("stepPanel.tell")}
+            </Button>
+          </div>
         </>
       }
     />

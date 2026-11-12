@@ -175,6 +175,7 @@ describe.skipIf(!h)("Sloan's old watches as platform code", () => {
     expect(await platformHealthTick(deps(), H.A.tenantId, eight, "America/Chicago")).toEqual({
       reported: 0,
       checked: false,
+      suggested: 0,
     });
     expect(
       await H.t.db

@@ -2078,6 +2078,8 @@ export const fr: Messages = {
   "home.owner.rename": "Renommer",
   "home.owner.renameLabel": "Nouveau nom pour {name}",
   "home.owner.save": "Enregistrer",
+  "stepPanel.tell": "Dites-nous ce qui n'allait pas",
+  "stepPanel.tellPrompt": "À propos de « {step} » dans cette exécution : ",
   "home.owners": "Qui s'occupe de quoi",
   "home.owner.health.working": "Au travail",
   "home.owner.health.needs_you": "A besoin de vous",

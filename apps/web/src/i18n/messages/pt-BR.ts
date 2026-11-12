@@ -2043,6 +2043,8 @@ export const ptBR: Messages = {
   "home.owner.rename": "Renomear",
   "home.owner.renameLabel": "Novo nome para {name}",
   "home.owner.save": "Salvar",
+  "stepPanel.tell": "Diga o que estava errado",
+  "stepPanel.tellPrompt": 'Sobre "{step}" nesta execução: ',
   "home.owners": "Quem cuida de quê",
   "home.owner.health.working": "Trabalhando",
   "home.owner.health.needs_you": "Precisa de você",

@@ -2091,6 +2091,8 @@ export const de: Messages = {
   "home.owner.rename": "Umbenennen",
   "home.owner.renameLabel": "Neuer Name für {name}",
   "home.owner.save": "Speichern",
+  "stepPanel.tell": "Sagen Sie uns, was falsch war",
+  "stepPanel.tellPrompt": "Zu „{step}“ in diesem Lauf: ",
   "home.owners": "Wer sich um was kümmert",
   "home.owner.health.working": "Läuft",
   "home.owner.health.needs_you": "Braucht Sie",

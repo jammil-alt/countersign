@@ -1889,6 +1889,10 @@ export const opsRoutes = {
     response: BuilderOutcome.extend({
       version: VersionSummary,
       diff: BundleDiff,
+      /** v0.17 (§10.15): the draft's class by code: `never` loosens or widens. */
+      changeClass: z
+        .object({ class: z.enum(["none", "process", "never"]), reasons: z.array(z.string()) })
+        .optional(),
     }),
   }),
   opsDiscardAgent: defineRoute({

@@ -2046,6 +2046,8 @@ export const es: Messages = {
   "home.owner.rename": "Cambiar nombre",
   "home.owner.renameLabel": "Nuevo nombre para {name}",
   "home.owner.save": "Guardar",
+  "stepPanel.tell": "Dinos qué estuvo mal",
+  "stepPanel.tellPrompt": 'Sobre "{step}" en esta ejecución: ',
   "home.owners": "Quién se ocupa de qué",
   "home.owner.health.working": "Trabajando",
   "home.owner.health.needs_you": "Te necesita",

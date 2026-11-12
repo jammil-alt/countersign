@@ -5978,6 +5978,30 @@ Each milestone ends green. Migrations in their own PR (O1).
   asks Pia to run the vendor follow-up weekly; the client admin confirms the draft, the operator
   approves it, and the next runs follow the new schedule.
 
-Status (2026-11-12): O1 (migration 0048), O2 (core) and O3 (runtime) built on
-`claude/clever-allen-i6npwp`. O4–O8 next. The name pool is taken as proposed until the owner says
-otherwise.
+Status (2026-11-12): O1–O8 built on `claude/clever-allen-i6npwp`, each its own commit, every
+suite green locally (db, core, agents, workflows, api, web). Not yet in a PR, so not checked by CI
+or on staging. The name pool is taken as proposed until the owner says otherwise.
+
+What each built, and what is left (DECISIONs in §1.96):
+- **O5:** Sloan v6 is chat only; `reportEvent` and `dailyCheck` run on the minute tick
+  (`apps/api/src/health/watch.ts`): findings from the last 10 minutes of events, the daily check at
+  08:00 in the client's zone. A Sloan still on v5 keeps its own watches.
+- **O6:** Home carries the owners, ideas and quick actions on its one call; the chat opens as a
+  side panel on every portal screen; quiet conversations are summarized per person; Sloan gained
+  `account.help`, `account.history`, `account.ideas`. Left: sending the current screen with each
+  message (the message path needs a field); importing a CSV inside the chat itself (Upload a list
+  opens the directory's import, with its preview and confirm; Sloan's guide points there).
+- **O7:** "@Pia" is answered in Pia's name through Sloan's chat run (`account.owner`,
+  `account.reply_as`), about her area only; the client admin renames an owner on Home.
+  // DECISION (O7): owner chat runs on Sloan's chat run and model, in the owner's name; the
+  owner's own model is for its reviews of runs. One chat runtime keeps invariant 11's rules in one
+  place; a per-owner chat model can follow if the owner wants it.
+- **O8:** once a day at 08:00 each owner's signals (the same step corrected 3+ times, the same
+  field edited before signing 3+ times, in 14 days) become one operator suggestion in its name with
+  the evidence, not repeated for 30 days (`apps/api/src/owners/signals.ts`); `classifyChange`
+  (core) labels every Builder revision `process` or `never`; "Tell us what was wrong" on a portal
+  run step opens the chat about that step. Left: the owner drafting the change itself through the
+  Builder with test runs (today the operator drafts it from the suggestion), the client admin's
+  confirm step for client-asked process changes (they go through the chat as requests), the watch
+  after a change and its rollback suggestion, rejections with a reason as a signal, and a
+  process's "What changed" in the portal.
