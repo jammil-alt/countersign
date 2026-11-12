@@ -130,12 +130,24 @@ export const OversightProposal = z.strictObject({
 });
 export type OversightProposal = z.infer<typeof OversightProposal>;
 
+/** v0.17 (§10.15): memory notes an area owner may save from one decision, and their length. */
+export const OWNER_REMEMBER_MAX = 2;
+export const OWNER_REMEMBER_NOTE_MAX = 300;
+
+/** Something an area owner wants to know next time; saved by code as its memory note. */
+export const OwnerRemember = z.strictObject({
+  note: z.string().trim().min(1).max(OWNER_REMEMBER_NOTE_MAX),
+});
+export type OwnerRemember = z.infer<typeof OwnerRemember>;
+
 const common = {
   /** The agent's diagnosis: operator only, never shown to the client. */
   note: z.string().trim().min(1).max(OVERSIGHT_NOTE_MAX),
   /** Record ids the decision relied on (invariant 10). */
   sources: z.array(z.string().trim().min(1).max(200)).max(50).default([]),
   proposal: OversightProposal.optional(),
+  /** v0.17: an area owner's notes for next time (offered only to area owners' reviews). */
+  remember: z.array(OwnerRemember).max(OWNER_REMEMBER_MAX).optional(),
 };
 
 export const OversightDecision = z
@@ -197,10 +209,28 @@ export function oversightFinishSchema(
   cause: OversightCause,
   // v0.13 M32
   allowed: readonly OversightActionName[] = OVERSIGHT_ALLOWED[cause],
+  // v0.17: an area owner's review also offers `remember`. Off for every other review, so their
+  // requests (and the recorded answers replayed by their hash) stay exactly as they were.
+  options: { remember?: boolean } = {},
 ): Record<string, unknown> {
   return {
     type: "object",
     properties: {
+      ...(options.remember
+        ? {
+            remember: {
+              type: "array",
+              maxItems: OWNER_REMEMBER_MAX,
+              description:
+                "Optional: at most 2 short notes worth knowing next time in this area (a fact about this client's work, not this run), each under 300 characters.",
+              items: {
+                type: "object",
+                properties: { note: { type: "string" } },
+                required: ["note"],
+              },
+            },
+          }
+        : {}),
       action: { type: "string", enum: [...allowed] },
       note: {
         type: "string",

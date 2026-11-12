@@ -4,6 +4,7 @@ import { ClientView } from "../kpi/schema";
 import { DecimalString } from "../money";
 // v0.13 W2-I
 import { OversightSettings } from "../oversight/decision";
+import { OwnerArea } from "../owners/areas";
 // R1 (docs/plan.md §1.86): a bundle entry may hold a v4 process.
 import { Process } from "../process/schema";
 import { PersonRole } from "../reach/rules";
@@ -76,6 +77,10 @@ export const AgentDefinition = z
     // v0.13 W2-I: run oversight (ARCHITECTURE §10.11). Optional with no default: absent means
     // `off`, so bundles without it parse, hash and run as they were.
     oversight: OversightSettings.optional(),
+    // v0.17: the business area a template's process belongs to (ARCHITECTURE §10.15). Optional
+    // with no default, so bundles without it parse and hash as they were; absent reads from
+    // `requiresPacks`, else `general` (`processArea`).
+    area: OwnerArea.optional(),
   })
   .meta({ id: "AgentDefinition" });
 export type AgentDefinition = z.infer<typeof AgentDefinition>;

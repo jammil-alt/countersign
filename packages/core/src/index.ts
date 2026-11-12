@@ -154,6 +154,8 @@ export * from "./i18n/locale";
 export * from "./i18n/notify";
 // v0.13 W2-I
 export * from "./i18n/oversight";
+// v0.17: area owners (ARCHITECTURE §10.15)
+export * from "./i18n/owners";
 export * from "./i18n/release";
 // P-6
 export * from "./i18n/step-in";
@@ -186,6 +188,10 @@ export * from "./notify/render";
 export * from "./oversight/check";
 // v0.13 W2-I: run oversight
 export * from "./oversight/decision";
+// v0.17: area owners (ARCHITECTURE §10.15)
+export * from "./owners/areas";
+export * from "./owners/definition";
+export * from "./owners/names";
 export * from "./permissions/decide";
 export * from "./permissions/entities";
 export * from "./permissions/explain";

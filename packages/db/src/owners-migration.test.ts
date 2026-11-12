@@ -5,11 +5,12 @@
 // versions are never changed, and the checks hold a note to one subject and a person note to its
 // person.
 
+import { OWNER_AREAS as CORE_AREAS } from "@countersign/core";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withTenant } from "./client";
 import { type ClientFixture, insertClient } from "./fixtures.test-helper";
-import { agent, areaOwner, areaOwnerVersion, memoryNote, run } from "./schema";
+import { agent, areaOwner, areaOwnerVersion, memoryNote, OWNER_AREAS, run } from "./schema";
 import {
   asWorker,
   createTestDatabase,
@@ -19,6 +20,10 @@ import {
 } from "./testing";
 
 const online = await databaseAvailable();
+
+it("keeps the database's list of areas in step with core's", () => {
+  expect([...OWNER_AREAS]).toEqual([...CORE_AREAS]);
+});
 
 describe.skipIf(!online)("0048 on a database the previous Worker used", () => {
   let t: TestDatabase;
