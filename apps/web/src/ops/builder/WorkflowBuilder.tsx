@@ -100,6 +100,8 @@ import {
 } from "./catalog";
 import { FixDialog, type FixRequest } from "./FixDialog";
 import { EventOptions, SmallInput, SmallSelect } from "./fields";
+// Hand off (owner, 2026-11-11): the client's agents a hand-off step can start.
+import { handoffNames, useHandoffAgents } from "./handoff";
 import { type FocusRequest, Inspector, type Selection } from "./Inspector";
 import {
   type ApprovalEnv,
@@ -200,6 +202,7 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
       : null,
   );
   const scripts = useClientScriptTools(props.agent); // Wave 4: the client's recorded scripts
+  const handoff = useHandoffAgents(props.agent);
   const people = useMemo<People>(
     () => ({
       members: props.members ?? [],
@@ -244,6 +247,7 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
         },
         events: events.data.events,
         scripts,
+        handoff,
       }}
       onCatalogSkill={(entry) =>
         setMoved((list) => [...list.filter((m) => m.ref !== entry.ref), entry])
@@ -543,6 +547,7 @@ function BuilderBody(
         data.catalog.skills.find((s) => s.ref === ref || parseSkillRef(s.ref).id === ref)
           ?.definition.name,
       automation: (ref) => data.catalog.automations?.find((a) => a.ref === ref)?.name,
+      handoff: (to) => handoffNames(data, to),
       connector: (toolId) => {
         const c = toolConnector(toolId, data);
         return c ? connectorName(data, c) : undefined;
@@ -662,6 +667,7 @@ function BuilderBody(
     const r = validateProcessesLikeServer(unchangedV3 ? props.bundle : bundle, ctx, {
       clientAgent: agent.kind === "client",
       publish: agent.kind === "client" ? { matrices } : undefined,
+      handoff: data.handoff,
     });
     // Wave 5: a condition on how a step ended says what's wrong in the builder's words.
     const plain = <
@@ -679,7 +685,7 @@ function BuilderBody(
       return process ? { ...p, message: plainOutcomeProblem(process, p) } : p;
     };
     return { ...r, errors: r.errors.map(plain), warnings: r.warnings.map(plain) };
-  }, [unchangedV3, props.bundle, bundle, ctx, matrices, agent.kind]);
+  }, [unchangedV3, props.bundle, bundle, ctx, matrices, agent.kind, data.handoff]);
   // Counted as the problems list shows them: one step's references to the same step are one.
   const problemCount = useMemo(
     () => problemLines(result.errors, bundle).length,

@@ -273,7 +273,7 @@ function stopFor(step: Pick<Step, "kind">, word: string): RouteStop {
 
 /** The step kinds `onError` may be set on (the validator's `on_error_not_here` refuses the rest). */
 export function takesOnError(step: Pick<Step, "kind">): boolean {
-  return !["if", "stop", "wait", "person"].includes(step.kind);
+  return !["if", "stop", "wait", "person", "handoff"].includes(step.kind);
 }
 
 const FAILURES = new Set(["failed", "needs_help", "some_failed", "all_failed", "stopped"]);

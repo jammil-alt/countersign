@@ -62,6 +62,8 @@ import { runOversight } from "../oversight/views";
 import { runAuditState, runOwnerChecks } from "../run-audit/store";
 import { dispatchEvents } from "../runs/dispatch";
 import { daysOf, runsByDay } from "../runs/figures";
+// Hand off (2026-11-11): where a handed-off run came from.
+import { handedOffFrom } from "../runs/handoff";
 import { opsStatusWhere, reachContext, runWaits } from "../runs/run-wait";
 import { runSubjects, sourceNames } from "../runs/subject";
 import { stepModelFacts } from "../skill-facts";
@@ -1184,10 +1186,12 @@ export async function opsRunDetail(
     wf ? { name: wf.name, workflow: wf.workflow } : undefined,
   );
   const cited = steps.flatMap((s) => sourcesOf(s.output));
-  const [names, stepFacts] = await Promise.all([
+  const [names, stepFacts, from] = await Promise.all([
     sourceNames(tx, [r.tenantId], cited),
     // Skill model (2026-11-10), wave A: each step's kind (Deterministic or AI) and write label.
     wf ? stepModelFacts(tx, r.tenantId, wf.workflow, services.platform) : {},
+    // Hand off (2026-11-11): the run that handed this one off, and the step it started at.
+    handedOffFrom(tx, r.tenantId, r.trigger, wf?.workflow),
   ]);
   const outcomes = stepOutcomes(steps, items);
   const response = {
@@ -1210,6 +1214,7 @@ export async function opsRunDetail(
     ownerChecks,
     audit,
     stepFacts,
+    ...(from ? { handedOffFrom: from } : {}),
   };
   return { response, rows: { run: r, steps, items, version, workflow: wf ?? null } };
 }

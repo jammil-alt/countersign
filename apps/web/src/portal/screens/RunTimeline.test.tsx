@@ -475,3 +475,46 @@ describe("portal run timeline: checks", () => {
     );
   });
 });
+
+// Hand off (owner, 2026-11-11; docs/plan.md §1.96)
+describe("portal run timeline: hand-offs", () => {
+  const OTHER = "00000000-0000-4000-8000-0000000f1abc";
+  const FROM = "00000000-0000-4000-8000-0000000f1def";
+
+  it("links a hand-off step to the run it started, and a handed-off run to where it came from", async () => {
+    renderTimeline({
+      ...LEAKY_TIMELINE,
+      run: {
+        ...LEAKY_TIMELINE.run,
+        handedOffFrom: {
+          fromRunId: FROM,
+          fromAgent: "AP bill clerk",
+          at: "5 · Itemize the invoice",
+        },
+      },
+      steps: [
+        {
+          id: "00000000-0000-4000-8000-0000000f2009",
+          label: "Hand off to Price checker at 2 · Check prices",
+          status: "succeeded",
+          summary: "Handed off to Price checker (run R-0f1abc)",
+          sources: [],
+          startedAt: "2026-11-03T10:00:10.000Z",
+          finishedAt: "2026-11-03T10:00:11.000Z",
+          handoff: { runId: OTHER },
+        },
+      ],
+    });
+    const from = await screen.findByTestId("portal-run-handoff");
+    expect(from).toHaveTextContent(
+      "Handed off from AP bill clerk (run R-0f1def) · started at 5 · Itemize the invoice",
+    );
+    expect(within(from).getByRole("link")).toHaveAttribute("href", `/runs/${FROM}`);
+    const timeline = screen.getByTestId("portal-run-timeline");
+    expect(timeline).toHaveTextContent("Handed off to Price checker (run R-0f1abc)");
+    expect(within(timeline).getByTestId("portal-run-step-handoff")).toHaveAttribute(
+      "href",
+      `/runs/${OTHER}`,
+    );
+  });
+});

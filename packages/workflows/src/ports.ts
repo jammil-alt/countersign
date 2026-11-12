@@ -692,3 +692,37 @@ export const NeedsHelp = z.object({
   keep: z.boolean().optional(),
 });
 export type NeedsHelp = z.infer<typeof NeedsHelp>;
+
+// ── Hand off (owner, 2026-11-11; docs/plan.md §1.96) ─────────────────────────────────────────
+
+/** A hand-off step's ask: start `to.agent`'s live version at `to.step` with `input`. */
+export interface HandoffRequest {
+  run: RunInfo;
+  /** The hand-off step's durable name. */
+  nodeId: string;
+  to: { agent: string; step: string };
+  input: unknown;
+}
+
+/** What people call the target and its entry step ("Price checker", "5 · Itemize the invoice"). */
+export interface HandoffNames {
+  name: string;
+  at: string;
+}
+
+/**
+ * Starts the run a hand-off step asks for (apps/api, with the router's `handoffRunRequest`), or in
+ * a test run only names the target: a test run starts nothing. Starting another agent's run is
+ * internal, never a write to a client's tool; the run started applies its own approvals.
+ */
+export interface HandoffPort {
+  /** Names the target for a test run's "would hand off" line; starts nothing. */
+  names(request: HandoffRequest): Promise<HandoffNames>;
+  /** Starts the run; idempotent per (run, nodeId). A refusal says why in plain words. */
+  start(
+    request: HandoffRequest,
+  ): Promise<
+    | (HandoffNames & { runId: string })
+    | (Partial<HandoffNames> & { refused: string; notStarted?: boolean })
+  >;
+}

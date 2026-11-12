@@ -15,6 +15,7 @@ import {
   fork,
   getAgent,
   getVersion,
+  handoffAgents,
   latestVersion,
   listClientAgents,
   listTemplates,
@@ -195,6 +196,12 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
       discarded: ctx.query.include === "discarded",
     });
     return { agents: agents.map(agentSummary) };
+  });
+
+  // Hand off (owner, 2026-11-11): what the builder's hand-off step picks from and checks against.
+  mount(app, routes.opsClientHandoffAgents, async (ctx) => {
+    ensureClient(ctx, ctx.params.id);
+    return { agents: await handoffAgents(ctx.tx, ctx.params.id, ctx.services.platform.ctx) };
   });
 
   mount(app, routes.opsCreateClientAgent, async (ctx) => {

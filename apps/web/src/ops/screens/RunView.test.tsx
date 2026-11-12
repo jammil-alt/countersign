@@ -1033,3 +1033,64 @@ describe("back-office step panel", () => {
     expect(within(list).getByTestId("ops-run-step-data-change")).toHaveTextContent("Done");
   });
 });
+
+// Hand off (owner, 2026-11-11; docs/plan.md §1.96): the sender's step links to the run it
+// started; the run started says where it came from and the step it started at.
+describe("back-office run view: hand-offs", () => {
+  const OTHER = "00000000-0000-4000-8000-0000000f1abc";
+  const FROM = "00000000-0000-4000-8000-0000000f1def";
+  const STEP = "00000000-0000-4000-8000-0000000f2abc";
+  const PROCESS = {
+    schemaVersion: 4,
+    triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+    steps: [
+      {
+        id: "hand",
+        name: "Hand off to Price checker at 2 · Itemize the invoice",
+        kind: "handoff",
+        to: { agent: "price-checker", step: "itemize" },
+        input: {},
+      },
+    ],
+  };
+  const base = detail("resolved");
+  const data = {
+    ...base,
+    run: { ...base.run, status: "succeeded", trigger: { type: "handoff", fromRunId: FROM } },
+    steps: [
+      step(STEP, "hand", "handoff", "succeeded", {
+        output: { runId: OTHER, agent: "price-checker", step: "itemize" },
+        summary: "Handed off to Price checker (run R-0f1abc)",
+      }),
+    ],
+    actions: [],
+    inbox: [],
+    workflow: { slug: "fix-record", name: "Fix a record", definition: PROCESS },
+    handedOffFrom: { fromRunId: FROM, fromAgent: "AP bill clerk", at: "5 · Itemize the invoice" },
+  };
+
+  it("links the step to the run it started, and the header to the run that handed off", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/runs/${RUN_ID}`]: () => data,
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/runs/${RUN_ID}?tab=timeline`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const row = await screen.findByTestId(`ops-run-step-${STEP}`, {}, { timeout: 10_000 });
+    expect(row).toHaveTextContent("Handed off to Price checker (run R-0f1abc)");
+    expect(within(row).getByTestId(`ops-run-step-handoff-${STEP}`)).toHaveAttribute(
+      "href",
+      `/ops/runs/${OTHER}`,
+    );
+    const from = screen.getByTestId("ops-run-handoff");
+    expect(from).toHaveTextContent(
+      "Handed off from AP bill clerk (run R-0f1def) · started at 5 · Itemize the invoice",
+    );
+    expect(within(from).getByRole("link")).toHaveAttribute("href", `/ops/runs/${FROM}`);
+  });
+});

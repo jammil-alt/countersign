@@ -4425,6 +4425,28 @@ surfaces: the back office's `/ops/runs/:id` and the client's `/runs/:id`.
 | Data tab | When the step made, changed or cited anything: its changes, the records it cites (`sources`) and the documents it names (`documentId`, `documentIds`; `stepDocumentIds`), each with its page. Records and documents have no link to a step run of their own, so the tab reads the step's data. |
 | Checked | `packages/core/src/api/step-data.test.ts`, `apps/web/src/runs/StepPanel.test.tsx`, `apps/web/src/portal/screens/RunStepPanel.test.tsx`, `apps/web/src/ops/screens/RunView.test.tsx` ("back-office step panel"), `apps/api/src/runs.test.ts` (the client's timeline carries the step's input and the change by its step, and `forbiddenKeys` finds none). |
 
+### 1.96 Hand off: a step that starts another agent at one of its steps (owner, 2026-11-11)
+
+"Add a handoff step at the bottom that you can select, to choose the output, then say which agent
+and which step to plug it into." AP bill clerk creates the bill, then hands the invoice to Price
+checker, which starts at its "Itemize" step (its earlier steps, which pull bills from QuickBooks,
+are skipped). The two run side by side: AP bill clerk doesn't wait.
+
+| Topic | Decision |
+|---|---|
+| Step | A v4 step kind `handoff` (`processes.HandoffStep`): `to.agent` (another client agent of the same client, its slug), `to.step` (a top-level step of that agent's live version) and `input` (that step's input, mapped field by field from this run, as any step's input). Its output is `{ runId, agent, step }`. Both pickers may be empty while the operator chooses; validation then asks for them. |
+| Which process | The first enabled workflow of the target's live version (an agent owns one process; a stored v3 agent may hold more), in the router (`handoffRunRequest`) and in the list the validator reads (`handoffAgents`) alike. // DECISION |
+| Run | The step resolves its input, then the port (`apps/api/src/runs/handoff.ts`) asks the router: never the same agent, at most three handoffs deep (`MAX_HANDOFF_DEPTH`, as handoff triggers), the target started (`isRunnable`: active, in trial or live), same client, the step in its live version. It writes the run row and starts the instance, and the step returns at once. The run id derives from the sending run and step (`handoffRunId`), so a retried step starts one run. |
+| Trigger | The run's trigger is a handoff (`type: "handoff"`, `fromRunId`, `depth`, `fromAgentId`, `fromStep`, `at`), and its payload `HandoffRunPayload` with `at` and `input` (the run's `{{trigger.…}}`). No migration: `run.trigger` is JSON and `step_run.node_type` has no check. |
+| Start at a step | `ExecutorContext.start` (from the trigger): the top-level steps before `at` are skipped (no rows, no outputs), and the entry step takes the input handed over as data, never rendered as a template (invariant 9). A version without that step fails the run rather than running from the top. A retry of such a run starts at the same step. |
+| Failures | A refusal fails the step in plain words ("Price checker isn't started, so the hand-off didn't run"); `onError: continue` is not offered on a hand-off. // DECISION |
+| Test runs | Start nothing: the step records "Would hand off to Price checker at 2 · Itemize the invoice (test run, nothing started)" with the resolved input. |
+| Approvals | Unchanged (invariant 8): starting another agent's run is internal, never a write; the run started applies its own approvals. |
+| Validation | Core's validator, with the client's agents (`ProcessValidationContext.handoff`, from `handoffAgents`: each agent's live top-level steps with names, kinds, input schemas and what each reads). The server passes it for a client agent's version that has a hand-off step; the builder fetches the same list (`GET /api/ops/clients/:id/handoff-agents`). Errors: not the same agent, an agent of this client, with a live version, a step there, a read, skill or write step; the input against that step's input schema (the step-input checks). A warning, not a block, names the target's later steps that read a step it skips. |
+| Builder | The palette's last section, "Other agents": "Hand off to another agent". The inspector picks the agent (the client's other agents), then the step (numbered and named; kinds without an input disabled), then the input fields (`SchemaForm` over the step's input schema, with the field picker). The builder names the step for its target ("Hand off to Price checker at 2 · Itemize the invoice"), so the canvas row reads that; a name the operator wrote stays. // DECISION |
+| Run views | The sender's step: "Handed off to Price checker (run R-1a2b3c)", linking to the run (back office and portal: `TimelineStep.handoff`). The run started: "Handed off from AP bill clerk (run R-1a2b3c) · started at 5 · Itemize the invoice" in its header (`RunHandoffView`, `handedOffFrom`). Portal words in all six languages; the portal gets names and a run id only (invariant 11). |
+| Checked | `packages/core/src/process/handoff.test.ts`, `packages/workflows/src/handoff.test.ts`, `apps/api/src/handoff-runtime.test.ts` (a real run of A handing off to B at its step 2, the trigger, both pages, the rules, a test run, a target not started, save-time validation), `apps/web/src/ops/builder/handoff.builder.test.tsx`, and the run views' tests. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

@@ -71,6 +71,8 @@ import {
   openRunsByAgent,
 } from "../runs/client-status";
 import { dispatchEvents } from "../runs/dispatch";
+// Hand off (2026-11-11): where a handed-off run came from.
+import { handedOffFrom } from "../runs/handoff";
 import { runSubjects, sourceNames } from "../runs/subject";
 import { actionTimelineWrite, timelineWrite } from "../skill-facts";
 import { steppedInOf } from "../step-in/service";
@@ -565,6 +567,8 @@ export async function portalRunView(
       .orderBy(externalAction.createdAt),
   ]);
   if (!summary) throw notFound("run");
+  // Hand off (2026-11-11): the run that handed this one off, and the step it started at.
+  const from = await handedOffFrom(tx, tenantId, head.trigger, workflow);
 
   // v0.12 W1-C: a lead check's label carries the lead's first name ("Ana: Check new matches").
   const isLeadCheck = (step: TimelineStepDef) =>
@@ -651,6 +655,10 @@ export async function portalRunView(
           : {}),
         // R8
         ...(check ?? {}),
+        // Hand off (2026-11-11): the run a hand-off step started, for its link.
+        ...(step.kind === "handoff" && isPlainObject(s.output) && typeof s.output.runId === "string"
+          ? { handoff: { runId: s.output.runId } }
+          : {}),
         // Skill model (2026-11-10), wave A: a write reads "Saved" or "Changed in QuickBooks";
         // a confer's row is the check's, not the write's.
         ...(!check?.confer && (step.kind === "write" || step.kind === "action")
@@ -688,7 +696,7 @@ export async function portalRunView(
   });
 
   return {
-    run: summary,
+    run: from ? { ...summary, handedOffFrom: from } : summary,
     steps: timeline,
     sourceNames: await sourceNames(
       tx,

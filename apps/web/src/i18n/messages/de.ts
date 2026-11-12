@@ -1896,6 +1896,10 @@ export const de: Messages = {
   "runsPage.perDay": "Abläufe pro Tag",
   "runDetail.run": "Ablauf {id}",
   "runDetail.copyLink": "Link kopieren",
+  // Hand off (2026-11-11)
+  "runDetail.handedOffFrom": "Übergeben von {agent} (Ablauf {id})",
+  "runDetail.startedAtStep": "gestartet bei {step}",
+  "runDetail.openRun": "Ablauf {id} öffnen",
   "runDetail.review": "Prüfen und freigeben",
   "runDetail.about": "Über diesen Ablauf",
   "runDetail.changes": "Änderungen",
