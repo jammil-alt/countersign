@@ -15,6 +15,8 @@
 // those vendors already have; we only read them, with a key the client enters, and send them
 // nothing (docs/plan.md §1.75). Mezonas has no contract with either for this. M50: `gsc_oauth`,
 // the same Search Console account by Google sign-in, is not a processor either (§1.78).
+// §1.97: Odoo (`odoo`) is not: the client's own Odoo, at the address it gives, signed in with a key
+// it makes for us; Mezonas has no account or agreement with Odoo for it.
 // §1.87: BILL (`billcom`) is, though the organization is the client's own: every call goes out
 // under Mezonas' developer key and agreement with BILL, as Plaid's do (the owner's brief).
 

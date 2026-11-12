@@ -400,6 +400,7 @@ export {
   type FakeLinkedInPost,
   fakeLinkedIn,
 } from "./linkedin/fake";
+export { FAKE_ODOO, type FakeOdoo, fakeOdoo } from "./odoo/fake";
 // v0.12 W3-B
 export {
   FAKE_MICROSOFT,

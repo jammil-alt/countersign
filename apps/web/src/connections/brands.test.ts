@@ -23,6 +23,7 @@ const CONNECTORS = [
   "ramp",
   "billcom",
   "podio",
+  "odoo",
   "bankfeed",
   "upload",
   "resend",
@@ -59,6 +60,7 @@ describe("connectorBrand", () => {
       "ramp",
       "billcom",
       "podio",
+      "odoo",
     ]) {
       expect(connectorBrand(id)?.kind, id).toBe("image");
     }

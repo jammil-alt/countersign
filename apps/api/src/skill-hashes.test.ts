@@ -25,8 +25,9 @@ const builtins = platform.catalog.list();
 // §1.88: the vendor-first matching adds four: Match vendor, Match by SKU (vendor), Semantic match
 // (vendor), Master item manager (the AI two kept for stored steps: new steps take the Library
 // skills the pack installs, which are not built-ins).
-const BUILTINS = 132;
-const WRAPPERS = 92;
+// §1.97: Odoo's two reads (search and get) add two read skills, both wrappers.
+const BUILTINS = 134;
+const WRAPPERS = 94;
 
 describe("built-in skills under the R2 skill schema", () => {
   it("registers the platform's, the packs' and each connector's read skills, once each", () => {

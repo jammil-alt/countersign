@@ -48,6 +48,7 @@ import {
   // v0.12 W3-B
   createHubspotConnector,
   createLinkedInConnector,
+  createOdooConnector,
   createOutlookConnector,
   createPodioConnector,
   createQboConnector,
@@ -453,6 +454,10 @@ export function deploymentConnectors(
       devKey: env.BILL_DEV_KEY,
       environment: billcomEnvironment(env.BILL_ENV),
     }),
+    // Odoo (docs/plan.md §1.97): CRM, sales, purchasing, invoicing and inventory in the client's
+    // own Odoo, registered everywhere; the client admin enters the address, database, login and
+    // API key of an Odoo user made for us. Nothing to configure for the deployment.
+    createOdooConnector(),
     ...(production
       ? []
       : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))]),
