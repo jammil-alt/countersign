@@ -160,8 +160,8 @@ What the owner does, once:
 - [ ] **Deploy.** Merge the deploy PR (`claude/site-deploy`), or, if it is already merged, re-run
       the `site` job of the latest Deploy run on `main` (Actions → Deploy → the run → Re-run failed
       jobs). The custom domains create their own records; they show in DNS as type "Worker".
-- [ ] **Check** `https://mezonas.com`, `/terms`, `/privacy`, `/subprocessors` and
-      `https://www.mezonas.com`.
+- [ ] **Check** `https://mezonas.com`, `/hire`, `/security`, `/terms`, `/privacy`,
+      `/subprocessors` and `https://www.mezonas.com`.
 - [ ] **Then submit Google's verification.** The site must be live first: Google checks the
       homepage and its privacy policy link on the verified domain. Homepage `https://mezonas.com`,
       privacy policy `https://mezonas.com/privacy`, terms `https://mezonas.com/terms`. Fill in the

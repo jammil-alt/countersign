@@ -97,9 +97,10 @@ describe("the collector's address", () => {
 });
 
 describe("measuring off (as deployed)", () => {
-  it("adds no script, no data-track name and no /no-measure", () => {
+  it("adds no measuring script, no data-track name and no /no-measure", () => {
     for (const p of off) {
-      expect(p.html, p.name).not.toContain("<script");
+      // The only script is the demos' own file (src/site.js), which sends nothing.
+      expect(p.html.match(/<script[^>]*>/gi), p.name).toEqual(['<script src="/site.js" defer>']);
       expect(p.html, p.name).not.toContain("data-track");
       expect(p.html, p.name).not.toContain("/no-measure");
       expect(p.tracks).toEqual([]);
@@ -180,10 +181,11 @@ describe("data-track names", () => {
       if (/aria-hidden|class="skip-link"/.test(tag)) continue;
       expect(tag).toMatch(/ data-track="/);
     }
-    for (const name of ["hero-talk", "hero-how", "contact-email", "nav-how-it-works"]) {
+    // The goals the Mezonas client's site is set up with (docs/operations.md).
+    for (const name of ["hero-talk", "nav-contact", "footer-contact", "contact-email"]) {
       expect(page(on, "index").tracks).toContain(name);
     }
-    expect(page(on, "index").tracks.filter((t) => t.startsWith("policies-"))).toHaveLength(4);
+    expect(page(on, "index").tracks.filter((t) => t.startsWith("footer-"))).toHaveLength(6);
   });
 
   it("are each listed in the README, and the README lists no name the site lacks", () => {
