@@ -110,14 +110,16 @@ export async function startAccountThread(
   tx: Tx,
   tenantId: string,
   userId: string,
+  // v0.17 (§10.15 "Talking to an owner"): a conversation with one of the client's area owners.
+  owner?: { id: string; name: string },
 ): Promise<ThreadRow> {
   const [made] = await tx
     .insert(thread)
     .values({
       tenantId,
       subjectType: "account",
-      subjectId: null,
-      title: "Account",
+      subjectId: owner?.id ?? null,
+      title: owner?.name ?? "Account",
       createdBy: userId,
     })
     .returning();

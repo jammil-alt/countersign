@@ -3,7 +3,7 @@
 // priced provider and notes, renames them and forgets a memory note; a process moves to another
 // area; the portal sees names and areas only, and only the client admin renames.
 
-import { agent, areaOwner, memoryNote } from "@countersign/db";
+import { agent, areaOwner, memoryNote, message } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -175,5 +175,44 @@ describe.skipIf(!h)("area owners through the API", () => {
     expect(again.status).toBe(404);
     const [still] = await H.t.db.select().from(areaOwner).where(eq(areaOwner.id, first.id));
     expect(still).toBeDefined();
+  });
+
+  // v0.17 (§10.15 "Talking to an owner"): a conversation with one of your agents says who it is.
+  it("starts a conversation with an owner, named with its role, and refuses another client's", async () => {
+    const [first] = await owners();
+    if (!first) throw new Error("no owner");
+    const res = await H.call(admin("a"), "POST", "/api/threads", {
+      subject: "account",
+      ownerId: first.id,
+    });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const thread = j(res.json).thread;
+    expect(thread.owner).toMatchObject({ id: first.id, area: first.area });
+    expect(thread.owner.role).toMatch(/ agent$/);
+    // An answer in that conversation is the owner's, under its name and role, whatever posted it.
+    await H.t.db.insert(message).values({
+      tenantId: H.A.tenantId,
+      threadId: thread.id,
+      senderType: "agent",
+      senderId: null,
+      audience: "client",
+      body: {
+        text: "I'm on it.",
+        as: { ownerId: first.id, name: thread.owner.name, area: first.area },
+      },
+    });
+    const read = j((await H.call(admin("a"), "GET", `/api/threads/${thread.id}/messages`)).json);
+    const answer = read.messages.find((m: { text: string }) => m.text === "I'm on it.");
+    expect(answer.sender).toMatchObject({
+      type: "agent",
+      name: thread.owner.name,
+      role: thread.owner.role,
+    });
+    // Client B can't start a conversation with A's agent.
+    const fromB = await H.call(admin("b"), "POST", "/api/threads", {
+      subject: "account",
+      ownerId: first.id,
+    });
+    expect(fromB.status).toBe(404);
   });
 });

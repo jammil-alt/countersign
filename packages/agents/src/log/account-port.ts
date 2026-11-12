@@ -92,13 +92,20 @@ export interface AccountOwner {
   id: string;
   name: string;
   area: string;
+  /** Its role in the client's language ("purchasing agent"). */
+  role: string;
   /** The services (processes) in its area: what it may talk about. */
   services: { id: string; name: string }[];
+  /** What it did lately, in the portal's words, newest first. */
+  recent: string[];
 }
 
 export interface AccountViews {
-  /** v0.17: the client's owner of that name (any case), with its area's services; null if none. */
-  owner?(s: AccountScope, name: string): Promise<AccountOwner | null>;
+  /**
+   * v0.17: the client's owner of that name (any case), or with no name the owner the asker's
+   * conversation is with; with its area's services and what it did lately. Null if none.
+   */
+  owner?(s: AccountScope, name: string | undefined): Promise<AccountOwner | null>;
   services(s: AccountScope): Promise<AccountService[]>;
   runs(s: AccountScope, query: AccountRunsQuery): Promise<AccountRunSummary[]>;
   run(s: AccountScope, runId: string): Promise<AccountRunView>;

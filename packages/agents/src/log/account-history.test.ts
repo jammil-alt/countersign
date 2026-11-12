@@ -192,4 +192,64 @@ describe.skipIf(!h)("Sloan's history, ideas and guide", () => {
       ),
     ).rejects.toThrow("isn't this client's");
   });
+
+  it("answers every message in a conversation with an owner as that owner", async () => {
+    const [pia] = await H.t.db
+      .select({ id: areaOwner.id })
+      .from(areaOwner)
+      .where(eq(areaOwner.tenantId, H.A.tenantId));
+    const PIA_THREAD = "0192f7a0-0000-7000-8000-00000000c103";
+    const PIA_MESSAGE = "0192f7a0-0000-7000-8000-00000000c203";
+    const PIA_RUN = "0192f7a0-0000-7000-8000-00000000c004";
+    await H.t.db.insert(thread).values({
+      id: PIA_THREAD,
+      tenantId: H.A.tenantId,
+      subjectType: "account",
+      subjectId: pia?.id as string,
+      title: "Pia",
+      createdBy: H.A.adminId,
+    });
+    await H.t.db.insert(message).values({
+      id: PIA_MESSAGE,
+      tenantId: H.A.tenantId,
+      threadId: PIA_THREAD,
+      senderType: "user",
+      senderId: H.A.adminId,
+      body: { text: "Can the follow-up run on Tuesdays?" },
+    });
+    await H.t.db.insert(run).values({
+      id: PIA_RUN,
+      tenantId: H.A.tenantId,
+      agentId: sloan.id,
+      agentVersionId: sloan.versionId,
+      workflowSlug: "chat",
+      trigger: {
+        type: "event",
+        eventType: "thread.message_posted",
+        payload: {
+          threadId: PIA_THREAD,
+          subjectType: "account",
+          subjectId: pia?.id,
+          messageId: PIA_MESSAGE,
+          senderType: "user",
+          senderId: H.A.adminId,
+          audience: "client",
+        },
+      },
+    });
+    // Even a plain threads.post in Pia's conversation comes out as Pia's.
+    const posted = await dbThreadsPort(H.db).post(H.A.tenantId, {
+      agentId: sloan.id,
+      agentVersionId: sloan.versionId,
+      runId: PIA_RUN,
+      stepId: "answer",
+      mode: "live",
+      threadId: PIA_THREAD,
+      text: "Yes, from next Tuesday once your admin confirms.",
+      sources: [PIA_MESSAGE],
+      audience: "client",
+    });
+    const [row] = await H.t.db.select().from(message).where(eq(message.id, posted.messageId));
+    expect(row?.body).toMatchObject({ as: { ownerId: pia?.id, name: "Pia", area: "purchasing" } });
+  });
 });

@@ -19,15 +19,20 @@ import {
   type OpsLead,
   type OpsMessage,
   type OpsThread,
+  OWNER_WORDS,
+  OwnerArea,
+  ownerRole,
   type PortalMessage,
   type PortalThread,
   routes,
+  SUPERVISOR_SLUG,
   type ThreadKind,
 } from "@countersign/core";
 import {
   agent,
   agentVersion,
   appUser,
+  areaOwner,
   type Db,
   membership,
   type Tx,
@@ -195,6 +200,21 @@ async function portalThreads(
     tx,
     visible.map((t) => t.createdBy),
   );
+  // v0.17: the area owner a conversation is with (an account thread's subject).
+  const ownerIds = visible
+    .filter((t) => t.subjectType === "account" && t.subjectId)
+    .map((t) => t.subjectId as string);
+  const owners = ownerIds.length
+    ? new Map(
+        (
+          await tx
+            .select({ id: areaOwner.id, name: areaOwner.name, area: areaOwner.area })
+            .from(areaOwner)
+            .where(and(eq(areaOwner.tenantId, tenantId), inArray(areaOwner.id, ownerIds)))
+        ).map((o) => [o.id, o]),
+      )
+    : new Map<string, { id: string; name: string; area: OwnerArea }>();
+  const locale = owners.size ? await tenantLocale(tx, tenantId) : "en";
   return visible.map((t): PortalThread => {
     const a = t.subjectType === "agent" && t.subjectId ? agents.get(t.subjectId) : undefined;
     const by = t.subjectType === "account" && t.createdBy ? t.createdBy : null;
@@ -204,6 +224,10 @@ async function portalThreads(
       subject: t.subjectType as ThreadKind,
       service: a ? { id: a.id, name: serviceName(a) } : null,
       startedBy: by ? { id: by, name: users.get(by)?.name ?? null } : null,
+      owner: (() => {
+        const o = t.subjectType === "account" && t.subjectId ? owners.get(t.subjectId) : undefined;
+        return o ? { ...o, role: ownerRole(locale, o.area) } : null;
+      })(),
       lastMessageAt: iso(act?.lastMessageAt),
       unread: act?.unread ?? 0,
       createdAt: t.createdAt.toISOString(),
@@ -234,9 +258,13 @@ async function portalMessages(
   // P-7: only what was translated for the client (the lead's words in its working language); a
   // client member's own words translated for us are the back office's (docs/plan.md §1.69).
   const translated = await latestTranslations(tx, tenantId, { messageIds: rows.map((m) => m.id) });
+  // v0.17: each agent's answer says who it is ("Pia · purchasing agent", "Sloan · account
+  // assistant"), in the client's language.
+  const locale = await tenantLocale(tx, tenantId);
   return rows.map((m): PortalMessage => {
     const tr = translated.get(m.id);
     let name: string | null = null;
+    let role: string | null = null;
     const isLead = m.senderType === "user" && !!lead && m.senderId === lead.userId;
     if (m.senderType === "user" && m.senderId) {
       const u = users.get(m.senderId);
@@ -249,7 +277,13 @@ async function portalMessages(
         (m.senderId ? byAgent.get(m.senderId) : undefined) ??
         (m.agentVersionId ? byVersion.get(m.agentVersionId) : undefined);
       // v0.17 (§10.15 "Talking to an owner"): Sloan's answer in an owner's name shows under it.
-      name = ownerName(m.body) ?? (a ? serviceName(a) : null);
+      const owner = ownerOf(m.body);
+      name = owner?.name ?? (a ? serviceName(a) : null);
+      role = owner
+        ? ownerRole(locale, owner.area)
+        : a?.slug === SUPERVISOR_SLUG
+          ? OWNER_WORDS[locale].assistant
+          : null;
     }
     return {
       id: m.id,
@@ -257,6 +291,7 @@ async function portalMessages(
       sender: {
         type: m.senderType,
         name,
+        role,
         you: m.senderType === "user" && m.senderId === viewer.userId,
         lead: isLead,
       },
@@ -404,10 +439,20 @@ export function threadRouteHandlers(app: Hono<AppEnv>): void {
     };
   });
 
-  mount(app, routes.portalStartThread, async ({ tx, tenantIds, role, session }) => {
+  mount(app, routes.portalStartThread, async ({ tx, tenantIds, role, session, body }) => {
     const tenantId = tenantIds[0] as string;
     const viewer = portalViewer(role, session.user.id);
-    const t = await startAccountThread(tx, tenantId, session.user.id);
+    // v0.17: a conversation with one of the client's own area owners.
+    let owner: { id: string; name: string } | undefined;
+    if (body.ownerId) {
+      const [o] = await tx
+        .select({ id: areaOwner.id, name: areaOwner.name })
+        .from(areaOwner)
+        .where(and(eq(areaOwner.id, body.ownerId), eq(areaOwner.tenantId, tenantId)));
+      if (!o) throw notFound("agent");
+      owner = o;
+    }
+    const t = await startAccountThread(tx, tenantId, session.user.id, owner);
     const [thread] = await portalThreads(tx, tenantId, viewer, [t]);
     if (!thread) throw new Error("no thread");
     return { thread };
@@ -612,7 +657,13 @@ export async function leadFirstName(tx: Tx, tenantId: string): Promise<string | 
 }
 
 /** v0.17: the owner an account agent's answer was written as, when it was (`body.as`). */
+function ownerOf(body: unknown): { name: string; area: OwnerArea } | null {
+  const as = (body as { as?: { name?: unknown; area?: unknown } } | null)?.as;
+  if (typeof as?.name !== "string") return null;
+  const area = OwnerArea.safeParse(as.area);
+  return { name: as.name, area: area.success ? area.data : "general" };
+}
+
 function ownerName(body: unknown): string | null {
-  const as = (body as { as?: { name?: unknown } } | null)?.as;
-  return typeof as?.name === "string" ? as.name : null;
+  return ownerOf(body)?.name ?? null;
 }

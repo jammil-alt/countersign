@@ -64,6 +64,14 @@ export const PortalThread = z.object({
   service: Named.nullable(),
   /** Who started an account thread (a Sloan conversation). */
   startedBy: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),
+  /**
+   * v0.17 (§10.15 "Talking to an owner"): the area owner this conversation is with; absent or
+   * null: with Sloan. `role` is in the client's language ("purchasing agent").
+   */
+  owner: z
+    .object({ id: z.string(), name: z.string(), area: z.string(), role: z.string() })
+    .nullable()
+    .optional(),
   lastMessageAt: z.string().nullable(),
   unread: z.number().int().nonnegative(),
   createdAt: z.string(),
@@ -74,6 +82,8 @@ export const PortalMessageSender = z.object({
   type: MessageSender,
   /** A client member's name, the lead's, an agent's service name; null for Mezonas and the system. */
   name: z.string().nullable(),
+  /** v0.17: an agent's role, so the client knows who answered ("purchasing agent"). */
+  role: z.string().nullable().optional(),
   /** The signed-in person wrote it. */
   you: z.boolean(),
   /** The client's lead wrote it. */
@@ -157,8 +167,12 @@ export const threadRoutes = {
     path: "/api/threads",
     auth: "session",
     roles: CLIENT,
-    summary: "Start a conversation with Sloan, your account agent",
-    body: z.strictObject({ subject: z.literal("account") }),
+    summary: "Start a conversation with Sloan, your account agent, or with one of your agents",
+    body: z.strictObject({
+      subject: z.literal("account"),
+      /** v0.17: one of your area owners to talk to (Pia); absent: Sloan. */
+      ownerId: Id.optional(),
+    }),
     response: z.object({ thread: PortalThread }),
   }),
   portalThreadMessages: defineRoute({

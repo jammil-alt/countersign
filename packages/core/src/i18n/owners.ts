@@ -14,6 +14,12 @@ export interface OwnerWords {
   signature(name: string, fn: string, client: string): string;
   /** Under the signature. */
   poweredBy: string;
+  /** v0.17: who is answering in a chat: "purchasing agent". */
+  role(fn: string): string;
+  /** Sloan's role in a chat. */
+  assistant: string;
+  /** Under the name, so nobody takes an agent for a person. */
+  agentNote: string;
 }
 
 const POWERED = "mezonas.com";
@@ -30,6 +36,9 @@ export const OWNER_WORDS: Record<Locale, OwnerWords> = {
     },
     signature: (n, f, c) => `${n}, ${f} agent for ${c}`,
     poweredBy: `Powered by ${POWERED}`,
+    role: (f) => `${f} agent`,
+    assistant: "account assistant",
+    agentNote: "A Mezonas agent",
   },
   es: {
     functionOf: {
@@ -42,6 +51,9 @@ export const OWNER_WORDS: Record<Locale, OwnerWords> = {
     },
     signature: (n, f, c) => `${n}, agente de ${f} de ${c}`,
     poweredBy: `Con la tecnología de ${POWERED}`,
+    role: (f) => `agente de ${f}`,
+    assistant: "asistente de la cuenta",
+    agentNote: "Un agente de Mezonas",
   },
   fr: {
     functionOf: {
@@ -54,6 +66,9 @@ export const OWNER_WORDS: Record<Locale, OwnerWords> = {
     },
     signature: (n, f, c) => `${n}, agent ${f} pour ${c}`,
     poweredBy: `Propulsé par ${POWERED}`,
+    role: (f) => `agent ${f}`,
+    assistant: "assistant du compte",
+    agentNote: "Un agent Mezonas",
   },
   "pt-BR": {
     functionOf: {
@@ -66,6 +81,9 @@ export const OWNER_WORDS: Record<Locale, OwnerWords> = {
     },
     signature: (n, f, c) => `${n}, agente de ${f} da ${c}`,
     poweredBy: `Com tecnologia ${POWERED}`,
+    role: (f) => `agente de ${f}`,
+    assistant: "assistente da conta",
+    agentNote: "Um agente da Mezonas",
   },
   it: {
     functionOf: {
@@ -78,6 +96,9 @@ export const OWNER_WORDS: Record<Locale, OwnerWords> = {
     },
     signature: (n, f, c) => `${n}, agente ${f} per ${c}`,
     poweredBy: `Con tecnologia ${POWERED}`,
+    role: (f) => `agente ${f}`,
+    assistant: "assistente dell'account",
+    agentNote: "Un agente Mezonas",
   },
   de: {
     functionOf: {
@@ -90,6 +111,9 @@ export const OWNER_WORDS: Record<Locale, OwnerWords> = {
     },
     signature: (n, f, c) => `${n}, Agent für ${f} bei ${c}`,
     poweredBy: `Bereitgestellt von ${POWERED}`,
+    role: (f) => `Agent für ${f}`,
+    assistant: "Kontoassistent",
+    agentNote: "Ein Mezonas-Agent",
   },
 };
 
@@ -125,4 +149,10 @@ export function ownerSignature(input: {
 export function ownerDid(locale: Locale, name: string, line: string): string {
   if (locale === "en") return `${name} ${line.charAt(0).toLowerCase()}${line.slice(1)}`;
   return `${name}: ${line}`;
+}
+
+/** v0.17: an owner's role in a chat, in the client's language ("purchasing agent"). */
+export function ownerRole(locale: Locale, area: OwnerArea): string {
+  const w = OWNER_WORDS[locale];
+  return w.role(w.functionOf[area]);
 }

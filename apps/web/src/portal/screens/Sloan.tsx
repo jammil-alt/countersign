@@ -312,7 +312,14 @@ function Message({ message: m }: { message: PortalMessage }) {
       {badge}
       <div className="flex min-w-0 flex-col gap-1">
         <p className="text-xs text-ink-muted">
-          {[you ? t("sloan.you") : name, fmt.time(m.createdAt)].join(" · ")}
+          {/* v0.17: an agent's answer says who it is ("Pia · purchasing agent"). */}
+          {[
+            you ? t("sloan.you") : name,
+            ...(you ? [] : [m.sender.role ?? null]),
+            fmt.time(m.createdAt),
+          ]
+            .filter((v): v is string => !!v)
+            .join(" · ")}
         </p>
         <p className={m.kind === "command" ? "ui-msg__text font-mono" : "ui-msg__text"}>{m.text}</p>
         <SourceLinks ids={m.sources} href={(id) => `/records/${id}`} />

@@ -2882,13 +2882,24 @@ never promotes.
 
 #### Talking to an owner
 
-Clients talk to their owners in the portal's chat (below, "Home"): "@Pia" in any
-conversation, or "Ask Pia" on her card, makes Pia the one answering. An owner's chat is an account
-thread (§11.2) with the owner as its subject, answered on the owner's model, and follows Sloan's
-rules (invariant 11): it sees only what the portal shows, for its own area (runs, errors in the
-platform's words, what is waiting, what changed, schedules, who is contacted); it writes only
-internal records for the person asking; it never loosens a rule; no notes, prompts or cost reach the
-client.
+What matters is that the client always knows who it is talking to, and that whoever answers has
+the right context (owner, 2026-11-12).
+
+- **A conversation with Pia is Pia's.** "Ask Pia" (Home, her card) opens the person's conversation
+  with Pia: an account thread (§11.2) whose subject is the owner. Every answer in it is Pia's: the
+  threads port writes it under her name whatever tool posted it, so it can't slip into Sloan's
+  voice. "@Pia" inside a conversation with Sloan gets one answer from Pia there.
+- **Always named.** The chat's head says who you are talking to: the name, the role in the client's
+  language ("Pia · purchasing agent"; "Sloan · account assistant") and "A Mezonas agent", so nobody
+  takes an agent for a person or one agent for another. Each answer carries its sender's name and
+  role; Pia's first answer introduces her: who she is, what she looks after, that she is an agent.
+- **Her context.** Her services (the processes of her area), what she did lately on them in the
+  portal's words, and the person's earlier conversations (their summaries). Nothing else: an owner
+  in chat keeps Sloan's rules (invariant 11); her notes and memory notes stay in her reviews of
+  runs, never in what she tells the client.
+- **Where it runs.** Her answers go through the client's chat runtime (Sloan's run, on Sloan's
+  model); the owner's own model is for its reviews of runs. One runtime keeps invariant 11's rules
+  in one place.
 
 What a client can ask Pia for:
 - **Updates:** "What failed this week?", "Why is the Acme bill waiting?", "When does the price check

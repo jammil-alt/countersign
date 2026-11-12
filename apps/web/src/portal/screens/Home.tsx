@@ -813,7 +813,7 @@ function Owners({ owners }: { owners: TableView["owners"] }) {
               <Button
                 size="sm"
                 data-testid={`home-owner-ask-${o.area}`}
-                onClick={() => panel.open(`@${o.name} `)}
+                onClick={() => panel.open({ ownerId: o.id })}
               >
                 {t("home.owner.ask", { name: o.name })}
               </Button>

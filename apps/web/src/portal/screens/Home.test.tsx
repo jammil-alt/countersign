@@ -665,6 +665,16 @@ describe("Home's account check", () => {
         threads.push(1);
         return { threads: [] };
       },
+      "GET /api/owners": () => ({
+        owners: [
+          {
+            id: "00000000-0000-4000-8000-0000000a0a01",
+            name: "Pia",
+            area: "purchasing",
+            avatar: null,
+          },
+        ],
+      }),
     });
     renderAt("/", api);
     const card = await screen.findByTestId("home-owner-purchasing");
@@ -674,8 +684,14 @@ describe("Home's account check", () => {
     expect(card).toHaveTextContent("Pia corrected the vendor name and tried again");
     expect(screen.getByTestId("home-ideas")).toHaveTextContent("Follow up quotes that went quiet.");
     await userEvent.click(within(card).getByRole("button", { name: "Ask Pia" }));
+    // The chat opens on Pia, and says plainly who she is.
     const panel = await screen.findByTestId("portal-sloan-panel");
-    expect(within(panel).getByRole("textbox")).toHaveValue("@Pia ");
+    await waitFor(() =>
+      expect(within(panel).getByTestId("portal-sloan-panel-who")).toHaveTextContent(
+        "purchasing agent · A Mezonas agent",
+      ),
+    );
+    expect(within(panel).getByRole("heading", { name: "Pia" })).toBeInTheDocument();
     expect(threads.length).toBeGreaterThan(0);
   });
 
