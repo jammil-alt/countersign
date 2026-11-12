@@ -54,6 +54,19 @@ export const EXTERNAL_ACTION_STATUSES = [
 export const SKILL_STATUSES = ["active", "retired"] as const;
 export const VERSION_STATUSES = ["draft", "live", "retired"] as const;
 export const AGENT_KINDS = ["template", "client"] as const;
+/**
+ * The business areas an owner oversees (ARCHITECTURE §10.15, docs/plan.md §1.96). Core keeps the
+ * same list (`OWNER_AREAS`); a test holds them equal.
+ */
+export const OWNER_AREAS = [
+  "purchasing",
+  "sales",
+  "receivables",
+  "bookkeeping",
+  "marketing",
+  "general",
+] as const;
+export type OwnerArea = (typeof OWNER_AREAS)[number];
 export const AGENT_STATUSES = ["active", "disabled"] as const;
 export const AGENT_APPROVERS = ["client_admin", "operator"] as const;
 export const AGENT_RUN_STATUSES = ["draft", "testing", "active", "paused", "retired"] as const;
@@ -466,6 +479,11 @@ export const agent = pgTable(
     stageState: json<AgentStageState>("stage_state").notNull().default({}),
     /** Who paused it and why (the client, the operator or the system); null when not paused. */
     pause: json<AgentPause>("pause"),
+    /**
+     * v0.17 (ARCHITECTURE §10.15): the business area whose owner oversees this client agent's
+     * process. Operational, never in a version; null reads as the template's area, else `general`.
+     */
+    area: text("area").$type<OwnerArea>(),
   },
   (t) => [
     unique("agent_tenant_slug_key").on(t.tenantId, t.slug).nullsNotDistinct(),
@@ -489,6 +507,64 @@ export const agent = pgTable(
     ),
     check("agent_stage_check", sql`${t.stage} is null or ${oneOf(t.stage, AGENT_STAGES)}`),
     check("agent_stage_kind_check", sql`(${t.kind} = 'client') = (${t.stage} is not null)`),
+    check("agent_area_check", sql`${t.area} is null or ${oneOf(t.area, OWNER_AREAS)}`),
+  ],
+);
+
+// ── Area owners (v0.17, ARCHITECTURE §10.15) ────────────────────────────────────────────────────
+
+/**
+ * One named owner per business area per client: the AI that watches every process in its area.
+ * Its own table, not an `agent` kind, so no listing, bill or export of a client's agents counts
+ * it. `name` is the client's to change (renaming makes no version).
+ */
+// DECISION (O1): a table of its own rather than `agent.kind = 'owner'`: 59 queries over `agent`
+// don't filter by kind (billing, weekly stats, exports, search), and an owner is none of those.
+export const areaOwner = pgTable(
+  "area_owner",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    area: text("area").$type<OwnerArea>().notNull(),
+    /** Shown everywhere it acts; the client admin may rename it (2 to 12 letters, not Sloan). */
+    name: text("name").notNull(),
+    avatar: text("avatar"),
+    liveVersionId: uuid("live_version_id").references((): AnyPgColumn => areaOwnerVersion.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("area_owner_id_tenant_key").on(t.id, t.tenantId),
+    unique("area_owner_tenant_area_key").on(t.tenantId, t.area),
+    check("area_owner_area_check", oneOf(t.area, OWNER_AREAS)),
+  ],
+);
+
+/**
+ * An owner's settings, versioned and never updated or deleted (invariant 3): its model, its notes
+ * (Markdown the operator writes) and its oversight defaults, as core's `OwnerDefinition`.
+ */
+export const areaOwnerVersion = pgTable(
+  "area_owner_version",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    ownerId: uuid("owner_id").notNull(),
+    version: integer("version").notNull(),
+    definition: json("definition").notNull(),
+    authorType: text("author_type").$type<"operator" | "system">().notNull(),
+    authorId: uuid("author_id"),
+    changeNote: text("change_note"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("area_owner_version_id_tenant_key").on(t.id, t.tenantId),
+    unique("area_owner_version_owner_version_key").on(t.ownerId, t.version),
+    check("area_owner_version_author_check", sql`${t.authorType} in ('operator', 'system')`),
+    foreignKey({
+      name: "area_owner_version_owner_fk",
+      columns: [t.ownerId, t.tenantId],
+      foreignColumns: [areaOwner.id, areaOwner.tenantId],
+    }),
   ],
 );
 
@@ -616,6 +692,8 @@ export const run = pgTable(
     retryOf: uuid("retry_of"),
     /** The step id the retry starts from; the steps before it are copied from `retry_of`. */
     resumeFrom: text("resume_from"),
+    /** v0.17: the area owner's version that watched this run, pinned at its start (§10.15). */
+    ownerVersionId: uuid("owner_version_id"),
   },
   (t) => [
     unique("run_id_tenant_key").on(t.id, t.tenantId),
@@ -636,6 +714,11 @@ export const run = pgTable(
       name: "run_agent_version_fk",
       columns: [t.agentVersionId, t.tenantId],
       foreignColumns: [agentVersion.id, agentVersion.tenantId],
+    }),
+    foreignKey({
+      name: "run_owner_version_fk",
+      columns: [t.ownerVersionId, t.tenantId],
+      foreignColumns: [areaOwnerVersion.id, areaOwnerVersion.tenantId],
     }),
     index("run_tenant_agent_idx").on(t.tenantId, t.agentId, t.createdAt),
     index("run_status_idx").on(t.status),
@@ -1046,19 +1129,37 @@ export const message = pgTable(
 
 // ── Memory and usage ─────────────────────────────────────────────────────────────────────────────
 
-/** Per client agent; never shared across clients or with templates. */
+/**
+ * Per client agent or area owner; never shared across clients or with templates. v0.17: an owner's
+ * notes carry `owner_id` instead of `agent_id`; a person's conversation summaries carry
+ * `scope = 'person'` and `person_id` (ARCHITECTURE §10.15).
+ */
 export const memoryNote = pgTable(
   "memory_note",
   {
     id: id(),
     tenantId: tenantId(),
-    agentId: uuid("agent_id").notNull(),
+    agentId: uuid("agent_id"),
+    ownerId: uuid("owner_id"),
     scope: text("scope").notNull().default("agent"),
+    /** `scope = 'person'` only: whose conversations the note summarises. */
+    personId: uuid("person_id").references(() => appUser.id),
     note: text("note").notNull(),
     sourceMessageId: uuid("source_message_id"),
     createdAt: createdAt(),
   },
   (t) => [
+    check("memory_note_subject_check", sql`num_nonnulls(${t.agentId}, ${t.ownerId}) = 1`),
+    check("memory_note_person_check", sql`(${t.scope} = 'person') = (${t.personId} is not null)`),
+    foreignKey({
+      name: "memory_note_owner_fk",
+      columns: [t.ownerId, t.tenantId],
+      foreignColumns: [areaOwner.id, areaOwner.tenantId],
+    }),
+    index("memory_note_owner_idx").on(t.ownerId).where(sql`${t.ownerId} is not null`),
+    index("memory_note_person_idx")
+      .on(t.tenantId, t.personId, t.createdAt)
+      .where(sql`${t.personId} is not null`),
     foreignKey({
       name: "memory_note_agent_fk",
       columns: [t.agentId, t.tenantId],
@@ -4093,6 +4194,9 @@ export const TENANT_TABLES = [
   "owner_check",
   "run_audit",
   "run_audit_mark",
+  // 0048: area owners and their versions (ARCHITECTURE v0.17 §10.15).
+  "area_owner",
+  "area_owner_version",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 

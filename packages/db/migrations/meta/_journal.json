@@ -330,6 +330,13 @@
       "when": 1794359494744,
       "tag": "0047_vendor_catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794501258136,
+      "tag": "0048_owners",
+      "breakpoints": true
     }
   ]
 }
