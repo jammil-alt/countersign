@@ -354,7 +354,7 @@ function useCases() {
     const cards = u.flow
       .map((f, i) => {
         const [icon, actor, kind, t, d] = f;
-        return `<li class="mk-lanes__cell" style="grid-column: ${i + 2}; grid-row: ${laneOf(actor) + 1};" data-step="${i}"><div class="mk-flowcard"><div class="mk-flowcard__top"><span class="mk-dot mk-tone--${ACTORS[actor].tone}">${ico(icon, "mk-ico mk-ico--16")}</span><span class="mk-mono mk-tone-text--${ACTORS[actor].tone}">0${i + 1} · ${esc(kind)}</span></div><span class="mk-flowcard__t">${esc(t)}</span><span class="mk-flowcard__d">${esc(d)}</span></div></li>`;
+        return `<li class="mk-lanes__cell" style="grid-column: ${i + 2}; grid-row: ${laneOf(actor) + 1};" data-step="${i}"><div class="mk-flowcard"><div class="mk-flowcard__top"><span class="mk-dot mk-tone--${ACTORS[actor].tone}">${ico(icon, "mk-ico mk-ico--16")}</span><span class="mk-mono mk-tone-text--${ACTORS[actor].tone}">0${i + 1} · ${esc(kind)}<span class="mk-flowcard__lane"> · ${esc(ACTORS[actor].label)}</span></span></div><span class="mk-flowcard__t">${esc(t)}</span><span class="mk-flowcard__d">${esc(d)}</span></div></li>`;
       })
       .join("");
     return `<div class="mk-uc" data-uc-panel="${u.id}"${u.id === USE_CASE_FIRST ? "" : " hidden"}>

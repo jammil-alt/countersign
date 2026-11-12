@@ -2197,6 +2197,10 @@ button:focus-visible {
   border-radius: var(--radius-pill);
 }
 
+.mk-flowcard__lane {
+  display: none;
+}
+
 .mk-flowcard__t {
   font: 600 13px / 18px var(--font-sans);
 }
@@ -2634,6 +2638,7 @@ button:focus-visible {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1);
+  margin-left: auto;
 }
 
 .site-nav__tab {
@@ -2657,7 +2662,7 @@ button:focus-visible {
   border-bottom-color: var(--slate);
 }
 
-.site-nav__cta {
+.site-header__cta {
   margin-left: var(--space-3);
 }
 
@@ -2988,7 +2993,8 @@ main > .wrap:last-child {
 /* Tablet */
 @media (max-width: 1024px) {
   .wrap {
-    padding: 0 var(--space-6);
+    padding-right: var(--space-6);
+    padding-left: var(--space-6);
   }
 
   .grid {
@@ -2999,7 +3005,8 @@ main > .wrap:last-child {
 /* Phone */
 @media (max-width: 640px) {
   .wrap {
-    padding: 0 var(--space-4);
+    padding-right: var(--space-4);
+    padding-left: var(--space-4);
   }
 
   .grid,
@@ -3016,16 +3023,39 @@ main > .wrap:last-child {
     font: 400 15px / 24px var(--font-sans);
   }
 
+  /* The logo and the diagnostic share the top row; the three tabs sit under them. */
+  .site-header__inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-2) var(--space-3);
+    min-height: 0;
+    padding-bottom: 0;
+  }
+
+  .site-logo img {
+    height: 18px;
+  }
+
+  .site-header__cta {
+    grid-column: 2;
+    grid-row: 1;
+    min-height: 36px;
+    margin-left: 0;
+    padding: 0 var(--space-3-5);
+    font-size: 13px;
+  }
+
   .site-nav {
-    width: 100%;
+    grid-column: 1 / -1;
+    flex-wrap: nowrap;
+    gap: 0;
+    margin-left: calc(var(--space-2-5) * -1);
+    overflow-x: auto;
   }
 
   .site-nav__tab {
+    flex: 0 0 auto;
     padding: 0 var(--space-2-5);
-  }
-
-  .site-nav__cta {
-    margin-left: 0;
   }
 
   .mk-lead {
@@ -3065,8 +3095,69 @@ main > .wrap:last-child {
     display: none;
   }
 
+  /* A smaller centre, so the labels around it don't run into it. */
+  .mk-hub__center {
+    width: 26%;
+    gap: var(--space-1);
+    box-shadow:
+      0 0 0 6px color-mix(in srgb, var(--slate) 8%, transparent),
+      0 0 0 14px color-mix(in srgb, var(--slate) 4%, transparent);
+  }
+
+  .mk-hub__center-name {
+    font-size: 12px;
+    line-height: 15px;
+  }
+
   .mk-gap__scale {
     display: none;
+  }
+
+  /* The org chart stands as a column: you, Ana, Sloan, then the agents two to a row. */
+  .mk-org {
+    align-items: stretch;
+    min-width: 0;
+  }
+
+  .mk-org__card {
+    width: 100%;
+  }
+
+  .mk-org__team {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+
+  .mk-org__team::before,
+  .mk-org__seat::before {
+    display: none;
+  }
+
+  /* The swimlanes become a list of steps; each step names its lane. */
+  .mk-lanes {
+    display: block;
+    min-width: 0;
+    padding: var(--space-4);
+  }
+
+  .mk-lanes__band,
+  .mk-lanes__label,
+  .mk-lanes__path {
+    display: none;
+  }
+
+  .mk-lanes__cards {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .mk-lanes__cell {
+    padding: 0;
+  }
+
+  .mk-flowcard__lane {
+    display: inline;
   }
 
   .mk-run__steps {
@@ -3145,6 +3236,63 @@ main > .wrap:last-child {
 
   .table tbody th {
     white-space: normal;
+  }
+
+  /* The comparison: each row is a card, Mezonas last and marked. */
+  .mk-cmp,
+  .mk-cmp tbody,
+  .mk-cmp tbody tr,
+  .mk-cmp tbody th,
+  .mk-cmp tbody td {
+    display: block;
+  }
+
+  .mk-cmp {
+    min-width: 0;
+    border: 0;
+    background: none;
+    overflow: visible;
+  }
+
+  .mk-cmp thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .mk-cmp tbody tr {
+    margin-top: var(--space-3);
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+  }
+
+  .mk-cmp tbody tr:first-child {
+    margin-top: 0;
+  }
+
+  .mk-cmp tbody th,
+  .mk-cmp tbody td {
+    padding: var(--space-2-5) var(--space-4);
+  }
+
+  .mk-cmp th[scope="row"] {
+    border-top: 0;
+    font-weight: 600;
+  }
+
+  .mk-cmp td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: var(--space-1);
+    font: 500 11px / 14px var(--font-mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
   }
 }
 
