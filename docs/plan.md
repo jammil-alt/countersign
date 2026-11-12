@@ -2431,6 +2431,13 @@ feeds, upload, email sending, texts, webhooks, website, website logins) take a M
 website login keeps the site's initials. These colours are the providers' and are used nowhere
 else, so the palette rule (no new colours) holds for our own UI.
 
+Superseded in part (owner, 2026-11-11 and 2026-11-12): the owner's own logo files, the same set
+the site uses (`apps/site/src/logos`), now come first, in `apps/web/src/connections/logos/`, on
+the same white tile. Every third-party connector with a file uses it, including the ones that
+had letters (Slack, LinkedIn, Outlook, Bing, Ramp, BILL, Podio, Zoho's wordmark). Simple Icons
+paths remain only for connectors without a file (Hacker News, ElevenLabs), and letters for any
+future connector with neither. // DECISION
+
 ### 1.86 The process model (owner, 2026-11-10)
 
 The owner found skills, tools, workflows, automations and agents too many overlapping words. The

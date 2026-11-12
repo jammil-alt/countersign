@@ -26,6 +26,19 @@ export function ConnectorMark({
   const neutral = "border border-line bg-surface-subtle text-ink";
   const glyph = size === "sm" ? 18 : 20;
 
+  if (brand?.kind === "image") {
+    return (
+      <span
+        aria-hidden
+        data-mark="logo"
+        className={cx(tile, "border border-line")}
+        // The same white ground as the one-colour logos, in both themes.
+        style={{ backgroundColor: "#fff" }}
+      >
+        <img src={brand.src} alt="" width={glyph} height={glyph} className="object-contain" />
+      </span>
+    );
+  }
   if (brand?.kind === "logo") {
     return (
       <span

@@ -1,6 +1,7 @@
 // Connector marks: how each connector's tile looks wherever it is listed (ConnectorMark).
 //
-// DECISION (docs/plan.md §1.85): a provider's own logo where one is published under CC0 (Simple
+// DECISION (docs/plan.md §1.85): the owner's logo files come first (IMAGES, below). Otherwise a
+// provider's own logo where one is published under CC0 (Simple
 // Icons 16.37.0, its `path` on a 24px grid), drawn in the provider's colour on a solid white tile
 // with a hairline border, in both themes, as the providers' own app icons are (the logos have
 // cut-outs, which must show white, never the tile behind); a provider whose logo is not in that set (removed at the brand's request) gets its
@@ -8,8 +9,27 @@
 // feeds, uploads, email sending) take a Mezonas icon, since they carry no third-party brand. These
 // colours belong to the providers' marks, not to our palette: nothing else uses them.
 import type { IconName } from "../ui/icons";
+import billLogo from "./logos/bill.png?no-inline";
+import bingLogo from "./logos/bing.svg?no-inline";
+import gmailLogo from "./logos/gmail.svg?no-inline";
+import googleLogo from "./logos/google.svg?no-inline";
+import googleChatLogo from "./logos/google-chat.svg?no-inline";
+import googleDriveLogo from "./logos/google-drive.svg?no-inline";
+import googleSheetsLogo from "./logos/google-sheets.svg?no-inline";
+import hubspotLogo from "./logos/hubspot.svg?no-inline";
+import linkedinLogo from "./logos/linkedin.svg?no-inline";
+import outlookLogo from "./logos/outlook.svg?no-inline";
+import podioLogo from "./logos/podio.svg?no-inline";
+import quickbooksLogo from "./logos/quickbooks.svg?no-inline";
+import rampLogo from "./logos/ramp.svg?no-inline";
+import slackLogo from "./logos/slack.svg?no-inline";
+import stripeLogo from "./logos/stripe.svg?no-inline";
+import whatsappLogo from "./logos/whatsapp.svg?no-inline";
+import zohoLogo from "./logos/zoho.svg?no-inline";
 
 export type ConnectorBrand =
+  /** The provider's full-colour logo file, on white (the owner's files, 2026-11-11). */
+  | { kind: "image"; src: string }
   /** The provider's logo in its colour, on white. */
   | { kind: "logo"; fill: string; path: string }
   /** The provider's initials on its colour; `fill: null` is ink on paper. */
@@ -17,66 +37,42 @@ export type ConnectorBrand =
   /** One of ours: a Mezonas icon. */
   | { kind: "icon"; icon: IconName };
 
+// DECISION (owner, 2026-11-11, extended 2026-11-12): the owner's logo files (the same set as the
+// site's, apps/site/src/logos) win over the one-colour Simple Icons paths and the initials, in the
+// back office and the portal alike. Search Console takes Google's "G". BILL's file is the site's
+// PNG, shrunk for a tile. Imported `?no-inline`, so each is its own file, not inlined into the
+// first-load script (scripts/web-size.mjs). google-ads.svg is kept for a Google Ads connector, which doesn't exist yet.
+const IMAGES: Record<string, string> = {
+  qbo: quickbooksLogo,
+  gmail: gmailLogo,
+  gdrive: googleDriveLogo,
+  gsheets: googleSheetsLogo,
+  gchat: googleChatLogo,
+  gsc: googleLogo,
+  gsc_oauth: googleLogo,
+  hubspot: hubspotLogo,
+  whatsapp_meta: whatsappLogo,
+  stripe: stripeLogo,
+  slack: slackLogo,
+  outlook: outlookLogo,
+  zoho_crm: zohoLogo,
+  linkedin: linkedinLogo,
+  bing_webmaster: bingLogo,
+  ramp: rampLogo,
+  billcom: billLogo,
+  podio: podioLogo,
+};
+
 const LOGOS: Record<string, { fill: string; path: string }> = {
-  qbo: {
-    fill: "#2CA01C",
-    path: "M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm.642 4.1335c.9554 0 1.7296.776 1.7296 1.7332v9.0667h1.6c1.614 0 2.9275-1.3156 2.9275-2.933 0-1.6173-1.3136-2.9333-2.9276-2.9333h-.6654V7.3334h.6654c2.5722 0 4.6577 2.0897 4.6577 4.667 0 2.5774-2.0855 4.6666-4.6577 4.6666H12.642zM7.9837 7.333h3.3291v12.533c-.9555 0-1.73-.7759-1.73-1.7332V9.0662H7.9837c-1.6146 0-2.9277 1.316-2.9277 2.9334 0 1.6175 1.3131 2.9333 2.9277 2.9333h.6654v1.7332h-.6654c-2.5725 0-4.6577-2.0892-4.6577-4.6665 0-2.5771 2.0852-4.6666 4.6577-4.6666Z",
-  },
-  gmail: {
-    fill: "#EA4335",
-    path: "M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z",
-  },
-  gdrive: {
-    fill: "#4285F4",
-    path: "M12.01 1.485c-2.082 0-3.754.02-3.743.047.01.02 1.708 3.001 3.774 6.62l3.76 6.574h3.76c2.081 0 3.753-.02 3.742-.047-.005-.02-1.708-3.001-3.775-6.62l-3.76-6.574zm-4.76 1.73a789.828 789.861 0 0 0-3.63 6.319L0 15.868l1.89 3.298 1.885 3.297 3.62-6.335 3.618-6.33-1.88-3.287C8.1 4.704 7.255 3.22 7.25 3.214zm2.259 12.653-.203.348c-.114.198-.96 1.672-1.88 3.287a423.93 423.948 0 0 1-1.698 2.97c-.01.026 3.24.042 7.222.042h7.244l1.796-3.157c.992-1.734 1.85-3.23 1.906-3.323l.104-.167h-7.249z",
-  },
-  gsheets: {
-    fill: "#34A853",
-    path: "M11.318 12.545H7.91v-1.909h3.41v1.91zM14.728 0v6h6l-6-6zm1.363 10.636h-3.41v1.91h3.41v-1.91zm0 3.273h-3.41v1.91h3.41v-1.91zM20.727 6.5v15.864c0 .904-.732 1.636-1.636 1.636H4.909a1.636 1.636 0 0 1-1.636-1.636V1.636C3.273.732 4.005 0 4.909 0h9.318v6.5h6.5zm-3.273 2.773H6.545v7.909h10.91v-7.91zm-6.136 4.636H7.91v1.91h3.41v-1.91z",
-  },
-  gchat: {
-    fill: "#00AC47",
-    path: "M1.637 0C.733 0 0 .733 0 1.637v16.5c0 .904.733 1.636 1.637 1.636h3.955v3.323c0 .804.97 1.207 1.539.638l3.963-3.96h11.27c.903 0 1.636-.733 1.636-1.637V5.592L18.408 0Zm3.955 5.592h12.816v8.59H8.455l-2.863 2.863Z",
-  },
-  gsc: {
-    fill: "#458CF5",
-    path: "M8.548 1.156L6.832 2.872v1.682h1.716zm0 3.398v.035H6.832v-.035H3.386L0 7.844v3.577h2.826V8.94c0-.525.429-.954.954-.954h16.476c.525 0 .954.43.954.954v2.48h2.754V7.844l-3.386-3.29H17.3v.035h-1.717v-.035zm7.035 0H17.3V2.872l-1.717-1.716zM8.679 1.188V2.84h6.773V1.188zm11.471 7.07a.834.834 0 00-.132.01l-.543.002c-5.216.014-10.432-.008-15.648.01-.435-.063-.794.436-.716.883v2.264h17.812c-.016-.888.045-1.782-.034-2.666-.104-.342-.427-.502-.739-.502zm-15.422.634a.689.698 0 01.689.698.689.698 0 01-.689.697.689.698 0 01-.688-.697.689.698 0 01.688-.698zm2.134 0a.689.698 0 01.689.698.689.698 0 01-.689.697.689.698 0 01-.688-.697.689.698 0 01.688-.698zM.036 11.645v9.156c0 1.05.858 1.908 1.907 1.908h.883V11.645zm21.174 0v11.064h.882c1.05 0 1.908-.858 1.908-1.908v-9.156zM4.057 13.133v6.85h6.137v-6.85zm13.243.021v3.777l-1.708.977-1.708-.977v-3.758a4.006 4.006 0 000 7.23v2.441h3.457v-2.442a4.006 4.006 0 00-.041-7.248zm-13.243 8.26v1.43h7.925v-1.43z",
-  },
-  gsc_oauth: {
-    fill: "#458CF5",
-    path: "M8.548 1.156L6.832 2.872v1.682h1.716zm0 3.398v.035H6.832v-.035H3.386L0 7.844v3.577h2.826V8.94c0-.525.429-.954.954-.954h16.476c.525 0 .954.43.954.954v2.48h2.754V7.844l-3.386-3.29H17.3v.035h-1.717v-.035zm7.035 0H17.3V2.872l-1.717-1.716zM8.679 1.188V2.84h6.773V1.188zm11.471 7.07a.834.834 0 00-.132.01l-.543.002c-5.216.014-10.432-.008-15.648.01-.435-.063-.794.436-.716.883v2.264h17.812c-.016-.888.045-1.782-.034-2.666-.104-.342-.427-.502-.739-.502zm-15.422.634a.689.698 0 01.689.698.689.698 0 01-.689.697.689.698 0 01-.688-.697.689.698 0 01.688-.698zm2.134 0a.689.698 0 01.689.698.689.698 0 01-.689.697.689.698 0 01-.688-.697.689.698 0 01.688-.698zM.036 11.645v9.156c0 1.05.858 1.908 1.907 1.908h.883V11.645zm21.174 0v11.064h.882c1.05 0 1.908-.858 1.908-1.908v-9.156zM4.057 13.133v6.85h6.137v-6.85zm13.243.021v3.777l-1.708.977-1.708-.977v-3.758a4.006 4.006 0 000 7.23v2.441h3.457v-2.442a4.006 4.006 0 00-.041-7.248zm-13.243 8.26v1.43h7.925v-1.43z",
-  },
-  hubspot: {
-    fill: "#FF7A59",
-    path: "M18.164 7.93V5.084a2.198 2.198 0 001.267-1.978v-.067A2.2 2.2 0 0017.238.845h-.067a2.2 2.2 0 00-2.193 2.193v.067a2.196 2.196 0 001.252 1.973l.013.006v2.852a6.22 6.22 0 00-2.969 1.31l.012-.01-7.828-6.095A2.497 2.497 0 104.3 4.656l-.012.006 7.697 5.991a6.176 6.176 0 00-1.038 3.446c0 1.343.425 2.588 1.147 3.607l-.013-.02-2.342 2.343a1.968 1.968 0 00-.58-.095h-.002a2.033 2.033 0 102.033 2.033 1.978 1.978 0 00-.1-.595l.005.014 2.317-2.317a6.247 6.247 0 104.782-11.134l-.036-.005zm-.964 9.378a3.206 3.206 0 113.215-3.207v.002a3.206 3.206 0 01-3.207 3.207z",
-  },
-  whatsapp_meta: {
-    fill: "#25D366",
-    path: "M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z",
-  },
   hackernews: {
     fill: "#FF6600",
     path: "M0 24V0h24v24H0zM6.951 5.896l4.112 7.708v5.064h1.583v-4.972l4.148-7.799h-1.749l-2.457 4.875c-.372.745-.688 1.434-.688 1.434s-.297-.708-.651-1.434L8.831 5.896h-1.88z",
   },
   elevenlabs: { fill: "#000000", path: "M4.6035 0v24h4.9317V0zm9.8613 0v24h4.9317V0z" },
-  stripe: {
-    fill: "#635BFF",
-    path: "M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.594-7.305h.003z",
-  },
 };
 
-const MONOGRAMS: Record<string, { fill: string | null; letters: string }> = {
-  // Zoho's logo is its four-letter wordmark, too small to read on a tile.
-  zoho_crm: { fill: "#E42527", letters: "Z" },
-  slack: { fill: "#4A154B", letters: "S" },
-  linkedin: { fill: "#0A66C2", letters: "in" },
-  outlook: { fill: "#0078D4", letters: "O" },
-  bing_webmaster: { fill: "#258FFA", letters: "B" },
-  ramp: { fill: null, letters: "R" },
-  // §1.87: BILL's logo isn't in Simple Icons; ink, as we aren't sure of its colour.
-  billcom: { fill: null, letters: "B" },
-  podio: { fill: null, letters: "P" },
-};
+// A provider with no logo file and no published path: its initials (none today).
+const MONOGRAMS: Record<string, { fill: string | null; letters: string }> = {};
 
 const ICONS: Record<string, IconName> = {
   bankfeed: "bank",
@@ -92,6 +88,8 @@ const ICONS: Record<string, IconName> = {
 /** The mark for a connector id, or null (the tile then shows the name's initials). */
 export function connectorBrand(connector: string | undefined): ConnectorBrand | null {
   if (!connector) return null;
+  const image = IMAGES[connector];
+  if (image) return { kind: "image", src: image };
   const logo = LOGOS[connector];
   if (logo) return { kind: "logo", ...logo };
   const monogram = MONOGRAMS[connector];
