@@ -2506,6 +2506,11 @@ button:focus-visible {
   flex: 1 1 420px;
 }
 
+.mk-mask__soon {
+  align-self: flex-start;
+  margin-top: var(--space-1);
+}
+
 .mk-mask__head {
   display: flex;
   flex-wrap: wrap;

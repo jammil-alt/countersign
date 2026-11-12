@@ -430,11 +430,11 @@ function process() {
 // Security
 
 /** A pillar's checklist. */
-function checklist(/** @type {{ t: string, d: string }[]} */ list) {
+function checklist(/** @type {{ t: string, d: string, soon?: boolean }[]} */ list) {
   return `<ul class="mk-checks">${list
     .map(
       (x) =>
-        `<li>${ico("check")}<span class="mk-stack"><span class="mk-strong">${esc(x.t)}</span><span class="mk-small mk-muted">${esc(x.d)}</span></span></li>`,
+        `<li>${ico("check")}<span class="mk-stack"><span class="mk-strong">${esc(x.t)}${x.soon ? ' <span class="mk-pill mk-pill--neutral">Coming soon</span>' : ""}</span><span class="mk-small mk-muted">${esc(x.d)}</span></span></li>`,
     )
     .join("")}</ul>`;
 }
@@ -450,7 +450,7 @@ function masking() {
   ).join("");
   return `<div class="mk-card mk-card--lg mk-mask" data-mask>
           <div class="mk-mask__head">
-            <div class="mk-stack mk-stack--4"><p class="eyebrow">Security, shown</p><p class="mk-card-title">What an AI model actually sees.</p></div>
+            <div class="mk-stack mk-stack--4"><p class="eyebrow">Security, shown</p><p class="mk-card-title">What an AI model will see.</p><span class="mk-pill mk-pill--neutral mk-mask__soon">Coming soon</span></div>
             <div class="mk-seg mk-seg--sm" role="group" aria-label="Choose a view">
               <button type="button" data-mask-view="real" aria-pressed="true" data-track="mask-real">What you see</button>
               <button type="button" data-mask-view="ai" aria-pressed="false" data-track="mask-ai">What the AI sees</button>

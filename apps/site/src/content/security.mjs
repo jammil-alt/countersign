@@ -9,8 +9,10 @@ export const SECURITY = [
   },
   { t: "Least access", d: "Read-only where possible, send-only email. Agents can’t move money." },
   {
-    t: "Masked before AI",
-    d: "Account numbers and personal details are replaced before any model sees them.",
+    t: "Masking before AI",
+    d: "Account numbers and personal details will be replaced before any model sees them.",
+    // Not built yet (the masking plan); the page labels it "Coming soon" until it ships.
+    soon: true,
   },
   { t: "Never used for training", d: "Enterprise terms with every AI provider bar it." },
   {
