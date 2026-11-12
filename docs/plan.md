@@ -4425,6 +4425,34 @@ surfaces: the back office's `/ops/runs/:id` and the client's `/runs/:id`.
 | Data tab | When the step made, changed or cited anything: its changes, the records it cites (`sources`) and the documents it names (`documentId`, `documentIds`; `stepDocumentIds`), each with its page. Records and documents have no link to a step run of their own, so the tab reads the step's data. |
 | Checked | `packages/core/src/api/step-data.test.ts`, `apps/web/src/runs/StepPanel.test.tsx`, `apps/web/src/portal/screens/RunStepPanel.test.tsx`, `apps/web/src/ops/screens/RunView.test.tsx` ("back-office step panel"), `apps/api/src/runs.test.ts` (the client's timeline carries the step's input and the change by its step, and `forbiddenKeys` finds none). |
 
+### 1.96 Area owners and the changes they draft (ARCHITECTURE v0.17 §10.15, owner 2026-11-12)
+
+The owner (R6) moves from one per process to one named owner per business area per client, and
+gains drafted changes between runs. Built in the O-stream (§10), one milestone at a time.
+
+| Topic | Decision |
+|---|---|
+| What an owner is | An `agent` row with `kind = 'owner'` and a versioned bundle with no workflows, so versions, audit, the immutability triggers and the Builder's editing all apply unchanged. // DECISION: a new agent kind, not a new table. |
+| Area of a process | `agent.area` (column, operator-set), defaulting from the template's `definition.area`, else its one `requiresPacks` entry, else `general`. // DECISION: a column like `approver`, not in the bundle, so moving a process to another area makes no new version. |
+| No area | `general` is an area like the others; its owner is created only when a client has a process in it. |
+| Sloan | Only the client's chat (owner, 2026-11-12). Template v6 keeps `chat`; `daily-check` becomes the Worker's cron calling `supervisor.check` per client; `run-failed` and `connection-needs-attention` become code that files the item with the owner's diagnosis or the platform's words. // DECISION: no model in any of the three; the only AI in them today (`supervisor.explain`) is replaced by fixed words per connection state. |
+| Default names | One seeded owner template per area under `packages/db/seed/owners/`, each with a default name the owner picks (open below). |
+| Pinning | `run.owner_version_id`, set at run start; replays and the run view read it. |
+| Precedence | A process's saved `definition.oversight` wins (stored versions unchanged, invariant 3), then the owner's, then `failures`; model: step, process `oversight.model`, owner, process. |
+| Notes | The owner's `instructions` (Markdown, operator-written) go in the review's instructions; up to 20 memory notes, newest first, go in the `read_step` result as data. |
+| Memory | A decision's `remember` (at most 2 notes, 300 characters each) becomes `memory_note` rows on the owner, written in `src/log/`. |
+| Change class | `packages/core/src/process/change-class.ts` over the bundle diff: `tune`, `reshape`, `never`; the strictest change wins; unit-tested against every field the diff reports. |
+| Applying a tune | Only with the owner's `oversight.changes.tune = true` (default false); a new version with `author_type = 'agent'`, the owner's id, and a release note in platform words. |
+| Watch after a change | 10 runs or 7 days against the 10 runs before; worse on failures, corrections or edits rolls a tune back (a new version) and flags a reshape. |
+| Signals | Thresholds: 3 in 14 days for repeated failures, corrections and edits on one field. // DECISION: low enough to catch a habit in a week of normal use, high enough to ignore a one-off. |
+
+Open for the owner:
+1. **Tune on by default?** Recommended: off; the operator switches it on per owner once they trust it.
+2. **Default names per area** (purchasing, sales, receivables, bookkeeping, marketing).
+3. **The vendor-facing signature** ("Pia, Mezonas agent for {client}" proposed).
+4. **The invariant sentences** in ARCHITECTURE §10.15: CLAUDE.md's invariants 9 and 11 change only
+   after a yes.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
@@ -5903,3 +5931,32 @@ Migrations 0043, 0044 and 0045 are each their own commit, for their own PRs; so 
 to `mountLong` (a pool of one connection never deadlocks), which touch sign-in callbacks. Not yet
 checked on staging: Browser Run's support for a context-wide `route` and `serviceWorkers: "block"`
 (scripts are refused if it is missing). Open for the owner: the questions in §1.86's DECISION rows.
+
+## 10. Area owners (§1.96, ARCHITECTURE v0.17 §10.15)
+
+Each milestone ends green. Migrations in their own PR (O1).
+
+- **O1 Migration (0048).** `agent.kind` gains `owner`; `agent.area`; `run.owner_version_id`; the
+  unique owner per client and area; checks updated so an owner has a tenant and no stage.
+- **O2 Core.** The owner bundle schema, area defaults, settings precedence, `remember` on decisions,
+  the change classifier with tests.
+- **O3 Runtime.** Owners created per client and area (on first fork into an area, and a backfill for
+  existing clients); the owner pinned at run start; reviews on the owner's model with its notes and
+  memory; names in the run's words. Done when: a Purchasing process's failure is reviewed on the
+  owner's model (Grok in a replayed fixture), with the owner's name in the portal's words.
+- **O4 Screens.** Back office: the client's Owners, an owner's page (name, avatar, model, notes,
+  review default, limits, "may tune", memory notes, processes, decisions, drafts), the area on a
+  process. Portal: the owner's name in the run timeline.
+- **O5 Drafted changes.** Signals, the draft through the Builder's revise path, test runs on replayed
+  inputs and test cases, the inbox item with class, diff and evidence; tune applied under the switch;
+  the watch and rollback. Done when: three edits of one field before signing produce one reshape
+  draft whose test runs pass, and a tune under the switch is applied and then rolled back when the
+  next runs get worse.
+- **O6 Sloan as the chat.** Template v6 (chat only); the daily check on the Worker's cron; failed
+  runs and connections filed by code; Sloan's chat reads the findings. Done when: a client's daily
+  check, a failed run and a lapsed connection each produce today's items with no Sloan run.
+- **O7 Portal.** "Tell Pia" on a run step (a `change_request` with process and step) and a
+  process's "What changed".
+
+Status (2026-11-12): designed (ARCHITECTURE v0.17); nothing built yet. O1–O4 need no answer from §1.96's
+open list; O6 needs none; O5 waits on its first and fourth questions.

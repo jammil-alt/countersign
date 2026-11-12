@@ -1,8 +1,18 @@
-# Mezonas — Architecture v0.16
+# Mezonas — Architecture v0.17
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
+
+> **v0.17, area owners (2026-11-12, owner):** **One named owner per business area per client, not
+> per process.** Pia owns Purchasing and oversees all its processes, on the model the operator picks
+> for her (any priced provider, Grok included), with her notes (Markdown in her version) and memory
+> notes. Sloan becomes only the client's chat: its daily check and its two watches move into
+> platform code. Between runs an owner drafts lasting fixes as new
+> versions from failures, people's edits, rejections and the client's requests, tests them on test
+> runs, and hands them over by class: a **tune** it may apply if the operator allowed it, a
+> **reshape** the operator signs, anything that loosens never. Changed: §10.15 (new), the glossary, Sloan (§9.8);
+> `docs/plan.md` §1.96, §10. Invariants 9 and 11 gain a sentence each once the owner agrees.
 
 > **v0.16, the skill model (2026-11-10, owner):** **Two kinds of skill: deterministic or AI.** A
 > skill that needs both is two skills chained; skills never write (a write is "Save to records" or
@@ -264,7 +274,7 @@ How the parts fit:
 | Weekly Table | The Monday digest per client: stats, the lead's note, decisions, next week (v0.12) | §11.4 |
 | Process | Triggers plus steps, each step able to carry checks; workflow `schemaVersion: 4` (v0.16) | §10.14 |
 | Checks | Confer, approval and notify on any step, each with conditions and a deadline (v0.16) | §10.14 |
-| Owner | The AI that watches an agent's one process and fixes within it; v0.13's oversight (v0.16) | §10.14 |
+| Owner | A named AI per business area per client (Pia owns Purchasing) that watches every process in its area, fixes within the plan, and drafts lasting changes; v0.13's oversight (v0.16, per area from v0.17) | §10.15 |
 | Business hours | A client's working week and each person's, with away dates; deadlines can run on them (v0.16) | §10.14 |
 
 ### First client and first agent
@@ -1704,6 +1714,9 @@ version (`author_type = 'builder'`); nothing is published from a conversation.
 
 ### 9.8 Sloan, the account agent (v0.12)
 
+> **v0.17:** Sloan is only the client's chat; its daily check and its two watches move into
+> platform code, and it owns no area (§10.15, "Sloan is the chat").
+
 **Decision: Sloan *is* the supervisor's client face.** One platform template (`slug = supervisor`,
 identity name "Sloan", default service name "Sloan, your account agent"), one fork per client, free by
 the existing billing rule (§1.32 of the plan). Template v2 keeps the supervisor's three watch workflows
@@ -2596,6 +2609,9 @@ says so on the card. The Desk's 60-second undo before a write runs (§11.1) is u
 
 #### Agents and their owner
 
+> **v0.17:** the owner moved up to one per business area per client, overseeing every process in
+> its area (§10.15). What it may and may never do in a run, below, is unchanged.
+
 **One agent owns exactly one process.** The agent is that process plus its **owner**: the AI that
 watches every step and fixes within limits, v0.13's oversight (§10.11) given its proper name (R6):
 
@@ -2730,6 +2746,143 @@ when there is one, else a sample from the types), edits any, and saves. The vali
 mapping against the steps before and the step after, so a new version of either flags the Reshape
 step by field, and the builder offers "Propose an updated mapping". Decisions: docs/plan.md §1.86
 "Skill model (2026-11-11): Reshape data".
+
+### 10.15 Area owners and the changes they draft (v0.17, owner 2026-11-12)
+
+v0.16 made each agent one process plus its owner. With 50 small processes in one client that is 50
+owners to name and remember, so the owner moves up a level: **one named owner per business area per
+client** (§12.0), overseeing every process in that area. Processes keep plain job names ("Bills
+in", "Vendor follow-ups"); people remember a handful of owners ("Pia owns Purchasing").
+
+#### Owners per area
+
+| | Before (v0.16) | Now (v0.17) |
+|---|---|---|
+| Who watches a run | The process's own `definition.oversight` | The process's **area owner**, unless the process saved its own settings |
+| How many per client | One per process | One per area in use |
+| Model it reasons on | `oversight.model`, else the process's model | The owner's model, else the process's model; a process may still override |
+| What it knows | The agent's instructions, the step, the last 5 failures | The same, plus the owner's **notes** and its **memory notes** |
+| Named | No (the process's job title) | Yes: a short name per owner, shown wherever it acts |
+
+**The owner is an agent of its own kind.** An `agent` row with `kind = 'owner'`, one per client and
+area (`unique (tenant_id, area) where kind = 'owner'`), versioned like any agent (invariant 3). Its
+bundle has a definition and no workflows:
+- `identity`: name (e.g. Pia), avatar, role ("Owner of Purchasing"), mission.
+- `model`: what it reasons on. Any model `packages/llm` prices (Anthropic, OpenAI, xAI, Google);
+  HIPAA mode refuses a provider without a BAA at run time, as for any model (invariant 14).
+- `instructions`: **the owner's notes**, Markdown written by the operator: how this client's area
+  works, what to watch for, who to ask. This is the "memory file", kept in the version row rather
+  than in the repository (invariant 4), and per client (invariant 1).
+- `oversight`: the area's defaults for `review`, `maxPerRun`, `maxCostUsd`, and `changes` (below).
+
+**Areas.** `purchasing`, `sales`, `receivables`, `bookkeeping`, `marketing`, and `general`. A
+process's area is a column on its agent row (`agent.area`, like `approver`), set by the operator;
+it defaults from the template's `definition.area`, else from its one `requiresPacks` entry, else
+`general`. `general` gets an owner like any area, created only when a client has a process in it.
+Sloan owns nothing (below).
+
+**Created when an area is first used.** When a client's first process in an area is forked (or an
+area pack is enabled), the platform creates that client's owner from the area's seeded owner
+template (`packages/db/seed/owners/`), with its default name and the platform's default model. The
+operator renames it, picks its model and writes its notes on the owner's page. Owners are per
+client: forks, promotions and template updates never carry one (invariant 11).
+
+**Which settings a run uses.** Read once at run start and pinned on the run (`run.owner_version_id`)
+so a replay decides the same way:
+1. `review`, limits: the process's saved `definition.oversight` if it has one (stored versions keep
+   theirs, invariant 3), else the owner's, else `failures`.
+2. Model: a step's `review` model if set, else the process's saved `oversight.model`, else the
+   owner's `model`, else the process's model.
+3. What the review is given: today's (§10.11), plus the owner's notes in the instructions (operator
+   text, trusted) and up to 20 of its memory notes in the `read_step` result (learned, data;
+   invariant 9).
+
+**Memory notes.** A decision may carry `remember: [{ note }]` (at most 2): something worth knowing
+next time ("Acme's invoices put the PO number in the footer"). Each becomes a `memory_note` on the
+owner, written by code from the decision (an internal write, logged with `agent_version_id`), shown
+and deletable on the owner's page. The owner still calls no tools.
+
+**Names shown.** The back office shows "Owner: Pia (Purchasing)" on each process and run, and Pia's
+decisions under her name. The portal's words take the name ("Pia corrected the vendor name and
+tried again"), never her notes, prompts or cost (invariant 11). An owner is always marked as an
+agent (ink, the agent marker; never copper, which is for people). A message an agent sends outside
+the client (a vendor, a customer) is signed as an agent: "Pia, Mezonas agent for {client}".
+
+#### Changes the owner drafts
+
+In a run the plan stays fixed (§10.11): the owner retries, corrects an input, asks, or stops, and
+that is what keeps a run moving. Between runs the owner can now do more than write a proposal in
+words: it **drafts the fix as a new version of the process**, tests it, and hands it over with the
+evidence. Who applies it depends on what the change does, and that is computed by code from the
+bundle diff, never decided by the model.
+
+**What it learns from.** Each signal is attributed to the runs and people it came from (invariant 10):
+- the same step failing, or needing the same correction, 3 times in 14 days;
+- people editing the same field before signing, 3 times in 14 days (the Desk's edit before
+  signing, §11.1);
+- rejections with a reason;
+- the client's requests about the process (§11), including a step-level **"Tell Pia"** on a run in
+  the portal ("the vendor was wrong because…"), which is a `change_request` linked to the process
+  and step;
+- what Sloan hears in the client's conversation, as a request it files for the person;
+- an operator's instruction ("Pia, stop asking about freight lines under $20").
+
+**How a draft is made.**
+1. The owner writes the change in plain words with the evidence (run ids, edits, the request).
+2. The Builder's revise path (`POST /api/ops/agents/:id/revise`) turns it into a draft version, with
+   the Builder's guards: new steps start with approval on, step and fork-path ids are kept,
+   validation passes.
+3. The draft runs as **test runs** (never write, §10.9) on the inputs of the runs that produced the
+   signal and the last 10 others, and on the process's saved test cases. A draft that fails a test
+   case, or does worse on the replayed runs, is not offered.
+4. It lands as one inbox item for the operator: the plain summary, the diff, the test results, the
+   evidence, and the class below. At most one open draft per process; a declined fix is not drafted
+   again for 30 days (fingerprinted like proposals).
+
+**Three classes.** `packages/core/src/process/change-class.ts` classifies a diff; the strictest
+change in it sets the class.
+
+| Class | What it covers | Who applies it |
+|---|---|---|
+| **Tune** | The owner's own notes and memory; wording in a skill step's settings or a message template; a skill parameter within its declared range; timeouts and retry counts; a deadline made longer; a step's model, priced no higher than the current one | The owner, as a new version, **only if the operator switched on "Pia may tune" for that owner** (off by default). The operator is told; one click rolls it back |
+| **Reshape** | Changes the steps without loosening: add, remove or move a step that doesn't write; add a check (confer, approval, notify); tighten a condition; add a route that ends in asking a person | The operator, on the inbox item (one click with the diff and test results) |
+| **Never** | Anything that loosens or widens: approval `required` → `not_required`; removing an approval or check; a new write step or write tool; a new connector, tool, grant, permission, mode or stage; who approves; the owner's own limits; another process, another client or a template | Not drafted. It stays a proposal in words; the operator does it in the builder if they agree |
+
+**After a change.** New runs use the new version; runs in flight keep the version they pinned. For
+10 runs or 7 days the owner compares failures, corrections and edits with the 10 runs before. If
+they got worse, it rolls a tune back on its own (a new version restoring the previous bundle,
+invariant 3) and tells the operator; a reshape it flags for the operator. A fix that would help
+every client using the template is offered to the operator as "Promote to the template?", through
+the existing promote path; the owner never promotes.
+
+#### Sloan is the chat
+
+Sloan stops being an agent beside the agents (owner, 2026-11-12). Sloan is the client's chat: it
+answers from what the portal shows, files requests and "Tell Pia" for the person asking, and
+explains what an owner did, in the owner's name. It owns no area, watches nothing on a schedule,
+and runs no process but its conversation. Its three watch processes leave it:
+
+| Today (Sloan template v5) | From v0.17 |
+|---|---|
+| `daily-check`, every day at 08:00: one `supervisor.check` tool step (code) | Platform code: the Worker's cron calls the same check per client; its findings feed the back office's Client health and the client's Desk as today. No agent, no model |
+| `run-failed`: report the failure, with the owner's diagnosis when there is one | The area owner's last decision already carries the diagnosis; the platform files the operator item from it (code). Without one, the platform's words for the error |
+| `connection-needs-attention`: explain in plain words (a model), then report | The platform's words per connection state (`packages/core/src/i18n`), sent by code to the client admin. No model |
+
+Sloan's next template version (v6) keeps only `chat`; stored versions are unchanged (invariant 3).
+Its findings, fingerprints and the `health.*` tools stay, now called by the platform; Sloan reads
+them when someone asks ("Is anything broken?"). Sloan stays free.
+
+**What the client sees.** In the portal, a process's "What changed" lists each applied change in
+platform words ("Pia now reads the PO number from the invoice footer, after 4 of your edits"), with
+"Tell Pia" if it got worse. Clients don't approve or undo changes; agents remain the operator's to
+build (invariant 11).
+
+**What this changes in the invariants** (pending the owner's yes, `docs/plan.md` §1.96):
+- Invariant 9 gains: "Between runs, an owner may draft a new version of a process it oversees; it
+  applies one itself only for a tune the operator allowed, and never one that loosens."
+- Invariant 11 gains: "An owner's tune is a new version authored by the owner (`author_type =
+  'agent'`) under the operator's switch; the operator can roll it back."
+- §10.11's "nothing changes a bundle on its own" holds for runs; between runs it is as above.
 
 ---
 
