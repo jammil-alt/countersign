@@ -1,6 +1,6 @@
-/* The marketing pages' demos (src/components.mjs renders every state they show into the page).
-   This only switches between those states: it fetches nothing, stores nothing, sets no cookie
-   and sends nothing. The demos advance on a 1.1-second clock while they are on screen; with
+/* The marketing pages' demos (src/components.mjs renders every state they show into the page),
+   and the header's menu on a phone. This only switches between those states: it fetches
+   nothing, stores nothing, sets no cookie and sends nothing. The demos advance on a 1.1-second clock while they are on screen; with
    reduced motion they stay still and show their finished state. Copied to dist/site.js. */
 (() => {
   const TICK_MS = 1100;
@@ -41,6 +41,27 @@
       d += ` H${pts[i - 1][0] + 50} V${pts[i][1]} H${pts[i][0]}`;
     }
     return d;
+  }
+
+  // The header's menu: on a phone the tabs fold behind a button (site.css shows it under 640px).
+  // The button starts hidden, so without this script the tabs stay in view.
+  for (const header of all(document, "[data-menu]")) {
+    const button = header.querySelector("[data-menu-toggle]");
+    if (!button) continue;
+    const setOpen = (open) => {
+      button.setAttribute("aria-expanded", String(open));
+      header.classList.toggle("is-open", open);
+    };
+    button.hidden = false;
+    header.classList.add("has-menu");
+    button.addEventListener("click", () => {
+      setOpen(button.getAttribute("aria-expanded") !== "true");
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || !header.classList.contains("is-open")) return;
+      setOpen(false);
+      button.focus();
+    });
   }
 
   // Connectors: a category shows a grid of its connectors in place of the moving rows.

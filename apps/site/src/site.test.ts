@@ -199,6 +199,15 @@ describe("the demos' script", () => {
     }
   });
 
+  it("starts the header's menu button hidden on every page, so the tabs show without it", () => {
+    for (const p of pages) {
+      const button = p.html.match(/<button[^>]*data-menu-toggle[^>]*>/)?.[0] ?? "";
+      expect(button, p.name).toMatch(/ hidden>$/);
+      expect(button, p.name).toContain('aria-controls="site-nav"');
+      expect(p.html, p.name).toContain('id="site-nav"');
+    }
+  });
+
   it("puts every connector's logo in the build", () => {
     for (const src of attrs(page("index").html, "src").filter((s) => s.startsWith("/logos/"))) {
       expect(existsSync(join(out, src)), src).toBe(true);
