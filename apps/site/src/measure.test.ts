@@ -100,7 +100,7 @@ describe("measuring off (as deployed)", () => {
   it("adds no measuring script, no data-track name and no /no-measure", () => {
     for (const p of off) {
       // The only script is the demos' own file (src/site.js), which sends nothing.
-      expect(p.html.match(/<script[^>]*>/g), p.name).toEqual(['<script src="/site.js" defer>']);
+      expect(p.html.match(/<script[^>]*>/gi), p.name).toEqual(['<script src="/site.js" defer>']);
       expect(p.html, p.name).not.toContain("data-track");
       expect(p.html, p.name).not.toContain("/no-measure");
       expect(p.tracks).toEqual([]);
