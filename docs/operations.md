@@ -647,6 +647,9 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   writes to about each client's profile and trust product). Without them the back office's
   "Submit to Twilio" answers 503. Submitting charges Twilio's registration fees to Mezonas' account;
   they come back as the client's credits. Run the mock brand checklist in NOTES.md once first.
+  Staging shares production's Twilio account (the same `TWILIO_ACCOUNT_SID`, the main account, not
+  a subaccount) and so its approved primary profile; both environments set the same two values.
+  Each client still gets its own subaccount, made by whichever environment the client is in.
 - Needed for calls (plan §1.23; wiring into `deploy.yml` is the coordinator's): `ELEVENLABS_API_KEY`
   (Mezonas' ElevenLabs workspace, Conversational AI) and `ELEVENLABS_WEBHOOK_SECRET` (the signing
   secret of ElevenLabs' post-call webhook, pointed at `<APP_ORIGIN>/api/elevenlabs/post-call`; it
