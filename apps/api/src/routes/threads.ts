@@ -291,7 +291,8 @@ async function portalMessages(
       sender: {
         type: m.senderType,
         name,
-        role,
+        // v0.17: only an agent's answer has a role; a person's sender is as it was.
+        ...(role ? { role } : {}),
         you: m.senderType === "user" && m.senderId === viewer.userId,
         lead: isLead,
       },
