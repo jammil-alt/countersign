@@ -43,6 +43,11 @@ export interface DispatchDeps {
   reachTick?: (tenantId: string, at: Date) => Promise<unknown>;
   /** The code service's alerts for one client become inbox items; absent without `CODES`. */
   codesTick?: (tenantId: string, at: Date) => Promise<unknown>;
+  /**
+   * v0.17 (ARCHITECTURE §10.15 "Sloan is the chat"): the platform's health watch for one client
+   * (findings for failed runs and connections, the 08:00 daily check in its time zone).
+   */
+  healthTick?: (tenantId: string, at: Date, timeZone: string | null) => Promise<unknown>;
 }
 
 /** A client's agents with their live bundles: what the router chooses from. */
@@ -316,6 +321,7 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
       }
       if (deps.reachTick) await deps.reachTick(client.id, scheduledTime);
       if (deps.codesTick) await deps.codesTick(client.id, scheduledTime);
+      if (deps.healthTick) await deps.healthTick(client.id, to, client.timezone ?? null);
       // v0.12 W1-H: what this pass emitted (reach-outs, code alerts, usage) goes now, not a tick
       // later.
       // DECISION: the cron's tenant pass opens its transactions in many places, so at its end it

@@ -14,6 +14,7 @@ import { purgeRetiredFiles } from "./compliance/retention";
 import { CAPTURE_CRON_MINUTE, captureCronTick } from "./conversations/cron";
 import { captureDepsFor, captureJobsFor } from "./conversations/start";
 import type { Bindings } from "./env";
+import { platformHealthTick } from "./health/watch";
 import {
   type AppDeps,
   type AppEnv,
@@ -136,7 +137,13 @@ import { whatsappMetaRoutes } from "./routes/whatsapp-meta";
 // v0.14 W4-B
 import { zohoRoutes } from "./routes/zoho";
 import { cronTick, dispatchByIds, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
-import { credentialsFor, forClient, reachDepsFor, runDepsFromEnv } from "./runs/execute";
+import {
+  credentialsFor,
+  forClient,
+  reachDepsFor,
+  runDepsFromEnv,
+  runtimeFor,
+} from "./runs/execute";
 // M45: Search Console and Bing, nightly (docs/plan.md §1.75).
 import { searchSyncTick } from "./search-sync";
 import { securityHeaders } from "./security-headers";
@@ -304,6 +311,11 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
         ...(codes
           ? { codesTick: (tenantId: string, at: Date) => raiseCodeAlerts(db, codes, tenantId, at) }
           : {}),
+        // v0.17: Sloan's old watches, as platform code (ARCHITECTURE §10.15).
+        healthTick: async (tenantId, at, timeZone) => {
+          const run = forClient(runDepsFromEnv(env, { db, platform, instances }), tenantId);
+          await platformHealthTick({ db, runtime: runtimeFor(run) }, tenantId, at, timeZone);
+        },
       },
       scheduledTime,
     );

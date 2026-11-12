@@ -32,6 +32,7 @@ import supervisorV2 from "@countersign/db/seed/agents/supervisor.v2.json";
 import supervisorV3 from "@countersign/db/seed/agents/supervisor.v3.json";
 import supervisorV4 from "@countersign/db/seed/agents/supervisor.v4.json";
 import supervisorV5 from "@countersign/db/seed/agents/supervisor.v5.json";
+import supervisorV6 from "@countersign/db/seed/agents/supervisor.v6.json";
 import { and, eq, isNull } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
 import type { Platform } from "../platform";
@@ -50,6 +51,8 @@ const SEEDED: Readonly<Record<string, Readonly<Record<number, unknown>>>> = {
     3: supervisorV3,
     4: supervisorV4,
     5: supervisorV5,
+    // v0.17 (ARCHITECTURE §10.15 "Sloan is the chat"): chat only; its watches are the platform's.
+    6: supervisorV6,
   },
 };
 

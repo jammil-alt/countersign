@@ -93,6 +93,8 @@ describe("seed files", () => {
       "supervisor.v3",
       "supervisor.v4",
       "supervisor.v5",
+      // v0.17: Sloan is the chat; its watches moved into platform code.
+      "supervisor.v6",
     ]);
     const v2 = v3Bundle(later.find((v) => v.slug === "supervisor" && v.version === 2));
     if (!v1 || !v2) throw new Error("no supervisor seed");
@@ -284,20 +286,17 @@ describe("seed files, R9", () => {
     ]);
   });
 
-  // One agent, one process (ARCHITECTURE §10.14): the supervisor keeps its four workflows in its
-  // v4 version (docs/plan.md §1.86, the templates stream's decisions); every other seed has one.
-  it("keep one process per agent except the supervisor's four", async () => {
+  // One agent, one process (ARCHITECTURE §10.14). The supervisor kept four workflows up to its v5;
+  // v0.17's v6 keeps the chat alone (its watches are the platform's, §10.15).
+  it("keep one process per agent in every latest seed", async () => {
     const latest = new Map<string, SeedTemplateVersion["bundle"]>();
     for (const t of await loadSeedTemplates()) latest.set(t.slug, t.bundle);
     for (const v of await loadSeedVersions()) latest.set(v.slug, v.bundle);
     const refused = [...latest].flatMap(([slug, b]) =>
       processes.oneProcessProblems(b).errors.map((e) => `${slug} ${e.field}`),
     );
-    expect(refused).toEqual([
-      "supervisor workflows.1",
-      "supervisor workflows.2",
-      "supervisor workflows.3",
-    ]);
+    // v0.17: Sloan's v6 is the chat alone, so no seed keeps more than one (§10.15).
+    expect(refused).toEqual([]);
   });
 });
 
@@ -327,10 +326,10 @@ describe.skipIf(!online)("seed", () => {
   it("inserts the operator, two clients and five live templates; twice is the same as once", async () => {
     const first = await seed(t.db);
     const afterFirst = await counts();
-    // Five templates: five v1s, the supervisor's v2 to v5, the Bill clerk's v2 and v3, and the
+    // Five templates: five v1s, the supervisor's v2 to v6, the Bill clerk's v2 and v3, and the
     // Builder's, Coordinator's and Document clerk's v2; and the Demo client's Sloan, its v1 forked
     // from the supervisor's live version (§1.47 "On by default").
-    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 6, versions: 15 });
+    expect(afterFirst).toEqual({ tenants: 2, users: 2, memberships: 3, agents: 6, versions: 16 });
     expect(first.demoDesk).toBeNull();
 
     const second = await seed(t.db);
@@ -357,15 +356,15 @@ describe.skipIf(!online)("seed", () => {
     ]);
     const versions = await t.db.select().from(agentVersion);
     const supervisor = first.templates.supervisor;
-    // Each template's live version is its last seeded one: the supervisor's v5 (the skill model),
-    // whose parent is v4, v4's v3 and v3's v2; the Bill clerk's v3 (its parent v2); the Builder's,
+    // Each template's live version is its last seeded one: the supervisor's v6 (the chat alone,
+    // v0.17), whose parent is v5, v5's v4, v4's v3 and v3's v2; the Bill clerk's v3 (its parent v2); the Builder's,
     // Coordinator's and Document clerk's v2. The others are retired.
     const lastSeeded: Record<string, number> = {
       "bill-clerk": 3,
       builder: 2,
       coordinator: 2,
       "document-clerk": 2,
-      supervisor: 5,
+      supervisor: 6,
     };
     for (const r of templates) {
       expect(r.kind).toBe("template");
@@ -377,7 +376,8 @@ describe.skipIf(!online)("seed", () => {
         expect(at(2)?.parentVersionId).toBe(supervisor?.versionId);
         expect(at(3)?.parentVersionId).toBe(at(2)?.id);
         expect(at(4)?.parentVersionId).toBe(at(3)?.id);
-        expect(live?.parentVersionId).toBe(at(4)?.id);
+        expect(at(5)?.parentVersionId).toBe(at(4)?.id);
+        expect(live?.parentVersionId).toBe(at(5)?.id);
       } else if (r.slug === "bill-clerk") {
         const at = (n: number) => versions.find((v) => v.agentId === r.id && v.version === n);
         expect(at(2)?.parentVersionId).toBe(first.templates[r.slug]?.versionId);

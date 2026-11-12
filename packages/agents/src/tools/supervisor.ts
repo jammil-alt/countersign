@@ -42,14 +42,33 @@ export const SUPERVISOR_CHECK_TOOL = "supervisor.check";
 
 const NOTE_MAX = 2000;
 
-function ports(ctx: ToolInvocation) {
+/**
+ * v0.17 (ARCHITECTURE §10.15 "Sloan is the chat"): what the report and the daily check need, a
+ * slice of a tool call's context, so the platform can run them outside any run (`reportEvent`,
+ * `dailyCheck`) and Sloan's older versions still can as tools. `agentId` is the reporter (the
+ * client's Sloan), `runId` only labels a directory suggestion.
+ */
+export type SupervisorScope = Pick<
+  ToolInvocation,
+  | "tenantId"
+  | "agentId"
+  | "agentVersionId"
+  | "runId"
+  | "mode"
+  | "now"
+  | "health"
+  | "findings"
+  | "directory"
+>;
+
+function ports(ctx: SupervisorScope) {
   if (!ctx.health || !ctx.findings) {
     throw new Error("the supervisor's records are not available here");
   }
   return { health: ctx.health, findings: ctx.findings };
 }
 
-const now = (ctx: ToolInvocation) => ctx.now?.() ?? new Date();
+const now = (ctx: SupervisorScope) => ctx.now?.() ?? new Date();
 
 const ItemOutcome = z.object({
   itemId: z.string(),
@@ -74,7 +93,7 @@ const uniq = (ids: (string | null | undefined)[]) => [
 
 /** A finding about one connection, from its health view. */
 function connectionFinding(
-  ctx: ToolInvocation,
+  ctx: SupervisorScope,
   c: HealthConnection | undefined,
   input: {
     kind: FindingKind;
@@ -127,7 +146,7 @@ function connectionFinding(
 
 /** A finding about one failed run. */
 async function runFinding(
-  ctx: ToolInvocation,
+  ctx: SupervisorScope,
   facts: z.infer<typeof RunFailedPayload>,
   note: string,
   sources: string[],
@@ -170,7 +189,7 @@ async function runFinding(
   };
 }
 
-async function write(ctx: ToolInvocation, finding: FindingInput): Promise<ReportOutput> {
+async function write(ctx: SupervisorScope, finding: FindingInput): Promise<ReportOutput> {
   if (ctx.mode === "test") {
     // A test run writes nothing: what it would have reported is its output, for the operator.
     return {
@@ -211,10 +230,25 @@ export const supervisorReport = defineInternalTool({
     sources: z.array(z.string().min(1)).default([]),
   }),
   output: ReportOutput,
-  async run(input, ctx) {
+  run: (input, ctx) => reportEvent(ctx, input),
+});
+
+/** Reports what one event means (the report tool's work), for a tool call or the platform. */
+export async function reportEvent(
+  ctx: SupervisorScope,
+  input: {
+    event: "run.failed" | "connection.needs_attention";
+    facts: Record<string, unknown>;
+    note?: string;
+    sources?: string[];
+  },
+): Promise<ReportOutput> {
+  const note = input.note ?? "";
+  const sources = input.sources ?? [];
+  {
     if (input.event === "run.failed") {
       const facts = RunFailedPayload.parse(input.facts);
-      return write(ctx, await runFinding(ctx, facts, input.note, input.sources));
+      return write(ctx, await runFinding(ctx, facts, note, sources));
     }
     const facts = ConnectionNeedsAttentionPayload.parse(input.facts);
     const connections = await ports(ctx).health.connections(ctx.tenantId);
@@ -225,12 +259,12 @@ export const supervisorReport = defineInternalTool({
         ctx,
         c,
         { ...facts, kind: FINDING_KIND_FOR_REASON[facts.reason] },
-        input.note,
-        input.sources,
+        note,
+        sources,
       ),
     );
-  },
-});
+  }
+}
 
 const HOURS_24 = 24;
 
@@ -253,7 +287,7 @@ export const DIRECTORY_UPKEEP_MAX = 5;
 // organization linked to it or of its name, never suggested before (a declined one isn't asked
 // again), becomes an `add_organization` suggestion of kind vendor; at most 5 a day. A test run's
 // check makes none (the port's `test_run`). Likely duplicates are not looked for yet.
-async function directoryUpkeep(ctx: ToolInvocation, at: Date): Promise<number> {
+async function directoryUpkeep(ctx: SupervisorScope, at: Date): Promise<number> {
   const directory = ctx.directory;
   if (!directory?.unlistedVendors) return 0;
   const unlisted = await directory.unlistedVendors(ctx.tenantId, {
@@ -310,7 +344,12 @@ export const supervisorCheck = defineInternalTool({
     // v0.14 W4-B: directory additions suggested by the upkeep (absent: none, or no directory).
     directorySuggestions: z.number().int().optional(),
   }),
-  async run(_input, ctx) {
+  run: (_input, ctx) => dailyCheck(ctx),
+});
+
+/** The daily health check (the check tool's work), for a tool call or the platform's 08:00. */
+export async function dailyCheck(ctx: SupervisorScope) {
+  {
     const { health, findings } = ports(ctx);
     const at = now(ctx);
     const [runs, connections, inbox, agents] = await Promise.all([
@@ -428,8 +467,8 @@ export const supervisorCheck = defineInternalTool({
       sources: uniq([...sources, ...results.flatMap((r) => r.sources)]),
       ...(directorySuggestions > 0 ? { directorySuggestions } : {}),
     };
-  },
-});
+  }
+}
 
 export const SUPERVISOR_TOOLS: readonly InternalTool[] = [supervisorReport, supervisorCheck];
 
