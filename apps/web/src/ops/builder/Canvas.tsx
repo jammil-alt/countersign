@@ -10,6 +10,14 @@
 // (docs/plan.md §1.2 "Builder"): every list is a sortable context keyed by its container, so a
 // step moves within its list, into and out of if paths and for-each blocks, with the pointer or
 // the keyboard (Space, arrows, Space).
+//
+// Process flow (owner, 2026-11-12; design canvas boards D and E): one line down the middle. A fork
+// (an if) lists its paths on its card, each with a letter (A, B, C… otherwise last), then splits
+// into a column per path joined by a bar; a path's steps are numbered by its letter (A1, A2), a
+// path that ends with a stop says so, and the paths that carry on meet a bar back to the line.
+// Three zoom levels drop detail rather than shrink text: Detail (everything, for editing), Steps
+// (titles only, 80%) and Map (shapes only, 50%). Zoomed out, nothing moves; a click on a step
+// zooms back in on it.
 
 import { SKILL_KIND_LABEL, toolUsesModel } from "@countersign/core";
 import {
@@ -112,6 +120,44 @@ export function triggerKey(id: string): string {
 
 // ── Canvas ───────────────────────────────────────────────────────────────────────────────────────
 
+/** How far out the canvas is: everything, titles only, or shapes only. */
+export type ZoomLevel = "detail" | "steps" | "map";
+
+export const ZOOM_LEVELS: readonly { level: ZoomLevel; label: string; scale: number }[] = [
+  { level: "map", label: "Map", scale: 0.5 },
+  { level: "steps", label: "Steps", scale: 0.8 },
+  { level: "detail", label: "Detail", scale: 1 },
+];
+
+const ZOOM_KEY = "mezonas.builder.zoom";
+
+/** The zoom level, remembered in this browser (a convenience: Detail when unknown). */
+function useZoom(): [ZoomLevel, (z: ZoomLevel) => void] {
+  const [zoom, setZoom] = useState<ZoomLevel>(() => {
+    try {
+      const saved = window.localStorage.getItem(ZOOM_KEY);
+      return ZOOM_LEVELS.some((z) => z.level === saved) ? (saved as ZoomLevel) : "detail";
+    } catch {
+      return "detail";
+    }
+  });
+  const choose = (z: ZoomLevel) => {
+    setZoom(z);
+    try {
+      window.localStorage.setItem(ZOOM_KEY, z);
+    } catch {
+      // Storage blocked: the level lasts for this visit.
+    }
+  };
+  return [zoom, choose];
+}
+
+/** A fork path's letter: A, B, … Z, then AA, AB. */
+export function pathLetter(index: number): string {
+  const n = Math.floor(index / 26);
+  return (n > 0 ? pathLetter(n - 1) : "") + String.fromCharCode(65 + (index % 26));
+}
+
 export interface CanvasProps {
   workflow: Process;
   selectedId: string | null;
@@ -133,6 +179,8 @@ export interface CanvasProps {
   addTarget?: ContainerId | null | undefined;
   /** Set by the canvas: shows a step's tooltip beside its card, or hides it (null). */
   onTip?: ((tip: StepTip | null) => void) | undefined;
+  /** Set by the canvas: how far out it is. */
+  zoom?: ZoomLevel | undefined;
 }
 
 /** What a step's tooltip says, and where its card is. */
@@ -183,6 +231,19 @@ export function processClientVisible(step: Step): boolean {
 export function Canvas(props: CanvasProps) {
   const { workflow } = props;
   const [tip, setTip] = useState<StepTip | null>(null);
+  const [zoom, setZoom] = useZoom();
+  // A step clicked while zoomed out: zoom back in, then bring it into view.
+  const [focusId, setFocusId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusId || zoom !== "detail") return;
+    const key = focusId.startsWith("trigger:")
+      ? `builder-trigger-${focusId.slice("trigger:".length)}`
+      : `builder-step-${focusId}`;
+    document
+      .querySelector(`[data-testid="${key}"]`)
+      ?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    setFocusId(null);
+  }, [focusId, zoom]);
   // A scroll moves the cards out from under a fixed tooltip: hide it.
   useEffect(() => {
     if (!tip) return;
@@ -191,22 +252,48 @@ export function Canvas(props: CanvasProps) {
     return () => window.removeEventListener("scroll", hide, true);
   }, [tip]);
   const shown = props.activeId ? null : tip;
-  const inner: CanvasProps = { ...props, onTip: setTip };
+  const inner: CanvasProps = {
+    ...props,
+    onTip: setTip,
+    zoom,
+    onSelect: (id) => {
+      if (zoom !== "detail") {
+        setTip(null);
+        setZoom("detail");
+        setFocusId(id);
+      }
+      props.onSelect(id);
+    },
+  };
+  const scale = ZOOM_LEVELS.find((z) => z.level === zoom)?.scale ?? 1;
   // The triggers and the top-level steps always fit the canvas; an if wider than it scrolls
   // sideways in its own box (each path keeping a readable width, workflow/layout.ts), never the
   // page.
   return (
-    <div data-testid="builder-canvas" className="flex min-w-0 flex-col items-center">
-      <TriggerCard {...inner} />
-      <List {...inner} id={ROOT} steps={workflow.steps} numbered />
-      <span aria-hidden className="h-3 border-l border-line-strong" />
-      <DropZone
-        id={ROOT}
-        label="Drop a step here, or"
-        className="w-full max-w-[360px]"
-        onAdd={props.onAddAt}
-        active={props.addTarget === ROOT}
-      />
+    <div data-testid="builder-canvas" data-zoom={zoom} className="flex min-w-0 flex-col">
+      <ZoomControl zoom={zoom} onZoom={setZoom} />
+      {/* CSS zoom lays the canvas out smaller (a transform would leave its full size behind). */}
+      <div
+        className="flex min-w-0 flex-col items-center"
+        style={scale === 1 ? undefined : { zoom: scale }}
+      >
+        <TriggerCard {...inner} />
+        <List {...inner} id={ROOT} steps={workflow.steps} numbered />
+        {zoom === "detail" ? (
+          <>
+            <span aria-hidden className="h-3 border-l border-line-strong" />
+            <DropZone
+              id={ROOT}
+              label="Drop a step here, or"
+              className="w-full max-w-[360px]"
+              onAdd={props.onAddAt}
+              active={props.addTarget === ROOT}
+            />
+          </>
+        ) : (
+          <EndDot zoom={zoom} />
+        )}
+      </div>
       {shown ? (
         // Fixed, so an if's scrolling box doesn't clip it; beside the card, or under it when
         // there is no room on the right.
@@ -233,10 +320,116 @@ export function Canvas(props: CanvasProps) {
   );
 }
 
+/** − and +, and the three levels: Map, Steps, Detail. */
+function ZoomControl({ zoom, onZoom }: { zoom: ZoomLevel; onZoom(z: ZoomLevel): void }) {
+  const at = ZOOM_LEVELS.findIndex((z) => z.level === zoom);
+  const out = ZOOM_LEVELS[at - 1];
+  const inward = ZOOM_LEVELS[at + 1];
+  return (
+    <fieldset
+      data-testid="builder-zoom"
+      className="m-0 mb-3 flex items-center gap-1 self-end rounded-md border border-line bg-surface p-0.5"
+    >
+      <legend className="sr-only">Zoom</legend>
+      <button
+        type="button"
+        aria-label="Zoom out"
+        data-testid="builder-zoom-out"
+        disabled={!out}
+        onClick={() => out && onZoom(out.level)}
+        className="ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm text-ink disabled:text-ink-faint"
+      >
+        <span aria-hidden className="text-base leading-none">
+          −
+        </span>
+      </button>
+      <div className="ds-seg">
+        {ZOOM_LEVELS.map((z) => (
+          <button
+            key={z.level}
+            type="button"
+            aria-pressed={zoom === z.level}
+            data-testid={`builder-zoom-${z.level}`}
+            title={
+              z.level === "map"
+                ? "The whole workflow, as shapes"
+                : z.level === "steps"
+                  ? "Step titles only"
+                  : "Everything, for editing"
+            }
+            onClick={() => onZoom(z.level)}
+          >
+            {z.label}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        aria-label="Zoom in"
+        data-testid="builder-zoom-in"
+        disabled={!inward}
+        onClick={() => inward && onZoom(inward.level)}
+        className="ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm text-ink disabled:text-ink-faint"
+      >
+        <span aria-hidden className="text-base leading-none">
+          +
+        </span>
+      </button>
+    </fieldset>
+  );
+}
+
+/** Zoomed out, the line ends on a "Done" dot. */
+function EndDot({ zoom }: { zoom: ZoomLevel }) {
+  return (
+    <>
+      <span aria-hidden className="h-3 border-l border-line-strong" />
+      <span
+        aria-hidden
+        className={cx("rounded-full bg-positive", zoom === "map" ? "size-5" : "size-3")}
+      />
+    </>
+  );
+}
+
+/** A path's letter in its slate circle. */
+function Letter({ letter, size = "md" }: { letter: string; size?: "sm" | "md" | "lg" }) {
+  return (
+    <span
+      aria-hidden
+      className={cx(
+        "flex shrink-0 items-center justify-center rounded-full bg-slate font-medium text-on-slate figures",
+        size === "sm" && "size-4 text-[10px]",
+        size === "md" && "size-5 text-xs",
+        size === "lg" && "size-10 text-xl",
+      )}
+    >
+      {letter}
+    </span>
+  );
+}
+
 /** The process's triggers, one row each: any of them starts a run. */
 function TriggerCard(props: CanvasProps) {
   const { workflow, selectedId, onSelect, errors } = props;
   const anySelected = workflow.triggers.some((t) => selectedId === triggerKey(t.id));
+  if (props.zoom === "map") {
+    const first = workflow.triggers[0];
+    return (
+      <div data-testid="builder-trigger" className="flex w-full max-w-[360px] flex-col">
+        {first ? (
+          <button
+            type="button"
+            data-testid={`builder-trigger-${first.id}-select`}
+            aria-label={`Trigger: ${triggerTitle(first)}`}
+            title={triggerTitle(first)}
+            onClick={() => onSelect(triggerKey(first.id))}
+            className="h-8 w-full rounded-md border border-slate bg-slate-tint"
+          />
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div
       data-testid="builder-trigger"
@@ -341,8 +534,16 @@ function lowerFirst(text: string): string {
   return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
-function List(props: CanvasProps & { id: ContainerId; steps: Step[]; numbered?: boolean }) {
-  const { id, steps, numbered } = props;
+function List(
+  props: CanvasProps & {
+    id: ContainerId;
+    steps: Step[];
+    numbered?: boolean;
+    /** In a fork path: its letter, numbering the steps A1, A2. */
+    prefix?: string | undefined;
+  },
+) {
+  const { id, steps, numbered, prefix } = props;
   return (
     <SortableContext id={id} items={steps.map((s) => s.id)} strategy={verticalListSortingStrategy}>
       <ol
@@ -352,10 +553,7 @@ function List(props: CanvasProps & { id: ContainerId; steps: Step[]; numbered?: 
         {steps.map((step, index) => (
           <li key={step.id} className="flex w-full flex-col items-center">
             {numbered || index > 0 ? (
-              <span
-                aria-hidden
-                className={cx("border-l border-line-strong", numbered ? "h-3" : "h-1.5")}
-              />
+              <span aria-hidden className="h-3 border-l border-line-strong" />
             ) : null}
             <StepNode
               {...props}
@@ -363,6 +561,7 @@ function List(props: CanvasProps & { id: ContainerId; steps: Step[]; numbered?: 
               container={id}
               index={index}
               number={numbered ? index + 1 : undefined}
+              pathNumber={prefix ? `${prefix}${index + 1}` : undefined}
             />
           </li>
         ))}
@@ -377,6 +576,7 @@ function StepNode(
     container: ContainerId;
     index: number;
     number: number | undefined;
+    pathNumber?: string | undefined;
   },
 ) {
   const { step } = props;
@@ -429,13 +629,17 @@ function StepCard(
     container: ContainerId;
     index: number;
     number: number | undefined;
+    pathNumber?: string | undefined;
   },
 ) {
   const { step, container, index, number, selectedId, env, errors, customized } = props;
+  const zoom = props.zoom ?? "detail";
   const data: DragData = { type: "step", container, index };
+  // Zoomed out the canvas is for looking: steps move only at Detail.
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } = useSortable({
     id: step.id,
     data,
+    disabled: zoom !== "detail",
   });
   const card = useRef<HTMLDivElement | null>(null);
   const invalid = errorCount(step, errors);
@@ -479,6 +683,53 @@ function StepCard(
       lines: tipLines,
     });
   const hideTip = () => props.onTip?.(null);
+  const fork = step.kind === "if";
+  if (zoom === "map") {
+    // Shapes only: a fork is a diamond, a person copper, a change to a client's tool solid slate.
+    const shape = fork
+      ? "size-7 rotate-45 rounded-sm border-[3px] border-ink bg-surface"
+      : step.kind === "stop"
+        ? "size-6 border-[3px] border-dashed border-line-strong"
+        : cx(
+            // At most a card's width, in a path too: the map shows shape, not width.
+            "h-8 w-full max-w-[360px] rounded-md border",
+            people
+              ? "border-copper bg-copper-tint"
+              : step.kind === "write"
+                ? "border-slate bg-slate"
+                : "border-line-strong bg-surface",
+          );
+    return (
+      <div
+        ref={(el) => {
+          setNodeRef(el);
+          card.current = el;
+        }}
+        data-testid={testId}
+        data-container={container}
+        data-selected={selected ? "true" : undefined}
+        onPointerEnter={showTip}
+        onPointerLeave={hideTip}
+        className={cx("flex w-full justify-center", fork && "py-1.5")}
+      >
+        <button
+          type="button"
+          data-testid={`${testId}-select`}
+          aria-label={`${label}: ${name}`}
+          aria-current={selected ? "true" : undefined}
+          onClick={() => props.onSelect(step.id)}
+          onFocus={showTip}
+          onBlur={hideTip}
+          className={cx(
+            shape,
+            invalid > 0 && "border-risk",
+            selected && "outline outline-[3px] outline-offset-2 outline-slate",
+          )}
+        />
+      </div>
+    );
+  }
+  const detailed = zoom === "detail";
   return (
     <div
       ref={(el) => {
@@ -492,26 +743,38 @@ function StepCard(
       onPointerEnter={showTip}
       onPointerLeave={hideTip}
       className={cx(
-        "relative flex w-full items-center gap-2 rounded-md border py-1.5 pr-2 pl-1",
+        "relative flex w-full flex-wrap items-center gap-2 rounded-md py-1.5 pr-2 pl-1",
+        // A fork stands out on the line: a heavier ink border.
+        fork ? "border-2" : "border",
         number === undefined ? "" : "max-w-[360px]",
-        selected ? SELECTED : invalid ? "border-risk bg-surface" : "border-line bg-surface",
+        selected
+          ? SELECTED
+          : invalid
+            ? "border-risk bg-surface"
+            : fork
+              ? "border-ink bg-surface"
+              : "border-line bg-surface",
         isDragging && "opacity-40",
       )}
     >
       {isOver ? (
         <span aria-hidden className="absolute -top-1.5 right-2 left-2 h-0.5 rounded-sm bg-slate" />
       ) : null}
-      <button
-        type="button"
-        ref={setActivatorNodeRef}
-        {...attributes}
-        {...listeners}
-        aria-label={`Move ${name}`}
-        data-testid={`${testId}-handle`}
-        className="flex w-4 shrink-0 cursor-grab touch-none justify-center text-ink-muted hover:text-ink"
-      >
-        <Icon name="more" size={14} className="rotate-90" />
-      </button>
+      {detailed ? (
+        <button
+          type="button"
+          ref={setActivatorNodeRef}
+          {...attributes}
+          {...listeners}
+          aria-label={`Move ${name}`}
+          data-testid={`${testId}-handle`}
+          className="flex w-4 shrink-0 cursor-grab touch-none justify-center text-ink-muted hover:text-ink"
+        >
+          <Icon name="more" size={14} className="rotate-90" />
+        </button>
+      ) : (
+        <span aria-hidden className="w-1 shrink-0" />
+      )}
       {number !== undefined && props.checked && props.onCheck ? (
         <input
           type="checkbox"
@@ -528,6 +791,13 @@ function StepCard(
           className="w-4 shrink-0 text-center text-xs text-ink-muted figures"
         >
           {number}
+        </span>
+      ) : props.pathNumber ? (
+        <span
+          data-testid={`${testId}-path-number`}
+          className="shrink-0 text-center text-xs text-ink-muted figures"
+        >
+          {props.pathNumber}
         </span>
       ) : null}
       <span
@@ -555,7 +825,7 @@ function StepCard(
         </span>
         {name}
       </button>
-      <span className="flex shrink-0 items-center gap-1">
+      <span className={cx("flex shrink-0 items-center gap-1", !detailed && "hidden")}>
         {skillKind ? <Tag testId={`${testId}-skill-kind`}>{skillKind}</Tag> : null}
         {invalid > 0 ? (
           <Mark tone="risk" icon="alert" label="Invalid" testId={`${testId}-invalid`} />
@@ -599,7 +869,30 @@ function StepCard(
           <Mark tone="accent" icon="add" label={customWords} testId={`${testId}-customized`} />
         ) : null}
       </span>
+      {step.kind === "if" ? <ForkPaths step={step} testId={testId} /> : null}
     </div>
+  );
+}
+
+/** On a fork's card: its paths by letter, so you see the choices before the lines split. */
+function ForkPaths({ step, testId }: { step: Extract<Step, { kind: "if" }>; testId: string }) {
+  const names = [
+    ...step.paths.map((p) => ({ id: p.id, name: p.name })),
+    { id: step.otherwise.id, name: "Otherwise" },
+  ];
+  return (
+    <ol
+      data-testid={`${testId}-paths`}
+      aria-label={`${names.length} paths`}
+      className="flex basis-full flex-col gap-1 pb-0.5 pl-7"
+    >
+      {names.map((n, i) => (
+        <li key={n.id} className="flex min-w-0 items-center gap-1.5 text-xs text-ink">
+          <Letter letter={pathLetter(i)} size="sm" />
+          <span className="truncate">{n.name}</span>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -657,18 +950,84 @@ function DropZone({
   );
 }
 
-function Branch(props: CanvasProps & { id: ContainerId; steps: Step[] }) {
+function Branch(
+  props: CanvasProps & { id: ContainerId; steps: Step[]; prefix?: string | undefined },
+) {
   return (
     <div className="flex flex-col gap-1.5">
       {props.steps.length > 0 ? <List {...props} numbered={false} /> : null}
-      <DropZone id={props.id} onAdd={props.onAddAt} active={props.addTarget === props.id} />
+      {(props.zoom ?? "detail") === "detail" ? (
+        <DropZone id={props.id} onAdd={props.onAddAt} active={props.addTarget === props.id} />
+      ) : null}
     </div>
   );
 }
 
+/**
+ * Each column's share of a bar from `from` to `to`, measured in columns (0 is the left edge, a
+ * column's line is at i + 0.5): its left and right insets, or null where the bar doesn't reach.
+ */
+// DECISION: the bars assume equal columns, which the grid gives whenever the fork is wider than
+// its paths' least widths; squeezed to those, a bar can miss a line by a few pixels.
+export function barShares(
+  n: number,
+  from: number,
+  to: number,
+): ({ left: string; right: string } | null)[] {
+  return Array.from({ length: n }, (_, i) => {
+    const start = Math.max(from, i);
+    const end = Math.min(to, i + 1);
+    if (end <= start) return null;
+    return { left: `${(start - i) * 100}%`, right: `${(i + 1 - end) * 100}%` };
+  });
+}
+
+/** Whether a path ends rather than rejoining the line: its last step stops the run. */
+function pathEnds(steps: readonly Step[]): boolean {
+  return steps.at(-1)?.kind === "stop";
+}
+
+/**
+ * A fork as a process flow: a bar splits the line into a column per path (its letter, name and
+ * condition, then its steps numbered A1, A2), and a bar under the paths that carry on joins them
+ * back to the line. A path that stops ends on its own marker. Each column draws its share of both
+ * bars, so columns of any width meet.
+ */
 function IfBlock(props: CanvasProps & { step: Extract<Step, { kind: "if" }> }) {
   const { step } = props;
+  const zoom = props.zoom ?? "detail";
   const names = processStepNames(props.workflow);
+  const columns = [
+    ...step.paths.map((path) => ({
+      key: path.id,
+      testId: `builder-fork-${step.id}-path-${path.id}`,
+      container: `path:${path.id}`,
+      name: path.name,
+      when: `if ${rulesText(path.when, names)}`,
+      steps: path.steps,
+    })),
+    {
+      key: step.otherwise.id,
+      testId: `builder-fork-${step.id}-otherwise`,
+      container: `otherwise:${step.otherwise.id}`,
+      name: "Otherwise",
+      when: "None of the above",
+      steps: step.otherwise.steps,
+    },
+  ];
+  const n = columns.length;
+  const joining = columns.flatMap((c, i) => (pathEnds(c.steps) ? [] : [i]));
+  const allEnd = joining.length === 0;
+  // The split runs from the first path's line to the last's; the join from the first path that
+  // carries on to the last, and always through the middle, where the line goes on.
+  const split = barShares(n, 0.5, n - 0.5);
+  const join = allEnd
+    ? []
+    : barShares(
+        n,
+        Math.min((joining[0] ?? 0) + 0.5, n / 2),
+        Math.max((joining.at(-1) ?? 0) + 0.5, n / 2),
+      );
   return (
     <div
       data-testid={`builder-fork-${step.id}`}
@@ -676,42 +1035,78 @@ function IfBlock(props: CanvasProps & { step: Extract<Step, { kind: "if" }> }) {
       style={{ minWidth: forkMinWidth(step) }}
     >
       <span aria-hidden className="h-3 border-l border-line-strong" />
-      <div
-        className="grid w-full gap-2 rounded-lg border border-dashed border-line-strong p-2"
-        style={{ gridTemplateColumns: forkGridColumns(step) }}
-      >
-        {step.paths.map((path, i) => (
-          <section
-            key={path.id}
-            data-testid={`builder-fork-${step.id}-path-${path.id}`}
-            aria-label={`Path ${i + 1}: ${path.name}`}
-            className="flex flex-col gap-1.5 rounded-md border border-line bg-surface-subtle p-2"
-          >
-            <div>
-              <h3 className="text-sm font-medium text-ink">{path.name}</h3>
-              <p
-                className="truncate text-xs text-ink-muted"
-                title={`if ${rulesText(path.when, names)}`}
-              >
-                if {rulesText(path.when, names)}
-              </p>
-            </div>
-            <Branch {...props} id={`path:${path.id}`} steps={path.steps} />
-          </section>
-        ))}
-        <section
-          data-testid={`builder-fork-${step.id}-otherwise`}
-          aria-label="Otherwise"
-          className="flex flex-col gap-1.5 rounded-md border border-line bg-surface-subtle p-2"
-        >
-          <div>
-            <h3 className="text-sm font-medium text-ink">Otherwise</h3>
-            <p className="text-xs text-ink-muted">None of the above</p>
-          </div>
-          <Branch {...props} id={`otherwise:${step.otherwise.id}`} steps={step.otherwise.steps} />
-        </section>
+      <div className="grid w-full" style={{ gridTemplateColumns: forkGridColumns(step) }}>
+        {columns.map((c, i) => {
+          const letter = pathLetter(i);
+          const ends = pathEnds(c.steps);
+          return (
+            <section
+              key={c.key}
+              data-testid={c.testId}
+              aria-label={`Path ${letter}: ${c.name}`}
+              className="relative flex min-w-0 flex-col items-center px-2"
+            >
+              {split[i] ? (
+                <span
+                  aria-hidden
+                  className="absolute top-0 border-t border-line-strong"
+                  style={split[i]}
+                />
+              ) : null}
+              <span aria-hidden className="h-3 border-l border-line-strong" />
+              {zoom === "map" ? (
+                <Letter letter={letter} size="lg" />
+              ) : (
+                <div className="flex max-w-full flex-col items-center gap-0.5 text-center">
+                  <h3 className="flex max-w-full items-center gap-1.5 rounded-full border border-line bg-surface py-0.5 pr-2.5 pl-0.5 text-sm font-medium text-ink">
+                    <Letter letter={letter} />
+                    <span className="truncate">{c.name}</span>
+                  </h3>
+                  {zoom === "detail" ? (
+                    <p className="max-w-full truncate text-xs text-ink-muted" title={c.when}>
+                      {c.when}
+                    </p>
+                  ) : null}
+                </div>
+              )}
+              <span aria-hidden className="h-3 border-l border-line-strong" />
+              <div className="w-full">
+                <Branch {...props} id={c.container} steps={c.steps} prefix={letter} />
+              </div>
+              {ends && zoom === "map" ? (
+                <span aria-hidden className="min-h-3 flex-1" />
+              ) : ends ? (
+                <>
+                  <span aria-hidden className="h-3 border-l border-line-strong" />
+                  <span
+                    data-testid={`${c.testId}-ends`}
+                    className="flex items-center gap-1.5 rounded-md border border-dashed border-line-strong px-2 py-0.5 text-xs text-ink-muted"
+                  >
+                    <span
+                      aria-hidden
+                      className="size-2.5 rounded-[2px] border-2 border-ink-muted"
+                    />
+                    Ends here
+                  </span>
+                  <span aria-hidden className="min-h-3 flex-1" />
+                </>
+              ) : (
+                <span aria-hidden className="min-h-3 flex-1 border-l border-line-strong" />
+              )}
+              {join[i] ? (
+                <span
+                  aria-hidden
+                  className="absolute bottom-0 border-t border-line-strong"
+                  style={join[i]}
+                />
+              ) : null}
+            </section>
+          );
+        })}
       </div>
-      <p className="eyebrow mt-1.5 text-ink-muted">Paths join here</p>
+      {allEnd || zoom === "map" ? null : (
+        <p className="eyebrow mt-1.5 text-ink-muted">Paths join here</p>
+      )}
     </div>
   );
 }
