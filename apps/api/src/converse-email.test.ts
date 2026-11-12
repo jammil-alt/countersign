@@ -19,6 +19,7 @@ import {
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
+  unsigned,
 } from "./api.test-helper";
 import { handleEmail } from "./email";
 import { defaultDeps } from "./http";
@@ -305,7 +306,7 @@ describe.skipIf(!h)("a conversation by email", () => {
     expect(approvals).toBe(1);
     // Two emails, each its own external action with its own key, under one signature.
     const sent = await Promise.all(google.sent.map((s) => readSentEmail(s.message as string)));
-    expect(sent.map((m) => m.text?.trim())).toEqual([OPENING, CONFIRM]);
+    expect(sent.map((m) => unsigned(m.text)?.trim())).toEqual([OPENING, CONFIRM]);
     const actions = await H.t.db
       .select()
       .from(externalAction)

@@ -46,6 +46,8 @@ import {
   FakeWorkflowStep,
   OPERATOR,
   OTHER_OPERATOR,
+  signatureOf,
+  unsigned,
   user,
 } from "./api.test-helper";
 import { handleEmail } from "./email";
@@ -533,7 +535,7 @@ describe.skipIf(!h)("reach out through the API", () => {
         reachEvent = type;
 
         // The approved plan's first attempt went out as a text.
-        expect(textsTo(PAT).map((m) => m.body)).toEqual([
+        expect(textsTo(PAT).map((m) => unsigned(m.body))).toEqual([
           "Can you confirm Friday's delivery? Reply YES or NO.",
         ]);
         expect(twilio.placed()).toHaveLength(0);
@@ -642,7 +644,7 @@ describe.skipIf(!h)("reach out through the API", () => {
         });
       }
       if (type.startsWith("reachout-")) {
-        expect(textsTo(LOU).map((m) => m.body)).toEqual([
+        expect(textsTo(LOU).map((m) => unsigned(m.body))).toEqual([
           "¿Confirma la entrega del viernes? Responda SÍ o NO.",
         ]);
         await textIn(LOU, "Sí");
@@ -972,8 +974,14 @@ describe.skipIf(!h)("reach out through the API", () => {
         from: "Client A orders <orders@shop.example>",
         to: ["sam@shop.example"],
         subject: PURPOSE,
-        text: "Can you confirm Friday's delivery? Reply YES or NO.",
       });
+      // v0.17: what the agent wrote, then its area owner's signature and "Powered by".
+      expect(unsigned(sent?.text as string)).toBe(
+        "Can you confirm Friday's delivery? Reply YES or NO.",
+      );
+      const [signature, powered] = signatureOf(sent?.text as string);
+      expect(signature).toMatch(/^\p{L}+, operations agent for /u);
+      expect(powered).toBe("Powered by mezonas.com");
       expect(sent?.idempotencyKey).toMatch(/:reach:0$/);
       const replyTo = sent?.reply_to as string;
       expect(replyTo.split("+")[0]).toBe(address.split("@")[0]);

@@ -48,6 +48,7 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  unsigned,
 } from "./api.test-helper";
 import { MESSAGE_MEDIA_ENTITY } from "./conversations/capture";
 import { handleEmail } from "./email";
@@ -522,7 +523,9 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
         });
       }
       const send = twilio.sends().at(-1);
-      expect(send?.form.Body).toBe("Our purchase order is attached. Please send a quote.");
+      expect(unsigned(send?.form.Body)).toBe(
+        "Our purchase order is attached. Please send a quote.",
+      );
       const urls = new URLSearchParams(send?.body ?? "").getAll("MediaUrl");
       expect(urls).toHaveLength(1);
       mediaUrl = urls[0] as string;
@@ -619,7 +622,9 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
       }
       const send = twilio.sends().at(-1);
       expect(send?.form.To).toBe(`whatsapp:${WA}`);
-      expect(send?.form.Body).toBe("Our purchase order is attached. Please send a quote.");
+      expect(unsigned(send?.form.Body)).toBe(
+        "Our purchase order is attached. Please send a quote.",
+      );
       expect(new URLSearchParams(send?.body ?? "").getAll("MediaUrl")).toHaveLength(1);
       await textIn([{ contentType: "application/pdf", bytes: QUOTE }], "Quote", {
         from: WA,

@@ -39,6 +39,7 @@ import {
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
+  unsigned,
   user,
 } from "./api.test-helper";
 import { quietNever } from "./quiet-hours.test-helper";
@@ -571,7 +572,7 @@ describe.skipIf(!h)("message translation", () => {
     });
     await executeRun(deps(), params, cloudflareStepRunner(step));
     // Exactly the signed English went, once; the agent wrote nothing and the model translated once.
-    expect(sentTo(RAE).map((m) => m.body)).toEqual([ENGLISH]);
+    expect(sentTo(RAE).map((m) => unsigned(m.body))).toEqual([ENGLISH]);
     expect(model.requests).toHaveLength(1);
     expect(runModel.requests).toHaveLength(0);
     const [row] = await H.t.db

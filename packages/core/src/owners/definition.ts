@@ -21,16 +21,18 @@ import type { OwnerArea } from "./areas";
 export const OWNER_NOTES_MAX = 20_000;
 /** Memory notes an owner's review reads, newest first. */
 export const OWNER_MEMORY_IN_REVIEW = 20;
-/** What a new owner reasons on until the operator picks: the platform's standard model. */
-// DECISION (O2): Sonnet, the platform's default for agent reasoning (packages/llm DEFAULT_MODELS);
-// core can't import llm, so the id is repeated here and a test in apps/api holds them equal.
-export const OWNER_DEFAULT_MODEL = { id: "claude-sonnet-5-5", maxTokens: 4096 } as const;
 
 /** `area_owner_version.definition`. */
 export const OwnerDefinition = z
   .strictObject({
-    /** What the owner reasons on: any model packages/llm prices (Anthropic, OpenAI, xAI, Google). */
-    model: ModelChoice,
+    /**
+     * What the owner reasons on: any model packages/llm prices (Anthropic, OpenAI, xAI, Google).
+     * Absent: each process's own model, so an owner created for an existing client changes no
+     * agent's reviews until the operator picks one.
+     */
+    // DECISION (O3): no default model. A default (say Sonnet) would move every existing agent's
+    // reviews off its own model the moment its area's owner was created.
+    model: ModelChoice.optional(),
     /** Markdown the operator writes; trusted text, in the review's instructions. */
     notes: z.string().max(OWNER_NOTES_MAX).default(""),
     /**
@@ -49,9 +51,9 @@ export const OwnerDefinition = z
 export type OwnerDefinition = z.infer<typeof OwnerDefinition>;
 export type OwnerDefinitionInput = z.input<typeof OwnerDefinition>;
 
-/** A new owner's first version. */
+/** A new owner's first version: no model of its own yet, no notes, no area defaults. */
 export function defaultOwnerDefinition(): OwnerDefinition {
-  return OwnerDefinition.parse({ model: { ...OWNER_DEFAULT_MODEL } });
+  return OwnerDefinition.parse({});
 }
 
 /** The area owner a run is watched by, as pinned at its start. */
@@ -84,10 +86,10 @@ export function runOwnerOf(
   if (!owner) return base;
   const saved = bundle.definition.oversight;
   const model = {
-    id: saved?.model?.id ?? owner.definition.model.id,
+    id: saved?.model?.id ?? owner.definition.model?.id ?? bundle.definition.model.id,
     maxTokens:
       saved?.model?.maxTokens ??
-      owner.definition.model.maxTokens ??
+      owner.definition.model?.maxTokens ??
       bundle.definition.model.maxTokens,
   };
   const areaDefaults = owner.definition.oversight;

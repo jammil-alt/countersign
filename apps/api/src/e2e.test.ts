@@ -39,7 +39,14 @@ import {
 } from "@countersign/connectors/testing";
 // v0.13 W2-I
 import type { SkillDefinition } from "@countersign/core";
-import { billingAgentDay, docExtraction, event, stepRun, transaction } from "@countersign/db";
+import {
+  billingAgentDay,
+  type Db,
+  docExtraction,
+  event,
+  stepRun,
+  transaction,
+} from "@countersign/db";
 import { loadSeedTemplates } from "@countersign/db/seed";
 import { FakeModel } from "@countersign/llm";
 import { DEFAULT_FIXTURE_DIR } from "@countersign/llm/node";
@@ -1022,8 +1029,10 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
 
     // The portal shows only the platform's words: no note, prompt, model or cost.
     const portal = await ok(OWNER, "GET", `/api/runs/${ids.vendorRun}`);
+    // v0.17: in the words of the area owner that watched the run, by name.
+    const owner = await ownerNameOf(H.t.db, ids.vendorRun);
     expect(portal.steps.map((s: { oversight?: string[] }) => s.oversight)).toEqual([
-      ["Corrected the vendor name and tried again"],
+      [`${owner} corrected the vendor name and tried again`],
     ]);
     const body = JSON.stringify(portal);
     expect(body).not.toContain("trailing space");
@@ -1100,3 +1109,14 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     }
   });
 });
+
+/** v0.17: the name of the area owner that watched a run (its name now). */
+async function ownerNameOf(db: Db, runId: string): Promise<string> {
+  const [row] = await db.$client<{ name: string }[]>`
+    select o.name from run r
+    join area_owner_version v on v.id = r.owner_version_id
+    join area_owner o on o.id = v.owner_id
+    where r.id = ${runId}`;
+  if (!row) throw new Error(`run ${runId} has no owner`);
+  return row.name;
+}

@@ -26,6 +26,8 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  signatureOf,
+  unsigned,
   user,
 } from "./api.test-helper";
 import { handleEmail } from "./email";
@@ -404,7 +406,9 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
       expect(mail.from).toBe(MAILBOX);
       expect(mail.to).toEqual([MARIA]);
       expect(mail.subject).toBe("Entrega del viernes: pedido nº PO-1042");
-      expect(mail.text?.trim()).toBe(SPANISH);
+      expect(unsigned(mail.text)?.trim()).toBe(SPANISH);
+      // v0.17: signed by the area owner, in the client's language, with "Powered by" under it.
+      expect(signatureOf(mail.text)[1]).toContain("mezonas.com");
       const replyTo = mail.replyTo[0] ?? "";
       const [local, domain] = forwarding.split("@");
       expect(replyTo).toMatch(new RegExp(`^${local}\\+[0-9a-f]{32}@${domain}$`));
@@ -467,7 +471,8 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
       to: MARIA,
       from: MAILBOX,
       subject: "Entrega del viernes: pedido nº PO-1042",
-      text: SPANISH,
+      // v0.17: what was sent, the area owner's signature included.
+      text: expect.stringContaining(SPANISH),
     });
     // The email is in María's thread, as Gmail's.
     const records = await H.t.db

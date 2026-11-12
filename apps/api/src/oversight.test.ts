@@ -5,9 +5,21 @@
 
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { AgentBundle, type AgentBundleInput, type SkillDefinition } from "@countersign/core";
-import { agent, event, externalAction, inboxItem, oversightDecision } from "@countersign/db";
+import {
+  agent,
+  areaOwner,
+  areaOwnerVersion,
+  type Db,
+  event,
+  externalAction,
+  inboxItem,
+  memoryNote,
+  oversightDecision,
+  run,
+  withTenant,
+} from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
@@ -16,6 +28,7 @@ import {
   FakeWorkflowStep,
   OPERATOR,
 } from "./api.test-helper";
+import { ensureAreaOwner } from "./owners/store";
 import { executeRun } from "./runs/execute";
 import type { RunParams } from "./runs/instances";
 import { cloudflareStepRunner } from "./runs/step-runner";
@@ -250,6 +263,82 @@ describe.skipIf(!h)("run oversight through the API's ports", () => {
     ]);
   });
 
+  // v0.17 O3 (ARCHITECTURE §10.15): the process's area owner reviews it, on its own model.
+  it("has the area owner review a Purchasing failure on its model, with its notes and memory", async () => {
+    await H.t.db.update(agent).set({ area: "purchasing" }).where(eq(agent.id, agentId));
+    const owner = await withTenant(H.t.db, H.A.tenantId, (tx) =>
+      ensureAreaOwner(tx, H.A.tenantId, "purchasing"),
+    );
+    const [last] = await H.t.db
+      .select({ version: areaOwnerVersion.version })
+      .from(areaOwnerVersion)
+      .where(eq(areaOwnerVersion.ownerId, owner.ownerId))
+      .orderBy(desc(areaOwnerVersion.version))
+      .limit(1);
+    const [v] = await H.t.db
+      .insert(areaOwnerVersion)
+      .values({
+        tenantId: H.A.tenantId,
+        ownerId: owner.ownerId,
+        version: (last?.version ?? 0) + 1,
+        definition: { model: { id: "xai:grok-4.7", maxTokens: 2048 }, notes: "Amounts use a dot." },
+        authorType: "operator",
+      })
+      .returning();
+    if (!v) throw new Error("no version");
+    await H.t.db
+      .update(areaOwner)
+      .set({ liveVersionId: v.id })
+      .where(eq(areaOwner.id, owner.ownerId));
+    await H.t.db.insert(memoryNote).values({
+      tenantId: H.A.tenantId,
+      ownerId: owner.ownerId,
+      note: "Oak boards cost about $10",
+    });
+
+    H.backend.seed(H.A.connectionId, [{ id: "r1", name: "Oak board", amount: "10.00" }]);
+    const params = await start({ id: "r1", amount: "15,00" });
+    const model = decide({
+      action: "retry_with",
+      input: { id: "r1", amount: "15.00" },
+      note: "A comma for the decimal point again.",
+      sources: [],
+      remember: [{ note: "This client types amounts with a comma" }],
+    });
+    const step = new FakeWorkflowStep(approving([]));
+    expect(await executeRun(deps(model), params, cloudflareStepRunner(step))).toEqual({
+      status: "succeeded",
+    });
+
+    // Pinned on the run, reviewed on the owner's model, with its notes and its memory as data.
+    const [pinned] = await H.t.db
+      .select({ ownerVersionId: run.ownerVersionId })
+      .from(run)
+      .where(eq(run.id, params.runId));
+    expect(pinned?.ownerVersionId).toBe(v.id);
+    const review = model.requests[0];
+    expect(review?.model).toBe("xai:grok-4.7");
+    expect(JSON.stringify(review?.system)).toContain(`You are ${owner.name}, who owns purchasing`);
+    expect(JSON.stringify(review?.system)).toContain("Amounts use a dot.");
+    expect(JSON.stringify(review?.messages)).toContain("Oak boards cost about $10");
+    expect(JSON.stringify(review?.tools)).toContain("remember");
+
+    // What it chose to remember is its memory now; the portal says what it did, by name.
+    const notes = await H.t.db
+      .select({ note: memoryNote.note })
+      .from(memoryNote)
+      .where(eq(memoryNote.ownerId, owner.ownerId));
+    expect(notes.map((n) => n.note).sort()).toEqual([
+      "Oak boards cost about $10",
+      "This client types amounts with a comma",
+    ]);
+    const portal = j((await H.call(admin("a"), "GET", `/api/runs/${params.runId}`)).json);
+    expect(JSON.stringify(portal)).toContain(`${owner.name} corrected`);
+    expect(JSON.stringify(portal)).not.toContain("Amounts use a dot");
+    expect(JSON.stringify(portal)).not.toContain("grok");
+    await H.t.db.update(agent).set({ area: null }).where(eq(agent.id, agentId));
+  });
+
   it("never retries a write that reached the client's tool: it stops, with an operator item", async () => {
     H.backend.seed(H.A.connectionId, [{ id: "r1", name: "Oak board", amount: "10.00" }]);
     const writes = H.backend.writes.length;
@@ -409,9 +498,11 @@ describe.skipIf(!h)("run oversight through the API's ports", () => {
     // The portal says what happened in the platform's words.
     const portal = j((await H.call(admin("a"), "GET", `/api/runs/${params.runId}`)).json);
     const read = portal.steps.find((s: { label: string }) => s.label === "Read the invoice");
+    // v0.17: in the words of the area owner that watched the run, by name.
+    const owner = await ownerNameOf(H.t.db, params.runId);
     expect(read?.oversight).toEqual([
-      "Corrected the reading of the invoice and tried again",
-      "Checked and went on",
+      `${owner} corrected the reading of the invoice and tried again`,
+      `${owner} checked and went on`,
     ]);
     expect(JSON.stringify(portal)).not.toContain("subtotal; the invoice");
   });
@@ -431,3 +522,14 @@ describe.skipIf(!h)("run oversight through the API's ports", () => {
     expect(rows).toEqual([]);
   });
 });
+
+/** v0.17: the name of the area owner that watched a run (its name now). */
+async function ownerNameOf(db: Db, runId: string): Promise<string> {
+  const [row] = await db.$client<{ name: string }[]>`
+    select o.name from run r
+    join area_owner_version v on v.id = r.owner_version_id
+    join area_owner o on o.id = v.owner_id
+    where r.id = ${runId}`;
+  if (!row) throw new Error(`run ${runId} has no owner`);
+  return row.name;
+}

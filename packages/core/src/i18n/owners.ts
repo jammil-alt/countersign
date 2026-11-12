@@ -116,3 +116,13 @@ export function ownerSignature(input: {
     poweredBy: short && !input.first ? null : w.poweredBy,
   };
 }
+
+/**
+ * A decision's timeline line with the owner's name: "Pia corrected the vendor name and tried
+ * again". English joins the name to the line; the other languages, whose lines don't all read
+ * after a name, put the name first with a colon (drafts for the fluent speakers to review).
+ */
+export function ownerDid(locale: Locale, name: string, line: string): string {
+  if (locale === "en") return `${name} ${line.charAt(0).toLowerCase()}${line.slice(1)}`;
+  return `${name}: ${line}`;
+}

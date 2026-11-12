@@ -37,8 +37,10 @@ import {
   isPlainObject,
   isSendableType,
   type JsonObject,
+  type Locale,
   type ModelChoice,
   nextEscalation,
+  ownerSignature,
   type PeopleBinding,
   parseDuration,
   pickMessage,
@@ -92,6 +94,7 @@ import {
   type ThreadMessageBody,
 } from "../messaging/contacts";
 import { reportHandled } from "../observability/report";
+import { areaOfAgent, ensureAreaOwner } from "../owners/store";
 import type { RunInstances } from "../runs/instances";
 // P-3: attachments both ways
 import {
@@ -1317,6 +1320,20 @@ export async function attemptFrom(
       await failed(`couldn't write the message: ${error instanceof Error ? error.message : error}`);
       continue;
     }
+    // v0.17 (ARCHITECTURE §10.15 "Signature"): a message to someone outside the client is signed
+    // by the area owner of the agent sending it, with "Powered by mezonas.com" under it.
+    if (channel !== "voice" && who.relationship !== "employee") {
+      text = await signed(deps, {
+        tenantId,
+        agentId: row.agentId,
+        definition: agentPinned.bundle.definition,
+        client: state.t.name,
+        locale: plan.language,
+        channel,
+        first: !isConverseSubject(row.subject) || row.nodeId.endsWith(":m1"),
+        text,
+      });
+    }
     const address = channelAddress(reach, channel) as string;
     // P-3: the plan's documents go with the email, the text (MMS) or the WhatsApp message.
     const files = plan.attachments?.length
@@ -1475,4 +1492,51 @@ export async function reachOutTick(
     await wake(deps, row);
   }
   return result;
+}
+
+// ── v0.17: the area owner's signature (ARCHITECTURE §10.15) ──────────────────────────────────────
+
+/**
+ * The message with the sending agent's area owner's signature under it: "Pia, purchasing agent
+ * for Acme Supply", then "Powered by mezonas.com" (on a text or WhatsApp message, only on a
+ * conversation's first). The owner is created if the client has none for the area yet.
+ */
+// DECISION (O3): added when the message is sent, in the platform's words, so no model writes it
+// and no edit removes it; the person who signs a message sees it without the two fixed lines.
+async function signed(
+  deps: ReachDeps,
+  input: {
+    tenantId: string;
+    agentId: string;
+    definition: { area?: string | undefined; skills?: readonly { skill: string }[] };
+    client: string;
+    locale: Locale;
+    channel: ReachChannel;
+    first: boolean;
+    text: string;
+  },
+): Promise<string> {
+  const owner = await withTenant(deps.db, input.tenantId, async (tx) => {
+    const area = await areaOfAgent(tx, input.tenantId, input.agentId, input.definition, (id) =>
+      deps.runtime.catalog.get(id),
+    );
+    return ensureAreaOwner(tx, input.tenantId, area);
+  });
+  const lines = ownerSignature({
+    name: owner.name,
+    area: owner.area,
+    client: input.client,
+    locale: input.locale,
+    channel:
+      input.channel === "email" || input.channel === "sms" || input.channel === "whatsapp"
+        ? input.channel
+        : "other",
+    first: input.first,
+  });
+  return [
+    input.text.trimEnd(),
+    "",
+    lines.signature,
+    ...(lines.poweredBy ? [lines.poweredBy] : []),
+  ].join("\n");
 }

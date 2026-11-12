@@ -297,6 +297,21 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
   };
 }
 
+/**
+ * v0.17 (ARCHITECTURE §10.15 "Signature"): a message sent outside the client, without the area
+ * owner's signature under it ("Pia, purchasing agent for Acme" and "Powered by mezonas.com"), so a
+ * test can compare what the agent wrote.
+ */
+export function unsigned(text: string | null | undefined): string | undefined {
+  return text?.replace(/\n\n[^\n]+(?:\n[^\n]*mezonas\.com)?$/u, "");
+}
+
+/** The signature lines the sent message ends with, for a test that checks them. */
+export function signatureOf(text: string | null | undefined): string[] {
+  const m = text?.match(/\n\n([^\n]+(?:\n[^\n]*mezonas\.com)?)$/u);
+  return m?.[1]?.split("\n") ?? [];
+}
+
 export const OPERATOR = "operator@example.com";
 export const OTHER_OPERATOR = "other-operator@example.com";
 /**

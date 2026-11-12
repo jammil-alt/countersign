@@ -99,6 +99,23 @@ export interface OverseeRequest {
    * succeeded). Absent or empty: a review as v0.13 made it.
    */
   signals?: readonly AnomalySignal[] | undefined;
+  /**
+   * v0.17 (ARCHITECTURE §10.15): the area owner reviewing, as the run pinned it. Absent: a review
+   * exactly as before (no owner section, no `remember`).
+   */
+  owner?: OverseeOwner | undefined;
+}
+
+/** The area owner in a review: who it is, its notes (operator text) and its memory (data). */
+export interface OverseeOwner {
+  ownerId: string;
+  name: string;
+  /** The area's function, e.g. "purchasing". */
+  area: string;
+  /** Markdown the operator wrote: trusted, in the instructions. */
+  notes: string;
+  /** Its memory notes, newest first: learned, so data in the `read_step` result (invariant 9). */
+  memory: readonly string[];
 }
 
 /** The workflows port's verdict, without importing packages/workflows (it depends on us). */
@@ -138,6 +155,8 @@ export interface DecisionRecord {
   tokensOut: number;
   agentId: string;
   agentVersionId: string;
+  /** v0.17: an area owner's notes for next time, saved as its memory notes (never on a test run). */
+  remember?: { ownerId: string; notes: string[] };
   /** `ask`: the item a person answers (kind `approval`, subject `oversight_ask`). */
   ask?: {
     title: string;
@@ -487,6 +506,14 @@ export async function overseeStep(
       : []),
     `## Who you are\n${definition.identity.name}: ${definition.identity.role}. ${definition.identity.mission}`,
     `## How you work\n${definition.instructions}`,
+    // v0.17: the area owner reviewing, and the operator's notes about this client's area.
+    ...(req.owner
+      ? [
+          `## Your area\nYou are ${req.owner.name}, who owns ${req.owner.area} for this client and watches every process in it.${
+            req.owner.notes.trim() ? `\n\n${req.owner.notes.trim()}` : ""
+          }\n\nYour memory notes, if any, are in the \`read_step\` result. To keep a fact about this client's work for next time, add it to \`remember\`.`,
+        ]
+      : []),
     `## The step\n${described.text}`,
     ...(language ? [language] : []),
   ].join("\n\n");
@@ -500,6 +527,8 @@ export async function overseeStep(
     ...(signals ? { signals } : {}),
     earlierSteps: context.earlier,
     pastDecisions: context.history,
+    // v0.17: what the area owner learned before, as data.
+    ...(req.owner ? { yourMemory: req.owner.memory } : {}),
   };
   type MessageParam = LlmRequest["messages"][number];
   const messages: MessageParam[] = [
@@ -565,7 +594,9 @@ export async function overseeStep(
           {
             name: OVERSEE_FINISH_TOOL,
             description: "Give your decision about the step. Call it exactly once.",
-            input_schema: oversightFinishSchema(req.cause, decides) as never,
+            input_schema: oversightFinishSchema(req.cause, decides, {
+              remember: !!req.owner,
+            }) as never,
           },
         ],
         tool_choice: { type: "tool", name: OVERSEE_FINISH_TOOL },
@@ -610,6 +641,11 @@ export async function overseeStep(
     note: decision.note,
     sources: decision.sources,
     proposal,
+    // v0.17: an area owner's notes for next time. A test run teaches nothing.
+    // DECISION (O3): not saved from a test run, whose inputs are examples, not the client's work.
+    ...(req.owner && decision.remember?.length && req.mode !== "test"
+      ? { remember: { ownerId: req.owner.ownerId, notes: decision.remember.map((r) => r.note) } }
+      : {}),
     model: model.id,
     costUsd: cost.toFixed(4),
     tokensIn,

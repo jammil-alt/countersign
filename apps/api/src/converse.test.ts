@@ -37,6 +37,7 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  unsigned,
   user,
 } from "./api.test-helper";
 import { conversePort } from "./converse/service";
@@ -387,10 +388,10 @@ describe.skipIf(!h)("conversations through the API", () => {
       if (type.startsWith("reachout-")) {
         replies++;
         if (replies === 1) {
-          expect(sentTo(DANA).map((m) => m.body)).toEqual([OPENING]);
+          expect(sentTo(DANA).map((m) => unsigned(m.body))).toEqual([OPENING]);
           await textIn(DANA, "12 sheets of 3/4 birch ply, by Friday please");
         } else {
-          expect(sentTo(DANA).map((m) => m.body)).toEqual([OPENING, CONFIRM]);
+          expect(sentTo(DANA).map((m) => unsigned(m.body))).toEqual([OPENING, CONFIRM]);
           await textIn(DANA, INJECTED);
         }
         return null;
@@ -742,7 +743,7 @@ describe.skipIf(!h)("conversations through the API", () => {
         const [row] = await rowsOf(held.runId);
         expect(row?.nextAttemptAt).not.toBeNull();
         await reachOutTick(reachDepsFor(deps()), A(), new Date(Date.now() + 3 * 3600_000));
-        expect(sentTo(QUIET).map((m) => m.body)).toEqual(["Which order, Quinn?"]);
+        expect(sentTo(QUIET).map((m) => unsigned(m.body))).toEqual(["Which order, Quinn?"]);
         throw Object.assign(new Error("timed out"), { name: "WorkflowTimeoutError" });
       }
       throw new Error(`unexpected wait ${type}`);
@@ -811,7 +812,7 @@ describe.skipIf(!h)("conversations through the API", () => {
         }
         if (cards.length === 2) {
           // The second message waits: nothing more went out before its signature.
-          expect(sentTo(SAM).map((m) => m.body)).not.toContain(SECOND);
+          expect(sentTo(SAM).map((m) => unsigned(m.body))).not.toContain(SECOND);
           expect(j(item?.payload).converse).toMatchObject({
             kind: "message",
             message: SECOND,
@@ -837,7 +838,7 @@ describe.skipIf(!h)("conversations through the API", () => {
     expect(cards[0]).toContain("Talk with Sam Ortiz on WhatsApp");
     expect(cards[1]).toBe("Message 2 of up to 6 to Sam Ortiz on WhatsApp");
     expect(cards[2]).toContain("They need to check with the shop");
-    expect(sentTo(SAM).map((m) => m.body)).toContain(SECOND);
+    expect(sentTo(SAM).map((m) => unsigned(m.body))).toContain(SECOND);
     await H.call(OPERATOR, "PUT", `/api/ops/clients/${A()}/contacts/${sam}/autonomy`, {
       autonomy: {},
     });
@@ -932,7 +933,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       });
       const sent = await proceedUnanswered(zed, ZED, "REQ-32");
       expect(sent.resumed.kind).not.toBe("failed");
-      expect(sentTo(ZED).map((m) => m.body)).toEqual(["Which items, and by when?"]);
+      expect(sentTo(ZED).map((m) => unsigned(m.body))).toEqual(["Which items, and by when?"]);
       expect(j(sent.rows[0]?.plan).approvedBy).toBeNull();
     } finally {
       await H.t.db
@@ -988,7 +989,7 @@ describe.skipIf(!h)("conversations through the API", () => {
       .where(eq(oversightDecision.runId, params.runId));
     expect(decisions.map((d) => d.action)).toEqual(["retry"]);
     // The opening wasn't sent twice.
-    expect(sentTo(OLIVE).filter((m) => m.body === "How many metres?")).toHaveLength(1);
+    expect(sentTo(OLIVE).filter((m) => unsigned(m.body) === "How many metres?")).toHaveLength(1);
   });
 
   // R7 (docs/plan.md §1.86): a v4 conversation step runs on this same service, waiting on the
@@ -1078,10 +1079,10 @@ describe.skipIf(!h)("conversations through the API", () => {
         });
         expect(done.status, JSON.stringify(done.json)).toBe(200);
       } else if (waits.length === 2) {
-        expect(sentTo(RUTH).map((m) => m.body)).toEqual([OPENING]);
+        expect(sentTo(RUTH).map((m) => unsigned(m.body))).toEqual([OPENING]);
         await textIn(RUTH, "12 sheets, by Friday");
       } else {
-        expect(sentTo(RUTH).map((m) => m.body)).toEqual([OPENING, CONFIRM]);
+        expect(sentTo(RUTH).map((m) => unsigned(m.body))).toEqual([OPENING, CONFIRM]);
         await textIn(RUTH, "Yes");
       }
       const woke = H.instances.events.slice(before).find((e) => e.event.type === conversation);

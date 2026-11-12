@@ -120,11 +120,10 @@ describe("which settings a run uses", () => {
     expect(own.model.id).toBe("claude-opus-5-5");
   });
 
-  it("starts a new owner on the platform's standard model with empty notes", () => {
-    expect(defaultOwnerDefinition()).toEqual({
-      model: { id: "claude-sonnet-5-5", maxTokens: 4096 },
-      notes: "",
-    });
+  it("starts a new owner with no model of its own, so each process keeps reviewing on its own", () => {
+    expect(defaultOwnerDefinition()).toEqual({ notes: "" });
+    const r = runOwnerOf(v3({ review: "failures" }), pia({}));
+    expect(r.model.id).toBe("claude-haiku-5-5");
   });
 });
 

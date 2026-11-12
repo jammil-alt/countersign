@@ -4433,16 +4433,18 @@ beside Home. Built in the O-stream (§10), one milestone at a time.
 
 | Topic | Decision |
 |---|---|
-| What an owner is | An `agent` row with `kind = 'owner'` and a versioned bundle with no workflows, so versions, audit, the immutability triggers and the Builder's editing all apply unchanged. // DECISION: a new agent kind, not a new table. |
+| What an owner is | `area_owner` (one per client and area; its name the client's to change) and its immutable `area_owner_version` rows (`OwnerDefinition`: model, notes, oversight defaults). // DECISION (O1): a table of its own, not `agent.kind = 'owner'`: 59 queries over `agent` don't filter by kind (billing, weekly stats, exports, search). |
+| Creating owners | On first need: a run in the area (`run:load`), a signed message, the back office's list. No backfill script. The first version has no model and no notes. // DECISION (O3): no default model, so an existing client's reviews stay on each process's own model until the operator picks one. |
 | Area of a process | `agent.area` (column, operator-set), defaulting from the template's `definition.area`, else its one `requiresPacks` entry, else `general`. // DECISION: a column like `approver`, not in the bundle, so moving a process to another area makes no new version. |
 | No area | `general` is an area like the others; its owner is created only when a client has a process in it. |
 | Pinning | `run.owner_version_id`, set at run start; replays and the run view read it. |
 | Precedence | A process's saved `definition.oversight` wins (stored versions unchanged, invariant 3), then the owner's, then `failures`; model: step, process `oversight.model`, owner, process. |
 | Notes | The owner's `instructions` (Markdown, operator-written) go in the review's instructions; up to 20 memory notes, newest first, go in the `read_step` result as data. |
-| Memory | A decision's `remember` (at most 2 notes, 300 characters each) becomes `memory_note` rows on the owner, written in `src/log/`. |
+| Memory | A decision's `remember` (at most 2 notes, 300 characters each) becomes `memory_note` rows on the owner (`owner_id`), written in `src/log/` with the decision. Not from a test run. `remember` is in the finish tool only for an area owner's review, so other reviews' requests are unchanged. |
 | Names | The pool below, in `packages/core/src/owners/names.ts`. A client's first owner takes the name at `hash(tenant_id) mod 40`; each next owner takes the next name whose first letter no owner of that client has. Never S (Sloan). // DECISION: a start per client from its id, no counter table, so neighbouring clients get different names. |
 | Renaming | The client admin renames an owner in the portal: `agent.name` on the owner's row, 2 to 12 letters, unique within the client, not Sloan; audited. Not a version. The only agent field a client edits. |
-| Signature | "{Name}, {function} agent for {client}" and "Powered by mezonas.com" under it; function from the area (`general`: operations). Email: both lines. Text and WhatsApp: the second line on a conversation's first message only. Platform words in the client's language; not removable. |
+| Signature | "{Name}, {function} agent for {client}" and "Powered by mezonas.com" under it; function from the area (`general`: operations). Email: both lines. Text and WhatsApp: the second line on a conversation's first message only. Platform words in the client's language; not removable. Added at send (`reach/service.ts`) to messages to contacts who aren't the client's employees; calls excepted. // DECISION (O3): the signer sees the message without the two fixed lines; O4 shows them on the card. |
+| Timeline words | "Pia corrected the vendor name and tried again" (English); other languages "Pia: …" until the fluent speakers review them (`ownerDid`). The owner's current name, so a rename shows at once. |
 | Approval | Every draft is suggested and approved (owner, 2026-11-12); no owner applies a change. Classes by code (`change-class.ts`): client settings (client admin), process (operator; a client-asked one is confirmed by the client admin first), never (not drafted). |
 | Watch after a change | 10 runs or 7 days against the 10 runs before; worse suggests a rollback, marked urgent, to the same approver. |
 | Signals | 3 in 14 days for repeated failures, corrections and edits on one field. // DECISION: low enough to catch a habit in a week of normal use, high enough to ignore a one-off. |
@@ -5976,5 +5978,6 @@ Each milestone ends green. Migrations in their own PR (O1).
   asks Pia to run the vendor follow-up weekly; the client admin confirms the draft, the operator
   approves it, and the next runs follow the new schedule.
 
-Status (2026-11-12): designed (ARCHITECTURE v0.17); nothing built yet. Waiting only on §1.96's open
-question (the name pool, for O2).
+Status (2026-11-12): O1 (migration 0048), O2 (core) and O3 (runtime) built on
+`claude/clever-allen-i6npwp`. O4–O8 next. The name pool is taken as proposed until the owner says
+otherwise.

@@ -43,6 +43,7 @@ import {
   forbiddenKeys,
   OPERATOR,
   OTHER_OPERATOR,
+  unsigned,
   user,
 } from "./api.test-helper";
 import { conversationEventOfSubject } from "./converse/wake";
@@ -900,7 +901,7 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
       status: "cancelled",
       reason: "rejected",
     });
-    expect(sentTo(SAM).map((m) => m.body)).toEqual(["Which glue?"]);
+    expect(sentTo(SAM).map((m) => unsigned(m.body))).toEqual(["Which glue?"]);
     const ops = j((await H.call(OPERATOR, "GET", `/api/ops/runs/${second.runId}`)).json);
     const talk = ops.steps.find((s: { nodeId: string }) => s.nodeId === "talk");
     expect(talk.conversation.outcome).toBe("declined");
@@ -966,7 +967,7 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
         });
         expect(edited.status, JSON.stringify(edited.json)).toBe(200);
         expect(j(edited.json).edited.input).toEqual({ message: SENT });
-        expect(sentTo(PAT).map((m) => m.body)).toEqual(["Which banding?"]);
+        expect(sentTo(PAT).map((m) => unsigned(m.body))).toEqual(["Which banding?"]);
         return resolveItem(type);
       }
       if (type.startsWith("reachout-")) {
@@ -981,7 +982,7 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
     });
     expect((await executeRun(deps(), params, cloudflareStepRunner(step))).status).toBe("cancelled");
     // Exactly the approved text went, once; never the agent's draft.
-    expect(sentTo(PAT).map((m) => m.body)).toEqual(["Which banding?", SENT]);
+    expect(sentTo(PAT).map((m) => unsigned(m.body))).toEqual(["Which banding?", SENT]);
     // Both are kept and shown: the back office sees the agent's original, the portal who edited.
     const ops = j((await H.call(OPERATOR, "GET", `/api/ops/runs/${params.runId}`)).json);
     const talk = ops.steps.find((s: { nodeId: string }) => s.nodeId === "talk");
@@ -1057,7 +1058,7 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
     });
     await executeRun(deps(), params, cloudflareStepRunner(step));
     // The edit went once, as approved, and only to Quinn: its words are only words.
-    expect(sentTo(QUINN).map((m) => m.body)).toEqual([EDIT]);
+    expect(sentTo(QUINN).map((m) => unsigned(m.body))).toEqual([EDIT]);
     expect(sentTo(STRANGER)).toHaveLength(0);
     const [first] = await rowsOf(params.runId);
     expect(j(first?.plan).edited).toMatchObject({
@@ -1106,7 +1107,7 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
           outcome: "opted_out",
         });
       } else {
-        expect(sentTo(number).map((m) => m.body)).toEqual([EDIT]);
+        expect(sentTo(number).map((m) => unsigned(m.body))).toEqual([EDIT]);
       }
       // A composed message replaced by a person's text: no model call.
       expect(model.requests).toHaveLength(0);

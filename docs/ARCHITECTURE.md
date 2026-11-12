@@ -2768,16 +2768,18 @@ in", "Vendor follow-ups"); people remember a handful of owners ("Pia owns Purcha
 | What it knows | The agent's instructions, the step, the last 5 failures | The same, plus the owner's **notes** and its **memory notes** |
 | Named | No (the process's job title) | Yes: a short name per owner, shown wherever it acts |
 
-**The owner is an agent of its own kind.** An `agent` row with `kind = 'owner'`, one per client and
-area (`unique (tenant_id, area) where kind = 'owner'`), versioned like any agent (invariant 3). Its
-bundle has a definition and no workflows:
-- `identity`: name (e.g. Pia), avatar, role ("Owner of Purchasing"), mission.
+**The owner has a table of its own.** `area_owner`, one row per client and area (unique), with its
+name (the client's to change) and avatar; its settings live in immutable versions,
+`area_owner_version` (invariant 3), whose `definition` is core's `OwnerDefinition`:
 - `model`: what it reasons on. Any model `packages/llm` prices (Anthropic, OpenAI, xAI, Google);
-  HIPAA mode refuses a provider without a BAA at run time, as for any model (invariant 14).
-- `instructions`: **the owner's notes**, Markdown written by the operator: how this client's area
-  works, what to watch for, who to ask. This is the "memory file", kept in the version row rather
-  than in the repository (invariant 4), and per client (invariant 1).
-- `oversight`: the area's defaults for `review`, `maxPerRun`, `maxCostUsd`, and `changes` (below).
+  HIPAA mode refuses a provider without a BAA at run time, as for any model (invariant 14). Absent
+  on a new owner: each process keeps reviewing on its own model until the operator picks one.
+- `notes`: **the owner's notes**, Markdown written by the operator: how this client's area works,
+  what to watch for, who to ask. This is the "memory file", kept in the version row rather than in
+  the repository (invariant 4), and per client (invariant 1).
+- `oversight`: the area's defaults for `review`, `maxPerRun` and `maxCostUsd`.
+Not an `agent` kind (O1): many queries over a client's agents (billing, weekly stats, exports,
+search) don't filter by kind, and an owner is none of those.
 
 **Areas.** `purchasing`, `sales`, `receivables`, `bookkeeping`, `marketing`, and `general`. A
 process's area is a column on its agent row (`agent.area`, like `approver`), set by the operator;
@@ -2785,10 +2787,10 @@ it defaults from the template's `definition.area`, else from its one `requiresPa
 `general`. `general` gets an owner like any area, created only when a client has a process in it.
 Sloan owns nothing (below).
 
-**Created when an area is first used.** When a client's first process in an area is forked (or an
-area pack is enabled), the platform creates that client's owner from the area's seeded owner
-template (`packages/db/seed/owners/`), with its default name and the platform's default model. The
-operator renames it, picks its model and writes its notes on the owner's page. Owners are per
+**Created when an area is first used.** The first time a process in an area runs, or a message is
+signed for it, or the back office lists the client's owners, the platform creates that client's
+owner of the area: the next name in the client's rotation, no model of its own, no notes. The
+operator picks its model and writes its notes on the owner's page; the client admin may rename it. Owners are per
 client: forks, promotions and template updates never carry one (invariant 11).
 
 **Which settings a run uses.** Read once at run start and pinned on the run (`run.owner_version_id`)
@@ -2803,8 +2805,9 @@ so a replay decides the same way:
 
 **Memory notes.** A decision may carry `remember: [{ note }]` (at most 2): something worth knowing
 next time ("Acme's invoices put the PO number in the footer"). Each becomes a `memory_note` on the
-owner, written by code from the decision (an internal write, logged with `agent_version_id`), shown
-and deletable on the owner's page. The owner still calls no tools.
+owner (`owner_id`), written by code in the same transaction as the decision, shown and deletable on
+the owner's page. A test run saves none. The owner still calls no tools. `remember` is offered only
+in an area owner's review, so every other review's request is unchanged.
 
 **Names.** Short names, 3 or 4 letters, from one pool of 40 in `packages/core/src/owners/names.ts`
 (`docs/plan.md` §1.96), rotated: each client starts at its own place in the pool, and a client's
@@ -2826,6 +2829,8 @@ owner's name and the area's function, and a small line under it:
 `general` signs as "operations agent". Email carries both lines in the signature block; a text or
 WhatsApp message carries "Powered by mezonas.com" on the first message of each conversation only,
 for length. The words are the platform's, in the client's language; the operator can't remove them.
+They are added when the message is sent, to every reach-out and conversation message to a contact
+who is not the client's employee (calls excepted), so no model writes them and no edit drops them.
 
 #### Changes the owner drafts
 
