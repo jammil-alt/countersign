@@ -97,6 +97,7 @@ import { opsOversightRoutes } from "./routes/ops-oversight";
 // Reshape data (2026-11-11)
 import { opsReshapeRoutes } from "./routes/ops-reshape";
 import { opsSkillRoutes } from "./routes/ops-skills";
+import { ownerRoutes } from "./routes/owners";
 import { packInboundRoutes } from "./routes/pack-inbound";
 // M46
 import { packPreviewRoutes } from "./routes/pack-preview";
@@ -247,6 +248,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   portalTriggerRoutes(app);
   // v0.13 W2-I: run oversight decisions for the agent lab
   opsOversightRoutes(app);
+  // v0.17: area owners (ARCHITECTURE §10.15)
+  ownerRoutes(app);
   // Wave 6: the audit queue, marks, stats, sampling settings and the run export (plan §1.86)
   runAuditRouteHandlers(app);
   // v0.14 W4-E: Google Chat's events and the portal's card

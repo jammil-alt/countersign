@@ -59,6 +59,8 @@ export * from "./api/notify";
 export * from "./api/onboarding";
 // v0.13 W2-I: run oversight
 export * from "./api/oversight";
+// v0.17: area owners (ARCHITECTURE §10.15)
+export * from "./api/owners";
 export * from "./api/packs";
 export * from "./api/people";
 export * from "./api/qbo";

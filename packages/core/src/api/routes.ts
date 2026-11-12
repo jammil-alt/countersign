@@ -64,6 +64,7 @@ import { notifyRoutes } from "./notify";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
 // v0.13 W2-I: run oversight
 import { OversightDecisionView, oversightRoutes } from "./oversight";
+import { ownerRoutes } from "./owners";
 import { packRoutes } from "./packs";
 // v0.12 W1-G: people (autonomy).
 import { peopleRoutes, voiceSampleRoutes } from "./people";
@@ -2285,6 +2286,8 @@ export const routes = {
   ...modelRoutes,
   // v0.13 W2-I: run oversight decisions for the agent lab.
   ...oversightRoutes,
+  // v0.17: area owners (ARCHITECTURE §10.15)
+  ...ownerRoutes,
   // v0.12 W3-A: the Builder as a conversation.
   ...builderRoutes,
   // v0.14 W4-E: Google Chat

@@ -15,6 +15,7 @@ import { OPS_PATHS } from "../paths";
 import type { AgentLinkState } from "../screens/AgentPage";
 import { summaryBadge } from "../versions";
 import { ClientFrame, useClientPage } from "./ClientFrame";
+import { OwnersSection } from "./ClientOwners";
 
 const RUN_STATUS_WORDS: Record<string, string> = {
   active: "Running",
@@ -38,6 +39,8 @@ export function ClientAgentsScreen() {
         </Link>
       }
     >
+      {/* v0.17: the area owners above the processes they oversee (ARCHITECTURE §10.15). */}
+      <OwnersSection clientId={clientId} />
       <Agents clientId={clientId} />
     </ClientFrame>
   );
