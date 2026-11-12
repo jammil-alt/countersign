@@ -26,6 +26,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
+import { brief, saysMore } from "../../ui/brief";
 import { Select, TextInput } from "../../ui/forms";
 import { Icon, type IconName } from "../../ui/icons";
 import { Page } from "../../ui/page";
@@ -45,7 +46,7 @@ import {
 import { SheetSection, SideSheet } from "../../ui/sheet";
 import { StatusChip } from "../../ui/status";
 import { errorText, plural, useAction } from "../agents/ui";
-import { toolTitle } from "../builder/model";
+import { toolName } from "../library/plain";
 import { KIND_LINE } from "../library/words";
 import { TableCard } from "../screens/business";
 import { Chain, inOut, percent, stepChain, versionText } from "./parts";
@@ -134,7 +135,7 @@ export function SkillsScreen({ automations: withAutomations = true }: { automati
         subtitle={
           withAutomations
             ? "The steps agents are built from. A skill does one thing; an automation chains steps you reuse across agents."
-            : "Skills think, tools act. A deterministic skill works by rules, the same every time; an AI skill by instructions and a model. A skill may read; a write step after it makes the change."
+            : "How an agent works something out, such as which bill an invoice belongs to. Deterministic skills follow rules and give the same answer every time; AI skills use a model. A skill never changes anything itself: a tool step after it does."
         }
         actions={
           <Link to="/ops/skills/new" className={buttonClass("primary")} data-testid="skills-new">
@@ -502,7 +503,7 @@ function SkillCard({
             ) : null}
           </span>
           <span className="font-medium text-ink">{s.name}</span>
-          <span className="line-clamp-2 text-sm text-ink-muted">{s.description}</span>
+          <span className="line-clamp-2 text-sm text-ink-muted">{brief(s.description)}</span>
           <SkillReach skill={s} />
           <span className="mt-auto flex flex-wrap gap-1.5 pt-1">
             <KindTag skill={s} testId={`skills-card-${s.ref}-kind`} />
@@ -573,7 +574,7 @@ function SkillTable({
                         {s.name}
                       </button>
                       <span className="line-clamp-1 max-w-md text-xs text-ink-muted">
-                        {s.description}
+                        {brief(s.description)}
                       </span>
                     </span>
                   </span>
@@ -705,7 +706,14 @@ function SkillSheet({
         </>
       }
     >
-      <p className="text-ink">{s.description}</p>
+      <p className="text-ink">{brief(s.description)}</p>
+      {saysMore(s.description) ? (
+        <SheetSection label="In full">
+          <p className="text-sm whitespace-pre-line text-ink" data-testid="skill-sheet-description">
+            {s.description}
+          </p>
+        </SheetSection>
+      ) : null}
       <div className="grid grid-cols-3 gap-3 rounded-[var(--radius-md)] border border-line p-3">
         <Stat label="Agents" value={String(s.usedBy)} />
         <Stat label="Tools" value={String(s.tools.length)} />
@@ -732,7 +740,7 @@ function SkillSheet({
         <SheetSection label="Tools">
           <span className="flex flex-wrap gap-1.5">
             {s.tools.map((t) => (
-              <Tag key={t}>{toolTitle({ id: t })}</Tag>
+              <Tag key={t}>{toolName(t)}</Tag>
             ))}
           </span>
         </SheetSection>

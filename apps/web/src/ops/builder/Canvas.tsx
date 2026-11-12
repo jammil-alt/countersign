@@ -24,6 +24,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { brief } from "../../ui/brief";
 import { Icon, type IconName } from "../../ui/icons";
 import { cx, Tag } from "../../ui/primitives";
 import {
@@ -908,7 +909,8 @@ function PaletteCard({
           </span>
           <span className="line-clamp-2 text-xs text-ink-muted" title={item.detail}>
             {own ? "This agent's · " : ""}
-            {item.detail}
+            {/* Plain words (2026-11-12): the headline here, the whole text on hover and in the inspector. */}
+            {brief(item.detail, 90)}
           </span>
         </span>
       </div>
