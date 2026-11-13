@@ -142,7 +142,9 @@ then one pass of its "To verify" list against the real service.
 | Finance | Ramp (`ramp`) | Developer app, `RAMP_*`. |
 | Finance | BILL (`billcom`, plan §1.87) | A BILL developer key, sandbox first (`BILL_DEV_KEY`; `docs/operations.md`), a dedicated BILL user's login entered by the client admin, then `NOTES.md`'s "To verify"; production after BILL's review. Decide: which BILL role our user gets; whether BILL goes on the site's subprocessors page (it is a processor, as Plaid is); BILL's BAA (until then not offered to HIPAA clients). **Code still needed for payments:** `billcom.payment.create` is defined, off and refused until BILL's MFA-trusted session can be reached through the code service (`apps/mfa`). |
 | Finance | Stripe (billing) | Account and keys; the open prices (§4). |
-| CRM | HubSpot, Zoho CRM, Podio | A developer app each (`HUBSPOT_*`, `ZOHO_*`, `PODIO_*`). |
+| CRM | Zoho CRM (`zoho_crm`) | API console client and the CRM Developer Edition test org made (2026-11-12, `zoho_crm/NOTES.md` "Live setup"). Next: `ZOHO_CLIENT_ID` and `ZOHO_CLIENT_SECRET` in both GitHub environments, then the first connection to the test org and `NOTES.md`'s unchecked list. |
+| CRM | HubSpot, Podio | A developer app each (`HUBSPOT_*`, `PODIO_*`). |
+| Zoho | Books, Inventory, Expense | Test org "Mezonas Test" set up (2026-11-12; trials end about 2026-11-26, then free plans). **No connector built, and none planned yet**: outside v1 scope until the owner picks one. |
 | Google | Drive, Sheets | `drive.file` on the consent screen (with S4); `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER`. |
 | Google | Chat (`gchat`) | Chat app, service account, `GOOGLE_CHAT_*`. |
 | Chat | Slack (`slack`) | Slack app, `SLACK_*`; its timing. |

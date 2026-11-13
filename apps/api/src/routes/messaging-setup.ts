@@ -13,6 +13,7 @@ import {
   fetchSubaccount,
   globalFetch,
   readTwilioConfig,
+  readVoiceConfig,
   releaseNumber,
   searchNumbers,
   TWILIO_CONNECTOR_ID,
@@ -40,6 +41,7 @@ import {
 } from "../messaging/a2p";
 import { messagingSettingsOf } from "../messaging/contacts";
 import { cipherFor, connectionCredentials } from "../secrets";
+import { takeCalls } from "./calls-setup";
 import { newConnectionMatrix } from "./ops-connectors";
 
 type ConnectionRow = typeof connection.$inferSelect;
@@ -296,10 +298,24 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
         bought,
       ),
     );
-    await saveConfig(ctx.tx, row, joined, ctx.session.user.id, {
+    // Calls already on: the new number takes calls at once, as every number did when they were
+    // turned on (calls-setup.ts), so callers never hit a number with nothing set to answer.
+    const voice = readVoiceConfig(row.config);
+    const answering = voice
+      ? await takeCalls(fetchFor(ctx.services), auth, [bought], voice.webhooks)
+      : [];
+    const saved: TwilioConfig =
+      voice && answering.length > 0
+        ? ({
+            ...joined,
+            voice: { ...voice, answering: [...voice.answering, ...answering] },
+          } as TwilioConfig)
+        : joined;
+    await saveConfig(ctx.tx, row, saved, ctx.session.user.id, {
       kind: "number_bought",
       number: bought.phoneNumber,
       sid: bought.sid,
+      ...(answering.length > 0 ? { takesCalls: true } : {}),
     });
     return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
   });
@@ -311,12 +327,17 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
     const n = config.numbers.find((x) => x.sid === ctx.params.sid);
     if (!n) throw notFound("number");
     await twilio(() => releaseNumber(fetchFor(ctx.services), auth, n.sid));
+    const voice = readVoiceConfig(row.config);
     await saveConfig(
       ctx.tx,
       row,
       {
         ...config,
         numbers: config.numbers.filter((x) => x.sid !== n.sid),
+        // A released number no longer takes the client's calls.
+        ...(voice
+          ? { voice: { ...voice, answering: voice.answering.filter((x) => x !== n.sid) } }
+          : {}),
         // P-8: a released number leaves the Messaging Service with it.
         ...(config.a2p.registration
           ? {
