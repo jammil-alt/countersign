@@ -24,7 +24,13 @@ import {
   fakeResend,
   fakeTwilio,
 } from "@countersign/connectors/testing";
-import { AgentBundle, type AgentBundleInput, bundleHash, type SkillStep } from "@countersign/core";
+import {
+  AgentBundle,
+  type AgentBundleInput,
+  bundleHash,
+  type SkillStep,
+  withIntroduction,
+} from "@countersign/core";
 import {
   agent,
   agentChange,
@@ -54,6 +60,10 @@ import { quietNever } from "./quiet-hours.test-helper";
 import { planWhyApproval, reachOutTick, reachPort } from "./reach/service";
 import { credentialsFor, executeRun, reachDepsFor } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
+
+// §1.97: a first text to a contact names the client and ends with the opt-out line, added at send.
+const firstText = (text: string, language?: string) =>
+  withIntroduction(text, { client: "Client A", language });
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -534,7 +544,7 @@ describe.skipIf(!h)("reach out through the API", () => {
 
         // The approved plan's first attempt went out as a text.
         expect(textsTo(PAT).map((m) => m.body)).toEqual([
-          "Can you confirm Friday's delivery? Reply YES or NO.",
+          firstText("Can you confirm Friday's delivery? Reply YES or NO."),
         ]);
         expect(twilio.placed()).toHaveLength(0);
         // Before escalateAfter, the cron does nothing; after it, the next channel: a call.
@@ -643,7 +653,7 @@ describe.skipIf(!h)("reach out through the API", () => {
       }
       if (type.startsWith("reachout-")) {
         expect(textsTo(LOU).map((m) => m.body)).toEqual([
-          "¿Confirma la entrega del viernes? Responda SÍ o NO.",
+          firstText("¿Confirma la entrega del viernes? Responda SÍ o NO.", "es"),
         ]);
         await textIn(LOU, "Sí");
         return H.instances.events.find((e) => e.event.type === type)?.event.payload;

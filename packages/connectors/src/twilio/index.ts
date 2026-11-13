@@ -644,6 +644,9 @@ async function checkSend(
  * names the client and ends with the opt-out line. The same words on the approval card and in
  * the send. Too long with them for one message: refused, for the agent to shorten.
  */
+// DECISION: a first text that is too long with the client's name and the opt-out line is refused
+// rather than cut or split: cutting could drop the opt-out line, and the words signed must be the
+// words sent.
 export function smsBody(
   text: string,
   check: { contact: SendContact; lastTextAt: Date | null | undefined; client: string | undefined },

@@ -127,12 +127,14 @@ describe("the first text", () => {
 });
 
 describe("the 10DLC wording", () => {
-  it("points to the client's forms and the line they carry", () => {
+  it("points to the client's forms, the line they carry and the public opt-in", () => {
     const words = a2pRelationshipOptIn("Rivera Supply");
     expect(words).toContain(smsDisclosureLine("Rivera Supply"));
     expect(smsDisclosureLine("Rivera Supply")).toBe(
       "By giving us your mobile number you agree to texts from Rivera Supply about your orders. Msg & data rates may apply. Reply STOP to opt out.",
     );
+    expect(words).toContain("https://mezonas.com/sms-terms#opt-in");
+    expect(words).not.toContain("[where");
     expect(a2pRelationshipOptIn("")).toContain("[Business]");
     expect(A2pBusinessDetails.shape.optIn.safeParse(words).success).toBe(true);
   });

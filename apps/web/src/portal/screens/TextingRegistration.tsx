@@ -99,6 +99,8 @@ export function PortalTextingRegistration() {
   const [form, setForm] = useState<Form>(EMPTY);
   // §1.97: until the client writes their own, "how people agree" starts from the relationship
   // wording, with their business name as they type it.
+  // DECISION: a prefill, not a saved default: what goes to Twilio is what the admin saw and saved,
+  // and the button below puts the wording back after an edit.
   const [optInEdited, setOptInEdited] = useState(false);
   const optIn = form.optIn || optInEdited ? form.optIn : a2pRelationshipOptIn(form.legalName);
   const [ein, setEin] = useState("");

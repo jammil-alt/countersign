@@ -434,17 +434,22 @@ export function smsDisclosureLine(business: string): string {
   return `By giving us your mobile number you agree to texts from ${business} about your orders. Msg & data rates may apply. Reply STOP to opt out.`;
 }
 
+/** The public page where carriers read how people agree to texts (opt-in evidence for 10DLC). */
+export const SMS_OPT_IN_URL = "https://mezonas.com/sms-terms#opt-in";
+
 /**
  * The starting words for "how people agree to texts" on the relationship basis (§1.97), for the
- * client to edit: where their forms ask for the number, and the line those forms carry. The part
- * in brackets is theirs to fill in.
+ * client to edit: where their forms ask for the number, the line those forms carry, and the public
+ * page that shows the opt-in.
  */
 // DECISION: the relationship basis still needs a call to action a carrier can check (US 10DLC
-// vetting), so the starting words point to the client's own forms and the one-line disclosure on
-// them, rather than claiming a separate opt-in. In English: it goes to Twilio and the carriers.
+// vetting), so the starting words point to the client's own forms, the one-line disclosure on
+// them and the public opt-in section of mezonas.com/sms-terms (the campaign was rejected once for
+// missing opt-in evidence), rather than claiming a separate opt-in. In English: it goes to Twilio
+// and the carriers.
 export function a2pRelationshipOptIn(business: string): string {
   const name = business.trim() || "[Business]";
-  return `${name} texts only the vendors and customers it does business with, about their orders, deliveries and invoices. They give ${name} their mobile number on [where: e.g. our credit application, order form and online account at example.com/account], and each of those forms says: "${smsDisclosureLine(name)}" The first text to each person names ${name} and says how to opt out. No marketing is sent.`;
+  return `${name} texts only the vendors and customers it does business with, about their orders, deliveries and invoices. They give ${name} their mobile number on its credit applications, order forms and account sign-ups, and each of those forms says: "${smsDisclosureLine(name)}" How people agree to these texts is shown at ${SMS_OPT_IN_URL}. The first text to each person names ${name} and says how to opt out. No marketing is sent.`;
 }
 
 /** Opt-in, opt-out and help keywords and replies, with the business's name (Twilio: 20–320). */

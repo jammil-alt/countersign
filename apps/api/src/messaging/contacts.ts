@@ -10,7 +10,6 @@ import {
   type ContactConsent,
   type ContactConsentChangeInput,
   type ContactCreateInput,
-  type ContactMessage,
   type ContactPatchInput,
   type ContactRelationshipBulkInput,
   type ContactRelationshipBulkResult,
@@ -540,6 +539,8 @@ export async function changeConsent(
  * The relationship basis on these channels. Express consent already recorded on a channel is kept:
  * it is the stronger record, and replacing it would lose its evidence.
  */
+// DECISION: the relationship basis never replaces express consent, and never opens WhatsApp
+// (relationshipChannelsFor leaves it out; hasConsent refuses it there anyway).
 function withRelationship(
   consent: ContactConsent,
   channels: ConsentChannel[],
@@ -559,6 +560,8 @@ function withRelationship(
  * The relationship basis for many contacts at once (docs/plan.md §1.97): each one in this client
  * that hasn't opted out and has a phone or email. Each change is logged on its contact.
  */
+// DECISION: the bulk action skips (and reports) a contact who opted out instead of failing the
+// batch: only the contact's START, or a person lifting the opt-out, reopens them (§1.22).
 export async function relationshipForMany(
   tx: Tx,
   tenantId: string,
@@ -608,6 +611,8 @@ export async function relationshipForMany(
 }
 
 /** When this contact was last sent a text (not WhatsApp, not a call), or null. */
+// DECISION: the 30-day gap for a first text (§1.97) counts texts only: a call or a WhatsApp
+// message doesn't remind the person how to stop texts.
 export async function lastTextAt(
   tx: Tx,
   tenantId: string,
