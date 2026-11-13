@@ -27,6 +27,7 @@ import {
   LEAD_ASSIGNEE,
   leadCheckLabel,
   type PermissionEntity,
+  PortalInboxItem,
   portalRunFilter,
   type Role,
   routes,
@@ -913,8 +914,10 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     // §1.97: signed on a phone: checked against the item as the portal shows it, before anything
     // changes, and written to the audit log with the phone and what it signed.
     if (body.deviceSignature) {
-      const [shown] = await portalItems(tx, [visible], services.platform);
-      if (!shown) throw notFound("inbox item");
+      // As the response schema sends it to the app, so both sides hash the same object.
+      const [raw] = await portalItems(tx, [visible], services.platform);
+      if (!raw) throw notFound("inbox item");
+      const shown = PortalInboxItem.parse(raw);
       await checkDeviceSignature(tx, {
         tenantId,
         userId: session.user.id,

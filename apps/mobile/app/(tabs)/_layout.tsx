@@ -21,7 +21,6 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: p.inkMuted,
         tabBarStyle: { backgroundColor: p.surface, borderTopColor: p.line },
         tabBarLabelStyle: { fontFamily: fontFamily("sans", 500), fontSize: 11, lineHeight: 14 },
-        tabBarItemStyle: { paddingVertical: 4 },
         sceneStyle: { backgroundColor: p.paper },
       }}
     >
