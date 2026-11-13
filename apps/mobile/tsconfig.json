@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "types": [],
+    "jsx": "react-jsx",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "customConditions": ["react-native"],
+    "allowJs": false,
+    "esModuleInterop": true
+  },
+  "include": ["app", "src", "app.config.ts", "expo-env.d.ts", "vitest.config.ts"]
+}

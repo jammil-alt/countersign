@@ -194,3 +194,45 @@ test("nothing may depend on apps/browser", () => {
   assert.equal(r.ok, false);
   assert.match(r.out, /depends on @countersign\/browser, which is reached only by service binding/);
 });
+
+// §1.97: the phone app.
+const mobile = (dependencies, src = 'import { routes } from "@countersign/core";\n') => ({
+  "apps/mobile/package.json": { name: "@countersign/mobile", dependencies },
+  "apps/mobile/src/api.ts": src,
+});
+
+test("apps/mobile may use core and the design system", () => {
+  const r = check({
+    ...core,
+    ...designSystem,
+    ...mobile({
+      "@countersign/core": "workspace:*",
+      "@countersign/design-system": "workspace:*",
+      expo: "58.0.24",
+    }),
+  });
+  assert.equal(r.ok, true, r.out);
+});
+
+test("apps/mobile may not depend on the database or any other platform package", () => {
+  const r = check({
+    ...core,
+    ...db,
+    ...mobile({ "@countersign/core": "workspace:*", "@countersign/db": "workspace:*" }),
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.out, /apps\/mobile\/package.json: may depend only on/);
+});
+
+test("nothing may depend on apps/mobile", () => {
+  const r = check({
+    ...core,
+    ...mobile({ "@countersign/core": "workspace:*" }),
+    "apps/web/package.json": {
+      name: "@countersign/web",
+      dependencies: { "@countersign/mobile": "workspace:*" },
+    },
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.out, /the phone app, not a library/);
+});
