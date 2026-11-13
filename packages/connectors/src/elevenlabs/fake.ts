@@ -31,6 +31,28 @@ function xml(body: string): HttpResponseLike {
   };
 }
 
+/**
+ * What ElevenLabs' create-agent schema refuses that we could send (checked 2026-11-12): a system
+ * tool without `params.system_tool_type`, inline or under `built_in_tools`.
+ */
+function refuseAgent(body: Record<string, unknown>): string | null {
+  const prompt = ((
+    body.conversation_config as { agent?: { prompt?: Record<string, unknown> } } | undefined
+  )?.agent?.prompt ?? {}) as { tools?: unknown; built_in_tools?: unknown };
+  const tools = Array.isArray(prompt.tools) ? (prompt.tools as Record<string, unknown>[]) : [];
+  const builtIn = Object.values((prompt.built_in_tools ?? {}) as Record<string, unknown>).filter(
+    (t): t is Record<string, unknown> => t != null,
+  );
+  const system = [...tools.filter((t) => t.type === "system"), ...builtIn];
+  for (const t of system) {
+    const params = t.params as { system_tool_type?: unknown } | undefined;
+    if (typeof t.name !== "string" || typeof params?.system_tool_type !== "string") {
+      return "a system tool needs name and params.system_tool_type";
+    }
+  }
+  return null;
+}
+
 export interface FakeRegisteredCall {
   agentId: string;
   from: string;
@@ -45,6 +67,7 @@ export function fakeElevenLabs() {
   const agents = new Map<string, Record<string, unknown>>();
   const calls: FakeRegisteredCall[] = [];
   let failNextRegister = false;
+  let registerAs: "json" | "xml" = "json";
 
   const fetch: FetchLike = async (url, init = {}) => {
     const u = parseUrl(url);
@@ -55,6 +78,9 @@ export function fakeElevenLabs() {
     const method = (init.method ?? "GET").toUpperCase();
     const body = init.body ? (JSON.parse(init.body) as Record<string, unknown>) : {};
     if (u.pathname === "/v1/convai/agents/create" && method === "POST") {
+      const refused = refuseAgent(body);
+      if (refused)
+        return json(422, { detail: [{ loc: ["body"], msg: refused, type: "value_error" }] });
       const id = `agent_${String(counter++).padStart(8, "0")}`;
       agents.set(id, body);
       return json(200, { agent_id: id });
@@ -78,9 +104,9 @@ export function fakeElevenLabs() {
         dynamicVariables: init.dynamic_variables ?? {},
         conversationId,
       });
-      return xml(
-        `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="wss://api.elevenlabs.io/v1/convai/conversation/twilio?conversation=${conversationId}"/></Connect></Response>`,
-      );
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="wss://api.elevenlabs.io/v1/convai/conversation/twilio?conversation=${conversationId}"/></Connect></Response>`;
+      // As ElevenLabs' reference shows it: the TwiML as a JSON string (NOTES.md).
+      return registerAs === "json" ? json(200, twiml) : xml(twiml);
     }
     return json(404, { detail: "not found" });
   };
@@ -91,6 +117,10 @@ export function fakeElevenLabs() {
     calls,
     failNextRegister() {
       failNextRegister = true;
+    },
+    /** How register-call answers: a JSON string (the default, as the reference shows) or XML. */
+    answerRegisterAs(form: "json" | "xml") {
+      registerAs = form;
     },
     /**
      * The post-call webhook ElevenLabs would send for a registered call, and its signature header.

@@ -143,20 +143,29 @@ export function voiceAgentBody(config: VoiceAgentConfig): Record<string, unknown
         language: config.language,
         prompt: {
           prompt: config.prompt,
-          tools: [
-            ...config.tools.map((t) => ({
-              type: "webhook",
-              name: t.name,
-              description: t.description.slice(0, 500),
-              api_schema: {
-                url: t.url,
-                method: "POST",
-                request_headers: headers,
-                request_body_schema: { ...t.input, description: t.description.slice(0, 500) },
-              },
-            })),
-            { type: "system", name: "end_call", description: "End the call politely." },
-          ],
+          // DECISION: inline webhook tools (`prompt.tools`) are deprecated in favour of `tool_ids`
+          // (tools made first) but still accepted; they stay inline until a live check says
+          // otherwise (NOTES.md).
+          tools: config.tools.map((t) => ({
+            type: "webhook",
+            name: t.name,
+            description: t.description.slice(0, 500),
+            api_schema: {
+              url: t.url,
+              method: "POST",
+              request_headers: headers,
+              request_body_schema: { ...t.input, description: t.description.slice(0, 500) },
+            },
+          })),
+          // Hanging up is a built-in tool, and a system tool needs `params.system_tool_type`
+          // (ElevenLabs' create-agent schema, checked 2026-11-12).
+          built_in_tools: {
+            end_call: {
+              name: "end_call",
+              description: "End the call politely.",
+              params: { system_tool_type: "end_call" },
+            },
+          },
         },
       },
       ...(config.voiceId ? { tts: { voice_id: config.voiceId } } : {}),
@@ -201,6 +210,21 @@ export async function createVoiceAgent(
 }
 
 /**
+ * The TwiML in register-call's answer. ElevenLabs' reference shows the answer as a JSON string
+ * (`"<?xml …"`), its summary as TwiML: either is accepted (NOTES.md).
+ */
+function twimlOf(text: string): string {
+  const t = text.trim();
+  if (!t.startsWith('"')) return t;
+  try {
+    const s: unknown = JSON.parse(t);
+    return typeof s === "string" ? s.trim() : t;
+  } catch {
+    return t;
+  }
+}
+
+/**
  * Hands a ringing Twilio call to a voice agent: ElevenLabs answers the TwiML that connects the call
  * to it (a media stream). Our call's id, client and token travel as dynamic variables.
  */
@@ -222,7 +246,7 @@ export async function registerCall(
     direction: input.direction,
     conversation_initiation_client_data: { dynamic_variables: input.dynamicVariables },
   });
-  const twiml = res.text.trim();
+  const twiml = twimlOf(res.text);
   if (!/^(<\?xml[^>]*\?>\s*)?<Response[\s>]/.test(twiml)) {
     throw new ElevenLabsError(res.status, "ElevenLabs didn't answer TwiML");
   }
