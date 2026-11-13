@@ -2875,7 +2875,9 @@ export const auditEvent = pgTable(
 
 // ── Notifications and the Weekly Table (migration 0020, ARCHITECTURE §11.3, §11.4) ─────────────
 
-export const NOTIFICATION_CHANNELS = ["email", "sms"] as const;
+// §1.97: `push`, to a person's registered phones (migration 0049).
+export const NOTIFICATION_CHANNELS = ["email", "sms", "push"] as const;
+export const DEVICE_PLATFORMS = ["ios", "android"] as const;
 export const NOTIFICATION_KINDS = [
   "items_waiting",
   "weekly_table",
@@ -2892,6 +2894,40 @@ export const WEEKLY_TABLE_STATUSES = ["draft", "sent"] as const;
  * content (plan §1.35). Sent once per `dedupe_key` and channel. Only `status`, `reason`,
  * `provider_id` and `sent_at` change (trigger); never deleted.
  */
+/**
+ * §1.97 (migration 0049): a person's phone with the Mezonas app: where its notifications go (an
+ * Expo push token) and the public half of the key it signs Desk items with. Removing a phone sets
+ * `revoked_at` and clears both; the row stays, since signatures in the audit log name it.
+ */
+export const personDevice = pgTable(
+  "person_device",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => appUser.id),
+    name: text("name").notNull(),
+    platform: text("platform").$type<(typeof DEVICE_PLATFORMS)[number]>().notNull(),
+    /** Expo's push token (`ExponentPushToken[…]`); null when the person allowed no notifications. */
+    pushToken: text("push_token"),
+    /** An EC P-256 JWK (public only); null when the phone has no signing key. */
+    publicKey: json<{ kty: "EC"; crv: "P-256"; x: string; y: string }>("public_key"),
+    createdAt: createdAt(),
+    lastSeenAt: ts("last_seen_at"),
+    revokedAt: ts("revoked_at"),
+  },
+  (t) => [
+    unique("person_device_id_tenant_key").on(t.id, t.tenantId),
+    index("person_device_user_idx").on(t.tenantId, t.userId),
+    check("person_device_platform_check", oneOf(t.platform, DEVICE_PLATFORMS)),
+    check(
+      "person_device_revoked_check",
+      sql`${t.revokedAt} is null or (${t.pushToken} is null and ${t.publicKey} is null)`,
+    ),
+  ],
+);
+
 export const notification = pgTable(
   "notification",
   {
@@ -4109,6 +4145,8 @@ export const TENANT_TABLES = [
   "owner_check",
   "run_audit",
   "run_audit_mark",
+  // §1.97
+  "person_device",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
