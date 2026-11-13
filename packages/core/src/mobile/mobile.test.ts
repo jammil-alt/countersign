@@ -38,8 +38,11 @@ describe("the phone app's contract", () => {
     const b = itemFingerprintText({ display: { a: [2, 3], b: 1 }, title: "Send PO", id: "i" });
     expect(a).toBe(b);
     expect(itemFingerprintText({ id: "i", title: "Send PO" })).toBe(
-      '{"display":null,"id":"i","title":"Send PO"}',
+      '{"display":null,"id":"i","payload":null,"title":"Send PO"}',
     );
+    // The amounts live in the payload: a changed total is a different fingerprint.
+    const lines = (total: string) => ({ id: "i", title: "Send PO", payload: { input: { total } } });
+    expect(itemFingerprintText(lines("4820.00"))).not.toBe(itemFingerprintText(lines("5820.00")));
     expect(itemFingerprintText({ id: "i", title: "Send PO", display: { b: 2 } })).not.toBe(a);
   });
 

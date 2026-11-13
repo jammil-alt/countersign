@@ -813,15 +813,19 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     markedBy: u.id,
     inboxItemId: ii.id,
   });
-  // §1.97: the person's phone.
-  await db.insert(personDevice).values({
-    tenantId,
-    userId: u.id,
-    name: "Phone",
-    platform: "ios",
-    pushToken: "ExponentPushToken[fixture]",
-    publicKey: { kty: "EC", crv: "P-256", x: "A".repeat(43), y: "B".repeat(43) },
-  });
+  // §1.97: the person's phone, once migration 0048 is there (a migration test may fill a
+  // database migrated only up to an earlier one).
+  const [phones] = await db.$client<{ present: boolean }[]>`
+    select to_regclass('public.person_device') is not null as present`;
+  if (phones?.present)
+    await db.insert(personDevice).values({
+      tenantId,
+      userId: u.id,
+      name: "Phone",
+      platform: "ios",
+      pushToken: "ExponentPushToken[fixture]",
+      publicKey: { kty: "EC", crv: "P-256", x: "A".repeat(43), y: "B".repeat(43) },
+    });
   await db.insert(ledgerAccountNote).values({
     tenantId,
     ledgerAccountId: la.id,

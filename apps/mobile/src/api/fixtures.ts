@@ -128,6 +128,9 @@ const snoozed = [
   { ...items[2], id: "0190a1b2-0000-7000-8000-00000000b004", snoozedUntil: iso(-60 * 24) },
 ];
 
+/** Items signed, answered or set aside in this session leave the list, as they would. */
+const gone = new Set<string>();
+
 let push = { on: true, every: "now", showClient: false };
 let mine = { email: true, sms: false };
 
@@ -170,10 +173,12 @@ export async function fixtureFetch(input: string, init: RequestInit): Promise<Re
     });
   }
   if (path === "/api/inbox" && method === "GET") {
-    return json({ items: url.searchParams.get("view") === "snoozed" ? snoozed : items });
+    const view = url.searchParams.get("view") === "snoozed" ? snoozed : items;
+    return json({ items: view.filter((i) => !gone.has(i.id)) });
   }
   const resolve = /^\/api\/inbox\/([^/]+)\/resolve$/.exec(path);
   if (resolve) {
+    if (resolve[1]) gone.add(resolve[1]);
     const item = items.find((i) => i.id === resolve[1]) ?? items[0];
     const signed = body.decision === "approve" && item?.kind === "external_action";
     return json({
@@ -187,9 +192,15 @@ export async function fixtureFetch(input: string, init: RequestInit): Promise<Re
     });
   }
   const undo = /^\/api\/inbox\/([^/]+)\/undo$/.exec(path);
-  if (undo?.[1]) return json(state(undo[1], {}));
+  if (undo?.[1]) {
+    gone.delete(undo[1]);
+    return json(state(undo[1], {}));
+  }
   const snooze = /^\/api\/inbox\/([^/]+)\/snooze$/.exec(path);
-  if (snooze?.[1]) return json(state(snooze[1], { snoozedUntil: body.until }));
+  if (snooze?.[1]) {
+    gone.add(snooze[1]);
+    return json(state(snooze[1], { snoozedUntil: body.until }));
+  }
   if (path === "/api/me/devices" && method === "GET") {
     return json({
       devices: [

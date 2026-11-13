@@ -250,6 +250,47 @@ describe.skipIf(!h)("signing a Desk item on a phone", () => {
   });
 });
 
+describe.skipIf(!h)("a phone's signature covers the amounts", () => {
+  it("refuses it once the change's payload differs from what the person saw", async () => {
+    const key = await phoneKey();
+    const r = await H.call(admin("a"), "POST", "/api/me/devices", {
+      name: "Phone",
+      platform: "android",
+      pushToken: null,
+      publicKey: key.publicKey,
+    });
+    const deviceId = j(r.json).device.id as string;
+    const [row] = await H.t.db
+      .insert(inboxItem)
+      .values({
+        tenantId: H.A.tenantId,
+        kind: "approval",
+        assigneeRole: "client_admin",
+        title: "Send PO 1044",
+        payload: { input: { total: "4820.00" } },
+      })
+      .returning();
+    const itemId = row?.id as string;
+    const shown = j((await H.call(admin("a"), "GET", "/api/inbox")).json).items.find(
+      (i: { id: string }) => i.id === itemId,
+    );
+    const fingerprint = await sha256Hex(itemFingerprintText(shown));
+    const at = new Date().toISOString();
+    const signature = await key.sign(
+      deviceSignedText({ deviceId, itemId, decision: "approve", fingerprint, at }),
+    );
+    await H.t.db
+      .update(inboxItem)
+      .set({ payload: { input: { total: "9820.00" } } })
+      .where(eq(inboxItem.id, itemId));
+    const out = await H.call(admin("a"), "POST", `/api/inbox/${itemId}/resolve`, {
+      decision: "approve",
+      deviceSignature: { deviceId, at, fingerprint, signature },
+    });
+    expect([out.status, j(out.json).error.code]).toEqual([409, "item_changed"]);
+  });
+});
+
 describe("the app's session header", () => {
   const app = new Hono<AppEnv>();
   app.use("*", mobileSession);

@@ -29,18 +29,7 @@ import { useDesk } from "../../src/state/desk";
 import { readPrivateKey } from "../../src/state/store";
 import { radius, space, textStyle, usePalette } from "../../src/theme/theme";
 import { Icon } from "../../src/ui/Icon";
-import {
-  Button,
-  Card,
-  Eyebrow,
-  Note,
-  Pair,
-  PersonChip,
-  Pill,
-  Screen,
-  Sheet,
-  Text,
-} from "../../src/ui/kit";
+import { Button, Card, Eyebrow, Note, Pair, Pill, Screen, Sheet, Text } from "../../src/ui/kit";
 
 type Decision = "approve" | "reject";
 
@@ -133,8 +122,6 @@ export default function ItemScreen() {
             </View>
           </Card>
         ) : null}
-
-        {service ? <PersonChip name={service} /> : null}
       </ScrollView>
 
       {need === "sign" || need === "request" || need === "done" ? (
@@ -232,19 +219,13 @@ function Change({
       <View style={{ flexDirection: "row", gap: space["2"] }}>
         <Side
           label="Before"
-          text={
-            model.create
-              ? `Not in ${heading.connector} yet.`
-              : "As it is now."
-          }
+          text={model.create ? `Not in ${heading.connector} yet.` : "As it is now."}
           muted
         />
         <Side
           label="After"
           text={
-            model.create
-              ? `Created in ${heading.connector}.`
-              : `Updated in ${heading.connector}.`
+            model.create ? `Created in ${heading.connector}.` : `Updated in ${heading.connector}.`
           }
         />
       </View>
@@ -705,9 +686,11 @@ function DecideSheet({
       setProblem(
         isApiError(e) && e.status === 409
           ? "This item changed since you opened it. Look at it again before you sign."
-          : isApiError(e) && e.code === "device_signature_invalid"
-            ? "This phone's signature wasn't accepted. Set up signing again in Settings."
-            : "That didn't go through. Try again.",
+          : isApiError(e) && e.code === "signature_stale"
+            ? "Your phone's clock looks off, so the signature was too old. Check the time and sign again."
+            : isApiError(e) && (e.code === "signature_invalid" || e.code === "device_unknown")
+              ? "This phone's signature wasn't accepted. Set up signing again in Settings."
+              : "That didn't go through. Try again.",
       );
     } finally {
       setBusy(false);

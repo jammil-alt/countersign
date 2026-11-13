@@ -111,17 +111,25 @@ export function deviceSignedText(input: {
 }
 
 /**
- * The part of a Desk item a signature covers: its title and the change it shows (the edited
- * input when the person edited it), in canonical JSON. A change after the person looked is a
- * different fingerprint, and the signature is refused.
+ * The part of a Desk item a signature covers: its title, the change's display and its payload
+ * (the input to be written, the person's edit, the record before, the lines and amounts), in
+ * canonical JSON. A change after the person looked is a different fingerprint, and the signature
+ * is refused.
  */
-// DECISION: the fingerprint covers what the person reads (title, the change's display) rather
-// than internal ids or timestamps, so the app and the API compute it from the same item the
-// portal returns, with nothing the portal hides.
+// DECISION: the fingerprint covers the item as the portal returns it to the person (title,
+// display and payload) rather than internal ids or timestamps, so the app and the API compute it
+// from the same object, with nothing the portal hides. `display` alone is the tool's field layout,
+// not the values, which is why the payload is in it.
 export function itemFingerprintText(item: {
   id: string;
   title: string;
   display?: unknown;
+  payload?: unknown;
 }): string {
-  return canonicalJson({ id: item.id, title: item.title, display: item.display ?? null });
+  return canonicalJson({
+    id: item.id,
+    title: item.title,
+    display: item.display ?? null,
+    payload: item.payload ?? null,
+  });
 }

@@ -1,6 +1,6 @@
 // The phone's signing key and what it signs (docs/plan.md §1.97). The key is ECDSA P-256; its
 // private half lives only in the phone's secure store behind Face ID or a fingerprint
-// (src/device/keystore.ts), its public half is registered with POST /api/me/devices as a JWK. A
+// (src/state/store.ts), its public half is registered with POST /api/me/devices as a JWK. A
 // signature covers `deviceSignedText` (core): the device, the item, the decision, the item's
 // fingerprint and the time. The API checks it with Web Crypto (ECDSA, SHA-256, r‖s).
 import {
@@ -36,7 +36,12 @@ export const encodePrivateKey = (key: Uint8Array) => toHex(key);
 export const decodePrivateKey = (text: string) => fromHex(text);
 
 /** SHA-256 of the item as the person reads it (core `itemFingerprintText`), hex. */
-export function itemFingerprint(item: { id: string; title: string; display?: unknown }): string {
+export function itemFingerprint(item: {
+  id: string;
+  title: string;
+  display?: unknown;
+  payload?: unknown;
+}): string {
   return toHex(sha256(utf8(itemFingerprintText(item))));
 }
 
@@ -47,7 +52,7 @@ export function itemFingerprint(item: { id: string; title: string; display?: unk
 export function signDecision(input: {
   privateKey: Uint8Array;
   deviceId: string;
-  item: { id: string; title: string; display?: unknown };
+  item: { id: string; title: string; display?: unknown; payload?: unknown };
   decision: "approve" | "reject";
   at: Date;
 }): DeviceSignature {

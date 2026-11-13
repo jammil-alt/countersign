@@ -170,8 +170,12 @@ export async function sha256Hex(text: string): Promise<string> {
 }
 
 /** The fingerprint of a Desk item as the portal returns it (core's `itemFingerprintText`). */
-export const itemFingerprint = (item: { id: string; title: string; display?: unknown }) =>
-  sha256Hex(itemFingerprintText(item));
+export const itemFingerprint = (item: {
+  id: string;
+  title: string;
+  display?: unknown;
+  payload?: unknown;
+}) => sha256Hex(itemFingerprintText(item));
 
 /** ECDSA P-256 over SHA-256, r‖s: true only when this key signed this text. */
 export async function verifySigned(
@@ -208,7 +212,7 @@ export async function checkDeviceSignature(
   input: {
     tenantId: string;
     userId: string;
-    item: { id: string; title: string; display?: unknown };
+    item: { id: string; title: string; display?: unknown; payload?: unknown };
     decision: "approve" | "reject" | undefined;
     signature: DeviceSignature;
     now: Date;
