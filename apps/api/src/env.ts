@@ -61,6 +61,10 @@ export interface Secrets {
   /** The Entra app for Excel: `Files.ReadWrite`, our code keeping to the workbooks the client picks. */
   EXCEL_CLIENT_ID?: string;
   EXCEL_CLIENT_SECRET?: string;
+  /** The Entra app for Outlook Calendar: `Calendars.ReadWrite`, our tools keeping to one calendar. */
+  OUTLOOK_CALENDAR_CLIENT_ID?: string;
+  OUTLOOK_CALENDAR_CLIENT_SECRET?: string;
+  // §1.97: Google Calendar signs in with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET above.
   /** The Teams bot (an Azure Bot, single tenant): its Entra app's id, secret and Mezonas' tenant. */
   TEAMS_BOT_APP_ID?: string;
   TEAMS_BOT_APP_SECRET?: string;

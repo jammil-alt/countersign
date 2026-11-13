@@ -24,12 +24,15 @@ export * from "./billcom/index";
 // M45: Bing Webmaster Tools, read only (docs/plan.md §1.75).
 export * from "./bing_webmaster/index";
 export * from "./browser/index";
+// §1.97: calendars (Outlook Calendar and Google Calendar share the `calendar` tools).
+export * from "./calendar/index";
 export * from "./connector";
 export * from "./credentials";
 export * from "./credentials-accessor";
 export * from "./elevenlabs/index";
 // §1.97: Excel, the workbooks the client picks.
 export * from "./excel/index";
+export * from "./gcal/index";
 // v0.14 W4-E
 export * from "./gchat/index";
 export * from "./gdrive/index";
@@ -62,6 +65,7 @@ export * from "./oauth/tokens";
 // §1.97: OneDrive, the app folder only (Google Drive's tools).
 export * from "./onedrive/index";
 export * from "./outlook/index";
+export * from "./outlook_calendar/index";
 export * from "./permissions";
 export * from "./podio/index";
 export * from "./qbo/index";

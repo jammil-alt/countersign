@@ -431,6 +431,49 @@ Outlook needs an Entra app of Mezonas' own:
 4. Publisher verification (a Microsoft Partner Network id tied to mezonas.com), so work tenants
    show a verified publisher and allow their users to consent.
 
+### Microsoft 365 and calendars (§1.97)
+
+Built against fakes only; what we couldn't check is under "To verify" in each connector's
+`NOTES.md` (`packages/connectors/src/{onedrive,excel,teams,outlook_calendar,gcal}/`). All are
+registered everywhere and show "Not available yet" until their keys are set. `deploy.yml` doesn't
+copy the new secrets yet (a CI/deploy change, its own PR).
+
+Each Microsoft connector has **its own Entra app**, because Microsoft keeps consent per app and a
+shared one would put every connector's scopes in each grant (plan §1.97). For OneDrive, Excel and
+Outlook Calendar, as for Outlook:
+1. A multi-tenant app registration (supported accounts: any organizational directory and personal
+   Microsoft accounts), web platform, redirect URIs `https://staging.mezonas.com/connections/<id>/callback`,
+   `https://app.mezonas.com/connections/<id>/callback` and `http://localhost:8787/connections/<id>/callback`
+   with `<id>` `onedrive`, `excel` or `outlook_calendar`.
+2. Delegated API permissions `openid`, `email`, `offline_access` and one Graph permission:
+   `Files.ReadWrite.AppFolder` (OneDrive), `Files.ReadWrite` (Excel), `Calendars.ReadWrite`
+   (Outlook Calendar). Nothing else; remove the default `User.Read` if it can be.
+3. Name the OneDrive app **Mezonas**: its folder in each person's OneDrive is `Apps/<app name>`.
+4. A client secret each (note its expiry, 24 months at most): `ONEDRIVE_CLIENT_ID`/`SECRET`,
+   `EXCEL_CLIENT_ID`/`SECRET`, `OUTLOOK_CALENDAR_CLIENT_ID`/`SECRET`.
+5. Publisher verification on each, with the Partner Network id Outlook uses.
+
+Microsoft Teams is a bot of Mezonas' own (details and the manifest in `teams/NOTES.md`):
+1. An Entra app registration, **single tenant** (Azure no longer makes multi-tenant bots), with a
+   client secret: `TEAMS_BOT_APP_ID`, `TEAMS_BOT_APP_SECRET`, and Mezonas' tenant id as
+   `TEAMS_BOT_TENANT_ID`.
+2. An Azure Bot of type Single Tenant on that app, messaging endpoint
+   `https://staging.mezonas.com/api/hooks/teams` (production: `https://app.mezonas.com/api/hooks/teams`),
+   with the Microsoft Teams channel turned on.
+3. The Teams app package (manifest, a 192×192 colour icon and a 32×32 outline icon), uploaded by
+   each client's Teams admin as a custom app or published to the Teams Store through Partner Center.
+4. In the portal the client admin connects Teams, gets a code and posts `@Mezonas <code>` in each
+   channel agents may post to.
+
+Google Calendar uses the same Google project and OAuth client as Gmail ("Mezonas web"):
+1. Enable the Google Calendar API in the project `mezonas`.
+2. Add `https://www.googleapis.com/auth/calendar.events.owned` to the consent screen (sensitive:
+   part of Google's verification, S4).
+3. Add the redirect URIs `https://staging.mezonas.com/connections/gcal/callback`,
+   `https://app.mezonas.com/connections/gcal/callback` and
+   `http://localhost:8787/connections/gcal/callback` to the client.
+4. Disconnect drops our tokens without revoking at Google, as Drive (a revoke would end Gmail's).
+
 ### Slack (W4-C)
 
 Built against a fake only; what we couldn't check is under "To verify" in

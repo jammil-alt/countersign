@@ -359,6 +359,14 @@ export {
   type FakeWorksheet,
   fakeExcel,
 } from "./excel/fake";
+export {
+  FAKE_GOOGLE_CALENDAR,
+  type FakeGoogleAttendee,
+  type FakeGoogleCalendar,
+  type FakeGoogleEvent,
+  type FakeGoogleNotice,
+  fakeGoogleCalendar,
+} from "./gcal/fake";
 // v0.14 W4-E: Google Chat (docs/plan.md §1.60).
 export {
   FAKE_GCHAT,
@@ -427,6 +435,14 @@ export {
   fakeMicrosoft,
   MICROSOFT_CONSUMER_TENANT,
 } from "./outlook/fake";
+export {
+  FAKE_OUTLOOK_CALENDAR,
+  type FakeGraphAttendee,
+  type FakeGraphEvent,
+  type FakeGraphNotice,
+  type FakeOutlookCalendar,
+  fakeOutlookCalendar,
+} from "./outlook_calendar/fake";
 export { FAKE_QBO_CLIENT, FAKE_QBO_REALM, type FakeQbo, fakeQbo, QBO_FIXTURES } from "./qbo/fake";
 export {
   FAKE_RAMP,

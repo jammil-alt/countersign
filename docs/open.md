@@ -132,6 +132,9 @@ then one pass of its "To verify" list against the real service.
 | Email | Gmail (`gmail`, send only) | Google verification (S4). |
 | Email | Resend (`resend`) | Account, `RESEND_API_KEY`, fallback sending domain (§1 P2). |
 | Email | Outlook (`outlook`, send only) | Entra app, publisher verification, `OUTLOOK_CLIENT_ID`/`SECRET`. |
+| Microsoft | OneDrive (`onedrive`), Excel (`excel`), Outlook Calendar (`outlook_calendar`) | An Entra app each (`ONEDRIVE_CLIENT_*`, `EXCEL_CLIENT_*`, `OUTLOOK_CALENDAR_CLIENT_*`; `docs/operations.md`), publisher verification (the same Partner Network id as Outlook), `deploy.yml` to copy the secrets (its own PR), then each `NOTES.md`'s "To verify" with a work and a personal account. First checks: whether `Files.ReadWrite.AppFolder` works for work accounts (OneDrive), and whether Graph honours Excel's quote prefix (Excel). SharePoint is not built (plan §1.97). |
+| Microsoft | Teams (`teams`) | An Azure Bot (single tenant) with its Entra app and secret (`TEAMS_BOT_*`), the messaging endpoint `https://<api host>/api/hooks/teams`, the Teams app package (manifest in `teams/NOTES.md`) uploaded per client or published to the Teams Store. First check: that a single-tenant bot can be installed and post in another organisation's Teams. |
+| Google | Calendar (`gcal`) | `calendar.events.owned` on the "Mezonas web" consent screen (a sensitive scope: part of Google's verification, S4), the redirect URIs; then `gcal/NOTES.md`'s "To verify" (Google's docs couldn't be read while building). |
 | Texts and calls | Twilio (`twilio`) | Account and keys; per-client subaccounts (default) or the client's own; which countries first; run a US client's A2P registration (M41) against the real Trust Hub. |
 | Texts and calls | WhatsApp through Meta (`whatsapp_meta`) | Meta app, register as a Tech Provider, `META_*` secrets. |
 | Texts and calls | ElevenLabs (`elevenlabs`) | Account, `ELEVENLABS_API_KEY`, webhook secret. |

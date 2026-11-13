@@ -116,6 +116,7 @@ const TOOLS: Record<string, string> = {
   "excel.range.update": "Change cells in a workbook",
   "excel.range.read": "Read cells in a workbook",
   "calendar.events.list": "Look at the calendar",
+  "calendar.freebusy": "Check when people are free",
   "calendar.event.create": "Add a calendar event",
   "calendar.event.update": "Change a calendar event",
   "drive.file.list": "List filed documents",

@@ -35,6 +35,7 @@ import {
   createBingWebmasterConnector,
   createBrowserConnector,
   createExcelConnector,
+  createGcalConnector,
   // v0.14 W4-E
   createGchatConnector,
   createGdriveConnector,
@@ -50,6 +51,7 @@ import {
   createHubspotConnector,
   createLinkedInConnector,
   createOnedriveConnector,
+  createOutlookCalendarConnector,
   createOutlookConnector,
   createPodioConnector,
   createQboConnector,
@@ -248,6 +250,8 @@ type OAuthEnvKey =
   | "ONEDRIVE_CLIENT_SECRET"
   | "EXCEL_CLIENT_ID"
   | "EXCEL_CLIENT_SECRET"
+  | "OUTLOOK_CALENDAR_CLIENT_ID"
+  | "OUTLOOK_CALENDAR_CLIENT_SECRET"
   | "TEAMS_BOT_APP_ID"
   | "TEAMS_BOT_APP_SECRET"
   | "TEAMS_BOT_TENANT_ID"
@@ -297,6 +301,7 @@ export function platformFor(
     // §1.97
     env.ONEDRIVE_CLIENT_ID ?? "-",
     env.EXCEL_CLIENT_ID ?? "-",
+    env.OUTLOOK_CALENDAR_CLIENT_ID ?? "-",
     // Whether the bot's secret is set, never the secret.
     env.TEAMS_BOT_APP_ID ?? "-",
     env.TEAMS_BOT_TENANT_ID ?? "-",
@@ -414,6 +419,15 @@ export function deploymentConnectors(
     // §1.97: Excel (the workbooks the client picks), on its own Entra app: registered everywhere,
     // signing in once EXCEL_CLIENT_ID, EXCEL_CLIENT_SECRET and OAUTH_STATE_SECRET are set.
     createExcelConnector(oauthClient(env.EXCEL_CLIENT_ID, env.EXCEL_CLIENT_SECRET, env)),
+    // §1.97: the calendars, sharing the `calendar` tools: Outlook Calendar on its own Entra app,
+    // Google Calendar on Gmail's Google client; each signs in once its client and
+    // OAUTH_STATE_SECRET are set.
+    createOutlookCalendarConnector(
+      oauthClient(env.OUTLOOK_CALENDAR_CLIENT_ID, env.OUTLOOK_CALENDAR_CLIENT_SECRET, env),
+    ),
+    createGcalConnector(
+      googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
+    ),
     // §1.97: Microsoft Teams, our bot: registered everywhere; a client connects it once
     // TEAMS_BOT_APP_ID, TEAMS_BOT_APP_SECRET and TEAMS_BOT_TENANT_ID are set.
     createTeamsConnector({
