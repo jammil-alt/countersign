@@ -89,7 +89,10 @@ const DEFAULT_ACCOUNTS = "https://accounts.zoho.com";
 // UNCHECKED: the list of data centers (NOTES.md); a client in a missing one is refused with a clear
 // error rather than sent anywhere unknown.
 const ACCOUNTS_SERVER = /^https:\/\/accounts\.zoho\.(com|eu|in|com\.au|jp|ca|com\.cn|sa|uk)$/;
-const API_DOMAIN = /^https:\/\/(www\.)?zohoapis\.(com|eu|in|com\.au|jp|ca|com\.cn|sa|uk)$/;
+// A Developer Edition org's API is on `developer.zohoapis.*` and a sandbox's on `sandbox.zohoapis.*`
+// (UNCHECKED until a token from the Mezonas Dev org shows it, NOTES.md): both Zoho's own hosts.
+const API_DOMAIN =
+  /^https:\/\/(www\.|developer\.|sandbox\.)?zohoapis\.(com|eu|in|com\.au|jp|ca|com\.cn|sa|uk)$/;
 
 export function isZohoAccountsServer(url: string): boolean {
   return ACCOUNTS_SERVER.test(trimTrailingSlashes(url));
