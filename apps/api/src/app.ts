@@ -79,6 +79,8 @@ import { ledgerRoutes } from "./routes/ledger";
 import { libraryRoutes } from "./routes/library";
 import { lifecycleRoutes } from "./routes/lifecycle";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
+// §1.97: the phone app
+import { mobileRoutes, mobileSession } from "./routes/mobile";
 import { notifyRouteHandlers } from "./routes/notify";
 import { onboardingRouteHandlers } from "./routes/onboarding";
 import { opsAgentRoutes } from "./routes/ops-agents";
@@ -157,8 +159,11 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   app.use("/.well-known/*", securityHeaders);
   // Liveness needs nothing: no database, no session.
   app.get(routes.health.path, (c) => c.json(routes.health.response.parse({ ok: true })));
+  // §1.97: the phone app's session header, read as the session cookie (before anything reads it).
+  app.use("/api/*", mobileSession);
   app.use("/api/*", requestState(deps));
   sessionRoutes(app);
+  mobileRoutes(app);
   opsClientRoutes(app);
   opsAgentRoutes(app);
   opsLineageRoutes(app);

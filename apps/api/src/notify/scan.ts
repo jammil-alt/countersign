@@ -7,6 +7,7 @@ import {
   dedupeKeys,
   ITEMS_WAITING_EVERY_MS,
   LEAD_UNREAD_MS,
+  type NotificationChannel,
   notificationPath,
   RECONNECT_EVERY_MS,
 } from "@countersign/core";
@@ -23,7 +24,7 @@ import {
 import { and, desc, eq, gt, gte, inArray, isNull, like, lte, ne, or } from "drizzle-orm";
 import { notificationsOf } from "../routes/onboarding";
 import { type Candidate, candidatesFor } from "./outbox";
-import { leadUserId, memberPerson, type NotifyPerson, type TenantRow } from "./people";
+import { leadUserId, memberPerson, type NotifyPerson, type TenantRow, wantsPush } from "./people";
 
 /** The lead thread's `subject_type` (ARCHITECTURE §11.2). */
 export const LEAD_SUBJECT = "lead";
@@ -70,37 +71,79 @@ export async function itemsWaitingCandidates(
         (i.assigneeUserId === null && i.assigneeRole === p.role && p.canSign),
     );
     if (mine.length === 0) continue;
-    const mineSoFar = and(
-      eq(notification.tenantId, t.id),
-      eq(notification.userId, p.userId),
-      eq(notification.kind, "items_waiting"),
-    );
-    const [held] = await tx
-      .select({ id: notification.id })
-      .from(notification)
-      .where(and(mineSoFar, eq(notification.status, "queued")))
-      .limit(1);
-    if (held) continue;
-    const [last] = await tx
-      .select({ createdAt: notification.createdAt })
-      .from(notification)
-      .where(mineSoFar)
-      .orderBy(desc(notification.createdAt))
-      .limit(1);
-    if (last) {
-      if (now.getTime() - last.createdAt.getTime() < ITEMS_WAITING_EVERY_MS) continue;
-      if (!mine.some((i) => i.createdAt > last.createdAt)) continue;
+    const counts = { items: mine.length };
+    const path = notificationPath("items_waiting");
+    // Email and texts: at most once an hour (ARCHITECTURE §11.3).
+    if (await due(tx, t.id, p.userId, ["email", "sms"], mine, now, ITEMS_WAITING_EVERY_MS)) {
+      out.push(
+        ...candidatesFor(
+          p,
+          {
+            kind: "items_waiting",
+            dedupeKey: dedupeKeys.itemsWaiting(p.userId, now),
+            path,
+            counts,
+          },
+          { push: false },
+        ),
+      );
     }
-    out.push(
-      ...candidatesFor(p, {
+    // §1.97: their phones on their own pace: each pass ("right away") or hourly.
+    const everyPass = p.push.pushEvery === "now";
+    if (
+      wantsPush(p) &&
+      (await due(tx, t.id, p.userId, ["push"], mine, now, everyPass ? 0 : ITEMS_WAITING_EVERY_MS))
+    ) {
+      out.push({
+        userId: p.userId,
+        contactId: null,
+        channel: "push",
         kind: "items_waiting",
-        dedupeKey: dedupeKeys.itemsWaiting(p.userId, now),
-        path: notificationPath("items_waiting"),
-        counts: { items: mine.length },
-      }),
-    );
+        dedupeKey: everyPass
+          ? dedupeKeys.itemsWaitingPush(p.userId, now)
+          : dedupeKeys.itemsWaiting(p.userId, now),
+        path,
+        counts,
+      });
+    }
   }
   return out;
+}
+
+/**
+ * Whether a person is due an items-waiting notification on these channels: none held for their
+ * quiet hours, none within `everyMs`, and an item new since the last one.
+ */
+async function due(
+  tx: Tx,
+  tenantId: string,
+  userId: string,
+  channels: NotificationChannel[],
+  mine: { createdAt: Date }[],
+  now: Date,
+  everyMs: number,
+): Promise<boolean> {
+  const mineSoFar = and(
+    eq(notification.tenantId, tenantId),
+    eq(notification.userId, userId),
+    eq(notification.kind, "items_waiting"),
+    inArray(notification.channel, channels),
+  );
+  const [held] = await tx
+    .select({ id: notification.id })
+    .from(notification)
+    .where(and(mineSoFar, eq(notification.status, "queued")))
+    .limit(1);
+  if (held) return false;
+  const [last] = await tx
+    .select({ createdAt: notification.createdAt })
+    .from(notification)
+    .where(mineSoFar)
+    .orderBy(desc(notification.createdAt))
+    .limit(1);
+  if (!last) return true;
+  if (now.getTime() - last.createdAt.getTime() < everyMs) return false;
+  return mine.some((i) => i.createdAt > last.createdAt);
 }
 
 // ── Reconnect ───────────────────────────────────────────────────────────────────────────────────

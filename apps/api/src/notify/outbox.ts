@@ -5,6 +5,7 @@
 // `skipped`. Every query runs inside the caller's withTenant for one client (invariant 1).
 
 import {
+  complianceOf,
   holdsInQuietHours,
   inQuietHours,
   NOTIFICATION_REASONS,
@@ -13,23 +14,30 @@ import {
   type NotificationCounts,
   type NotificationKind,
   notificationLink,
+  type Processor,
   renderNotification,
+  renderPush,
   retryReason,
   triesOf,
   trimTrailingSlashes,
   weekOfKey,
 } from "@countersign/core";
-import { notification, type Tx } from "@countersign/db";
-import { and, asc, eq } from "drizzle-orm";
+import { notification, personDevice, type Tx } from "@countersign/db";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Bindings } from "../env";
 import type { Mailer, Texter } from "./mailer";
-import { memberPerson, type NotifyPerson, type TenantRow, wantsText } from "./people";
+import { memberPerson, type NotifyPerson, type TenantRow, wantsPush, wantsText } from "./people";
+import { type Pusher, unconfiguredPusher } from "./push";
 
 export type NotificationRow = typeof notification.$inferSelect;
 
 export interface NotifyDeps {
   mailer: Mailer;
   texter: Texter;
+  /** §1.97: phone notifications (Expo's push service); none means off (rows skipped). */
+  pusher?: Pusher;
+  /** `BAA_PROCESSORS`: a client in HIPAA mode gets phone notifications only once Expo is here. */
+  covered?: ReadonlySet<Processor>;
   /** APP_ORIGIN: links are this plus the page. */
   origin: string;
 }
@@ -59,8 +67,14 @@ export interface Candidate {
 export function candidatesFor(
   person: NotifyPerson,
   base: Omit<Candidate, "userId" | "contactId" | "channel">,
+  /** §1.97: false where the caller decides phone notifications itself (items waiting). */
+  options: { push?: boolean } = {},
 ): Candidate[] {
   const out: Candidate[] = [];
+  // §1.97: their phones, same kind, same key (the unique key includes the channel).
+  if (options.push !== false && wantsPush(person)) {
+    out.push({ ...base, userId: person.userId, contactId: null, channel: "push" });
+  }
   if (person.prefs.email) {
     out.push({ ...base, userId: person.userId, contactId: null, channel: "email" });
   }
@@ -160,6 +174,25 @@ export async function sendQueued(
       await skip(NOTIFICATION_REASONS.turnedOff);
       continue;
     }
+    // §1.97: phones turned off, or none left.
+    if (row.channel === "push" && !wantsPush(person)) {
+      await skip(NOTIFICATION_REASONS.turnedOff);
+      continue;
+    }
+    const pusher = deps.pusher ?? unconfiguredPusher;
+    // §1.97: Expo is a vendor of ours; HIPAA mode sends it nothing until its BAA is recorded.
+    if (
+      row.channel === "push" &&
+      complianceOf(t.settings as Record<string, unknown>).hipaa &&
+      !deps.covered?.has("expo_push")
+    ) {
+      await skip("not_covered");
+      continue;
+    }
+    if (row.channel === "push" && !pusher.isConfigured) {
+      await skip(NOTIFICATION_REASONS.notConfigured);
+      continue;
+    }
     if (row.channel === "email" && !deps.mailer.isConfigured) {
       await skip(NOTIFICATION_REASONS.notConfigured);
       continue;
@@ -193,18 +226,20 @@ export async function sendQueued(
     });
     try {
       const providerId =
-        row.channel === "email"
-          ? await deps.mailer.send({
-              to: person.email,
-              subject: rendered.subject,
-              text: rendered.text,
-              ...(rendered.html ? { html: rendered.html } : {}),
-              idempotencyKey: row.id,
-            })
-          : await deps.texter.send(tx, t.id, {
-              to: person.phone as string,
-              body: rendered.text,
-            });
+        row.channel === "push"
+          ? await sendPush(tx, pusher, t, person, row)
+          : row.channel === "email"
+            ? await deps.mailer.send({
+                to: person.email,
+                subject: rendered.subject,
+                text: rendered.text,
+                ...(rendered.html ? { html: rendered.html } : {}),
+                idempotencyKey: row.id,
+              })
+            : await deps.texter.send(tx, t.id, {
+                to: person.phone as string,
+                body: rendered.text,
+              });
       await settle(tx, row, { status: "sent", reason: null, providerId, sentAt: now });
       out.sent++;
     } catch (error) {
@@ -220,4 +255,67 @@ export async function sendQueued(
     }
   }
   return out;
+}
+
+/**
+ * §1.97: one notification to each of the person's phones. Sent when any phone took it; a phone
+ * whose app is gone loses its token. Throws (to be tried again) when none took it.
+ */
+async function sendPush(
+  tx: Tx,
+  pusher: Pusher,
+  t: TenantRow,
+  person: NotifyPerson,
+  row: NotificationRow,
+): Promise<string> {
+  const weekStart = weekOfKey(row.dedupeKey);
+  const words = renderPush({
+    kind: row.kind,
+    counts: row.counts,
+    locale: person.locale,
+    toLead: row.kind === "lead_message" && person.role === "operator",
+    ...(weekStart ? { weekStart } : {}),
+    clientName: person.push.pushShowsClient ? t.name : null,
+  });
+  const path = pathOf(row.link);
+  const tickets = await pusher.send(
+    person.pushTokens.map((to) => ({
+      to,
+      title: words.title,
+      body: words.body,
+      data: { path, kind: row.kind },
+      ...(row.kind === "items_waiting" && row.counts.items !== undefined
+        ? { badge: row.counts.items }
+        : {}),
+    })),
+  );
+  const gone = person.pushTokens.filter((_, i) => {
+    const ticket = tickets[i];
+    return ticket && !ticket.ok && ticket.gone;
+  });
+  if (gone.length > 0) {
+    await tx
+      .update(personDevice)
+      .set({ pushToken: null })
+      .where(
+        and(
+          eq(personDevice.tenantId, t.id),
+          eq(personDevice.userId, person.userId),
+          inArray(personDevice.pushToken, gone),
+        ),
+      );
+  }
+  const sent = tickets.find((ticket): ticket is { ok: true; id: string } => ticket.ok);
+  if (!sent) throw new Error("no phone took the notification");
+  return sent.id;
+}
+
+/** The page a notification's link names (its path and query), for the app to open. */
+function pathOf(link: string): string {
+  try {
+    const url = new URL(link);
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return "/";
+  }
 }

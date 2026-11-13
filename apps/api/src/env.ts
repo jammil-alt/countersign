@@ -34,6 +34,12 @@ export interface Secrets {
   ELEVENLABS_API_KEY?: string;
   /** Signs ElevenLabs' post-call webhook; also keys each call's tool token. */
   ELEVENLABS_WEBHOOK_SECRET?: string;
+  /**
+   * §1.97: phone notifications through Expo's push service: `on` (default) or `off`. And the Expo
+   * access token, needed once the Expo project turns on enhanced push security.
+   */
+  MOBILE_PUSH?: string;
+  EXPO_ACCESS_TOKEN?: string;
   /** Mezonas' own Resend account: makes each client's sending domain and key (docs/plan.md §1.25). */
   RESEND_API_KEY?: string;
   /** Our own sending domain, used until a client's domain is verified (e.g. mail.mezonas.com). */

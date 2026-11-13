@@ -4,6 +4,8 @@ import { ConverseOpsView, ConversePortalView } from "../converse";
 import { DESK_ITEM_FIELDS } from "../desk/item";
 import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
+// v0.12 W1-B: notifications, the Table and the Weekly Table
+import { DeviceSignature } from "../mobile/mobile";
 // Wave 6: the run audit (the owner's check on every step, the audit queue, the export)
 import { OwnerCheckView } from "../oversight/check";
 import { STEP_KINDS } from "../process/schema";
@@ -59,8 +61,8 @@ import { libraryRoutes } from "./library";
 // v0.12 W1-A: go-live stages and client controls
 import { GoLive, lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
+import { mobileRoutes } from "./mobile";
 import { modelRoutes } from "./models";
-// v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyRoutes } from "./notify";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
 // v0.13 W2-I: run oversight
@@ -203,6 +205,8 @@ export const ResolveBody = z.strictObject({
   decision: z.enum(["approve", "reject"]).optional(),
   answer: z.unknown().optional(),
   note: Note.optional(),
+  /** §1.97: signed on a registered phone with Face ID or a fingerprint (checked, then recorded). */
+  deviceSignature: DeviceSignature.optional(),
 });
 
 // ── Back office shapes ───────────────────────────────────────────────────────────────────────────
@@ -2310,6 +2314,8 @@ export const routes = {
   ...lifecycleRoutes,
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   ...notifyRoutes,
+  // §1.97: the phone app
+  ...mobileRoutes,
   ...tableRoutes,
   // v0.12 W1-D: the Desk
   ...deskRoutes,

@@ -12,12 +12,14 @@ import {
   contactHours,
   type Locale,
   type PersonNotificationSettings,
+  type PersonPushSettings,
   personNotifications,
+  personPush,
   type QuietHours,
   userLanguage,
 } from "@countersign/core";
-import { appUser, contact, membership, type Tx, tenant } from "@countersign/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { appUser, contact, membership, personDevice, type Tx, tenant } from "@countersign/db";
+import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { messagingSettingsOf, reachContactOf } from "../messaging/contacts";
 
 export type TenantRow = typeof tenant.$inferSelect;
@@ -37,6 +39,9 @@ export interface NotifyPerson {
   /** The phone a text can reach, or null. */
   phone: string | null;
   hours: { timezone: string; quietHours: QuietHours };
+  /** §1.97: their phone notifications, and the push tokens of their phones in this client. */
+  push: PersonPushSettings;
+  pushTokens: string[];
 }
 
 const CLIENT_ROLES = ["client_admin", "client_user"] as const;
@@ -87,6 +92,7 @@ function personOf(
     canSign: boolean;
   },
   entry: ContactRow | undefined,
+  tokens: string[] = [],
 ): NotifyPerson {
   const settings = settingsOf(t);
   const client = messagingSettingsOf(t);
@@ -106,6 +112,8 @@ function personOf(
     contactId: entry?.id ?? null,
     phone: textablePhone(entry),
     hours: { timezone: hours.timezone, quietHours: hours.quietHours },
+    push: personPush(settings, u.id),
+    pushTokens: tokens,
   };
 }
 
@@ -128,8 +136,14 @@ export async function clientPeople(tx: Tx, t: TenantRow): Promise<NotifyPerson[]
     t.id,
     users.map((u) => u.email),
   );
+  const tokens = await pushTokensOf(tx, t.id);
   return users.map((u) =>
-    personOf(t, { ...u, role: u.role as NotifyPerson["role"] }, entries.get(u.email.toLowerCase())),
+    personOf(
+      t,
+      { ...u, role: u.role as NotifyPerson["role"] },
+      entries.get(u.email.toLowerCase()),
+      tokens.get(u.id) ?? [],
+    ),
   );
 }
 
@@ -156,8 +170,37 @@ export async function memberPerson(
     u.role === "operator"
       ? undefined
       : (await entriesByEmail(tx, t.id, [u.email])).get(u.email.toLowerCase());
-  return personOf(t, { ...u, role: u.role as NotifyPerson["role"] }, entry);
+  const tokens = await pushTokensOf(tx, t.id, u.id);
+  return personOf(t, { ...u, role: u.role as NotifyPerson["role"] }, entry, tokens.get(u.id) ?? []);
 }
+
+/** §1.97: the push tokens of each person's phones in this client (removed phones have none). */
+async function pushTokensOf(
+  tx: Tx,
+  tenantId: string,
+  userId?: string,
+): Promise<Map<string, string[]>> {
+  const rows = await tx
+    .select({ userId: personDevice.userId, token: personDevice.pushToken })
+    .from(personDevice)
+    .where(
+      and(
+        eq(personDevice.tenantId, tenantId),
+        isNull(personDevice.revokedAt),
+        isNotNull(personDevice.pushToken),
+        ...(userId ? [eq(personDevice.userId, userId)] : []),
+      ),
+    );
+  const out = new Map<string, string[]>();
+  for (const r of rows) {
+    if (!r.token) continue;
+    out.set(r.userId, [...(out.get(r.userId) ?? []), r.token]);
+  }
+  return out;
+}
+
+/** §1.97: a phone notification can reach this person: they keep them on and have a phone. */
+export const wantsPush = (p: NotifyPerson) => p.push.push && p.pushTokens.length > 0;
 
 /** `tenant.settings.lead.userId` (ARCHITECTURE §11.2, set by W1-C); null when none is set. */
 export function leadUserId(t: Pick<TenantRow, "settings">): string | null {

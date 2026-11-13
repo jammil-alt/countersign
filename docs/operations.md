@@ -849,6 +849,20 @@ first (Sandbox and Demo clients, the platform templates); the seed never runs on
 the workflow refuses to run there with "Run the seed first" ticked (it is ticked by default). Safe to
 run again, e.g. after new clients exist: it never adds a second first client.
 
+### The phone app (`docs/plan.md` §1.97)
+
+`apps/mobile`, an Expo app (iOS and Android), built and submitted with EAS, not by `deploy.yml`.
+It talks to the API of the environment it was built for (`EXPO_PUBLIC_API_ORIGIN`: staging for the
+`development` and `preview` profiles, `https://app.mezonas.com` for `production`). The Worker side:
+
+- Sign-in needs nothing new in WorkOS: `/api/mobile/sign-in` runs the usual sign-in and returns to
+  `/api/mobile/handoff` on our own origin, which hands the session to `mezonas://signed-in`.
+- Phone notifications go through Expo's push service; `MOBILE_PUSH=off` (a Worker variable) stops
+  them; `EXPO_ACCESS_TOKEN` (a Worker secret) once Expo's enhanced push security is on. Expo is a
+  processor: HIPAA clients get no phone notifications until `expo_push` is in `BAA_PROCESSORS`.
+- Builds: `cd apps/mobile && npx eas-cli build --profile preview --platform all`; store releases
+  with `--profile production` and `npx eas-cli submit`. Full steps: `apps/mobile/README.md`.
+
 ### MCP server (Claude connector for the back office and for clients)
 
 Mezonas as a Claude connector: `https://staging.mezonas.com/mcp` and `https://app.mezonas.com/mcp`,
