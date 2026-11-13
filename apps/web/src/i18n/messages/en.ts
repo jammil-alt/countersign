@@ -1609,6 +1609,42 @@ export const en = {
   "gchat.adminAllow":
     "Can't find Mezonas in Google Chat? Your Google Workspace admin needs to allow the app.",
   // v0.14 W4-D: Google Sheets (Connections and the picking page).
+  // §1.97: Microsoft Teams and Excel (needs a fluent speaker's review).
+  "teams.section": "Microsoft Teams · channels",
+  "teams.channelsTitle": "Connected channels",
+  "teams.help":
+    "Agents post only in these channels, and only after you approve each post. We can't read your messages.",
+  "teams.noChannels": "No channels connected yet.",
+  "teams.boundBy": "Connected {time} by {name}",
+  "teams.boundAt": "Connected {time}",
+  "teams.codeTitle": "Connect a channel",
+  "teams.steps":
+    "In Teams, add the Mezonas app to the team, then send this message in the channel. The code works once.",
+  "teams.codeExpires": "Works until {time}.",
+  "teams.codeWaiting": "A code is waiting until {time}. If you don't have it, get a new one.",
+  "teams.getCode": "Get a code",
+  "teams.newCode": "Get a new code",
+  "teams.adminAllow":
+    "Can't find Mezonas in Teams? Your Microsoft 365 admin needs to add the app. Private channels can't be connected.",
+  "excel.section": "Excel · workbooks",
+  "excel.help":
+    'Agents use only the workbooks you add here, in your own OneDrive. Microsoft\'s sign-in says "your files", but we open nothing else.',
+  "excel.none": "No workbooks added yet.",
+  "excel.remove": "Remove",
+  "excel.otherAccount": "Added with another Microsoft account. Add it again to use it.",
+  "excel.searchLabel": "Find a workbook in your OneDrive",
+  "excel.searchPlaceholder": "Name of the workbook",
+  "excel.search": "Search",
+  "excel.noResults": "No Excel workbooks found. Only .xlsx files in your own OneDrive are listed.",
+  "excel.add": "Add",
+  "excel.added": "Added",
+  "excel.notConnected": "Connect Excel first, then add workbooks here.",
+  "connections.excel.description":
+    "Read and update the Excel workbooks you choose in your OneDrive. We open nothing else.",
+  "connections.onedrive.description":
+    "File documents in a Mezonas folder in your OneDrive. We can't see anything else in it.",
+  "connections.teams.description":
+    "Post updates in the Teams channels you connect. We can't read your messages.",
   "connections.gsheets.description":
     "Read and add rows in the Google Sheets you choose. We can't open any other sheet.",
   "gsheets.section": "Google Sheets",

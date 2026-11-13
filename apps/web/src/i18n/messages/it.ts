@@ -1666,6 +1666,43 @@ export const it: Messages = {
   "gchat.adminAllow":
     "Non trovi Mezonas in Google Chat? L'amministratore di Google Workspace deve consentire l'app.",
   // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  // §1.97: Microsoft Teams and Excel (needs a fluent speaker's review).
+  "teams.section": "Microsoft Teams · canali",
+  "teams.channelsTitle": "Canali collegati",
+  "teams.help":
+    "Gli agenti pubblicano solo in questi canali, e solo dopo che ha approvato ogni messaggio. Non possiamo leggere i suoi messaggi.",
+  "teams.noChannels": "Nessun canale collegato.",
+  "teams.boundBy": "Collegato {time} da {name}",
+  "teams.boundAt": "Collegato {time}",
+  "teams.codeTitle": "Collega un canale",
+  "teams.steps":
+    "In Teams, aggiunga l'app Mezonas al team, poi invii questo messaggio nel canale. Il codice vale una volta.",
+  "teams.codeExpires": "Valido fino alle {time}.",
+  "teams.codeWaiting": "Un codice è valido fino alle {time}. Se non lo ha, ne chieda uno nuovo.",
+  "teams.getCode": "Ottieni un codice",
+  "teams.newCode": "Ottieni un nuovo codice",
+  "teams.adminAllow":
+    "Non trova Mezonas in Teams? L'amministratore di Microsoft 365 deve aggiungere l'app. I canali privati non si possono collegare.",
+  "excel.section": "Excel · cartelle di lavoro",
+  "excel.help":
+    "Gli agenti usano solo le cartelle di lavoro che aggiunge qui, nel suo OneDrive. L'accesso Microsoft dice \"i tuoi file\", ma non apriamo nient'altro.",
+  "excel.none": "Nessuna cartella di lavoro aggiunta.",
+  "excel.remove": "Rimuovi",
+  "excel.otherAccount": "Aggiunta con un altro account Microsoft. La aggiunga di nuovo per usarla.",
+  "excel.searchLabel": "Trova una cartella di lavoro nel suo OneDrive",
+  "excel.searchPlaceholder": "Nome della cartella di lavoro",
+  "excel.search": "Cerca",
+  "excel.noResults":
+    "Nessuna cartella di lavoro Excel trovata. Sono elencati solo i file .xlsx del suo OneDrive.",
+  "excel.add": "Aggiungi",
+  "excel.added": "Aggiunta",
+  "excel.notConnected": "Colleghi prima Excel, poi aggiunga qui le cartelle di lavoro.",
+  "connections.excel.description":
+    "Leggere e aggiornare le cartelle di lavoro Excel che sceglie nel suo OneDrive. Non apriamo nient'altro.",
+  "connections.onedrive.description":
+    "Archiviare documenti in una cartella Mezonas del suo OneDrive. Non vediamo nient'altro.",
+  "connections.teams.description":
+    "Pubblicare aggiornamenti nei canali Teams che collega. Non possiamo leggere i suoi messaggi.",
   "connections.gsheets.description":
     "Leggi e aggiungi righe nei fogli Google Sheets che scegli. Non possiamo aprire nessun altro foglio.",
   "gsheets.section": "Google Sheets",

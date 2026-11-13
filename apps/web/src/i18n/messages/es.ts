@@ -1657,6 +1657,43 @@ export const es: Messages = {
   "gchat.adminAllow":
     "¿No encuentra Mezonas en Google Chat? El administrador de Google Workspace debe permitir la app.",
   // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  // §1.97: Microsoft Teams and Excel (needs a fluent speaker's review).
+  "teams.section": "Microsoft Teams · canales",
+  "teams.channelsTitle": "Canales conectados",
+  "teams.help":
+    "Los agentes publican solo en estos canales, y solo después de que usted apruebe cada publicación. No podemos leer sus mensajes.",
+  "teams.noChannels": "Aún no hay canales conectados.",
+  "teams.boundBy": "Conectado {time} por {name}",
+  "teams.boundAt": "Conectado {time}",
+  "teams.codeTitle": "Conectar un canal",
+  "teams.steps":
+    "En Teams, agregue la app de Mezonas al equipo y luego envíe este mensaje en el canal. El código sirve una vez.",
+  "teams.codeExpires": "Válido hasta {time}.",
+  "teams.codeWaiting": "Hay un código válido hasta {time}. Si no lo tiene, pida uno nuevo.",
+  "teams.getCode": "Obtener un código",
+  "teams.newCode": "Obtener un código nuevo",
+  "teams.adminAllow":
+    "¿No encuentra Mezonas en Teams? Su administrador de Microsoft 365 debe agregar la app. Los canales privados no se pueden conectar.",
+  "excel.section": "Excel · libros",
+  "excel.help":
+    'Los agentes usan solo los libros que agregue aquí, en su propio OneDrive. El inicio de sesión de Microsoft dice "sus archivos", pero no abrimos nada más.',
+  "excel.none": "Aún no hay libros agregados.",
+  "excel.remove": "Quitar",
+  "excel.otherAccount": "Agregado con otra cuenta de Microsoft. Agréguelo de nuevo para usarlo.",
+  "excel.searchLabel": "Buscar un libro en su OneDrive",
+  "excel.searchPlaceholder": "Nombre del libro",
+  "excel.search": "Buscar",
+  "excel.noResults":
+    "No se encontraron libros de Excel. Solo se muestran archivos .xlsx de su propio OneDrive.",
+  "excel.add": "Agregar",
+  "excel.added": "Agregado",
+  "excel.notConnected": "Conecte Excel primero y luego agregue libros aquí.",
+  "connections.excel.description":
+    "Leer y actualizar los libros de Excel que elija en su OneDrive. No abrimos nada más.",
+  "connections.onedrive.description":
+    "Archivar documentos en una carpeta de Mezonas en su OneDrive. No vemos nada más.",
+  "connections.teams.description":
+    "Publicar novedades en los canales de Teams que conecte. No podemos leer sus mensajes.",
   "connections.gsheets.description":
     "Lea y agregue filas en las hojas de Google Sheets que elija. No podemos abrir ninguna otra.",
   "gsheets.section": "Google Sheets",

@@ -1684,6 +1684,45 @@ export const fr: Messages = {
   "gchat.adminAllow":
     "Vous ne trouvez pas Mezonas dans Google Chat ? L'administrateur de Google Workspace doit autoriser l'application.",
   // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  // §1.97: Microsoft Teams and Excel (needs a fluent speaker's review).
+  "teams.section": "Microsoft Teams · canaux",
+  "teams.channelsTitle": "Canaux connectés",
+  "teams.help":
+    "Les agents publient seulement dans ces canaux, et seulement après que vous avez approuvé chaque publication. Nous ne pouvons pas lire vos messages.",
+  "teams.noChannels": "Aucun canal connecté pour l'instant.",
+  "teams.boundBy": "Connecté {time} par {name}",
+  "teams.boundAt": "Connecté {time}",
+  "teams.codeTitle": "Connecter un canal",
+  "teams.steps":
+    "Dans Teams, ajoutez l'app Mezonas à l'équipe, puis envoyez ce message dans le canal. Le code ne sert qu'une fois.",
+  "teams.codeExpires": "Valable jusqu'à {time}.",
+  "teams.codeWaiting":
+    "Un code est valable jusqu'à {time}. Si vous ne l'avez pas, demandez-en un nouveau.",
+  "teams.getCode": "Obtenir un code",
+  "teams.newCode": "Obtenir un nouveau code",
+  "teams.adminAllow":
+    "Vous ne trouvez pas Mezonas dans Teams ? Votre administrateur Microsoft 365 doit ajouter l'app. Les canaux privés ne peuvent pas être connectés.",
+  "excel.section": "Excel · classeurs",
+  "excel.help":
+    "Les agents utilisent seulement les classeurs que vous ajoutez ici, dans votre propre OneDrive. La connexion Microsoft parle de « vos fichiers », mais nous n'ouvrons rien d'autre.",
+  "excel.none": "Aucun classeur ajouté pour l'instant.",
+  "excel.remove": "Retirer",
+  "excel.otherAccount":
+    "Ajouté avec un autre compte Microsoft. Ajoutez-le de nouveau pour l'utiliser.",
+  "excel.searchLabel": "Trouver un classeur dans votre OneDrive",
+  "excel.searchPlaceholder": "Nom du classeur",
+  "excel.search": "Rechercher",
+  "excel.noResults":
+    "Aucun classeur Excel trouvé. Seuls les fichiers .xlsx de votre propre OneDrive sont listés.",
+  "excel.add": "Ajouter",
+  "excel.added": "Ajouté",
+  "excel.notConnected": "Connectez d'abord Excel, puis ajoutez des classeurs ici.",
+  "connections.excel.description":
+    "Lire et mettre à jour les classeurs Excel que vous choisissez dans votre OneDrive. Nous n'ouvrons rien d'autre.",
+  "connections.onedrive.description":
+    "Classer des documents dans un dossier Mezonas de votre OneDrive. Nous ne voyons rien d'autre.",
+  "connections.teams.description":
+    "Publier des nouvelles dans les canaux Teams que vous connectez. Nous ne pouvons pas lire vos messages.",
   "connections.gsheets.description":
     "Lisez et ajoutez des lignes dans les feuilles Google Sheets que vous choisissez. Nous ne pouvons ouvrir aucune autre feuille.",
   "gsheets.section": "Google Sheets",

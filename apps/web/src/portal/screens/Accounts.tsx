@@ -22,6 +22,7 @@ import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { accessLabel, ConnectorMark, connectionStatusLabel } from "../../connections/ConnectorMark";
 // v0.14 W4-E
+import { ExcelSetup } from "../../connections/ExcelSetup";
 import { GchatSetup } from "../../connections/GchatSetup";
 // v0.14 W4-D
 import { GsheetsSetup } from "../../connections/GsheetsSetup";
@@ -31,6 +32,7 @@ import { MatrixTable } from "../../connections/MatrixTable";
 import { openPlaidLink } from "../../connections/plaidLink";
 // v0.14 W4-C
 import { SlackChannels } from "../../connections/SlackChannels";
+import { TeamsSetup } from "../../connections/TeamsSetup";
 import { WebhookSetup } from "../../connections/WebhookSetup";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
@@ -65,6 +67,10 @@ const DESCRIPTIONS: Record<string, PlainKey> = {
   bankfeed: "connections.bankfeed.description",
   // v0.14 W4-A
   whatsapp_meta: "connections.whatsappMeta.description",
+  // §1.97
+  excel: "connections.excel.description",
+  onedrive: "connections.onedrive.description",
+  teams: "connections.teams.description",
 };
 
 /** v0.12 bankfeed: the connect button's words, where "Connect" alone says too little. */
@@ -514,6 +520,9 @@ function ConnectionRow({
               {item.connector === "slack" ? <SlackChannels /> : null}
               {/* v0.14 W4-D: the sheets agents may use, and Google's Picker to choose them. */}
               {item.connector === "gsheets" ? <GsheetsSetup /> : null}
+              {/* §1.97: Teams' channels and binding code; the Excel workbooks agents may use. */}
+              {item.connector === "teams" ? <TeamsSetup connectionId={conn.id} /> : null}
+              {item.connector === "excel" ? <ExcelSetup /> : null}
             </div>
           ) : null}
           <ConnectionActions

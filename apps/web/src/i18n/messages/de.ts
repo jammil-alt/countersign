@@ -1696,6 +1696,45 @@ export const de: Messages = {
   "gchat.adminAllow":
     "Mezonas nicht in Google Chat zu finden? Ihr Google-Workspace-Admin muss die App zulassen.",
   // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  // §1.97: Microsoft Teams and Excel (needs a fluent speaker's review).
+  "teams.section": "Microsoft Teams · Kanäle",
+  "teams.channelsTitle": "Verbundene Kanäle",
+  "teams.help":
+    "Agenten posten nur in diesen Kanälen und erst, nachdem Sie jeden Beitrag freigegeben haben. Wir können Ihre Nachrichten nicht lesen.",
+  "teams.noChannels": "Noch keine Kanäle verbunden.",
+  "teams.boundBy": "Verbunden {time} von {name}",
+  "teams.boundAt": "Verbunden {time}",
+  "teams.codeTitle": "Kanal verbinden",
+  "teams.steps":
+    "Fügen Sie in Teams die Mezonas-App zum Team hinzu und senden Sie dann diese Nachricht im Kanal. Der Code gilt einmal.",
+  "teams.codeExpires": "Gültig bis {time}.",
+  "teams.codeWaiting":
+    "Ein Code ist bis {time} gültig. Wenn Sie ihn nicht haben, holen Sie einen neuen.",
+  "teams.getCode": "Code holen",
+  "teams.newCode": "Neuen Code holen",
+  "teams.adminAllow":
+    "Sie finden Mezonas nicht in Teams? Ihr Microsoft-365-Admin muss die App hinzufügen. Private Kanäle lassen sich nicht verbinden.",
+  "excel.section": "Excel · Arbeitsmappen",
+  "excel.help":
+    "Agenten nutzen nur die Arbeitsmappen, die Sie hier hinzufügen, in Ihrem eigenen OneDrive. Microsoft schreibt bei der Anmeldung „Ihre Dateien“, aber wir öffnen nichts anderes.",
+  "excel.none": "Noch keine Arbeitsmappen hinzugefügt.",
+  "excel.remove": "Entfernen",
+  "excel.otherAccount":
+    "Mit einem anderen Microsoft-Konto hinzugefügt. Fügen Sie sie erneut hinzu, um sie zu nutzen.",
+  "excel.searchLabel": "Arbeitsmappe in Ihrem OneDrive suchen",
+  "excel.searchPlaceholder": "Name der Arbeitsmappe",
+  "excel.search": "Suchen",
+  "excel.noResults":
+    "Keine Excel-Arbeitsmappen gefunden. Nur .xlsx-Dateien in Ihrem eigenen OneDrive werden angezeigt.",
+  "excel.add": "Hinzufügen",
+  "excel.added": "Hinzugefügt",
+  "excel.notConnected": "Verbinden Sie zuerst Excel und fügen Sie dann hier Arbeitsmappen hinzu.",
+  "connections.excel.description":
+    "Die Excel-Arbeitsmappen lesen und ändern, die Sie in Ihrem OneDrive auswählen. Wir öffnen nichts anderes.",
+  "connections.onedrive.description":
+    "Dokumente in einem Mezonas-Ordner in Ihrem OneDrive ablegen. Alles andere darin sehen wir nicht.",
+  "connections.teams.description":
+    "Updates in den Teams-Kanälen posten, die Sie verbinden. Wir können Ihre Nachrichten nicht lesen.",
   "connections.gsheets.description":
     "Lesen Sie Zeilen in den Google-Tabellen, die Sie auswählen, und fügen Sie neue hinzu. Andere Tabellen können wir nicht öffnen.",
   "gsheets.section": "Google Sheets",

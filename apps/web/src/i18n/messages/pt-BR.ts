@@ -1653,6 +1653,43 @@ export const ptBR: Messages = {
   "gchat.adminAllow":
     "Não encontra o Mezonas no Google Chat? O administrador do Google Workspace precisa permitir o app.",
   // v0.14 W4-D: Google Sheets (Connections and the picking page). Needs the fluent speaker's review.
+  // §1.97: Microsoft Teams and Excel (needs a fluent speaker's review).
+  "teams.section": "Microsoft Teams · canais",
+  "teams.channelsTitle": "Canais conectados",
+  "teams.help":
+    "Os agentes publicam só nesses canais, e só depois que você aprova cada publicação. Não conseguimos ler suas mensagens.",
+  "teams.noChannels": "Nenhum canal conectado ainda.",
+  "teams.boundBy": "Conectado {time} por {name}",
+  "teams.boundAt": "Conectado {time}",
+  "teams.codeTitle": "Conectar um canal",
+  "teams.steps":
+    "No Teams, adicione o app Mezonas à equipe e envie esta mensagem no canal. O código vale uma vez.",
+  "teams.codeExpires": "Vale até {time}.",
+  "teams.codeWaiting": "Há um código válido até {time}. Se você não o tem, peça um novo.",
+  "teams.getCode": "Obter um código",
+  "teams.newCode": "Obter um novo código",
+  "teams.adminAllow":
+    "Não encontra o Mezonas no Teams? O administrador do Microsoft 365 precisa adicionar o app. Canais privados não podem ser conectados.",
+  "excel.section": "Excel · pastas de trabalho",
+  "excel.help":
+    'Os agentes usam só as pastas de trabalho que você adiciona aqui, no seu próprio OneDrive. O login da Microsoft fala em "seus arquivos", mas não abrimos mais nada.',
+  "excel.none": "Nenhuma pasta de trabalho adicionada ainda.",
+  "excel.remove": "Remover",
+  "excel.otherAccount": "Adicionada com outra conta Microsoft. Adicione de novo para usar.",
+  "excel.searchLabel": "Encontrar uma pasta de trabalho no seu OneDrive",
+  "excel.searchPlaceholder": "Nome da pasta de trabalho",
+  "excel.search": "Buscar",
+  "excel.noResults":
+    "Nenhuma pasta de trabalho do Excel encontrada. Só aparecem arquivos .xlsx do seu próprio OneDrive.",
+  "excel.add": "Adicionar",
+  "excel.added": "Adicionada",
+  "excel.notConnected": "Conecte o Excel primeiro e depois adicione pastas de trabalho aqui.",
+  "connections.excel.description":
+    "Ler e atualizar as pastas de trabalho do Excel que você escolher no seu OneDrive. Não abrimos mais nada.",
+  "connections.onedrive.description":
+    "Arquivar documentos em uma pasta Mezonas no seu OneDrive. Não vemos mais nada nele.",
+  "connections.teams.description":
+    "Publicar novidades nos canais do Teams que você conectar. Não conseguimos ler suas mensagens.",
   "connections.gsheets.description":
     "Leia e adicione linhas nas planilhas do Google Sheets que você escolher. Não conseguimos abrir nenhuma outra.",
   "gsheets.section": "Google Sheets",
