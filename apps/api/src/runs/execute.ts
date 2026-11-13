@@ -25,6 +25,7 @@ import {
   type CredentialsAccessor,
   credentialKeysFromEnv,
   encryptedCredentials,
+  globalFetch,
   type ObjectStore,
   R2ObjectStore,
   tenantKeysInDb,
@@ -103,6 +104,7 @@ import { hoursFor } from "../hours/hours";
 import { connectorServicesFor } from "../messaging/services";
 import { mailerFromEnv, texterFromEnv } from "../notify/mailer";
 import { type NotifyDeps, originOf } from "../notify/outbox";
+import { pusherFromEnv } from "../notify/push";
 // v0.13 W2-I
 import { oversightPort } from "../oversight/port";
 import type { Platform } from "../platform";
@@ -245,7 +247,12 @@ export function runDepsFromEnv(
     // §1.77: off unless the owner sets MARKETING_RESEARCH=on (docs/marketing-plan.md §11.5).
     webResearch: researchOn(env),
     // Wave 2c: the outbox's own senders, for an urgent notice's person (notify/urgent.ts).
-    notify: { mailer: mailerFromEnv(env), texter: texterFromEnv(env), origin: originOf(env) },
+    notify: {
+      mailer: mailerFromEnv(env),
+      texter: texterFromEnv(env),
+      pusher: pusherFromEnv(env, globalFetch()),
+      origin: originOf(env),
+    },
   };
 }
 

@@ -40,16 +40,30 @@ async function myNotifications(
   return { ...me.prefs, canText, emailsOn: deps.mailer.isConfigured };
 }
 
-/** Writes one person's channels into `tenant.settings.user_notifications` (others untouched). */
-async function setMine(tx: Tx, tenantId: string, userId: string, v: PersonNotificationSettings) {
+/**
+ * Writes some of one person's notification settings into `tenant.settings.user_notifications`:
+ * their other keys (email and texts, or their phones' settings, §1.97) and everyone else's stay.
+ */
+export async function mergePersonSettings(
+  tx: Tx,
+  tenantId: string,
+  userId: string,
+  v: Record<string, unknown>,
+) {
   await tx
     .update(tenant)
     .set({
       settings: sql`jsonb_set(${tenant.settings}, ${`{${USER_NOTIFICATIONS_KEY}}`}::text[],
         coalesce(${tenant.settings} -> ${USER_NOTIFICATIONS_KEY}, '{}'::jsonb)
-          || jsonb_build_object(${userId}::text, ${JSON.stringify(v)}::jsonb))`,
+          || jsonb_build_object(${userId}::text,
+            coalesce(${tenant.settings} -> ${USER_NOTIFICATIONS_KEY} -> ${userId}::text, '{}'::jsonb)
+              || ${JSON.stringify(v)}::jsonb))`,
     })
     .where(eq(tenant.id, tenantId));
+}
+
+async function setMine(tx: Tx, tenantId: string, userId: string, v: PersonNotificationSettings) {
+  await mergePersonSettings(tx, tenantId, userId, v);
 }
 
 export function notifyRouteHandlers(app: Hono<AppEnv>): void {

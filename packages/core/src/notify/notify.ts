@@ -17,7 +17,8 @@ export const NOTIFICATION_KINDS = [
 export const NotificationKind = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof NotificationKind>;
 
-export const NOTIFICATION_CHANNELS = ["email", "sms"] as const;
+// §1.97: `push`, to the person's registered phones (migration 0048).
+export const NOTIFICATION_CHANNELS = ["email", "sms", "push"] as const;
 export const NotificationChannel = z.enum(NOTIFICATION_CHANNELS);
 export type NotificationChannel = z.infer<typeof NotificationChannel>;
 
@@ -64,6 +65,9 @@ const utcDay = (at: Date) => at.toISOString().slice(0, 10);
 // no user column: without it the second person's row would be dropped as a duplicate.
 export const dedupeKeys = {
   itemsWaiting: (userId: string, at: Date) => `items:${userId}:${utcHour(at)}`,
+  // §1.97: a phone told "right away" may get one each pass (every NOTIFY_PASS_MINUTES).
+  itemsWaitingPush: (userId: string, at: Date) =>
+    `items-push:${userId}:${at.toISOString().slice(0, 16)}`,
   reconnect: (connectionId: string, at: Date, userId: string) =>
     `reconnect:${connectionId}:${utcDay(at)}:${userId}`,
   weekly: (weekStart: string, userId: string) => `weekly:${weekStart}:${userId}`,
@@ -169,13 +173,77 @@ export function withPersonNotifications(
   value: PersonNotificationSettings,
 ): Record<string, unknown> {
   const map = settings[USER_NOTIFICATIONS_KEY];
-  const current = map && typeof map === "object" && !Array.isArray(map) ? map : {};
-  return { ...settings, [USER_NOTIFICATIONS_KEY]: { ...current, [userId]: value } };
+  const current = (map && typeof map === "object" && !Array.isArray(map) ? map : {}) as Record<
+    string,
+    unknown
+  >;
+  // §1.97: the person's other keys (their push settings) stay as they are.
+  const mine = current[userId];
+  const kept = mine && typeof mine === "object" && !Array.isArray(mine) ? mine : {};
+  return { ...settings, [USER_NOTIFICATIONS_KEY]: { ...current, [userId]: { ...kept, ...value } } };
+}
+
+// ── Phone notifications (§1.97) ─────────────────────────────────────────────────────────────────
+
+export const PersonPushSettings = z.object({
+  /** Notifications on the person's registered phones. */
+  push: z.boolean(),
+  /** Items waiting: within the next pass (`now`) or at most once an hour (`hour`). */
+  pushEvery: z.enum(["now", "hour"]),
+  /** The lock screen names the business. */
+  pushShowsClient: z.boolean(),
+});
+export type PersonPushSettings = z.infer<typeof PersonPushSettings>;
+
+// DECISION: a person who registers a phone gets its notifications, right away, with a count only
+// on the lock screen; each is theirs to change in the app (docs/plan.md §1.97).
+export const DEFAULT_PERSON_PUSH: PersonPushSettings = {
+  push: true,
+  pushEvery: "now",
+  pushShowsClient: false,
+};
+
+export function personPush(
+  settings: Record<string, unknown> | null | undefined,
+  userId: string,
+): PersonPushSettings {
+  const map = settings?.[USER_NOTIFICATIONS_KEY];
+  const raw =
+    map && typeof map === "object" && !Array.isArray(map)
+      ? (map as Record<string, unknown>)[userId]
+      : undefined;
+  const r = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return {
+    push: typeof r.push === "boolean" ? r.push : DEFAULT_PERSON_PUSH.push,
+    pushEvery:
+      r.pushEvery === "now" || r.pushEvery === "hour" ? r.pushEvery : DEFAULT_PERSON_PUSH.pushEvery,
+    pushShowsClient:
+      typeof r.pushShowsClient === "boolean"
+        ? r.pushShowsClient
+        : DEFAULT_PERSON_PUSH.pushShowsClient,
+  };
+}
+
+/** Settings with one person's push settings written (their other keys and everyone else kept). */
+export function withPersonPush(
+  settings: Record<string, unknown>,
+  userId: string,
+  value: PersonPushSettings,
+): Record<string, unknown> {
+  const map = settings[USER_NOTIFICATIONS_KEY];
+  const current = (map && typeof map === "object" && !Array.isArray(map) ? map : {}) as Record<
+    string,
+    unknown
+  >;
+  const mine = current[userId];
+  const kept = mine && typeof mine === "object" && !Array.isArray(mine) ? mine : {};
+  return { ...settings, [USER_NOTIFICATIONS_KEY]: { ...current, [userId]: { ...kept, ...value } } };
 }
 
 /** Kinds that wait for the person's quiet hours on email too (texts always do). */
+// §1.97: a phone notification waits like a text does.
 export function holdsInQuietHours(kind: NotificationKind, channel: NotificationChannel): boolean {
-  return channel === "sms" || kind === "items_waiting";
+  return channel === "sms" || channel === "push" || kind === "items_waiting";
 }
 
 /** `reason` while a failed send waits for its next try. */

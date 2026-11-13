@@ -53,8 +53,9 @@ export * from "./api/library";
 // v0.12 W1-A: go-live stages and client controls
 export * from "./api/lifecycle";
 export * from "./api/messaging";
-export * from "./api/models";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
+export * from "./api/mobile";
+export * from "./api/models";
 export * from "./api/notify";
 export * from "./api/onboarding";
 // v0.13 W2-I: run oversight
@@ -181,6 +182,7 @@ export * from "./mappers/upload";
 export * from "./messaging/a2p";
 export * from "./messaging/rules";
 export * from "./messaging/signup";
+export * from "./mobile/mobile";
 export * from "./money";
 export * from "./notify/notify";
 export * from "./notify/render";

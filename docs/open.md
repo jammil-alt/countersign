@@ -158,6 +158,20 @@ URIs, MFA, session limits), production secrets, Email Routing for `in.mezonas.co
 seed's templates installed by hand on production, and the Mezonas client created there. D2 (§2) may
 bring this forward.
 
+### The phone app (owner, 2026-11-13; `docs/plan.md` §1.97, `apps/mobile/README.md`)
+
+Built and tested against fakes; nothing has run on a phone or against Expo yet. To test it:
+
+| # | Step | Notes |
+|---|---|---|
+| M1 | **Merge migration 0048 first** (its own PR), let it reach staging, then the app's PR. | 0048 adds `person_device` and widens the notification channel check; the previous Worker keeps working. |
+| M2 | **An Expo account**, then in `apps/mobile`: `npx eas-cli login`, `npx eas-cli init` (makes the project; put its id in `EAS_PROJECT_ID` for builds, or in `app.config.ts`'s env). | Push tokens need the project id; without it the app skips notifications and still signs. |
+| M3 | **iPhone**: the Apple Developer Program (organisation account, $99 a year, D-U-N-S for Twelve Thirty-Four), then `npx eas-cli build --profile development --platform ios` and let EAS make the certificates and the push key (APNs). Register your phone with `npx eas-cli device:create` first. | Bundle id `com.mezonas.app`. Approving the developer account can take a day or more: start it first. |
+| M4 | **Android**: `npx eas-cli build --profile development --platform android` installs from a link. For push, a Firebase project and its FCM v1 service-account key uploaded with `npx eas-cli credentials`. The Play Console ($25 once) only for the store. | Package `com.mezonas.app`. |
+| M5 | **Try it on staging**: sign in from the app (WorkOS in the system browser), set up the phone (notifications, Face ID), make a Desk item on the Sandbox (any approval), and check: the notification arrives within 5 minutes with a count only, tapping opens the Desk, signing asks for Face ID, the audit log has `inbox.device_signed`, Undo works within 60 seconds, removing the phone in Settings stops its notifications. | Nothing in WorkOS changes: the sign-in returns to `/api/mobile/handoff` on our own origin. |
+| M6 | Later: Expo's **enhanced push security** on, and `EXPO_ACCESS_TOKEN` as a Worker secret (a small `deploy.yml` PR). | Until then anyone holding a phone's token could send it a notification through Expo. |
+| M7 | Owner decisions: a longer session for an unlocked registered phone (today 30 idle minutes, as the browser); whether operators get the app; the store listing (name, screenshots, privacy answers); TestFlight testers. | `docs/plan.md` §1.97 "Not in this pass". |
+
 ### Sign-in codes and the Claude connector (owner, 2026-11-10)
 
 | # | Step | Notes |
