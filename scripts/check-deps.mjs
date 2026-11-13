@@ -10,7 +10,9 @@
 //    runtime dependencies, and nothing depends on it (plan §1.29);
 // 7. apps/browser (the browser service, its own Worker) runs Playwright and nothing of the
 //    platform: its code imports connectors' and core's types only (tests may use them), and nothing
-//    depends on it: apps/api reaches it only through a service binding (plan §1.26).
+//    depends on it: apps/api reaches it only through a service binding (plan §1.26);
+// 8. apps/mobile (the phone app) depends on @countersign/core and the design system's tokens only,
+//    and nothing depends on it (plan §1.97).
 // Pass a directory to check another tree (scripts/check-deps.test.mjs does).
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
@@ -32,6 +34,8 @@ const APP_ALLOWED = {
   "apps/site": new Set(["@countersign/design-system"]),
   // Types (the browser service's contract) and tests only: see BROWSER_TYPES_ONLY below.
   "apps/browser": new Set(["@countersign/connectors", "@countersign/core"]),
+  // §1.97: the phone app reaches the platform only through the API, typed by core's contract.
+  "apps/mobile": new Set(["@countersign/core", "@countersign/design-system"]),
 };
 /**
  * Apps whose runtime dependencies are a fixed list: the code service keeps no database, storage or
@@ -57,6 +61,7 @@ const NO_DEPENDENTS = new Map([
   ["@countersign/mfa", "reached only by service binding"],
   ["@countersign/site", "the public site, not a library"],
   ["@countersign/browser", "reached only by service binding"],
+  ["@countersign/mobile", "the phone app, not a library"],
 ]);
 
 function* files(dir) {
