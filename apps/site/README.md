@@ -11,7 +11,7 @@ needs on our own domain (a homepage that describes the app, with a privacy polic
 | `/terms` | Terms of service (B2B managed service) |
 | `/privacy` | Privacy policy, with the Google user data section and Google's Limited Use sentence |
 | `/subprocessors` | Our providers and the services clients connect themselves |
-| `/sms-terms` | Text message terms for the people clients text (A2P 10DLC review): who sends, opt-in, what the messages are, frequency, rates, STOP and HELP, carriers |
+| `/sms-terms` | Text message terms for the people clients text (A2P 10DLC review): who sends, opt-in (express or a business relationship), Mezonas's own opt-in at `#opt-in` (the START keyword and the notice on the vendor setup form and on estimates, invoices and purchase orders; the campaign links here), what the messages are, frequency, rates, STOP and HELP, carriers |
 | `/no-measure` | How we measure the site and how to opt out. Built only while measuring is on ("Measuring" below); `noindex`, not in the sitemap |
 | `/guides`, `/guides/<slug>` | Published guides, served by the Worker from R2 while guides are on ("Guides" below); off, the 404 page |
 | anything else | `404.html` |

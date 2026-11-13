@@ -263,6 +263,41 @@ describe("text messages", () => {
     expect(text).toMatch(/\bSTART\b/);
   });
 
+  it("shows the opt-in evidence for the 10DLC campaign at #opt-in", () => {
+    const { html } = page("sms-terms");
+    const start = html.indexOf('<section id="opt-in"');
+    expect(start).toBeGreaterThan(-1);
+    const section = visibleText(html.slice(start, html.indexOf("</section>", start)));
+    expect(section).toContain("How to get texts from Mezonas");
+    expect(section).toContain(
+      `Text START to +1 469 378 9525 to get texts from Mezonas (${ENTITY}).`,
+    );
+    expect(section).toContain("2FA/OTP verification codes");
+    // The notice on the forms and documents, word for word.
+    expect(section).toContain(
+      `By giving us your mobile number you agree to texts from Mezonas (${ENTITY}) about your ` +
+        "orders. Msg & data rates may apply. Msg frequency varies. Reply STOP to opt out, HELP " +
+        "for help.",
+    );
+    for (const place of ["vendor setup form", "estimates, invoices and purchase orders"]) {
+      expect(section).toContain(place);
+    }
+    // Every link in the contents points at a section on the page, once.
+    const allIds = attrs(html, "id");
+    for (const href of attrs(html, "href").filter((h) => h.startsWith("#"))) {
+      expect(
+        allIds.filter((id) => id === href.slice(1)),
+        href,
+      ).toHaveLength(1);
+    }
+  });
+
+  it("covers the business relationship basis, with the first text's opt-out", () => {
+    const text = visibleText(page("sms-terms").html);
+    expect(text).toContain("gave the business your mobile number for the work you do together");
+    expect(text).toContain("The first text names the business and tells you how to stop.");
+  });
+
   it("is linked from the terms and from every page's footer", () => {
     expect(attrs(page("terms").html, "href")).toContain("/sms-terms");
     for (const p of pages) {
