@@ -312,6 +312,9 @@ export const it: Messages = {
   "inbox.reject": "Rifiuta",
   "inbox.sign": "Approva",
   "inbox.findingSteps": "Cosa fare",
+  "inbox.sentAs": "Come partirà",
+  "inbox.sentAsNote":
+    "Il primo SMS a una persona, e il primo dopo 30 giorni, riporta il vostro nome e finisce con come disiscriversi. Lo aggiungiamo noi.",
   "inbox.findingDone": "Fatto",
   "inbox.signAndUpdate": "Approva e aggiorna {tool}",
   // ── Your Desk (UI-1b) ──
@@ -1345,6 +1348,13 @@ export const it: Messages = {
   "contacts.howAgreed": "Come ha accettato",
   "contacts.howAgreedHint": "Per esempio: ha firmato il contratto di servizio.",
   "contacts.recordConsent": "Registra il consenso",
+  "contacts.business": "Ci ha dato questo numero per lavoro",
+  "contacts.businessHint":
+    "Copre SMS, chiamate del nostro assistente ed email sul vostro lavoro insieme. WhatsApp richiede ancora il loro consenso.",
+  "contacts.businessWhere": "Dove l'ha dato",
+  "contacts.businessWhereHint": "Per esempio: numero sulle loro fatture.",
+  "contacts.businessRecord": "Registra",
+  "contacts.businessLine": "{channels}: vi ha dato questo numero per lavoro ({source}).",
   "contacts.withdrawConsent": "Ritira il consenso",
   "contacts.optOutAll": "Disiscrivi da tutto",
   "contacts.loadingMessages": "Caricamento dei messaggi…",
@@ -1785,6 +1795,14 @@ export const it: Messages = {
   "peoplePage.col.about": "Note",
   "peoplePage.empty": "Ancora nessuno.",
   "peoplePage.noMatch": "Nessuno corrisponde.",
+  "peoplePage.selectPerson": "Seleziona {name}",
+  "peoplePage.selectShown": "Seleziona tutti quelli mostrati",
+  "peoplePage.selectQuickBooks": "Seleziona tutti quelli da QuickBooks",
+  "peoplePage.selected": "{count} selezionati",
+  "peoplePage.clearSelection": "Annulla selezione",
+  "peoplePage.bulkBusiness": "Ci hanno dato questi numeri per lavoro",
+  "peoplePage.bulkDone": "Registrato per {count}.",
+  "peoplePage.bulkSkipped": "{count} esclusi: disiscritti, o senza telefono né email.",
   "peoplePage.reachNone": "Ancora nessun modo per contattarla",
   "peoplePage.cannot.optedOut": "Disiscritto",
   "peoplePage.cannot.noConsent": "Ancora senza consenso",
@@ -2374,6 +2392,9 @@ export const it: Messages = {
   "texting.optIn": "Come le persone accettano i tuoi SMS",
   "texting.optInHelp":
     "Con parole tue: dove danno il loro numero e cosa accettano. Almeno 40 caratteri.",
+  "texting.optInRelationship": "Parti dal testo per chi vi ha dato il numero",
+  "texting.optInRelationshipHelp":
+    "Mettete la frase tra virgolette su ogni modulo dove vi danno il numero, poi indicate qui dove si trovano quei moduli.",
   "texting.privacy": "Link all'informativa sulla privacy",
   "texting.terms": "Link ai termini",
   "texting.hasLinks": "I nostri SMS contengono link",

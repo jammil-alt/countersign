@@ -469,7 +469,8 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
       expect(twilio.sends().at(-1)?.form).toMatchObject({
         To: PAT,
         From: number,
-        Body: "Thanks, we got your message.",
+        // §1.97: the first text to Pat names the client and offers STOP, added in code.
+        Body: "Client A: Thanks, we got your message. Reply STOP to opt out.",
         StatusCallback: setup.webhooks.status,
       });
       const [action] = await H.t.db
@@ -477,7 +478,12 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
         .from(externalAction)
         .where(eq(externalAction.runId, params.runId));
       expect(action).toMatchObject({ status: "done", tool: SMS_SEND_TOOL, approvedBy: H.A.admin });
-      expect(action?.before).toMatchObject({ contact: { name: "Pat Lee" }, channel: "sms" });
+      // The approval card showed the words as they went.
+      expect(action?.before).toMatchObject({
+        contact: { name: "Pat Lee" },
+        channel: "sms",
+        sentAs: "Client A: Thanks, we got your message. Reply STOP to opt out.",
+      });
       // Replaying the run sends nothing more.
       await executeRun(deps(), params, cloudflareStepRunner(approver("a")));
       expect(twilio.sends()).toHaveLength(sendsBefore + 1);
@@ -743,6 +749,183 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
             .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.kind, "review"))),
         ).toHaveLength(1);
       }
+    });
+  });
+
+  // §1.97: they gave the client this number for business.
+  describe("the relationship basis", () => {
+    const LEE = "+15555550301";
+    const KIM = "+15555550302";
+    const ROY = "+15555550303";
+
+    it("covers texts, calls and email on a new contact, never WhatsApp, with the note kept", async () => {
+      const made = await H.call(admin("a"), "POST", "/api/contacts", {
+        name: "Lee Park",
+        phone: LEE,
+        whatsapp: LEE,
+        email: "lee@vendor.example",
+        consent: { basis: "relationship", source: "number on their invoices" },
+      });
+      expect(made.status, JSON.stringify(made.json)).toBe(200);
+      const c = j(made.json).contact;
+      expect(c).toMatchObject({
+        canMessage: { sms: true, whatsapp: false },
+        canCall: true,
+        canEmail: true,
+        consent: {
+          sms: { basis: "relationship", source: "number on their invoices" },
+          voice: { basis: "relationship" },
+          email: { basis: "relationship" },
+        },
+      });
+      expect(c.consent.whatsapp).toBeUndefined();
+      // The note is required.
+      const bare = await H.call(admin("a"), "POST", "/api/contacts", {
+        name: "No note",
+        phone: "+15555550399",
+        consent: { basis: "relationship", source: "" },
+      });
+      expect(bare.status).toBe(400);
+      const [log] = await H.t.db
+        .select()
+        .from(contactChange)
+        .where(eq(contactChange.contactId, c.id));
+      expect(log?.change).toMatchObject({ kind: "created", basis: "relationship" });
+    });
+
+    it("records it on one contact, keeps express consent, and refuses after an opt-out", async () => {
+      const made = await H.call(admin("a"), "POST", "/api/contacts", {
+        name: "Kim Ortiz",
+        phone: KIM,
+        consent: { channels: ["sms"], source: "signed the order form" },
+      });
+      const id = j(made.json).contact.id;
+      const rec = await H.call(admin("a"), "POST", `/api/contacts/${id}/consent`, {
+        action: "relationship",
+        source: "gave it on the phone",
+      });
+      expect(rec.status, JSON.stringify(rec.json)).toBe(200);
+      expect(j(rec.json).contact).toMatchObject({
+        canCall: true,
+        consent: {
+          sms: { source: "signed the order form", basis: "express" },
+          voice: { source: "gave it on the phone", basis: "relationship" },
+        },
+      });
+      // The operator records it from the back office too; client B can't reach the contact.
+      expect(
+        (
+          await H.call(OPERATOR, "POST", `/api/ops/clients/${A()}/contacts/${id}/consent`, {
+            action: "relationship",
+            source: "on their invoices",
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await H.call(admin("b"), "POST", `/api/contacts/${id}/consent`, {
+            action: "relationship",
+            source: "mine",
+          })
+        ).status,
+      ).toBe(404);
+      // A STOP still stops every channel, and the basis can't be recorded over it.
+      await textIn(KIM, "STOP");
+      const after = await H.call(admin("a"), "GET", "/api/contacts");
+      const kim = j(after.json).items.find((x: { id: string }) => x.id === id);
+      expect(kim).toMatchObject({
+        canMessage: { sms: false },
+        canCall: false,
+        optedOut: { source: "keyword:STOP" },
+      });
+      const again = await H.call(admin("a"), "POST", `/api/contacts/${id}/consent`, {
+        action: "relationship",
+        source: "on their invoices",
+      });
+      expect(again.status).toBe(409);
+    });
+
+    it("records it for many at once, only within the client and only for the client admin or operator", async () => {
+      const roy = j(
+        (await H.call(admin("a"), "POST", "/api/contacts", { name: "Roy Diaz", phone: ROY })).json,
+      ).contact.id;
+      const mailOnly = j(
+        (
+          await H.call(admin("a"), "POST", "/api/contacts", {
+            name: "Ana Ruiz",
+            email: "ana@customer.example",
+          })
+        ).json,
+      ).contact.id;
+      const waOnly = j(
+        (
+          await H.call(admin("a"), "POST", "/api/contacts", {
+            name: "Wa Only",
+            whatsapp: "+15555550304",
+          })
+        ).json,
+      ).contact.id;
+      const kim = j((await H.call(admin("a"), "GET", "/api/contacts")).json).items.find(
+        (x: { phone: string | null }) => x.phone === KIM,
+      ).id;
+      const theirs = j(
+        (await H.call(admin("b"), "POST", "/api/contacts", { name: "B's", phone: ROY })).json,
+      ).contact.id;
+      const body = {
+        contactIds: [roy, mailOnly, waOnly, kim, theirs],
+        source: "vendor list from QuickBooks",
+      };
+      // Not a client user, not another client's operator, not the portal route for the operator.
+      expect(
+        (await H.call(user("a"), "POST", "/api/contacts/consent/relationship", body)).status,
+      ).toBe(403);
+      expect(
+        (
+          await H.call(
+            OTHER_OPERATOR,
+            "POST",
+            `/api/ops/clients/${A()}/contacts/consent/relationship`,
+            body,
+          )
+        ).status,
+      ).toBe(404);
+      expect(
+        (await H.call(OPERATOR, "POST", "/api/contacts/consent/relationship", body)).status,
+      ).toBe(403);
+      const res = await H.call(admin("a"), "POST", "/api/contacts/consent/relationship", body);
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      expect(j(res.json).updated).toEqual([roy, mailOnly]);
+      expect(j(res.json).skipped).toEqual([
+        { id: waOnly, reason: "no_address" },
+        { id: kim, reason: "opted_out" },
+        // Client B's contact isn't found from client A.
+        { id: theirs, reason: "not_found" },
+      ]);
+      const [b] = await H.t.db.select().from(contact).where(eq(contact.id, theirs));
+      expect(b?.consent).toEqual({});
+      const list = j((await H.call(admin("a"), "GET", "/api/contacts")).json).items;
+      expect(list.find((x: { id: string }) => x.id === roy)).toMatchObject({
+        canMessage: { sms: true },
+        canCall: true,
+      });
+      expect(list.find((x: { id: string }) => x.id === mailOnly)).toMatchObject({ canEmail: true });
+      // The operator's route does the same for a client it serves.
+      const ops = await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/clients/${A()}/contacts/consent/relationship`,
+        { contactIds: [roy], source: "on their invoices" },
+      );
+      expect(j(ops.json).updated).toEqual([roy]);
+      const logged = await H.t.db
+        .select()
+        .from(contactChange)
+        .where(eq(contactChange.contactId, roy));
+      expect(logged.map((l) => (l.change as { kind: string }).kind)).toEqual([
+        "created",
+        "relationship",
+        "relationship",
+      ]);
     });
   });
 });

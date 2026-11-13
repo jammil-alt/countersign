@@ -33,6 +33,7 @@ import {
   rawRecord,
   run,
   type Tx,
+  tenant,
   usageDaily,
   withTenant,
 } from "@countersign/db";
@@ -50,6 +51,7 @@ import {
   contactThread,
   findContactByNumber,
   getContact,
+  lastTextAt,
   messagingSettings,
   type ThreadMessageBody,
 } from "./contacts";
@@ -79,6 +81,12 @@ export async function lastInboundAt(
     .orderBy(desc(rawRecord.syncedAt))
     .limit(1);
   return row?.at ?? null;
+}
+
+/** The client's name, as its contacts know it. */
+async function clientNameOf(tx: Tx, tenantId: string): Promise<string> {
+  const [row] = await tx.select({ name: tenant.name }).from(tenant).where(eq(tenant.id, tenantId));
+  return row?.name ?? "";
 }
 
 export function dbMessagingServices(db: Db, connection: ConnectionRef): MessagingServices {
@@ -114,8 +122,17 @@ export function dbMessagingServices(db: Db, connection: ConnectionRef): Messagin
             };
           }
         }
+        // §1.97: the first text (or the first in 30 days) names the client and offers STOP.
+        const texts =
+          input.channel === "sms"
+            ? {
+                lastTextAt: await lastTextAt(tx, tenantId, c.id),
+                client: await clientNameOf(tx, tenantId),
+              }
+            : {};
         return {
           ok: true as const,
+          ...texts,
           // The language to write to them in (§1.27): theirs, their organization's, the client's.
           contact: { id: c.id, name: c.name, language: (await contactLanguage(tx, c)).language },
           lastInboundAt: await lastInboundAt(

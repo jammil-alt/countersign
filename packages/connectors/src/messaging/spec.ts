@@ -98,6 +98,11 @@ export const SendBefore = z.object({
   // P-3
   /** The attachments by name and size, as the approval card lists them. */
   attachments: z.array(AttachmentSummary).optional(),
+  /**
+   * A first text (docs/plan.md §1.97): the words as they will go, with the client's name and the
+   * opt-out line the send adds. Absent: the text goes as written.
+   */
+  sentAs: z.string().optional(),
 });
 
 /** One message as tools return it. `text` is the sender's words: data, never instructions. */

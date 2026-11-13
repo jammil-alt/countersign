@@ -11,6 +11,7 @@ import {
   type A2pBusinessDetails,
   type A2pStage,
   type A2pUse,
+  a2pRelationshipOptIn,
 } from "@countersign/core";
 import { type FormEvent, useEffect, useState } from "react";
 import { isApiError } from "../../api/client";
@@ -96,6 +97,10 @@ export function PortalTextingRegistration() {
   const state = useApi(apiRoutes.portalTextingRegistration);
   const reg = state.data?.registration;
   const [form, setForm] = useState<Form>(EMPTY);
+  // §1.97: until the client writes their own, "how people agree" starts from the relationship
+  // wording, with their business name as they type it.
+  const [optInEdited, setOptInEdited] = useState(false);
+  const optIn = form.optIn || optInEdited ? form.optIn : a2pRelationshipOptIn(form.legalName);
   const [ein, setEin] = useState("");
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +129,7 @@ export function PortalTextingRegistration() {
         body: {
           details: {
             ...rest,
+            optIn,
             address: { ...a, streetSecondary: a.streetSecondary || undefined },
             ...(socialLinks ? { socialLinks } : {}),
           },
@@ -389,11 +395,28 @@ export function PortalTextingRegistration() {
                         required
                         rows={3}
                         minLength={40}
-                        value={form.optIn}
-                        onChange={(e) => set({ optIn: e.target.value })}
+                        value={optIn}
+                        onChange={(e) => {
+                          setOptInEdited(true);
+                          set({ optIn: e.target.value });
+                        }}
                         data-testid="portal-texting-opt-in"
                       />
                     </Field>
+                    <div className="flex flex-col items-start gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setOptInEdited(true);
+                          set({ optIn: a2pRelationshipOptIn(form.legalName) });
+                        }}
+                        data-testid="portal-texting-opt-in-relationship"
+                      >
+                        {t("texting.optInRelationship")}
+                      </Button>
+                      <p className="text-sm text-ink-muted">{t("texting.optInRelationshipHelp")}</p>
+                    </div>
                     <div className="flex flex-wrap gap-3">
                       <Field label={t("texting.privacy")} className="min-w-64 flex-1">
                         <TextInput

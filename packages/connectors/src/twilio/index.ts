@@ -8,12 +8,14 @@ import {
   type Keyword,
   keywordOf,
   type MessagingChannel,
+  needsIntroduction,
   normalizePhone,
   RELEASE_TEXT_PREFIXES,
   type StoredMedia,
   sendBlockMessage,
   TwilioNumber,
   trimTrailingSlashes,
+  withIntroduction,
 } from "@countersign/core";
 import { z } from "zod";
 // P-3: attachments both ways
@@ -57,6 +59,7 @@ import {
   SendBefore,
   SendOutput,
   SMS_SEND_TOOL,
+  SMS_TEXT_MAX,
   SmsSendInput,
   WHATSAPP_SEND_TOOL,
   WhatsAppSendInput,
@@ -608,7 +611,13 @@ async function checkSend(
   channel: MessagingChannel,
   to: string,
   opts: { forSending: boolean },
-): Promise<{ contact: SendContact; from: string; lastInboundAt: Date | null }> {
+): Promise<{
+  contact: SendContact;
+  from: string;
+  lastInboundAt: Date | null;
+  lastTextAt: Date | null | undefined;
+  client: string | undefined;
+}> {
   const config = configOf(ctx);
   const from = senderFor(config, channel);
   if (channel === "sms" && isNanpNumber(from) && config.a2p.status !== "approved") {
@@ -621,7 +630,37 @@ async function checkSend(
     ignoreQuietHours: !opts.forSending,
   });
   if (!check.ok) throw new SendBlockedError(check.block, check.message);
-  return { contact: check.contact, from, lastInboundAt: check.lastInboundAt };
+  return {
+    contact: check.contact,
+    from,
+    lastInboundAt: check.lastInboundAt,
+    lastTextAt: check.lastTextAt,
+    client: check.client,
+  };
+}
+
+/**
+ * A text as it goes out (docs/plan.md §1.97): the first to this contact, or the first in 30 days,
+ * names the client and ends with the opt-out line. The same words on the approval card and in
+ * the send. Too long with them for one message: refused, for the agent to shorten.
+ */
+export function smsBody(
+  text: string,
+  check: { contact: SendContact; lastTextAt: Date | null | undefined; client: string | undefined },
+  now: Date,
+): { text: string; introduced: boolean } {
+  if (!needsIntroduction(check.lastTextAt, now)) return { text, introduced: false };
+  const out = withIntroduction(text, {
+    client: check.client ?? "",
+    language: check.contact.language,
+  });
+  if (out.length > SMS_TEXT_MAX) {
+    throw new SendBlockedError(
+      "too_long",
+      `a first text names the business and ends with the opt-out line, which makes this one longer than ${SMS_TEXT_MAX} characters: shorten it`,
+    );
+  }
+  return { text: out, introduced: out !== text };
 }
 
 const MessageCreated = TwilioMessage.extend({ sid: MessageSid });
@@ -776,9 +815,8 @@ async function send(
   const attempt = await services.attemptFor(ctx.idempotencyKey);
   if (attempt) return reconcile(fetch, ctx, services, attempt);
 
-  const { contact, from, lastInboundAt } = await checkSend(ctx, input.channel, input.to, {
-    forSending: true,
-  });
+  const checked = await checkSend(ctx, input.channel, input.to, { forSending: true });
+  const { contact, from, lastInboundAt } = checked;
   const config = configOf(ctx);
   const auth = await twilioAuthOf(ctx);
   const prefix = input.channel === "whatsapp" ? "whatsapp:" : "";
@@ -807,7 +845,8 @@ async function send(
       form.ContentVariables = JSON.stringify(input.template.variables);
     }
   } else {
-    form.Body = input.text ?? "";
+    // §1.97: a first text names the client and offers STOP, added here, in code.
+    form.Body = smsBody(input.text ?? "", checked, ctx.now()).text;
   }
   // P-3: each file as a MediaUrl Twilio fetches within the link's five minutes; with a template
   // (outside WhatsApp's window) no file can go, so the send is refused rather than sent without.
@@ -821,7 +860,7 @@ async function send(
   const attached = attachmentLine(media);
   const text = useTemplate
     ? `template ${input.template?.id ?? ""}`
-    : [input.text ?? "", attached].filter(Boolean).join("\n\n");
+    : [form.Body ?? input.text ?? "", attached].filter(Boolean).join("\n\n");
   const templateId = useTemplate ? (input.template?.id ?? null) : null;
   // DECISION: at most once. Twilio's message create takes no idempotency key (NOTES.md), so the
   // attempt is recorded, with its time, before Twilio is called. A re-run that finds an attempt
@@ -891,6 +930,7 @@ const before = async (
   channel: MessagingChannel,
   to: string,
   attachments?: { documentId: string }[],
+  text?: string,
 ): Promise<z.input<typeof SendBefore>> => {
   // Executing (executeWrite passes the action's key; drawing the approval card has none): a
   // message already sent or started under the key is described as it was, without the checks, as
@@ -907,14 +947,18 @@ const before = async (
       };
     }
   }
-  const { contact } = await checkSend(ctx, channel, to, { forSending: false });
+  const checked = await checkSend(ctx, channel, to, { forSending: false });
+  const { contact } = checked;
   // P-3: the files by name and size, checked as the send will check them.
   const files = await describeOutbound(ctx, attachments, limitsFor(channel));
+  // §1.97: the text as it will go, when the send adds the introduction and opt-out line.
+  const sms = channel === "sms" && text !== undefined ? smsBody(text, checked, ctx.now()) : null;
   return {
     contact: { id: contact.id, name: contact.name },
     channel,
     to,
     ...(files.length ? { attachments: files } : {}),
+    ...(sms?.introduced ? { sentAs: sms.text } : {}),
   };
 };
 
@@ -1014,7 +1058,7 @@ export function createTwilioConnector(options: TwilioConnectorOptions = {}): Con
         input: SmsSendInput,
         output: SendOutput,
         beforeSchema: SendBefore,
-        before: (input, ctx) => before(ctx, "sms", input.to, input.attachments),
+        before: (input, ctx) => before(ctx, "sms", input.to, input.attachments, input.text),
         run: (input, ctx) =>
           send(doFetch(), ctx, {
             channel: "sms",
