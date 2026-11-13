@@ -114,24 +114,37 @@ describe.skipIf(!h)("Calendars through the API", () => {
     const start = await call(admin("a"), "POST", `/api/connections/${connector}/authorize`);
     expect(start.status, JSON.stringify(start.json)).toBe(200);
     const redirect = new URL(j(start.json).redirectUrl);
-    expect(redirect.searchParams.get("redirect_uri")).toBe(`${ORIGIN}/connections/${connector}/callback`);
+    expect(redirect.searchParams.get("redirect_uri")).toBe(
+      `${ORIGIN}/connections/${connector}/callback`,
+    );
     const done = await call(admin("a"), "POST", `/api/connections/${connector}/callback`, {
       params: { code, state: redirect.searchParams.get("state") ?? "" },
     });
     expect(done.status, JSON.stringify(done.json)).toBe(200);
     const id = j(done.json).connection.connection.id;
     const [row] = await H.t.db.select().from(connection).where(eq(connection.id, id));
-    expect(row?.permissions).toMatchObject({ create: "approval", update: "approval", delete: "off" });
+    expect(row?.permissions).toMatchObject({
+      create: "approval",
+      update: "approval",
+      delete: "off",
+    });
     return { id, scope: redirect.searchParams.get("scope") };
   }
 
   async function run(slug: string, bindings: Record<string, string>) {
-    const created = await call(OPERATOR, "POST", `/api/ops/clients/${A()}/agents`, { slug, bundle: bundle() });
+    const created = await call(OPERATOR, "POST", `/api/ops/clients/${A()}/agents`, {
+      slug,
+      bundle: bundle(),
+    });
     expect(created.status, JSON.stringify(created.json)).toBe(200);
     expect(j(created.json).errors ?? []).toEqual([]);
     const id = j(created.json).agent.id;
     await call(OPERATOR, "PATCH", `/api/ops/agents/${id}/operation`, { bindings });
-    const pub = await call(OPERATOR, "POST", `/api/ops/agents/${id}/versions/${j(created.json).version.id}/publish`);
+    const pub = await call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${id}/versions/${j(created.json).version.id}/publish`,
+    );
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
     await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, id));
     const res = await call(OPERATOR, "POST", `/api/ops/agents/${id}/run`, { workflow: "main" });
@@ -142,9 +155,13 @@ describe.skipIf(!h)("Calendars through the API", () => {
     const step = new FakeWorkflowStep(async (_name, type) => {
       atWait.push(outlook.events.size + google.events.size);
       const inbox = await call(admin("a"), "GET", "/api/inbox");
-      const item = j(inbox.json).items.find((i: { id: string }) => `inbox-${i.id.replace(/-/g, "")}` === type);
+      const item = j(inbox.json).items.find(
+        (i: { id: string }) => `inbox-${i.id.replace(/-/g, "")}` === type,
+      );
       if (!item) throw new Error(`no open item for ${type}`);
-      const done = await call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, { decision: "approve" });
+      const done = await call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, {
+        decision: "approve",
+      });
       expect(done.status, JSON.stringify(done.json)).toBe(200);
       return H.instances.events.find((e) => e.event.type === type)?.event.payload;
     });
@@ -155,8 +172,13 @@ describe.skipIf(!h)("Calendars through the API", () => {
       instances: H.instances,
       credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
     };
-    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual({ status: "succeeded" });
-    const [action] = await H.t.db.select().from(externalAction).where(eq(externalAction.runId, params.runId));
+    expect(await executeRun(deps, params, cloudflareStepRunner(step))).toEqual({
+      status: "succeeded",
+    });
+    const [action] = await H.t.db
+      .select()
+      .from(externalAction)
+      .where(eq(externalAction.runId, params.runId));
     // The run replayed (a retried Workflow): nothing is made twice.
     await executeRun(deps, params, cloudflareStepRunner(step));
     return { atWait, action };
@@ -171,7 +193,9 @@ describe.skipIf(!h)("Calendars through the API", () => {
 
   it("signs in to each with its own scope", async () => {
     const o = await signIn("outlook_calendar", outlook.issueCode());
-    expect(o.scope).toBe("openid email offline_access https://graph.microsoft.com/Calendars.ReadWrite");
+    expect(o.scope).toBe(
+      "openid email offline_access https://graph.microsoft.com/Calendars.ReadWrite",
+    );
     conns.outlook = o.id;
     const g = await signIn("gcal", google.issueCode());
     expect(g.scope).toContain("calendar.events.owned");
@@ -179,12 +203,18 @@ describe.skipIf(!h)("Calendars through the API", () => {
   });
 
   it("one workflow books in Outlook when bound to Outlook, after approval, once", async () => {
-    const { atWait, action } = await run("scheduler-outlook", { outlook_calendar: conns.outlook as string });
+    const { atWait, action } = await run("scheduler-outlook", {
+      outlook_calendar: conns.outlook as string,
+    });
     expect(atWait).toEqual([0]);
     expect(outlook.events.size).toBe(1);
     expect(google.events.size).toBe(0);
     expect([...outlook.events.values()][0]?.subject).toBe("Delivery walk-through");
-    expect(action).toMatchObject({ tool: CALENDAR_TOOLS.create, status: "done", connectionId: conns.outlook });
+    expect(action).toMatchObject({
+      tool: CALENDAR_TOOLS.create,
+      status: "done",
+      connectionId: conns.outlook,
+    });
     expect(action?.before).toMatchObject({ invites: [MARIA] });
   });
 
@@ -192,7 +222,11 @@ describe.skipIf(!h)("Calendars through the API", () => {
     const { action } = await run("scheduler-google", { gcal: conns.gcal as string });
     expect(google.events.size).toBe(1);
     expect(outlook.events.size).toBe(1);
-    expect(action).toMatchObject({ tool: CALENDAR_TOOLS.create, status: "done", connectionId: conns.gcal });
+    expect(action).toMatchObject({
+      tool: CALENDAR_TOOLS.create,
+      status: "done",
+      connectionId: conns.gcal,
+    });
   });
 
   it("never put a token in a response", () => {
