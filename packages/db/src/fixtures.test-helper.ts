@@ -56,6 +56,7 @@ import {
   organizationChange,
   oversightDecision,
   ownerCheck,
+  personDevice,
   qboWebhookEvent,
   rawRecord,
   reachOut,
@@ -811,6 +812,15 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     note: "The bill went to the wrong vendor.",
     markedBy: u.id,
     inboxItemId: ii.id,
+  });
+  // §1.97: the person's phone.
+  await db.insert(personDevice).values({
+    tenantId,
+    userId: u.id,
+    name: "Phone",
+    platform: "ios",
+    pushToken: "ExponentPushToken[fixture]",
+    publicKey: { kty: "EC", crv: "P-256", x: "A".repeat(43), y: "B".repeat(43) },
   });
   await db.insert(ledgerAccountNote).values({
     tenantId,
