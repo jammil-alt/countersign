@@ -263,6 +263,60 @@ describe("text messages", () => {
     expect(text).toMatch(/\bSTART\b/);
   });
 
+  // docs/plan.md §1.98: people sign up themselves, on the sign-up page or by START.
+  it("shows the opt-in evidence for the 10DLC campaign at #opt-in", () => {
+    const { html } = page("sms-terms");
+    const start = html.indexOf('<section id="opt-in"');
+    expect(start).toBeGreaterThan(-1);
+    const raw = html.slice(start, html.indexOf("</section>", start));
+    const section = visibleText(raw);
+    expect(section).toContain("How to sign up for texts");
+    expect(section).toContain(
+      `Text START to +1 469 378 9525 to get texts from Mezonas (${ENTITY}).`,
+    );
+    expect(section).toContain("2FA/OTP verification codes");
+    // The words beside the box, word for word, and the box starts unticked.
+    expect(section).toContain(
+      `I agree to get text messages from ${ENTITY}, sent through Mezonas, about my work with ` +
+        `${ENTITY}: questions, updates, codes and alerts. No marketing. Msg frequency varies. ` +
+        "Msg & data rates may apply. Reply STOP to opt out, HELP for help.",
+    );
+    expect(section).toContain("which starts unticked");
+    expect(section).toContain("Don't ask me again");
+    expect(section).toContain(
+      `${ENTITY}: you are signed up for texts from us. Message frequency varies. Msg & data ` +
+        "rates may apply. Reply HELP for help, STOP to opt out.",
+    );
+    // The screenshots, each with words for anyone who can't see it, and each file built.
+    const images = attrs(raw, "src");
+    expect(images).toEqual([
+      "/sms-signup/signup-page.png",
+      "/sms-signup/invitation-email.png",
+      "/sms-signup/invitation-page.png",
+    ]);
+    for (const alt of attrs(raw, "alt")) expect(alt.length).toBeGreaterThan(40);
+    for (const src of images) expect(existsSync(join(out, src))).toBe(true);
+    // Every link in the contents points at a section on the page, once.
+    const allIds = attrs(html, "id");
+    for (const href of attrs(html, "href").filter((h) => h.startsWith("#"))) {
+      expect(
+        allIds.filter((id) => id === href.slice(1)),
+        href,
+      ).toHaveLength(1);
+    }
+  });
+
+  it("asks for the person's own sign-up, never a number given for business (§1.98)", () => {
+    const text = visibleText(page("sms-terms").html);
+    expect(text).toContain("You sign up yourself, on the business's texting sign-up page");
+    expect(text).toContain("The box is never ticked for you.");
+    expect(text).not.toContain("gave the business your mobile number for the work you do together");
+    expect(text).not.toContain("estimates, invoices and purchase orders");
+    const privacy = visibleText(page("privacy").html);
+    expect(privacy).toContain("People sign up for texts themselves");
+    expect(privacy).toContain("Don't ask me again");
+  });
+
   it("is linked from the terms and from every page's footer", () => {
     expect(attrs(page("terms").html, "href")).toContain("/sms-terms");
     for (const p of pages) {

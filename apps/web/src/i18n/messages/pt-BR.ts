@@ -306,6 +306,9 @@ export const ptBR: Messages = {
   "inbox.reject": "Rejeitar",
   "inbox.sign": "Aprovar",
   "inbox.findingSteps": "O que fazer",
+  "inbox.sentAs": "Como será enviada",
+  "inbox.sentAsNote":
+    "A primeira mensagem para uma pessoa, e a primeira depois de 30 dias, cita você e termina com como sair. Nós adicionamos.",
   "inbox.findingDone": "Feito",
   "inbox.signAndUpdate": "Aprovar e atualizar {tool}",
   // ── Your Desk (UI-1b) ──
@@ -1338,6 +1341,13 @@ export const ptBR: Messages = {
   "contacts.howAgreed": "Como concordou",
   "contacts.howAgreedHint": "Por exemplo: assinou o contrato de serviço.",
   "contacts.recordConsent": "Registrar o consentimento",
+  "contacts.business": "Nos passou este número a trabalho",
+  "contacts.businessHint":
+    "Cobre mensagens de texto, ligações do nosso assistente e e-mails sobre o trabalho de vocês. O WhatsApp ainda precisa do consentimento.",
+  "contacts.businessWhere": "Onde passou",
+  "contacts.businessWhereHint": "Por exemplo: número nas faturas dele.",
+  "contacts.businessRecord": "Registrar",
+  "contacts.businessLine": "{channels}: passou este número a trabalho ({source}).",
   "contacts.withdrawConsent": "Retirar o consentimento",
   "contacts.optOutAll": "Descadastrar de tudo",
   "contacts.loadingMessages": "Carregando mensagens…",
@@ -1772,6 +1782,14 @@ export const ptBR: Messages = {
   "peoplePage.col.about": "Observações",
   "peoplePage.empty": "Ninguém aqui ainda.",
   "peoplePage.noMatch": "Ninguém corresponde.",
+  "peoplePage.selectPerson": "Selecionar {name}",
+  "peoplePage.selectShown": "Selecionar todos exibidos",
+  "peoplePage.selectQuickBooks": "Selecionar todos do QuickBooks",
+  "peoplePage.selected": "{count} selecionados",
+  "peoplePage.clearSelection": "Limpar",
+  "peoplePage.bulkBusiness": "Nos passaram estes números a trabalho",
+  "peoplePage.bulkDone": "Registrado para {count}.",
+  "peoplePage.bulkSkipped": "{count} de fora: saíram ou não têm telefone nem e-mail.",
   "peoplePage.reachNone": "Ainda não há como contatar",
   "peoplePage.cannot.optedOut": "Descadastrado",
   "peoplePage.cannot.noConsent": "Ainda sem consentimento",
@@ -2360,6 +2378,9 @@ export const ptBR: Messages = {
   "texting.optIn": "Como as pessoas aceitam suas mensagens",
   "texting.optInHelp":
     "Com suas palavras: onde informam o número e o que aceitam. Pelo menos 40 caracteres.",
+  "texting.optInRelationship": "Começar com o texto para quem passou o número",
+  "texting.optInRelationshipHelp":
+    "Coloque a frase entre aspas em todo formulário onde as pessoas passam o número e diga aqui onde estão esses formulários.",
   "texting.privacy": "Link da política de privacidade",
   "texting.terms": "Link dos termos",
   "texting.hasLinks": "Nossas mensagens incluem links",

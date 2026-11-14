@@ -72,12 +72,23 @@ export const ContactCreate = z
     organizationId: Id.optional(),
     title: z.string().trim().min(1).max(DIRECTORY_TITLE_MAX).optional(),
     relationship: Relationship.optional(),
-    /** Consent given already (e.g. on the client's web form): channels and how. */
+    /**
+     * Consent given already (e.g. on the client's web form): channels and how. Or, with `basis:
+     * "relationship"`, they gave the client this number for business (docs/plan.md §1.97): texts,
+     * calls and email at once, for the addresses given, with where the number came from.
+     */
     consent: z
-      .strictObject({
-        channels: z.array(ConsentChannel).min(1),
-        source: z.string().trim().min(1).max(CONSENT_SOURCE_MAX),
-      })
+      .union([
+        z.strictObject({
+          channels: z.array(ConsentChannel).min(1),
+          source: z.string().trim().min(1).max(CONSENT_SOURCE_MAX),
+          basis: z.literal("express").optional(),
+        }),
+        z.strictObject({
+          basis: z.literal("relationship"),
+          source: z.string().trim().min(1).max(CONSENT_SOURCE_MAX),
+        }),
+      ])
       .optional(),
   })
   .refine((b) => b.phone !== undefined || b.whatsapp !== undefined || b.email !== undefined, {
@@ -113,11 +124,41 @@ export const ContactConsentChange = z.discriminatedUnion("action", [
     channel: ConsentChannel,
     source: z.string().trim().min(1).max(CONSENT_SOURCE_MAX),
   }),
+  /**
+   * They gave the client this number for business (docs/plan.md §1.97): texts, calls and email,
+   * for the addresses the contact has, with where the number came from. Never WhatsApp.
+   */
+  z.strictObject({
+    action: z.literal("relationship"),
+    source: z.string().trim().min(1).max(CONSENT_SOURCE_MAX),
+  }),
   z.strictObject({ action: z.literal("withdraw"), channel: ConsentChannel }),
   z.strictObject({ action: z.literal("opt_out") }),
   z.strictObject({ action: z.literal("lift_opt_out") }),
 ]);
 export type ContactConsentChangeInput = z.input<typeof ContactConsentChange>;
+
+export const CONTACT_BULK_MAX = 500;
+
+/** The relationship basis for many contacts at once (docs/plan.md §1.97). */
+export const ContactRelationshipBulk = z.strictObject({
+  contactIds: z.array(Id).min(1).max(CONTACT_BULK_MAX),
+  source: z.string().trim().min(1).max(CONSENT_SOURCE_MAX),
+});
+export type ContactRelationshipBulkInput = z.input<typeof ContactRelationshipBulk>;
+
+/** Which contacts it was recorded for, and which were skipped and why. */
+export const ContactRelationshipBulkResult = z.object({
+  updated: z.array(z.string()),
+  skipped: z.array(
+    z.object({
+      id: z.string(),
+      /** `opted_out`: they said STOP or were opted out; `no_address`: no phone or email. */
+      reason: z.enum(["opted_out", "no_address", "not_found"]),
+    }),
+  ),
+});
+export type ContactRelationshipBulkResult = z.infer<typeof ContactRelationshipBulkResult>;
 
 export const Contact = z.object({
   id: z.string(),
@@ -319,6 +360,16 @@ export const messagingRoutes = {
     body: ContactConsentChange,
     response: OneContact,
   }),
+  opsContactsRelationship: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/contacts/consent/relationship",
+    auth: "session",
+    roles: OPS,
+    summary: "Record that these contacts gave the client their number for business",
+    params: ClientParams,
+    body: ContactRelationshipBulk,
+    response: ContactRelationshipBulkResult,
+  }),
   opsContactMessages: defineRoute({
     method: "GET",
     path: "/api/ops/clients/:id/contacts/:contactId/messages",
@@ -365,6 +416,15 @@ export const messagingRoutes = {
     params: PortalContactParams,
     body: ContactConsentChange,
     response: OneContact,
+  }),
+  portalContactsRelationship: defineRoute({
+    method: "POST",
+    path: "/api/contacts/consent/relationship",
+    auth: "session",
+    roles: CLIENT_ADMIN,
+    summary: "Record that these contacts gave you their number for business",
+    body: ContactRelationshipBulk,
+    response: ContactRelationshipBulkResult,
   }),
   portalContactMessages: defineRoute({
     method: "GET",

@@ -14,6 +14,7 @@ import {
   createContact,
   getContact,
   listContacts,
+  relationshipForMany,
   updateContact,
 } from "../messaging/contacts";
 
@@ -46,6 +47,13 @@ export function contactRoutes(app: Hono<AppEnv>): void {
       role: "operator",
     });
     return { contact: await contactOut(ctx.tx, row) };
+  });
+  mount(app, routes.opsContactsRelationship, async (ctx) => {
+    ensureClient(ctx, ctx.params.id);
+    return relationshipForMany(ctx.tx, ctx.params.id, ctx.body, {
+      id: ctx.session.user.id,
+      role: "operator",
+    });
   });
   mount(app, routes.opsContactMessages, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
@@ -83,6 +91,12 @@ export function contactRoutes(app: Hono<AppEnv>): void {
     });
     return { contact: await contactOut(ctx.tx, row) };
   });
+  mount(app, routes.portalContactsRelationship, async (ctx) =>
+    relationshipForMany(ctx.tx, ctx.tenantIds[0] as string, ctx.body, {
+      id: ctx.session.user.id,
+      role: ctx.role,
+    }),
+  );
   mount(app, routes.portalContactMessages, async (ctx) => {
     const tenantId = ctx.tenantIds[0] as string;
     await getContact(ctx.tx, tenantId, ctx.params.id);

@@ -11,6 +11,7 @@ import { Duration, parseDuration } from "../duration";
 import {
   type ContactConsent,
   DEFAULT_QUIET_HOURS,
+  hasConsent,
   inQuietHours,
   type QuietHours,
 } from "../messaging/rules";
@@ -162,7 +163,7 @@ export function channelAddress(c: ReachContact, channel: ReachChannel): string |
 export function consentBlockFor(c: ReachContact, channel: ReachChannel): ChannelBlock | null {
   if (c.optedOutAt) return "opted_out";
   if (!channelAddress(c, channel)) return "no_address";
-  if (!c.consent[channel]) return "no_consent";
+  if (!hasConsent(c.consent, channel)) return "no_consent";
   return null;
 }
 

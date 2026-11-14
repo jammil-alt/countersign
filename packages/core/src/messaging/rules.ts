@@ -37,12 +37,37 @@ export function isNanpNumber(e164: string): boolean {
 
 export const CONSENT_SOURCE_MAX = 200;
 
+/**
+ * Why a contact may be reached on a channel (docs/plan.md §1.97): `express`, they agreed to it (a
+ * form, a signed paper, a START text); `relationship`, they gave the client this number or address
+ * for their business together (on their invoices, an order form, a signed account application).
+ */
+// DECISION: the owner (2026-11-13): every Mezonas contact is someone the client does business
+// with, who gave the client their number, and no message is marketing. So the relationship basis
+// covers texts, calls from the automated assistant and email, as a dentist or a supplier texts the
+// people who gave it their number. Consent stored before has no `basis` and reads as `express`.
+// WhatsApp is left out: Meta's business policy asks for an opt-in before a business starts a
+// conversation, so WhatsApp still needs express consent, a START, or the contact writing first
+// (inside its 24-hour window). Counsel is to confirm the basis (docs/open.md).
+export const CONSENT_BASES = ["express", "relationship"] as const;
+export const ConsentBasis = z.enum(CONSENT_BASES);
+export type ConsentBasis = z.infer<typeof ConsentBasis>;
+
 export const ChannelConsent = z.object({
   grantedAt: z.iso.datetime({ offset: true }),
-  /** How it was given: "website form", "signed agreement", "texted START". */
+  /**
+   * How it was given, kept as evidence: "website form", "signed agreement", "texted START"; for
+   * the relationship basis, where the number came from ("number on their invoices").
+   */
   source: z.string().trim().min(1).max(CONSENT_SOURCE_MAX),
+  /** Absent: `express` (consent recorded before the relationship basis). */
+  basis: ConsentBasis.optional(),
 });
 export type ChannelConsent = z.infer<typeof ChannelConsent>;
+
+export function consentBasisOf(c: Pick<ChannelConsent, "basis">): ConsentBasis {
+  return c.basis ?? "express";
+}
 
 /**
  * What a contact can agree to: texts, WhatsApp, and calls from an automated assistant (`voice`, to
@@ -64,6 +89,31 @@ export const ContactConsent = z.object({
 });
 export type ContactConsent = z.infer<typeof ContactConsent>;
 
+/** The channels the relationship basis covers: texts, calls and email, never WhatsApp. */
+export const RELATIONSHIP_CHANNELS = ["sms", "voice", "email"] as const satisfies ConsentChannel[];
+
+/**
+ * The channels the relationship basis grants for a contact with these addresses: texts and calls
+ * with a phone, email with an address.
+ */
+export function relationshipChannelsFor(c: {
+  phone: string | null | undefined;
+  email: string | null | undefined;
+}): ConsentChannel[] {
+  return RELATIONSHIP_CHANNELS.filter((ch) => (ch === "email" ? !!c.email : !!c.phone));
+}
+
+/**
+ * Whether the consent recorded lets this channel be used. WhatsApp takes express consent only, so
+ * a relationship basis written there by any path still doesn't open it.
+ */
+export function hasConsent(consent: ContactConsent, channel: ConsentChannel): boolean {
+  const c = consent[channel];
+  if (!c) return false;
+  if (channel === "whatsapp") return consentBasisOf(c) === "express";
+  return true;
+}
+
 /** What a send needs to know about its contact. */
 export interface ConsentState {
   phone: string | null;
@@ -79,7 +129,7 @@ export function consentBlock(c: ConsentState, channel: MessagingChannel): SendBl
   if (c.optedOutAt) return "opted_out";
   const number = channel === "sms" ? c.phone : c.whatsapp;
   if (!number) return "no_number";
-  if (!c.consent[channel]) return "no_consent";
+  if (!hasConsent(c.consent, channel)) return "no_consent";
   return null;
 }
 
@@ -157,6 +207,55 @@ export const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export function inWhatsAppWindow(lastInboundAt: Date | null, now: Date): boolean {
   return lastInboundAt !== null && now.getTime() - lastInboundAt.getTime() < WHATSAPP_WINDOW_MS;
+}
+
+// ── The first text ───────────────────────────────────────────────────────────────────────────────
+
+/** A text after this long without one to the same contact counts as a first text again. */
+export const INTRODUCTION_GAP_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Whether this text is a first one to the contact: none sent before, or none in the last 30 days.
+ * Unknown (`undefined`) counts as first.
+ */
+export function needsIntroduction(lastTextAt: Date | null | undefined, now: Date): boolean {
+  return !lastTextAt || now.getTime() - lastTextAt.getTime() >= INTRODUCTION_GAP_MS;
+}
+
+// REVIEW: the translations below need a fluent speaker's review (docs/plan.md §1.18). The keyword
+// stays STOP in every language: it is the word carriers and Twilio act on.
+export const OPT_OUT_LINES: Record<string, string> = {
+  en: "Reply STOP to opt out.",
+  es: "Responda STOP para no recibir más mensajes.",
+  fr: "Répondez STOP pour ne plus recevoir de messages.",
+  "pt-BR": "Responda STOP para não receber mais mensagens.",
+  it: "Rispondi STOP per non ricevere più messaggi.",
+  de: "Antworten Sie STOP, um keine Nachrichten mehr zu erhalten.",
+};
+
+/** The opt-out line in the contact's language (English when unknown). */
+export function optOutLine(language: string | null | undefined): string {
+  if (language && OPT_OUT_LINES[language]) return OPT_OUT_LINES[language] as string;
+  const base = language?.slice(0, 2).toLowerCase();
+  if (base === "pt") return OPT_OUT_LINES["pt-BR"] as string;
+  return (base && OPT_OUT_LINES[base]) || (OPT_OUT_LINES.en as string);
+}
+
+/**
+ * A first text as it goes out (docs/plan.md §1.97): it names the client (the client's name first,
+ * unless the text already says it) and ends with the opt-out line (unless it already offers STOP).
+ */
+// DECISION: added in code at send time, never left to the agent or its version, and shown on the
+// approval card as it will go. STOP counts only in capitals ("stop by on Monday" isn't an offer).
+export function withIntroduction(
+  text: string,
+  input: { client: string; language?: string | null | undefined },
+): string {
+  let out = text.trim();
+  const client = input.client.trim();
+  if (client && !out.toLowerCase().includes(client.toLowerCase())) out = `${client}: ${out}`;
+  if (!/\bSTOP\b/.test(out)) out = `${out} ${optOutLine(input.language)}`;
+  return out;
 }
 
 /** Plain words for a blocked send, for errors and the approval card. */
