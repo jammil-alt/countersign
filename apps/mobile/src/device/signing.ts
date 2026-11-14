@@ -1,4 +1,4 @@
-// The phone's signing key and what it signs (docs/plan.md §1.97). The key is ECDSA P-256; its
+// The phone's signing key and what it signs (docs/plan.md §1.99). The key is ECDSA P-256; its
 // private half lives only in the phone's secure store behind Face ID or a fingerprint
 // (src/state/store.ts), its public half is registered with POST /api/me/devices as a JWK. A
 // signature covers `deviceSignedText` (core): the device, the item, the decision, the item's

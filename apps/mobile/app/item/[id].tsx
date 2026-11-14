@@ -1,6 +1,6 @@
 // One Desk item: what changes, before and after; why it needs you; then the decision. A change is
 // signed (or rejected) with Face ID or a fingerprint: the phone's key signs the item as shown, and
-// the API checks the signature before it records the decision (docs/plan.md §1.97). Questions are
+// the API checks the signature before it records the decision (docs/plan.md §1.99). Questions are
 // answered here; a release code is entered here.
 import { pickLocalized, routes } from "@countersign/core";
 import * as LocalAuthentication from "expo-local-authentication";

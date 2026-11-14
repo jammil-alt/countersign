@@ -1,4 +1,4 @@
-// Phone notifications (docs/plan.md §1.97): Mezonas tells a person's phones that something waits,
+// Phone notifications (docs/plan.md §1.99): Mezonas tells a person's phones that something waits,
 // through Expo's push service, which hands each message to Apple's or Google's. What goes is
 // `renderPush`'s: "Mezonas" (or the business's name, if the person chose it) and the kind's
 // sentence with its count. No record content, no link; the app opens the page itself.

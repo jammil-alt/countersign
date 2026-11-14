@@ -195,7 +195,7 @@ test("nothing may depend on apps/browser", () => {
   assert.match(r.out, /depends on @countersign\/browser, which is reached only by service binding/);
 });
 
-// §1.97: the phone app.
+// §1.99: the phone app.
 const mobile = (dependencies, src = 'import { routes } from "@countersign/core";\n') => ({
   "apps/mobile/package.json": { name: "@countersign/mobile", dependencies },
   "apps/mobile/src/api.ts": src,

@@ -1,4 +1,4 @@
-// The phone app's routes (docs/plan.md §1.97): signing in from the app, the person's phones and
+// The phone app's routes (docs/plan.md §1.99): signing in from the app, the person's phones and
 // their push settings. Desk items, signing and everything else the app shows use the portal's own
 // routes; a phone's signature rides on `POST /api/inbox/:id/resolve` (ResolveBody.deviceSignature).
 

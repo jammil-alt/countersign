@@ -88,7 +88,7 @@ export async function itemsWaitingCandidates(
         ),
       );
     }
-    // §1.97: their phones on their own pace: each pass ("right away") or hourly.
+    // §1.99: their phones on their own pace: each pass ("right away") or hourly.
     const everyPass = p.push.pushEvery === "now";
     if (
       wantsPush(p) &&

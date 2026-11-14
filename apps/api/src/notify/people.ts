@@ -39,7 +39,7 @@ export interface NotifyPerson {
   /** The phone a text can reach, or null. */
   phone: string | null;
   hours: { timezone: string; quietHours: QuietHours };
-  /** §1.97: their phone notifications, and the push tokens of their phones in this client. */
+  /** §1.99: their phone notifications, and the push tokens of their phones in this client. */
   push: PersonPushSettings;
   pushTokens: string[];
 }
@@ -174,7 +174,7 @@ export async function memberPerson(
   return personOf(t, { ...u, role: u.role as NotifyPerson["role"] }, entry, tokens.get(u.id) ?? []);
 }
 
-/** §1.97: the push tokens of each person's phones in this client (removed phones have none). */
+/** §1.99: the push tokens of each person's phones in this client (removed phones have none). */
 async function pushTokensOf(
   tx: Tx,
   tenantId: string,
@@ -199,7 +199,7 @@ async function pushTokensOf(
   return out;
 }
 
-/** §1.97: a phone notification can reach this person: they keep them on and have a phone. */
+/** §1.99: a phone notification can reach this person: they keep them on and have a phone. */
 export const wantsPush = (p: NotifyPerson) => p.push.push && p.pushTokens.length > 0;
 
 /** `tenant.settings.lead.userId` (ARCHITECTURE §11.2, set by W1-C); null when none is set. */

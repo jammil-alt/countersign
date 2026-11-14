@@ -1,6 +1,6 @@
 // The app's typed API client: paths, methods and shapes from the route contract (packages/core),
 // bodies checked before they leave and responses parsed with the route's schema, as apps/web's
-// client does. What differs on a phone (docs/plan.md §1.97):
+// client does. What differs on a phone (docs/plan.md §1.99):
 // - the session travels in MOBILE_SESSION_HEADER, not a cookie; a response that carries the header
 //   hands back the session sealed again (a WorkOS refresh), or an empty value when it ended;
 // - SESSION_ACTIVITY_HEADER marks the requests the person made, so background refreshes never

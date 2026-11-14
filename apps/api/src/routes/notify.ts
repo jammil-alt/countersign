@@ -42,7 +42,7 @@ async function myNotifications(
 
 /**
  * Writes some of one person's notification settings into `tenant.settings.user_notifications`:
- * their other keys (email and texts, or their phones' settings, §1.97) and everyone else's stay.
+ * their other keys (email and texts, or their phones' settings, §1.99) and everyone else's stay.
  */
 export async function mergePersonSettings(
   tx: Tx,

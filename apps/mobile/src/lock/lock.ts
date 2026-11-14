@@ -1,4 +1,4 @@
-// The app lock (docs/plan.md §1.97): after five minutes away, Face ID or a fingerprint before
+// The app lock (docs/plan.md §1.99): after five minutes away, Face ID or a fingerprint before
 // anything shows. Pure, so the rule is tested without a phone.
 
 /** How long the app may sit in the background before it locks. */

@@ -22,7 +22,7 @@ import {
 
 // DECISION: copied from apps/web/src/inbox/change.ts (an app imports no other app), with money and
 // dates formatted by Intl here; the two should move into packages/core together when either
-// changes again (docs/plan.md §1.97).
+// changes again (docs/plan.md §1.99).
 
 /** `{ amount: "9742.3500", currency: "USD" }`, the shape money takes in payloads and records. */
 export function moneyShape(v: unknown): { amount: string; currency: string } | null {

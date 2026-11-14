@@ -141,7 +141,7 @@ export function renderNotification(input: RenderInput): RenderedNotification {
   return { subject: headline, text, html };
 }
 
-/** A phone notification (§1.97): a title and one sentence, the count and nothing else. */
+/** A phone notification (§1.99): a title and one sentence, the count and nothing else. */
 export interface RenderedPush {
   title: string;
   body: string;

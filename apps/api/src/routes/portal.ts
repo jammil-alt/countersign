@@ -911,7 +911,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
         ),
       );
     if (!visible) throw notFound("inbox item");
-    // §1.97: signed on a phone: checked against the item as the portal shows it, before anything
+    // §1.99: signed on a phone: checked against the item as the portal shows it, before anything
     // changes, and written to the audit log with the phone and what it signed.
     if (body.deviceSignature) {
       // As the response schema sends it to the app, so both sides hash the same object.

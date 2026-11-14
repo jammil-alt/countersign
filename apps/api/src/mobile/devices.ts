@@ -1,4 +1,4 @@
-// A person's phones (docs/plan.md §1.97, migration 0048), and the check of a phone's signature when
+// A person's phones (docs/plan.md §1.99, migration 0049), and the check of a phone's signature when
 // its owner signs a Desk item with Face ID or a fingerprint. Every query runs in the request's own
 // client scope and names the person: a phone is only ever its owner's (invariant 1).
 

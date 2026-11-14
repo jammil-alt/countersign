@@ -803,7 +803,7 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     markedBy: u.id,
     inboxItemId: ii.id,
   });
-  // §1.97: the person's phone, once migration 0048 is there (a migration test may fill a
+  // §1.99: the person's phone, once migration 0049 is there (a migration test may fill a
   // database migrated only up to an earlier one).
   const [phones] = await db.$client<{ present: boolean }[]>`
     select to_regclass('public.person_device') is not null as present`;

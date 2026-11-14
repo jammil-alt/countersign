@@ -1,4 +1,4 @@
-// Phone notifications through the notification pass (docs/plan.md §1.97), against a real database
+// Phone notifications through the notification pass (docs/plan.md §1.99), against a real database
 // and a fake of Expo's push service: a count and a fixed sentence to each of the person's phones,
 // no record content, "right away" each pass with something new, quiet when nothing is, and a phone
 // whose app is gone loses its token.

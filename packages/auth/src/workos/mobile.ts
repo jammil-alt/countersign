@@ -1,4 +1,4 @@
-// Signing in from the Mezonas phone app (docs/plan.md §1.97). The app opens the usual WorkOS
+// Signing in from the Mezonas phone app (docs/plan.md §1.99). The app opens the usual WorkOS
 // sign-in in the system browser and gets back the same sealed session a browser would hold, which it
 // then sends in a header (MOBILE_SESSION_HEADER) instead of a cookie. Every rule of a session holds
 // unchanged: the 12-hour limit, the 30-minute idle limit, WorkOS refresh and revocation.

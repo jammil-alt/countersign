@@ -1,4 +1,4 @@
-// The phone app's routes (docs/plan.md §1.97): signing in from the app, the person's phones and
+// The phone app's routes (docs/plan.md §1.99): signing in from the app, the person's phones and
 // their phone notifications. The app's session travels in MOBILE_SESSION_HEADER (`mobileSession`
 // below turns it into the cookie every session route reads); Desk items, signing and the rest are
 // the portal's own routes.

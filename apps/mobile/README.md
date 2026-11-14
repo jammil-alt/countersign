@@ -1,6 +1,6 @@
 # Mezonas for iPhone and Android (`apps/mobile`)
 
-The phone app (docs/plan.md §1.97): Your Desk, signing with Face ID or a fingerprint, questions
+The phone app (docs/plan.md §1.99): Your Desk, signing with Face ID or a fingerprint, questions
 answered in one tap, release codes, messages with your Mezonas lead, notifications and the person's
 phones. Expo SDK 58 (React Native 0.88, React 19.3) with expo-router. It reaches the platform only
 through the API, typed by `@countersign/core`'s route contract; its look comes from

@@ -35,7 +35,7 @@ export interface Secrets {
   /** Signs ElevenLabs' post-call webhook; also keys each call's tool token. */
   ELEVENLABS_WEBHOOK_SECRET?: string;
   /**
-   * §1.97: phone notifications through Expo's push service: `on` (default) or `off`. And the Expo
+   * §1.99: phone notifications through Expo's push service: `on` (default) or `off`. And the Expo
    * access token, needed once the Expo project turns on enhanced push security.
    */
   MOBILE_PUSH?: string;

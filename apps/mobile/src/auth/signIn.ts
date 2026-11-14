@@ -1,4 +1,4 @@
-// Signing in from the app (docs/plan.md §1.97): the system browser runs the usual WorkOS sign-in,
+// Signing in from the app (docs/plan.md §1.99): the system browser runs the usual WorkOS sign-in,
 // started at /api/mobile/sign-in with this phone's PKCE challenge; it ends at mezonas://signed-in
 // with a handoff code, which only this phone's verifier trades for the session.
 import { MOBILE_SIGNED_IN_URL, routes } from "@countersign/core";

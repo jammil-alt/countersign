@@ -1,4 +1,4 @@
-// Migration 0049 (docs/plan.md §1.97): `person_device`, a person's phones with the Mezonas app, and
+// Migration 0049 (docs/plan.md §1.99): `person_device`, a person's phones with the Mezonas app, and
 // `push` as a notification channel. The Worker's role sees and writes only its own client's phones,
 // never deletes one, a removed phone keeps no token or key, and the notification check takes push.
 

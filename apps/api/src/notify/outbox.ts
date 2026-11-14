@@ -34,7 +34,7 @@ export type NotificationRow = typeof notification.$inferSelect;
 export interface NotifyDeps {
   mailer: Mailer;
   texter: Texter;
-  /** §1.97: phone notifications (Expo's push service); none means off (rows skipped). */
+  /** §1.99: phone notifications (Expo's push service); none means off (rows skipped). */
   pusher?: Pusher;
   /** `BAA_PROCESSORS`: a client in HIPAA mode gets phone notifications only once Expo is here. */
   covered?: ReadonlySet<Processor>;
@@ -67,11 +67,11 @@ export interface Candidate {
 export function candidatesFor(
   person: NotifyPerson,
   base: Omit<Candidate, "userId" | "contactId" | "channel">,
-  /** §1.97: false where the caller decides phone notifications itself (items waiting). */
+  /** §1.99: false where the caller decides phone notifications itself (items waiting). */
   options: { push?: boolean } = {},
 ): Candidate[] {
   const out: Candidate[] = [];
-  // §1.97: their phones, same kind, same key (the unique key includes the channel).
+  // §1.99: their phones, same kind, same key (the unique key includes the channel).
   if (options.push !== false && wantsPush(person)) {
     out.push({ ...base, userId: person.userId, contactId: null, channel: "push" });
   }
@@ -174,13 +174,13 @@ export async function sendQueued(
       await skip(NOTIFICATION_REASONS.turnedOff);
       continue;
     }
-    // §1.97: phones turned off, or none left.
+    // §1.99: phones turned off, or none left.
     if (row.channel === "push" && !wantsPush(person)) {
       await skip(NOTIFICATION_REASONS.turnedOff);
       continue;
     }
     const pusher = deps.pusher ?? unconfiguredPusher;
-    // §1.97: Expo is a vendor of ours; HIPAA mode sends it nothing until its BAA is recorded.
+    // §1.99: Expo is a vendor of ours; HIPAA mode sends it nothing until its BAA is recorded.
     if (
       row.channel === "push" &&
       complianceOf(t.settings as Record<string, unknown>).hipaa &&
@@ -258,7 +258,7 @@ export async function sendQueued(
 }
 
 /**
- * §1.97: one notification to each of the person's phones. Sent when any phone took it; a phone
+ * §1.99: one notification to each of the person's phones. Sent when any phone took it; a phone
  * whose app is gone loses its token. Throws (to be tried again) when none took it.
  */
 async function sendPush(

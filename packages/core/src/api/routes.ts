@@ -206,7 +206,7 @@ export const ResolveBody = z.strictObject({
   decision: z.enum(["approve", "reject"]).optional(),
   answer: z.unknown().optional(),
   note: Note.optional(),
-  /** §1.97: signed on a registered phone with Face ID or a fingerprint (checked, then recorded). */
+  /** §1.99: signed on a registered phone with Face ID or a fingerprint (checked, then recorded). */
   deviceSignature: DeviceSignature.optional(),
 });
 
@@ -2317,7 +2317,7 @@ export const routes = {
   ...lifecycleRoutes,
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   ...notifyRoutes,
-  // §1.97: the phone app
+  // §1.99: the phone app
   ...mobileRoutes,
   ...tableRoutes,
   // v0.12 W1-D: the Desk

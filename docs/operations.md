@@ -849,7 +849,7 @@ first (Sandbox and Demo clients, the platform templates); the seed never runs on
 the workflow refuses to run there with "Run the seed first" ticked (it is ticked by default). Safe to
 run again, e.g. after new clients exist: it never adds a second first client.
 
-### The phone app (`docs/plan.md` §1.97)
+### The phone app (`docs/plan.md` §1.99)
 
 `apps/mobile`, an Expo app (iOS and Android), built and submitted with EAS, not by `deploy.yml`.
 It talks to the API of the environment it was built for (`EXPO_PUBLIC_API_ORIGIN`: staging for the

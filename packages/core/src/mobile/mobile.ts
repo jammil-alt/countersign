@@ -1,4 +1,4 @@
-// The Mezonas phone app (docs/plan.md §1.97): how it signs in, which phones a person registered,
+// The Mezonas phone app (docs/plan.md §1.99): how it signs in, which phones a person registered,
 // and the signature a phone adds when its owner signs a Desk item with Face ID or a fingerprint.
 // Shared by apps/api, which checks all of it, and apps/mobile, which produces it. Pure: hashing
 // and verification run in the API with Web Crypto; the app signs with its own library.

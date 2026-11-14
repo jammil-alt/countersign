@@ -1,4 +1,4 @@
-// The phone app against a real database as cs_worker (docs/plan.md §1.97): a person's phones
+// The phone app against a real database as cs_worker (docs/plan.md §1.99): a person's phones
 // (register, rename, remove, never another person's or client's), their push settings beside their
 // email and texts, and a Desk item signed on a phone: the signature is checked against the item as
 // the portal shows it, refused when anything differs, and written to the audit log.

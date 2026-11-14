@@ -2875,7 +2875,7 @@ export const auditEvent = pgTable(
 
 // ── Notifications and the Weekly Table (migration 0020, ARCHITECTURE §11.3, §11.4) ─────────────
 
-// §1.97: `push`, to a person's registered phones (migration 0049).
+// §1.99: `push`, to a person's registered phones (migration 0049).
 export const NOTIFICATION_CHANNELS = ["email", "sms", "push"] as const;
 export const DEVICE_PLATFORMS = ["ios", "android"] as const;
 export const NOTIFICATION_KINDS = [
@@ -2895,7 +2895,7 @@ export const WEEKLY_TABLE_STATUSES = ["draft", "sent"] as const;
  * `provider_id` and `sent_at` change (trigger); never deleted.
  */
 /**
- * §1.97 (migration 0049): a person's phone with the Mezonas app: where its notifications go (an
+ * §1.99 (migration 0049): a person's phone with the Mezonas app: where its notifications go (an
  * Expo push token) and the public half of the key it signs Desk items with. Removing a phone sets
  * `revoked_at` and clears both; the row stays, since signatures in the audit log name it.
  */
@@ -4145,7 +4145,7 @@ export const TENANT_TABLES = [
   "owner_check",
   "run_audit",
   "run_audit_mark",
-  // §1.97
+  // §1.99
   "person_device",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
