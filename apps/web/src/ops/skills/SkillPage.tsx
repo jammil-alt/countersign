@@ -3,7 +3,7 @@
 // back, how it works, and the editor that saves a new draft), its tests (cases, the latest suite
 // run, whether publishing needs them), versions (publish, roll back) and the agents that use it.
 // Versions are immutable (invariant 3): every save is a new draft; a rollback copies an older one.
-import { type SkillListItem, skillKindLabel } from "@countersign/core";
+import { isUuid, type SkillListItem, skillKindLabel } from "@countersign/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -57,9 +57,16 @@ export function scopeLabel(s: SkillListItem): string {
 
 export function SkillPage() {
   const { id = "" } = useParams();
-  const detail = useApi(apiRoutes.opsSkill, { params: { id } });
+  // A skill page is an operator skill's (its id). A made-up or built-in name in the address
+  // (QA: /ops/skills/account.chat) asks nothing and says there is no such skill, rather than two
+  // refused requests.
+  const known = isUuid(id);
+  const detail = useApi(apiRoutes.opsSkill, known ? { params: { id } } : null);
   const library = useApi(apiRoutes.opsSkills);
-  const tests = useApi(apiRoutes.opsTests, { query: { target: `skill:${id}` } });
+  const tests = useApi(apiRoutes.opsTests, known ? { query: { target: `skill:${id}` } } : null);
+  if (!known) {
+    return <EmptyState testId="skill-not-found">There is no skill at this address.</EmptyState>;
+  }
   if (detail.error) return <ErrorNotice error={detail.error} onRetry={detail.reload} />;
   if (library.error) return <ErrorNotice error={library.error} onRetry={library.reload} />;
   if (!detail.data || !library.data) return <Loading />;
