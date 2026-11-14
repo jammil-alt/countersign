@@ -222,6 +222,88 @@ export const mcpSessionApproval = pgTable(
 /** Global tables keyed by person, readable by that person (`app.user_id`) or an operator session. */
 export const USER_TABLES = ["user_factor", "user_recovery_code", "mcp_session_approval"] as const;
 
+// ── Reggie, the operator's account agent (docs/plan.md §1.101) ───────────────────────────────────
+
+/** An operator's conversation with Reggie; `client_id` when it was opened from a client's page. */
+export const reggieConversation = pgTable(
+  "reggie_conversation",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => appUser.id, { onDelete: "cascade" }),
+    clientId: uuid("client_id").references(() => tenant.id),
+    title: text("title").notNull().default(""),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index("reggie_conversation_user_idx").on(t.userId, t.updatedAt)],
+);
+
+export const REGGIE_ROLES = ["operator", "reggie"] as const;
+
+/**
+ * One message: the operator's, or Reggie's answer with the tool calls and results that led to it
+ * (`blocks`, the model's history for later turns). Tool results are untrusted data (invariant 9).
+ */
+export const reggieMessage = pgTable(
+  "reggie_message",
+  {
+    id: id(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => reggieConversation.id, { onDelete: "cascade" }),
+    role: text("role").$type<(typeof REGGIE_ROLES)[number]>().notNull(),
+    text: text("text").notNull().default(""),
+    blocks: jsonb("blocks").$type<unknown[]>().notNull().default([]),
+    /** The model, cost, tools used, errors. */
+    meta: jsonb("meta").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("reggie_message_conversation_idx").on(t.conversationId, t.createdAt),
+    check("reggie_message_role_check", oneOf(t.role, REGGIE_ROLES)),
+  ],
+);
+
+export const REGGIE_ACTION_STATUSES = ["proposed", "done", "cancelled", "failed"] as const;
+
+/**
+ * A change Reggie proposed: shown as a card, made only when the operator confirms it, once. The
+ * preview is what the card showed; `result` what the change returned.
+ */
+export const reggieAction = pgTable(
+  "reggie_action",
+  {
+    id: id(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => reggieConversation.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => appUser.id, { onDelete: "cascade" }),
+    clientId: uuid("client_id").references(() => tenant.id),
+    tool: text("tool").notNull(),
+    args: jsonb("args").$type<Record<string, unknown>>().notNull(),
+    preview: jsonb("preview").$type<Record<string, unknown>>().notNull(),
+    status: text("status")
+      .$type<(typeof REGGIE_ACTION_STATUSES)[number]>()
+      .notNull()
+      .default("proposed"),
+    result: jsonb("result").$type<Record<string, unknown>>(),
+    error: text("error"),
+    createdAt: createdAt(),
+    decidedAt: ts("decided_at"),
+  },
+  (t) => [
+    index("reggie_action_conversation_idx").on(t.conversationId, t.createdAt),
+    check("reggie_action_status_check", oneOf(t.status, REGGIE_ACTION_STATUSES)),
+  ],
+);
+
+/** Reggie's tables (§1.101): only an operator session reads them; a client never does. */
+export const REGGIE_TABLES = ["reggie_conversation", "reggie_message", "reggie_action"] as const;
+
 // ── Tenant tables ────────────────────────────────────────────────────────────────────────────────
 
 const tenantId = () =>
