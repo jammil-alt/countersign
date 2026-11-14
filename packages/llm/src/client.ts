@@ -2,10 +2,21 @@
 // worked out at call time and handed to `onCall` (successes and failures alike) so the caller can
 // write it on the step run (ARCHITECTURE §13).
 
-import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import {
+  checkEmbeddings,
+  DEFAULT_EMBEDDING_MODEL,
+  EMBEDDING_DIMENSIONS,
+  EMBEDDING_PRICES,
+  EmbeddingsNotSupportedError,
+  type EmbedRequest,
+  type EmbedResponse,
+  embeddingCostOf,
+} from "./embeddings";
+import type * as Anthropic from "./messages";
 import { DEFAULT_MODEL, type ModelId } from "./models";
-import { costOf, type ModelPrice, PRICES } from "./pricing";
+import { costOf, type ModelPrice, PRICES, priceFor } from "./pricing";
+import { providerOf } from "./route";
 import type { LlmMessage, LlmRequest, LlmTransport } from "./transport";
 import { type LlmUsage, usageOf, ZERO_USAGE } from "./usage";
 
@@ -42,6 +53,12 @@ export interface LlmClientOptions {
   readonly defaultMaxTokens?: number;
   readonly prices?: Readonly<Record<ModelId, ModelPrice>>;
   readonly onCall?: (record: LlmCallRecord, exchange: LlmExchange) => void | Promise<void>;
+  /**
+   * §1.88: an embedding call's record (input tokens and cost; no output). Kept apart from
+   * `onCall`, whose exchange is a message call's request and answer.
+   */
+  readonly onEmbed?: (record: LlmCallRecord) => void | Promise<void>;
+  readonly embeddingPrices?: Readonly<Record<ModelId, string>>;
   /** Monotonic-ish milliseconds, for durations. Tests pass a fixed clock. */
   readonly clock?: () => number;
 }
@@ -102,16 +119,35 @@ export class LlmToolError extends Error {
   }
 }
 
+/** §1.88: texts to embed; the model and size default to the vendor catalog's. */
+export interface EmbedInput {
+  readonly texts: readonly string[];
+  readonly model?: ModelId;
+  readonly dimensions?: number;
+  readonly label?: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface EmbedResult {
+  readonly embeddings: number[][];
+  readonly record: LlmCallRecord;
+}
+
 export interface LlmClient {
   message(
     input: MessageInput,
     options?: { label?: string; signal?: AbortSignal },
   ): Promise<LlmCallResult>;
   callTool<T>(input: CallToolInput<T>): Promise<CallToolResult<T>>;
+  /**
+   * §1.88: one embedding call. Refused before it is made when the model has no price; its cost
+   * goes to `onEmbed` (successes and failures alike), as a message's goes to `onCall`.
+   */
+  embed(input: EmbedInput): Promise<EmbedResult>;
 }
 
 /** The JSON Schema the API sees for a Zod schema: its input form, without `$schema`. */
-export function toolInputSchema(schema: z.ZodType): Anthropic.Tool.InputSchema {
+export function toolInputSchema(schema: z.ZodType): Anthropic.ToolInputSchema {
   const json = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<
     string,
     unknown
@@ -120,7 +156,21 @@ export function toolInputSchema(schema: z.ZodType): Anthropic.Tool.InputSchema {
   if (json.type !== "object") {
     throw new Error("a tool's input schema must be an object schema");
   }
-  return json as Anthropic.Tool.InputSchema;
+  return json as Anthropic.ToolInputSchema;
+}
+
+/**
+ * A call to a model of another provider than Anthropic's that has no price. Refused before it is
+ * made: its cost would be recorded as nothing, so no run, owner or monthly cost limit could stop
+ * it.
+ */
+export class UnpricedModelError extends Error {
+  override name = "UnpricedModelError";
+  readonly model: ModelId;
+  constructor(model: ModelId) {
+    super(`no price for ${model}: add it to packages/llm/src/pricing.ts before using it`);
+    this.model = model;
+  }
 }
 
 export function createLlmClient(options: LlmClientOptions): LlmClient {
@@ -143,6 +193,12 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
       model: input.model ?? defaultModel,
       max_tokens: input.max_tokens ?? defaultMaxTokens,
     } as LlmRequest;
+    // DECISION (Models: xAI and Gemini): an unpriced Anthropic id still runs and is recorded with
+    // no cost, as before; an unpriced id of a prefixed provider is refused here, as validation
+    // refuses it in a definition (core's `definitionModelErrors`).
+    if (providerOf(request.model) !== "anthropic" && !priceFor(request.model, prices)) {
+      throw new UnpricedModelError(request.model);
+    }
     const started = clock();
     const label = opts.label === undefined ? {} : { label: opts.label };
     let response: LlmMessage;
@@ -248,5 +304,54 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
     return { ...result, value: parsed.data };
   }
 
-  return { message, callTool };
+  async function embed(input: EmbedInput): Promise<EmbedResult> {
+    const model = input.model ?? DEFAULT_EMBEDDING_MODEL;
+    const embeddingPrices = options.embeddingPrices ?? EMBEDDING_PRICES;
+    // DECISION: every embedding model must be priced, whoever provides it (as a prefixed
+    // provider's message model must): an unpriced call could not be stopped by any cost limit.
+    if (embeddingPrices[model] === undefined) throw new UnpricedModelError(model);
+    if (!transport.embed) {
+      throw new EmbeddingsNotSupportedError("this transport offers no embeddings");
+    }
+    const request: EmbedRequest = {
+      model,
+      input: input.texts,
+      dimensions: input.dimensions ?? EMBEDDING_DIMENSIONS,
+    };
+    const started = clock();
+    const label = input.label === undefined ? {} : { label: input.label };
+    let response: EmbedResponse;
+    try {
+      response = checkEmbeddings(
+        request,
+        await transport.embed(request, input.signal ? { signal: input.signal } : {}),
+      );
+    } catch (error) {
+      await options.onEmbed?.({
+        model,
+        ok: false,
+        usage: ZERO_USAGE,
+        costUsd: null,
+        durationMs: clock() - started,
+        stopReason: null,
+        error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+        ...label,
+      });
+      throw error;
+    }
+    const record: LlmCallRecord = {
+      // Priced by the platform id asked for: the provider answers with its own name.
+      model,
+      ok: true,
+      usage: { ...ZERO_USAGE, inputTokens: response.usage.inputTokens },
+      costUsd: embeddingCostOf(model, response.usage.inputTokens, embeddingPrices),
+      durationMs: clock() - started,
+      stopReason: null,
+      ...label,
+    };
+    await options.onEmbed?.(record);
+    return { embeddings: response.embeddings, record };
+  }
+
+  return { message, callTool, embed };
 }

@@ -1,19 +1,23 @@
 // The agent Overview tab (design screen 7, without pack KPIs): how it works as step chips from the
 // version shown, its mission, the tools it works in, the skills it uses, and its latest runs.
 // Connections, tools and skills read by their names, never their ids; empty parts are left out.
-import type { AgentBundle, SkillOption } from "@countersign/core";
+import { type AnyAgentBundle, allTriggers, processes, type SkillOption } from "@countersign/core";
 import { Link } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
-import { useApi } from "../../api/useApi";
+import { type ApiState, useApi } from "../../api/useApi";
 import { shortTime } from "../../runs/format";
 import { Icon } from "../../ui/icons";
-import { Card, ErrorNotice, Loading, SectionLabel, StepKindTag, Tag } from "../../ui/primitives";
+import { Card, ErrorNotice, SectionLabel, StepKindTag, Tag } from "../../ui/primitives";
+import { Skeleton, SkeletonLine } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { toolTitle } from "../builder/model";
+import { ClientViewCard, WhereItRuns } from "../lab/TemplateParts";
 import { runChip } from "../run/words";
-import { KIND_LABEL, triggerTitle, workflowStats } from "../workflow/describe";
+import type { RunLinkState } from "../screens/RunView";
+import { KIND_LABEL, PROCESS_KIND_LABEL, triggerTitle, workflowStats } from "../workflow/describe";
 import { optionFor } from "./definition-form";
 import { useConnectorNames } from "./OperationPanel";
+import { prefetchRun, useIntent } from "./prefetch";
 import { plural } from "./ui";
 
 export function OverviewTab({
@@ -23,21 +27,25 @@ export function OverviewTab({
   skills,
 }: {
   agent: AgentSummary;
-  bundle: AgentBundle;
+  bundle: AnyAgentBundle;
   /** The agent page's URL. */
   base: string;
-  skills: readonly SkillOption[];
+  /** The agent's skills, loading beside the agent: its chips wait for them, nothing else does. */
+  skills: ApiState<{ skills: SkillOption[] }>;
 }) {
   const stats = workflowStats(bundle);
   const names = useConnectorNames(agent.id);
-  // An extra tool by what it does and where: "Update lines bill · QuickBooks Online".
-  const extraTools = bundle.definition.extraTools.map(
+  // A tool by what it does and where: "Update lines bill · QuickBooks Online".
+  const tools = toolsItWorksIn(bundle).map(
     (id) => `${toolTitle({ id })} · ${names(id.split(".")[0] ?? id)}`,
   );
   const worksIn = agent.kind === "client" ? Object.keys(agent.bindings).map(names) : [];
-  const skillNames = bundle.definition.skills.map(
-    (s) => optionFor(s.skill, skills)?.name ?? "A skill this agent can't use",
-  );
+  const options = skills.data?.skills;
+  const skillNames = options
+    ? bundle.definition.skills.map(
+        (s) => optionFor(s.skill, options)?.name ?? "A skill this agent can't use",
+      )
+    : null;
   const workflowNames = new Map(bundle.workflows.map((w) => [w.slug, w.name] as const));
   const mission = bundle.definition.identity.mission.trim();
   return (
@@ -69,7 +77,12 @@ export function OverviewTab({
         {agent.kind === "client" ? (
           <LatestRuns agentId={agent.id} workflowNames={workflowNames} />
         ) : (
-          <TemplateRunsNote />
+          <>
+            {/* A template's own panels (they lived in the lab before it became a gallery). */}
+            <WhereItRuns templateId={agent.id} />
+            <ClientViewCard agentId={agent.id} />
+            <TemplateRunsNote />
+          </>
         )}
       </div>
       <Card className="h-fit" title="Works in" pad>
@@ -81,16 +94,24 @@ export function OverviewTab({
               Each client's copy is bound to that client's own connections.
             </p>
           )}
-          {extraTools.length > 0 ? (
+          {tools.length > 0 ? (
             <div>
-              <SectionLabel>Extra tools</SectionLabel>
-              <Chips testId="agent-extra-tools" items={extraTools} empty="" />
+              <SectionLabel>Tools</SectionLabel>
+              <Chips testId="agent-tools" items={tools} empty="" />
             </div>
           ) : null}
-          {skillNames.length > 0 ? (
+          {bundle.definition.skills.length > 0 ? (
             <div>
               <SectionLabel>Skills it uses</SectionLabel>
-              <Chips testId="agent-skills" items={skillNames} empty="" />
+              {skillNames ? (
+                <Chips testId="agent-skills" items={skillNames} empty="" />
+              ) : skills.error ? (
+                <ErrorNotice error={skills.error} onRetry={skills.reload} />
+              ) : (
+                <Skeleton>
+                  <SkeletonLine width="long" />
+                </Skeleton>
+              )}
             </div>
           ) : null}
         </div>
@@ -99,8 +120,40 @@ export function OverviewTab({
   );
 }
 
-function StepChips({ workflow }: { workflow: AgentBundle["workflows"][number] }) {
+/**
+ * The tools the agent works in: its definition's extra tools, then the tools of its v4 processes'
+ * read and write steps at any depth (a process names its tools on its steps, not in the
+ * definition), each once.
+ */
+export function toolsItWorksIn(bundle: AnyAgentBundle): string[] {
+  const ids = [...bundle.definition.extraTools];
+  for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion !== 4) continue;
+    for (const { step } of processes.allSteps(w.workflow)) {
+      if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
+        ids.push(step.tool);
+      }
+    }
+  }
+  return [...new Set(ids)];
+}
+
+/**
+ * A workflow's first trigger and its top-level steps as chips. R8: a v4 process too, its steps in
+ * the builder's words (an `if`, a write).
+ */
+function StepChips({ workflow }: { workflow: AnyAgentBundle["workflows"][number] }) {
   const w = workflow.workflow;
+  const first = allTriggers(w)[0];
+  const steps =
+    w.schemaVersion === 4
+      ? w.steps.map((s) => ({
+          id: s.id,
+          kind: s.kind,
+          label: PROCESS_KIND_LABEL[s.kind],
+          name: s.name,
+        }))
+      : w.steps.map((s) => ({ id: s.id, kind: s.kind, label: KIND_LABEL[s.kind], name: s.name }));
   return (
     <div className="mb-3 last:mb-0" data-testid={`agent-chips-${workflow.slug}`}>
       <p className="mb-2 text-sm font-medium text-ink">
@@ -108,9 +161,11 @@ function StepChips({ workflow }: { workflow: AgentBundle["workflows"][number] })
         {workflow.enabled ? "" : <span className="ml-2 text-ink-muted">off</span>}
       </p>
       <ol className="flex flex-wrap items-center gap-2">
-        <Chip kindId="trigger" kind={KIND_LABEL.trigger} label={triggerTitle(w.trigger)} />
-        {w.steps.map((s) => (
-          <Chip key={s.id} kindId={s.kind} kind={KIND_LABEL[s.kind]} label={s.name} />
+        {first ? (
+          <Chip kindId="trigger" kind={KIND_LABEL.trigger} label={triggerTitle(first)} />
+        ) : null}
+        {steps.map((s) => (
+          <Chip key={s.id} kindId={s.kind} kind={s.label} label={s.name} />
         ))}
       </ol>
     </div>
@@ -161,10 +216,21 @@ export function LatestRuns({
   workflowNames?: ReadonlyMap<string, string>;
 }) {
   const runs = useApi(apiRoutes.opsRuns, { query: { agent: agentId, limit } });
+  const intent = useIntent();
   return (
     <Card testId="agent-latest-runs" title={limit > 5 ? "Runs" : "Latest runs"} pad>
       {runs.error ? <ErrorNotice error={runs.error} onRetry={runs.reload} /> : null}
-      {!runs.data && !runs.error ? <Loading /> : null}
+      {!runs.data && !runs.error ? (
+        <Skeleton>
+          {Array.from({ length: Math.min(limit, 5) }, (_, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: placeholder rows have no identity.
+            <span key={i} className="flex items-center gap-3 py-2.5">
+              <SkeletonLine width={112} />
+              <SkeletonLine width="half" />
+            </span>
+          ))}
+        </Skeleton>
+      ) : null}
       {runs.data && runs.data.runs.length === 0 ? (
         <p className="text-sm text-ink-muted">No runs yet.</p>
       ) : null}
@@ -176,7 +242,13 @@ export function LatestRuns({
                 <span className="w-28 shrink-0 text-sm text-ink-muted figures">
                   {shortTime(r.startedAt ?? r.createdAt)}
                 </span>
-                <Link to={`/ops/runs/${r.id}`} className="truncate text-ink hover:underline">
+                <Link
+                  to={`/ops/runs/${r.id}`}
+                  // The row travels with the link: the run page draws its title and state at once.
+                  state={{ run: r } satisfies RunLinkState}
+                  className="truncate text-ink hover:underline"
+                  {...intent(r.id, (p) => prefetchRun(p, r.id))}
+                >
                   {r.workflowName ??
                     workflowNames?.get(r.workflowSlug) ??
                     r.workflowSlug.replace(/[-_]+/g, " ")}

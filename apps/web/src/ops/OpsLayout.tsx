@@ -17,14 +17,14 @@ import {
 import { useLocation, useMatch, useNavigate } from "react-router-dom";
 import type { ResponseOf } from "../api/client";
 import { apiRoutes } from "../api/routes";
-import { useApi, useApiClient } from "../api/useApi";
+import { useApi, useApiClient, useApiStore } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
 import { INBOX_COUNT_POLL_MS } from "../portal/inboxCount";
 import { usePoll } from "../runs/usePoll";
 import { useSession } from "../session/session";
 import { AgentSwitcher, canSwitch } from "../shell/AgentSwitcher";
 import type { SearchRun } from "../shell/Search";
-import { AppShell, SidebarLink, SidebarMore, SidebarSection } from "../shell/Shell";
+import { AppShell, SidebarLink, SidebarSection } from "../shell/Shell";
 import { opsSearchGroups } from "../shell/searchGroups";
 import { Icon } from "../ui/icons";
 import { useAgentsChanged } from "./agents/ui";
@@ -54,15 +54,22 @@ type SharedCounts = ResponseOf<typeof apiRoutes.opsCounts> | null;
 const ShareCountsContext = createContext<((counts: SharedCounts | undefined) => void) | null>(null);
 
 /**
- * For a page that computes the badges' counts itself (the command center, §1.84): hands them to
- * the frame, which then asks for none of its own while the page is open. `null` while loading.
+ * For a page that computes the badges' counts itself (the command center, §1.84; Escalations,
+ * docs/audit-plan.md 2.3): hands them to the frame, which then asks for none of its own while the
+ * page is open. `null` while loading; `undefined` when the page has none to give (Escalations
+ * narrowed to one client), so the frame asks for its own.
  */
-export function useShareCounts(counts: SharedCounts): void {
+export function useShareCounts(counts: SharedCounts | undefined): void {
   const share = useContext(ShareCountsContext);
   useEffect(() => {
     share?.(counts);
   }, [share, counts]);
   useEffect(() => () => share?.(undefined), [share]);
+}
+
+/** The place a back-office address is in: its first segment after `/ops` ("" for Home). */
+export function opsPlace(pathname: string): string {
+  return pathname.replace(/^\/ops\/?/, "").split("/")[0] ?? "";
 }
 
 export function OpsLayout({ children }: { children: ReactNode }) {
@@ -93,10 +100,11 @@ function OpsFrame({ children }: { children: ReactNode }) {
   }, [tenantKey, reloadClients]);
 
   // The badges (UI cleanup, stream A): Escalations' count and each client's Needs us and runs
-  // waiting, refreshed on each page change and every 20 s, as the portal's Desk count does.
+  // waiting, refreshed when the place changes (below) and every 20 s, as the portal's Desk count
+  // does.
   // DECISION: one Needs us per refresh (docs/plan.md §1.84). A page that computes them already (the
-  // command center) hands them over through `useShareCounts`, and the frame asks for nothing while
-  // it does; elsewhere the frame asks GET /api/ops/counts. The frame waits for its first effects
+  // command center, Escalations) hands them over through `useShareCounts`, and the frame asks for
+  // nothing while it does; elsewhere the frame asks GET /api/ops/counts. The frame waits for its first effects
   // before asking, so a page that shares is known first and no request is sent for nothing.
   const [shared, setShared] = useState<SharedCounts | undefined>(undefined);
   const [settled, setSettled] = useState(false);
@@ -104,13 +112,24 @@ function OpsFrame({ children }: { children: ReactNode }) {
   const own = settled && shared === undefined;
   const countsState = useApi(apiRoutes.opsCounts, own ? {} : null);
   const { reload: reloadCounts } = countsState;
+  // DECISION: the counts reload when the place changes (the first path segment after `/ops`:
+  // Home, Escalations, Runs, Clients, …), not on every move inside one place, such as an agent's
+  // tabs or a run opened from Runs (docs/audit-plan.md 2.3); inside one place, only when something
+  // was written since they came (a decision, a retry), so the badge is never a poll behind a press.
+  // The 20 s poll keeps them current otherwise.
+  const store = useApiStore();
   const { pathname } = useLocation();
-  const firstPath = useRef(pathname);
+  const place = opsPlace(pathname);
+  const lastMove = useRef({ place, pathname });
   useEffect(() => {
-    if (pathname === firstPath.current) return;
-    firstPath.current = pathname;
-    if (own) reloadCounts();
-  }, [pathname, own, reloadCounts]);
+    const last = lastMove.current;
+    if (pathname === last.pathname) return;
+    lastMove.current = { place, pathname };
+    if (!own) return;
+    if (place !== last.place || store.staleByWrite(store.key(apiRoutes.opsCounts, {}))) {
+      reloadCounts();
+    }
+  }, [place, pathname, own, reloadCounts, store]);
   usePoll(reloadCounts, own, INBOX_COUNT_POLL_MS, countsState.loading);
   const counts = own ? countsState.data : (shared ?? undefined);
   const needsUs = counts?.needsUs;
@@ -213,17 +232,12 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 label="Agent lab"
                 testId="ops-nav-lab"
               />
+              {/* R8: the Library holds skills, tools, connectors and the other banks. */}
               <SidebarLink
-                to={OPS_PATHS.skills}
+                to={OPS_PATHS.library}
                 icon="document"
-                label="Skills"
-                testId="ops-nav-skills"
-              />
-              <SidebarLink
-                to={OPS_PATHS.connectors}
-                icon="bank"
-                label="Connectors"
-                testId="ops-nav-connectors"
+                label="Library"
+                testId="ops-nav-library"
               />
               <SidebarLink
                 to={OPS_PATHS.packs}
@@ -247,17 +261,17 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 testId="ops-nav-marketing"
               />
             </SidebarSection>
-            <SidebarMore label="More" testId="ops-nav-more">
-              <SidebarLink to={OPS_PATHS.feedback} label="Feedback" testId="ops-nav-feedback" />
-              <SidebarLink to={OPS_PATHS.audit} label="Audit log" testId="ops-nav-audit" />
-              <SidebarLink to={OPS_PATHS.requests} label="Requests" testId="ops-nav-requests" />
-              <SidebarLink
-                to={OPS_PATHS.browserSites}
-                label="Website logins"
-                testId="ops-nav-browser-sites"
-              />
-            </SidebarMore>
           </nav>
+        }
+        // Feedback, the audit log, requests and website logins: one page, a tab each, pinned to
+        // the sidebar's foot above Collapse (as Admin is in Anchor).
+        sidebarFooter={
+          <SidebarLink
+            to={OPS_PATHS.utilities}
+            icon="settings"
+            label="Utilities"
+            testId="ops-nav-utilities"
+          />
         }
       >
         <OpsClientsContext.Provider value={clientRows}>

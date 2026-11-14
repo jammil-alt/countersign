@@ -25,6 +25,7 @@ Mezonas is the product name and the name of every public resource; `countersign`
 | Code service Worker (apps/mfa) | `mezonas-codes-staging` | `mezonas-codes` |
 | Code service address (Twilio's webhooks only) | `https://codes-staging.mezonas.com` | `https://codes.mezonas.com` |
 | Agent email (code service) | `agents.staging.mezonas.com` | `agents.mezonas.com` |
+| Browser service Worker (apps/browser; no address, service binding only) | `mezonas-browser-staging` | `mezonas-browser` |
 | WorkOS | staging environment | production environment |
 | MCP server (Claude connector, operators) | `https://staging.mezonas.com/mcp` | `https://app.mezonas.com/mcp` |
 | Rate limit namespace (`MCP_RATE_LIMIT`) | `1101` | `1102` |
@@ -159,8 +160,8 @@ What the owner does, once:
 - [ ] **Deploy.** Merge the deploy PR (`claude/site-deploy`), or, if it is already merged, re-run
       the `site` job of the latest Deploy run on `main` (Actions → Deploy → the run → Re-run failed
       jobs). The custom domains create their own records; they show in DNS as type "Worker".
-- [ ] **Check** `https://mezonas.com`, `/terms`, `/privacy`, `/subprocessors` and
-      `https://www.mezonas.com`.
+- [ ] **Check** `https://mezonas.com`, `/hire`, `/security`, `/terms`, `/privacy`,
+      `/subprocessors` and `https://www.mezonas.com`.
 - [ ] **Then submit Google's verification.** The site must be live first: Google checks the
       homepage and its privacy policy link on the verified domain. Homepage `https://mezonas.com`,
       privacy policy `https://mezonas.com/privacy`, terms `https://mezonas.com/terms`. Fill in the
@@ -243,15 +244,35 @@ domain, and generates `MFA_ENCRYPTION_KEY` once. What a person does, per environ
 ### Browser logins (Access phase 3)
 
 Agents sign in to websites with no API as a client's agent account, on Cloudflare Browser Run, signed
-in by our code (docs/plan.md §1.26). The code is deployed with apps/api; what a person does:
+in by our code (docs/plan.md §1.26). Browser Run and Playwright run in the **browser service**
+(`apps/browser`, Worker `mezonas-browser-staging` / `mezonas-browser`), so apps/api carries neither:
+
+- **What it has.** Its own `wrangler.jsonc` with the Browser Run binding (`"browser": {"binding":
+  "BROWSER"}`) in staging and production only, and nothing else: no secrets, no Hyperdrive, no R2,
+  no route, no workers.dev or preview URL. Our code in it writes no log line; Workers Logs keeps
+  each invocation's metadata and any thrown error's message, and no message carries a typed value
+  or a cookie.
+- **How apps/api reaches it.** Only through apps/api's `BROWSER` service binding, entrypoint
+  `Browsers` (`apps/api/wrangler.jsonc`): `open({hosts, keepAliveMs})` answers one tab that apps/api
+  drives one call at a time (go to, fill, click, read, download, close). apps/api keeps every
+  decision: the permission gate, pinned origins, the blocked tier, the vault read, the audit and
+  external actions. A site's password or a code crosses for one `fill` call, held to the login
+  origins `apps/api` gives it, and is never written to a log, kept or returned; codes still come only from the code service.
+- **Deploy order.** `deploy.yml` deploys the code service, then the browser service, then apps/api,
+  whose service bindings need both Workers to exist. The browser service needs no secret.
+- **Locally** neither Worker is bound: `pnpm dev` runs without them, website logins show "Not
+  available yet" and agents' browser tools are refused. The chromium tests (`apps/browser`) drive
+  the same Playwright adapter in local Chromium.
+
+What a person does:
 
 - [ ] **Turn on Browser Run** for the Cloudflare account (Workers & Pages → Browser Rendering; it
-      needs the Workers Paid plan). Check its limits for the account: concurrent browsers, browsers
-      per minute, and that `guardrails` (allowed domains) and `recording: false` are accepted.
-- [ ] **Merge the binding PR** (`claude/browser-binding`) only after that: it adds `"browser":
-      {"binding": "BROWSER"}` to `apps/api/wrangler.jsonc`, and a deploy with the binding fails on an
-      account without Browser Run. Without the binding, website logins show "Not available yet" and
-      agents' browser tools are refused.
+      needs the Workers Paid plan) **before the first deploy of the browser service**: a deploy with
+      the binding fails on an account without Browser Run. Check its limits for the account:
+      concurrent browsers, browsers per minute, and that `guardrails` (allowed domains) and
+      `recording: false` are accepted.
+- [ ] **Check the RPC tab on staging** (`apps/browser/NOTES.md`): a website login's tab is an RPC
+      target that lives across calls; check one sign-in, read and sign-out end to end.
 - [ ] **Add the first real site** in the back office (Websites → Add a site), after checking its
       terms allow automated access; write who checked and when in the notes. Pick a low-tier site
       (supplier portal, price list, invoice downloads) and allow only the pages the pilot reads, e.g.
@@ -485,11 +506,43 @@ window, and verifies the number there. Group messages stay off unless the operat
 for the client (`PUT /api/ops/clients/:id/messaging/whatsapp-groups`), once Meta's groups API is
 verified (NOTES.md).
 
+### Model keys (OpenAI, xAI and Google's Gemini)
+
+Agents run on Anthropic's models unless the operator sets an agent, a skill, a step or an AI
+reviewer to another provider's (`openai:`, `xai:`, `google:` ids; `docs/plan.md` §1.2, "Models:
+xAI and Gemini"). Each provider stays off on an environment until its key is there: its models
+fail with an error naming the missing key, and everything else runs. To switch xAI or Gemini on:
+1. Check the ids and prices in `packages/llm/NOTES.md` on the provider's own pages, and correct
+   `packages/llm/src/pricing.ts` and `models.ts` by pull request first if they differ. A model
+   with no price is refused, so a wrong id fails rather than running at no cost.
+2. Make a key on Mezonas' own account, one per environment, with a monthly spending limit:
+   - xAI: https://console.x.ai → API Keys → Create API key. Name it `mezonas-staging` or
+     `mezonas-production`; it needs the Responses endpoint and the models in `MODELS`.
+   - Google: https://aistudio.google.com/apikey → Create API key, in a Google Cloud project of
+     Mezonas' own with billing on (the paid tier; the free tier may use prompts to improve
+     Google's products). Name it the same way; restrict it to the Generative Language API.
+3. GitHub → Settings → Environments → `staging` (then `production`) → Add environment secret:
+   `XAI_API_KEY` and `GEMINI_API_KEY`.
+4. Deploy (push to `main` for staging; production deploys from a `v*` tag or by hand). The deploy
+   copies each key into the Worker when it is set.
+5. On staging, set a test agent to `xAI (Grok 4.7)` and to `Google (Gemini 3.1 Pro)`, run one
+   plain answer and one with a tool, and compare each run's model cost with the provider's usage
+   page.
+6. Before a client's data goes to either, add xAI and Google (Gemini API) to the public
+   subprocessor list (`apps/site`). A client in HIPAA mode is refused both until `xai` or
+   `google` is in `BAA_PROCESSORS` (§1.2 below).
+
+To rotate a key, update the GitHub secret and redeploy. To switch a provider off, delete the
+GitHub secret and the Worker secret (`pnpm exec wrangler secret delete XAI_API_KEY --env staging`
+from `apps/api`); the deploy only adds keys, it never deletes one.
+
 ### Worker secrets (set by `deploy.yml`, never by hand)
 
 The deploy workflow loads the Worker's secrets into Cloudflare after each deploy:
-- `WORKOS_API_KEY`, `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`: copied from the GitHub **environment** (`staging` or
-  `production`) on every deploy, so rotating a key is "update the GitHub secret, redeploy".
+- `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY` and `GEMINI_API_KEY`:
+  copied from the GitHub **environment** (`staging` or `production`) on every deploy, each only when
+  it is set, so rotating a key is "update the GitHub secret, redeploy". The last three are optional
+  ("Model keys" above).
 - `ENCRYPTION_KEY` (32 random bytes, base64) and `WORKOS_COOKIE_PASSWORD`: generated once inside the job
   when the Worker doesn't have them yet, and never shown or stored anywhere else. If the job can't read
   the Worker's existing secrets it stops instead of generating, so `ENCRYPTION_KEY` is never replaced by
@@ -504,6 +557,8 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   subaccount) copied when set, and `MFA_ENCRYPTION_KEY` (32 random bytes, base64) generated once
   inside the job exactly as `ENCRYPTION_KEY` is, never replacing an existing one. apps/api never has
   these, and the code service never has apps/api's.
+- The browser service (`mezonas-browser-staging` / `mezonas-browser`) has no secrets: it is deployed
+  in its own step after the code service and before apps/api, and gets none of apps/api's.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (Gmail, M10; see "Google" above) and `QBO_CLIENT_ID`,
   `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER` (QuickBooks Online, M9) are copied like the API keys when
   set. Staging has the development keys of both apps (2026-11-05).
@@ -552,6 +607,21 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   `<APP_ORIGIN>/api/connections/bankfeed/webhook/<client id>`. Until both secrets and
   `OAUTH_STATE_SECRET` are set, the feed shows "Not available yet". What to check in Plaid's
   sandbox first: `packages/connectors/src/bankfeed/NOTES.md`.
+- Needed by the BILL connector (`billcom`, plan §1.87): `BILL_DEV_KEY`, Mezonas' BILL developer
+  key, copied like the API keys when set; `BILL_ENV` is a var in `wrangler.jsonc` (`sandbox`
+  locally and on staging, `production` in production) and picks the host, so the key must be that
+  environment's. The owner's steps, sandbox first: (1) sign up at BILL's developer portal
+  (`developer.bill.com`) and ask for a sandbox developer key; BILL gives a sandbox organization with
+  it. (2) In that organization make a user for our agents with the smallest role that reads and
+  enters bills and vendors (not an administrator), and note the organization id (it starts with
+  `008`). (3) Add `BILL_DEV_KEY` as a secret of the GitHub `staging` environment and redeploy. (4)
+  Offer BILL to the Sandbox client, enter the user's login on its portal's Accounts page, and walk
+  "To verify" in `packages/connectors/src/billcom/NOTES.md`. (5) Production: BILL's review of the
+  app and a production key, as `BILL_DEV_KEY` in the `production` environment. Without the key BILL
+  can be offered and its login entered, but every tool refuses ("BILL isn't set up here yet"). A
+  client's own BILL login is never a Worker secret: the client admin enters it in the vault.
+  Payments stay off until a second-factor path exists (plan §1.87). BILL is a processor: a client
+  in HIPAA mode can't use it until `billcom` is in `BAA_PROCESSORS`.
 - Needed by the Slack connector (W4-C, plan §1.56), the same way: `SLACK_CLIENT_ID` and
   `SLACK_CLIENT_SECRET` (our Slack app's client id and secret, redirect URL
   `<APP_ORIGIN>/connections/slack/callback`; see "Slack" above). Until both and `OAUTH_STATE_SECRET` are set, Slack shows "Not available yet".
@@ -577,6 +647,9 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   writes to about each client's profile and trust product). Without them the back office's
   "Submit to Twilio" answers 503. Submitting charges Twilio's registration fees to Mezonas' account;
   they come back as the client's credits. Run the mock brand checklist in NOTES.md once first.
+  Staging shares production's Twilio account (the same `TWILIO_ACCOUNT_SID`, the main account, not
+  a subaccount) and so its approved primary profile; both environments set the same two values.
+  Each client still gets its own subaccount, made by whichever environment the client is in.
 - Needed for calls (plan §1.23; wiring into `deploy.yml` is the coordinator's): `ELEVENLABS_API_KEY`
   (Mezonas' ElevenLabs workspace, Conversational AI) and `ELEVENLABS_WEBHOOK_SECRET` (the signing
   secret of ElevenLabs' post-call webhook, pointed at `<APP_ORIGIN>/api/elevenlabs/post-call`; it
@@ -635,8 +708,8 @@ What to check against Stripe's docs and a test-mode account before the first rea
 |---|---|---|
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
-| Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (one per environment; a repository secret also works) |
-| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta) |
+| Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY` (xAI's Grok), `GEMINI_API_KEY` (Google's Gemini) (one per environment; a repository secret also works; the model keys after Anthropic's are optional) |
+| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `BILL_DEV_KEY` (BILL, plan §1.87), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta) |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 
@@ -776,7 +849,7 @@ first (Sandbox and Demo clients, the platform templates); the seed never runs on
 the workflow refuses to run there with "Run the seed first" ticked (it is ticked by default). Safe to
 run again, e.g. after new clients exist: it never adds a second first client.
 
-### Sign-in codes: the second step (`docs/plan.md` §1.83)
+### Sign-in codes: the second step (`docs/plan.md` §1.99)
 
 After WorkOS checks the password, Mezonas asks for a code itself: an authenticator app (operators:
 only this), a text or WhatsApp. A browser that passed can be remembered for 30 days. Codes are
@@ -811,13 +884,20 @@ which also forgets every browser they had remembered. Every step is in the audit
 `session.second_factor_send`, `session.recovery_codes`, `session.second_factor_reset`, and the
 sign-in row's `second_factor` (`pending`, `exempt` or `remembered`).
 
-### MCP server (Claude connector for the back office)
+### MCP server (Claude connector for the back office and for clients)
 
-The back office as a Claude connector (`docs/plan.md` §1.34): `https://staging.mezonas.com/mcp`
-and `https://app.mezonas.com/mcp`, one code, each with its own WorkOS environment, users and
-data. Operators only; it reads what the back office shows for the clients you serve, and its one
-write (resolving feedback) takes two calls, a preview and a confirm. Off until
-`WORKOS_AUTHKIT_DOMAIN` is set for the environment.
+Mezonas as a Claude connector: `https://staging.mezonas.com/mcp` and `https://app.mezonas.com/mcp`,
+one code, each with its own WorkOS environment, users and data. One URL for everyone; who signs in
+decides what it does:
+
+- **Operators** (`docs/plan.md` §1.34): it reads what the back office shows for the clients you
+  serve, and its one write (resolving feedback) takes two calls, a preview and a confirm.
+- **A client's admin or user** (§1.89): it reads what their portal shows them (overview, inbox,
+  runs, connections, requests, records, documents, reports), for their own business only. It
+  changes nothing; approvals and answers stay in the portal.
+
+Off until `WORKOS_AUTHKIT_DOMAIN` is set for the environment (it is set for staging and
+production).
 
 Sign-in is WorkOS AuthKit acting as the OAuth server for MCP clients: Claude registers itself
 with AuthKit, you sign in on AuthKit's page with your usual WorkOS sign-in, and AuthKit issues a
@@ -846,22 +926,29 @@ writing; UNCHECKED, WorkOS renames them now and then):
 use for the back office. Then ask Claude "whoami in Mezonas staging" to see the environment and
 your clients.
 
+**For a client** the steps are the same: they add a custom connector with the production URL
+`https://app.mezonas.com/mcp` and sign in with the address they use for their portal. Someone
+who has never signed in to the portal signs in there once first. Someone in more than one business
+is asked which one; whoami lists them.
+
 If connecting fails:
 
 | You see | Why | What to do |
 |---|---|---|
-| 403 "sign in to the Mezonas back office in a browser once" | Your WorkOS user has never signed in to this environment's back office, so no Mezonas user carries its WorkOS id yet | Sign in at `https://staging.mezonas.com` once, then Connect again |
-| 403 "for operators" | You are signed in as a client user | Use an operator account |
+| 403 "sign in to Mezonas in a browser once" | Your WorkOS user has never signed in to this environment's back office or portal, so no Mezonas user carries its WorkOS id yet | Sign in at `https://staging.mezonas.com` (or `https://app.mezonas.com`) once, then Connect again |
+| 403 "not a member of any business" | The account has no operator or client membership here | Invite them to the client first (or add the operator) |
+| Only the client tools, as an operator | You signed in with a client user's address | Disconnect and sign in with your operator account |
 | 401 "the access token is not for this server" on every call | AuthKit did not put this server's URL in the token's `aud` (RFC 8707 resource indicator; UNCHECKED) | Look at a token's `aud` in the Worker log or WorkOS, and set `MCP_AUDIENCE` to it under the environment's `vars`. Empty means the default (the `/mcp` URL); there is no way to turn the check off |
 | 503 "the sign-in service can't be reached" | The Worker could not read AuthKit's metadata at `<domain>/.well-known/oauth-authorization-server` | Check `WORKOS_AUTHKIT_DOMAIN` |
 | 503 "the MCP server is not set up here" | `WORKOS_AUTHKIT_DOMAIN` is set but WorkOS sign-in is not fully on (client id, API key, cookie password) | Fix WorkOS sign-in first |
 | 429 | More than 120 calls a minute from you (Cloudflare rate limiting, `MCP_RATE_LIMIT`) | Wait a minute |
 
-To cut a connector off: remove the person's operator memberships (takes effect on the next call),
+To cut a connector off: remove the person's memberships (takes effect on the next call),
 or end their sessions in WorkOS (tokens last as long as AuthKit's access-token lifetime, a few
 minutes by default; nothing here refreshes them). Every tool call is a log line
-`{"event":"mcp.tool_call",…}` in Workers Logs, with the operator, the tool, its arguments (never
-a confirm token) and the outcome.
+`{"event":"mcp.tool_call",…}` in Workers Logs, with the person, `audience` (`ops` or `client`),
+the tool, its arguments (never a confirm token) and the outcome; each read is also a row in the
+audit log (`mcp GET /api/…`).
 
 Locally the MCP server is off (`WORKOS_AUTHKIT_DOMAIN` is empty in `wrangler.jsonc`); the tests in
 `apps/api/src/mcp.test.ts` run it against a fake AuthKit.
@@ -869,7 +956,8 @@ Locally the MCP server is off (`WORKOS_AUTHKIT_DOMAIN` is empty in `wrangler.jso
 ## 1.1 Onboarding a client (managed service)
 
 Done by the operator in the back office once M5–M6 ship: create the client → invite the client admin
-(WorkOS invitation) → offer the QuickBooks and Gmail connectors and set their permission matrices; the
+(WorkOS invitation) → build their agents, and offer each tool an agent needs (QuickBooks, Gmail) on the
+client's Setup → Connections page and set its permission matrix (the new-client form offers none); the
 client admin signs in to each from the portal's Connections page (we never handle their credentials) →
 set the Gmail ingestion query → enable packs → fork templates into the client (e.g. Pia) and customize them for the client's data and
 flows, bind the client's connections → test-run on the client's data → publish and activate → choose who
@@ -885,18 +973,19 @@ The supervisor (`docs/plan.md` §1.28) watches one client's runs, connections, w
 and waiting items, and tells the client admin in plain steps and us with the details. It changes
 nothing itself.
 
-1. **The template must be installed.** It is the platform template `supervisor`
-   (`packages/db/seed/agents/supervisor.v1.json`). On staging, run the seed again (Actions → **Add
-   operator** with "Run the seed first", or `pnpm --filter @countersign/db run db:seed`); it adds
-   templates that are missing and changes nothing else. The seed never runs on production, so there
-   the template is created by hand until a template-only install exists: back office → Templates →
-   new template `supervisor` with that file's bundle, then publish it.
-2. **Add it.** New clients: "Add the supervisor" is ticked on the new-client form. Existing clients:
-   the client page → Health → **Add the supervisor**. Either way it is forked from the template's
-   live version and published as the client's agent `supervisor` ("Account check"); a client that
-   has one keeps it.
-3. **Test and activate it** like any agent: test-run `daily-check` (a test run reads and writes
-   nothing; its output says what it would have reported), then Activate. It needs no connection.
+1. **The template** is the platform template `supervisor` (`packages/db/seed/agents/`). Where it
+   isn't installed yet (production, where the seed never runs), adding the supervisor installs its
+   newest seeded version first, so nothing is done by hand.
+2. **It is on by default** (since 2026-11-10, `docs/plan.md` §1.47 "On by default"). New clients:
+   "Turn on Sloan" is ticked on the new-client form (untick it to leave a client without it).
+   Existing clients: the cron's hourly pass (minute 23) turns it on for every client without one,
+   and for one added but never activated; or the client page → Health → **Turn on Sloan**. Either
+   way it is forked from the template's live version, published as the client's agent `supervisor`
+   ("Sloan, your account agent"), activated without a test run (it writes nothing to a client's
+   tools) and goes straight to live ("no writes"). A client whose Sloan was activated, paused,
+   moved back, retired or discarded keeps it as it is; so does the Sandbox (no client people).
+3. **To test it** anyway: test-run `daily-check` (a test run reads and writes nothing; its output
+   says what it would have reported). It needs no connection.
 4. **What it does then.** On every failed live run and every connection that needs a person it looks
    into it (the model, with the health tools and, at most, one question to the agent involved) and
    reports: one item for the client admin, one for us, once per open issue. Every day at 08:00 in the
@@ -1050,8 +1139,10 @@ Settings page in the back office (with a reason). It can only be switched on onc
 would receive its data has a signed BAA. Those vendors are listed in `BAA_PROCESSORS` in
 `apps/api/wrangler.jsonc`, per environment. Add a vendor there by pull request only after its BAA
 is signed, and keep the signed copy. The ids are `cloudflare`, `neon`, `workos`, `anthropic`,
-`openai`, `twilio`, `meta_whatsapp`, `elevenlabs` and `resend`. The first three are needed for any
-HIPAA client. `anthropic` is needed for agents and document reading. M50: website measurement is
+`openai`, `xai`, `google`, `twilio`, `meta_whatsapp`, `elevenlabs` and `resend`. The first three are
+needed for any HIPAA client. `anthropic` is needed for agents and document reading. `openai`,
+`xai` and `google` are needed only for agents set to their models (`openai:`, `xai:`, `google:`
+ids); `google` is the Gemini API on our key, not a client's own Google account. M50: website measurement is
 held for a client in HIPAA mode whatever is listed: its site's beacons are answered and nothing is
 stored, until the owner decides (`docs/marketing/processor-terms-draft.md` §6). Web research
 (`anthropic_web`) and Hacker News (`hackernews`) are refused to it until listed.
@@ -1131,8 +1222,8 @@ be disabled, as in `db:purge-client`.
   configs and R2 buckets (§1). Safe to re-run; each run rotates `cs_worker`'s passwords.
 - **`deploy.yml`**: on push to `main` (staging) or a `v*` tag (production): the full check, then
   migrates the target's Neon branch as `cs_owner`, deploys the code service (`apps/mfa`) and its
-  secrets, builds `apps/web` and runs `wrangler deploy` for apps/api (whose `CODES` binding needs the
-  code service deployed first). Its `site` job builds `apps/site` and deploys `mezonas-site`, from
+  secrets, then the browser service (`apps/browser`), builds `apps/web` and runs `wrangler deploy`
+  for apps/api (whose `CODES` and `BROWSER` bindings need both deployed first). Its `site` job builds `apps/site` and deploys `mezonas-site`, from
   `main` only. After the Worker deploys, **`scripts/smoke.sh`** checks the app from the outside
   (`/api/health` answers, the page and its script load, `/api/session` refuses with a JSON 401),
   retrying for 2 minutes; a failure marks the deploy failed. Run it by hand against either

@@ -1,8 +1,13 @@
 // In-memory ports for executor tests: step_run rows, an agent that answers per step id, an inbox
 // and notifications. Each records what it was asked so tests can assert on it.
 
-import type { SkillDefinition, ToolSpec, Workflow } from "@countersign/core";
-import { Workflow as WorkflowSchema } from "@countersign/core";
+import {
+  actionWrote,
+  type SkillDefinition,
+  type ToolSpec,
+  type Workflow,
+  Workflow as WorkflowSchema,
+} from "@countersign/core";
 import type { ExecutorContext } from "./executor";
 import type {
   ActionStepRequest,
@@ -102,6 +107,12 @@ export class Harness {
     },
   };
 
+  /**
+   * Wave 5 review: the external actions the steps' writes left (by the node that proposed them),
+   * as `stepWrites` reads them. Handlers push what their write did.
+   */
+  actions: { nodeId: string; status: string; error?: unknown }[] = [];
+
   agent: AgentPort = {
     runSkill: async (req) => this.#handle(req),
     runAction: async (req) => this.#handle(req),
@@ -109,6 +120,12 @@ export class Harness {
       this.resumeCalls.push(req);
       return this.resumeHandler(req);
     },
+    stepWrites: async ({ nodeId }) =>
+      this.actions.some(
+        (a) =>
+          (a.nodeId === nodeId || a.nodeId.startsWith(`${nodeId}:`)) &&
+          actionWrote({ status: a.status, error: a.error ?? null }),
+      ),
   };
 
   async #handle(req: SkillStepRequest | ActionStepRequest): Promise<StepOutcome> {

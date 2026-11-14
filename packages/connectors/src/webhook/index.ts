@@ -397,6 +397,8 @@ export function createWebhookConnector(options: WebhookConnectorOptions = {}): C
         description:
           "Send an event with data to the client's outbound webhook (e.g. their Zap's catch hook).",
         verb: "create",
+        // R5: a send can't be taken back.
+        undo: { kind: "none" },
         summary: "Sent the event to {{host}}",
         input: SendInput,
         output: SendOutput,

@@ -1,7 +1,6 @@
 // Pieces the skills screens share (O4 Skills and automations, O8 New skill, the skill and
 // automation pages): a schema's fields as "Takes in" / "Gives back", a chain of steps or
 // in → out tags with arrows, and the version chip.
-import type { Step } from "@countersign/core";
 import { Fragment, type ReactNode } from "react";
 import { Card, Tag } from "../../ui/primitives";
 
@@ -113,7 +112,8 @@ export function Chain({
 
 /** An automation's top-level steps as a chain: each step's name, person steps in copper. */
 export function stepChain(
-  steps: readonly Step[],
+  // Wave 3b: an automation's steps are v3 steps or v4 process steps; both name these.
+  steps: readonly { id: string; name: string; kind: string }[],
 ): { key: string; label: string; person?: boolean }[] {
   return steps.map((s) => ({
     key: s.id,

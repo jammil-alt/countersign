@@ -20,6 +20,7 @@ import {
   NewLine,
   Page,
   page,
+  QBO_STAND_IN,
   QBO_TOOLS,
   QboAddressInput,
   QboTotalWouldChangeError,
@@ -157,6 +158,8 @@ export function purchaseOrderCreateTool(clientFor: ClientFor): ToolDefinition {
     description:
       "Create a purchase order in QuickBooks: vendor, optional number, dates (the order's and when it is expected), lines (an item with qty and unit price, or an account; a class or customer per line if the company uses them), the expected total, where to ship and a memo. It stays open and isn't sent to the vendor. Refused if the lines don't add up, the vendor isn't the company's, or an order from the vendor with the same number is there.",
     verb: "create",
+    // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+    undo: { kind: "none" },
     summary: "Created purchase order {{docNumber}} for {{total}}",
     amount: { path: "expectedTotal", currencyPath: "currency", currency: "USD" },
     display: purchaseOrderCreateDisplay,
@@ -169,6 +172,13 @@ export function purchaseOrderCreateTool(clientFor: ClientFor): ToolDefinition {
       status: z.string().nullable(),
       lineCount: z.number().int(),
       alreadyDone: z.boolean(),
+    }),
+    testOutput: (input) => ({
+      ...QBO_STAND_IN,
+      docNumber: input.docNumber ?? null,
+      total: input.expectedTotal,
+      status: null,
+      lineCount: input.lines.length,
     }),
     // DECISION: a new order has no prior state; `before` keeps what the approval card names it by:
     // the vendor as QuickBooks has it, the names of the lines' items, accounts, classes and

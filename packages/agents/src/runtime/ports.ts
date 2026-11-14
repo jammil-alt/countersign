@@ -72,8 +72,17 @@ export interface RuntimeStore {
   loadAgentVersion(tenantId: string, agentVersionId: string): Promise<PinnedAgent>;
   /** A `custom:` skill reference, resolved for this client. Built-ins come from the catalog. */
   resolveCustomSkill(tenantId: string, ref: string): Promise<ResolvedSkill | null>;
-  /** The client agent's live memory notes (never another agent's or client's; no test notes). */
-  memoryNotes(tenantId: string, agentId: string, limit: number): Promise<MemoryNoteRecord[]>;
+  /**
+   * The client agent's live memory notes, newest first (never another agent's or client's; no
+   * test notes): its own (`agent`, what the model reads as memory), or those of another scope the
+   * runtime keeps for itself (v0.16: a browsing skill's paths, `browse`).
+   */
+  memoryNotes(
+    tenantId: string,
+    agentId: string,
+    limit: number,
+    scope?: string,
+  ): Promise<MemoryNoteRecord[]>;
   connection(tenantId: string, connectionId: string): Promise<ConnectionRef | null>;
   /**
    * The client agent's grant on a connection (docs/plan.md §1.26), read fresh for every call so a
@@ -210,6 +219,25 @@ export interface ExternalActionRecord {
   // v0.12 W1-D: the signer's edit before signing (ARCHITECTURE §11.1). `input` stays the agent's;
   // execution uses the edit when there is one.
   editedInput?: JsonObject | null;
+  // R5 (docs/plan.md §1.86, §9): the record as the write left it, read with the tool's own `before`
+  // right after writing, so an undo can tell whether anyone changed it since. Absent or null: not
+  // kept (the store doesn't keep it, the tool can't be taken back, or the read failed).
+  after?: unknown;
+}
+
+/** R5: a person's undo of a done write, recorded approved by them (ExternalActionStore.proposeUndo). */
+export interface ProposeUndoInput {
+  /** The write being taken back. */
+  original: ExternalActionRecord;
+  /** The tool that takes it back: the write's own (restore) or its declared reverse. */
+  tool: string;
+  input: JsonObject;
+  /** The record as it is now, read right before the undo (what the undo replaces). */
+  before: unknown;
+  /** The person whose press approves it. */
+  approvedBy: string;
+  /** The undo's own key (`undoKey(original.id)`): one undo per write. */
+  idempotencyKey: string;
 }
 
 export interface ProposeActionInput {
@@ -263,8 +291,24 @@ export interface ExternalActionStore {
   complete(
     tenantId: string,
     actionId: string,
-    result: { output: unknown; before: unknown },
+    // R5: `after`, the record as the write left it, where the store keeps it (`keepsAfter`).
+    result: { output: unknown; before: unknown; after?: unknown },
   ): Promise<ExternalActionRecord>;
+  /**
+   * R5: whether `complete` keeps the after state. Only then does a write read its record again
+   * after writing (one more read of the client's tool), since an undo needs it to run.
+   */
+  keepsAfter?: boolean;
+  /**
+   * R5: records a person's undo of a done write as an approved action under its own key
+   * (`input.idempotencyKey`), on the original's run but with no step and no agent version (a
+   * person's write, like a signed write), unless one exists under that key: then that one is
+   * returned unchanged, so a second press never writes twice. Absent: this store records no undo.
+   */
+  proposeUndo?(
+    tenantId: string,
+    input: ProposeUndoInput,
+  ): Promise<{ action: ExternalActionRecord; created: boolean }>;
   /**
    * Marks the action failed. With `inbox`, an item for a person to look at is opened in the same
    * transaction (a write that may have happened: UnconfirmedWriteError).
@@ -391,6 +435,11 @@ export interface CarryCandidate {
   approvedBy: string | null;
   result: unknown;
   error: unknown;
+  /**
+   * Wave 5 review: its run went on past this write's failure (`onError: continue`; the run's
+   * error names another step): never executed again without a new approval (`carryDecision`).
+   */
+  carriedOn?: boolean;
 }
 
 /** src/log/carried-actions.ts. */

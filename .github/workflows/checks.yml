@@ -57,10 +57,25 @@ jobs:
 
       - run: pnpm typecheck
 
+      # The web app's first load against its budget (scripts/web-size.mjs, docs/audit-plan.md 9.6),
+      # so it can't grow unnoticed. The budget is set in the script. Built with a DSN, as deploy.yml
+      # builds it: Sentry is in the first load only when the build has one. A made-up public DSN on
+      # an unused address; this build is measured, never served.
+      # --manifest writes dist/.vite/manifest.json, the chunk graph the script reads.
+      - run: pnpm --filter @countersign/web build --manifest
+        env:
+          VITE_SENTRY_DSN: https://0@o0.ingest.sentry.io/0
+
+      - run: pnpm size:web
+
   check:
     runs-on: ubuntu-latest
     # A full run takes about 8 minutes (2026-11-08); the limit leaves room for a slow runner.
     timeout-minutes: 30
+    # A database test whose server is unreachable fails here instead of skipping
+    # (packages/db/src/testing.ts), so a broken service container can't pass as green.
+    env:
+      COUNTERSIGN_REQUIRE_DB: "1"
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -110,16 +125,20 @@ jobs:
           fi
 
       # The browser connector's tests drive real Chromium through Playwright (docs/plan.md §1.26,
-      # phase 3). Installed with apps/api's own Playwright, so the browser always matches its
-      # version; skipped where apps/api has no Playwright yet.
+      # phase 3). Installed with apps/browser's own Playwright, so the browser always matches its
+      # version; skipped where apps/browser has no Playwright yet.
       - name: Chromium for the browser tests
         if: steps.scope.outputs.tests != 'none'
         run: |
           set -euo pipefail
-          if [ -d apps/api/node_modules/playwright ]; then
-            pnpm --filter @countersign/api exec playwright install --with-deps chromium
+          if [ -d apps/browser/node_modules/playwright ]; then
+            # The runner image already has Chromium's libraries; --with-deps adds fonts from the
+            # Ubuntu mirrors. When the mirrors can't be reached, go on with the browser alone: no
+            # test compares pixels, so the fonts change no result.
+            timeout 300 pnpm --filter @countersign/browser exec playwright install --with-deps chromium \
+              || pnpm --filter @countersign/browser exec playwright install chromium
           else
-            echo "apps/api has no Playwright: nothing to install."
+            echo "apps/browser has no Playwright: nothing to install."
           fi
 
       - name: A local Postgres with Neon's roles
@@ -201,9 +220,13 @@ jobs:
       - if: steps.scope.outputs.run == 'true'
         run: pnpm install --frozen-lockfile
 
+      # As above: the fonts from the Ubuntu mirrors when they can be reached, the browser alone when
+      # not. The sweep saves screenshots; it compares none.
       - name: Chromium
         if: steps.scope.outputs.run == 'true'
-        run: pnpm --filter @countersign/web exec playwright install --with-deps chromium
+        run: |
+          timeout 300 pnpm --filter @countersign/web exec playwright install --with-deps chromium \
+            || pnpm --filter @countersign/web exec playwright install chromium
 
       # The local passwords .env.example expects, so `wrangler dev` reads it as it is. SEED_E2E=1
       # also seeds the Desk item the walkthroughs sign and undo (never set on staging).

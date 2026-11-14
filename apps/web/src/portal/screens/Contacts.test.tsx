@@ -385,3 +385,256 @@ describe("C5 Contacts", () => {
     expect(within(detail).queryByTestId("people-detail-invite")).toBeNull();
   });
 });
+
+// R8 (docs/plan.md §1.86): a contact's hours and away dates, the client admin's to read and change.
+describe("a contact's hours and away dates", () => {
+  const NINE_TO_SIX = [{ from: "08:00", to: "18:00" }];
+  const business = {
+    hours: {
+      tz: "America/Chicago",
+      week: {
+        mon: NINE_TO_SIX,
+        tue: NINE_TO_SIX,
+        wed: NINE_TO_SIX,
+        thu: NINE_TO_SIX,
+        fri: NINE_TO_SIX,
+      },
+      usHolidays: true,
+      closed: [],
+    },
+    isDefault: true,
+  };
+
+  it("shows the client admin a contact's away dates and saves them on the contact", async () => {
+    const puts: unknown[] = [];
+    let marco: unknown = { away: [{ from: "2026-12-24", to: "2026-12-24" }] };
+    const api = renderAt(`/contacts?person=${MARCO}`, "client_admin", {
+      "GET /api/settings/people-hours": () => ({
+        business,
+        people: [
+          { kind: "user", id: ME, name: "Demo admin", hours: null },
+          { kind: "contact", id: MARCO, name: "Marco Díaz", hours: marco },
+          { kind: "contact", id: LISA, name: "Lisa Park", hours: null },
+        ],
+      }),
+      [`PUT /api/settings/people-hours/contacts/${MARCO}`]: ({ init }) => {
+        const body = JSON.parse(String(init.body));
+        puts.push(body);
+        marco = body.hours;
+        return { person: { kind: "contact", id: MARCO, name: "Marco Díaz", hours: marco } };
+      },
+    });
+    const detail = await screen.findByTestId(`people-detail-${MARCO}`);
+    const hours = await within(detail).findByTestId("people-detail-hours");
+    expect(hours).toHaveTextContent("Business hours");
+    expect(hours).toHaveTextContent("Dec 24, 2026");
+    await userEvent.click(within(hours).getByRole("button", { name: "Change hours" }));
+    // The one away day goes; he is back on the business's hours with no away dates: cleared.
+    await userEvent.click(within(hours).getByTestId("people-detail-hours-away-2026-12-24-remove"));
+    await userEvent.click(within(hours).getByTestId("people-detail-hours-save"));
+    await waitFor(() => expect(puts).toEqual([{ hours: null }]));
+    await waitFor(() => expect(hours).toHaveTextContent("No away dates."));
+    expect(api.calls).toContain("GET /api/settings/people-hours");
+  });
+
+  // Wave 3b: the People hours list stops at its cap. A contact past it has hours we never read,
+  // so no editor (saving one would erase their own week): the page says so instead.
+  it("gives a contact past the hours list's cap no editor, rather than reading them as having none", async () => {
+    const others = Array.from({ length: 2000 }, (_, i) => ({
+      kind: "contact",
+      id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+      name: `Contact ${i}`,
+      hours: null,
+    }));
+    const api = renderAt(`/contacts?person=${MARCO}`, "client_admin", {
+      "GET /api/settings/people-hours": () => ({ business, people: others }),
+    });
+    const detail = await screen.findByTestId(`people-detail-${MARCO}`);
+    expect(await within(detail).findByTestId("people-detail-hours-unlisted")).toHaveTextContent(
+      "This contact's hours can't be shown here",
+    );
+    expect(within(detail).queryByTestId("people-detail-hours")).toBeNull();
+    expect(api.calls.some((c) => c.startsWith("PUT /api/settings/people-hours"))).toBe(false);
+  });
+
+  it("shows a client user no one's hours", async () => {
+    const api = renderAt(`/contacts?person=${MARCO}`, "client_user");
+    const detail = await screen.findByTestId(`people-detail-${MARCO}`);
+    expect(within(detail).queryByTestId("people-detail-hours")).toBeNull();
+    expect(api.calls).not.toContain("GET /api/settings/people-hours");
+  });
+});
+
+// §1.97, §1.98: "They gave us this number for business" (calls and email; never texts or WhatsApp).
+describe("C5 Contacts: numbers given for business", () => {
+  const QBO_ROW = contact({
+    id: "00000000-0000-4000-8000-0000000c0b04",
+    name: "Dee from Acme",
+    phone: "+19725550199",
+    email: null,
+    source: "qbo",
+    relationship: "customer",
+    organization: null,
+  });
+  const people = [contact({}), LISA_ROW, QBO_ROW];
+
+  it("records it for the people ticked, with everyone from QuickBooks in one go", async () => {
+    const posts: unknown[] = [];
+    renderAt("/contacts", "client_admin", {
+      "GET /api/directory": () => ({ people, organizations: [], pendingSuggestions: 0 }),
+      "POST /api/contacts/consent/relationship": ({ init }) => {
+        posts.push(JSON.parse(String(init.body)));
+        return { updated: [QBO_ROW.id, MARCO], skipped: [{ id: LISA, reason: "no_address" }] };
+      },
+    });
+    const bulk = await screen.findByTestId("people-bulk");
+    expect(within(bulk).getByTestId("people-bulk-count")).toHaveTextContent("0 selected");
+    // Nothing to record until someone is ticked.
+    expect(within(bulk).queryByTestId("people-bulk-record")).toBeNull();
+    await userEvent.click(within(bulk).getByTestId("people-pick-quickbooks"));
+    expect(screen.getByTestId(`people-pick-${QBO_ROW.id}`)).toBeChecked();
+    expect(screen.getByTestId(`people-pick-${MARCO}`)).not.toBeChecked();
+    await userEvent.click(screen.getByTestId(`people-pick-${MARCO}`));
+    expect(within(bulk).getByTestId("people-bulk-count")).toHaveTextContent("2 selected");
+    expect(bulk).toHaveTextContent("They gave us these numbers for business");
+    expect(bulk).toHaveTextContent("Texts and WhatsApp need them to sign up");
+    // The note of where is required.
+    expect(within(bulk).getByTestId("people-bulk-record")).toBeDisabled();
+    await userEvent.type(within(bulk).getByTestId("people-bulk-where"), "on their invoices");
+    await userEvent.click(within(bulk).getByTestId("people-bulk-record"));
+    await waitFor(() =>
+      expect(posts).toEqual([{ contactIds: [QBO_ROW.id, MARCO], source: "on their invoices" }]),
+    );
+    expect(await within(bulk).findByTestId("people-bulk-result")).toHaveTextContent(
+      "Recorded for 2. 1 left out: opted out, or no phone or email.",
+    );
+  });
+
+  // §1.98: an invitation by email to sign up for texts, for the people ticked.
+  it("invites the people ticked to sign up for texts", async () => {
+    const posts: unknown[] = [];
+    renderAt("/contacts", "client_admin", {
+      "GET /api/directory": () => ({ people, organizations: [], pendingSuggestions: 0 }),
+      "POST /api/contacts/text-invitations": ({ init }) => {
+        posts.push(JSON.parse(String(init.body)));
+        return {
+          sent: [{ id: MARCO, reminder: false }],
+          skipped: [{ id: QBO_ROW.id, reason: "no_email" }],
+        };
+      },
+    });
+    const bulk = await screen.findByTestId("people-bulk");
+    expect(within(bulk).queryByTestId("people-text-invite")).toBeNull();
+    await userEvent.click(screen.getByTestId(`people-pick-${MARCO}`));
+    await userEvent.click(screen.getByTestId(`people-pick-${QBO_ROW.id}`));
+    const invite = within(bulk).getByTestId("people-text-invite");
+    expect(invite).toHaveTextContent("Texts start only if they sign up.");
+    await userEvent.click(within(invite).getByTestId("people-text-invite-send"));
+    await waitFor(() => expect(posts).toEqual([{ contactIds: [MARCO, QBO_ROW.id] }]));
+    expect(await screen.findByTestId("people-text-invite-result")).toHaveTextContent(
+      "Sent to 1. 1 left out: no email, already signed up, said no, or asked recently.",
+    );
+  });
+
+  it("shows the texting sign-up link to share, and makes a new one only when asked twice", async () => {
+    let n = 0;
+    renderAt("/contacts", "client_admin", {
+      "GET /api/directory": () => ({ people, organizations: [], pendingSuggestions: 0 }),
+      "GET /api/texting/signup-link": () => ({ url: "https://app.mezonas.test/texts/first.link" }),
+      "POST /api/texting/signup-link": () => {
+        n += 1;
+        return { url: "https://app.mezonas.test/texts/second.link" };
+      },
+    });
+    const card = await screen.findByTestId("people-signup-link");
+    expect(card).toHaveTextContent("Share it with your team.");
+    await userEvent.click(within(card).getByTestId("people-signup-link-show"));
+    expect(await within(card).findByTestId("people-signup-link-url")).toHaveValue(
+      "https://app.mezonas.test/texts/first.link",
+    );
+    await userEvent.click(within(card).getByTestId("people-signup-link-replace"));
+    expect(n).toBe(0);
+    expect(card).toHaveTextContent("Anyone with the old link can no longer sign up with it.");
+    await userEvent.click(within(card).getByTestId("people-signup-link-replace-confirm"));
+    await waitFor(() =>
+      expect(within(card).getByTestId("people-signup-link-url")).toHaveValue(
+        "https://app.mezonas.test/texts/second.link",
+      ),
+    );
+    expect(n).toBe(1);
+  });
+
+  it("can be ticked when adding a person, and then needs where", async () => {
+    const posts: unknown[] = [];
+    renderAt("/contacts", "client_admin", {
+      "POST /api/contacts": ({ init }) => {
+        posts.push(JSON.parse(String(init.body)));
+        return { contact: contact({ id: "00000000-0000-4000-8000-0000000c0b03", name: "Rosa" }) };
+      },
+    });
+    await screen.findByTestId(`people-row-${MARCO}`);
+    await userEvent.click(screen.getByTestId("people-add"));
+    const form = await screen.findByTestId("people-add-form");
+    await userEvent.type(within(form).getByTestId("directory-person-new-name"), "Rosa Gómez");
+    await userEvent.type(within(form).getByTestId("directory-person-new-phone"), "+19725550100");
+    expect(within(form).queryByTestId("directory-person-new-business-where")).toBeNull();
+    await userEvent.click(within(form).getByTestId("directory-person-new-business-check"));
+    await userEvent.type(
+      within(form).getByTestId("directory-person-new-business-where"),
+      "order form",
+    );
+    await userEvent.click(within(form).getByTestId("directory-person-new-save"));
+    await waitFor(() =>
+      expect(posts).toEqual([
+        {
+          name: "Rosa Gómez",
+          phone: "+19725550100",
+          consent: { basis: "relationship", source: "order form" },
+        },
+      ]),
+    );
+  });
+
+  it("records it on one person from their consent, and shows where it came from", async () => {
+    const posts: unknown[] = [];
+    const given = {
+      grantedAt: "2026-11-13T10:00:00.000Z",
+      source: "number on their invoices",
+      basis: "relationship",
+    };
+    renderAt(`/contacts?person=${MARCO}`, "client_admin", {
+      "GET /api/directory": () => ({
+        people: [contact({ consent: { sms: given, voice: given, email: given } }), LISA_ROW],
+        organizations: [],
+        pendingSuggestions: 0,
+      }),
+      [`POST /api/contacts/${MARCO}/consent`]: ({ init }) => {
+        posts.push(JSON.parse(String(init.body)));
+        return { contact: contact({}) };
+      },
+    });
+    const detail = await screen.findByTestId(`people-detail-${MARCO}`);
+    expect(within(detail).getByTestId(`contact-${MARCO}-business-line`)).toHaveTextContent(
+      "they gave you this number for business (number on their invoices)",
+    );
+    await userEvent.click(within(detail).getByTestId(`contact-${MARCO}-open`));
+    const form = within(detail).getByTestId(`contact-${MARCO}-business`);
+    await userEvent.type(
+      within(form).getByTestId(`contact-${MARCO}-business-where`),
+      "gave it on the phone",
+    );
+    await userEvent.click(within(form).getByTestId(`contact-${MARCO}-business-record`));
+    await waitFor(() =>
+      expect(posts).toEqual([{ action: "relationship", source: "gave it on the phone" }]),
+    );
+  });
+
+  it("offers a client user no tick boxes and no bulk action", async () => {
+    renderAt("/contacts", "client_user", {
+      "GET /api/directory": () => ({ people, organizations: [], pendingSuggestions: 0 }),
+    });
+    await screen.findByTestId(`people-row-${MARCO}`);
+    expect(screen.queryByTestId("people-bulk")).toBeNull();
+    expect(screen.queryByTestId(`people-pick-${MARCO}`)).toBeNull();
+  });
+});

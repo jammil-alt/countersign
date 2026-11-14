@@ -381,7 +381,7 @@ export function browserSiteHosts(profile: BrowserSiteProfile): string[] {
   for (const o of profile.login.origins) add(o);
   add(profile.login.url);
   if (profile.signOut.url) add(profile.signOut.url);
-  for (const p of profile.allow) add(p.replace(/\*.*$/, ""));
+  for (const p of profile.allow) add(p.includes("*") ? p.slice(0, p.indexOf("*")) : p);
   for (const h of profile.hosts) hosts.add(h);
   return [...hosts];
 }

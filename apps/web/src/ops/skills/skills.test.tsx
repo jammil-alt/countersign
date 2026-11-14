@@ -1,7 +1,14 @@
 // O4 Skills and automations, O8 New skill, the skill and automation pages: the library shows
-// automations with their step chain and clean-run rate and skills as cards; a skill is made in a
-// Builder conversation (or by hand) and saved as a draft; its page runs tests, publishes, and
-// asks why before tests stop being required; an automation's page publishes its draft.
+// skills as cards or a list (the Library's Skills bank) and automations in the Processes bank
+// with their step chain and clean-run rate; a skill is made in a Builder conversation (or by hand)
+// and saved as a draft; its page runs tests, publishes, and asks why before tests stop being
+// required; an automation's page publishes its draft.
+import {
+  evaluateSkillRules,
+  resolveSkillParameters,
+  SkillDefinition,
+  skillKind,
+} from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
@@ -72,6 +79,8 @@ const ITEM = {
   name: "Match card charge",
   description: "Pairs a card charge with its receipt.",
   category: "data",
+  // An AI task skill: the skill model lets it be cloned (an agent-mode one is retired).
+  mode: "task",
   source: "shared",
   clientId: null,
   clientName: null,
@@ -103,7 +112,19 @@ const BUILTIN = {
   usedByNames: ["Bill clerk · Demo client", "Material costs · Harbor Millwork"],
 };
 
-const LIBRARY = { skills: [ITEM, BUILTIN], tools: [], connectors: [] };
+/** A connector read: a tool-mode built-in, code, so it has no Clone. */
+const CODE = {
+  ...BUILTIN,
+  id: "testkit.record.query",
+  ref: "testkit.record.query",
+  name: "Look up records",
+  category: "testkit",
+  mode: "tool",
+  usedBy: 0,
+  usedByNames: [],
+};
+
+const LIBRARY = { skills: [ITEM, BUILTIN, CODE], tools: [], connectors: [] };
 
 const VERSION = {
   id: "00000000-0000-4000-8000-00000000b001",
@@ -256,9 +277,10 @@ function renderAt(path: string, routes: Parameters<typeof fakeApi>[0]) {
 }
 
 describe("skills and automations library", () => {
-  it("shows automations with their chain and clean rate, and skills as cards", async () => {
-    const { user } = renderAt("/ops/skills", {
-      "GET /api/ops/skills": () => LIBRARY,
+  // R8: the skills are the Library's Skills bank; automations are processes, in the Processes bank.
+  it("shows automations with their chain and clean rate in the Processes bank", async () => {
+    renderAt("/ops/library/processes", {
+      "GET /api/ops/library/processes": () => ({ processes: [] }),
       "GET /api/ops/automations": () => ({ automations: [AUTOMATION] }),
       [`GET /api/ops/automations/${AUTO_ID}`]: () => ({
         automation: AUTOMATION,
@@ -266,39 +288,123 @@ describe("skills and automations library", () => {
         usedBy: [],
       }),
     });
-    const row = await screen.findByTestId("automation-row-polite-follow-up");
+    // The first screen of a test file loads the app's chunks: slow on CI, so it gets longer.
+    const row = await screen.findByTestId(
+      "automation-row-polite-follow-up",
+      {},
+      { timeout: 10_000 },
+    );
     expect(within(row).getByTestId("automation-health-polite-follow-up")).toHaveTextContent(
       "98% clean",
     );
     expect(await within(row).findByText("Person: Client signs")).toBeInTheDocument();
     expect(within(row).getByText("Draft in owner's voice")).toBeInTheDocument();
     expect(within(row).getByText("v2")).toBeInTheDocument();
+    expect(screen.getByTestId("automations")).toHaveTextContent("Used inside other processes");
+  });
 
-    const card = screen.getByTestId("skills-card-custom:match-card-charge");
-    expect(within(card).getByText("amount, receipts")).toBeInTheDocument();
+  it("shows skills as cards or a list, from /ops/skills too", async () => {
+    window.localStorage.removeItem("mezonas.skills.view");
+    const { api, user } = renderAt("/ops/skills", {
+      "GET /api/ops/skills": () => LIBRARY,
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent("/ops/library/skills"),
+    );
+    // A compact card: category, name, what it does, its kind and its numbers; the rest is in its
+    // sheet.
+    const card = await screen.findByTestId("skills-card-custom:match-card-charge");
     expect(within(card).getByText("Draft")).toBeInTheDocument();
-    expect(within(card).getByRole("link", { name: "Match card charge" })).toHaveAttribute(
-      "href",
-      `/ops/skills/${SKILL_ID}`,
+    expect(within(card).queryByText("amount, receipts")).toBeNull();
+    expect(within(card).getByTestId("skills-card-custom:match-card-charge-kind")).toHaveTextContent(
+      "AI",
     );
     const builtin = screen.getByTestId("skills-card-docs.extract");
-    // Client agents only, as the API counts them.
-    expect(within(builtin).getByText("Used by 12 client agents")).toBeInTheDocument();
-    // Named on hover.
-    expect(within(builtin).getByTestId("skills-card-docs.extract-used-by")).toHaveAttribute(
+    // Client agents only, as the API counts them, named on hover.
+    const usedBy = within(builtin).getByTestId("skills-card-docs.extract-used-by");
+    expect(usedBy).toHaveTextContent("Agents12");
+    expect(usedBy).toHaveAttribute(
       "title",
       "Bill clerk · Demo client\nMaterial costs · Harbor Millwork",
     );
     expect(within(builtin).queryByRole("link")).toBeNull();
-
-    // The Documents tab shows only that category, without automations.
-    await user.click(screen.getByTestId("skills-tab-documents"));
-    expect(screen.queryByTestId("skills-card-custom:match-card-charge")).toBeNull();
+    // In the Library the automations are the Processes bank's: no tab here, not even asked for.
+    expect(screen.queryByTestId("skills-tabs")).toBeNull();
     expect(screen.queryByTestId("automations")).toBeNull();
-    expect(screen.getByTestId("skills-tab-documents")).toHaveTextContent("Documents · 1");
-    await user.click(screen.getByTestId("skills-tab-automations"));
-    expect(screen.getByTestId("automations")).toBeInTheDocument();
+    expect(api.calls).not.toContain("GET /api/ops/automations");
+
+    // Opening a card shows the whole skill in a side sheet; Escape closes it.
+    await user.click(within(card).getByTestId("skills-card-custom:match-card-charge-open"));
+    const sheet = screen.getByRole("dialog", { name: "Match card charge" });
+    expect(within(sheet).getByText("amount, receipts")).toBeInTheDocument();
+    expect(within(sheet).getByText("No client agents yet.")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    // Documents in the filter shows only that category.
+    const filter = screen.getByTestId("skills-filter");
+    expect(within(filter).getByRole("option", { name: "Documents · 1" })).toBeInTheDocument();
+    await user.selectOptions(filter, "documents");
+    expect(screen.queryByTestId("skills-card-custom:match-card-charge")).toBeNull();
+    expect(screen.getByTestId("skills-card-docs.extract")).toBeInTheDocument();
+    await user.selectOptions(filter, "all");
+
+    // The list: a row a skill, with the same numbers; the name opens the same sheet, and the
+    // choice is remembered.
+    await user.click(screen.getByTestId("skills-view-list"));
+    expect(screen.getByTestId("skills-view-list")).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByTestId("skills-card-docs.extract")).toBeNull();
+    const row = screen.getByTestId("skills-row-docs.extract");
+    expect(within(row).getByText("12")).toHaveAttribute(
+      "title",
+      "Bill clerk · Demo client\nMaterial costs · Harbor Millwork",
+    );
+    expect(window.localStorage.getItem("mezonas.skills.view")).toBe("list");
+    await user.click(screen.getByTestId("skills-row-custom:match-card-charge-open"));
+    expect(screen.getByRole("dialog", { name: "Match card charge" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    window.localStorage.removeItem("mezonas.skills.view");
+  });
+});
+
+describe("editing and cloning from the library", () => {
+  it("edits an operator skill, clones a built-in into a draft, and offers no clone for code", async () => {
+    window.localStorage.removeItem("mezonas.skills.view");
+    const copyId = "00000000-0000-4000-8000-00000000c0b1";
+    const { api, user } = renderAt("/ops/library/skills", {
+      "GET /api/ops/skills": () => LIBRARY,
+      "POST /api/ops/skills/docs.extract/clone": () => ({
+        skill: { ...ITEM, id: copyId, ref: "custom:docs-extract-copy" },
+        version: VERSION,
+      }),
+    });
+    // An operator skill's sheet has Edit (its page) and Clone.
+    await user.click(await screen.findByTestId("skills-card-custom:match-card-charge-open"));
+    let sheet = screen.getByTestId("skill-sheet");
+    expect(within(sheet).getByTestId("skills-card-custom:match-card-charge-edit")).toHaveAttribute(
+      "href",
+      `/ops/skills/${SKILL_ID}`,
+    );
+    expect(within(sheet).getByTestId("skills-card-custom:match-card-charge-clone")).toBeVisible();
+    await user.click(screen.getByTestId("skill-sheet-close"));
+
+    // A code skill's has neither, and says why.
+    await user.click(screen.getByTestId("skills-card-testkit.record.query-open"));
+    sheet = screen.getByTestId("skill-sheet");
+    expect(within(sheet).getByText(/Runs code, no model/)).toBeInTheDocument();
+    expect(within(sheet).queryByRole("button", { name: "Clone" })).toBeNull();
+    expect(within(sheet).queryByRole("link", { name: "Edit" })).toBeNull();
+    await user.click(screen.getByTestId("skill-sheet-close"));
+
+    // A built-in's has Clone, which opens the new draft.
+    await user.click(screen.getByTestId("skills-card-docs.extract-open"));
+    sheet = screen.getByTestId("skill-sheet");
+    expect(within(sheet).queryByRole("link", { name: "Edit" })).toBeNull();
+    await user.click(within(sheet).getByTestId("skills-card-docs.extract-clone"));
+    expect(api.calls).toContain("POST /api/ops/skills/docs.extract/clone");
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(`/ops/skills/${copyId}`),
+    );
   });
 });
 
@@ -435,11 +541,112 @@ describe("new skill, with the Builder", () => {
     await user.click(screen.getByTestId("skill-tool-testkit.record.query"));
     await user.click(screen.getByTestId("skill-create"));
     await waitFor(() => expect(sent).toHaveLength(1));
+    // Skill model (2026-11-10): written by hand, it is an AI skill on its recommended model.
     expect(sent[0]?.definition).toMatchObject({
       id: "custom:summarize-records",
-      mode: "agent",
+      mode: "task",
+      model: { id: "claude-haiku-5-5" },
       tools: ["testkit.record.query"],
     });
+  });
+});
+
+// Skill model (2026-11-10): the owner's aging example, built from the screen as a deterministic
+// skill: a buckets parameter (0–15 Current, 16–30 Due, 31+ Past due) and one rule row that puts
+// the days from the due date to today into the agent's buckets. Core's evaluator runs what it saved.
+describe("a deterministic skill, by hand", () => {
+  it("builds the aging skill: a buckets parameter and a row that buckets days overdue", async () => {
+    const sent: { definition: Record<string, unknown> }[] = [];
+    const { user } = renderAt("/ops/skills/new?by=hand", {
+      "GET /api/ops/skills": () => ({ ...LIBRARY, tools: [], connectors: [] }),
+      "GET /api/ops/models": () => ({ models: [] }),
+      "POST /api/ops/skills": ({ init }) => {
+        sent.push(JSON.parse(String(init.body)));
+        return { skill: ITEM, version: VERSION };
+      },
+    });
+    await user.click(await screen.findByTestId("skill-kind-deterministic"));
+    // A deterministic skill has no instructions and no tools: its rows are the work.
+    expect(screen.queryByTestId("skill-instructions-input")).toBeNull();
+    expect(screen.queryByTestId("skill-tools")).toBeNull();
+    await user.type(screen.getByTestId("skill-name-input"), "Age receivables");
+    await user.type(screen.getByTestId("skill-description-input"), "Buckets an open invoice");
+    // In: the due date. Out: the bucket and the days overdue.
+    await user.click(screen.getByTestId("skill-input-add"));
+    await user.type(screen.getByTestId("skill-input-0-key"), "dueDate");
+    await user.clear(screen.getByTestId("skill-output-0-key"));
+    await user.type(screen.getByTestId("skill-output-0-key"), "bucket");
+    await user.click(screen.getByTestId("skill-output-add"));
+    await user.type(screen.getByTestId("skill-output-1-key"), "daysOverdue");
+    await user.selectOptions(screen.getByTestId("skill-output-1-type"), "integer");
+    // The parameter: the agent's aging buckets, with a default.
+    await user.click(screen.getByTestId("skill-parameter-add"));
+    await user.type(screen.getByTestId("skill-parameter-0-name"), "aging");
+    await user.type(screen.getByTestId("skill-parameter-0-label"), "Aging buckets");
+    await user.selectOptions(screen.getByTestId("skill-parameter-0-type"), "buckets");
+    const buckets: [string, string, string][] = [
+      ["0", "15", "Current"],
+      ["16", "30", "Due"],
+      ["31", "", "Past due"],
+    ];
+    for (const [i, [from, to, label]] of buckets.entries()) {
+      await user.click(screen.getByTestId("skill-parameter-0-default-add"));
+      const fromInput = screen.getByTestId(`skill-parameter-0-default-${i}-from`);
+      await user.clear(fromInput);
+      await user.type(fromInput, from);
+      if (to) await user.type(screen.getByTestId(`skill-parameter-0-default-${i}-to`), to);
+      await user.type(screen.getByTestId(`skill-parameter-0-default-${i}-label`), label);
+    }
+    // One row, always: bucket = the aging bucket of the days from the due date to today.
+    await user.click(screen.getByTestId("skill-rule-add"));
+    await user.selectOptions(screen.getByTestId("skill-rule-0-output-0-how"), "bucket");
+    expect(screen.getByTestId("skill-rule-0-output-0-bucket-value-kind")).toHaveValue("days");
+    expect(screen.getByTestId("skill-rule-0-output-0-bucket-by")).toHaveValue("aging");
+    // daysOverdue = the same days.
+    await user.click(screen.getByTestId("skill-rule-0-output-add"));
+    await user.selectOptions(screen.getByTestId("skill-rule-0-output-1-how"), "copy");
+    await user.selectOptions(screen.getByTestId("skill-rule-0-output-1-copy-kind"), "days");
+    expect(screen.queryByTestId("skill-problems")).toBeNull();
+    await user.click(screen.getByTestId("skill-create"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+
+    const def = SkillDefinition.parse(sent[0]?.definition);
+    expect(def).toMatchObject({ id: "custom:age-receivables", mode: "tool", tools: [] });
+    expect(skillKind(def)).toBe("deterministic");
+    expect(def.instructions).toBeUndefined();
+    expect(def.parameters).toEqual([
+      {
+        name: "aging",
+        label: "Aging buckets",
+        type: "buckets",
+        default: [
+          { from: 0, to: 15, label: "Current" },
+          { from: 16, to: 30, label: "Due" },
+          { from: 31, label: "Past due" },
+        ],
+      },
+    ]);
+    const age = (dueDate: string) =>
+      evaluateSkillRules(def.rules ?? [], {
+        input: { dueDate },
+        parameters: resolveSkillParameters(def),
+        today: "2026-11-10",
+      })?.output;
+    expect(age("2026-11-01")).toEqual({ bucket: "Current", daysOverdue: 9 });
+    expect(age("2026-10-20")).toEqual({ bucket: "Due", daysOverdue: 21 });
+    expect(age("2026-09-01")).toEqual({ bucket: "Past due", daysOverdue: 70 });
+    // An agent's own buckets change the answer, with no new skill.
+    const agentBuckets = [
+      { from: 0, to: 30, label: "Fine" },
+      { from: 31, label: "Late" },
+    ];
+    expect(
+      evaluateSkillRules(def.rules ?? [], {
+        input: { dueDate: "2026-10-20" },
+        parameters: resolveSkillParameters(def, { agent: { aging: agentBuckets } }),
+        today: "2026-11-10",
+      })?.output,
+    ).toEqual({ bucket: "Fine", daysOverdue: 21 });
   });
 });
 

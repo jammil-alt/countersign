@@ -8,9 +8,10 @@
 // This file imports only drizzle-orm at runtime, so drizzle-kit can load it on its own.
 
 import type {
-  AgentBundle,
-  AutomationDefinition,
+  AnyAgentBundle,
+  AnyAutomationDefinition,
   PermissionMatrix,
+  processes,
   SkillDefinition,
 } from "@countersign/core";
 import { type SQL, sql } from "drizzle-orm";
@@ -142,7 +143,7 @@ export const appUser = pgTable("app_user", {
   createdAt: createdAt(),
 });
 
-// ── A person's second factor (docs/plan.md §1.83) ─────────────────────────────────────────────────
+// ── A person's second factor (docs/plan.md §1.99) ─────────────────────────────────────────────────
 // Per person, not per client: row-level security on `app.user_id` (the person signing in, set by
 // withUser) or an operator session (resets, Claude connection approvals). Twilio Verify holds every
 // code and authenticator secret; these rows only say which methods a person has.
@@ -245,6 +246,10 @@ export const membership = pgTable(
      * user a viewer: they see the Desk, they don't sign.
      */
     canSign: boolean("can_sign").notNull().default(true),
+    // R4 (migration 0043, docs/plan.md §1.86): this person's own working week and away dates in
+    // this client (core's `processes.PersonHours`, validated where written). Null: the client's
+    // hours, never away.
+    hours: json<processes.PersonHours>("hours"),
   },
   (t) => [
     primaryKey({ columns: [t.tenantId, t.userId] }),
@@ -519,7 +524,9 @@ export const agentVersion = pgTable(
     tenantId: optionalTenantId(),
     agentId: uuid("agent_id").notNull(),
     version: integer("version").notNull(),
-    bundle: json<AgentBundle>("bundle").notNull(),
+    // R8/wave 3b: a stored v3 bundle or one that holds v4 processes; readers check
+    // `schemaVersion` (or read through core's `readConverted` / `toProcessBundle`).
+    bundle: json<AnyAgentBundle>("bundle").notNull(),
     /** sha256 of the canonical JSON of the parsed bundle (core's bundleHash). */
     bundleHash: text("bundle_hash").notNull(),
     status: text("status").$type<(typeof VERSION_STATUSES)[number]>().notNull().default("draft"),
@@ -689,7 +696,7 @@ export const modelCall = pgTable(
     runId: uuid("run_id").notNull(),
     stepRunId: uuid("step_run_id").notNull(),
     agentVersionId: uuid("agent_version_id").references(() => agentVersion.id),
-    /** `anthropic` | `openai`. */
+    /** `anthropic` | `openai` | `xai` | `google` (core's `modelProvider`). */
     provider: text("provider").notNull(),
     model: text("model").notNull(),
     tokensIn: integer("tokens_in").notNull(),
@@ -884,6 +891,11 @@ export const externalAction = pgTable(
     error: json("error"),
     /** The record's state before the change, where the system allows reading it. */
     before: json("before"),
+    /**
+     * The record's state the write left (migration 0044, R5 undo): what an undo compares with the
+     * record now, so it never reverses someone else's later change. Null for writes before 0044.
+     */
+    after: json("after"),
     createdAt: createdAt(),
     executedAt: ts("executed_at"),
     /**
@@ -1825,6 +1837,10 @@ export const contact = pgTable(
     // P-7 (migration 0034, docs/plan.md §1.69): this person's switch over the client's translation.
     /** `{incoming?, outgoing?}`: `true` or `false` wins over the client's setting; absent follows it. */
     translation: json<ContactTranslation>("translation").notNull().default({}),
+    // R4 (migration 0043, docs/plan.md §1.86): the contact's own working week and away dates
+    // (core's `processes.PersonHours`, validated where written), for deadlines in business time
+    // and approvals that skip someone away. Null: the client's hours, never away.
+    hours: json<processes.PersonHours>("hours"),
   },
   (t) => [
     unique("contact_id_tenant_key").on(t.id, t.tenantId),
@@ -3102,7 +3118,7 @@ export const automationVersion = pgTable(
     tenantId: optionalTenantId(),
     automationId: uuid("automation_id").notNull(),
     version: integer("version").notNull(),
-    definition: json<AutomationDefinition>("definition").notNull(),
+    definition: json<AnyAutomationDefinition>("definition").notNull(),
     definitionHash: text("definition_hash").notNull(),
     status: text("status").$type<(typeof VERSION_STATUSES)[number]>().notNull().default("draft"),
     changeNote: text("change_note"),
@@ -3283,6 +3299,16 @@ export const testCaseResult = pgTable(
 export const OVERSIGHT_CAUSES = ["failed", "checkpoint"] as const;
 export const OVERSIGHT_ACTIONS = ["continue", "retry", "retry_with", "ask", "stop"] as const;
 export type OversightAction = (typeof OVERSIGHT_ACTIONS)[number];
+/**
+ * v0.17 (ARCHITECTURE §10.14 "Automations, repeat and the agent's choice"): what the owner decides
+ * besides a review, kept in the same table: an `if` it chooses (`choose`: a path, or `unsure`) and
+ * a repeat it says is done or not (`until`: `done`, `again`, or `unsure` when no answer held).
+ */
+export const CHOICE_CAUSES = ["choose", "until"] as const;
+export const CHOICE_ACTIONS = ["choose", "unsure", "done", "again"] as const;
+export type ChoiceAction = (typeof CHOICE_ACTIONS)[number];
+const DECISION_CAUSES = [...OVERSIGHT_CAUSES, ...CHOICE_CAUSES] as const;
+const DECISION_ACTIONS = [...OVERSIGHT_ACTIONS, ...CHOICE_ACTIONS] as const;
 
 /**
  * One decision the run's own agent took about a step that failed or reached a checkpoint: what it
@@ -3300,8 +3326,10 @@ export const oversightDecision = pgTable(
     stepRunId: uuid("step_run_id").notNull(),
     nodeId: text("node_id").notNull(),
     seq: integer("seq").notNull(),
-    cause: text("cause").$type<(typeof OVERSIGHT_CAUSES)[number]>().notNull(),
-    action: text("action").$type<OversightAction>().notNull(),
+    cause: text("cause").$type<(typeof DECISION_CAUSES)[number]>().notNull(),
+    action: text("action").$type<OversightAction | ChoiceAction>().notNull(),
+    /** v0.17: `choose` only: the path id the agent picked. */
+    choice: text("choice"),
     /** `retry_with` only: the step's input before and after the correction. */
     inputBefore: json<unknown>("input_before"),
     inputAfter: json<unknown>("input_after"),
@@ -3339,8 +3367,12 @@ export const oversightDecision = pgTable(
     }),
     index("oversight_decision_step_run_idx").on(t.stepRunId),
     index("oversight_decision_tenant_idx").on(t.tenantId, t.createdAt),
-    check("oversight_decision_cause_check", oneOf(t.cause, OVERSIGHT_CAUSES)),
-    check("oversight_decision_action_check", oneOf(t.action, OVERSIGHT_ACTIONS)),
+    check("oversight_decision_cause_check", oneOf(t.cause, DECISION_CAUSES)),
+    check("oversight_decision_action_check", oneOf(t.action, DECISION_ACTIONS)),
+    check(
+      "oversight_decision_choice_check",
+      sql`(${t.action} = 'choose') = (${t.choice} is not null)`,
+    ),
     check("oversight_decision_seq_check", sql`${t.seq} >= 1`),
     check(
       "oversight_decision_input_check",
@@ -3712,6 +3744,284 @@ export const qboWebhookEvent = pgTable(
   ],
 );
 
+// ── Wave 4: recorded browser scripts (migration 0045; docs/plan.md §1.86 "Scripts (wave 4)") ──────
+
+/** Who recorded a script version: the operator (back office) or the client admin (portal). */
+export const SCRIPT_SIDES = ["operator", "client"] as const;
+
+/**
+ * A client's scripted site tool on one of its browser logins (ARCHITECTURE v0.16 §10.14 "Browser
+ * connectors"): its name and slug on the site, the recording being made (core's `ScriptRecording`,
+ * the working copy edited in place while someone records), and the version the operator
+ * published. Only a published version runs; a client admin's recording stays a draft until the
+ * operator publishes it (invariant 11). Per client, never shared (invariant 1).
+ */
+export const browserScript = pgTable(
+  "browser_script",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    /** The client's browser login the script runs through (connector `browser`). */
+    connectionId: uuid("connection_id").notNull(),
+    /** The login's site slug (`connection.config.site`), kept so tools find the script by it. */
+    site: text("site").notNull(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    recording: json("recording").notNull(),
+    /** The version that runs as a tool; null: none yet (drafts never run). */
+    publishedVersion: integer("published_version"),
+    publishedBy: uuid("published_by").references(() => appUser.id),
+    publishedAt: ts("published_at"),
+    /** The script-draft offer (an operator inbox item) it was started from, if any. */
+    offerItemId: uuid("offer_item_id"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdSide: text("created_side").$type<(typeof SCRIPT_SIDES)[number]>().notNull(),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("browser_script_id_tenant_key").on(t.id, t.tenantId),
+    unique("browser_script_slug_key").on(t.tenantId, t.site, t.slug),
+    check("browser_script_slug_check", sql`${t.slug} ~ '^[a-z0-9][a-z0-9-]{0,62}$'`),
+    check("browser_script_created_side_check", oneOf(t.createdSide, SCRIPT_SIDES)),
+    check(
+      "browser_script_published_version_check",
+      sql`${t.publishedVersion} is null or ${t.publishedVersion} >= 1`,
+    ),
+    foreignKey({
+      name: "browser_script_connection_fk",
+      columns: [t.connectionId, t.tenantId],
+      foreignColumns: [connection.id, connection.tenantId],
+    }),
+  ],
+);
+
+/**
+ * One saved version of a script: its definition (core's `BrowserScriptDefinition`) and the
+ * evidence screenshots of its recording by step id (storage keys on the connection's log).
+ * Immutable and never deleted (trigger, invariant 3); publishing points the script at one.
+ */
+export const browserScriptVersion = pgTable(
+  "browser_script_version",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    scriptId: uuid("script_id").notNull(),
+    version: integer("version").notNull(),
+    definition: json("definition").notNull(),
+    evidence: json("evidence").notNull().default({}),
+    recordedBy: uuid("recorded_by").references(() => appUser.id),
+    recordedSide: text("recorded_side").$type<(typeof SCRIPT_SIDES)[number]>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("browser_script_version_id_tenant_key").on(t.id, t.tenantId),
+    unique("browser_script_version_script_version_key").on(t.scriptId, t.version),
+    check("browser_script_version_version_check", sql`${t.version} >= 1`),
+    check("browser_script_version_recorded_side_check", oneOf(t.recordedSide, SCRIPT_SIDES)),
+    foreignKey({
+      name: "browser_script_version_script_fk",
+      columns: [t.scriptId, t.tenantId],
+      foreignColumns: [browserScript.id, browserScript.tenantId],
+    }),
+  ],
+);
+
+// ── Wave 6: the run audit (migration 0046; docs/plan.md §1.86 "Run audit (wave 6)") ──────────────
+// Back office only (invariant 11): no portal route reads these tables.
+
+/** What the owner's check on one attempt at a step came to. */
+export const OWNER_CHECK_RESULTS = ["clean", "flagged", "reviewed", "not_watched"] as const;
+/**
+ * How the attempt itself ended, before any review: done, failed (or threw), escalated (a budget
+ * was reached), turned down by a person, or nobody answered in time.
+ */
+export const OWNER_CHECK_ATTEMPTS = [
+  "succeeded",
+  "failed",
+  "escalated",
+  "rejected",
+  "unanswered",
+] as const;
+/**
+ * Why a review that was due wasn't made (on a flagged check, or a clean one whose routine review
+ * was due): the per-step or per-run limit was reached, the review failed or gave no decision, its
+ * input could not be shown; why the owner never looked (a person's answer, or nobody answering,
+ * ended the run during the attempt); or why a check is `not_watched`: the agent's owner is off,
+ * or this step's review is off.
+ */
+export const OWNER_CHECK_REASONS = [
+  "limit",
+  "review_failed",
+  "no_decision",
+  "input_unresolved",
+  "ended_by_person",
+  "owner_off",
+  "step_off",
+] as const;
+/** Why a step that succeeded was due a review whatever its result. */
+export const OWNER_REVIEW_DUES = ["checkpoint", "all", "always"] as const;
+
+/**
+ * The owner's check on one attempt at a step of a v4 process (read, skill, write): clean (its
+ * cheap watch saw nothing off), flagged (with the signals, or a failure, and why no review
+ * followed), reviewed (the `oversight_decision` it led to) or not watched (the owner is off).
+ * Written in a durable step of its own after the attempt, once per run, node and attempt. No
+ * model call: the cheap watch is rules only. Insert only (grants and trigger).
+ */
+export const ownerCheck = pgTable(
+  "owner_check",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    runId: uuid("run_id").notNull(),
+    /** The step's durable name (`step_run.node_id`). */
+    nodeId: text("node_id").notNull(),
+    /** 1.. per node: the attempt the owner looked at (an oversight retry is the next). */
+    attempt: integer("attempt").notNull(),
+    result: text("result").$type<(typeof OWNER_CHECK_RESULTS)[number]>().notNull(),
+    attemptOutcome: text("attempt_outcome")
+      .$type<(typeof OWNER_CHECK_ATTEMPTS)[number]>()
+      .notNull(),
+    /** core's `AnomalySignal[]`: what the cheap watch saw (empty when clean or not watched). */
+    signals: json<unknown[]>("signals").notNull().default([]),
+    reason: text("reason").$type<(typeof OWNER_CHECK_REASONS)[number]>(),
+    /** `reviewed`: why (the oversight cause) and the verdict's action. */
+    cause: text("cause").$type<(typeof OVERSIGHT_CAUSES)[number]>(),
+    verdict: text("verdict"),
+    /** A step that succeeded and was due a review whatever its result: a checkpoint, all, always. */
+    reviewDue: text("review_due").$type<(typeof OWNER_REVIEW_DUES)[number]>(),
+    /**
+     * `reviewed`: the decision recorded for this run, node and attempt, when there is one.
+     * DECISION (wave 6 review): on `oversight_decision(id)` alone, not `(id, tenant_id)`: that
+     * table (0029) has no unique `(id, tenant_id)` to reference, and adding one would alter a
+     * table the previous Worker writes. The store reads the decision inside the run's own client
+     * (`withTenant`, filtered by `tenant_id`), so a check never names another client's decision.
+     */
+    decisionId: uuid("decision_id").references(() => oversightDecision.id),
+    agentVersionId: uuid("agent_version_id").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("owner_check_attempt_key").on(t.runId, t.nodeId, t.attempt),
+    foreignKey({
+      name: "owner_check_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    foreignKey({
+      name: "owner_check_agent_version_fk",
+      columns: [t.agentVersionId, t.tenantId],
+      foreignColumns: [agentVersion.id, agentVersion.tenantId],
+    }),
+    index("owner_check_tenant_idx").on(t.tenantId, t.createdAt),
+    check("owner_check_result_check", oneOf(t.result, OWNER_CHECK_RESULTS)),
+    check("owner_check_attempt_outcome_check", oneOf(t.attemptOutcome, OWNER_CHECK_ATTEMPTS)),
+    check(
+      "owner_check_reason_check",
+      sql`${t.reason} is null or ${oneOf(t.reason, OWNER_CHECK_REASONS)}`,
+    ),
+    check(
+      "owner_check_cause_check",
+      sql`${t.cause} is null or ${oneOf(t.cause, OVERSIGHT_CAUSES)}`,
+    ),
+    check(
+      "owner_check_review_due_check",
+      sql`${t.reviewDue} is null or ${oneOf(t.reviewDue, OWNER_REVIEW_DUES)}`,
+    ),
+    check("owner_check_attempt_check", sql`${t.attempt} >= 1`),
+    check("owner_check_signals_check", sql`jsonb_typeof(${t.signals}) = 'array'`),
+    check(
+      "owner_check_reviewed_check",
+      sql`(${t.result} = 'reviewed') = (${t.verdict} is not null and ${t.cause} is not null)`,
+    ),
+    check("owner_check_verdict_check", sql`${t.verdict} is null or length(${t.verdict}) <= 40`),
+  ],
+);
+
+/** Why a run is in the audit queue: it wrote to a client's tool, it was sampled, or by hand. */
+export const RUN_AUDIT_REASONS = ["wrote", "sampled", "by_hand"] as const;
+/** A reviewer's mark on a run. */
+export const RUN_AUDIT_VERDICTS = ["looks_right", "problem"] as const;
+
+/**
+ * A run queued for a person's audit: chosen when the run finished, by the client's sampling rule
+ * (or the agent's override), deterministically (a hash of the run id), or added by hand when a
+ * reviewer marks a run that wasn't. One row per run. `rule` is the rule as applied. Insert only.
+ */
+export const runAudit = pgTable(
+  "run_audit",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    runId: uuid("run_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    reason: text("reason").$type<(typeof RUN_AUDIT_REASONS)[number]>().notNull(),
+    /** core's `AppliedAuditRule`: writes, percent, where it came from and the run's bucket. */
+    rule: json("rule").notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("run_audit_run_key").on(t.runId),
+    foreignKey({
+      name: "run_audit_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    foreignKey({
+      name: "run_audit_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    index("run_audit_tenant_idx").on(t.tenantId, t.createdAt),
+    index("run_audit_agent_idx").on(t.tenantId, t.agentId, t.createdAt),
+    check("run_audit_reason_check", oneOf(t.reason, RUN_AUDIT_REASONS)),
+  ],
+);
+
+/**
+ * A reviewer's mark on a run: it looks right, or a problem (with a note, and the operator inbox
+ * item it opened). Insert only: a later mark supersedes an earlier one for display, every mark
+ * is kept.
+ */
+export const runAuditMark = pgTable(
+  "run_audit_mark",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    runId: uuid("run_id").notNull(),
+    verdict: text("verdict").$type<(typeof RUN_AUDIT_VERDICTS)[number]>().notNull(),
+    note: text("note"),
+    markedBy: uuid("marked_by")
+      .notNull()
+      .references(() => appUser.id),
+    inboxItemId: uuid("inbox_item_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "run_audit_mark_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    foreignKey({
+      name: "run_audit_mark_inbox_item_fk",
+      columns: [t.inboxItemId, t.tenantId],
+      foreignColumns: [inboxItem.id, inboxItem.tenantId],
+    }),
+    index("run_audit_mark_run_idx").on(t.runId, t.createdAt),
+    index("run_audit_mark_tenant_idx").on(t.tenantId, t.createdAt),
+    check("run_audit_mark_verdict_check", oneOf(t.verdict, RUN_AUDIT_VERDICTS)),
+    check(
+      "run_audit_mark_note_check",
+      sql`(${t.note} is null or length(${t.note}) between 1 and 2000) and (${t.verdict} <> 'problem' or ${t.note} is not null)`,
+    ),
+  ],
+);
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -3792,6 +4102,13 @@ export const TENANT_TABLES = [
   "ledger_dimension",
   // 0041: Intuit's webhook notifications, one row per entity change (docs/plan.md §1.81).
   "qbo_webhook_event",
+  // 0045: recorded browser scripts (docs/plan.md §1.86 "Scripts (wave 4)").
+  "browser_script",
+  "browser_script_version",
+  // 0046: the run audit (docs/plan.md §1.86 "Run audit (wave 6)").
+  "owner_check",
+  "run_audit",
+  "run_audit_mark",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 

@@ -26,12 +26,14 @@ export function RunControls({
 }) {
   const api = useApiClient();
   const navigate = useNavigate();
-  const [busy, setBusy] = useState(false);
+  // Which press waits on the server; its button says so (1.8) and none can be pressed twice.
+  const [pressed, setPressed] = useState<"retry" | "cancel" | "replay" | null>(null);
+  const busy = pressed !== null;
   const [problem, setProblem] = useState<unknown>(null);
   const open = ["queued", "running", "waiting"].includes(run.status);
 
   const act = async (what: "retry" | "cancel" | "replay") => {
-    setBusy(true);
+    setPressed(what);
     setProblem(null);
     try {
       if (what === "cancel") {
@@ -45,7 +47,7 @@ export function RunControls({
     } catch (error) {
       setProblem(error);
     } finally {
-      setBusy(false);
+      setPressed(null);
     }
   };
 
@@ -53,11 +55,11 @@ export function RunControls({
     <div className="flex flex-col items-end gap-2">
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button disabled={busy} onClick={() => act("replay")} data-testid="ops-run-replay">
-          Replay as a test run
+          {pressed === "replay" ? "Starting…" : "Replay as a test run"}
         </Button>
         {open ? (
           <Button disabled={busy} onClick={() => act("cancel")} data-testid="ops-run-cancel">
-            Cancel run
+            {pressed === "cancel" ? "Cancelling…" : "Cancel run"}
           </Button>
         ) : null}
         {run.status === "failed" && run.mode === "live" ? (
@@ -67,7 +69,11 @@ export function RunControls({
             onClick={() => act("retry")}
             data-testid="ops-run-retry"
           >
-            {failedStep ? `Retry from ${failedStep}` : "Retry from the failed step"}
+            {pressed === "retry"
+              ? "Starting…"
+              : failedStep
+                ? `Retry from ${failedStep}`
+                : "Retry from the failed step"}
           </Button>
         ) : null}
       </div>
@@ -209,7 +215,8 @@ function ModelCallRow({
   );
 }
 
-function ModelCallBody({ id }: { id: string }) {
+/** One model call's request and answer, asked for when shown. */
+export function ModelCallBody({ id }: { id: string }) {
   const state = useApi(apiRoutes.opsModelCall, { params: { id } });
   return (
     <Loaded state={state}>

@@ -1,6 +1,6 @@
 # Twilio Verify for sign-in codes: what is not checked
 
-`verify.ts` (docs/plan.md §1.83) was written from memory of Twilio's Verify API; Twilio's docs were
+`verify.ts` (docs/plan.md §1.99) was written from memory of Twilio's Verify API; Twilio's docs were
 not reachable from the build session. Check each against the docs, then with one real sign-in on
 staging, before turning the step on in production.
 

@@ -53,6 +53,7 @@ function TestsBody({
     <div className="flex flex-col gap-6" data-testid="skill-tests">
       <RequireTests skill={skill} required={data.requireTests} onChanged={onChanged} />
       <Card
+        titleAbove
         title="Tests"
         meta={
           lastRun ? (

@@ -7,6 +7,9 @@ import {
   blankBundle,
   checkBundle,
   formFromBundle,
+  MODEL_OPTIONS,
+  modelOptionLabel,
+  oversightWith,
   slugify,
   validateForm,
 } from "./definition-form";
@@ -40,6 +43,25 @@ const PRICE_WATCH: SkillOption = {
 };
 
 describe("definition form", () => {
+  it("offers xAI's and Google's models, each shown with its provider", () => {
+    expect(MODEL_OPTIONS).toEqual(
+      expect.arrayContaining([
+        "xai:grok-4.7",
+        "google:gemini-3.1-pro",
+        "google:gemini-3.5-flash-lite",
+      ]),
+    );
+    expect(MODEL_OPTIONS.map(modelOptionLabel)).toEqual([
+      "Anthropic · claude-opus-5-5",
+      "Anthropic · claude-sonnet-5-5",
+      "Anthropic · claude-haiku-5-5",
+      "OpenAI · gpt-5.5",
+      "xAI · grok-4.7",
+      "Google · gemini-3.1-pro",
+      "Google · gemini-3.5-flash-lite",
+    ]);
+  });
+
   it("round-trips a bundle without touching its workflows", () => {
     const form = formFromBundle(FORK_BUNDLE);
     expect(form).toMatchObject({
@@ -52,6 +74,35 @@ describe("definition form", () => {
     });
     const back = applyForm(FORK_BUNDLE, form, []);
     expect(back).toEqual(FORK_BUNDLE);
+  });
+
+  // Wave 6: the owner's review keeps the owner's other settings, and none stays none at off.
+  it("sets the owner's review and keeps its other settings", () => {
+    expect(oversightWith(undefined, "off")).toBeUndefined();
+    expect(oversightWith(undefined, "failures")).toEqual({
+      review: "failures",
+      maxPerRun: 3,
+      maxCostUsd: "0.25",
+    });
+    const own = {
+      review: "failures" as const,
+      model: { id: "claude-haiku-5-5" },
+      maxPerRun: 5,
+      maxCostUsd: "1.00",
+    };
+    expect(oversightWith(own, "failures")).toBe(own);
+    expect(oversightWith(own, "all")).toEqual({ ...own, review: "all" });
+    const withOwner = {
+      ...FORK_BUNDLE,
+      definition: { ...FORK_BUNDLE.definition, oversight: own },
+    };
+    const form = formFromBundle(withOwner);
+    expect(form.ownerReview).toBe("failures");
+    expect(applyForm(withOwner, form, [])).toEqual(withOwner);
+    expect(applyForm(withOwner, { ...form, ownerReview: "off" }, []).definition.oversight).toEqual({
+      ...own,
+      review: "off",
+    });
   });
 
   it("refuses an empty name, bad numbers and a cost that is not a dollar amount", () => {

@@ -390,6 +390,54 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
     ]);
   });
 
+  // docs/plan.md §1.98: Sloan drafts an invitation to texts; nothing goes until the admin signs.
+  it("drafts an invitation to texts for the admin to sign, and only for the client's people", async () => {
+    const made = await H.call(admin("a"), "POST", "/api/contacts", {
+      name: "Pat Lee",
+      email: "pat@sloan-vendor.example",
+    });
+    const pat = j(made.json).contact.id as string;
+    const theirs = j(
+      (await H.call(admin("b"), "POST", "/api/contacts", { name: "B's", email: "b@sloan.example" }))
+        .json,
+    ).contact.id as string;
+    const { calls } = await ask(admin("a"), adminThread, "Ask Pat if they'd like texts", (m) => [
+      use("account__draft_change", {
+        change: { kind: "invite_to_texts", contactIds: [pat] },
+        sources: [m],
+      }),
+      use("account__draft_change", {
+        change: { kind: "invite_to_texts", contactIds: [theirs] },
+        sources: [m],
+      }),
+      ...reply(adminThread, "I drafted it: sign it on your Desk.", [m]),
+    ]);
+    const drafted = j(calls[0]?.output);
+    expect(drafted).toMatchObject({
+      status: "drafted",
+      loosens: false,
+      title: "Invite Pat Lee to get texts",
+    });
+    expect(drafted.now).toEqual(["Pat Lee hasn't signed up for texts."]);
+    expect(drafted.after[0]).toBe(
+      "Pat Lee gets an email inviting them to sign up for texts. Texting stays their choice.",
+    );
+    // Another client's person is no one Sloan can invite.
+    expect(j(calls[1]?.output)).toMatchObject({ status: "refused", loosens: false });
+
+    const signed = await H.call(
+      admin("a"),
+      "POST",
+      `/api/account-changes/${drafted.inboxItemId}/resolve`,
+      { decision: "approve" },
+    );
+    expect(signed.status, JSON.stringify(signed.json)).toBe(200);
+    expect(j(signed.json)).toMatchObject({
+      item: { status: "resolved", approved: true },
+      applied: { kind: "invite_to_texts", userId: null, contactId: null },
+    });
+  });
+
   it("refuses a loosening draft and passes it to the lead", async () => {
     const before = await H.t.db
       .select({ id: inboxItem.id })

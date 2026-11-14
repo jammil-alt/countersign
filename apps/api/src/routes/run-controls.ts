@@ -37,6 +37,7 @@ import { and, desc, eq, gt, gte, inArray, lt, or, type SQL, sql } from "drizzle-
 import type { Hono } from "hono";
 import { csvFile } from "../exports/csv";
 import { type AppEnv, ensureClient, HttpError, iso, mount, mountFile, notFound } from "../http";
+import { queueFinishedRun } from "../run-audit/store";
 import { createRunRow } from "../runs/dispatch";
 import type { RunParams } from "../runs/instances";
 import { opsStatusWhere } from "../runs/run-wait";
@@ -432,6 +433,14 @@ export function runControlRoutes(app: Hono<AppEnv>): void {
         error: { reason: "cancelled", code: "run_cancelled", by: session.user.id },
       })
       .where(and(eq(run.id, r.id), eq(run.tenantId, r.tenantId)));
+    // Wave 6 review: a run cancelled here never reaches `run:finish`, so it is queued for audit
+    // here, as it finishes (a run that wrote before the cancel is in the queue as "wrote").
+    await queueFinishedRun(tx, {
+      id: r.id,
+      tenantId: r.tenantId,
+      agentId: r.agentId,
+      mode: r.mode,
+    });
     await tx
       .update(stepRun)
       .set({ status: "cancelled", finishedAt: now })

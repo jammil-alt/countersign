@@ -10,12 +10,15 @@
 // records (`internal`); a write to anything outside is a connector's external tool, never a
 // pack's (invariant 8).
 
-import type {
-  AgentBundle,
-  EventTypeSpec,
-  Role,
-  SkillDefinition,
-  ToolSpec,
+import {
+  type AgentBundle,
+  type AnyAgentBundle,
+  type EventTypeSpec,
+  lazy,
+  lazyObject,
+  type Role,
+  type SkillDefinition,
+  type ToolSpec,
 } from "@countersign/core";
 import type { Db, Tx } from "@countersign/db";
 import type { LlmClient } from "@countersign/llm";
@@ -72,16 +75,17 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
   run(input: z.output<I>, ctx: PackToolContext): Promise<z.input<O>>;
 }): PackTool {
   return {
-    spec: {
+    // Worker startup (2026-11-11): the JSON Schemas are made on first read (core `lazy`).
+    spec: lazyObject({
       id: def.id,
       description: def.description,
-      input: jsonSchemaOf(def.input),
-      output: jsonSchemaOf(def.output),
+      input: lazy(() => jsonSchemaOf(def.input)),
+      output: lazy(() => jsonSchemaOf(def.output)),
       sideEffect: def.sideEffect,
       verb: def.sideEffect === "none" ? "read" : (def.verb ?? "create"),
       source: PACK_ID,
       ...(def.summary ? { summary: def.summary } : {}),
-    },
+    }),
     input: def.input,
     output: def.output,
     run: (input, ctx) => def.run(def.input.parse(input) as z.output<I>, ctx),
@@ -186,10 +190,14 @@ export class PackRefusal extends Error {
   }
 }
 
-/** A template the pack ships: installed as template v1 the first time the pack is switched on. */
+/**
+ * A template the pack ships: installed as template v1 the first time the pack is switched on. R9:
+ * its later versions (v2 first; they may hold v4 processes) are added where an earlier one is.
+ */
 export interface PackTemplate {
   slug: string;
   bundle: AgentBundle;
+  versions?: readonly AnyAgentBundle[];
 }
 
 /** A portal screen (M50); the back office's screens are apps/web's own routes. */

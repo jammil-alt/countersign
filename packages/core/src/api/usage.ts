@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
 import { DECIMAL_RE } from "../money";
+import { KpiValue } from "./client-view";
 import { defineRoute } from "./contract";
 
 // Usage and reports (docs/plan.md §1.15, ARCHITECTURE §13–§15). The back office sees model cost
@@ -82,7 +83,7 @@ export const USAGE_DAILY_MAX_DAYS = 92;
  * background reading when the report isn't narrowed to an agent or a template).
  */
 export const UsageModelRow = z.object({
-  /** `anthropic` | `openai`. */
+  /** `anthropic` | `openai` | `xai` | `google` (core's `modelProvider`). */
   provider: z.string(),
   model: z.string(),
   calls: z.number().int(),
@@ -166,6 +167,21 @@ export const AgentRunsNow = z.object({
 });
 export type AgentRunsNow = z.infer<typeof AgentRunsNow>;
 
+/** What a service is doing now: its latest live run. */
+export const ServiceNow = z.object({
+  runId: z.string(),
+  status: z.string(),
+  /** The current top-level step: "3 of 6 · Match items". Null once the run is done. */
+  step: z
+    .object({ index: z.number().int(), total: z.number().int(), label: z.string() })
+    .nullable(),
+  /** When the run started, or when it began waiting. */
+  since: z.string().nullable(),
+  /** It waits on someone of the client (an open Desk item of this run for anyone of the client). */
+  waitingOnYou: z.boolean(),
+});
+export type ServiceNow = z.infer<typeof ServiceNow>;
+
 export const ActivityService = z.object({
   id: z.string(),
   name: z.string(),
@@ -230,6 +246,16 @@ export const ServiceDetail = z.object({
   template: z.string().nullable().optional(),
   /** It starts from documents (a `document.*` event trigger): its page offers upload. */
   readsDocuments: z.boolean().optional(),
+  // audit-plan 6.6: what the agent page read from the Table, so it need not ask for it. Optional
+  // so older answers still parse.
+  /** bench, trial, signoff or live (null before go-live stages). */
+  stage: z.string().nullable().optional(),
+  /** Its latest live run, as the Table shows it; null before its first. */
+  now: ServiceNow.nullable().optional(),
+  /** What it has going now: runs working, and runs waiting on you. */
+  runsNow: AgentRunsNow.optional(),
+  /** Its KPIs, each over its own period, labels and values only (never the definition). */
+  kpis: z.array(KpiValue).optional(),
 });
 export type ServiceDetail = z.infer<typeof ServiceDetail>;
 

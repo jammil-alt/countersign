@@ -9,18 +9,20 @@
 // automatically (DECISION in plan §1.2).
 
 import {
-  type AgentBundle,
+  type AnyAgentBundle,
+  type AnyStep,
   cloneJson,
+  eachBundleStep,
+  holdsProcess,
   isPlainObject,
   type MergeResult,
   mergeBundles,
   parseSkillRef,
+  processes,
   type Resolution,
   type SkillDefinition,
-  type Step,
   selectChanges,
   validateBundle,
-  walkSteps,
 } from "@countersign/core";
 import { agent, agentVersion, type Tx } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
@@ -35,7 +37,7 @@ import {
   type RegistryContext,
   resolveVersion,
 } from "./agents";
-import { skillContext } from "./skills";
+import { convertLookup, skillContext } from "./skills";
 
 export interface UpdateInfo {
   linked: boolean;
@@ -117,13 +119,31 @@ export interface MergePreview {
   base: AgentVersionRow;
   ours: AgentVersionRow;
   theirs: AgentVersionRow;
-  result: MergeResult;
+  result: MergeResult<AnyAgentBundle>;
+}
+
+/**
+ * R9 (docs/plan.md §1.86, §9): how a merge reads stored v3 workflows as v4 when the template's
+ * versions hold processes and the client's (or its base) don't, with the registries as they are.
+ */
+export function lineageReadOptions(ctx: Pick<RegistryContext, "catalog" | "tools">): {
+  lookup: processes.ConvertLookup;
+} {
+  return { lookup: convertLookup(ctx.catalog, ctx.tools) };
 }
 
 /** The merged result of applying the template's live version to a client agent, with conflicts. */
 export async function previewUpdate(
   tx: Tx,
-  input: { agentId: string; resolutions?: readonly Resolution[] },
+  input: {
+    agentId: string;
+    resolutions?: readonly Resolution[];
+    /**
+     * R9: the registries, for a template whose live version holds v4 processes while the client
+     * agent's are v3 workflows (the merged draft is then all v4). Without it, such a merge throws.
+     */
+    ctx?: Pick<RegistryContext, "catalog" | "tools">;
+  },
 ): Promise<MergePreview> {
   const row = await clientAgent(tx, input.agentId);
   if (!row.linked) throw new AgentsError("not_linked", `${row.slug} is detached from its template`);
@@ -138,6 +158,7 @@ export async function previewUpdate(
     ours.bundle,
     info.templateLive.bundle,
     input.resolutions ?? [],
+    input.ctx ? lineageReadOptions(input.ctx) : {},
   );
   return { base: info.base, ours, theirs: info.templateLive, result };
 }
@@ -145,7 +166,7 @@ export async function previewUpdate(
 async function requireMergeable(
   tx: Tx,
   tenantId: string | null,
-  result: MergeResult,
+  result: MergeResult<AnyAgentBundle>,
   ctx: RegistryContext,
 ): Promise<void> {
   if (!result.clean) {
@@ -160,7 +181,10 @@ async function requireMergeable(
     bundle: result.bundle,
     catalog: ctx.catalog,
   });
-  const valid = validateBundle(result.bundle, {
+  // R9: a merge with a template's v4 version is all v4, validated as such (an all-v3 one exactly
+  // as before).
+  const validate = holdsProcess(result.bundle) ? processes.validateAnyBundle : validateBundle;
+  const valid = validate(result.bundle, {
     skills,
     tools: ctx.tools.specs(),
     models: knownModelIds(),
@@ -213,7 +237,7 @@ const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 // version's step inputs or settings is treated as the client's record or connection id and is not
 // promoted (ARCHITECTURE §9.3 "Client-specific values ... are left out").
 export function holdsRecordId(value: unknown): boolean {
-  if (typeof value === "string") return UUID_IN_TEXT.test(value.replace(/\{\{[^}]*\}\}/g, ""));
+  if (typeof value === "string") return UUID_IN_TEXT.test(value.replace(/\{\{[^{}]*\}\}/g, ""));
   if (Array.isArray(value)) return value.some(holdsRecordId);
   if (isPlainObject(value)) return Object.values(value).some(holdsRecordId);
   return false;
@@ -231,23 +255,25 @@ function scrub(bag: Bag | undefined, base: Bag | undefined, clientSpecific: Set<
   }
 }
 
-function stepsById(bundle: AgentBundle): Map<string, Step> {
-  const out = new Map<string, Step>();
-  for (const w of bundle.workflows) walkSteps(w.workflow, ({ step }) => out.set(step.id, step));
+function stepsById(bundle: AnyAgentBundle): Map<string, AnyStep> {
+  const out = new Map<string, AnyStep>();
+  eachBundleStep(bundle, (step) => out.set(step.id, step));
   return out;
 }
 
 /**
  * A client version as it may go into a template: settings marked `clientSpecific` and literal
  * record ids are replaced by the base template's value where it has one (so promotion doesn't
- * delete them from the template), else removed. Bindings never are in a bundle.
+ * delete them from the template), else removed. Bindings never are in a bundle. Wave 3b: a v4
+ * process's steps the same way (a skill step's `customize.settings` too); the client and base
+ * versions may be v3 and v4 apiece, and their steps line up by id (the converter keeps them).
  */
-export function stripForPromotion(
-  client: AgentBundle,
+export function stripForPromotion<B extends AnyAgentBundle>(
+  client: B,
   /** The base template version's bundle; null (no template) drops every such value. */
-  base: AgentBundle | null,
+  base: AnyAgentBundle | null,
   skills: Record<string, Pick<SkillDefinition, "settings">>,
-): AgentBundle {
+): B {
   // Same rule as core's stripClientSpecificSettings, but the base's value is kept where it has one.
   const out = cloneJson(client);
   const specificKeys = (ref: string) =>
@@ -262,19 +288,28 @@ export function stripForPromotion(
   for (const s of out.definition.skills) {
     scrub(s.settings, baseSkills.get(parseSkillRef(s.skill).id)?.settings, specificKeys(s.skill));
   }
-  const baseSteps = base ? stepsById(base) : new Map<string, Step>();
-  for (const w of out.workflows) {
-    walkSteps(w.workflow, ({ step }) => {
-      const b = baseSteps.get(step.id) as (Step & Bag) | undefined;
-      if (step.kind === "skill") {
-        scrub(step.settings, b?.settings as Bag | undefined, specificKeys(step.skill));
-      }
-      const s = step as Step & Bag;
-      for (const field of ["input", "payload"] as const) {
-        scrub(s[field] as Bag | undefined, b?.[field] as Bag | undefined, new Set());
-      }
-    });
-  }
+  const baseSteps = base ? stepsById(base) : new Map<string, AnyStep>();
+  /** A step's settings wherever they live: v3's `settings`, v4's and `customize.settings`. */
+  const settingsOf = (step: AnyStep | undefined): Bag | undefined => {
+    if (step?.kind !== "skill") return undefined;
+    const own = step.settings as Bag | undefined;
+    const customized = (step as { customize?: { settings?: Bag } }).customize?.settings;
+    return own || customized ? { ...customized, ...own } : undefined;
+  };
+  eachBundleStep(out, (step) => {
+    const b = baseSteps.get(step.id);
+    const bag = b as (AnyStep & Bag) | undefined;
+    if (step.kind === "skill") {
+      const keys = specificKeys(step.skill);
+      scrub(step.settings as Bag | undefined, settingsOf(b), keys);
+      const customize = (step as { customize?: { settings?: Bag } }).customize;
+      scrub(customize?.settings, settingsOf(b), keys);
+    }
+    const s = step as AnyStep & Bag;
+    for (const field of ["input", "payload"] as const) {
+      scrub(s[field] as Bag | undefined, bag?.[field] as Bag | undefined, new Set());
+    }
+  });
   return out;
 }
 
@@ -282,9 +317,9 @@ export interface PromotionPreview extends MergePreview {
   /** The client version promoted (before stripping). */
   client: AgentVersionRow;
   /** The client version's bundle with client-specific values stripped (every change offered). */
-  stripped: AgentBundle;
+  stripped: AnyAgentBundle;
   /** The "theirs" side merged: `stripped` with only the selected changes (all when none given). */
-  selected: AgentBundle;
+  selected: AnyAgentBundle;
 }
 
 /**
@@ -317,8 +352,12 @@ export async function previewPromotion(
     catalog: input.ctx.catalog,
   });
   const stripped = stripForPromotion(client.bundle, base.bundle, skills);
-  const selected = input.changes ? selectChanges(base.bundle, stripped, input.changes) : stripped;
-  const result = mergeBundles(base.bundle, ours.bundle, selected, input.resolutions ?? []);
+  // R9: a client version and a template version may be v3 and v4 apiece.
+  const read = lineageReadOptions(input.ctx);
+  const selected = input.changes
+    ? selectChanges(base.bundle, stripped, input.changes, read)
+    : stripped;
+  const result = mergeBundles(base.bundle, ours.bundle, selected, input.resolutions ?? [], read);
   // The "theirs" side is the stripped client bundle; report it against the client version row.
   return { base, ours, theirs: client, client, stripped, selected, result };
 }

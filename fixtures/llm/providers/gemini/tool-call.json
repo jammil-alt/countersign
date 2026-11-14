@@ -1,0 +1,30 @@
+{
+  "handWritten": true,
+  "about": "Gemini API generateContent: the model calls a function, with its thought signature on the call (200)",
+  "status": 200,
+  "body": {
+    "candidates": [
+      {
+        "content": {
+          "parts": [
+            {
+              "functionCall": { "name": "get_invoice", "args": { "id": "INV-1" } },
+              "thoughtSignature": "EqYCAdHtim9toolCallSignatureForFixtureOnly"
+            }
+          ],
+          "role": "model"
+        },
+        "finishReason": "STOP",
+        "index": 0
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 900,
+      "candidatesTokenCount": 15,
+      "thoughtsTokenCount": 20,
+      "totalTokenCount": 935
+    },
+    "modelVersion": "gemini-3.1-pro",
+    "responseId": "gem-tool-0001"
+  }
+}

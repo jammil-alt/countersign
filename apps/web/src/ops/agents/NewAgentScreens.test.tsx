@@ -2,6 +2,7 @@
 // the draft shows beside it, a change can be undone, "Open in workflow builder" saves it), then the
 // other starts: required fields are checked before sending, and each (blank, template fork) sends
 // the right request.
+import { AnyAgentBundle, toProcessBundle } from "@countersign/core";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -107,6 +108,8 @@ function turn(seq: number, role: "operator" | "builder", text: string, extra = {
 }
 
 /** A Builder conversation as the API answers it: its draft, and its turns so far. */
+const NO_LOOKUP = { wrappedTool: () => null, sideEffect: () => null };
+
 function sessionDetail(clientId: string | null, turns: ReturnType<typeof turn>[], undone = false) {
   return {
     session: {
@@ -118,7 +121,8 @@ function sessionDetail(clientId: string | null, turns: ReturnType<typeof turn>[]
       skillId: null,
       baseVersionId: null,
       status: "open",
-      bundle: AGENT_DETAIL.live.bundle,
+      // Wave 3b: the server answers the draft as a v4 process bundle.
+      bundle: toProcessBundle(AnyAgentBundle.parse(AGENT_DETAIL.live.bundle), NO_LOOKUP),
       errors: [],
       closest: [
         {

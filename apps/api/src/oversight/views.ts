@@ -6,14 +6,21 @@
 import {
   changedFields,
   fieldLabel,
-  findStep,
+  findAnyStep,
   type OversightDecisionView,
   oversightLine,
   parseSkillRef,
-  type Workflow,
+  processes,
 } from "@countersign/core";
-import { appUser, inboxItem, oversightDecision, stepRun, type Tx } from "@countersign/db";
-import { and, asc, eq } from "drizzle-orm";
+import {
+  appUser,
+  inboxItem,
+  OVERSIGHT_CAUSES,
+  oversightDecision,
+  stepRun,
+  type Tx,
+} from "@countersign/db";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Platform } from "../platform";
 import { tenantLocale } from "../routes/language";
 
@@ -27,8 +34,9 @@ export function decisionView(row: DecisionRow): OversightDecisionView {
     stepRunId: row.stepRunId,
     nodeId: row.nodeId,
     seq: row.seq,
-    cause: row.cause,
-    action: row.action,
+    // Reviews only: the queries below keep to their causes (v0.17's choices are read apart).
+    cause: row.cause as OversightDecisionView["cause"],
+    action: row.action as OversightDecisionView["action"],
     inputBefore: row.inputBefore ?? null,
     inputAfter: row.inputAfter ?? null,
     note: row.note,
@@ -56,7 +64,13 @@ export async function runOversight(
   const rows = await tx
     .select()
     .from(oversightDecision)
-    .where(and(eq(oversightDecision.tenantId, tenantId), eq(oversightDecision.runId, runId)))
+    .where(
+      and(
+        eq(oversightDecision.tenantId, tenantId),
+        eq(oversightDecision.runId, runId),
+        inArray(oversightDecision.cause, [...OVERSIGHT_CAUSES]),
+      ),
+    )
     .orderBy(asc(oversightDecision.createdAt), asc(oversightDecision.seq));
   return rows.map(decisionView);
 }
@@ -77,7 +91,7 @@ export async function timelineOversight(
   tenantId: string,
   runId: string,
   platform: Platform,
-  workflow: Pick<Workflow, "steps"> | undefined,
+  workflow: StepHolder | undefined,
 ): Promise<Map<string, string[]>> {
   const rows = await tx
     .select({
@@ -108,7 +122,13 @@ export async function timelineOversight(
       ),
     )
     .leftJoin(appUser, eq(appUser.id, inboxItem.assigneeUserId))
-    .where(and(eq(oversightDecision.tenantId, tenantId), eq(oversightDecision.runId, runId)))
+    .where(
+      and(
+        eq(oversightDecision.tenantId, tenantId),
+        eq(oversightDecision.runId, runId),
+        inArray(oversightDecision.cause, [...OVERSIGHT_CAUSES]),
+      ),
+    )
     .orderBy(asc(oversightDecision.createdAt), asc(oversightDecision.seq));
   const out = new Map<string, string[]>();
   if (rows.length === 0) return out;
@@ -125,20 +145,36 @@ export async function timelineOversight(
       r.action === "ask" && r.askedSubject === "oversight_ask" && r.askedId
         ? r.askedName?.trim() || (r.askedEmail?.split("@")[0] ?? null)
         : null;
-    const line = oversightLine(locale, { action: r.action, field, askedName });
+    const line = oversightLine(locale, {
+      action: r.action as OversightDecisionView["action"],
+      field,
+      askedName,
+    });
     out.set(r.stepRunId, [...(out.get(r.stepRunId) ?? []), line]);
   }
   return out;
 }
 
-/** The step's input schema: its skill's (a built-in), or its action's tool's. */
-function inputSchemaOf(
+/** A v3 workflow or a v4 process, as far as finding a step goes. */
+type StepHolder = Parameters<typeof findAnyStep>[0];
+
+/**
+ * The step's input schema: its skill's (a built-in), or its tool's: a v3 action's, a v4 read's or
+ * write's (wave 3b).
+ */
+export function inputSchemaOf(
   nodeId: string,
   skillRef: string | null,
-  platform: Platform,
-  workflow: Pick<Workflow, "steps"> | undefined,
+  platform: Pick<Platform, "catalog" | "tools">,
+  workflow: StepHolder | undefined,
 ): unknown {
   if (skillRef) return platform.catalog.get(parseSkillRef(skillRef).id)?.input ?? null;
-  const step = workflow ? findStep(workflow, baseStepId(nodeId))?.step : undefined;
-  return step?.kind === "action" ? (platform.tools.get(step.tool)?.spec.input ?? null) : null;
+  const step = workflow ? findAnyStep(workflow, baseStepId(nodeId)) : undefined;
+  // Skill model: an action write step's input is the action's (its tool's is mapped from it).
+  if (step?.kind === "write" && step.action !== undefined) {
+    return processes.actionInputSchema(step.action);
+  }
+  return step?.kind === "action" || step?.kind === "read" || step?.kind === "write"
+    ? (platform.tools.get(step.tool as string)?.spec.input ?? null)
+    : null;
 }

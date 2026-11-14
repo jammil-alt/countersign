@@ -480,6 +480,55 @@ describe("The Inbox: Mezonas stepped in", () => {
     );
   });
 
+  // R5 (ARCHITECTURE §10.14 "Undo"): a no that came after we went ahead offers the undo, which
+  // only the press runs, through the portal's route.
+  it("offers Undo on a late no and calls the undo route when pressed", async () => {
+    const late = {
+      ...ITEM,
+      id: "00000000-0000-4000-8000-0000000b0103",
+      status: "resolved",
+      resolvedAt: "2026-11-10T15:00:00.000Z",
+      resolvedBy: { id: ME, name: "Demo admin" },
+      payload: {
+        ...ITEM.payload,
+        lateAnswer: {
+          at: "2026-11-10T15:00:00.000Z",
+          by: ME,
+          approved: false,
+          actionId: "a1",
+          actionStatus: "done",
+        },
+        undo: {
+          actionId: "a1",
+          tool: "qbo.bill.update_lines",
+          text: "Can be taken back with qbo.bill.update_lines, if nobody changed it since.",
+          for: [ME],
+          lead: true,
+          status: "offered",
+        },
+      },
+    };
+    let pressed = 0;
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(0),
+      "GET /api/inbox": inbox(() => ({ resolved: [late] })),
+      [`POST /api/inbox/${late.id}/undo-change`]: () => {
+        pressed += 1;
+        return { itemId: late.id, undo: { status: "done", undoActionId: "a2" } };
+      },
+    });
+    renderAt("/inbox?view=done", api);
+    const card = await screen.findByTestId("desk-detail");
+    const box = await within(card).findByTestId("desk-late");
+    expect(box).toHaveTextContent("We can put the change back, if nobody has changed it since.");
+    expect(box.textContent).not.toContain("qbo.bill.update_lines");
+    expect(pressed).toBe(0);
+    await userEvent.click(within(box).getByTestId("desk-late-undo"));
+    await waitFor(() => expect(pressed).toBe(1));
+    expect(await within(card).findByText("Undone. We put the change back.")).toBeInTheDocument();
+  });
+
   it("says when we passed an item to you, and why", async () => {
     const passed = {
       ...ITEM,

@@ -1,0 +1,10 @@
+{
+  "handWritten": true,
+  "about": "xAI: a rate limit (429), in xAI's error shape {code, error}",
+  "status": 429,
+  "headers": { "retry-after": "3" },
+  "body": {
+    "code": "Some resource has been exhausted",
+    "error": "Your team has exceeded its requests per minute for model grok-4.7. Please try again later."
+  }
+}

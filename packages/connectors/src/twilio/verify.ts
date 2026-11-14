@@ -1,4 +1,4 @@
-// Twilio Verify on Mezonas' own account, for people's sign-in codes (docs/plan.md §1.83): text and
+// Twilio Verify on Mezonas' own account, for people's sign-in codes (docs/plan.md §1.99): text and
 // WhatsApp codes (`Verifications`, `VerificationCheck`) and authenticator apps (TOTP `Factors` and
 // `Challenges`). Twilio holds every code and authenticator secret; we keep only a factor's SID.
 // What is not checked against Twilio's docs is in VERIFY_NOTES.md.

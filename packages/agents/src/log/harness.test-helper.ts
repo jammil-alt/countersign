@@ -135,6 +135,14 @@ export const READ_SKILL: SkillDefinition = {
   producesAlerts: false,
 };
 
+/**
+ * Skill model (2026-11-10): in tests, a tool that calls a model without declaring `usesModel`
+ * fails its step, so its test fails (the runtime's `onUndeclaredModelCall`).
+ */
+export function undeclaredModelCall(toolId: string): never {
+  throw new Error(`${toolId} called a model without declaring usesModel`);
+}
+
 export const TRIGGER_ID = "trg-manual";
 export const LOOKUP_STEP = "step-lookup";
 export const UPDATE_STEP = "step-update";
@@ -309,7 +317,13 @@ export async function createHarness(): Promise<Harness | null> {
     tools,
     catalog,
     ctx: { tools, catalog },
-    deps: (model = new FakeModel()) => ({ ports, tools, catalog, transport: model }),
+    deps: (model = new FakeModel()) => ({
+      ports,
+      tools,
+      catalog,
+      transport: model,
+      onUndeclaredModelCall: undeclaredModelCall,
+    }),
     ops: (fn) => withOperator(db, [A.tenantId, B.tenantId], fn),
     client: (c, fn) => withTenant(db, c.tenantId, fn),
     async setPermissions(c, matrix) {

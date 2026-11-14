@@ -2,6 +2,7 @@
 // failed upload loses only the picture.
 import { buildPath, type FeedbackSubmission, routes } from "@countersign/core";
 import type { ApiClient } from "../api/client";
+import { noteWrite } from "../api/store";
 
 export type ScreenshotOutcome = "sent" | "failed" | "none";
 
@@ -24,6 +25,8 @@ export async function sendFeedback(
       credentials: "same-origin",
       headers: { "content-type": "image/jpeg", accept: "application/json" },
     });
+    // The picture is a write too: stored answers are stale from now (docs/audit-plan.md 1.2).
+    if (res.ok) noteWrite();
     return { id, screenshot: res.ok ? "sent" : "failed" };
   } catch {
     return { id, screenshot: "failed" };

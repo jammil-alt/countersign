@@ -67,7 +67,8 @@ export interface ConverseTurnRequest {
   data: unknown;
   about: readonly string[];
   who: { name: string };
-  channel: ConverseChannel;
+  // R7: a call's transcript is read by the same turn once the call is over (`converseFindings`).
+  channel: ConverseChannel | "call";
   clientName: string;
   transcript: readonly ConverseLine[];
   /** What our last message asked for, if anything. */
@@ -76,7 +77,19 @@ export interface ConverseTurnRequest {
   messagesLeft: number;
   /** Longest message the channel takes. */
   maxChars: number;
+  // R7
+  /**
+   * The conversation is over (a call that ended): the turn only reads what it found, `done` or
+   * `give_up`, and sends nothing.
+   */
+  finished?: boolean | undefined;
 }
+
+/** How each channel is named to the model: the engine's, and a call's. */
+const CHANNEL_WORDS: Record<ConverseChannel | "call", string> = {
+  ...CONVERSE_CHANNEL_WORDS,
+  call: "phone call",
+};
 
 export interface ConverseTurnUsage {
   model: string;
@@ -116,11 +129,16 @@ export async function converseTurn(
   const finishing = req.confirm
     ? "To finish, first send a `confirm` message that restates the result in plain words and asks the person to confirm it. When they confirm, answer `done` with that result and `confirmed: true`. If they correct it, ask or confirm again."
     : "When you have the result, answer `done` with it.";
+  const channelWords = CHANNEL_WORDS[req.channel];
+  // R7: an ended conversation is only read; the words for a live one are unchanged.
+  const conversation = req.finished
+    ? `## This conversation\nYou talked with ${req.who.name} by ${channelWords}, for ${req.clientName}. It is over: send nothing.\nGoal: ${req.goal}\nRead what was said and answer \`done\` with the result, using only what the person said (\`confirmed: true\` only if they confirmed it). If it isn't there, answer \`give_up\` with the reason.`
+    : `## This conversation\nYou are writing to ${req.who.name} by ${channelWords}, for ${req.clientName}.\nGoal: ${req.goal}\nThe first message: ${req.opening}\n${finishing}\nIf you can't reach the goal (they refuse, don't know, or it needs someone else), answer \`give_up\` with the reason; a person takes over.`;
   const system = [
     CONVERSE_PREAMBLE,
     `## Who you are\n${definition.identity.name}: ${definition.identity.role}. ${definition.identity.mission}`,
     `## How you work\n${definition.instructions}`,
-    `## This conversation\nYou are writing to ${req.who.name} by ${CONVERSE_CHANNEL_WORDS[req.channel]}, for ${req.clientName}.\nGoal: ${req.goal}\nThe first message: ${req.opening}\n${finishing}\nIf you can't reach the goal (they refuse, don't know, or it needs someone else), answer \`give_up\` with the reason; a person takes over.`,
+    conversation,
     `## Limits\nYou may send ${req.messagesLeft} more message${req.messagesLeft === 1 ? "" : "s"}. Each message at most ${req.maxChars} characters.`,
     `## Language\nWrite every message in ${LOCALE_ENGLISH_NAMES[req.language]}. Field values in the result keep the person's own words for names and items.`,
   ].join("\n\n");
@@ -250,6 +268,62 @@ export async function converseTurn(
     if (problem) return { ok: false, error: `turn ${req.turn}: ${problem}`, ...usage() };
   }
   return { ok: true, answer, ...usage() };
+}
+
+// R7 (docs/plan.md §9): a conversation step's call is over; what it found is read from its
+// transcript by the same turn (the person's words as data, invariant 9), never sent anywhere.
+export type ConverseFindingsRequest = Omit<
+  ConverseTurnRequest,
+  "finished" | "confirm" | "messagesLeft" | "lastAsked" | "opening" | "maxChars"
+>;
+
+export type ConverseFindingsResult =
+  | ({
+      ok: true;
+      /** The goal's result, checked against its schema; null when it wasn't found. */
+      result: unknown;
+      confirmed: boolean;
+      reason: string | null;
+    } & ConverseTurnUsage)
+  | ({ ok: false; error: string } & ConverseTurnUsage);
+
+/** What an ended conversation found: one `converseTurn` that may only answer `done` or `give_up`. */
+export async function converseFindings(
+  deps: RuntimeDeps,
+  req: ConverseFindingsRequest,
+): Promise<ConverseFindingsResult> {
+  const r = await converseTurn(deps, {
+    ...req,
+    finished: true,
+    confirm: false,
+    messagesLeft: 0,
+    lastAsked: null,
+    opening: "",
+    maxChars: CONVERSE_MESSAGE_MAX,
+  });
+  if (!r.ok) return r;
+  const { answer, ...usage } = r;
+  switch (answer.action) {
+    case "done":
+      return {
+        ...usage,
+        ok: true,
+        result: answer.result,
+        confirmed: answer.confirmed,
+        reason: null,
+      };
+    case "give_up":
+      return { ...usage, ok: true, result: null, confirmed: false, reason: answer.reason };
+    default:
+      // It asked for more: the conversation is over, so nothing was found.
+      return {
+        ...usage,
+        ok: true,
+        result: null,
+        confirmed: false,
+        reason: "the conversation ended before it was found",
+      };
+  }
 }
 
 /** Drops the fields an answer's action doesn't take (models fill them with nulls). */

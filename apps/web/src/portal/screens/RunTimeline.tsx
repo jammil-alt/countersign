@@ -6,6 +6,7 @@
 // (who opened it or its items, who approved). No costs, no instructions, no internal steps: the API
 // sends none, and this screen renders only the fields the contracts name. Polls while it goes.
 // P-4
+// Step panel (docs/plan.md §1.95): each step opens its details beside the run (`?step=<id>`).
 
 import { pickLocalized, type RunAuditEntry, shortRunId } from "@countersign/core";
 import { useState } from "react";
@@ -20,8 +21,11 @@ import { SourceLinks } from "../../records/SourceLinks";
 // P-6
 import { ConversationControls } from "../../runs/ConversationControls";
 import { shortTime, stepStatusLabel } from "../../runs/format";
+import { conferTitle, StepChecks } from "../../runs/StepChecks";
+import { useStepParam } from "../../runs/StepPanel";
 import { subjectTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
+import { writeLine } from "../../runs/write";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
 import { Loaded, Page, PageGrid } from "../../ui/page";
@@ -32,16 +36,23 @@ import {
   Card,
   cx,
   EmptyState,
-  ErrorNotice,
-  Loading,
   PageHeader,
   type Tone,
 } from "../../ui/primitives";
+import {
+  Skeleton,
+  SkeletonBlock,
+  SkeletonCard,
+  SkeletonLine,
+  SkeletonText,
+} from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { type StepItem, StepList, type StepState } from "../../ui/steps";
 import { Transcript } from "../../ui/transcript";
+import { useKnownRun, useRememberRuns } from "../known";
 import { PORTAL_PATHS } from "../paths";
 import { runChip, runOpen, runState, workedMs } from "../status";
+import { PortalStepPanel } from "./RunStepPanel";
 import { msDuration, TookCell } from "./runsParts";
 
 const ACTION_WORDS: Record<string, PlainKey> = {
@@ -87,22 +98,216 @@ function stepState(status: string): StepState {
   }
 }
 
+/**
+ * The page: its back link at once, its header from the run's row in the list it was opened from
+ * (or the frame's overview) while its own answer comes, and every call that needs only the run's
+ * id started here together (docs/audit-plan.md 1.4, 1.5): the run, its audit trail and the
+ * reader's open Inbox items. Each part waits only for its own answer.
+ */
 export function PortalRunScreen() {
   const { id = "" } = useParams();
+  const i18n = useI18n();
+  const { t } = i18n;
+  const known = useKnownRun(id);
   const state = useApi(apiRoutes.portalRun, { params: { id } });
   const { data, loading, reload } = state;
   usePoll(reload, data ? runOpen(data.run) : false, 2_000, loading);
+  const run = data?.run ?? known;
+  // What waits on the reader: their own open Inbox items for this run (the Inbox's filter), asked
+  // as soon as the run, or its row in a list, says it waits on them.
+  // DECISION (review of #259): a run nothing is known of yet is not assumed to wait: its Inbox
+  // items are asked once it answers that it does, so a finished run's page asks no more than before
+  // (gate 2). A run opened from a list, Home or the overview knows at once.
+  const openApprovals = data ? data.approvals.filter((a) => a.status === "open") : [];
+  const waits = data
+    ? runState(data.run) === "waiting" || openApprovals.length > 0
+    : known !== null && runState(known) === "waiting";
+  const inbox = useApi(apiRoutes.portalInbox, waits ? { query: { status: "open" } } : null);
+  const mine = (inbox.data?.items ?? [])
+    .filter((i) => i.runId === id)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const first = waits ? mine[0] : undefined;
+  const short = shortRunId(id);
+  const failed = state.error !== undefined && state.error !== null && !data;
 
   return (
     <Page testId="portal-run-page">
-      <Loaded state={state}>{(d) => <RunPage data={d} onChanged={reload} />}</Loaded>
+      <p className="eyebrow text-ink-muted">
+        <Link to={PORTAL_PATHS.runs} className="text-link hover:underline">
+          {t("nav.runs")}
+        </Link>
+        {` / ${short}`}
+      </p>
+      {failed ? (
+        <Loaded state={state}>{() => null}</Loaded>
+      ) : (
+        <>
+          {run ? (
+            <>
+              <RunHeader run={run} />
+              {/* Hand off (2026-11-11): the run that handed this one off, and where it started. */}
+              {data?.run.handedOffFrom ? <HandedOffFrom from={data.run.handedOffFrom} /> : null}
+            </>
+          ) : (
+            <Skeleton>
+              <span className="flex items-center gap-4">
+                <SkeletonBlock height={52} className="w-[52px] shrink-0" />
+                <span className="flex flex-1 flex-col gap-2">
+                  <SkeletonLine width={320} size="title" />
+                  <SkeletonLine width="half" size="small" />
+                </span>
+              </span>
+            </Skeleton>
+          )}
+          {first ? (
+            <Card pad testId="portal-run-approve">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-medium text-ink">
+                    {t("runDetail.waitingSince", {
+                      time: shortTime(first.createdAt, undefined, i18n),
+                    })}
+                  </p>
+                  <p className="text-sm text-ink-muted">
+                    {t("runDetail.waitingItems", { count: mine.length })}
+                  </p>
+                </div>
+                <Link
+                  to={`${PORTAL_PATHS.desk}?item=${first.id}`}
+                  className={buttonClass("primary")}
+                  data-testid="portal-run-review"
+                >
+                  {t("runDetail.review")}
+                </Link>
+              </div>
+            </Card>
+          ) : null}
+          <PageGrid
+            rail={
+              <>
+                {data ? (
+                  <AboutRun data={data} />
+                ) : (
+                  <Skeleton>
+                    <SkeletonCard lines={5} />
+                  </Skeleton>
+                )}
+                <OtherRuns
+                  serviceId={run?.service.id ?? null}
+                  name={run?.service.name ?? ""}
+                  current={id}
+                />
+                <Card pad testId="portal-run-ask-sloan">
+                  <p className="text-sm text-ink-muted">{t("runDetail.askSloan.prompt")}</p>
+                  <Link
+                    to={`${PORTAL_PATHS.sloan}?ask=${encodeURIComponent(t("runDetail.askSloan.text", { id: short }))}`}
+                    className={cx(buttonClass("secondary", undefined, "sm"), "mt-3")}
+                  >
+                    {t("runDetail.askSloan")}
+                  </Link>
+                </Card>
+              </>
+            }
+          >
+            <Loaded
+              state={state}
+              skeleton={
+                <div className="flex flex-col gap-6">
+                  <SkeletonCard lines={6} />
+                  <SkeletonCard lines={2} />
+                </div>
+              }
+            >
+              {(d) => (
+                <RunBody
+                  data={d}
+                  waiting={waits ? mine.filter((i) => i.kind === "external_action") : []}
+                  onChanged={reload}
+                />
+              )}
+            </Loaded>
+            <AuditTrail runId={id} />
+          </PageGrid>
+        </>
+      )}
     </Page>
   );
 }
 
 type RunData = NonNullable<ReturnType<typeof useApi<typeof apiRoutes.portalRun>>["data"]>;
+type RunRow = RunData["run"];
 
-function RunPage({ data, onChanged }: { data: RunData; onChanged: () => void }) {
+/** The run's title (what it is about), its agent, its state and its times; Copy link. */
+function RunHeader({ run }: { run: RunRow }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const [copied, setCopied] = useState(false);
+  const time = (iso: string | null) => shortTime(iso, undefined, i18n);
+  const short = shortRunId(run.id);
+  const title = subjectTitle(run.subject, i18n);
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+  return (
+    <PageHeader
+      leading={<AgentBadge name={run.service.name} seed={run.service.id} size="lg" />}
+      title={title ?? run.service.name}
+      badge={
+        <StatusChip state={runChip(run, t).state} testId="portal-run-status">
+          {runChip(run, t).label}
+        </StatusChip>
+      }
+      subtitle={[
+        title ? run.service.name : null,
+        t("runDetail.run", { id: short }),
+        run.startedAt ? t("run.started", { time: time(run.startedAt) }) : t("run.notStarted"),
+        // QA round 1: the time it worked, without the time it waited on you.
+        workedMs(run) !== null
+          ? t("run.took", { duration: msDuration(workedMs(run) ?? 0, i18n) })
+          : null,
+        (run.waitedMs ?? 0) >= 60_000
+          ? t("runs.waitedOnYou", { duration: msDuration(run.waitedMs ?? 0, i18n) })
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+      actions={
+        <Button onClick={() => void copyLink()} data-testid="portal-run-copy">
+          {copied ? t("common.copied") : t("runDetail.copyLink")}
+        </Button>
+      }
+    />
+  );
+}
+
+/** "Handed off from AP bill clerk (run R-1a2b3c) · started at 5 · Itemize the invoice". */
+function HandedOffFrom({ from }: { from: NonNullable<RunRow["handedOffFrom"]> }) {
+  const { t } = useI18n();
+  return (
+    <p className="text-sm text-ink-muted" data-testid="portal-run-handoff">
+      <Link to={`${PORTAL_PATHS.runs}/${from.fromRunId}`} className="text-link hover:underline">
+        {t("runDetail.handedOffFrom", { agent: from.fromAgent, id: shortRunId(from.fromRunId) })}
+      </Link>
+      {from.at ? ` · ${t("runDetail.startedAtStep", { step: from.at })}` : null}
+    </p>
+  );
+}
+
+/** The run's own answer: what happened step by step, the changes waiting, made and approved. */
+function RunBody({
+  data,
+  waiting,
+  onChanged,
+}: {
+  data: RunData;
+  waiting: InboxItem[];
+  onChanged: () => void;
+}) {
   const api = useApiClient();
   const i18n = useI18n();
   const { t, locale } = i18n;
@@ -122,26 +327,42 @@ function RunPage({ data, onChanged }: { data: RunData; onChanged: () => void }) 
         ? t("run.conversation.endedByUs")
         : t("run.conversation.ended", { who: by.name ?? "" });
   const { run } = data;
-  const short = shortRunId(run.id);
-  const openApprovals = data.approvals.filter((a) => a.status === "open");
-  const [copied, setCopied] = useState(false);
-  // What waits on the reader: their own open Inbox items for this run (the Inbox's filter).
-  const waits = runState(run) === "waiting" || openApprovals.length > 0;
-  const inbox = useApi(apiRoutes.portalInbox, waits ? { query: { status: "open" } } : null);
-  const mine = (inbox.data?.items ?? [])
-    .filter((i) => i.runId === run.id)
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const first = mine[0];
-  const title = subjectTitle(run.subject, i18n);
+  const { stepId, openStep, closeStep } = useStepParam();
+  const openIndex = stepId ? data.steps.findIndex((s) => s.id === stepId) : -1;
+  const open = openIndex >= 0 ? data.steps[openIndex] : undefined;
 
   const steps: StepItem[] = data.steps.map((s) => ({
     key: s.id,
-    state: stepState(s.status),
+    onOpen: () => openStep(s.id),
+    selected: s.id === stepId,
+    // R8: a confer is a step of its own: a person's answer in copper (§1.86).
+    state: s.confer ? (s.confer.reviewer === "person" ? "person" : "done") : stepState(s.status),
     time: s.startedAt ? time(s.startedAt) : "",
-    title: s.label,
-    detail: s.summary ?? stepStatusLabel(s.status, i18n),
+    title: s.confer ? conferTitle(i18n, s.confer) : s.label,
+    detail: s.confer
+      ? t("run.confer.on", { step: s.label })
+      : (s.summary ?? stepStatusLabel(s.status, i18n)),
+    testId: `portal-run-step-${s.id}`,
     children: (
       <>
+        {/* Skill model (2026-11-10): "Changed in QuickBooks", or "Saved to your records". */}
+        {s.write ? (
+          <p className="text-sm text-ink-muted" data-testid="portal-run-step-write">
+            {writeLine(t, s.write, s.status)}
+          </p>
+        ) : null}
+        {/* Hand off (2026-11-11): the run this step started. */}
+        {s.handoff ? (
+          <Link
+            to={`${PORTAL_PATHS.runs}/${s.handoff.runId}`}
+            className="text-sm text-link hover:underline"
+            data-testid="portal-run-step-handoff"
+          >
+            {t("runDetail.openRun", { id: shortRunId(s.handoff.runId) })}
+          </Link>
+        ) : null}
+        {/* R8: approvers and the mode, no-answer outcomes, an urgent notice's Seen. */}
+        <StepChecks checks={s} testId="portal-run-step-checks" />
         {s.oversight && s.oversight.length > 0 ? (
           <ul className="text-sm text-ink-muted" data-testid="portal-run-step-oversight">
             {s.oversight.map((line) => (
@@ -206,195 +427,123 @@ function RunPage({ data, onChanged }: { data: RunData; onChanged: () => void }) 
     ),
   }));
 
-  async function copyLink() {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  }
-
   return (
-    <>
-      <p className="eyebrow text-ink-muted">
-        <Link to={PORTAL_PATHS.runs} className="text-link hover:underline">
-          {t("nav.runs")}
-        </Link>
-        {` / ${short}`}
-      </p>
-      <PageHeader
-        leading={<AgentBadge name={run.service.name} seed={run.service.id} size="lg" />}
-        title={title ?? run.service.name}
-        badge={
-          <StatusChip state={runChip(run, t).state} testId="portal-run-status">
-            {runChip(run, t).label}
-          </StatusChip>
+    // Its cards sit in the page's main column, spaced by it.
+    <div className="contents">
+      <Card
+        title={t("run.whatHappened")}
+        meta={
+          <span className="figures">
+            {t("run.stepsDone", {
+              done: data.steps.filter((s) => s.status === "succeeded").length,
+              count: data.steps.length,
+            })}
+          </span>
         }
-        subtitle={[
-          title ? run.service.name : null,
-          t("runDetail.run", { id: short }),
-          run.startedAt ? t("run.started", { time: time(run.startedAt) }) : t("run.notStarted"),
-          // QA round 1: the time it worked, without the time it waited on you.
-          workedMs(run) !== null
-            ? t("run.took", { duration: msDuration(workedMs(run) ?? 0, i18n) })
-            : null,
-          (run.waitedMs ?? 0) >= 60_000
-            ? t("runs.waitedOnYou", { duration: msDuration(run.waitedMs ?? 0, i18n) })
-            : null,
-        ]
-          .filter(Boolean)
-          .join(" · ")}
-        actions={
-          <Button onClick={() => void copyLink()} data-testid="portal-run-copy">
-            {copied ? t("common.copied") : t("runDetail.copyLink")}
-          </Button>
-        }
-      />
-      {first ? (
-        <Card pad testId="portal-run-approve">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="font-medium text-ink">
-                {t("runDetail.waitingSince", { time: time(first.createdAt) })}
-              </p>
-              <p className="text-sm text-ink-muted">
-                {t("runDetail.waitingItems", { count: mine.length })}
-              </p>
-            </div>
-            <Link
-              to={`${PORTAL_PATHS.desk}?item=${first.id}`}
-              className={buttonClass("primary")}
-              data-testid="portal-run-review"
-            >
-              {t("runDetail.review")}
-            </Link>
-          </div>
-        </Card>
-      ) : null}
-      <PageGrid
-        rail={
-          <>
-            <AboutRun data={data} />
-            <OtherRuns serviceId={run.service.id} name={run.service.name} current={run.id} />
-            <Card pad testId="portal-run-ask-sloan">
-              <p className="text-sm text-ink-muted">{t("runDetail.askSloan.prompt")}</p>
-              <Link
-                to={`${PORTAL_PATHS.sloan}?ask=${encodeURIComponent(t("runDetail.askSloan.text", { id: short }))}`}
-                className={cx(buttonClass("secondary", undefined, "sm"), "mt-3")}
-              >
-                {t("runDetail.askSloan")}
-              </Link>
-            </Card>
-          </>
-        }
+        testId="portal-run-timeline"
       >
-        <Card
-          title={t("run.whatHappened")}
-          meta={
-            <span className="figures">
-              {t("run.stepsDone", {
-                done: data.steps.filter((s) => s.status === "succeeded").length,
-                count: data.steps.length,
-              })}
-            </span>
-          }
-          testId="portal-run-timeline"
-        >
-          {data.steps.length === 0 ? (
-            <p className="ui-card__body text-ink-muted">{t("run.nothingYet")}</p>
-          ) : (
-            <div className="ui-card__body">
-              <StepList steps={steps} />
-            </div>
-          )}
-        </Card>
+        {data.steps.length === 0 ? (
+          <p className="ui-card__body text-ink-muted">{t("run.nothingYet")}</p>
+        ) : (
+          <div className="ui-card__body">
+            <StepList steps={steps} />
+          </div>
+        )}
+      </Card>
 
-        <WaitingChanges items={mine.filter((i) => i.kind === "external_action")} />
+      {open ? (
+        <PortalStepPanel
+          key={open.id}
+          step={open}
+          index={openIndex + 1}
+          count={data.steps.length}
+          data={data}
+          onClose={closeStep}
+        />
+      ) : null}
 
-        <Card title={t("run.changes")} meta={data.actions.length || null}>
-          {data.actions.length === 0 ? (
-            <p className="ui-card__body text-ink-muted">{t("run.noChanges")}</p>
-          ) : (
-            <div data-testid="portal-run-actions">
-              {data.actions.map((a) => (
-                <ActivityRow
-                  key={a.id}
-                  time={a.executedAt ? time(a.executedAt) : undefined}
-                  end={
-                    <Badge tone={ACTION_TONE[a.status] ?? "neutral"}>
-                      {ACTION_WORDS[a.status] ? t(ACTION_WORDS[a.status] as PlainKey) : a.status}
-                    </Badge>
-                  }
-                >
-                  <span className="font-medium">
-                    {a.display?.connectorName ?? connectorName(connectorOf(a.tool))}
-                  </span>
-                  <span className="block text-sm text-ink-muted">
-                    {a.display?.tool?.description
-                      ? pickLocalized(a.display.tool.description, locale)
-                      : a.description}
-                  </span>
-                </ActivityRow>
-              ))}
-            </div>
-          )}
-        </Card>
+      <WaitingChanges items={waiting} />
 
-        <Card title={t("run.approvals")}>
-          {data.approvals.length === 0 ? (
-            <p className="ui-card__body text-ink-muted">{t("run.noApprovals")}</p>
-          ) : (
-            <div data-testid="portal-run-approvals">
-              {data.approvals.map((a) => (
-                <ActivityRow
-                  key={a.id}
-                  end={
-                    a.status === "open" ? (
-                      <StatusChip state="waiting">{t("common.waitingOnYou")}</StatusChip>
-                    ) : (
-                      // A person's sign-off is copper; a rejection or expiry stays muted.
-                      <span
-                        className={cx(
-                          "text-right text-sm",
-                          a.status !== "expired" && a.approved !== false
-                            ? "font-medium text-copper"
-                            : "text-ink-muted",
-                        )}
-                      >
-                        {a.status === "expired"
-                          ? t("common.expired")
-                          : a.by?.name
-                            ? t(
-                                a.approved === false
-                                  ? "inbox.outcome.rejectedBy"
-                                  : "inbox.outcome.approvedBy",
-                                { name: a.by.name },
-                              )
-                            : t(
-                                a.approved === false
-                                  ? "inbox.outcome.rejected"
-                                  : "inbox.outcome.approved",
-                              )}
-                        {a.resolvedAt ? (
-                          <span className="font-normal text-ink-muted figures">
-                            {` · ${time(a.resolvedAt)}`}
-                          </span>
-                        ) : null}
-                      </span>
-                    )
-                  }
-                >
-                  {a.title}
-                </ActivityRow>
-              ))}
-            </div>
-          )}
-        </Card>
+      <Card titleAbove title={t("run.changes")} meta={data.actions.length || null}>
+        {data.actions.length === 0 ? (
+          <p className="ui-card__body text-ink-muted">{t("run.noChanges")}</p>
+        ) : (
+          <div data-testid="portal-run-actions">
+            {data.actions.map((a) => (
+              <ActivityRow
+                key={a.id}
+                time={a.executedAt ? time(a.executedAt) : undefined}
+                end={
+                  <Badge tone={ACTION_TONE[a.status] ?? "neutral"}>
+                    {ACTION_WORDS[a.status] ? t(ACTION_WORDS[a.status] as PlainKey) : a.status}
+                  </Badge>
+                }
+              >
+                <span className="font-medium">
+                  {a.display?.connectorName ?? connectorName(connectorOf(a.tool))}
+                </span>
+                <span className="block text-sm text-ink-muted">
+                  {a.display?.tool?.description
+                    ? pickLocalized(a.display.tool.description, locale)
+                    : a.description}
+                </span>
+              </ActivityRow>
+            ))}
+          </div>
+        )}
+      </Card>
 
-        <AuditTrail runId={run.id} />
-      </PageGrid>
-    </>
+      <Card titleAbove title={t("run.approvals")}>
+        {data.approvals.length === 0 ? (
+          <p className="ui-card__body text-ink-muted">{t("run.noApprovals")}</p>
+        ) : (
+          <div data-testid="portal-run-approvals">
+            {data.approvals.map((a) => (
+              <ActivityRow
+                key={a.id}
+                end={
+                  a.status === "open" ? (
+                    <StatusChip state="waiting">{t("common.waitingOnYou")}</StatusChip>
+                  ) : (
+                    // A person's sign-off is copper; a rejection or expiry stays muted.
+                    <span
+                      className={cx(
+                        "text-right text-sm",
+                        a.status !== "expired" && a.approved !== false
+                          ? "font-medium text-copper"
+                          : "text-ink-muted",
+                      )}
+                    >
+                      {a.status === "expired"
+                        ? t("common.expired")
+                        : a.by?.name
+                          ? t(
+                              a.approved === false
+                                ? "inbox.outcome.rejectedBy"
+                                : "inbox.outcome.approvedBy",
+                              { name: a.by.name },
+                            )
+                          : t(
+                              a.approved === false
+                                ? "inbox.outcome.rejected"
+                                : "inbox.outcome.approved",
+                            )}
+                      {a.resolvedAt ? (
+                        <span className="font-normal text-ink-muted figures">
+                          {` · ${time(a.resolvedAt)}`}
+                        </span>
+                      ) : null}
+                    </span>
+                  )
+                }
+              >
+                {a.title}
+              </ActivityRow>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }
 
@@ -443,15 +592,28 @@ function OtherRuns({
   name,
   current,
 }: {
-  serviceId: string;
+  /** Null until the run (or its row) says whose it is. */
+  serviceId: string | null;
   name: string;
   current: string;
 }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const state = useApi(apiRoutes.portalRuns, { query: { agents: serviceId, limit: 6 } });
+  const state = useApi(
+    apiRoutes.portalRuns,
+    serviceId ? { query: { agents: serviceId, limit: 6 } } : null,
+  );
+  useRememberRuns(state.data?.runs);
+  if (serviceId === null) {
+    return (
+      <Skeleton>
+        <SkeletonCard lines={4} />
+      </Skeleton>
+    );
+  }
   return (
     <Card
+      titleAbove
       title={t("runDetail.otherRuns", { name })}
       meta={
         <Link to={PORTAL_PATHS.runs} className="text-link hover:underline">
@@ -460,17 +622,16 @@ function OtherRuns({
       }
       testId="portal-run-other"
     >
-      {state.error ? (
-        <div className="ui-card__body">
-          <ErrorNotice error={state.error} onRetry={state.reload} />
-        </div>
-      ) : !state.data ? (
-        <div className="ui-card__body">
-          <Loading />
-        </div>
-      ) : (
-        (() => {
-          const others = state.data.runs.filter((r) => r.id !== current).slice(0, 5);
+      <Loaded
+        state={state}
+        skeleton={
+          <div className="ui-card__body">
+            <SkeletonText lines={4} />
+          </div>
+        }
+      >
+        {(data) => {
+          const others = data.runs.filter((r) => r.id !== current).slice(0, 5);
           if (others.length === 0) {
             return <p className="ui-card__body text-sm text-ink-muted">{t("runDetail.noOther")}</p>;
           }
@@ -484,8 +645,8 @@ function OtherRuns({
               {shortTime(r.startedAt, undefined, i18n)}
             </ActivityRow>
           ));
-        })()
-      )}
+        }}
+      </Loaded>
     </Card>
   );
 }
@@ -504,6 +665,7 @@ function WaitingChanges({ items }: { items: InboxItem[] }) {
   if (!first) return null;
   return (
     <Card
+      titleAbove
       title={t("runDetail.waitingChanges")}
       meta={<StatusChip state="waiting">{t("common.waitingOnYou")}</StatusChip>}
       footer={
@@ -555,40 +717,48 @@ function AuditTrail({ runId }: { runId: string }) {
   const { t } = i18n;
   const state = useApi(apiRoutes.portalRunAudit, { params: { id: runId } });
   return (
-    <Card title={t("runDetail.audit")} meta={t("runDetail.audit.meta")} testId="portal-run-audit">
-      {state.error ? (
-        <div className="ui-card__body">
-          <ErrorNotice error={state.error} onRetry={state.reload} />
-        </div>
-      ) : !state.data ? (
-        <div className="ui-card__body">
-          <Loading />
-        </div>
-      ) : state.data.entries.length === 0 ? (
-        <div className="ui-card__body">
-          <EmptyState>{t("runDetail.audit.empty")}</EmptyState>
-        </div>
-      ) : (
-        state.data.entries.map((e, i) => (
-          <ActivityRow
-            // biome-ignore lint/suspicious/noArrayIndexKey: entries are in order and never move.
-            key={i}
-            time={shortTime(e.at, undefined, i18n)}
-            end={
-              e.times > 1 ? (
-                <span className="text-sm text-ink-muted figures">
-                  {t("runDetail.audit.times", { count: e.times })}
-                </span>
-              ) : undefined
-            }
-          >
-            <span className={cx("font-medium", e.side === "mezonas" && "text-copper")}>
-              {e.who}
-            </span>{" "}
-            {t(AUDIT_WORDS[e.kind])}
-          </ActivityRow>
-        ))
-      )}
+    <Card
+      titleAbove
+      title={t("runDetail.audit")}
+      meta={t("runDetail.audit.meta")}
+      testId="portal-run-audit"
+    >
+      <Loaded
+        state={state}
+        skeleton={
+          <div className="ui-card__body">
+            <SkeletonText lines={3} />
+          </div>
+        }
+      >
+        {(data) =>
+          data.entries.length === 0 ? (
+            <div className="ui-card__body">
+              <EmptyState>{t("runDetail.audit.empty")}</EmptyState>
+            </div>
+          ) : (
+            data.entries.map((e, i) => (
+              <ActivityRow
+                // biome-ignore lint/suspicious/noArrayIndexKey: entries are in order and never move.
+                key={i}
+                time={shortTime(e.at, undefined, i18n)}
+                end={
+                  e.times > 1 ? (
+                    <span className="text-sm text-ink-muted figures">
+                      {t("runDetail.audit.times", { count: e.times })}
+                    </span>
+                  ) : undefined
+                }
+              >
+                <span className={cx("font-medium", e.side === "mezonas" && "text-copper")}>
+                  {e.who}
+                </span>{" "}
+                {t(AUDIT_WORDS[e.kind])}
+              </ActivityRow>
+            ))
+          )
+        }
+      </Loaded>
     </Card>
   );
 }

@@ -3,7 +3,7 @@
 // or one with `review: 'always'`, in forks, loops and automations' expanded steps.
 
 import { describe, expect, it } from "vitest";
-import { OversightSettings, reviewsAfterSuccess } from "../oversight/decision";
+import { OversightSettings, reviewsAfterSuccess, successReviewDue } from "../oversight/decision";
 import type { SkillDefinition } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
 import { Step, Workflow } from "../schemas/workflow";
@@ -163,5 +163,14 @@ describe("checkpoints", () => {
     expect(reviewsAfterSuccess(s("all"), { review: "off" }, true)).toBe(false);
     expect(reviewsAfterSuccess(undefined, { review: "always" }, false)).toBe(true);
     expect(reviewsAfterSuccess(undefined, {}, true)).toBe(false);
+  });
+
+  it("says why a review is due on a step that succeeded (wave 6 review)", () => {
+    const s = (review: string) => OversightSettings.parse({ review });
+    expect(successReviewDue(s("checkpoints"), {}, true)).toBe("checkpoint");
+    expect(successReviewDue(s("all"), {}, true)).toBe("all");
+    expect(successReviewDue(s("failures"), { review: "always" }, false)).toBe("always");
+    expect(successReviewDue(s("all"), { review: "off" }, true)).toBeNull();
+    expect(successReviewDue(s("failures"), {}, true)).toBeNull();
   });
 });

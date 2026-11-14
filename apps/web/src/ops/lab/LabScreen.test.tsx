@@ -1,5 +1,7 @@
-// O2 Agent lab: templates, drafts and client-only agents; the chosen template's lineage (merges
-// to review, changes to promote), workflow, client view and test bench; assigning it to a client.
+// O2 Agent lab: a gallery of templates (first), drafts and client-only agents, as cards or a list,
+// with a status filter and a plain-words search, each opening its own page; and the template's
+// panels on that page: its lineage (merges to review, changes to promote), client view and
+// Assign to a client.
 import { act, render, renderHook, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
@@ -7,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiProvider } from "../../api/useApi";
 import { AGENT_DETAIL, AGENT_SUMMARY, fakeApi, versionId } from "../../test/fixtures";
 import { LabScreen, useSlow } from "./LabScreen";
+import { AssignToClient, ClientViewCard, WhereItRuns } from "./TemplateParts";
 
 const TEMPLATE_ID = "00000000-0000-4000-8000-00000000f001";
 const DRAFT_ID = "00000000-0000-4000-8000-00000000f002";
@@ -110,7 +113,7 @@ function Probe() {
   return <span data-testid="location">{pathname}</span>;
 }
 
-function setup(path = "/ops/lab") {
+function setup(path = "/ops/lab", page: React.ReactNode = <LabScreen />) {
   const forks: unknown[] = [];
   const api = fakeApi({
     "GET /api/ops/lab": () => LAB,
@@ -152,7 +155,7 @@ function setup(path = "/ops/lab") {
     <MemoryRouter initialEntries={[path]}>
       <ApiProvider client={api.client}>
         <Routes>
-          <Route path="/ops/lab" element={<LabScreen />} />
+          <Route path="/ops/lab" element={page} />
           <Route path="*" element={null} />
         </Routes>
         <Probe />
@@ -182,21 +185,89 @@ describe("useSlow", () => {
 });
 
 describe("LabScreen", () => {
-  it("lists the templates and shows the first one's lineage, workflow, client view and tests", async () => {
+  it("starts with the templates as cards, each opening its own page", async () => {
     setup();
     const card = await screen.findByTestId("lab-template-purchasing");
+    expect(card).toHaveAttribute("href", "/ops/templates/purchasing");
     expect(card).toHaveTextContent("Purchasing");
-    expect(card).toHaveTextContent("v1");
-    expect(card).toHaveTextContent("3 clients · 1 behind");
     expect(card).toHaveTextContent("Invoice and quote price checks");
+    expect(card).toHaveTextContent("v1 · draft v2");
+    // Its figures: clients, behind, and the latest test run (42 of 44 pass, so it reads failing).
+    expect(card).toHaveTextContent("Clients3");
+    expect(card).toHaveTextContent("Behind1");
+    expect(card).toHaveTextContent("Tests42/44");
+    expect(screen.getByTestId("lab-template-purchasing-state")).toHaveTextContent("Tests failing");
     expect(screen.getByTestId("lab-tab-templates")).toHaveTextContent("Templates · 1");
     expect(screen.getByTestId("lab-tab-drafts")).toHaveTextContent("Drafts · 1");
     expect(screen.getByTestId("lab-tab-client")).toHaveTextContent("Client-only · 1");
+    expect(screen.getByTestId("lab-tab-all")).toHaveTextContent("All · 3");
+    // Only templates at first: no detail panel beside them any more.
+    expect(screen.queryByTestId("lab-template-card-receipts")).toBeNull();
+    expect(screen.queryByTestId("lab-detail")).toBeNull();
+  });
 
-    const detail = screen.getByTestId("lab-detail");
-    expect(within(detail).getByText("Published v1")).toBeInTheDocument();
-    expect(within(detail).getByTestId("lab-edit")).toHaveTextContent("Edit draft v2");
+  it("shows drafts and client-only agents in their tabs", async () => {
+    const { user } = setup();
+    await user.click(await screen.findByTestId("lab-tab-drafts"));
+    expect(screen.getByTestId("lab-template-card-receipts-state")).toHaveTextContent("Draft");
+    expect(screen.getByTestId("lab-template-card-receipts")).toHaveTextContent("Draft v1");
+    await user.click(screen.getByTestId("lab-tab-client"));
+    const client = screen.getByTestId("lab-client-only-job-costing");
+    expect(client).toHaveAttribute("href", `/ops/clients/${CLIENT_ID}/agents/job-costing`);
+    expect(client).toHaveTextContent("Client-only · Ionic Order");
+  });
 
+  it("searches in plain words across every agent: a client, a state, a name", async () => {
+    const { user } = setup("/ops/lab?tab=all");
+    const search = await screen.findByTestId("lab-search");
+    await user.type(search, "ionic");
+    expect(screen.getByTestId("lab-client-only-job-costing")).toBeInTheDocument();
+    expect(screen.queryByTestId("lab-template-purchasing")).toBeNull();
+
+    await user.clear(search);
+    await user.type(search, "behind purch");
+    expect(screen.getByTestId("lab-template-purchasing")).toBeInTheDocument();
+    expect(screen.queryByTestId("lab-client-only-job-costing")).toBeNull();
+
+    await user.clear(search);
+    await user.type(search, "nothing like this");
+    expect(screen.getByText("No agent matches")).toBeInTheDocument();
+    await user.click(screen.getByTestId("lab-clear"));
+    expect(search).toHaveValue("");
+    expect(screen.getByTestId("lab-template-card-receipts")).toBeInTheDocument();
+  });
+
+  it("filters by status", async () => {
+    const { user } = setup("/ops/lab?tab=all");
+    await user.selectOptions(await screen.findByTestId("lab-status"), "unused");
+    expect(screen.getByTestId("lab-template-card-receipts")).toBeInTheDocument();
+    expect(screen.queryByTestId("lab-template-purchasing")).toBeNull();
+    await user.selectOptions(screen.getByTestId("lab-status"), "failing");
+    expect(screen.getByTestId("lab-template-purchasing")).toBeInTheDocument();
+    expect(screen.queryByTestId("lab-template-card-receipts")).toBeNull();
+  });
+
+  it("shows a list and opens an agent from anywhere on its row", async () => {
+    const { user } = setup();
+    await user.click(await screen.findByTestId("lab-view-list"));
+    const row = screen.getByTestId("lab-template-purchasing-row");
+    expect(row).toHaveTextContent("Template");
+    expect(row).toHaveTextContent("42/44");
+    await user.click(within(row).getByText("Template"));
+    expect(screen.getByTestId("location")).toHaveTextContent("/ops/templates/purchasing");
+    window.localStorage.removeItem("mezonas.lab.view");
+  });
+});
+
+describe("a template's panels on its page", () => {
+  it("lists its client copies with merges to review and changes to promote, and its client view", async () => {
+    setup(
+      "/ops/lab",
+      <>
+        <WhereItRuns templateId={TEMPLATE_ID} />
+        <ClientViewCard agentId={TEMPLATE_ID} />
+      </>,
+    );
     const row = await screen.findByTestId(`lab-used-by-${FORK_ID}`);
     expect(row).toHaveTextContent("Ionic Order's copy · Purchasing");
     expect(row).toHaveTextContent("2 client changes");
@@ -209,30 +280,16 @@ describe("LabScreen", () => {
       "href",
       `/ops/agents/${FORK_ID}/merge?mode=promote`,
     );
-
-    expect(await screen.findByTestId("lab-steps")).toHaveTextContent("Find supporting document");
     expect(await screen.findByTestId("lab-client-view")).toHaveTextContent(
       "materials · pack report",
-    );
-    expect(screen.getByTestId("lab-tests-summary")).toHaveTextContent("42 of 44 pass");
-    expect(screen.getByTestId("lab-tests-summary")).toHaveTextContent("97.1%");
-  });
-
-  it("shows drafts and client-only agents", async () => {
-    const { user } = setup();
-    await user.click(await screen.findByTestId("lab-tab-drafts"));
-    expect(screen.getByTestId("lab-template-card-receipts")).toHaveTextContent(
-      "0 clients · testing",
-    );
-    await user.click(screen.getByTestId("lab-tab-client"));
-    expect(screen.getByTestId("lab-client-only-job-costing")).toHaveAttribute(
-      "href",
-      `/ops/clients/${CLIENT_ID}/agents/job-costing`,
     );
   });
 
   it("assigns a template to a client and opens the new agent", async () => {
-    const { forks, user } = setup();
+    const { forks, user } = setup(
+      "/ops/lab",
+      <AssignToClient templateId={TEMPLATE_ID} version={1} />,
+    );
     await user.click(await screen.findByTestId("lab-assign"));
     await screen.findByRole("option", { name: "Ionic Order" });
     await user.click(screen.getByTestId("lab-assign-confirm"));

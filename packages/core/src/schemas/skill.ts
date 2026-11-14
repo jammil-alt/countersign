@@ -1,5 +1,16 @@
 import { z } from "zod";
+import { BrowserSiteSlug } from "../browser/site";
 import { JsonSchema, LocalizedTemplate, SkillId, ToolId } from "./common";
+import { Rules } from "./rules";
+// The skill model (owner, 2026-11-10): parameters and the rule rows' typed values.
+import {
+  computeParameters,
+  conditionParameters,
+  parameterValueProblem,
+  SkillCompute,
+  SkillCondition,
+  SkillParameter,
+} from "./skill-model";
 
 export const SkillSetting = z.object({
   key: z.string().regex(/^[a-z][a-z0-9_]*$/, "snake_case"),
@@ -30,6 +41,85 @@ export type ModelChoice = z.infer<typeof ModelChoice>;
 /** The skill modes (v0.13): code, a typed job on its own model, or the agent's own reasoning. */
 export const SKILL_MODES = ["tool", "task", "agent"] as const;
 export type SkillMode = (typeof SKILL_MODES)[number];
+
+// R2 (docs/plan.md §1.86, §9): skills think, tools act. A skill turns data in into data out by
+// `rules`, `ai` or `rules_then_ai`; it may read through connectors (its declared `reads`) and never
+// writes. `mode` stays: stored `skill_version` rows parse unchanged (invariant 3), and `skillMethod`
+// derives the method of a definition that doesn't name one.
+
+/** How a skill turns its input into its output. */
+export const SKILL_METHODS = ["rules", "ai", "rules_then_ai"] as const;
+export const SkillMethod = z.enum(SKILL_METHODS);
+export type SkillMethod = z.infer<typeof SkillMethod>;
+
+/**
+ * A page path pattern on a site: `/orders/*`, `/account/invoices`. It stays on the site's own
+ * pages: never `//` (a protocol-relative URL is another host), never a `.` or `..` segment, and
+ * never a percent-encoded dot, slash or backslash (`%2e`, `%2f`, `%5c`), which a browser decodes
+ * into one of those.
+ */
+// DECISION: an empty segment anywhere (`/orders//x`) is refused too, not only a leading `//`: no
+// site's page needs one, and a path that only one parser normalizes is how allowlists leak.
+export const BrowsePage = z
+  .string()
+  .max(200)
+  .regex(/^\/[A-Za-z0-9._~\-/*%]*$/, "a path from /, with * for any part, e.g. /orders/*")
+  .refine((p) => !p.includes("//"), { message: "a path has no empty parts (no //)" })
+  .refine((p) => p.split("/").every((seg) => seg !== "." && seg !== ".."), {
+    message: "a path has no . or .. parts",
+  })
+  .refine((p) => !/%(2e|2f|5c)/i.test(p), {
+    message: "a path has no encoded dots or slashes (%2e, %2f, %5c)",
+  });
+
+/**
+ * The sites and pages an `ai` skill may browse, through the client's browser connections: only
+ * these, never the open web (docs/plan.md §1.86). Sites are `browser_site` slugs.
+ */
+export const SkillBrowse = z.strictObject({
+  sites: z.array(BrowserSiteSlug).min(1).max(10),
+  pages: z.array(BrowsePage).min(1).max(50),
+});
+export type SkillBrowse = z.infer<typeof SkillBrowse>;
+
+/** A rule row's id: stable, so a step's customization can edit the row by id. */
+export const SkillRuleId = z
+  .string()
+  .regex(/^[a-z][a-z0-9_-]{0,62}$/, "lowercase letters, digits, dashes and underscores");
+
+/**
+ * One row of a skill's rules: when the conditions hold, the output takes these values (vendor is
+ * Home Depot, so the account is Materials). Rows are tried top to bottom; the first match wins.
+ */
+// DECISION: a rule row sets output fields to fixed values (`set`), never templates or code, so a
+// customized row is data the builder can show and the client's timeline can quote.
+// Skill model (2026-11-10): a row may also hold typed `conditions` (input fields, parameters and
+// today's date compared, between, in a list, days between two dates) and `compute` its outputs
+// (a copied field, a sum, a difference, a percent change, a parameter's bucket). Still data: no
+// code and no template that executes. `when` stays required (empty rules hold always) and `set` is
+// now optional, so stored rows parse unchanged.
+export const SkillRule = z
+  .strictObject({
+    id: SkillRuleId,
+    name: z.string().max(200).optional(),
+    /** Plain rules over `{{input.…}}`, `{{parameters.…}}` and `{{today}}`; empty holds always. */
+    when: Rules,
+    /** Typed conditions, all of which must hold (with `when`). */
+    conditions: z.array(SkillCondition).max(20).optional(),
+    /** Output fields set to fixed values. */
+    set: z.record(z.string().min(1), z.unknown()).optional(),
+    /** Output fields worked out from the input, the parameters and today. */
+    compute: z.record(z.string().min(1), SkillCompute).optional(),
+  })
+  .refine((r) => Object.keys(r.set ?? {}).length + Object.keys(r.compute ?? {}).length > 0, {
+    message: "a rule row sets at least one output field",
+    path: ["set"],
+  })
+  .refine((r) => Object.keys(r.set ?? {}).every((k) => !Object.hasOwn(r.compute ?? {}, k)), {
+    message: "a rule row sets a field once: a fixed value or a calculation",
+    path: ["compute"],
+  });
+export type SkillRule = z.infer<typeof SkillRule>;
 
 /** ARCHITECTURE §9.2. */
 export const SkillDefinition = z
@@ -78,9 +168,22 @@ export const SkillDefinition = z
      * writes (`comms.converse`'s `result`), so later steps read the answer typed.
      */
     resultFromInput: z.string().min(1).optional(),
+    // R2: the process model (docs/plan.md §1.86)
+    /** Absent on stored rows: derived from `mode` (`skillMethod`). */
+    method: SkillMethod.optional(),
+    /** Read tools the skill may call through the client's connections (side effect `none`). */
+    reads: z.array(ToolId).max(30).optional(),
+    /** An `ai` or `rules_then_ai` skill only: the sites and pages it may browse. */
+    browse: SkillBrowse.optional(),
+    /** A `rules` or `rules_then_ai` skill's rule rows, tried before any model. */
+    rules: z.array(SkillRule).max(500).optional(),
+    // Skill model (2026-11-10): named, typed values the agent sets for its use of the skill.
+    /** The skill version's parameters; values are set per agent and per step. */
+    parameters: z.array(SkillParameter).max(30).optional(),
   })
-  .refine((s) => s.mode !== "tool" || s.handler !== undefined, {
-    message: "a tool-mode skill needs a handler",
+  // Skill model (2026-11-10): a deterministic skill is code (a handler, built-ins only) or rule rows.
+  .refine((s) => s.mode !== "tool" || s.handler !== undefined || (s.rules?.length ?? 0) > 0, {
+    message: "a deterministic skill needs a handler (built-in code) or rule rows",
     path: ["handler"],
   })
   .refine((s) => s.mode === "tool" || s.handler === undefined, {
@@ -103,8 +206,87 @@ export const SkillDefinition = z
     message: "enum settings need options",
     path: ["settings"],
   })
+  // DECISION: until `mode` retires, a `tool`-mode skill is code and its method is `rules`; a
+  // `task` or `agent` skill runs a model, so it is `ai` or `rules_then_ai`.
+  .refine((s) => s.method === undefined || (s.mode === "tool") === (s.method === "rules"), {
+    message: "a tool-mode skill's method is rules; a task or agent skill's is ai or rules_then_ai",
+    path: ["method"],
+  })
+  .refine((s) => s.browse === undefined || skillMethod(s) !== "rules", {
+    message: "only an ai skill may browse",
+    path: ["browse"],
+  })
+  .refine((s) => s.rules === undefined || skillMethod(s) !== "ai", {
+    message: "an ai skill has no rule rows; make it rules_then_ai",
+    path: ["rules"],
+  })
+  .refine((s) => new Set((s.rules ?? []).map((r) => r.id)).size === (s.rules ?? []).length, {
+    message: "rule ids must be unique",
+    path: ["rules"],
+  })
+  .refine((s) => new Set(s.reads ?? []).size === (s.reads ?? []).length, {
+    message: "each read tool is listed once",
+    path: ["reads"],
+  })
+  .refine(
+    (s) => new Set((s.parameters ?? []).map((p) => p.name)).size === (s.parameters ?? []).length,
+    { message: "parameter names must be unique", path: ["parameters"] },
+  )
+  .refine(
+    (s) =>
+      (s.parameters ?? []).every(
+        (p) => p.default === undefined || parameterValueProblem(p, p.default) === null,
+      ),
+    { message: "a parameter's default must be a value of its type", path: ["parameters"] },
+  )
+  .refine((s) => ruleParameterProblem(s) === null, {
+    message: "rule rows name only the skill's parameters, and bucket only by a buckets parameter",
+    path: ["rules"],
+  })
   .meta({ id: "SkillDefinition" });
 export type SkillDefinition = z.infer<typeof SkillDefinition>;
+
+/** Why a rule row names a parameter the skill doesn't declare (or buckets by a non-bucket one). */
+export function ruleParameterProblem(def: {
+  rules?: readonly SkillRule[] | undefined;
+  parameters?: readonly SkillParameter[] | undefined;
+}): string | null {
+  const types = new Map((def.parameters ?? []).map((p) => [p.name, p.type]));
+  for (const row of def.rules ?? []) {
+    const named = [
+      ...(row.conditions ?? []).flatMap(conditionParameters),
+      ...Object.values(row.compute ?? {}).flatMap(computeParameters),
+    ];
+    for (const n of named) {
+      const type = types.get(n.name);
+      if (type === undefined) return `rule ${row.id} names no parameter ${n.name}`;
+      if (n.bucket && type !== "buckets") {
+        return `rule ${row.id} buckets by ${n.name}, which is not a list of buckets`;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * The skill's method: its own, else derived from `mode` (stored rows): `tool` is code, so `rules`;
+ * `task` and `agent` run a model, so `ai`. A `tool` skill that only wraps one tool is `rules` too,
+ * but it is retiring (`isToolWrapper`): a process reads or writes through the tool directly.
+ */
+export function skillMethod(def: {
+  method?: SkillMethod | undefined;
+  mode: SkillMode;
+}): SkillMethod {
+  return def.method ?? (def.mode === "tool" ? "rules" : "ai");
+}
+
+/**
+ * A skill that is only a tool by another name: `tool` mode, a handler and no other tools. These
+ * retire (docs/plan.md §9 R2): a v4 process uses the tool as a `read` or `write` step instead.
+ */
+export function isToolWrapper(def: Pick<SkillDefinition, "mode" | "handler" | "tools">): boolean {
+  return def.mode === "tool" && def.handler !== undefined && def.tools.length === 0;
+}
 
 /** Every tool a skill may call: its handler plus its listed tools. */
 export function skillTools(skill: Pick<SkillDefinition, "handler" | "tools">): string[] {

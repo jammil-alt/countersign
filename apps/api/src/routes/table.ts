@@ -8,20 +8,20 @@ import {
   addDays,
   clientLabel,
   clientLanguage,
-  findStep,
-  isClientVisible,
+  findNodeStep,
   type Locale,
   routes,
-  type Step,
+  shownOnTimeline,
   type TableView,
   userLanguage,
-  type Workflow,
   weekBounds,
   weekStartOf,
 } from "@countersign/core";
 import {
-  agentVersion,
+  agent,
   appUser,
+  connection,
+  externalAction,
   inboxItem,
   message,
   run,
@@ -31,30 +31,23 @@ import {
 } from "@countersign/db";
 import type { EventRow } from "@countersign/senses";
 import { senseEmitPosted } from "@countersign/threads";
-import { and, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { clientTitles } from "../change-display";
 import { type AppEnv, ensureClient, mount, notFound } from "../http";
 // v0.12 W2-G
-import { readerLocale, weekKpis } from "../kpi/view";
+import { readerLocale, weekKpisOf } from "../kpi/view";
 import { leadUserId, type TenantRow, tenantRow } from "../notify/people";
 import { LEAD_SUBJECT } from "../notify/scan";
 import type { Platform } from "../platform";
-import {
-  at,
-  clientWaits,
-  noRuns,
-  OPEN_RUN,
-  openRunsByAgent,
-  runCounts,
-} from "../runs/client-status";
+import { at, clientState, countState, noRuns } from "../runs/client-status";
 import { dispatchEvents } from "../runs/dispatch";
 import { daysOf, runsByDay } from "../runs/figures";
 import { paperFor, weeklyPdf } from "../weekly/pdf";
-import { clientDescription, serviceName, services, toolChanges } from "../weekly/stats";
+import { clientDescription, isLiveService, serviceName } from "../weekly/stats";
 import { editWeek, replyToDecision, weeklyRow, weeklyRows, weeklyView } from "../weekly/tables";
 import { portalInboxFilter, sourcesOf } from "./portal";
-import { activity, todayIn } from "./usage";
+import { agentsNow, documentsReadSql, serviceNow, workflowsOf } from "./usage";
 
 async function clientOf(tx: Tx, tenantId: string): Promise<TenantRow> {
   const t = await tenantRow(tx, tenantId);
@@ -62,33 +55,184 @@ async function clientOf(tx: Tx, tenantId: string): Promise<TenantRow> {
   return t;
 }
 
-/** Workflows of the versions asked for, by version id and slug (read once per request). */
-function workflowCache(tx: Tx, tenantId: string) {
-  const cache = new Map<string, Promise<Map<string, Workflow>>>();
-  return (versionId: string, slug: string): Promise<Workflow | undefined> => {
-    let v = cache.get(versionId);
-    if (!v) {
-      v = tx
-        .select({ bundle: agentVersion.bundle })
-        .from(agentVersion)
-        .where(and(eq(agentVersion.id, versionId), eq(agentVersion.tenantId, tenantId)))
-        .then(([row]) => new Map((row?.bundle.workflows ?? []).map((w) => [w.slug, w.workflow])));
-      cache.set(versionId, v);
+const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
+
+/**
+ * Live runs started this week and last week by the client's states, per agent, in one read
+ * (`runCounts`' definition: a run counts in the week it was created).
+ */
+async function weekRunCounts(
+  tx: Tx,
+  tenantId: string,
+  week: { from: Date; to: Date },
+  lastWeek: { from: Date; to: Date },
+) {
+  const which = sql<"this" | "last" | null>`case
+    when ${run.createdAt} >= ${at(week.from)} and ${run.createdAt} < ${at(week.to)} then 'this'
+    when ${run.createdAt} >= ${at(lastWeek.from)} and ${run.createdAt} < ${at(lastWeek.to)} then 'last'
+    end`;
+  const rows = await tx
+    .select({
+      agentId: run.agentId,
+      state: clientState,
+      week: which,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(run)
+    .where(
+      and(
+        eq(run.tenantId, tenantId),
+        eq(run.mode, "live"),
+        sql`${run.createdAt} >= ${at(lastWeek.from)}`,
+        sql`${run.createdAt} < ${at(week.to)}`,
+      ),
+    )
+    // By position: the bounds are parameters, and a repeated expression would be another one.
+    .groupBy(sql`1`, sql`2`, sql`3`);
+  const all = noRuns();
+  const lastAll = noRuns();
+  const byAgent = new Map<string, ReturnType<typeof noRuns>>();
+  for (const r of rows) {
+    const n = Number(r.n);
+    if (r.week === "last") {
+      countState(lastAll, r.state, n);
+      continue;
     }
-    return v.then((m) => m.get(slug));
-  };
+    if (r.week !== "this") continue;
+    countState(all, r.state, n);
+    const mine = byAgent.get(r.agentId) ?? noRuns();
+    countState(mine, r.state, n);
+    byAgent.set(r.agentId, mine);
+  }
+  return { all, byAgent, lastWeek: lastAll };
 }
 
-/** A step_run's node names its step: the id, or `${loop}:${index}:${childId}` inside a loop. */
-function stepOf(workflow: Workflow, nodeId: string): Step | undefined {
+/**
+ * Changes to the client's tools this week and last: per agent as Reports counts them
+ * (`activity`), and signed or automatic as the Weekly Table counts them (`toolChanges`).
+ */
+async function weekChanges(
+  tx: Tx,
+  tenantId: string,
+  week: { from: Date; to: Date },
+  lastWeek: { from: Date; to: Date },
+) {
+  const thisWeek = sql`${externalAction.executedAt} >= ${at(week.from)} and ${externalAction.executedAt} < ${at(week.to)}`;
+  const rows = await tx
+    .select({
+      agentId: run.agentId,
+      // `activity`: through a connection, by a live run or none.
+      actions: sql<number>`(count(*) filter (where ${thisWeek} and ${connection.id} is not null and (${run.mode} is null or ${run.mode} = 'live')))::int`,
+      signed: sql<number>`(count(*) filter (where ${thisWeek} and ${externalAction.approvedBy} is not null))::int`,
+      automatic: sql<number>`(count(*) filter (where ${thisWeek} and ${externalAction.approvedBy} is null))::int`,
+      lastWeek: sql<number>`(count(*) filter (where ${externalAction.executedAt} < ${at(lastWeek.to)}))::int`,
+    })
+    .from(externalAction)
+    .leftJoin(
+      connection,
+      and(
+        eq(connection.id, externalAction.connectionId),
+        eq(connection.tenantId, externalAction.tenantId),
+      ),
+    )
+    .leftJoin(run, and(eq(run.id, externalAction.runId), eq(run.tenantId, externalAction.tenantId)))
+    .where(
+      and(
+        eq(externalAction.tenantId, tenantId),
+        eq(externalAction.status, "done"),
+        gte(externalAction.executedAt, lastWeek.from),
+        lt(externalAction.executedAt, week.to),
+      ),
+    )
+    .groupBy(run.agentId);
+  const byAgent = new Map<string, number>();
+  const out = { signed: 0, automatic: 0, lastWeek: 0, byAgent };
+  for (const r of rows) {
+    out.signed += Number(r.signed);
+    out.automatic += Number(r.automatic);
+    out.lastWeek += Number(r.lastWeek);
+    if (r.agentId) byAgent.set(r.agentId, (byAgent.get(r.agentId) ?? 0) + Number(r.actions));
+  }
+  return out;
+}
+
+/** Documents read this week (in all and per agent) and last week (in all), as Reports counts them. */
+async function weekDocumentsRead(
+  tx: Tx,
+  tenantId: string,
+  week: { from: Date; to: Date },
+  lastWeek: { from: Date; to: Date },
+) {
+  const rows = await tx.execute<{ agentId: string | null; documentId: string; thisWeek: boolean }>(
+    sql`select read.agent_id as "agentId", read.document_id as "documentId",
+               read.at >= ${at(week.from)} as "thisWeek"
+          from (${documentsReadSql(tenantId, at(lastWeek.from), at(week.to))}) read`,
+  );
+  const all = new Set<string>();
+  const last = new Set<string>();
+  const byAgent = new Map<string, Set<string>>();
+  for (const r of rows) {
+    if (!r.thisWeek) {
+      last.add(r.documentId);
+      continue;
+    }
+    all.add(r.documentId);
+    if (!r.agentId) continue;
+    const docs = byAgent.get(r.agentId) ?? new Set<string>();
+    docs.add(r.documentId);
+    byAgent.set(r.agentId, docs);
+  }
+  return { all: all.size, lastWeek: last.size, byAgent };
+}
+
+/** The latest client-visible step summaries of the Table's services: a page of candidates. */
+function recentSteps(tx: Tx, tenantId: string) {
   return (
-    findStep(workflow, nodeId)?.step ?? findStep(workflow, nodeId.split(":").at(-1) ?? nodeId)?.step
+    tx
+      .select({
+        s: {
+          id: stepRun.id,
+          nodeId: stepRun.nodeId,
+          summary: stepRun.summary,
+          // Only what `sourcesOf` reads, not the whole output.
+          sources: sql<unknown>`${stepRun.output} -> 'sources'`,
+          startedAt: stepRun.startedAt,
+          finishedAt: stepRun.finishedAt,
+        },
+        r: {
+          id: run.id,
+          agentId: run.agentId,
+          agentVersionId: run.agentVersionId,
+          workflowSlug: run.workflowSlug,
+        },
+      })
+      .from(stepRun)
+      .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
+      .innerJoin(agent, and(eq(agent.id, run.agentId), eq(agent.tenantId, run.tenantId)))
+      .where(
+        and(
+          eq(stepRun.tenantId, tenantId),
+          eq(run.mode, "live"),
+          isNotNull(stepRun.summary),
+          isLiveService(tenantId),
+        ),
+      )
+      // QA round 1: newest first by the time each row shows (finished, else started), so a step
+      // still waiting doesn't sink below older ones.
+      .orderBy(
+        sql`coalesce(${stepRun.finishedAt}, ${stepRun.startedAt}) desc nulls last`,
+        desc(stepRun.id),
+      )
+      .limit(40)
   );
 }
 
-const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
-
-async function buildTable(
+// DECISION (audit-plan 6.1): the Table is read in three rounds of reads asked together: the
+// client row; then every read that needs only the client (services with their client views,
+// the two weeks' counts, each service's latest run with its step and wait, the Desk, the recent
+// steps, the lead); then the KPIs, the workflows the steps are named from, and the Desk titles.
+// No count grows per agent or per KPI.
+export async function buildTable(
   tx: Tx,
   t: TenantRow,
   viewer: { userId: string; role: Parameters<typeof portalInboxFilter>[0] },
@@ -99,38 +243,8 @@ async function buildTable(
   const bounds = weekBounds(weekStart, t.timezone);
   // UI cleanup (design pass): Home's KPI strip and each agent card's figures, counted as Reports
   // counts them (`activity`): this week so far and all of last week, in the client's days.
-  const today = todayIn(t.timezone, now);
-  const lastWeekStart = addDays(weekStart, -7);
-  const week = await activity(tx, platform, {
-    tenantId: t.id,
-    timezone: t.timezone,
-    from: weekStart,
-    to: today,
-  });
-  const lastWeek = await activity(tx, platform, {
-    tenantId: t.id,
-    timezone: t.timezone,
-    from: lastWeekStart,
-    to: addDays(weekStart, -1),
-  });
-  const lastWeekChanges = await toolChanges(tx, t.id, weekBounds(lastWeekStart, t.timezone));
-  const daily = await runsByDay(tx, [eq(run.tenantId, t.id), eq(run.mode, "live")], {
-    timezone: t.timezone,
-    now,
-  });
-  const weekOf = new Map(week.services.map((s) => [s.id, s]));
-  const workflows = workflowCache(tx, t.id);
-  const agents = await services(tx, t.id);
-  // QA round 1: runs started this week by how they stand, as Reports counts them; what each
-  // agent has going now (any run, not only its latest) for its state.
-  const counts = await runCounts(tx, t.id, { lo: at(bounds.from), hi: at(bounds.to) });
-  const going = await openRunsByAgent(tx, t.id);
-  const changes = await toolChanges(tx, t.id, bounds);
-  // v0.12 W2-G: each service's KPIs for this week, in the viewer's language.
-  const kpis = await weekKpis(tx, agents, {
-    locale: readerLocale(t, viewer.userId),
-    bounds: { from: bounds.from, to: now },
-  });
+  const lastBounds = weekBounds(addDays(weekStart, -7), t.timezone);
+  const locale = readerLocale(t, viewer.userId);
 
   // Open Desk items the viewer sees (snoozed ones wait), for "waiting on you" and the top three.
   const deskWhere = and(
@@ -139,120 +253,79 @@ async function buildTable(
     portalInboxFilter(viewer.role, viewer.userId),
     or(isNull(inboxItem.snoozedUntil), lte(inboxItem.snoozedUntil, now)),
   );
-  const desk = await tx
-    .select()
-    .from(inboxItem)
-    .where(deskWhere)
-    .orderBy(sql`${inboxItem.dueAt} asc nulls last`, desc(inboxItem.createdAt));
-
-  const out: TableView["services"] = [];
-  for (const a of agents) {
-    const [latest] = await tx
+  const [counts, changes, read, daily, nowRows, desk, steps, lead] = await Promise.all([
+    // QA round 1: runs started this week by how they stand, as Reports counts them.
+    weekRunCounts(tx, t.id, bounds, lastBounds),
+    weekChanges(tx, t.id, bounds, lastBounds),
+    weekDocumentsRead(tx, t.id, bounds, lastBounds),
+    runsByDay(tx, [eq(run.tenantId, t.id), eq(run.mode, "live")], { timezone: t.timezone, now }),
+    // The services, each with its live client view, its latest run and what it has going now (any
+    // run, not only its latest) for its state.
+    agentsNow(tx, t.id),
+    tx
       .select()
-      .from(run)
-      .where(and(eq(run.tenantId, t.id), eq(run.agentId, a.id), eq(run.mode, "live")))
-      .orderBy(desc(run.createdAt))
-      .limit(1);
-    let now_: TableView["services"][number]["now"] = null;
-    if (latest) {
-      const active = (OPEN_RUN as readonly string[]).includes(latest.status);
-      let step: { index: number; total: number; label: string } | null = null;
-      let since = active ? iso(latest.startedAt ?? latest.createdAt) : iso(latest.finishedAt);
-      // The client's wait (anyone of the client), the one definition every portal route uses.
-      const waiting = active
-        ? (await clientWaits(tx, t.id, [latest.id], now)).get(latest.id)
-        : undefined;
-      if (active) {
-        const workflow = await workflows(latest.agentVersionId, latest.workflowSlug);
-        const [current] = await tx
-          .select({ nodeId: stepRun.nodeId, startedAt: stepRun.startedAt })
-          .from(stepRun)
-          .where(
-            and(
-              eq(stepRun.tenantId, t.id),
-              eq(stepRun.runId, latest.id),
-              inArray(stepRun.status, ["running", "waiting"]),
-            ),
-          )
-          .orderBy(desc(stepRun.startedAt))
-          .limit(1);
-        if (workflow && current) {
-          const top = current.nodeId.split(":")[0] ?? current.nodeId;
-          const index = workflow.steps.findIndex((s) => s.id === top);
-          const s = workflow.steps[index];
-          if (s) step = { index: index + 1, total: workflow.steps.length, label: clientLabel(s) };
-          since = iso(current.startedAt) ?? since;
-        }
-        if (waiting?.since) since = waiting.since.toISOString();
-      }
-      now_ = {
-        runId: latest.id,
-        status: latest.status,
-        step,
-        since,
-        waitingOnYou: waiting?.waitingOnYou ?? false,
-      };
-    }
-    out.push({
+      .from(inboxItem)
+      .where(deskWhere)
+      .orderBy(sql`${inboxItem.dueAt} asc nulls last`, desc(inboxItem.createdAt)),
+    recentSteps(tx, t.id),
+    leadOf(tx, t),
+  ]);
+  const agents = nowRows.map((r) => r.agent);
+  const top = desk.slice(0, 3);
+
+  const [kpis, workflows, titles] = await Promise.all([
+    // v0.12 W2-G: each service's KPIs for this week, in the viewer's language.
+    weekKpisOf(
+      tx,
+      nowRows.map((r) => ({ agent: r.agent, view: r.view })),
+      { locale, bounds: { from: bounds.from, to: now } },
+    ),
+    workflowsOf(
+      tx,
+      t.id,
+      steps.map(({ r }) => r.agentVersionId),
+    ),
+    clientTitles(tx, top, platform, locale),
+  ]);
+
+  const out: TableView["services"] = nowRows.map((going) => {
+    const a = going.agent;
+    return {
       id: a.id,
       name: serviceName(a),
       description: clientDescription(a),
       status: a.runStatus ?? "draft",
       stage: a.stage,
-      now: now_,
+      now: serviceNow(going),
       runsDone: counts.byAgent.get(a.id)?.succeeded ?? 0,
       runs: counts.byAgent.get(a.id) ?? noRuns(),
-      runsNow: going.get(a.id) ?? { running: 0, waitingOnYou: 0 },
+      runsNow: going.runsNow,
       perDay: daysOf(daily.byAgent, a.id),
-      changes: weekOf.get(a.id)?.actions ?? 0,
-      documentsRead: weekOf.get(a.id)?.documentsRead ?? 0,
+      changes: changes.byAgent.get(a.id) ?? 0,
+      documentsRead: read.byAgent.get(a.id)?.size ?? 0,
       // v0.12 W2-G
       kpis: kpis.get(a.id) ?? [],
-    });
-  }
+    };
+  });
 
   // The latest client-visible step summaries across services.
   const names = new Map(agents.map((a) => [a.id, serviceName(a)]));
-  const steps = await tx
-    .select({ s: stepRun, r: run })
-    .from(stepRun)
-    .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
-    .where(
-      and(
-        eq(stepRun.tenantId, t.id),
-        eq(run.mode, "live"),
-        isNotNull(stepRun.summary),
-        inArray(
-          run.agentId,
-          agents.map((a) => a.id),
-        ),
-      ),
-    )
-    // QA round 1: newest first by the time each row shows (finished, else started), so a step
-    // still waiting doesn't sink below older ones.
-    .orderBy(
-      sql`coalesce(${stepRun.finishedAt}, ${stepRun.startedAt}) desc nulls last`,
-      desc(stepRun.id),
-    )
-    .limit(40);
   const recent: TableView["recent"] = [];
   for (const { s, r } of steps) {
     if (recent.length >= 5) break;
-    const workflow = await workflows(r.agentVersionId, r.workflowSlug);
-    const step = workflow ? stepOf(workflow, s.nodeId) : undefined;
-    if (!step || !isClientVisible(step)) continue;
+    const workflow = workflows.get(r.agentVersionId)?.get(r.workflowSlug);
+    const step = workflow ? findNodeStep(workflow, s.nodeId) : undefined;
+    if (!step || !shownOnTimeline(step)) continue;
     recent.push({
       runId: r.id,
       service: { id: r.agentId, name: names.get(r.agentId) ?? "" },
       label: clientLabel(step),
       summary: s.summary,
-      sources: sourcesOf(s.output),
+      sources: sourcesOf({ sources: s.sources }),
       at: iso(s.finishedAt ?? s.startedAt),
     });
   }
 
-  const top = desk.slice(0, 3);
-  const titles = await clientTitles(tx, top, platform, readerLocale(t, viewer.userId));
   return {
     client: { id: t.id, name: t.name, timezone: t.timezone },
     week: { weekStart, from: bounds.from.toISOString(), to: bounds.to.toISOString() },
@@ -260,13 +333,13 @@ async function buildTable(
     figures: {
       runsDone: counts.all.succeeded,
       runs: counts.all,
-      changes: { automatic: changes.automatic.length, signed: changes.signed.length },
-      documentsRead: week.documents.read,
+      changes: { automatic: changes.automatic, signed: changes.signed },
+      documentsRead: read.all,
       perDay: daily.all,
       lastWeek: {
-        runsDone: lastWeek.runs.succeeded,
-        changes: lastWeekChanges.automatic.length + lastWeekChanges.signed.length,
-        documentsRead: lastWeek.documents.read,
+        runsDone: counts.lastWeek.succeeded,
+        changes: changes.lastWeek,
+        documentsRead: read.lastWeek,
       },
     },
     recent,
@@ -281,17 +354,15 @@ async function buildTable(
         createdAt: i.createdAt.toISOString(),
       })),
     },
-    lead: await leadOf(tx, t),
+    lead,
   };
 }
 
-/** The lead and their latest client-visible message in the lead thread. */
+/** The lead and their latest client-visible message in the lead thread, in one read. */
 async function leadOf(tx: Tx, t: TenantRow): Promise<TableView["lead"]> {
   const leadId = leadUserId(t);
   if (!leadId) return null;
-  const [u] = await tx.select({ name: appUser.name }).from(appUser).where(eq(appUser.id, leadId));
-  if (!u) return null;
-  const [m] = await tx
+  const latest = tx
     .select({ id: message.id, body: message.body, createdAt: message.createdAt })
     .from(message)
     .innerJoin(thread, and(eq(thread.id, message.threadId), eq(thread.tenantId, message.tenantId)))
@@ -306,8 +377,19 @@ async function leadOf(tx: Tx, t: TenantRow): Promise<TableView["lead"]> {
       ),
     )
     .orderBy(desc(message.createdAt))
-    .limit(1);
-  const text = m && typeof m.body.text === "string" ? m.body.text : null;
+    .limit(1)
+    .as("latest");
+  const [u] = await tx
+    .select({
+      name: appUser.name,
+      m: { id: latest.id, body: latest.body, createdAt: latest.createdAt },
+    })
+    .from(appUser)
+    .leftJoinLateral(latest, sql`true`)
+    .where(eq(appUser.id, leadId));
+  if (!u) return null;
+  const m = u.m?.id ? u.m : null;
+  const text = m && typeof m.body?.text === "string" ? m.body.text : null;
   return {
     id: leadId,
     name: u.name,

@@ -15,6 +15,7 @@ import {
   IsoDate,
   lineRefsProblem,
   NewLine,
+  QBO_STAND_IN,
   QboTotalWouldChangeError,
   sum,
   wireLine,
@@ -368,11 +369,14 @@ export function purchaseCreateTool(clientFor: ClientFor): ToolDefinition {
     description:
       "Book a bank or card transaction in QuickBooks as an expense, check or card charge (a card refund with `credit`): the account it was paid from, the date, the payee, account lines and the expected total. Refused if the lines don't add up or the same purchase is already there.",
     verb: "create",
+    // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+    undo: { kind: "none" },
     summary: "Booked {{total}} in QuickBooks",
     amount: { path: "expectedTotal", currencyPath: "currency", currency: "USD" },
     display: purchaseCreateDisplay,
     input: PurchaseCreateInput,
     output: Created,
+    testOutput: (input) => ({ ...QBO_STAND_IN, total: input.expectedTotal }),
     beforeSchema: Before,
     async before(input, ctx) {
       const client = await clientFor(ctx);
@@ -475,11 +479,14 @@ export function depositCreateTool(clientFor: ClientFor): ToolDefinition {
     description:
       "Book money that came into a bank account as a deposit in QuickBooks: the bank account, the date, the accounts it came from (usually income) and the expected total. Refused if the lines don't add up or the same deposit is already there.",
     verb: "create",
+    // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+    undo: { kind: "none" },
     summary: "Booked a deposit of {{total}} in QuickBooks",
     amount: { path: "expectedTotal", currencyPath: "currency", currency: "USD" },
     display: depositCreateDisplay,
     input: DepositCreateInput,
     output: Created,
+    testOutput: (input) => ({ ...QBO_STAND_IN, total: input.expectedTotal }),
     beforeSchema: Before,
     async before(input, ctx) {
       const client = await clientFor(ctx);
@@ -581,11 +588,14 @@ export function transferCreateTool(clientFor: ClientFor): ToolDefinition {
     description:
       "Book a move of money between two of the company's accounts in QuickBooks (a card payment from the bank, a move to savings): from, to, the amount and the date. Refused if the same transfer is already there.",
     verb: "create",
+    // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+    undo: { kind: "none" },
     summary: "Booked a transfer of {{total}} in QuickBooks",
     amount: { path: "amount", currency: "USD" },
     display: transferCreateDisplay,
     input: TransferCreateInput,
     output: Created,
+    testOutput: (input) => ({ ...QBO_STAND_IN, total: input.amount }),
     beforeSchema: z.object({
       from: z.object({ id: z.string(), name: z.string() }),
       to: z.object({ id: z.string(), name: z.string() }),

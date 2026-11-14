@@ -11,6 +11,7 @@ import { PinnedPicture } from "../../feedback/Feedback";
 import { TextInput } from "../../ui/forms";
 import { Loaded, Page } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, PageHeader } from "../../ui/primitives";
+import { UtilitiesTabs } from "./UtilitiesTabs";
 
 type Filter = "open" | "resolved" | "all";
 const FILTERS: [Filter, string][] = [
@@ -37,6 +38,7 @@ export function OpsFeedbackScreen() {
   return (
     <Page testId="ops-feedback">
       <PageHeader
+        eyebrow="Utilities"
         title="Feedback"
         subtitle={
           feedback.data
@@ -61,6 +63,7 @@ export function OpsFeedbackScreen() {
           </div>
         }
       />
+      <UtilitiesTabs />
       <Loaded state={feedback}>
         {(data) =>
           data.items.length === 0 ? (
@@ -245,7 +248,11 @@ function Note({ text }: { text: string }) {
 
 function Screenshot({ item }: { item: FeedbackItem }) {
   // A 5-minute link, asked for when the card shows.
-  const { data, error } = useApi(apiRoutes.opsFeedbackScreenshot, { params: { id: item.id } });
+  const { data, error } = useApi(apiRoutes.opsFeedbackScreenshot, {
+    params: { id: item.id },
+    // A 5-minute link to the picture: never stored.
+    cache: "none",
+  });
   if (error) return <p className="text-sm text-ink-muted">Couldn't load the picture.</p>;
   return (
     <a

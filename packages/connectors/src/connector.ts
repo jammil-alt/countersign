@@ -7,6 +7,7 @@ import {
   type ToolDisplay,
   type ToolRecipient,
   type ToolSpec,
+  type ToolUndo,
   type Verb,
 } from "@countersign/core";
 import { z } from "zod";
@@ -118,9 +119,75 @@ export interface ConnectionContext {
   logger: Logger;
   now: () => Date;
   services?: ConnectorServices;
+  /**
+   * v0.16 (docs/plan.md §1.86): what a connector may keep open across one skill run's calls (a
+   * signed-in browser), closed by the runtime when the run ends. Absent: each call stands alone.
+   */
+  sessions?: RunSessions | undefined;
 }
 
 export type ToolContext = ConnectionContext;
+
+/** Something a connector opened and keeps for the rest of a skill run, and how to close it. */
+export interface HeldSession<T> {
+  value: T;
+  close(): Promise<void>;
+}
+
+/**
+ * One skill run's open sessions, by key: the first call opens one, later calls reuse it, and the
+ * runtime closes them all when the run ends. A session that failed to open stays failed for the
+ * run (its error again), so a failed sign-in is never retried call after call.
+ */
+export interface RunSessions {
+  hold<T>(key: string, open: () => Promise<HeldSession<T>>): Promise<T>;
+  /**
+   * The longest a held session may wait between the run's calls (the run's own time limit), so a
+   * connector keeps what it holds open that long; absent, its own default.
+   */
+  readonly heldForMs?: number | undefined;
+  /**
+   * A held session ended before the run closed it (a stop page, a failed sign-in, a browser that
+   * could not be opened again): its calls fail from now on, and the run should stop using it.
+   */
+  ended?(key: string, error: Error): void;
+}
+
+/** RunSessions kept in memory for one skill run; `closeAll` when it ends (never throws). */
+export class RunSessionPool implements RunSessions {
+  readonly #open = new Map<string, Promise<HeldSession<unknown>>>();
+
+  hold<T>(key: string, open: () => Promise<HeldSession<T>>): Promise<T> {
+    let held = this.#open.get(key) as Promise<HeldSession<T>> | undefined;
+    if (!held) {
+      held = open();
+      // A rejection is answered to every caller; this keeps it from being unhandled meanwhile.
+      held.catch(() => undefined);
+      this.#open.set(key, held as Promise<HeldSession<unknown>>);
+    }
+    return held.then((h) => h.value);
+  }
+
+  async closeAll(): Promise<void> {
+    const all = [...this.#open.values()];
+    this.#open.clear();
+    for (const held of all) {
+      try {
+        await (await held).close();
+      } catch {
+        // Failed to open, or to close: nothing more to do here.
+      }
+    }
+  }
+}
+
+/**
+ * A connector's refusal: the call was not made, by the connector's own rules (a site's pages, its
+ * sign-in caps, its setup). The runtime reports it as `refused`, like the gate's refusals.
+ */
+export class ToolRefused extends Error {
+  override name = "ToolRefused";
+}
 
 /** A write runs with the external action's idempotency key (`<run id>:<step id>:<index>`). */
 export interface WriteContext extends ToolContext {
@@ -153,9 +220,39 @@ export interface WriteToolHandler {
   beforeSchema: z.ZodType;
   before(input: unknown, ctx: ToolContext): Promise<unknown>;
   run(input: unknown, ctx: WriteContext, before: unknown): Promise<unknown>;
+  /**
+   * R5: the input of the tool that takes this write back (its `undo.tool`, or itself for a
+   * restore), or null when it can't say. Absent: a restore by the same tool puts back the before
+   * state field by field (agents' `restoreInput`), and a reverse is refused.
+   */
+  undoInput?: UndoInputHook;
+  /**
+   * A test run's stand-in for what the write would return (`standInOutput`), so later steps can
+   * use it; never written. Absent: a test run's later steps get no output from this write.
+   */
+  testOutput?(input: unknown): unknown;
 }
 
 export type ToolHandler = ReadToolHandler | WriteToolHandler;
+
+/** What a write's `undoInput` is given, as stored with the write (R5, docs/plan.md §1.86). */
+export interface UndoInputArgs {
+  /** What the write wrote (the signer's edit when there was one). */
+  input: JsonObject;
+  /** The record before the write (`external_action.before`). */
+  before: unknown;
+  /** What the write returned (`external_action.result`), e.g. a created record's id. */
+  output: unknown;
+  /** The record now, read with the write's own `before` and input. */
+  current: unknown;
+}
+
+/**
+ * A write handler's own undo input: the input of its `undo.tool` (or of itself, for a restore)
+ * that takes the write back, or null when it can't say. The runtime checks it against that tool's
+ * input schema and `before` before anything is recorded, and the gate decides the undo again.
+ */
+export type UndoInputHook = (args: UndoInputArgs) => unknown;
 
 /** A tool as a connector defines it: its spec (without `source`/`connector`) and handler. */
 export interface ToolDefinition {
@@ -165,6 +262,31 @@ export interface ToolDefinition {
 
 function jsonSchemaOf(schema: z.ZodType): Record<string, unknown> {
   return z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>;
+}
+
+/**
+ * R5: a write's undo names a tool of the same connector that writes: a `reverse` tool is never a
+ * delete (delete stays off), and a named `restore` tool is an update.
+ */
+export function undoProblems(specs: readonly ToolSpec[]): string[] {
+  const byId = new Map(specs.map((s) => [s.id, s]));
+  const problems: string[] = [];
+  for (const s of specs) {
+    const undo = s.undo;
+    if (!undo || undo.kind === "none" || (undo.kind === "restore" && !undo.tool)) continue;
+    const named = undo.tool ? byId.get(undo.tool) : undefined;
+    if (named?.sideEffect !== "external") {
+      problems.push(`tool ${s.id}: its undo names ${undo.tool}, not a write of this connector`);
+      continue;
+    }
+    if (undo.kind === "reverse" && named.verb === "delete") {
+      problems.push(`tool ${s.id}: its undo can't be a delete (${named.id})`);
+    }
+    if (undo.kind === "restore" && named.verb !== "update") {
+      problems.push(`tool ${s.id}: it's restored with an update, not ${named.verb} (${named.id})`);
+    }
+  }
+  return problems;
 }
 
 /**
@@ -228,13 +350,41 @@ export function defineWriteTool<
   entityInput?: { field: string; values: Record<string, string> };
   /** §1.73: a verb a person always signs (publish, post): ToolSpec `approval: 'always'`. */
   approval?: "always";
+  // R5 (docs/plan.md §1.86, §9)
+  /**
+   * How the write is taken back (ToolSpec `undo`): `none` for a send, post or create with no
+   * void; `restore` for an update whose before state can be written back; `reverse` names the
+   * connector's tool that reverses it (never a delete).
+   * DECISION: optional in the type, so tests' ad hoc write tools needn't say; every connector's
+   * own write tools declare it (undo.test.ts), and a write without it counts as `none`.
+   */
+  undo?: ToolUndo;
   input: I;
   output: O;
   /** The shape of the before snapshot; nullable is added (null = nothing there yet). */
   beforeSchema: B;
   before(input: z.output<I>, ctx: ToolContext): Promise<z.input<B> | null>;
   run(input: z.output<I>, ctx: WriteContext, before: z.output<B> | null): Promise<z.input<O>>;
+  /**
+   * R5: the input of the tool that takes this write back (WriteToolHandler `undoInput`), for a
+   * `reverse`, or a `restore` whose before state isn't shaped like the input. It gets the stored
+   * write parsed with this tool's own schemas; anything stored that no longer parses gives null.
+   */
+  undoInput?(args: {
+    input: z.output<I>;
+    before: z.output<B> | null;
+    output: z.output<O>;
+    current: z.output<B> | null;
+  }): unknown;
+  /**
+   * What the write would return, for a test run's later steps (docs/plan.md §1.94): the tool's
+   * own output shape with obviously fake ids. Pure: it reads nothing and calls nothing.
+   */
+  testOutput?(input: z.output<I>): z.input<O>;
 }): ToolDefinition {
+  const undoInput = def.undoInput;
+  const testOutput = def.testOutput;
+  const beforeSchema = def.beforeSchema.nullable();
   return {
     spec: {
       id: def.id,
@@ -251,14 +401,37 @@ export function defineWriteTool<
       ...(def.entity === undefined ? {} : { entity: def.entity }),
       ...(def.entityInput === undefined ? {} : { entityInput: def.entityInput }),
       ...(def.approval === undefined ? {} : { approval: def.approval }),
+      ...(def.undo === undefined ? {} : { undo: def.undo }),
     },
     handler: {
       kind: "write",
       input: def.input,
       output: def.output,
-      beforeSchema: def.beforeSchema.nullable(),
+      beforeSchema,
       before: (input, ctx) => def.before(input as z.output<I>, ctx),
       run: (input, ctx, before) => def.run(input as z.output<I>, ctx, before as z.output<B> | null),
+      ...(testOutput ? { testOutput: (input: unknown) => testOutput(input as z.output<I>) } : {}),
+      ...(undoInput
+        ? {
+            undoInput: (args: UndoInputArgs) => {
+              // Validated at the boundary (invariant 5): what was stored is read back with the
+              // tool's own schemas, never trusted as typed.
+              const input = def.input.safeParse(args.input);
+              const output = def.output.safeParse(args.output);
+              const before = beforeSchema.safeParse(args.before ?? null);
+              const current = beforeSchema.safeParse(args.current ?? null);
+              if (!input.success || !output.success || !before.success || !current.success) {
+                return null;
+              }
+              return undoInput({
+                input: input.data as z.output<I>,
+                before: before.data as z.output<B> | null,
+                output: output.data as z.output<O>,
+                current: current.data as z.output<B> | null,
+              });
+            },
+          }
+        : {}),
     },
   };
 }
@@ -463,6 +636,30 @@ export class UnconfirmedWriteError extends Error {
   }
 }
 
+/**
+ * Wave 5 review (docs/plan.md §1.86 "Forks (wave 5)"): a write the provider turned down without
+ * making it (it answered, and said no: a validation error, a closed record). A connector throws
+ * this, or marks its own error `notWritten: true`, so a step with `onError: continue` may go on
+ * past it. Any other error a write's handler throws may have come after the provider took it.
+ */
+export class NotWrittenError extends Error {
+  readonly notWritten = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "NotWrittenError";
+  }
+}
+
+/** Whether a connector said its write was turned down without being made (`NotWrittenError`). */
+export function writeNotMade(error: unknown): boolean {
+  return (
+    error instanceof NotWrittenError ||
+    (typeof error === "object" &&
+      error !== null &&
+      (error as { notWritten?: unknown }).notWritten === true)
+  );
+}
+
 type ConnectorHooks = Omit<Connector, "manifest" | "tools">;
 
 /**
@@ -535,6 +732,7 @@ export function defineConnector(
     }
     handlers[t.spec.id] = t.handler;
   }
+  problems.push(...undoProblems(specs));
   // v0.12 bankfeed: a hosted link widget (beginLink) starts a sign-in in place of a redirect.
   if (auth === "oauth2" && (!(hooks.authorize || hooks.beginLink) || !hooks.handleCallback)) {
     problems.push("oauth2 connectors need authorize and handleCallback (or beginLink for a link)");

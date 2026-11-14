@@ -1,4 +1,4 @@
-// A second factor by authenticator app, text or WhatsApp (docs/plan.md §1.83), after WorkOS checks
+// A second factor by authenticator app, text or WhatsApp (docs/plan.md §1.99), after WorkOS checks
 // the password. This file is the step's configuration, its storage (the person's methods and
 // recovery codes, read as that person: `withUser`), its limits, and the "remember this browser"
 // check the WorkOS adapter asks at sign-in. The routes are in ../routes/second-factor.ts.
@@ -58,7 +58,7 @@ export type SecondFactorSetup =
 
 const read = (v: string | undefined) => (typeof v === "string" ? v.trim() : "");
 
-// DECISION (docs/plan.md §1.83): on where TWILIO_VERIFY_SERVICE_SID is set (a Worker variable);
+// DECISION (docs/plan.md §1.99): on where TWILIO_VERIFY_SERVICE_SID is set (a Worker variable);
 // it needs Twilio's keys, ENCRYPTION_KEY (recovery codes) and the WorkOS sign-in. Missing one of
 // them is `misconfigured`: sign-ins stay pending and the routes answer 503, never "off".
 export function secondFactorSetupOf(
@@ -205,7 +205,7 @@ export async function useRecoveryCode(
  * Wrong codes (`session.second_factor` refused) or sends (`session.second_factor_send`) by this
  * person in the last 15 minutes, from the audit log.
  */
-// DECISION: counted from audit rows as §1.83 says. Those rows have no client, which only an
+// DECISION: counted from audit rows as §1.99 says. Those rows have no client, which only an
 // operator scope reads, so this one count runs in an operator scope over no clients: it sees
 // client-less rows only, filtered to this person's own actions.
 export async function recentCount(

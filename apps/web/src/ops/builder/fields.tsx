@@ -2,12 +2,51 @@
 // JSON Schema (string, number, boolean, enum and object fields; anything else as JSON checked as
 // it is typed), and template fields with a picker of the upstream outputs valid at the step
 // (core's typer). Every control carries `data-field` with the validation error path it answers,
-// so a click on an error can focus it.
+// so a click on an error can focus it. A `{{…}}` reference shows as a chip with the step's name
+// and the field in words ("Find the bill · bill record id") until the field is focused, when its
+// raw text is there to edit.
 import { isPlainObject, type PathOption } from "@countersign/core";
-import { type ReactNode, useId, useState } from "react";
+import { createContext, type ReactNode, useContext, useId, useState } from "react";
+import { Icon } from "../../ui/icons";
 import { cx } from "../../ui/primitives";
 import { Select, TextArea, TextInput } from "../agents/ui";
 import { eventKind, TRIGGER_KINDS, whenEvent } from "../workflow/labels";
+import type { PickPath } from "./outcomes";
+import { type Namer, referenceLabel } from "./problems";
+
+/** Step names by id, for the reference chips in fields; the inspector provides them. */
+export const ReferenceNames = createContext<Namer>(() => null);
+
+const REF_PART = /(\{\{\s*[^}]+?\s*\}\})/;
+const REF_WHOLE = /^\{\{\s*([^}]+?)\s*\}\}$/;
+
+export function hasReference(text: string): boolean {
+  return /\{\{[^}]+\}\}/.test(text);
+}
+
+/** Text with its `{{…}}` references as named chips; the raw reference is the chip's tooltip. */
+export function RefText({ text }: { text: string }) {
+  const name = useContext(ReferenceNames);
+  return (
+    <>
+      {text.split(REF_PART).map((part, i) => {
+        if (!part) return null;
+        const m = REF_WHOLE.exec(part);
+        return m?.[1] ? (
+          // biome-ignore lint/suspicious/noArrayIndexKey: the parts of one fixed string, in order.
+          <span key={i} className="ui-refchip" title={part} data-testid="builder-ref-chip">
+            {referenceLabel(m[1], name)}
+          </span>
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: as above.
+          <span key={i} className="whitespace-pre-wrap">
+            {part}
+          </span>
+        );
+      })}
+    </>
+  );
+}
 
 type Schema = Record<string, unknown>;
 
@@ -75,8 +114,26 @@ export function TemplateInput({
 }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
+  // Not focused and holding a reference: the chips show, and the raw text waits underneath
+  // (still focusable, so the keyboard, a click on an error and tests reach it).
+  const [editing, setEditing] = useState(false);
   const listId = useId();
-  const shown = paths.filter((p) => p.path.toLowerCase().includes(filter.toLowerCase()));
+  const inputId = useId();
+  const name = useContext(ReferenceNames);
+  const q = filter.toLowerCase();
+  // Wave 5: a path may carry its words (how an earlier step ended); search them too.
+  const shown = (paths as readonly PickPath[]).filter(
+    (p) =>
+      p.path.toLowerCase().includes(q) ||
+      (p.label?.toLowerCase().includes(q) ?? false) ||
+      referenceLabel(p.path, name).toLowerCase().includes(q),
+  );
+  const view = !editing && hasReference(value);
+  const focusProps = {
+    id: inputId,
+    onFocus: () => setEditing(true),
+    onBlur: () => setEditing(false),
+  };
   const insert = (path: string) => {
     onChange(`${value}{{${path}}}`);
     setOpen(false);
@@ -84,6 +141,7 @@ export function TemplateInput({
   };
   const control = multiline ? (
     <TextArea
+      {...focusProps}
       data-field={field}
       data-testid={testId}
       rows={3}
@@ -91,23 +149,41 @@ export function TemplateInput({
       invalid={Boolean(invalid)}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
-      className="font-mono text-sm"
+      className={cx("font-mono text-sm", view && "sr-only")}
     />
   ) : (
     <TextInput
+      {...focusProps}
       data-field={field}
       data-testid={testId}
       value={value}
       invalid={Boolean(invalid)}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
-      className="h-9 font-mono text-sm"
+      className={cx("h-9 font-mono text-sm", view && "sr-only")}
     />
   );
   return (
     <div className="relative">
       <div className="flex gap-1.5">
-        <div className="min-w-0 flex-1">{control}</div>
+        <div className="min-w-0 flex-1">
+          {control}
+          {view ? (
+            // A label, so a click anywhere on the chips focuses the field to edit it.
+            <label
+              htmlFor={inputId}
+              aria-hidden
+              data-testid={`${testId}-view`}
+              className={cx(
+                multiline ? "ds-textarea" : "ds-input",
+                "block h-auto min-h-9 cursor-text py-1 text-sm leading-7 text-ink",
+                invalid && "ds-input--error",
+              )}
+            >
+              <RefText text={value} />
+            </label>
+          ) : null}
+        </div>
         <button
           type="button"
           aria-label="Insert a field from an earlier step"
@@ -147,7 +223,10 @@ export function TemplateInput({
                     onClick={() => insert(p.path)}
                     className="flex w-full items-baseline justify-between gap-2 rounded-sm px-1.5 py-1 text-left hover:bg-surface-subtle"
                   >
-                    <span className="truncate reference text-ink">{p.path}</span>
+                    {/* Wave 5: how an earlier step ended, in words; else the field in words. */}
+                    <span className="truncate text-sm text-ink" title={p.path}>
+                      {p.label ?? referenceLabel(p.path, name)}
+                    </span>
                     <span className="shrink-0 text-xs text-ink-muted">{typeLabel(p.schema)}</span>
                   </button>
                 </li>
@@ -204,6 +283,9 @@ export function JsonInput({
   const shown = value === undefined ? "" : JSON.stringify(value, null, 2);
   const [text, setText] = useState(shown);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const inputId = useId();
+  const view = !editing && error === null && hasReference(text);
   // Follow outside changes (undo) unless the text being typed is mid-edit and unparsed.
   const [last, setLast] = useState(shown);
   if (shown !== last) {
@@ -213,6 +295,9 @@ export function JsonInput({
   return (
     <div className="flex flex-col gap-1">
       <TextArea
+        id={inputId}
+        onFocus={() => setEditing(true)}
+        onBlur={() => setEditing(false)}
         data-field={field}
         data-testid={testId}
         rows={rows}
@@ -239,8 +324,21 @@ export function JsonInput({
             setError("Not valid JSON yet: it is kept here until it is.");
           }
         }}
-        className="font-mono text-xs"
+        className={cx("font-mono text-xs", view && "sr-only")}
       />
+      {view ? (
+        <label
+          htmlFor={inputId}
+          aria-hidden
+          data-testid={`${testId}-view`}
+          className={cx(
+            "ds-textarea block h-auto cursor-text font-mono text-xs leading-relaxed whitespace-pre-wrap text-ink",
+            invalid && "ds-input--error",
+          )}
+        >
+          <RefText text={text.replace(/"(\{\{[^}]+\}\})"/g, "$1")} />
+        </label>
+      ) : null}
       {error ? (
         <span className="text-xs text-risk" data-testid={`${testId}-json-error`}>
           {error}
@@ -409,6 +507,25 @@ function PropertyControl({
       />
     );
   }
+  const items = isPlainObject(schema.items) ? schemaType(schema.items as Schema) : undefined;
+  if (
+    type === "array" &&
+    (items === "string" || items === "number" || items === "integer") &&
+    (value === undefined ||
+      (Array.isArray(value) && value.every((v) => typeof v === "string" || typeof v === "number")))
+  ) {
+    return (
+      <ListInput
+        value={(value as (string | number)[] | undefined) ?? []}
+        numeric={items !== "string"}
+        onChange={onChange}
+        paths={paths}
+        field={field}
+        errors={errors}
+        testId={testId}
+      />
+    );
+  }
   if (type === "object" && isPlainObject(schema.properties)) {
     return (
       <div className={cx("rounded-md border border-line bg-surface-subtle p-3")}>
@@ -426,6 +543,76 @@ function PropertyControl({
   }
   return (
     <JsonInput value={value} onChange={onChange} field={field} invalid={invalid} testId={testId} />
+  );
+}
+
+/**
+ * A list of texts or numbers, one field each (each may be a reference), instead of JSON: "ids" is
+ * a field per id. Errors on an item land on its field (`input.ids.0`).
+ */
+function ListInput({
+  value,
+  numeric,
+  onChange,
+  paths,
+  field,
+  errors,
+  testId,
+}: {
+  value: readonly (string | number)[];
+  numeric: boolean;
+  onChange(value: unknown): void;
+  paths: readonly PathOption[];
+  field: string;
+  errors: FieldErrors;
+  testId: string;
+}) {
+  const set = (next: unknown[]) => onChange(next.length ? next : undefined);
+  return (
+    <div className="flex flex-col gap-1.5" data-testid={`${testId}-list`}>
+      {value.map((item, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: a list's places; items may repeat.
+        <div key={i} className="flex items-start gap-1.5">
+          <div className="min-w-0 flex-1">
+            <TemplateInput
+              value={String(item)}
+              onChange={(text) => {
+                const next = [...value] as unknown[];
+                next[i] = numeric ? (parseNumberText(text) ?? "") : text;
+                set(next);
+              }}
+              paths={paths}
+              field={`${field}.${i}`}
+              invalid={errors.at(`${field}.${i}`).length > 0}
+              testId={`${testId}-${i}`}
+            />
+            {errors.at(`${field}.${i}`).map((m) => (
+              <span key={m} className="text-xs text-risk" data-testid="builder-field-error">
+                {m}
+              </span>
+            ))}
+          </div>
+          <button
+            type="button"
+            aria-label={`Remove item ${i + 1}`}
+            data-testid={`${testId}-${i}-remove`}
+            onClick={() => set(value.filter((_, j) => j !== i))}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-surface-subtle hover:text-ink"
+          >
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        data-field={field}
+        data-testid={`${testId}-add`}
+        onClick={() => set([...value, ""])}
+        className="ds-btn ds-btn--link self-start text-sm"
+      >
+        {value.length ? "Add another" : "Add one"}
+      </button>
+    </div>
   );
 }
 

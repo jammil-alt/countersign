@@ -4,17 +4,22 @@
 // rollback rules: every edit is a new immutable version.
 
 import {
-  type AgentBundle,
+  type AnyAgentBundle,
+  type BrowserTier,
   hashJson,
+  isToolWrapper,
+  newSkillVersionProblems,
   parseSkillRef,
+  processes,
   SkillDefinition,
   Slug,
+  skillRuleProblems,
   skillTools,
   walkSteps,
 } from "@countersign/core";
-import { skill, skillVersion, type Tx } from "@countersign/db";
+import { browserSite, skill, skillVersion, type Tx } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 import type { ToolRegistry } from "./tools";
 
@@ -50,6 +55,7 @@ export class SkillCatalog {
         for (const t of skillTools(def)) {
           if (!tools.has(t)) problems.push(`${def.id}: unknown tool ${t}`);
         }
+        for (const p of readProblems(def, tools)) problems.push(`${def.id}: ${p}`);
       }
       this.byId.set(def.id, def);
     }
@@ -64,6 +70,86 @@ export class SkillCatalog {
 
   list(): SkillDefinition[] {
     return [...this.byId.values()];
+  }
+}
+
+// ── R2: skills read, never write (docs/plan.md §1.86, §9) ───────────────────────────────────────
+
+/** A skill's declared `reads` must be registered tools that only read (side effect `none`). */
+export function readProblems(
+  def: Pick<SkillDefinition, "reads">,
+  tools: Pick<ToolRegistry, "get">,
+): string[] {
+  const problems: string[] = [];
+  for (const id of def.reads ?? []) {
+    const tool = tools.get(id);
+    if (!tool) problems.push(`unknown read tool ${id}`);
+    else if (tool.spec.sideEffect !== "none") {
+      problems.push(`${id} is not a read tool (${tool.spec.sideEffect}); a skill never writes`);
+    }
+  }
+  return problems;
+}
+
+/**
+ * What `processes.fromWorkflowV3` needs from the registries: the tool a tool-wrapper skill wraps
+ * (built-ins only; operator skills are never `tool` mode) and each tool's side effect. Unknown ids
+ * answer null, which the converter treats as a skill step or an external write (the safe side).
+ */
+export function convertLookup(
+  skills: Pick<SkillCatalog, "get">,
+  tools: Pick<ToolRegistry, "get">,
+): processes.ConvertLookup {
+  return {
+    wrappedTool(skillId) {
+      const def = skills.get(skillId);
+      return def && isToolWrapper(def) ? (def.handler ?? null) : null;
+    },
+    sideEffect(toolId) {
+      return tools.get(toolId)?.spec.sideEffect ?? null;
+    },
+  };
+}
+
+// ── v0.16: browsing skills' sites (docs/plan.md §1.86) ──────────────────────────────────────────
+
+/**
+ * A browsing skill's sites must be in the operator's catalogue and not blocked tier (agents never
+ * sign in to those, invariant 13). `tiers` holds each known slug's live tier.
+ */
+export function browseProblems(
+  def: Pick<SkillDefinition, "browse">,
+  tiers: ReadonlyMap<string, BrowserTier>,
+): string[] {
+  const problems: string[] = [];
+  for (const slug of def.browse?.sites ?? []) {
+    const tier = tiers.get(slug);
+    if (tier === undefined) problems.push(`no browser site ${slug} in the catalogue`);
+    else if (tier === "blocked") {
+      problems.push(`browser site ${slug} is blocked tier: agents never sign in to it`);
+    }
+  }
+  return problems;
+}
+
+/**
+ * Refuses a skill whose `browse` names a site that doesn't exist or is blocked, when it is saved
+ * (created, a new version, a rollback). Sites are the operator's catalogue (`browser_site`, readable
+ * in operator sessions only), so outside one every site reads as missing and the skill is refused.
+ */
+// DECISION: checked at save, not at publish or run: a draft naming a missing site is wrong already,
+// and the runtime refuses a blocked site on every call anyway (the connector checks the live tier).
+// A site that turns blocked after the save is refused at run time, not by rewriting the version.
+async function assertBrowseSites(tx: Tx, def: SkillDefinition): Promise<void> {
+  const slugs = def.browse?.sites ?? [];
+  if (slugs.length === 0) return;
+  const rows = await tx
+    .select({ slug: browserSite.slug, tier: browserSite.tier })
+    .from(browserSite)
+    .where(inArray(browserSite.slug, [...slugs]));
+  const problems = browseProblems(def, new Map(rows.map((r) => [r.slug, r.tier])));
+  if (problems.length > 0) {
+    throw new AgentsError("invalid_definition", problems.join("; "), problems);
   }
 }
 
@@ -85,10 +171,17 @@ export function customSlug(id: string): string {
 }
 
 /**
- * Parses an operator-written skill: Zod, `task` or `agent` mode (v0.13; never `tool`, which is
- * code), a task's model one the platform prices, tools that exist (§9.2).
+ * Parses an operator-written skill: Zod, a task's model one the platform prices, tools that exist
+ * (§9.2). Skill model (2026-11-10): a new version is deterministic (rule rows, never a handler:
+ * built-in code is ours) or AI (`task`, on its recommended model); `rules_then_ai`, agent mode and
+ * a skill that writes are refused in plain words (`newSkillVersionProblems`). `restoring` (a
+ * rollback copying a stored version) skips those: a stored version keeps working as it was.
  */
-export function parseOperatorSkill(input: unknown, tools?: ToolRegistry): SkillDefinition {
+export function parseOperatorSkill(
+  input: unknown,
+  tools?: ToolRegistry,
+  options: { restoring?: boolean } = {},
+): SkillDefinition {
   const parsed = SkillDefinition.safeParse(input);
   if (!parsed.success) {
     throw new AgentsError("invalid_definition", parsed.error.message, parsed.error.issues);
@@ -98,11 +191,22 @@ export function parseOperatorSkill(input: unknown, tools?: ToolRegistry): SkillD
   if (!isCustomSkill(def.id) || !Slug.safeParse(customSlug(def.id)).success) {
     problems.push(`an operator skill's id is custom:<slug>, not ${def.id}`);
   }
-  if (def.mode === "tool") problems.push("operator skills are task or agent mode, not tool");
+  if (def.mode === "tool" && def.handler !== undefined) {
+    problems.push("an operator skill is rule rows or a task on a model, never built-in code");
+  }
+  if (!options.restoring) {
+    problems.push(
+      ...newSkillVersionProblems(def, tools ? (id) => tools.get(id)?.spec : undefined),
+      ...skillRuleProblems(def),
+    );
+  }
   if (def.model && !knownModelIds().includes(def.model.id)) {
     problems.push(`unknown model ${def.model.id}`);
   }
-  if (tools) for (const t of def.tools) if (!tools.has(t)) problems.push(`unknown tool ${t}`);
+  if (tools) {
+    for (const t of def.tools) if (!tools.has(t)) problems.push(`unknown tool ${t}`);
+    problems.push(...readProblems(def, tools));
+  }
   if (problems.length > 0) {
     throw new AgentsError("invalid_definition", problems.join("; "), problems);
   }
@@ -145,6 +249,7 @@ export async function createSkill(
   input: CreateSkillInput,
 ): Promise<{ skill: SkillRow; version: SkillVersionRow }> {
   const def = parseOperatorSkill(input.definition, input.tools);
+  await assertBrowseSites(tx, def);
   const [row] = await tx
     .insert(skill)
     .values({ tenantId: input.tenantId, slug: customSlug(def.id), name: def.name })
@@ -177,10 +282,15 @@ export async function createSkillVersion(
     authorId?: string | null;
     changeNote?: string | null;
     tools?: ToolRegistry;
+    /** A rollback copying a stored version: the skill model's new-version checks don't apply. */
+    restoring?: boolean;
   },
 ): Promise<SkillVersionRow> {
   const row = await lockSkill(tx, input.skillId);
-  const def = parseOperatorSkill(input.definition, input.tools);
+  const def = parseOperatorSkill(input.definition, input.tools, {
+    ...(input.restoring ? { restoring: true } : {}),
+  });
+  await assertBrowseSites(tx, def);
   if (customSlug(def.id) !== row.slug) {
     throw new AgentsError("invalid_definition", `a version of ${row.slug} can't be ${def.id}`);
   }
@@ -259,6 +369,7 @@ export async function rollbackSkill(
     parentVersionId: row.liveVersionId,
     authorId: input.authorId ?? null,
     changeNote: `Rollback to v${target.version}`,
+    restoring: true,
   });
   return publishSkill(tx, { skillId: row.id, versionId: copy.id });
 }
@@ -326,9 +437,16 @@ export async function resolveCustomSkill(
 }
 
 /** Every skill reference in a bundle: the agent's skills and every skill step. */
-export function bundleSkillRefs(bundle: AgentBundle): string[] {
+export function bundleSkillRefs(bundle: AnyAgentBundle): string[] {
   const refs = new Set(bundle.definition.skills.map((s) => s.skill));
+  // R8: a bundle the builder saved holds v4 processes.
   for (const w of bundle.workflows) {
+    if (w.workflow.schemaVersion === 4) {
+      for (const { step } of processes.allSteps(w.workflow)) {
+        if (step.kind === "skill") refs.add(step.skill);
+      }
+      continue;
+    }
     walkSteps(w.workflow, ({ step }) => {
       if (step.kind === "skill") refs.add(step.skill);
     });
@@ -342,7 +460,7 @@ export function bundleSkillRefs(bundle: AgentBundle): string[] {
  */
 export async function skillContext(
   tx: Tx,
-  input: { tenantId: string | null; bundle: AgentBundle; catalog: SkillCatalog },
+  input: { tenantId: string | null; bundle: AnyAgentBundle; catalog: SkillCatalog },
 ): Promise<{ skills: Record<string, SkillDefinition>; missing: string[] }> {
   const skills: Record<string, SkillDefinition> = {};
   const missing: string[] = [];
@@ -373,7 +491,7 @@ export async function skillContext(
  */
 export async function snapshotSharedSkills(
   tx: Tx,
-  input: { tenantId: string; bundle: AgentBundle; catalog?: SkillCatalog },
+  input: { tenantId: string; bundle: AnyAgentBundle; catalog?: SkillCatalog },
 ): Promise<{ ref: string; versionId: string }[]> {
   const made: { ref: string; versionId: string }[] = [];
   for (const ref of bundleSkillRefs(input.bundle)) {

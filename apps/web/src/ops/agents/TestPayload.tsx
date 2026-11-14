@@ -2,7 +2,7 @@
 // payload, one of the client's recent events of the trigger's type (its payload as emitted, so the
 // run reads real records), or input typed by hand. Shared by a client agent's Settings tab and the
 // workflow builder's test-run panel.
-import type { RecentEvent, Workflow } from "@countersign/core";
+import { allTriggers, type RecentEvent, type Trigger, type Workflow } from "@countersign/core";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -15,21 +15,44 @@ type CatalogEvent = ResponseOf<typeof apiRoutes.opsEventCatalog>["events"][numbe
 /** `sample`, `manual`, or `event:<id>` for one of the recent events. */
 export type PayloadSource = "sample" | "manual" | `event:${string}`;
 
-/** The event type a workflow's trigger waits for, or null when it isn't an event trigger. */
-export function triggerEventType(workflow: Workflow | null | undefined): string | null {
-  const on = workflow?.trigger.on;
+/** A v3 workflow (its `trigger` and `moreTriggers`) or a v4 process (its `triggers`). */
+export type Triggered =
+  | Pick<Workflow, "trigger" | "moreTriggers">
+  | { triggers: readonly Trigger[] };
+
+/**
+ * The trigger a test run's payload stands for: the first event trigger, else the first trigger
+ * (undefined when a process has none yet). The sample and the recent events both read this one, so
+ * "Sample trigger payload" and "Use a recent event" offer payloads of the same trigger.
+ */
+export function testTrigger(workflow: Triggered): Trigger | undefined {
+  const all = allTriggers(workflow);
+  return all.find((t) => t.on.type === "event") ?? all[0];
+}
+
+/**
+ * The event type a workflow waits for: its first event trigger's, or null when none of its
+ * triggers is an event. A v4 process reads its `triggers` (core's `allTriggers`), so a live v4
+ * version's Versions tab doesn't fail on a missing `trigger`.
+ */
+export function triggerEventType(workflow: Triggered | null | undefined): string | null {
+  if (!workflow) return null;
+  const on = testTrigger(workflow)?.on;
   return on?.type === "event" ? on.event : null;
 }
 
 /**
- * The trigger's sample payload: the event catalogue's sample (undefined when its type has none),
- * or a blank of the input's shape.
+ * The sample payload of the trigger a test run stands for (`testTrigger`): the event catalogue's
+ * sample (undefined when its type has none, or the process has no trigger yet), or a blank of the
+ * input's shape.
  */
 export function samplePayload(
-  workflow: Workflow,
+  workflow: Triggered,
   events: readonly Pick<CatalogEvent, "type" | "sample">[],
 ): unknown {
-  const on = workflow.trigger.on;
+  const first = testTrigger(workflow);
+  if (!first) return undefined;
+  const on = first.on;
   switch (on.type) {
     case "event":
       return events.find((e) => e.type === on.event)?.sample ?? undefined;

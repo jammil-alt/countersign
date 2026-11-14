@@ -2,18 +2,23 @@
 // new template, or a client agent with `clientId`, and saves it as a v1 draft; `POST
 // /api/ops/agents/:id/revise` saves a revision of a version as a new draft and answers its diff.
 // The Builder's guards (packages/agents/src/builder) run on every answer; this file gathers what
-// the Builder knows and saves what it made. Every handler runs inside withOperator.
+// the Builder knows and saves what it made. Every handler runs inside withOperator. Wave 3b: the
+// Builder drafts and edits v4 processes (docs/plan.md §1.86): a stored v3 version, and a session's
+// draft saved before the Builder learned v4, are read through the converter (every id kept), and
+// what it saves is a v4 version; the stored version is never changed (invariant 3).
 
 import {
   type AgentRow,
   agentTurn,
-  automationContext,
   type BuilderContext,
   BuilderError,
   type BuilderSkill,
   type BuilderTemplate,
   blankAgentDraft,
   builderSlug,
+  bundleSkillRefs,
+  bundleStepsToAutomation,
+  convertLookup,
   createAutomation,
   createClientAgent,
   createSkill,
@@ -22,7 +27,9 @@ import {
   createVersion,
   draftAgent,
   EMPTY_SKILL_DRAFT,
+  type ExistingSteps,
   entryKey,
+  existingBundle,
   getAgent,
   getVersion,
   guardBundle,
@@ -34,7 +41,6 @@ import {
   reviseAgent,
   SkillDraft,
   skillChanges,
-  skillContext,
   skillTurn,
   undoChange,
   undoneEntries,
@@ -43,14 +49,21 @@ import {
 } from "@countersign/agents";
 import {
   type AgentBundle,
-  AgentBundle as AgentBundleSchema,
+  AnyAgentBundle,
   type BuilderChange,
   type ClosestTemplate,
   closestBundles,
   diffBundles,
+  isToolWrapper,
+  newStepSkillReason,
+  type ProcessAgentBundle,
   parseCommand,
+  parseSkillRef,
   routes,
-  stepsToAutomation,
+  type SkillDefinition,
+  skillTools,
+  toolLookup,
+  toProcessBundle,
   uuidv7,
   type ValidationError,
 } from "@countersign/core";
@@ -89,7 +102,13 @@ import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound 
 import { workerTransport } from "../runs/execute";
 import { agentSummary, versionSummary } from "./mappers";
 import { builderAutomations } from "./ops-automations";
-import { bundleLabels, operatorSkills } from "./ops-lineage";
+import {
+  ACCOUNT_TOOL_PREFIX,
+  bundleLabels,
+  bundleStepTools,
+  operatorSkills,
+  SPLIT_MODEL_TOOLS,
+} from "./ops-lineage";
 
 type Ctx = HandlerCtx<never>;
 
@@ -99,27 +118,74 @@ function transport(ctx: Pick<Ctx, "services">): LlmTransport {
   return deps.llm?.(env) ?? workerTransport(env);
 }
 
+/**
+ * Wave 3b: a stored bundle (a version, a session's draft or a turn's) as the Builder edits it: v3
+ * workflows read as v4 processes with the registries' lookup, every id kept; v4 as it is.
+ */
+// DECISION: the Builder reads a v3 version through the converter at the start of a session (and a
+// session's v3 draft each time it is read), never upgrades a conversation on its own (the
+// converter's `keep`), and what it saves is v4. Reading changes nothing stored (invariant 3).
+function asProcesses(ctx: Pick<Ctx, "services">, raw: unknown): ProcessAgentBundle {
+  const { platform } = ctx.services;
+  return toProcessBundle(
+    AnyAgentBundle.parse(raw),
+    convertLookup(platform.catalog, platform.tools),
+  );
+}
+
+/** A v4 bundle where the registry's (v3-typed) readers take a stored bundle: they read either. */
+const stored = (bundle: ProcessAgentBundle): AgentBundle => bundle as unknown as AgentBundle;
+
 async function agentInScope(ctx: Pick<Ctx, "tx" | "tenantIds">, id: string): Promise<AgentRow> {
   const row = await getAgent(ctx.tx, id);
   if (row.tenantId !== null && !ctx.tenantIds.includes(row.tenantId)) throw notFound("agent");
   return row;
 }
 
-/** What the Builder knows for a template (clientId null) or one client's agent. */
+/**
+ * What the Builder knows for a template (clientId null) or one client's agent. `source` is the
+ * version being revised (else `self`'s latest): what it already uses stays offered.
+ */
+// DECISION (review): the Builder is offered what the builder's palette offers for a new step: no
+// tool wrapper, no skill of a retired kind or that writes (core's `newStepSkillReason`), and no
+// tool the splits replaced or account handler (`stepTools`' rule), each kept where the version
+// being revised already uses it, so a revision keeps its stored steps.
 async function builderContext(
   ctx: Pick<Ctx, "tx" | "tenantIds" | "services">,
   clientId: string | null,
   self?: AgentRow,
+  source?: AnyAgentBundle | null,
 ): Promise<BuilderContext> {
   const { tx, services } = ctx;
   const { platform } = services;
+  const from =
+    source !== undefined
+      ? source
+      : self
+        ? ((await latestVersion(tx, self.id))?.bundle ?? null)
+        : null;
+  const usedSkills = new Set(
+    (from ? bundleSkillRefs(from) : []).map((ref) => parseSkillRef(ref).id),
+  );
+  const usedTools = new Set([...bundleStepTools(from), ...(from?.definition.extraTools ?? [])]);
+  const lookup = toolLookup(platform.tools.specs());
+  const offered = (def: SkillDefinition) =>
+    usedSkills.has(def.id) ||
+    (!isToolWrapper(def) && newStepSkillReason(def, lookup, platform.superseded) === null);
   const skills: BuilderSkill[] = platform.catalog
     .list()
+    .filter(offered)
     .map((definition) => ({ ref: definition.id, definition, source: "builtin" }));
   for (const s of await operatorSkills(ctx, clientId)) {
+    if (!offered(s.def)) continue;
     if (!skills.some((x) => x.ref === s.def.id)) {
       skills.push({ ref: s.def.id, definition: s.def, source: s.source });
     }
+  }
+  // A skill the version already uses keeps the tools it calls, so its steps still type.
+  for (const s of skills) {
+    if (!usedSkills.has(s.ref)) continue;
+    for (const t of [...skillTools(s.definition), ...(s.definition.reads ?? [])]) usedTools.add(t);
   }
   const templates: BuilderTemplate[] = [];
   for (const t of await listTemplates(tx)) {
@@ -155,7 +221,14 @@ async function builderContext(
     agentSlugs = templates.map((t) => t.slug);
   }
   return {
-    tools: platform.tools.list().map((t) => t.spec),
+    tools: platform.tools
+      .list()
+      .map((t) => t.spec)
+      .filter(
+        (t) =>
+          usedTools.has(t.id) ||
+          !(SPLIT_MODEL_TOOLS.has(t.id) || t.id.startsWith(ACCOUNT_TOOL_PREFIX)),
+      ),
     skills,
     connectors: platform.connectors
       .list()
@@ -224,12 +297,16 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
       },
       {
         llm: createLlmClient({ transport: transport(ctx) }),
-        validate: (bundle) => validateForPublish(tx, pseudo, bundle, services.platform.ctx),
+        // Review: a new agent from the Builder is a first version: every step is new.
+        validate: (bundle) =>
+          validateForPublish(tx, pseudo, stored(bundle), services.platform.ctx, {
+            previous: "none",
+          }),
       },
     ).catch(builderHttpError);
 
     // The operator's name and area win over the model's.
-    const bundle: AgentBundle = structuredClone(result.bundle);
+    const bundle: ProcessAgentBundle = structuredClone(result.bundle);
     if (body.name?.trim()) bundle.definition.identity.name = body.name.trim();
     if (body.role?.trim()) bundle.definition.identity.role = body.role.trim();
     const slug = await freeSlug(
@@ -264,6 +341,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
       created.agent,
       created.version.bundle,
       services.platform.ctx,
+      { previous: await existingBundle(tx, created.version) },
     );
     const template = result.startFromTemplate
       ? (await listTemplates(tx)).find((t) => t.slug === result.startFromTemplate)
@@ -303,17 +381,20 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
       request = typeof text === "string" && text.trim() ? text : item.title;
     }
 
-    const bctx = await builderContext(ctx, row.tenantId, row);
+    const bctx = await builderContext(ctx, row.tenantId, row, from.bundle);
+    const previous = await existingUnder(tx, from.id);
+    const lookup = convertLookup(services.platform.catalog, services.platform.tools);
     const result = await reviseAgent(
       {
-        source: from.bundle,
+        source: asProcesses(ctx, from.bundle),
         ...(body.instruction ? { instruction: body.instruction } : {}),
         ...(request ? { request } : {}),
         ctx: bctx,
       },
       {
         llm: createLlmClient({ transport: transport(ctx) }),
-        validate: (bundle) => validateForPublish(tx, row, bundle, services.platform.ctx),
+        validate: (bundle) =>
+          validateForPublish(tx, row, stored(bundle), services.platform.ctx, { previous }),
       },
     ).catch(builderHttpError);
 
@@ -334,7 +415,8 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
       errors: result.errors,
       costUsd: result.costUsd,
       diff: {
-        changes: diffBundles(from.bundle, v.bundle),
+        // A v3 version and its v4 revision differ only where they really do.
+        changes: diffBundles(from.bundle, v.bundle, { lookup }),
         labels: bundleLabels(from.bundle, v.bundle),
       },
     };
@@ -354,7 +436,7 @@ type SessionCtx = Pick<Ctx, "tx" | "tenantIds" | "services" | "session">;
 async function conversationContext(
   ctx: SessionCtx,
   clientId: string | null,
-  working: AgentBundle | null,
+  working: ProcessAgentBundle | null,
   self?: AgentRow,
 ): Promise<BuilderContext> {
   const base = await builderContext(ctx, clientId, self);
@@ -363,7 +445,7 @@ async function conversationContext(
     await builderAutomations(ctx.tx, {
       tenantId: clientId,
       tenantIds: ctx.tenantIds,
-      bundle: working,
+      bundle: working ? stored(working) : null,
       skills,
       platform: ctx.services.platform,
     })
@@ -405,22 +487,47 @@ async function sessionAgent(
   };
 }
 
+/**
+ * Review: what a draft saved as a child of `parentId` is checked against as already there
+ * (`existingBundle`); with no parent, a first version (`"none"`: every step new).
+ */
+async function existingUnder(tx: Ctx["tx"], parentId: string | null): Promise<ExistingSteps> {
+  if (!parentId) return "none";
+  const parent = await getVersion(tx, parentId);
+  return existingBundle(tx, {
+    parentVersionId: parent.id,
+    basedOnTemplateVersionId: parent.basedOnTemplateVersionId,
+  });
+}
+
+/** Review: what a conversation's draft is checked against: the version it would be saved under. */
+async function sessionExisting(
+  ctx: SessionCtx,
+  s: SessionRow,
+  turns: Parameters<typeof lastSavedVersion>[1],
+): Promise<ExistingSteps> {
+  const parentId =
+    lastSavedVersion(s, turns) ??
+    (s.agentId ? ((await latestVersion(ctx.tx, s.agentId))?.id ?? null) : null);
+  return existingUnder(ctx.tx, parentId);
+}
+
 /** The operator's version the conversation started from (its rules hold across turns). */
-async function originOf(ctx: SessionCtx, s: SessionRow): Promise<AgentBundle | null> {
+async function originOf(ctx: SessionCtx, s: SessionRow): Promise<ProcessAgentBundle | null> {
   return s.kind === "agent" && s.baseVersionId
-    ? (await getVersion(ctx.tx, s.baseVersionId)).bundle
+    ? asProcesses(ctx, (await getVersion(ctx.tx, s.baseVersionId)).bundle)
     : null;
 }
 
 /** Live templates like the draft, best first (core's bundleSimilarity). */
 async function closestTemplates(
   ctx: SessionCtx,
-  bundle: AgentBundle,
+  bundle: AnyAgentBundle,
   selfId: string | null,
 ): Promise<ClosestTemplate[]> {
   const candidates: {
     key: string;
-    bundle: AgentBundle;
+    bundle: AnyAgentBundle;
     id: string;
     name: string;
     version: number;
@@ -445,11 +552,16 @@ async function sessionDetail(ctx: SessionCtx, s: SessionRow) {
   const turns = await turnsOf(ctx.tx, s.id);
   let errors: ReturnType<typeof checkErrors> = [];
   let closest: ClosestTemplate[] = [];
+  let shown: unknown = s.bundle;
   if (s.kind === "agent") {
-    const bundle = AgentBundleSchema.parse(s.bundle);
+    const bundle = asProcesses(ctx, s.bundle);
+    // Wave 3b: the draft as the Builder edits it (a session saved before v4 holds a v3 draft).
+    shown = bundle;
     const { validateAs } = await sessionAgent(ctx, s);
     errors = checkErrors(
-      await validateForPublish(ctx.tx, validateAs, bundle, ctx.services.platform.ctx),
+      await validateForPublish(ctx.tx, validateAs, stored(bundle), ctx.services.platform.ctx, {
+        previous: await sessionExisting(ctx, s, turns),
+      }),
     );
     closest = await closestTemplates(ctx, bundle, s.agentId);
   } else {
@@ -468,7 +580,7 @@ async function sessionDetail(ctx: SessionCtx, s: SessionRow) {
   return {
     session: {
       ...sessionSummary(s, await clientName(ctx.tx, s.tenantId)),
-      bundle: s.bundle,
+      bundle: shown,
       errors,
       closest,
     },
@@ -540,7 +652,8 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
         tenantId = row.tenantId;
         agentId = row.id;
         baseVersionId = from.id;
-        bundle = from.bundle;
+        // Wave 3b: a v3 version starts the conversation read as processes, every id kept.
+        bundle = asProcesses(ctx, from.bundle);
         text = `Started from ${row.name} v${from.version}.`;
       } else {
         bundle = blankAgentDraft({
@@ -653,9 +766,10 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     if (body.examples?.length) {
       throw new HttpError(422, "invalid_request", "examples go with a skill conversation");
     }
-    const working = AgentBundleSchema.parse(s.bundle);
+    const working = asProcesses(ctx, s.bundle);
     const { row, validateAs } = await sessionAgent(ctx, s);
     const bctx = await conversationContext(ctx, s.tenantId, working, row ?? undefined);
+    const previous = await sessionExisting(ctx, s, turns);
     const read = readCommand(body.text, { bundle: working, automations: bctx.automations ?? [] });
     if (!read.ok) throw new HttpError(422, read.code, read.message);
     const command = read.command;
@@ -672,7 +786,8 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
       },
       {
         llm,
-        validate: (bundle) => validateForPublish(tx, validateAs, bundle, services.platform.ctx),
+        validate: (bundle) =>
+          validateForPublish(tx, validateAs, stored(bundle), services.platform.ctx, { previous }),
       },
     ).catch(builderHttpError);
     await addTurn(tx, s, {
@@ -729,21 +844,23 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     }
     let next: unknown;
     if (s.kind === "agent") {
+      // Wave 3b: each side read as processes (a turn saved before v4 holds a v3 draft), ids kept.
       const r = undoChange({
-        before: AgentBundleSchema.parse(bundleBefore(turns, target.seq)),
-        after: AgentBundleSchema.parse(target.bundle),
-        working: AgentBundleSchema.parse(s.bundle),
+        before: asProcesses(ctx, bundleBefore(turns, target.seq)),
+        after: asProcesses(ctx, target.bundle),
+        working: asProcesses(ctx, s.bundle),
         changeId: entry.id,
       });
       if (!r.ok) {
         throw new HttpError(409, "undo_conflict", UNDO_CONFLICT, { conflicts: r.conflicts });
       }
+      const undone = asProcesses(ctx, r.bundle);
       // The guards hold after an undo too (approvals, mode), keeping every id the merge brought.
       const { row } = await sessionAgent(ctx, s);
-      const bctx = await conversationContext(ctx, s.tenantId, r.bundle, row ?? undefined);
-      next = guardBundle(r.bundle, bctx, {
+      const bctx = await conversationContext(ctx, s.tenantId, undone, row ?? undefined);
+      next = guardBundle(undone, bctx, {
         mode: "revise",
-        source: r.bundle,
+        source: undone,
         origin: await originOf(ctx, s),
       }).bundle;
     } else {
@@ -789,40 +906,19 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     if (s.kind !== "agent") {
       throw new HttpError(422, "invalid_request", "steps are saved as an automation from an agent");
     }
-    const working = AgentBundleSchema.parse(s.bundle);
-    const first = body.stepIds[0] as string;
-    const holder = working.workflows.find((w) => w.workflow.steps.some((x) => x.id === first));
-    if (!holder) {
-      throw new HttpError(
-        422,
-        "not_top_level",
-        "only steps at the top of a workflow can become an automation",
-      );
-    }
-    const { skills } = await skillContext(tx, {
+    // Wave 3b: the draft is a v4 process bundle, so the steps become a v4 automation (process
+    // steps) and a process step takes their place.
+    const working = asProcesses(ctx, s.bundle);
+    const result = await bundleStepsToAutomation(tx, {
       tenantId: s.tenantId,
       bundle: working,
-      catalog: registry.catalog,
-    });
-    const used = await automationContext(tx, {
-      tenantId: s.tenantId,
-      bundle: working,
-      catalog: registry.catalog,
-    });
-    const result = stepsToAutomation({
-      workflow: holder.workflow,
       stepIds: body.stepIds,
       slug: body.slug,
       name: body.name,
-      ...(body.description !== undefined ? { description: body.description } : {}),
+      description: body.description,
       newId: () => uuidv7(),
-      ctx: {
-        skills: { ...used.skills, ...skills },
-        tools: registry.tools.specs(),
-        ...(registry.events ? { events: registry.events } : {}),
-        automations: used.automations,
-      },
       clientAgent: s.tenantId !== null,
+      ctx: registry,
     });
     if (!result.ok) throw new HttpError(422, result.code, result.message);
     // DECISION: as "Save as automation" in the workflow builder (plan §1.45): a new automation at
@@ -834,12 +930,7 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
       changeNote: "Saved from a Builder conversation",
       ctx: registry,
     });
-    const next: AgentBundle = AgentBundleSchema.parse({
-      ...working,
-      workflows: working.workflows.map((w) =>
-        w.slug === holder.slug ? { ...w, workflow: result.workflow } : w,
-      ),
-    });
+    const next = asProcesses(ctx, result.bundle);
     const n = body.stepIds.length;
     const turn = await addTurn(tx, s, {
       role: "operator",
@@ -875,8 +966,9 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     const casesOut: { id: string; name: string; clientId: string | null }[] = [];
 
     if (s.kind === "agent") {
-      const bundle = AgentBundleSchema.parse(s.bundle);
+      const bundle = asProcesses(ctx, s.bundle);
       let row: AgentRow;
+      let saved: Parameters<typeof existingBundle>[1];
       if (!s.agentId) {
         const slug = await freeSlug(
           ctx,
@@ -901,6 +993,7 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
             });
         row = created.agent;
         version = { id: created.version.id, version: created.version.version };
+        saved = created.version;
       } else {
         row = await getAgent(tx, s.agentId);
         const v = await createVersion(tx, {
@@ -912,8 +1005,11 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
           changeNote: `Builder: ${changeNote}`.slice(0, 300),
         });
         version = { id: v.id, version: v.version };
+        saved = v;
       }
-      errors = await validateForPublish(tx, row, bundle, services.platform.ctx);
+      errors = await validateForPublish(tx, row, stored(bundle), services.platform.ctx, {
+        previous: await existingBundle(tx, saved),
+      });
       agentOut = { id: row.id, slug: row.slug };
       await updateSession(tx, s.id, { agentId: row.id, status: "saved" });
     } else {

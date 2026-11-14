@@ -71,3 +71,60 @@ export function escalationAction(e: Escalation): { to: string; label: string } {
       return { to: OPS_PATHS.escalations, label: "Open escalations" };
   }
 }
+
+/** How urgent a Needs us entry is, by how long the client has been waiting on us. */
+export type Urgency = "urgent" | "high" | "new";
+
+// DECISION: urgency is by age alone (2026-11-10): urgent past 2 days, high from 1 day, new
+// under a day. Age is what a client feels, and it reads the same for every kind of escalation.
+export const URGENCY: {
+  id: Urgency;
+  label: string;
+  range: string;
+  tone: "risk" | "signal" | "slate";
+}[] = [
+  { id: "urgent", label: "Urgent", range: "Over 2 days", tone: "risk" },
+  { id: "high", label: "High", range: "1 to 2 days", tone: "signal" },
+  { id: "new", label: "New", range: "Under a day", tone: "slate" },
+];
+
+export function urgencyOf(e: Pick<Escalation, "blockedSince">, now: Date = new Date()): Urgency {
+  const hours = (now.getTime() - new Date(e.blockedSince).getTime()) / 3_600_000;
+  if (hours >= 48) return "urgent";
+  if (hours >= 24) return "high";
+  return "new";
+}
+
+/** "8 Nov, 14:05": when the wait started, on a row. */
+export function sinceDate(iso: string): string {
+  const d = new Date(iso);
+  const day = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return `${day}, ${time}`;
+}
+
+/**
+ * Escalations' two calls for a view, a status and a client, in one place so anything that fills
+ * the store ahead of the screen (1.6) uses the same options in the same order and shares its
+ * stored answer. Defaults: Needs us, open, every client.
+ */
+export function escalationsCalls({
+  view = "us",
+  status = "open",
+  client = "",
+}: {
+  view?: "us" | "clients";
+  status?: "open" | "resolved";
+  client?: string;
+} = {}) {
+  return {
+    inbox: {
+      query: {
+        assigned: view === "clients" ? "all" : "operator",
+        status,
+        ...(client ? { client } : {}),
+      },
+    },
+    needsUs: { query: client ? { client } : {} },
+  } as const;
+}

@@ -17,7 +17,8 @@
     "test": "pnpm -r test",
     "check": "pnpm lint && pnpm lint:deps && pnpm typecheck && pnpm test",
     "db:up": "docker compose up -d --wait postgres",
-    "db:seed": "pnpm --filter @countersign/db run db:seed"
+    "db:seed": "pnpm --filter @countersign/db run db:seed",
+    "size:web": "node --test scripts/web-size.test.mjs && node scripts/web-size.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.13",

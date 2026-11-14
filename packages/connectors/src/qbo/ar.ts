@@ -398,6 +398,9 @@ function addNoteTool(clientFor: ClientFor): ToolDefinition {
     description:
       "Add a dated line to a QuickBooks invoice's private note (only people in the company see it). Nothing else on the invoice changes.",
     verb: "update",
+    // R5 DECISION: none for now. It appends to the private note, so running it again
+    // doesn't put the old note back; a tool that sets the note would make it `restore`.
+    undo: { kind: "none" },
     summary: "Added a note to invoice {{docNumber}}",
     display: addNoteDisplay,
     input: z.object({

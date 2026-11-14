@@ -1,0 +1,202 @@
+// The texting sign-up page's words (docs/plan.md §1.98), in each portal language. Kept here,
+// in the page's own chunk, rather than in the app's catalogs: only someone opening a sign-up link
+// needs them, and the catalogs are part of every visit's first load (scripts/web-size.mjs).
+// REVIEW: the translations need a fluent speaker (§1.18).
+import type { Locale } from "@countersign/core";
+
+const en = {
+  footer: "Sent through Mezonas.",
+  terms: "Text message terms",
+  privacy: "Privacy",
+  goneTitle: "This link doesn't work",
+  gone: "It has expired or doesn't exist. Ask the business for a new one.",
+  doneTitle: "You're signed up",
+  doneSent: "We sent a text from {client} to confirm.",
+  donePending: "Texts from {client} start once its number is ready.",
+  stopAnyTime: "Reply STOP to any text to stop them.",
+  declinedTitle: "We won't ask again",
+  declined: "{client} won't ask you about texts again. Email keeps working.",
+  already: "You're already signed up for texts from {client}.",
+  title: "Get texts from {client}",
+  declineTitle: "Stop asking me about texts from {client}?",
+  declineHelp: "You won't get another invitation. Email keeps working.",
+  declineConfirm: "Don't ask me again",
+  declineBack: "I'd like texts after all",
+  eyebrow: "Text messages",
+  introNamed:
+    "Hi {name}, {client} would like to text you about your work together: quick questions, updates and alerts.",
+  intro:
+    "{client} would like to text you about your work together: quick questions, updates and alerts.",
+  optional: "Texting is your choice. Nothing else depends on it.",
+  name: "Your name",
+  phone: "Your mobile number",
+  phoneHint: "US or Canadian, for example (512) 555-0177.",
+  submit: "Text me",
+  no: "Don't ask me again",
+} as const;
+
+export type SignupKey = keyof typeof en;
+
+export const SIGNUP_WORDS: Record<Locale, Record<SignupKey, string>> = {
+  en,
+  es: {
+    footer: "Enviado a través de Mezonas.",
+    terms: "Términos de mensajes de texto",
+    privacy: "Privacidad",
+    goneTitle: "Este enlace no funciona",
+    gone: "Venció o no existe. Pida uno nuevo a la empresa.",
+    doneTitle: "Ya está registrado",
+    doneSent: "Le enviamos un mensaje de {client} para confirmar.",
+    donePending: "Los mensajes de {client} empezarán cuando su número esté listo.",
+    stopAnyTime: "Responda STOP a cualquier mensaje para dejar de recibirlos.",
+    declinedTitle: "No volveremos a preguntar",
+    declined:
+      "{client} no volverá a preguntarle por mensajes de texto. El correo sigue funcionando.",
+    already: "Ya está registrado para recibir mensajes de {client}.",
+    title: "Reciba mensajes de texto de {client}",
+    declineTitle: "¿Dejar de preguntarme por mensajes de {client}?",
+    declineHelp: "No recibirá otra invitación. El correo sigue funcionando.",
+    declineConfirm: "No volver a preguntarme",
+    declineBack: "Prefiero recibir mensajes",
+    eyebrow: "Mensajes de texto",
+    introNamed:
+      "Hola, {name}: {client} quiere enviarle mensajes de texto sobre su trabajo juntos: preguntas rápidas, novedades y avisos.",
+    intro:
+      "{client} quiere enviarle mensajes de texto sobre su trabajo juntos: preguntas rápidas, novedades y avisos.",
+    optional: "Los mensajes de texto son opcionales. Nada más depende de ello.",
+    name: "Su nombre",
+    phone: "Su número de celular",
+    phoneHint: "De EE. UU. o Canadá, por ejemplo (512) 555-0177.",
+    submit: "Envíenme mensajes",
+    no: "No volver a preguntarme",
+  },
+  fr: {
+    footer: "Envoyé via Mezonas.",
+    terms: "Conditions des SMS",
+    privacy: "Confidentialité",
+    goneTitle: "Ce lien ne fonctionne pas",
+    gone: "Il a expiré ou n'existe pas. Demandez-en un nouveau à l'entreprise.",
+    doneTitle: "Vous êtes inscrit",
+    doneSent: "Nous vous avons envoyé un SMS de {client} pour confirmer.",
+    donePending: "Les SMS de {client} commenceront dès que son numéro sera prêt.",
+    stopAnyTime: "Répondez STOP à n'importe quel SMS pour les arrêter.",
+    declinedTitle: "Nous ne vous le demanderons plus",
+    declined:
+      "{client} ne vous demandera plus de recevoir des SMS. L'e-mail continue de fonctionner.",
+    already: "Vous êtes déjà inscrit aux SMS de {client}.",
+    title: "Recevoir des SMS de {client}",
+    declineTitle: "Ne plus me proposer les SMS de {client} ?",
+    declineHelp: "Vous ne recevrez plus d'invitation. L'e-mail continue de fonctionner.",
+    declineConfirm: "Ne plus me demander",
+    declineBack: "Finalement, je veux bien des SMS",
+    eyebrow: "SMS",
+    introNamed:
+      "Bonjour {name}, {client} souhaite vous envoyer des SMS sur votre travail ensemble : questions rapides, nouvelles et alertes.",
+    intro:
+      "{client} souhaite vous envoyer des SMS sur votre travail ensemble : questions rapides, nouvelles et alertes.",
+    optional: "Les SMS sont facultatifs. Rien d'autre n'en dépend.",
+    name: "Votre nom",
+    phone: "Votre numéro de mobile",
+    phoneHint: "Des États-Unis ou du Canada, par exemple (512) 555-0177.",
+    submit: "Envoyez-moi des SMS",
+    no: "Ne plus me demander",
+  },
+  "pt-BR": {
+    footer: "Enviado pela Mezonas.",
+    terms: "Termos de mensagens de texto",
+    privacy: "Privacidade",
+    goneTitle: "Este link não funciona",
+    gone: "Ele expirou ou não existe. Peça um novo à empresa.",
+    doneTitle: "Você está inscrito",
+    doneSent: "Enviamos uma mensagem de {client} para confirmar.",
+    donePending: "As mensagens de {client} começam quando o número estiver pronto.",
+    stopAnyTime: "Responda STOP a qualquer mensagem para parar de recebê-las.",
+    declinedTitle: "Não vamos perguntar de novo",
+    declined:
+      "{client} não vai mais perguntar sobre mensagens de texto. O e-mail continua funcionando.",
+    already: "Você já está inscrito nas mensagens de {client}.",
+    title: "Receba mensagens de texto de {client}",
+    declineTitle: "Parar de me perguntar sobre mensagens de {client}?",
+    declineHelp: "Você não receberá outro convite. O e-mail continua funcionando.",
+    declineConfirm: "Não me pergunte de novo",
+    declineBack: "Quero receber mensagens",
+    eyebrow: "Mensagens de texto",
+    introNamed:
+      "Olá, {name}, {client} gostaria de enviar mensagens de texto sobre o trabalho de vocês: perguntas rápidas, novidades e alertas.",
+    intro:
+      "{client} gostaria de enviar mensagens de texto sobre o trabalho de vocês: perguntas rápidas, novidades e alertas.",
+    optional: "Mensagens de texto são opcionais. Nada mais depende disso.",
+    name: "Seu nome",
+    phone: "Seu número de celular",
+    phoneHint: "Dos EUA ou do Canadá, por exemplo (512) 555-0177.",
+    submit: "Envie-me mensagens",
+    no: "Não me pergunte de novo",
+  },
+  it: {
+    footer: "Inviato tramite Mezonas.",
+    terms: "Termini degli SMS",
+    privacy: "Privacy",
+    goneTitle: "Questo link non funziona",
+    gone: "È scaduto o non esiste. Chiedine uno nuovo all'azienda.",
+    doneTitle: "Sei iscritto",
+    doneSent: "Ti abbiamo inviato un SMS di {client} per conferma.",
+    donePending: "Gli SMS di {client} inizieranno quando il suo numero sarà pronto.",
+    stopAnyTime: "Rispondi STOP a qualsiasi SMS per non riceverne più.",
+    declinedTitle: "Non te lo chiederemo più",
+    declined: "{client} non ti chiederà più degli SMS. L'email continua a funzionare.",
+    already: "Sei già iscritto agli SMS di {client}.",
+    title: "Ricevi SMS da {client}",
+    declineTitle: "Non chiedermi più degli SMS di {client}?",
+    declineHelp: "Non riceverai altri inviti. L'email continua a funzionare.",
+    declineConfirm: "Non chiedermelo più",
+    declineBack: "Preferisco ricevere SMS",
+    eyebrow: "SMS",
+    introNamed:
+      "Ciao {name}, {client} vorrebbe inviarti SMS sul vostro lavoro insieme: domande veloci, aggiornamenti e avvisi.",
+    intro:
+      "{client} vorrebbe inviarti SMS sul vostro lavoro insieme: domande veloci, aggiornamenti e avvisi.",
+    optional: "Gli SMS sono facoltativi. Non dipende nient'altro da questo.",
+    name: "Il tuo nome",
+    phone: "Il tuo numero di cellulare",
+    phoneHint: "Degli Stati Uniti o del Canada, per esempio (512) 555-0177.",
+    submit: "Inviami SMS",
+    no: "Non chiedermelo più",
+  },
+  de: {
+    footer: "Gesendet über Mezonas.",
+    terms: "SMS-Bedingungen",
+    privacy: "Datenschutz",
+    goneTitle: "Dieser Link funktioniert nicht",
+    gone: "Er ist abgelaufen oder existiert nicht. Bitten Sie das Unternehmen um einen neuen.",
+    doneTitle: "Sie sind angemeldet",
+    doneSent: "Wir haben Ihnen zur Bestätigung eine SMS von {client} gesendet.",
+    donePending: "SMS von {client} beginnen, sobald die Nummer bereit ist.",
+    stopAnyTime: "Antworten Sie auf eine SMS mit STOP, um sie zu beenden.",
+    declinedTitle: "Wir fragen nicht mehr",
+    declined: "{client} fragt Sie nicht mehr nach SMS. E-Mail funktioniert weiter.",
+    already: "Sie sind bereits für SMS von {client} angemeldet.",
+    title: "SMS von {client} erhalten",
+    declineTitle: "Nicht mehr nach SMS von {client} fragen?",
+    declineHelp: "Sie erhalten keine weitere Einladung. E-Mail funktioniert weiter.",
+    declineConfirm: "Nicht mehr fragen",
+    declineBack: "Doch lieber SMS",
+    eyebrow: "SMS",
+    introNamed:
+      "Hallo {name}, {client} möchte Ihnen SMS zu Ihrer Zusammenarbeit senden: kurze Fragen, Neuigkeiten und Hinweise.",
+    intro:
+      "{client} möchte Ihnen SMS zu Ihrer Zusammenarbeit senden: kurze Fragen, Neuigkeiten und Hinweise.",
+    optional: "SMS sind freiwillig. Nichts anderes hängt davon ab.",
+    name: "Ihr Name",
+    phone: "Ihre Mobilnummer",
+    phoneHint: "Aus den USA oder Kanada, zum Beispiel (512) 555-0177.",
+    submit: "SMS an mich senden",
+    no: "Nicht mehr fragen",
+  },
+};
+
+/** The words in this language, with `{name}` placeholders filled. */
+export function signupWords(locale: Locale) {
+  const words = SIGNUP_WORDS[locale] ?? en;
+  return (key: SignupKey, vars: Record<string, string> = {}): string =>
+    words[key].replace(/\{(\w+)\}/g, (m, v: string) => vars[v] ?? m);
+}

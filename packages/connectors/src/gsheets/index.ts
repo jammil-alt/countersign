@@ -347,6 +347,40 @@ export const SheetsUpdateBefore = z.object({
 });
 type SheetsUpdateBefore = z.infer<typeof SheetsUpdateBefore>;
 
+/**
+ * R5: the update that puts back the cells a range update changed: the same tab and cells, each
+ * cell it wrote back to what it held before ("" for one that was empty), each cell it kept
+ * (null) kept again. Null when a cell can't be written back as it was.
+ */
+// DECISION: a cell that held a formula (or text that reads as one) can't be put back, since
+// updates write text as text (RAW, `writtenCell`): such an undo is refused for a person to do.
+export function sheetsRestoreInput(
+  input: z.output<typeof SheetsUpdateInput>,
+  before: SheetsUpdateBefore | null,
+): z.input<typeof SheetsUpdateInput> | null {
+  if (!before) return null;
+  const values: (string | number | boolean | null)[][] = [];
+  for (const [r, row] of input.values.entries()) {
+    const out: (string | number | boolean | null)[] = [];
+    for (const [c, wrote] of row.entries()) {
+      if (wrote === null) {
+        out.push(null);
+        continue;
+      }
+      const was = before.values[r]?.[c] ?? null;
+      if (was !== null && writtenCell(was) !== was) return null;
+      out.push(was ?? "");
+    }
+    values.push(out);
+  }
+  return {
+    spreadsheetId: input.spreadsheetId,
+    sheet: before.sheet.title,
+    range: before.range,
+    values,
+  };
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────────────────────────
 
 /** The marker for an action's appended rows: a hash of its key. */
@@ -846,6 +880,9 @@ export function createGsheetsConnector(options: GsheetsOptions = {}): GsheetsCon
         description:
           "Add rows at the end of a tab in a Google Sheet the client picked, after the last row with data. Each row is a list of cells from column A: text, numbers, true/false or null. Text is written as text: nothing becomes a formula.",
         verb: "create",
+        // R5 DECISION: none for now. Clearing the appended cells with range.update would reverse
+        // it, but that maps the output's range to an input: a follow-up (docs/plan.md §9).
+        undo: { kind: "none" },
         summary: "Added {{rows}} row(s) to Google Sheets at {{range}}",
         input: SheetsAppendInput,
         output: SheetsAppendOutput,
@@ -951,11 +988,15 @@ export function createGsheetsConnector(options: GsheetsOptions = {}): GsheetsCon
         description:
           'Change cells in a Google Sheet the client picked: a tab (default the first), a range with both rows such as B2:C3, and the new values in exactly that shape (null keeps a cell, "" empties it). Refused if the cells changed since the change was proposed. Text is written as text: nothing becomes a formula.',
         verb: "update",
+        // R5: the before state is written back with this tool, if the record hasn't changed since.
+        undo: { kind: "restore" },
         summary: "Changed {{range}} in Google Sheets",
         input: SheetsUpdateInput,
         output: SheetsUpdateOutput,
         beforeSchema: SheetsUpdateBefore,
         before: updateBefore,
+        // R5: the before state names the tab as an object and the cells as read (sheetsRestoreInput).
+        undoInput: ({ input, before }) => sheetsRestoreInput(input, before),
         async run(input, ctx: WriteContext, now) {
           pickedSheet(configOf(ctx), input.spreadsheetId);
           if (!now) throw new SheetsApiError(500, "the cells were not read before writing", false);

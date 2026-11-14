@@ -176,6 +176,39 @@ describe("portal runs", () => {
     expect(screen.getByTestId(`portal-run-row-${RUN_A}`)).toBeInTheDocument();
   });
 
+  it("sorts by a column head, and turns the order round on a second pick", async () => {
+    setup();
+    const table = await screen.findByTestId("portal-runs");
+    const order = () =>
+      within(table)
+        .getAllByTestId(/^portal-run-row-/)
+        .map((r) => r.getAttribute("data-testid"));
+    // Newest first until a head is picked; both started together, so as the API sent them.
+    expect(order()).toEqual([`portal-run-row-${RUN_A}`, `portal-run-row-${RUN_B}`]);
+    const status = screen.getByTestId("portal-runs-sort-status");
+    expect(status.closest("th")).toHaveAttribute("aria-sort", "none");
+
+    // Words go A to Z first: "Done" before "Waiting on you".
+    await userEvent.click(status);
+    expect(status.closest("th")).toHaveAttribute("aria-sort", "ascending");
+    expect(order()).toEqual([`portal-run-row-${RUN_B}`, `portal-run-row-${RUN_A}`]);
+    await userEvent.click(status);
+    expect(status.closest("th")).toHaveAttribute("aria-sort", "descending");
+    expect(order()).toEqual([`portal-run-row-${RUN_A}`, `portal-run-row-${RUN_B}`]);
+  });
+
+  it("opens a run from anywhere on its row", async () => {
+    setup();
+    const row = await screen.findByTestId(`portal-run-row-${RUN_B}`);
+    // The run's link stays the way in for keyboards; a click on the agent's cell opens it too.
+    expect(within(row).getByTestId(`portal-run-${RUN_B}-open`)).toHaveAttribute(
+      "href",
+      `/runs/${RUN_B}`,
+    );
+    await userEvent.click(within(row).getByText("Pia"));
+    await waitFor(() => expect(screen.queryByTestId("portal-runs-page")).toBeNull());
+  });
+
   it("answers a question in plain words as the list's filter, shown as chips", async () => {
     const { queries, asks } = setup();
     await screen.findByTestId("portal-runs");
@@ -187,5 +220,58 @@ describe("portal runs", () => {
     await waitFor(() => expect(queries.at(-1)?.get("statuses")).toBe("succeeded"));
     await userEvent.click(screen.getByTestId("portal-runs-ask-clear"));
     expect(screen.queryByTestId("portal-runs-chip")).not.toBeInTheDocument();
+  });
+});
+
+// Review of #259: a filter of one agent's list keeps that agent's rows, dimmed, while a status
+// loads; another agent's rows never show under a filter (docs/plan.md §1.91, 5).
+describe("the runs list's kept rows", () => {
+  it("never shows the last agent's rows after picking another agent and then a status", async () => {
+    const OTHER = "00000000-0000-4000-8000-00000000b002";
+    const RUN_X = "00000000-0000-4000-8000-0000000a0001";
+    const RUN_Y = "00000000-0000-4000-8000-0000000a0002";
+    const runOf = (id: string, agent: string, name: string) => ({
+      ...run(id, "succeeded"),
+      service: { id: agent, name },
+    });
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/overview": () => ({
+        client: { id: DEMO, name: "Demo client" },
+        services: [
+          { id: SVC, name: "Pia", description: null, status: "active" },
+          { id: OTHER, name: "Cole", description: null, status: "active" },
+        ],
+        needsYou: { inbox: 0 },
+        recentRuns: [],
+      }),
+      "GET /api/runs": ({ url }) => {
+        const agents = url.searchParams.get("agents");
+        // Held: the status filter on the second agent never answers in this test.
+        if (url.searchParams.get("statuses")) return new Promise(() => {});
+        if (agents === OTHER) return { runs: [runOf(RUN_Y, OTHER, "Cole")] };
+        return { runs: [runOf(RUN_X, SVC, "Pia")] };
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={["/runs"]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId(`portal-run-row-${RUN_X}`)).toBeInTheDocument();
+    // Pick the other agent: its rows, never the first agent's.
+    await screen.findByRole("option", { name: "Cole" });
+    await userEvent.selectOptions(screen.getByTestId("portal-runs-agent"), OTHER);
+    expect(await screen.findByTestId(`portal-run-row-${RUN_Y}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`portal-run-row-${RUN_X}`)).toBeNull();
+    // A status while the answer is held: the second agent's rows stay, dimmed; never the first's.
+    await userEvent.click(screen.getByTestId("portal-runs-filter-done"));
+    await waitFor(() =>
+      expect(screen.getByTestId("portal-runs-results")).toHaveAttribute("aria-busy", "true"),
+    );
+    expect(screen.getByTestId(`portal-run-row-${RUN_Y}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`portal-run-row-${RUN_X}`)).toBeNull();
   });
 });

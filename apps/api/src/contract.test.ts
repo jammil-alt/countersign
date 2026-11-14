@@ -26,7 +26,7 @@ describe("route contract (static)", () => {
     expect(checkRouteContract(routes)).toEqual([]);
   });
 
-  it("lets only a person's own authenticator setup show a secret, once (§1.83)", () => {
+  it("lets only a person's own authenticator setup show a secret, once (§1.99)", () => {
     expect(ROUTES.filter(([, r]) => r.secretShownOnce?.length).map(([name]) => name)).toEqual([
       "secondFactorSetup",
     ]);

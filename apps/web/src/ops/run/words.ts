@@ -8,7 +8,9 @@ import {
   type RunWait,
   runState,
 } from "@countersign/core";
+import { shortTime } from "../../runs/format";
 import { qualifiedToolLabel } from "../../runs/labels";
+import type { Tone } from "../../ui/primitives";
 import { type ChipState, runChipState } from "../../ui/status";
 
 /** "under an hour", "14 h", "3 days": how long since `iso`, at `now`. */
@@ -148,6 +150,22 @@ export function oversightLine(d: Pick<OversightDecisionView, "action" | "cause">
   return `${OVERSIGHT_ACTION_WORDS[d.action]} ${OVERSIGHT_CAUSE_WORDS[d.cause]}`;
 }
 
+// R6/R8 (ARCHITECTURE §10.14 "Agents and their owner"): the oversight is the agent's owner, the AI
+// that watches every step and fixes within limits; the run view says what it did in its words.
+export const OWNER_ACTION_WORDS: Record<OversightDecisionView["action"], string> = {
+  continue: "Let it go on",
+  retry: "Tried the step again",
+  retry_with: "Corrected the input and tried again",
+  ask: "Asked the lead",
+  stop: "Stopped the run",
+};
+
+/** "The owner corrected the input and tried again after a failed step". */
+export function ownerLine(d: Pick<OversightDecisionView, "action" | "cause">): string {
+  const what = OWNER_ACTION_WORDS[d.action];
+  return `The owner ${what.charAt(0).toLowerCase()}${what.slice(1)} ${OVERSIGHT_CAUSE_WORDS[d.cause]}`;
+}
+
 /** The run's error object's parts (`{ reason, nodeId, key }`, older runs `{ code, message }`). */
 export function runErrorParts(error: unknown): {
   reason: string | null;
@@ -188,4 +206,32 @@ export function errorGroupLabel(key: string): string {
     ? qualifiedToolLabel(where)
     : (ERROR_WHERE_WORDS[where] ?? where.replace(/[_-]/g, " "));
   return `${place} · ${code}`;
+}
+
+/** A change to a client's tool, by its state: "Needs approval", "Approved", "Done · 9:02". */
+export function actionBadge(
+  a: { status: string; executedAt: string | null },
+  testRun: boolean,
+): { label: string; tone: Tone } {
+  switch (a.status) {
+    case "proposed":
+      return testRun
+        ? { label: "Would have done", tone: "neutral" }
+        : { label: "Needs approval", tone: "warning" };
+    case "approved":
+    case "executing":
+      // A person signed it: copper marks a person's touch.
+      return { label: "Approved", tone: "person" };
+    case "done":
+      return {
+        label: a.executedAt ? `Done · ${shortTime(a.executedAt)}` : "Done",
+        tone: "positive",
+      };
+    case "rejected":
+      return { label: "Rejected", tone: "neutral" };
+    case "failed":
+      return { label: "Failed", tone: "risk" };
+    default:
+      return { label: a.status, tone: "neutral" };
+  }
 }

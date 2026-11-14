@@ -7,15 +7,28 @@
 // right: the Builder conversation (BuilderPanel) or the selected step. Steps picked with "Select
 // steps" can be saved as an automation. Loaded lazily inside the /ops chunk, so its drag-and-drop
 // code is fetched only when an operator opens a workflow.
+// R8 (docs/plan.md §1.86, §9; ARCHITECTURE §10.14): it edits v4 processes. A stored v3 version
+// opens converted (`readProcessBundle`, every id kept) and the next save writes schemaVersion 4 as
+// a new version; the stored one is never edited (invariant 3).
 import {
   type AgentBundle,
-  AgentBundle as AgentBundleSchema,
+  type AnyAgentBundle,
+  AnyAgentBundle as AnyAgentBundleSchema,
+  agentSkillEntry,
+  type BuilderCatalog,
   canonicalJson,
+  effectiveModel,
+  lookupSkill,
+  type ProcessAgentBundle,
   parseSkillRef,
+  providerModelName,
   Slug,
+  skillKind,
   type TriggerOn,
-  type ValidationError,
-  type Workflow,
+  type TypingContext,
+  toolLookup,
+  toolUsesModel,
+  uuidv7,
 } from "@countersign/core";
 import {
   DndContext,
@@ -35,7 +48,8 @@ import { useApi } from "../../api/useApi";
 import { HeaderSwitcher } from "../../shell/HeaderSwitcher";
 import { AgentBadge } from "../../ui/badges";
 import { Icon } from "../../ui/icons";
-import { Badge, Button, buttonClass, cx, ErrorNotice, Loading } from "../../ui/primitives";
+import { Badge, Button, buttonClass, cx, ErrorNotice } from "../../ui/primitives";
+import { Skeleton, SkeletonBlock } from "../../ui/skeleton";
 import { slugify } from "../agents/definition-form";
 import {
   JSON_INPUT_PROPS,
@@ -57,12 +71,23 @@ import {
   TextArea,
   useAction,
 } from "../agents/ui";
-import { KIND_LABEL, type StepLabels } from "../workflow/describe";
+import { useOpsClients } from "../OpsLayout";
+import { PROCESS_KIND_LABEL, type StepLabels } from "../workflow/describe";
 import { BuilderPanel, SaveAsAutomation, useBuilderSession } from "./BuilderPanel";
-import { Canvas, collision, DragCard, type DragData, Palette, resolveDrop } from "./Canvas";
+import {
+  Canvas,
+  collision,
+  DragCard,
+  type DragData,
+  Palette,
+  resolveDrop,
+  triggerKey,
+} from "./Canvas";
 import {
   type BuilderData,
+  type BuilderProblem,
   boundMatrices,
+  catalogSkillKind,
   connectorName,
   filterSections,
   paletteConnectors,
@@ -70,12 +95,18 @@ import {
   TESTKIT,
   toolConnector,
   typingContext,
-  validateLikeServer,
+  validateProcessesLikeServer,
+  writeLabelOf,
 } from "./catalog";
+import { FixDialog, type FixRequest } from "./FixDialog";
 import { EventOptions, SmallInput, SmallSelect } from "./fields";
-import { type FocusRequest, Inspector, type Member, type Selection } from "./Inspector";
+// Hand off (owner, 2026-11-11): the client's agents a hand-off step can start.
+import { handoffNames, useHandoffAgents } from "./handoff";
+import { type FocusRequest, Inspector, type Selection } from "./Inspector";
 import {
   type ApprovalEnv,
+  addActionAfter,
+  addTrigger,
   addWorkflow,
   allowStep,
   type ContainerId,
@@ -83,33 +114,53 @@ import {
   createStep,
   customizedSteps,
   editWorkflow,
-  forkOfBranch,
   getContainer,
   type History,
+  holdsV3,
+  ifOfBranch,
   insertStep,
   locate,
   moveStep,
   type PaletteItem,
+  type Process,
   ROOT,
+  readProcessBundle,
   redo,
   removeStep,
+  removeTrigger,
   setTrigger,
   startHistory,
   undo,
   updateStep,
   workflowCounts,
 } from "./model";
+import {
+  addRouteAfter,
+  approvalRouteNames,
+  plainOutcomeProblem,
+  testRunApprovalNote,
+} from "./outcomes";
+import { type Member, type People, personName } from "./people";
+import { type ProblemLine, problemLines, problemPlace, readableErrors } from "./problems";
+// Reshape data (2026-11-11)
+import { addReshapeBefore, addReshapeThenAction, newReshapeStep } from "./reshape";
+import { useClientScriptTools } from "./scripts";
+import { applySkillMove } from "./skill-move";
 
 type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
 
 /** The side panel's tabs: the steps to add, the Builder conversation, the selected step. */
 type Rail = "add" | "builder" | "step";
 
+/** Whether the side panel is folded, per viewer (a convenience: open when unknown). */
+const RAIL_KEY = "mezonas.builder.panel";
+
 export interface WorkflowBuilderProps {
   agent: AgentSummary;
   /** The version the builder opens: the agent's latest, draft or live. */
   from: VersionDetail;
-  bundle: AgentBundle;
+  /** That version's bundle as stored: v3 workflows, v4 processes, or both. */
+  bundle: AgentBundle | AnyAgentBundle;
   /** The workflow slug from the URL. */
   workflow: string;
   /** The agent page's URL. */
@@ -124,8 +175,14 @@ export interface WorkflowBuilderProps {
 }
 
 export default function WorkflowBuilder(props: WorkflowBuilderProps) {
-  const catalog = useApi(apiRoutes.opsBuilderCatalog, { params: { id: props.agent.id } });
-  const events = useApi(apiRoutes.opsEventCatalog);
+  const catalog = useApi(apiRoutes.opsBuilderCatalog, {
+    params: { id: props.agent.id },
+    life: "catalog",
+  });
+  // Skill model (2026-11-10): skill versions a step moved to in this session, so the builder
+  // types the step with the version it now names (the server resolves it the same way).
+  const [moved, setMoved] = useState<BuilderCatalog["skills"]>([]);
+  const events = useApi(apiRoutes.opsEventCatalog, { life: "catalog" });
   const templateVersion = useApi(
     apiRoutes.opsAgentVersion,
     props.agent.kind === "client" && props.agent.templateId && props.from.basedOnTemplateVersionId
@@ -134,9 +191,25 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
   );
   const template = useMemo(() => {
     const raw = templateVersion.data?.version.bundle;
-    const parsed = raw === undefined ? null : AgentBundleSchema.safeParse(raw);
+    const parsed = raw === undefined ? null : AnyAgentBundleSchema.safeParse(raw);
     return parsed?.success ? parsed.data : null;
   }, [templateVersion.data]);
+  // R8: who a step asks or tells, from the client's People list (with their hours).
+  const hours = useApi(
+    apiRoutes.opsClientHours,
+    props.agent.kind === "client" && props.agent.tenantId
+      ? { params: { id: props.agent.tenantId } }
+      : null,
+  );
+  const scripts = useClientScriptTools(props.agent); // Wave 4: the client's recorded scripts
+  const handoff = useHandoffAgents(props.agent);
+  const people = useMemo<People>(
+    () => ({
+      members: props.members ?? [],
+      people: (hours.data?.people ?? []).map((p) => ({ id: p.id, name: p.name, kind: p.kind })),
+    }),
+    [props.members, hours.data],
+  );
 
   const failed = catalog.error ?? events.error;
   if (failed) {
@@ -155,15 +228,32 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
   if (!catalog.data || !events.data) {
     return (
       <Frame {...props}>
-        <Loading label="Loading skills, tools and events…" />
+        <Skeleton label="Loading skills, tools and events…" testId="builder-skeleton">
+          <SkeletonBlock height={480} />
+        </Skeleton>
       </Frame>
     );
   }
   return (
     <BuilderBody
       {...props}
-      data={{ catalog: catalog.data, events: events.data.events }}
+      data={{
+        catalog: {
+          ...catalog.data,
+          skills: [
+            ...catalog.data.skills.filter((s) => !moved.some((m) => m.ref === s.ref)),
+            ...moved,
+          ],
+        },
+        events: events.data.events,
+        scripts,
+        handoff,
+      }}
+      onCatalogSkill={(entry) =>
+        setMoved((list) => [...list.filter((m) => m.ref !== entry.ref), entry])
+      }
       template={template}
+      people={people}
     />
   );
 }
@@ -248,12 +338,20 @@ function writeDraft(agentId: string, draft: StoredDraft | null) {
   }
 }
 
-function restoredDraft(agentId: string, from: VersionDetail, bundle: AgentBundle) {
+/** The draft kept on this device, read as processes; null when it is the version it opened. */
+function restoredDraft(
+  agentId: string,
+  from: VersionDetail,
+  start: ProcessAgentBundle,
+  ctx: TypingContext,
+) {
   const stored = readDraft(agentId);
   if (!stored || stored.from !== from.id) return null;
-  const parsed = AgentBundleSchema.safeParse(stored.bundle);
-  if (!parsed.success || canonicalJson(parsed.data) === canonicalJson(bundle)) return null;
-  return { bundle: parsed.data, at: stored.at };
+  const parsed = AnyAgentBundleSchema.safeParse(stored.bundle);
+  if (!parsed.success) return null;
+  const bundle = readProcessBundle(parsed.data, ctx);
+  if (canonicalJson(bundle) === canonicalJson(start)) return null;
+  return { bundle, at: stored.at };
 }
 
 function clock(at: number): string {
@@ -270,21 +368,33 @@ interface Saved {
 }
 
 function BuilderBody(
-  props: WorkflowBuilderProps & { data: BuilderData; template: AgentBundle | null },
+  props: WorkflowBuilderProps & {
+    data: BuilderData;
+    template: AnyAgentBundle | null;
+    people: People;
+    /** Skill model (2026-11-10): a skill version a step moved to joins the builder's catalog. */
+    onCatalogSkill?(entry: BuilderCatalog["skills"][number]): void;
+  },
 ) {
-  const { agent, from, data, base, template } = props;
+  const { agent, from, data, base } = props;
   const navigate = useNavigate();
   const ctx = useMemo(() => typingContext(data), [data]);
-  const [restored] = useState(() => restoredDraft(agent.id, from, props.bundle));
-  const [history, setHistory] = useState<History>(() =>
-    startHistory(restored?.bundle ?? props.bundle),
+  // The version as the builder edits it: v3 workflows read as processes, every id kept. It is the
+  // starting point, not an edit: nothing is unsaved until the operator changes something.
+  const [start] = useState(() => readProcessBundle(props.bundle, ctx));
+  const opensV3 = holdsV3(props.bundle);
+  const template = useMemo(
+    () => (props.template ? readProcessBundle(props.template, ctx) : null),
+    [props.template, ctx],
   );
+  const [restored] = useState(() => restoredDraft(agent.id, from, start, ctx));
+  const [history, setHistory] = useState<History>(() => startHistory(restored?.bundle ?? start));
   const bundle = history.present;
   const [saved, setSaved] = useState<Saved>(() => ({
     id: from.id,
     version: from.version,
     status: from.status,
-    canon: canonicalJson(props.bundle),
+    canon: canonicalJson(start),
   }));
   const canon = useMemo(() => canonicalJson(bundle), [bundle]);
   const dirty = canon !== saved.canon;
@@ -306,6 +416,23 @@ function BuilderBody(
   // A template's connectors the operator chose to build with in this session.
   const [extraConnectors, setExtraConnectors] = useState<string[]>([]);
   const railRef = useRef<HTMLElement>(null);
+  // The side panel folds to a strip of icons, remembered per viewer in this browser; picking a
+  // step, a tab or "Add a step" opens it again.
+  const [railOpen, setRailOpenState] = useState(() => {
+    try {
+      return window.localStorage.getItem(RAIL_KEY) !== "closed";
+    } catch {
+      return true;
+    }
+  });
+  const setRailOpen = (open: boolean) => {
+    setRailOpenState(open);
+    try {
+      window.localStorage.setItem(RAIL_KEY, open ? "open" : "closed");
+    } catch {
+      // Storage blocked: it stays as chosen for this visit.
+    }
+  };
   // Top-level steps picked for "Save as automation"; null while not picking.
   const [checked, setChecked] = useState<Set<string> | null>(null);
   const [notice, setNotice] = useState<{
@@ -317,13 +444,22 @@ function BuilderBody(
           tone: "neutral",
           body: `Restored your unsaved changes from ${clock(restored.at)}.`,
         }
-      : null,
+      : opensV3
+        ? {
+            tone: "neutral",
+            body: `v${from.version} is stored in the older workflow format. It opens here as a process with every step as it was; your next save makes a new version in the new format, and v${from.version} stays as it is.`,
+          }
+        : null,
   );
   const action = useAction();
 
-  // Selecting a step or the trigger shows it in the rail.
+  // Selecting a step or the trigger shows it in the rail, opening the rail if it was folded.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setRailOpen only sets state.
   useEffect(() => {
-    if (selection) setRail("step");
+    if (selection) {
+      setRail("step");
+      setRailOpen(true);
+    }
   }, [selection]);
 
   const slug = props.workflow;
@@ -337,13 +473,16 @@ function BuilderBody(
    */
   const showRail = (next: Rail) => {
     setRail(next);
+    setRailOpen(true);
     const el = railRef.current;
     if (!el?.parentElement) return;
     const beside = el.getBoundingClientRect().left - el.parentElement.getBoundingClientRect().left;
     if (beside > 10) return;
     window.requestAnimationFrame(() => {
       el.scrollIntoView?.({ block: "start", behavior: "smooth" });
-      if (next === "step")
+      // Not when focus is already in the panel (a field clicked before this frame): the field
+      // keeps it, so what is typed there isn't lost.
+      if (next === "step" && !el.contains(document.activeElement))
         el.querySelector<HTMLElement>("[data-testid='builder-inspector']")?.focus({
           preventScroll: true,
         });
@@ -362,13 +501,13 @@ function BuilderBody(
   const targetText = useMemo(() => {
     if (!workflow || addTarget === ROOT) return "at the end";
     if (addTarget.startsWith("otherwise:")) {
-      const fork = forkOfBranch(workflow, addTarget.slice("otherwise:".length));
-      return fork ? `to “Otherwise” in ${fork.name || "the fork"}` : "at the end";
+      const branch = ifOfBranch(workflow, addTarget.slice("otherwise:".length));
+      return branch ? `to “Otherwise” in ${branch.name || "the if"}` : "at the end";
     }
     if (addTarget.startsWith("path:")) {
       const id = addTarget.slice("path:".length);
-      const fork = forkOfBranch(workflow, id);
-      const path = fork?.kind === "fork" ? fork.paths.find((p) => p.id === id) : undefined;
+      const branch = ifOfBranch(workflow, id);
+      const path = branch?.kind === "if" ? branch.paths.find((p) => p.id === id) : undefined;
       return path ? `to “${path.name}”` : "at the end";
     }
     const loop = locate(workflow, addTarget.slice("loop:".length))?.step;
@@ -376,11 +515,18 @@ function BuilderBody(
   }, [workflow, addTarget]);
 
   // ── Whose tools the palette offers ──
+  // DECISION (2.5): the frame's clients list (OpsLayout's `clients?view=names`) says whether the
+  // client is the Sandbox; the builder asks for its own only outside the frame (a screen test), or
+  // while the frame's is still on its way (the same request then, shared by the store).
+  const frameClients = useOpsClients();
+  const asks = agent.kind === "client" && !agent.testCopy;
   const clients = useApi(
     apiRoutes.opsClients,
-    agent.kind === "client" && !agent.testCopy ? { query: { view: "names" } } : null,
+    asks && frameClients === null ? { query: { view: "names" }, life: "catalog" } : null,
   );
-  const sandbox = clients.data?.clients.find((c) => c.id === agent.tenantId)?.sandbox === true;
+  const sandbox =
+    asks &&
+    (frameClients ?? clients.data?.clients)?.find((c) => c.id === agent.tenantId)?.sandbox === true;
   const connectors = useMemo(
     () =>
       paletteConnectors({
@@ -401,26 +547,69 @@ function BuilderBody(
         data.catalog.skills.find((s) => s.ref === ref || parseSkillRef(s.ref).id === ref)
           ?.definition.name,
       automation: (ref) => data.catalog.automations?.find((a) => a.ref === ref)?.name,
+      handoff: (to) => handoffNames(data, to),
       connector: (toolId) => {
         const c = toolConnector(toolId, data);
         return c ? connectorName(data, c) : undefined;
       },
+      changesClientTool: (toolId) => {
+        const tool = ctx.tools?.[toolId];
+        return tool ? tool.sideEffect === "external" : undefined;
+      },
+      // Skill model (2026-11-10): each skill step's kind, each write by where it writes.
+      skillKind: (ref) => catalogSkillKind(data, ref),
+      // Review: a read or a write on a tool that calls a model inside reads AI.
+      toolUsesModel: (toolId) => {
+        const tool = ctx.tools?.[toolId];
+        return tool ? toolUsesModel(tool) : undefined;
+      },
+      writeLabel: (toolId) => writeLabelOf(data, toolId),
+      stepModel: (step) => {
+        if (step.kind !== "skill") return undefined;
+        const def = lookupSkill(step.skill, ctx);
+        if (!def) return undefined;
+        const runs = effectiveModel({
+          skill: def,
+          agentModel: bundle.definition.model,
+          agentSkill: agentSkillEntry(bundle.definition, parseSkillRef(step.skill).id)?.model,
+          step: step.model ?? step.customize?.model,
+        });
+        return runs ? providerModelName(runs.model.id) : undefined;
+      },
       person: (id) => {
-        const m = props.members?.find((x) => x.userId === id);
-        return m ? (m.name ?? m.email) : undefined;
+        // A role reads as its own words ("client admin"); a person by their name.
+        if (["client_admin", "client_user", "operator", "lead"].includes(id)) return undefined;
+        return personName(props.people, id);
+      },
+      description: (step) => {
+        if (step.kind === "skill") {
+          return data.catalog.skills.find(
+            (s) => s.ref === step.skill || parseSkillRef(s.ref).id === step.skill,
+          )?.definition.description;
+        }
+        // v4: a read or a write by its tool (an action write has none: its kind says it).
+        if ((step.kind === "read" || step.kind === "write") && step.tool !== undefined) {
+          return data.catalog.tools.find((t) => t.id === step.tool)?.description;
+        }
+        if (step.kind === "process") {
+          return (
+            data.catalog.automations?.find((a) => a.ref === step.process)?.description ?? undefined
+          );
+        }
+        return undefined;
       },
     }),
-    [data, props.members],
+    [data, ctx, props.people, bundle],
   );
 
   // ── Edits ──
   const apply = useCallback(
-    (fn: (b: AgentBundle) => AgentBundle, key: string | null = null) =>
+    (fn: (b: ProcessAgentBundle) => ProcessAgentBundle, key: string | null = null) =>
       setHistory((h) => commit(h, fn(h.present), key)),
     [],
   );
   const edit = useCallback(
-    (fn: (w: Workflow) => Workflow, key: string | null = null) =>
+    (fn: (w: Process) => Process, key: string | null = null) =>
       apply((b) => editWorkflow(b, slug, fn), key),
     [apply, slug],
   );
@@ -428,8 +617,13 @@ function BuilderBody(
   const addItem = (item: PaletteItem, target?: { container: string; index: number }) => {
     if (!workflow) return;
     if (item.type === "trigger") {
-      edit((w) => setTrigger(w, item.on));
-      setSelection({ type: "trigger" });
+      // It replaces the trigger in the inspector, else the first: a trigger keeps its id.
+      const id =
+        selection?.type === "trigger" && workflow.triggers.some((t) => t.id === selection.id)
+          ? selection.id
+          : workflow.triggers[0]?.id;
+      edit((w) => setTrigger(w, item.on, id));
+      if (id) setSelection({ type: "trigger", id });
       setRail("step");
       return;
     }
@@ -462,11 +656,50 @@ function BuilderBody(
     () => (agent.kind === "client" ? boundMatrices(agent.bindings, props.connections ?? []) : {}),
     [agent, props.connections],
   );
-  const result = useMemo(
-    () => validateLikeServer(bundle, ctx, agent.kind === "client" ? { matrices } : undefined),
-    [bundle, ctx, matrices, agent.kind],
+  // While a stored v3 version is open unchanged, Publish sends that version as stored and the
+  // server validates it as v3, so the problem list and the Publish button read the stored bundle
+  // (core validates an all-v3 bundle exactly as `validateBundle` does). After the first edit they
+  // read the process the next save writes.
+  // DECISION (web, wave 3b): validate what Publish would send: the stored v3 bundle until the first
+  // edit, then the v4 process; the converted reading isn't shown as the version's own problems.
+  const unchangedV3 = opensV3 && !dirty && saved.id === from.id;
+  const result = useMemo(() => {
+    const r = validateProcessesLikeServer(unchangedV3 ? props.bundle : bundle, ctx, {
+      clientAgent: agent.kind === "client",
+      publish: agent.kind === "client" ? { matrices } : undefined,
+      handoff: data.handoff,
+    });
+    // Wave 5: a condition on how a step ended says what's wrong in the builder's words.
+    const plain = <
+      P extends {
+        workflow?: string | undefined;
+        stepId: string | null;
+        field: string;
+        code: string;
+        message: string;
+      },
+    >(
+      p: P,
+    ): P => {
+      const process = bundle.workflows.find((w) => w.slug === p.workflow)?.workflow;
+      return process ? { ...p, message: plainOutcomeProblem(process, p) } : p;
+    };
+    return { ...r, errors: r.errors.map(plain), warnings: r.warnings.map(plain) };
+  }, [unchangedV3, props.bundle, bundle, ctx, matrices, agent.kind, data.handoff]);
+  // Counted as the problems list shows them: one step's references to the same step are one.
+  const problemCount = useMemo(
+    () => problemLines(result.errors, bundle).length,
+    [result.errors, bundle],
   );
-  const workflowErrors = result.errors.filter((e) => e.workflow === slug);
+  // In plain words for the step panel and its fields; the list below groups them too.
+  const workflowErrors = useMemo(
+    () =>
+      readableErrors(
+        result.errors.filter((e) => e.workflow === slug),
+        bundle,
+      ),
+    [result.errors, slug, bundle],
+  );
   const env: ApprovalEnv = {
     ctx,
     agentKind: agent.kind,
@@ -528,15 +761,17 @@ function BuilderBody(
   };
 
   // ── Selecting what an error names ──
-  const showError = (e: ValidationError) => {
+  const showError = (e: BuilderProblem) => {
     if (e.workflow && e.workflow !== slug) {
       navigate(`${base}/workflows/${e.workflow}`);
       return;
     }
     if (!workflow || !e.stepId) return;
-    if (e.stepId === workflow.trigger.id) setSelection({ type: "trigger" });
+    const stepId = e.stepId;
+    if (workflow.triggers.some((t) => t.id === stepId))
+      setSelection({ type: "trigger", id: stepId });
     else {
-      const owner = locate(workflow, e.stepId)?.step ?? forkOfBranch(workflow, e.stepId);
+      const owner = locate(workflow, e.stepId)?.step ?? ifOfBranch(workflow, e.stepId);
       if (!owner) return;
       setSelection({ type: "step", id: owner.id });
     }
@@ -590,8 +825,19 @@ function BuilderBody(
     }
   };
 
+  // Publishing (the save before it included): the button says so at once and can't be pressed
+  // twice; nothing reads as published before the server says it is (1.8, invariant 8).
+  const [publishing, setPublishing] = useState(false);
   const onPublish = async () => {
     setNotice(null);
+    setPublishing(true);
+    try {
+      await publishLatest();
+    } finally {
+      setPublishing(false);
+    }
+  };
+  const publishLatest = async () => {
     const v = dirty ? await save() : saved;
     if (!v) return;
     const res = await action.call(apiRoutes.opsPublish, {
@@ -613,9 +859,37 @@ function BuilderBody(
   const session = useBuilderSession({
     agent,
     bundle,
+    read: (b) => readProcessBundle(b, ctx),
     ensureSaved: async () => (dirty ? await save() : saved),
     onDraft: (next) => apply(() => next),
   });
+  // ── Fix: a problem explained and a fix proposed by the Builder, in a dialog ──
+  const [fixing, setFixing] = useState<FixRequest | null>(null);
+  const workflowName = (s?: string) =>
+    bundle.workflows.find((w) => w.slug === (s ?? slug))?.name ?? "this workflow";
+  const fixLine = (line: ProblemLine) =>
+    setFixing({
+      error: line.error,
+      place: problemPlace(line.error, bundle, slug),
+      text: line.text,
+      raw: line.all.map((e) => e.message),
+      workflowName: workflowName(line.error.workflow),
+    });
+  /** From the step panel, whose errors are already in plain words: the raw ones match by place. */
+  const fixError = (e: BuilderProblem) => {
+    const raw = result.errors.filter(
+      (r) =>
+        r.workflow === slug && r.stepId === e.stepId && r.field === e.field && r.code === e.code,
+    );
+    setFixing({
+      error: raw[0] ?? e,
+      place: problemPlace(raw[0] ?? { ...e, workflow: slug }, bundle, slug),
+      text: e.message,
+      raw: raw.length ? raw.map((r) => r.message) : [e.message],
+      workflowName: workflowName(),
+    });
+  };
+
   const saveAutomation = async (name: string, automationSlug: string) => {
     if (!checked || !workflow) return false;
     // In the canvas's order, as the steps run.
@@ -634,7 +908,7 @@ function BuilderBody(
 
   const invalidReason = result.valid
     ? null
-    : `Fix ${plural(result.errors.length, "problem")} first: only a valid workflow can be test-run or published.`;
+    : `Fix ${plural(problemCount, "problem")} first: only a valid workflow can be test-run or published.`;
   const publishBlocked =
     invalidReason ?? (!dirty && saved.status === "live" ? "Nothing new to publish." : null);
 
@@ -645,7 +919,7 @@ function BuilderBody(
     counts
       ? [
           plural(counts.steps, "step"),
-          plural(counts.forks, "fork"),
+          `${counts.ifs} if${counts.ifs === 1 ? "" : "s"}`,
           `${counts.writes} ${counts.writes === 1 ? "changes a tool" : "change tools"}`,
           `${counts.needApproval} ${counts.needApproval === 1 ? "needs" : "need"} approval`,
         ].join(" · ")
@@ -677,7 +951,7 @@ function BuilderBody(
             <span data-testid="builder-counts">{subtitle}</span>
             {" · "}
             <span className={result.valid ? "text-positive" : "text-risk"}>
-              {result.valid ? "valid" : plural(result.errors.length, "problem")}
+              {result.valid ? "valid" : plural(problemCount, "problem")}
             </span>
           </>
         }
@@ -704,11 +978,15 @@ function BuilderBody(
               <Button
                 variant="primary"
                 data-testid="builder-publish"
-                disabled={publishBlocked !== null || action.busy}
+                disabled={publishBlocked !== null || action.busy || publishing}
                 title={publishBlocked ?? undefined}
                 onClick={onPublish}
               >
-                {dirty ? "Save and publish" : `Publish v${saved.version}`}
+                {publishing
+                  ? "Publishing…"
+                  : dirty
+                    ? "Save and publish"
+                    : `Publish v${saved.version}`}
               </Button>
             )}
           </>
@@ -729,7 +1007,7 @@ function BuilderBody(
                     data-testid="builder-discard-draft"
                     className="text-sm underline"
                     onClick={() => {
-                      setHistory(startHistory(props.bundle));
+                      setHistory(startHistory(start));
                       writeDraft(agent.id, null);
                       setDraftAt(null);
                       setNotice(null);
@@ -756,13 +1034,16 @@ function BuilderBody(
         </div>
       ) : null}
 
-      {panel === "test" && workflow && entry ? (
+      {panel === "test" && workflow?.triggers[0] && entry ? (
         <TestRunPanel
           agent={agent}
           workflowName={entry.name}
           slug={slug}
+          // DECISION: a test run starts from the first trigger's sample, as v3 had one trigger.
           sample={samplePayload(workflow, data.events)}
           eventType={triggerEventType(workflow)}
+          // Wave 5 review: routes on an approval go the no-approval way in a test run.
+          approvalNote={testRunApprovalNote(approvalRouteNames(workflow))}
           busy={action.busy}
           onClose={() => setPanel(null)}
           run={async (payload, clientId) => {
@@ -786,7 +1067,7 @@ function BuilderBody(
           if (d?.type === "palette") setActiveLabel({ title: d.item.title, kind: d.item.type });
           else if (workflow) {
             const s = locate(workflow, String(e.active.id))?.step;
-            if (s) setActiveLabel({ title: s.name, kind: KIND_LABEL[s.kind] });
+            if (s) setActiveLabel({ title: s.name, kind: PROCESS_KIND_LABEL[s.kind] });
           }
         }}
         onDragOver={(e) => setOverId(e.over ? String(e.over.id) : null)}
@@ -798,7 +1079,14 @@ function BuilderBody(
             below the canvas on narrow screens. The palette is the panel's "Add a step" tab, so it
             never covers the Builder or the step. */}
         <div className="@container -mx-4 -mb-8 mt-4 border-t border-line md:-mx-10 md:-mb-12">
-          <div className="grid grid-cols-1 @3xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div
+            className={cx(
+              "grid grid-cols-1",
+              railOpen
+                ? "@3xl:grid-cols-[minmax(0,1fr)_340px]"
+                : "@3xl:grid-cols-[minmax(0,1fr)_52px]",
+            )}
+          >
             <div className="min-w-0 bg-surface-subtle px-4 py-5 md:px-6">
               <WorkflowSwitcher
                 bundle={bundle}
@@ -883,22 +1171,36 @@ function BuilderBody(
                 </span>
               </div>
 
-              <Problems errors={result.errors} bundle={bundle} slug={slug} onShow={showError} />
+              <Problems
+                errors={result.errors}
+                bundle={bundle}
+                slug={slug}
+                onShow={showError}
+                onFix={fixLine}
+              />
+              <Advice warnings={result.warnings.filter((w) => w.workflow === slug)} />
 
               {workflow ? (
                 <Canvas
                   workflow={workflow}
-                  selectedId={selection?.type === "trigger" ? "trigger" : (selection?.id ?? null)}
+                  selectedId={
+                    selection?.type === "trigger"
+                      ? triggerKey(selection.id)
+                      : (selection?.id ?? null)
+                  }
                   env={env}
                   errors={workflowErrors}
                   customized={customized}
                   activeId={activeId}
                   overId={overId}
                   onSelect={(id) => {
-                    setSelection(id === "trigger" ? { type: "trigger" } : { type: "step", id });
+                    setSelection(
+                      id.startsWith("trigger:")
+                        ? { type: "trigger", id: id.slice("trigger:".length) }
+                        : { type: "step", id },
+                    );
                     showRail("step");
                   }}
-                  onDelete={remove}
                   labels={labels}
                   onAddAt={openPalette}
                   addTarget={rail === "add" ? addTarget : null}
@@ -922,10 +1224,57 @@ function BuilderBody(
             <aside
               ref={railRef}
               aria-label="Add a step, the Builder and the step"
-              className="flex scroll-mt-[var(--header-h)] flex-col border-t border-line bg-surface px-5 py-4 @3xl:sticky @3xl:top-header @3xl:h-[calc(100vh-var(--header-h))] @3xl:border-t-0 @3xl:border-l"
+              data-testid="builder-rail"
+              data-open={railOpen ? "true" : "false"}
+              className={cx(
+                "flex scroll-mt-[var(--header-h)] flex-col border-t border-line bg-surface @3xl:sticky @3xl:top-header @3xl:h-[calc(100vh-var(--header-h))] @3xl:border-t-0 @3xl:border-l",
+                railOpen ? "px-5 py-4" : "items-center gap-1 px-1.5 py-3 @max-3xl:flex-row",
+              )}
             >
+              {railOpen ? null : (
+                // Folded: an expand button, then each tab as an icon that opens the panel on it.
+                <>
+                  <button
+                    type="button"
+                    aria-label="Expand the side panel"
+                    aria-expanded="false"
+                    title="Expand"
+                    data-testid="builder-rail-expand"
+                    onClick={() => setRailOpen(true)}
+                    className="ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm text-ink-muted hover:text-ink"
+                  >
+                    <Icon name="sidebar" size={16} className="-scale-x-100" />
+                  </button>
+                  <span aria-hidden className="my-1 h-px w-6 bg-line @max-3xl:h-6 @max-3xl:w-px" />
+                  {(
+                    [
+                      ["add", "Add a step", "add"],
+                      ["builder", "Builder", "message"],
+                      ["step", selection ? "Step" : "Inspector", "settings"],
+                    ] as const
+                  ).map(([key, label, icon]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      aria-label={label}
+                      title={label}
+                      data-testid={`builder-rail-${key}-folded`}
+                      onClick={() => (key === "add" ? openPalette(addTarget) : showRail(key))}
+                      className={cx(
+                        "ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm",
+                        rail === key ? "text-slate" : "text-ink-muted hover:text-ink",
+                      )}
+                    >
+                      <Icon name={icon} size={16} />
+                    </button>
+                  ))}
+                </>
+              )}
               <div
-                className="mb-4 flex gap-1 border-b border-line"
+                className={cx(
+                  "mb-4 flex items-end gap-1 border-b border-line",
+                  !railOpen && "hidden",
+                )}
                 role="tablist"
                 aria-label="Side panel"
               >
@@ -942,7 +1291,7 @@ function BuilderBody(
                     role="tab"
                     aria-selected={rail === key}
                     data-testid={`builder-rail-${key}`}
-                    onClick={() => (key === "add" ? openPalette(addTarget) : setRail(key))}
+                    onClick={() => (key === "add" ? openPalette(addTarget) : showRail(key))}
                     className={cx(
                       "-mb-px border-b-2 px-3 py-2 text-sm",
                       rail === key
@@ -953,8 +1302,19 @@ function BuilderBody(
                     {label}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  aria-label="Collapse the side panel"
+                  aria-expanded="true"
+                  title="Collapse"
+                  data-testid="builder-rail-collapse"
+                  onClick={() => setRailOpen(false)}
+                  className="ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm mb-1 ml-auto text-ink-muted hover:text-ink"
+                >
+                  <Icon name="sidebar" size={16} className="-scale-x-100" />
+                </button>
               </div>
-              {rail === "add" ? (
+              {railOpen && rail === "add" ? (
                 <div
                   className="min-h-0 flex-1 overflow-y-auto"
                   data-testid="builder-rail-add-panel"
@@ -987,10 +1347,15 @@ function BuilderBody(
                   />
                 </div>
               ) : null}
-              <div className={cx("min-h-0 flex-1 overflow-y-auto", rail !== "builder" && "hidden")}>
+              <div
+                className={cx(
+                  "min-h-0 flex-1 overflow-y-auto",
+                  (!railOpen || rail !== "builder") && "hidden",
+                )}
+              >
                 <BuilderPanel session={session} />
               </div>
-              {workflow && rail === "step" ? (
+              {railOpen && workflow && rail === "step" ? (
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   <Inspector
                     workflow={workflow}
@@ -1001,18 +1366,85 @@ function BuilderBody(
                     env={env}
                     errors={workflowErrors}
                     template={template ? { bundle: template, workflow: templateWorkflow } : null}
-                    members={props.members ?? []}
+                    people={props.people}
                     focus={focus}
                     connectors={connectors}
                     onStep={(id, fn, key) => edit((w) => updateStep(w, id, fn), key)}
-                    onTrigger={(on: TriggerOn, key) => edit((w) => setTrigger(w, on), key)}
+                    onTrigger={(id, on: TriggerOn, key) => edit((w) => setTrigger(w, on, id), key)}
+                    onAddTrigger={(on) => {
+                      const id = uuidv7();
+                      edit((w) => addTrigger(w, on, () => id));
+                      setSelection({ type: "trigger", id });
+                    }}
+                    onRemoveTrigger={(id) => {
+                      edit((w) => removeTrigger(w, id));
+                      setSelection(null);
+                    }}
                     onDelete={remove}
+                    // Skill model (2026-11-10): "Move to vN", references remapped, one undo.
+                    agentId={agent.id}
+                    tenantId={agent.tenantId}
+                    onMoveSkill={(move) => {
+                      props.onCatalogSkill?.({
+                        ref: move.to,
+                        source: "pinned",
+                        version: move.version,
+                        definition: move.definition,
+                        kind: skillKind(move.definition, toolLookup(data.catalog.tools)),
+                        palette: false,
+                      });
+                      edit((w) => applySkillMove(w, move.stepId, move.to, move.remaps));
+                    }}
+                    // DECISION (wave 5, web): the step stays selected after "Add a route", so its
+                    // inspector says what was set; the new if waits on the canvas for its steps.
+                    onAddRoute={(id, option) =>
+                      edit((w) => addRouteAfter(w, id, option)?.process ?? w)
+                    }
+                    // Skill model (2026-11-10): the write a skill's output fits, selected once
+                    // added so its inspector shows the tool it will use.
+                    onAddAction={(id, fit) => {
+                      const newId = uuidv7();
+                      edit((w) => addActionAfter(w, id, fit, ctx, () => newId)?.process ?? w);
+                      setSelection({ type: "step", id: newId });
+                    }}
+                    // Reshape data (2026-11-11): a Reshape step before a step whose inputs can't
+                    // be filled, or between a skill and a write it fits in part; the agent gets
+                    // the skill in the same edit, and the new step opens with its mapping.
+                    onAddReshape={(at) => {
+                      const made = [uuidv7(), uuidv7()];
+                      apply((b) => {
+                        // The same ids however often the edit is applied.
+                        let n = 0;
+                        const ids = () => made[n++] ?? uuidv7();
+                        const next = editWorkflow(
+                          b,
+                          slug,
+                          (w) =>
+                            ("before" in at
+                              ? addReshapeBefore(w, at.before, ctx, ids)
+                              : addReshapeThenAction(w, at.after, at.action, ctx, ids)
+                            )?.process ?? w,
+                        );
+                        return allowStep(next, newReshapeStep(), ctx);
+                      });
+                      setSelection({ type: "step", id: made[0] as string });
+                    }}
+                    onProcess={(fn, key) => edit(fn, key)}
+                    onFix={fixError}
                   />
                 </div>
               ) : null}
             </aside>
           </div>
         </div>
+        {fixing ? (
+          <FixDialog
+            fix={fixing}
+            session={session}
+            onClose={() => setFixing(null)}
+            onShowStep={fixing.error.stepId ? () => showError(fixing.error) : undefined}
+          />
+        ) : null}
         <DragOverlay dropAnimation={null}>
           {activeId && activeLabel ? (
             <DragCard title={activeLabel.title} kind={activeLabel.kind} />
@@ -1030,11 +1462,14 @@ function Problems({
   bundle,
   slug,
   onShow,
+  onFix,
 }: {
-  errors: ValidationError[];
-  bundle: AgentBundle;
+  errors: BuilderProblem[];
+  bundle: ProcessAgentBundle;
   slug: string;
-  onShow(e: ValidationError): void;
+  onShow(e: BuilderProblem): void;
+  /** Opens the Fix dialog for a line: the Builder explains it and proposes a fix. */
+  onFix(line: ProblemLine): void;
 }) {
   const [open, setOpen] = useState(true);
   if (errors.length === 0) {
@@ -1044,16 +1479,7 @@ function Problems({
       </p>
     );
   }
-  const name = (e: ValidationError) => {
-    if (!e.workflow) return "Agent";
-    const w = bundle.workflows.find((x) => x.slug === e.workflow);
-    if (!w) return e.workflow;
-    if (e.stepId === w.workflow.trigger.id) return `${w.name} · Trigger`;
-    const owner = e.stepId
-      ? (locate(w.workflow, e.stepId)?.step ?? forkOfBranch(w.workflow, e.stepId))
-      : null;
-    return owner ? `${w.name} · ${owner.name}` : w.name;
-  };
+  const lines = problemLines(errors, bundle);
   return (
     <div data-testid="builder-problems" className="ds-banner mb-4 block">
       <button
@@ -1063,25 +1489,70 @@ function Problems({
         onClick={() => setOpen((o) => !o)}
         className="text-sm font-medium"
       >
-        {plural(errors.length, "problem")} before this can be test-run or published
+        {plural(lines.length, "problem")} before this can be test-run or published
         {errors.some((e) => e.workflow && e.workflow !== slug) ? " (some in other workflows)" : ""}
       </button>
       {open ? (
         <ul className="mt-2 flex flex-col gap-1">
-          {errors.map((e, i) => (
-            <li key={`${e.workflow}:${e.stepId}:${e.field}:${e.code}:${e.message}`}>
-              <button
-                type="button"
-                data-testid={`builder-problem-${i}`}
-                onClick={() => onShow(e)}
-                className="text-left text-sm hover:underline"
+          {lines.map((line, i) => {
+            const e = line.error;
+            return (
+              <li
+                key={`${e.workflow}:${e.stepId}:${e.field}:${e.code}:${e.message}`}
+                className="flex items-start justify-between gap-3"
               >
-                <span className="font-medium">{name(e)}</span>: {e.message}
-              </button>
-            </li>
-          ))}
+                <button
+                  type="button"
+                  data-testid={`builder-problem-${i}`}
+                  onClick={() => onShow(e)}
+                  className="min-w-0 text-left text-sm hover:underline"
+                >
+                  <span className="font-medium">{problemPlace(e, bundle, slug)}</span>: {line.text}
+                </button>
+                <button
+                  type="button"
+                  data-testid={`builder-problem-${i}-fix`}
+                  aria-label={`Fix: ${problemPlace(e, bundle, slug)}`}
+                  onClick={() => onFix(line)}
+                  className="ds-btn ds-btn--secondary ds-btn--sm shrink-0"
+                >
+                  Fix
+                </button>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The split signals (ARCHITECTURE §10.14 "When to split"): advice, never errors. The operator
+ * decides whether a long or deeply nested process is better as two agents joined by a handoff.
+ */
+function Advice({ warnings }: { warnings: readonly { message: string; code: string }[] }) {
+  if (warnings.length === 0) return null;
+  return (
+    <div
+      data-testid="builder-advice"
+      className="mb-4 rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink-muted"
+    >
+      <p className="font-medium text-ink">Worth a look</p>
+      <ul className="mt-1 flex flex-col gap-0.5">
+        {warnings.map((w) =>
+          // Wave 5: a condition on an outcome its step never reaches is its own advice.
+          w.code === "outcome_unreachable" ? (
+            <li key={`${w.code}:${w.message}`} data-testid="builder-advice-outcome">
+              {w.message}
+            </li>
+          ) : (
+            <li key={`${w.code}:${w.message}`}>
+              {w.message}. Two agents joined by a handoff may read better.
+            </li>
+          ),
+        )}
+      </ul>
     </div>
   );
 }
@@ -1140,7 +1611,7 @@ function WorkflowSwitcher({
   adding,
   onAdd,
 }: {
-  bundle: AgentBundle;
+  bundle: Pick<ProcessAgentBundle, "workflows">;
   current: string;
   base: string;
   adding: boolean;
@@ -1196,7 +1667,7 @@ function AddWorkflowForm({
   onCreate,
   onCancel,
 }: {
-  bundle: AgentBundle;
+  bundle: Pick<ProcessAgentBundle, "workflows">;
   events: string[];
   onCreate(input: { slug: string; name: string; on: TriggerOn }): void;
   onCancel(): void;
@@ -1345,6 +1816,7 @@ function TestRunPanel({
   slug,
   sample,
   eventType,
+  approvalNote,
   busy,
   run,
   onClose,
@@ -1356,6 +1828,8 @@ function TestRunPanel({
   sample: unknown;
   /** The trigger's event type, for "Use a recent event"; null for other triggers. */
   eventType: string | null;
+  /** Wave 5 review: routes that read an approval, which reads "needed no approval" in a test. */
+  approvalNote?: string | null;
   busy: boolean;
   /** `clientId`: a template's chosen client (none: the Sandbox). */
   run(payload: unknown, clientId: string | null): Promise<string | null>;
@@ -1367,7 +1841,10 @@ function TestRunPanel({
   const sampleText = hasSample ? JSON.stringify(sample, null, 2) : "";
   const isTemplate = agent.kind === "template";
   // A template can run on the Sandbox's fixture data or on a client the operator serves.
-  const clients = useApi(apiRoutes.opsClients, isTemplate ? { query: { view: "names" } } : null);
+  const clients = useApi(
+    apiRoutes.opsClients,
+    isTemplate ? { query: { view: "names" }, life: "catalog" } : null,
+  );
   const [clientId, setClientId] = useState("");
   // Recent events come from the client the run will read: the agent's own, or the template's
   // chosen client (the Sandbox when none is chosen).
@@ -1399,6 +1876,11 @@ function TestRunPanel({
           : "It runs on this client's data."}{" "}
         Unsaved changes are saved as a draft first.
       </p>
+      {approvalNote ? (
+        <p className="text-sm text-ink" data-testid="builder-test-approval-note">
+          {approvalNote}
+        </p>
+      ) : null}
       {isTemplate ? (
         <SmallSelect
           aria-label="Client"

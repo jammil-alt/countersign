@@ -6,8 +6,15 @@
 
 import {
   type ActivityReport,
+  type AnyBundleWorkflow,
+  type AnyStep,
+  type ClientView,
+  clientLabel,
   Decimal,
+  MODEL_PROVIDER_NAMES,
+  modelProvider,
   routes,
+  type ServiceNow,
   toNumeric,
   USAGE_DAILY_MAX_DAYS,
   USAGE_MAX_DAYS,
@@ -18,13 +25,16 @@ import {
 } from "@countersign/core";
 import {
   agent,
+  agentVersion,
   billingUnitCost,
   connection,
   docExtraction,
   document,
   externalAction,
+  inboxItem,
   modelCall,
   run,
+  stepRun,
   type Tx,
   tenant,
   tenantPack,
@@ -34,6 +44,7 @@ import {
 import {
   and,
   type Column,
+  desc,
   eq,
   gte,
   inArray,
@@ -46,10 +57,17 @@ import {
 } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, HttpError, mount, notFound } from "../http";
-import { liveBundleOf, readsDocuments } from "../lifecycle/runs";
+import {
+  agentKpisNow,
+  clientViewSql,
+  parseClientView,
+  readerLocale,
+  readsDocumentsSql,
+} from "../kpi/view";
+import { tenantRow } from "../notify/people";
 import type { Platform } from "../platform";
-import { noRuns, runCounts } from "../runs/client-status";
-import { clientDescription } from "../weekly/stats";
+import { clientState, forClient, noRuns, OPEN_RUN, runCounts } from "../runs/client-status";
+import { clientDescription, isLiveService } from "../weekly/stats";
 import { runSummaries } from "./portal";
 
 // ── Days and months ──────────────────────────────────────────────────────────────────────────────
@@ -224,10 +242,10 @@ function usageWhere(tenantIds: readonly string[], query: UsageQuery): SQL[] {
   return where;
 }
 
-const VENDOR_NAME: Record<string, string> = { anthropic: "Anthropic", openai: "OpenAI" };
+const VENDOR_NAME: Record<string, string> = { ...MODEL_PROVIDER_NAMES };
 
-/** `openai:gpt-…` is OpenAI's; every other model id is Anthropic's (packages/llm). */
-const providerOf = (model: string) => (model.startsWith("openai:") ? "openai" : "anthropic");
+/** A model id's provider by its prefix (`openai:`, `xai:`, `google:`), else Anthropic's. */
+const providerOf = modelProvider;
 
 /**
  * UI cleanup: the report's splits, from rows that already exist (no migration): cost by day for
@@ -661,6 +679,27 @@ async function clientTimezone(tx: Tx, tenantId: string): Promise<string> {
   return t.timezone;
 }
 
+// QA round 1: read = extracted (attributed to a service through the agent version that read it),
+// or worked on by a live run started in the period (the document that started it, e.g. an invoice
+// read on upload that the Bill clerk then matched). One definition for the total and each service,
+// so a service's count is never above the total; the Table counts with it too.
+/** The documents read in `[lo, hi)`: rows of `agent_id`, `document_id` and when (`at`). */
+export function documentsReadSql(tenantId: string, lo: SQL, hi: SQL): SQL {
+  return sql`
+    select av.agent_id, de.document_id::text as document_id, de.created_at as at
+      from doc_extraction de
+      left join agent_version av on av.id = de.agent_version_id and av.tenant_id = de.tenant_id
+     where de.tenant_id = ${tenantId} and de.created_at >= ${lo} and de.created_at < ${hi}
+    union
+    select r.agent_id, r.trigger->'payload'->>'documentId', r.created_at
+      from run r
+     where r.tenant_id = ${tenantId} and r.mode = 'live' and r.created_at >= ${lo} and r.created_at < ${hi}
+       and jsonb_typeof(r.trigger->'payload'->'documentId') = 'string'
+       and exists (select 1 from document d
+                    where d.tenant_id = r.tenant_id
+                      and d.id::text = r.trigger->'payload'->>'documentId')`;
+}
+
 /**
  * What a client's services did between two of its days (inclusive, in its time zone): live runs by
  * how they ended, documents received and read, changes made to its tools by connector.
@@ -679,36 +718,63 @@ export async function activity(
   const inPeriod = (col: Column) => and(gte(col, lo), lt(col, hi)) as SQL;
   const svc = input.service;
 
-  // QA round 1: runs started in the period by the client's states (waiting = on the client).
-  const counts = await runCounts(tx, t, { lo, hi }, svc ? [eq(run.agentId, svc)] : []);
-
-  const [received] = await tx
-    .select({ n: sql<string>`count(*)::text` })
-    .from(document)
-    .where(and(eq(document.tenantId, t), inPeriod(document.receivedAt)));
-
-  // QA round 1: read = extracted (attributed to a service through the agent version that read
-  // it), or worked on by a live run started in the period (the document that started it, e.g. an
-  // invoice read on upload that the Bill clerk then matched). One definition for the total and
-  // each service, so a service's count is never above the total.
-  const readSql = sql`
-    select av.agent_id, de.document_id::text as document_id
-      from doc_extraction de
-      left join agent_version av on av.id = de.agent_version_id and av.tenant_id = de.tenant_id
-     where de.tenant_id = ${t} and de.created_at >= ${lo} and de.created_at < ${hi}
-    union
-    select r.agent_id, r.trigger->'payload'->>'documentId'
-      from run r
-     where r.tenant_id = ${t} and r.mode = 'live' and r.created_at >= ${lo} and r.created_at < ${hi}
-       and jsonb_typeof(r.trigger->'payload'->'documentId') = 'string'
-       and exists (select 1 from document d
-                    where d.tenant_id = r.tenant_id
-                      and d.id::text = r.trigger->'payload'->>'documentId')`;
-  const readList = [
-    ...(await tx.execute<{ agentId: string | null; documentId: string }>(sql`
-      select read.agent_id as "agentId", read.document_id as "documentId" from (${readSql}) read
-       ${svc ? sql`where read.agent_id = ${svc}` : sql``}`)),
-  ];
+  // audit-plan 6.1: the six reads are independent; they are asked together.
+  const [counts, [received], readRows, actionRows, agents, packs] = await Promise.all([
+    // QA round 1: runs started in the period by the client's states (waiting = on the client).
+    runCounts(tx, t, { lo, hi }, svc ? [eq(run.agentId, svc)] : []),
+    tx
+      .select({ n: sql<string>`count(*)::text` })
+      .from(document)
+      .where(and(eq(document.tenantId, t), inPeriod(document.receivedAt))),
+    tx.execute<{ agentId: string | null; documentId: string }>(sql`
+      select read.agent_id as "agentId", read.document_id as "documentId"
+        from (${documentsReadSql(t, lo, hi)}) read
+       ${svc ? sql`where read.agent_id = ${svc}` : sql``}`),
+    tx
+      .select({
+        agentId: run.agentId,
+        connector: connection.connector,
+        n: sql<string>`count(*)::text`,
+      })
+      .from(externalAction)
+      .innerJoin(
+        connection,
+        and(
+          eq(connection.id, externalAction.connectionId),
+          eq(connection.tenantId, externalAction.tenantId),
+        ),
+      )
+      .leftJoin(
+        run,
+        and(eq(run.id, externalAction.runId), eq(run.tenantId, externalAction.tenantId)),
+      )
+      .where(
+        and(
+          eq(externalAction.tenantId, t),
+          eq(externalAction.status, "done"),
+          inPeriod(externalAction.executedAt),
+          or(isNull(run.mode), eq(run.mode, "live")),
+          ...(svc ? [eq(run.agentId, svc)] : []),
+        ),
+      )
+      .groupBy(run.agentId, connection.connector),
+    tx
+      .select({
+        id: agent.id,
+        name: agent.name,
+        serviceName: agent.serviceName,
+        runStatus: agent.runStatus,
+      })
+      .from(agent)
+      .where(and(isService(t), ...(svc ? [eq(agent.id, svc)] : [])))
+      .orderBy(agent.slug),
+    tx
+      .select({ pack: tenantPack.pack })
+      .from(tenantPack)
+      .where(eq(tenantPack.tenantId, t))
+      .orderBy(tenantPack.pack),
+  ]);
+  const readList = [...readRows];
   const readTotal = new Set(readList.map((r) => r.documentId)).size;
   const readByAgent = new Map<string, Set<string>>();
   for (const r of readList) {
@@ -717,48 +783,6 @@ export async function activity(
     docs.add(r.documentId);
     readByAgent.set(r.agentId, docs);
   }
-
-  const actionRows = await tx
-    .select({
-      agentId: run.agentId,
-      connector: connection.connector,
-      n: sql<string>`count(*)::text`,
-    })
-    .from(externalAction)
-    .innerJoin(
-      connection,
-      and(
-        eq(connection.id, externalAction.connectionId),
-        eq(connection.tenantId, externalAction.tenantId),
-      ),
-    )
-    .leftJoin(run, and(eq(run.id, externalAction.runId), eq(run.tenantId, externalAction.tenantId)))
-    .where(
-      and(
-        eq(externalAction.tenantId, t),
-        eq(externalAction.status, "done"),
-        inPeriod(externalAction.executedAt),
-        or(isNull(run.mode), eq(run.mode, "live")),
-        ...(svc ? [eq(run.agentId, svc)] : []),
-      ),
-    )
-    .groupBy(run.agentId, connection.connector);
-
-  const agents = await tx
-    .select({
-      id: agent.id,
-      name: agent.name,
-      serviceName: agent.serviceName,
-      runStatus: agent.runStatus,
-    })
-    .from(agent)
-    .where(and(isService(t), ...(svc ? [eq(agent.id, svc)] : [])))
-    .orderBy(agent.slug);
-  const packs = await tx
-    .select({ pack: tenantPack.pack })
-    .from(tenantPack)
-    .where(eq(tenantPack.tenantId, t))
-    .orderBy(tenantPack.pack);
 
   const runs = counts.all;
   const perService = new Map<string, { runs: Runs; documentsRead: number; actions: number }>();
@@ -807,6 +831,213 @@ export async function activity(
   };
 }
 
+// ── What a service is doing now (audit-plan 6.1, 6.6) ──────────────────────────────────────────
+
+type AnyWorkflow = AnyBundleWorkflow["workflow"];
+type AgentRow = typeof agent.$inferSelect;
+
+/** A service's latest live run, its current step and what it has going: one row per service. */
+export interface AgentNowRow {
+  agentId: string;
+  /** The agent's row. */
+  agent: AgentRow;
+  /** Its live version's client view (a path into the bundle, checked), null without one. */
+  view: ClientView | null;
+  /** Its live version starts from documents (`readsDocuments`, read in SQL). */
+  readsDocuments: boolean;
+  latest: {
+    id: string;
+    status: string;
+    agentVersionId: string;
+    workflowSlug: string;
+    createdAt: Date;
+    startedAt: Date | null;
+    finishedAt: Date | null;
+  } | null;
+  step: { nodeId: string; startedAt: Date | null } | null;
+  /** The top-level steps of the latest run's workflow, read only while it has a current step. */
+  steps: readonly AnyStep[] | null;
+  /** The oldest open Desk item of the latest run for the client: it waits on you since then. */
+  waitingSince: Date | null;
+  runsNow: { running: number; waitingOnYou: number };
+}
+
+/**
+ * Every service's (or one's) latest live run, the run's current step, whether it waits on the
+ * client and its open runs, in one statement whatever the number of services.
+ */
+// DECISION (audit-plan 6.1): lateral subqueries per service replace a loop of three or four reads
+// per agent. The definitions are the ones the loop used: the latest live run by creation, its
+// newest running or waiting step, "waits on you" as `clientWaits` and open runs as
+// `openRunsByAgent` (runs/client-status.ts).
+export async function agentsNow(
+  tx: Tx,
+  tenantId: string,
+  /** Which agents: the Table's services (the default), or one service by id. */
+  which: { service: string } | null = null,
+): Promise<AgentNowRow[]> {
+  const latest = tx
+    .select({
+      id: run.id,
+      status: run.status,
+      agentVersionId: run.agentVersionId,
+      workflowSlug: run.workflowSlug,
+      createdAt: run.createdAt,
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt,
+    })
+    .from(run)
+    .where(and(eq(run.tenantId, agent.tenantId), eq(run.agentId, agent.id), eq(run.mode, "live")))
+    .orderBy(desc(run.createdAt))
+    .limit(1)
+    .as("latest");
+  const current = tx
+    .select({ nodeId: stepRun.nodeId, startedAt: stepRun.startedAt })
+    .from(stepRun)
+    .where(
+      and(
+        eq(stepRun.tenantId, agent.tenantId),
+        sql`${stepRun.runId} = ${latest.id}`,
+        inArray(latest.status, OPEN_RUN),
+        inArray(stepRun.status, ["running", "waiting"]),
+      ),
+    )
+    .orderBy(desc(stepRun.startedAt))
+    .limit(1)
+    .as("current");
+  const waits = tx
+    .select({
+      since: sql<Date | null>`min(${inboxItem.createdAt})`.mapWith(inboxItem.createdAt).as("since"),
+    })
+    .from(inboxItem)
+    .where(
+      and(
+        eq(inboxItem.tenantId, agent.tenantId),
+        sql`${inboxItem.runId} = ${latest.id}`,
+        inArray(latest.status, OPEN_RUN),
+        eq(inboxItem.status, "open"),
+        forClient(),
+      ),
+    )
+    .as("waits");
+  const going = tx
+    .select({
+      waiting: sql<number>`(count(*) filter (where ${clientState} = 'waiting'))::int`.as("waiting"),
+      running: sql<number>`(count(*) filter (where ${clientState} <> 'waiting'))::int`.as(
+        "running",
+      ),
+    })
+    .from(run)
+    .where(
+      and(
+        eq(run.tenantId, agent.tenantId),
+        eq(run.agentId, agent.id),
+        eq(run.mode, "live"),
+        inArray(run.status, OPEN_RUN),
+      ),
+    )
+    .as("going");
+  const rows = await tx
+    .select({
+      agentId: agent.id,
+      agent,
+      view: clientViewSql,
+      readsDocuments: readsDocumentsSql,
+      latest: {
+        id: latest.id,
+        status: latest.status,
+        agentVersionId: latest.agentVersionId,
+        workflowSlug: latest.workflowSlug,
+        createdAt: latest.createdAt,
+        startedAt: latest.startedAt,
+        finishedAt: latest.finishedAt,
+      },
+      step: { nodeId: current.nodeId, startedAt: current.startedAt },
+      // The top-level steps of the run's workflow, only while it has a current step: a path into
+      // its version's bundle, never the bundle.
+      steps: sql<AnyStep[] | null>`(select w -> 'workflow' -> 'steps'
+          from ${agentVersion} av cross join jsonb_array_elements(av.bundle -> 'workflows') w
+         where av.id = ${latest.agentVersionId} and av.tenant_id = ${agent.tenantId}
+           and w ->> 'slug' = ${latest.workflowSlug} and ${current.nodeId} is not null
+         limit 1)`,
+      waitingSince: waits.since,
+      waiting: going.waiting,
+      running: going.running,
+    })
+    .from(agent)
+    // The live version, for its client view and documents flag only (JSON paths, not the bundle).
+    .leftJoin(
+      agentVersion,
+      and(eq(agentVersion.id, agent.liveVersionId), eq(agentVersion.tenantId, agent.tenantId)),
+    )
+    .leftJoinLateral(latest, sql`true`)
+    .leftJoinLateral(current, sql`true`)
+    .leftJoinLateral(waits, sql`true`)
+    .leftJoinLateral(going, sql`true`)
+    .where(which ? and(isService(tenantId), eq(agent.id, which.service)) : isLiveService(tenantId))
+    .orderBy(agent.slug);
+  return rows.map((r) => ({
+    agentId: r.agentId,
+    agent: r.agent,
+    view: r.agent.liveVersionId ? parseClientView(r.agent.liveVersionId, r.view) : null,
+    readsDocuments: r.readsDocuments === true,
+    latest: r.latest?.id ? (r.latest as NonNullable<AgentNowRow["latest"]>) : null,
+    step: r.step?.nodeId ? (r.step as NonNullable<AgentNowRow["step"]>) : null,
+    steps: Array.isArray(r.steps) ? r.steps : null,
+    waitingSince: r.waitingSince ?? null,
+    runsNow: { running: Number(r.running ?? 0), waitingOnYou: Number(r.waiting ?? 0) },
+  }));
+}
+
+/** The workflows of the versions asked for, by version id and slug, in one read (no whole bundle). */
+export async function workflowsOf(
+  tx: Tx,
+  tenantId: string,
+  versionIds: Iterable<string>,
+): Promise<Map<string, Map<string, AnyWorkflow>>> {
+  const ids = [...new Set(versionIds)];
+  if (ids.length === 0) return new Map();
+  const rows = await tx
+    .select({
+      id: agentVersion.id,
+      workflows: sql<AnyBundleWorkflow[] | null>`${agentVersion.bundle} -> 'workflows'`,
+    })
+    .from(agentVersion)
+    .where(and(eq(agentVersion.tenantId, tenantId), inArray(agentVersion.id, ids)));
+  return new Map(
+    rows.map((r) => [r.id, new Map((r.workflows ?? []).map((w) => [w.slug, w.workflow]))]),
+  );
+}
+
+const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
+
+/** A service's `now` as the Table shows it, from its row. */
+export function serviceNow(r: AgentNowRow): ServiceNow | null {
+  const latest = r.latest;
+  if (!latest) return null;
+  const active = (OPEN_RUN as readonly string[]).includes(latest.status);
+  let step: ServiceNow["step"] = null;
+  let since = active ? iso(latest.startedAt ?? latest.createdAt) : iso(latest.finishedAt);
+  if (active) {
+    if (r.steps && r.step) {
+      const top = r.step.nodeId.split(":")[0] ?? r.step.nodeId;
+      // Wave 3b: a v3 workflow's or a v4 process's top-level steps alike.
+      const index = r.steps.findIndex((s) => s.id === top);
+      const s = r.steps[index];
+      if (s) step = { index: index + 1, total: r.steps.length, label: clientLabel(s) };
+      since = iso(r.step.startedAt) ?? since;
+    }
+    if (r.waitingSince) since = r.waitingSince.toISOString();
+  }
+  return {
+    runId: latest.id,
+    status: latest.status,
+    step,
+    since,
+    waitingOnYou: active && r.waitingSince !== null,
+  };
+}
+
 // ── Routes ───────────────────────────────────────────────────────────────────────────────────────
 
 export function usageRouteHandlers(app: Hono<AppEnv>): void {
@@ -842,23 +1073,30 @@ export function usageRouteHandlers(app: Hono<AppEnv>): void {
     });
   });
 
-  mount(app, routes.portalService, async ({ tx, tenantIds, params, services }) => {
+  mount(app, routes.portalService, async ({ tx, tenantIds, params, services, session }) => {
     const tenantId = tenantIds[0] as string;
-    const [a] = await tx
-      .select()
-      .from(agent)
-      .where(and(isService(tenantId), eq(agent.id, params.id)));
-    if (!a) throw notFound("service");
-    const timezone = await clientTimezone(tx, tenantId);
-    const to = todayIn(timezone);
+    // audit-plan 6.6: the agent with what it is doing now and one projection of its live bundle
+    // (its client view and whether it reads documents), never the whole bundle; then the rest
+    // asked together.
+    const [[row], t] = await Promise.all([
+      agentsNow(tx, tenantId, { service: params.id }),
+      tenantRow(tx, tenantId),
+    ]);
+    if (!row) throw notFound("service");
+    if (!t) throw notFound("client");
+    const a = row.agent;
+    const timezone = t.timezone;
+    const now = new Date();
+    const to = todayIn(timezone, now);
     const from = monthStart(to);
-    const report = await activity(tx, services.platform, {
-      tenantId,
-      timezone,
-      from,
-      to,
-      service: a.id,
-    });
+    const view = row.view;
+    const [report, recentRuns, kpis] = await Promise.all([
+      activity(tx, services.platform, { tenantId, timezone, from, to, service: a.id }),
+      runSummaries(tx, tenantId, [eq(run.agentId, a.id)], 10, services.platform),
+      view && view.kpis.length > 0
+        ? agentKpisNow(tx, a, view, { locale: readerLocale(t, session.user.id), timezone, now })
+        : Promise.resolve([]),
+    ]);
     const mine = report.services.find((s) => s.id === a.id);
     // UI cleanup: the template's slug (a name, never its bundle) keys the page's own view.
     // DECISION: it is the slug the client agent carries: a fork takes its template's slug unless
@@ -879,10 +1117,14 @@ export function usageRouteHandlers(app: Hono<AppEnv>): void {
         documentsRead: mine?.documentsRead ?? 0,
         actions: mine?.actions ?? 0,
       },
-      recentRuns: await runSummaries(tx, tenantId, [eq(run.agentId, a.id)], 10, services.platform),
+      recentRuns,
       packs: report.packs,
       template,
-      readsDocuments: readsDocuments(await liveBundleOf(tx, a)),
+      readsDocuments: row.readsDocuments,
+      stage: a.stage,
+      now: serviceNow(row),
+      runsNow: row.runsNow,
+      kpis,
     };
   });
 }

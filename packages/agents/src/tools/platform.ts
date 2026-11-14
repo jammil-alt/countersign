@@ -17,6 +17,8 @@ import { KNOWLEDGE_TOOLS } from "./knowledge";
 import { LEDGER_TOOLS } from "./ledger";
 import { memoryScope } from "./memory-scope";
 import { reachOutTool } from "./reach";
+// Reshape data (2026-11-11)
+import { reshapeTool } from "./reshape";
 import { SUPERVISOR_TOOLS } from "./supervisor";
 import { THREADS_TOOLS } from "./threads";
 // P-7: message translation
@@ -115,4 +117,6 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   translateTool,
   // §1.77: web research (docs/plan.md §1.77)
   ...WEB_TOOLS,
+  // Reshape data (2026-11-11): its pure handler.
+  reshapeTool,
 ];

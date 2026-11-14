@@ -2,19 +2,78 @@
 // 5-workflow-builder.png): the trigger and top-level steps numbered top to bottom, a fork's ordered
 // paths side by side with "otherwise" last, and the paths joining after the fork. The drag-and-drop
 // builder (ARCHITECTURE §10.5) replaces this view later and keeps its look.
-import type { ForEachStep, ForkStep, Step, Workflow } from "@countersign/core";
+// R8 (ARCHITECTURE §10.14): a v4 process too: its triggers (the first numbered, the others "or"),
+// its steps in the builder's words (an `if` laid out as a fork), and each step's checks in a line
+// each under its name ("Approval: client admin, then Dana, in turn · 2 days").
+import type { processes, Rules, Trigger, Step as V3Step, Workflow } from "@countersign/core";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
-import { cx, StepKindTag } from "../../ui/primitives";
+import { cx, StepKindTag, Tag } from "../../ui/primitives";
+import { checksLines } from "./checks";
 import {
   KIND_LABEL,
+  processKindLabel,
+  processStepDetail,
+  processStepNames,
   rulesText,
+  type StepLabels,
   type StepNames,
   stepDetail,
   stepNames,
+  stepSkillKindLabel,
   triggerDetail,
   triggerTitle,
 } from "./describe";
 import { forkGridColumns, forkMinWidth, stepMinWidth } from "./layout";
+
+/** A v3 step or a v4 one. */
+type Step = V3Step | processes.Step;
+/** A v3 fork or a v4 if: paths side by side, otherwise last. */
+interface Branching {
+  id: string;
+  kind: "fork" | "if";
+  paths: { id: string; name: string; when: Rules; steps: Step[] }[];
+  otherwise: { id: string; steps: Step[] };
+}
+interface Loop {
+  id: string;
+  kind: "for_each";
+  concurrency: number;
+  steps: Step[];
+}
+
+function isBranching(step: Step): step is Step & Branching {
+  return step.kind === "fork" || step.kind === "if";
+}
+
+/** The workflow or process the list shows. */
+type Shown = Workflow | processes.Process;
+
+/** Which schema the list is showing, so nested steps read in its words. */
+const IsProcess = createContext(false);
+
+/** A step's kind in a word, its second line and its checks, v3 or v4. */
+function stepWords(
+  step: Step,
+  v4: boolean,
+  labels: StepLabels = {},
+): { kind: string; detail: string | null; checks: string[]; skillKind?: string | null } {
+  if (v4) {
+    const s = step as processes.Step;
+    // Skill model (2026-11-10): a write by where it writes, a skill step with its kind.
+    return {
+      kind: processKindLabel(s, labels),
+      detail: processStepDetail(s, labels),
+      checks: checksLines(s.checks),
+      skillKind: stepSkillKindLabel(s, labels),
+    };
+  }
+  const s = step as V3Step;
+  return { kind: KIND_LABEL[s.kind], detail: stepDetail(s), checks: [] };
+}
+
+function triggersOf(w: Shown): Trigger[] {
+  return w.schemaVersion === 4 ? w.triggers : [w.trigger];
+}
 
 /** The workflow's step names, for fork rules that cite an earlier step's output. */
 const Names = createContext<StepNames | undefined>(undefined);
@@ -28,22 +87,34 @@ export interface StepMark {
   attention?: boolean;
 }
 const Marks = createContext<((id: string) => StepMark | undefined) | undefined>(undefined);
+/** Skill model (2026-11-10): names and kinds from a catalog, when the screen has one. */
+const Labels = createContext<StepLabels>({});
 
 export function StepList({
   workflow,
   marks,
+  labels = {},
 }: {
-  workflow: Workflow;
+  workflow: Shown;
   /** By step, fork path or trigger id. */
   marks?: (id: string) => StepMark | undefined;
+  /** Names, skill kinds and write labels from a catalog, when the screen has one. */
+  labels?: StepLabels;
 }) {
-  const names = useMemo(() => stepNames(workflow), [workflow]);
+  const names = useMemo(
+    () => (workflow.schemaVersion === 4 ? processStepNames(workflow) : stepNames(workflow)),
+    [workflow],
+  );
   return (
-    <Names.Provider value={names}>
-      <Marks.Provider value={marks}>
-        <StepListItems workflow={workflow} />
-      </Marks.Provider>
-    </Names.Provider>
+    <IsProcess.Provider value={workflow.schemaVersion === 4}>
+      <Names.Provider value={names}>
+        <Marks.Provider value={marks}>
+          <Labels.Provider value={labels}>
+            <StepListItems workflow={workflow} />
+          </Labels.Provider>
+        </Marks.Provider>
+      </Names.Provider>
+    </IsProcess.Provider>
   );
 }
 
@@ -56,22 +127,26 @@ function MarkBadges({ id }: { id: string }) {
   ) : null;
 }
 
-function StepListItems({ workflow }: { workflow: Workflow }) {
+function StepListItems({ workflow }: { workflow: Shown }) {
+  const steps: readonly Step[] = workflow.steps;
   // A fork wider than the list scrolls sideways in its own box, never the page.
   return (
     <div className="min-w-0">
       <ol data-testid="step-list" className="flex flex-col items-center">
-        <Item>
-          <StepCard
-            testId={`step-${workflow.trigger.id}`}
-            number={1}
-            kind={KIND_LABEL.trigger}
-            kindId="trigger"
-            title={triggerTitle(workflow.trigger)}
-            detail={triggerDetail(workflow.trigger)}
-          />
-        </Item>
-        {workflow.steps.map((step, i) => (
+        {triggersOf(workflow).map((trigger, i) => (
+          <Item key={trigger.id} connector={i > 0}>
+            {i > 0 ? <span className="eyebrow mb-1 text-ink-muted">or</span> : null}
+            <StepCard
+              testId={`step-${trigger.id}`}
+              {...(i === 0 ? { number: 1 } : {})}
+              kind={KIND_LABEL.trigger}
+              kindId="trigger"
+              title={triggerTitle(trigger)}
+              detail={triggerDetail(trigger)}
+            />
+          </Item>
+        ))}
+        {steps.map((step, i) => (
           <Item key={step.id} connector>
             <StepNode step={step} number={i + 2} />
           </Item>
@@ -91,22 +166,24 @@ function Item({ children, connector }: { children: ReactNode; connector?: boolea
 }
 
 function StepNode({ step, number }: { step: Step; number?: number }) {
+  const words = stepWords(step, useContext(IsProcess), useContext(Labels));
   const card = (
     <StepCard
       testId={`step-${step.id}`}
       number={number}
-      kind={KIND_LABEL[step.kind]}
+      kind={words.kind}
+      skillKind={words.skillKind ?? null}
       kindId={step.kind}
       title={step.name}
-      detail={stepDetail(step)}
+      detail={words.detail}
+      checks={words.checks}
     />
   );
-  const inner =
-    step.kind === "fork" ? (
-      <Fork step={step} />
-    ) : step.kind === "for_each" ? (
-      <Loop step={step} />
-    ) : null;
+  const inner = isBranching(step) ? (
+    <Fork step={step} />
+  ) : step.kind === "for_each" ? (
+    <LoopBlock step={step as Step & Loop} />
+  ) : null;
   if (!inner) return card;
   return (
     <>
@@ -129,11 +206,17 @@ function StepCard({
   kindId,
   testId,
   compact,
+  checks,
+  skillKind,
 }: {
   number?: number | undefined;
   kind: string;
+  /** Skill model (2026-11-10): a skill step's kind, "Deterministic" or "AI". */
+  skillKind?: string | null;
   title: string;
   detail: string | null;
+  /** R8: a v4 step's checks, one line each. */
+  checks?: readonly string[];
   /** The step's kind id ("person"), for its tag's colour. */
   kindId: string;
   testId: string;
@@ -158,10 +241,20 @@ function StepCard({
           {number}
         </span>
       ) : null}
-      <StepKindTag kind={kindId} label={kind} />
+      <span className="flex shrink-0 flex-col items-start gap-1">
+        <StepKindTag kind={kindId} label={kind} />
+        {skillKind ? <Tag testId={`${testId}-skill-kind`}>{skillKind}</Tag> : null}
+      </span>
       <div className="min-w-0">
         <p className="font-medium text-ink">{title}</p>
         {detail ? <p className="truncate text-sm text-ink-muted">{detail}</p> : null}
+        {checks && checks.length > 0 ? (
+          <ul className="text-sm text-ink-muted" data-testid={`${testId}-checks`}>
+            {checks.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        ) : null}
         <MarkBadges id={id} />
       </div>
     </div>
@@ -190,23 +283,26 @@ function Branch({ steps }: { steps: Step[] }) {
 
 /** Steps inside a path or loop carry no number, as in the design. */
 function NestedNode({ step }: { step: Step }) {
+  const words = stepWords(step, useContext(IsProcess), useContext(Labels));
   return (
     <div className="flex w-full flex-col items-center">
       <StepCard
         compact
         testId={`step-${step.id}`}
-        kind={KIND_LABEL[step.kind]}
+        kind={words.kind}
+        skillKind={words.skillKind ?? null}
         kindId={step.kind}
         title={step.name}
-        detail={stepDetail(step)}
+        detail={words.detail}
+        checks={words.checks}
       />
-      {step.kind === "fork" ? <Fork step={step} /> : null}
-      {step.kind === "for_each" ? <Loop step={step} /> : null}
+      {isBranching(step) ? <Fork step={step} /> : null}
+      {step.kind === "for_each" ? <LoopBlock step={step as Step & Loop} /> : null}
     </div>
   );
 }
 
-function Fork({ step }: { step: ForkStep }) {
+function Fork({ step }: { step: Branching }) {
   const names = useContext(Names);
   return (
     <div
@@ -249,7 +345,7 @@ function Fork({ step }: { step: ForkStep }) {
   );
 }
 
-function Loop({ step }: { step: ForEachStep }) {
+function LoopBlock({ step }: { step: Loop }) {
   return (
     <div
       data-testid={`loop-${step.id}`}

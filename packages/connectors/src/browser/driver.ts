@@ -14,12 +14,40 @@ export interface BrowserCookie {
   httpOnly: boolean;
   secure: boolean;
   sameSite: "Strict" | "Lax" | "None";
+  /** A partitioned (CHIPS) cookie's top-level site, as Playwright keeps it; absent otherwise. */
+  partitionKey?: string;
+}
+
+/** What a `fill` may ask of the tab before it types. */
+export interface BrowserFillOptions {
+  /**
+   * Origins (`https://host[:port]`) the tab must be on, by the browser's own address at the moment
+   * of typing; on any other address nothing is typed and the fill fails. Sign-in passes the site's
+   * login origins, so a secret is never typed where a page moved by itself.
+   */
+  onlyOn?: readonly string[];
 }
 
 /** A table on the page: header cells and body rows, as text. */
 export interface BrowserTable {
   headers: string[];
   rows: string[][];
+}
+
+/**
+ * Something a person recording a script may fill or click (docs/plan.md §1.86 "Scripts"): a field,
+ * a list, a button or a link, with a selector that finds it again and the words that name it.
+ * Password, hidden and one-time-code fields are never listed.
+ */
+export interface BrowserControl {
+  selector: string;
+  kind: "field" | "select" | "button" | "link";
+  label: string;
+  /**
+   * A button that sends a form: a submit-type button, or any button inside a form. Only a click
+   * marked as the script's submit may click one (./script.ts).
+   */
+  submits?: boolean;
 }
 
 export interface BrowserDownload {
@@ -36,10 +64,16 @@ export interface BrowserDownload {
 export interface BrowserTab {
   /** The address the tab is on now (after redirects and scripts). */
   url(): string;
+  /**
+   * The address, asked of the browser itself. A remote tab's `url()` is the address as of its last
+   * call, which can be minutes old after a wait (a sign-in's code); sign-in asks this before it
+   * types. Absent: `url()` is already live.
+   */
+  where?(): Promise<string>;
   /** Opens an address and waits for the page to load. */
   goto(url: string): Promise<void>;
   /** Types into the element `selector` names (replacing what was there). */
-  fill(selector: string, value: string): Promise<void>;
+  fill(selector: string, value: string, options?: BrowserFillOptions): Promise<void>;
   /** Clicks it and waits for the page to settle. */
   click(selector: string): Promise<void>;
   /** Whether an element matching `selector` is on the page. */
@@ -51,12 +85,38 @@ export interface BrowserTab {
   readText(): Promise<string>;
   /** The page's tables, with the same removals as `readText`. */
   readTables(): Promise<BrowserTable[]>;
+  /**
+   * The text of the first element `selector` names, with the same removals as `readText` (a field
+   * reads as its value); null when nothing matches. Absent: a script can't read single fields.
+   */
+  textOf?(selector: string): Promise<string | null>;
+  /** The page's visible fields, lists, buttons and links (at most 200), for the recorder. */
+  controls?(): Promise<BrowserControl[]>;
+  /**
+   * Whether clicking the element `selector` names sends a form (as `BrowserControl.submits`);
+   * false when nothing matches. Absent: the connector asks `controls` instead.
+   */
+  sendsForm?(selector: string): Promise<boolean>;
+  /**
+   * Read only (docs/plan.md §1.86 "Scripts (wave 4)"): while on, every request that could change
+   * something is refused before it leaves the browser: a navigation, fetch or XHR whose method
+   * isn't GET or HEAD (a form post, a page script's POST) is aborted and the page stays where it
+   * was. Off again for sign-out. Absent: the browser can't hold a page read only, and a script
+   * step, a recording or a test that needs it is refused.
+   */
+  readOnly?(on: boolean): Promise<void>;
   /** Fetches a file as the signed-in tab would (same cookies). */
   download(url: string): Promise<BrowserDownload>;
   cookies(): Promise<BrowserCookie[]>;
   setCookies(cookies: BrowserCookie[]): Promise<void>;
   /** A PNG of the visible page, for evidence (taken only after sign-in). */
   screenshot(): Promise<Uint8Array>;
+  /**
+   * Whether the browser behind the tab still answers. Browser Run closes a browser left idle past
+   * its keep-alive; a session held across a run's model calls asks before it reopens. Absent: the
+   * tab is taken to be alive.
+   */
+  alive?(): Promise<boolean>;
   /** Closes the tab and destroys its browser; never throws. */
   close(): Promise<void>;
 }
@@ -64,4 +124,63 @@ export interface BrowserTab {
 /** Opens a fresh browser with one tab. */
 export interface BrowserDriver {
   open(): Promise<BrowserTab>;
+}
+
+// The browser service (apps/browser, Worker `mezonas-browser`; docs/plan.md §1.26 "Browser
+// driver"): Browser Run and Playwright live in a Worker of their own, and apps/api reaches it only
+// through its `BROWSER` service binding. The service makes no decision: apps/api's connector keeps
+// the permission gate, pinned origins, the blocked tier, the vault, the audit and external actions,
+// and drives the tab below one primitive at a time. A secret typed by `fill` crosses for that one
+// call, with the origins apps/api allows it on, and is never written to a log, stored or returned.
+
+/**
+ * What a tab call answers over RPC: its value, and the address the tab was on when the call ended
+ * (an RPC tab can't answer `url()` without a round trip, so each call brings it back).
+ */
+export interface BrowserTabAnswer<T> {
+  url: string;
+  value: T;
+}
+
+/** One tab in the browser service, as apps/api holds it: every `BrowserTab` method, over RPC. */
+export interface BrowserTabService {
+  goto(url: string): Promise<BrowserTabAnswer<null>>;
+  /** `onlyOn`: the fill's origins (`BrowserFillOptions`), checked on the live address. */
+  fill(selector: string, value: string, onlyOn?: string[]): Promise<BrowserTabAnswer<null>>;
+  /** The live address (`BrowserTab.where`), in the answer's `url`. */
+  where(): Promise<BrowserTabAnswer<null>>;
+  click(selector: string): Promise<BrowserTabAnswer<null>>;
+  has(selector: string): Promise<BrowserTabAnswer<boolean>>;
+  readText(): Promise<BrowserTabAnswer<string>>;
+  readTables(): Promise<BrowserTabAnswer<BrowserTable[]>>;
+  textOf(selector: string): Promise<BrowserTabAnswer<string | null>>;
+  controls(): Promise<BrowserTabAnswer<BrowserControl[]>>;
+  sendsForm(selector: string): Promise<BrowserTabAnswer<boolean>>;
+  readOnly(on: boolean): Promise<BrowserTabAnswer<null>>;
+  download(url: string): Promise<BrowserTabAnswer<BrowserDownload>>;
+  cookies(): Promise<BrowserTabAnswer<BrowserCookie[]>>;
+  setCookies(cookies: BrowserCookie[]): Promise<BrowserTabAnswer<null>>;
+  screenshot(): Promise<BrowserTabAnswer<Uint8Array>>;
+  alive(): Promise<boolean>;
+  close(): Promise<void>;
+}
+
+/** What `open` asks for: the site's hosts (at most 50) and, for a held session, its keep-alive. */
+export interface BrowserOpenInput {
+  hosts: string[];
+  keepAliveMs?: number | undefined;
+}
+
+/** What `open` answers: the tab and its address, or why there is none. */
+export type BrowserOpenAnswer =
+  | { ok: true; url: string; tab: BrowserTabService }
+  | { ok: false; error: { code: "no_browser" | "invalid"; message: string } };
+
+/**
+ * The browser service's RPC entrypoint (`Browsers`): a fresh browser with one tab, held to `hosts`;
+ * `no_browser` when the service has no Browser Run binding (local development). The tab lives until
+ * `close`, or until apps/api lets go of it (the service then closes the browser).
+ */
+export interface BrowserService {
+  open(input: BrowserOpenInput): Promise<BrowserOpenAnswer>;
 }

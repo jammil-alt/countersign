@@ -3,7 +3,8 @@ name: Deploy
 # main → staging on every push (docs-only pushes ride along with the next deploy). Production by a
 # `v*` tag or a manual run. Each deploy runs the full check, migrates the target's Neon branch as
 # cs_owner, deploys the code service (apps/mfa, Worker mezonas-codes) and its secrets, then
-# `wrangler deploy` from apps/api, whose `CODES` service binding needs the code service to exist.
+# the browser service (apps/browser, Worker mezonas-browser), then `wrangler deploy` from apps/api,
+# whose `CODES` and `BROWSER` service bindings need both to exist.
 # The public site (apps/site, Worker mezonas-site, mezonas.com) deploys in its own job, from main only.
 # Inert until the secrets in docs/operations.md §1 exist, and until apps/api has a wrangler.jsonc (M0).
 
@@ -25,9 +26,12 @@ on:
 permissions:
   contents: read
 
+# Deploys to one target queue, never cancel: a second push that cancelled a running deploy could stop
+# it between the migration and the Worker, leaving the new schema under the old Worker for good.
+# GitHub keeps one waiting run per group, so a burst of pushes still deploys only the newest.
 concurrency:
   group: deploy-${{ github.event.inputs.target || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging') }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   checks:
@@ -39,13 +43,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # GitHub environments "staging" and "production" hold the Worker's per-environment secrets
-    # (WORKOS_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY); repository secrets stay available too.
+    # (WORKOS_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY, GEMINI_API_KEY); repository
+    # secrets stay available too.
     environment: ${{ github.event.inputs.target || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging') }}
     env:
       TARGET: ${{ github.event.inputs.target || (startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging') }}
       WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # xAI's (Grok) and Google's (Gemini) models; each provider stays off until its key is set.
+      XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       # Texts, calls, email and billing (plan §1.19–§1.25). Each is copied only when set, so a
       # provider stays off on an environment until its key exists.
       TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
@@ -79,6 +87,9 @@ jobs:
       HUBSPOT_CLIENT_SECRET: ${{ secrets.HUBSPOT_CLIENT_SECRET }}
       PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
       PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
+      # BILL (plan §1.87): our developer key for the environment BILL_ENV names. Without it BILL's
+      # tools refuse; clients' own BILL logins are in the vault, never here.
+      BILL_DEV_KEY: ${{ secrets.BILL_DEV_KEY }}
       # Wave 4 (plan §1.52, §1.56, §1.60): Slack, Google Sheets' picker (public values) and the
       # Google Chat app. Each stays "Not available yet" until its keys exist.
       SLACK_CLIENT_ID: ${{ secrets.SLACK_CLIENT_ID }}
@@ -115,7 +126,7 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
         if: steps.ready.outputs.ready == 'true'
 
       - uses: actions/setup-node@v7
@@ -132,10 +143,12 @@ jobs:
         run: |
           set -euo pipefail
           branch=$([ "$TARGET" = production ] && echo main || echo staging)
-          url=$(npx --yes neonctl@4 connection-string "$branch" \
+          url=$(npx --yes neonctl@4.22.0 connection-string "$branch" \
             --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
           echo "::add-mask::$url"
-          DIRECT_DATABASE_URL="$url" pnpm --filter @countersign/db run --if-present db:migrate
+          # No --if-present, and --fail-if-no-match: a renamed script or package must fail the deploy, not
+          # skip the migration.
+          DIRECT_DATABASE_URL="$url" pnpm --filter @countersign/db --fail-if-no-match run db:migrate
 
       # The code service (apps/mfa, ARCHITECTURE §6.9) first: apps/api's `CODES` service binding
       # points at it. Its own Worker, Durable Objects and secrets; never apps/api's.
@@ -171,6 +184,15 @@ jobs:
             put MFA_ENCRYPTION_KEY "$value"
           fi
 
+      # The browser service (apps/browser, docs/plan.md §1.26) before apps/api too: apps/api's
+      # `BROWSER` service binding points at it. Browser Run and Playwright only; no secrets.
+      - name: Deploy the browser service
+        if: steps.ready.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          env_flag=$([ "$TARGET" = production ] && echo '--env=production' || echo '--env=staging')
+          pnpm --filter @countersign/browser exec wrangler deploy "$env_flag"
+
       # Error tracking (apps/web/src/observability.ts): the browser's Sentry DSN and the commit as
       # its release. The DSN is not a secret (it ships in the page); a repository variable or a
       # secret both work. Unset leaves Sentry off in the browser.
@@ -180,7 +202,9 @@ jobs:
           VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN_WEB || secrets.SENTRY_DSN_WEB }}
           VITE_SENTRY_RELEASE: ${{ github.sha }}
           SENTRY_SOURCEMAPS: ${{ secrets.SENTRY_AUTH_TOKEN != '' && '1' || '' }}
-        run: pnpm --filter @countersign/web run --if-present build
+        # No --if-present, and --fail-if-no-match, as for db:migrate: a renamed script or package must fail
+        # here, not leave the Worker to deploy without the app it serves.
+        run: pnpm --filter @countersign/web --fail-if-no-match run build
 
       # Readable browser stack traces in Sentry: upload the web build's source maps for this
       # release, then delete them so they are never served. A notice or a warning, never a failure.
@@ -253,12 +277,14 @@ jobs:
           if [ -n "${WORKOS_API_KEY:-}" ]; then put WORKOS_API_KEY "$WORKOS_API_KEY"; fi
           if [ -n "${ANTHROPIC_API_KEY:-}" ]; then put ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"; fi
           if [ -n "${OPENAI_API_KEY:-}" ]; then put OPENAI_API_KEY "$OPENAI_API_KEY"; fi
+          if [ -n "${XAI_API_KEY:-}" ]; then put XAI_API_KEY "$XAI_API_KEY"; fi
+          if [ -n "${GEMINI_API_KEY:-}" ]; then put GEMINI_API_KEY "$GEMINI_API_KEY"; fi
           for name in TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN ELEVENLABS_API_KEY ELEVENLABS_WEBHOOK_SECRET \
             RESEND_API_KEY STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET \
             ZOHO_CLIENT_ID ZOHO_CLIENT_SECRET PODIO_CLIENT_ID PODIO_CLIENT_SECRET \
             GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET QBO_CLIENT_ID QBO_CLIENT_SECRET QBO_WEBHOOK_VERIFIER \
             OUTLOOK_CLIENT_ID OUTLOOK_CLIENT_SECRET RAMP_CLIENT_ID RAMP_CLIENT_SECRET \
-            HUBSPOT_CLIENT_ID HUBSPOT_CLIENT_SECRET PLAID_CLIENT_ID PLAID_SECRET \
+            HUBSPOT_CLIENT_ID HUBSPOT_CLIENT_SECRET PLAID_CLIENT_ID PLAID_SECRET BILL_DEV_KEY \
             SLACK_CLIENT_ID SLACK_CLIENT_SECRET GOOGLE_PICKER_API_KEY GOOGLE_PROJECT_NUMBER \
             GOOGLE_CHAT_SERVICE_ACCOUNT GOOGLE_CHAT_PROJECT_NUMBER \
             META_APP_ID META_APP_SECRET META_WEBHOOK_VERIFY_TOKEN META_CONFIG_ID; do
@@ -320,7 +346,7 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
         if: steps.ready.outputs.ready == 'true'
 
       - uses: actions/setup-node@v7

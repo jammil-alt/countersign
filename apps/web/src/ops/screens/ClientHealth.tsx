@@ -117,8 +117,9 @@ export function ClientHealthSection({
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-ink">
-              No supervisor yet. A supervisor is an agent that checks this client's account each day
-              and tells the client admin and us what needs a person. It changes nothing itself.
+              No account agent yet. Sloan answers this client's people about their account, checks
+              it each day and tells the client admin and us what needs a person. It changes nothing
+              in their tools.
             </p>
             <Button
               variant="secondary"
@@ -126,7 +127,7 @@ export function ClientHealthSection({
               onClick={() => void add()}
               data-testid="ops-client-add-supervisor"
             >
-              Add the supervisor
+              Turn on Sloan
             </Button>
           </div>
         )}

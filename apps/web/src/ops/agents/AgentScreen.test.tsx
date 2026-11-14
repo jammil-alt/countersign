@@ -2,13 +2,23 @@
 // five tabs, the old People, Triggers and Tests addresses, Settings split into Access and
 // Definition, the triggers on the Workflow tab and the test bench on Versions (run a suite, read a
 // case's result, add a case).
-import { render, screen, waitFor, within } from "@testing-library/react";
+
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { ApiProvider } from "../../api/useApi";
-import { AGENT_DETAIL, AGENT_SUMMARY, fakeApi, versionId } from "../../test/fixtures";
+import {
+  AGENT_DETAIL,
+  AGENT_SUMMARY,
+  fakeApi,
+  PROCESS_BUNDLE,
+  PROCESS_BUNDLE_INPUT,
+  versionId,
+} from "../../test/fixtures";
+import { toolTitle } from "../builder/model";
 import { AgentScreen } from "./AgentScreen";
+import { toolsItWorksIn } from "./OverviewTab";
 
 const ID = AGENT_SUMMARY.id;
 const CLIENT = AGENT_SUMMARY.tenantId;
@@ -102,6 +112,12 @@ describe("AgentScreen", () => {
     expect(within(within(bar).getByTestId("agent-bar-crumbs")).getByRole("link")).toHaveTextContent(
       "Harbor Millwork",
     );
+    // Back to the list it came from: its client's agents.
+    expect(screen.getByTestId("agent-back")).toHaveTextContent("All Harbor Millwork agents");
+    expect(screen.getByTestId("agent-back")).toHaveAttribute(
+      "href",
+      expect.stringMatching(/^\/ops\/clients\/[^/]+\/agents$/),
+    );
     expect(within(bar).getByTestId("agent-kind")).toHaveTextContent("Client agent");
     expect(within(bar).getByTestId("agent-lineage-line")).toHaveTextContent(
       "Written for Harbor Millwork from no template.",
@@ -120,6 +136,92 @@ describe("AgentScreen", () => {
     expect(await screen.findByTestId("agent-publish-done")).toHaveTextContent("v2 is live.");
     expect(published).toBe(true);
     expect(api.calls).toContain(`POST /api/ops/agents/${ID}/versions/${versionId(2)}/publish`);
+  });
+
+  // Wave 3b: once a version holds a v4 process (the builder's save, a template's v4 version or
+  // its fork), every tab reads it: no "does not match the agent bundle schema".
+  describe("a version that holds a process", () => {
+    const V4_DETAIL = {
+      ...AGENT_DETAIL,
+      live: { ...AGENT_DETAIL.live, bundle: PROCESS_BUNDLE_INPUT },
+      latest: { ...AGENT_DETAIL.latest, bundle: PROCESS_BUNDLE_INPUT },
+    };
+    const routes = { [`GET /api/ops/agents/${ID}`]: () => V4_DETAIL };
+
+    it("shows the Overview's steps in the builder's words, its first trigger first", async () => {
+      setup(BASE, routes);
+      const chips = await screen.findByTestId("agent-chips-new-bill");
+      expect(chips).toHaveTextContent("Started by hand");
+      expect(chips).toHaveTextContent("If");
+      expect(chips).toHaveTextContent("Write");
+      expect(screen.getByTestId("agent-how-it-works")).toHaveTextContent("4 steps, 1 fork");
+      expect(screen.getByTestId("agent-bar-line")).toHaveTextContent("4 steps · 1 fork");
+      expect(screen.queryByText(/does not match the agent bundle schema/)).toBeNull();
+    });
+
+    // Wave 3c: a process names its tools on its read and write steps, not in the definition.
+    it("lists the tools of a process's read and write steps, nested ones too, each once", async () => {
+      const bundle = structuredClone(PROCESS_BUNDLE);
+      bundle.definition.extraTools = ["gmail.message.send"];
+      const workflow = bundle.workflows[0]?.workflow;
+      if (workflow?.schemaVersion !== 4) throw new Error("fixture");
+      const branch = workflow.steps[1];
+      if (branch?.kind !== "if") throw new Error("fixture");
+      branch.paths[0]?.steps.push(
+        { id: "look", kind: "read", name: "Look up the bill", tool: "qbo.bill.get", input: {} },
+        {
+          id: "again",
+          kind: "write",
+          name: "Update again",
+          tool: "qbo.bill.update_lines",
+          input: {},
+        },
+      );
+      expect(toolsItWorksIn(bundle)).toEqual([
+        "gmail.message.send",
+        "qbo.bill.get",
+        "qbo.bill.update_lines",
+      ]);
+      setup(BASE, {
+        [`GET /api/ops/agents/${ID}`]: () => ({
+          ...V4_DETAIL,
+          live: { ...V4_DETAIL.live, bundle },
+          latest: { ...V4_DETAIL.latest, bundle },
+        }),
+      });
+      const tools = await screen.findByTestId("agent-tools");
+      expect(tools.children).toHaveLength(3);
+      for (const id of ["gmail.message.send", "qbo.bill.get", "qbo.bill.update_lines"]) {
+        expect(tools).toHaveTextContent(toolTitle({ id }));
+      }
+    });
+
+    it("shows an older version's process, and edits the definition of one", async () => {
+      setup(`${BASE}/workflow?version=1`, routes);
+      const list = await screen.findByTestId("workflow-new-bill");
+      expect(within(list).getByTestId("step-update")).toHaveTextContent("needs approval");
+      cleanup();
+      setup(`${BASE}/settings/definition`, routes);
+      expect(await screen.findByTestId("agent-editor")).toBeInTheDocument();
+      expect(screen.queryByText(/does not match/)).toBeNull();
+    });
+
+    it("test-runs its live version on the Versions tab", async () => {
+      setup(`${BASE}/versions`, {
+        ...routes,
+        [`GET /api/ops/agents/${ID}/activation`]: () => ({
+          ready: false,
+          problems: [],
+          requiredConnectors: [],
+          testRun: null,
+        }),
+        "GET /api/ops/catalog/events": () => ({ events: [] }),
+      });
+      // The panel above the history and the test bench's own runs both read it.
+      const selects = await screen.findAllByTestId("agent-test-run-workflow-select");
+      for (const s of selects) expect(s).toHaveValue("new-bill");
+      expect(screen.queryByText(/does not match/)).toBeNull();
+    });
   });
 
   it("sends the old People tab to Settings", async () => {
@@ -148,7 +250,29 @@ describe("AgentScreen", () => {
     expect(screen.getByTestId("location")).toHaveTextContent(`${BASE}/settings/definition`);
   });
 
+  it("prefetches a tab's data on hover: a client agent's Runs, never a template's (1.6)", async () => {
+    const client = setup(BASE, { "GET /api/ops/runs": () => ({ runs: [] }) });
+    await screen.findByTestId("agent-bar");
+    await client.user.hover(screen.getByRole("link", { name: "Runs" }));
+    await waitFor(() => expect(client.api.calls).toContain("GET /api/ops/runs"));
+    cleanup();
+
+    const template = setup(
+      "/ops/templates/material-costs",
+      { [`GET /api/ops/agents/${ID}`]: () => ({ ...AGENT_DETAIL, agent: TEMPLATE }) },
+      "/ops/templates/material-costs",
+    );
+    await screen.findByTestId("agent-bar");
+    await template.user.hover(screen.getByRole("link", { name: "Runs" }));
+    await template.user.hover(screen.getByRole("link", { name: /Versions/ }));
+    expect(template.api.calls).not.toContain("GET /api/ops/runs");
+    expect(template.api.calls).not.toContain(`GET /api/ops/agents/${ID}/activation`);
+    expect(template.api.calls).not.toContain(`GET /api/ops/agents/${ID}/go-live`);
+  });
+
   it("says a template is a template, and names its client copies", async () => {
+    // The lab's view as it was left (its tab and search), for "All agents" to go back to.
+    window.sessionStorage.setItem("mezonas.lab.query", "tab=all&q=bill");
     setup(
       "/ops/templates/material-costs",
       {
@@ -178,6 +302,9 @@ describe("AgentScreen", () => {
     expect(await within(bar).findByTestId("agent-lineage-copies")).toHaveTextContent(
       "Client copy: Demo client",
     );
+    expect(screen.getByTestId("agent-back")).toHaveTextContent("All agents");
+    expect(screen.getByTestId("agent-back")).toHaveAttribute("href", "/ops/lab?tab=all&q=bill");
+    window.sessionStorage.removeItem("mezonas.lab.query");
   });
 
   it("says whose copy of which template a client agent is, and links its update", async () => {
@@ -236,8 +363,10 @@ describe("AgentScreen", () => {
       [`GET /api/ops/agents/${ID}`]: () => new Promise((r) => (answer = r)),
     });
     const frame = await screen.findByTestId("agent-skeleton");
+    // The back link to the client's agents, and the tabs, before the agent arrives (1.4).
+    expect(within(frame).getByTestId("agent-back")).toHaveTextContent("All Harbor Millwork agents");
     expect(
-      within(frame)
+      within(within(frame).getByRole("navigation"))
         .getAllByRole("link")
         .map((l) => l.textContent),
     ).toEqual(["Overview", "Workflow", "Runs", "Versions", "Settings"]);

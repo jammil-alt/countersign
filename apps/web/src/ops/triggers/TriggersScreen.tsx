@@ -5,7 +5,7 @@
 // and message triggers, their settings. "Add a trigger" opens a dialog that explains the six kinds
 // and saves the new trigger as a new draft version. The hook's URL and secret are the client's
 // (their admin keeps them in Accounts), so this panel never shows them.
-import type { AgentBundle, Trigger, TriggerOn } from "@countersign/core";
+import type { AnyAgentBundle, Trigger, TriggerOn } from "@countersign/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -82,25 +82,27 @@ export function TriggersPanel({
   agent: AgentSummary;
   /** The agent's latest version, which the list reads and new triggers are added to. */
   latest: VersionDetail | null;
-  bundle: AgentBundle | null;
+  bundle: AnyAgentBundle | null;
   /** After a save, with the new draft version's id. */
   onChanged(versionId: string): void;
 }) {
   const isClient = agent.kind === "client";
   const fired = useApi(apiRoutes.opsAgentTriggers, isClient ? { params: { id: agent.id } } : null);
-  const events = useApi(apiRoutes.opsEventCatalog);
+  const events = useApi(apiRoutes.opsEventCatalog, { life: "catalog" });
   const [adding, setAdding] = useState(false);
   const [saved, setSaved] = useState<{ version: number; errors: string[]; what: string } | null>(
     null,
   );
   const action = useAction();
+  // The trigger whose Remove was pressed: only its button says "Removing…" (1.8).
+  const [removing, setRemoving] = useState<string | null>(null);
 
   if (!latest || !bundle) return null;
   const rows = triggerRows(bundle);
   const labels = eventLabels(events.data?.events);
   const manyWorkflows = bundle.workflows.length > 1;
 
-  async function saveBundle(next: AgentBundle, what: string) {
+  async function saveBundle(next: AnyAgentBundle, what: string) {
     if (!latest) return false;
     setSaved(null);
     const res = await action.call(apiRoutes.opsSaveVersion, {
@@ -131,6 +133,7 @@ export function TriggersPanel({
 
   return (
     <Card
+      titleAbove
       title={`Starts when · ${plural(rows.length, "trigger")}`}
       testId="triggers-table"
       meta={
@@ -187,15 +190,17 @@ export function TriggersPanel({
               isClient={isClient}
               lastFired={lastFired(r.trigger.id)}
               busy={action.busy}
+              removing={action.busy && removing === r.trigger.id}
               name={agent.name}
               address={fired.data?.address ?? null}
               commandName={fired.data?.commandName ?? null}
-              onRemove={() =>
-                saveBundle(
+              onRemove={() => {
+                setRemoving(r.trigger.id);
+                return saveBundle(
                   removeTrigger(bundle, r.workflow, r.trigger.id),
                   `Removed a ${TRIGGER_KIND_LABEL[r.trigger.on.type].toLowerCase()} trigger`,
-                )
-              }
+                );
+              }}
             />
           ))}
         </ul>
@@ -225,6 +230,7 @@ function TriggerItem({
   isClient,
   lastFired,
   busy,
+  removing,
   name,
   address,
   commandName,
@@ -236,6 +242,8 @@ function TriggerItem({
   isClient: boolean;
   lastFired: Fired["triggers"][number]["lastFired"] | undefined;
   busy: boolean;
+  /** This row's Remove is on its way to the server. */
+  removing: boolean;
   name: string;
   address: string | null;
   commandName: string | null;
@@ -291,7 +299,7 @@ function TriggerItem({
             disabled={busy}
             onClick={onRemove}
           >
-            Remove
+            {removing ? "Removing…" : "Remove"}
           </button>
         )}
       </div>
@@ -322,7 +330,7 @@ function AddTriggerDialog({
   onAdd,
   onClose,
 }: {
-  bundle: AgentBundle;
+  bundle: AnyAgentBundle;
   clientId: string | null;
   agentSlug: string;
   busy: boolean;

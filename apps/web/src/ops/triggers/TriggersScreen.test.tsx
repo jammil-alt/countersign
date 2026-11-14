@@ -2,13 +2,19 @@
 // each last fired and their guards, the webhook and message settings on demand, adding a trigger
 // from the dialog that explains the six kinds (saved as a new draft with a new id) and removing an
 // added one.
-import { AgentBundle, type AgentBundleInput } from "@countersign/core";
+import { type AgentBundleInput, AnyAgentBundle, type AnyAgentBundleInput } from "@countersign/core";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { ApiProvider } from "../../api/useApi";
-import { AGENT_DETAIL, AGENT_SUMMARY, FORK_BUNDLE_INPUT, fakeApi } from "../../test/fixtures";
+import {
+  AGENT_DETAIL,
+  AGENT_SUMMARY,
+  FORK_BUNDLE_INPUT,
+  fakeApi,
+  PROCESS_BUNDLE_INPUT,
+} from "../../test/fixtures";
 import { TriggersPanel } from "./TriggersScreen";
 
 const ID = AGENT_SUMMARY.id;
@@ -47,10 +53,10 @@ const INPUT: AgentBundleInput = {
     },
   ],
 };
-const BUNDLE = AgentBundle.parse(INPUT);
+
 const LATEST = { ...AGENT_DETAIL.latest, bundle: INPUT };
 
-function setup(kind: "client" | "template" = "client") {
+function setup(kind: "client" | "template" = "client", input: AnyAgentBundleInput = INPUT) {
   const saved: Record<string, unknown>[] = [];
   let changed = 0;
   const api = fakeApi({
@@ -97,8 +103,8 @@ function setup(kind: "client" | "template" = "client") {
       <ApiProvider client={api.client}>
         <TriggersPanel
           agent={agent}
-          latest={LATEST}
-          bundle={BUNDLE}
+          latest={{ ...LATEST, bundle: input }}
+          bundle={AnyAgentBundle.parse(input)}
           onChanged={() => {
             changed += 1;
           }}
@@ -206,6 +212,33 @@ describe("Triggers", () => {
       bundle: { workflows: { workflow: { moreTriggers: { id: string }[] } }[] };
     };
     expect(body.bundle.workflows[0]?.workflow.moreTriggers.map((t) => t.id)).toEqual(["t-hook"]);
+  });
+
+  // Wave 3b: a version that holds a v4 process lists its `triggers`, and adds to and removes
+  // from them (its first stays), every id kept.
+  it("lists, adds to and removes from a process's triggers", async () => {
+    const { saved, user } = setup("client", PROCESS_BUNDLE_INPUT);
+    expect(screen.getByTestId("triggers-table")).toHaveTextContent("Starts when · 2 triggers");
+    expect(screen.getByTestId("trigger-row-t0")).toHaveTextContent("Manual");
+    expect(screen.getByTestId("trigger-row-t1")).toHaveTextContent("When bill created");
+    expect(screen.queryByTestId("trigger-remove-t0")).toBeNull();
+
+    await user.click(screen.getByTestId("triggers-add"));
+    await user.click(screen.getByTestId("trigger-form-save"));
+    expect(await screen.findByTestId("triggers-saved")).toHaveTextContent("saved v3 as a draft");
+    type Saved = { bundle: { workflows: { workflow: Record<string, unknown> }[] } };
+    const added = (saved[0] as Saved).bundle.workflows[0]?.workflow;
+    expect(added?.schemaVersion).toBe(4);
+    expect(added).not.toHaveProperty("moreTriggers");
+    const triggers = added?.triggers as { id: string; on: { type: string } }[];
+    expect(triggers.map((t) => t.id).slice(0, 2)).toEqual(["t0", "t1"]);
+    expect(triggers[2]?.on.type).toBe("schedule");
+
+    await user.click(screen.getByTestId("trigger-remove-t1"));
+    await screen.findByText(/Removed an? event trigger/);
+    const removed = (saved[1] as Saved).bundle.workflows[0]?.workflow;
+    const left = (removed?.triggers ?? []) as { id: string }[];
+    expect(left.map((t) => t.id)).toEqual(["t0"]);
   });
 
   it("shows a template's triggers without asking when they fired", () => {

@@ -12,6 +12,7 @@ import type {
 } from "@countersign/core";
 import { utf8 } from "../runtime";
 import type {
+  BrowserControl,
   BrowserCookie,
   BrowserDownload,
   BrowserDriver,
@@ -213,6 +214,21 @@ interface FakePage {
   tables?: BrowserTable[];
   /** Form fields: password and hidden ones are never read. */
   fields?: { type: "text" | "password" | "hidden"; value: string }[];
+  /** What single elements read as (`textOf`), by selector. */
+  values?: Record<string, string>;
+  /** Selectors of the page's buttons (the rest of `selectors` are fields), for `controls`. */
+  buttons?: string[];
+  /** Buttons that send a form (a POST): `controls` marks them, and read only blocks them. */
+  forms?: string[];
+  /** Elements whose click posts by the page's own script (no form): read only blocks them too. */
+  posts?: string[];
+}
+
+/** An order placed on the fake portal's order form (a recorded write script's submit). */
+export interface FakeOrder {
+  number: string;
+  sku: string;
+  qty: string;
 }
 
 /**
@@ -227,8 +243,12 @@ export class FakeSupplierPortal {
   readonly codesSent: string[] = [];
   signIns = 0;
   signOuts = 0;
+  /** Orders the order form placed, in order (scripts' writes). */
+  readonly orders: FakeOrder[] = [];
   /** What the next visit to /login shows instead: a CAPTCHA, a new-device check, a redirect. */
   loginTwist: "captcha" | "new_device" | "redirect_away" | null = null;
+  /** Where placing an order lands instead of /orders (a confirmation page the tests choose). */
+  orderLanding: string | null = null;
   options: FakePortalOptions;
 
   constructor(options: FakePortalOptions) {
@@ -260,6 +280,7 @@ export class FakeSupplierPortal {
         page: {
           text: `${error}Sign in to Supplier Portal`,
           selectors: ["#user", "#pass", "#go"],
+          forms: ["#go"],
           fields: [
             { type: "text", value: "" },
             { type: "password", value: "" },
@@ -271,7 +292,13 @@ export class FakeSupplierPortal {
       if (this.loginTwist === "new_device") {
         return { page: { text: "We noticed a sign-in from a new device.", selectors: [] } };
       }
-      return { page: { text: "Enter the code we emailed you", selectors: ["#code", "#verify"] } };
+      return {
+        page: {
+          text: "Enter the code we emailed you",
+          selectors: ["#code", "#verify"],
+          forms: ["#verify"],
+        },
+      };
     }
     if (path === "/logout") {
       if (sid) this.sessions.delete(sid);
@@ -308,6 +335,51 @@ export class FakeSupplierPortal {
         return { redirect: "https://elsewhere.test/invoices" };
       case "/invoices/old-link":
         return { redirect: `${this.origin}/account/settings` };
+      // A redirect that stays on the site's allowed pages but leaves a browsing skill's.
+      case "/invoices/to-statements":
+        return { redirect: `${this.origin}/statements` };
+      // A check the site puts up mid-session: a person must look.
+      case "/invoices/check":
+        return { page: { text: "Please prove you are human", selectors: [".g-recaptcha"] } };
+      // The order form a write script fills and submits, and the pages it reads.
+      case "/orders":
+        return {
+          page: {
+            text: "Orders",
+            selectors: ["#account", "#new-order", "#reorder"],
+            buttons: ["#new-order", "#reorder"],
+            // Reorder posts by the page's own script, no form: only read only stops it.
+            posts: ["#reorder"],
+            tables: [
+              {
+                headers: ["Order", "SKU", "Qty"],
+                rows: this.orders.map((o) => [o.number, o.sku, o.qty]),
+              },
+            ],
+          },
+        };
+      case "/orders/new":
+        return {
+          page: {
+            text: "New order\nPrice per unit $1,212.50",
+            selectors: ["#account", "#sku", "#qty", "#price", "#place"],
+            buttons: ["#place"],
+            forms: ["#place"],
+            values: { "#price": "$1,212.50", "#sku": "", "#qty": "" },
+          },
+        };
+      case "/orders/lookup": {
+        const sku = u.searchParams.get("sku") ?? "";
+        return {
+          page: {
+            text: `Stock for ${sku}`,
+            selectors: ["#account", "#stock"],
+            values: { "#stock": sku === "OAK-1" ? "42" : "0" },
+          },
+        };
+      }
+      case "/statements":
+        return { page: { text: "Statements\nMarch 2026", selectors: ["#account"] } };
       case "/account/settings":
         return { page: { text: "Change password, users and billing", selectors: [] } };
       default:
@@ -352,6 +424,27 @@ export class FakeSupplierPortal {
       this.sessions.add(sid);
       this.signIns += 1;
       return { go: `${this.origin}/home` };
+    }
+    if (u.pathname === "/orders/new" && selector === "#place") {
+      const order = {
+        number: `ORD-${this.orders.length + 1}`,
+        sku: form["#sku"] ?? "",
+        qty: form["#qty"] ?? "",
+      };
+      this.orders.push(order);
+      return { go: this.orderLanding ?? `${this.origin}/orders` };
+    }
+    if (u.pathname === "/orders" && selector === "#reorder") {
+      const last = this.orders.at(-1);
+      this.orders.push({
+        number: `ORD-${this.orders.length + 1}`,
+        sku: last?.sku ?? "",
+        qty: last?.qty ?? "1",
+      });
+      return { go: `${this.origin}/orders` };
+    }
+    if (u.pathname === "/orders" && selector === "#new-order") {
+      return { go: `${this.origin}/orders/new` };
     }
     if (selector === "#logout") {
       if (sid) this.sessions.delete(sid);
@@ -406,27 +499,52 @@ export type FakeBrowserEvent =
   | { op: "goto" | "landed"; url: string }
   | { op: "fill"; url: string; selector: string; value: string }
   | { op: "click"; url: string; selector: string }
+  | { op: "blocked"; url: string; selector: string }
+  | { op: "read_only"; on: boolean }
   | { op: "screenshot"; url: string }
   | { op: "read"; url: string }
   | { op: "download"; url: string }
   | { op: "set_cookies"; count: number }
   | { op: "close" };
 
+/** An address's origin (`https://host[:port]`); empty for anything that isn't one. */
+function originOf(address: string): string {
+  try {
+    return webUrl(address).origin;
+  } catch {
+    return "";
+  }
+}
+
 /** A BrowserDriver over a FakeSupplierPortal; every tab's events are kept in `events`. */
 export class FakeBrowserDriver implements BrowserDriver {
   readonly events: FakeBrowserEvent[] = [];
   opened = 0;
   closed = 0;
+  /** Tabs Browser Run would have closed (an idle browser past its keep-alive): they never answer. */
+  readonly #dead = new Set<number>();
   constructor(readonly portal: FakeSupplierPortal) {}
+
+  /** Closes every browser opened so far, as Browser Run does to one left idle too long. */
+  killOpen(): void {
+    for (let i = 1; i <= this.opened; i++) this.#dead.add(i);
+  }
 
   async open(): Promise<BrowserTab> {
     this.opened += 1;
+    const tabNo = this.opened;
+    const dead = () => this.#dead.has(tabNo);
+    const answer = () => {
+      if (dead()) throw new Error("Target page, context or browser has been closed");
+    };
     const portal = this.portal;
     const events = this.events;
     let url = "about:blank";
     let page: FakePage = { text: "", selectors: [] };
     let jar: BrowserCookie[] = [];
     let form: Record<string, string> = {};
+    /** Read only: a click that would post (a form button, a script's POST) is stopped. */
+    let readOnly = false;
     const sid = () => jar.find((c) => c.name === "sid")?.value ?? null;
     const land = (target: string) => {
       let next = target;
@@ -448,17 +566,28 @@ export class FakeBrowserDriver implements BrowserDriver {
     return {
       url: () => url,
       async goto(target) {
+        answer();
         events.push({ op: "goto", url: target });
         land(target);
       },
-      async fill(selector, value) {
+      async fill(selector, value, options) {
+        answer();
         if (!page.selectors.includes(selector)) throw new Error(`no ${selector} on ${url}`);
+        if (options?.onlyOn && !options.onlyOn.includes(originOf(url))) {
+          throw new Error(`not on ${options.onlyOn.join(", ")}; nothing typed`);
+        }
         events.push({ op: "fill", url, selector, value });
         form[selector] = value;
       },
       async click(selector) {
+        answer();
         if (!page.selectors.includes(selector)) throw new Error(`no ${selector} on ${url}`);
         events.push({ op: "click", url, selector });
+        if (readOnly && [...(page.forms ?? []), ...(page.posts ?? [])].includes(selector)) {
+          // The request is aborted before it leaves: nothing is sent, the page stays.
+          events.push({ op: "blocked", url, selector });
+          return;
+        }
         const r = portal.submit(url, selector, form, sid());
         if (r.setSid) {
           jar = [
@@ -478,31 +607,64 @@ export class FakeBrowserDriver implements BrowserDriver {
         land(r.go);
       },
       async has(selector) {
+        answer();
         return page.selectors.includes(selector);
       },
       async readText() {
+        answer();
         events.push({ op: "read", url });
         // The driver contract: password and hidden inputs are never read.
         const values = (page.fields ?? []).filter((f) => f.type === "text").map((f) => f.value);
         return [page.text, ...values].filter(Boolean).join("\n");
       },
       async readTables() {
+        answer();
         return clone(page.tables ?? []);
       },
+      async textOf(selector) {
+        answer();
+        if (!page.selectors.includes(selector)) return null;
+        return form[selector] ?? page.values?.[selector] ?? "";
+      },
+      async controls(): Promise<BrowserControl[]> {
+        answer();
+        return page.selectors.map((selector) => ({
+          selector,
+          kind: page.buttons?.includes(selector) ? "button" : "field",
+          label: selector.replace(/^#/, ""),
+          ...(page.forms?.includes(selector) ? { submits: true } : {}),
+        }));
+      },
+      async sendsForm(selector) {
+        answer();
+        return page.forms?.includes(selector) ?? false;
+      },
+      async readOnly(on) {
+        answer();
+        readOnly = on;
+        events.push({ op: "read_only", on });
+      },
       async download(target) {
+        answer();
         events.push({ op: "download", url: target });
         return portal.download(target, sid());
       },
       async cookies() {
+        answer();
         return clone(jar);
       },
       async setCookies(cookies) {
+        answer();
         events.push({ op: "set_cookies", count: cookies.length });
         jar = clone(cookies);
       },
       async screenshot() {
+        answer();
         events.push({ op: "screenshot", url });
         return new Uint8Array([137, 80, 78, 71]);
+      },
+      async alive() {
+        return !dead();
       },
       async close() {
         events.push({ op: "close" });

@@ -3,6 +3,7 @@
 // for a retry of a retry, the runs that one retried), each under its original idempotency key
 // `<run id>:<node id>:<index>`. Read and reopened in the client's own transaction.
 
+import { wentOnPast } from "@countersign/core";
 import { type Db, externalAction, run, type Tx, withTenant } from "@countersign/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { CarriedActionsPort, CarryCandidate } from "../runtime/ports";
@@ -40,6 +41,16 @@ export function dbCarriedActions(db: Db): CarriedActionsPort {
             ),
           )
           .orderBy(externalAction.createdAt);
+        // Wave 5 review: where each run ended, so a failed write its run went on past
+        // (`onError: continue`) is never carried (`carryDecision`).
+        const ends = new Map(
+          (
+            await tx
+              .select({ id: run.id, error: run.error })
+              .from(run)
+              .where(and(eq(run.tenantId, tenantId), inArray(run.id, runs)))
+          ).map((r) => [r.id, r.error]),
+        );
         // Only this node's own writes: `<run>:<node>:<index>`, not a deeper node's.
         return rows
           .filter((r) => /^\d+$/.test(r.idempotencyKey.slice(`${r.runId}:${nodeId}:`.length)))
@@ -55,6 +66,8 @@ export function dbCarriedActions(db: Db): CarriedActionsPort {
               approvedBy: r.approvedBy,
               result: r.result,
               error: r.error,
+              carriedOn:
+                r.status === "failed" && wentOnPast(nodeId, r.runId ? ends.get(r.runId) : null),
             }),
           );
       });

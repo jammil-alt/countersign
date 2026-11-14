@@ -134,8 +134,12 @@ describe("ops runs", () => {
     expect(row).toHaveTextContent("R-0f1001");
     expect(row).toHaveTextContent("Demo client");
     expect(row).toHaveTextContent("Cole");
-    expect(row).toHaveTextContent("Weekly reminders");
-    expect(row).not.toHaveTextContent("weekly-reminders");
+    // The agent's name only; what it was doing is the tooltip.
+    expect(row).not.toHaveTextContent("Weekly reminders");
+    expect(screen.getByTestId(`ops-run-${FAILED}-agent`)).toHaveAttribute(
+      "data-tip",
+      "Weekly reminders",
+    );
     // The error in plain words, at the step's name (not "unknown · at send").
     expect(screen.getByTestId(`ops-run-${FAILED}-error`)).toHaveTextContent(
       "HTTP 401 · at Send the reminder",
@@ -145,7 +149,8 @@ describe("ops runs", () => {
       "href",
       `/ops/runs/${FAILED}`,
     );
-    expect(screen.getByTestId("ops-runs-retry")).toBeDisabled();
+    // The list starts with its column heads: the bulk actions show once a run is picked.
+    expect(screen.queryByTestId("ops-runs-retry")).toBeNull();
     await userEvent.click(screen.getByTestId(`ops-run-${FAILED}-select`));
     expect(screen.getByTestId("ops-runs-selected")).toHaveTextContent("1 selected");
     // A running run can be cancelled, not retried.
@@ -213,12 +218,35 @@ describe("ops runs", () => {
     const { api } = setup();
     renderAt(api);
     const status = await screen.findByTestId(`ops-run-${WAITING}-status`);
-    expect(status).toHaveTextContent("Waiting for approval · client admin");
+    // The state alone; whom it waits on is its own column.
+    expect(status).toHaveTextContent(/^Waiting for approval$/);
     expect(status).toHaveAttribute("data-state", "waiting");
+    expect(screen.getByTestId(`ops-run-${WAITING}-owner`)).toHaveTextContent(/^Client admin/);
     expect(screen.getByTestId(`ops-run-${WAITING}-wait`)).toHaveTextContent(
       "For 39 h · Everyone who may approve it is still invited and hasn't signed in.",
     );
     expect(screen.getByTestId(`ops-run-${RUNNING}-status`)).toHaveTextContent("Running");
+  });
+
+  it("sorts by a column and opens a run from anywhere on its row", async () => {
+    const { api } = setup();
+    renderAt(api);
+    await screen.findByTestId(`ops-run-row-${FAILED}`);
+    const firstRow = () => within(screen.getByTestId("ops-runs")).getAllByRole("row")[1];
+    await userEvent.click(screen.getByTestId("ops-runs-sort-status"));
+    expect(screen.getByTestId("ops-runs-sort-status").closest("th")).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+    expect(firstRow()).toHaveAttribute("data-testid", `ops-run-row-${FAILED}`);
+    await userEvent.click(screen.getByTestId("ops-runs-sort-status"));
+    expect(firstRow()).toHaveAttribute("data-testid", `ops-run-row-${WAITING}`);
+
+    // The check box keeps its own click; the rest of the row opens the run.
+    await userEvent.click(screen.getByTestId(`ops-run-${FAILED}-select`));
+    expect(screen.getByTestId("ops-runs-selected")).toHaveTextContent("1 selected");
+    await userEvent.click(screen.getByTestId(`ops-run-${FAILED}-error`));
+    await waitFor(() => expect(api.calls).toContain(`GET /api/ops/runs/${FAILED}`));
   });
 
   it("opens filtered from its address, as the command center links to it", async () => {

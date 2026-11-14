@@ -3,16 +3,19 @@
 // STOP text are lifted only by the contact's START; changing a number withdraws that channel's
 // consent, which was given for the old number.
 
+import { TWILIO_MESSAGE_ENTITY } from "@countersign/connectors";
 import {
   type ConsentChannel,
   type Contact,
   type ContactConsent,
   type ContactConsentChangeInput,
   type ContactCreateInput,
-  type ContactMessage,
   type ContactPatchInput,
+  type ContactRelationshipBulkInput,
+  type ContactRelationshipBulkResult,
   ContactTranslation,
   callBlock,
+  consentBasisOf,
   consentBlock,
   consentBlockFor,
   DEFAULT_QUIET_HOURS,
@@ -27,6 +30,7 @@ import {
   type ReachChannel,
   type ReachContact,
   readAutonomy,
+  relationshipChannelsFor,
 } from "@countersign/core";
 import {
   clientLanguageOf,
@@ -35,11 +39,12 @@ import {
   directoryPeople,
   message,
   organization,
+  rawRecord,
   type Tx,
   tenant,
   thread,
 } from "@countersign/db";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
 // P-7
 import { translationsFor } from "../translate/views";
@@ -150,6 +155,16 @@ function phoneOrThrow(raw: string, field: string): string {
     );
   }
   return v;
+}
+
+export async function logContactChange(
+  tx: Tx,
+  tenantId: string,
+  contactId: string,
+  actorId: string | null,
+  change: Record<string, unknown>,
+) {
+  await log(tx, tenantId, contactId, actorId, change);
 }
 
 async function log(
@@ -266,16 +281,28 @@ export async function createContact(
   if (whatsapp) await ensureFree(tx, tenantId, "whatsapp", whatsapp);
   if (email) await ensureFree(tx, tenantId, "email", email);
   const consent: ContactConsent = {};
-  for (const ch of input.consent?.channels ?? []) {
-    const address = ch === "email" ? email : ch === "whatsapp" ? whatsapp : phone;
-    if (!address) {
-      throw new HttpError(
-        422,
-        "no_number",
-        `add the contact's ${ch === "email" ? "email" : "number"} for ${ch} first`,
-      );
+  const given = input.consent;
+  if (given && "channels" in given) {
+    for (const ch of given.channels) {
+      const address = ch === "email" ? email : ch === "whatsapp" ? whatsapp : phone;
+      if (!address) {
+        throw new HttpError(
+          422,
+          "no_number",
+          `add the contact's ${ch === "email" ? "email" : "number"} for ${ch} first`,
+        );
+      }
+      consent[ch] = { grantedAt: now.toISOString(), source: given.source, basis: "express" };
     }
-    consent[ch] = { grantedAt: now.toISOString(), source: input.consent?.source ?? "" };
+  } else if (given) {
+    // They gave the client this number for business (docs/plan.md §1.97).
+    const channels = relationshipChannelsFor({ phone, email });
+    if (channels.length === 0) {
+      throw new HttpError(422, "no_number", "add the contact's phone or email address first");
+    }
+    for (const ch of channels) {
+      consent[ch] = { grantedAt: now.toISOString(), source: given.source, basis: "relationship" };
+    }
   }
   const [row] = await tx
     .insert(contact)
@@ -308,6 +335,7 @@ export async function createContact(
     kind: "created",
     consent: Object.keys(consent),
     source: input.consent?.source ?? null,
+    ...(given ? { basis: "channels" in given ? "express" : "relationship" } : {}),
     ...(origin.source ? { from: origin.source } : {}),
     ...(origin.log ?? {}),
   });
@@ -459,7 +487,23 @@ export async function changeConsent(
             : "add the contact's number for that channel first",
         );
       }
-      consent[change.channel] = { grantedAt: now.toISOString(), source: change.source };
+      consent[change.channel] = {
+        grantedAt: now.toISOString(),
+        source: change.source,
+        basis: "express",
+      };
+      set = { consent: stored(consent) };
+      break;
+    }
+    case "relationship": {
+      if (row.optedOutAt) {
+        throw new HttpError(409, "opted_out", "this contact opted out: lift the opt-out first");
+      }
+      const channels = relationshipChannelsFor(row);
+      if (channels.length === 0) {
+        throw new HttpError(422, "no_number", "add the contact's phone or email address first");
+      }
+      Object.assign(consent, withRelationship(consent, channels, change.source, now));
       set = { consent: stored(consent) };
       break;
     }
@@ -490,10 +534,144 @@ export async function changeConsent(
   await log(tx, tenantId, id, actor.id, {
     kind: change.action,
     ...("channel" in change ? { channel: change.channel } : {}),
+    ...(change.action === "relationship"
+      ? { basis: "relationship", channels: relationshipChannelsFor(row) }
+      : change.action === "grant"
+        ? { basis: "express" }
+        : {}),
     ...("source" in change ? { source: change.source } : {}),
     by: actor.role === "operator" ? "operator" : "client",
   });
   return updated;
+}
+
+/**
+ * The relationship basis on these channels. Express consent already recorded on a channel is kept:
+ * it is the stronger record, and replacing it would lose its evidence.
+ */
+// DECISION: the relationship basis never replaces express consent, and never opens WhatsApp
+// (relationshipChannelsFor leaves it out; hasConsent refuses it there anyway).
+function withRelationship(
+  consent: ContactConsent,
+  channels: ConsentChannel[],
+  source: string,
+  now: Date,
+): ContactConsent {
+  const out: ContactConsent = {};
+  for (const ch of channels) {
+    const had = consent[ch];
+    if (had && consentBasisOf(had) === "express") continue;
+    out[ch] = { grantedAt: now.toISOString(), source, basis: "relationship" };
+  }
+  return out;
+}
+
+/**
+ * The relationship basis for many contacts at once (docs/plan.md §1.97): each one in this client
+ * that hasn't opted out and has a phone or email. Each change is logged on its contact.
+ */
+// DECISION: the bulk action skips (and reports) a contact who opted out instead of failing the
+// batch: only the contact's START, or a person lifting the opt-out, reopens them (§1.22).
+export async function relationshipForMany(
+  tx: Tx,
+  tenantId: string,
+  input: ContactRelationshipBulkInput,
+  actor: { id: string; role: "operator" | "client_admin" | "client_user" },
+  now: Date = new Date(),
+): Promise<ContactRelationshipBulkResult> {
+  const ids = [...new Set(input.contactIds)];
+  const rows = await tx
+    .select()
+    .from(contact)
+    .where(and(eq(contact.tenantId, tenantId), inArray(contact.id, ids)));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const out: ContactRelationshipBulkResult = { updated: [], skipped: [] };
+  for (const id of ids) {
+    const row = byId.get(id);
+    if (!row) {
+      out.skipped.push({ id, reason: "not_found" });
+      continue;
+    }
+    if (row.optedOutAt) {
+      out.skipped.push({ id, reason: "opted_out" });
+      continue;
+    }
+    const channels = relationshipChannelsFor(row);
+    if (channels.length === 0) {
+      out.skipped.push({ id, reason: "no_address" });
+      continue;
+    }
+    const consent = { ...((row.consent ?? {}) as ContactConsent) };
+    Object.assign(consent, withRelationship(consent, channels, input.source.trim(), now));
+    await tx
+      .update(contact)
+      .set({ consent: stored(consent) })
+      .where(and(eq(contact.id, id), eq(contact.tenantId, tenantId)));
+    await log(tx, tenantId, id, actor.id, {
+      kind: "relationship",
+      basis: "relationship",
+      channels,
+      source: input.source.trim(),
+      bulk: true,
+      by: actor.role === "operator" ? "operator" : "client",
+    });
+    out.updated.push(id);
+  }
+  return out;
+}
+
+/**
+ * A person signed up for texts themselves (docs/plan.md §1.98): express consent for texts on their
+ * phone, and any opt-out lifted, as their own START lifts it. The evidence is logged with it: the
+ * way in, the exact words they agreed to and where the request came from.
+ */
+export async function recordTextSignup(
+  tx: Tx,
+  row: ContactRow,
+  input: { source: string; evidence: Record<string, unknown> },
+  now: Date,
+): Promise<ContactRow> {
+  const consent = { ...((row.consent ?? {}) as ContactConsent) };
+  consent.sms = { grantedAt: now.toISOString(), source: input.source, basis: "express" };
+  const [u] = await tx
+    .update(contact)
+    .set({ optedOutAt: null, optOutSource: null, consent: stored(consent) })
+    .where(and(eq(contact.id, row.id), eq(contact.tenantId, row.tenantId)))
+    .returning();
+  await log(tx, row.tenantId, row.id, null, {
+    kind: "opt_in",
+    by: "contact",
+    channel: "sms",
+    basis: "express",
+    source: input.source,
+    ...input.evidence,
+  });
+  return u ?? row;
+}
+
+/** When this contact was last sent a text (not WhatsApp, not a call), or null. */
+// DECISION: the 30-day gap for a first text (§1.97) counts texts only: a call or a WhatsApp
+// message doesn't remind the person how to stop texts.
+export async function lastTextAt(
+  tx: Tx,
+  tenantId: string,
+  contactId: string,
+): Promise<Date | null> {
+  const [row] = await tx
+    .select({ at: rawRecord.syncedAt })
+    .from(rawRecord)
+    .where(
+      and(
+        eq(rawRecord.tenantId, tenantId),
+        eq(rawRecord.entityType, TWILIO_MESSAGE_ENTITY),
+        sql`${rawRecord.payload}->>'direction' = 'out'`,
+        sql`${rawRecord.payload}->>'channel' = 'sms'`,
+        sql`${rawRecord.payload}->>'contactId' = ${contactId}`,
+      ),
+    )
+    .orderBy(desc(rawRecord.syncedAt))
+    .limit(1);
+  return row?.at ?? null;
 }
 
 export async function findContactByNumber(

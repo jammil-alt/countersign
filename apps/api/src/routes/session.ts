@@ -140,7 +140,7 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
         httpStatus: 302,
         target: {
           ...(r.signedIn.method ? { method: r.signedIn.method } : {}),
-          // §1.83: where the sign-in starts with the second step.
+          // §1.99: where the sign-in starts with the second step.
           second_factor: r.signedIn.remembered ? "remembered" : r.signedIn.secondFactor,
         },
       });
@@ -173,7 +173,7 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
       sendCookies(c, r.setCookies);
       return { ok: true as const, redirectTo: r.redirectTo };
     }
-    if (choice.ok && choice.dev) sendCookies(c, [choice.dev.signOut()]);
+    if (choice.ok && choice.dev) sendCookies(c, choice.dev.signOut());
     return { ok: true as const, redirectTo: null };
   });
 
@@ -192,7 +192,7 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
       httpStatus: 200,
       target: { method: "dev" },
     });
-    sendCookies(c, [choice.dev.signIn(body.email)]);
+    sendCookies(c, choice.dev.signIn(body.email));
     return { ok: true as const };
   });
 

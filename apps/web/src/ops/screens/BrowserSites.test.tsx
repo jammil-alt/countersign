@@ -91,7 +91,7 @@ describe("ops websites", () => {
     });
     renderAt(api);
     await screen.findByTestId("site-supplier");
-    expect(screen.getByRole("heading", { name: "Website logins" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Websites" })).toBeInTheDocument();
     expect(screen.getByTestId("site-tier-count-low")).toHaveTextContent("2");
     expect(screen.getByTestId("site-tier-count-low")).toHaveTextContent("3 client logins");
     expect(screen.getByTestId("site-tier-count-medium")).toHaveTextContent("0");

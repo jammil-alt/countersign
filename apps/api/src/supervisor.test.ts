@@ -195,7 +195,7 @@ describe.skipIf(!h)("the supervisor", () => {
     ).toBe(404);
   });
 
-  it("onboarding offers it: a new client can start with the supervisor", async () => {
+  it('onboarding turns it on: a new client starts with Sloan on (§1.47 "On by default")', async () => {
     const res = await H.call(OPERATOR, "POST", "/api/ops/clients", {
       name: "Onboarded with a supervisor",
       supervisor: true,
@@ -206,7 +206,7 @@ describe.skipIf(!h)("the supervisor", () => {
       "GET",
       `/api/ops/clients/${j(res.json).client.id}/health`,
     );
-    expect(j(health.json).supervisor).toMatchObject({ slug: "supervisor", runStatus: "draft" });
+    expect(j(health.json).supervisor).toMatchObject({ slug: "supervisor", runStatus: "active" });
   });
 
   it("test-runs without writing anything, then activates", async () => {

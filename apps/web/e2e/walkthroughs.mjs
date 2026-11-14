@@ -4,9 +4,9 @@
 // Sloan from the search box) and
 // the back office's (Command center, Escalations,
 // Runs, a client and its tabs, Agent lab, an agent and its tabs, the workflow builder, triggers,
-// Skills, Connectors, Usage and billing). Each step moves by clicking a link the screen shows, as
-// a person would, opening the menu on a phone; every page gets the route sweep's checks
-// (./harness.mjs).
+// the Library with Skills and Connectors, Usage and billing). Each step moves by clicking a link
+// the screen shows, as a person would, opening the menu on a phone; every page gets the route
+// sweep's checks (./harness.mjs).
 //
 // Read-only: any request that would change something (a POST, PUT, PATCH or DELETE to /api other
 // than the dev sign-in) is stopped and fails the step, so nothing is sent or run, and no outside
@@ -220,7 +220,7 @@ async function clientWalk(w) {
     });
   });
   if (hasAgent !== "skip" && agentPage) {
-    for (const tab of ["runs", "access"]) {
+    for (const tab of ["runs", "settings"]) {
       await w.step(`Agent, ${tab}`, () => w.follow(`${agentPage}/${tab}`, { scope: "main" }));
     }
   }
@@ -369,14 +369,19 @@ async function opsWalk(w) {
     });
   }
 
-  await w.step("Skills", () => w.follow("/ops/skills"));
+  // R8: skills, connectors and the other banks are in the Library.
+  await w.step("Library", () => w.follow("/ops/library"));
+  await w.step("Skills", () => w.follow("/ops/library/skills"));
   await w.step("A skill", () =>
     w.follow((p) => /^\/ops\/skills\/[^/]+$/.test(p) && p !== "/ops/skills/new", {
       scope: "main",
       skip: "the seed has only built-in skills, which have no page of their own",
     }),
   );
-  await w.step("Connectors", () => w.follow("/ops/connectors"));
+  await w.step("Connectors", async () => {
+    await w.follow("/ops/library");
+    await w.follow("/ops/library/connectors", { scope: "main" });
+  });
   await w.step("Usage and billing", () => w.follow("/ops/usage"));
   await w.step("Billing", () => w.follow("/ops/billing"));
 }

@@ -75,7 +75,7 @@ function Breadcrumb() {
   return (
     <p className="mb-2 text-sm text-ink-muted">
       <Link to={SKILLS_PATH} className="hover:underline">
-        Skills and automations
+        Library · Skills
       </Link>{" "}
       / New skill
     </p>
@@ -422,11 +422,10 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
               <Card
                 title="How it works"
                 meta={
-                  def.mode === "task"
-                    ? `A task on ${def.model?.id ?? "its own model"}`
-                    : def.mode === "agent"
-                      ? "On the agent's model, with its instructions"
-                      : "Code, no model"
+                  // Skill model (2026-11-10): the Builder drafts AI skills.
+                  def.mode === "tool"
+                    ? "Deterministic: rule rows, no model"
+                    : `AI: instructions on ${def.model?.id ?? "the agent's model"}`
                 }
                 pad
               >
@@ -445,6 +444,7 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
             </>
           ) : tab === "tests" ? (
             <Card
+              titleAbove
               title="Tests"
               meta={`${draft.cases.length} drafted`}
               footer={

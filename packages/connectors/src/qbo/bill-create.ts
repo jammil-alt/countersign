@@ -15,6 +15,7 @@ import {
   IsoDate,
   lineRefsProblem,
   NewLine,
+  QBO_STAND_IN,
   QBO_TOOLS,
   QboTotalWouldChangeError,
   RefNames,
@@ -129,6 +130,8 @@ export function billCreateTool(clientFor: ClientFor): ToolDefinition {
     description:
       "Create a bill in QuickBooks from a vendor's invoice: vendor, number, dates, lines (an account, or an item with qty and unit price) and the expected total. Refused if the lines don't add up, the vendor isn't the company's, or the bill is already there.",
     verb: "create",
+    // R5: none until a qbo.bill.void tool is registered; delete stays off (docs/plan.md §9).
+    undo: { kind: "none" },
     summary: "Created bill {{docNumber}} for {{total}}",
     amount: { path: "expectedTotal", currencyPath: "currency", currency: "USD" },
     display: billCreateDisplay,
@@ -140,6 +143,12 @@ export function billCreateTool(clientFor: ClientFor): ToolDefinition {
       total: DecimalString,
       lineCount: z.number().int(),
       alreadyDone: z.boolean(),
+    }),
+    testOutput: (input) => ({
+      ...QBO_STAND_IN,
+      docNumber: input.docNumber,
+      total: input.expectedTotal,
+      lineCount: input.lines.length,
     }),
     // DECISION: a new bill has no prior state; `before` keeps what the approval card names it by
     // (the vendor as QuickBooks has it, the names of the lines' items and accounts).

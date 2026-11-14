@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import { luhnValid, redactCardNumbers, redactCardNumbersDeep } from "./card-numbers";
 import {
   complianceOf,
+  EMBEDDING_FEATURE,
   hipaaReadiness,
   inboundHeld,
   PROCESSORS,
+  type Processor,
   parseCoveredProcessors,
   processingRefusal,
+  processorForEmbedding,
   processorForModel,
   processorsForOffer,
   processorsForTool,
@@ -57,6 +60,11 @@ describe("processors", () => {
   it("names each feature's processors", () => {
     expect(processorForModel("claude-sonnet-5-5")).toBe("anthropic");
     expect(processorForModel("openai:gpt-5.5")).toBe("openai");
+    expect(processorForModel("xai:grok-4.7")).toBe("xai");
+    expect(processorForModel("google:gemini-3.1-pro")).toBe("google");
+    expect(processorForModel("google:gemini-3.5-flash-lite")).toBe("google");
+    // Only the prefix names a provider: an id that merely mentions one is Anthropic's.
+    expect(processorForModel("claude-grok-google")).toBe("anthropic");
     expect(processorsForTool("sms.send", "twilio")).toEqual(["twilio"]);
     expect(processorsForTool("whatsapp.send", "twilio").sort()).toEqual([
       "meta_whatsapp",
@@ -106,6 +114,12 @@ describe("processors", () => {
     expect(processorsForTool("hackernews.search", "hackernews")).toEqual(["hackernews"]);
     expect(processorsForOffer("hackernews")).toEqual(["hackernews"]);
     expect(processorsForOffer("linkedin")).toEqual([]);
+    // §1.87: BILL goes out under our developer key, so it is a processor of ours.
+    expect(processorsForOffer("billcom")).toEqual(["billcom"]);
+    expect(processorsForTool("billcom.bill.create", "billcom")).toEqual(["billcom"]);
+    expect(processingRefusal({ hipaa: true }, all, ["billcom"], "billcom.bill.create")).toBe(
+      "billcom.bill.create sends data to BILL, which has no signed BAA; this client is in HIPAA mode",
+    );
     expect(processingRefusal({ hipaa: true }, all, ["anthropic_web"], "web.search")).toBe(
       "web.search sends data to Anthropic web search and fetch, which has no signed BAA; this client is in HIPAA mode",
     );
@@ -118,6 +132,8 @@ describe("processors", () => {
       "workos",
       "anthropic",
       "openai",
+      "xai",
+      "google",
       "twilio",
       "meta_whatsapp",
       "elevenlabs",
@@ -125,10 +141,31 @@ describe("processors", () => {
       "plaid",
       "anthropic_web",
       "hackernews",
+      "billcom",
     ]);
     expect(hipaaReadiness(parseCoveredProcessors("cloudflare neon workos"), ["bankfeed"])).toEqual([
       "The bankfeed connector is offered and sends data to Plaid, with no signed BAA. Withdraw it first.",
     ]);
+  });
+
+  it("declares the vendor catalog's embeddings as OpenAI's, refused in HIPAA mode until covered", () => {
+    expect(processorForEmbedding(EMBEDDING_FEATURE.model)).toBe("openai");
+    expect(
+      processingRefusal(
+        { hipaa: true },
+        all,
+        [processorForEmbedding(EMBEDDING_FEATURE.model)],
+        "x",
+      ),
+    ).toBe("x sends data to OpenAI, which has no signed BAA; this client is in HIPAA mode");
+    expect(
+      processingRefusal(
+        { hipaa: true },
+        parseCoveredProcessors("cloudflare neon workos openai"),
+        [processorForEmbedding(EMBEDDING_FEATURE.model)],
+        "x",
+      ),
+    ).toBeNull();
   });
 
   it("refuses only in HIPAA mode, and only what isn't covered", () => {
@@ -137,6 +174,29 @@ describe("processors", () => {
     expect(processingRefusal({ hipaa: true }, all, ["openai"], "The model")).toBe(
       "The model sends data to OpenAI, which has no signed BAA; this client is in HIPAA mode",
     );
+  });
+
+  it("refuses xai: and google: models in HIPAA mode until their BAA is recorded", () => {
+    const refusal = (model: string, covered: ReadonlySet<Processor>) =>
+      processingRefusal({ hipaa: true }, covered, [processorForModel(model)], "The model");
+    expect(refusal("xai:grok-4.7", all)).toBe(
+      "The model sends data to xAI, which has no signed BAA; this client is in HIPAA mode",
+    );
+    expect(refusal("google:gemini-3.1-pro", all)).toBe(
+      "The model sends data to Google (Gemini API), which has no signed BAA; this client is in HIPAA mode",
+    );
+    expect(refusal("google:gemini-3.5-flash-lite", all)).not.toBeNull();
+    // Recorded BAAs let them through, each only for its own vendor.
+    const withXai = parseCoveredProcessors("cloudflare neon workos anthropic xai");
+    expect(refusal("xai:grok-4.7", withXai)).toBeNull();
+    expect(refusal("google:gemini-3.1-pro", withXai)).not.toBeNull();
+    const withGoogle = parseCoveredProcessors("cloudflare,neon,workos,anthropic,google");
+    expect(refusal("google:gemini-3.1-pro", withGoogle)).toBeNull();
+    expect(refusal("xai:grok-4.7", withGoogle)).not.toBeNull();
+    // Outside HIPAA mode nothing is refused.
+    expect(
+      processingRefusal({ hipaa: false }, new Set(), [processorForModel("xai:grok-4.7")], "x"),
+    ).toBeNull();
   });
 
   it("reads the profile from client settings, off by default", () => {

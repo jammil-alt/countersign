@@ -1,7 +1,8 @@
 // A text or WhatsApp message to a number bound to an agent's channel (ARCHITECTURE §10.8; docs/plan.md
 // §1.48 "Inbound messages"), in the Twilio webhook's transaction, after `message.received`. An agent
-// whose `sms` / `whatsapp` channel is bound to the connection the message came in on, and which has
-// a message trigger on that channel, gets `inbound.message` when a trigger's People filter takes the
+// whose `sms` / `whatsapp` channel resolves to the connection the message came in on (its own
+// binding, or the account's number when it has none: R4, ../channels/resolve.ts `agentsListeningOn`),
+// and which has a message trigger on that channel, gets `inbound.message` when a trigger's People filter takes the
 // sender; otherwise the sender gets the polite fixed reply from the same number and the lead a note.
 // The message's text stays in Twilio's raw record (read with `inbound.get`); the event carries ids.
 
@@ -15,6 +16,7 @@ import {
 import { agent, agentVersion, reachOut, type Tx } from "@countersign/db";
 import { type EventRow, type EventTypeRegistry, emit } from "@countersign/senses";
 import { and, eq, isNotNull, or, sql } from "drizzle-orm";
+import { agentsListeningOn } from "../channels/resolve";
 import type { ContactRow } from "../messaging/contacts";
 import { tenantLocale } from "../routes/language";
 import { confirmReply, type InboundReply, noteStranger, strangerReply } from "./replies";
@@ -43,10 +45,13 @@ export async function routeInboundText(
   },
 ): Promise<InboundReply[]> {
   const { tenantId } = input;
+  // R4: the agents listening on this number, by the same resolver that picks what they send on.
+  const listening = new Set(
+    await agentsListeningOn(tx, tenantId, input.channel, input.connectionId),
+  );
   const rows = await tx
     .select({
       id: agent.id,
-      channels: agent.channels,
       bundle: agentVersion.bundle,
     })
     .from(agent)
@@ -67,7 +72,7 @@ export async function routeInboundText(
     (r) =>
       // v0.14 capture
       r.id !== input.skipAgentId &&
-      r.channels?.[input.channel] === input.connectionId &&
+      listening.has(r.id) &&
       messageTriggersOn(r.bundle, input.channel).length > 0,
   );
   if (bound.length === 0) return [];

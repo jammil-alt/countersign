@@ -7,28 +7,47 @@ import { ApiProvider } from "./api/useApi";
 import { SessionLanguage } from "./i18n/SessionLanguage";
 import { PortalApp } from "./portal/PortalApp";
 import { SignInScreen } from "./session/SignIn";
+import { StillFrame } from "./session/StillFrame";
 import { SessionProvider, useSessionState } from "./session/session";
 import { IconSprite } from "./ui/icons";
-import { ErrorNotice, Loading } from "./ui/primitives";
+import { ErrorNotice } from "./ui/primitives";
 
-/** Its own chunk: only reached after the operator check below. */
-const OpsApp = lazy(() => import("./ops/OpsApp"));
+/**
+ * The back office's own chunk. Opened at an /ops address, it starts loading with the bundle, beside
+ * the session call, instead of after it (docs/audit-plan.md 4.3); elsewhere, only once an operator
+ * reaches /ops.
+ */
+const loadOpsApp = () => import("./ops/OpsApp");
+const opsAppEarly =
+  typeof window !== "undefined" && /^\/ops(\/|$)/.test(window.location.pathname)
+    ? loadOpsApp()
+    : null;
+// A client's session never renders the back office; a chunk that failed is reported where it is used.
+opsAppEarly?.catch(() => {});
+const OpsApp = lazy(() => opsAppEarly ?? loadOpsApp());
+// §1.98: the texting sign-up page is opened from a link, never in the app: its own chunk.
+const TextSignupScreen = lazy(() =>
+  import("./signup/TextSignup").then((m) => ({ default: m.TextSignupScreen })),
+);
 
 export function AppRoutes() {
   return (
     <Routes>
       <Route path="/sign-in" element={<SignInScreen />} />
+      {/* docs/plan.md §1.98: choosing to get texts from a business; no sign-in. */}
+      <Route
+        path="/texts/:token"
+        element={
+          <Suspense fallback={<StillFrame />}>
+            <TextSignupScreen />
+          </Suspense>
+        }
+      />
       <Route
         path="/ops/*"
         element={
           <RequireSession surface="ops">
-            <Suspense
-              fallback={
-                <Centered>
-                  <Loading />
-                </Centered>
-              }
-            >
+            <Suspense fallback={<StillFrame />}>
               <OpsApp />
             </Suspense>
           </RequireSession>
@@ -57,13 +76,8 @@ function RequireSession({ surface, children }: { surface: "ops" | "portal"; chil
   const { state, refresh } = useSessionState();
   const location = useLocation();
 
-  if (state.status === "loading") {
-    return (
-      <Centered>
-        <Loading />
-      </Centered>
-    );
-  }
+  // Until the session (and its language) is known: the still frame index.html showed, unchanged.
+  if (state.status === "loading") return <StillFrame />;
   if (state.status === "error") {
     return (
       <Centered>

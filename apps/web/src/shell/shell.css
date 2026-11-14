@@ -153,7 +153,7 @@
 .ui-sidebar__foot {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 2px;
   margin-top: var(--space-6);
 }
 .ui-shell__scrim {
@@ -190,15 +190,7 @@
   background: transparent;
   cursor: default;
 }
-.ui-navskel__badge {
-  background: var(--surface-subtle);
-  border-color: transparent;
-}
-.ui-navskel__bar {
-  display: block;
-  border-radius: var(--radius-sm);
-  background: var(--surface-subtle);
-}
+/* The shapes are the shared skeleton's (ui/page.css `.ui-skel`); only their sizes are here. */
 .ui-navskel__bar--name {
   width: 96px;
   height: 14px;
@@ -210,21 +202,70 @@
   margin: 3px 0;
 }
 
-/* "More": a folded nav group. */
-.ui-more__summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-2-5);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  list-style: none;
+/*
+ * Folded on a wide screen from the top bar's sidebar button: a rail of icons. The words stay for
+ * screen readers (and on hover, as titles); a waiting count rides on the icon's corner.
+ */
+.ui-sidebar {
+  transition: width 0.15s ease;
 }
-.ui-more__summary::-webkit-details-marker {
-  display: none;
+.ui-sidebar[data-collapsed="true"] {
+  width: var(--sidebar-collapsed-w);
+  padding-right: var(--space-2);
+  padding-left: var(--space-2);
+  overflow-x: hidden;
 }
-.ui-more[open] .ui-more__chev {
+.ui-sidebar[data-collapsed="true"] .ui-navitem {
+  position: relative;
+  justify-content: center;
+  padding-right: 0;
+  padding-left: 0;
+}
+.ui-sidebar[data-collapsed="true"] .ui-navitem__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* Out on the icon's corner (a small Count), so the icon under it stays clear. */
+.ui-navitem__count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  line-height: 0;
+}
+
+/* Collapse, at the sidebar's foot: a quiet row; its chevron points the way the sidebar will go. */
+.ui-sidebar__collapse {
+  width: 100%;
+  box-sizing: border-box;
+  color: var(--ink-muted);
+}
+.ui-sidebar__chev {
   transform: rotate(180deg);
+  transition: transform 0.15s ease;
+}
+.ui-sidebar[data-collapsed="true"] .ui-sidebar__chev {
+  transform: none;
+}
+/* The rail's tooltip (ds-tooltip), beside the row it names; fixed, so the sidebar can't clip it. */
+.ui-railtip {
+  position: fixed;
+  z-index: 40;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.ui-sidebar[data-collapsed="true"] .ui-sidebar__foot {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.ui-sidebar[data-collapsed="true"] .ui-navsection {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
 }
 
 .ui-main {
@@ -373,10 +414,10 @@
     gap: var(--space-2);
     padding: 0 var(--space-2);
   }
+  /* The mark alone at phone width, so the client's name keeps its room. */
   .ui-topbar__menu {
     display: inline-flex;
   }
-  /* The mark alone at phone width, so the client's name keeps its room. */
   .ui-topbar__lockup {
     display: none;
   }

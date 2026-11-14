@@ -27,6 +27,7 @@ import {
   type ResolveInput,
   suggestionFacts,
 } from "../inbox/InboxCard";
+import { LateAnswer } from "../inbox/LateAnswer";
 import { packReviewCard } from "../packs/reviews";
 import { PORTAL_PATHS } from "../portal/paths";
 import { ReleaseCodeEntry } from "../portal/screens/AccessRelease";
@@ -292,6 +293,24 @@ export function DeskDetail({
           ) : (
             <ItemBody item={lead} heading={leadHeading} />
           )}
+
+          {/* R5: an answer after we went ahead, and the undo a late no is offered (§1.86). */}
+          <LateAnswer
+            testId="desk-late"
+            payload={lead.payload}
+            surface="portal"
+            onUndo={
+              canSign
+                ? async () => {
+                    const out = await api.call(apiRoutes.portalUndoChange, {
+                      params: { id: lead.id },
+                    });
+                    onChanged();
+                    return out;
+                  }
+                : null
+            }
+          />
 
           {/* P-6: we passed this to you, and why (docs/plan.md §1.68). */}
           {open && lead.steppedIn?.action === "reassign" ? (

@@ -22,6 +22,8 @@ import {
   billingStatement,
   billingStatementLine,
   billingUsageReport,
+  browserScript,
+  browserScriptVersion,
   builderSession,
   builderTurn,
   connection,
@@ -52,12 +54,14 @@ import {
   notification,
   organization,
   organizationChange,
-  oversightDecision,
+  ownerCheck,
   qboWebhookEvent,
   rawRecord,
   reachOut,
   receivable,
   run,
+  runAudit,
+  runAuditMark,
   savedView,
   skill,
   skillVersion,
@@ -613,25 +617,16 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     })
     .returning();
   if (!tr) throw new Error("no test case result");
-  const [od] = await db
-    .insert(oversightDecision)
-    .values({
-      tenantId,
-      runId: r.id,
-      stepRunId: sr.id,
-      nodeId: "s1",
-      seq: 1,
-      cause: "failed",
-      action: "retry",
-      note: "The lookup timed out; trying again.",
-      sources: [rr?.id ?? ""],
-      model: "claude-opus-5-5",
-      costUsd: "0.0021",
-      tokensIn: 800,
-      tokensOut: 60,
-      agentVersionId: av.id,
-    })
-    .returning();
+  // v0.17 (0048): its columns named, not drizzle's whole list, so a client seeded on a database
+  // migrated only to an earlier migration (the 0047 test stops at 0046) gets this row too.
+  const [od] = await db.execute<{ id: string }>(sql`
+      insert into oversight_decision
+        (tenant_id, run_id, step_run_id, node_id, seq, cause, action, note, sources, model,
+         cost_usd, tokens_in, tokens_out, agent_version_id)
+      values (${tenantId}, ${r.id}, ${sr.id}, 's1', 1, 'failed', 'retry',
+        'The lookup timed out; trying again.', ${JSON.stringify([rr?.id ?? ""])}::jsonb,
+        'claude-opus-5-5', '0.0021', 800, 60, ${av.id})
+      returning id`);
   if (!od) throw new Error("no oversight decision");
   // Wave 3 (0030): a Builder conversation about the client's agent.
   const [bs] = await db
@@ -757,6 +752,55 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     operation: "Update",
     lastUpdated: new Date("2026-11-09T12:00:00Z"),
     acted: true,
+  });
+  // 0045: a recorded browser script and its first version.
+  const [script] = await db
+    .insert(browserScript)
+    .values({
+      tenantId,
+      connectionId: c.id,
+      site: "supplier",
+      slug: "check-stock",
+      name: "Check stock",
+      recording: { steps: [] },
+      createdSide: "client",
+    })
+    .returning();
+  if (!script) throw new Error("no browser script");
+  await db.insert(browserScriptVersion).values({
+    tenantId,
+    scriptId: script.id,
+    version: 1,
+    definition: { schemaVersion: 1, site: "supplier", name: "Check stock" },
+    recordedSide: "client",
+  });
+  // 0046: the owner's check that led to the decision, the run queued for audit and a mark on it.
+  await db.insert(ownerCheck).values({
+    tenantId,
+    runId: r.id,
+    nodeId: "s1",
+    attempt: 1,
+    result: "reviewed",
+    attemptOutcome: "failed",
+    cause: "failed",
+    verdict: "retry",
+    decisionId: od.id,
+    agentVersionId: av.id,
+  });
+  await db.insert(runAudit).values({
+    tenantId,
+    runId: r.id,
+    agentId: a.id,
+    reason: "wrote",
+    rule: { writes: true, percent: "5", source: "default", bucket: 4210 },
+  });
+  await db.insert(runAuditMark).values({
+    tenantId,
+    runId: r.id,
+    verdict: "problem",
+    note: "The bill went to the wrong vendor.",
+    markedBy: u.id,
+    inboxItemId: ii.id,
   });
   await db.insert(ledgerAccountNote).values({
     tenantId,

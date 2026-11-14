@@ -55,7 +55,15 @@ const PAT = "+15555550100";
 
 /** Contacts and consent in memory, as apps/api's services answer from the database. */
 function memoryMessaging(
-  over: { block?: SendCheck & { ok: false }; quiet?: boolean; lastInboundAt?: Date | null } = {},
+  over: {
+    block?: SendCheck & { ok: false };
+    quiet?: boolean;
+    lastInboundAt?: Date | null;
+    // §1.97: the contact's last text (default: yesterday, so a text goes as written), and their
+    // language.
+    lastTextAt?: Date | null;
+    language?: string | null;
+  } = {},
 ) {
   const recorded: OutboundMessage[] = [];
   const attempts: SendAttempt[] = [];
@@ -71,8 +79,13 @@ function memoryMessaging(
       }
       return {
         ok: true,
-        contact: { id: "c1", name: "Pat Lee", language: null },
+        contact: { id: "c1", name: "Pat Lee", language: over.language ?? null },
         lastInboundAt: over.lastInboundAt ?? null,
+        lastTextAt:
+          over.lastTextAt === undefined
+            ? new Date(NOW.getTime() - 24 * 60 * 60 * 1000)
+            : over.lastTextAt,
+        client: "Rivera Supply",
       };
     },
     async sentFor(key) {
@@ -251,6 +264,100 @@ describe("twilio connector", () => {
     );
     expect(twilio.sends()).toHaveLength(1);
     expect((again.output as { sid: string }).sid).toBe((done.output as { sid: string }).sid);
+  });
+
+  it("names the client and adds the opt-out line to a first text, on the card and in the send", async () => {
+    const { twilio, connector, ctx } = await setup();
+    const m = memoryMessaging({ lastTextAt: null });
+    const input = { to: PAT, text: "Your order is ready." };
+    const going = "Rivera Supply: Your order is ready. Reply STOP to opt out.";
+    const proposed = await captureBefore(
+      connector,
+      SMS_SEND_TOOL,
+      input,
+      ctx({ messaging: m.services }),
+    );
+    expect(proposed.before).toEqual({
+      contact: { id: "c1", name: "Pat Lee" },
+      channel: "sms",
+      to: PAT,
+      sentAs: going,
+    });
+    await executeWrite(connector, SMS_SEND_TOOL, input, ctx({ messaging: m.services }));
+    expect(twilio.sends()[0]?.form.Body).toBe(going);
+    // What was sent is what the thread records.
+    expect(m.recorded[0]?.text).toBe(going);
+  });
+
+  it("adds the line again after 30 days without a text, not before, and not twice", async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const cases = [
+      { lastTextAt: new Date(NOW.getTime() - 29 * day), text: "Ready.", body: "Ready." },
+      {
+        lastTextAt: new Date(NOW.getTime() - 30 * day),
+        text: "Ready.",
+        body: "Rivera Supply: Ready. Reply STOP to opt out.",
+      },
+      // Names the client already, and offers STOP already: sent as written.
+      {
+        lastTextAt: null,
+        text: "Rivera Supply here: ready. Reply STOP to opt out.",
+        body: "Rivera Supply here: ready. Reply STOP to opt out.",
+      },
+      // "stop by" is not an offer to opt out.
+      {
+        lastTextAt: null,
+        text: "rivera supply: stop by Monday.",
+        body: "rivera supply: stop by Monday. Reply STOP to opt out.",
+      },
+    ];
+    for (const [i, c] of cases.entries()) {
+      const { twilio, connector, ctx } = await setup();
+      const m = memoryMessaging({ lastTextAt: c.lastTextAt });
+      await executeWrite(
+        connector,
+        SMS_SEND_TOOL,
+        { to: PAT, text: c.text },
+        ctx({ messaging: m.services }, `run-1:send:${i}`),
+      );
+      expect(twilio.sends()[0]?.form.Body).toBe(c.body);
+    }
+  });
+
+  it("writes the opt-out line in the contact's language, and refuses a first text too long with it", async () => {
+    const { twilio, connector, ctx } = await setup();
+    const m = memoryMessaging({ lastTextAt: null, language: "es" });
+    await executeWrite(
+      connector,
+      SMS_SEND_TOOL,
+      { to: PAT, text: "Su pedido está listo." },
+      ctx({ messaging: m.services }),
+    );
+    expect(twilio.sends()[0]?.form.Body).toBe(
+      "Rivera Supply: Su pedido está listo. Responda STOP para no recibir más mensajes.",
+    );
+    const long = memoryMessaging({ lastTextAt: null });
+    await expect(
+      executeWrite(
+        connector,
+        SMS_SEND_TOOL,
+        { to: PAT, text: "x".repeat(1590) },
+        ctx({ messaging: long.services }, "run-1:send:long"),
+      ),
+    ).rejects.toThrow(/shorten it/);
+    expect(twilio.sends()).toHaveLength(1);
+  });
+
+  it("never adds the line to WhatsApp messages", async () => {
+    const { twilio, connector, ctx } = await setup({ whatsapp: true });
+    const m = memoryMessaging({ lastTextAt: null, lastInboundAt: NOW });
+    await executeWrite(
+      connector,
+      WHATSAPP_SEND_TOOL,
+      { to: PAT, text: "Yes, 3pm works." },
+      ctx({ messaging: m.services }),
+    );
+    expect(twilio.sends()[0]?.form.Body).toBe("Yes, 3pm works.");
   });
 
   it("sends nothing without consent, after an opt-out, in quiet hours, before A2P, or with no services", async () => {

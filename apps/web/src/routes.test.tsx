@@ -41,15 +41,25 @@ function renderAt(path: string, operator: boolean) {
 /** The route table's patterns, with each `:param` filled and a `*` dropped. */
 function paths(table: React.ReactElement, prefix: string): string[] {
   const out: string[] = [];
-  for (const r of createRoutesFromElements(table)) {
-    const p = r.index ? "" : (r.path ?? "");
-    const filled = p
-      .split("/")
-      .map((seg) => (seg.startsWith(":") ? ID : seg === "*" ? "" : seg))
-      .filter((seg) => seg !== "")
-      .join("/");
-    out.push(`${prefix}/${filled}`.replace(/\/$/, "") || "/");
-  }
+  // Routes nested under a layout (the client page's frame) count too: a child's path is joined to
+  // its parent's, and a layout without a path adds nothing.
+  const walk = (routes: ReturnType<typeof createRoutesFromElements>, parent: string) => {
+    for (const r of routes) {
+      const p = r.index ? "" : (r.path ?? "");
+      const joined = [parent, p].filter((x) => x !== "").join("/");
+      if (r.children?.length) {
+        walk(r.children, joined);
+        if (r.path === undefined && !r.index) continue;
+      }
+      const filled = joined
+        .split("/")
+        .map((seg) => (seg.startsWith(":") ? ID : seg === "*" ? "" : seg))
+        .filter((seg) => seg !== "")
+        .join("/");
+      out.push(`${prefix}/${filled}`.replace(/\/$/, "") || "/");
+    }
+  };
+  walk(createRoutesFromElements(table), "");
   return out;
 }
 
@@ -66,12 +76,14 @@ describe("the portal's routes", () => {
       "/inbox",
       "/agents/x",
       "/agents/x/runs",
-      "/agents/x/access",
+      "/agents/x/settings",
       "/accounts",
       "/contacts",
       "/settings",
       "/settings/approvals",
       "/settings/team",
+      "/settings/hours",
+      "/settings/channels",
       "/settings/billing",
       "/settings/exports",
       "/settings/conversations",

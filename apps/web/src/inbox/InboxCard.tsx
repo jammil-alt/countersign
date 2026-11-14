@@ -10,6 +10,7 @@ import {
   type LocalizedText,
   pickLocalized,
   type ResolveBody,
+  type UndoChangeResult,
 } from "@countersign/core";
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
@@ -25,6 +26,8 @@ import { Icon } from "../ui/icons";
 import { Badge, Button, ErrorNotice, Tag, type Tone } from "../ui/primitives";
 import { ChangeTables } from "./ChangePanel";
 import { changeHeading, connectorName, connectorOf, fieldLabel, formatValue } from "./change";
+import { LateAnswer } from "./LateAnswer";
+import { LATE_KEYS } from "./late";
 
 export type ResolveInput = z.input<typeof ResolveBody>;
 
@@ -95,6 +98,8 @@ const PLUMBING = new Set([
   // A finding's fingerprint and its state (docs/plan.md §1.28): the steps show as a list.
   "fingerprint",
   "finding",
+  // R5: an answer after the run went ahead, and its undo: shown by LateAnswer.
+  ...LATE_KEYS,
 ]);
 
 /** A finding's plain steps for the client admin (`payload.finding.steps`), if it has them. */
@@ -241,6 +246,7 @@ export function InboxCard({
   showToolId,
   testId,
   onUndo,
+  onUndoChange,
   surface = "portal",
 }: {
   item: InboxCardItem;
@@ -266,6 +272,11 @@ export function InboxCard({
   testId?: string;
   /** v0.12 W1-D: takes back an approval inside its undo window; null where nobody may. */
   onUndo?: (() => Promise<void>) | null;
+  /**
+   * R5: takes back a write that went ahead before a late no (the item's `payload.undo`), through
+   * the surface's undo route; null where nobody may.
+   */
+  onUndoChange?: (() => Promise<UndoChangeResult>) | null;
   /** Which inbox shows it: a pack's review card calls that surface's routes. */
   surface?: "portal" | "ops";
 }) {
@@ -366,12 +377,15 @@ export function InboxCard({
       </div>
 
       {isChange ? (
-        <ChangeTables
-          before={item.payload.before}
-          input={item.payload.input}
-          display={item.display?.tool}
-          names={item.display?.names}
-        />
+        <>
+          <ChangeTables
+            before={item.payload.before}
+            input={item.payload.input}
+            display={item.display?.tool}
+            names={item.display?.names}
+          />
+          <SentAs before={item.payload.before} />
+        </>
       ) : ReviewCard ? (
         <ReviewCard
           itemId={item.id}
@@ -402,6 +416,8 @@ export function InboxCard({
       ) : null}
 
       {isRelease && open && renderRelease ? renderRelease(item) : null}
+
+      <LateAnswer payload={item.payload} surface={surface} onUndo={onUndoChange ?? null} />
 
       {item.kind === "request" && open && onResolve && !isRelease && !choices && !ReviewCard ? (
         <label className="ds-field" htmlFor={`answer-${item.id}`}>
@@ -515,7 +531,7 @@ function Actions({
   const { t } = useI18n();
   if (kind === "change_request") {
     return (
-      <Link to="/ops/requests" className="text-sm text-link underline">
+      <Link to="/ops/utilities/requests" className="text-sm text-link underline">
         {t("inbox.openRequestsQueue")}
       </Link>
     );
@@ -576,6 +592,23 @@ function Actions({
           ? t("inbox.signAndUpdate", { tool: toolName })
           : t("inbox.sign")}
       </Button>
+    </div>
+  );
+}
+
+/**
+ * A first text (docs/plan.md §1.97): the words as they will go, with the client's name and the
+ * opt-out line the send adds in code, so the person signing sees exactly what goes out.
+ */
+function SentAs({ before }: { before: unknown }) {
+  const { t } = useI18n();
+  const b = before as { sentAs?: unknown } | null;
+  if (!b || typeof b.sentAs !== "string") return null;
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="inbox-item-sent-as">
+      <span className="text-sm font-medium text-ink">{t("inbox.sentAs")}</span>
+      <p className="mz-sign__side text-sm break-words whitespace-pre-line text-ink">{b.sentAs}</p>
+      <p className="text-sm text-ink-muted">{t("inbox.sentAsNote")}</p>
     </div>
   );
 }

@@ -202,6 +202,66 @@ describe.skipIf(!h)("compliance", () => {
       const forB = guardModels(inner, B.tenantId, profileReader(harness.db), covered);
       await forB.create({ model: "openai:gpt-5.5", max_tokens: 10, messages: [] });
       expect(inner.create).toHaveBeenCalledTimes(2);
+
+      // xAI and Google are vendors of their own: refused to the HIPAA client until listed.
+      for (const model of [
+        "xai:grok-4.7",
+        "google:gemini-3.1-pro",
+        "google:gemini-3.5-flash-lite",
+      ]) {
+        const refused = await guarded
+          .create({ model, max_tokens: 10, messages: [] })
+          .catch((e: unknown) => e);
+        expect(refused).toBeInstanceOf(ComplianceRefusal);
+        expect(String((refused as Error).message)).toContain(
+          model.startsWith("xai:") ? "xAI" : "Google (Gemini API)",
+        );
+      }
+      expect(inner.create).toHaveBeenCalledTimes(2);
+      await forB.create({ model: "xai:grok-4.7", max_tokens: 10, messages: [] });
+      expect(inner.create).toHaveBeenCalledTimes(3);
+      // Once their BAAs are recorded, they pass for the HIPAA client too.
+      const withBoth = parseCoveredProcessors("cloudflare,neon,workos,anthropic,xai,google");
+      const allowed = guardModels(inner, A.tenantId, profileReader(harness.db), withBoth);
+      await allowed.create({ model: "xai:grok-4.7", max_tokens: 10, messages: [] });
+      await allowed.create({ model: "google:gemini-3.1-pro", max_tokens: 10, messages: [] });
+      expect(inner.create).toHaveBeenCalledTimes(5);
+      await expect(
+        allowed.create({ model: "openai:gpt-5.5", max_tokens: 10, messages: [] }),
+      ).rejects.toBeInstanceOf(ComplianceRefusal);
+
+      // §1.88: the vendor catalog's embeddings go to OpenAI: refused to the HIPAA client.
+      const embedding = {
+        model: "openai:text-embedding-3-large",
+        input: ["3/4 baltic birch"],
+        dimensions: 4,
+      };
+      const withEmbed: LlmTransport = {
+        create: vi.fn(async () => ({}) as never),
+        embed: vi.fn(async () => ({
+          model: "x",
+          embeddings: [[0, 0, 0, 1]],
+          usage: { inputTokens: 1 },
+        })),
+      };
+      const refusedEmbed = await guardModels(
+        withEmbed,
+        A.tenantId,
+        profileReader(harness.db),
+        covered,
+      )
+        .embed?.(embedding)
+        .catch((e: unknown) => e);
+      expect(refusedEmbed).toBeInstanceOf(ComplianceRefusal);
+      expect(String((refusedEmbed as Error).message)).toContain("OpenAI");
+      await guardModels(withEmbed, B.tenantId, profileReader(harness.db), covered).embed?.(
+        embedding,
+      );
+      expect(withEmbed.embed).toHaveBeenCalledTimes(1);
+      // A transport with no embeddings stays without them.
+      expect(
+        guardModels(inner, A.tenantId, profileReader(harness.db), covered).embed,
+      ).toBeUndefined();
     });
   });
 

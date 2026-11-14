@@ -1,0 +1,70 @@
+{
+  "hash": "82a14b00e4320440f9191aaa934b54a29a83a1525057656fa8364f4b4db5d52d",
+  "recordedAt": "2026-11-10T12:00:00.000Z",
+  "request": {
+    "model": "xai:grok-4.7",
+    "system": "You check invoices for a client. Use the tools to read them.",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What does INV-1 total?"
+      }
+    ],
+    "tools": [
+      {
+        "name": "get_invoice",
+        "description": "Read one invoice by its number",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "tool_choice": {
+      "type": "auto"
+    }
+  },
+  "response": {
+    "id": "resp_xai_tool_0001",
+    "type": "message",
+    "role": "assistant",
+    "model": "xai:grok-4.7",
+    "content": [
+      {
+        "type": "tool_use",
+        "id": "call_xai_0001",
+        "name": "get_invoice",
+        "input": {
+          "id": "INV-1"
+        },
+        "caller": {
+          "type": "direct"
+        }
+      }
+    ],
+    "container": null,
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 900,
+      "output_tokens": 35,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": null,
+      "inference_geo": null,
+      "output_tokens_details": null,
+      "server_tool_use": null,
+      "service_tier": "standard"
+    }
+  },
+  "handWritten": true
+}

@@ -14,9 +14,11 @@ import {
   generateEncryptionKey,
 } from "@countersign/connectors";
 import { FAKE_TWILIO_MAIN, fakeTwilio } from "@countersign/connectors/testing";
-import { AgentBundle, type AgentBundleInput } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, type SkillStep } from "@countersign/core";
 import {
   agent,
+  agentVersion,
+  connection,
   contact,
   externalAction,
   inboxItem,
@@ -35,7 +37,9 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  user,
 } from "./api.test-helper";
+import { conversePort } from "./converse/service";
 import { quietNever } from "./quiet-hours.test-helper";
 import { reachOutTick } from "./reach/service";
 import { credentialsFor, executeRun, reachDepsFor } from "./runs/execute";
@@ -839,6 +843,105 @@ describe.skipIf(!h)("conversations through the API", () => {
     });
   });
 
+  it("a message nobody signed goes on its deadline only where the gate would send it unsigned now", async () => {
+    // Live, in act mode, on a connection whose `create` is `auto`: only the step asks to sign.
+    const { agentId } = await makeAgent("purchasing-proceed", talkStep(), {
+      permissions: { mode: "act" },
+    });
+    const [conn] = await H.t.db.select().from(connection).where(eq(connection.id, twilioConn));
+    await H.t.db
+      .update(connection)
+      .set({ permissions: { ...j(conn?.permissions), create: "auto" } })
+      .where(eq(connection.id, twilioConn));
+    const autonomy = (id: string, value: Record<string, string>) =>
+      H.call(OPERATOR, "PUT", `/api/ops/clients/${A()}/contacts/${id}/autonomy`, {
+        autonomy: value,
+      });
+
+    /** Starts a conversation whose first message waits, then resumes it as nobody answered. */
+    async function proceedUnanswered(
+      who: string,
+      phone: string,
+      request: string,
+      between = () => {},
+    ) {
+      await textIn(phone, "About my request");
+      const params = await startRun(agentId, who, request);
+      model = new FakeModel([turn({ action: "ask", message: "Which items, and by when?" })]);
+      let resumed: { kind: string; error?: string } | null = null;
+      const step = new FakeWorkflowStep(async (_name, type) => {
+        if (type.startsWith("inbox-") && !resumed) {
+          await between();
+          const port = conversePort(reachDepsFor(deps()));
+          const info = {
+            id: params.runId,
+            tenantId: A(),
+            agentId,
+            agentVersionId: params.agentVersionId,
+            workflowSlug: "main",
+            mode: "live" as const,
+          };
+          const there = await port.peek(info, "talk");
+          if (there?.kind !== "item") throw new Error("the first message doesn't wait");
+          const [sr] = await H.t.db
+            .select()
+            .from(stepRun)
+            .where(and(eq(stepRun.runId, params.runId), eq(stepRun.nodeId, "talk")));
+          resumed = (await port.resume({
+            run: info,
+            step: talkStep() as unknown as SkillStep,
+            nodeId: "talk",
+            stepRunId: sr?.id ?? "",
+            pending: { inboxItemId: there.inboxItemId, state: there.state },
+            resolution: { approved: true, by: null, proceeded: true },
+          })) as { kind: string; error?: string };
+        }
+        throw Object.assign(new Error("Execution timed out after 1ms"), {
+          name: "WorkflowTimeoutError",
+        });
+      });
+      await executeRun(deps(), params, cloudflareStepRunner(step));
+      return {
+        resumed: resumed as unknown as { kind: string; error?: string },
+        rows: await rowsOf(params.runId),
+      };
+    }
+
+    try {
+      // Rae's WhatsApp is set to "needs approval" while the first message waits: it never goes.
+      const RAE = "+15555550176";
+      const rae = await newContact({
+        name: "Rae Moss",
+        whatsapp: RAE,
+        consent: { channels: ["whatsapp"], source: "signed the service agreement" },
+      });
+      const held = await proceedUnanswered(rae, RAE, "REQ-31", async () => {
+        expect((await autonomy(rae, { whatsapp: "approval" })).status).toBe(200);
+      });
+      expect(held.resumed).toMatchObject({ kind: "failed" });
+      expect(held.resumed.error).toMatch(/nobody answered in time, and a message to Rae Moss/);
+      expect(sentTo(RAE)).toHaveLength(0);
+      expect(held.rows[0]).toMatchObject({ status: "ended", outcome: "declined" });
+
+      // Nothing asks for a signature now: it goes with nobody's.
+      const ZED = "+15555550177";
+      const zed = await newContact({
+        name: "Zed Hale",
+        whatsapp: ZED,
+        consent: { channels: ["whatsapp"], source: "signed the service agreement" },
+      });
+      const sent = await proceedUnanswered(zed, ZED, "REQ-32");
+      expect(sent.resumed.kind).not.toBe("failed");
+      expect(sentTo(ZED).map((m) => m.body)).toEqual(["Which items, and by when?"]);
+      expect(j(sent.rows[0]?.plan).approvedBy).toBeNull();
+    } finally {
+      await H.t.db
+        .update(connection)
+        .set({ permissions: conn?.permissions })
+        .where(eq(connection.id, twilioConn));
+    }
+  });
+
   it("oversight retries a failed turn, and the conversation goes on where it stopped", async () => {
     const { agentId } = await makeAgent("purchasing-overseen", talkStep(), {
       oversight: { review: "failures" },
@@ -886,6 +989,226 @@ describe.skipIf(!h)("conversations through the API", () => {
     expect(decisions.map((d) => d.action)).toEqual(["retry"]);
     // The opening wasn't sent twice.
     expect(sentTo(OLIVE).filter((m) => m.body === "How many metres?")).toHaveLength(1);
+  });
+
+  // R7 (docs/plan.md §1.86): a v4 conversation step runs on this same service, waiting on the
+  // conversation's own event: the signature, then each reply.
+  it("a v4 conversation step talks through the service and finds what it was asked for", async () => {
+    const { agentId } = await makeAgent("purchasing-v4");
+    const RUTH = "+15555550188";
+    const consent = { channels: ["whatsapp", "sms"], source: "signed the service agreement" };
+    const ruth = await newContact({ name: "Ruth Vale", phone: RUTH, whatsapp: RUTH, consent });
+    await textIn(RUTH, "Need ply for the Vale job");
+    const v1 = (
+      await H.t.db.select().from(agentVersion).where(eq(agentVersion.agentId, agentId))
+    )[0];
+    if (!v1) throw new Error("no version");
+    const stored = {
+      ...v1.bundle,
+      workflows: [
+        {
+          slug: "main",
+          name: "Main",
+          workflow: {
+            schemaVersion: 4,
+            triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+            steps: [
+              {
+                id: "talk",
+                kind: "conversation",
+                name: "Ask Ruth",
+                with: "{{trigger.contactId}}",
+                channel: "whatsapp",
+                goal: "Find out how many sheets of ply they need and by when.",
+                find: { qty: "number", neededBy: "text" },
+                messages: { first: "required", later: "within_goal" },
+                deadline: { after: "3 days" },
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const [v4] = await H.t.db
+      .insert(agentVersion)
+      .values({
+        tenantId: A(),
+        agentId,
+        version: v1.version + 1,
+        // biome-ignore lint/suspicious/noExplicitAny: a v4 process is stored as written.
+        bundle: stored as any,
+        bundleHash: "v4-process",
+        authorType: "operator",
+      })
+      .returning({ id: agentVersion.id });
+    const params = {
+      runId: crypto.randomUUID(),
+      tenantId: A(),
+      agentId,
+      agentVersionId: v4?.id as string,
+      workflowSlug: "main",
+      mode: "live" as const,
+      trigger: { type: "manual" as const },
+      payload: { contactId: ruth },
+    } as Parameters<typeof executeRun>[1];
+    const OPENING = "Hi Ruth, how many sheets do you need, and by when?";
+    const CONFIRM = "To confirm: 12 sheets by Friday?";
+    const FOUND = { qty: 12, neededBy: "Friday" };
+    model = new FakeModel([
+      turn({ action: "ask", message: OPENING }),
+      turn({ action: "confirm", message: CONFIRM, result: FOUND }),
+      turn({ action: "done", result: FOUND, confirmed: true }),
+    ]);
+    const conversation = `conversation-${params.runId}_ctalk`;
+    const waits: string[] = [];
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      waits.push(type);
+      expect(type).toBe(conversation);
+      const before = H.instances.events.length;
+      if (waits.length === 1) {
+        // Nothing goes before a person signs the conversation.
+        expect(sentTo(RUTH)).toHaveLength(0);
+        const [item] = await H.t.db
+          .select()
+          .from(inboxItem)
+          .where(and(eq(inboxItem.runId, params.runId), eq(inboxItem.status, "open")));
+        if (!item) throw new Error("no signature asked");
+        const done = await H.call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, {
+          decision: "approve",
+        });
+        expect(done.status, JSON.stringify(done.json)).toBe(200);
+      } else if (waits.length === 2) {
+        expect(sentTo(RUTH).map((m) => m.body)).toEqual([OPENING]);
+        await textIn(RUTH, "12 sheets, by Friday");
+      } else {
+        expect(sentTo(RUTH).map((m) => m.body)).toEqual([OPENING, CONFIRM]);
+        await textIn(RUTH, "Yes");
+      }
+      const woke = H.instances.events.slice(before).find((e) => e.event.type === conversation);
+      if (!woke) throw new Error("the conversation's event wasn't sent");
+      return woke.event.payload;
+    });
+    const result = await executeRun(deps(), params, cloudflareStepRunner(step));
+    expect(result).toEqual({ status: "succeeded" });
+    expect(waits).toHaveLength(3);
+    expect(await stepOutput(params.runId, "talk")).toMatchObject({
+      status: "done",
+      found: FOUND,
+      conversationId: `${params.runId}:talk`,
+    });
+    // The signature the run took is marked received: the cron stops re-sending it.
+    const items = await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, params.runId));
+    expect(items.every((i) => i.status !== "resolved" || i.runReceivedAt !== null)).toBe(true);
+    // And so are its messages: the step waits on one event for all of them, so none is re-sent.
+    const rows = await rowsOf(params.runId);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.status !== "ended" || r.runReceivedAt !== null)).toBe(true);
+  });
+
+  // Wave 3c: who may take a live conversation over or end it reads a v4 step's approval check, as
+  // a v3 step's approval: its approver, not the client admin by default.
+  it("lets a v4 conversation's named approver end it, and nobody else of the client's", async () => {
+    const { agentId } = await makeAgent("purchasing-v4-control");
+    const IVY = "+15555550189";
+    const consent = { channels: ["whatsapp", "sms"], source: "signed the service agreement" };
+    const ivy = await newContact({ name: "Ivy Lane", phone: IVY, whatsapp: IVY, consent });
+    await textIn(IVY, "Need edge banding for the Lane job");
+    const [v1] = await H.t.db.select().from(agentVersion).where(eq(agentVersion.agentId, agentId));
+    if (!v1) throw new Error("no version");
+    const stored = {
+      ...v1.bundle,
+      workflows: [
+        {
+          slug: "main",
+          name: "Main",
+          workflow: {
+            schemaVersion: 4,
+            triggers: [{ id: "trg", on: { type: "manual", input: {} } }],
+            steps: [
+              {
+                id: "talk",
+                kind: "conversation",
+                name: "Ask Ivy",
+                with: "{{trigger.contactId}}",
+                channel: "whatsapp",
+                goal: "Find out how many metres of edge banding they need.",
+                find: { metres: "number" },
+                messages: { first: "required", later: "within_goal" },
+                deadline: { after: "3 days" },
+                checks: { approval: { approvers: [{ who: H.A.user }] } },
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const [v4] = await H.t.db
+      .insert(agentVersion)
+      .values({
+        tenantId: A(),
+        agentId,
+        version: v1.version + 1,
+        // biome-ignore lint/suspicious/noExplicitAny: a v4 process is stored as written.
+        bundle: stored as any,
+        bundleHash: "v4-process-control",
+        authorType: "operator",
+      })
+      .returning({ id: agentVersion.id });
+    const params = {
+      runId: crypto.randomUUID(),
+      tenantId: A(),
+      agentId,
+      agentVersionId: v4?.id as string,
+      workflowSlug: "main",
+      mode: "live" as const,
+      trigger: { type: "manual" as const },
+      payload: { contactId: ivy },
+    } as Parameters<typeof executeRun>[1];
+    model = new FakeModel([turn({ action: "ask", message: "How many metres do you need?" })]);
+    const conversation = `conversation-${params.runId}_ctalk`;
+    let ended = false;
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      expect(type).toBe(conversation);
+      expect(ended).toBe(false);
+      const [sr] = await H.t.db
+        .select()
+        .from(stepRun)
+        .where(and(eq(stepRun.runId, params.runId), eq(stepRun.nodeId, "talk")));
+      if (!sr) throw new Error("no step run");
+      const control = `/api/runs/${params.runId}/conversations/${sr.id}`;
+      // The first message waits for the same person's signature, not the default route's.
+      const cards = await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, params.runId));
+      expect(cards.length).toBeGreaterThan(0);
+      expect(cards.map((c) => c.assigneeUserId)).toEqual(cards.map(() => H.A.user));
+      // The portal offers it to the step's approver only.
+      const mayControl = async (who: ReturnType<typeof admin>) => {
+        const res = await H.call(who, "GET", `/api/runs/${params.runId}`);
+        expect(res.status, JSON.stringify(res.json)).toBe(200);
+        const talk = j(res.json).steps.find((s: { conversation?: unknown }) => s.conversation);
+        return talk.conversation.mayControl ?? false;
+      };
+      expect(await mayControl(user("a"))).toBe(true);
+      expect(await mayControl(admin("a"))).toBe(false);
+      const refused = await H.call(admin("a"), "POST", control, { action: "end" });
+      expect(refused.status, JSON.stringify(refused.json)).toBe(403);
+      const before = H.instances.events.length;
+      const res = await H.call(user("a"), "POST", control, { action: "end" });
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      ended = true;
+      const woke = H.instances.events.slice(before).find((e) => e.event.type === conversation);
+      if (!woke) throw new Error("the conversation's event wasn't sent");
+      return woke.event.payload;
+    });
+    const result = await executeRun(deps(), params, cloudflareStepRunner(step));
+    expect(ended).toBe(true);
+    // Nothing went: the first message waited for its signature, and ending it turned the step
+    // down (its onReject: stop).
+    expect(sentTo(IVY)).toHaveLength(0);
+    expect(result).toEqual({ status: "cancelled", reason: "rejected", nodeId: "talk" });
+    expect(await stepOutput(params.runId, "talk")).toMatchObject({
+      status: "failed",
+      summary: "The conversation was turned down before it finished.",
+    });
   });
 
   it("refuses another client's contact (invariant 1)", async () => {

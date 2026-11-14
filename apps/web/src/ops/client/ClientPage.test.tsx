@@ -103,6 +103,28 @@ function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
 }
 
 describe("the client page", () => {
+  it("keeps its header still across the tabs and loads the client once (1.4)", async () => {
+    const user = userEvent.setup();
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${CLIENT}`]: () => ({ ...DETAIL, activity: ACTIVITY }),
+      "GET /api/ops/clients": () => ({ clients: [] }),
+      "GET /api/ops/inbox": () => ({ items: [], agents: [] }),
+    });
+    renderAt(`/ops/clients/${CLIENT}`, api);
+    const title = await screen.findByRole("heading", { level: 1, name: "Harbor Millwork" });
+    const tabs = within(screen.getByTestId("ops-client-tabs"));
+    for (const tab of ["Agents", "Data", "Setup", "Packs", "Settings", "Overview"]) {
+      await user.click(tabs.getByRole("link", { name: tab }));
+      // The same heading element: the frame was not remounted.
+      expect(screen.getByRole("heading", { level: 1, name: "Harbor Millwork" })).toBe(title);
+    }
+    // A tab's own intro and buttons still reach the frame's header (Agents' New agent).
+    await user.click(tabs.getByRole("link", { name: "Agents" }));
+    expect(await screen.findByTestId("ops-client-new-agent")).toBeInTheDocument();
+    expect(api.calls.filter((c) => c === `GET /api/ops/clients/${CLIENT}`)).toHaveLength(1);
+  });
+
   it("opens on the Overview: what waits, go-live stages, threads, and sets the lead", async () => {
     const leads: unknown[] = [];
     let lead: { userId: string; name: string; email: string } | null = null;
@@ -452,6 +474,7 @@ describe("the clients list", () => {
             openInbox: 2,
             needsUs: 1,
             waitingRuns: 1,
+            runs24h: { total: 6, failed: 2 },
           },
           {
             id: "00000000-0000-4000-8000-00000000a002",
@@ -473,6 +496,20 @@ describe("the clients list", () => {
         "2 clients · 4 agents · 1 needs us · 1 run waiting for approval",
       ),
     ).toBeVisible();
+    // Cards first: the last day's runs and failures, coloured by the worst state.
+    const card = within(page).getByTestId(`ops-client-card-${CLIENT}`);
+    expect(card).toHaveAttribute("data-tone", "risk");
+    expect(within(card).getByTestId(`ops-client-${CLIENT}-state`)).toHaveTextContent("Failed runs");
+    expect(within(card).getByTestId(`ops-client-agents-${CLIENT}`)).toHaveTextContent("3Agents");
+    expect(within(card).getByTestId(`ops-client-runs-${CLIENT}`)).toHaveTextContent("6Runs 24h");
+    const failed = within(card).getByTestId(`ops-client-failed-${CLIENT}`);
+    expect(failed).toHaveClass("ui-clientkpi--risk");
+    expect(failed.getAttribute("href")).toContain("statuses=failed");
+    expect(within(card).getByTestId(`ops-client-needs-${CLIENT}`)).toHaveClass(
+      "ui-clientkpi--signal",
+    );
+
+    await userEvent.click(within(page).getByTestId("ops-clients-view-table"));
     const table = within(page).getByTestId("ops-clients-table");
     expect(within(table).getByTestId(`ops-client-${CLIENT}`)).toHaveAttribute(
       "href",

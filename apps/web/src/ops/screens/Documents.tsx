@@ -142,7 +142,11 @@ export function OpsDocumentScreen() {
   const { clientId = "", documentId = "" } = useParams();
   const api = useApiClient();
   const params = { id: clientId, documentId };
-  const { data, error, loading, reload } = useApi(apiRoutes.opsClientDocument, { params });
+  const { data, error, loading, reload } = useApi(apiRoutes.opsClientDocument, {
+    params,
+    // A 5-minute signed link to the file: never stored.
+    cache: "none",
+  });
   const reading = data?.document.status === "stored" || data?.document.status === "extracting";
   usePoll(reload, reading, 3_000, loading);
   const base = `/ops/clients/${clientId}`;

@@ -4,7 +4,7 @@
 // when that version is published. What the trigger may do is the workflow's; the trigger only
 // starts it.
 import {
-  type AgentBundle,
+  type AnyAgentBundle,
   CONTACT_RELATIONSHIPS,
   MESSAGE_CHANNELS,
   type MessageChannel,
@@ -17,7 +17,7 @@ import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { Button } from "../../ui/primitives";
 import { Field, Select, TextInput } from "../agents/ui";
-import { channelWords, eventLabels, eventWords, MAX_MORE_TRIGGERS } from "./words";
+import { channelWords, eventLabels, eventWords, takesTrigger } from "./words";
 
 /** The six kinds, in the order the screen explains them. */
 export const TRIGGER_KINDS = [
@@ -73,7 +73,7 @@ export function AddTriggerForm({
   onAdd,
   onCancel,
 }: {
-  bundle: AgentBundle;
+  bundle: AnyAgentBundle;
   kind: TriggerKind;
   /** A client agent's client, for the agents a handoff can come from; none for a template. */
   clientId: string | null;
@@ -82,14 +82,12 @@ export function AddTriggerForm({
   onAdd(workflow: string, on: TriggerOn): void;
   onCancel(): void;
 }) {
-  const open = bundle.workflows.filter(
-    (w) => (w.workflow.moreTriggers?.length ?? 0) < MAX_MORE_TRIGGERS,
-  );
+  const open = bundle.workflows.filter((w) => takesTrigger(w.workflow));
   const [workflow, setWorkflow] = useState(open[0]?.slug ?? "");
   const [cron, setCron] = useState("0 8 * * 1-5");
   const [tz, setTz] = useState("");
   const [skipHolidays, setSkipHolidays] = useState(false);
-  const events = useApi(apiRoutes.opsEventCatalog, kind === "event" ? {} : null);
+  const events = useApi(apiRoutes.opsEventCatalog, kind === "event" ? { life: "catalog" } : null);
   const [event, setEvent] = useState("");
   const [canRun, setCanRun] = useState(false);
   const [runLabel, setRunLabel] = useState("");

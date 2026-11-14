@@ -13,6 +13,7 @@ import {
   PortalPriceWatchScreen,
   PortalReconciliationsScreen,
   PortalRequestsScreen,
+  PortalVendorCatalogScreen,
 } from "./screens";
 
 export interface PackReport {
@@ -44,6 +45,15 @@ export const PACK_REPORTS: readonly PackReport[] = [
     titleKey: "materials.catalog.title",
     descriptionKey: "materials.catalog.description",
     Component: PortalCatalogScreen,
+  },
+  // §1.88: the vendor catalog, read only (a master item's vendors are on its catalog page,
+  // /reports/materials/catalog/:id; one vendor's items at /reports/materials/vendor-catalog/:id).
+  {
+    pack: "materials",
+    slug: "vendor-catalog",
+    titleKey: "materials.vendors.title",
+    descriptionKey: "materials.vendors.description",
+    Component: PortalVendorCatalogScreen,
   },
   // P-9: purchase requests, then one request's page at /reports/materials/requests/:id.
   {

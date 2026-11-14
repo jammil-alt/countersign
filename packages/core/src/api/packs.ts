@@ -24,6 +24,11 @@ export const PackTemplateInfo = z.object({
   name: z.string(),
   /** The template row once installed, else null. */
   templateId: z.string().nullable(),
+  /**
+   * Wave 3b: the later versions the pack carries that the installed template doesn't hold yet
+   * (by bundle hash); `opsUpdatePackTemplates` adds them. 0 when not installed.
+   */
+  newVersions: z.number().int().min(0),
 });
 
 export const PackInfo = z.object({
@@ -57,9 +62,25 @@ export type ClientPack = z.infer<typeof ClientPack>;
 
 export const EnablePackResponse = z.object({
   pack: ClientPack,
-  /** Templates installed by this call (empty when they were installed before). */
+  /**
+   * Templates installed by this call (empty when they were there already). Wave 3b: an installed
+   * template's later versions come only with `opsUpdatePackTemplates`.
+   */
   installed: z.array(z.object({ slug: z.string(), templateId: z.string() })),
 });
+
+/** Wave 3b: a later version a pack's template was given, and whether it went live. */
+export const PackTemplateUpdate = z.object({
+  slug: z.string(),
+  templateId: z.string(),
+  version: z.number().int(),
+  /**
+   * True: published (the template's live version was the pack's own). False: saved as a draft
+   * beside a live version the operator made, for the operator to review and publish.
+   */
+  published: z.boolean(),
+});
+export type PackTemplateUpdate = z.infer<typeof PackTemplateUpdate>;
 
 /**
  * §1.73: a pack report's query parameters (e.g. `?site=…&from=…&to=…`), passed through as strings;
@@ -128,6 +149,19 @@ export const packRoutes = {
     summary: "Switch a pack on for a client; installs its templates the first time (once)",
     params: z.object({ id: Id, pack: Slug }),
     response: EnablePackResponse,
+  }),
+  // Wave 3b: how an installed pack template's later versions (the v4 processes) reach clients
+  // that already have the pack: the template gets them here, and each client agent forked from it
+  // is then offered the update, reviewed as a merge (never applied by itself, invariant 11).
+  opsUpdatePackTemplates: defineRoute({
+    method: "POST",
+    path: "/api/ops/packs/:pack/templates/update",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Give a pack's installed templates the later versions the pack carries; forks are offered the update",
+    params: z.object({ pack: Slug }),
+    response: z.object({ updated: z.array(PackTemplateUpdate) }),
   }),
   opsClientPackReport: defineRoute({
     method: "GET",

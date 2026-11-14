@@ -5,7 +5,9 @@
 // withOperator(the clients served).
 
 import {
+  AgentsError,
   bundleSkillRefs,
+  CUSTOM_PREFIX,
   createSkill,
   createSkillVersion,
   publishSkill,
@@ -14,13 +16,18 @@ import {
   schemaFields,
 } from "@countersign/agents";
 import {
-  type AgentBundle,
+  ApiId,
+  isToolWrapper,
+  newStepSkillReason,
   parseSkillRef,
   routes,
   type SkillDefinition,
   type SkillListItem,
   type SkillUse,
+  skillMethod,
+  skillModelFacts,
   skillTools,
+  toolLookup,
 } from "@countersign/core";
 import { agent, agentVersion, skill, skillVersion, tenant } from "@countersign/db";
 import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
@@ -104,7 +111,7 @@ async function agentUses(ctx: Scope) {
         agent: a,
         clientName: a.tenantId ? (clients.get(a.tenantId) ?? null) : null,
         version: v.version,
-        refs: bundleSkillRefs(v.bundle as AgentBundle),
+        refs: bundleSkillRefs(v.bundle),
       },
     ];
   });
@@ -189,6 +196,7 @@ function listItem(
     name: def.name,
     description: def.description,
     category: def.category,
+    mode: def.mode,
     source: input.source,
     clientId: input.clientId,
     clientName: input.clientName,
@@ -201,6 +209,15 @@ function listItem(
     tools: skillTools(def),
     connectors: skillConnectors(def, platform),
     ...clientUses(input.uses),
+    // R8: the Library's facts (docs/plan.md §1.86).
+    method: skillMethod(def),
+    reads: def.reads ?? [],
+    browse: def.browse ?? null,
+    retired: isToolWrapper(def),
+    wraps: isToolWrapper(def) ? (def.handler ?? null) : null,
+    // Skill model (2026-11-10): deterministic or AI (a code skill whose tool calls a model is
+    // AI), its parameters and its recommended model.
+    ...skillModelFacts(def, toolLookup(platform.tools.specs())),
   };
 }
 
@@ -278,6 +295,29 @@ async function itemFor(ctx: Scope & { platform: Platform }, row: SkillRow) {
   };
 }
 
+/**
+ * A free slug for a clone, in the scope it is made in: the source's id as a slug, then `-copy`,
+ * `-copy-2`… (`docs.extract` → `docs-extract-copy`).
+ */
+async function cloneSlug(ctx: Scope, sourceId: string, tenantId: string | null): Promise<string> {
+  const base = `${sourceId
+    .replace(CUSTOM_PREFIX, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")}-copy`;
+  const taken = new Set(
+    (
+      await ctx.tx
+        .select({ slug: skill.slug })
+        .from(skill)
+        .where(tenantId === null ? isNull(skill.tenantId) : eq(skill.tenantId, tenantId))
+    ).map((r) => r.slug),
+  );
+  let slug = base;
+  for (let n = 2; taken.has(slug); n++) slug = `${base}-${n}`;
+  return slug;
+}
+
 /** For each slug, the clients that have their own skill of that slug. */
 async function shadowingClients(ctx: Scope): Promise<Map<string, Set<string>>> {
   const out = new Map<string, Set<string>>();
@@ -300,6 +340,9 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
     const shadowed = await shadowingClients(ctx);
     const items: SkillListItem[] = [];
     for (const def of platform.catalog.list()) {
+      // Skill model (2026-11-10): a skill that is only a tool by another name leaves the Library;
+      // a process uses the tool as a read or write step (stored references still resolve).
+      if (isToolWrapper(def)) continue;
       items.push(
         listItem(
           {
@@ -359,6 +402,64 @@ export function opsSkillRoutes(app: Hono<AppEnv>): void {
       definition: body.definition,
       authorId: session.user.id,
       changeNote: body.changeNote ?? "Created",
+      tools: services.platform.tools,
+    });
+    const { item } = await itemFor({ ...ctx, platform: services.platform }, created.skill);
+    return { skill: item, version: skillVersionView(created.version) };
+  });
+
+  // DECISION: clone copies the source's definition (a built-in's code definition, or an operator
+  // skill's live, else latest, version) into a new operator skill's v1 draft, named "<name> (copy)".
+  // A built-in clone is shared unless a client is given; an operator skill's stays in its scope.
+  // Skills that run code (built-ins' handlers), which operator skills can't (§9.2), are refused.
+  // DECISION (merge with the skill model, 2026-11-11): a clone is a new skill version, so what the
+  // skill model retires for new use is refused too, up front and in its words (core's
+  // `newStepSkillReason`: the agent's own reasoning, rules then AI, a skill that writes). An
+  // operator's deterministic skill (rule rows, no code) clones.
+  mount(app, routes.opsCloneSkill, async (ctx) => {
+    const { tx, params, body, session, services } = ctx;
+    const builtin = services.platform.catalog.get(params.id);
+    let source: SkillDefinition;
+    let from: string;
+    let tenantId: string | null;
+    if (builtin) {
+      source = builtin;
+      from = builtin.id;
+      tenantId = body.clientId ?? null;
+    } else {
+      if (!ApiId.safeParse(params.id).success) throw notFound("skill");
+      const row = await skillInScope(ctx, params.id);
+      const [entry] = (await skillRows(ctx)).filter((e) => e.row.id === row.id);
+      const shown = entry?.live ?? entry?.latest;
+      if (!shown) throw notFound("skill");
+      source = shown.definition;
+      from = `${source.id}@${shown.version}`;
+      tenantId = body.clientId ?? row.tenantId;
+    }
+    if (tenantId) ensureClient(ctx, tenantId);
+    if (source.handler !== undefined || (source.mode === "tool" && !source.rules?.length)) {
+      throw new AgentsError(
+        "invalid_definition",
+        `${source.id} runs code, so it can't be cloned into an operator skill`,
+      );
+    }
+    const retired = newStepSkillReason(source, toolLookup(services.platform.tools.specs()));
+    if (retired) {
+      throw new AgentsError(
+        "invalid_definition",
+        `${source.id} can't be cloned into a new skill. ${retired}`,
+      );
+    }
+    const { handler: _code, ...rest } = source;
+    const created = await createSkill(tx, {
+      tenantId,
+      definition: {
+        ...rest,
+        id: `${CUSTOM_PREFIX}${await cloneSlug(ctx, source.id, tenantId)}`,
+        name: `${source.name} (copy)`,
+      },
+      authorId: session.user.id,
+      changeNote: `Cloned from ${from}`,
       tools: services.platform.tools,
     });
     const { item } = await itemFor({ ...ctx, platform: services.platform }, created.skill);

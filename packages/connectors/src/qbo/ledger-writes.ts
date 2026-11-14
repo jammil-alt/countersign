@@ -14,7 +14,7 @@ import { z } from "zod";
 import { defineWriteTool, type ToolContext, type ToolDefinition } from "../connector";
 import { QboApiError, type QboClient, qboLiteral, qboRequestId } from "./api";
 import { QboId, SyncToken } from "./records";
-import { type ClientFor, notFound, stale } from "./tool-kit";
+import { type ClientFor, notFound, QBO_STAND_IN, stale } from "./tool-kit";
 
 export const LEDGER_WRITE_TOOLS = {
   accountCreate: "qbo.account.create",
@@ -24,6 +24,13 @@ export const LEDGER_WRITE_TOOLS = {
   locationCreate: "qbo.location.create",
   locationUpdate: "qbo.location.update",
 } as const;
+
+/** R5: the update that takes back each create (it makes the new record inactive). */
+const REVERSED_BY: Partial<Record<string, string>> = {
+  [LEDGER_WRITE_TOOLS.accountCreate]: LEDGER_WRITE_TOOLS.accountUpdate,
+  [LEDGER_WRITE_TOOLS.classCreate]: LEDGER_WRITE_TOOLS.classUpdate,
+  [LEDGER_WRITE_TOOLS.locationCreate]: LEDGER_WRITE_TOOLS.locationUpdate,
+};
 
 /** QuickBooks' account types, as a new account or a change of type names them. */
 export const QBO_ACCOUNT_TYPES = [
@@ -388,6 +395,7 @@ function createTool(
     }
     return { parent };
   };
+  const reversedBy = REVERSED_BY[id];
   return defineWriteTool({
     id,
     entity: permissionEntity,
@@ -396,15 +404,32 @@ function createTool(
       : `Add ${A[entity]} ${WORD[entity]} to the company's books in QuickBooks, under a parent if it has one. Always signed by a person. Refused if the name is already used there.`,
     verb: "create",
     approval: "always",
+    // R5 DECISION: taken back by making the new record inactive with its update tool (QuickBooks'
+    // own "delete" for names, which keeps the record), never by a delete: that stays off.
+    undo: reversedBy ? { kind: "reverse", tool: reversedBy } : { kind: "none" },
     summary: `Added the ${WORD[entity]} {{fullName}} in QuickBooks`,
     display: createDisplay(entity),
     input,
     output: Created,
+    testOutput: (i) => ({ ...QBO_STAND_IN, name: i.name, fullName: i.name }),
     beforeSchema: z.object({ parent: z.object({ id: z.string(), name: z.string() }).nullable() }),
     async before(i, ctx) {
       const { parent } = await check(await clientFor(ctx), i as In, ctx);
       return { parent: parent ? { id: parent.id, name: parent.name } : null };
     },
+    // R5: the update that reverses it makes the new record inactive, at the version the create
+    // left it. DECISION: that version is the create's own answer (`syncToken`), so a record
+    // anyone changed since is refused by the update as stale and nothing is written; a create's
+    // before state (its parent) can't show such a change itself.
+    ...(reversedBy
+      ? {
+          undoInput: ({ output }: { output: z.infer<typeof Created> }) => ({
+            id: output.id,
+            syncToken: output.syncToken,
+            active: false,
+          }),
+        }
+      : {}),
     async run(i, ctx) {
       const client = await clientFor(ctx);
       const v = i as In;
@@ -485,6 +510,36 @@ function alreadyAs(c: Current, i: UpdateIn): boolean {
   );
 }
 
+/**
+ * R5: the update that puts back what a ledger update changed: each field it set takes its value
+ * from before the change, at the version the record is at now (the undo runs only when nobody
+ * changed it since our write). Null when a field can't be put back (QuickBooks had no type or
+ * detail type to return to) or nothing would change.
+ */
+export function ledgerRestoreInput(
+  input: UpdateIn,
+  before: { current: Current } | null,
+  now: { current: Current } | null,
+): Record<string, unknown> | null {
+  if (!before || !now) return null;
+  const was = before.current;
+  const out: Record<string, unknown> = { id: input.id, syncToken: now.current.syncToken };
+  if (input.name !== undefined) out.name = was.name;
+  if (input.parentId !== undefined) out.parentId = was.parent?.id ?? null;
+  if (input.active !== undefined) out.active = was.active;
+  if (input.accountType !== undefined) {
+    if (was.accountType === null) return null;
+    out.accountType = was.accountType;
+  }
+  if (input.accountSubType !== undefined) {
+    if (was.accountSubType === null) return null;
+    out.accountSubType = was.accountSubType;
+  }
+  if (input.number !== undefined) out.number = was.number;
+  if (input.description !== undefined) out.description = was.description;
+  return Object.keys(out).length > 2 ? out : null;
+}
+
 function updateTool(
   entity: LedgerEntity,
   id: string,
@@ -501,6 +556,8 @@ function updateTool(
       : `Change ${A[entity]} ${WORD[entity]} in the company's books in QuickBooks: its name or parent, or make it inactive (or active again). Name the version you read (syncToken). Always signed by a person.`,
     verb: "update",
     approval: "always",
+    // R5: the before state is written back with this tool, if the record hasn't changed since.
+    undo: { kind: "restore" },
     summary: `Changed the ${WORD[entity]} {{fullName}} in QuickBooks`,
     display: updateDisplay(entity),
     input,
@@ -509,6 +566,9 @@ function updateTool(
       current: Current,
       newParent: z.object({ id: z.string(), name: z.string() }).nullable(),
     }),
+    // R5: the before state is the whole record, not the input's shape (ledgerRestoreInput).
+    undoInput: ({ input: i, before, current: now }) =>
+      ledgerRestoreInput(i as UpdateIn, before, now),
     async before(raw, ctx) {
       const i = raw as UpdateIn;
       const client = await clientFor(ctx);

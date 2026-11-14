@@ -1,0 +1,36 @@
+{
+  "handWritten": true,
+  "about": "xAI Responses API: the model calls a function (200)",
+  "status": 200,
+  "body": {
+    "id": "resp_xai_tool_0001",
+    "object": "response",
+    "created_at": 1794321601,
+    "model": "grok-4.7",
+    "status": "completed",
+    "store": false,
+    "output": [
+      {
+        "type": "reasoning",
+        "id": "rs_xai_tool_0001",
+        "summary": [],
+        "status": "completed"
+      },
+      {
+        "type": "function_call",
+        "id": "fc_xai_tool_0001",
+        "call_id": "call_xai_0001",
+        "name": "get_invoice",
+        "arguments": "{\"id\":\"INV-1\"}",
+        "status": "completed"
+      }
+    ],
+    "usage": {
+      "input_tokens": 900,
+      "input_tokens_details": { "cached_tokens": 0 },
+      "output_tokens": 35,
+      "output_tokens_details": { "reasoning_tokens": 20 },
+      "total_tokens": 935
+    }
+  }
+}

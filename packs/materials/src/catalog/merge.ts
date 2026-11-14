@@ -6,6 +6,7 @@
 import { type Db, withTenant } from "@countersign/db";
 import { and, eq, sql } from "drizzle-orm";
 import { catalogItem, itemAlias, priceObservation } from "../schema";
+import { moveVendorItemsOnMerge } from "../vendor/store";
 import { compareKeys } from "./keys";
 import { MatchError } from "./match";
 import { liveItem } from "./store";
@@ -24,6 +25,8 @@ export interface MergeResult {
   merged: string[];
   aliasesMoved: number;
   pricesMoved: number;
+  /** §1.88: vendor items moved to the item that stays (or folded into its own). */
+  vendorItemsMoved: number;
   /** Key attributes the two items stated differently (a person may still merge them). */
   differingKeys: string[];
 }
@@ -78,11 +81,19 @@ export async function mergeItems(db: Db, input: MergeInput): Promise<MergeResult
         ),
       )
       .returning({ id: priceObservation.id });
+    // §1.88: the vendor items follow too, so a vendor's SKU keeps finding the item that stays.
+    const vendorItems = await moveVendorItemsOnMerge(
+      tx,
+      input.tenantId,
+      merged.map((r) => r.id),
+      into.id,
+    );
     return {
       intoId: into.id,
       merged: merged.map((r) => r.id),
       aliasesMoved: aliases.length,
       pricesMoved: prices.length,
+      vendorItemsMoved: vendorItems.moved.length + vendorItems.folded.length,
       differingKeys,
     };
   });

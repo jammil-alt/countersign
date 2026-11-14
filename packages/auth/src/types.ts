@@ -2,6 +2,7 @@
 // directory with packages/db; auth's own logic never touches the database.
 
 import type { Role, SecondFactorState } from "@countersign/core";
+import type { CarriedAccount } from "./account";
 
 export interface AuthUser {
   /** app_user.id */
@@ -36,7 +37,7 @@ export interface Session {
   readonly activeRole: Role | null;
   readonly adapter: AdapterKind;
   /**
-   * Where the sign-in is with its second step (docs/plan.md §1.83). Absent: a session built
+   * Where the sign-in is with its second step (docs/plan.md §1.99). Absent: a session built
    * without a cookie (the MCP server's bearer token, tests), which the step does not apply to.
    */
   readonly secondFactor?: SecondFactorState;
@@ -57,7 +58,7 @@ export type RefusalCode =
   | "adapter_disabled"
   /** Sign-in is configured wrongly; nothing can be verified. */
   | "misconfigured"
-  /** Signed in with a password, but the second step is not done yet (docs/plan.md §1.83). */
+  /** Signed in with a password, but the second step is not done yet (docs/plan.md §1.99). */
   | "second_factor_required";
 
 export interface AuthRefusal {
@@ -100,8 +101,23 @@ export type Identification =
       readonly ok: true;
       readonly userId: string;
       readonly setCookies: readonly string[];
-      /** §1.83: where this sign-in is with its second step; absent means it does not apply. */
+      /** §1.99: where this sign-in is with its second step; absent means it does not apply. */
       readonly secondFactor?: SecondFactorState;
+      /**
+       * The account the sealed cookie carries for this user, fresh or not (`accountFresh`
+       * decides); absent when it carries none (docs/plan.md §1.93).
+       */
+      readonly account?: CarriedAccount | null;
+      /**
+       * The cookies to send in place of `setCookies` so the cookie carries `account` from now on,
+       * or carries none (`null`, or an account too big for a cookie). Absent: this adapter
+       * carries no account, and `setCookies` is what to send.
+       */
+      readonly carry?: (
+        account: CarriedAccount | null,
+        /** When the response is sent; default now. A slow request is judged at its end. */
+        now?: Date,
+      ) => Promise<readonly string[]>;
     }
   | AuthRefusal;
 

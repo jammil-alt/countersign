@@ -15,6 +15,8 @@ export interface TimelineWords {
   declined: string;
   waitingForApproval: string;
   waitingForAnswer: string;
+  /** A conversation or reach-out waiting for the contact's reply. */
+  waitingForReply: string;
   /** A step waiting for a person to release a vault item with a code (docs/plan.md §1.26). */
   waitingForRelease: string;
   needsOperator: string;
@@ -24,15 +26,23 @@ export interface TimelineWords {
   sent: string;
   /**
    * A test run's write, recorded as proposed and never made (ARCHITECTURE §10.4), from the step's
-   * operator-written name: "Would itemize the bill (test run, not written)".
+   * operator-written name: "Would itemize the bill (test run, not written)". `standIn`: later
+   * steps got the tool's stand-in values for what it would have returned (docs/plan.md §1.94).
    */
-  wouldWrite(step: string): string;
+  wouldWrite(step: string, standIn?: boolean): string;
   /** A test run's notify step, which sends nothing: "Would say what changed (test run, not sent)". */
   wouldSend(step: string): string;
   stopped: Record<"succeeded" | "failed" | "cancelled", string>;
   items(n: number): string;
   waiting(duration: string): string;
   waited(duration: string): string;
+  // Hand off (owner, 2026-11-11)
+  /** A hand-off step that started another agent's run: "Handed off to Price checker (run R-1a2b3c)". */
+  handedOff(agent: string, run: string): string;
+  /** A test run's hand-off, which starts nothing: "Would hand off to Price checker at 5 · Itemize the invoice (test run, nothing started)". */
+  wouldHandOff(agent: string, at: string): string;
+  /** A hand-off to an agent that isn't started: "Price checker isn't started, so the hand-off didn't run". */
+  handOffNotStarted(agent: string): string;
 }
 
 /**
@@ -56,17 +66,22 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     declined: "declined",
     waitingForApproval: "waiting for approval",
     waitingForAnswer: "waiting for an answer",
+    waitingForReply: "waiting for a reply",
     waitingForRelease: "waiting for a code",
     needsOperator: "needs the operator",
     noAnswerInTime: "no answer in time",
     otherwise: "Otherwise",
     sent: "sent",
-    wouldWrite: (s) => `Would ${afterWould(s)} (test run, not written)`,
+    wouldWrite: (s, standIn) =>
+      `Would ${afterWould(s)} (test run, not written${standIn ? "; stand-in values" : ""})`,
     wouldSend: (s) => `Would ${afterWould(s)} (test run, not sent)`,
     stopped: { succeeded: "succeeded", failed: "failed", cancelled: "cancelled" },
     items: (n) => plural("en", n, "item", "items"),
     waiting: (d) => `waiting ${d}`,
     waited: (d) => `waited ${d}`,
+    handedOff: (a, r) => `Handed off to ${a} (run ${r})`,
+    wouldHandOff: (a, at) => `Would hand off to ${a} at ${at} (test run, nothing started)`,
+    handOffNotStarted: (a) => `${a} isn't started, so the hand-off didn't run`,
   },
   es: {
     done: "hecho",
@@ -77,17 +92,22 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     declined: "rechazado",
     waitingForApproval: "esperando aprobación",
     waitingForAnswer: "esperando una respuesta",
+    waitingForReply: "esperando una contestación",
     waitingForRelease: "esperando un código",
     needsOperator: "lo revisa nuestro equipo",
     noAnswerInTime: "sin respuesta a tiempo",
     otherwise: "En otro caso",
     sent: "enviado",
-    wouldWrite: (s) => `Propuesto: ${s} (prueba, sin escribir)`,
+    wouldWrite: (s, standIn) =>
+      `Propuesto: ${s} (prueba, sin escribir${standIn ? "; valores de muestra" : ""})`,
     wouldSend: (s) => `Propuesto: ${s} (prueba, sin enviar)`,
     stopped: { succeeded: "terminado", failed: "falló", cancelled: "cancelado" },
     items: (n) => plural("es", n, "elemento", "elementos"),
     waiting: (d) => `esperando ${d}`,
     waited: (d) => `esperó ${d}`,
+    handedOff: (a, r) => `Pasado a ${a} (ejecución ${r})`,
+    wouldHandOff: (a, at) => `Se pasaría a ${a} en ${at} (prueba, no se inició nada)`,
+    handOffNotStarted: (a) => `${a} no está iniciado, así que no se pasó el trabajo`,
   },
   fr: {
     done: "terminé",
@@ -98,17 +118,22 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     declined: "refusé",
     waitingForApproval: "en attente d'approbation",
     waitingForAnswer: "en attente d'une réponse",
+    waitingForReply: "en attente d'un retour",
     waitingForRelease: "en attente d'un code",
     needsOperator: "notre équipe s'en occupe",
     noAnswerInTime: "pas de réponse à temps",
     otherwise: "Sinon",
     sent: "envoyé",
-    wouldWrite: (s) => `Proposé : ${s} (test, rien n'est écrit)`,
+    wouldWrite: (s, standIn) =>
+      `Proposé : ${s} (test, rien n'est écrit${standIn ? " ; valeurs fictives" : ""})`,
     wouldSend: (s) => `Proposé : ${s} (test, rien n'est envoyé)`,
     stopped: { succeeded: "terminé", failed: "échec", cancelled: "annulé" },
     items: (n) => plural("fr", n, "élément", "éléments"),
     waiting: (d) => `en attente : ${d}`,
     waited: (d) => `attendu : ${d}`,
+    handedOff: (a, r) => `Transmis à ${a} (exécution ${r})`,
+    wouldHandOff: (a, at) => `Serait transmis à ${a} à l'étape ${at} (test, rien n'est lancé)`,
+    handOffNotStarted: (a) => `${a} n'est pas démarré : le travail n'a pas été transmis`,
   },
   "pt-BR": {
     done: "concluído",
@@ -119,17 +144,22 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     declined: "recusado",
     waitingForApproval: "aguardando aprovação",
     waitingForAnswer: "aguardando uma resposta",
+    waitingForReply: "aguardando um retorno",
     waitingForRelease: "aguardando um código",
     needsOperator: "nossa equipe vai verificar",
     noAnswerInTime: "sem resposta a tempo",
     otherwise: "Caso contrário",
     sent: "enviado",
-    wouldWrite: (s) => `Proposto: ${s} (teste, nada gravado)`,
+    wouldWrite: (s, standIn) =>
+      `Proposto: ${s} (teste, nada gravado${standIn ? "; valores fictícios" : ""})`,
     wouldSend: (s) => `Proposto: ${s} (teste, nada enviado)`,
     stopped: { succeeded: "concluído", failed: "falhou", cancelled: "cancelado" },
     items: (n) => plural("pt-BR", n, "item", "itens"),
     waiting: (d) => `aguardando ${d}`,
     waited: (d) => `aguardou ${d}`,
+    handedOff: (a, r) => `Passado para ${a} (execução ${r})`,
+    wouldHandOff: (a, at) => `Passaria para ${a} em ${at} (teste, nada iniciado)`,
+    handOffNotStarted: (a) => `${a} não está ativo, então o trabalho não foi passado`,
   },
   it: {
     done: "fatto",
@@ -140,17 +170,22 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     declined: "rifiutato",
     waitingForApproval: "in attesa di approvazione",
     waitingForAnswer: "in attesa di una risposta",
+    waitingForReply: "in attesa di un riscontro",
     waitingForRelease: "in attesa di un codice",
     needsOperator: "se ne occupa il nostro team",
     noAnswerInTime: "nessuna risposta in tempo",
     otherwise: "Altrimenti",
     sent: "inviato",
-    wouldWrite: (s) => `Proposto: ${s} (prova, non scritto)`,
+    wouldWrite: (s, standIn) =>
+      `Proposto: ${s} (prova, non scritto${standIn ? "; valori fittizi" : ""})`,
     wouldSend: (s) => `Proposto: ${s} (prova, non inviato)`,
     stopped: { succeeded: "completato", failed: "non riuscito", cancelled: "annullato" },
     items: (n) => plural("it", n, "elemento", "elementi"),
     waiting: (d) => `in attesa: ${d}`,
     waited: (d) => `atteso: ${d}`,
+    handedOff: (a, r) => `Passato a ${a} (esecuzione ${r})`,
+    wouldHandOff: (a, at) => `Passerebbe a ${a} al passo ${at} (prova, nulla avviato)`,
+    handOffNotStarted: (a) => `${a} non è avviato, quindi il lavoro non è stato passato`,
   },
   de: {
     done: "erledigt",
@@ -161,16 +196,21 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     declined: "abgelehnt",
     waitingForApproval: "wartet auf Freigabe",
     waitingForAnswer: "wartet auf eine Antwort",
+    waitingForReply: "wartet auf eine Rückmeldung",
     waitingForRelease: "wartet auf einen Code",
     needsOperator: "unser Team kümmert sich",
     noAnswerInTime: "keine Antwort rechtzeitig",
     otherwise: "Sonst",
     sent: "gesendet",
-    wouldWrite: (s) => `Vorgeschlagen: ${s} (Testlauf, nicht geschrieben)`,
+    wouldWrite: (s, standIn) =>
+      `Vorgeschlagen: ${s} (Testlauf, nicht geschrieben${standIn ? "; Platzhalterwerte" : ""})`,
     wouldSend: (s) => `Vorgeschlagen: ${s} (Testlauf, nicht gesendet)`,
     stopped: { succeeded: "abgeschlossen", failed: "fehlgeschlagen", cancelled: "abgebrochen" },
     items: (n) => plural("de", n, "Eintrag", "Einträge"),
     waiting: (d) => `wartet: ${d}`,
     waited: (d) => `gewartet: ${d}`,
+    handedOff: (a, r) => `Übergeben an ${a} (Ablauf ${r})`,
+    wouldHandOff: (a, at) => `Würde an ${a} bei ${at} übergeben (Testlauf, nichts gestartet)`,
+    handOffNotStarted: (a) => `${a} ist nicht gestartet, daher wurde nicht übergeben`,
   },
 };

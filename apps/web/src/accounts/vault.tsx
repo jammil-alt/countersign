@@ -4,7 +4,7 @@
 // sets a website login up, tightens or revokes an agent's access (never loosens: only we do), and
 // disconnects; a client user sees all of it read-only. The API enforces the same rules.
 import type { GrantLimits, PermissionLevel, Verb } from "@countersign/core";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { ResponseOf } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApiClient } from "../api/useApi";
@@ -110,6 +110,7 @@ export function VaultCard({
   view,
   items,
   adding,
+  site,
   onAdding,
   onChanged,
 }: {
@@ -117,11 +118,17 @@ export function VaultCard({
   /** The items this card lists (the page shows signed-in tools on their own cards). */
   items: Item[];
   adding: boolean;
+  /** A website chosen from its "Enter a login": its setup comes first, ready to fill in. */
+  site?: string | null;
   onAdding: (open: boolean) => void;
   onChanged: () => void;
 }) {
   const { t } = useI18n();
-  const offers = view.canEdit ? view.browserSites : [];
+  // DECISION (web, wave 3b): "Enter a login" on a website opens the add panel with that site's
+  // setup first and focused; the other sites stay listed below it.
+  const offers = (view.canEdit ? view.browserSites : [])
+    .slice()
+    .sort((a, b) => Number(b.slug === site) - Number(a.slug === site));
   const setups = view.canEdit ? view.setup : [];
   return (
     <div className="ds-card" data-testid="vault-card">
@@ -152,7 +159,12 @@ export function VaultCard({
               <h3 className="eyebrow text-ink-muted">{t("vault.browser.setupTitle")}</h3>
               <p className="text-sm text-ink-muted">{t("vault.browser.setupHint")}</p>
               {offers.map((s) => (
-                <BrowserSetupCard key={s.slug} site={s} onSaved={onChanged} />
+                <BrowserSetupCard
+                  key={s.slug}
+                  site={s}
+                  chosen={s.slug === site}
+                  onSaved={onChanged}
+                />
               ))}
             </section>
           ) : null}
@@ -368,8 +380,24 @@ export function SetupCard({ setup, onSaved }: { setup: Setup; onSaved: () => voi
  * the client owns the account and the site's terms allow automated access, and for sites with an
  * authenticator app its setup link (sent on to the code service, never kept or shown).
  */
-export function BrowserSetupCard({ site, onSaved }: { site: SiteOffer; onSaved: () => void }) {
+export function BrowserSetupCard({
+  site,
+  chosen = false,
+  onSaved,
+}: {
+  site: SiteOffer;
+  /** Opened from this site's "Enter a login": marked, scrolled to and focused. */
+  chosen?: boolean;
+  onSaved: () => void;
+}) {
   const { t } = useI18n();
+  const confirmRef = useRef<HTMLInputElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!chosen) return;
+    cardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    confirmRef.current?.focus({ preventScroll: true });
+  }, [chosen]);
   const api = useApiClient();
   const [confirmed, setConfirmed] = useState(false);
   const [authenticator, setAuthenticator] = useState("");
@@ -399,8 +427,10 @@ export function BrowserSetupCard({ site, onSaved }: { site: SiteOffer; onSaved: 
 
   return (
     <div
+      ref={cardRef}
       data-testid={`vault-browser-offer-${site.slug}`}
-      className="rounded-md border border-line p-4"
+      data-chosen={chosen ? "true" : undefined}
+      className={`rounded-md border p-4 ${chosen ? "border-slate" : "border-line"}`}
     >
       <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
         <div className="flex min-w-0 items-start gap-3">
@@ -425,6 +455,7 @@ export function BrowserSetupCard({ site, onSaved }: { site: SiteOffer; onSaved: 
         <input
           type="checkbox"
           className="mt-0.5 size-4 accent-slate"
+          ref={confirmRef}
           data-testid="vault-browser-confirm"
           checked={confirmed}
           onChange={(e) => setConfirmed(e.target.checked)}

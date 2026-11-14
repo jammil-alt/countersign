@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Model client for Anthropic and OpenAI, cost tracking, record/replay, prompt utilities",
+  "description": "Model client for Anthropic, OpenAI, xAI and Google Gemini, cost tracking, record/replay, prompt utilities",
   "exports": {
     ".": "./src/index.ts",
     "./node": "./src/node.ts"
@@ -13,7 +13,6 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.4.0",
     "@countersign/core": "workspace:*",
     "zod": "^4.6.2"
   },

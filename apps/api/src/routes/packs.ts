@@ -5,9 +5,34 @@
 // for any client served, the back office, as JSON or CSV; and a pack's review card on an inbox
 // item. Nothing here names a pack: each comes from the platform's registered packs (packs.ts).
 
-import { createTemplate, mayResolve, publish } from "@countersign/agents";
-import { type ClientPack, type PackReviewDecision, type Role, routes } from "@countersign/core";
-import { agent, inboxItem, run, type Tx, tenant, tenantPack } from "@countersign/db";
+import {
+  createSkill,
+  createTemplate,
+  createVersion,
+  customSlug,
+  mayResolve,
+  publish,
+  publishSkill,
+} from "@countersign/agents";
+import {
+  type AnyAgentBundle,
+  bundleHash,
+  type ClientPack,
+  type PackReviewDecision,
+  type PackTemplateUpdate,
+  type Role,
+  routes,
+} from "@countersign/core";
+import {
+  agent,
+  agentVersion,
+  inboxItem,
+  run,
+  skill,
+  type Tx,
+  tenant,
+  tenantPack,
+} from "@countersign/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
@@ -16,8 +41,10 @@ import {
   HttpError,
   mount,
   mountFile,
+  mountLong,
   notFound,
   type Services,
+  txOnly,
 } from "../http";
 import type { PackReportHandler, RegisteredPack } from "../packs";
 import { signedWriteFor } from "../signed-writes";
@@ -65,12 +92,79 @@ async function installedTemplates(tx: Tx, slugs: string[]) {
     .where(and(isNull(agent.tenantId), eq(agent.kind, "template"), inArray(agent.slug, slugs)));
 }
 
+/** The pack's later versions of a template it doesn't hold yet (by bundle hash), in order. */
+async function missingVersions(
+  tx: Tx,
+  templateId: string,
+  t: RegisteredPack["manifest"]["templates"][number],
+): Promise<{ n: number; bundle: AnyAgentBundle }[]> {
+  const later = t.versions ?? [];
+  if (later.length === 0) return [];
+  const held = new Set(
+    (
+      await tx
+        .select({ hash: agentVersion.bundleHash })
+        .from(agentVersion)
+        .where(eq(agentVersion.agentId, templateId))
+    ).map((r) => r.hash),
+  );
+  const out: { n: number; bundle: AnyAgentBundle }[] = [];
+  for (const [i, bundle] of later.entries()) {
+    if (!held.has(await bundleHash(bundle))) out.push({ n: i + 2, bundle });
+  }
+  return out;
+}
+
+/**
+ * Adds a template's missing later versions as new versions by the pack. Each is published when
+ * `publishOver` allows it (a fresh install; or the live version is the pack's own), else it waits
+ * as a draft beside the operator's live version. Publishing a template changes no client agent
+ * (invariant 11): each fork is offered the update and moves only by its reviewed merge.
+ */
+async function addLaterVersions(
+  tx: Tx,
+  services: Services,
+  pack: RegisteredPack,
+  templateId: string,
+  t: RegisteredPack["manifest"]["templates"][number],
+  actorId: string,
+  publishOver: boolean,
+): Promise<PackTemplateUpdate[]> {
+  const from = `the ${pack.manifest.name} pack ${pack.manifest.version}`;
+  const out: PackTemplateUpdate[] = [];
+  for (const { n, bundle } of await missingVersions(tx, templateId, t)) {
+    const draft = await createVersion(tx, {
+      agentId: templateId,
+      bundle,
+      authorType: "pack",
+      authorId: actorId,
+      changeNote: `Installed with ${from}: its v${n}`,
+      releaseNote: `The pack's v${n}`,
+    });
+    if (publishOver) {
+      await publish(tx, {
+        agentId: templateId,
+        versionId: draft.id,
+        actorId,
+        ctx: services.platform.ctx,
+      });
+    }
+    out.push({ slug: t.slug, templateId, version: draft.version, published: publishOver });
+  }
+  return out;
+}
+
 /**
  * Installs the pack's templates that aren't there yet: a template v1 by the pack, published so it
- * can be forked. A template with the same slug already there counts as installed.
+ * can be forked, then its later versions (R9: the Bookkeeper's and the marketing agents' v2, their
+ * v4 processes), published in order. A template with the same slug already there counts as
+ * installed and is left as it is: its later versions come with `updatePackTemplates`.
  */
 // DECISION: a pack's templates are installed the first time the pack is switched on for any client
 // (not at deploy), so a deployment that never uses a pack has none of its templates.
+// DECISION (wave 3b, replacing R9's): switching a pack on for a client never changes a template
+// that is already installed; "Update templates" (opsUpdatePackTemplates) adds its later versions,
+// so a routine per-client action never publishes a template version for every client.
 async function installTemplates(
   tx: Tx,
   services: Services,
@@ -82,6 +176,7 @@ async function installTemplates(
     pack.manifest.templates.map((t) => t.slug),
   );
   const installed: { slug: string; templateId: string }[] = [];
+  const from = `the ${pack.manifest.name} pack ${pack.manifest.version}`;
   for (const t of pack.manifest.templates) {
     if (have.some((h) => h.slug === t.slug)) continue;
     const made = await createTemplate(tx, {
@@ -89,18 +184,106 @@ async function installTemplates(
       bundle: t.bundle,
       authorType: "pack",
       authorId: actorId,
-      changeNote: `Installed with the ${pack.manifest.name} pack ${pack.manifest.version}`,
+      changeNote: `Installed with ${from}`,
       releaseNote: "First version",
     });
     await publish(tx, {
       agentId: made.agent.id,
       versionId: made.version.id,
+      // Review: the pack's first version, from code: none of its steps is new work.
+      installed: true,
       actorId,
       ctx: services.platform.ctx,
     });
+    await addLaterVersions(tx, services, pack, made.agent.id, t, actorId, true);
     installed.push({ slug: t.slug, templateId: made.agent.id });
   }
   return installed;
+}
+
+/**
+ * §1.88: installs the pack's shared Library skills that aren't there yet: an operator skill each
+ * (`custom:<slug>`, tenant_id null), v1 by the pack, published so agents can use it. A shared skill
+ * of that slug already there is left as it is: from its install on, it is the operator's to edit,
+ * version, test and publish in the Library, and the pack never changes it.
+ */
+// DECISION (review of vendor/web3, finding 1): installed when the pack is switched on for a client
+// (as its templates are) and by "Update templates", so a deployment that had the pack on before
+// gets them; a Library skill is never re-installed over the operator's versions.
+export async function installLibrarySkills(
+  tx: Tx,
+  services: Services,
+  pack: RegisteredPack,
+  actorId: string,
+): Promise<{ ref: string; skillId: string }[]> {
+  const defs = pack.manifest.librarySkills ?? [];
+  if (defs.length === 0) return [];
+  const slugs = defs.map((d) => customSlug(d.id));
+  const have = new Set(
+    (
+      await tx
+        .select({ slug: skill.slug })
+        .from(skill)
+        .where(and(isNull(skill.tenantId), inArray(skill.slug, slugs)))
+    ).map((r) => r.slug),
+  );
+  const installed: { ref: string; skillId: string }[] = [];
+  for (const def of defs) {
+    if (have.has(customSlug(def.id))) continue;
+    const made = await createSkill(tx, {
+      tenantId: null,
+      definition: def,
+      authorId: actorId,
+      changeNote: `Installed with the ${pack.manifest.name} pack ${pack.manifest.version}`,
+      tools: services.platform.tools,
+    });
+    await publishSkill(tx, { skillId: made.skill.id, versionId: made.version.id });
+    installed.push({ ref: def.id, skillId: made.skill.id });
+  }
+  return installed;
+}
+
+/**
+ * Wave 3b: gives the pack's installed templates the later versions the pack carries (the v4
+ * processes), so clients that already have the pack are offered them: each client agent forked
+ * from the template sees the update and takes it only by a reviewed merge (invariant 11).
+ */
+// DECISION (wave 3b): a later version is published over a live version the pack made (or when the
+// template has none live); over a live version the operator made, it is saved as a draft for the
+// operator to review and publish, so their own edits are never retired by an update.
+export async function updatePackTemplates(
+  tx: Tx,
+  services: Services,
+  pack: RegisteredPack,
+  actorId: string,
+): Promise<PackTemplateUpdate[]> {
+  const rows = await tx
+    .select({ id: agent.id, slug: agent.slug, liveVersionId: agent.liveVersionId })
+    .from(agent)
+    .where(
+      and(
+        isNull(agent.tenantId),
+        eq(agent.kind, "template"),
+        inArray(
+          agent.slug,
+          pack.manifest.templates.map((t) => t.slug),
+        ),
+      ),
+    );
+  const out: PackTemplateUpdate[] = [];
+  for (const t of pack.manifest.templates) {
+    const row = rows.find((r) => r.slug === t.slug);
+    if (!row) continue;
+    const [live] = row.liveVersionId
+      ? await tx
+          .select({ authorType: agentVersion.authorType })
+          .from(agentVersion)
+          .where(eq(agentVersion.id, row.liveVersionId))
+      : [];
+    const publishOver = !live || live.authorType === "pack";
+    out.push(...(await addLaterVersions(tx, services, pack, row.id, t, actorId, publishOver)));
+  }
+  return out;
 }
 
 /**
@@ -231,28 +414,35 @@ async function reviewView(
   };
 }
 
+/**
+ * A review's decision: the item is read and checked in one short transaction, the pack's handler
+ * decides in its own (it records the match and learns the alias), and the view is read in a third.
+ * No transaction is held across the handler's (`mountLong`: a Worker has one pooled connection).
+ */
 async function decide(
-  tx: Tx,
+  inTx: <T>(work: (tx: Tx) => Promise<T>) => Promise<T>,
   services: Services,
-  item: InboxRow,
+  find: (tx: Tx) => Promise<InboxRow>,
   who: { userId: string; role: Role },
   body: PackReviewDecision,
 ) {
-  const key = reviewKey(item);
-  const handler = key ? reviewHandler(services, key) : null;
-  if (!key || !handler) throw notFound("review");
-  if (item.status !== "open") throw new HttpError(409, "not_open", "this item is closed");
-  if (!mayResolve(item, who)) {
-    throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
-  }
-  let testRun = false;
-  if (item.runId) {
-    const [r] = await tx.select({ mode: run.mode }).from(run).where(eq(run.id, item.runId));
-    testRun = r?.mode === "test";
-  }
+  const { item, handler, testRun } = await inTx(async (tx) => {
+    const item = await find(tx);
+    const key = reviewKey(item);
+    const handler = key ? reviewHandler(services, key) : null;
+    if (!key || !handler) throw notFound("review");
+    if (item.status !== "open") throw new HttpError(409, "not_open", "this item is closed");
+    if (!mayResolve(item, who)) {
+      throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
+    }
+    let testRun = false;
+    if (item.runId) {
+      const [r] = await tx.select({ mode: run.mode }).from(run).where(eq(run.id, item.runId));
+      testRun = r?.mode === "test";
+    }
+    return { item, handler, testRun };
+  });
   try {
-    // The decision commits in its own transaction (it records the match and learns the alias);
-    // this request's transaction only read the item.
     await handler.decide(services.db, {
       tenantId: item.tenantId,
       userId: who.userId,
@@ -266,7 +456,7 @@ async function decide(
     }
     throw error;
   }
-  return reviewView(tx, services, item, who);
+  return inTx(async (tx) => reviewView(tx, services, await find(tx), who));
 }
 
 export function packRouteHandlers(app: Hono<AppEnv>): void {
@@ -298,11 +488,17 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
         name: p.manifest.name,
         version: p.manifest.version,
         description: p.manifest.description,
-        templates: p.manifest.templates.map((t) => ({
-          slug: t.slug,
-          name: t.bundle.definition.identity.name,
-          templateId: have.find((h) => h.slug === t.slug)?.id ?? null,
-        })),
+        templates: await Promise.all(
+          p.manifest.templates.map(async (t) => {
+            const templateId = have.find((h) => h.slug === t.slug)?.id ?? null;
+            return {
+              slug: t.slug,
+              name: t.bundle.definition.identity.name,
+              templateId,
+              newVersions: templateId ? (await missingVersions(tx, templateId, t)).length : 0,
+            };
+          }),
+        ),
         screens: screensOf(p),
         clients: clients.map((c) => {
           const row = on.find((r) => r.tenantId === c.id && r.pack === p.manifest.id);
@@ -332,10 +528,17 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
       .values({ tenantId: params.id, pack: pack.manifest.id, version: pack.manifest.version })
       .onConflictDoNothing();
     const installed = await installTemplates(tx, services, pack, session.user.id);
+    await installLibrarySkills(tx, services, pack, session.user.id);
     const packs = await clientPacks(tx, services, params.id);
     const view = packs.find((p) => p.id === pack.manifest.id);
     if (!view) throw notFound("pack");
     return { pack: view, installed };
+  });
+
+  mount(app, routes.opsUpdatePackTemplates, async ({ tx, params, services, session }) => {
+    const pack = packOf(services, params.pack);
+    await installLibrarySkills(tx, services, pack, session.user.id);
+    return { updated: await updatePackTemplates(tx, services, pack, session.user.id) };
   });
 
   mount(app, routes.opsClientPackReport, async (ctx) => {
@@ -357,11 +560,13 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
     return reportCsv(tx, services, params.id, params.pack, params.report, query);
   });
 
-  mount(app, routes.opsClientPackAction, async (ctx) => {
-    const { tx, params, services, session, body } = ctx;
+  // The pack's action opens its own transaction (and a signed write reaches the client's tool):
+  // none is held across it (`mountLong`; a Worker's database has one pooled connection).
+  mountLong(app, routes.opsClientPackAction, async (ctx) => {
+    const { params, services, session, body } = ctx;
     ensureClient(ctx, params.id);
     const pack = packOf(services, params.pack);
-    const on = await enabledPacks(tx, params.id);
+    const on = await ctx.inTx(({ tx }) => enabledPacks(tx, params.id));
     if (!on.some((e) => e.pack === pack.manifest.id)) throw notFound("pack");
     const handler = pack.actions?.[params.action];
     if (!handler) throw notFound("action");
@@ -402,10 +607,15 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
     }),
   );
 
-  mount(app, routes.opsPackReviewDecide, async (ctx) => {
-    const { tx, tenantIds, params, services, session, role, body } = ctx;
-    const item = await opsItem(tx, tenantIds, params.id);
-    return decide(tx, services, item, { userId: session.user.id, role }, body);
+  mountLong(app, routes.opsPackReviewDecide, async (ctx) => {
+    const { tenantIds, params, services, session, role, body } = ctx;
+    return decide(
+      txOnly(ctx.inTx),
+      services,
+      (tx) => opsItem(tx, tenantIds, params.id),
+      { userId: session.user.id, role },
+      body,
+    );
   });
 
   // ── Portal ─────────────────────────────────────────────────────────────────────────────────────
@@ -474,9 +684,14 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
     },
   );
 
-  mount(app, routes.portalPackReviewDecide, async (ctx) => {
-    const { tx, tenantIds, params, services, session, role, body } = ctx;
-    const item = await portalItem(tx, tenantIds[0] as string, role, session.user.id, params.id);
-    return decide(tx, services, item, { userId: session.user.id, role }, body);
+  mountLong(app, routes.portalPackReviewDecide, async (ctx) => {
+    const { tenantIds, params, services, session, role, body } = ctx;
+    return decide(
+      txOnly(ctx.inTx),
+      services,
+      (tx) => portalItem(tx, tenantIds[0] as string, role, session.user.id, params.id),
+      { userId: session.user.id, role },
+      body,
+    );
   });
 }

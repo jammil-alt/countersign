@@ -1,4 +1,4 @@
-// The second step of signing in (docs/plan.md §1.83): where a sign-in is with it, setting up the
+// The second step of signing in (docs/plan.md §1.99): where a sign-in is with it, setting up the
 // first method, sending a code, checking it (and remembering the browser for 30 days), recovery
 // codes, and an operator's reset. The step's routes run outside mount(): they act for the person,
 // never in a client, and a `pending` session must reach them (getSession's
@@ -126,7 +126,7 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
       throw new HttpError(403, "method_not_allowed", "operators use an authenticator app");
     }
     const factors = await factorsOf(db, userId);
-    // DECISION (docs/plan.md §1.83): setup only while a person has no usable method; changing
+    // DECISION (docs/plan.md §1.99): setup only while a person has no usable method; changing
     // one is an operator's reset, so a stolen password can't swap in the thief's phone.
     if (factors.some((f) => f.verifiedAt && allowed.includes(f.kind))) {
       throw new HttpError(409, "already_set_up", "you already have a method; use it to sign in");

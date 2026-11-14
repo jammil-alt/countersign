@@ -36,8 +36,8 @@ function membershipsQuery(tx: Tx, userId: string) {
 }
 
 /**
- * A signed-in user and their memberships, for a request's session: both reads in one transaction,
- * sent with its scope, instead of a lookup and then a transaction of its own (docs/plan.md §1.82).
+ * A signed-in user and their memberships, for a request's session: one statement, sent with its
+ * scope, instead of a lookup and then a transaction of its own (docs/plan.md §1.82).
  * `user` is null when the row is gone.
  */
 export function userWithMemberships(
@@ -47,16 +47,47 @@ export function userWithMemberships(
   user: { id: string; email: string; name: string | null } | null;
   memberships: UserMembership[];
 }> {
-  return withUser(db, userId, async (tx) => {
-    const [users, memberships] = await Promise.all([
-      tx
-        .select({ id: appUser.id, email: appUser.email, name: appUser.name })
-        .from(appUser)
-        .where(eq(appUser.id, userId)),
-      membershipsQuery(tx, userId),
-    ]);
-    return { user: users[0] ?? null, memberships };
-  });
+  return withUser(db, userId, (tx) => accountIn(tx, userId));
+}
+
+/**
+ * `userWithMemberships` inside a transaction that already names `userId` in `app.user_id` (the
+ * first half of `withSession`): the user row and their memberships, read under `own_memberships`,
+ * with retired clients left out for their own users as `userMemberships` leaves them out.
+ */
+// DECISION: one statement for both reads (docs/plan.md §1.90): the memberships come back as
+// a JSON array beside the user row, so the session costs one statement, not two. The same join,
+// filter and order as `membershipsQuery`; RLS applies to the subquery as to any read.
+export async function accountIn(
+  tx: Tx,
+  userId: string,
+): Promise<{
+  user: { id: string; email: string; name: string | null } | null;
+  memberships: UserMembership[];
+}> {
+  const rows = await tx.execute<{
+    id: string;
+    email: string;
+    name: string | null;
+    memberships: UserMembership[] | string;
+  }>(sql`select ${appUser.id} as id, ${appUser.email} as email, ${appUser.name} as name,
+      coalesce((
+        select json_agg(json_build_object(
+            'tenantId', ${membership.tenantId}, 'tenantName', ${tenant.name}, 'role', ${membership.role})
+          order by ${tenant.name})
+        from ${membership} inner join ${tenant} on ${tenant.id} = ${membership.tenantId}
+        where ${membership.userId} = ${appUser.id}
+          and (${tenant.retiredAt} is null or ${membership.role} = 'operator')
+      ), '[]'::json) as memberships
+    from ${appUser} where ${appUser.id} = ${userId}`);
+  const row = [...rows][0];
+  if (!row) return { user: null, memberships: [] };
+  // postgres-js parses json; a driver that hands back text is parsed here.
+  const memberships =
+    typeof row.memberships === "string"
+      ? (JSON.parse(row.memberships) as UserMembership[])
+      : row.memberships;
+  return { user: { id: row.id, email: row.email, name: row.name }, memberships };
 }
 
 /**

@@ -295,6 +295,48 @@
       "when": 1794240093692,
       "tag": "0042_second_factor",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794284245786,
+      "tag": "0043_person_hours",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794288985141,
+      "tag": "0044_external_action_after",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794296526263,
+      "tag": "0045_browser_scripts",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794317455115,
+      "tag": "0046_run_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794359494744,
+      "tag": "0047_vendor_catalog",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794670675773,
+      "tag": "0048_agent_choices",
+      "breakpoints": true
     }
   ]
 }

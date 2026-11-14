@@ -89,7 +89,25 @@ export function opsConnection(c: ConnectionRow) {
   };
 }
 
-export function opsRun(r: RunRow) {
+// Speed run 6.3: the run lists select only these columns (`runListColumns` in ops-clients.ts).
+export function opsRun(
+  r: Pick<
+    RunRow,
+    | "id"
+    | "tenantId"
+    | "agentId"
+    | "agentVersionId"
+    | "workflowSlug"
+    | "mode"
+    | "status"
+    | "trigger"
+    | "costUsd"
+    | "error"
+    | "startedAt"
+    | "finishedAt"
+    | "createdAt"
+  >,
+) {
   return {
     id: r.id,
     tenantId: r.tenantId,
@@ -122,10 +140,13 @@ export function opsStep(s: StepRunRow) {
     tokensOut: s.tokensOut,
     startedAt: iso(s.startedAt),
     finishedAt: iso(s.finishedAt),
+    // Step panel (§1.95)
+    attempts: s.attempts,
   };
 }
 
-export function opsToolCall(t: ToolCallRow) {
+// Speed run 6.2: the run page selects only these columns.
+export function opsToolCall(t: Omit<ToolCallRow, "tenantId" | "createdAt">) {
   return {
     id: t.id,
     stepRunId: t.stepRunId,

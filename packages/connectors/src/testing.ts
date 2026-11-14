@@ -327,6 +327,14 @@ export {
   fakePlaidAccounts,
   fakePlaidTransaction,
 } from "./bankfeed/fake";
+// §1.87: BILL (Bill.com).
+export {
+  FAKE_BILLCOM,
+  type FakeBillcom,
+  type FakeBillcomDocument,
+  type FakeBillcomRequest,
+  fakeBillcom,
+} from "./billcom/fake";
 // M45: Search Console and Bing Webmaster Tools (docs/plan.md §1.75).
 export {
   bingDate,

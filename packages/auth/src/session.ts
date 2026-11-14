@@ -2,7 +2,13 @@
 // a session or a typed refusal. The Hono middleware in apps/api turns a refusal into a response and
 // a session into `app.tenant_ids` (and `app.operator`) for withTenants().
 
-import { isClientRole, isOperatorRole, type Role, type SessionBase } from "@countersign/core";
+import {
+  isClientRole,
+  isOperatorRole,
+  type Role,
+  type SecondFactorState,
+  type SessionBase,
+} from "@countersign/core";
 import {
   type AuthAdapter,
   type AuthDirectory,
@@ -26,7 +32,7 @@ export interface GetSessionOptions {
    */
   readonly tenantId?: string | null;
   /**
-   * Admit a sign-in whose second step is still pending (docs/plan.md §1.83). Only the step's own
+   * Admit a sign-in whose second step is still pending (docs/plan.md §1.99). Only the step's own
    * routes pass this; everything else is refused with 401 `second_factor_required`.
    */
   readonly allowPendingSecondFactor?: boolean;
@@ -75,24 +81,62 @@ export async function getSession(
   const identified = await options.adapter.identify(request, options.now ?? new Date());
   if (!identified.ok) return identified;
   const { userId, setCookies } = identified;
-  // DECISION: the gate is here, in the one place every session is made, so no route can forget it;
-  // only the second step's own routes opt out.
-  if (identified.secondFactor === "pending" && !options.allowPendingSecondFactor) {
-    return refuse("second_factor_required", "finish signing in with your second step", setCookies);
-  }
+  // DECISION: the gate is `secondFactorGate`, called wherever a session is made from a cookie (here
+  // and apps/api's mount); only the second step's own routes opt out.
+  const gated = secondFactorGate(identified, options.allowPendingSecondFactor);
+  if (gated) return gated;
   const { directory } = options;
   const account = directory.account
     ? await directory.account(userId)
     : { user: await directory.user(userId), memberships: null };
-  const { user } = account;
-  if (!user) return refuse("session_invalid", "the signed-in user no longer exists");
-  const memberships = account.memberships ?? (await directory.memberships(userId));
-  const built = buildSession(user, memberships, options.adapter.kind, options.tenantId);
+  const memberships =
+    account.user && !account.memberships
+      ? await directory.memberships(userId)
+      : (account.memberships ?? []);
+  return sessionFromAccount(
+    { user: account.user, memberships },
+    options.adapter.kind,
+    options.tenantId,
+    setCookies,
+    identified.secondFactor,
+  );
+}
+
+/**
+ * The second half of `getSession`, for a caller that identified the request itself and read the
+ * account where it chose (apps/api reads it inside the request's own transaction, docs/plan.md
+ * §1.90): the session for the requested client, or the refusal, with the identity's cookies.
+ */
+export function sessionFromAccount(
+  account: { readonly user: Session["user"] | null; readonly memberships: readonly Membership[] },
+  adapter: Session["adapter"],
+  tenantId: string | null | undefined,
+  setCookies: readonly string[],
+  /** §1.99: where the sign-in is with its second step, from `identify`. */
+  secondFactor?: SecondFactorState,
+): SessionResult {
+  if (!account.user) return refuse("session_invalid", "the signed-in user no longer exists");
+  const built = buildSession(account.user, account.memberships, adapter, tenantId);
   if (!built.ok) return { ...built, setCookies: [...built.setCookies, ...setCookies] };
-  const session = identified.secondFactor
-    ? { ...built.session, secondFactor: identified.secondFactor }
-    : built.session;
+  const session = secondFactor ? { ...built.session, secondFactor } : built.session;
   return { ok: true, session, setCookies };
+}
+
+/**
+ * The second step's gate (docs/plan.md §1.99): a sign-in whose step is still pending is refused
+ * with 401 `second_factor_required`, unless the caller is one of the step's own routes. Every path
+ * that makes a session from a cookie calls this: `getSession` and apps/api's `mount`.
+ */
+export function secondFactorGate(
+  identified: { readonly secondFactor?: SecondFactorState; readonly setCookies: readonly string[] },
+  allowPending = false,
+): AuthRefusal | null {
+  if (identified.secondFactor !== "pending" || allowPending) return null;
+  return refuse(
+    "second_factor_required",
+    "finish signing in with your second step",
+    identified.setCookies,
+  );
 }
 
 export type RoleCheck = { readonly ok: true; readonly role: Role } | AuthRefusal;

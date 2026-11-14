@@ -12,7 +12,7 @@ import type { DocumentServices, WriteContext } from "../connector";
 import { CredentialCipher, generateEncryptionKey, memoryTenantKeys } from "../credentials";
 import { memoryCredentials } from "../credentials-accessor";
 import { formDecode } from "../http";
-import { captureBefore, executeWrite, runReadTool, ToolCallError } from "../invoke";
+import { captureBefore, executeWrite, runReadTool, standInOutput, ToolCallError } from "../invoke";
 import { memoryLogger } from "../logger";
 import { beginAuthorization, completeAuthorization } from "../oauth/flow";
 import { ReconnectRequiredError } from "../oauth/tokens";
@@ -115,6 +115,49 @@ describe("qbo connector: manifest and sign-in", () => {
       );
       for (const r of refs) expect(props, `${t.id} summary uses {{${r}}}`).toContain(r);
     }
+  });
+
+  it("gives a test run a stand-in for each create, in the tool's own output shape, calling nothing", () => {
+    const { qbo, connector } = setup();
+    // Every create whose output names a new record (an attachment's isn't read on).
+    const creates = connector.manifest.tools.filter(
+      (t) => t.verb === "create" && t.id !== QBO_TOOLS.attachableUpload,
+    );
+    expect(creates.length).toBe(9);
+    for (const t of creates) {
+      const handler = connector.tools[t.id];
+      expect(handler?.kind === "write" && handler.testOutput, t.id).toBeTruthy();
+    }
+    const bill = standInOutput(connector, QBO_TOOLS.billCreate, {
+      vendorId: "57",
+      docNumber: "INV-20931",
+      txnDate: "2026-11-05",
+      expectedTotal: "640.40",
+      lines: [{ amount: "640.40", accountId: "80" }],
+    });
+    expect(bill).toEqual({
+      id: "0",
+      syncToken: "0",
+      docNumber: "INV-20931",
+      total: "640.40",
+      lineCount: 1,
+      alreadyDone: false,
+    });
+    expect(
+      standInOutput(connector, QBO_TOOLS.vendorCreate, { displayName: "Northwest Plywood" }),
+    ).toMatchObject({ id: "0", displayName: "Northwest Plywood" });
+    // A tool without one says nothing; a bad input is refused, as for a write.
+    expect(
+      standInOutput(connector, QBO_TOOLS.attachableUpload, {
+        documentId: DOC,
+        entity: "Bill",
+        entityId: (bill as { id: string }).id,
+      }),
+    ).toBeUndefined();
+    expect(() => standInOutput(connector, QBO_TOOLS.billCreate, { vendorId: "x" })).toThrow(
+      ToolCallError,
+    );
+    expect(qbo.requests).toHaveLength(0);
   });
 
   it("declares thirteen reads and nineteen approval-gated writes, no delete", () => {
@@ -344,6 +387,27 @@ describe("qbo connector: manifest and sign-in", () => {
 });
 
 describe("qbo connector: read tools", () => {
+  it("finds bills from the last N days, from today's date, when no from date is given", async () => {
+    const s = setup();
+    const { ctx } = await signedIn(s);
+    await runReadTool(s.connector, QBO_TOOLS.billQuery, { lastDays: 30 }, ctx());
+    await runReadTool(s.connector, QBO_TOOLS.purchaseQuery, { lastDays: 30 }, ctx());
+    await runReadTool(
+      s.connector,
+      QBO_TOOLS.billQuery,
+      { lastDays: 30, from: "2026-01-01" },
+      ctx(),
+    );
+    const queries = s.qbo
+      .apiCalls("GET", "query")
+      .map((r) => decodeURIComponent(r.url.replace(/\+/g, " ")));
+    // NOW is 2026-11-05: 30 days before is 2026-10-06.
+    expect(queries.filter((u) => u.includes("from Bill"))[0]).toContain("TxnDate >= '2026-10-06'");
+    expect(queries.find((u) => u.includes("from Purchase"))).toContain("TxnDate >= '2026-10-06'");
+    // A from date, when given, wins.
+    expect(queries.filter((u) => u.includes("from Bill"))[1]).toContain("TxnDate >= '2026-01-01'");
+  });
+
   it("queries bills with lines and money as decimal strings, and pages with `more`", async () => {
     const s = setup();
     const { ctx } = await signedIn(s);

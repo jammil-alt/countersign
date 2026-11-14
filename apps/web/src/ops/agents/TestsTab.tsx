@@ -4,7 +4,7 @@
 // cases from this client, runs them on the template's live version in this client, and lists its
 // own test runs with a form to start one. Cases, results and cost are the back office's only.
 import {
-  type AgentBundle,
+  type AnyAgentBundle,
   Matcher,
   type SuiteRunView,
   type TestCaseView,
@@ -105,7 +105,7 @@ export function TestsTab({
   agent: AgentSummary;
   detail: AgentDetail;
   /** The live version's bundle, read: what a client agent's test run runs. */
-  liveBundle: AgentBundle | null;
+  liveBundle: AnyAgentBundle | null;
   base: string;
 }) {
   const templateId = agent.kind === "template" ? agent.id : agent.templateId;
@@ -190,6 +190,7 @@ function TestBench({
           <div className="flex flex-col gap-6">
             <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
               <Card
+                titleAbove
                 title="Suite runs"
                 testId="agent-test-suite-runs"
                 meta={
@@ -290,7 +291,7 @@ function TestBench({
 function SuiteResults({ id }: { id: string }) {
   const res = useApi(apiRoutes.opsTestSuiteRun, { params: { id } });
   return (
-    <Card title="What each case got" testId="agent-test-results">
+    <Card titleAbove title="What each case got" testId="agent-test-results">
       {res.error ? (
         <div className="px-6 py-4">
           <ErrorNotice error={res.error} onRetry={res.reload} />
@@ -362,6 +363,7 @@ function CasesCard({
   const archive = useAction();
   return (
     <Card
+      titleAbove
       title={`Cases · ${cases.length}`}
       testId="agent-test-cases"
       meta={
@@ -444,7 +446,7 @@ function CasesCard({
 }
 
 function workflowsOf(bundle: unknown): { slug: string; name: string }[] {
-  const b = bundle as Partial<AgentBundle> | null;
+  const b = bundle as Partial<AnyAgentBundle> | null;
   return Array.isArray(b?.workflows)
     ? b.workflows.map((w) => ({ slug: w.slug, name: w.name }))
     : [];
@@ -601,13 +603,14 @@ function TestRunsCard({
 }: {
   agent: AgentSummary;
   detail: AgentDetail;
-  liveBundle: AgentBundle | null;
+  liveBundle: AnyAgentBundle | null;
   base: string;
 }) {
   const runs = useApi(apiRoutes.opsRuns, { query: { agent: agent.id, mode: "test", limit: 20 } });
   const live = detail.versions.find((v) => v.id === agent.liveVersionId) ?? null;
   return (
     <Card
+      titleAbove
       title="Test runs"
       testId="agent-test-runs"
       meta={

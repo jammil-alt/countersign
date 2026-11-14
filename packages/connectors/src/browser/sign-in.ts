@@ -11,6 +11,7 @@ import {
   urlHost,
   urlMatches,
 } from "@countersign/core";
+import { ToolRefused } from "../connector";
 import type { BrowserTab } from "./driver";
 import type { BrowserCodesPort } from "./services";
 
@@ -29,8 +30,22 @@ export class SignInFailed extends Error {
 }
 
 /** Refused before anything was typed or opened (tier, caps, rules, setup). */
-export class BrowserRefused extends Error {
+export class BrowserRefused extends ToolRefused {
   override name = "BrowserRefused";
+}
+
+/**
+ * Refused by the connection's sign-in caps (core's `signInAllowed`): stopped, outside its hours or
+ * at its daily limit. A browsing skill asks for help on it rather than fail (./scope.ts).
+ */
+export class BrowserCapReached extends BrowserRefused {
+  override name = "BrowserCapReached";
+  constructor(
+    readonly code: "stopped" | "hours" | "daily_cap",
+    message: string,
+  ) {
+    super(message);
+  }
 }
 
 // DECISION: the platform's own stop checks, on every site beside the profile's `stopSelectors`:
@@ -77,12 +92,37 @@ function hostOf(url: string): string {
   return urlHost(url) ?? "an unknown address";
 }
 
-/** Nothing is typed unless the tab is on one of the login origins, exactly. */
-function requireLoginOrigin(tab: BrowserTab, login: BrowserLogin): void {
-  if (!onLoginOrigin(tab.url(), login.origins)) {
+/**
+ * Nothing is typed unless the tab is on one of the login origins, exactly, by the browser's own
+ * address now (`where`): a remote tab's `url()` is as of its last call, which can be from before the
+ * wait for a code (docs/plan.md §1.26 "Browser driver").
+ */
+async function requireLoginOrigin(tab: BrowserTab, login: BrowserLogin): Promise<void> {
+  const at = tab.where ? await tab.where() : tab.url();
+  if (!onLoginOrigin(at, login.origins)) {
     throw new BrowserStop(
-      `the sign-in page moved to ${hostOf(tab.url())}, which is not the site's login address; nothing was typed`,
+      `the sign-in page moved to ${hostOf(at)}, which is not the site's login address; nothing was typed`,
     );
+  }
+}
+
+/**
+ * Types a sign-in value on the login origins only. The tab checks the origin itself as it types
+ * (`onlyOn`), so a page that moves between the check above and the typing gets nothing either.
+ */
+async function fillOnLogin(
+  tab: BrowserTab,
+  login: BrowserLogin,
+  selector: string,
+  value: string,
+): Promise<void> {
+  await requireLoginOrigin(tab, login);
+  try {
+    await tab.fill(selector, value, { onlyOn: login.origins });
+  } catch (error) {
+    // Refused because the page moved at the last moment: a stop, as above, not a failed sign-in.
+    await requireLoginOrigin(tab, login);
+    throw error;
   }
 }
 
@@ -155,7 +195,7 @@ export async function signIn(input: SignInInput): Promise<void> {
     throw new SignInFailed("the sign-in page did not open");
   }
   await checkForStops(tab, login);
-  requireLoginOrigin(tab, login);
+  await requireLoginOrigin(tab, login);
   if (!(await tab.has(login.usernameField)) || !(await tab.has(login.passwordField))) {
     throw new BrowserStop("the sign-in page did not look as expected; nothing was typed");
   }
@@ -163,11 +203,9 @@ export async function signIn(input: SignInInput): Promise<void> {
   // land in (a code with no wait open is an alert at the code service, never handed out).
   const wait = await openWait(input);
   try {
-    requireLoginOrigin(tab, login);
-    await tab.fill(login.usernameField, input.username);
-    requireLoginOrigin(tab, login);
-    await tab.fill(login.passwordField, input.password);
-    requireLoginOrigin(tab, login);
+    await fillOnLogin(tab, login, login.usernameField, input.username);
+    await fillOnLogin(tab, login, login.passwordField, input.password);
+    await requireLoginOrigin(tab, login);
     await tab.click(login.submitButton);
   } catch (error) {
     if (error instanceof BrowserStop) throw error;
@@ -191,9 +229,8 @@ export async function signIn(input: SignInInput): Promise<void> {
     if (code === null) throw new SignInFailed("no sign-in code arrived in time");
     input.onCode?.(code);
     try {
-      requireLoginOrigin(tab, login);
-      await tab.fill(factor.codeField, code);
-      requireLoginOrigin(tab, login);
+      await fillOnLogin(tab, login, factor.codeField, code);
+      await requireLoginOrigin(tab, login);
       await tab.click(factor.codeButton);
     } catch (error) {
       if (error instanceof BrowserStop) throw error;

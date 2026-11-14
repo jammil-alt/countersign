@@ -1,14 +1,19 @@
 // The request plumbing every route goes through (docs/plan.md §1.2 "Role checks"): one database
 // client per request, the session from packages/auth, the route's roles from the contract, the
 // client scope (`app.tenant_ids`, `app.operator`) set on the transaction the handler runs in, Zod
-// on the way in and on the way out, and work that must wait for the commit.
+// on the way in and on the way out, and work that must wait for the commit. A session route reads
+// its user and memberships in that same transaction (withSession, docs/plan.md §1.90).
 
 import { AgentsError } from "@countersign/agents";
 import {
   type AuthRefusal,
-  getSession,
+  accountFresh,
+  type CarriedAccount,
+  epochSec,
   requireRole,
   type Session,
+  secondFactorGate,
+  sessionFromAccount,
   tenantScope,
   type WorkOSClient,
 } from "@countersign/auth";
@@ -29,6 +34,7 @@ import {
   ScopeError,
   type Tx,
   withOperator,
+  withSession,
   withTenant,
 } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
@@ -37,7 +43,8 @@ import type { Context, Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import { type AuditEntry, auditAction, auditAlone, auditInTx, auditTarget } from "./audit";
-import { type AdapterChoice, authDirectory, chooseAdapter } from "./auth";
+import { type AdapterChoice, accountInTx, authDirectory, chooseAdapter } from "./auth";
+import type { BrowserDeps } from "./browser/services";
 import type { Bindings } from "./env";
 import type { ExportJobs } from "./exports/instances";
 import type { McpDeps } from "./mcp/routes";
@@ -62,6 +69,12 @@ export interface AppDeps {
   llm?(env: Bindings): LlmTransport;
   /** Object storage for originals: the R2 binding; memory in tests. */
   objects(env: Bindings): ObjectStore;
+  // Wave 4 (docs/plan.md §1.86 "Scripts (wave 4)")
+  /**
+   * A fresh browser for a script's recording or test; default Browser Run over the `BROWSER`
+   * binding (tests pass a fake browser). Undefined: no browser here.
+   */
+  browserOpener?(env: Bindings): BrowserDeps["open"];
   /**
    * The model transport that reads uploaded and forwarded documents in the background; null when
    * no model key is configured (documents then wait for an agent's `docs.extract`).
@@ -88,7 +101,7 @@ export interface AppDeps {
   testSuites?(env: Bindings): TestSuiteJobs | null;
   /** The MCP server's authorization server, audit, rate limit and clock; tests pass fakes. */
   mcp?: McpDeps;
-  /** §1.83: the code service for sign-in codes; default Twilio Verify. Tests pass one in memory. */
+  /** §1.99: the code service for sign-in codes; default Twilio Verify. Tests pass one in memory. */
   codeVerifier?(env: Bindings): CodeVerifier;
 }
 
@@ -338,6 +351,11 @@ export interface HandlerCtx<R extends RouteSpec> extends PublicCtx<R> {
   afterCommit(task: () => Promise<unknown>): void;
   /** Runs after the response (e.g. dispatching emitted events). */
   defer(task: () => Promise<unknown>): void;
+  /**
+   * This request changed the signed-in person's own memberships (a client they now serve): the
+   * response drops the account their cookie carries, so the next request reads it (§1.93).
+   */
+  accountChanged(): void;
 }
 
 type Result<R extends RouteSpec> = z.input<R["response"]>;
@@ -424,6 +442,34 @@ export function scopeOf(
 /** The scoped part of a handler's context, inside its transaction. */
 export type Scoped = Scope & Pick<HandlerCtx<RouteSpec>, "tx" | "afterCommit" | "defer">;
 
+/** A portal request acts for exactly one client (invariant 1); the back office for those served. */
+function checkScope(scope: Scope): void {
+  if (!scope.operator && (scope.tenantIds.length !== 1 || !scope.tenantIds[0])) {
+    throw new HttpError(403, "forbidden", "a portal request acts for exactly one client");
+  }
+}
+
+/** The scoped part of a handler's context for `tx`; after-commit tasks are collected in `after`. */
+function scopedFor(c: AppContext, scope: Scope, tx: Tx, after: (() => Promise<unknown>)[]): Scoped {
+  return {
+    role: scope.role,
+    tenantIds: scope.tenantIds,
+    operator: scope.operator,
+    tx,
+    afterCommit: (task) => after.push(task),
+    defer: (task) => c.get("req").deferred.push(task),
+  };
+}
+
+/** Runs the after-commit tasks in order, once the transaction has committed. */
+async function runAfterCommit(after: (() => Promise<unknown>)[]): Promise<void> {
+  for (const task of after) {
+    await task().catch((error: unknown) =>
+      reportHandled("after-commit task failed", error, { kind: "after_commit" }),
+    );
+  }
+}
+
 /**
  * Runs `work` in one transaction scoped to `scope` (withOperator for the back office, withTenant
  * for the portal: exactly one client), then the after-commit tasks.
@@ -433,30 +479,15 @@ export async function inScope<T>(
   scope: Scope,
   work: (scoped: Scoped) => Promise<T>,
 ): Promise<T> {
+  checkScope(scope);
   const ids = scope.tenantIds;
-  const portalClient = ids[0];
-  if (!scope.operator && (ids.length !== 1 || !portalClient)) {
-    throw new HttpError(403, "forbidden", "a portal request acts for exactly one client");
-  }
   const services = c.get("req").services();
   const after: (() => Promise<unknown>)[] = [];
-  const run = (tx: Tx) =>
-    work({
-      role: scope.role,
-      tenantIds: ids,
-      operator: scope.operator,
-      tx,
-      afterCommit: (task) => after.push(task),
-      defer: (task) => c.get("req").deferred.push(task),
-    });
+  const run = (tx: Tx) => work(scopedFor(c, scope, tx, after));
   const output = await (scope.operator
     ? withOperator(services.db, ids, run)
-    : withTenant(services.db, portalClient as string, run));
-  for (const task of after) {
-    await task().catch((error: unknown) =>
-      reportHandled("after-commit task failed", error, { kind: "after_commit" }),
-    );
-  }
+    : withTenant(services.db, ids[0] as string, run));
+  await runAfterCommit(after);
   return output;
 }
 
@@ -477,6 +508,46 @@ export function mount<R extends RouteSpec>(
   mountWith(app, spec, handler, respond);
 }
 
+/**
+ * What a slow route's handler gets (`mountLong`): the request's scope without a transaction, and
+ * `inTx` to open short ones in that scope (withOperator or withTenant, as `mount`'s), each
+ * committed before the next starts.
+ */
+export interface LongHandlerCtx<R extends RouteSpec>
+  extends Omit<HandlerCtx<R>, "tx" | "afterCommit"> {
+  /** One short transaction in the request's scope; its after-commit tasks run once it commits. */
+  inTx<T>(work: (scoped: Scoped) => Promise<T>): Promise<T>;
+}
+
+/**
+ * A session route whose handler waits on something slow between its reads and writes (a browser,
+ * a client's tool through the external-action path): the same sign-in, roles, client scope and
+ * input checks as `mount`, but no transaction held across the handler. A Worker's database has one
+ * pooled connection (`openDb`), so a handler that opens transactions of its own (the vault, the
+ * browser's services, the runtime) must never run inside the request's: it would wait on itself.
+ * The handler reads and writes in short `inTx` transactions; the ok audit row is written alone once
+ * it returns (auditAlone), and a refusal or failure is audited as `mount` audits it. Not reachable
+ * through `invokeRoute`.
+ */
+// DECISION: a variant of `mount`, not routes with session code of their own: sign-in, roles, scope
+// and the audit row stay in one place (invariant 14). The ok row is written after the handler's
+// last transaction, so a write that committed beside an audit row that didn't is possible;
+// auditAlone reports that miss, as it does for refusals.
+export function mountLong<R extends RouteSpec>(
+  app: Hono<AppEnv>,
+  spec: R,
+  handler: (ctx: LongHandlerCtx<R>) => Promise<Result<R>>,
+): void {
+  mountWith(app, spec, handler, respond, "long");
+}
+
+/** A slow route's `inTx` for code that takes only the transaction. */
+export function txOnly(
+  inTx: LongHandlerCtx<RouteSpec>["inTx"],
+): <T>(work: (tx: Tx) => Promise<T>) => Promise<T> {
+  return (work) => inTx((scoped) => work(scoped.tx));
+}
+
 /** What a file route's handler hands back: the bytes, their type and the name to save them as. */
 export interface FileResult {
   filename: string;
@@ -495,6 +566,18 @@ export function mountFile<R extends RouteSpec>(
   handler: (ctx: HandlerCtx<R>) => Promise<Result<R> & FileResult>,
 ): void {
   mountWith(app, spec, handler, sendFile);
+}
+
+/**
+ * Wave 6: a file route whose handler reads slow things outside a transaction (object storage):
+ * `mountLong`'s short `inTx` transactions and its audit row, answered as `mountFile` answers.
+ */
+export function mountLongFile<R extends RouteSpec>(
+  app: Hono<AppEnv>,
+  spec: R,
+  handler: (ctx: LongHandlerCtx<R>) => Promise<Result<R> & FileResult>,
+): void {
+  mountWith(app, spec, handler, sendFile, "long");
 }
 
 function sendFile<R extends RouteSpec>(c: AppContext, spec: R, result: unknown) {
@@ -528,8 +611,11 @@ export function contentDisposition(name: string, kind: "inline" | "attachment" =
 function mountWith<R extends RouteSpec>(
   app: Hono<AppEnv>,
   spec: R,
-  handler: (ctx: HandlerCtx<R>) => Promise<unknown>,
+  handler:
+    | ((ctx: HandlerCtx<R>) => Promise<unknown>)
+    | ((ctx: LongHandlerCtx<R>) => Promise<unknown>),
   send: (c: AppContext, spec: R, result: unknown) => Response | Promise<Response>,
+  mode: "tx" | "long" = "tx",
 ): void {
   if (spec.auth !== "session") throw new Error(`${spec.path} is public: use mountPublic`);
   const family = routeFamily(spec);
@@ -538,7 +624,8 @@ function mountWith<R extends RouteSpec>(
     handlers = new Map();
     mounted.set(app, handlers);
   }
-  handlers.set(spec, handler as AnyHandler);
+  // A slow route's handler takes no transaction: invokeRoute (the MCP server) never runs one.
+  if (mode === "tx") handlers.set(spec, handler as AnyHandler);
   app.on(spec.method, spec.path, async (c) => {
     let setCookies: readonly string[] = [];
     // The audit row (docs/plan.md §1.35): who, once known, and the client acted in.
@@ -563,26 +650,165 @@ function mountWith<R extends RouteSpec>(
       const services = c.get("req").services();
       const choice = services.auth();
       if (!choice.ok) return refused(choice.refusal);
-      const result = await getSession(c.req.raw, {
-        adapter: choice.adapter,
-        directory: authDirectory(services.db),
-        tenantId: requestedClient(c),
-      });
-      if (!result.ok) return refused(result);
-      setCookies = result.setCookies;
-      const { session } = result;
-      actor = auditActor(session);
-      const scope = scopeOf(session, spec.roles, family);
-      if (!scope.ok) return refused({ ...scope, setCookies });
-      auditTenant = auditClient(scope, requestedClient(c), routeParams(c));
+      // Who is asking, from the cookie (a WorkOS refresh included): no database transaction yet.
+      const now = new Date();
+      const identified = await choice.adapter.identify(c.req.raw, now);
+      if (!identified.ok) return refused(identified);
+      // The second step (docs/plan.md §1.99): a pending sign-in reaches only the step's own routes,
+      // which run outside mount. Checked before any account is read or carried.
+      const pending = secondFactorGate(identified);
+      if (pending) return refused(pending);
+      const { userId } = identified;
+      const requested = requestedClient(c);
+      const nowSec = epochSec(now);
+      // The session and its scope from the user's account, or the refusal (with its cookies).
+      const decide = (account: Parameters<typeof sessionFromAccount>[0]) => {
+        // Each decision starts clean: a carried account that refused, then a read that refused
+        // too, is audited as what was read, never as what the cookie carried (§1.93).
+        actor = { actorKind: "anonymous" };
+        auditTenant = null;
+        setCookies = [];
+        const result = sessionFromAccount(
+          account,
+          choice.adapter.kind,
+          requested,
+          identified.setCookies,
+          identified.secondFactor,
+        );
+        if (!result.ok) return result;
+        setCookies = result.setCookies;
+        const { session } = result;
+        actor = auditActor(session);
+        const scope = scopeOf(session, spec.roles, family);
+        if (!scope.ok) return { ...scope, setCookies };
+        auditTenant = auditClient(scope, requested, routeParams(c));
+        return { ok: true as const, session, scope };
+      };
 
-      const input = await parseInput(c, spec);
-      const output = await inScope(c, scope, async (scoped) => {
-        const out = await handler({ c, session, ...scoped, ...input, services });
-        // In the request's own transaction: it commits with what the request wrote.
-        await auditInTx(scoped.tx, c, entry("ok", 200));
-        return out;
-      });
+      // The account the cookie carries, while it is younger than the window (docs/plan.md §1.93):
+      // the session and scope come from it and the account is not read. Only a carried account
+      // that admits the request is used; one that would refuse it is read again first, so a
+      // request naming a new client or needing a new role is not delayed (lists across clients
+      // and a role raised in place wait for the window: §1.93).
+      const carried =
+        identified.account && accountFresh(identified.account, nowSec) ? identified.account : null;
+      const fromCookie = carried ? decide(carried) : null;
+      const admitted = fromCookie?.ok ? fromCookie : null;
+      // An account read by this request, to carry from now on; and whether the handler changed it.
+      let read: CarriedAccount | null = null;
+      let changed = false;
+      const accountChanged = () => {
+        changed = true;
+      };
+      const readAccount = <
+        A extends { user: Session["user"] | null } & Pick<CarriedAccount, "memberships">,
+      >(
+        account: A,
+      ): A => {
+        read = account.user
+          ? { at: nowSec, user: account.user, memberships: account.memberships }
+          : null;
+        return account;
+      };
+
+      let output: unknown;
+      if (mode === "long") {
+        // No transaction is held across a slow handler: the account in one of its own (withUser),
+        // unless the cookie carries it, then the handler's short `inTx` transactions in the scope.
+        const directory = authDirectory(services.db);
+        const decided =
+          admitted ??
+          decide(
+            readAccount(
+              directory.account
+                ? await directory.account(userId)
+                : {
+                    user: await directory.user(userId),
+                    memberships: await directory.memberships(userId),
+                  },
+            ),
+          );
+        if (!decided.ok) return refused(decided);
+        const { session, scope } = decided;
+        const input = await parseInput(c, spec);
+        output = await (handler as (ctx: LongHandlerCtx<R>) => Promise<unknown>)({
+          c,
+          session,
+          role: scope.role,
+          tenantIds: scope.tenantIds,
+          operator: scope.operator,
+          defer: (task) => c.get("req").deferred.push(task),
+          inTx: (work) => inScope(c, scope, work),
+          accountChanged,
+          ...input,
+          services,
+        } as LongHandlerCtx<R>);
+        // No request transaction to commit with: its own, once the handler's work is done.
+        await auditAlone(services.db, c, entry("ok", 200));
+      } else if (admitted) {
+        // One transaction in the carried scope: no account read, no `app.user_id` at all.
+        if (spec.body) await c.req.text().catch(() => undefined);
+        const { session, scope } = admitted;
+        output = await inScope(c, scope, async (scoped) => {
+          const input = await parseInput(c, spec);
+          const out = await (handler as (ctx: HandlerCtx<R>) => Promise<unknown>)({
+            c,
+            session,
+            ...scoped,
+            accountChanged,
+            ...input,
+            services,
+          });
+          await auditInTx(scoped.tx, c, entry("ok", 200));
+          return out;
+        });
+      } else {
+        // One transaction (docs/plan.md §1.90): the user and memberships under `app.user_id`, then
+        // the scope in place of it, then the handler and the ok audit row, committed together.
+        // DECISION: the body is read before the transaction opens, so a slow or trickled upload
+        // never holds a connection and a transaction (docs/plan.md §1.90). Hono keeps what it read;
+        // `parseInput` parses it inside, after the scope check, so a refusal still comes before a
+        // 400 as it did. A body that fails to read fails there, as before.
+        if (spec.body) await c.req.text().catch(() => undefined);
+        const after: (() => Promise<unknown>)[] = [];
+        const result = await withSession(
+          services.db,
+          userId,
+          async (tx) => {
+            const decided = decide(readAccount(await accountInTx(tx, userId)));
+            if (!decided.ok) return { ok: false as const, refusal: decided };
+            checkScope(decided.scope);
+            const input = await parseInput(c, spec);
+            return {
+              ok: true as const,
+              scope: decided.scope,
+              value: { session: decided.session, scope: decided.scope, input },
+            };
+          },
+          async (tx, { session, scope, input }) => {
+            const out = await (handler as (ctx: HandlerCtx<R>) => Promise<unknown>)({
+              c,
+              session,
+              ...scopedFor(c, scope, tx, after),
+              accountChanged,
+              ...input,
+              services,
+            });
+            // In the request's own transaction: it commits with what the request wrote.
+            await auditInTx(tx, c, entry("ok", 200));
+            return out;
+          },
+        );
+        // A refusal is audited alone, after the read-only sign-in half has ended.
+        if (!result.ok) return refused(result.refusal);
+        await runAfterCommit(after);
+        output = result.value;
+      }
+      // The cookie carries what this request read, or nothing once the handler changed the
+      // person's own memberships; a request that used the carried account leaves it as it is.
+      if (identified.carry && (changed || read)) {
+        setCookies = await identified.carry(changed ? null : read, new Date());
+      }
       for (const cookie of setCookies) c.header("Set-Cookie", cookie, { append: true });
       return send(c, spec, output);
     } catch (error) {
@@ -683,7 +909,9 @@ export async function invokeRoute<R extends RouteSpec>(
   });
   try {
     const output = await inScope(c, scope, async (scoped) => {
-      const out = await handler({ c, session, ...scoped, ...input, services });
+      // No cookie here: the MCP server reads the account on each call (docs/plan.md §1.90).
+      const accountChanged = () => undefined;
+      const out = await handler({ c, session, ...scoped, accountChanged, ...input, services });
       await auditInTx(scoped.tx, c, entry("ok", 200));
       return out;
     });

@@ -12,6 +12,7 @@ import { and, asc, eq, gt, gte, inArray, isNotNull, lte, or } from "drizzle-orm"
 import { learnAlias } from "../catalog/store";
 import { convert } from "../pricing/uom";
 import { priceObservation } from "../schema";
+import { priceForVendorItem, recordLastPrice, resolveVendorItem } from "../vendor/store";
 import { matchText, type TextCandidate } from "./match-text";
 import type { PurchasingContext } from "./requests";
 
@@ -232,14 +233,34 @@ export async function backfillFromBills(
             source: "auto",
           });
         }
+        // §1.88: the vendor item the price is for, when the vendor catalog has one (a bill line
+        // makes none: Register item does). QuickBooks gives no unit, so the price is per the
+        // standard unit: the vendor item in that unit, else the vendor's only one for the item.
+        const vi = await resolveVendorItem(tx, ctx.tenantId, {
+          vendorId,
+          catalogItemId: m.item.id,
+          sku: null,
+          vendorUom: m.item.standardUom,
+        });
+        const viFits =
+          vi ??
+          (await resolveVendorItem(tx, ctx.tenantId, {
+            vendorId,
+            catalogItemId: m.item.id,
+            sku: null,
+            vendorUom: null,
+          }));
+        const unitPriceStd = toNumeric(dec(line.unitPrice).dividedBy(conv.factor));
+        const observedOn = bill.TxnDate ?? (t.txnDate as string);
         const [row] = await tx
           .insert(priceObservation)
           .values({
             tenantId: ctx.tenantId,
             catalogItemId: m.item.id,
             vendorId,
-            observedOn: bill.TxnDate ?? (t.txnDate as string),
-            unitPriceStd: toNumeric(dec(line.unitPrice).dividedBy(conv.factor)),
+            vendorItemId: viFits?.id ?? null,
+            observedOn,
+            unitPriceStd,
             qtyStd: toNumeric(dec(line.qty).times(conv.factor)),
             standardUom: m.item.standardUom,
             currency,
@@ -262,6 +283,23 @@ export async function backfillFromBills(
           out.recorded++;
           recorded.add(`${t.id}:${lineId}`);
           out.sources.push(row.id);
+          const last = viFits
+            ? priceForVendorItem(viFits, {
+                price: null,
+                unit: null,
+                priceStd: unitPriceStd,
+                standardUom: m.item.standardUom,
+              })
+            : null;
+          if (viFits && last) {
+            await recordLastPrice(tx, ctx.tenantId, viFits.id, {
+              ...last,
+              on: observedOn,
+              source: "qbo_bill",
+              sourceId: raw.id,
+              currency,
+            });
+          }
         } else {
           out.alreadyRecorded++;
         }

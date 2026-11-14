@@ -7,7 +7,13 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { ApiProvider } from "../../api/useApi";
-import { AGENT_SUMMARY, FORK_BUNDLE, fakeApi, versionId } from "../../test/fixtures";
+import {
+  AGENT_SUMMARY,
+  FORK_BUNDLE,
+  fakeApi,
+  PROCESS_BUNDLE,
+  versionId,
+} from "../../test/fixtures";
 import { OperationPanel } from "./OperationPanel";
 
 const AGENT = { ...AGENT_SUMMARY, runStatus: "draft", status: "active" };
@@ -60,6 +66,20 @@ function renderPanel(answers: (string | null)[]) {
 }
 
 describe("activation and a running test run", () => {
+  it("keeps Retire's confirm, saying Retiring, until the server answers (1.8)", async () => {
+    let answer: (v: unknown) => void = () => {};
+    const { api } = renderPanel(["succeeded"]);
+    api.on(`POST /api/ops/agents/${AGENT.id}/retire`, () => new Promise((r) => (answer = r)));
+    await userEvent.click(await screen.findByTestId("agent-retire"));
+    await userEvent.click(screen.getByTestId("agent-retire-confirm"));
+    const confirm = screen.getByTestId("agent-retire-confirm");
+    expect(confirm).toHaveTextContent("Retiring…");
+    expect(confirm).toBeDisabled();
+    expect(screen.queryByTestId("agent-operation-done")).toBeNull();
+    answer({ agent: { ...AGENT, runStatus: "retired" } });
+    expect(await screen.findByTestId("agent-operation-done")).toHaveTextContent("Retired");
+  });
+
   it("says a test run is going, polls it, and turns ready when it passes", async () => {
     renderPanel(["running", "running", "succeeded"]);
     expect(await screen.findByTestId("agent-activation-test-running")).toHaveTextContent(
@@ -176,6 +196,36 @@ describe("the test run's input", () => {
     expect(JSON.parse((input as HTMLTextAreaElement).value)).toEqual(payload);
     await user.click(screen.getByTestId("agent-test-run-start"));
     await waitFor(() => expect(sent).toEqual({ workflow: "new-bill", payload }));
+  });
+
+  // Wave 3b: a live v4 version (a process has `triggers`, no `trigger`) test-runs too, with the
+  // recent events of its first event trigger.
+  it("test-runs a live version that holds a process, from its event trigger's recent events", async () => {
+    const asked: string[] = [];
+    const api = fakeApi({
+      [`GET /api/ops/agents/${AGENT.id}/activation`]: () => activation(null),
+      "GET /api/ops/catalog/events": () => ({ events: [] }),
+      [`GET /api/ops/clients/${AGENT.tenantId}/events`]: ({ url }) => {
+        asked.push(url.searchParams.get("type") ?? "");
+        return { events: [] };
+      },
+    });
+    render(
+      <ApiProvider client={api.client}>
+        <MemoryRouter>
+          <OperationPanel
+            agent={AGENT}
+            live={LIVE}
+            liveBundle={PROCESS_BUNDLE}
+            onChanged={() => {}}
+          />
+        </MemoryRouter>
+      </ApiProvider>,
+    );
+    const source = await screen.findByTestId("agent-test-run-source");
+    expect(await within(source).findByText("No bill.created events yet")).toBeInTheDocument();
+    expect(asked).toEqual(["bill.created"]);
+    expect(screen.getByTestId("agent-test-run-workflow-select")).toHaveValue("new-bill");
   });
 
   it("sends what was typed or pasted, with no extra brace, and stops invalid JSON", async () => {

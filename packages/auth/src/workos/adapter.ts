@@ -3,6 +3,7 @@
 // app_user, refuse the uninvited) is the directory's job, done by the API with packages/db.
 
 import { SESSION_ACTIVITY_HEADER, type SecondFactorState } from "@countersign/core";
+import { compactAccount, cookieFits, expandAccount } from "../account";
 import { requestCookie } from "../cookies";
 import { randomToken, timingSafeEqual } from "../seal";
 import {
@@ -22,6 +23,7 @@ import {
   newSession,
   openSession,
   openState,
+  RACE_GRACE_SEC,
   resolveSession,
   restartNonce,
   SESSION_COOKIE,
@@ -44,15 +46,15 @@ export interface Redirect {
   readonly signedIn?: {
     readonly userId: string;
     readonly method: string | null;
-    /** §1.83: where the session starts with the second step. */
+    /** §1.99: where the session starts with the second step. */
     readonly secondFactor: SecondFactorState;
-    /** §1.83: passed by a remembered browser. */
+    /** §1.99: passed by a remembered browser. */
     readonly remembered: boolean;
   };
 }
 
 /**
- * §1.83: the second step, as the API runs it. `on` when this environment has it set up;
+ * §1.99: the second step, as the API runs it. `on` when this environment has it set up;
  * `remembered` says whether this browser passed it for this person in the last 30 days (the API
  * checks the device cookie against the person's methods, so a reset forgets every browser).
  */
@@ -62,7 +64,7 @@ export interface SecondFactorPolicy {
 }
 
 /** Sign-ins whose own provider does the second factor: a company's SSO. */
-// DECISION (docs/plan.md §1.83): only SSO is exempt. Google and Microsoft sign-ins are not: we
+// DECISION (docs/plan.md §1.99): only SSO is exempt. Google and Microsoft sign-ins are not: we
 // can't see whether that account has a second factor of its own.
 export const SECOND_FACTOR_EXEMPT_METHODS: readonly string[] = ["SSO"];
 
@@ -106,7 +108,7 @@ export interface WorkOSAdapter extends AuthAdapter {
   callback(request: Request, now: Date): Promise<Redirect | CallbackRefusal>;
   signOut(request: Request): Promise<Redirect>;
   /**
-   * §1.83: the second step was passed. Reseals a pending session as `done`; refuses one that is
+   * §1.99: the second step was passed. Reseals a pending session as `done`; refuses one that is
    * not pending (done, exempt, expired or another person's).
    */
   passSecondFactor(
@@ -116,7 +118,7 @@ export interface WorkOSAdapter extends AuthAdapter {
   ): Promise<{ readonly ok: true; readonly setCookies: readonly string[] } | AuthRefusal>;
 }
 
-/** §1.83: the web app's page for the second step (apps/web). */
+/** §1.99: the web app's page for the second step (apps/web). */
 export const SECOND_FACTOR_PAGE = "/sign-in/second-step";
 
 const PROVISION_MESSAGES: Record<ProvisionRefusalReason, string> = {
@@ -136,7 +138,7 @@ export function createWorkOSAdapter(options: {
   /** Injected in tests; otherwise built over `fetch`. */
   readonly workos?: WorkOSClient;
   readonly fetch?: typeof fetch;
-  /** §1.83; off when not given. */
+  /** §1.99; off when not given. */
   readonly secondFactor?: SecondFactorPolicy;
 }): WorkOSAdapter {
   const { config, directory } = options;
@@ -163,7 +165,7 @@ export function createWorkOSAdapter(options: {
       }
       const now = epochSec(nowDate);
       if (step) {
-        // DECISION (docs/plan.md §1.83): once the step is on, a cookie from before it (no `mf`) is
+        // DECISION (docs/plan.md §1.99): once the step is on, a cookie from before it (no `mf`) is
         // signed in to again, and a pending step left past its 10 minutes starts over.
         const stale =
           opened.mf === undefined
@@ -184,16 +186,43 @@ export function createWorkOSAdapter(options: {
         if (opened.sid) await workos.revokeSession(opened.sid).catch(() => undefined);
         return refuse("session_invalid", resolved.reason, [clearSessionCookie()]);
       }
+      const session = resolved.session;
       const setCookies = resolved.rotated
-        ? [sessionCookie(await sealSession(resolved.session, password), resolved.session, now)]
+        ? [sessionCookie(await sealSession(session, password), session, now)]
         : [];
       // With the step off, a session is never held back by it (one signed in while it was on
       // included).
       return {
         ok: true,
-        userId: resolved.session.uid,
+        userId: session.uid,
         setCookies,
-        ...(step && resolved.session.mf ? { secondFactor: resolved.session.mf } : {}),
+        ...(step && session.mf ? { secondFactor: session.mf } : {}),
+        account: expandAccount(session.acct, session.uid),
+        // The same session, sealed again with the account just read (or without one).
+        async carry(account, at = new Date()) {
+          // DECISION: the account is sealed in only when this request's refresh token is safe to
+          // write back (docs/plan.md §1.93): this request refreshed it, or it is not due within
+          // RACE_GRACE_SEC. A request admitted on a grace, or one racing a refresh in another
+          // tab, holds a token another request may have spent; a cookie it wrote could land last
+          // and sign the person out at the next refresh. It sends what identify decided, and the
+          // account is read again next time.
+          // Judged when the response is sent, not when identify ran: a slow request (mountLong)
+          // that started well before the refresh was due may end after another tab refreshed.
+          const sent = epochSec(at);
+          const refreshed = session.rt !== opened.rt;
+          const settled = !resolved.grace && (refreshed || sent < session.rat - RACE_GRACE_SEC);
+          if (!settled) return setCookies;
+          const { acct: _old, ...rest } = session;
+          if (account) {
+            const next = { ...rest, acct: compactAccount(account) };
+            const cookie = sessionCookie(await sealSession(next, password), next, sent);
+            // DECISION: an account too big for a cookie (an operator with very many clients) is
+            // not carried; that person's requests read it each time, as before (§1.93).
+            if (cookieFits(cookie)) return [cookie];
+          }
+          if (session.acct === undefined) return setCookies;
+          return [sessionCookie(await sealSession(rest, password), rest, sent)];
+        },
       };
     },
 

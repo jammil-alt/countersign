@@ -4,7 +4,7 @@
 // `ServicePanel` (Settings): its service name and description in the portal, its approver, the
 // connections it is bound to and their grants. None of this is a new version: it is the agent
 // row, logged.
-import { type AgentBundle, connectionAccountName } from "@countersign/core";
+import { type AnyAgentBundle, connectionAccountName } from "@countersign/core";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -69,7 +69,7 @@ export function OperationPanel({
 }: {
   agent: AgentSummary;
   live: VersionSummary | null;
-  liveBundle: AgentBundle | null;
+  liveBundle: AnyAgentBundle | null;
   onChanged(): void;
 }) {
   const activation = useApi(apiRoutes.opsActivation, { params: { id: agent.id } });
@@ -155,7 +155,7 @@ function StatusCard({
   agent: AgentSummary;
   activation: ApiState<ResponseOf<typeof apiRoutes.opsActivation>>;
   live: VersionSummary | null;
-  liveBundle: AgentBundle | null;
+  liveBundle: AnyAgentBundle | null;
   onChanged(): void;
 }) {
   const action = useAction();
@@ -170,8 +170,14 @@ function StatusCard({
   const status =
     (answered && answered.id === agent.id ? answered.runStatus : agent.runStatus) ?? "draft";
 
+  // Which press is waiting on the server: its button says so until the answer (1.8). Nothing
+  // shows as activated, paused or retired before the server says it is (invariant 8).
+  const [pressed, setPressed] = useState<"activate" | "pause" | "retire" | null>(null);
+  const busyWith = (kind: "activate" | "pause" | "retire") => action.busy && pressed === kind;
+
   async function run(kind: "activate" | "pause" | "retire") {
     setRetiring(false);
+    setPressed(kind);
     const route =
       kind === "activate"
         ? apiRoutes.opsActivate
@@ -278,7 +284,7 @@ function StatusCard({
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {status === "active" ? (
           <Button data-testid="agent-pause" disabled={action.busy} onClick={() => run("pause")}>
-            Pause
+            {busyWith("pause") ? "Pausing…" : "Pause"}
           </Button>
         ) : status !== "retired" ? (
           <Button
@@ -288,17 +294,18 @@ function StatusCard({
             onClick={() => run("activate")}
           >
             {/* v0.12 W1-A: Activate starts the trial (or resumes a paused agent). */}
-            {status === "paused" ? "Resume" : "Start trial"}
+            {busyWith("activate") ? "Starting…" : status === "paused" ? "Resume" : "Start trial"}
           </Button>
         ) : null}
         {status !== "retired" ? (
-          retiring ? (
+          // The confirm button stays, disabled and saying "Retiring…", until the server answers.
+          retiring || busyWith("retire") ? (
             <Button
               data-testid="agent-retire-confirm"
               disabled={action.busy}
               onClick={() => run("retire")}
             >
-              Retire for good?
+              {busyWith("retire") ? "Retiring…" : "Retire for good?"}
             </Button>
           ) : (
             <Button variant="ghost" data-testid="agent-retire" onClick={() => setRetiring(true)}>
@@ -326,7 +333,7 @@ export function TestRun({
 }: {
   agent: AgentSummary;
   live: VersionSummary | null;
-  liveBundle: AgentBundle | null;
+  liveBundle: AnyAgentBundle | null;
   /** The activation check reloads, sees the run and polls it. */
   onStarted(): void;
 }) {
@@ -338,7 +345,7 @@ export function TestRun({
   const [started, setStarted] = useState<string | null>(null);
   const parsed = parsePayload(payload);
   const action = useAction();
-  const catalog = useApi(apiRoutes.opsEventCatalog);
+  const catalog = useApi(apiRoutes.opsEventCatalog, { life: "catalog" });
   const chosen = workflows.find((w) => w.slug === workflow)?.workflow ?? null;
   const eventType = triggerEventType(chosen);
   const sample = chosen && catalog.data ? samplePayload(chosen, catalog.data.events) : undefined;
@@ -437,7 +444,7 @@ export function TestRun({
           disabled={action.busy || !workflow || !parsed.ok}
           onClick={start}
         >
-          Test-run v{live.version}
+          {action.busy ? "Starting…" : `Test-run v${live.version}`}
         </Button>
       </div>
       {started ? (
@@ -462,8 +469,11 @@ export function TestRun({
  * Connector names by id ("qbo" → "QuickBooks Online"), from the agent's builder catalog: what the
  * operator reads instead of connector ids.
  */
+// DECISION (1.5, the lead's call on the per-screen gate): the names stay on the builder catalog,
+// which the Workflow tab needs whole, so the move to that tab finds it in the store. A catalog's
+// life keeps it fresh for five minutes; the agent page asks it beside the agent on the Overview.
 export function useConnectorNames(agentId: string): (id: string) => string {
-  const catalog = useApi(apiRoutes.opsBuilderCatalog, { params: { id: agentId } });
+  const catalog = useApi(apiRoutes.opsBuilderCatalog, { params: { id: agentId }, life: "catalog" });
   return (id: string) => {
     const [connector, site] = id.split(":");
     const name =

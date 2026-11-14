@@ -1,6 +1,6 @@
 // The Feedback item (avatar menu) in the portal and the back office: off → no item; on → pin, picture,
 // comment, Send (comment first, picture after); leave the picture off; Escape sends nothing.
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -61,9 +61,8 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-/** QA round 1: Feedback is an item in the avatar menu, never a button over the page. */
+/** Feedback is a row in the sidebar's foot, above Collapse (the owner, 2026-11-11). */
 async function openFeedback() {
-  await userEvent.click(await screen.findByTestId("shell-avatar"));
   await userEvent.click(await screen.findByTestId("feedback-button"));
 }
 
@@ -73,19 +72,16 @@ describe("Feedback button", () => {
     renderAt("/", api);
     await screen.findByTestId("shell-portal");
     await waitFor(() => expect(api.calls).toContain("GET /api/feedback/status"));
-    await userEvent.click(screen.getByTestId("shell-avatar"));
-    expect(screen.getByTestId("shell-user-menu")).toBeInTheDocument();
     expect(screen.queryByTestId("feedback-button")).toBeNull();
   });
 
   it("pins, shows the picture, sends the comment then the JPEG", async () => {
     const { api, sent } = portal(true);
     renderAt("/inbox?status=open", api);
-    // QA round 1: it is for problems with the app (Sloan takes every other ask), in the avatar menu.
-    await userEvent.click(await screen.findByTestId("shell-avatar"));
-    expect(await screen.findByTestId("feedback-button")).toHaveAccessibleName(
-      "Report a problem with the app",
-    );
+    // It is for problems with the app (Sloan takes every other ask), on every screen.
+    const button = await screen.findByTestId("feedback-button");
+    expect(within(screen.getByTestId("shell-portal")).getByTestId("feedback-button")).toBe(button);
+    expect(button).toHaveAccessibleName("Report a problem with the app");
     await userEvent.click(screen.getByTestId("feedback-button"));
     await userEvent.click(screen.getByTestId("feedback-pick-area"));
     expect(await screen.findByTestId("feedback-composer")).toBeInTheDocument();

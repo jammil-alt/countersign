@@ -2,7 +2,7 @@
 // and on `/upload` (UploadPage.tsx): drop invoices, receipts or a purchases CSV; see the private
 // forwarding address and who may forward to it (the client admin edits the list); and the documents
 // that arrived.
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { type UploadResponse, uploadFiles } from "../../api/upload";
@@ -20,15 +20,18 @@ import {
   Loading,
   Tag,
 } from "../../ui/primitives";
+import { useRowLink } from "../../ui/rows";
 import { documentStatus, dropReason, money, sourceLabel } from "../documents";
+import { type Backoff, useBackoffPoll } from "../poll";
 
 type Result = UploadResponse["results"][number];
 type Shown = Result & { key: string };
 type Summary = NonNullable<Result["document"]>;
 
 /** How often, and how many times, an upload's new documents are checked until they are read. */
-const READ_POLL_MS = 3_000;
-const READ_POLL_TRIES = 40;
+// A new document is asked about until it is read: every 3 s at first, then less often up to 30 s,
+// for about six minutes in all, and never in a hidden tab (docs/audit-plan.md 2.7).
+const READ_POLL: Backoff = { firstMs: 3_000, maxMs: 30_000, maxTries: 16 };
 
 function resultLine(
   r: Result,
@@ -103,29 +106,23 @@ export function DropZone({
     (r) => r.created && r.document && ["stored", "extracting"].includes(r.document.status),
   );
   const waiting = unread.map((r) => r.key).join(",");
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-armed when the set of unread documents changes.
-  useEffect(() => {
-    if (!waiting) return;
-    let tries = 0;
-    const timer = setInterval(() => {
-      tries += 1;
-      if (tries > READ_POLL_TRIES) {
-        clearInterval(timer);
-        return;
-      }
-      for (const r of unread) {
-        const id = r.document?.id;
-        if (!id) continue;
-        read(id)
-          .then((fresh) => {
-            if (fresh.status === r.document?.status && !fresh.duplicateOf) return;
-            setResults((all) => all.map((x) => (x.key === r.key ? { ...x, document: fresh } : x)));
-          })
-          .catch(() => undefined);
-      }
-    }, READ_POLL_MS);
-    return () => clearInterval(timer);
-  }, [waiting]);
+  const latest = useRef({ unread, read });
+  latest.current = { unread, read };
+  const checkUnread = useCallback(() => {
+    for (const r of latest.current.unread) {
+      const id = r.document?.id;
+      if (!id) continue;
+      latest.current
+        .read(id)
+        .then((fresh) => {
+          if (fresh.status === r.document?.status && !fresh.duplicateOf) return;
+          setResults((all) => all.map((x) => (x.key === r.key ? { ...x, document: fresh } : x)));
+        })
+        .catch(() => undefined);
+    }
+  }, []);
+  // Started again from 3 s whenever the set of unread documents changes.
+  useBackoffPoll(checkUnread, waiting !== "", READ_POLL, false, waiting);
 
   async function send(list: FileList | null) {
     const files = list ? [...list] : [];
@@ -361,8 +358,9 @@ export function RecentDocuments({
   const { data, error, loading, reload } = state;
   const i18n = useI18n();
   const { t } = i18n;
+  const rowLink = useRowLink();
   return (
-    <Card title={t("documents.recent")} testId="portal-recent-documents">
+    <Card titleAbove title={t("documents.recent")} testId="portal-recent-documents">
       {loading && !data ? (
         <div className="ui-card__body">
           <Loading />
@@ -394,7 +392,7 @@ export function RecentDocuments({
               {data.documents.map((d) => {
                 const s = documentStatus(d.status, i18n);
                 return (
-                  <tr key={d.id}>
+                  <tr key={d.id} {...rowLink(`/documents/${d.id}`)}>
                     <td>
                       <Link
                         to={`/documents/${d.id}`}

@@ -2,7 +2,7 @@
 // triggers table, its guards read out ("once per {{trigger.id}}", "skips holidays"), who may start a
 // message trigger, and the bundle with a trigger added or removed. Pure.
 import {
-  type AgentBundle,
+  type AnyAgentBundle,
   allTriggers,
   type LocalizedText,
   type PeopleFilter,
@@ -20,7 +20,7 @@ export interface TriggerRow {
   first: boolean;
 }
 
-export function triggerRows(bundle: AgentBundle): TriggerRow[] {
+export function triggerRows(bundle: Pick<AnyAgentBundle, "workflows">): TriggerRow[] {
   return bundle.workflows.flatMap((w) =>
     allTriggers(w.workflow).map((trigger, i) => ({
       workflow: w.slug,
@@ -150,31 +150,55 @@ export function whenWords(on: TriggerOn, labels?: EventLabels): string {
 /** Most `moreTriggers` a workflow takes (core's schema). */
 export const MAX_MORE_TRIGGERS = 9;
 
-export function addTrigger(bundle: AgentBundle, workflow: string, trigger: Trigger): AgentBundle {
-  return {
-    ...bundle,
-    workflows: bundle.workflows.map((w) =>
-      w.slug === workflow
-        ? {
-            ...w,
-            workflow: {
-              ...w.workflow,
-              moreTriggers: [...(w.workflow.moreTriggers ?? []), trigger],
-            },
-          }
-        : w,
-    ),
-  };
+/** Whether a workflow takes another trigger: 10 in all, v3 (1 + 9 more) and v4 alike. */
+export function takesTrigger(workflow: AnyWorkflow): boolean {
+  return allTriggers(workflow).length < MAX_MORE_TRIGGERS + 1;
 }
 
-/** Removes one of a workflow's `moreTriggers`; its first trigger stays (every workflow has one). */
-export function removeTrigger(bundle: AgentBundle, workflow: string, id: string): AgentBundle {
+type AnyWorkflow = AnyAgentBundle["workflows"][number]["workflow"];
+
+/**
+ * The bundle with a trigger added to one workflow: a v3 workflow's `moreTriggers`, a v4 process's
+ * `triggers` (R8). Every id it had is kept (invariant 3).
+ */
+export function addTrigger<B extends AnyAgentBundle>(
+  bundle: B,
+  workflow: string,
+  trigger: Trigger,
+): B {
   return {
     ...bundle,
     workflows: bundle.workflows.map((w) => {
       if (w.slug !== workflow) return w;
-      const more = (w.workflow.moreTriggers ?? []).filter((t) => t.id !== id);
-      const { moreTriggers: _more, ...rest } = w.workflow;
+      const wf = w.workflow;
+      return wf.schemaVersion === 4
+        ? { ...w, workflow: { ...wf, triggers: [...wf.triggers, trigger] } }
+        : { ...w, workflow: { ...wf, moreTriggers: [...(wf.moreTriggers ?? []), trigger] } };
+    }),
+  };
+}
+
+/**
+ * Removes one of a workflow's later triggers; its first trigger stays (every workflow has one).
+ * A v4 process's are in `triggers`, the first included.
+ */
+export function removeTrigger<B extends AnyAgentBundle>(
+  bundle: B,
+  workflow: string,
+  id: string,
+): B {
+  return {
+    ...bundle,
+    workflows: bundle.workflows.map((w) => {
+      if (w.slug !== workflow) return w;
+      const wf = w.workflow;
+      if (wf.schemaVersion === 4) {
+        const [first, ...more] = wf.triggers;
+        if (!first || first.id === id) return w;
+        return { ...w, workflow: { ...wf, triggers: [first, ...more.filter((t) => t.id !== id)] } };
+      }
+      const more = (wf.moreTriggers ?? []).filter((t) => t.id !== id);
+      const { moreTriggers: _more, ...rest } = wf;
       return { ...w, workflow: more.length > 0 ? { ...rest, moreTriggers: more } : rest };
     }),
   };

@@ -7,13 +7,34 @@
 // oversight's decisions, and the raw trigger, inputs, outputs and tool calls). Beside it: about
 // this run and the same error elsewhere. Retry, cancel and replay. Polls every 2 s while it goes.
 // P-4
+// Step panel (docs/plan.md §1.95): each checklist row opens its details beside the run
+// (`?step=<step run id>`): input, output, model calls, tool calls, changes and data.
 
-import { errorGroupKey, runErrorCode, runStartedBy, shortRunId, Workflow } from "@countersign/core";
+import {
+  approvalOf,
+  carriedOn,
+  checkKindOf,
+  conferOf,
+  errorGroupKey,
+  isPlainObject,
+  noAnswerOf,
+  processes,
+  routeOfRow,
+  runErrorCode,
+  runStartedBy,
+  SKILL_KIND_LABEL,
+  type StepModelFacts,
+  shortRunId,
+  stepNodeOf,
+  type TimelineChecks,
+  urgentOf,
+} from "@countersign/core";
 import { type ReactNode, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { useI18n } from "../../i18n/i18n";
 import { ChangeTables } from "../../inbox/ChangePanel";
 import { changeHeading } from "../../inbox/change";
 import { InboxCard, type ResolveInput } from "../../inbox/InboxCard";
@@ -21,41 +42,44 @@ import { SourceLinks, sourcesOf } from "../../records/SourceLinks";
 // P-6
 import { ConversationControls } from "../../runs/ConversationControls";
 import { duration, isRunGoing, shortTime, stepStatusLabel, usd } from "../../runs/format";
-import { qualifiedToolLabel as toolLabel } from "../../runs/labels";
+import { roleLabel, qualifiedToolLabel as toolLabel } from "../../runs/labels";
+import { conferTitle, StepChecks } from "../../runs/StepChecks";
+import { useStepParam } from "../../runs/StepPanel";
 import { opsRunTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { BeforeAfter } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
 import { Loaded, Page, PageGrid, Section } from "../../ui/page";
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorNotice,
-  Loading,
-  PageHeader,
-  Tag,
-  type Tone,
-} from "../../ui/primitives";
+import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader, Tag } from "../../ui/primitives";
+import { SkeletonCard, SkeletonLine } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { type StepItem, StepList, type StepState } from "../../ui/steps";
 import { Transcript } from "../../ui/transcript";
 import { usePageClient } from "../pickedClient";
-import { checklistRows, type RunStepRow } from "../run/checklist";
+import {
+  checklistRows,
+  parseNodeId,
+  type RanWorkflow,
+  type RunStepRow,
+  ranWorkflow,
+} from "../run/checklist";
+// Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): the owner's checks, the audit, the export.
+import { OwnerCheckLines, RunAuditCard, RunExportCard } from "../run/RunAudit";
 import { ModelCalls, RunControls } from "../run/RunControls";
+import { OpsStepPanel } from "../run/StepPanel";
 import { type RunWait, runWaiting, waitingOn, waitingWhat } from "../run/waiting";
 import {
+  actionBadge,
   NOBODY_TO_ACT_WORDS,
-  OVERSIGHT_ACTION_WORDS,
   OVERSIGHT_CAUSE_WORDS,
-  oversightLine,
+  OWNER_ACTION_WORDS,
+  ownerLine,
   plural,
   runChip,
   runErrorParts,
 } from "../run/words";
-import { type StepNames, stepNames } from "../workflow/describe";
+import { processStepNames, type StepNames, stepNames } from "../workflow/describe";
 
 type RunDetail = ResponseOf<typeof apiRoutes.opsRun>;
 type Action = RunDetail["actions"][number];
@@ -78,12 +102,115 @@ const STARTED_BY_WORDS: Record<string, string> = {
   person: "by a person at the client",
 };
 
+/** What a link to a run may hand over: the row that was clicked (a runs list's). */
+export interface RunLinkState {
+  run?: OpsRunRow;
+}
+
+type OpsRunRow = ResponseOf<typeof apiRoutes.opsRuns>["runs"][number];
+
+/** The handed-over row, when it is the run this address names. */
+function handedRun(state: unknown, id: string): OpsRunRow | null {
+  const row = (state as RunLinkState | null)?.run;
+  return row?.id === id ? row : null;
+}
+
+/**
+ * The run page's frame before the run arrives (1.4): the breadcrumb with its short id, its title
+ * and state from the row that was clicked (else their shapes), and the tabs' places.
+ */
+function RunFrameSkeleton({
+  id,
+  row,
+  error,
+  children,
+}: {
+  id: string;
+  row: OpsRunRow | null;
+  error: unknown;
+  children: ReactNode;
+}) {
+  const session = useSession();
+  const clientName = row ? session.tenants.find((t) => t.id === row.tenantId)?.name : undefined;
+  const chip = row ? runChip(row) : null;
+  return (
+    <Page testId="ops-run-skeleton">
+      <nav className="ds-crumbs flex-wrap" aria-label="Breadcrumb">
+        <Link to="/ops/runs" className="text-link hover:underline" data-testid="ops-run-back">
+          Runs
+        </Link>
+        <span aria-hidden>/</span>
+        {row ? (
+          <Link to={`/ops/clients/${row.tenantId}`} className="hover:underline">
+            {clientName ?? "Client"}
+          </Link>
+        ) : (
+          <SkeletonLine width={96} />
+        )}
+        <span aria-hidden>/</span>
+        <b className="reference">{shortRunId(id)}</b>
+      </nav>
+      <div>
+        <PageHeader
+          leading={<span aria-hidden className="ds-avatar ds-avatar--lg bg-surface-subtle" />}
+          title={
+            row ? (
+              opsRunTitle(row.subject, row.workflowName ?? row.workflowSlug)
+            ) : (
+              <SkeletonLine size="title" width={280} />
+            )
+          }
+          badge={
+            chip ? (
+              <StatusChip state={chip.state} testId="ops-run-status">
+                {chip.words}
+              </StatusChip>
+            ) : null
+          }
+          subtitle={error ? undefined : <SkeletonLine width={360} />}
+        />
+        <div className="ds-tabs" role="tablist" aria-label="Run">
+          {(["Timeline", "Changes", "Details"] as const).map((label) => (
+            <button
+              key={label}
+              type="button"
+              role="tab"
+              aria-selected={label === "Timeline"}
+              disabled
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {children}
+    </Page>
+  );
+}
+
+/** The run page's body while it loads: the checklist and the rail. */
+function RunBodySkeleton() {
+  return (
+    <PageGrid
+      rail={
+        <>
+          <SkeletonCard lines={4} />
+          <SkeletonCard lines={2} />
+        </>
+      }
+    >
+      <SkeletonCard lines={6} />
+    </PageGrid>
+  );
+}
+
 export function OpsRunScreen() {
   const { id = "" } = useParams();
   const api = useApiClient();
   const session = useSession();
   const state = useApi(apiRoutes.opsRun, { params: { id } });
   const { data, loading, reload } = state;
+  const location = useLocation();
   // The top bar's client picker shows the run's client.
   usePageClient(data?.run.tenantId);
   const going = data ? isRunGoing(data.run.status) : false;
@@ -92,20 +219,32 @@ export function OpsRunScreen() {
   usePoll(calls.reload, going, 10_000, calls.loading);
   const [params, setParams] = useSearchParams();
 
-  const workflow = useMemo(() => {
-    const parsed = data?.workflow ? Workflow.safeParse(data.workflow.definition) : null;
-    return parsed?.success ? parsed.data : null;
-  }, [data?.workflow]);
+  // R8: the workflow that ran, a stored v3 workflow or a v4 process (§1.86).
+  const workflow = useMemo(
+    () => (data?.workflow ? ranWorkflow(data.workflow.definition) : null),
+    [data?.workflow],
+  );
 
-  if (loading && !data) return <Loading />;
-  if (!data) return <Loaded state={state}>{() => null}</Loaded>;
+  if (!data) {
+    return (
+      <RunFrameSkeleton id={id} row={handedRun(location.state, id)} error={state.error}>
+        <Loaded state={state} skeleton={<RunBodySkeleton />}>
+          {() => null}
+        </Loaded>
+      </RunFrameSkeleton>
+    );
+  }
 
   const { run, agent } = data;
   const resolve = async (itemId: string, body: ResolveInput) => {
     await api.call(apiRoutes.opsResolveInbox, { params: { id: itemId }, body });
     reload();
   };
-  const names: StepNames = workflow ? stepNames(workflow) : new Map();
+  const names: StepNames = workflow
+    ? workflow.schemaVersion === 4
+      ? processStepNames(workflow)
+      : stepNames(workflow)
+    : new Map();
   const rows = checklistRows({
     workflow,
     steps: data.steps,
@@ -184,7 +323,14 @@ export function OpsRunScreen() {
                 {short}
               </span>
               {` · started ${shortTime(run.startedAt ?? run.createdAt)}`}
-              {startedBy ? ` ${STARTED_BY_WORDS[startedBy] ?? ""}` : ""}
+              {data.handedOffFrom ? null : startedBy ? ` ${STARTED_BY_WORDS[startedBy] ?? ""}` : ""}
+              {/* Hand off (2026-11-11): the run that handed this one off, and where it started. */}
+              {data.handedOffFrom ? (
+                <>
+                  {" · "}
+                  <HandedOffFrom from={data.handedOffFrom} />
+                </>
+              ) : null}
             </>
           }
           actions={
@@ -197,6 +343,7 @@ export function OpsRunScreen() {
         />
         {wait ? (
           <WaitingBlock
+            key={wait.item.id}
             wait={wait}
             data={data}
             onResolve={resolve}
@@ -231,6 +378,11 @@ export function OpsRunScreen() {
             />
             {run.status === "failed" ? <NextStep run={run} /> : null}
             {run.status === "failed" ? <SameError run={run} /> : null}
+            {/* Wave 6 review: only live runs are audited (the API refuses a test run's mark). */}
+            {run.mode === "live" ? (
+              <RunAuditCard runId={run.id} audit={data.audit} finished={!going} onMarked={reload} />
+            ) : null}
+            <RunExportCard runId={run.id} />
           </>
         }
       >
@@ -240,10 +392,12 @@ export function OpsRunScreen() {
         {tab === "timeline" ? (
           <Timeline
             data={data}
+            workflow={workflow}
             rows={rows}
             failedNode={error.nodeId}
             oversight={oversight}
             wait={wait}
+            calls={calls.data?.modelCalls ?? null}
             onConversation={async (stepRunId, action, reason) => {
               await api.call(apiRoutes.opsConversationControl, {
                 params: { id: run.tenantId, runId: run.id, stepRunId },
@@ -271,8 +425,8 @@ export function OpsRunScreen() {
               </Loaded>
             </Section>
             <Section
-              title="Oversight"
-              meta="What the run's supervisor decided when a step failed or reached a checkpoint"
+              title="The owner"
+              meta="What the agent's owner did when a step failed or reached a checkpoint"
             >
               <OversightList decisions={oversight} names={stepNameById} />
             </Section>
@@ -303,7 +457,14 @@ function WaitingBlock({
   onResolve: (itemId: string, body: ResolveInput) => Promise<void>;
   onAnswer: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
+  // The decision on its way: its button says "Sending…" and neither can be pressed again; the
+  // block goes only when the server has the decision (rule 7, invariant 8).
+  const [pressed, setPressed] = useState<"approve" | "reject" | null>(null);
+  const [problem, setProblem] = useState<unknown>(null);
+  // The server has the decision: the block stays shut until the run reloads without this wait
+  // (the block is keyed by its item), so a second press can't send it twice.
+  const [sent, setSent] = useState<"approve" | "reject" | null>(null);
+  const busy = pressed !== null || sent !== null;
   const item = wait.item;
   const action = data.actions.find((a) => a.inboxItemId === item.id);
   const connector = action
@@ -311,11 +472,15 @@ function WaitingBlock({
     : null;
   const approves = item.kind === "external_action" || item.kind === "approval";
   const act = async (decision: "approve" | "reject") => {
-    setBusy(true);
+    setPressed(decision);
+    setProblem(null);
     try {
       await onResolve(item.id, { decision });
+      setSent(decision);
+    } catch (e) {
+      setProblem(e);
     } finally {
-      setBusy(false);
+      setPressed(null);
     }
   };
   const more = wait.items.length > 1 ? ` · ${plural(wait.items.length, "item", "items")}` : "";
@@ -350,7 +515,7 @@ function WaitingBlock({
               disabled={busy}
               onClick={() => void act("reject")}
             >
-              Reject
+              {pressed === "reject" ? "Sending…" : sent === "reject" ? "Rejected" : "Reject"}
             </Button>
             <Button
               data-testid="ops-run-waiting-approve"
@@ -358,7 +523,13 @@ function WaitingBlock({
               disabled={busy}
               onClick={() => void act("approve")}
             >
-              {connector ? `Approve and update ${connector}` : "Approve"}
+              {pressed === "approve"
+                ? "Sending…"
+                : sent === "approve"
+                  ? "Approved"
+                  : connector
+                    ? `Approve and update ${connector}`
+                    : "Approve"}
             </Button>
           </div>
         ) : wait.mine ? (
@@ -375,13 +546,24 @@ function WaitingBlock({
           </Link>
         )}
       </div>
+      {problem ? (
+        <div className="mt-3">
+          <ErrorNotice error={problem} />
+        </div>
+      ) : null}
     </Card>
   );
 }
 
 // ── Timeline ──
 
-function stepState(row: RunStepRow, nodeType: string | undefined): StepState {
+function stepState(
+  row: RunStepRow,
+  nodeType: string | undefined,
+  checks?: TimelineChecks,
+): StepState {
+  // R8: a person's answer to a confer is a person's step.
+  if (checks?.confer) return checks.confer.reviewer === "person" ? "person" : "done";
   switch (row.status) {
     case "succeeded":
       return nodeType === "person" ? "person" : "done";
@@ -405,19 +587,86 @@ function isZero(amount: string | null): boolean {
   return !amount || Number(amount) === 0;
 }
 
+/**
+ * R8: what a step's checks did (core's run-checks over this run's rows and items), for the back
+ * office: approvers and conferees by role (the run's answer names no people yet).
+ */
+function checksFor(
+  s: RunDetail["steps"][number],
+  data: RunDetail,
+  workflow: RanWorkflow | null,
+  outcomes: ReadonlyMap<string, NonNullable<TimelineChecks["outcome"]>> = new Map(),
+): TimelineChecks {
+  const out: TimelineChecks = {};
+  const named = (who: string | null) =>
+    who && /^[a-z_]+$/.test(who) ? roleLabel(who) : "a named person";
+  const confer = conferOf(s);
+  if (confer) out.confer = { ...confer, name: confer.who ? named(confer.who) : null };
+  const noAnswer = noAnswerOf(s, data.run.error);
+  if (noAnswer) out.noAnswer = noAnswer;
+  if (!checkKindOf(s.nodeId)) {
+    const id = stepNodeOf(s.nodeId).node.split(":").at(-1) ?? s.nodeId;
+    const step = workflow?.schemaVersion === 4 ? processes.findStep(workflow, id)?.step : undefined;
+    const approval = approvalOf(s, data.inbox, step?.checks?.approval?.mode ?? "in_turn");
+    if (approval) {
+      out.approval = {
+        ...approval,
+        approvers: approval.approvers.map((a) => ({
+          ...a,
+          name: a.role ? roleLabel(a.role) : "a named person",
+        })),
+      };
+    }
+    // Wave 5: the route an if took and why (by step name), and a failure the run carried on past.
+    if (step && workflow?.schemaVersion === 4) {
+      const route = routeOfRow(
+        step,
+        s,
+        (nodeId) => outcomes.get(nodeId),
+        (sid) => processes.findStep(workflow, sid)?.step.name,
+      );
+      if (route) out.route = route;
+      if (carriedOn(step, s.outcome)) out.carriedOn = true;
+    }
+    if (s.outcome) out.outcome = s.outcome;
+  }
+  const urgent = urgentOf(s, data.inbox);
+  if (urgent) out.urgent = urgent;
+  return out;
+}
+
+/** A row's step facts (its skill's kind, its write's label), by the step id it ran or will run. */
+function stepFactsOf(
+  data: RunDetail,
+  row: RunStepRow,
+  nodeId: string | undefined,
+): StepModelFacts | undefined {
+  const stepId = nodeId
+    ? parseNodeId(nodeId).stepId
+    : row.key.startsWith("pending:")
+      ? row.key.slice("pending:".length)
+      : null;
+  return stepId ? data.stepFacts?.[stepId] : undefined;
+}
+
 function Timeline({
   data,
+  workflow,
   rows,
   failedNode,
   oversight,
   wait,
+  calls,
   onConversation,
 }: {
   data: RunDetail;
+  workflow: RanWorkflow | null;
   rows: RunStepRow[];
   failedNode: string | null;
   oversight: Decision[];
   wait: Wait | null;
+  /** The run's model calls, for the step panel; null until they come. */
+  calls: ResponseOf<typeof apiRoutes.opsRunModelCalls>["modelCalls"] | null;
   // P-6: take a live conversation over, or end it (§1.68).
   onConversation?: (
     stepRunId: string,
@@ -426,10 +675,19 @@ function Timeline({
   ) => Promise<void>;
 }) {
   const { run } = data;
+  const i18n = useI18n();
   const steps = new Map(data.steps.map((s) => [s.id, s]));
+  // Wave 5: each row's outcome by node id, for the routes the run's ifs took.
+  const outcomes = new Map(
+    data.steps.flatMap((s) => (s.outcome ? [[s.nodeId, s.outcome] as const] : [])),
+  );
   const done = rows.filter((r) => r.status === "succeeded").length;
+  // Step panel (§1.95): the open row, by its step run id (or its key before it has run).
+  const { stepId, openStep, closeStep } = useStepParam();
+  let panel: ReactNode = null;
   const items: StepItem[] = rows.map((r, i) => {
     const s = r.stepRunId ? steps.get(r.stepRunId) : undefined;
+    const checks = s ? checksFor(s, data, workflow, outcomes) : {};
     const meta = [
       s ? duration(s.startedAt, s.finishedAt) : null,
       isZero(r.costUsd) ? null : usd(r.costUsd),
@@ -447,19 +705,53 @@ function Timeline({
       r.internal ? "hidden from client" : null,
     ].filter(Boolean);
     const failed = r.status === "failed" || (failedNode !== null && s?.nodeId === failedNode);
+    // Skill model (2026-11-10): a write by where it writes, a skill step with its kind.
+    const facts = r.check ? undefined : stepFactsOf(data, r, s?.nodeId);
+    const kindText = facts?.write?.text ?? r.kind;
+    // Review: a read or a write on a tool that calls a model inside reads AI too.
+    const skillKind = facts?.skillKind
+      ? SKILL_KIND_LABEL[facts.skillKind]
+      : facts?.usesModel
+        ? SKILL_KIND_LABEL.ai
+        : null;
     const decisions = s ? oversight.filter((d) => d.stepRunId === s.id) : [];
+    // Wave 6: the owner's check on each attempt at this step (v4 read, skill and write steps).
+    const ownerChecks = s ? (data.ownerChecks ?? []).filter((c) => c.nodeId === s.nodeId) : [];
+    const rowId = r.stepRunId ?? r.key;
+    if (rowId === stepId) {
+      panel = (
+        <OpsStepPanel
+          key={rowId}
+          data={data}
+          row={r}
+          step={s}
+          index={i}
+          count={rows.length}
+          kind={kindText}
+          skillKind={skillKind}
+          checks={checks}
+          decisions={decisions}
+          ownerChecks={ownerChecks}
+          calls={calls}
+          onClose={closeStep}
+        />
+      );
+    }
     return {
       key: r.key,
       testId: `ops-run-step-${r.key}`,
-      state: stepState(r, s?.nodeType),
+      onOpen: () => openStep(rowId),
+      selected: rowId === stepId,
+      state: stepState(r, s?.nodeType, checks),
       time: r.at ? shortTime(r.at) : "next",
       title: (
         <span className="ops-step-head">
           <span className="flex flex-wrap items-center gap-2">
-            <Tag>{r.kind}</Tag>
+            <Tag testId={`ops-run-step-${r.key}-kind`}>{kindText}</Tag>
+            {skillKind ? <Tag testId={`ops-run-step-${r.key}-skill-kind`}>{skillKind}</Tag> : null}
             <span className={failed ? "ui-tone-risk" : undefined}>
               {i > 0 ? `${i} · ` : ""}
-              {r.title}
+              {checks.confer ? `${conferTitle(i18n, checks.confer)} · ${r.title}` : r.title}
             </span>
           </span>
           {meta.length > 0 ? <span className="ops-step-meta">{meta.join(" · ")}</span> : null}
@@ -476,11 +768,28 @@ function Timeline({
               names={data.sourceNames}
             />
           ) : null}
+          {/* Hand off (2026-11-11): the run this step started. */}
+          {handoffRunOf(s) ? (
+            <Link
+              to={`/ops/runs/${handoffRunOf(s)}`}
+              className="text-sm text-link hover:underline"
+              data-testid={`ops-run-step-handoff-${r.key}`}
+            >
+              Open run {shortRunId(handoffRunOf(s) ?? "")}
+            </Link>
+          ) : null}
+          {/* R8: what the owner did here (§10.14 "Agents and their owner"). */}
+          <StepChecks checks={checks} testId={`ops-run-step-checks-${r.key}`} />
           {decisions.map((d) => (
-            <p key={d.id} className="text-sm text-ink">
-              Oversight: {oversightLine(d).toLowerCase()}.
+            <p key={d.id} className="text-sm text-ink" data-testid={`ops-run-owner-${d.id}`}>
+              {ownerLine(d)}.
             </p>
           ))}
+          <OwnerCheckLines
+            checks={ownerChecks}
+            runId={run.id}
+            testId={`ops-run-owner-checks-${r.key}`}
+          />
           {/* P-4: a conversation's transcript, each turn's model and cost (§1.66). */}
           {s?.conversation ? (
             <Transcript
@@ -553,6 +862,7 @@ function Timeline({
       pad
     >
       <StepList steps={items} />
+      {panel}
     </Card>
   );
 }
@@ -597,6 +907,24 @@ function ToolCallsBlock({ calls }: { calls: RunDetail["toolCalls"] }) {
         .join("\n\n")}
     </pre>
   );
+}
+
+/** "Handed off from AP bill clerk (run R-1a2b3c) · started at 5 · Itemize the invoice". */
+function HandedOffFrom({ from }: { from: NonNullable<RunDetail["handedOffFrom"]> }) {
+  return (
+    <span data-testid="ops-run-handoff">
+      <Link to={`/ops/runs/${from.fromRunId}`} className="text-link hover:underline">
+        Handed off from {from.fromAgent} (run {shortRunId(from.fromRunId)})
+      </Link>
+      {from.at ? ` · started at ${from.at}` : null}
+    </span>
+  );
+}
+
+/** The run a hand-off step started: its output's `runId`, else null. */
+function handoffRunOf(step: { nodeType: string; output?: unknown } | undefined): string | null {
+  if (step?.nodeType !== "handoff" || !isPlainObject(step.output)) return null;
+  return typeof step.output.runId === "string" ? step.output.runId : null;
 }
 
 // ── Rail ──
@@ -698,7 +1026,12 @@ function SameError({ run }: { run: RunDetail["run"] }) {
   const others = (state.data?.runs ?? []).filter((r) => r.id !== run.id).slice(0, 5);
   if (others.length === 0) return null;
   return (
-    <Card title="Same error elsewhere" meta={errorKeyWords(key)} testId="ops-run-same-error">
+    <Card
+      titleAbove
+      title="Same error elsewhere"
+      meta={errorKeyWords(key)}
+      testId="ops-run-same-error"
+    >
       {others.map((r) => (
         <Link
           key={r.id}
@@ -760,30 +1093,6 @@ function Changes({
       </p>
     </div>
   );
-}
-
-function actionBadge(a: Action, testRun: boolean): { label: string; tone: Tone } {
-  switch (a.status) {
-    case "proposed":
-      return testRun
-        ? { label: "Would have done", tone: "neutral" }
-        : { label: "Needs approval", tone: "warning" };
-    case "approved":
-    case "executing":
-      // A person signed it: copper marks a person's touch.
-      return { label: "Approved", tone: "person" };
-    case "done":
-      return {
-        label: a.executedAt ? `Done · ${shortTime(a.executedAt)}` : "Done",
-        tone: "positive",
-      };
-    case "rejected":
-      return { label: "Rejected", tone: "neutral" };
-    case "failed":
-      return { label: "Failed", tone: "risk" };
-    default:
-      return { label: a.status, tone: "neutral" };
-  }
 }
 
 function ActionPanel({
@@ -868,7 +1177,7 @@ function OversightList({
   if (decisions.length === 0) {
     return (
       <EmptyState>
-        No oversight decisions. When a step fails or reaches a checkpoint, the run's oversight
+        The owner hasn't stepped in. When a step fails or reaches a checkpoint, the agent's owner
         decides what happens next, and it shows here.
       </EmptyState>
     );
@@ -878,7 +1187,7 @@ function OversightList({
       {decisions.map((d) => (
         <Card
           key={d.id}
-          title={`${OVERSIGHT_ACTION_WORDS[d.action]} ${OVERSIGHT_CAUSE_WORDS[d.cause]}`}
+          title={`${OWNER_ACTION_WORDS[d.action]} ${OVERSIGHT_CAUSE_WORDS[d.cause]}`}
           meta={shortTime(d.createdAt)}
           testId={`ops-run-decision-${d.id}`}
         >

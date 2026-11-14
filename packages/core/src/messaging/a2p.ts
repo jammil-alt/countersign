@@ -397,7 +397,8 @@ export function a2pCampaignTextOf(details: A2pBusinessDetails): A2pCampaignText 
   const to = uses.map((u) => USE_WORDS[u]);
   const list =
     to.length === 1 ? to[0] : `${to.slice(0, -1).join(", ")} and ${to[to.length - 1] ?? ""}`;
-  const description = `${name} sends its own operational texts through Mezonas, its back-office service, to ${list}. Recipients are people the business works with who gave it their mobile number and agreed to texts. No marketing or promotional messages are sent.`;
+  // §1.98: the description matches the opt-in every campaign describes, the person's own sign-up.
+  const description = `${name} sends its own operational texts through Mezonas, its back-office service, to ${list}. Recipients signed up for these texts themselves, on ${name}'s sign-up page or by texting START (see https://mezonas.com/sms-terms#opt-in). No marketing or promotional messages are sent.`;
   const samples: string[] = [];
   if (uses.includes("team")) {
     samples.push(

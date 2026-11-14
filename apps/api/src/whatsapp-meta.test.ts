@@ -107,6 +107,9 @@ const h = await createApiHarness({
     TWILIO_AUTH_TOKEN: FAKE_TWILIO_MAIN.authToken,
   },
   fetch,
+  // A Worker's pool of one: Embedded Signup asks whether the number is another client's in
+  // transactions of its own, so the callback holds none of the request's meanwhile.
+  appDbMax: 1,
 });
 afterAll(() => h?.close());
 

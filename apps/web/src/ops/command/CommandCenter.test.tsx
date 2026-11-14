@@ -1,7 +1,7 @@
 // O1 Command center: up to four figures, each a link to its filtered list; "Needs us" with a way
 // into each escalation (an approval stuck at a client among them); all agents by client, template
 // or status; the live feed; client health with the supervisor's findings.
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -15,6 +15,23 @@ const RUN = "00000000-0000-4000-8000-00000000f001";
 const WAITING_RUN = "00000000-0000-4000-8000-00000000f002";
 const AGENT = "00000000-0000-4000-8000-00000000b001";
 const AGENT2 = "00000000-0000-4000-8000-00000000b002";
+const RUN2 = "00000000-0000-4000-8000-00000000f002";
+const runQueries: string[] = [];
+const opsRun = (id: string, tenantId: string, agentId: string, status: string, at: string) => ({
+  id,
+  tenantId,
+  agentId,
+  agentVersionId: "v1",
+  workflowSlug: "main",
+  mode: "live",
+  status,
+  trigger: {},
+  costUsd: "0",
+  error: null,
+  startedAt: at,
+  finishedAt: at,
+  createdAt: at,
+});
 
 const demo = { id: DEMO, name: "Demo client" };
 const other = { id: OTHER, name: "Harbor Millwork" };
@@ -164,29 +181,21 @@ function routes(over: Record<string, () => unknown> = {}) {
     "GET /api/session": () => OPERATOR_SESSION,
     "GET /api/ops/clients": () => ({ clients: [] }),
     "GET /api/ops/command-center": () => center(),
-    "GET /api/ops/feed": () => ({
-      at: now.toISOString(),
-      items: [
-        {
-          id: "failure:1",
-          kind: "failure",
-          at: hoursAgo(1),
-          client: demo,
-          agent: { id: AGENT, name: "Cole", serviceName: null },
-          runId: RUN,
-          text: "Gmail 401",
-        },
-        {
-          id: "signature:2",
-          kind: "signature",
-          at: hoursAgo(2),
-          client: other,
-          agent: { id: AGENT2, name: "Pia", serviceName: null },
-          runId: null,
-          text: "4 cost updates",
-        },
-      ],
-    }),
+    "GET /api/ops/runs": ({ url }: { url: URL }) => {
+      runQueries.push(url.search);
+      const status = url.searchParams.get("status");
+      const all = [
+        opsRun(RUN, DEMO, AGENT, "failed", "2026-11-09T08:23:00.000Z"),
+        opsRun(RUN2, DEMO, AGENT2, "succeeded", "2026-11-09T07:10:00.000Z"),
+      ];
+      return {
+        runs: status ? all.filter((r) => status.split(",").includes(r.status)) : all,
+        agents: [
+          { id: AGENT, tenantId: DEMO, slug: "cole", name: "Cole", serviceName: null },
+          { id: AGENT2, tenantId: DEMO, slug: "pia", name: "Pia", serviceName: null },
+        ],
+      };
+    },
     [`GET /api/ops/clients/${DEMO}/health`]: () => ({
       supervisor: {
         id: "s1",
@@ -286,6 +295,18 @@ describe("command center", () => {
       `/ops/clients/${OTHER}/connections`,
     );
 
+    // Filtered by type, then by client: only what matches stays.
+    const needs = screen.getByTestId("ops-command-needs-us");
+    await userEvent.selectOptions(within(needs).getByTestId("ops-needs-kind"), "connection");
+    expect(
+      within(needs).getByTestId("ops-needs-00000000-0000-4000-8000-00000000c001"),
+    ).toBeVisible();
+    expect(within(needs).queryByTestId(`ops-needs-${RUN}`)).toBeNull();
+    await userEvent.selectOptions(within(needs).getByTestId("ops-needs-client"), DEMO);
+    expect(within(needs).getByTestId("ops-needs-none")).toBeInTheDocument();
+    await userEvent.selectOptions(within(needs).getByTestId("ops-needs-kind"), "");
+    expect(within(needs).getByTestId(`ops-needs-${RUN}`)).toBeInTheDocument();
+
     // Agents by client, with the template update waiting and the last runs.
     const agents = screen.getByTestId("ops-command-agents");
     expect(within(agents).getByTestId("ops-agents-group-Demo client")).toHaveTextContent("1 agent");
@@ -328,17 +349,28 @@ describe("command center", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the live feed and client health with the supervisor's findings", async () => {
+  it("shows recent runs with the date, by client and status, and client health", async () => {
     renderAt(routes());
-    const feed = await screen.findByTestId("ops-command-feed");
-    expect(await within(feed).findByTestId("ops-feed-failure:1")).toHaveTextContent(
-      "Cole · Demo client · failed: Gmail 401",
-    );
-    expect(within(feed).getByTestId("ops-feed-failure:1").querySelector("a")).toHaveAttribute(
-      "href",
-      `/ops/runs/${RUN}`,
-    );
-    expect(within(feed).getByText("signed")).toHaveClass("text-copper-ink");
+    const runs = await screen.findByTestId("ops-command-runs");
+    expect(within(runs).getByText("Recent runs")).toBeInTheDocument();
+    const row = await within(runs).findByTestId(`ops-recent-${RUN}`);
+    // The date stacked on the time.
+    expect(row.querySelector(".ops-when")).toHaveAttribute("title", "9 Nov 08:23");
+    expect(row).toHaveTextContent("9 Nov08:23");
+    expect(row).toHaveTextContent("Cole · Demo client");
+    expect(within(row).getByTestId(`ops-recent-${RUN}-status`)).toHaveTextContent("Failed");
+    expect(row.querySelector("a")).toHaveAttribute("href", `/ops/runs/${RUN}`);
+    expect(runQueries.at(-1)).toContain("mode=live");
+
+    // Failed asks for failed runs only; a client narrows it to that client.
+    await userEvent.selectOptions(within(runs).getByTestId("ops-recent-status"), "failed");
+    await waitFor(() => expect(within(runs).queryByTestId(`ops-recent-${RUN2}`)).toBeNull());
+    expect(runQueries.at(-1)).toContain("status=failed");
+    await userEvent.selectOptions(within(runs).getByTestId("ops-recent-status"), "going");
+    await waitFor(() => expect(runQueries.at(-1)).toContain("status=queued%2Crunning%2Cwaiting"));
+    await userEvent.selectOptions(within(runs).getByTestId("ops-recent-client"), DEMO);
+    await waitFor(() => expect(runQueries.at(-1)).toContain(`client=${DEMO}`));
+    expect(await within(runs).findByText("No runs match these filters.")).toBeInTheDocument();
 
     // Health is a chip with its word, whatever the clean share (a bar drew nothing at 0%).
     const health = screen.getByTestId(`ops-health-${DEMO}`);
@@ -351,6 +383,83 @@ describe("command center", () => {
     expect(findings).toHaveTextContent("What the supervisor found");
     await userEvent.click(findings);
     expect(await within(health).findByText("Cole failed 3 times this week")).toBeInTheDocument();
+  });
+
+  it("asks for the recent runs with the command center, each section in its own place", async () => {
+    // docs/audit-plan.md 1.5: Recent runs does not wait for the command center's answer.
+    let answer: (v: unknown) => void = () => {};
+    const api = routes({
+      "GET /api/ops/command-center": () => new Promise((resolve) => (answer = resolve)),
+    });
+    renderAt(api);
+    const row = await screen.findByTestId(`ops-recent-${RUN}`);
+    expect(row).toBeInTheDocument();
+    expect(api.calls).toContain("GET /api/ops/command-center");
+    // The figures, Needs us and All agents hold their places with skeletons, titled at once.
+    expect(screen.queryByTestId("ops-command-figures")).toBeNull();
+    expect(screen.getByText("Needs us")).toBeInTheDocument();
+    expect(screen.getByText("All agents")).toBeInTheDocument();
+    expect(screen.getAllByRole("status").length).toBeGreaterThanOrEqual(3);
+    answer(center());
+    expect(await screen.findByTestId("ops-command-figures")).toBeInTheDocument();
+    expect(screen.queryAllByRole("status")).toHaveLength(0);
+  });
+
+  it("prefetches a run on hover or focus, once, and nothing on a touch", async () => {
+    // docs/audit-plan.md 1.6. Home prefetches no other screen on its own (gate 2: no screen's
+    // calls go up).
+    const api = routes({ [`GET /api/ops/runs/${RUN}`]: () => ({}) });
+    renderAt(api);
+    await screen.findByTestId("ops-command-figures");
+
+    const row = await screen.findByTestId(`ops-recent-${RUN}`);
+    const link = row.querySelector("a") as HTMLAnchorElement;
+    // A touch (scrolling the list on a phone) fetches nothing.
+    fireEvent.pointerOver(link, { pointerType: "touch" });
+    expect(api.calls).not.toContain(`GET /api/ops/runs/${RUN}`);
+    fireEvent.pointerOver(link, { pointerType: "mouse" });
+    fireEvent.pointerOver(link, { pointerType: "mouse" });
+    fireEvent.focus(link);
+    await waitFor(() => expect(api.calls).toContain(`GET /api/ops/runs/${RUN}`));
+    expect(api.calls.filter((c) => c === `GET /api/ops/runs/${RUN}`)).toHaveLength(1);
+    expect(api.calls).not.toContain("GET /api/ops/inbox");
+  });
+
+  it("keeps the recent runs on screen, dimmed, while a filter's list loads", async () => {
+    // docs/audit-plan.md 1.8: a filter answers at once.
+    let answer: (v: unknown) => void = () => {};
+    const api = routes();
+    renderAt(api);
+    const runs = await screen.findByTestId("ops-command-runs");
+    await within(runs).findByTestId(`ops-recent-${RUN}`);
+    api.on("GET /api/ops/runs", () => new Promise((resolve) => (answer = resolve)));
+    await userEvent.selectOptions(within(runs).getByTestId("ops-recent-status"), "failed");
+    const list = within(runs).getByTestId("ops-recent-list");
+    expect(list).toHaveAttribute("aria-busy", "true");
+    expect(within(runs).getByTestId(`ops-recent-${RUN2}`)).toBeInTheDocument();
+    expect(list).toHaveAttribute("inert");
+    answer({ runs: [opsRun(RUN, DEMO, AGENT, "failed", "2026-11-09T08:23:00.000Z")], agents: [] });
+    await waitFor(() => expect(within(runs).queryByTestId(`ops-recent-${RUN2}`)).toBeNull());
+    expect(within(runs).getByTestId("ops-recent-list")).not.toHaveAttribute("aria-busy");
+
+    // Back to every status: the stored answer, not dimmed, while it refreshes behind.
+    api.on("GET /api/ops/runs", () => new Promise(() => {}));
+    await userEvent.selectOptions(within(runs).getByTestId("ops-recent-status"), "all");
+    expect(await within(runs).findByTestId(`ops-recent-${RUN2}`)).toBeInTheDocument();
+    expect(within(runs).getByTestId("ops-recent-list")).not.toHaveAttribute("aria-busy");
+  });
+
+  it("never shows one client's runs under another while a client filter loads", async () => {
+    // Review of #257: `keep` is never for a query that names a client (§1.91).
+    const api = routes();
+    renderAt(api);
+    const runs = await screen.findByTestId("ops-command-runs");
+    await within(runs).findByTestId(`ops-recent-${RUN}`);
+    api.on("GET /api/ops/runs", () => new Promise(() => {}));
+    await userEvent.selectOptions(within(runs).getByTestId("ops-recent-client"), DEMO);
+    expect(within(runs).queryByTestId(`ops-recent-${RUN}`)).toBeNull();
+    expect(within(runs).queryByTestId("ops-recent-list")).toBeNull();
+    expect(within(runs).getByRole("status")).toBeInTheDocument();
   });
 
   it("says so when nothing needs us", async () => {

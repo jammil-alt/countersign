@@ -16,7 +16,12 @@ import {
   generateEncryptionKey,
 } from "@countersign/connectors";
 import { FAKE_TWILIO_MAIN, fakeTwilio } from "@countersign/connectors/testing";
-import { AgentBundle, type AgentBundleInput, DecimalString } from "@countersign/core";
+import {
+  AgentBundle,
+  type AgentBundleInput,
+  DecimalString,
+  withIntroduction,
+} from "@countersign/core";
 import {
   agent,
   auditEvent,
@@ -45,10 +50,15 @@ import {
   OTHER_OPERATOR,
   user,
 } from "./api.test-helper";
+import { conversationEventOfSubject } from "./converse/wake";
 import { quietNever, quietNow } from "./quiet-hours.test-helper";
 import { reachOutTick } from "./reach/service";
 import { credentialsFor, executeRun, reachDepsFor } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
+
+// §1.97: a first text to a contact names the client and ends with the opt-out line, added at send.
+const firstText = (text: string, language?: string) =>
+  withIntroduction(text, { client: "Client A", language });
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -352,6 +362,13 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
       .select()
       .from(reachOut)
       .where(like(reachOut.subject, `converse:${runId}:%`));
+  /** Wave 2c: the events a v4 conversation step of this run waits on, sent so far. */
+  const conversationEvents = async (runId: string) => {
+    const [row] = await rowsOf(runId);
+    const type = conversationEventOfSubject(row?.subject);
+    if (!type) throw new Error("no conversation");
+    return H.instances.events.filter((e) => e.event.type === type).map((e) => e.event.payload);
+  };
 
   beforeAll(async () => {
     const [t] = await H.t.db.select().from(tenant).where(eq(tenant.id, A()));
@@ -709,6 +726,10 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
             reason: "Dana called us; we'll finish it by phone.",
           },
         ]);
+        // A v4 conversation step waiting on it wakes now, not at the cron's re-send.
+        expect(await conversationEvents(params.runId)).toContainEqual({
+          reachOutId: expect.any(String),
+        });
         // A late reply goes nowhere near the run.
         await textIn(DANA, "12 sheets please");
         return eventFor(type);
@@ -870,6 +891,12 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
           kind: "ended",
           by: { us: false, name: "Client A admin" },
         });
+        // The declined card wakes a v4 conversation step now too.
+        const card = await itemFor(type);
+        expect(await conversationEvents(second.runId)).toContainEqual({
+          inboxItemId: card.id,
+          resolution: expect.objectContaining({ approved: false }),
+        });
         return eventFor(type);
       }
       if (type.startsWith("reachout-")) {
@@ -1012,6 +1039,11 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
           message: EDIT,
         });
         expect(res.status, JSON.stringify(res.json)).toBe(200);
+        // Stepping in wakes a v4 conversation step now, as the client's own resolve does.
+        expect(await conversationEvents(params.runId)).toContainEqual({
+          inboxItemId: item.id,
+          resolution: expect.objectContaining({ approved: true }),
+        });
         const [card] = await H.t.db.select().from(inboxItem).where(eq(inboxItem.id, item.id));
         expect(j(card?.payload).edited).toMatchObject({
           message: EDIT,
@@ -1078,12 +1110,12 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
       });
       await executeRun(deps(), params, cloudflareStepRunner(step));
       if (optOut) {
-        expect(sentTo(number).filter((m) => m.body === EDIT)).toHaveLength(0);
+        expect(sentTo(number).filter((m) => m.body === firstText(EDIT))).toHaveLength(0);
         expect(j((await stepRunOf(params.runId, "reach")).output)).toMatchObject({
           outcome: "opted_out",
         });
       } else {
-        expect(sentTo(number).map((m) => m.body)).toEqual([EDIT]);
+        expect(sentTo(number).map((m) => m.body)).toEqual([firstText(EDIT)]);
       }
       // A composed message replaced by a person's text: no model call.
       expect(model.requests).toHaveLength(0);

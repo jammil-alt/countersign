@@ -3,7 +3,7 @@
 // back, how it works, and the editor that saves a new draft), its tests (cases, the latest suite
 // run, whether publishing needs them), versions (publish, roll back) and the agents that use it.
 // Versions are immutable (invariant 3): every save is a new draft; a rollback copies an older one.
-import type { SkillListItem } from "@countersign/core";
+import { type SkillListItem, skillKindLabel } from "@countersign/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -25,7 +25,7 @@ import {
 } from "../../ui/primitives";
 import { agentPath } from "../agents/BuilderParts";
 import { errorText, Field, Notice, plural, Select, TextInput, useAction } from "../agents/ui";
-import { parseBundle } from "../versions";
+import { parseAnyBundle } from "../versions";
 import { SchemaCard } from "./parts";
 import { SkillEditor } from "./SkillEditor";
 import { SKILLS_PATH, skillPath } from "./SkillsLibrary";
@@ -158,7 +158,7 @@ function SkillPageBody({
       <div>
         <p className="mb-2 text-sm text-ink-muted">
           <Link to={SKILLS_PATH} className="hover:underline">
-            Skills and automations
+            Library · Skills
           </Link>{" "}
           / {skill.name}
         </p>
@@ -166,6 +166,10 @@ function SkillPageBody({
           title={<span className="reference">{skill.ref.replace(/^custom:/, "")}</span>}
           badge={
             <span className="flex gap-1.5">
+              {/* Skill model (2026-11-10): the latest version's kind. */}
+              {latest ? (
+                <Tag testId="skill-page-kind">{skillKindLabel(latest.definition)}</Tag>
+              ) : null}
               {skill.liveVersion ? (
                 <Badge tone="positive">Live · v{skill.liveVersion}</Badge>
               ) : null}
@@ -350,7 +354,8 @@ function DefinitionTab({
   const save = useAction();
   const errors = validateSkillForm(form);
   const def = latest?.definition;
-  const toolNames = (def?.tools ?? []).map(
+  // §1.88 web: its declared reads (retrieval, e.g. the vendor's catalog) are tools it may use too.
+  const toolNames = [...new Set([...(def?.tools ?? []), ...(def?.reads ?? [])])].map(
     (id) => library.tools.find((t) => t.id === id)?.description ?? id,
   );
 
@@ -446,6 +451,7 @@ function AssignCard({ skill, onAssigned }: { skill: SkillListItem; onAssigned():
   );
   const [agentId, setAgentId] = useState("");
   const [done, setDone] = useState<{ path: string; text: string } | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
   const action = useAction();
   const agents = clientId
     ? (clientAgents.data?.agents ?? []).filter((a) => !a.testCopy && a.runStatus !== "retired")
@@ -454,10 +460,15 @@ function AssignCard({ skill, onAssigned }: { skill: SkillListItem; onAssigned():
   async function assign() {
     const target = agents.find((a) => a.id === agentId);
     if (!target) return;
+    setProblem(null);
     const page = await action.call(apiRoutes.opsAgent, { params: { id: target.id } });
     if (!page.ok || !page.data.latest) return;
-    const parsed = parseBundle(page.data.latest);
-    if (!parsed.ok) return;
+    // Wave 3b: a v4 version is read and saved back as v4; only `definition.skills` changes.
+    const parsed = parseAnyBundle(page.data.latest);
+    if (!parsed.ok) {
+      setProblem(`We couldn't read ${target.name}'s latest version. ${parsed.message}`);
+      return;
+    }
     const bundle = parsed.bundle;
     if (bundle.definition.skills.some((s) => s.skill.split("@")[0] === skill.ref)) {
       setDone({ path: agentPath(target), text: `${target.name} already uses it.` });
@@ -521,6 +532,11 @@ function AssignCard({ skill, onAssigned }: { skill: SkillListItem; onAssigned():
             </Select>
           </Field>
           {action.error ? <Notice tone="warning">{errorText(action.error)}</Notice> : null}
+          {problem ? (
+            <Notice tone="warning" testId="skill-assign-problem">
+              {problem}
+            </Notice>
+          ) : null}
           {done ? (
             <Notice tone="positive" testId="skill-assign-done">
               {done.text}{" "}

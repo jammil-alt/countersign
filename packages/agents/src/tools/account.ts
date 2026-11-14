@@ -23,6 +23,8 @@ import {
   AccountWaitExplanation,
   AccountWaitingItem,
   type Locale,
+  lazy,
+  lazyObjects,
   PauseBody,
   ServiceControl,
   type SkillDefinition,
@@ -293,7 +295,7 @@ export const accountResumeAgent = defineInternalTool({
 export const accountDraftChange = defineInternalTool({
   id: "account.draft_change",
   description:
-    "Draft a change to the client's account for the client admin to sign on the Desk: add a signer with what they sign (`add_signer`), update a person's details (`edit_person`) or how we reach them (`change_contact`). Nothing changes until the admin signs. A change that would loosen anything is refused (`loosens: true`): offer to pass it to the lead instead.",
+    "Draft a change to the client's account for the client admin to sign on the Desk: add a signer with what they sign (`add_signer`), update a person's details (`edit_person`) or how we reach them (`change_contact`), or email people an invitation to sign up for texts (`invite_to_texts`, by their contact ids: texting starts only if they sign up themselves). Nothing changes until the admin signs. A change that would loosen anything is refused (`loosens: true`): offer to pass it to the lead instead.",
   sideEffect: "internal",
   verb: "create",
   summary: "Drafted a change for your admin to sign",
@@ -389,11 +391,15 @@ export const ACCOUNT_CHAT_TOOLS = [
   "threads.post",
 ] as const;
 
+// Worker startup (2026-11-11): made on first read (core `lazy`); the skills below are lazyObjects.
 const json = (schema: z.ZodType) =>
-  z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>;
+  lazy(
+    () =>
+      z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>,
+  );
 
 /** `account.chat`: Sloan answers one message in an account thread (the template's `chat`). */
-export const ACCOUNT_SKILLS: readonly SkillDefinition[] = [
+export const ACCOUNT_SKILLS: readonly SkillDefinition[] = lazyObjects([
   {
     schemaVersion: 1,
     id: ACCOUNT_CHAT_SKILL,
@@ -431,6 +437,6 @@ export const ACCOUNT_SKILLS: readonly SkillDefinition[] = [
     requiresPacks: [],
     producesAlerts: false,
   },
-];
+]);
 
 export type { AccountChangeInput };

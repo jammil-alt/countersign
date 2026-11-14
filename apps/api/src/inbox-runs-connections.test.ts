@@ -378,6 +378,10 @@ describe.skipIf(!h)("inbox and run views", () => {
       input: { amount: "12.00" },
       display: { connectorName: "Testkit", tool: null },
     });
+    // Skill model (2026-11-10), wave A: the write reads "Change in Testkit" (a client's tool).
+    expect(body.stepFacts).toEqual({
+      update: { write: { kind: "change_in", text: "Change in Testkit" } },
+    });
   });
 
   it("shows the client timeline with sources, and never internals or cost", async () => {
@@ -397,6 +401,11 @@ describe.skipIf(!h)("inbox and run views", () => {
       ["Confirm", []],
     ]);
     expect(JSON.stringify(body)).not.toContain("Operator note");
+    // Skill model (2026-11-10), wave A: the write reads "Changed in Testkit", by the connector's
+    // name and never its tool id.
+    expect(body.steps[0].write).toEqual({ kind: "change_in", connector: "Testkit" });
+    expect(body.steps[1].write).toBeUndefined();
+    expect(JSON.stringify(body.steps)).not.toContain("testkit.record.update");
     // A distinctive amount: "1.00" also matched timestamps such as 16:22:21.004Z.
     expect(JSON.stringify(body)).not.toContain("987.6543");
     expect(JSON.stringify(body)).not.toContain("costUsd");

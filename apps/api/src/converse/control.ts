@@ -8,17 +8,20 @@
 
 import { type Approver, approvalRoutingTx, mayResolve } from "@countersign/agents";
 import {
+  type Approval,
   type ConversationAction,
   type ConverseChannel,
-  findStep,
+  findNodeStep,
+  type OwnerWatchedStep,
+  ownerStepApproval,
+  ownerWatches,
   parseDuration,
-  type Step,
 } from "@countersign/core";
 import { agentVersion, inboxItem, reachOut, run, stepRun, type Tx } from "@countersign/db";
 import type { EventRow, EventTypeRegistry } from "@countersign/senses";
 import { and, asc, eq, like } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
-import { withCanSign } from "../inbox";
+import { type RunWake, withCanSign } from "../inbox";
 import { endReachOut, type ReachOutRow, reachOutEventType } from "../reach/service";
 import { closeItem } from "../step-in/service";
 import {
@@ -31,6 +34,7 @@ import {
   withHandover,
 } from "./service";
 import { ENDED, type StoredEvent, TAKEN_OVER } from "./views";
+import { conversationEventOfSubject } from "./wake";
 
 type RunRow = typeof run.$inferSelect;
 
@@ -63,12 +67,16 @@ async function conversationRows(
   return null;
 }
 
-/** The step as the run's version has it (for its approver and its approval's timeout). */
+/**
+ * The conversation step's approval as the run's version has it (for its approver and its
+ * timeout), and the step run's node. Wave 3c: a v3 skill's `approval` or a v4 step's
+ * `checks.approval` (its first approver), read by core's rule for both, as the Desk reads it.
+ */
 async function stepOf(
   tx: Tx,
   r: RunRow,
   stepRunId: string,
-): Promise<{ step: Step | null; nodeId: string | null }> {
+): Promise<{ approval: Approval | undefined; nodeId: string | null }> {
   const [s] = await tx
     .select({ nodeId: stepRun.nodeId })
     .from(stepRun)
@@ -78,13 +86,12 @@ async function stepOf(
     .from(agentVersion)
     .where(and(eq(agentVersion.id, r.agentVersionId), eq(agentVersion.tenantId, r.tenantId)));
   const wf = v?.bundle.workflows.find((w) => w.slug === r.workflowSlug)?.workflow;
-  // Inside a for_each the node is `<step>:<index>:<child>`: the step id is its last part.
-  const id = s?.nodeId.split(":").at(-1);
-  return { step: wf && id ? (findStep(wf, id)?.step ?? null) : null, nodeId: s?.nodeId ?? null };
+  // Inside a for_each the node is `<step>:<index>:<child>`: findNodeStep reads its last part.
+  const step = wf && s ? findNodeStep(wf, s.nodeId) : undefined;
+  const approval =
+    step && ownerWatches(step) ? ownerStepApproval(step as OwnerWatchedStep) : undefined;
+  return { approval, nodeId: s?.nodeId ?? null };
 }
-
-const approvalOf = (step: Step | null) =>
-  step && (step.kind === "skill" || step.kind === "action") ? step.approval : undefined;
 
 /**
  * Whether this person may take the conversation over or end it: the operator stepping in, or a
@@ -101,13 +108,13 @@ async function mayControlRows(
   const who = await withCanSign(tx, r.tenantId, by);
   if (who.canSign === false) return false;
   const setup = setupOf(rows);
-  const { step } = await stepOf(tx, r, stepRunId);
+  const { approval } = await stepOf(tx, r, stepRunId);
   const { assignee } = await conversationRoute(
     tx,
     await approvalRoutingTx(tx, r.tenantId),
     r,
     setup.input.channel as ConverseChannel,
-    approvalOf(step)?.approver,
+    approval?.approver,
   );
   return mayResolve(assignee, who);
 }
@@ -145,9 +152,13 @@ export interface ControlInput {
   now: Date;
 }
 
-/** The event to send the run once the transaction commits, if it waits for one. */
+/**
+ * The events to send the run once the transaction commits, if it waits for one: the item's or the
+ * message's own (`resume`), and (wave 2c) the conversation's beside it (`sendResolution`).
+ */
 export interface ControlOutcome {
-  wake: { runId: string; type: string; payload: unknown } | null;
+  resume: RunWake | null;
+  conversation: RunWake | null;
 }
 
 export async function controlConversation(tx: Tx, input: ControlInput): Promise<ControlOutcome> {
@@ -228,8 +239,8 @@ export async function controlConversation(tx: Tx, input: ControlInput): Promise<
       now,
     });
   const handOverTo = async (row: ReachOutRow) => {
-    const { step, nodeId } = await stepOf(tx, r, input.stepRunId);
-    const timeout = approvalOf(step)?.timeout ?? "7 days";
+    const { approval, nodeId } = await stepOf(tx, r, input.stepRunId);
+    const timeout = approval?.timeout ?? "7 days";
     const [item] = await tx
       .insert(inboxItem)
       .values(
@@ -259,9 +270,9 @@ export async function controlConversation(tx: Tx, input: ControlInput): Promise<
         .update(inboxItem)
         .set(assignee)
         .where(and(eq(inboxItem.id, item.id), eq(inboxItem.tenantId, tenantId)));
-      return { wake: null };
+      return { resume: null, conversation: null };
     }
-    return { wake: await close(item, false) };
+    return close(item, false);
   }
 
   // A message waiting for approval: it never goes. Taken over, its card is withdrawn (no one
@@ -272,7 +283,7 @@ export async function controlConversation(tx: Tx, input: ControlInput): Promise<
     if (!ended) throw new HttpError(409, "busy", "the conversation just moved on: look again");
     if (input.action === "take_over") await handOverTo(ended);
     else await savePlan(ended, withEvent(ended.plan));
-    return { wake: await close(item, false, input.action === "take_over") };
+    return close(item, false, input.action === "take_over");
   }
 
   // A message out (or held for quiet hours): its wait ends now; a late reply is kept in the
@@ -282,12 +293,11 @@ export async function controlConversation(tx: Tx, input: ControlInput): Promise<
     if (!ended) throw new HttpError(409, "busy", "the conversation just moved on: look again");
     if (input.action === "take_over") await handOverTo(ended);
     else await savePlan(ended, withEvent(ended.plan));
+    const payload = { reachOutId: ended.id };
+    const type = conversationEventOfSubject(ended.subject);
     return {
-      wake: {
-        runId: r.id,
-        type: reachOutEventType(ended.id),
-        payload: { reachOutId: ended.id },
-      },
+      resume: { runId: r.id, type: reachOutEventType(ended.id), payload },
+      conversation: type ? { runId: r.id, type, payload } : null,
     };
   }
 

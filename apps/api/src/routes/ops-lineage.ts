@@ -9,25 +9,38 @@ import {
   type AgentRow,
   type AgentVersionRow,
   activationProblems,
+  bundleSkillRefs,
   CUSTOM_PREFIX,
   getAgent,
   getVersion,
   latestVersion,
+  lineageReadOptions,
   requiredConnectors,
+  resolveCustomSkill,
   retire,
   SHARED_COPY_PREFIX,
   skillContext,
 } from "@countersign/agents";
 import {
-  type AgentBundle,
+  type AnyAgentBundle,
   type BuilderCatalog,
   type BundleChange,
   connectorShown,
   diffBundles,
   flattenBundle,
+  isToolWrapper,
   mergeBundles,
+  newStepSkillReason,
+  parseSkillRef,
+  processes,
+  recommendedModel,
   routes,
   type SkillDefinition,
+  type SkillToolLookup,
+  skillKind,
+  skillModelFacts,
+  skillMoveImpact,
+  toolLookup,
 } from "@countersign/core";
 import { agent, connection, run, skill, skillVersion, type Tx, tenant } from "@countersign/db";
 import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
@@ -58,7 +71,7 @@ async function currentVersion(ctx: Scope, row: AgentRow): Promise<AgentVersionRo
  * A name for every entity either bundle has, so the screens can say "Step Ask Jammil changed"
  * instead of `step:9f…`. Skills are labelled by their reference; otherwise branches "Otherwise".
  */
-export function bundleLabels(...bundles: AgentBundle[]): Record<string, string> {
+export function bundleLabels(...bundles: AnyAgentBundle[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (const b of bundles) {
     for (const [key, e] of flattenBundle(b).entities) {
@@ -76,10 +89,17 @@ export function bundleLabels(...bundles: AgentBundle[]): Record<string, string> 
   return out;
 }
 
-/** diffBundles, refusing cleanly when a stored draft can't be flattened (duplicate ids). */
-function diff(a: AgentBundle, b: AgentBundle): { changes: BundleChange[] } {
+/**
+ * diffBundles, refusing cleanly when a stored draft can't be flattened (duplicate ids). R9: `read`
+ * reads v3 workflows as v4 when the two versions are one of each (an agent updated to v4).
+ */
+function diff(
+  a: AnyAgentBundle,
+  b: AnyAgentBundle,
+  read: ReturnType<typeof lineageReadOptions>,
+): { changes: BundleChange[] } {
   try {
-    return { changes: diffBundles(a, b) };
+    return { changes: diffBundles(a, b, read) };
   } catch (error) {
     throw new HttpError(
       422,
@@ -89,7 +109,7 @@ function diff(a: AgentBundle, b: AgentBundle): { changes: BundleChange[] } {
   }
 }
 
-export function labels(...bundles: AgentBundle[]): Record<string, string> {
+export function labels(...bundles: AnyAgentBundle[]): Record<string, string> {
   try {
     return bundleLabels(...bundles);
   } catch {
@@ -138,10 +158,80 @@ export async function operatorSkills(
   return [...bySlug.values()];
 }
 
+/**
+ * Skill model (2026-11-10): the platform's and packs' tools a process may call directly as a read
+ * or write step: those a retired tool-wrapper skill wrapped, and every other platform or pack tool
+ * (the splits' and the templates' reads and Save to records writes: `docs.reading.record`,
+ * `bookkeeping.booking.propose`, …), less the handlers of skills that are steps of their own (a
+ * conversation, a reach-out). A connector's tools are offered under the connector, as before.
+ */
+// DECISION (templates): every platform and pack tool is a step tool, not only what a wrapper
+// wrapped, so the operator can build what the new template versions are built from.
+// Review: less the hidden AI the splits replaced (`SPLIT_MODEL_TOOLS`) and the account agent's
+// handlers (`account.*`), each kept only where the agent's latest version already calls it as a
+// step (`used`), so a stored step still types and reads by name.
+export function stepTools(platform: Platform, used: ReadonlySet<string> = new Set()): string[] {
+  const stepOnly = new Set(
+    processes.STEP_ONLY_SKILLS.map((id) => platform.catalog.get(id)?.handler).filter(
+      (h): h is string => h !== undefined,
+    ),
+  );
+  const connectors = new Set(platform.connectors.list().map((c) => c.manifest.id));
+  const out = new Set<string>();
+  for (const def of platform.catalog.list()) {
+    if (isToolWrapper(def) && def.handler && !stepOnly.has(def.handler)) out.add(def.handler);
+  }
+  // Reshape data (2026-11-11): its handler runs only as the Reshape step's (with its mapping).
+  stepOnly.add(processes.RESHAPE_TOOL);
+  for (const t of Object.values(platform.tools.specs())) {
+    if (stepOnly.has(t.id) || connectors.has(t.connector ?? t.source)) continue;
+    out.add(t.id);
+  }
+  for (const id of out) {
+    if ((SPLIT_MODEL_TOOLS.has(id) || id.startsWith(ACCOUNT_TOOL_PREFIX)) && !used.has(id)) {
+      out.delete(id);
+    }
+  }
+  return [...out].sort();
+}
+
+/**
+ * Skill model (2026-11-10, review): tools that call a model inside (`usesModel`) and were split
+ * into an AI skill, a deterministic check and a Save to records step. They stay registered for
+ * the agents whose stored versions call them (invariant 3); a new step uses the split instead:
+ * Read document → Check totals → record the reading (`docs.extract`, `docs.read`); Look up
+ * existing → Match the unmatched → Check matches → record the matches (`materials.match_line`,
+ * `materials.match_lines`, and `materials.catalog.create_item`, which reads a new item's name
+ * with a model).
+ */
+// DECISION (review): the list is named here, where the platform and the packs are wired together,
+// rather than as a new field on every tool spec; a tool that calls a model and has no split
+// (web search and fetch, translate) stays offered, labelled AI in the builder and the run view.
+export const SPLIT_MODEL_TOOLS: ReadonlySet<string> = new Set([
+  "docs.extract",
+  "docs.read",
+  "materials.match_line",
+  "materials.match_lines",
+  "materials.catalog.create_item",
+]);
+
+/** The account agent's (Sloan's) handlers: steps of its own processes, never general tools. */
+export const ACCOUNT_TOOL_PREFIX = "account.";
+
+/** The tools an agent's processes call as read or write steps (core's `processTools`). */
+export function bundleStepTools(bundle: AnyAgentBundle | null | undefined): Set<string> {
+  if (!bundle) return new Set();
+  const v4 = bundle.workflows
+    .map((w) => w.workflow)
+    .filter((w): w is processes.Process => w.schemaVersion === 4);
+  return new Set(processes.processTools(v4));
+}
+
 function skillOption(
   def: SkillDefinition,
   source: "builtin" | "client" | "shared",
   version: number | null,
+  lookup?: SkillToolLookup,
 ) {
   return {
     id: def.id,
@@ -159,6 +249,10 @@ function skillOption(
       clientSpecific: s.clientSpecific,
     })),
     requiresConnectors: def.requiresConnectors,
+    // Skill model (2026-11-10), wave A: the agent's per-skill section (parameters, model).
+    kind: skillKind(def, lookup),
+    parameters: def.parameters ?? [],
+    recommendedModel: recommendedModel(def),
   };
 }
 
@@ -172,7 +266,7 @@ function skillOption(
 async function hiddenTestConnectors(
   tx: Tx,
   row: AgentRow,
-  bundle: AgentBundle | null,
+  bundle: AnyAgentBundle | null,
   platform: Platform,
 ): Promise<Set<string>> {
   const testOnly = platform.connectors.list().filter((c) => c.manifest.testOnly === true);
@@ -264,11 +358,19 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsAgentSkills, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
+    // Skill model (2026-11-10): a skill that only wraps a tool is offered only where the agent
+    // already lists it (a process uses the tool directly as a read or write step).
+    const latest = await latestVersion(ctx.tx, row.id);
+    const listed = new Set(
+      (latest ? bundleSkillRefs(latest.bundle) : []).map((r) => parseSkillRef(r).id),
+    );
+    const lookup = toolLookup(ctx.services.platform.tools.specs());
     const builtins = ctx.services.platform.catalog
       .list()
-      .map((def) => skillOption(def, "builtin", null));
+      .filter((def) => !isToolWrapper(def) || listed.has(def.id))
+      .map((def) => skillOption(def, "builtin", null, lookup));
     const custom = (await operatorSkills(ctx, row.tenantId)).map((s) =>
-      skillOption(s.def, s.source, s.version),
+      skillOption(s.def, s.source, s.version, lookup),
     );
     return {
       skills: [...builtins, ...custom].sort((a, b) => a.name.localeCompare(b.name)),
@@ -280,7 +382,10 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     const { platform } = services;
     const row = await agentInScope(ctx, ctx.params.id);
     type Entry = BuilderCatalog["skills"][number];
+    const lookup = toolLookup(platform.tools.specs());
     // Instructions stay out: the builder places skills, it doesn't read their prompts.
+    // Skill model (2026-11-10): each entry says its kind, and whether the palette offers it for a
+    // new step (never a tool wrapper, an agent-mode or a `rules_then_ai` skill, or one that writes).
     const entry = (
       ref: string,
       def: SkillDefinition,
@@ -288,18 +393,33 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
       version: number | null,
     ): Entry => {
       const { instructions: _instructions, ...definition } = def;
-      return { ref, source, version, definition };
+      return {
+        ref,
+        source,
+        version,
+        definition,
+        kind: skillKind(def, lookup),
+        palette:
+          !isToolWrapper(def) && newStepSkillReason(def, lookup, platform.superseded) === null,
+      };
     };
+    const latest = await latestVersion(tx, row.id);
+    // A tool wrapper is listed only where the agent's latest version already names it, so a
+    // stored step still types; a process uses the tool directly.
+    const named = new Set(
+      (latest ? bundleSkillRefs(latest.bundle) : []).map((r) => parseSkillRef(r).id),
+    );
     const skills = new Map<string, Entry>();
-    for (const def of platform.catalog.list())
+    for (const def of platform.catalog.list()) {
+      if (isToolWrapper(def) && !named.has(def.id)) continue;
       skills.set(def.id, entry(def.id, def, "builtin", null));
+    }
     for (const s of await operatorSkills(ctx, row.tenantId)) {
       if (!skills.has(s.def.id)) skills.set(s.def.id, entry(s.def.id, s.def, s.source, s.version));
     }
     // DECISION: the builder validates with the skills the server would: a reference the latest
     // version already makes (a pinned `@version`, a client's snapshot of a shared skill) resolves
     // as validateForPublish resolves it, and is offered under that reference.
-    const latest = await latestVersion(tx, row.id);
     if (latest) {
       const resolved = await skillContext(tx, {
         tenantId: row.tenantId,
@@ -325,6 +445,11 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
         .list()
         .map((t) => t.spec)
         .filter((t) => !toolHidden(t.id)),
+      // Skill model (2026-11-10): the tools a step may call directly, which the retired wrappers
+      // wrapped (a conversation's or a reach-out's handler is a step of its own, not a tool step).
+      stepTools: stepTools(platform, bundleStepTools(latest?.bundle)).filter(
+        (id) => !toolHidden(id),
+      ),
       connectors: platform.connectors
         .list()
         .filter((c) => !hidden.has(c.manifest.id))
@@ -344,6 +469,55 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     };
   });
 
+  // Skill model (2026-11-10): what moves if a skill step goes to another version of its skill.
+  mount(app, routes.opsSkillStepMove, async (ctx) => {
+    const { tx, services, body } = ctx;
+    const { platform } = services;
+    const row = await agentInScope(ctx, ctx.params.id);
+    const parsed = processes.Process.safeParse(body.process);
+    if (!parsed.success) {
+      throw new HttpError(422, "invalid_process", "the process doesn't read as a v4 process");
+    }
+    const process = parsed.data;
+    const step = processes.findStep(process, body.stepId)?.step;
+    if (step?.kind !== "skill") {
+      throw new HttpError(422, "not_a_skill_step", `no skill step "${body.stepId}" in the process`);
+    }
+    if (parseSkillRef(step.skill).id !== parseSkillRef(body.to).id) {
+      throw new HttpError(
+        422,
+        "not_the_same_skill",
+        "a step moves only between versions of its skill",
+      );
+    }
+    // Every skill the process names, and the one it moves to, as the server resolves them.
+    const resolve = async (ref: string): Promise<SkillDefinition | null> => {
+      const builtin = platform.catalog.get(parseSkillRef(ref).id);
+      if (builtin) return builtin;
+      return (await resolveCustomSkill(tx, { tenantId: row.tenantId, ref }))?.definition ?? null;
+    };
+    const skills: Record<string, SkillDefinition> = {};
+    const refs = new Set<string>();
+    processes.walkSteps(process, ({ step: s }) => {
+      if (s.kind === "skill") refs.add(s.skill);
+    });
+    for (const ref of refs) {
+      const def = await resolve(ref);
+      if (def) skills[ref] = def;
+    }
+    const to = await resolve(body.to);
+    if (!to) throw notFound(`skill ${body.to}`);
+    const lookup = toolLookup(platform.tools.specs());
+    const impact = skillMoveImpact(process, body.stepId, body.to, to, {
+      skills,
+      tools: platform.tools.specs(),
+      ...(platform.ctx.events ? { events: platform.ctx.events } : {}),
+    });
+    if (!impact) throw new HttpError(422, "not_a_skill_step", "that step is not a skill step");
+    const { instructions: _instructions, ...definition } = to;
+    return { ...impact, definition, facts: skillModelFacts(to, lookup) };
+  });
+
   mount(app, routes.opsVersionDiff, async (ctx) => {
     const { tx, params, query } = ctx;
     const row = await agentInScope(ctx, params.id);
@@ -353,7 +527,8 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     const from = fromId ? await getVersion(tx, fromId) : null;
     if (from && from.agentId !== row.id) throw notFound("version");
     // The first version has nothing to compare against: no changes, `from` null.
-    const { changes } = from ? diff(from.bundle, to.bundle) : { changes: [] };
+    const read = lineageReadOptions(ctx.services.platform.ctx);
+    const { changes } = from ? diff(from.bundle, to.bundle, read) : { changes: [] };
     return {
       from: from ? versionSummary(from) : null,
       to: versionSummary(to),
@@ -382,7 +557,7 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     return {
       base: versionSummary(base),
       version: versionSummary(v),
-      ...diff(base.bundle, v.bundle),
+      ...diff(base.bundle, v.bundle, lineageReadOptions(ctx.services.platform.ctx)),
       labels: labels(base.bundle, v.bundle),
     };
   });
@@ -421,6 +596,8 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
       : [];
 
     const agents = [];
+    // R9: a v3 client agent against a template version of v4 processes.
+    const read = lineageReadOptions(ctx.services.platform.ctx);
     for (const row of rows) {
       const v = await currentVersion(ctx, row);
       const base = v?.basedOnTemplateVersionId
@@ -432,9 +609,10 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
       let conflicts: number | null = null;
       if (v && base) {
         try {
-          customizations = diffBundles(base.bundle, v.bundle).length;
+          customizations = diffBundles(base.bundle, v.bundle, read).length;
           if (behind > 0 && templateLive) {
-            conflicts = mergeBundles(base.bundle, v.bundle, templateLive.bundle).conflicts.length;
+            conflicts = mergeBundles(base.bundle, v.bundle, templateLive.bundle, [], read).conflicts
+              .length;
           }
         } catch {
           // A draft with duplicate ids can't be compared; the agent page says why.

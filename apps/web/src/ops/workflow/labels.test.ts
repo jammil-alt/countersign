@@ -55,15 +55,15 @@ describe("fork widths", () => {
   it("gives every path a card's width and a fork its paths side by side", () => {
     const fork = FORK_BUNDLE.workflows[0]?.workflow.steps.find((s) => s.kind === "fork");
     if (fork?.kind !== "fork") throw new Error("fixture has no fork");
-    expect(forkGridColumns(fork)).toBe("minmax(226px, 1fr) minmax(226px, 1fr) minmax(226px, 1fr)");
-    expect(forkMinWidth(fork)).toBe(728);
+    expect(forkGridColumns(fork)).toBe("minmax(198px, 1fr) minmax(198px, 1fr) minmax(198px, 1fr)");
+    expect(forkMinWidth(fork)).toBe(628);
     // A fork inside a path widens that path.
     const nested = {
       ...fork,
       paths: [{ ...fork.paths[0], steps: [fork] }, ...fork.paths.slice(1)],
     };
-    expect(forkMinWidth(nested as typeof fork)).toBe(1256);
-    expect(listMinWidth([])).toBe(200);
+    expect(forkMinWidth(nested as typeof fork)).toBe(1076);
+    expect(listMinWidth([])).toBe(180);
   });
 });
 

@@ -7,11 +7,13 @@
 
 import {
   type AccountRequestPassedPayload,
-  type AgentBundle,
+  type AnyAgentBundle,
+  type AnyBundleWorkflow,
   allTriggers,
   evaluateRules,
   eventRunId,
   type HandoffRunPayload,
+  handoffRunId,
   type InboundMessagePayload,
   isDayOff,
   MAX_HANDOFF_DEPTH,
@@ -25,6 +27,7 @@ import {
   type SenderFacts,
   scheduleRunId,
   type ThreadMessagePostedPayload,
+  type Trigger,
   type TriggerOn,
   uuidv7,
   webhookRunId,
@@ -41,7 +44,8 @@ export interface RoutableAgent {
   runStatus: string | null;
   liveVersionId: string | null;
   /** The bundle of `liveVersionId`. */
-  liveBundle: AgentBundle | null;
+  /** R3: its workflows may be v3 workflows or v4 processes. */
+  liveBundle: AnyAgentBundle | null;
 }
 
 export interface RoutableEvent {
@@ -88,10 +92,17 @@ export type RunTrigger =
   | {
       triggerId: string;
       type: "handoff";
-      eventId: string;
-      eventType: string;
+      /** A handoff trigger's `run.succeeded`; absent when a hand-off step started the run. */
+      eventId?: string;
+      eventType?: string;
       fromRunId: string;
       depth: number;
+      // Hand off (owner, 2026-11-11): a hand-off step's run.
+      /** The top-level step the run starts at (the steps before it are skipped). */
+      at?: string;
+      /** The sending agent (its id) and its hand-off step. */
+      fromAgentId?: string;
+      fromStep?: string;
     };
 
 // v0.12 W2-E
@@ -144,7 +155,7 @@ export interface RouteResult {
 }
 
 interface Live {
-  agent: RoutableAgent & { tenantId: string; liveVersionId: string; liveBundle: AgentBundle };
+  agent: RoutableAgent & { tenantId: string; liveVersionId: string; liveBundle: AnyAgentBundle };
 }
 
 /**
@@ -169,7 +180,7 @@ function* triggersOf<T extends TriggerOn["type"]>(
   for (const wf of agent.liveBundle.workflows) {
     if (!wf.enabled) continue;
     // v0.12 W2-E: every trigger of the workflow, `moreTriggers` too.
-    for (const trigger of allTriggers(wf.workflow)) {
+    for (const trigger of triggersOfWorkflow(wf.workflow)) {
       if (trigger.on.type === type) {
         yield {
           slug: wf.slug,
@@ -438,6 +449,94 @@ async function routeW2E(
   return out;
 }
 
+// ── Hand off (owner, 2026-11-11; docs/plan.md §1.96) ────────────────────────────────────────────
+
+/** Why a hand-off step started nothing. */
+export type HandoffRefusal =
+  | "same_agent"
+  | "too_deep"
+  | "unknown_agent"
+  | "not_started"
+  | "unknown_step";
+
+/** What a hand-off step asks for, from the run it is in. */
+export interface HandoffAsk {
+  tenantId: string;
+  from: {
+    runId: string;
+    agentId: string;
+    agentSlug: string;
+    workflowSlug: string;
+    /** The hand-off step's durable name. */
+    nodeId: string;
+    /** The sending run's own handoff depth (0 unless a handoff started it). */
+    depth: number;
+  };
+  to: { agent: string; step: string };
+  input: unknown;
+}
+
+/**
+ * The run a hand-off step starts: the live version of the target (another client agent of the same
+ * client, started), its enabled process whose top-level steps hold `to.step`, starting there with
+ * the mapped input. The rules of handoff triggers hold: never the same agent, at most three
+ * handoffs deep (ARCHITECTURE §10.8). The run id derives from the sending run and step, so asking
+ * twice starts one run.
+ */
+export async function handoffRunRequest(
+  ask: HandoffAsk,
+  target: (RoutableAgent & { slug: string }) | null,
+): Promise<{ run: RunRequest } | { refused: HandoffRefusal }> {
+  if (ask.to.agent === ask.from.agentSlug || target?.id === ask.from.agentId) {
+    return { refused: "same_agent" };
+  }
+  const depth = ask.from.depth + 1;
+  if (depth > MAX_HANDOFF_DEPTH) return { refused: "too_deep" };
+  if (target?.kind !== "client" || target.tenantId !== ask.tenantId) {
+    return { refused: "unknown_agent" };
+  }
+  if (!isRunnable(target)) return { refused: "not_started" };
+  // DECISION: a hand-off starts the live version's first enabled workflow (an agent owns one
+  // process; a stored v3 agent may hold more), as packages/agents' `handoffAgents` lists it.
+  const wf = target.liveBundle.workflows.find((w) => w.enabled);
+  if (!wf?.workflow.steps.some((s) => s.id === ask.to.step)) {
+    return { refused: "unknown_step" };
+  }
+  const payload: HandoffRunPayload = {
+    from: {
+      agentId: ask.from.agentId,
+      agentSlug: ask.from.agentSlug,
+      workflowSlug: ask.from.workflowSlug,
+      runId: ask.from.runId,
+    },
+    output: null,
+    sources: [],
+    depth,
+    at: ask.to.step,
+    input: ask.input,
+  };
+  return {
+    run: {
+      runId: await handoffRunId({ fromRunId: ask.from.runId, nodeId: ask.from.nodeId }),
+      tenantId: target.tenantId,
+      agentId: target.id,
+      agentVersionId: target.liveVersionId,
+      workflowSlug: wf.slug,
+      mode: "live",
+      trigger: {
+        triggerId: ask.from.nodeId,
+        type: "handoff",
+        fromRunId: ask.from.runId,
+        depth,
+        at: ask.to.step,
+        fromAgentId: ask.from.agentId,
+        fromStep: ask.from.nodeId,
+      },
+      payload,
+    },
+  };
+}
+
 export interface DueSchedulesInput {
   agents: readonly RoutableAgent[];
   /** Each client's IANA timezone (`tenant.timezone`); a trigger's own `tz` wins. Default UTC. */
@@ -525,7 +624,7 @@ export function requestRun(input: {
   payload: unknown;
   mode?: "live" | "test";
   versionId?: string;
-  bundle?: AgentBundle;
+  bundle?: AnyAgentBundle;
   now?: number;
 }): RunRequest {
   const { agent } = input;
@@ -547,8 +646,9 @@ export function requestRun(input: {
   if (mode === "live" && !wf.enabled) throw new Error(`workflow ${input.workflowSlug} is off`);
   // v0.12 W2-E: a manual or command trigger among `moreTriggers` lets it start by hand too.
   const byHand =
-    allTriggers(wf.workflow).find((t) => t.on.type === "manual" || t.on.type === "command") ??
-    wf.workflow.trigger;
+    triggersOfWorkflow(wf.workflow).find(
+      (t) => t.on.type === "manual" || t.on.type === "command",
+    ) ?? firstTrigger(wf.workflow);
   const type = byHand.on.type;
   if (mode === "live" && type !== "manual" && type !== "command") {
     throw new Error(`workflow ${input.workflowSlug} starts on its ${type} trigger, not by hand`);
@@ -566,4 +666,18 @@ export function requestRun(input: {
     },
     payload: input.payload,
   };
+}
+
+// ── R3: v4 processes (docs/plan.md §1.86, §9) ───────────────────────────────────────────────────
+
+/** Every trigger of a workflow: a v3 workflow's `trigger` and `moreTriggers`, a process's list (core). */
+export function triggersOfWorkflow(workflow: AnyBundleWorkflow["workflow"]): Trigger[] {
+  return allTriggers(workflow);
+}
+
+/** The workflow's first trigger (a process has at least one). */
+function firstTrigger(workflow: AnyBundleWorkflow["workflow"]): Trigger {
+  const first = workflow.schemaVersion === 4 ? workflow.triggers[0] : workflow.trigger;
+  if (!first) throw new Error("a process needs a trigger");
+  return first;
 }

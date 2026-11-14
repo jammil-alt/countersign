@@ -5,7 +5,7 @@
 
 import type { InternalTool, PackToolSource } from "@countersign/agents";
 import type { ContentStore } from "@countersign/connectors";
-import type { PackManifest } from "@countersign/core";
+import { lazy, lazyObjects, type PackManifest, type ToolSpec } from "@countersign/core";
 import type { Db, Tx } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import {
@@ -145,13 +145,20 @@ export function screenReports(manifest: PackManifest): string[] {
 }
 
 /** Every pack the deployment registers. Enabling one for a client is a `tenant_pack` row. */
-export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
+// Worker startup (2026-11-11): the portal's reports are read from the manifests on first use
+// (core `lazy`), so loading this module doesn't parse them.
+export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = lazyObjects([
   {
     manifest: materialsManifest,
     handlers: MATERIALS_HANDLERS,
     reports: MATERIALS_REPORTS,
     reviews: MATERIALS_REVIEWS,
     actions: MATERIALS_ACTIONS,
+    // §1.88: the portal reads the reports its screens name (prices, catalog, vendor catalog,
+    // requests), and a master item's vendors, which the catalog screen's item page reads.
+    // DECISION (§1.88 web): the client sees its vendor catalog read only (it is their data); the
+    // preferred and discontinue actions stay the operator's (`/api/ops/…/actions`).
+    portalReports: lazy(() => [...screenReports(materialsManifest), "master-vendors"]),
   },
   // M43 (docs/plan.md §1.72): the Marketing area, Mezonas's own website first. §1.73: its tools
   // come from its areas, adapted like Materials' (the pack's tool context is a part of theirs).
@@ -167,7 +174,7 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
     // M50 (docs/plan.md §1.78): the client's portal reads the reports its screens name (website,
     // search, weekly report); the rest (visits, content, claims, the forum watch) stay in the
     // back office.
-    portalReports: screenReports(marketingManifest),
+    portalReports: lazy(() => screenReports(marketingManifest)),
   },
   // B-3 (docs/plan.md §1.79): the Bookkeeping area, bank and card transactions into QuickBooks.
   // The portal reads its Bank transactions report; the chart of accounts and the rules are the
@@ -179,9 +186,22 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = [
     reviews: BOOKKEEPING_REVIEWS,
     actions: BOOKKEEPING_ACTIONS,
     nightly: BOOKKEEPING_NIGHTLY,
-    portalReports: screenReports(bookkeepingManifest),
+    portalReports: lazy(() => screenReports(bookkeepingManifest)),
   },
-];
+]);
+
+/**
+ * The model transport a pack tool's call gets: the run's, only for a tool that declares
+ * `usesModel`; null for every other (its `llm` is null). The skill model's "hidden AI" is never
+ * unlabelled: a pack tool that calls a model without saying so has none to call.
+ */
+export function packToolTransport(
+  spec: Pick<ToolSpec, "usesModel">,
+  services: Readonly<Record<string, unknown>> | undefined,
+): LlmTransport | null {
+  if (spec.usesModel === undefined) return null;
+  return (services?.transport as LlmTransport | null | undefined) ?? null;
+}
 
 function adapt(tool: PackTool): InternalTool {
   return {
@@ -191,7 +211,9 @@ function adapt(tool: PackTool): InternalTool {
     async run(input, ctx) {
       const db = ctx.packServices?.db as Db | undefined;
       if (!db) throw new Error(`${tool.spec.id} needs the run's database, which wasn't passed`);
-      const transport = (ctx.packServices?.transport as LlmTransport | null | undefined) ?? null;
+      // Skill model (2026-11-10): only a tool that declares it calls a model (`usesModel`) is
+      // handed one; every other pack tool gets `llm: null`, so it can't call a model unlabelled.
+      const transport = packToolTransport(tool.spec, ctx.packServices);
       // P-5: the client's document storage, for a document a pack tool makes (a purchase order).
       const content = (ctx.packServices?.content as ContentStore | null | undefined) ?? null;
       return tool.run(

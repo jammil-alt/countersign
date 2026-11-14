@@ -4,13 +4,13 @@
 // for. Each change the Builder makes can be undone on its own. Nothing is an agent until the
 // operator saves the draft (POST /api/ops/builder/sessions/:id/save), which opens it in the
 // workflow builder. The conversation's id rides in `?session=` so a reload picks it up again.
+// Wave 3b: the Builder's draft is a v4 process bundle (docs/plan.md §1.86).
 import {
-  type AgentBundle,
-  AgentBundle as AgentBundleSchema,
-  allTriggers,
+  type ProcessAgentBundle as AgentBundle,
   type BuilderSessionView,
   type BuilderTurnView,
-  type Step,
+  ProcessAgentBundle as ProcessAgentBundleSchema,
+  type processes,
 } from "@countersign/core";
 import { type ReactNode, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -32,12 +32,15 @@ import {
 import { StatusChip } from "../../ui/status";
 import { BuilderMark, Composer, Turns } from "../builder/chat";
 import {
-  KIND_LABEL,
-  stepDetail,
+  PROCESS_KIND_LABEL as KIND_LABEL,
+  processStepDetail,
   TRIGGER_KIND_LABEL,
   triggerDetail,
   triggerTitle,
 } from "../workflow/describe";
+
+type Step = processes.Step;
+
 import { Stepper } from "./NewAgentParts";
 import { detailMessages, errorText, isCode, Notice, notifyAgentsChanged, useAction } from "./ui";
 
@@ -46,8 +49,8 @@ type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
 
 function bundleOf(session: BuilderSessionView | undefined): AgentBundle | null {
   if (!session) return null;
-  const parsed = AgentBundleSchema.safeParse(session.bundle);
-  return parsed.success ? parsed.data : null;
+  const parsed = ProcessAgentBundleSchema.safeParse(session.bundle);
+  return parsed.success ? (parsed.data as AgentBundle) : null;
 }
 
 /** Whether the Builder has drafted anything yet: a workflow, or a change to the blank start. */
@@ -323,10 +326,10 @@ function DraftPlan({
 
 function StartsWhen({ bundle }: { bundle: AgentBundle }) {
   const rows = bundle.workflows.flatMap((w) =>
-    allTriggers(w.workflow).map((t) => ({ t, workflow: w.name, key: `${w.slug}:${t.id}` })),
+    w.workflow.triggers.map((t) => ({ t, workflow: w.name, key: `${w.slug}:${t.id}` })),
   );
   return (
-    <Card title="Starts when" testId="new-agent-starts">
+    <Card titleAbove title="Starts when" testId="new-agent-starts">
       {rows.length === 0 ? (
         <div className="ui-card__body">
           <EmptyState>No triggers yet: it answers asks and commands.</EmptyState>
@@ -353,7 +356,7 @@ function StartsWhen({ bundle }: { bundle: AgentBundle }) {
   );
 }
 
-/** Top-level steps; a fork or loop shows its own line and the count inside. */
+/** Top-level steps; an if or loop shows its own line and the count inside. */
 function Plan({ bundle }: { bundle: AgentBundle }) {
   const many = bundle.workflows.length > 1;
   return (
@@ -368,12 +371,15 @@ function Plan({ bundle }: { bundle: AgentBundle }) {
             <section key={w.slug} className="flex flex-col gap-2">
               {many ? <p className="eyebrow text-ink-muted">{w.name}</p> : null}
               <ol className="flex flex-col gap-2">
-                <PlanRow
-                  n={1}
-                  kind="trigger"
-                  title={triggerTitle(w.workflow.trigger)}
-                  detail={triggerDetail(w.workflow.trigger)}
-                />
+                {w.workflow.triggers.slice(0, 1).map((t) => (
+                  <PlanRow
+                    key={t.id}
+                    n={1}
+                    kind="trigger"
+                    title={triggerTitle(t)}
+                    detail={triggerDetail(t)}
+                  />
+                ))}
                 {w.workflow.steps.map((s, i) => (
                   <PlanStep key={s.id} n={i + 2} step={s} />
                 ))}
@@ -392,7 +398,7 @@ function PlanStep({ n, step }: { n: number; step: Step }) {
       n={n}
       kind={step.kind}
       title={step.name || KIND_LABEL[step.kind]}
-      detail={stepDetail(step)}
+      detail={processStepDetail(step)}
       person={step.kind === "person"}
     />
   );
@@ -449,8 +455,9 @@ function Access({
   for (const w of bundle.workflows) {
     const walk = (steps: readonly Step[]) => {
       for (const s of steps) {
-        if (s.kind === "action") add(s.tool);
-        if (s.kind === "fork") {
+        // An action write step's tool is resolved when it runs.
+        if (s.kind === "write" && s.tool !== undefined) add(s.tool);
+        if (s.kind === "if") {
           for (const p of s.paths) walk(p.steps);
           walk(s.otherwise.steps);
         }
@@ -462,6 +469,7 @@ function Access({
   const rows = [...byConnector.entries()].sort(([a], [b]) => a.localeCompare(b));
   return (
     <Card
+      titleAbove
       title="Access it will ask for"
       meta={
         connections ? (

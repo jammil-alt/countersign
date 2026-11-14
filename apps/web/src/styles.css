@@ -181,9 +181,21 @@
  *   Geist with tabular figures (the table pattern sets them in mono);
  * - text cells in the app's tables wrap (the pattern keeps every cell on one line), with room
  *   above and below when they do;
- * - two weights in the app: the components' 600 labels are set at 500. */
+ * - two weights in the app: the components' 600 labels are set at 500;
+ * - cards and tables take the small radius (6px), as the owner chose on 2026-11-10.
+ * DECISION: the radius is set here, not in packages/design-system, which is replaced whole by
+ *   the owner's next delivery (2026-11-10); that delivery should carry it. */
 @layer components {
-  .dt .n {
+  .ds-card,
+  .dt {
+    border-radius: var(--radius-sm);
+  }
+  /* A number column's head is the same small mono as the others (the pattern's `.dt .n` set it at
+   * 12px, larger than its neighbours). */
+  .dt thead th.n {
+    font-size: 10px;
+  }
+  .dt .n:not(th) {
     font-family: var(--font-sans);
     font-size: 13px;
   }
@@ -201,5 +213,72 @@
   .ds-avatar,
   .dt-title {
     font-weight: 500;
+  }
+}
+
+/* The still frame (docs/audit-plan.md 1.1): index.html's #root before the bundle runs, and its
+ * twin (session/StillFrame.tsx) until the session is known. The frame's own parts (the top bar,
+ * the sidebar, the page) are the shell's classes, so it lands where the real frame does; these are
+ * only the sizes of its placeholder shapes, on the skeleton's colour (`.ui-skel`). */
+@layer components {
+  /* The menu button is the phone's only (the skeleton's display would otherwise show it). */
+  .ui-frame__menu {
+    display: none;
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+  }
+  /* A row the height of a real one, so the sidebar's first rows land where the real rows do. */
+  .ui-frame .ui-navskel {
+    min-height: 38px;
+  }
+  .ui-frame__context {
+    width: 120px;
+    height: 12px;
+  }
+  .ui-frame__search {
+    width: 100%;
+    max-width: 560px;
+    height: 36px;
+  }
+  .ui-frame__avatar {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border-radius: var(--radius-pill);
+  }
+  .ui-frame__nav {
+    height: 12px;
+    margin: 4px 0;
+  }
+  .ui-frame__nav--long {
+    width: 128px;
+  }
+  .ui-frame__nav--half {
+    width: 96px;
+  }
+  .ui-frame__nav--short {
+    width: 64px;
+  }
+  .ui-frame__heading {
+    width: 28%;
+  }
+  .ui-frame__card {
+    display: block;
+    height: 160px;
+  }
+  .ui-frame__card + .ui-frame__card {
+    height: 112px;
+  }
+  @media (max-width: 767.98px) {
+    .ui-frame__menu {
+      display: block;
+    }
+    .ui-frame__context {
+      width: 96px;
+    }
+    .ui-frame__search {
+      width: 36px;
+    }
   }
 }

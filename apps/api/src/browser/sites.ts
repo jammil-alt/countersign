@@ -118,22 +118,38 @@ export async function pinnedSite(
   db: Db,
   ref: { slug: string; versionId: string },
 ): Promise<PinnedBrowserSite | null> {
-  return withOperator(db, [], async (tx) => {
-    const [row] = await tx
-      .select({ site: browserSite, version: browserSiteVersion })
-      .from(browserSiteVersion)
-      .innerJoin(browserSite, eq(browserSite.id, browserSiteVersion.siteId))
-      .where(and(eq(browserSiteVersion.id, ref.versionId), eq(browserSite.slug, ref.slug)));
-    if (!row) return null;
-    const profile = BrowserSiteProfile.safeParse(row.version.profile);
-    if (!profile.success) return null;
-    return {
-      slug: row.site.slug,
-      name: row.site.name,
-      tier: row.site.tier as BrowserTier,
-      versionId: row.version.id,
-      version: row.version.version,
-      profile: profile.data,
-    };
-  });
+  return withOperator(db, [], (tx) => pinnedSiteRead(tx, ref));
+}
+
+/**
+ * The same, from inside a request's own transaction (a client's or the back office's): the
+ * catalogue is read in it, never in a transaction beside it (the Worker's one connection).
+ */
+export function pinnedSiteIn(
+  tx: Tx,
+  ref: { slug: string; versionId: string },
+): Promise<PinnedBrowserSite | null> {
+  return readOperatorCatalogue(tx, (inner) => pinnedSiteRead(inner, ref));
+}
+
+async function pinnedSiteRead(
+  tx: Tx,
+  ref: { slug: string; versionId: string },
+): Promise<PinnedBrowserSite | null> {
+  const [row] = await tx
+    .select({ site: browserSite, version: browserSiteVersion })
+    .from(browserSiteVersion)
+    .innerJoin(browserSite, eq(browserSite.id, browserSiteVersion.siteId))
+    .where(and(eq(browserSiteVersion.id, ref.versionId), eq(browserSite.slug, ref.slug)));
+  if (!row) return null;
+  const profile = BrowserSiteProfile.safeParse(row.version.profile);
+  if (!profile.success) return null;
+  return {
+    slug: row.site.slug,
+    name: row.site.name,
+    tier: row.site.tier as BrowserTier,
+    versionId: row.version.id,
+    version: row.version.version,
+    profile: profile.data,
+  };
 }

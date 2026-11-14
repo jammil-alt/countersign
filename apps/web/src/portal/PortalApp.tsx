@@ -19,8 +19,12 @@ import { portalSearchGroups } from "../shell/searchGroups";
 import { AgentBadge, AgentHuesProvider, PersonBadge } from "../ui/badges";
 import { Placeholder } from "../ui/primitives";
 import { INBOX_COUNT_POLL_MS, InboxCountProvider } from "./inboxCount";
+import { useIntentZone } from "./intent";
 import { askSloan, PORTAL_PATHS } from "./paths";
 import { portalRoutes } from "./routes";
+
+/** A page change asks the overview again only when its answer is older than this. */
+export const OVERVIEW_STALE_MS = 5_000;
 
 export function PortalLayout({ children }: { children: ReactNode }) {
   const i18n = useI18n();
@@ -29,17 +33,26 @@ export function PortalLayout({ children }: { children: ReactNode }) {
   const api = useApiClient();
   const client =
     session.tenants.find((t) => t.id === session.activeTenantId) ?? session.tenants[0] ?? null;
-  // The Inbox's count and the agents (for the switcher); Home reads the same route.
-  // DECISION: the count reloads on each page change, every 20 s and after a resolve (it loaded
-  // once before, so an approval proposed while the portal was open never showed in it).
+  // The Inbox's count and the agents (for the switcher). Home, Runs, Sloan and the agent and run
+  // pages read the same stored answer: `/api/overview` is asked once per load (2.1).
+  // DECISION: the count reloads on a page change when the answer is older than a few seconds
+  // (OVERVIEW_STALE_MS), every 20 s and after a resolve (it loaded once before, so an approval
+  // proposed while the portal was open never showed in it). A screen mounting with the same route
+  // joins that request, so a move asks it at most once.
   const overview = useApi(apiRoutes.portalOverview);
   const { pathname } = useLocation();
   const { reload: reloadOverview } = overview;
+  const answeredAt = useRef(0);
+  const lastData = useRef(overview.data);
+  if (overview.data !== undefined && overview.data !== lastData.current) {
+    lastData.current = overview.data;
+    answeredAt.current = Date.now();
+  }
   const firstPath = useRef(pathname);
   useEffect(() => {
     if (pathname === firstPath.current) return;
     firstPath.current = pathname;
-    reloadOverview();
+    if (Date.now() - answeredAt.current >= OVERVIEW_STALE_MS) reloadOverview();
   }, [pathname, reloadOverview]);
   usePoll(reloadOverview, true, INBOX_COUNT_POLL_MS, overview.loading);
   // The operator switches the Feedback button on per client; off, there is no button.
@@ -51,6 +64,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
     href: PORTAL_PATHS.agent(s.id),
   }));
   const agentMatch = useMatch("/agents/:id/*");
+  const intentZone = useIntentZone();
 
   const search: SearchRun = useCallback(
     async (q, signal) =>
@@ -153,7 +167,12 @@ export function PortalLayout({ children }: { children: ReactNode }) {
         }
       >
         <InboxCountProvider refresh={reloadOverview}>
-          <AgentHuesProvider agents={services}>{children}</AgentHuesProvider>
+          <AgentHuesProvider agents={services}>
+            {/* Links and rows to a run, an agent or the Inbox ask for it on hover or focus (1.6). */}
+            <div className="contents" {...intentZone}>
+              {children}
+            </div>
+          </AgentHuesProvider>
         </InboxCountProvider>
       </AppShell>
       {feedback.data?.enabled ? <FeedbackButton surface="portal" /> : null}

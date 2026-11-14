@@ -31,9 +31,12 @@ export {
   type CategorySpec,
   detectCategory,
 } from "./catalog/parsers";
+export * from "./catalog/split";
+export { lookupDocument, recordMatches } from "./catalog/split-store";
 export { seedDemoPrices } from "./demo";
 export { MATERIALS_EVENTS, materialsEventRegistry } from "./events";
 export { MATERIALS_HANDLERS, MATERIALS_SKILLS, materialsManifest, PACK_ID } from "./manifest";
+export * from "./patterns";
 export { checkPrices } from "./pricing/check";
 export { PricingError, recordPrices } from "./pricing/record";
 export * from "./pricing/rules";
@@ -46,6 +49,7 @@ export { PURCHASING_SKILLS } from "./purchasing/skills";
 export { PURCHASING_TOOLS } from "./purchasing/tools";
 export * from "./reports";
 export * from "./schema";
+export * from "./split";
 export {
   MATERIALS_TOOLS,
   type PackTool,
@@ -54,3 +58,43 @@ export {
   type ToolContextSource,
   thresholdFrom,
 } from "./tools";
+// §1.88: the vendor catalog, its matching pipeline, skills and pattern.
+export {
+  EMBEDDING_TEMPLATE,
+  EMBEDDING_TEXT_MAX_WORDS,
+  embeddingText,
+  specsText,
+  stripTerms,
+} from "./vendor/embedding-text";
+export * from "./vendor/patterns";
+export {
+  type LoadedDocument,
+  lineEmbeddingText,
+  lookupBySku,
+  masterText,
+  matchVendor,
+  openLineEmbeddingText,
+  type RegisterResult,
+  registerLines,
+  VendorMatchError,
+  vendorItemText,
+} from "./vendor/pipeline";
+export {
+  MASTER_ITEM_MANAGER,
+  SEMANTIC_MATCH_VENDOR,
+  SUPERSEDED_BY_LIBRARY_SKILLS,
+  VENDOR_LIBRARY_SKILLS,
+  VENDOR_SKILLS,
+} from "./vendor/skills";
+export {
+  cleanSku,
+  discontinue,
+  setPreferred,
+  VendorItemError,
+  type VendorItemView,
+  vendorCatalog,
+  vendorItemById,
+  vendorItemView,
+  vendorsForItem,
+} from "./vendor/store";
+export { embedTexts, VENDOR_TOOLS, writeEmbeddings } from "./vendor/tools";

@@ -6,19 +6,24 @@
 // Access tab, and voice samples are in Settings.
 //
 // Client users read the list; the client admin also edits it, records consent, and makes a channel
-// stricter for a person (needs approval, or off: only we loosen it). Names, notes and messages stay
+// stricter for a person (needs approval, or off: only we loosen it). R8 (plan §1.86): the client
+// admin also sees and sets each contact's hours and away dates (`/api/settings/people-hours`). Names, notes and messages stay
 // as written; the words around them are in the reader's language.
 import {
+  CONSENT_SOURCE_MAX,
+  CONTACT_BULK_MAX,
   CONTACT_RELATIONSHIPS,
   type Contact,
   type ContactCreateInput,
   isOwnPerson,
   type Organization,
   type PermissionLevel,
+  type processes,
+  QBO_CONNECTOR_ID,
   type ReachChannel,
   type Relationship,
 } from "@countersign/core";
-import { type ReactNode, useState } from "react";
+import { type FormEvent, lazy, type ReactNode, Suspense, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
@@ -29,13 +34,16 @@ import {
   PersonForm,
   RELATIONSHIP_KEY,
 } from "../../directory/DirectoryPanel";
+import { listedHours } from "../../hours/format";
+import { PersonHoursEditor } from "../../hours/HoursParts";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { AccessBadge, InviteContactAction } from "../../people/People";
 import { shortTime } from "../../runs/format";
+import { useAnswered, useDebounced } from "../../runs/useDebounced";
 import { useSession } from "../../session/session";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
-import { Select, TextInput } from "../../ui/forms";
+import { Field, Select, TextInput } from "../../ui/forms";
 import { Loaded, Page, PageGrid } from "../../ui/page";
 import {
   Button,
@@ -47,6 +55,7 @@ import {
   PageHeader,
   Tag,
 } from "../../ui/primitives";
+import { SkeletonRows, SkeletonText } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { PORTAL_PATHS } from "../paths";
 
@@ -176,11 +185,34 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
     });
     if (next !== "organizations") setRelationship(next);
   }
-  const list = useApi(apiRoutes.portalDirectory, { query: q.trim() ? { q: q.trim() } : {} });
+  // The server is asked once typing pauses, not once a letter (docs/audit-plan.md 2.4).
+  const typed = useDebounced(q.trim());
+  const list = useApi(apiRoutes.portalDirectory, {
+    query: typed ? { q: typed } : {},
+    // A search of the one list: its rows stay, dimmed, while the next answer loads.
+    keep: true,
+  });
+  // What the rows on screen answer: an earlier search while the next loads, or if it failed.
+  const answered = useAnswered(list.data, typed);
+  const stale = answered.stale;
   // Who each agent reaches (the client admin's view): the agents in touch with each person.
   const reach = useApi(apiRoutes.portalAgentPeople, admin ? {} : null);
+  // R8 (plan §1.86): each contact's hours and away dates, the client admin's to read and change.
+  const hours = useApi(apiRoutes.portalPeopleHours, admin ? {} : null);
   const adding = admin && params.get("add") === "1";
   const selectedId = params.get("person");
+  // §1.97: people ticked for the bulk "they gave us these numbers for business" (the client admin).
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  function pick(ids: string[], on: boolean) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }
 
   function select(id: string | null) {
     setParams((p) => {
@@ -203,7 +235,7 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
   }
 
   return (
-    <Loaded state={list}>
+    <Loaded state={list} skeleton={<SkeletonRows rows={6} columns={admin ? 5 : 4} />}>
       {(data) => {
         const people = data.people;
         const counts = new Map<Relationship, number>();
@@ -226,6 +258,8 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
                         body: body as ContactCreateInput,
                       });
                       list.reload();
+                      // The new contact's place on the People hours list (it may sit past the cap).
+                      hours.reload();
                       select(res.contact.id);
                     }}
                   />
@@ -238,6 +272,21 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
                   agents={agentsOf.get(selected.id) ?? []}
                   admin={admin}
                   onChanged={list.reload}
+                  hours={
+                    hours.data
+                      ? {
+                          hours: listedHours(hours.data, "contact", selected.id),
+                          business: hours.data.business.hours,
+                          save: async (next) => {
+                            await api.call(apiRoutes.portalSetContactHours, {
+                              params: { id: selected.id },
+                              body: { hours: next },
+                            });
+                            hours.reload();
+                          },
+                        }
+                      : null
+                  }
                 />
               ) : shown.length > 0 ? (
                 <Card pad testId="people-pick">
@@ -296,6 +345,24 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
                 />
               )}
             </div>
+            {list.error ? <ErrorNotice error={list.error} onRetry={list.reload} /> : null}
+            {admin && !organizations ? (
+              <Suspense fallback={null}>
+                <TextingSignupLink />
+              </Suspense>
+            ) : null}
+            {admin && !organizations && shown.length > 0 ? (
+              <BusinessBulk
+                people={people}
+                picked={picked}
+                onPick={pick}
+                onClear={() => setPicked(new Set())}
+                onDone={() => {
+                  setPicked(new Set());
+                  list.reload();
+                }}
+              />
+            ) : null}
             {organizations ? (
               <DirectoryPanel
                 surface={{ kind: "portal" }}
@@ -304,35 +371,62 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
               />
             ) : shown.length === 0 ? (
               <EmptyState>
-                {people.length === 0 && !q.trim() ? t("peoplePage.empty") : t("peoplePage.noMatch")}
+                {people.length === 0 && !answered.query
+                  ? t("peoplePage.empty")
+                  : t("peoplePage.noMatch")}
               </EmptyState>
             ) : (
-              <Card className="overflow-hidden">
-                <div className="dt dt-ana overflow-x-auto rounded-none border-0">
-                  <table data-testid="people-table">
-                    <thead>
-                      <tr className="dt-cols">
-                        <th>{t("peoplePage.col.person")}</th>
-                        <th>{t("peoplePage.col.who")}</th>
-                        <th>{t("peoplePage.col.reach")}</th>
-                        {admin ? <th>{t("peoplePage.col.agents")}</th> : null}
-                        <th>{t("peoplePage.col.about")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {shown.map((p) => (
-                        <PersonRow
-                          key={p.id}
-                          person={p}
-                          agents={admin ? (agentsOf.get(p.id) ?? []) : null}
-                          selected={p.id === selected?.id}
-                          onSelect={() => select(p.id)}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
+              <div
+                aria-busy={stale}
+                data-testid="people-list"
+                className={cx("transition-opacity", stale && "opacity-60")}
+              >
+                <Card className="overflow-hidden">
+                  <div className="dt dt-ana overflow-x-auto rounded-none border-0">
+                    <table data-testid="people-table">
+                      <thead>
+                        <tr className="dt-cols">
+                          {admin ? (
+                            <th className="w-8">
+                              <input
+                                type="checkbox"
+                                className="size-4 accent-slate"
+                                aria-label={t("peoplePage.selectShown")}
+                                checked={shown.every((p) => picked.has(p.id))}
+                                onChange={(e) =>
+                                  pick(
+                                    shown.map((p) => p.id),
+                                    e.target.checked,
+                                  )
+                                }
+                                data-testid="people-pick-shown"
+                              />
+                            </th>
+                          ) : null}
+                          <th>{t("peoplePage.col.person")}</th>
+                          <th>{t("peoplePage.col.who")}</th>
+                          <th>{t("peoplePage.col.reach")}</th>
+                          {admin ? <th>{t("peoplePage.col.agents")}</th> : null}
+                          <th>{t("peoplePage.col.about")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {shown.map((p) => (
+                          <PersonRow
+                            key={p.id}
+                            person={p}
+                            agents={admin ? (agentsOf.get(p.id) ?? []) : null}
+                            selected={p.id === selected?.id}
+                            onSelect={() => select(p.id)}
+                            picked={admin ? picked.has(p.id) : null}
+                            onPick={(on) => pick([p.id], on)}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              </div>
             )}
           </PageGrid>
         );
@@ -346,12 +440,17 @@ function PersonRow({
   agents,
   selected,
   onSelect,
+  picked,
+  onPick,
 }: {
   person: Contact;
   /** Null: not shown (the client admin's view only). */
   agents: string[] | null;
   selected: boolean;
   onSelect: () => void;
+  /** Ticked for a bulk action; null: no tick box (not the client admin). */
+  picked: boolean | null;
+  onPick: (on: boolean) => void;
 }) {
   const i18n = useI18n();
   const { t } = i18n;
@@ -363,6 +462,19 @@ function PersonRow({
       className={cx("cursor-pointer", selected && "bg-slate-tint")}
       onClick={onSelect}
     >
+      {picked === null ? null : (
+        <td className="w-8">
+          <input
+            type="checkbox"
+            className="size-4 accent-slate"
+            aria-label={t("peoplePage.selectPerson", { name: p.name })}
+            checked={picked}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onPick(e.target.checked)}
+            data-testid={`people-pick-${p.id}`}
+          />
+        </td>
+      )}
       <td>
         <span className="flex items-center gap-3">
           <PersonBadge name={p.name} plain size="sm" />
@@ -419,6 +531,134 @@ function PersonRow({
   );
 }
 
+// §1.98: the texting sign-up link and invitations, for the client admin only: their own chunk.
+const TextingSignupLink = lazy(() =>
+  import("./TextingInvites").then((m) => ({ default: m.TextingSignupLink })),
+);
+const TextInviteBulk = lazy(() =>
+  import("./TextingInvites").then((m) => ({ default: m.TextInviteBulk })),
+);
+
+/**
+ * The bulk "they gave us these numbers for business" (docs/plan.md §1.97, §1.98): calls and email
+ * for the people ticked, with where the numbers came from. People imported from QuickBooks (whose
+ * records carry their phone numbers) can be ticked in one go. Opted-out people are left out.
+ */
+function BusinessBulk({
+  people,
+  picked,
+  onPick,
+  onClear,
+  onDone,
+}: {
+  people: Contact[];
+  picked: ReadonlySet<string>;
+  onPick: (ids: string[], on: boolean) => void;
+  onClear: () => void;
+  onDone: () => void;
+}) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const api = useApiClient();
+  const [where, setWhere] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [result, setResult] = useState<{ updated: number; skipped: number } | null>(null);
+  const fromQuickBooks = people.filter((p) => p.source === QBO_CONNECTOR_ID && !p.optedOut);
+  const ids = [...picked].slice(0, CONTACT_BULK_MAX);
+
+  async function record(e: FormEvent) {
+    e.preventDefault();
+    if (ids.length === 0 || !where.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.call(apiRoutes.portalContactsRelationship, {
+        body: { contactIds: ids, source: where.trim() },
+      });
+      setResult({ updated: res.updated.length, skipped: res.skipped.length });
+      setWhere("");
+      onDone();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card pad testId="people-bulk">
+      <form className="flex flex-col gap-3" onSubmit={record}>
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span className="font-medium text-ink" data-testid="people-bulk-count">
+            {t("peoplePage.selected", { count: picked.size })}
+          </span>
+          {fromQuickBooks.length > 0 ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                onPick(
+                  fromQuickBooks.map((p) => p.id),
+                  true,
+                )
+              }
+              data-testid="people-pick-quickbooks"
+            >
+              {t("peoplePage.selectQuickBooks")}
+            </Button>
+          ) : null}
+          {picked.size > 0 ? (
+            <Button size="sm" variant="ghost" onClick={onClear} data-testid="people-pick-clear">
+              {t("peoplePage.clearSelection")}
+            </Button>
+          ) : null}
+        </div>
+        {picked.size > 0 ? (
+          <Suspense fallback={null}>
+            <TextInviteBulk ids={ids} />
+          </Suspense>
+        ) : null}
+        {picked.size > 0 ? (
+          <>
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-medium text-ink">{t("peoplePage.bulkBusiness")}</span>
+              <span className="text-sm text-ink-muted">{t("contacts.businessHint")}</span>
+            </div>
+            <Field label={t("contacts.businessWhere")} hint={t("contacts.businessWhereHint")}>
+              <TextInput
+                required
+                value={where}
+                maxLength={CONSENT_SOURCE_MAX}
+                onChange={(e) => setWhere(e.target.value)}
+                data-testid="people-bulk-where"
+              />
+            </Field>
+            <div>
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={busy || !where.trim()}
+                data-testid="people-bulk-record"
+              >
+                {t("contacts.businessRecord")}
+              </Button>
+            </div>
+          </>
+        ) : null}
+        {result ? (
+          <p role="status" className="text-sm text-ink" data-testid="people-bulk-result">
+            {t("peoplePage.bulkDone", { count: result.updated })}
+            {result.skipped > 0 ? ` ${t("peoplePage.bulkSkipped", { count: result.skipped })}` : ""}
+          </p>
+        ) : null}
+        {error ? <ErrorNotice error={error} /> : null}
+      </form>
+    </Card>
+  );
+}
+
 /** One person beside the table: who they are, what agents should know, how agents may reach them. */
 function PersonDetail({
   person: p,
@@ -426,12 +666,22 @@ function PersonDetail({
   agents,
   admin,
   onChanged,
+  hours,
 }: {
   person: Contact;
   organizations: Organization[];
   agents: string[];
   admin: boolean;
   onChanged: () => void;
+  /**
+   * Their hours and away dates, and how to save them (the client admin's); null: not shown.
+   * `hours` undefined: not on the People hours list (past its cap), so not known here.
+   */
+  hours: {
+    hours: processes.PersonHours | null | undefined;
+    business: processes.BusinessHours;
+    save: (next: processes.PersonHours | null) => Promise<void>;
+  } | null;
 }) {
   const i18n = useI18n();
   const { t } = i18n;
@@ -508,6 +758,24 @@ function PersonDetail({
       <DetailBlock title={t("peoplePage.howReach")}>
         <ReachLevels person={p} admin={admin} onChanged={onChanged} />
       </DetailBlock>
+      {hours ? (
+        <DetailBlock title={t("hours.title")}>
+          {hours.hours === undefined ? (
+            // Saving from here would send only what the editor holds and erase hours we never
+            // read, so a contact past the list's cap gets no editor.
+            <p className="text-sm text-ink-muted" data-testid="people-detail-hours-unlisted">
+              {t("hours.contactUnlisted")}
+            </p>
+          ) : (
+            <PersonHoursEditor
+              person={{ hours: hours.hours }}
+              business={hours.business}
+              onSave={hours.save}
+              testId="people-detail-hours"
+            />
+          )}
+        </DetailBlock>
+      ) : null}
       {admin ? (
         <DetailBlock title={t("peoplePage.col.agents")}>
           {agents.length === 0 ? (
@@ -716,7 +984,7 @@ function RecentMessages({ contactId }: { contactId: string }) {
   const { t } = i18n;
   const messages = useApi(apiRoutes.portalContactMessages, { params: { id: contactId } });
   return (
-    <Loaded state={messages}>
+    <Loaded state={messages} skeleton={<SkeletonText lines={3} />}>
       {(data) =>
         data.items.length === 0 ? (
           <p className="text-sm text-ink-muted">{t("peoplePage.recentNone")}</p>

@@ -8,7 +8,13 @@
 // Writes behave as in any live run: behind approval, and in trial or signoff every one is signed.
 
 import { checkAgainst } from "@countersign/agents";
-import { type AgentBundle, type Role, type RunForm, uuidv7 } from "@countersign/core";
+import {
+  type AnyAgentBundle,
+  allTriggers,
+  type Role,
+  type RunForm,
+  uuidv7,
+} from "@countersign/core";
 import { agent, agentChange, agentVersion, event, run, type Tx } from "@countersign/db";
 import { type RoutableAgent, type RunRequest, routeEvent } from "@countersign/workflows";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -28,7 +34,7 @@ async function clientAgent(tx: Tx, tenantId: string, agentId: string): Promise<A
   return row;
 }
 
-export async function liveBundleOf(tx: Tx, row: AgentRow): Promise<AgentBundle | null> {
+export async function liveBundleOf(tx: Tx, row: AgentRow): Promise<AnyAgentBundle | null> {
   if (!row.liveVersionId) return null;
   const [v] = await tx
     .select({ bundle: agentVersion.bundle })
@@ -42,7 +48,7 @@ export async function liveBundleOf(tx: Tx, row: AgentRow): Promise<AgentBundle |
   return v?.bundle ?? null;
 }
 
-function routable(row: AgentRow, bundle: AgentBundle | null): RoutableAgent {
+function routable(row: AgentRow, bundle: AnyAgentBundle | null): RoutableAgent {
   return {
     id: row.id,
     tenantId: row.tenantId,
@@ -141,13 +147,19 @@ export async function runOnEvent(
   return requests;
 }
 
+/**
+ * A workflow's first trigger. R9: a v4 process (a template's v4 version, or its fork) lists its
+ * triggers in `triggers`, so its first is read the same way.
+ */
+const firstTrigger = (w: AnyAgentBundle["workflows"][number]) => allTriggers(w.workflow)[0];
+
 /** The workflows of the agent's live version the client may start, with their forms. */
-function clientRunnable(bundle: AgentBundle | null): RunForm[] {
+function clientRunnable(bundle: AnyAgentBundle | null): RunForm[] {
   const out: RunForm[] = [];
   for (const w of bundle?.workflows ?? []) {
     if (!w.enabled) continue;
-    const on = w.workflow.trigger.on;
-    if (on.type !== "manual" || on.client?.canRun !== true) continue;
+    const on = firstTrigger(w)?.on;
+    if (on?.type !== "manual" || on.client?.canRun !== true) continue;
     out.push({ workflow: w.slug, label: on.client.label ?? w.name, input: on.input });
   }
   return out;
@@ -155,13 +167,38 @@ function clientRunnable(bundle: AgentBundle | null): RunForm[] {
 
 /**
  * The agent starts from documents: an enabled workflow of its live bundle has a `document.*` event
- * trigger (an invoice read, a file uploaded). The portal's agent page offers upload for it.
+ * among its triggers (an invoice read, a file uploaded). The portal's agent page offers upload for it.
  */
-export function readsDocuments(bundle: AgentBundle | null): boolean {
-  return (bundle?.workflows ?? []).some((w) => {
-    const on = w.workflow.trigger.on;
-    return w.enabled && on.type === "event" && on.event.startsWith("document.");
-  });
+// DECISION (owner, 2026-11-11): any trigger counts, not only the first. AP bill clerk starts by
+// hand first and on "a document arrives" second, and its page hid the upload and forwarding card.
+export function readsDocuments(bundle: AnyAgentBundle | null): boolean {
+  return (bundle?.workflows ?? []).some(
+    (w) =>
+      w.enabled &&
+      allTriggers(w.workflow).some(
+        (t) => t.on.type === "event" && t.on.event.startsWith("document."),
+      ),
+  );
+}
+
+/**
+ * The workflow Run now starts, its form and the trigger it starts on (its first, which
+ * `clientRunnable` read the form from). A workflow with no trigger is refused rather than started
+ * with an empty trigger id; one the client may not start is not found.
+ */
+// DECISION (wave 3b): 422 `no_trigger` for a workflow with no trigger (a stored draft can hold
+// one, though publishing refuses it), so no run is ever recorded without the trigger it started on.
+export function startable(
+  bundle: AnyAgentBundle | null,
+  slug: string,
+): { wf: AnyAgentBundle["workflows"][number]; form: RunForm; trigger: { id: string } } {
+  const wf = bundle?.workflows.find((w) => w.slug === slug);
+  if (!wf) throw notFound("workflow");
+  const trigger = firstTrigger(wf);
+  if (!trigger) throw new HttpError(422, "no_trigger", "this workflow has no trigger to start on");
+  const form = clientRunnable(bundle).find((f) => f.workflow === slug);
+  if (!form) throw notFound("workflow");
+  return { wf, form, trigger };
 }
 
 /** Run now's forms: none unless the agent runs live (trial, signoff or live, and active). */
@@ -197,9 +234,8 @@ export async function runNow(
   const row = await clientAgent(tx, input.tenantId, input.agentId);
   ensureRunsLive(row);
   const bundle = await liveBundleOf(tx, row);
-  const form = clientRunnable(bundle).find((f) => f.workflow === input.slug);
-  const wf = bundle?.workflows.find((w) => w.slug === input.slug);
-  if (!form || !wf || !row.liveVersionId) throw notFound("workflow");
+  const { wf, form, trigger } = startable(bundle, input.slug);
+  if (!row.liveVersionId) throw notFound("workflow");
   // The same JSON Schema reader the runtime checks skills and tools with (invariant 5).
   const checked = checkAgainst(form.input, input.input ?? {});
   if (!checked.ok) throw new HttpError(422, "invalid_input", checked.message);
@@ -211,7 +247,7 @@ export async function runNow(
     workflowSlug: wf.slug,
     mode: "live",
     trigger: {
-      triggerId: wf.workflow.trigger.id,
+      triggerId: trigger.id,
       type: "manual",
       startedBy: { userId: input.userId },
     },

@@ -16,9 +16,20 @@ import { matchesPeople, type SenderFacts } from "./people";
 
 const Id = z.uuid();
 
-/** Every trigger of a workflow: its first, then `moreTriggers`, each with its own id. */
-export function allTriggers(workflow: Pick<Workflow, "trigger" | "moreTriggers">): Trigger[] {
-  return [workflow.trigger, ...(workflow.moreTriggers ?? [])];
+/** What holds triggers: a v3 workflow (`trigger`, `moreTriggers`) or a v4 process (`triggers`). */
+export type TriggerHolder =
+  | Pick<Workflow, "trigger" | "moreTriggers">
+  | { readonly triggers: readonly Trigger[] };
+
+/**
+ * Every trigger of a workflow: its first, then `moreTriggers`, each with its own id. R9: a v4
+ * process's `triggers` as they are, so a reader of a bundle typed v3 that holds a process (a
+ * template's v4 version, or its fork) lists them instead of failing on a missing `trigger`.
+ */
+export function allTriggers(workflow: TriggerHolder): Trigger[] {
+  if ("triggers" in workflow && Array.isArray(workflow.triggers)) return [...workflow.triggers];
+  const v3 = workflow as Pick<Workflow, "trigger" | "moreTriggers">;
+  return [v3.trigger, ...(v3.moreTriggers ?? [])];
 }
 
 // ── Events ───────────────────────────────────────────────────────────────────────────────────────
@@ -128,6 +139,9 @@ export const HANDOFF_PAYLOAD: JsonSchema = OBJ(
     output: {},
     sources: IDS,
     depth: { type: "integer" },
+    // Hand off (2026-11-11): a hand-off step's run starts at `at` with `input` as that step's input.
+    at: { type: "string" },
+    input: {},
   },
   ["from", "output", "sources", "depth"],
 );
@@ -149,9 +163,19 @@ export interface HandoffRunPayload {
   output: unknown;
   sources: string[];
   depth: number;
+  // Hand off (owner, 2026-11-11): a run a hand-off step started (`handoffRunRequest`).
+  /** The top-level step the run starts at; the steps before it are skipped. */
+  at?: string;
+  /** That step's input, as the hand-off step mapped it. */
+  input?: unknown;
 }
 
 // ── Run ids ──────────────────────────────────────────────────────────────────────────────────────
+
+/** Hand off (2026-11-11): the run a hand-off step starts; asking twice derives the same run. */
+export async function handoffRunId(input: { fromRunId: string; nodeId: string }): Promise<string> {
+  return uuidv5(`handoff:${input.fromRunId}:${input.nodeId}`, RUN_ID_NAMESPACE);
+}
 
 /** A webhook trigger's run with a `dedupeKey`: the same key twice derives the same run. */
 export async function webhookRunId(input: {
@@ -175,11 +199,12 @@ export interface AcceptingTrigger {
   on: Extract<TriggerOn, { type: "message" }>;
 }
 
+// Wave 3b: a bundle whose workflows may be v4 processes (`AnyAgentBundle`) reads the same way.
 interface BundleLike {
   workflows: readonly {
     slug: string;
     enabled: boolean;
-    workflow: Pick<Workflow, "trigger" | "moreTriggers">;
+    workflow: TriggerHolder;
   }[];
 }
 

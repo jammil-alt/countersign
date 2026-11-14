@@ -79,15 +79,18 @@
     // companies only.
     "QBO_ENV": "sandbox",
     // Which Plaid the bank feed talks to (docs/plan.md §1.52): PLAID_SECRET must be this one's.
-    "PLAID_ENV": "sandbox"
+    "PLAID_ENV": "sandbox",
+    // Which BILL the billcom connector talks to (docs/plan.md §1.87): BILL_DEV_KEY must be this one's.
+    "BILL_ENV": "sandbox"
   },
 
   // Each environment repeats every binding: wrangler does not inherit bindings into an environment.
   // Resource names match .github/workflows/bootstrap.yml; domains are on the mezonas.com zone
   // (docs/operations.md, "Environments"). `CODES` (the code service, apps/mfa) is bound in the
   // deployed environments only: locally it is absent and the code service is off. `BROWSER`
-  // (Cloudflare Browser Run, for website logins, docs/plan.md §1.26) likewise: Browser Run must be
-  // on for the account before a deploy with it (docs/operations.md, "Browser logins").
+  // (the browser service, apps/browser, which runs Browser Run for website logins, docs/plan.md
+  // §1.26) likewise: locally it is absent and browser tools are off (docs/operations.md, "Browser
+  // logins").
   "env": {
     "staging": {
       "name": "mezonas-staging",
@@ -124,12 +127,12 @@
           "class_name": "CaptureWorkflow"
         }
       ],
-      // The code service (apps/mfa), its RPC entry point only. deploy.yml deploys it first.
+      // The code service (apps/mfa) and the browser service (apps/browser, one browser per
+      // website-login tool call), their RPC entry points only. deploy.yml deploys both first.
       "services": [
-        { "binding": "CODES", "service": "mezonas-codes-staging", "entrypoint": "Codes" }
+        { "binding": "CODES", "service": "mezonas-codes-staging", "entrypoint": "Codes" },
+        { "binding": "BROWSER", "service": "mezonas-browser-staging", "entrypoint": "Browsers" }
       ],
-      // Browser Run: one browser per website-login tool call.
-      "browser": { "binding": "BROWSER" },
       "ratelimits": [
         {
           "name": "MCP_RATE_LIMIT",
@@ -156,6 +159,12 @@
         "LLM_MODE": "live",
         "QBO_ENV": "sandbox",
         "PLAID_ENV": "sandbox",
+        "BILL_ENV": "sandbox",
+        // US texting registration (docs/plan.md §1.70): the same approved ISV primary customer
+        // profile as production, since staging's TWILIO_ACCOUNT_SID is the same Twilio account.
+        // Each client still gets its own subaccount. Not secrets.
+        "TWILIO_PRIMARY_PROFILE_SID": "BUfc3f4925f70126f60f3feecddb28208c",
+        "TWILIO_A2P_EMAIL": "compliance@mezonas.com",
         // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".
         // Add one only once its BAA is signed. Empty: no client can be put in HIPAA mode.
         "BAA_PROCESSORS": ""
@@ -188,8 +197,10 @@
           "class_name": "CaptureWorkflow"
         }
       ],
-      "services": [{ "binding": "CODES", "service": "mezonas-codes", "entrypoint": "Codes" }],
-      "browser": { "binding": "BROWSER" },
+      "services": [
+        { "binding": "CODES", "service": "mezonas-codes", "entrypoint": "Codes" },
+        { "binding": "BROWSER", "service": "mezonas-browser", "entrypoint": "Browsers" }
+      ],
       "ratelimits": [
         {
           "name": "MCP_RATE_LIMIT",
@@ -217,10 +228,12 @@
         "QBO_ENV": "production",
         // Plaid's production needs its review first; until PLAID_SECRET is set, feeds stay off.
         "PLAID_ENV": "production",
+        // BILL's production developer key comes after its review; until BILL_DEV_KEY is set, BILL refuses.
+        "BILL_ENV": "production",
         // US texting registration (docs/plan.md §1.70): Mezonas' approved ISV primary customer
         // profile in Trust Hub ("Mezonas", Twilio Approved 2026-11-09) and the Mezonas address Trust
-        // Hub writes to about each client's registration. Not secrets. Staging has neither: its
-        // Twilio account has no approved profile, so "Submit to Twilio" answers 503 there.
+        // Hub writes to about each client's registration. Not secrets. Staging uses the same
+        // profile: its TWILIO_ACCOUNT_SID is the same Twilio account.
         "TWILIO_PRIMARY_PROFILE_SID": "BUfc3f4925f70126f60f3feecddb28208c",
         "TWILIO_A2P_EMAIL": "compliance@mezonas.com",
         // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".

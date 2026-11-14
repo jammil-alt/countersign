@@ -13,6 +13,7 @@ import { siteFiguresTool, sitePageTool } from "./figures";
 import { REPORT_ACTIONS_HANDLERS, REPORTS_REPORT, reportGetTool, reportRecordTool } from "./report";
 import { AGENT_SKILLS } from "./skills";
 import { socialCheckTool } from "./social";
+import { MARKETING_SPLIT_SKILLS } from "./splits";
 import { AGENT_TEMPLATES } from "./templates";
 import { titlesCheckTool } from "./titles";
 
@@ -22,6 +23,7 @@ export * from "./figures-check";
 export * from "./report";
 export * from "./skills";
 export * from "./social";
+export * from "./splits";
 export * from "./templates";
 export * from "./titles";
 
@@ -35,7 +37,8 @@ export const AREA: AreaModule = {
     articleDraftTool,
     socialCheckTool,
   ],
-  SKILLS: AGENT_SKILLS,
+  // Skill model (2026-11-10): AI skills that write nothing (./splits.ts).
+  SKILLS: [...AGENT_SKILLS, ...MARKETING_SPLIT_SKILLS],
   TEMPLATES: AGENT_TEMPLATES,
   EVENTS: [],
   SCREENS: [],

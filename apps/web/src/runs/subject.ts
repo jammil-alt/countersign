@@ -56,3 +56,21 @@ export function opsRunTitle(
   }
   return fallback ?? "Run";
 }
+
+/**
+ * The run's title without its counterparty, for a table that has little room: "Invoice 20418",
+ * "QuickBooks bill 20418". The full title (opsRunTitle) goes in the cell's tooltip.
+ */
+export function opsRunShortTitle(
+  subject: RunSubject | null | undefined,
+  fallback: string | null = null,
+  { t, locale }: Pick<I18n, "t" | "locale"> = EN,
+): string {
+  if (subject?.kind === "document" && subject.number)
+    return t("run.subject.invoice", { number: subject.number });
+  if (subject?.kind === "change") {
+    const name = pickLocalized(subject.name, locale);
+    return subject.number ? `${name} ${subject.number}` : name;
+  }
+  return opsRunTitle(subject, fallback);
+}

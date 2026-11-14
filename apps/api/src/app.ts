@@ -5,6 +5,7 @@ import { credentialKeysFromEnv, globalFetch } from "@countersign/connectors";
 import { routes } from "@countersign/core";
 import type { Db } from "@countersign/db";
 import { Hono } from "hono";
+import { sloanTick } from "./account/sloan";
 import { bankfeedCron } from "./bankfeed/sync";
 import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
@@ -46,7 +47,10 @@ import { auditExportRoutes } from "./routes/audit-export";
 import { bankfeedRoutes } from "./routes/bankfeed";
 import { billingRouteHandlers } from "./routes/billing";
 import { browserRoutes } from "./routes/browser";
+import { browserScriptRoutes } from "./routes/browser-scripts";
 import { callsSetupRoutes } from "./routes/calls-setup";
+// R4: business hours, person hours and channels (docs/plan.md §1.86)
+import { channelRoutes } from "./routes/channels";
 import { clientViewRoutes } from "./routes/client-view";
 // v0.12 W2-F: the command center, search and plain-words questions
 import { commandCenterRoutes } from "./routes/command-center";
@@ -65,11 +69,14 @@ import { gchatRoutes } from "./routes/gchat";
 // v0.14 W4-D: Google Sheets' picking
 import { gsheetsRoutes } from "./routes/gsheets";
 import { hookRoutes } from "./routes/hooks";
+import { hoursRoutes } from "./routes/hours";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 // v0.12 W2-C: the test bench, skill tests and the agent lab
 import { labRoutes } from "./routes/lab";
 import { languageRouteHandlers } from "./routes/language";
 import { ledgerRoutes } from "./routes/ledger";
+// R8: the Library's banks (docs/plan.md §1.86)
+import { libraryRoutes } from "./routes/library";
 import { lifecycleRoutes } from "./routes/lifecycle";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 import { notifyRouteHandlers } from "./routes/notify";
@@ -87,6 +94,8 @@ import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsModelRoutes } from "./routes/ops-models";
 // v0.13 W2-I
 import { opsOversightRoutes } from "./routes/ops-oversight";
+// Reshape data (2026-11-11)
+import { opsReshapeRoutes } from "./routes/ops-reshape";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { packInboundRoutes } from "./routes/pack-inbound";
 // M46
@@ -99,6 +108,7 @@ import { reachRoutes } from "./routes/reach";
 import { recordRouteHandlers } from "./routes/records";
 import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
+import { runAuditRouteHandlers } from "./routes/run-audit";
 import { runControlRoutes } from "./routes/run-controls";
 import { secondFactorRoutes } from "./routes/second-factor";
 import { sessionRoutes } from "./routes/session";
@@ -111,12 +121,13 @@ import { supervisorRouteHandlers } from "./routes/supervisor";
 import { tableRouteHandlers } from "./routes/table";
 // v0.12 W2-C
 import { testbenchRoutes } from "./routes/testbench";
+import { textSignupRoutes } from "./routes/text-signup";
 // v0.12 W1-C
 import { threadRouteHandlers } from "./routes/threads";
 // P-7: message translation
 import { translationRoutes } from "./routes/translation";
 // v0.12 W2-E
-import { triggerRouteHandlers } from "./routes/triggers";
+import { portalTriggerRoutes, triggerRouteHandlers } from "./routes/triggers";
 import { twilioHookRoutes } from "./routes/twilio-hooks";
 import { twilioVoiceRoutes } from "./routes/twilio-voice";
 import { usageRouteHandlers } from "./routes/usage";
@@ -135,6 +146,8 @@ import {
   translationDepsFor,
   translationSweep,
 } from "./translate/service";
+// R5: the undo a late no is offered (docs/plan.md §9)
+import { undoRouteHandlers } from "./undo/routes";
 import { vaultTick } from "./vault/upkeep";
 import { zohoCronTick } from "./zoho/sync";
 
@@ -148,13 +161,15 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   app.get(routes.health.path, (c) => c.json(routes.health.response.parse({ ok: true })));
   app.use("/api/*", requestState(deps));
   sessionRoutes(app);
-  // §1.83
+  // §1.99
   secondFactorRoutes(app);
   opsClientRoutes(app);
   opsAgentRoutes(app);
   opsLineageRoutes(app);
   opsSkillRoutes(app);
   opsBuilderRoutes(app);
+  // Reshape data (2026-11-11): propose a Reshape step's mapping, and its sample values.
+  opsReshapeRoutes(app);
   opsMergeRoutes(app);
   opsEventRoutes(app);
   // v0.13 W2-H: models for task skills and skill steps.
@@ -163,6 +178,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // v0.12 W1-D: before the portal's routes, so `/api/inbox/batch/resolve` is not read as an item
   // id by `/api/inbox/:id/resolve` (Hono runs handlers in the order they were added).
   deskRoutes(app);
+  undoRouteHandlers(app);
   portalRouteHandlers(app);
   // P-1: packs: enable per client, reports, review cards, actions.
   packRouteHandlers(app);
@@ -189,6 +205,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   recordRouteHandlers(app);
   approverRuleRoutes(app);
   contactRoutes(app);
+  // docs/plan.md §1.98
+  textSignupRoutes(app);
   directoryRoutes(app);
   // The back office's chart of accounts (docs/plan.md §1.79).
   ledgerRoutes(app);
@@ -203,6 +221,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   accessRoutes(app);
   releaseRoutes(app);
   browserRoutes(app);
+  // Wave 4 (docs/plan.md §1.86 "Scripts (wave 4)")
+  browserScriptRoutes(app);
   complianceRouteHandlers(app);
   // v0.12 W1-E
   runControlRoutes(app);
@@ -230,8 +250,11 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsConnectorRoutes(app);
   // v0.12 W2-E: the triggers list
   triggerRouteHandlers(app);
+  portalTriggerRoutes(app);
   // v0.13 W2-I: run oversight decisions for the agent lab
   opsOversightRoutes(app);
+  // Wave 6: the audit queue, marks, stats, sampling settings and the run export (plan §1.86)
+  runAuditRouteHandlers(app);
   // v0.14 W4-E: Google Chat's events and the portal's card
   gchatRoutes(app);
   // v0.14 W4-C: the Slack channel picker
@@ -246,6 +269,11 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   a2pRoutes(app);
   // P-7: message translation's settings (docs/plan.md §1.69)
   translationRoutes(app);
+  // R4: business hours, person hours and channels (docs/plan.md §1.86)
+  hoursRoutes(app);
+  channelRoutes(app);
+  // R8: the Library's banks (docs/plan.md §1.86)
+  libraryRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
@@ -286,6 +314,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     // move to signoff (hourly, at the usage sweep's minute).
     await lifecycleTick(db, scheduledTime).catch((error: unknown) =>
       reportHandled("lifecycle tick failed", error, { job: "lifecycle" }),
+    );
+    // Sloan on by default (docs/plan.md §1.47): hourly, clients without it get it turned on.
+    await sloanTick(db, platform, scheduledTime).catch((error: unknown) =>
+      reportHandled("sloan tick failed", error, { job: "sloan" }),
     );
     // v0.12 W1-B: the Weekly Table every minute (Friday draft, Monday send) and the notification
     // pass every 5 minutes.

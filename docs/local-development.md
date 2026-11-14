@@ -104,9 +104,10 @@ Without it, the walkthroughs skip "Approve and undo" with a note.
 
 ### The demo seed (SEED_DEMO=1)
 
-For looking at the portal and the back office with weeks of work in them, `SEED_DEMO=1` adds a
-third client, **Harbor Millwork** (a millwork shop in America/Chicago), served by
-`operator@example.com`, who is also its Mezonas lead. It is never part of the default seed: it is
+For looking at the portal and the back office with weeks of work in them, `SEED_DEMO=1` adds two
+clients, **Harbor Millwork** (a millwork shop in Chicago) and **Fox River Cabinetry** (a cabinet
+shop in Appleton, Wisconsin), both served by `operator@example.com`, who is also their Mezonas
+lead. It is never part of the default seed: it is
 for local runs, and for a staging demo only when the owner chooses to run it there.
 
 ```bash
@@ -120,9 +121,12 @@ Sign in on the dev sign-in screen as:
 |---|---|
 | `dana@harbor-millwork.example.com` | Dana Reyes, client admin: signs the changes |
 | `luis@harbor-millwork.example.com` | Luis Ortega, client user (the bookkeeper) |
-| `operator@example.com` | The operator: Harbor Millwork is one of the clients they serve |
+| `maya@foxriver-cabinetry.example.com` | Maya Chen, Fox River Cabinetry's client admin |
+| `owen@foxriver-cabinetry.example.com` | Owen Brooks, Fox River Cabinetry's client user (the bookkeeper) |
+| `operator@example.com` | The operator: both demo clients are among the clients they serve |
 
-What it holds (`packages/db/src/seed-demo.ts`):
+What each holds (`packages/db/src/seed-demo.ts`; Fox River Cabinetry is the same weeks of work
+as Harbor Millwork, with its own people, invoice numbers and times):
 
 - Four client agents with their versions: the **Bill clerk** (live, a client v2 that writes the
   bill memo without a signature), the **Document clerk** (live, a client v2 that looks for the
@@ -140,7 +144,9 @@ What it holds (`packages/db/src/seed-demo.ts`):
   30 days of usage; last week's Weekly Table, sent; two open findings and the latest health check.
 
 Running it again changes nothing: ids are fixed and every time is counted from the first run. The
-Demo client and the Sandbox are left as they are. The runs have no Workflow instances, so signing a
+Demo client and the Sandbox are left as they are (the end-to-end Desk item and the sweep expect the
+Demo client as the base seed leaves it). An operator signed in before the seed ran sees the new
+clients after signing in again. The runs have no Workflow instances, so signing a
 waiting change writes nothing. With QuickBooks set up in `.env`, a cron tick at a QuickBooks sync
 minute (4, 19, 34 or 49) finds the QuickBooks connection has no credentials and marks it as
 needing a sign-in; the same happens on a deployed server, where the cron runs every minute. To

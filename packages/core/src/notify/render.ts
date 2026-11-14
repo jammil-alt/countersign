@@ -34,11 +34,20 @@ export interface RenderedNotification {
 
 // The design system's light colours (packages/design-system/tokens.css), inlined: mail clients
 // read no stylesheet.
-const INK = "#151A21";
-const MUTED = "#535B65";
+const INK = "#1A1F26";
+const MUTED = "#5B636D";
 const SLATE = "#23415E";
-const PAPER = "#F4F5F3";
-const LINE = "#DCDFE2";
+const PAPER = "#FAFAF9";
+const LINE = "#E6E8EA";
+
+/** The brand's colours for Mezonas' own email (mail clients don't read the design system's CSS). */
+export const EMAIL_COLORS = {
+  ink: INK,
+  muted: MUTED,
+  slate: SLATE,
+  paper: PAPER,
+  line: LINE,
+} as const;
 
 function numbers(counts: NotificationCounts, locale: Locale, weekStart?: string): NotifyNumbers {
   const fmt = new Intl.NumberFormat(locale);

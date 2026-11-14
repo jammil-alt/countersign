@@ -29,3 +29,57 @@ hand-written too, for a fixed client and day. Rebuild them after changing the qu
 ```sh
 WRITE_ASK_FIXTURES=1 pnpm --filter @countersign/api exec vitest run src/runs-ask/ask.test.ts
 ```
+
+## The skill model's Read document (hand-written)
+
+The three answers to the `docs.read-document` skill (an AI task skill that reads the attached
+invoice, Skill model 2026-11-10) for the golden invoices are **written by hand** too, each the
+invoice's `*.expected.json` as the skill's `finish` answer, marked `"handWritten": true`. The test
+gives the documents fixed ids, since the request carries the input JSON. Rebuild them after
+changing the skill's instructions or schema, or the task prompt, then delete the files whose
+hashes no longer appear:
+
+```sh
+WRITE_SKILL_FIXTURES=1 COUNTERSIGN_REQUIRE_DB=1 \
+  pnpm --filter @countersign/agents exec vitest run src/log/docs-split.test.ts
+```
+
+The `materials.match-unmatched` answer for the same golden invoice (apps/api's
+`skill-splits.test.ts`, the whole "Process a vendor invoice" pattern) is hand-written the same way:
+each open line matched to its first candidate at 0.95. Rebuild it with:
+
+```sh
+WRITE_SKILL_FIXTURES=1 COUNTERSIGN_REQUIRE_DB=1 \
+  pnpm --filter @countersign/api exec vitest run src/skill-splits.test.ts
+```
+
+## xAI and Gemini (hand-written, in each provider's own format)
+
+`providers/xai/*.json` and `providers/gemini/*.json` are answers as xAI's Responses API and the
+Gemini API's generateContent send them (a plain answer, a tool call, the answer after its result,
+and errors), **written by hand** from the official formats: there are no keys here. Each carries
+`"handWritten": true`. `packages/llm/src/providers.fixtures.test.ts` puts them through the real
+transports and replays the translated answers from six `<hash>.json` files here, also marked
+`"handWritten": true`. Rebuild those after changing the test's requests or a translation, then
+delete the files whose hashes no longer appear:
+
+```sh
+WRITE_PROVIDER_FIXTURES=1 pnpm --filter @countersign/llm exec vitest run src/providers.fixtures.test.ts
+```
+
+What is unchecked about each provider is in `packages/llm/NOTES.md`. Once a key exists, replace
+the provider-format answers with real ones from a live call.
+
+## Reshape data's Builder AI suggestion (hand-written)
+
+The Builder AI's answer for the fields a Reshape step's deterministic proposal leaves unmapped
+(apps/api's `reshape.test.ts`: Read document, then Reshape data, then Create bill) is **written by
+hand**, marked `"handWritten": true`: the memo from the PO number, and a vendor id that isn't an
+expression from the allowed set (the route drops it). Rebuild it after changing the prompt
+(`packages/agents/src/builder/reshape.ts`) or the proposal, then delete the file whose hash no
+longer appears:
+
+```sh
+WRITE_RESHAPE_FIXTURES=1 COUNTERSIGN_REQUIRE_DB=1 \
+  pnpm --filter @countersign/api exec vitest run src/reshape.test.ts
+```

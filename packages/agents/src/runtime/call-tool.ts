@@ -3,10 +3,16 @@
 // same way.
 
 import {
+  BROWSE_NOTE_SCOPE,
   bindingKeyFor,
+  browseHelpNote,
   type ConnectionRef,
   captureBefore,
+  isBrowseHelpTag,
+  type RunSessions,
   runReadTool,
+  standInOutput,
+  ToolRefused,
 } from "@countersign/connectors";
 import {
   autonomyMessage,
@@ -54,15 +60,19 @@ export type ToolOutcome =
     }
   /** A write waiting for a person: the action and its inbox item. */
   | { status: "awaiting_approval"; actionId: string; inboxItemId: string | null; before: unknown }
-  /** Test runs: the write was recorded as proposed and will never run. */
-  | { status: "would_have_done"; actionId: string; before: unknown }
+  /**
+   * Test runs: the write was recorded as proposed and will never run. `standIn`: what the tool
+   * says it would have returned (docs/plan.md §1.94), for later steps; absent when it says nothing.
+   */
+  | { status: "would_have_done"; actionId: string; before: unknown; standIn?: unknown }
   /**
    * The connection needs a person to release it (docs/plan.md §1.26): a code went to them and their
    * inbox item is open. The step waits; once released, it runs again from the start.
    */
   | { status: "awaiting_release"; releaseId: string; inboxItemId: string; connectionId: string }
   | { status: "refused"; reason: string }
-  | { status: "failed"; error: string };
+  /** `actionId`: a carried write that failed (its tool call names the action, `stepWrites`). */
+  | { status: "failed"; error: string; actionId?: string };
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -84,6 +94,53 @@ export interface CallToolInput {
   input: unknown;
   /** The tools this call may use (the skill's tools plus extraTools); absent = any registered. */
   allowed?: ReadonlySet<string>;
+  /**
+   * v0.16 (docs/plan.md §1.86): what this skill run may reach, narrower than its tools: a browsing
+   * skill's sites and pages (connectors' `BrowseScope`). Checked before the gate; never loosens it.
+   */
+  scope?: ToolCallScope | undefined;
+}
+
+/**
+ * A narrowing of one skill run's tool calls, kept across its calls. Generic: the runtime names no
+ * connector; a browsing skill's is `BrowseScope` (packages/connectors/src/browser/scope.ts).
+ */
+export interface ToolCallScope {
+  /** Refuse the call, or the input to call with (only ever narrowed). Before the gate. */
+  check(
+    toolId: string,
+    input: unknown,
+  ): { ok: true; input: unknown } | { ok: false; reason: string };
+  /** After the call, refusals included (the scope's own, the gate's, the tool's). */
+  observe?(toolId: string, input: unknown, outcome: ToolOutcome): void;
+  /**
+   * Once a live skill run finished with an answer: what to keep, given the agent's live notes in
+   * `noteScope` (applied by `finishScope`; a test run keeps nothing).
+   */
+  finish?(notes: readonly string[]): Promise<ScopeEffects> | ScopeEffects;
+  /**
+   * The memory scope the scope keeps its own notes in (read and written by `finishScope`), apart
+   * from the agent's notes the model reads (`agent`). Absent: `agent`.
+   */
+  noteScope?: string | undefined;
+  /** What connectors may keep open across the run's calls (a signed-in browser per site). */
+  sessions?: RunSessions | undefined;
+  /** Closes what `sessions` holds; the runtime calls it once the run ends, however it ends. */
+  close?(): Promise<void>;
+}
+
+/** What a scope asks the platform to keep after a live skill run (`finishScope` applies it). */
+export interface ScopeEffects {
+  /** Notes in the scope's `noteScope`. */
+  memory?: string[] | undefined;
+  /**
+   * An operator `review` item, such as a script draft. With `once`, a note that marks it offered:
+   * written first, and the item is created only by the run whose note is the earliest such one
+   * read back, so two runs finishing together offer it once.
+   */
+  operatorItem?:
+    | { title: string; subjectType: string; payload: JsonObject; once?: string | undefined }
+    | undefined;
 }
 
 /** Calls a tool for a step, logging a `tool_call` row whatever happens. */
@@ -103,17 +160,25 @@ export async function callTool(
   if (step.readOnly && tool.spec.sideEffect !== "none") {
     return { status: "refused", reason: `${call.toolId} writes, and an asked agent only reads` };
   }
+  // v0.16: the skill run's scope (a browsing skill's sites and pages), before anything else runs.
+  const scoped = call.scope ? call.scope.check(call.toolId, call.input) : null;
+  const input = scoped?.ok ? scoped.input : call.input;
   const started = Date.now();
   const toolCallId = await log.startToolCall(step.tenantId, {
     stepRunId: step.stepRunId,
     tool: call.toolId,
-    input: call.input,
+    input,
   });
   let outcome: ToolOutcome;
   try {
     // v0.14 W4-A: a shared id (`whatsapp.send`) goes to the connector this agent is bound to.
+    // Logged like any refused call: an attempt to leave the skill's pages is evidence.
     const resolved =
-      tool.kind === "connector" ? deps.tools.resolve(call.toolId, step.agent, call.input) : tool;
+      scoped && !scoped.ok
+        ? { refused: scoped.reason }
+        : tool.kind === "connector"
+          ? deps.tools.resolve(call.toolId, step.agent, input)
+          : tool;
     if ("refused" in resolved) {
       outcome = { status: "refused", reason: resolved.refused };
     } else {
@@ -125,11 +190,17 @@ export async function callTool(
       });
       outcome = refusal
         ? { status: "refused", reason: refusal }
-        : await dispatch(deps, step, resolved, call.input);
+        : await dispatch(deps, step, resolved, input, call.scope?.sessions);
     }
   } catch (error) {
-    outcome = { status: "failed", error: errorText(error) };
+    // DECISION (v0.16): a connector's own refusal (a site's pages, its sign-in caps) is a refusal,
+    // as the gate's are, for every caller: nothing was done.
+    outcome =
+      error instanceof ToolRefused
+        ? { status: "refused", reason: error.message }
+        : { status: "failed", error: errorText(error) };
   }
+  call.scope?.observe?.(call.toolId, input, outcome);
   const actionId = "actionId" in outcome ? outcome.actionId : undefined;
   await log.finishToolCall(step.tenantId, toolCallId, {
     status: LOG_STATUS[outcome.status],
@@ -145,7 +216,9 @@ export async function callTool(
             ? { error: outcome.error }
             : outcome.status === "awaiting_release"
               ? { status: outcome.status, releaseId: outcome.releaseId }
-              : { status: outcome.status },
+              : outcome.status === "would_have_done" && outcome.standIn !== undefined
+                ? { status: outcome.status, standIn: true, output: outcome.standIn }
+                : { status: outcome.status },
     durationMs: Date.now() - started,
     externalActionId: actionId ?? null,
   });
@@ -157,6 +230,7 @@ async function dispatch(
   step: StepContext,
   tool: RegisteredTool,
   input: unknown,
+  sessions: RunSessions | undefined,
 ): Promise<ToolOutcome> {
   // A retry finds its first try's action before any check, the fixed-input check included.
   if (tool.kind === "connector" && tool.spec.sideEffect === "external") {
@@ -171,6 +245,16 @@ async function dispatch(
     if (problem) return { status: "refused", reason: `${tool.spec.id}: ${problem}` };
   }
   if (tool.kind === "internal") {
+    // Skill model (2026-11-10): a tool that calls a model says so (`usesModel`); one that doesn't
+    // and records a model call's cost is reported (recorded all the same, so no cost is lost).
+    const modelUsed = () => {
+      if (tool.spec.usesModel !== undefined) return;
+      if (deps.onUndeclaredModelCall) deps.onUndeclaredModelCall(tool.spec.id);
+      else
+        deps.logger?.warn("tool called a model without declaring usesModel", {
+          toolId: tool.spec.id,
+        });
+    };
     // Platform and pack tools write only the platform's own records: `none` and `internal` run.
     const parsed = tool.tool.input.safeParse(input);
     if (!parsed.success)
@@ -207,15 +291,18 @@ async function dispatch(
       ask: step.ask,
       language: step.language,
       now: deps.now,
-      recordUsage: (usage) =>
-        deps.ports.log.addUsage(
+      // The cost is recorded first, then an undeclared call is reported: no cost is lost.
+      recordUsage: async (usage) => {
+        await deps.ports.log.addUsage(
           step.tenantId,
           { runId: step.runId, stepRunId: step.stepRunId },
           usage,
-        ),
+        );
+        modelUsed();
+      },
       // v0.12 W1-E: a tool's own model call (a document read) is the step's `model_call` too.
-      recordModelCall: (record, exchange) =>
-        recordModelCall(
+      recordModelCall: async (record, exchange) => {
+        await recordModelCall(
           deps.ports.modelCalls,
           step.tenantId,
           {
@@ -225,7 +312,9 @@ async function dispatch(
           },
           record,
           exchange,
-        ),
+        );
+        modelUsed();
+      },
     });
     const out = tool.tool.output.safeParse(raw);
     if (!out.success) return { status: "failed", error: `invalid output: ${out.error.message}` };
@@ -322,8 +411,10 @@ async function dispatch(
   if (waiting) return waiting;
   const ctx = connectionContext(deps, step.tenantId, conn);
   if (tool.spec.sideEffect !== "external") {
+    // v0.16: a scoped run's reads may share what the connector keeps open (one browser per site).
+    const readCtx = sessions ? { ...ctx, sessions } : ctx;
     try {
-      const r = await runReadTool(tool.connector, tool.spec.id, input, ctx);
+      const r = await runReadTool(tool.connector, tool.spec.id, input, readCtx);
       return { status: "done", output: r.output, summary: r.summary };
     } catch (error) {
       await noteReconnect(deps, step.tenantId, conn, error);
@@ -418,7 +509,7 @@ async function dispatch(
         }
       : null,
   });
-  return settle(deps, step, action);
+  return settle(deps, step, tool, action);
 }
 
 /**
@@ -492,17 +583,29 @@ async function resumeProposed(
       error: `this step's change ${existing.idempotencyKey} was proposed for ${existing.tool}`,
     };
   }
-  return settle(deps, step, existing);
+  return settle(deps, step, tool, existing);
 }
 
 /** What a proposed action means for the step now: waiting, refused, or executed once. */
 async function settle(
   deps: RuntimeDeps,
   step: StepContext,
+  tool: RegisteredTool,
   action: ExternalActionRecord,
 ): Promise<ToolOutcome> {
   if (step.mode === "test") {
-    return { status: "would_have_done", actionId: action.id, before: action.before };
+    // DECISION (docs/plan.md §1.94): a test run's write hands later steps the tool's stand-in
+    // output, so the rest of the flow runs; the tool's own pure function, never the provider.
+    const standIn =
+      tool.kind === "connector"
+        ? standInOutput(tool.connector, tool.spec.id, action.input)
+        : undefined;
+    return {
+      status: "would_have_done",
+      actionId: action.id,
+      before: action.before,
+      ...(standIn === undefined ? {} : { standIn }),
+    };
   }
   switch (action.status) {
     case "proposed":
@@ -530,4 +633,143 @@ async function settle(
       };
     }
   }
+}
+
+/**
+ * A platform write the runtime makes itself, logged as the platform tool that makes it would be
+ * (a `tool_call` row on the step run, its input and what it wrote), so the step's log shows it.
+ * Best effort: a write that fails is logged as failed and answers null.
+ */
+async function loggedWrite<T extends JsonObject>(
+  deps: RuntimeDeps,
+  step: StepContext,
+  tool: "memory.write" | "inbox.create",
+  input: JsonObject,
+  write: () => Promise<T>,
+): Promise<T | null> {
+  const { log } = deps.ports;
+  const started = Date.now();
+  const id = await log.startToolCall(step.tenantId, { stepRunId: step.stepRunId, tool, input });
+  try {
+    const output = await write();
+    await log.finishToolCall(step.tenantId, id, {
+      status: "succeeded",
+      output,
+      durationMs: Date.now() - started,
+    });
+    return output;
+  } catch (error) {
+    await log.finishToolCall(step.tenantId, id, {
+      status: "failed",
+      output: { error: errorText(error) },
+      durationMs: Date.now() - started,
+    });
+    return null;
+  }
+}
+
+/** One platform note in a memory scope, logged on the step run as `memory.write`. */
+function writeScopeNote(deps: RuntimeDeps, step: StepContext, scope: string, note: string) {
+  return loggedWrite(deps, step, "memory.write", { note, scope }, async () => {
+    const saved = await deps.ports.platform.writeMemory(step.tenantId, {
+      agentId: step.agent.agentId,
+      note,
+      scope,
+    });
+    return { memoryNoteId: saved.id };
+  });
+}
+
+/**
+ * v0.16: once a scoped live skill run finished with an answer, keeps what its scope asks: notes in
+ * the scope's own memory scope (`noteScope`) and an operator `review` item (a browsing path that
+ * worked twice, offered as a script draft), offered once. Reads the notes itself, whether or not
+ * the agent shows memory to its model. Each write is logged on the step run like a platform
+ * tool's. A test run keeps nothing: its notes would never be read back (memory reads skip test
+ * scopes), and the skill bench never writes.
+ */
+// DECISION: a draft is an inbox item for the operator, as the owner's proposals are (kind
+// `review`), not a new table: scripts are R9's, and the operator reviews the draft there.
+// DECISION: offered once without a lock or a unique key (no migration): the run writes the
+// offer's note first, reads the notes back, and creates the item only when its note is the
+// earliest of them (memoryNotes' order: created, then id). Of two runs that finish together,
+// both read back both notes and only the earlier one's run offers it. Should creating the item
+// fail, its note stays and the draft is not offered again: the failed `inbox.create` row on the
+// step run records it (a missed offer rather than a second one).
+export async function finishScope(
+  deps: RuntimeDeps,
+  step: StepContext,
+  scope: ToolCallScope,
+): Promise<ScopeEffects> {
+  if (!scope.finish || step.mode === "test") return {};
+  const { store, platform } = deps.ports;
+  const noteScope = scope.noteScope ?? "agent";
+  const notes = () => store.memoryNotes(step.tenantId, step.agent.agentId, 50, noteScope);
+  const writeNote = (note: string) => writeScopeNote(deps, step, noteScope, note);
+  const effects = await scope.finish((await notes()).map((n) => n.note));
+  for (const note of effects.memory ?? []) await writeNote(note);
+  const item = effects.operatorItem;
+  if (!item) return effects;
+  if (item.once !== undefined) {
+    const mine = await writeNote(item.once);
+    if (!mine) return effects;
+    // Newest first: the earliest marker read back is the last.
+    const earliest = (await notes()).filter((n) => n.note === item.once).at(-1);
+    if (earliest?.id !== mine.memoryNoteId) return effects;
+  }
+  const payload: JsonObject = {
+    ...item.payload,
+    stepId: step.stepId,
+    agentVersionId: step.agent.agentVersionId,
+  };
+  await loggedWrite(
+    deps,
+    step,
+    "inbox.create",
+    { kind: "review", title: item.title, subjectType: item.subjectType, assignee: "operator" },
+    async () => {
+      const created = await platform.createInboxItem(step.tenantId, {
+        kind: "review",
+        title: item.title,
+        payload,
+        agentId: step.agent.agentId,
+        runId: step.runId,
+        subjectType: item.subjectType,
+        assigneeRole: "operator",
+      });
+      return { inboxItemId: created.id, title: item.title };
+    },
+  );
+  return effects;
+}
+
+/** The lead's answer to a browsing skill's help request (the executor's `needsHelp`). */
+export interface BrowseHelpAnswer {
+  /** `needsHelp.remember`: the help request's tag (connectors' `browseHelpTag`). */
+  remember: string;
+  question: string;
+  answer: string;
+}
+
+/**
+ * v0.16: keeps the lead's answer to a browsing skill's help request where the next run of the same
+ * skill on the same sites gets it as data: a platform note in the browse scope's own memory scope
+ * (`browse`), which the model's `memory.write` never reaches, logged on the step run. A test run
+ * keeps nothing (its notes are never read back). Throws when the tag isn't a help request's or
+ * the note wasn't saved.
+ */
+// DECISION: the platform's write, not the model's: answers are read back only from the `browse`
+// scope, so a note a model saves in its own memory (from a page's text, say) never reads as a
+// person's answer (invariant 9).
+export async function keepBrowseHelp(
+  deps: RuntimeDeps,
+  step: StepContext,
+  help: BrowseHelpAnswer,
+): Promise<{ memoryNoteId: string } | null> {
+  if (!isBrowseHelpTag(help.remember)) throw new Error("not a help request's tag");
+  if (step.mode === "test") return null;
+  const note = browseHelpNote(help.remember, help.question, help.answer);
+  const saved = await writeScopeNote(deps, step, BROWSE_NOTE_SCOPE, note);
+  if (!saved) throw new Error("the note wasn't saved");
+  return saved;
 }

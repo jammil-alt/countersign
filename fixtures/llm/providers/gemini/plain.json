@@ -1,0 +1,32 @@
+{
+  "handWritten": true,
+  "about": "Gemini API generateContent: a plain answer (POST .../v1beta/models/gemini-3.1-pro:generateContent, 200)",
+  "status": 200,
+  "body": {
+    "candidates": [
+      {
+        "content": {
+          "parts": [
+            {
+              "text": "Invoice INV-1 is from Acme Supply and totals $12.50.",
+              "thoughtSignature": "CpwBAdHtim9plainSignatureForFixtureOnly"
+            }
+          ],
+          "role": "model"
+        },
+        "finishReason": "STOP",
+        "index": 0
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 1200,
+      "candidatesTokenCount": 40,
+      "cachedContentTokenCount": 200,
+      "thoughtsTokenCount": 50,
+      "totalTokenCount": 1290,
+      "promptTokensDetails": [{ "modality": "TEXT", "tokenCount": 1200 }]
+    },
+    "modelVersion": "gemini-3.1-pro",
+    "responseId": "gem-plain-0001"
+  }
+}

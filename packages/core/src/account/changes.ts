@@ -21,6 +21,8 @@ export const ACCOUNT_CHANGE_SUBJECT = "account_change";
 /** Sloan's identity and the service name a new client fork takes (§1.47 "Template"). */
 export const ACCOUNT_AGENT_NAME = "Sloan";
 export const ACCOUNT_AGENT_SERVICE_NAME = "Sloan, your account agent";
+export const ACCOUNT_AGENT_SERVICE_DESCRIPTION =
+  "Answers your questions about your account, and tells you in plain steps when something needs you.";
 
 /** The skill of the template's `chat` workflow. */
 export const ACCOUNT_CHAT_SKILL = "account.chat";
@@ -115,10 +117,27 @@ export const ChangeContactChange = z.strictObject({
 });
 export type ChangeContactChange = z.infer<typeof ChangeContactChange>;
 
+/** At most this many people in one drafted invitation. */
+export const ACCOUNT_TEXT_INVITES_MAX = 50;
+
+/**
+ * Invite people to sign up for texts (docs/plan.md §1.98): once the client admin signs it, each
+ * gets the fixed invitation email, and texting starts only if they sign up themselves.
+ */
+// DECISION: Sloan never emails anyone: it drafts the invitation for the client admin to sign, as
+// it drafts every change, and the portal's own invitation code sends it. Asking someone to agree
+// loosens nothing: their consent comes only from their own sign-up.
+export const InviteToTextsChange = z.strictObject({
+  kind: z.literal("invite_to_texts"),
+  contactIds: z.array(Id).min(1).max(ACCOUNT_TEXT_INVITES_MAX),
+});
+export type InviteToTextsChange = z.infer<typeof InviteToTextsChange>;
+
 export const AccountChange = z.discriminatedUnion("kind", [
   AddSignerChange,
   EditPersonChange,
   ChangeContactChange,
+  InviteToTextsChange,
 ]);
 export type AccountChange = z.infer<typeof AccountChange>;
 export type AccountChangeInput = z.input<typeof AccountChange>;

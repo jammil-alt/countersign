@@ -22,14 +22,28 @@ import {
   AgentBundle,
   type AgentBundleInput,
   FORBIDDEN_PORTAL_FIELD,
+  hashJson,
   type SkillDefinition,
+  SkillDefinition as SkillDefinitionSchema,
 } from "@countersign/core";
-import { appUser, connection, createDb, type Db, membership, tenant } from "@countersign/db";
+import {
+  appUser,
+  connection,
+  createDb,
+  type Db,
+  membership,
+  skill,
+  skillVersion,
+  tenant,
+} from "@countersign/db";
 import { createTestDatabase, type TestDatabase } from "@countersign/db/testing";
 import { type LlmTransport, withRecording } from "@countersign/llm";
 import { fileFixtureStore } from "@countersign/llm/node";
+import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { createApp } from "./app";
+// v0.12 W2-C
+import type { BrowserDeps } from "./browser/services";
 import type { Bindings } from "./env";
 import type { ExportJobs } from "./exports/instances";
 import type { AppEnv } from "./http";
@@ -38,7 +52,6 @@ import { createPlatform, type Platform } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
 import { MemoryInstances } from "./runs/instances";
 import type { CloudflareStepConfig, WorkflowStepLike } from "./runs/step-runner";
-// v0.12 W2-C
 import type { TestSuiteJobs } from "./testbench/instances";
 
 export interface Client {
@@ -144,11 +157,21 @@ export interface HarnessOptions {
   exports?: ExportJobs;
   /** The MCP server's authorization server, audit, rate limit and clock (fakes). */
   mcp?: McpDeps;
-  /** §1.83: the code service for sign-in codes (tests pass one in memory). */
+  /** §1.99: the code service for sign-in codes (tests pass one in memory). */
   codeVerifier?: CodeVerifier;
   // v0.12 W2-C
   /** Test suite jobs (in memory); none by default. */
   testSuites?: TestSuiteJobs;
+  // Wave 4
+  /** A browser for script recordings and tests (a fake); none by default. */
+  browserOpener?: NonNullable<BrowserDeps["open"]>;
+  /**
+   * The app's own database pool, as a Worker has it: production's `openDb` gives a request one
+   * connection (`{ max: 1 }`), so a handler that opens a transaction beside the request's waits on
+   * itself. Set to 1 to catch that (the test then times out). Absent: the harness's `db` (4).
+   * The harness's `db`, for the test's own reads and runs, stays at 4 either way.
+   */
+  appDbMax?: number;
 }
 
 /** null when no database is reachable (the tests then skip). */
@@ -156,6 +179,8 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
   const t = await createTestDatabase();
   if (!t) return null;
   const db = createDb(workerUrl(t.url), { max: 4 });
+  const appDb =
+    options.appDbMax !== undefined ? createDb(workerUrl(t.url), { max: options.appDbMax }) : db;
   const operator = await addUser(t, "operator@example.com", "Operator");
   const otherOperator = await addUser(t, "other-operator@example.com", "Other operator");
   const A = await addClient(t, "Client A", "a", [operator]);
@@ -192,7 +217,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
   const translation: { transport: LlmTransport | null } = { transport: null };
   const app = createApp({
     platform: () => platform,
-    openDb: () => ({ db, close: async () => {} }),
+    openDb: () => ({ db: appDb, close: async () => {} }),
     instances: () => instances,
     ...(options.llm ? { llm: () => options.llm as LlmTransport } : {}),
     ...(options.workos ? { workos: () => options.workos as WorkOSClient } : {}),
@@ -207,6 +232,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     ...(options.codeVerifier ? { codeVerifier: () => options.codeVerifier as CodeVerifier } : {}),
     // v0.12 W2-C
     ...(options.testSuites ? { testSuites: () => options.testSuites as TestSuiteJobs } : {}),
+    ...(options.browserOpener ? { browserOpener: () => options.browserOpener } : {}),
   });
   const env = {
     ENVIRONMENT: "development",
@@ -268,6 +294,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     },
     async close() {
       await Promise.all(pending);
+      if (appDb !== db) await appDb.$client.end();
       await db.$client.end();
       await t.drop();
     },
@@ -276,6 +303,38 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
 
 export const OPERATOR = "operator@example.com";
 export const OTHER_OPERATOR = "other-operator@example.com";
+/**
+ * Skill model (2026-11-10): an operator skill version as it was stored before the skill model (an
+ * agent-mode skill, say), written straight to its rows and made live. A new version of that kind is
+ * refused; a stored one keeps running (invariant 3), which is what tests of stored skills need.
+ */
+export async function storedSkill(
+  h: Pick<ApiHarness, "t">,
+  definition: { id: string; name: string } & Record<string, unknown>,
+  tenantId: string | null = null,
+): Promise<{ skillId: string; versionId: string }> {
+  const def = SkillDefinitionSchema.parse(definition);
+  const [row] = await h.t.db
+    .insert(skill)
+    .values({ tenantId, slug: def.id.replace(/^custom:/, ""), name: def.name })
+    .returning();
+  if (!row) throw new Error("no skill");
+  const [v] = await h.t.db
+    .insert(skillVersion)
+    .values({
+      tenantId,
+      skillId: row.id,
+      version: 1,
+      definition: def,
+      definitionHash: await hashJson(def),
+      status: "live",
+    })
+    .returning();
+  if (!v) throw new Error("no skill version");
+  await h.t.db.update(skill).set({ liveVersionId: v.id }).where(eq(skill.id, row.id));
+  return { skillId: row.id, versionId: v.id };
+}
+
 export const admin = (c: "a" | "b" | "c") => `admin@${c}.example.com`;
 export const user = (c: "a" | "b" | "c") => `user@${c}.example.com`;
 

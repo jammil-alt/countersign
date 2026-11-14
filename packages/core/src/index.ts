@@ -19,6 +19,7 @@ export * from "./api/automations";
 export * from "./api/bankfeed";
 export * from "./api/billing";
 export * from "./api/browser";
+export * from "./api/browser-scripts";
 // v0.12 W3-A: the Builder as a conversation
 export * from "./api/builder";
 export * from "./api/calls";
@@ -42,9 +43,13 @@ export * from "./api/feedback";
 export * from "./api/gchat";
 // v0.14 W4-D
 export * from "./api/gsheets";
+// R4: business hours, person hours and channels (docs/plan.md §1.86).
+export * from "./api/hours";
 export * from "./api/knowledge";
 export * from "./api/language";
 export * from "./api/ledger";
+// R8: the Library's banks (docs/plan.md §1.86).
+export * from "./api/library";
 // v0.12 W1-A: go-live stages and client controls
 export * from "./api/lifecycle";
 export * from "./api/messaging";
@@ -60,7 +65,12 @@ export * from "./api/qbo";
 export * from "./api/reach";
 export * from "./api/records";
 export * from "./api/requests";
+export * from "./api/reshape";
 export * from "./api/routes";
+// Wave 6: the audit queue, marks, stats and sampling settings (docs/plan.md §1.86).
+export * from "./api/run-audit";
+// R8: what a run's rows say about a step's checks (docs/plan.md §1.86).
+export * from "./api/run-checks";
 // v0.12 W1-E
 export * from "./api/run-controls";
 // UI cleanup (stream A)
@@ -72,19 +82,25 @@ export * from "./api/runs-filter";
 // v0.12 W2-F
 export * from "./api/search";
 export * from "./api/second-factor";
+// The skill model (owner, 2026-11-10)
+export * from "./api/skill-model";
 // v0.14 W4-C: the Slack channel picker
 export * from "./api/slack";
+export * from "./api/step-data";
 // P-6
 export * from "./api/step-in";
 export * from "./api/supervisor";
 export * from "./api/table";
 // v0.12 W2-C: the test bench
 export * from "./api/testbench";
+export * from "./api/text-signup";
 export * from "./api/threads";
 // P-7: message translation
 export * from "./api/translation";
 // v0.12 W2-E
 export * from "./api/triggers";
+// R5: the Undo a late no is offered
+export * from "./api/undo";
 export * from "./api/usage";
 // v0.14 W4-A: WhatsApp through Meta
 export * from "./api/whatsapp-meta";
@@ -94,6 +110,7 @@ export * from "./approvals/rules";
 // P-3: attachments both ways
 export * from "./attachments";
 export * from "./billing";
+export * from "./browser/script";
 export * from "./browser/site";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";
@@ -106,6 +123,8 @@ export {
   unflattenBundle,
 } from "./bundle/flatten";
 export * from "./bundle/merge";
+// R8: the builder reads stored v3 workflows as v4 processes (ids kept).
+export * from "./bundle/normalize";
 export * from "./bundle/select";
 // v0.12 W3-A: closest templates
 export * from "./bundle/similarity";
@@ -151,6 +170,8 @@ export * from "./kpi/format";
 export * from "./kpi/period";
 export * from "./kpi/schema";
 export * from "./kpi/validate";
+// Worker startup (2026-11-11): definitions built on first read.
+export * from "./lazy";
 // B-2 (docs/plan.md §1.79): the ledger's tools.
 export * from "./ledger/schemas";
 export * from "./lifecycle/pause";
@@ -160,9 +181,12 @@ export * from "./mappers/upload";
 // P-8: US texting registration
 export * from "./messaging/a2p";
 export * from "./messaging/rules";
+export * from "./messaging/signup";
 export * from "./money";
 export * from "./notify/notify";
 export * from "./notify/render";
+// Wave 6: the owner's check on every step, and which runs go to a person's audit
+export * from "./oversight/check";
 // v0.13 W2-I: run oversight
 export * from "./oversight/decision";
 export * from "./permissions/decide";
@@ -170,9 +194,12 @@ export * from "./permissions/entities";
 export * from "./permissions/explain";
 export * from "./permissions/grants";
 export * from "./permissions/release";
+// R1: processes, workflow schemaVersion 4 (docs/plan.md §1.86, §9), as the `processes` namespace.
+export * as processes from "./process";
 export * from "./reach/rules";
 export * from "./roles";
 export * from "./rules/compile";
+export * from "./run-audit/sampling";
 export * from "./schemas/agent";
 export * from "./schemas/approval";
 // v0.12 W2-B
@@ -187,10 +214,13 @@ export * from "./schemas/pack";
 export * from "./schemas/permissions";
 export * from "./schemas/rules";
 export * from "./schemas/skill";
+// The skill model (owner, 2026-11-10): parameters, rule rows, kinds, models, versions, writes.
+export * from "./schemas/skill-model";
 export * from "./schemas/tool";
 export * from "./schemas/tool-display";
 export * from "./schemas/workflow";
 export * from "./security/session-limits";
+export * from "./skills/index";
 export * from "./supervisor/health";
 export * from "./template/template";
 export * from "./template/typer";
@@ -204,6 +234,8 @@ export * from "./translate/detect";
 export * from "./translate/settings";
 // v0.12 W2-E
 export * from "./triggers";
+// Reshape data (2026-11-11): the fixed unit conversions any process may use.
+export * from "./units";
 export * from "./weekly/schemas";
 export * from "./weekly/week";
 // v0.12 W2-B

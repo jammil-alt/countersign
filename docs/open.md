@@ -70,6 +70,8 @@ emailed and the QuickBooks purchase order is created; every write is approved on
 - RFQs are English only; the vendor's language is open.
 - QuickBooks PO lines are account lines only (catalog items carry no QuickBooks item id).
 - The portal channel for conversations (§1.66).
+- **The vendor catalog** (`vendor_item`, plan §1.88): each vendor's items for the client with pack size,
+  unit conversion, last price and preferred vendor. Planned; one migration.
 
 ## 1b. The Bookkeeper (bank transactions into QuickBooks)
 
@@ -100,7 +102,7 @@ The checklist in `docs/operations.md` ("The public site") is still unticked.
 | # | Step | Notes |
 |---|---|---|
 | S1 | Delete the three parking records (`A mezonas.com 15.197.148.33`, `A mezonas.com 3.33.130.190`, `CNAME www`); keep everything else, especially the `google-site-verification` TXT. | `docs/operations.md`, "The public site" |
-| S2 | Re-run the `site` job of the latest Deploy on `main`; check `/`, `/terms`, `/privacy`, `/subprocessors`, `/sms-terms` and `www`. | The job already exists in `deploy.yml`. |
+| S2 | Re-run the `site` job of the latest Deploy on `main`; check `/`, `/hire`, `/security`, `/terms`, `/privacy`, `/subprocessors`, `/sms-terms` and `www`. | The job already exists in `deploy.yml`. |
 | S3 | **Lawyer's read of the legal pages**: the draft terms listed in `apps/site/README.md` ("Placeholders to fill in": notice periods, the liability cap, age 16, the AI providers' terms). | Placeholders are filled; the terms themselves are drafts. |
 | S4 | **Submit Google's OAuth verification** once the site is live (homepage, `/privacy`, `/terms`), with `gmail.send` and, for M50, `webmasters.readonly`. Remove `gmail.readonly`, `gmail.labels` and `gmail.compose` from the consent screen first. | Unblocks Gmail beyond test users and `gsc_oauth` beyond 7-day tokens. |
 
@@ -133,11 +135,12 @@ then one pass of its "To verify" list against the real service.
 | Texts and calls | Twilio (`twilio`) | Account and keys; per-client subaccounts (default) or the client's own; which countries first; run a US client's A2P registration (M41) against the real Trust Hub. |
 | Texts and calls | WhatsApp through Meta (`whatsapp_meta`) | Meta app, register as a Tech Provider, `META_*` secrets. |
 | Texts and calls | ElevenLabs (`elevenlabs`) | Account, `ELEVENLABS_API_KEY`, webhook secret. |
-| Texts and calls | All three | **Legal review** of consent, calling hours, recording consent and AI disclosure per country, before any live client call or text. |
+| Texts and calls | All three | **Legal review** of consent, calling hours, recording consent and AI disclosure per country, before any live client call or text. In it, counsel checks the **relationship basis** (`docs/plan.md` §1.97), now for calls (an automated assistant, an artificial voice under the TCPA) and email only, and the **texting sign-up** that replaced it for texts (§1.98): the words beside the box, the invitation email, the confirmation text and the 10DLC opt-in, against the TCPA and the CTIA's messaging principles. |
 | Access | Code service (`apps/mfa`) | Confirm the domains; Email Routing for `agents.staging.mezonas.com`; the codes Twilio subaccount; then turn email codes on (`apps/mfa/NOTES.md`). |
 | Access | Browser logins (`browser`) | Turn on Browser Run; then merge the `BROWSER` binding PR (`claude/browser-binding`, jammil-alt/countersign#55); the first real low-tier site; legal review of agent accounts. |
 | Finance | Plaid (`bankfeed`) | §1b above (K1–K3): keys, sandbox checks, production review and OAuth banks; price per bank; BAA (until then not offered to HIPAA clients). Several banks per client is built. |
 | Finance | Ramp (`ramp`) | Developer app, `RAMP_*`. |
+| Finance | BILL (`billcom`, plan §1.87) | A BILL developer key, sandbox first (`BILL_DEV_KEY`; `docs/operations.md`), a dedicated BILL user's login entered by the client admin, then `NOTES.md`'s "To verify"; production after BILL's review. Decide: which BILL role our user gets; whether BILL goes on the site's subprocessors page (it is a processor, as Plaid is); BILL's BAA (until then not offered to HIPAA clients). **Code still needed for payments:** `billcom.payment.create` is defined, off and refused until BILL's MFA-trusted session can be reached through the code service (`apps/mfa`). |
 | Finance | Stripe (billing) | Account and keys; the open prices (§4). |
 | CRM | HubSpot, Zoho CRM, Podio | A developer app each (`HUBSPOT_*`, `ZOHO_*`, `PODIO_*`). |
 | Google | Drive, Sheets | `drive.file` on the consent screen (with S4); `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER`. |
@@ -155,6 +158,14 @@ URIs, MFA, session limits), production secrets, Email Routing for `in.mezonas.co
 seed's templates installed by hand on production, and the Mezonas client created there. D2 (§2) may
 bring this forward.
 
+### Sign-in codes and the Claude connector (owner, 2026-11-10)
+
+| # | Step | Notes |
+|---|---|---|
+| A1 | **Now: WorkOS multi-factor set to optional** on staging and production (WorkOS dashboard → the environment → Authentication → Multi-factor auth). | Owner's call, 2026-11-10: a code on every sign-in is too much for now. HIPAA today requires "person or entity authentication", not multi-factor; the proposed rule that would require it is not final (projected July 2027). Until A2 ships, sign-in is the password (or Google) alone, operators included. **No HIPAA client signs in before A2.** `docs/operations.md` and `docs/security.md` still describe multi-factor as required: that is the target, restored by A2. |
+| A2 | **Next: our own second step (`docs/plan.md` §1.99) with "remember this browser for 30 days"**, then multi-factor back on. | Code (sign-in PR after migration 0042). Needs Twilio Verify (`TWILIO_VERIFY_SERVICE_SID`). After it ships and one sign-in is checked: WorkOS's own multi-factor stays off (ours replaces it, so nobody is asked twice). |
+| A3 | **WorkOS production: Dynamic Client Registration and Client ID Metadata Documents on** (Applications → Configuration), as on staging. | Without it, connecting Claude to `https://app.mezonas.com/mcp` stops at "application not found" (`docs/operations.md`, "MCP server"). Check: `curl https://app.mezonas.com/.well-known/oauth-authorization-server` lists `registration_endpoint`. |
+
 ### Owner decisions still open (`docs/plan.md` §7 and the sections named)
 
 - **Billing**: the credit allowance per agent, whether allowances pool across a client's agents
@@ -165,13 +176,23 @@ bring this forward.
 - **Smaller defaults** (§7 item 10): the 60 s undo window, US federal holidays only, notification
   texts only from the client's own number, replay as a test run in the same client.
 
+### The process model's urgent notices (code; `docs/plan.md` §1.86, runtime wave 2c)
+
+- An urgent notice's person is told at once by email and text from the notify step itself
+  (`apps/api/src/notify/urgent.ts`), not through the `notification` outbox, so those sends have no
+  `notification` row (no retries after a failed send, no line in the notification counts; a failed
+  send is reported and the card waits for the items-waiting pass). Making it an outbox kind of its
+  own (`urgent`, never held for quiet hours) needs a migration of `notification_kind_check`; do it
+  in its own PR, then send from the outbox.
+
 ### Language and legal
 
 - A **fluent speaker's review** of the five translations (Spanish, French, Portuguese, Italian,
   German): the portal's message files, `TIMELINE_WORDS`, the language instruction in `runAgent`, and
   every pass since (§1.18, §1.27 invite strings, the Requests screens).
 - **Legal**: the site's terms and privacy (S3), measurement wording (S8), processor terms (S13),
-  calls and texts, agent accounts on third-party sites.
+  calls and texts (the relationship basis for calls and email, §1.97, and the texting sign-up,
+  §1.98, under the TCPA and CTIA), agent accounts on third-party sites.
 
 ### HIPAA, SOC 2 and PCI (`docs/hipaa-plan.md`)
 

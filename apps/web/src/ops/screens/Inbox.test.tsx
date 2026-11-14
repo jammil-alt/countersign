@@ -155,10 +155,16 @@ describe("escalations", () => {
     const card = await screen.findByTestId(`inbox-item-${SANDBOX_ITEM}`);
     await userEvent.click(within(card).getByTestId("inbox-item-approve"));
     const recent = await screen.findByTestId("ops-inbox-recent");
+    // Nothing needs us now: said once, where the urgency figures were.
+    expect(await screen.findByText("Nothing needs us.")).toBeInTheDocument();
+    expect(screen.getByTestId("ops-inbox-clear")).toBeInTheDocument();
+    expect(screen.getAllByText("Nothing needs us")).toHaveLength(1);
     await userEvent.click(within(recent).getByTestId("inbox-item-undo"));
     await waitFor(() => expect(undone).toEqual([SANDBOX_ITEM]));
     await waitFor(() => expect(screen.queryByTestId("ops-inbox-recent")).toBeNull());
     expect(await screen.findByTestId(`inbox-item-${SANDBOX_ITEM}`)).toBeInTheDocument();
+    // Undo puts it back in Needs us too (review of #257): the count is asked again.
+    expect(await screen.findByText("1 thing needs us.")).toBeInTheDocument();
   });
 
   it("lists what else needs us, and what waits in a client's inbox, from the address", async () => {
@@ -197,6 +203,21 @@ describe("escalations", () => {
       "href",
       `/ops/runs/${DEMO_RUN}`,
     );
+    // The avatar leads the row; the chip carries the date the wait began.
+    expect(row.firstElementChild).toHaveClass("ui-agentbadge");
+    expect(within(row).getByTestId(`ops-inbox-needs-${DEMO_RUN}-since`)).toHaveTextContent(
+      /^Since 5 Nov, \d\d:\d\d$/,
+    );
+    // Urgency figures: it has waited days, so it is urgent, with its date; a level filters.
+    const urgent = screen.getByTestId("ops-inbox-urgency-urgent");
+    expect(urgent).toHaveTextContent("Urgent · Over 2 days");
+    expect(urgent).toHaveTextContent(/Oldest since 5 Nov/);
+    expect(screen.getByTestId("ops-inbox-urgency-high")).toHaveTextContent("None waiting");
+    await userEvent.click(screen.getByTestId("ops-inbox-urgency-high"));
+    await waitFor(() => expect(screen.queryByTestId(`ops-inbox-needs-${DEMO_RUN}`)).toBeNull());
+    expect(screen.getByTestId("ops-inbox-urgency")).toHaveTextContent("urgency High");
+    await userEvent.click(screen.getByTestId("ops-inbox-urgency-high"));
+    expect(await screen.findByTestId(`ops-inbox-needs-${DEMO_RUN}`)).toBeInTheDocument();
     expect(screen.getByText("1 thing needs us.")).toBeInTheDocument();
     // One "All clients" control on the page: the top bar's.
     expect(screen.queryByTestId("ops-inbox-client-select")).toBeNull();
@@ -222,6 +243,72 @@ describe("escalations", () => {
     expect(queries.at(-1)?.get("assigned")).toBe("all");
     expect(queries.at(-1)?.get("client")).toBe(DEMO);
     expect(screen.getByTestId("ops-inbox-client")).toBeInTheDocument();
+  });
+
+  it("hands its Needs us to the frame's badge, which asks for no counts of its own", async () => {
+    // docs/audit-plan.md 2.3: Escalations and the frame count Needs us once.
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/inbox": () => ({ items: [], agents: [] }),
+      "GET /api/ops/needs-us": () => ({ count: 1, escalations: [stuck] }),
+      "GET /api/ops/counts": () => ({ needsUs: 1, clients: [] }),
+    });
+    const { unmount } = render(
+      <MemoryRouter initialEntries={["/ops/inbox"]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    await screen.findByTestId(`ops-inbox-needs-${DEMO_RUN}`);
+    await waitFor(() =>
+      expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Escalations1"),
+    );
+    expect(api.calls).not.toContain("GET /api/ops/counts");
+    expect(api.calls.filter((c) => c === "GET /api/ops/needs-us")).toHaveLength(1);
+    unmount();
+
+    // Narrowed to one client, its count is not the total: the frame asks for its own.
+    render(
+      <MemoryRouter initialEntries={[`/ops/inbox?client=${DEMO}`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    await screen.findByTestId(`ops-inbox-needs-${DEMO_RUN}`);
+    await waitFor(() => expect(api.calls).toContain("GET /api/ops/counts"));
+  });
+
+  it("keeps the list on screen, dimmed, while Resolved loads", async () => {
+    // docs/audit-plan.md 1.8: a filter answers at once.
+    let answer: (v: unknown) => void = () => {};
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/inbox": () => ({ items: [item(SANDBOX_ITEM, SANDBOX, true)], agents: [] }),
+      "GET /api/ops/needs-us": () => NONE_NEED_US,
+    });
+    render(
+      <MemoryRouter initialEntries={["/ops/inbox"]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    await screen.findByTestId(`inbox-item-${SANDBOX_ITEM}`);
+    api.on("GET /api/ops/inbox", () => new Promise((resolve) => (answer = resolve)));
+    await userEvent.click(screen.getByTestId("ops-inbox-filter-resolved"));
+    expect(screen.getByTestId("ops-inbox-list")).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByTestId(`inbox-item-${SANDBOX_ITEM}`)).toBeInTheDocument();
+    answer({ items: [], agents: [] });
+    expect(await screen.findByText("Nothing resolved yet")).toBeInTheDocument();
+
+    // Back to Open: its stored answer shows at once, not dimmed, while it refreshes behind.
+    api.on("GET /api/ops/inbox", () => new Promise(() => {}));
+    await userEvent.click(screen.getByTestId("ops-inbox-filter-open"));
+    const list = await screen.findByTestId("ops-inbox-list");
+    expect(list).not.toHaveAttribute("aria-busy");
+    expect(list).not.toHaveAttribute("inert");
   });
 
   it("opens a run page's link (assigned=all) on what waits on clients", async () => {

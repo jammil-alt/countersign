@@ -1,6 +1,7 @@
 // @countersign/auth: Session, tenant and role helpers (provider kept behind this package).
 // Allowed workspace dependencies: db core. See docs/plan.md §2.
 // Data access is injected (AuthDirectory and friends), so nothing here imports the database.
+export * from "./account";
 export * from "./bearer";
 export * from "./cookies";
 export * from "./dev";

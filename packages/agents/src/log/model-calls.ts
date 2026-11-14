@@ -14,7 +14,7 @@ export interface ModelCallInput {
   runId: string;
   stepRunId: string;
   agentVersionId: string | null;
-  /** `anthropic` | `openai`. */
+  /** `anthropic` | `openai` | `xai` | `google` (core's `modelProvider`). */
   provider: string;
   model: string;
   /** Input tokens, cache reads and writes included. */

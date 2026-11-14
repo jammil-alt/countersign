@@ -19,7 +19,7 @@ import {
   converseTurn,
 } from "@countersign/agents";
 import {
-  type AgentBundle,
+  type AnyAgentBundle,
   CONVERSE_CHANNEL_WORDS,
   CONVERSE_FIXED_INPUTS,
   type ConverseAnswer,
@@ -42,7 +42,6 @@ import {
   type JsonObject,
   type JsonSchema,
   type Locale,
-  levelFor,
   type PeopleBinding,
   parseDuration,
   pickMessage,
@@ -73,6 +72,7 @@ import type {
   WaitRequest,
 } from "@countersign/workflows";
 import { and, asc, eq, gte, ne, sql } from "drizzle-orm";
+import { accountBindings, channelFor, sendingChannels } from "../channels/resolve";
 import { type ContactRow, contactLanguage, reachContactOf } from "../messaging/contacts";
 import { lastInboundAt } from "../messaging/services";
 import {
@@ -83,6 +83,7 @@ import {
   type ReachOutRow,
   reachOutEventType,
   type StoredPlan,
+  unsignedSendRefusal,
 } from "../reach/service";
 import type { StoredEvent } from "./views";
 
@@ -250,11 +251,45 @@ export function converseState(state: unknown): ConverseState["converse"] | null 
   return typeof c.key === "string" ? (c as ConverseState["converse"]) : null;
 }
 
+/**
+ * R7: where a conversation is, read from its rows without moving it on (a v4 conversation step's
+ * check before it waits). `item`: it waits on an inbox item (a signature, or a person's answer
+ * after a hand-over); `reply`: on a reply to an open message, until `wakeAt`; `moving`: something
+ * came in (a reply, an ended message) that the next turn hasn't taken yet.
+ */
+export type ConversePeek =
+  | { kind: "ended"; output: ConverseOutput }
+  | {
+      kind: "item";
+      on: "signature" | "answer";
+      inboxItemId: string;
+      state: ConverseState;
+    }
+  | { kind: "reply"; wakeAt: string }
+  | { kind: "moving" };
+
 export interface ConversePort {
-  start(req: SkillStepRequest): Promise<StepOutcome>;
+  /**
+   * R7: `perMessage` makes every message after the first wait for its own signature (a v4 step's
+   * `messages.later: required`), on top of the person's autonomy and the agent's stage.
+   */
+  start(req: SkillStepRequest, options?: { perMessage?: boolean }): Promise<StepOutcome>;
   resume(req: ResumeRequest): Promise<StepOutcome>;
   waitDone(req: WaitRequest): Promise<boolean>;
   afterWait(req: WaitRequest & { timedOut: boolean }): Promise<StepOutcome>;
+  // R7 (docs/plan.md §1.86): the v4 conversation step's engine (./engine.ts) reads and ends it.
+  /** Where the conversation keyed `key` is; null when it has no rows yet. Changes nothing. */
+  peek(run: RunInfo, key: string): Promise<ConversePeek | null>;
+  /**
+   * Ends it without another message: the open message's wait ends, items it waits on are
+   * withdrawn (expired), and how it ended is kept like any end. `endedNow` false: it had ended
+   * already, and that end is returned. Null when it has no rows.
+   */
+  end(
+    run: RunInfo,
+    key: string,
+    reason: string,
+  ): Promise<{ output: ConverseOutput; endedNow: boolean } | null>;
 }
 
 function clientQuietHours(settings: unknown) {
@@ -842,7 +877,85 @@ export function conversePort(deps: ConverseDeps): ConversePort {
   };
 
   return {
-    async start(req) {
+    async peek(info, key) {
+      const rows = await rowsOf(info.tenantId, info.id, key);
+      const last = rows.at(-1);
+      if (!last) return null;
+      const meta = metaOf(last);
+      if (meta.end) return { kind: "ended", output: outputOf(rows, meta.end) };
+      if (meta.handover) {
+        const id = meta.handover.inboxItemId;
+        return {
+          kind: "item",
+          on: "answer",
+          inboxItemId: id,
+          state: { converse: { key, handover: id } },
+        };
+      }
+      if (last.status === "awaiting_approval" && last.inboxItemId) {
+        return {
+          kind: "item",
+          on: "signature",
+          inboxItemId: last.inboxItemId,
+          state: { converse: { key, reachOutId: last.id } },
+        };
+      }
+      if (last.status === "open") {
+        const setup = setupOf(rows);
+        const due = Math.min(
+          last.dueAt?.getTime() ?? Number.POSITIVE_INFINITY,
+          new Date(setup.deadlineAt).getTime(),
+        );
+        return { kind: "reply", wakeAt: new Date(due).toISOString() };
+      }
+      return { kind: "moving" };
+    },
+
+    async end(info, key, reason) {
+      const rows = await rowsOf(info.tenantId, info.id, key);
+      const last = rows.at(-1);
+      if (!last) return null;
+      const meta = metaOf(last);
+      if (meta.end) return { output: outputOf(rows, meta.end), endedNow: false };
+      const t = now();
+      await withTenant(db, info.tenantId, async (tx) => {
+        if (last.status !== "ended") {
+          await endReachOut(tx, last, { outcome: "no_reply", reason }, t);
+        }
+        // Whatever it waits on is withdrawn: nobody signs or answers for it any more.
+        const waiting = [meta.handover?.inboxItemId, last.inboxItemId].filter(
+          (id): id is string => typeof id === "string",
+        );
+        for (const id of waiting) {
+          await tx
+            .update(inboxItem)
+            .set({ status: "expired" })
+            .where(
+              and(
+                eq(inboxItem.id, id),
+                eq(inboxItem.tenantId, info.tenantId),
+                eq(inboxItem.status, "open"),
+              ),
+            );
+        }
+      });
+      const fresh = await rowsOf(info.tenantId, info.id, key);
+      // DECISION (R7): a conversation its step's deadline stopped is kept as handed over (to the
+      // deadline's `ifNoAnswer`), with the reason; it found what it had found by then.
+      const end = {
+        outcome: "handed_over" as const,
+        result: meta.proposed ?? null,
+        confirmed: false,
+        reason,
+      };
+      const done = await finish(fresh, end);
+      return {
+        output: done.kind === "done" ? (done.output as ConverseOutput) : outputOf(fresh, end),
+        endedNow: true,
+      };
+    },
+
+    async start(req, options = {}) {
       const { run: info } = req;
       const parsed = ConverseInput.safeParse(req.input);
       if (!parsed.success) {
@@ -989,8 +1102,9 @@ export function conversePort(deps: ConverseDeps): ConversePort {
           conn?.create === "auto" &&
           !chosen.plan.needsSignature;
         // DECISION: until the agent is live, and for a person whose channel needs approval, every
-        // message is signed (invariant 8; docs/plan.md §1.42).
-        const perMessage = chosen.plan.needsSignature || agentRow.stage !== "live";
+        // message is signed (invariant 8; docs/plan.md §1.42). R7: and when the step says so.
+        const perMessage =
+          options.perMessage === true || chosen.plan.needsSignature || agentRow.stage !== "live";
         // WhatsApp's 24-hour window for the opening: a template outside it, or nothing.
         let template: StoredPlan["whatsappTemplate"];
         if (channel === "whatsapp" && chosen.who.whatsapp) {
@@ -1260,6 +1374,19 @@ export function conversePort(deps: ConverseDeps): ConversePort {
           );
           return advance(place);
         }
+        if (req.resolution.proceeded === true) {
+          // Wave 2c: nobody answered and `ifNoAnswer` is proceed: the gate decides the message
+          // again (reach/service.ts `unsignedSendRefusal`); a conversation whose every message is
+          // signed never sends one on a deadline (invariant 8).
+          const refused = await withTenant(db, tenantId, async (tx) => {
+            const why = setupOf(rows).perMessage
+              ? "each of its messages needs a person's signature"
+              : await unsignedSendRefusal(tx, row);
+            if (why) await endReachOut(tx, row, { outcome: "declined", reason: why }, t);
+            return why;
+          });
+          if (refused) return { kind: "failed", error: `nobody answered in time, and ${refused}` };
+        }
         const plan = planOf(row);
         const [opened] = await withTenant(db, tenantId, (tx) =>
           tx
@@ -1325,7 +1452,7 @@ export function conversePort(deps: ConverseDeps): ConversePort {
       .from(run)
       .where(and(eq(run.id, info.id), eq(run.tenantId, info.tenantId)));
     if (!agentRow || !v || !tenantRow) return "the agent or its client is gone";
-    const bundle: AgentBundle = v.bundle;
+    const bundle: AnyAgentBundle = v.bundle;
     const people = (agentRow.people ?? {}) as Record<string, PeopleBinding>;
     let candidates: ContactRow[] = [];
     let conditions: ReachConditions = {};
@@ -1359,18 +1486,13 @@ export function conversePort(deps: ConverseDeps): ConversePort {
       }
     }
     if (candidates.length === 0) return "no contact to talk with";
-    const bound = (agentRow.channels ?? {}) as Record<string, string>;
+    // R4: the agent's own channels, else the account's (../channels/resolve.ts), as the portal shows.
     const conns = await tx.select().from(connection).where(eq(connection.tenantId, info.tenantId));
-    const channels = new Map<ReachChannel, { id: string; connector: string; create: string }>();
-    for (const [ch, id] of Object.entries(bound)) {
-      const c = conns.find((x) => x.id === id);
-      if (c?.status !== "connected" || !channelTool(c.connector, ch as ReachChannel)) continue;
-      channels.set(ch as ReachChannel, {
-        id: c.id,
-        connector: c.connector,
-        create: levelFor(c.permissions, "create"),
-      });
-    }
+    const channels = sendingChannels(
+      agentRow.channels as Record<string, string> | null,
+      accountBindings(tenantRow.settings),
+      conns,
+    );
     return {
       agentRow,
       bundle,
@@ -1406,20 +1528,18 @@ export async function conversationRoute(
   stepApprover: string | undefined,
 ) {
   const [a] = await tx
-    .select({ approver: agent.approver, channels: agent.channels })
+    .select({ approver: agent.approver })
     .from(agent)
     .where(and(eq(agent.id, info.agentId), eq(agent.tenantId, info.tenantId)));
   const [v] = await tx
     .select({ bundle: agentVersion.bundle })
     .from(agentVersion)
     .where(and(eq(agentVersion.id, info.agentVersionId), eq(agentVersion.tenantId, info.tenantId)));
-  const connId = ((a?.channels ?? {}) as Record<string, string>)[channel];
-  const [conn] = connId
-    ? await tx
-        .select({ connector: connection.connector })
-        .from(connection)
-        .where(and(eq(connection.id, connId), eq(connection.tenantId, info.tenantId)))
-    : [];
+  // R4: the channel the conversation is held on (the agent's own, else the account's), so the
+  // approver rules see the connection the messages go through.
+  const conn = a
+    ? await channelFor(tx, info.tenantId, info.agentId, channel as ReachChannel)
+    : null;
   const route = routeApproval({
     rules: routing.rules,
     facts: {

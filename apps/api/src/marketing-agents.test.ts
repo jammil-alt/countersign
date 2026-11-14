@@ -15,7 +15,15 @@ import {
   MemoryObjectStore,
 } from "@countersign/connectors";
 import { AgentBundle, validateBundle } from "@countersign/core";
-import { agent, connection, externalAction, inboxItem, stepRun, toolCall } from "@countersign/db";
+import {
+  agent,
+  agentVersion,
+  connection,
+  externalAction,
+  inboxItem,
+  stepRun,
+  toolCall,
+} from "@countersign/db";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import {
   contentPage,
@@ -100,9 +108,16 @@ describe.skipIf(!h)("the Marketing agent set on the platform", () => {
       onWait?: (type: string) => Promise<unknown>;
     } = {},
   ) {
+    // Skill model (2026-11-10): the scripted runs are v2's, the agent-mode skills stored agents
+    // still run; v3 (AI skills and write steps) is held by templates-skill-model.test.ts.
+    const [v2] = await H.t.db
+      .select({ id: agentVersion.id })
+      .from(agentVersion)
+      .where(and(eq(agentVersion.agentId, templates[slug] as string), eq(agentVersion.version, 2)));
     const fork = await H.call(OPERATOR, "POST", `/api/ops/templates/${templates[slug]}/fork`, {
       clientId: H.A.tenantId,
       slug: `${slug}-a`,
+      versionId: v2?.id,
     });
     expect(fork.status, JSON.stringify(fork.json)).toBe(200);
     const agentId = j(fork.json).agent.id as string;

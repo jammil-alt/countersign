@@ -32,7 +32,9 @@ const skillDef = (instructions: string) => ({
   name: "Same item",
   description: "Says whether two descriptions name the same item",
   category: "matching",
-  mode: "agent",
+  // Skill model (2026-11-10): new operator skills are AI skills (agent mode retired).
+  mode: "task",
+  model: { id: "claude-haiku-5-5" },
   instructions,
   tools: [],
   input: {

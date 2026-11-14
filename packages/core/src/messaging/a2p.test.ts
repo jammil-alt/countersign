@@ -190,7 +190,7 @@ describe("what is stored and answered", () => {
 
   it("keeps the EIN out of every response and the portal's view free of cost and SIDs", () => {
     for (const [name, spec] of Object.entries(routes)) {
-      // §1.83: a route may show a person their own secret once (contract.ts `secretShownOnce`).
+      // §1.99: a route may show a person their own secret once (contract.ts `secretShownOnce`).
       const shown = (spec as { secretShownOnce?: readonly string[] }).secretShownOnce ?? [];
       expect(
         secretResponseFields(spec.response).filter((f) => !shown.includes(f)),

@@ -14,6 +14,8 @@ import {
   LEDGER_SKILLS,
   PLATFORM_TOOLS,
   REACH_SKILLS,
+  // Reshape data (2026-11-11)
+  RESHAPE_SKILLS,
   type RegistryContext,
   SkillCatalog,
   SUPERVISOR_SKILLS,
@@ -22,10 +24,13 @@ import {
   TRANSLATE_SKILLS,
 } from "@countersign/agents";
 import {
+  // §1.87
+  billcomEnvironment,
   type Connector,
   ConnectorRegistry,
   // v0.12 bankfeed
   createBankfeedConnector,
+  createBillcomConnector,
   // M45 (docs/plan.md §1.75)
   createBingWebmasterConnector,
   createBrowserConnector,
@@ -69,6 +74,8 @@ import {
 } from "@countersign/connectors";
 import { SkillDefinition } from "@countersign/core";
 import { EventTypeRegistry } from "@countersign/senses";
+// Skill model (2026-11-10): publish checks a message action against the agent's channels.
+import { actionChannels } from "./channels/resolve";
 import type { Bindings } from "./env";
 import { DEPLOYMENT_PACKS, packToolSource, type RegisteredPack } from "./packs";
 
@@ -78,6 +85,8 @@ export interface Platform {
   catalog: SkillCatalog;
   events: EventTypeRegistry;
   // P-1: the packs it registered, with their reports, review cards and actions.
+  /** §1.88: the packs' skills replaced for new steps (id → its replacement), for the palette. */
+  superseded: Readonly<Record<string, string>>;
   packs: readonly RegisteredPack[];
   /** What publishing and validation need: tools, skills, event types. */
   ctx: RegistryContext;
@@ -158,6 +167,8 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       ...INBOUND_SKILLS,
       // P-7: message translation (comms.translate)
       ...TRANSLATE_SKILLS,
+      // Reshape data (2026-11-11): data.reshape, the built-in deterministic mapping step.
+      ...RESHAPE_SKILLS,
       ...SUPERVISOR_SKILLS,
       // v0.12 W2-D: Sloan's conversation (account.chat)
       ...ACCOUNT_SKILLS,
@@ -184,7 +195,8 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
     catalog,
     events,
     packs,
-    ctx: { tools, catalog, events: events.byType() },
+    superseded: Object.assign({}, ...packs.map((p) => p.manifest.superseded ?? {})),
+    ctx: { tools, catalog, events: events.byType(), actionChannels },
   };
 }
 
@@ -248,7 +260,10 @@ type OAuthEnvKey =
   | "INDEXNOW_KEY"
   // §1.77: our LinkedIn app.
   | "LINKEDIN_CLIENT_ID"
-  | "LINKEDIN_CLIENT_SECRET";
+  | "LINKEDIN_CLIENT_SECRET"
+  // §1.87: our BILL developer key and which BILL.
+  | "BILL_DEV_KEY"
+  | "BILL_ENV";
 
 export function platformFor(
   env: Pick<Bindings, "ENVIRONMENT" | OAuthEnvKey | "BROWSER">,
@@ -287,6 +302,9 @@ export function platformFor(
     // §1.77: LinkedIn's app id, and whether its secret is set (never the secret).
     env.LINKEDIN_CLIENT_ID ?? "-",
     env.LINKEDIN_CLIENT_SECRET ? "linkedin" : "-",
+    // §1.87: whether BILL's developer key is set (never the key), and which BILL.
+    env.BILL_DEV_KEY ? "billcom" : "-",
+    billcomEnvironment(env.BILL_ENV),
   ].join(":");
   if (cached?.key !== key) {
     cached = {
@@ -428,6 +446,13 @@ export function deploymentConnectors(
     // §1.77 (M49): LinkedIn company page posts, always signed; like Outlook, registered everywhere
     // and signing in once LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET and OAUTH_STATE_SECRET are set.
     createLinkedInConnector(oauthClient(env.LINKEDIN_CLIENT_ID, env.LINKEDIN_CLIENT_SECRET, env)),
+    // §1.87: BILL (Bill.com), registered everywhere so it can be offered and built with; the client
+    // admin enters a BILL user's login in the vault, and every tool refuses until BILL_DEV_KEY is
+    // set. BILL_ENV picks the sandbox or production host (the key must be that environment's).
+    createBillcomConnector({
+      devKey: env.BILL_DEV_KEY,
+      environment: billcomEnvironment(env.BILL_ENV),
+    }),
     ...(production
       ? []
       : [createTestkitConnector(new TestkitBackend({ samples: TESTKIT_SAMPLE_RECORDS }))]),

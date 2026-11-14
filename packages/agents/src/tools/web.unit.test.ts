@@ -1,7 +1,7 @@
 // §1.77: `web.search` and `web.fetch` with a scripted model: the request is one call with the
 // vendor's server-side tool and `max_uses: 1`; results come from the answer's blocks, never from
 // the model's own words; the search's price is added to its cost; research off answers `off`; the
-// per-step caps hold; an `openai:` model is refused.
+// per-step caps hold; an `openai:`, `xai:` or `google:` model is refused.
 
 import {
   DEFAULT_MODELS,
@@ -286,9 +286,9 @@ describe("web.search", () => {
   });
 
   it("runs only on the vendor's server-side tools", () => {
-    expect(() => llmWebResearch({ transport: new FakeModel(), model: MODELS.gpt })).toThrow(
-      WebResearchError,
-    );
+    for (const model of [MODELS.gpt, MODELS.grok, MODELS.geminiPro]) {
+      expect(() => llmWebResearch({ transport: new FakeModel(), model })).toThrow(WebResearchError);
+    }
   });
 });
 

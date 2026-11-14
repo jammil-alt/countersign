@@ -4,7 +4,6 @@
 // its record page, but a receivable's: no route serves one receivable yet, so its row doesn't link.
 import type { RecordList, RecordListKind, RecordSource } from "@countersign/core";
 import { RECORD_LIST_PAGE } from "@countersign/core";
-import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -12,9 +11,21 @@ import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { day, txnKind } from "../../records/RecordDetail";
 import { shortTime } from "../../runs/format";
+import { useAnswered, useSearchBox } from "../../runs/useDebounced";
+import { cx } from "../../ui/cx";
 import { Icon } from "../../ui/icons";
 import { Loaded, Page } from "../../ui/page";
-import { Badge, Button, Card, EmptyState, PageHeader, Tabs } from "../../ui/primitives";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorNotice,
+  PageHeader,
+  Tabs,
+} from "../../ui/primitives";
+import { useRowLink } from "../../ui/rows";
+import { SkeletonRows } from "../../ui/skeleton";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { money } from "../documents";
 
@@ -60,25 +71,25 @@ export function PortalRecordsScreen() {
     setParams(next, { replace: true });
   };
 
-  // The search box updates the URL once typing pauses.
-  const [text, setText] = useState(q);
-  useEffect(() => setText(q), [q]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `set` reads the current params.
-  useEffect(() => {
-    if (text.trim() === q) return;
-    const timer = setTimeout(() => set({ q: text.trim(), page: "" }), 300);
-    return () => clearTimeout(timer);
-  }, [text, q]);
+  // The search box updates the URL once typing pauses; the list follows in a transition.
+  const [text, setText] = useSearchBox(q, (word) => set({ q: word, page: "" }));
 
-  const state = useApi(apiRoutes.portalRecords, {
-    query: {
-      kind,
-      ...(q ? { q } : {}),
-      offset: (page - 1) * RECORD_LIST_PAGE,
-      limit: RECORD_LIST_PAGE,
-    },
-  });
-  const { data } = state;
+  const query = {
+    kind,
+    ...(q ? { q } : {}),
+    offset: (page - 1) * RECORD_LIST_PAGE,
+    limit: RECORD_LIST_PAGE,
+  };
+  // A search, a tab or a page of the client's records: the rows stay, dimmed, while the next
+  // answer loads.
+  const state = useApi(apiRoutes.portalRecords, { query, keep: true });
+  const { data, error, reload } = state;
+  // What the rows on screen answer: an earlier search while the next loads, or if it failed.
+  const answered = useAnswered(data, query);
+  const stale = answered.stale;
+  // DECISION: rows of another kind are never kept (docs/plan.md §1.91, 5): a tab shows its
+  // skeleton until its own answer comes. The tab counts are the client's, the same in every answer.
+  const ofKind = data && data.page.kind !== kind ? { ...state, data: undefined } : state;
   const sources = new Map((data?.sources ?? []).map((s) => [s.id, s]));
 
   return (
@@ -114,18 +125,27 @@ export function PortalRecordsScreen() {
           onChange={(e) => setText(e.target.value)}
           className="ui-ask__input"
         />
-        {data ? (
+        {ofKind.data && !stale ? (
           <span className="text-sm text-ink-muted figures" data-testid="portal-records-found">
-            {t("records.found", { count: data.total })}
+            {t("records.found", { count: ofKind.data.total })}
           </span>
         ) : null}
       </label>
-      <Loaded state={state}>
+      {ofKind.data && error ? <ErrorNotice error={error} onRetry={reload} /> : null}
+      <Loaded state={ofKind} skeleton={<SkeletonRows rows={8} columns={5} />}>
         {(list) =>
           list.page.rows.length === 0 ? (
-            <EmptyState>{q ? t("records.noMatch", { q }) : t("records.empty")}</EmptyState>
+            <EmptyState>
+              {answered.query.q
+                ? t("records.noMatch", { q: answered.query.q })
+                : t("records.empty")}
+            </EmptyState>
           ) : (
-            <div className="flex flex-col gap-3">
+            <div
+              aria-busy={stale}
+              data-testid="portal-records-list"
+              className={cx("flex flex-col gap-3 transition-opacity", stale && "opacity-60")}
+            >
               {/* One account: named once above the table, not on every row (QA round 1). */}
               {list.sources.length === 1 && list.sources[0] ? (
                 <p className="text-sm text-ink-muted" data-testid="portal-records-account">
@@ -168,6 +188,7 @@ function RecordsTable({
   showSource: boolean;
 }) {
   const { t } = i18n;
+  const rowLink = useRowLink();
   const open = (id: string, label: string) => (
     <Link to={`/records/${id}`} className="font-medium text-ink hover:underline">
       {label}
@@ -189,7 +210,11 @@ function RecordsTable({
         </thead>
         <tbody>
           {data.page.rows.map((r) => (
-            <tr key={r.id} data-testid={`portal-records-row-${r.id}`}>
+            <tr
+              key={r.id}
+              data-testid={`portal-records-row-${r.id}`}
+              {...rowLink(`/records/${r.id}`)}
+            >
               <td className="text-ink figures">{day(r.txnDate, i18n)}</td>
               <td>
                 {open(r.id, txnKind(r.txnKind, i18n))}
@@ -217,7 +242,11 @@ function RecordsTable({
         </thead>
         <tbody>
           {data.page.rows.map((r) => (
-            <tr key={r.id} data-testid={`portal-records-row-${r.id}`}>
+            <tr
+              key={r.id}
+              data-testid={`portal-records-row-${r.id}`}
+              {...rowLink(`/records/${r.id}`)}
+            >
               <td>{open(r.id, r.name)}</td>
               <td className="n text-ink figures">{i18n.fmt.number(r.transactions)}</td>
               {showSource ? <td className="text-ink">{sourceName(sources, r.sourceId)}</td> : null}
@@ -288,7 +317,11 @@ function RecordsTable({
       </thead>
       <tbody>
         {data.page.rows.map((r) => (
-          <tr key={r.id} data-testid={`portal-records-row-${r.id}`}>
+          <tr
+            key={r.id}
+            data-testid={`portal-records-row-${r.id}`}
+            {...rowLink(`/records/${r.id}`)}
+          >
             <td>
               {open(r.id, r.name)}
               {r.deleted ? deleted : null}

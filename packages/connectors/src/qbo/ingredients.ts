@@ -23,6 +23,7 @@ import {
   type ClientFor,
   Page,
   page,
+  QBO_STAND_IN,
   QBO_TOOLS,
   QboAddressInput,
   wireAddress,
@@ -201,6 +202,8 @@ function vendorCreateTool(clientFor: ClientFor): ToolDefinition {
     description:
       "Add a vendor to QuickBooks: its display name (new to the company), company name, email, phone, billing address and payment terms. Refused if a vendor with the same name is there. The output's id is the new vendor's, for a later step.",
     verb: "create",
+    // R5: no void or archive tool yet, and delete stays off (docs/plan.md §9 follow-ups).
+    undo: { kind: "none" },
     summary: "Added vendor {{displayName}} to QuickBooks",
     display: vendorCreateDisplay,
     input: VendorCreateInput,
@@ -210,6 +213,7 @@ function vendorCreateTool(clientFor: ClientFor): ToolDefinition {
       displayName: z.string(),
       alreadyDone: z.boolean(),
     }),
+    testOutput: (input) => ({ ...QBO_STAND_IN, displayName: input.displayName }),
     // DECISION: a new vendor has no prior state; `before` says no vendor had the name (`existing`
     // null) and keeps what the card names: the address on one line and the terms' name.
     beforeSchema: z.object({

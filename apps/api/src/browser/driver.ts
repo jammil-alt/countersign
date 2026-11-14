@@ -1,39 +1,54 @@
-// The BrowserDriver on Cloudflare Browser Run (ARCHITECTURE §6.10; docs/plan.md §1.26 "Browser
-// driver"): one browser session per tool call over the optional `BROWSER` binding, with
-// `@cloudflare/playwright` and the connector's Playwright adapter. Session recording stays off
-// (sign-in is never recorded) and the browser may reach only the site's own hosts and common CDNs
-// (Browser Run's guardrails). Closing the tab destroys the browser.
+// The BrowserDriver as apps/api has it (ARCHITECTURE §6.10; docs/plan.md §1.26 "Browser driver"):
+// one browser per tool call, or per browsing skill run and site (a held session, §1.86), in the
+// browser service (apps/browser, Worker `mezonas-browser`), reached only through the optional
+// `BROWSER` service binding. Browser Run and Playwright live there, so this Worker carries neither;
+// everything that decides (the permission gate, pinned origins, the blocked tier, the vault, the
+// audit, external actions) stays here, in the connector that drives the tab. Closing the tab
+// destroys the browser.
 
-import { type BrowserTab, type PlaywrightPageLike, playwrightTab } from "@countersign/connectors";
+import { type BrowserTab, type BrowserTabService, remoteBrowserTab } from "@countersign/connectors";
+import { z } from "zod";
 import type { Bindings } from "../env";
 
-/** Opens a fresh Browser Run browser for one site; null without the binding. */
+/**
+ * `open`'s answer (connectors' `BrowserOpenAnswer`), checked (invariant 5). The tab is an RPC stub,
+ * so only its presence is checked here; each of its answers is checked by `remoteBrowserTab`.
+ */
+const OpenAnswer = z.discriminatedUnion("ok", [
+  z.object({
+    ok: z.literal(true),
+    url: z.string(),
+    tab: z.custom<BrowserTabService>(
+      (v) => v !== null && (typeof v === "object" || typeof v === "function"),
+    ),
+  }),
+  z.object({
+    ok: z.literal(false),
+    error: z.object({ code: z.enum(["no_browser", "invalid"]), message: z.string() }),
+  }),
+]);
+
+/** Opens a fresh browser for one site in the browser service; undefined without the binding. */
+// DECISION: the binding keeps the name `BROWSER` (now a service binding, not Browser Run itself),
+// so the code that only asks whether browsers are available here (platform.ts) reads the same.
 export function browserRunOpener(
   env: Pick<Bindings, "BROWSER">,
-): ((options: { hosts: string[] }) => Promise<BrowserTab | null>) | undefined {
-  const binding = env.BROWSER;
-  if (!binding) return undefined;
-  return async ({ hosts }) => {
-    // Imported here: the library reaches for `cloudflare:workers`, which only the Worker has.
-    const { launch } = await import("@cloudflare/playwright");
-    // DECISION: guardrails hold the browser to the site's hosts (and Browser Run's common CDN
-    // list), so a page can't send it elsewhere even before our URL checks run; recording is off.
-    const browser = await launch(binding, {
-      recording: false,
-      keep_alive: 60_000,
-      guardrails: { allowedDomains: hosts.slice(0, 50), allowedDomainSets: ["common-cdns"] },
+):
+  | ((options: { hosts: string[]; keepAliveMs?: number | undefined }) => Promise<BrowserTab | null>)
+  | undefined {
+  const service = env.BROWSER;
+  if (!service) return undefined;
+  return async ({ hosts, keepAliveMs }) => {
+    const answer = await service.open({
+      hosts,
+      ...(keepAliveMs === undefined ? {} : { keepAliveMs }),
     });
-    try {
-      const context = await browser.newContext({ acceptDownloads: false });
-      const page = await context.newPage();
-      return playwrightTab(page as unknown as PlaywrightPageLike, {
-        close: async () => {
-          await browser.close();
-        },
-      });
-    } catch (error) {
-      await browser.close().catch(() => undefined);
-      throw error;
-    }
+    const parsed = OpenAnswer.safeParse(answer);
+    if (!parsed.success) throw new Error("the browser service gave an unexpected answer to open");
+    const opened = parsed.data;
+    if (opened.ok) return remoteBrowserTab(opened.tab, opened.url);
+    // No Browser Run behind the service: the same as no browser here.
+    if (opened.error.code === "no_browser") return null;
+    throw new Error(`the browser service refused: ${opened.error.message}`);
   };
 }

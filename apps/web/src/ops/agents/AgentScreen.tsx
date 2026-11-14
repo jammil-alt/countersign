@@ -6,7 +6,7 @@
 // publish) and Settings, split into Access (applies at once, logged) and Definition (a new draft
 // version). The old Triggers and Tests addresses open their new homes. `/revise` asks the Builder
 // for a new draft. `?version=N` shows an older version on the bundle tabs.
-import type { AgentBundle } from "@countersign/core";
+import type { AnyAgentBundle } from "@countersign/core";
 import type { ReactNode } from "react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
@@ -25,6 +25,7 @@ import { type ApiState, useApi } from "../../api/useApi";
 import { OpsChannelsSection, OpsPeopleSection } from "../../people/PeoplePanel";
 import { HeaderSwitcher } from "../../shell/HeaderSwitcher";
 import { AgentBadge } from "../../ui/badges";
+import { Icon } from "../../ui/icons";
 import {
   Badge,
   Button,
@@ -36,11 +37,14 @@ import {
   SectionLabel,
   Tabs,
 } from "../../ui/primitives";
+import { Skeleton, SkeletonBlock, SkeletonCard, SkeletonLine } from "../../ui/skeleton";
 import { StatusChip, serviceChipState } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
+import { labPath } from "../lab/back";
+import { AssignToClient } from "../lab/TemplateParts";
 import { OPS_PATHS } from "../paths";
 import { TriggersPanel } from "../triggers/TriggersScreen";
-import { liveAndDraft, parseBundle, versionBadges } from "../versions";
+import { liveAndDraft, parseAnyBundle, versionBadges } from "../versions";
 import { workflowStats } from "../workflow/describe";
 import { StepList } from "../workflow/StepList";
 import { ReviseTab } from "./BuilderParts";
@@ -50,6 +54,7 @@ import { AgentLineage, agentKindBadge } from "./Lineage";
 import { OperationPanel, ServicePanel } from "./OperationPanel";
 import { LatestRuns, OverviewTab } from "./OverviewTab";
 import { PricePanel } from "./PricePanel";
+import { type Prefetch, prefetchWorkflowTab, useIntent } from "./prefetch";
 import { TestsTab } from "./TestsTab";
 import { detailMessages, errorText, Notice, notifyAgentsChanged, plural, useAction } from "./ui";
 import { VersionsTab } from "./VersionsTab";
@@ -76,76 +81,163 @@ function AgentTabs({
   workflow,
   versions,
   workflowActive,
+  agentId,
+  isClient = false,
 }: {
   base: string;
   keep: string;
   workflow: string | null;
   versions: number | null;
   workflowActive: boolean;
+  /** Known: hovering or focusing a tab fetches that tab's own data (1.5, 1.6). */
+  agentId?: string | undefined;
+  /** A client agent; a template's Runs and Versions tabs prefetch nothing. */
+  isClient?: boolean;
 }) {
+  const intent = useIntent();
+  // The tabs are shared links (ui/primitives' `Tabs`): which one the pointer or focus is on is
+  // read from the link's address, one prefetch per tab.
+  const onIntent = (target: EventTarget | null) => {
+    if (!agentId || !(target instanceof Element)) return null;
+    const href = target.closest("a")?.getAttribute("href") ?? "";
+    const tab = href.slice(base.length).split(/[/?]/)[1] ?? "";
+    // A template has no runs, activation or go-live stage: its Runs and Versions tabs ask none.
+    if (!isClient && (tab === "runs" || tab === "versions")) return null;
+    const run = TAB_PREFETCH[tab];
+    return run ? intent(`${agentId}:${tab}`, (p) => run(p, agentId)) : null;
+  };
   return (
-    <Tabs
-      items={[
-        { to: `${base}${keep}`, label: "Overview", end: true },
-        {
-          to: workflow ? `${base}/workflows/${workflow}` : `${base}/workflow`,
-          label: "Workflow",
-          active: workflowActive,
-        },
-        { to: `${base}/runs${keep}`, label: "Runs" },
-        {
-          to: `${base}/versions${keep}`,
-          label: "Versions",
-          ...(versions === null ? {} : { count: versions }),
-        },
-        { to: `${base}/settings`, label: "Settings" },
-      ]}
-    />
+    // biome-ignore lint/a11y/noStaticElementInteractions: the links inside are the controls; this only listens.
+    <div
+      onPointerOver={(e) => onIntent(e.target)?.onPointerEnter(e)}
+      onFocus={(e) => onIntent(e.target)?.onFocus(e)}
+    >
+      <Tabs
+        items={[
+          { to: `${base}${keep}`, label: "Overview", end: true },
+          {
+            to: workflow ? `${base}/workflows/${workflow}` : `${base}/workflow`,
+            label: "Workflow",
+            active: workflowActive,
+          },
+          { to: `${base}/runs${keep}`, label: "Runs" },
+          {
+            to: `${base}/versions${keep}`,
+            label: "Versions",
+            ...(versions === null ? {} : { count: versions }),
+          },
+          { to: `${base}/settings`, label: "Settings" },
+        ]}
+      />
+    </div>
   );
 }
 
+/** Each tab's own first calls, fetched on hover or focus of the tab (1.5). */
+const TAB_PREFETCH: Record<string, (p: Prefetch, id: string) => void> = {
+  workflow: prefetchWorkflowTab,
+  workflows: prefetchWorkflowTab,
+  runs: (p, id) => p(apiRoutes.opsRuns, { query: { agent: id, limit: 50 } }),
+  versions: (p, id) => {
+    p(apiRoutes.opsActivation, { params: { id } });
+    p(apiRoutes.opsAgentGoLive, { params: { id } });
+  },
+  settings: (p, id) => p(apiRoutes.opsBuilderCatalog, { params: { id } }, "catalog"),
+};
+
 /**
- * The page's frame while the agent loads (the owner's review: pages hung on "Loading…"): the bar's
- * place and the tabs at once, so the page doesn't jump when the agent arrives.
+ * The page's frame while the agent loads (the owner's review: pages hung on "Loading…"): the back
+ * link, the bar and the tabs at once, so the page doesn't jump when the agent arrives. With the
+ * agent's row (the client's list, or the link that was clicked) the bar shows its name, kind and
+ * status already (1.4); the versions and the tab's body follow.
  */
 export function AgentFrameSkeleton({
   base,
   error,
   tabs = true,
+  summary,
+  clientName,
 }: {
   base: string;
   error?: ReactNode;
   /** False while the page's own address isn't known yet (`/ops/agents/:id`). */
   tabs?: boolean;
+  /** The agent's row, when the page has it before the agent itself. */
+  summary?: AgentSummary | undefined;
+  clientName?: string | undefined;
 }) {
   const workflowTab = useMatch(`${base}/workflow`);
   const builder = useMatch(`${base}/workflows/*`);
   const workflowActive = workflowTab !== null || builder !== null;
+  const tabRow = tabs ? (
+    <AgentTabs
+      base={base}
+      keep=""
+      workflow={null}
+      versions={null}
+      workflowActive={workflowActive}
+      agentId={summary?.id}
+      isClient={summary?.kind === "client"}
+    />
+  ) : (
+    <div className="h-4" />
+  );
+  const body = error ?? (
+    <Skeleton label="Loading the agent…">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_340px]">
+        <div className="flex flex-col gap-5">
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={2} />
+        </div>
+        <SkeletonCard lines={4} />
+      </div>
+    </Skeleton>
+  );
+  if (summary) {
+    return (
+      <div className="flex flex-col gap-6" data-testid="agent-skeleton">
+        <AgentBar
+          view={summary}
+          clientName={clientName}
+          bundle={null}
+          live={null}
+          draft={null}
+          lineage={null}
+          pending
+        >
+          {tabRow}
+        </AgentBar>
+        {body}
+      </div>
+    );
+  }
+  const clientId = base.match(/^\/ops\/clients\/([^/]+)\/agents\//)?.[1];
   return (
     <div className="flex flex-col gap-6" data-testid="agent-skeleton">
-      <Card>
-        <div className="flex items-start gap-4 px-6 pt-5 pb-1" aria-hidden>
-          <span className="ds-avatar ds-avatar--lg bg-surface-subtle" />
-          <div className="flex flex-1 flex-col gap-2 pt-1">
-            <span className="h-6 w-56 max-w-full rounded-sm bg-surface-subtle" />
-            <span className="h-4 w-80 max-w-full rounded-sm bg-surface-subtle" />
+      <div className="flex flex-col gap-3">
+        {clientId ? (
+          <Link
+            to={`${OPS_PATHS.client(clientId)}/agents`}
+            className="ui-back"
+            data-testid="agent-back"
+          >
+            <Icon name="arrow" size={14} className="rotate-180" />
+            {`All ${clientName ?? "client"} agents`}
+          </Link>
+        ) : null}
+        <Card>
+          <div className="flex items-start gap-4 px-6 pt-5 pb-1" aria-hidden>
+            <span className="ds-avatar ds-avatar--lg bg-surface-subtle" />
+            <div className="flex flex-1 flex-col gap-2 pt-1">
+              <SkeletonLine size="small" width={120} />
+              <SkeletonLine size="heading" width={224} />
+              <SkeletonLine size="small" width={320} />
+            </div>
           </div>
-        </div>
-        {tabs ? (
-          <div className="px-6 [&>nav]:border-b-0">
-            <AgentTabs
-              base={base}
-              keep=""
-              workflow={null}
-              versions={null}
-              workflowActive={workflowActive}
-            />
-          </div>
-        ) : (
-          <div className="h-4" />
-        )}
-      </Card>
-      {error ?? <Loading label="Loading the agent…" />}
+          <div className="px-6 [&>nav]:border-b-0">{tabRow}</div>
+        </Card>
+      </div>
+      {body}
     </div>
   );
 }
@@ -157,6 +249,7 @@ export function AgentScreen({
   connections = [],
   members = [],
   initial,
+  summary,
 }: {
   agentId: string;
   /** The page's URL: `/ops/clients/<id>/agents/<slug>` or `/ops/templates/<slug>`. */
@@ -169,6 +262,8 @@ export function AgentScreen({
   members?: readonly Member[];
   /** The agent as a page that sent here had it already: shown while it is fetched again. */
   initial?: AgentDetail | undefined;
+  /** The agent's row (the client's list): the bar while the agent itself loads. */
+  summary?: AgentSummary | undefined;
 }) {
   const [search] = useSearchParams();
   const navigate = useNavigate();
@@ -177,6 +272,13 @@ export function AgentScreen({
   const agent = useApi(apiRoutes.opsAgent, { params: { id: agentId } });
   const data = agent.data ?? (initial?.agent.id === agentId ? initial : undefined);
   const skills = useApi(apiRoutes.opsAgentSkills, { params: { id: agentId } });
+  // The Overview's connector names (`useConnectorNames`), asked beside the agent instead of after
+  // it: the same key, so the tab joins this request (1.5).
+  const overview = useMatch({ path: base, end: true });
+  useApi(
+    apiRoutes.opsBuilderCatalog,
+    overview ? { params: { id: agentId }, life: "catalog" } : null,
+  );
   // A client agent's template: its name and versions, for the bar and the Versions tab.
   const templateId = data?.agent.kind === "client" ? data.agent.templateId : null;
   const template = useApi(apiRoutes.opsAgent, templateId ? { params: { id: templateId } } : null);
@@ -209,6 +311,8 @@ export function AgentScreen({
     return (
       <AgentFrameSkeleton
         base={base}
+        summary={summary?.id === agentId ? summary : undefined}
+        clientName={clientName}
         error={agent.error ? <ErrorNotice error={agent.error} onRetry={agent.reload} /> : undefined}
       />
     );
@@ -219,9 +323,9 @@ export function AgentScreen({
   const shown: VersionDetail | null = requested
     ? (inHand ?? fetched.data?.version ?? null)
     : (data.live ?? data.latest);
-  const parsed = shown ? parseBundle(shown) : null;
+  const parsed = shown ? parseAnyBundle(shown) : null;
   const bundle = parsed?.ok ? parsed.bundle : null;
-  const liveParsed = data.live ? parseBundle(data.live) : null;
+  const liveParsed = data.live ? parseAnyBundle(data.live) : null;
   const liveBundle = liveParsed?.ok ? liveParsed.bundle : null;
 
   const keep = search.toString() ? `?${search.toString()}` : "";
@@ -241,10 +345,12 @@ export function AgentScreen({
     <ErrorNotice error={new Error(parsed.message)} />
   ) : null;
 
-  // The builder edits the latest version (draft or live), like the definition editor.
-  const latestParsed = data.latest ? parseBundle(data.latest) : null;
-  const latestBundle = latestParsed?.ok ? latestParsed.bundle : null;
-  const builderStart = latestBundle?.workflows[0]?.slug ?? "main";
+  // The builder edits the latest version (draft or live), like the definition editor. R8: every
+  // tab reads a version that holds v4 processes too (what the builder saves, and the templates'
+  // v4 versions and their forks).
+  const latestAnyParsed = data.latest ? parseAnyBundle(data.latest) : null;
+  const latestAny = latestAnyParsed?.ok ? latestAnyParsed.bundle : null;
+  const builderStart = latestAny?.workflows[0]?.slug ?? "main";
   const isClient = view.kind === "client";
   const tabs = (
     <AgentTabs
@@ -253,6 +359,8 @@ export function AgentScreen({
       workflow={builderStart}
       versions={versions.length}
       workflowActive={builder !== null || workflowTab !== null}
+      agentId={view.id}
+      isClient={view.kind === "client"}
     />
   );
   const lineage = (
@@ -261,7 +369,7 @@ export function AgentScreen({
 
   if (builder) {
     const latest = data.latest;
-    if (!latest || !latestBundle) {
+    if (!latest || !latestAny) {
       return (
         <div>
           <AgentBar
@@ -275,8 +383,8 @@ export function AgentScreen({
             {tabs}
           </AgentBar>
           <div className="pt-6">
-            {latestParsed && !latestParsed.ok ? (
-              <ErrorNotice error={new Error(latestParsed.message)} />
+            {latestAnyParsed && !latestAnyParsed.ok ? (
+              <ErrorNotice error={new Error(latestAnyParsed.message)} />
             ) : (
               <EmptyState>This agent has no versions yet.</EmptyState>
             )}
@@ -285,12 +393,28 @@ export function AgentScreen({
       );
     }
     return (
-      <Suspense fallback={<Loading label="Opening the workflow builder…" />}>
+      <Suspense
+        fallback={
+          // The builder's own frame while its chunk loads: the agent, the tabs, the canvas's place.
+          <div data-testid="agent-builder-loading">
+            <div className="flex min-w-0 items-center gap-3 pb-3">
+              <AgentBadge name={view.serviceName ?? view.name} seed={view.id} size="md" />
+              <h1 className="type-subheading text-ink">{view.serviceName ?? view.name}</h1>
+            </div>
+            <div className="overflow-x-auto">{tabs}</div>
+            <div className="pt-6">
+              <Skeleton label="Opening the workflow builder…">
+                <SkeletonBlock height={480} />
+              </Skeleton>
+            </div>
+          </div>
+        }
+      >
         <WorkflowBuilder
           key={`${view.id}:${builderEpoch}`}
           agent={view}
           from={latest}
-          bundle={latestBundle}
+          bundle={latestAny}
           workflow={builder.params.workflow ?? builderStart}
           base={base}
           tabs={tabs}
@@ -301,7 +425,7 @@ export function AgentScreen({
               <TriggersPanel
                 agent={view}
                 latest={latest}
-                bundle={latestBundle}
+                bundle={latestAny}
                 onChanged={(versionId) => {
                   setAwaiting(versionId);
                   reload();
@@ -322,7 +446,7 @@ export function AgentScreen({
       <AgentBar
         view={view}
         clientName={clientName}
-        bundle={latestBundle ?? bundle}
+        bundle={latestAny ?? bundle}
         live={live}
         draft={draft}
         lineage={lineage}
@@ -331,7 +455,9 @@ export function AgentScreen({
             view={view}
             base={base}
             detail={data}
-            canRevise={latestBundle !== null}
+            // Wave 3b: the Builder's server sessions draft processes, so any readable version
+            // can be revised.
+            canRevise={latestAny !== null}
             onChanged={reload}
             onDiscarded={() =>
               navigate(view.kind === "template" ? "/ops/lab" : `/ops/clients/${view.tenantId}`)
@@ -354,12 +480,7 @@ export function AgentScreen({
             element={
               blocked ??
               (bundle ? (
-                <OverviewTab
-                  agent={view}
-                  bundle={bundle}
-                  base={base}
-                  skills={skills.data?.skills ?? []}
-                />
+                <OverviewTab agent={view} bundle={bundle} base={base} skills={skills} />
               ) : null)
             }
           />
@@ -470,15 +591,18 @@ function AgentBar({
   draft,
   lineage,
   actions,
+  pending = false,
   children,
 }: {
   view: AgentSummary;
   clientName: string | undefined;
-  bundle: AgentBundle | null;
+  bundle: AnyAgentBundle | null;
   live: { version: number } | null;
   draft: { version: number } | null;
   lineage: ReactNode;
   actions?: ReactNode;
+  /** Drawn from the agent's row while the agent loads: its versions aren't known yet. */
+  pending?: boolean;
   children: ReactNode;
 }) {
   const stats = bundle ? workflowStats(bundle) : null;
@@ -498,58 +622,74 @@ function AgentBar({
       ? plural(bundle.definition.skills.length, "skill")
       : null,
   ].filter(Boolean);
+  const client = view.kind === "client" && view.tenantId ? view.tenantId : null;
   return (
-    <Card testId="agent-bar">
-      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-6 pt-5 pb-1">
-        <div className="flex min-w-0 items-start gap-4">
-          <AgentBadge name={title} seed={view.id} size="lg" />
-          <div className="min-w-0">
-            {/* Where it is (its client, or the lab) and the switcher to the client's others. */}
-            <div className="ui-crumbs mb-1.5" data-testid="agent-bar-crumbs">
-              <p className="eyebrow text-ink-muted">
-                {view.kind === "client" && view.tenantId ? (
-                  <Link to={OPS_PATHS.client(view.tenantId)} className="hover:underline">
-                    {clientName ?? "Client"}
-                  </Link>
-                ) : (
-                  <Link to={OPS_PATHS.lab} className="hover:underline">
-                    Agent lab
-                  </Link>
-                )}
-              </p>
-              <HeaderSwitcher />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="type-heading text-ink">{title}</h1>
-              <span className="flex flex-wrap gap-1.5" data-testid="agent-version-badges">
-                <Badge tone={kind.tone} testId="agent-kind">
-                  {kind.label}
-                </Badge>
-                {versionBadges(live, draft).map((b) => (
-                  <Badge key={b.label} tone={b.tone}>
-                    {b.label}
+    <div className="flex flex-col gap-3">
+      {/* Back to the list this agent came from: the lab's view as left, or its client's agents. */}
+      <Link
+        to={client ? `${OPS_PATHS.client(client)}/agents` : labPath()}
+        className="ui-back"
+        data-testid="agent-back"
+      >
+        <Icon name="arrow" size={14} className="rotate-180" />
+        {client ? `All ${clientName ?? "client"} agents` : "All agents"}
+      </Link>
+      <Card testId="agent-bar">
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-6 pt-5 pb-1">
+          <div className="flex min-w-0 items-start gap-4">
+            <AgentBadge name={title} seed={view.id} size="lg" />
+            <div className="min-w-0">
+              {/* Where it is (its client, or the lab) and the switcher to the client's others. */}
+              <div className="ui-crumbs mb-1.5" data-testid="agent-bar-crumbs">
+                <p className="eyebrow text-ink-muted">
+                  {view.kind === "client" && view.tenantId ? (
+                    <Link to={OPS_PATHS.client(view.tenantId)} className="hover:underline">
+                      {clientName ?? "Client"}
+                    </Link>
+                  ) : (
+                    <Link to={OPS_PATHS.lab} className="hover:underline">
+                      Agent lab
+                    </Link>
+                  )}
+                </p>
+                <HeaderSwitcher />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="type-heading text-ink">{title}</h1>
+                <span className="flex flex-wrap gap-1.5" data-testid="agent-version-badges">
+                  <Badge tone={kind.tone} testId="agent-kind">
+                    {kind.label}
                   </Badge>
-                ))}
-                {view.status === "disabled" ? <Badge tone="neutral">Discarded</Badge> : null}
-              </span>
-              {view.kind === "client" && !view.testCopy ? (
-                <StatusChip state={serviceChipState(status)} testId="agent-bar-status">
-                  {RUN_STATUS_WORDS[status] ?? status}
-                </StatusChip>
+                  {pending ? (
+                    <SkeletonLine size="small" width={96} />
+                  ) : (
+                    versionBadges(live, draft).map((b) => (
+                      <Badge key={b.label} tone={b.tone}>
+                        {b.label}
+                      </Badge>
+                    ))
+                  )}
+                  {view.status === "disabled" ? <Badge tone="neutral">Discarded</Badge> : null}
+                </span>
+                {view.kind === "client" && !view.testCopy ? (
+                  <StatusChip state={serviceChipState(status)} testId="agent-bar-status">
+                    {RUN_STATUS_WORDS[status] ?? status}
+                  </StatusChip>
+                ) : null}
+              </div>
+              {line.length > 0 ? (
+                <p className="mt-1 text-sm text-ink-muted" data-testid="agent-bar-line">
+                  {line.join(" · ")}
+                </p>
               ) : null}
+              {lineage ? <div className="mt-1">{lineage}</div> : null}
             </div>
-            {line.length > 0 ? (
-              <p className="mt-1 text-sm text-ink-muted" data-testid="agent-bar-line">
-                {line.join(" · ")}
-              </p>
-            ) : null}
-            <div className="mt-1">{lineage}</div>
           </div>
+          {actions}
         </div>
-        {actions}
-      </div>
-      <div className="overflow-x-auto px-6 [&>nav]:border-b-0">{children}</div>
-    </Card>
+        <div className="overflow-x-auto px-6 [&>nav]:border-b-0">{children}</div>
+      </Card>
+    </div>
   );
 }
 
@@ -605,6 +745,9 @@ function AgentActions({
         >
           Test run
         </Link>
+        {view.kind === "template" && live && view.status === "active" ? (
+          <AssignToClient templateId={view.id} version={live.version} />
+        ) : null}
         {/* Only a draft newer than the live version publishes; a live version says Live. */}
         {draft && draft.id !== live?.id && view.status === "active" ? (
           <Button
@@ -640,7 +783,7 @@ function AgentActions({
   );
 }
 
-function WorkflowTab({ bundle, version }: { bundle: AgentBundle; version: VersionDetail }) {
+function WorkflowTab({ bundle, version }: { bundle: AnyAgentBundle; version: VersionDetail }) {
   if (bundle.workflows.length === 0) {
     return <EmptyState>v{version.version} has no workflows.</EmptyState>;
   }
@@ -803,7 +946,7 @@ function DefinitionPart({
     { kind: "saved"; save: SaveResult } | { kind: "no_change"; from: number } | null
   >(null);
   const latest = detail.latest;
-  const parsed = latest ? parseBundle(latest) : null;
+  const parsed = latest ? parseAnyBundle(latest) : null;
 
   return (
     <div className="flex flex-col gap-4" data-testid="agent-settings-definition-part">

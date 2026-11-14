@@ -13,6 +13,7 @@ import {
   document,
   inboxItem,
   run,
+  stepRun,
   tenant,
 } from "@countersign/db";
 import { eq } from "drizzle-orm";
@@ -275,6 +276,10 @@ describe.skipIf(!h)("a run as the client sees it", () => {
     // it reads documents (upload on its page).
     expect(svc.template).toBeNull();
     expect(typeof svc.readsDocuments).toBe("boolean");
+    // 6.6: the agent page's answer carries what it read from the Table: the stage, what it is
+    // doing now (its latest run: the one escalated to us, working) and what it has going.
+    expect(svc).toMatchObject({ stage: "live", runsNow: clerk.runsNow, now: clerk.now });
+    expect(clerk.now).toMatchObject({ runId: ids.ours, status: "running", waitingOnYou: false });
     // The month (agent page) and Reports count the same way.
     expect(svc.thisMonth.runs).toEqual(report.services[0].runs);
     expect(svc.thisMonth.runs).toMatchObject({ waiting: inMonth ? 1 : 0, going: 1 });
@@ -290,5 +295,63 @@ describe.skipIf(!h)("a run as the client sees it", () => {
     const overview = j((await H.call(user("a"), "GET", "/api/overview")).json);
     const row = overview.services.find((s: { id: string }) => s.id === ids.agent);
     expect(row).toMatchObject({ stage: "live", runsNow: { running: 1, waitingOnYou: 1 } });
+  });
+
+  it("names the current step on the Table and the agent's page, and the latest summaries", async () => {
+    // 6.1: what each agent is doing now and the recent steps come from one read each.
+    const [r] = await db
+      .insert(run)
+      .values({
+        tenantId: A(),
+        agentId: ids.agent,
+        agentVersionId: ids.version,
+        workflowSlug: "fix-record",
+        mode: "live",
+        status: "running",
+        trigger: { type: "manual" },
+        createdAt: new Date(now + 1000),
+        startedAt: new Date(now + 1000),
+      })
+      .returning();
+    if (!r) throw new Error("no run");
+    await db.insert(stepRun).values([
+      {
+        tenantId: A(),
+        runId: r.id,
+        nodeId: "update",
+        nodeType: "action",
+        status: "succeeded",
+        summary: "Corrected record R-1",
+        output: { sources: ["rec-1"], big: "x".repeat(100) },
+        startedAt: new Date(now + 2000),
+        finishedAt: new Date(now + 3000),
+      },
+      {
+        tenantId: A(),
+        runId: r.id,
+        nodeId: "confirm",
+        nodeType: "person",
+        status: "waiting",
+        startedAt: new Date(now + 4000),
+      },
+    ]);
+    const table = j((await H.call(admin("a"), "GET", "/api/table")).json);
+    const svc = j((await H.call(user("a"), "GET", `/api/services/${ids.agent}`)).json);
+    const clerk = table.services.find((s: { id: string }) => s.id === ids.agent);
+    expect(clerk.now).toMatchObject({
+      runId: r.id,
+      status: "running",
+      step: { index: 2, total: 3, label: "Confirm" },
+      since: new Date(now + 4000).toISOString(),
+      waitingOnYou: false,
+    });
+    expect(svc.now).toEqual(clerk.now);
+    expect(table.recent[0]).toMatchObject({
+      runId: r.id,
+      service: { id: ids.agent, name: "Bill clerk" },
+      label: "Corrected the record",
+      summary: "Corrected record R-1",
+      sources: ["rec-1"],
+    });
   });
 });

@@ -5,10 +5,18 @@ import {
   type AgentBundle,
   type AgentBundleInput,
   AgentBundle as AgentBundleSchema,
+  type AnyAgentBundle,
+  AnyAgentBundle as AnyAgentBundleSchema,
   DECIMAL_RE,
+  MODEL_PROVIDER_NAMES,
+  modelProvider,
   // v0.13 W2-I
   NEW_AGENT_OVERSIGHT,
+  type OversightReview,
+  OversightSettings,
+  parameterValueProblem,
   parseSkillRef,
+  providerModelName,
   type SkillOption,
   uuidv7,
 } from "@countersign/core";
@@ -20,6 +28,11 @@ export interface SkillEntry {
   skill: string;
   /** Overrides by key, as typed; a key left out takes the skill's default. */
   settings: Record<string, SettingValue>;
+  // Skill model (2026-11-10): the agent's own use of the skill.
+  /** The agent's parameter values by name, typed; a name left out takes the skill's default. */
+  parameters?: Record<string, unknown>;
+  /** The model this agent runs an AI skill on; "" = the skill's recommended model. */
+  model?: string;
 }
 
 export interface DefinitionForm {
@@ -36,6 +49,8 @@ export interface DefinitionForm {
   maxSteps: string;
   maxCostUsd: string;
   memory: boolean;
+  /** Wave 6: what the agent's owner reviews (`definition.oversight.review`); none set reads `off`. */
+  ownerReview: OversightReview;
 }
 
 /** Field → message. Skill settings are keyed `skills.<i>.<key>`. */
@@ -45,20 +60,29 @@ export type FormErrors = Record<string, string>;
  * The models offered by default.
  */
 // DECISION: the editor offers the models packages/llm names (opus, the platform default; sonnet;
-// haiku; OpenAI's GPT-5.5, routed by its `openai:` prefix) and keeps any other id a bundle already
-// has; apps/web can't import packages/llm.
+// haiku; OpenAI's GPT-5.5, xAI's Grok 4.7 and Google's Gemini 3.1 Pro and 3.5 Flash-Lite, each
+// routed by its prefix) and keeps any other id a bundle already has; apps/web can't import
+// packages/llm. Each is shown with its provider (`modelOptionLabel`).
 export const MODEL_OPTIONS = [
   "claude-opus-5-5",
   "claude-sonnet-5-5",
   "claude-haiku-5-5",
   "openai:gpt-5.5",
+  "xai:grok-4.7",
+  "google:gemini-3.1-pro",
+  "google:gemini-3.5-flash-lite",
 ] as const;
+
+/** A model as the pickers show it: its provider, then the provider's name for it. */
+export function modelOptionLabel(id: string): string {
+  return `${MODEL_PROVIDER_NAMES[modelProvider(id)]} · ${providerModelName(id)}`;
+}
 export const DEFAULT_MODEL = "claude-opus-5-5";
 
 /** Approvers the editor offers besides a user id. */
 export const APPROVER_ROLES = ["client_admin", "operator"] as const;
 
-export function formFromBundle(bundle: AgentBundle): DefinitionForm {
+export function formFromBundle(bundle: Pick<AnyAgentBundle, "definition">): DefinitionForm {
   const d = bundle.definition;
   return {
     name: d.identity.name,
@@ -72,13 +96,29 @@ export function formFromBundle(bundle: AgentBundle): DefinitionForm {
       settings: Object.fromEntries(
         Object.entries(s.settings).map(([k, v]) => [k, typeof v === "boolean" ? v : String(v)]),
       ),
+      parameters: { ...(s.parameters ?? {}) },
+      model: s.model?.id ?? "",
     })),
     mode: d.permissions.mode,
     approver: d.permissions.approver ?? "",
     maxSteps: String(d.budgets.maxSteps),
     maxCostUsd: d.budgets.maxCostUsd,
     memory: d.memory.enabled,
+    ownerReview: d.oversight?.review ?? "off",
   };
+}
+
+/**
+ * Wave 6: the definition's `oversight` with the form's review: kept as it was when unchanged
+ * (an agent with none stays with none at `off`), else its other settings kept (model, limits),
+ * or the schema's defaults when it had none.
+ */
+export function oversightWith(
+  current: AnyAgentBundle["definition"]["oversight"],
+  review: OversightReview,
+): AnyAgentBundle["definition"]["oversight"] {
+  if (review === (current?.review ?? "off")) return current;
+  return current ? { ...current, review } : OversightSettings.parse({ review });
 }
 
 const POSITIVE_INT = /^[1-9]\d*$/;
@@ -127,6 +167,18 @@ export function validateForm(form: DefinitionForm, options: readonly SkillOption
         errors[field] = `${s.label} must be one of ${(s.options ?? []).join(", ")}.`;
       }
     }
+    // Skill model (2026-11-10): each value fits its parameter, and a parameter the skill gives
+    // no default must be set (publish refuses it otherwise).
+    for (const p of option.parameters ?? []) {
+      const value = entry.parameters?.[p.name];
+      const field = `skills.${i}.parameters.${p.name}`;
+      if (value === undefined) {
+        if (p.default === undefined) errors[field] = `Set ${p.label}: the skill has no default.`;
+        continue;
+      }
+      const problem = parameterValueProblem({ name: p.label, type: p.type }, value);
+      if (problem) errors[field] = problem;
+    }
   });
   return errors;
 }
@@ -146,11 +198,11 @@ function settingValue(
  * (extra tools, agents it may ask, avatar) are kept as they were. Overrides left empty are
  * dropped, so the skill's default applies.
  */
-export function applyForm(
-  bundle: AgentBundle,
+export function applyForm<B extends AnyAgentBundle>(
+  bundle: B,
   form: DefinitionForm,
   options: readonly SkillOption[],
-): AgentBundle {
+): B {
   const d = bundle.definition;
   const skills = form.skills.map((entry) => {
     const option = optionFor(entry.skill, options);
@@ -160,7 +212,24 @@ export function applyForm(
       const type = option?.settings.find((s) => s.key === key)?.type;
       settings[key] = settingValue(raw, type);
     }
-    return { skill: entry.skill, settings };
+    // Skill model (2026-11-10): the agent's values and model, only when it sets any, so an entry
+    // the editor didn't change stays as stored.
+    const parameters = Object.fromEntries(
+      Object.entries(entry.parameters ?? {}).filter(([, v]) => v !== undefined),
+    );
+    const was = d.skills.find((s) => s.skill === entry.skill);
+    const model = entry.model?.trim()
+      ? {
+          ...(was?.model?.id === entry.model.trim() ? was.model : {}),
+          id: entry.model.trim(),
+        }
+      : undefined;
+    return {
+      skill: entry.skill,
+      settings,
+      ...(Object.keys(parameters).length ? { parameters } : {}),
+      ...(model ? { model } : {}),
+    };
   });
   const permissions: AgentBundle["definition"]["permissions"] = { mode: form.mode };
   if (form.approver) permissions.approver = form.approver;
@@ -170,10 +239,13 @@ export function applyForm(
     mission: form.mission.trim(),
   };
   if (d.identity.avatar !== undefined) identity.avatar = d.identity.avatar;
+  const oversight = oversightWith(d.oversight, form.ownerReview);
+  const { oversight: _was, ...rest } = d;
   return {
     ...bundle,
     definition: {
-      ...d,
+      ...rest,
+      ...(oversight ? { oversight } : {}),
       identity,
       model: { id: form.modelId.trim(), maxTokens: Number(form.maxTokens) },
       instructions: form.instructions,
@@ -186,8 +258,8 @@ export function applyForm(
 }
 
 /** The applied bundle checked against core's schema (the last guard before saving). */
-export function checkBundle(bundle: AgentBundle): string | null {
-  const parsed = AgentBundleSchema.safeParse(bundle);
+export function checkBundle(bundle: AnyAgentBundle): string | null {
+  const parsed = AnyAgentBundleSchema.safeParse(bundle);
   if (parsed.success) return null;
   const first = parsed.error.issues[0];
   return first ? `${first.path.join(".") || "bundle"}: ${first.message}` : "invalid bundle";

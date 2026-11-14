@@ -71,6 +71,26 @@ Status: **Phase 1 (foundation, local only) built** (§3). Every platform package
 | Page thumbnails (match review) | Render in the browser with pdf.js from the signed R2 URL. No server-side rendering, so no container is needed. |
 | Invoices for fixtures | Synthetic invoices that look like normal vendor invoices. Swap in real (redacted) ones later and re-record. |
 
+#### Models: xAI and Gemini (owner, 2026-11-10: "lets integrate both model")
+
+Beside "Model providers" above. Two more providers behind the same seam: `xai:<model>` goes to xAI, `google:<model>` to Google's Gemini API. The defaults (`DEFAULT_MODELS`) stay Claude. What is unchecked (every id and price, and several API facts) is in `packages/llm/NOTES.md`.
+
+| Topic | Decision |
+|---|---|
+| Prefixes | A model id's provider is its prefix, read in one place: core's `modelProvider` (`packages/core/src/api/models.ts`), used by packages/llm's routing, compliance's `processorForModel`, the usage report and the back office's pickers. An unprefixed id is Anthropic's, whatever it says (`grok-4.7` is not xAI's). // DECISION |
+| xAI | xAI's API is OpenAI-compatible, so it reuses the Responses translation in `packages/llm/src/openai.ts` (now `toResponsesRequest` / `fromResponsesAnswer` with a `ResponsesDialect`) at `https://api.x.ai/v1/responses` with `XAI_API_KEY`. Two differences: the system prompt goes first in `input` as a system message (xAI documents `instructions` as unsupported), and no `reasoning.effort` is sent (Grok 4 models reject it). `store: false` as for OpenAI. // DECISION |
+| Gemini | The native `generateContent` API (`packages/llm/src/gemini.ts`), not Google's OpenAI-compatible endpoint: that endpoint is Chat Completions, not the Responses API our translation speaks, so reusing it would still be a third translation, and it carries Gemini 3's thought signatures only in an extension field. Natively: function calls with ids and signatures, function responses by name, `systemInstruction`, `responseJsonSchema`, every finish reason, usage with cached and thinking tokens apart. Key `GEMINI_API_KEY` in the `x-goog-api-key` header; v1beta. // DECISION |
+| Gemini thought signatures | Gemini 3 requires a call's `thoughtSignature` back on the next request of a tool loop. It rides in the transcript as an empty Anthropic thinking block before its block, signature `gemini:<sig>`; only those go back to Gemini, Anthropic's are dropped. A call Gemini did not make (confer, converse and oversight write one to start their loops) carries Google's documented placeholder `skip_thought_signature_validator`. A call Gemini gave no id gets `gemini_call_<responseId>_<n>`, never sent back. // DECISION |
+| Gemini mapping | Tools as `parametersJsonSchema` (Zod's JSON Schema unchanged); no strict mode and no parallel-calls switch (dropped; Zod validates arguments as always); tool choice `auto` / `any` / a named tool → `AUTO` / `ANY` / `ANY` with `allowedFunctionNames`; effort `low` → thinking level `low`, any higher → `high`; a tool result is `{output}` or, for an error, `{error}`. Safety-type finish reasons and a blocked prompt are refusals; `MAX_TOKENS` is `max_tokens`. Output tokens are the answer plus thinking. // DECISION |
+| One HTTP path | `packages/llm/src/provider.ts` holds what OpenAI, xAI and Gemini share: retries after 408/409/429/5xx/529 or a dropped connection (honouring `retry-after`), a 10-minute limit per attempt, and `ProviderError` with a `kind` (`rate_limited`, `overloaded`, `unauthorized`, `bad_request`, `timeout`, `server`). Messages read `<vendor> <status>: …`, an overload adds "(overloaded)" and a final timeout says "timed out", so core's `runErrorCode` gives `rate_limited`, `overloaded` (new, Anthropic's 529 too) or `timeout`. Each provider keeps its own class (`OpenAIError`, `XAIError`, `GeminiError`). // DECISION |
+| Models and prices | `MODELS.grok` `xai:grok-4.7` ($2 / $6, cached $0.50; above 200K prompt tokens doubled, a guess), `MODELS.geminiPro` `google:gemini-3.1-pro` ($2 / $12, cached $0.20; above 200K $4 / $18), `MODELS.geminiFlashLite` `google:gemini-3.5-flash-lite` ($0.30 / $2.50, cached $0.03). All from third-party sites, unchecked. Neither provider charges for cache writes, so they cost fresh input. Labels show the provider: "xAI (Grok 4.7)", "Google (Gemini 3.1 Pro)", "Google (Gemini 3.5 Flash-Lite)". // DECISION |
+| Unpriced models and the cost caps | A call to a model with no price is recorded with no cost, so the step's, the run's, the owner's and the monthly limits never see it. Step, skill and reviewer models were already checked against the priced list; the agent's own model and its owner's (`definition.oversight.model`) were not. Now an unpriced `openai:`, `xai:` or `google:` id is refused there at validation (`definitionModelErrors`) and by the llm client before it calls (`UnpricedModelError`). An unpriced Anthropic id is left as it was (older bundles and tests name such ids), still counted at $0: the owner should decide whether to refuse those too. // DECISION |
+| Compliance | `xai` and `google` are processors of their own (`PROCESSORS`, named "xAI" and "Google (Gemini API)"), so a client in HIPAA mode is refused their models until each BAA is recorded in `BAA_PROCESSORS`. `google` is the Gemini API on our key, never the client's own Google account (Gmail, Drive, Sheets, Search Console). // DECISION |
+| Keys | `XAI_API_KEY` and `GEMINI_API_KEY`: Worker secrets copied by `deploy.yml` from the GitHub environment when set (`docs/operations.md`, "Model keys"). Unset, that provider's models fail with `ProviderNotConfiguredError` naming the key; the rest of the run goes on, as for OpenAI. |
+| Web research | `web.search` / `web.fetch` run only on Anthropic's server-side tools: an `openai:`, `xai:` or `google:` research model is refused. The agent that asked may run on any. |
+| Pickers | The agent definition's model (and a new agent's) lists the three new ids with their provider ("xAI · grok-4.7"); a step's model and, new, the AI reviewer's model in a step's second opinion list `GET /api/ops/models`, whose labels name the provider. The owner's model (`definition.oversight.model`) has no picker; it is kept as the bundle has it. |
+| Fixtures | No keys here: the xAI and Gemini answers in `fixtures/llm/providers/` are hand-written in each API's format (a plain answer, a tool call and its result, errors), run through the real transports, and replayed from `fixtures/llm/<hash>.json` (`handWritten: true`). Re-record them from the live APIs once keys exist. |
+
 ### 1.3 Decisions made while building `packages/core`
 
 | Topic | Decision |
@@ -182,6 +202,7 @@ Status: **Phase 1 (foundation, local only) built** (§3). Every platform package
 | Saving | `POST /api/ops/agents/draft` creates the template (or, with `clientId`, the client agent) with its v1 draft, `author_type='builder'`; the slug comes from the operator's name, else the Builder's, made unique. The operator's name and area override the model's. `POST /api/ops/agents/:id/revise` saves a new draft whose parent is `fromVersionId` (default the latest) and answers its diff with labels. Drafts that can't be published are still saved, with their errors. The model call runs inside the request's transaction (operator-only, rare); split it if held connections show up. Builder cost is answered to the operator (`costUsd`) but not rolled into `usage_daily`, which is per client. |
 | Client requests | `requestId` on revise names an open or resolved `change_request` of the agent's own client; its `payload.text` (else its title) goes to the model inside `<client_request>` as data, apart from the operator's instruction. The revise view lists the client's open change requests from the ops inbox. Linking the request's resolution to the new version is left to the requests queue. |
 | Skills library | `GET /api/ops/skills` lists built-ins (read-only) and operator skills in scope (shared, and the served clients' own; clients' `shared:` snapshot copies are hidden), each shown by its live, else latest, version, with top-level input and output fields, tools, connectors (declared plus their tools'), and used by: agents whose live, else latest, version references it (a client's own skill shadows a shared one in that client; test copies are not counted). It also answers every tool and connector for the editor's picker. Skills are addressed by row id; built-ins have no page. |
+| Cloning skills | (2026-11-10) `POST /api/ops/skills/:id/clone` copies a skill into a new operator skill's v1 draft, "<name> (copy)" at `custom:<source slug>-copy` (then `-copy-2`…), noted "Cloned from <ref>". A built-in is addressed by its skill id and its copy is shared unless a client is given; an operator skill by its row id, copied from its live, else latest, version, its copy staying in its scope. Tool-mode skills run code, which operator skills can't (§9.2), so they are refused (422) and the library offers Clone only on task and agent skills, and Edit (its page) on operator skills. The library's rows carry `mode`. |
 | Skill editor | A form over `SkillDefinition` (`apps/web/src/ops/skills/skill-form.ts`): name, id (`custom:<slug>`, fixed once saved), category (Documents, Data, Writing, Actions, Custom, or the one it has), one-sentence description, instructions, tools grouped by connector, input and output fields (type, meaning, required; anything else in a property's schema is kept), settings (number, text, yes/no, choice with options; set per client = `clientSpecific`), client timeline line, raises alerts (requires a `sources` output). `requiresConnectors` is derived from the picked tools. Saved as drafts, published and rolled back like agents (rollback copies the version as a new live one). |
 | Assigning a skill | "Add to an agent" on a published skill's page saves a new draft of the chosen agent (a template, or a client's agent; a client's own skill only that client's) with the skill added, unpinned. Publishing that agent then snapshots shared skills into the client, as before. |
 | Discarding drafts | (owner, 2026-11-04) An agent that was never published (a Builder draft the operator doesn't want, or any unpublished draft) can be discarded: `POST /api/ops/agents/:id/discard` sets `agent.status = 'disabled'` (no migration; the routers already skip disabled agents), and `…/restore` sets it back. Its versions are kept (invariant 3); nothing is deleted. A discarded agent leaves the template and client lists (`?include=discarded` shows it), the client counts and "used by", can't be published or activated, and still opens by its address with Restore. Its slug stays taken. A published template can't be discarded (clients' agents may be based on it); a published client agent is retired instead. "Discard" is offered on the Builder's result and in the agent page's header; the templates list has "Show discarded drafts". |
@@ -252,6 +273,7 @@ ARCHITECTURE §1 item 7 and §11: a client asks for a change or a new service fr
 | Inviting | An invite is still the `app_user` row (made if new) plus a membership in one client, written in the request's transaction (§1.4 "Invitations"). The email is the sign-in adapter's job (`AuthAdapter.invite`): WorkOS sends its own invitation (`POST /user_management/invitations`), the dev sign-in sends nothing (the user is in its list at once). The email goes after the commit, so nobody is emailed about an invite that rolled back; the response says `sent`, `not_sent` (`dev_sign_in`, or `already_signed_up` for someone who has signed in before) or `failed` (the provider's code only). A failed email leaves the invite standing: the person can sign in with that address. |
 | Who can be invited | Client roles only (`client_admin`, `client_user`); operators are added by hand (Add operator, §1.4), and the Sandbox takes no invites (409 `sandbox`). An address that is an operator or already belongs to any client is refused (409): client users belong to exactly one client. The check reads the address's memberships in every client from inside the request's transaction (`membershipsOfUser`: names the user for the `own_memberships` policy for one read, then clears it), not in a second transaction the Worker's single connection would wait on. The back office says why (`is_operator`, `other_client`, `already_member`); the portal answers only `unavailable` (or `already_member`), so one client never learns about another's people. |
 | New client | `POST /api/ops/clients` also takes `approvals` and `admin {email, name?}`: the client, its offering, the delegation and the admin's invite are one transaction (a refused invite creates nothing). Then the client's settings page, which says what became of the email. Packs are not offered yet (no pack is installable; the Materials pack is M8). |
+| New client, no offer | (2026-11-10, the owner: nothing is self-service; we sign the client up, then build agents in their account.) The new-client form offers no tools; each is offered on the client's Connections page when an agent needs it, and the client still signs in to it. `connectorsOffered` stays optional on the API. Adding the supervisor (the form, or Health) installs its seeded template first where it is missing (production), newest version, as the platform-template install does, instead of refusing with `no_template`. // DECISION |
 | Approval delegation | `tenant.settings.approvals.external_actions` (`client_admin` default, or `operator`), written nested, the way the runtime reads it first (`clientApproverSetting`). Unset reads as the client admin. Changed from the client's settings page (`PATCH /api/ops/clients/:id/settings`), logged in `tenant_change` like the feedback switch, with an optional reason (stored empty when none). A client agent's own approver and each step's still come first (§1.2 "Step approvals"). The portal shows who approves, read-only. |
 | Client settings page | `/ops/clients/:id/settings`: name and timezone, approvals with their history, the tools offered (changed on the Connections page, which already edits the offering), the client's people with the invite form (none in the Sandbox), the operators serving it, and the client's email choices. |
 | Notification settings | The client's, not each person's: the client admin chooses for everyone (`tenant.settings.notifications {itemsWaiting, weeklyDigest}`, both on by default), `PATCH /api/settings/notifications`. Stored only: notification emails are M11, and the portal says "Emails start soon" (`emailsOn: false`). |
@@ -457,6 +479,40 @@ Builds §1.19's "Live calls": agents place and take phone calls on the client's 
 | Network inside a transaction | The voice webhooks call ElevenLabs (make the agent, hand the call over) inside the request's one `withTenant` transaction, within Twilio's ~15-second answer window. This is accepted to keep one connection per request; it is a follow-up if it holds connections too long. |
 | Not built | Recording audio, playing voicemails, answering-machine detection, transfer to a person mid-call, deleting unused ElevenLabs agents, choosing the voice agent's LLM, SHAKEN/STIR and CNAM registration (Twilio console), numbers outside the US, translation of transcripts (§1.18 next step). |
 
+### 1.97 The relationship basis: texts, calls and email without asking first (owner, 2026-11-13)
+
+**Narrowed on 2026-11-14 (§1.98): the relationship basis now covers calls and email only. Texts need the person's own sign-up.** The rows below describe the 2026-11-13 decision; where they say texts, §1.98 replaces them.
+
+The owner decided on 2026-11-13 that Mezonas may text, call and email the people a client does business with (vendors, customers) when they gave the client their number or address within that relationship, without asking first: a number on their invoices, an order form, a signed account application. Every message is informational (orders, deliveries, invoices); marketing is never allowed. This loosens §1.22's and §1.23's "consent per channel, recorded first" for texts, calls and email, and keeps every other check (opt-out, quiet hours, A2P, approval). Counsel is to confirm the basis under the TCPA and CTIA (`docs/open.md`).
+
+| Topic | Decision |
+|---|---|
+| Basis | A channel's consent records its `basis`: `express` (they agreed: a form, a signed paper, a START text) or `relationship` (they gave the client this number or address for business; `source` says where, as evidence). It is a field in the `contact.consent` JSON (`ChannelConsent.basis`), so **no migration**: consent stored before has no `basis` and reads as `express`. `packages/core/src/messaging/rules.ts`. // DECISION |
+| Channels | The relationship basis covers texts (`sms`) and calls from the automated assistant (`voice`) for a contact with a phone, and `email` for one with an address. **WhatsApp stays express-only**: Meta's business policy asks for an opt-in before a business starts a conversation, so WhatsApp still needs express consent, a START, or the contact writing first (inside its 24-hour window). `hasConsent` refuses a relationship basis on WhatsApp whichever path wrote it. // DECISION |
+| Recording it | One contact: `consent.basis: "relationship"` on create, or the `relationship` consent change, with where the number came from. Many: `POST /api/contacts/consent/relationship` (client admin) and `POST /api/ops/clients/:id/contacts/consent/relationship` (operator), up to 500 contacts; each is logged on its contact, and a contact who opted out, has no phone or email, or isn't the client's is skipped and reported, never failed. The portal's Contacts list has a select-all for contacts from QuickBooks. Express consent already on a channel is kept: it is the stronger record. An opt-out still stops every channel, and the relationship basis never lifts one. // DECISION |
+| The first text | The first text to a contact, and the first after a 30-day gap (texts only; a call or WhatsApp message doesn't count), names the client (its name first, unless the text already says it) and ends with "Reply STOP to opt out." (in the contact's language; the keyword stays STOP). It is added **in code at send time** by the Twilio connector (`smsBody`, `withIntroduction`), never left to the agent or its version. The approval card shows the words as they will go, from the action's before state, `before.sentAs`. A text too long for one message with them is refused for the agent to shorten, never cut. // DECISION |
+| 10DLC opt-in | The portal's texting registration prefills "how people agree to your texts" with the relationship wording (`a2pRelationshipOptIn`): the client's forms where people give their number, the one-line disclosure those forms carry (`smsDisclosureLine`), and the public opt-in section at `https://mezonas.com/sms-terms#opt-in` (the first campaign was rejected for missing opt-in evidence; that section is built on its own branch). The admin may edit it, and a button puts the wording back. It stays a prefill: what goes to Twilio is what the admin saved. // DECISION |
+| Not changed | Quiet hours, A2P approval, the approval card (invariant 8), STOP and START (§1.22), calls' fixed opening (§1.23). |
+| Not built | A reach-out's plan card (§1.25) shows the message as the agent wrote it, not `sentAs`: the plan is approved once for every attempt, and whether a text is a first one is known only when it is sent. The send still adds the name and the opt-out line. Email gets no added introduction. |
+
+### 1.98 Signing up for texts: the sign-up page, invitations and Sloan (owner, 2026-11-14)
+
+US 10DLC review asks to see where each person agreed to texts, and a number that came from a client's QuickBooks leaves nothing to show. Most texting is a client's own people (staff), who can simply be asked; vendors and customers are reached by email first. So the owner decided on 2026-11-14 that texts need the person's own sign-up, on a page Mezonas runs in the client's name, and that every client's campaign describes that same opt-in. Each client keeps its own number, brand and campaign, for two-way conversations.
+
+| Topic | Decision |
+|---|---|
+| Texts are express-only | `RELATIONSHIP_CHANNELS` is `voice` and `email`; `hasConsent` accepts only `express` for `sms` and `whatsapp`, so a relationship basis written before (or by any path) no longer opens texts. §1.97's basis stays for calls and email. // DECISION |
+| The page | `/texts/:token` in the web app, outside sign-in: the client's name, "Texting is your choice", the person's name (on the client's link) and mobile number, an **unticked** box beside the exact words they agree to (`textSignupTerms`: who sends, about what, no marketing, frequency, rates, STOP, HELP, terms and privacy links), and "Text me". In the reader's language around English terms (the words carriers and counsel read). A 10-digit US number is read as +1. `packages/core/src/messaging/signup.ts`, `apps/web/src/signup/`. // DECISION |
+| Two links | Signed like the preview links, with a key derived from `ENCRYPTION_KEY` under its own label. **The client's link** (`k: "l"`) carries a per-client key in `tenant.settings.messaging.signupLinkKey`; "Make a new link" replaces the key and retires the old link. It takes US and Canadian numbers only, at most 20 sign-ups an hour (SMS-pumping guard), and finds the person by number or adds them. **An invitation** (`k: "i"`) names one contact and expires after 30 days; a different number given there becomes theirs (the old number's consent goes, §1.22). No migration. // DECISION |
+| The record | Consent `sms: {basis: "express", source: "signed up on the texting page" \| "accepted the texting invitation"}`, and an opt-out is lifted (it is the person's own act, as START is). `contact_change` logs `opt_in` with `via`, the exact words shown, their version, the number, IP and browser: the evidence for carriers and counsel. The page sends `wordingVersion`; a page with older words is refused (reload). |
+| Confirmation | After the consent commits, the registered opt-in reply (`a2pKeywordsOf(name).optInMessage`) goes from the client's number through the platform texter (as release codes go). If the number can't text yet (A2P pending), the page says texts start once it is ready. |
+| Invitations | A fixed platform email from `"<client> via Mezonas" <notify@…>` (no model writes it): who would like to text them and why, "Texting is your choice. Email keeps working either way.", the button, the carriers' elements, and "Don't ask me again". **One invitation and at most one reminder**, the reminder no sooner than 3 days after. Left out and reported: not this client's, opted out, already signed up, declined, no email, asked twice, too soon, email not set up, send failed. Each send is logged (`text_invite`, with `via`); "don't ask me again" is logged once (`text_invite_declined`) and stops every later invitation. Portal: `POST /api/contacts/text-invitations` (client admin; the People list's ticked people); back office: the same under `/api/ops/clients/:id`. // DECISION |
+| Sloan | `invite_to_texts` is a drafted account change (`contactIds`, up to 50): Sloan drafts it, the client admin signs it on the Desk, and signing sends the portal's own invitations. Sloan never emails anyone, and asking loosens nothing: consent comes only from the person's own sign-up. Another client's person, or one with no email, is refused at the draft. // DECISION |
+| HIPAA mode | Invitations name the person to Resend, so `TEXT_INVITE_FEATURE` is in `compliance/processors.ts` and a client in HIPAA mode is refused them (409 `hipaa`) until `resend` is in `BAA_PROCESSORS` (§1.35). The confirmation text goes through the client's Twilio, which HIPAA mode already requires covered. |
+| Sharing the link | People page (client admin): "Texting sign-up link" shows, copies and replaces the link (`GET`/`POST /api/texting/signup-link`; the back office reads it under `/api/ops/clients/:id`). |
+| 10DLC | The texting registration prefills "how people agree" with `a2pSignupOptIn`: the client's sign-up page and link, the invitation email, START, the exact words beside the box, and `mezonas.com/sms-terms#opt-in`. Every client's campaign describes this same opt-in, which carriers can open. Mezonas' own campaign is the pilot. // DECISION |
+| Not built | Translated terms (English everywhere for now), a reminder sent on its own (the second invitation is sent by a person), screenshots on `mezonas.com/sms-terms#opt-in` (the site's own PR), and a per-person "Invite to texts" button in the person's detail (tick one person on the list instead). |
+
 ### 1.24 Decisions made in stream J (Stripe billing)
 
 > **Superseded in part by §1.32 (2026-11-05):** Mezonas now works out each bill and Stripe only
@@ -551,7 +607,7 @@ client, second factors kept apart, and each agent given only the tools it needs 
 | Agent identities | Email `agent-<short id>@<AGENT_EMAIL_DOMAIN>`; a phone number only when a site sends codes by text, bought by the code service in its own Twilio subaccount (`MFA_TWILIO_*`), separate from clients' messaging subaccounts. A browser connection's config names its identity (`identityId`, not secret). |
 | Browser sites (phase 3, migration 0012) | `browser_site` and `browser_site_version` (operator tables, `tenant_id` null, visible only to operator sessions, versions immutable like skills): `slug`, `name`, `tier` (`low`, `medium`, `high`, `blocked`), `login` (`url`, `origins`, selectors for username, password and submit, `secondFactor`: `none`, `totp`, `sms` or `email` with `sender` and `pattern`, `signedIn` check by URL pattern or selector), `signOut`, `allow` and `block` URL patterns (the platform's blocked defaults always apply), `notes` (terms checked, by whom). A client's browser connection names the site and pins the version it was set up on; the client can make it stricter (sign-in by a person only, or no writes), never looser. |
 | Binding browser sites | Bindings are keyed by connector; browser connections bind by site: the key is `browser:<site slug>`, and browser tools take `site` in their input. Connector manifests gain an optional `bindingKey(input)`; the runtime uses it when present (no special case for `browser` in `packages/agents`). // DECISION |
-| Browser driver | `packages/connectors/src/browser/` talks to a `BrowserDriver` interface (open page, go to, fill, click, read text, read tables, download, cookies, close). `apps/api` implements it on the Browser Run binding (`BROWSER`, `@cloudflare/playwright`); tests implement it on local Playwright against fixture pages served by the test. Sign-in, sign-out and URL checks are code in the connector; the model gets only `browser.page.read` (text and tables of an allowed URL, password fields removed), `browser.file.download` (into documents, as uploads are) and, after the pilot, `browser.form.submit` (external, behind approval, the page's fields before as its before state). |
+| Browser driver | `packages/connectors/src/browser/` talks to a `BrowserDriver` interface (open page, go to, fill, click, read text, read tables, download, cookies, close). The browser service (`apps/browser`, Worker `mezonas-browser`, §1.92) implements it on the Browser Run binding (`BROWSER`, `@cloudflare/playwright`) and serves the tab over RPC; `apps/api` reaches it only through its `BROWSER` service binding and drives the tab one call at a time (connectors' `remoteBrowserTab`), keeping every decision. Tests implement it on local Playwright against fixture pages served by the test. Sign-in, sign-out and URL checks are code in the connector; the model gets only `browser.page.read` (text and tables of an allowed URL, password fields removed), `browser.file.download` (into documents, as uploads are) and, after the pilot, `browser.form.submit` (external, behind approval, the page's fields before as its before state). |
 | Sessions and stops | One browser per step, closed at its end. Low tier: the session's cookies may be saved encrypted in the connection's credentials and reused until they fail. Two failed sign-ins set the connection to `needs_attention` and stop further sign-ins; a CAPTCHA, an unexpected page or a new-device check fails the step with a reason and raises an inbox item. Caps: sign-ins per connection per day (default 10) and optional hours, checked in code. Screenshots after sign-in only, kept with the step as evidence. High-tier sites: no autonomous sign-in; a person signs in through Browser Run's human handoff, which comes after the pilot. |
 | Human release (phase 4, owner 2026-11-05; migration 0013) | Optional per connection, off by default: `connection.config.release = {mode: 'off' \| 'code', personId (a user of the client with a verified phone or email), channel: 'sms' \| 'email', window: 'run' \| {hours: 1–24}}`. Table `access_release` (tenant table, RLS forced): `id`, `tenant_id`, `connection_id`, `agent_id`, `run_id`, `person_id`, `channel`, `code_hash` (HMAC-SHA256 under a key derived from `ENCRYPTION_KEY`, never the code), `expires_at` (10 minutes), `tries` (max 5), `status` (`pending`, `released`, `expired`, `failed`, `revoked`, `void`), `released_at`, `valid_until`, `revoked_by`; append-mostly (status columns only). The gate (`callTool`) checks for a valid release before any call through a connection with `mode: 'code'`; without one the step creates a request (voiding older pending ones), sends the code (text through the client's Twilio messaging when it has a number, else email through Mezonas' sending domain), raises an inbox item for that person and waits on it like an approval; entering the code in the portal or replying to the message from the person's own number or address resolves it. Window `run`: valid for that run only; hours: valid for that connection and agent until `valid_until`. Wait timeout: the code's 10 minutes, re-sendable up to 3 times by the person; then the step fails `access_not_released`. The model never sees a code; inbound messages carrying one are consumed by the release check and never reach an agent's thread. Client admin: turn on or off, pick the person and window, revoke live releases (Access page). Operator: turn on only. Test runs need a release too. |
 | Pilot | A fixture supplier portal in tests (low tier, emailed codes); then one real low-tier site the owner names, read and download only. |
@@ -864,6 +920,7 @@ control applies to every client.
 | Access review | `GET /api/ops/access-review` (SOC 2 CC6.2, CC6.3) lists every user with their role in each client and their last sign-in, taken from the audit log. It is on the Audit log page. A review is done by reading it and removing what should go. // DECISION |
 | Sessions | The idle limit is 30 minutes and the absolute limit 12 hours (was 30 days). These apply to everyone (HIPAA §164.312(a)(2)(iii), PCI DSS 8.2.8 at 15 minutes for card-data systems, which we aren't). The cookie gains `lat`, the last activity. A request moves it only when the app marks it as the person's own (`x-countersign-activity: 1`, sent when there was a key press, click or touch in the last minute), so background polling never keeps a session alive. The app also signs out by itself after 30 minutes without input. Older cookies, which have no `lat`, count their last refresh as activity. The Ops MCP server (§1.34) has no cookie: its WorkOS access tokens last 5 minutes and the AuthKit session behind them follows WorkOS's own limits (12 hours, 30 minutes idle). MFA is required in WorkOS (AuthKit → Authentication → Multi-factor, set to required; `docs/operations.md`). The app can't see whether a factor was used, so the sign-in audit row records the method. // DECISION |
 | Sign-in callback | (2026-11-06, after the owner landed on "Sign-in did not finish" between sign-ins.) A refused `GET /api/auth/callback` says why in the audit row's `target.reason`: `callback_incomplete` (no `code` or `state` on the URL, e.g. WorkOS sent an error), `state_missing` (no state cookie, or one that doesn't open), `state_expired`, `state_mismatch` (another tab started a sign-in since), `code_rejected` (a used or expired code: Back, reload, a restored tab) or `workos_unavailable`; `target.next` says what followed. If the request already carries a valid session (the adapter's `identify`, rotated cookies kept), it goes to the app (the state's `return_to`, else `/`): a refused callback never makes a session, it only recognises one. Otherwise any of those but `callback_incomplete` starts sign-in again once: a redirect to `/api/auth/sign-in?return_to=…&retry=1`, which puts `2.` before the new nonce. The callback reads that mark from the `state` WorkOS echoes, not from a cookie, so a browser that drops cookies can't loop; a failure of a restarted sign-in, or a callback with no `state`, shows the sign-in page's error (`?error=unauthenticated`, as before). The mark is part of the nonce in the state cookie, so the CSRF check is unchanged: a sign-in finishes only with a matching, unexpired state. The state now lasts 30 minutes (was 10), for slow emailed-code steps. // DECISION |
+| Sign-in page | (2026-11-10, the owner: "it does not make sense to have the account go in here".) With WorkOS, `/sign-in` goes straight on to `GET /api/auth/sign-in` (carrying `next` as `return_to`, replacing the history entry), so the first page a person sees is WorkOS's. The card shows only when a sign-in came back with `?error=`: the reason and the button to start again, so a refusal never loops. No "Create account" button of ours: sign-in admits invited addresses only, and an invited person makes their account from the invitation email; whether WorkOS's page offers sign-up is its dashboard setting. The dev sign-in is unchanged. // DECISION |
 | Security headers | Every `/api` response carries `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, HSTS (2 years, subdomains) and `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`. The app's static assets get the same, with a CSP that allows only the app's own origin, plus Sentry's ingest for errors (`apps/web/public/_headers`). The MCP endpoint and its `.well-known` metadata get the API's headers. // DECISION |
 | HIPAA mode | `tenant.settings.compliance.hipaa`. Only the operator can turn it on or off, with a reason, logged in `tenant_change`. While it is on, the client's data may go only to the vendors ("processors") named in `BAA_PROCESSORS`. That is a Worker variable listing the vendors we have a signed BAA with, set by the owner when one is signed. The infrastructure vendors (Cloudflare, Neon, WorkOS) must be listed before any client can be put in HIPAA mode. Processors, in `packages/core/src/compliance.ts`: models go to `anthropic`, or to `openai` for `openai:` ids. The `twilio` connector goes to `twilio`, plus `meta_whatsapp` for `whatsapp.*` and `elevenlabs` for `call.*`. `resend` goes to `resend`. The client's own tools (QuickBooks, Gmail, Zoho, Podio, the client's webhook endpoints, browser sites) are the client's vendors, not ours, and need no listing. Sentry gets no client data by design (scrubbing, below), so it isn't a processor. Enforcement happens at four points. Turning HIPAA on is refused while a connector it doesn't cover is offered. Offering such a connector is refused. A run's model calls are refused when the provider isn't covered, and so is background document reading. A tool call is refused, through the runtime's generic `policy` hook, when its processors aren't covered. // DECISION |
 | Card numbers (PCI DSS 3.3, 3.4) | Mezonas never takes card data. Billing uses Stripe-hosted invoices, and payment sites are blocked-tier for browser logins. Card numbers can still arrive in documents, texts and emails, so `redactCardNumbers` (core) replaces any 13–19 digit run that passes the Luhn check with `[card ending 1234]`. It runs in the Sentry scrubbers (API and app), on a document's extracted text and fields before they are stored, and on inbound texts before they are stored. The model may still read the number in the document; nothing of ours keeps it. // DECISION |
@@ -1213,6 +1270,16 @@ Code in `packages/core/src/schemas/automation.ts`, `packages/core/src/workflow/a
 | Guard | Refuses, on the account agent (`platform` kind, slug `supervisor`), any tool whose source isn't the platform (connectors' and packs': pack tools don't return the portal's shapes either) or that is `external`, among extra tools, skills' tools and action steps, and any connection binding. Code `tool_not_allowed`. |
 | `pass_to_lead` | A `change_request` like the portal's, raised by the asker, with `via: account_agent`, `kind` (request or idea), the thread, run, version and sources in its payload. |
 | `pass_to_agent` | Built after W2-E. Input is the service only (`{serviceId}`): the request is the person's own message, which the agent reads with `inbound.get`, so no note from the model reaches another agent (invariant 9); the user, thread and message come from the run's trigger, read by the port. The port (no portal twin, so not in `AccountViews`) finds the agent among this client's client agents (another client's is "no such service"), then answers `not_accepted` with plain words when it is Sloan itself, has no live version, has no `sloan` message trigger (`acceptsSloan`), its People filter doesn't take the asker (`acceptingTriggers` with the asker's role), or isn't active (the router's runnable check); otherwise it emits `passToAgentEvent(...)` through the runtime's emitter in the port's transaction. Any client person may ask (the `pass` action); the trigger's People filter decides. A test run makes the same checks as the client admin and answers `test_run`. A message already passed to that agent (an `account.request_passed` event with the same agent and message) answers `already_passed` and starts nothing more. |
+
+**On by default** (2026-11-10, the owner: "All accounts should have Sloan turned on by default"; no migration):
+
+| Topic | Decision |
+|---|---|
+| What "on" is | The client has its fork of the `supervisor` template, published, `run_status = 'active'` and stage `live` (trial and signoff skipped, "no writes": it writes nothing to a client's tools). `turnOnSloan` (`apps/api/src/routes/supervisor.ts`) adds it when the client has none (`addSupervisor`, installing the template where the seed never runs) and, when it was never turned on, activates it and moves it off the bench. What Sloan sees and does is unchanged (invariant 11): the guard, the account port's checks and the portal views stand. |
+| No test run | Sloan is the one agent activated without a passing test run (`activate(…, { requireTestRun: false })`, packages/agents); every other activation check still applies. Its bundle is the platform's own and the guard keeps it to platform tools that write only internal records. The operator's Activate button still asks for a test run. // DECISION |
+| New clients | `POST /api/ops/clients`: `supervisor` is optional and on unless `false`. The form's "Turn on Sloan" is ticked; unticked, `tenant.settings.sloan = "off"` is stored so the hourly pass leaves the client without it. The client page's Health button turns it on too. |
+| Existing clients | The cron's hourly pass at minute 23 (`apps/api/src/account/sloan.ts`, each client in its own operator scope of that client) turns it on for every client that is not retired, not the Sandbox (no client people) and not `sloan: off`, and whose Sloan is missing or was added but never turned on. "Never turned on" is read from the agent's log (no `run_status` change), so a Sloan the operator activated, paused, moved back, retired or discarded stays as it is. No backfill migration: a fork needs the registry. // DECISION |
+| Seed | `seedSloan` (packages/db, below the registry) writes the Demo client's Sloan as `turnOnSloan` leaves it: v1 from the template's live version, active, live, with its log. The Sandbox gets none. |
 
 ### 1.48 Triggers: six kinds (W2-E, M25; no migration)
 
@@ -2330,7 +2397,7 @@ also reloaded the whole clients list every 20 s for one number, in background ta
 | Reads asked at once | The command center, Needs us, the feed and the clients list ask their independent reads together in the request's transaction, which postgres-js pipelines (as search and billing already did). None of them changes the scope while reads are in flight. // DECISION |
 | The platform per request | `services().platform` is built on first use, not for every request: the tool registry and skill catalog take tens of ms in a fresh isolate and most reads never use them. // DECISION |
 | Polling | `usePoll` and the command center's feed skip ticks while the tab is hidden and catch up once on return. The back office's Escalations badge refreshes from `/api/ops/needs-us` (the same count), not the whole clients list; the list loads once, and again when the session's clients change. // DECISION |
-| Not done | Converting tool schemas to JSON Schema lazily: tool skills copy them when their modules load, so it moved no work off startup (measured). Dropping the Anthropic SDK (3 MB) or moving Playwright (3.2 MB, loaded only for website logins) out of the bundle to cut the 12 MB script: possible, at the cost of our own model transport or a separate Worker for browser logins; the owner's call. |
+| Not done | Converting tool schemas to JSON Schema lazily: tool skills copy them when their modules load, so it moved no work off startup (measured). Dropping the Anthropic SDK (3 MB) or moving Playwright (3.2 MB, loaded only for website logins) out of the bundle to cut the 12 MB script: possible, at the cost of our own model transport or a separate Worker for browser logins; the owner's call. The owner said yes to both (D3, 2026-11-11): Playwright moved to its own Worker (§1.92); our own transport is its own PR. |
 
 ### 1.83 Speed: one round trip per query (2026-11-09)
 
@@ -2362,7 +2429,9 @@ and audit.
 
 ---
 
-### 1.83 A second factor by text, WhatsApp or authenticator app (owner, 2026-11-09)
+### 1.99 A second factor by text, WhatsApp or authenticator app (owner, 2026-11-09)
+
+(Written as a second §1.83; renumbered beside the speed run's §1.83. Migration 0042 still cites §1.83.)
 
 Owner, 2026-11-09: build sign-in codes by text and WhatsApp as well as an authenticator app, and
 require the authenticator app for operators. WorkOS's own MFA offers only the authenticator app.
@@ -2405,6 +2474,2029 @@ feeds, upload, email sending, texts, webhooks, website, website logins) take a M
 website login keeps the site's initials. These colours are the providers' and are used nowhere
 else, so the palette rule (no new colours) holds for our own UI.
 
+Superseded in part (owner, 2026-11-11 and 2026-11-12): the owner's own logo files, the same set
+the site uses (`apps/site/src/logos`), now come first, in `apps/web/src/connections/logos/`, on
+the same white tile. Every third-party connector with a file uses it, including the ones that
+had letters (Slack, LinkedIn, Outlook, Bing, Ramp, BILL, Podio, Zoho's wordmark). Simple Icons
+paths remain only for connectors without a file (Hacker News, ElevenLabs), and letters for any
+future connector with neither. // DECISION
+
+### 1.86 The process model (owner, 2026-11-10)
+
+The owner found skills, tools, workflows, automations and agents too many overlapping words. The
+model is now: **connector** (a client's account in a system: read tools, write tools, events),
+**tool** (one fixed action that reads or writes, never decides), **skill** (data in, data out, by
+`rules`, `ai` or `rules_then_ai`; may read through connectors, never writes), **trigger**,
+**process** (triggers plus steps: `read`, `skill`, `write`, `person`, `conversation`, `notify`, and
+logic `if`, `for_each`, `wait`, `stop`, `process`) and **person**. Skills think, tools act. An agent
+is one process plus its **owner**, the AI that watches every step and fixes within limits (retry,
+correct input, ask the lead, stop), never changing the plan. Any step carries **checks**: confer (AI,
+a person from the client's People list, or AI then person; advice only), approval (`in_turn`,
+`any`, `all`) and notify (urgent ones send at once and need a "Seen"), each with plain-rule
+conditions. Everything that waits has one deadline shape with `ifNoAnswer`: `stop` (the default),
+`proceed`, `skip` or `escalate`; `proceed` on a write's approval is loosening (invariant 8).
+Business hours per client (default Mon to Fri 8 to 6) and per person, with away dates. Write tools
+declare their undo; a late reject is offered an undo, never applied by itself. Every account has a
+number and an email; some agents have their own. Skills in the Library are templates a step
+customizes, with update and promote. Browser scripts are recorded in our hosted browser by the
+operator or the client admin (our code signs in from the vault first; a client's recording is
+published by the operator); where no script covers a need, an `ai` skill browses read-only on the
+site's allowed pages and, if it can't find it within its limits, asks the lead or the client admin
+for help with what it tried, keeps the answer, and offers a path that works twice as a script draft.
+The design, with the inventory of today's 100 skills and 188
+tools, is the owner's doc "Mezonas process model"; milestones are §9.
+// DECISION: the property is `ifNoAnswer`, not `then`: an object with `then` is a thenable, and
+// awaiting a step's config would call it (Biome noThenProperty).
+// DECISION: stored v3 workflows are never rewritten; `processes.fromWorkflowV3` reads them as v4,
+// keeping every id, and a skill that only wraps one tool becomes a `read` step (side effect `none`)
+// or a `write` step (anything else; an unknown tool counts as external, so approval stays on).
+
+**Executor (wave 2b, `wave2b/executor`):**
+- // DECISION: one approval engine (`Executor.approve`) decides a write's gate approval and a
+  read's or skill's sign-off. An `all` approval with more than one approver present and no
+  `AgentPort.askApprover` fails the step (the gate's item expired): one signature never stands
+  for several. `in_turn` and `any` need one answer, so without the port they ask the gate's
+  approver alone and `ifNoAnswer` applies.
+- // DECISION: away approvers are skipped only for native v4 checks (a native step's, or an
+  approval a v4 `process` step sets on its automation's step). A converted v3 step's approval is
+  decided exactly as v3 decided it: the stored approver, the stored timeout, waited for.
+- // DECISION: a native skill's proposed writes are signed through the gate in the check's mode,
+  deadlines and `ifNoAnswer`; its confer runs before that approval (on the proposal). A sign-off of
+  the output is asked only for a read, or a skill that proposed no write; a write step's approval is
+  only ever the gate's.
+- // DECISION: a sign-off nobody answered with `ifNoAnswer: stop` fails the run (`timeout`), its row
+  failed "no answer in time", as a person step; it is never reported as a rejection.
+- // DECISION: `proceed` on a person step's deadline: a converted v3 step goes on with
+  `approved: false` (v3's `continue`); a native v4 step reads as a yes (`approved: true`, `by` null,
+  `proceeded: true`, row succeeded), as ARCHITECTURE §10.14's table says. A person step writes
+  nothing itself; every write after it keeps its own approval.
+- // DECISION: a skill customization is checked with `processes.customizeSkill`; the step's
+  `settings` and the customization's are layered with `processes.stepSkillSettings` (the skill's
+  defaults and the agent's own settings stay the runtime's, beneath them); `keep` keeps the
+  customized output schema's fields. A step adding instructions or rule rows fails unless the agent
+  port declares `appliesCustomization`; a skill the catalog can't check fails too.
+- // DECISION: only a native v4 skill asks the lead for help (`needsHelp`); a converted v3 skill's
+  output is its output. The answer is kept with `memory.write` (a browsing skill's under its
+  `remember` tag, in connectors' `browseHelpNote` format); a note that fails to save is written on
+  the step's row and never fails the step.
+- // DECISION: an AI reviewer's focus is sent as written; the values its references stand for go as
+  data (`ConferAiRequest.references`), never rendered into the instruction (invariant 9).
+- // DECISION: a conversation's event type is `conversation-<id>` in letters, digits, `-` and `_`
+  (core `conversationEventType`, at most 100 characters). The run waits on it, with a timeout of the
+  step's deadline (on the hours of who it is with) or the engine's `wakeAt`, whichever is sooner,
+  after a check before each wait; it then calls the port with what woke it (`payload`, `timedOut`
+  or `deadlinePassed`). `declined` takes `checks.approval.onReject`; `no_answer` the deadline's
+  `ifNoAnswer` (`proceed` goes on with what was found, the row succeeded).
+- // DECISION: business deadlines on hours with no open time for five years count in clock time:
+  the deadline still comes due and its `ifNoAnswer` still applies.
+- // DECISION: the validator types a conversation's output (`conversationOutputSchema`), reports
+  `conversationProblems` as codes (a templated goal stays `input_not_fixed`), and holds
+  `messages.first: not_required` to invariant 8: allowed at publish only where every bound
+  connection able to carry the channel allows `auto` for `create`; with none bound, refused.
+
+**Executor (wave 2c, `wave2c/executor`):**
+- // DECISION: only the approval overrides a native v4 `process` step sets are native v4 checks
+  (away approvers skipped). A stored v3 `use_automation`'s overrides, converted to a process step's
+  `approvals`, stay v3 approvals: the stored approver is waited for, as v3 did.
+- // DECISION: an approval's `when` that reads something the run doesn't have yet (a step that
+  hasn't run, a field the data lacks, verdicts before the confer) applies: an unresolved reference
+  is "approval required", never a null compared. An `exists` rule's own field may be absent; what
+  it reads from must be there.
+- // DECISION: the gate takes a write's approval before a skill runs, so a skill's `when` that
+  reads the verdicts of the confer on its proposed write keeps the approval required (the gate has
+  decided before the confer, and only it may loosen a write). Where the `when` can still decide
+  after the confer, a skill's sign-off when it proposed no write, it is read there.
+- // DECISION: a native skill confers on each write it proposes, before that write's approval: the
+  first attempt's first proposal under the step's name (`<step>:confer:<n>`, as before), every
+  other under its approval's (`<attempt>:approval:<k>:confer:<n>`), so a second proposal, a
+  corrected retry's (with the corrected input) and the re-run after the lead's help each have
+  their own. A skill whose proposals were conferred on isn't conferred on again on its output.
+- // DECISION: a conversation's check before each wait is the result the run waits on: its
+  `waitFor` and `wakeAt`, and the step's row says what it now waits for (a reply in the
+  client's language, `TimelineWords.waitingForReply`).
+- // DECISION: the owner's ask on a native step goes to the check's first approver present (the
+  step is shown to the owner without the approvers who are away) and waits on that approver's
+  deadline, in business hours on their hours when it says so (`firstTimeout`).
+
+**Runtime (wave 2b, `wave2b/runtime`):**
+- // DECISION: a write's further signers (`AgentPort.askApprover`) each get an `external_action`
+  item for the same change (its subject the action; the gate's card copied), idempotent per
+  (run, node). A yes while another signer's card is open leaves the change `proposed`; the last
+  open signer's yes approves it, a no from anyone rejects it. The run's decision is applied before
+  executing (`approveForRunTx`), checked against the signers' own cards: the run's word alone
+  never signs a change. A change approved on the gate's card alone goes back to `proposed` when
+  the run asks another signer, so it is never carried by a retry on one signature.
+- // DECISION: a write that proceeds with nobody's answer asks the gate again first
+  (`unsignedRefusal`: step `not_required`, the matrix, grant and entity, the recipient's autonomy,
+  the agent's mode at its stage, all read now). If the gate would make it wait, the step fails
+  ("nobody answered in time, and …"); otherwise the change is approved by its deadline
+  (`approvedBy` null) and the step's row carries R5's mark in `step_run.output`
+  (`proceededWithoutAnswer`, `externalActionId`, `inboxItemIds`).
+- // DECISION: an item asked of a user id that isn't a member of the client (a directory contact,
+  who can't sign in) goes to the client admin, as the approver rules send a non-member's rule;
+  `lead` is the client's lead as an operator's item; a test run's items go to the operator.
+  A conversation's or a reach-out's signature is one person's: asking more signers fails closed.
+- // DECISION: runAgent applies a v4 step's added instructions after the skill's own; rule rows a
+  step adds or edits fail the step, since the runtime doesn't evaluate rule rows yet. Settings,
+  model and `keep` stay the executor's. The agent port declares `appliesCustomization`.
+- // DECISION: a v4 notice is one thread message on the run naming its recipients and channel
+  (client-facing for a live run's notice to anyone on the client's side), as v3's notices are until
+  free text goes out by email or text. An urgent one also opens a "Seen" request for its first
+  recipient, due by its time, which the run waits on; the outbox's items-waiting pass tells them.
+  A deadline's `tell` is a `review` item for each person or role it names; a test run's tells us.
+- // DECISION: an AI reviewer runs one model call with no tool but `finish`: the focus in the
+  instructions, the step's input, output and the focus's references as data. With no model named,
+  the first of the agent's model, the reasoning default and the largest model that differs from
+  the step's. An answer that doesn't parse, or a failed call, is `unsure`.
+- // DECISION: the v4 conversation step runs on P-4's service (`converse/engine.ts` over
+  `conversePort`): the first call starts it, a call with no wake only reports where it is (an
+  answered card or an unread reply reports `wakeAt` now; a lost event is re-sent by the cron until
+  the run takes the card or message, which the engine marks as it takes them), and a
+  wake reads the card or rows it waits on, never the event's payload. `messages.later: required`
+  signs every later message. A deadline ends it as handed over (to `ifNoAnswer`), its open message
+  ended and its cards expired. Calls aren't wired to the voice path yet: a call step fails plainly.
+- // DECISION: wherever a conversation's message wakes its run (a reply, a wait ending, a held send,
+  the cron's re-send) or its card is resolved (the portal and back-office resolve routes, the
+  cron's re-send of resolved items), core's conversation event is sent beside the v3 event; a run
+  that doesn't wait on it ignores it. The engine marks a card received once it takes it.
+- // DECISION: the owner's settings and watch come from `processes.ownerOfBundle` of the pinned
+  version (a v3 bundle's settings are exactly its stored ones, with no watch); a v4 run reads the
+  agent's earlier live outputs once (`run:owner-history`, `dbOversightStore.recentOutputs`), and
+  the watch's signals reach `overseeStep`. Deadlines read `hoursFor(db)`.
+
+Stream browse (wave 2b):
+- DECISION: a browsing skill's run signs in once per site. Its calls share one session, held in the
+  run's `sessions` (connectors' `RunSessionPool`) and closed when runAgent ends however it ends.
+  Each call's work runs through `withBrowserSession`'s own `work(page)`. A failed sign-in is not
+  retried within the run. A bad first address is refused before the session opens.
+- DECISION: the browse cost limit ($0.50) joins runAgent's budgets: the smaller of it and the
+  agent's own, as an ask's budget does. A browsing run that hits its pages, its time, its step or
+  cost budget, or the connection's sign-in caps (`BrowserCapReached`) returns `{ needsHelp }`
+  (succeeded). It never escalates for these. The monthly cap still escalates.
+- DECISION: a connector's refusal (`ToolRefused`, which `BrowserRefused` extends) is reported as
+  `refused`, not `failed`, for every caller of callTool.
+- DECISION: a page counts toward the limit only once it was opened (read, or failed on the site).
+  Refusals by the scope, the gate or the connector don't count.
+- DECISION: paths that worked and offered drafts are memory notes in their own scope, `browse`.
+  The model's memory, knowledge search and the knowledge screen read `agent` only. The lead's
+  answers stay in `agent`. No migration.
+- DECISION: finishScope logs each write as a `tool_call` row on the step run (`memory.write`,
+  `inbox.create`). A draft is offered once: the offered note is written first and read back, and
+  the item is created only when that note is the only one.
+- DECISION: help screenshots stay the connection log's evidence storage keys. They are not copied
+  into the client's documents: no new copy of client data.
+- DECISION: page limits are not set per skill yet (SkillBrowse has no `limits`), and the save-time
+  check stays site-level. The runtime checks every page.
+
+Stream browse (wave 2c):
+- DECISION: a held browser asks Browser Run to stay open while idle for the run's time limit (5
+  minutes; `RunSessions.heldForMs`), within Browser Run's documented 10 s to 10 min
+  (`browserRunKeepAlive`); one tool call's keeps the 60 s default. A browser that closes anyway is
+  found when a call fails and the tab no longer answers (`BrowserTab.alive`): that call runs again
+  in a fresh browser, signed in again within the connection's caps, at most twice per held session
+  (`HELD_SESSION_REOPENS`). The closed browser's record says it couldn't sign out.
+- DECISION: a held session that ends early (a stop page, a failed sign-in, a browser that can't be
+  opened again, a sign-in cap) tells the scope (`RunSessions.ended`), which stops the run's
+  browsing: the next model turn is not taken and the step returns `needsHelp` (limit `session`, or
+  `sign_in` for a cap). The first reason wins.
+- DECISION (replaces wave 2b's answers in `agent`): the lead's answers are platform notes in the
+  `browse` scope, never the agent's memory: the executor hands them to `AgentPort.keepHelp`
+  (agents' `keepBrowseHelp`, logged as `memory.write` on the step's row, only under a help
+  request's tag), and a browsing run reads help answers and known paths from `browse` only.
+  Without the port's `keepHelp`, or for an answer with no tag, the executor writes an ordinary
+  note with no tag, which is never read as an answer.
+- DECISION (replaces wave 2b's "only marker" rule): a draft is offered by the run whose marker is
+  the earliest read back (newest-first order, so the last), so of two runs finishing together
+  exactly one offers it. When creating the item fails, its marker stays and the draft is not
+  offered again; the failed `inbox.create` row on the step records it (a missed offer rather than
+  a second one).
+- DECISION: `needsHelp` waits like `finish` when a write the run proposed waits for a person
+  (`awaiting_approval`, the step row `waiting`).
+- DECISION: a test run keeps no path notes and offers no draft (`finishScope` does nothing): they
+  are never read back, and the skill bench never writes. A test run keeps no help answer either.
+
+Stream channels, hours and undo storage (wave 2b):
+- DECISION: hours are checked where they are written (422 `invalid_hours`), not in core's schema:
+  a week with no open stretch, a date that isn't one, and away ranges that overlap or touch for
+  more than 366 days in a row are refused. Stored weeks keep parsing as before.
+- DECISION: on Mezonas' sending (Resend) an agent's email line names its §10.8 address
+  (`agentAddress`, live agents only, source `agent`) and the account's names the forwarding
+  address; the sending connection is the same. A bound mailbox (Gmail, Outlook) names its own.
+- DECISION: an agent with no channel of its own sends on the account's (`sendingChannels`) and
+  listens on the account's number (`agentsListeningOn`); the account connection's matrix decides
+  approval as an own binding's does. Messages nobody takes still go to Sloan and the Desk.
+- DECISION: a change of the account's channels writes a `tenant_change`
+  (`{ setting: "channels", from, to }`, fixed reason) and is checked by agents'
+  `checkChannelBindings`, shared with an agent's own `setChannels`.
+- DECISION: migration 0044 adds `external_action.after` (nullable, no backfill); the db store keeps
+  it (`keepsAfter`), so an undoable write reads its record once more after writing. Writes before
+  0044 have none and their undo is refused (`after_unknown`).
+- DECISION (owner's safe choice): Undo is pressed by the person who said no, the client's lead or a
+  client admin (the Sandbox operator stands in for the Sandbox's admin). The undo carries the
+  original's `runId` (no step, no agent version) so it shows on the run's timeline.
+- DECISION: write tools give their undo's input with `undoInput` on `defineWriteTool`, fed the
+  stored write parsed by the tool's own schemas (null when it no longer parses). QuickBooks' new
+  accounts, classes and locations are reversed by making them inactive at the version the create
+  returned (on a record changed since, the update fails as stale and writes nothing); ledger
+  updates and itemized lines put back what they changed (put-back lines go last); HubSpot updates
+  are guarded by `updatedAt` now; a Sheets cell that held a formula is never put back as text.
+  Bills, vendors and purchase orders stay `none`: QuickBooks' NOTES list no void we use.
+
+Wave 3, templates (R9's seeds and pack templates, R2's skill names; `packages/db/seed`, the packs'
+templates, their installs):
+- DECISION: each seed and pack template with a workflow gets a new version whose workflows are v4
+  processes, exactly what `processes.upgradeWorkflowV3` reads the v3 version as with the platform's
+  registries (apps/api `templates-v4.test.ts` holds them to it): the Bill clerk's v2, the
+  supervisor's v4, the Demo client agent's v2, the Bookkeeper's v2 and each marketing agent's v2.
+  Nothing else changes: the definition is the earlier version's, every trigger, step and path id
+  is kept, no check or business hours are added. Stored versions are untouched (invariant 3).
+- DECISION: a later seed version file may name the version it changes (`{ "extends": 3,
+  "workflows": [...] }`; `definition` keys are replaced one by one, `workflows` and `people`
+  whole), resolved by `seedVersionBundle` (packages/db) for the seed and the back office's install
+  alike, so both store the same bundle and hash. An unchanged definition, its model among it, is
+  never retyped.
+- DECISION: approval in the v4 versions: every write to a client's tool (QuickBooks, the website,
+  LinkedIn, the testkit) keeps `checks.approval` with `required: required`, `in_turn`,
+  `ifNoAnswer: stop`. A write to a platform record (Sloan's reports and daily check, the
+  Bookkeeper's import, settling, posted ids and reconciliations) carries no approval check, as its
+  v3 tool skill carried none: absent is required (the executor's default) and the gate asks only
+  for a write to a client's tool. Nothing is loosened anywhere.
+- DECISION: deadlines in the v4 versions are v3's timeouts on the clock, `stop` unless v3 said the
+  run goes on: the Bill clerk's and the Bookkeeper's questions to a person (`ask`, never an
+  approval) keep v3's `continue` as `proceed`, so the run behaves as before.
+- DECISION (one agent, one process): publishing doesn't run `processes.oneProcessProblems` yet, so
+  no template is split. Two hold more than one workflow and keep them in their v4 version. When
+  publishing checks it: the supervisor splits into Sloan (`chat`, keeping the slug and the account
+  agent's guard) and three watch agents on the same guard (a failed run, a connection that needs
+  attention, the daily check); the Bookkeeper into the Bookkeeper (daily), a monthly reconciler, a
+  payout check run by hand and the weekly account questions. None hands work to another, so no
+  handoff trigger joins them. Splitting now would take reconciliation and Sloan's watches away
+  from every fork on its next update.
+- DECISION (R2): the seeds' four unregistered skill names (`builder.draft-agent`,
+  `builder.revise-agent`, `agents.route-ask`, `agents.review`) are removed, not registered: the
+  Builder runs its own model calls, and route-ask and review were never built (§1.28). The
+  Builder's and Coordinator's v2 have no skills; their v1, which never passed publishing's
+  checks, stays a draft when the back office installs v2 on a deployment without them.
+- DECISION (R2): all 85 tool-mode built-ins only wrap their tool, so `isToolWrapper` is how the
+  builder and the Library tell a retired skill; no field is added (a test pins it). No v4 version
+  names one in a skill step.
+- DECISION: a pack template carries its later versions (`versions`, v2 first). Switching the pack
+  on, for any client and again, adds each later version the template doesn't hold (by bundle hash)
+  and publishes it, as the seed and the platform-template install add theirs; an operator's own
+  versions keep their numbers. Publishing a template changes no client agent (invariant 11).
+- DECISION: the demo seed (Harbor Millwork) forks each template's newest version of v3 workflows,
+  as its weeks-old history ran; the v4 version is the update its agents are offered. The Demo
+  client agent's v2 is its live version; the Desk item's run stays on v1, the version it ran.
+- DECISION: readers of a bundle typed v3 read a v4 process too: `allTriggers` lists a process's
+  triggers, the v3 walker walks into an `if`, the portal's run forms read a process's first
+  trigger, and the account agent's guard checks read and write steps.
+- DECISION: a client agent of v3 workflows takes its template's v4 version by the usual reviewed
+  update: the update and promotion previews and drafts, customizations, version diffs and the
+  template's used-by counts read v3 as v4 with the registries as they are now
+  (`lineageReadOptions`), and a merged bundle that holds processes is validated as one. The
+  merged draft is all v4; all-v3 merges are unchanged.
+
+Wave 3, builder (R8; `apps/web/src/ops/builder`):
+- DECISION: opening a stored v3 version converts it (`fromWorkflowV3`, `readConverted`) as the
+  builder's starting point, not an edit: nothing is unsaved, publishing it unchanged publishes the
+  stored v3 version, and the first save after an edit writes the whole bundle as v4, a new version.
+- DECISION: the builder validates with core's `processes.validateAnyBundle` (new), which validates
+  an all-v3 bundle exactly as `validateBundle` does; the server's save and publish checks use the
+  same function, so both say the same thing.
+- DECISION: the `agent_version.bundle` column stays typed as the v3 `AgentBundle`; `createVersion`
+  parses with `AnyAgentBundle` (a v3 bundle parses and hashes as before) and stores a bundle that
+  holds processes as it is. Readers check `schemaVersion`.
+- DECISION: the palette offers a connector's tools as read and write steps, and the platform's and
+  packs' own tools only where a tool-mode skill wrapped them (never a step-only skill's handler);
+  tool-mode skills and `comms.converse` are no longer offered (a conversation is its own step).
+- DECISION: a new write step starts with an approval check when its tool is external; a write to
+  a platform record runs as the skill that wrote it did. A write with no approval check shows and
+  counts as needing the default approver (invariant 8).
+- DECISION: loosening (approval off, `when` on a write's approval, `proceed` anywhere in it, a
+  conversation's unsigned messages) is offered only where `looseningBlocked` finds no reason:
+  a client agent, the bound connection's matrix `auto` for every verb written, the agent acting.
+  Templates keep everything signed.
+- DECISION: approvers and notice recipients are picked from the roles and the client's team (the
+  People list's users); a conferee may also be a directory contact. The People list is read from
+  GET /api/ops/clients/:id/hours; a template has the roles only.
+- DECISION: a step's own `settings` (v3) move into `customize.settings` when the operator changes
+  one in the builder, so a step's setting lives in one place; `customize` is shown against the
+  skill's defaults (and, on a client agent, the template step's value).
+- DECISION: the builder offers two levels of "ask someone else" (escalate); a longer chain written
+  in the bundle is shown, never cut. A test run starts from the first trigger's sample payload.
+- DECISION: logic steps (if, for each, wait, stop) carry no checks in the builder and never show
+  on the client's timeline; work steps show by default.
+
+builder-chat (wave 3b) (`packages/agents/src/builder`, `apps/api/src/routes/ops-builder.ts`):
+- DECISION: the Builder (its conversations, draft-agent and revise-agent) drafts and edits v4
+  processes. A stored v3 version, and a conversation's draft or turn saved before this, is read
+  through the converter (`toProcessBundle`, conversations kept as skill steps, every id kept) each
+  time it is read; what the Builder saves is a v4 version. Nothing stored is rewritten
+  (invariant 3), and a conversation's view answers the converted draft, so the screens read v4.
+- DECISION: the guards hold invariant 8 field by field on v4: an approval's `not_required`, `when`,
+  and every "go ahead when nobody answers" (its own and each approver's deadline), a process
+  step's loosening overrides, and a conversation's unsigned messages stay only where the
+  operator's version had that same loosening on that same step (same id, kind and, for a read or
+  write, tool); anything else is tightened (core's new `processes.tightenedApproval`). A new step
+  that writes to a client's tool or reaches people starts with an explicit approval check.
+- DECISION: an automation saved from a v4 process holds v4 process steps and is
+  `schemaVersion: 2` (`ProcessAutomationDefinition`); a stored v1 automation keeps its v3 steps and
+  runs, validates and hashes as before. A process step pins either; a v3 use step pins v1 only
+  (validation refuses a v2 pin, the run's expansion too). `automation_version.definition` is typed
+  `AnyAutomationDefinition`; no migration.
+- DECISION: "Save as automation" on a process (`processes.stepsToProcessAutomation`, shared by the
+  Builder's conversation and the workflow builder's from-steps route through
+  `bundleStepsToAutomation`) works as v3's: references to the trigger, the agent's settings and
+  earlier steps become the automation's input, later steps (and the handoff) read the process
+  step's output. Every loosened approval inside starts tightened; a client agent keeps the
+  operator's loosening of a skill, read or write step through the process step's `approvals`. A
+  conversation's message settings have no override there, so they start signed in the automation.
+- DECISION: the account agent's guard walks a v4 process as one and counts a process step's
+  automation (v3 or v4 steps) as the step's own, as it does a use step's.
+
+#### Library (wave 3, R8)
+
+- DECISION: the Library is `/ops/library`, one tab per bank (Processes, Skills, Tools, Connectors,
+  Triggers, Record types, Condition sets) above each bank's own page; the sidebar's Skills and
+  Connectors become one Library link, and `/ops/skills`, `/ops/connectors` and
+  `/ops/browser-sites` redirect into it. A skill's, a new skill's and an automation's pages keep
+  their addresses (`/ops/skills/...`); their breadcrumbs lead back into the Library.
+- DECISION: the banks that had a screen keep it inside the Library's frame (the skills library,
+  the connectors catalog, website logins, which is the Connectors tab since a site is a
+  connector); the frame loads nothing, so each bank's page is the only thing asking the API.
+- DECISION: read-only routes in their own file (`packages/core/src/api/library.ts`,
+  `apps/api/src/routes/library.ts`): `GET /api/ops/library` (counts), `/processes`, `/tools`,
+  `/record-types`, `/conditions`. Skills, connectors, sites, automations and the event catalogue
+  keep their routes; the skills list gains optional `method`, `reads`, `browse`, `retired` and
+  `wraps` rather than a second skills route.
+- DECISION: Processes are the templates (active, published or not), each workflow of the live
+  (else latest) version read as v4 (`processes.fromWorkflowV3`, nothing rewritten, invariant 3);
+  automations show in the same bank as "used inside other processes", through the existing
+  automations card and route. "Used by" counts the served clients' active client agents forked
+  from the template (test copies aren't).
+- DECISION: retiring tool-wrapper skills (`isToolWrapper`) leave the Skills bank's other tabs for a
+  Retired tab, each naming the tool a `read` or `write` step uses instead; the Tools bank marks the
+  tools they wrap. The index counts them apart.
+- DECISION: Record types are the connectors' `permissionEntities` (id `<connector>.<entity>`, the
+  form a conversation's `find` names), with their verbs, scopes and tools, plus the platform's own
+  record kinds (`RECORD_KINDS`, what a source id names), which agents read through tools only.
+- DECISION: nothing stores named condition sets, so the bank is derived and read only: every
+  condition the processes use (trigger filters, `if` paths, each check's `when`, a `process`
+  step's approval overrides; core's `processes.conditionUses`), from each template's live (else
+  latest) version and each automation's in scope, grouped by canonical JSON (key: its sha256's
+  first 16 hex digits), named by the first `if` path that uses it. Storage for named sets (a
+  `condition_set` table and versions, and a `{ set: 'name@v' }` reference in `Rules`) is open: it
+  needs a migration and a schema change in core, neither in this wave.
+- DECISION: a write that declares no undo shows as "No undo declared" (the undo path treats it as
+  `none`); a write a person always signs shows the copper "A person always signs".
+
+Wave 3, runs and merge (R8; `apps/web/src/ops/merge`, the run views, the inboxes' undo):
+- DECISION: the merge view reads all three versions as v4 once any holds a process (core's
+  `readBundles`), with a `ConvertLookup` built from the builder catalog it already loads (tool-mode
+  skills that wrap one tool, each tool's side effect); no new route. The server repeats the merge
+  on save and decides.
+- DECISION: until the builder stream's `validateAnyBundle` is in core, the merge view validates a
+  merged bundle that holds processes process by process (`processes.validateProcess` with the
+  agent's skills and tools); all-v3 bundles validate as before.
+- DECISION: checks and deadlines read in words in the merge view and the read-only step list
+  (`ops/workflow/checks.ts`); the trigger order (`workflow:<slug>#/workflow/triggerOrder`) reads
+  "order of its triggers", its values as the triggers' names, and a reorder marks the triggers
+  whose place changed as moved.
+- DECISION: what a step's checks did is read from the rows that exist (core `api/run-checks.ts`):
+  a confer is its own `step_run` (`<step>:confer:<n>`), an approver is an inbox item on the step's
+  node (`payload.nodeId`, or the gate's `payload.stepId`), "went ahead" is the write's
+  `output.proceededWithoutAnswer`, "stopped" is the run's error (`timeout`, `not_seen`) at the step
+  or one of its checks, and an urgent notice's Seen is its item (`payload.urgent`) or the notify
+  row's `output.ackItemId`. Shared by the back office (from the run's rows) and the portal (the
+  server fills `TimelineStep`'s new optional fields).
+- DECISION: a confer is a step of its own on the client's timeline ("Checked with Dana: agrees",
+  "A second check: agrees"); a second check's note is model text and stays in the back office; a
+  person's note shows to the client. A confer still waiting shows only in the asked person's Inbox.
+- DECISION: the client sees a v4 step by its `client` setting, else by kind: reads, skills, writes,
+  people, conversations, notices and sub-processes show, logic never (core `shownOnTimeline`).
+- DECISION: the back office's oversight reads as the agent's owner ("The owner corrected the input
+  and tried again after a failed step"); the decisions and their records are unchanged.
+- DECISION: the late answer and the undo offer are read from the item's payload (`lateAnswer`,
+  `undo`, shapes mirrored from apps/api) and the Undo button calls the undo routes, whose specs the
+  web mirrors until they move to core. A late no with no offer and a write that went through says
+  the change can't be undone (sent messages can't be taken back). The portal never shows the
+  tool's id or the server's English reasons; refusals read in the client's words.
+
+**Wave 3, portal settings (R8)** (`apps/web`: `hours/`, `channels/`, the portal's Settings, Team,
+Contacts and Accounts, the back office's client settings; no migration, no contract change):
+- DECISION: §10.14's four pages are Business hours (`/settings/hours`) and Channels
+  (`/settings/channels`), new Settings sections every client person reads, plus Connections and
+  People where they already were: Accounts gained the tools to connect grouped by kind with how
+  each connects (sign in, a key, or an agent account's login into the vault), and Team and
+  Contacts gained each person's hours and away dates. No address moved.
+- DECISION: the zone is shown, never edited, on Business hours: the hours route takes none (it is
+  the client's timezone, which we set with its details); the page asks Sloan.
+- DECISION: Channels are read-only in the portal, for the client admin too: the channels routes
+  give the portal nothing to change (the account's and each agent's are the operator's).
+- DECISION: a person's own week keeps the zone and US-holiday switch they had, else the client's;
+  choosing a person's own zone is not on screen. Back on the business's hours with no away dates
+  saves `null`.
+- DECISION: who sees whose hours is the routes': the client admin everyone's on the People list
+  (Team and Contacts), a client user only their own (a "Your hours" card on Team).
+- DECISION: connector groups (accounting and money, email, messages and calls, files and sheets,
+  customers and sales, websites and search, other) live in `apps/web/src/connections/groups.ts` by
+  connector id, as the brand marks do, not in the manifest or the API contract.
+- DECISION: the back office's Business hours lists only people with hours or away dates of their
+  own (contacts can run to thousands); the account's channels are bound there with the agent
+  page's channel editor, now shared, where unbound reads "The default".
+
+runtime (wave 2c):
+- DECISION: a reach-out's plan or a conversation's message that nobody signed, with `ifNoAnswer:
+  proceed`, is decided again by the gate before it goes (`unsignedSendRefusal`, reach/service.ts):
+  step `not_required`, every planned channel's `create` at `auto`, the agent's own mode `act` at
+  `live`, no planned channel the person set to `approval`, all read now, the inputs a plan's own
+  decision uses (`planWhyApproval`). Otherwise the row ends `declined` with the reason and the step
+  fails ("nobody answered in time, and …"), as an external action does. A conversation whose every
+  message is signed never sends one on a deadline.
+- DECISION: an edit is refused while a change has more than one approval item (`proposedActionTx`,
+  409 `invalid_state`: "others are signing this change too … reject it and ask again"), through
+  the gate's card or a signer's alike; `recordEditTx` finds the change the same way. Chosen over
+  clearing the others' answers and asking again: nothing reopens a card a person already answered.
+- DECISION: a change a person edited and left unsigned never goes ahead on a deadline
+  (`unsignedRefusal`); the gate reads the input that would be written (`editedInput ?? input`).
+- DECISION: `claim` waits out the undo window of every approval item of the change (the gate's and
+  each signer's), so the yes that approved it can still be taken back.
+- DECISION: an urgent notice's Seen item is made before its message is posted and found again by
+  run, step, kind `request` and `payload.notice`; a deadline's `tell` makes one item per (run, step,
+  who told). Supersedes wave 2b's "the outbox's items-waiting pass tells them": the person is told
+  at once (notify/urgent.ts), whatever their quiet hours and their own switches, by email and by
+  text where they have a number that may be texted (consent, no STOP), with the items-waiting
+  sentence (one item) and one link, never the notice's words; each person and channel once
+  (`payload.toldAt`); never for a test run. Sent through the outbox's senders, not as a
+  `notification` row: a kind of its own needs a migration (docs/open.md).
+- DECISION: every resolve path sends what resolving sends (`sendResolution`: the item's event and
+  the conversation's beside it): the Desk's batch, stepping in, directory suggestions, and taking a
+  conversation over or ending it (an open message's end sends its conversation event too).
+
+**readers (wave 3b)** (the server's readers of `agent_version.bundle`; `packages/db`, `core`,
+`packages/agents/src/registry`, `apps/api`; no migration):
+- DECISION: the `agent_version.bundle` column is typed `AnyAgentBundle`, its true shape, replacing
+  the builder's "stays typed v3"; the compiler now finds every reader, and each checks
+  `schemaVersion` or reads through core. Stored versions are untouched (invariant 3); a v3 version
+  reads exactly as before. The runtime's `PinnedAgent` stays typed v3 (the executor reads each
+  workflow by its `schemaVersion`), cast once where the registry loads it.
+- DECISION: readers share core helpers rather than per-site walks: `eachBundleStep` (every step of
+  both schemas, `enabledOnly`), `findAnyStep` and `findNodeStep` (a step by id, or by a step run's
+  `<loop>:<i>:<child>` node), and `allTriggers`/`messageTriggersOn` taking a process
+  (`TriggerHolder`). The timeline's readers (the Table, the client export) use `shownOnTimeline`.
+- DECISION: the account agent's guard opens a v4 `process` step's pinned automation as it opens
+  `use_automation`, and refuses a `conversation` step (it messages someone outside); Sloan never
+  reaches a client's tool by either (invariant 11).
+- DECISION: `requiredConnectors` and `bundleWrites` count a v4 read's and write's tool as an
+  action's, a `process` step's automation as a use step's, and a conversation as reaching people.
+- DECISION: Run now refuses a workflow with no trigger with 422 `no_trigger` (`startable`),
+  never a run with an empty trigger id; it still starts on the first trigger, as for v3.
+- DECISION: inbound calls are answered by an enabled workflow with a `call.received` trigger among
+  any of its triggers and a top-level `call.answer` action (v3) or write (v4); a v4 write's approval
+  is its `checks.approval` (absent: required), and one with a `when` counts as required, since a
+  ringing call has no run data to test it against.
+- DECISION: promotion's stripping (and so a client agent's copy) reads v4 steps too: a skill step's
+  `customize.settings` is scrubbed like its `settings`; the base's value is kept by step id.
+- DECISION: the Builder chat (session start, revise) and "Save as automation" read v3 workflows
+  only for now; a version that holds processes is refused with 422 (`holds_processes`,
+  `process_steps`) and plain words, never parsed as v3 into a 500. Porting them is the Builder's own
+  stream.
+- DECISION (replacing wave 3 templates' "switching it on again is how the operator upgrades"):
+  switching a pack on for a client never changes an installed template. "Update templates"
+  (`POST /api/ops/packs/:pack/templates/update`, a button on the Packs page when a template has
+  newer versions) adds the pack's later versions by bundle hash. Each is published when the live
+  version is the pack's own (or none is live); over a live version the operator made it is saved
+  as a draft for them to publish. Publishing changes no client agent: each fork is then offered the
+  update and takes it only by its reviewed merge (invariant 11).
+
+**web (wave 3b)** (`apps/web`, with core's contract additions it needs; no migration):
+- DECISION: every tab of the agent page reads `AnyAgentBundle` (Overview, the bar, an older
+  version's Workflow view, Settings > Definition, Versions with its test runs and go-live, the
+  triggers panel), and so do the lab and the new-agent preview. A test run's input reads the
+  workflow's triggers through core's `allTriggers`, and one trigger stands for the run's payload:
+  the first event trigger, else the first trigger (`testTrigger`). Its recent events and its sample
+  are both that trigger's (wave 3c: the sample had read the first trigger, so a process started by
+  hand first and by an event second offered a blank form beside the event's recent payloads).
+  "Revise with the Builder" is offered for any readable version, since the Builder's server
+  sessions draft processes (wave 3b builder chat). The Overview's tools are the definition's extra
+  tools and every v4 read and write step's tool, nested ones too (wave 3c).
+- DECISION: the triggers panel adds a trigger to a process's `triggers` and removes any but its
+  first, as it does a v3 workflow's `moreTriggers`; every id is kept (invariant 3).
+- DECISION: the builder validates what Publish would send: a stored v3 version opened and not
+  edited is validated as v3 (core validates an all-v3 bundle exactly as `validateBundle`), the
+  edited process as v4. `clientAgent` is always passed, false for a template, as
+  `validateForPublish` passes it; the merge view validates a process bundle whole
+  (`validateAnyBundle`) as the agent it lands on (an update the client agent, a promotion the
+  template).
+- DECISION: the checks panel's Approval part says what each kind changes: a process step's writes
+  are approved inside its process (an approval can still be added before it starts); a
+  conversation's messages are signed under its message settings, so it is offered no approval.
+  The Inspector, the checks panel and `createStep` use core's `outputBeforeChecks` and
+  `stepReaches` (now exported), not copies.
+- DECISION: a rule row a step's customization adds gets the id `rule-<uuidv7>` and a readable
+  name ("Rule 3"); its problems read by that name. Customizations merge three-way by id, so a
+  counter could line a template's and a client's unrelated rows up as one.
+- DECISION: a v4 write with no approval check reads "needs approval" (invariant 8). Where a step
+  list has the tool registry (the builder), a tool that writes only our records reads neither;
+  without it (read-only lists) the safe side, as core counts an unknown tool as external.
+- DECISION (the owner's call recorded): directory contacts are not offered as person conferees,
+  as they are not offered as notice recipients: a conferee is shown the step's result, so asking
+  a vendor or a customer is a message outside the client's team, a write behind approval. A
+  contact already stored on a step still reads by name.
+- DECISION: the portal refuses a week with no open hours before saving (the server's 422
+  `invalid_hours`), and `invalid_hours` reads in the client's language. "Add hours" late in the
+  day starts where the last stretch ends and stops at 23:59; a day full to 23:59 offers no Add.
+- DECISION: the People hours list carries at most `PEOPLE_HOURS_MAX_CONTACTS` (2,000, now in
+  core); a contact missing from a full list has hours we never read, so their detail says so and
+  offers no editor (saving would erase their own week). A list under the cap is complete.
+- DECISION: `PortalConnection` gains the manifest's optional `auth`; "how it connects" is "you
+  sign in" for OAuth (and Plaid's link), "you enter its key" for API keys, "No sign-in or key
+  needed" for `none` (Google Chat, the website, Hacker News, webhooks), and no line when an older
+  Worker didn't say.
+- DECISION: "Enter a login" on a website opens the vault's add panel with that site's setup first,
+  marked and focused; the other sites stay below it.
+- DECISION: the undo a late no is offered (`portalUndoChange`, `opsUndoChange`) is in core's route
+  contract (`packages/core/src/api/undo.ts`); apps/api mounts it and the web calls it from
+  `apiRoutes`, replacing both copies. The Library uses the step lists' `PROCESS_KIND_LABEL`.
+
+**Scripts (wave 4)** (R9's second half: scripted site tools; `packages/core/src/browser/script.ts`,
+`packages/connectors/src/browser/script.ts`, `apps/api/src/browser/scripts.ts`,
+`apps/api/src/routes/browser-scripts.ts`, migration 0045, `apps/web/src/accounts/scripts.tsx`, the
+Websites screen's Scripts, the Library's and the builder's listings):
+- DECISION: a script is data per client site: `browser_script` (its name, the recording being made,
+  edited in place, and the published version) and `browser_script_version` (each saved definition
+  with its evidence screenshots by step id; immutable, never deleted). Migration 0045, forced RLS on
+  `tenant_id`; publishing points the script at a version (`published_version`), it never changes
+  one.
+- DECISION: two static tools on the browser connector run every client's scripts, naming the
+  script in their input (`{ site, script, inputs }`): `browser.script.read` (a script that only
+  reads) and `browser.script.submit` (one that submits). The script is looked up at call time
+  through `BrowserServices.script`, inside the connection's own client (and on its own login), so a
+  script exists for that client alone and the platform's tool registry stays the same for everyone
+  (no per-client tools in `packages/agents`). Inputs and outputs are checked with Zod built from the
+  script's declarations, both ways (invariant 5).
+- DECISION: `browser.script.submit` is `approval: "always"`, verb `create` on a new `form` entity:
+  a person signs every script write on every tier, through the gate and `external_action` (executed
+  once by its key). The tier table's low-tier `auto` is not offered for scripts yet. Its `before`
+  reads nothing from the site (that would spend a sign-in): it checks the script is published, the
+  inputs, and the connection's write ceiling (`browserWriteCeiling`: blocked or the client's "no
+  writes" refuse before a card is made).
+- DECISION: the tool's undo is `none`. R5's Undo reads the record now and compares it with the state
+  the write left; a script has no record to read without a sign-in. A script's own undo (a named
+  reverse script with its inputs from this script's inputs or outputs) is kept on the version and
+  named in the write's output (`reverse`), for a person to run.
+- DECISION: the submit is a write script's last step, and its output is `{ submitted, url }` plus
+  what it read before submitting: a recording never clicks the submit (nothing reaches the
+  client's tool outside `external_action`, invariant 8), so a page after it was never seen.
+  Steps: open, fill, click (one may submit), read a field, read a table (by its place on the page),
+  download a file (into documents, as `browser.file.download`). Addresses may hold `{{input}}`,
+  filled percent-encoded and checked against the site's pages on every run.
+- DECISION: recording is one action per request, each in a browser session our code signs in to
+  (`withBrowserSession`): the steps so far are replayed as a dry run, then the new action is done
+  and kept with its screenshot. No live view and no session held across requests: a Worker can't
+  keep a browser between requests without a Durable Object or Browser Run's reconnect (unchecked).
+  Each action spends a sign-in against the connection's daily cap (a low-tier site that keeps its
+  session spends none). The recorder shows the page after each action: its address, some text,
+  its tables, its fields and buttons with selectors (`BrowserTab.controls`), and the screenshot.
+- DECISION: a typed value marked `as` becomes an input (the value its example); a read marked `as`
+  an output. The review edits names, labels, types and which steps stay; saving checks the
+  definition (`scriptProblems`) and every address against the site's pages with the examples, and
+  refuses one that is the same as the last version.
+- DECISION: only the operator tests and publishes. A client admin records, reviews and saves; the
+  version stays a draft (state "Waiting for us to publish") until the operator publishes it
+  (invariant 11). A test is a dry run of a version (or the recording) with given inputs or the
+  examples: the submit is never clicked and a download is fetched and not kept (test runs never
+  write, not even our own records). Publishing writes a line on the login's log
+  (`browser_script_published`).
+- DECISION: an element that isn't there stops the script (nothing after it runs, so a write submits
+  nothing) and the tool answers `{ needsHelp }` (a write's with `submitted: false`). The executor
+  now asks the lead for any native v4 read or write step whose output says so, as for a native
+  skill, and runs it once more with the answer (`help` in the input, data only; a converted v3
+  step never asks). The answer is an ordinary note: it can't change a script's fixed steps, so the
+  operator re-records and republishes, and the re-run takes the version published then.
+- DECISION: the script-draft offer (a browsing path that worked twice, §1.86 browse) has "Record it
+  as a script" in the Escalations, opening the Websites screen's recorder with
+  `?offer=<item>&client=<client>`; starting from it prefills the path's pages as open steps (a
+  download as a download step with an output of its own).
+- DECISION: the Library's Tools bank lists the picked client's published scripts under the browser
+  connector; a client agent's builder palette offers them in the browser connector's section as read
+  and write steps with the script named in the input (a write starting with its approval on). The
+  builder change is a preset `input` on palette read and write items and three small hooks
+  (`WorkflowBuilder.tsx`, `catalog.ts`, `model.ts`); the rest is `builder/scripts.ts`.
+- DECISION: the page scripts behind `BrowserTab.textOf` and `controls` (Playwright, evaluated in the
+  page like `readText`) are checked against the fake browser only here: real Chromium and Browser
+  Run are unchecked (CI's Chromium job covers the Playwright adapter).
+- DECISION (review fix): no transaction is held across a browser or the runtime. A Worker's
+  database has one pooled connection, so recording an action, testing a script and pressing R5's
+  Undo run on `mountLong` (`apps/api/src/http.ts`): the same sign-in, roles, scope and audit as
+  `mount`, with short `inTx` transactions in the request's scope and the ok audit row written alone
+  after them. A recorded action reads in one, runs the browser outside any, and writes its step in a
+  second; the pinned site is read inside the request's transaction (`pinnedSiteIn`). The API tests
+  build the app on `{ max: 1 }` (`appDbMax`) for these routes and the undo tests.
+- DECISION (review fix, replaces "each action spends a sign-in against the connection's daily cap"
+  above): recording and tests sign in against an allowance of their own, 30 a day per connection
+  (`RECORDER_SIGN_INS_PER_DAY`, the connection's `recorderState`), never the agents' daily cap;
+  failures and the stop stay shared (the same account). A held session lives inside one run's step,
+  and a Worker can't keep one between requests. Recording is refused (`code_every_sign_in`) on a
+  login whose site asks for a second factor at every sign-in and doesn't keep its session.
+- DECISION (review fix): the back office's script view carries each saved version's definition
+  (`versions[i].definition`) and `recordingDiffers` (the recording against the newest version, by
+  canonical JSON; with none saved, whether anything is recorded); the portal's view leaves the
+  definitions out (no portal response carries one). Publishing publishes the version number given.
+- DECISION (review fix): a recorded page that showed a vault value (the connector's `[hidden]` marker
+  in its text, tables, fields or the value read) has its screenshot neither linked nor kept as the
+  step's evidence (`screenshotWithheld: true`). A recorded action whose script changed while its
+  browser ran is refused with 409 (the row re-read `for update`), never merged. A test's result says
+  `dryRun: true`, and a write's outputs `submitted: false`.
+- DECISION (review): every script step runs with the page read only (`BrowserTab.readOnly`): only
+  GET and HEAD leave the browser, so a navigation, fetch, XHR or beacon with any other method is
+  aborted where it starts and the page stays as it was. This holds for recordings' replays, tests,
+  read scripts and a write's steps before its submit (they are what its test ran); only the marked
+  submit, in a run that isn't dry, lets the browser post. The Playwright adapter does it with one
+  `page.route` for the page's life; a browser without `readOnly` is refused; it is lifted before
+  sign-out, which may post. The fake browser mirrors it (its form and posting buttons do nothing).
+- DECISION (review): a click on a button that sends a form (a submit-type button or image input, or
+  any button inside a form: `BrowserControl.submits`, `BrowserTab.sendsForm`) that isn't the marked
+  submit is refused at run time (a refusal, not a request for help: the script is wrong, not the
+  page). Saving can't tell, having no page. A `<button>` with no type outside any form doesn't
+  count: it posts nothing by itself, and read only stops whatever its script sends.
+- DECISION (review): a submit whose landing page is off the allowed pages or a stop page is
+  reported as sent, `{ submitted: true, url: null, landing: <reason> }`, without reading or
+  photographing that page (`SignedInPage.submit`), so the `external_action` is recorded as done.
+  `landing` is a reserved output name.
+- DECISION (review): `browser.script.submit`'s before state is the published version and its steps
+  in words (`{ versionId, version, name, steps }`), so the approval card shows what will be sent;
+  the write is refused when the version approved (`proposedBefore`) is no longer the published one.
+  The runtime always passes the action's before (null when none was kept, never absent), so every
+  write it runs is checked, and a null before (an older card, or a before that failed) is refused,
+  to be approved again. A caller that leaves `proposedBefore` out would run the published version
+  unchecked; the platform has no such caller (only the connector's tests).
+- DECISION (review, replaces "the answer is an ordinary note" above): a `browser.script.*` step
+  that needs help asks the operator (the `operator` role, as an escalation's `to` names it), not
+  the lead, and its answer is not written to memory: no answer changes a script's fixed steps. The
+  operator records the script again and publishes it, then answers; the step runs once more on the
+  version published then, and fails if it still needs help. Unanswered within the help deadline,
+  the step fails as needing a new recording.
+- DECISION (review): script problems carry a code and its names (`scriptProblemList`, with the
+  English text beside them; `scriptProblems` keeps the text). The portal says a problem with a code
+  it knows through `scripts.problem.<code>` in the client's language, else the server's words (also
+  when a name is missing). The portal shows "Published · v1, v2 waiting" when an older version
+  runs while a newer saved one waits.
+- DECISION (review): the Websites screen shows the exact stored steps of the version it publishes
+  (each element or address, fixed text, inputs, outputs, every click and the one that submits, the
+  side effect and the undo) and a signal note when the working recording differs. Without the
+  version's stored definition from the API, publishing stays off.
+- DECISION (review): a script step placed from the builder's palette starts with every declared
+  input, each an empty string for the operator to fill or point at an earlier output. Typing the
+  placed step's output per script (`scriptJsonSchemas`) needs the builder's typing context to know
+  scripts and is left to the builder's own branch.
+- DECISION (integration): a script's problems are `{ code, params, text }` with one code list:
+  core's `SCRIPT_PROBLEM_CODES` (a definition's own, from `scriptProblemList`) and the API's four
+  that need the recording or the site (`empty`, `invalid`, `site_gone`, `off_site`, made with their
+  codes in `apps/api/src/browser/problems.ts`); no catch-all. The contract's type is
+  `ScriptProblemView` (core's `ScriptProblem` is the definition's own). The portal words every code
+  but `empty` (never shown: nothing is recorded) through `scripts.problem.<code>`.
+- DECISION (integration, replaces "one `page.route` for the page's life" above): read-only mode's
+  route is on the page's context (`page.context().route`), so a popup or a new page the site opens
+  is held as the page is; the openers make the context with `{ acceptDownloads: false,
+  serviceWorkers: "block" }`, since a service worker's requests pass no route. WebSockets are not
+  covered: no route sees a frame sent on one. Browser Run's support for `context.route` and
+  `serviceWorkers` is unchecked until staging.
+- DECISION (integration): a test is held to the recorder's rules. It is refused
+  (`code_every_sign_in`) on a login whose site asks for a code at every sign-in and doesn't keep its
+  session, and it runs its steps one at a time, each page after it checked for a vault value as a
+  recorded page is; once one is seen, none of the test's screenshots is linked
+  (`screenshotWithheld: true` on the result).
+- DECISION (integration): the recorder's page carries each control's `submits` (the contract's
+  `RecorderControl`), and the recorder marks such a button "sends the form". An unmarked click on
+  one is refused before any call, in the reader's words (`error.sends_form`); the server's own
+  refusal (`ScriptClickSendsForm`) answers 422 `sends_form`, worded the same in the portal.
+- DECISION (integration): a script's own errors (`ScriptStepMissing`, `ScriptClickSendsForm`) keep
+  their class through the browser session's cleaning (`KeepsClassWhenCleaned`, the message still
+  redacted), so the API tells them apart after the session: a recorded element that isn't there
+  answers 422 `not_found` and a test that meets one answers `needs_help` (both had become a 500).
+- DECISION (integration): a saved version whose stored definition no longer parses stays in the
+  script's view with `definition: null` (its side effect as stored, else a write), and counts for
+  the state and `recordingDiffers` as the newest; the Websites screen keeps Publish off for it and
+  the publish route refuses it (409 `invalid_state`): it can't be shown, so it isn't sent.
+- DECISION (integration): the executor names no tool for help. A tool step's `needsHelp` may say
+  who answers (`to: "operator"`, else the lead) and that the answer isn't kept (`keep: false`); the
+  browser connector's `scriptNeedsHelp` says both. Read only from a tool step's output (our code
+  wrote it), never a skill's, whose output may come from a model: a skill always asks the lead.
+- DECISION (integration): the same rule for every route that waits on its own transactions or on
+  something outside: on `mountLong`, reads and writes in short `inTx` transactions, nothing held
+  across the wait. Moved: the ledger's signed change (`opsClientLedgerChange`), a pack's action
+  (`opsClientPackAction`), a pack review's decision (`opsPackReviewDecide`,
+  `portalPackReviewDecide`), editing before signing (`portalEditInbox`: the runtime's check and a
+  translation; a change someone else edited meanwhile is refused with 409 `conflict`), and the
+  OAuth callbacks (`portalAuthorizeCallback`, `opsSandboxAuthorizeCallback`: the provider's
+  exchange, WhatsApp's "number taken" check, and the vault's cipher in transactions of its own).
+  Their API tests run on `appDbMax: 1` (desk, packs, qbo, whatsapp-meta).
+
+**Forks (wave 5)** (the owner: "fork on more than just the approval"; the engine half,
+`wave5/engine`: `packages/core/src/process/outcomes.ts`, the validator and field picker, the
+executor, the run views' `outcome`; no migration):
+- DECISION: every step of a native v4 process records how it ended beside its output, and an `if`
+  routes on it with plain rules like any data: `steps.<id>.outcome`, plus `steps.<id>.approval`
+  (`{ outcome: approved | rejected | no_answer | not_needed, by }`, read, skill and write),
+  `steps.<id>.confer` (`verdict`, all reviewers together, and `<n>.verdict` / `<n>.by` by place),
+  `steps.<id>.error` (`{ code, message }`, with `onError: continue`), `steps.<id>.choice` (a person
+  step's quick answer) and `steps.<id>.counts` (`{ items, failed }`, a for each). One closed
+  vocabulary per kind (`processes.STEP_OUTCOMES`): read `done | empty | rejected | no_answer |
+  skipped | needs_help | failed`; skill and write `done | rejected | no_answer | skipped |
+  needs_help | failed`; person `answered | no_answer`; conversation `done | not_found | declined |
+  no_answer | failed`; notify `sent | skipped | not_seen | failed`; wait `arrived | timed_out`; for
+  each `done | some_failed | all_failed`; process `completed | stopped | failed`. `if` and `stop`
+  record none. Existing names kept: `rejected` and `no_answer` are the executor's, `skipped` the
+  owner's skip, `needs_help` its help loop, the conversation's words its output's `status`.
+- DECISION: the field picker (`processPathsAt`) lists an earlier step's fields as `steps.<id>.<path>`
+  from `processes.stepOutcomeFields(step)`, whose enums hold only what the step as set up can end
+  with (`stepOutcomes`: `failed`, `needs_help`, a loop's or a process's failures only with
+  `onError: continue`; a read's `rejected` / `no_answer` only with an approval; a notify's
+  `skipped` only with a `when`, `not_seen` only when urgent; a wait's `arrived` never yet). The
+  validator types the same fields (`stepRecordSchema`), refuses a word outside the kind's
+  vocabulary (`outcome_unknown`), warns on one the step can't reach (`outcome_unreachable`, advice),
+  and refuses a step's own outcome in its checks and a later step's anywhere (references only
+  earlier steps, as for outputs). The hand-off reads outputs only: it is resolved after the run
+  from the stored rows, which hold no outcome.
+- DECISION: `onError: fail | continue` on every step, optional with no default (absent is `fail`),
+  so nothing parsed or converted gains a field. It is refused on `if`, `stop`, `wait` and `person`
+  (`on_error_not_here`): none has a failure of its own to go on past (a person step's only failures
+  are the platform's). `continue` goes on past a failure the step reported: a failed or escalated
+  outcome, help nobody gave (`needs_help`), a failed conversation, a notice that couldn't be sent,
+  a loop item's reported failure, a step failing or a stop step inside a sub-process (`stopped`).
+  Never past a person's no (`onReject: stop`), nobody answering with `stop`, an exception (a
+  durable step that threw would run again on replay), or a write whose error says it may have
+  happened (`UnconfirmedWriteError`, `processes.writeMayHaveHappened`): that stays with the
+  operator to check. (Corrected by the review, below: a skill's or write's failure is gone on past
+  only when none of its writes was made or may have been.) A failed write is never retried; the
+  error is the row's line, first line, at most 200 characters, key-like runs hidden.
+- DECISION: invariant 8 holds: no outcome changes an approval. `proceed` on a write's approval is
+  held by the validator as before (the write is `done`, its `approval.outcome` `no_answer`);
+  `onError: continue` never sends a write unsigned; `ifNoAnswer: skip` keeps its meaning and reads
+  as `no_answer` (no new `continue` value). An approval's `when` can't read its own step's outcome.
+- DECISION: outcomes are recorded for native v4 processes only; a converted v3 workflow's scope
+  stays `{ output }` exactly (`fromWorkflowV3` sets nothing new), so its stored forks read what
+  they always read.
+- DECISION: durable replay: every outcome is derived from results the runner already stored (the
+  attempt's and resume's `do`, the inbox waits, the help loop's, the notice's); a notice that fails
+  with `onError: continue` stores its failure as its `do`'s result, so a replay never sends it
+  again (corrected by the review: only its last try's failure, below). A retry's reused steps read
+  their whole record back from the run retried's rows and items (corrected by the review, below).
+- DECISION: `empty` is decided on a read's output shape alone (`isEmptyOutput`: nothing, `null`,
+  `""`, `[]`, `{}`, or an object whose every field is `null` or an empty list); the combined
+  verdict is the most cautious one given (disagree, then unsure, then agree, else no_answer); several
+  approvals of one step read as rejected, else no_answer, else approved, else not_needed. A v4 wait
+  waits for a duration only, so it ends `timed_out`; `arrived` waits for a wait on an event.
+- DECISION: the run views carry the outcome per step row (`OpsStep.outcome`,
+  `TimelineChecks.outcome`), read back from what the rows and inbox items already hold
+  (`outcomeOfStepRow`), so no column or migration is added. A sub-process gone on past a stop has
+  its row `skipped` (one gone on past a failure keeps its error on its row since the review); a
+  for each gone on past failures says `failed` in its row's output; a notify row `skipped` reads
+  `skipped`.
+- DECISION (web half, `wave5/builder`): the builder words every outcome field
+  (`apps/web/src/ops/builder/outcomes.ts`): the picker shows "Approve the bill: how it ended" over
+  the path, a field with a closed set of values picks its value from a dropdown in words ("was
+  rejected", "nobody answered", "found nothing", "timed out"), and an if's path adds such a
+  condition in one pick. The words are the builder's (English, the back office); the stored rule is
+  the plain `{{steps.<id>.outcome}} = <word>` the validator and the executor already read.
+- DECISION (web): "Add a route for this" on a step's inspector puts an `if` right after the step,
+  in its own list (so it reads only earlier steps), with one path named for the outcome ("If
+  rejected" / "Rejected") and an empty otherwise; the path holds no steps where the run already
+  went on with that outcome, else a stop step (corrected by the review, below). Where the run would stop before
+  the route, it sets what the route needs and the inspector says so: an approval's `onReject:
+  continue` (rejected, a conversation turned down), a deadline's `stop` becoming `skip`, an
+  escalation's own deadline likewise (nobody answered, an urgent notice not seen), `onError:
+  continue` (a failure). Never `proceed` and never `required: not_required`: approval stays on
+  (invariant 8). A person's quick answers and an approve step's no are routes too; the owner's
+  skip has no one-click route. The step stays selected so its inspector can say what was set.
+- DECISION (web): "If this step fails: stop the run (default) / carry on" is offered where the
+  validator allows `onError` (not on `if`, `stop`, `wait`, `person`); setting it back to stop
+  removes the field, so the step saves as stored. The inspector lists the outcomes later steps can
+  route on as set up.
+- DECISION (web): the run views say which route an `if` took and why: core's `routeOfRow` (the
+  row's `pathId`, and each `steps.<id>.outcome` rule of the taken path that held, by the reader's
+  label for the step; a rule over data adds nothing, so no field or value is shown) and
+  `carriedOn` (a step whose `onError: continue` went on past its failure, shown in risk; since the
+  review a sub-process a stop step ended reads "Stopped, and the run carried on", in ink). The
+  portal gets them from the server on `TimelineChecks` (`route`, `carriedOn`), naming only steps
+  the client sees, by their client labels, in six languages; the back office works them out from
+  the definition it already has, by step name. An `if` stays hidden from the client by default;
+  the operator may now show one.
+- DECISION (web): the validator's `outcome_unknown` and `outcome_unreachable` read in the
+  builder's words (`plainOutcomeProblem`), the second as advice of its own, with how to reach the
+  outcome where a setting does ("set 'If this step fails' to carry on").
+- DECISION (review fixes, `wave5/fix`): a retry reuses a step that failed and the run carried on
+  past (`onError: continue`): it is never run again (`RunResume.reused` holds `failed`). Each
+  reused step's whole record is rebuilt from the run retried's rows and inbox items (core's
+  `reusedStepOf`, `recordOfStoredStep`): the outcome, a read's, skill's or write's approval (one
+  decision per asking, the gate's item the n-th proposal's), its latest confer, a person's quick
+  answer, a loop's counts, the plain error; and the output later steps read (a failed row's
+  without its merged `error`, a sign-off's turned-down output null). apps/api's `resumeOf` reads
+  them in the load step; no column or migration. The executor's record and the rows agree kind by
+  kind (`forks-retry.test.ts`).
+- DECISION (review): a retry never carries a failed write its run went on past: the carried-actions
+  port marks it `carriedOn` (its run's error names another step, `wentOnPast`) and
+  `carryDecision` proposes it again for a new signature.
+- DECISION (review): a step with `onError: continue` goes on past a skill's or write's failure only
+  when none of its writes was made or may have been: the agent port's `stepWrites` reads the
+  step's `external_action` rows in a durable step (`actionWrote`: done, executing, or failed
+  without `notWritten`); otherwise the run ends there, for the step and for a loop or sub-process
+  around it. The runtime marks `notWritten` only where nothing was written for sure: the handler
+  never reached (release, unknown tool, connection, the connector's checks, invalid input, the
+  before read) or the provider's no (`NotWrittenError`, or an error marked `notWritten: true`; the
+  testkit marks its not-found and stale record). An answer that doesn't parse after the handler
+  ran, or a write made but not recorded (`complete` throwing), is unconfirmed with a review for the
+  operator, never failed as if nothing happened. Ports without `stepWrites` fall back to
+  `writeMayHaveHappened`. A carried write executed again in a retry runs on the run retried's
+  action, which `stepWrites` doesn't read; since the re-review its failure says the write may have
+  happened unless its action is `notWritten` (below).
+- DECISION (review, web): a route that turns a stop into "go on" (an approval's `onReject`, a
+  deadline's `stop`, `onError`, a person's no) ends its new path with a stop step that ends the run
+  as before (a no `cancelled`, nobody answering or a failure `failed`): paths rejoin, so an empty
+  path would let every later step run after a no. The inspector says "The route ends with a stop
+  step, so nothing below it runs, as before. Remove that stop to carry on below." (Widened by the
+  re-review: the other failures `onError: continue` opens get a path of their own, and a process's
+  `stopped` ends the run as the stop inside it did, below.)
+- DECISION (review): a notice's durable step has explicit retries (`NOTICE_STEP_CONFIG`, three
+  with backoff, as skill and action steps); with `onError: continue` only the last try's failure is
+  stored as its result, an earlier one throws to be retried.
+- DECISION (review): `steps.<id>.error.message` (or the whole `error`) reads only in conditions
+  and in notices to the inbox; the validator refuses it in a write's input, a conversation's
+  `with`, and an email or text notice (`error_message_not_here`); `error.code` goes anywhere.
+  (Widened by the re-review to a skill's and a sub-process's input, a loop's list and the whole
+  step, below.)
+- DECISION (review, web): a test run signs nothing, so a write's approval reads `not_needed` and a
+  route on `approval.outcome` goes the no-approval way; the builder's test-run panel names such
+  routes and says so (`approvalRouteNames`), rather than recording a pretend answer.
+- DECISION (re-review, web, `wave5/fix2`): `onError: continue` opens every failure of a step, not
+  only the one routed on (a process's `stopped` with its `failed`, a skill's, read's or write's
+  `needs_help` with its `failed`, a loop's `some_failed` with its `all_failed`), and paths rejoin
+  after the if. So "Add a route for this" on a failure that sets it adds a second path, named for
+  the others ("Stopped", "Needed help", "All failed"), on `{{steps.<id>.outcome}} in [the others]`,
+  ending with a stop step that ends the run as before; the inspector's "If this step fails" line
+  says so (`alsoOpens`, `RouteOption.others`). Nothing below runs after the others unless the
+  operator removes that stop. A step already at `continue` opens nothing new and gets neither.
+- DECISION (re-review): a stopped process keeps how the stop inside it would have ended the run,
+  `steps.<id>.stopStatus` (`succeeded | failed | cancelled`, typed with `onError: continue`, in the
+  picker as "how the stop inside it ended"); a stop step's row keeps its status in its output
+  (`{ status }`), and a retry reads it back from the last stop row under the process's node (rows
+  in the order they ran). A stop step's status is fixed, so a route that stops the run after a
+  process's `stopped` ends in an if on it ("End as the stop inside it": cancelled, done, otherwise
+  failed), and an inner "cancelled" or "succeeded" stop ends the run the same way it did before
+  the route. A run stored before the detail ends `failed`, as before.
+- DECISION (re-review): a carried write that fails in a retry without `notWritten` on its action
+  fails with " (the change may have happened: check before trying again)" after its error, which
+  `writeMayHaveHappened` reads: the executor never goes on past it (`onError: continue`), as for a
+  write of the retry's own. The smallest fix: `stepWrites` still reads only the run's own actions.
+- DECISION (re-review): the error-message check (`error_message_not_here`) also covers a skill's
+  input (the model reads it, and the writes it proposes carry it), a process step's input (a write
+  inside reads it as `{{input...}}`) and a for each's `over` (`{{item}}`), and everywhere it runs
+  it refuses a whole step (`{{steps.<id>}}`, which holds the error) whatever its `onError`: name
+  the field it needs (`steps.<id>.output…`). Conditions and inbox notices still read anything.
+- DECISION (re-review): the database ports are tested against Postgres
+  (`apps/api/src/forks-runtime.test.ts`): `stepWrites` before and after sending, `carriedOn` from
+  where each run ended, a retry whose carried write fails after sending again, and a retry routing
+  on a quick answer and a rejection (and who made it) read back from real step and inbox rows.
+- DECISION (`wave5/fix3`): `stepWrites` also reads the actions this run's tool calls at the step
+  name (`tool_call.external_action_id` on the step's rows, the node or `<node>:…`), so a carried
+  write counts as the step's own: a carried write that fails names its action (`carryApproval`), and
+  one carried as done already does. A model-mode skill whose carried write failed after sending,
+  then failed or asked for help nobody gave, ends the run there, whatever its own error says. A
+  carried write the model never repeats isn't the step's and doesn't count. No new column: the
+  tool call already ties the action to this run's step.
+- DECISION (`wave5/fix3`): a v4 automation's `output` gets the error-message check too
+  (`error_message_not_here`, `validateProcessAutomation`): it becomes the using step's output,
+  which a write's input reads anywhere, so it never carries `steps.<id>.error.message` or a whole
+  step; `error.code` and output fields still go there.
+- DECISION (`wave5/fix3`): a process gone on past a stop inside it keeps that stop's status on
+  its own row (output `{ stopStatus }`, the row `skipped`), which a retry copies whole; a retry's
+  record reads it from there first, and from the last stop row under `<process>/` only for runs
+  stored before. So a retry of a retry (whose run has no stop rows of its own) still routes on
+  `steps.<id>.stopStatus`, and a for each inside the process can't change which stop is read. A
+  stopped process's output still reads as null for later steps (`scopeOutputOfRow` with the kind).
+
+**Run audit (wave 6, `wave6/data`):** the owner asked for an audit trail they can look at for
+every run. Three parts: the owner's check on every step recorded, an audit queue with a person's
+marks, and one run's whole trail as a file. Migration 0046 (`owner_check`, `run_audit`,
+`run_audit_mark`); core `oversight/check.ts`, `run-audit/sampling.ts`, `api/run-audit.ts`;
+packages/workflows `recordCheck`; apps/api `run-audit/` and `routes/run-audit.ts`.
+- DECISION: the owner's check is recorded per attempt at a native v4 `read`, `skill` or `write`
+  step (one `owner_check` row per run, node and attempt): `clean` (the cheap watch saw nothing
+  off), `flagged` (signals, or a failure or escalation, with why no review followed: `limit`,
+  `review_failed`, `no_decision`, `input_unresolved`), `reviewed` (the cause, the verdict's action
+  and the `oversight_decision` of the same run, node and seq) or `not_watched` (`owner_off`,
+  `step_off`). It is written through an optional port (`ExecutorContext.ownerChecks`) in a durable
+  step of its own, `${name}:owner:${attempt}`, after the attempt and its review (before an `ask`
+  waits), and the insert is `on conflict do nothing`, so a replay never duplicates it. No model
+  call. Inside a for each, see the batching row below.
+- DECISION: converted v3 workflows record nothing: a v3 run keeps exactly the durable steps it had
+  (as R6 kept the watch's history step for v4 runs only), and v3 has no cheap watch, so "clean"
+  would claim a look that never happened. Conversation steps record nothing either: the owner's
+  review loop doesn't run on them today.
+- DECISION: a check that can't be written never fails the step or the run; the run view then
+  shows no check for that attempt.
+- DECISION: the review setting `all` reads "Review every step" in the agent's settings, with its
+  cost ("one model call on every step the run reaches, on the owner's model, up to the run's
+  review limit"); core `OWNER_REVIEW_CHOICES` words all four. The back office's agent settings
+  don't offer the setting yet (only the builder's draft default sets it): the web stream adds the
+  control from these words.
+- DECISION: sampling is on by default: every live run that wrote to a client's tool plus 5% of
+  the rest. "Wrote" is core's `actionWrote` (see the review row below), not only an action done. The rule is `tenant.settings.runAudit`
+  (`{ rule?, agents?: { <agent id>: rule } }`, set in place with `jsonb_set`, logged in
+  `tenant_change`), an agent's override first; no column. A run's 5% is its bucket, FNV-1a of
+  its id modulo 10,000 (`auditBucket`), so the choice is stable and a replay agrees. It is applied
+  in `run:finish`'s transaction, under a savepoint that never fails the finish (and in a back
+  office cancel's, which never reaches `run:finish`); the rule as applied (with the bucket) is kept
+  on the `run_audit` row. Test runs are never queued.
+- DECISION: a run marked without being queued joins the queue `by_hand`; only finished live runs
+  take a mark (409 `run_not_finished`, or 409 `test_run` for a test run). A mark is insert only; the newest is the run's state, every mark is
+  kept. Each mark writes an `audit_event` (`run.audit_mark`, ids and the verdict, never the note).
+- DECISION: a "problem" mark needs a note and opens a `review` inbox item for us (operator, on the
+  run as its subject, no `run_id`: an item with one is read as something the run waits on or must
+  be told about).
+- DECISION: "problems found" counts runs whose latest mark is a problem; "audited" counts runs
+  with any mark; the queue's `unaudited` is a queued run with no mark yet.
+- DECISION: the export is one route, `GET /api/ops/runs/:id/export?format=html|json&modelCalls=1`,
+  on `mountLongFile` (new: `mountLong`'s short transactions with `mountFile`'s answer), so AI
+  calls' prompts and answers are read from object storage after the database reads commit. The
+  HTML is self-contained (inline styles from the design system's token values, no script, no
+  link, a Content-Security-Policy that allows neither) and prints to PDF. Every field named like a
+  secret (`FORBIDDEN_SECRET_FIELD`) becomes `[redacted]` and card numbers are redacted throughout;
+  nothing reads the vault. Writing it is audited (`run.export`, with the format and whether AI
+  calls were included), besides the route's own row.
+- DECISION: back office only. No portal route returns the owner's checks, the queue, marks or the
+  export (invariant 11: prompts, bundles and cost never reach the portal).
+- DECISION (review): a check is `flagged` only when the attempt failed or escalated, or the cheap
+  watch saw a signal. A clean step whose routine review was due (a checkpoint under
+  `checkpoints`, `all`, a step's `always`) and wasn't made stays `clean`, with the reason (`limit`,
+  `review_failed`, `no_decision`, `input_unresolved`), the cause and why it was due: "Owner checked:
+  nothing off → every-step review not made: the review gave no decision".
+- DECISION (review): why a review was due on a step that succeeded is kept on the check
+  (`owner_check.review_due`: `checkpoint`, `all`, `always`; core `successReviewDue`, the
+  workflows `AfterSuccess.why`), so the line tells them apart: "Reviewed (every step) → carried
+  on", "Reviewed (always for this step) → …", "Checkpoint before a write → reviewed → …"; a
+  signal still reads "Flagged: … → reviewed → …".
+- DECISION (review): how the attempt ended is `succeeded`, `failed`, `escalated` (a budget was
+  reached; flagged, "Escalated to us: a budget was reached → not reviewed"), `rejected` (a person
+  turned the write down, whatever its `onReject`) or `unanswered` (nobody answered in time); the
+  last two are `clean`, "Turned down by a person → nothing for the owner to review".
+- DECISION (review): when a person ends the run in the middle of an attempt (a confer reviewer
+  nobody answered with `stop`, before the write's approval or after a read or skill ran), the
+  check is still recorded before the run ends: `ended_by_person`, the outcome `rejected` or
+  `unanswered` ("Nobody answered in time → not reviewed: the run ended there"); a step the owner
+  doesn't watch records its `not_watched` check the same way.
+- DECISION (review): inside a for each, an attempt's check is kept on the loop's frame and the
+  outermost loop writes all of them in one durable step, `${loop}:owner`, when it ends, finished
+  or not (the store's `recordMany`, one transaction). Cloudflare Workflows' per-instance step
+  limit isn't recorded anywhere here (§5 lists step count limits as unchecked); the documented
+  default is 1,024 steps an instance on the Paid plan, so that is the ceiling we keep under. One
+  durable step per attempt would have doubled a loop's steps (a 500-item loop of one read: about
+  1,000 steps rather than about 500); now a 50-item loop of one read is 53 steps (start, 50
+  attempts, the checks, done; a test counts them). Folding the check into the attempt's own step
+  isn't replay-safe (the check is known only after the watch, the confer and any review), so
+  outside a loop it keeps its own step. The cost: a run waiting on an `ask` inside a loop shows
+  that loop's checks only once the loop ends.
+- DECISION (review): "wrote" counts a run's external actions done, executing, or failed after
+  reaching the provider (core `actionWrote`: a failure without the runtime's `notWritten`), its own
+  or a carried one its tool calls name: a write that failed part-way may be in the client's books.
+- DECISION (review): a run cancelled from the back office (`POST /api/ops/runs/:id/cancel`) is
+  queued in the cancel's own transaction (`queueFinishedRun`, the same savepoint), so a run that
+  wrote and was then cancelled is in the queue as "wrote". It is the only path that sets a
+  terminal status outside `run:finish` (ask runs are test runs).
+- DECISION (review): only live runs are audited: a mark on a test run is refused (409 `test_run`)
+  and the run view shows no Audit card for one; an agent's sampling rule can't be set for a
+  template's test copy (422 `unknown_agent`, as for an agent that isn't the client's).
+- DECISION (review): `owner_check.decision_id` references `oversight_decision(id)` alone, not
+  `(id, tenant_id)`: 0029 gave that table no unique `(id, tenant_id)`, and adding one would alter a
+  table the previous Worker writes. The store reads the decision inside the run's own client
+  (`withTenant`, filtered by `tenant_id`), so a check never names another client's decision.
+- Open question (owner): may the client see any of this (a run's audit marks, or an export without
+  prompts and cost)? Today, no.
+- Open question: whether "clean" should also be recorded for conversation steps once the owner
+  reviews them.
+- Screens (`wave6/screens`): apps/web `ops/run/RunAudit.tsx` (the run view's parts),
+  `ops/screens/RunAuditQueue.tsx` (`/ops/run-audit`), `ops/screens/ClientRunAudit.tsx` (the client
+  settings' Run audit section) and the definition editor's owner card. No core or API change.
+- DECISION: the run view shows each step's owner checks under it, one line per attempt (the API's
+  `words`; "Attempt N:" when a step had more than one), quieter for clean and not watched; a
+  reviewed check links to the owner's note in Details.
+- DECISION: the run view's rail has an Audit card (why the run was queued, or that it wasn't; its
+  marks newest first, earlier ones "superseded"; the mark form once the run is over, a problem's
+  note required before Save) and an Export card: two download links, HTML and JSON, on every run
+  (a running one gives the trail so far), with "Include AI calls" off by default.
+- DECISION: the Audit queue is its own page beside the audit log (sidebar, More), with client,
+  agent and state filters in the URL and counts on the state filter; a run is marked in the run
+  view, not from the list. The agent filter lists the agents the stats name (those with queued
+  runs). Per client and per agent stats sit under the list; a client's line opens its rule.
+- DECISION: the sampling rule is a client settings section of its own, "Run audit" (after
+  Compliance): the client's rule (writes tick and a percent, "Use our default" to clear it) and a
+  table of agents, each with its own rule or "the client's rule" ("Use the client's rule" clears
+  an override).
+- DECISION: the owner's review is now in the agent's Settings, Definition (it is
+  `definition.oversight`, so a change makes a draft version): four choices with core's
+  `OWNER_REVIEW_CHOICES` words and cost, "Review every step" among them. Only `review` changes;
+  the owner's model and limits are kept, and an agent with no owner settings stays with none while
+  it is off.
+
+**Skill model (2026-11-10)** (the owner agreed it; decided, ARCHITECTURE §10.14 "The skill model";
+it supersedes R2's `rules_then_ai` method and the four skill modes). Two kinds of skill only:
+**deterministic** (typed data in, rule rows or built-in code, typed data out, the same every time)
+and **AI** (typed data in, instructions and a model, JSON out checked against the output schema). A
+skill needing both is two skills chained; routing on confidence is an `if` step. Skills never write
+or message anyone: a write step shows as "Save to records" (`internal`, approval off by default) or
+"Change in <connector>" (`external`, approval on). Every skill version has fixed input and output
+schemas, typed parameters the agent sets, tests and a Deterministic or AI label. An AI skill's model
+is the step's, else the agent's for the skill, else the skill's recommended. Setup is the
+operator's. The core stream (`skills/core`) built: core `skills/` (`skillKind`, `skillModelFacts`,
+`newSkillVersionProblems`, `retiredSkillReason`, `parameterValueProblems`,
+`resolveSkillParameters`, `evaluateSkillRules`, `isoToday`, `effectiveModel`, `skillVersionChange`,
+`skillMoveImpact`, `skillStepReferences`, `writeStepLabel`, `defaultWriteApproval`), the schema's
+`SkillParameter`, rule rows' `conditions` and `compute`, `ToolSpec.usesModel`, the agent's
+`skills[].parameters` and `skills[].model`, the runtime running rule skills, the Library and
+builder catalog without tool wrappers, and `POST /api/ops/agents/:id/skill-move`. No migration.
+- // DECISION: a skill's kind is derived, never stored (`skillKind`): `ai`, `rules_then_ai`, `task`
+  or `agent` is AI; a `tool`-mode skill is deterministic unless a tool it calls declares
+  `usesModel`, so built-in definitions and their pinned hashes stay as they are (invariant 3).
+- // DECISION: the code-side declaration is `ToolSpec.usesModel` (a reason, optional), not a list in
+  core: core never names a pack's tools. Declared: `docs.extract`, `docs.read`, `comms.translate`,
+  `web.search`, `web.fetch`, `comms.converse`, `materials.catalog.create_item`,
+  `materials.match_line`. apps/api hands a pack tool the model only when it declares it (every other
+  gets `llm: null`); a platform tool that records a model call without declaring it is reported by
+  the runtime's `onUndeclaredModelCall` after its cost is recorded (tests throw there; apps/api logs).
+- // DECISION: a deterministic operator skill is `mode: "tool"` with rule rows and no handler (the
+  schema now takes rule rows in place of a handler); a handler stays built-in code, ours only.
+- // DECISION: rule rows keep `when` (plain rules over `{{input.…}}`, `{{parameters.…}}`,
+  `{{today}}`) and `set`, both now optional, and gain typed `conditions` and `compute`; a row sets at
+  least one field, and each once. Rows are tried top to bottom, the first match wins; no match fails
+  the step "no rule row matched this input". A condition reading a missing value never holds (`!=`
+  included). Numbers, decimal strings and amounts compare as decimals (two amounts only in one
+  currency), dates as dates; a timestamp counts by the date written in it. Sums and differences keep
+  the operands' form (numbers stay numbers, amounts in one currency an amount, else a decimal
+  string); a percent change is rounded to 2 places, null from 0. Buckets are inclusive, ordered,
+  non-overlapping, only the last open-ended: "30+" after "16–30" is written `from: 31`.
+- // DECISION: today in a rule skill's run is the run clock's date in UTC (the runtime doesn't know
+  the client's zone there); `isoToday(now, tz)` takes a zone where a caller has one.
+- // DECISION: parameter values live on the agent's existing `skills[]` entry (`parameters`, `model`,
+  optional, no default) rather than a new `skillSettings` map; a step's own values ride its
+  customization (`customize.parameters`). Layers: the skill's default, the agent's, the step's. A
+  parameter with no default must be set by every agent that uses the skill: publish refuses it
+  (`parameter_invalid`), and a run without it fails in plain words. An AI skill reads its parameters
+  in the system prompt ("Parameters for this task"), as settings are read.
+- // DECISION: `effectiveModel` returns null for a code skill (no model a step picks); an agent-mode
+  skill (stored) runs on the agent's model under the agent × skill and step overrides. Pricing holds
+  for the agent's per-skill model (`definitionModelErrors`); HIPAA holds at run time on whatever model
+  resolves (the transport's `guardModels`), as before.
+- // DECISION: new skill versions (create, save) refuse `rules_then_ai`, agent mode, a tool that
+  writes among a skill's tools or reads, and rule rows beside a handler; a rollback copies a stored
+  version as it was (`restoring`). The Builder's skill drafts are AI skills: an answer asking for
+  agent mode is drafted as `task` with a note, and a write tool it names is left out with a note.
+- // DECISION: a new step is one whose id the version's parent version lacks
+  (`ProcessValidationContext.existingStepIds`, `processes.bundleNodeIds`); publish, test runs and
+  saved drafts refuse a retired kind of operator-written (`custom:`) skill in a new step
+  (`skill_retired`). A first version (a seed's, a template's, a fork's) has no parent, so nothing in
+  it counts as new. The platform's own agent-mode built-ins (Sloan, the supervisor, pack templates)
+  are still installed from code with new steps in their seeded versions, so they are not held to it;
+  they are off the palette instead.
+- // DECISION: version moves: compatible means only optional input fields, output fields, or
+  parameters with a default added. Breaks are `removed` (with `renamedTo` when exactly one field of
+  the same type was added beside it), `type_changed`, `now_optional`, `required_added`,
+  `parameter_removed`, `parameter_type_changed`, `parameter_required_added`. The move route takes the
+  builder's unsaved process and answers the breaks, every reference downstream (`*` for a reference
+  to the whole output; the step's own input for an input break) and the validation errors the move
+  adds (the same validator, errors diffed before and after).
+- // DECISION: tool-wrapper skills leave the skills list (`GET /api/ops/skills`), the agent's skill
+  picker and the builder catalog's `skills`, except a wrapper the agent's latest version already
+  names (listed, `palette: false`, so its stored steps still type). The catalog gains `stepTools`
+  (the platform's and packs' tools a step may call directly: what the wrappers wrapped, less the
+  conversation's and reach-out's handlers), which the web builder should read instead of deriving
+  them from the wrappers. Each catalog skill carries `kind` and `palette` (false for a wrapper, an
+  agent-mode or a `rules_then_ai` skill). The Library index's counts are unchanged.
+- // DECISION: `writeStepLabel(step, tool, connectorName)` treats an unknown tool as a client's tool
+  ("Change in …", approval on): the safe side of invariant 8; `defaultWriteApproval` is the builder's
+  one rule for a new write step's approval.
+- Open question (owner): whether "today" in a rule skill should be the client's calendar day (the
+  runtime would need the client's zone); today it is UTC.
+- Open question: the 15 built-in skills that are not wrappers include agent-mode ones (Sloan's, the
+  supervisor's, the packs' AI templates' skills); they keep running as stored, and their split into
+  AI skills plus write steps is a later stream's.
+
+**Skill model (2026-11-10): the splits** (Wave B, branch `skills/splits`). The hidden AI split into
+Deterministic and AI skills, and writes moved out of skills into write steps. New built-ins with new
+ids (the old ones stay registered and unchanged for stored agents, their hashes pinned; 123
+built-ins, 92 wrappers): `docs.read-document` (AI) and `docs.check-totals`;
+`materials.lookup-existing`, `materials.match-unmatched` (AI), `materials.check-matches`,
+`materials.compare-prices`, `materials.read-quote-document` (AI), `materials.choose-merges` (AI);
+`bookkeeping.propose-accounts`, `bookkeeping.suggest-matches`, `bookkeeping.read-statement-document`
+(AI); `marketing.write-report`, `-titles`, `-article`, `-forum-reply`, `-post` (AI). New tools:
+`docs.totals.check` (read), `docs.reading.record` (Save to records), `materials.lines.lookup`,
+`materials.matches.check`, `materials.prices.compare` (reads), `materials.matches.record` (Save to
+records). Step patterns for the template stream: `vendorInvoiceProcess`, `readInvoiceSteps`,
+`matchLinesSteps`, `priceSteps`, `readQuoteSteps`, `reviewMergeSteps` (Materials),
+`categorizeSteps`, `leftoverSteps` (Bookkeeping), `weeklyReportSteps`, `forumReplySteps`,
+`socialPostSteps` (Marketing). No migration.
+- // DECISION: an AI skill reads a document through its input: a field marked `x-document: true`
+  names one of the client's documents, and the runtime attaches its file (a PDF as a `document`
+  block, an image as an `image` block) before the input JSON, as data (invariant 9), through the
+  run's documents port (one client, invariant 1). Only `task` skills attach; a field left empty
+  attaches nothing; a document that can't be read fails the step in plain words.
+- // DECISION: an AI skill reads a document whole, in one call: a PDF over 100 pages (or 22 MB) is
+  refused with a pointer to `docs.extract`, which still reads long PDFs in parts.
+- // DECISION: "Save to records: the reading" (`docs.reading.record`) writes the extraction exactly
+  as `docs.extract` does (shared `writeReading`), with `model` the skill that read it and tokens and
+  cost 0 (the model call is the Read document step's, counted there once). Totals that don't add up
+  mark the document `needs_review` but raise no inbox item: the process routes it (If, then a
+  person).
+- // DECISION: a built-in deterministic code skill lists its handler in `tools` too, which tells it
+  from a tool wrapper (`isToolWrapper`: a handler and no tools): it stays in the Library and the
+  palette, and `isToolWrapper` keeps meaning the 92 skills that are only a tool.
+- // DECISION: a built-in code skill's parameters reach its handler with its settings
+  (`ctx.settings`, a parameter over a setting of the same name), so Check matches' threshold and
+  Compare to historicals' price rules are parameters.
+- // DECISION: an AI skill's declared `reads` are tools its model may call (retrieval); an AI
+  (`task`) skill's model is offered only the agent's extra tools that read, never one that writes
+  (agent-mode skills keep them all, gated as before).
+- // DECISION: Match the unmatched names lines by their number on the document (`lineNo`), not
+  their id: a shorter request, and the same request (so the same recorded answer) for the same
+  document. Check matches maps the answers back by `lineNo`.
+- // DECISION: Check matches keeps every rule of `match_line` and adds two: the model may match only
+  a candidate Look up existing offered, and a new item needs every required attribute (the model's
+  reading fills only attributes the parsers left unstated, never changes a stated one). A vetoed
+  answer's confidence is capped at 0.5; below the threshold (`match_confidence_auto`, 0.90) a person
+  decides. In category `other` there are no key attributes to veto on (the golden set's two worst-
+  case false positives are freight and fuel surcharge lines).
+- // DECISION: Look up existing recalls a line already decided (as `match_lines`), and Save to records
+  skips a line whose latest decision is matched or new item, so a retried step adds nothing.
+- // DECISION: retrieval is the catalog's trigram search (`materials.catalog.search`); there is no
+  vector search: `catalog_item.embedding` exists but nothing writes it.
+- // DECISION: Compare to historicals is the price check run as a test reading (it records nothing);
+  the alerts are then raised by a write step calling `materials.prices.check`, which works them out
+  again from the recorded prices (a step's output never becomes an alert's content).
+- // DECISION: `materials.match_lines` declares `usesModel` (it matches each line as `match_line`
+  does): undeclared, the core stream's pack adapter handed it no model, so every close call went to
+  review. A source-scan test (`apps/api/src/model-tools.test.ts`) inventories each file of tool
+  code that reaches a model and checks the declarations match it, both ways.
+- // DECISION: the matching golden set runs through the chain pairwise (the line, and the one item it
+  could be): Look up existing decides exactly what the old rules did, and the chain holds 95%
+  precision on "same" with a model that always says matched (97.1%), one never sure (100%, the old
+  result) and one that agrees with the labels (100%). Those answers are written by hand. The model
+  skills' own requests replay hand-written, provider-shaped answers (`fixtures/llm`, marked
+  `handWritten`): no API key here.
+- // DECISION: the patterns are code (functions returning v4 steps with fixed ids and an optional
+  prefix), not stored automations: the template stream copies them into templates, and apps/api's
+  `skill-splits.test.ts` validates each against the platform's registries.
+- // DECISION: the platform's agent-mode built-ins are documented, not rebuilt here: Sloan's
+  `account.chat` is a conversation (it stays one); `supervisor.triage`, `writing.draft-in-voice` and
+  `qbo.map-invoice-lines` write nothing (each becomes an AI task skill over read steps when its
+  template moves: for the Bill clerk, reads → Map lines (AI) → `docs.bill_lines` (a read) →
+  Change in QuickBooks: `qbo.bill.update_lines`, approval on).
+- Open question: the builder catalog's `stepTools` lists only tools a wrapper wrapped, so the new
+  tools (`docs.reading.record`, `materials.matches.record`, `materials.lines.lookup`, …) aren't
+  offered as read or write steps in the palette; `stepTools` should list every non-hidden platform
+  and pack tool that isn't a conversation's or a reach-out's handler.
+- Open question: whether an AI skill should read a PDF over 100 pages in parts (several calls,
+  merged as `docs.extract` does) rather than refuse it.
+- Open question: whether a model match in category `other` (no key attributes) should always go to
+  a person.
+
+**Skill model (2026-11-10)** (owner, 2026-11-10; ARCHITECTURE §10.14 "Action write steps"). Wave B
+item 9, action write steps (`skills/actions`; no migration):
+- DECISION: a v4 write step names `tool` or `action` (`send_email`, `send_text`, `create_bill`,
+  `create_vendor`), never both, with `via` (a connector id) on an accounting action only. The
+  actions, their inputs, their tools per connector and the mapping to each tool's input are one
+  module, core `processes` (`packages/core/src/process/actions.ts`): `WRITE_ACTIONS`,
+  `ACTION_SPECS`, `ACTION_INPUTS`, `actionInputSchema`, `actionTool`, `resolveActionConnector`,
+  `actionToolInput`, `actionStepLabel`, `actionFits`.
+- DECISION: what a provider can't take is refused before anything is sent, never guessed (core
+  `ActionInputError`, the step's row failed "refused: …", nothing written): a vendor named without
+  its id (QuickBooks and BILL take vendors by id; look it up in a read step first), a BILL bill
+  without a due date or with an item line, an email with `cc` (no email tool sends one yet).
+- DECISION: `via` is for accounting actions only; a message goes on the channel `channelFor`
+  resolves (the agent's own, else the account's), never picked per step. Two bindings of one
+  accounting connector (`qbo`, `qbo:2`) count as one connector.
+- DECISION: at publish a client agent's actions are checked against its bound connectors and, for
+  messages, the channels `RegistryContext.actionChannels` resolves (apps/api `actionChannels`, each
+  with its connection's matrix). A loosened approval is held to the resolved connection's matrix
+  and the agent's mode; where the connection can't be resolved at publish, a loosening is refused
+  (approval stays on). Templates check the input shape only.
+- DECISION: an action brings its resolved tool in, as a conversation's channel brings its send
+  tool: the agent needn't list the tool. The gate still holds the call to the connection's matrix,
+  the agent's grant, its mode and the go-live stage (invariants 8, 13).
+- DECISION: the executor resolves the action once per step in a durable step (`<step>:action`,
+  `AgentPort.resolveAction`), then runs a write step on the resolved tool, its input mapped when
+  each attempt starts (an oversight retry's corrected input is the tool's). A resolution that is
+  refused, or names a tool the action doesn't run with, fails the step before anything is
+  proposed; the run ends there (it is not a failure `onError: continue` goes on past).
+- DECISION: a message action's channel connection goes to the gate as the agent's binding for that
+  connector for this one call (`ActionStepRequest.binding`): the account's channel is the agent's
+  when it has none (§10.14), and its matrix decides, as for a reach-out.
+- DECISION: an action's output is its tool's, known only at run time, so later steps read it
+  untyped. The run's rows name where it went: the step's name with "· in QuickBooks" (core
+  `actionStepLabel`), which is also what its approval card and timeline line show.
+- DECISION: the builder's offer after a skill is by field names and JSON types only (or the skill
+  output schema's `x-action` and `x-action-fields` hints), never a decision; the operator reviews
+  the pre-mapped input and the validator types it.
+- Open question: a vendor by name. Resolving `vendorName` to an id needs a read inside the write
+  step; today a read step does it first.
+
+**Skill model (2026-11-10), wave A: the back office** (branch `skills/web`). Labels everywhere: a
+skill reads Deterministic or AI on Library cards (with an All / Deterministic / AI filter), its page,
+the builder's palette, canvas and inspector, the read-only step list and the run view's rows; a
+write step reads "Save to records" or "Change in <connector>" in the palette, canvas, inspector, run
+view and (in six languages) the client's timeline ("Changed in QuickBooks Online", "Saved to your
+records"). The skill editor makes an AI skill (instructions, a recommended model, read-only tools)
+or a deterministic one (rule rows), both with parameters; the owner's aging example is built from
+the screen in a test. The agent's Settings have a section per skill (its parameters, and an AI
+skill's model); a skill step's inspector says "Runs on: <model> (<where from>)", takes a step's own
+model and parameter values, shows the version it pins and moves it ("Move to vN"). API additions,
+all optional fields: `SkillOption.kind`, `.parameters`, `.recommendedModel`;
+`opsRun.stepFacts` (by step id: `skillKind`, `write: {kind, text}`); `TimelineStep.write` (`kind`,
+`connector`, the connector's name only). No migration.
+- // DECISION (web): the palette offers the server's `stepTools` when the catalog has them (else
+  derives them from wrappers, as before), and never a skill the catalog marks `palette: false`. A
+  write item's line is its label ("Save to records", "Change in Testkit"); its tag stays "Write".
+- // DECISION (web): a stored agent-mode or rules-then-AI operator skill opens in the editor as AI and
+  saves as an AI skill (`mode: "task"`, its recommended model, rule rows and write tools dropped); a
+  new AI skill recommends Haiku (packages/llm's classification default). The editor shows what
+  would stop the server from saving (the schema, `skillRuleProblems`, `newSkillVersionProblems`) as
+  it is typed.
+- // DECISION (web): rule rows the editor adds are `row-<n>` (the first free n); a version replaces
+  its rows whole, so ids need only be unique in it. A step's own added rows keep their uuid ids.
+  The editor lists a row's outputs in the order of the skill's output fields.
+- // DECISION (web): the agent's per-skill section writes `parameters` and `model` onto the agent's
+  `skills[]` entry only when set, so an entry the editor didn't change saves as stored. A parameter
+  with no default must be set before the editor saves (publish refuses it anyway).
+- // DECISION (web): the step inspector's model picker sets the step's own `model` (the most
+  specific); "Runs on" names the model `effectiveModel` resolves and core's
+  `MODEL_SOURCE_WORDS`. A code skill shows no picker: it runs no model, or its tool picks its own.
+- // DECISION (web): "Move to vN" lists every other version of an operator skill (drafts marked); a
+  built-in "moves with the platform". The move asks the server, pre-picks a renamed field
+  (`renamedTo`), and is applied only once each reference to a removed output field has a field to
+  read; a reference to the whole output and the step's own input are fixed by hand after. The moved
+  version joins the builder's catalog as a `pinned` entry for the session, so the step types; the
+  agent's `skills[]` keeps naming the skill by id.
+- // DECISION (web): a Save to records step's approval empty state says approval is off by default;
+  "Add an approval" turns it on (unchanged control). The canvas line of a skill step ends "runs on
+  <model id>".
+- // DECISION (API): `stepFacts` resolves an operator skill in the run's client; the client's timeline
+  gets a write's kind and the connector's manifest name only (null for our own records or an unknown
+  tool, worded "your tool").
+- Left as they are (owner question pending): the client admin's recording of browser scripts on
+  the portal's Accounts page, and the client's tightening of approver rules (Settings → Approvals).
+  The portal offers no agent or skill setup (a web test pins its routes).
+- Open question: the conversation skill's per-step model picker is gone with the old model row
+  (`comms.converse` declares `usesModel`, so the step shows "its built-in code calls a model"); a
+  conversation step of its own kind is unchanged.
+
+**Skill model (2026-11-10): the templates** (Wave B item 10, branch `skills/templates`, on the
+merged `skills/splits`, `skills/actions` and `skills/web`; no migration). Each seeded and pack
+template that used a retired kind of skill gets a new version built from AI skills, deterministic
+skills, read steps and write steps; stored versions are never edited (invariant 3) and a client's
+fork moves only by the reviewed update merge (invariant 11). Seeds (`packages/db/seed/agents/`, each
+an `extends` file, and apps/api's `account/templates.ts` for the install route): **Bill clerk v3**
+(Choose items and accounts, `qbo.choose-invoice-lines`, AI over the invoice and bill it is given,
+items as a read, in place of `qbo.map-invoice-lines`; with no bill: Find the vendor (a read) → Prepare
+bill, `docs.prepare-bill` (AI) → Create bill, the `create_bill` action, approval on → tell the
+client admin; no vendor: ask), **Document clerk v2** (when a document couldn't be read, or by hand:
+Read document (AI) → Check totals → a person when they don't add up → Save to records), **Sloan v5**
+(Explain a problem, `supervisor.explain`, AI with the health tools and `agents.ask` as reads, in
+place of `supervisor.triage`). Packs: **Bookkeeper v3** (Propose accounts and Suggest matches with
+a Save to records step for each, in place of `categorize` and `explain-leftovers`; Read a statement
+document in place of `read-statement`, under its step id), and the **marketing set's v3** (each
+agent-mode skill as read steps → its AI skill → a check in code → Save to records or Change in the
+site or LinkedIn). New built-ins: `qbo.choose-invoice-lines`, `docs.prepare-bill`,
+`supervisor.explain`; core gains `processes.replaceSteps` and `processes.processTools`. Tests:
+apps/api `templates-skill-model.test.ts` (each version validates against the platform, names no
+retired skill, keeps approval on changes and the cheap model on reading; the installs, the update
+offer, and fork + publish with QuickBooks, and with QuickBooks and BILL).
+- // DECISION: tool wrappers leave every new version's skill list; the tools its read and write
+  steps call are listed as the agent's tools (`extraTools`, `processes.processTools`), so the
+  validator's `tool_not_allowed` holds as before.
+- // DECISION: the reading skills (Read document, Read a statement document, Choose items and
+  accounts) run on the cheap model (`claude-haiku-5-5`, the classification default), set on the
+  agent's `skills[]` entry so the builder shows "the agent's"; analysis AI skills (Prepare bill,
+  Explain a problem, Propose accounts, Suggest matches, the marketing writers) run on their
+  recommended model, the platform's reasoning default. New AI skills recommend a model (a task
+  skill must name one).
+- // DECISION: Sloan (the supervisor) keeps its four processes (a failed run, a connection needing
+  a person, the daily check, the chat) in v5: the owner's exception to one agent, one process.
+  `account.chat` stays the conversation it is (agent mode, the one kept); its report and daily
+  check stay Save to records steps on `supervisor.report` and `supervisor.check`.
+- // DECISION: the Bill clerk now adds a bill when none matches (status `none`) and the vendor is in
+  QuickBooks: Prepare bill (AI) then Create bill (approval on, the client signs). An ambiguous match
+  still asks which bill; a vendor not found asks about the vendor. The vendor and accounts are read
+  from QuickBooks (the Bill clerk is a QuickBooks agent); Prepare bill only chooses among the ids it
+  is given, so it names no connector.
+- // DECISION: Create bill names no `via`: an agent bound to QuickBooks only resolves it there; one
+  bound to QuickBooks and BILL is refused at publish (`action_needs_via`) until the operator names
+  the system on the step, as a new version of the client's agent (the test does it for BILL).
+- // DECISION: the Document clerk's v2 runs when the background reading failed
+  (`document.extraction_failed`) or by hand with a document id; it doesn't read every upload again
+  (the platform's background extraction does that, outside any agent). `docs.find-support` is left
+  out: no process used it.
+- // DECISION: the Builder's and the Coordinator's templates get no new version: their latest name
+  no skill and hold no process, so there is nothing retired in them (an identical version would have
+  the same hash). The Demo client's records clerk (a client agent, one Change in Testkit step) uses
+  no skill either; seed-demo's agents are history of a demo client and move like any client's.
+- // DECISION: three versions carry the validator's advice to split (never an error): the Bill
+  clerk's process (25 steps), the Bookkeeper's daily process (23) and the forum watch (a reply four
+  levels in). Splitting them is the one-process-per-agent work.
+- // DECISION: the marketing set's v3: settings the agent-mode skills read (topics, the disclosure,
+  how many proposals) become literal step inputs the operator customizes per client. The forum
+  watch searches one query for a few recent stories and takes each new one in turn; a pasted
+  thread is read on its own. A social post about a guide reads the guide, otherwise the report
+  given (or the newest); the report path keeps v2's step ids. Article drafts run on a person's
+  topic only: Thursday's schedule chose its own topic inside the agent's loop, and is left out.
+- // DECISION: the marketing-agents, bookkeeping and reconcile tests fork the template's v2
+  explicitly (their scripted runs are of the agent-mode skills stored agents still run); v3 is held
+  by the new test (validation, install, update offer, fork and publish), not run end to end there.
+- // DECISION: the builder catalog's `stepTools` lists every platform and pack tool (a connector's
+  are offered under its connector), less a conversation's and a reach-out's handlers, not only what
+  a wrapper wrapped: the splits' and templates' tools (`docs.reading.record`,
+  `bookkeeping.booking.propose`, `marketing.report.record`, …) are offered as read and write steps.
+  This answers the splits' open question.
+- // DECISION (merge): an action write step reads "Change in <its via connector>", else "Change in
+  the agent's accounting / email / texts" in the builder, and "Change in the client's tool" in the
+  run view; the client's timeline says "Changed in <via's name>", else "your tool".
+- Open question: a scheduled article draft needs a "Choose a topic" AI skill (search figures and the
+  guides in, a topic out) before Write an article; not built.
+- Open question: for a BILL-only client the Bill clerk can't publish (its fill-in path changes
+  QuickBooks bills); and with `via: "billcom"` its vendor and account reads are still QuickBooks'.
+  A Bill clerk for BILL needs those reads swapped (`billcom.vendor.search`) as the operator's
+  customization, or a BILL template of its own.
+
+**Skill model (2026-11-10)**: the review of `skills/templates`, fixed on `skills/fix`.
+
+- Retired for new use, added: skills that write. `materials.read-quote` and
+  `bookkeeping.read-statement` are task skills whose own tools include `docs.read`, which records a
+  reading; they leave the palette (`palette: false`) and a new step using them is refused
+  (`skill_retired`), built-ins included. Their replacements, `materials.read-quote-document` and
+  `bookkeeping.read-statement-document`, only read. Stored steps keep running (invariant 3).
+- // DECISION: "a skill writes" is core's `skillWriteTools` / `skillIsWriter`: any tool or read of
+  the skill whose `sideEffect` isn't `none`, our own records included. `newStepSkillReason` joins it
+  with `retiredSkillReason`; the catalog's `palette` flag is `!isToolWrapper && newStepSkillReason
+  === null`. The validator refuses writing skills in new steps for built-ins too; retired kinds
+  (agent mode, rules then AI) stay held to `custom:` skills, since the platform's seeded and pack
+  versions still add steps on agent-mode built-ins.
+- // DECISION: a step is new when its id isn't in the parent version, or (new) when it was there
+  with another skill id (`existingStepSkills`, core `processes.bundleStepSkills`; `@version` aside,
+  so a version move is not new). A rollback is checked against the version it restores
+  (`publish`'s `existingFrom`), so restoring a published version never trips the new-step checks.
+- // DECISION: the builder's `stepTools` leaves out the hidden AI the splits replaced
+  (`SPLIT_MODEL_TOOLS` in apps/api: `docs.extract`, `docs.read`, `materials.match_line`,
+  `materials.match_lines`, `materials.catalog.create_item`) and the account agent's handlers
+  (`account.*`), each kept where the agent's latest version already calls it as a step. The list is
+  named where platform and packs are wired, not as a new field on every tool spec.
+- // DECISION: a read or write step on a tool that declares `usesModel` (web search and fetch,
+  translate, a stored step on document extraction) reads AI: "Read · AI" / "Write · AI" in the
+  palette, "· AI" in the inspector's eyebrow and on the canvas, and an AI tag in the run view
+  (`StepModelFacts.usesModel`). Operator only; the portal shows no kind.
+- // DECISION: the Bill clerk's v3 checks Prepare bill with code before Create bill: "Check bill"
+  (`docs.check-bill` on `docs.bill.check`, deterministic, `sideEffect: none`) compares the prepared
+  bill with the invoice as read and the vendors and accounts read, in decimals (vendor and accounts
+  among those read; number, date, currency and total the invoice's; lines adding up; line amounts
+  the invoice's lines, freight, surcharges and tax). An If step sends a bill that fails to the
+  client admin ("Ask about the bill we prepared"); only a bill that passes reaches Create bill.
+  Its input is typed loosely (as Prepare bill's) and the tool's schema parses what it checks.
+  Built-ins: 127.
+- // DECISION: an action write step is held to its connection at publish whatever its approval: a
+  verb the matrix turns off (`verb_off`), or a record type the matrix or the agent's grant turns off
+  (`entity_off`, from the resolved tool's own entity; a message channel has none). A sub-process
+  override is still held only when it loosens.
+- // DECISION: a wait's request carries an action's resolved channel (`WaitRequest.binding`), so a
+  message action that runs again after a release goes through the same connection.
+- // DECISION (second review, `skills/fix2`): what a version's steps are checked against is
+  `existingBundle`: the nearest published (live or retired) version it was edited from, through any
+  drafts in between; with none, the template version a client agent is based on (checked the same
+  way when that is a draft); else nothing, and every step is new (`validateForPublish`'s
+  `previous: "none"`). It replaces "a first version has no parent, so nothing in it counts as new":
+  a first version the operator or the Builder writes (a client agent from scratch, a copy of an
+  unlinked agent, a template made in the back office) has every step new; a fork's v1 is checked
+  against the template version it copies, so nothing in it is new. Publish, saved drafts, test runs
+  and the Builder's drafts, revisions, conversations and saves all use it.
+- // DECISION (second review): a template's first version installed from code (a seeded platform
+  template's install, a pack's) is published with `installed: true`, which counts none of its
+  steps as new: its steps are the platform's, not new work. The seed writes its rows directly and
+  publishes nothing, so it is unchanged. A later version installed from code is checked against
+  the version before it, as before.
+- // DECISION (second review): only a published version counts as already there, so a step a draft
+  added is still new in a draft saved on it. A rollback passes the version it restores as what
+  exists only when that version was published (live or retired); a rollback to a draft is checked
+  as any version is, against the live version (`opsRollback` still takes any version id of the
+  agent).
+- // DECISION (second review): the AI Builder is offered what the palette offers for a new step: its
+  context's skills leave out tool wrappers and every skill `newStepSkillReason` refuses (a retired
+  kind, a skill that writes), and its tools leave out `SPLIT_MODEL_TOOLS` and `account.*`, each kept
+  where the version being revised (else the agent's latest) already uses it, with the tools a kept
+  skill calls, so a revision keeps its stored steps. The Builder's skill drafts get the same tools.
+  The live templates it is shown as starting points still list their skills as they are.
+- Not fixed: Check matches still applies `match_confidence_auto` inside the skill (below it a line
+  is "unsure" and needs review). Moving it to an If step means a For each over the checked lines
+  with an If per line and a review flag on `materials.matches.record`, which changes the matching
+  patterns, their golden and what the review queue gets; left for the owner's call. The patterns
+  already route the person step on `anyNeedsReview` with an If.
+- Not fixed (owner's items): Marketing v3's article drafts run only on a person's topic (no Thursday
+  schedule); the social posts and forum watch change behaviour on update; a BILL-only client can't
+  publish the Bill clerk's v3; the client's browser-script recording and approver-rule tightening
+  are still on the portal; `doc_extraction.model` records the skill id (`docs.read-document`), not
+  the model that read the document (the skill's answer doesn't carry its model); "today" in rule
+  skills is UTC.
+
+- DECISION (owner, 2026-11-11): a rule skill's "today" is the client's date, in the client's time
+  zone (`tenant.timezone`, carried by the run); UTC only when none is set.
+- DECISION (owner, 2026-11-11): browser scripts may be recorded by the operator or a client admin
+  (a client admin's recording stays a draft until the operator publishes it); client admins keep
+  tightening their approver rules (never loosening). Everything else about agents is set up in the
+  back office only; clients give feedback.
+- DECISION (owner, 2026-11-11): the confidence threshold stays inside Check matches as a parameter
+  set per agent; the process routes on its output with an If (a person sees all doubtful lines on
+  one card).
+- DECISION (owner, 2026-11-11): templates are the owner's, built per agent in the builder; the
+  platform work builds skills, steps, tools and the builder, not templates.
+
+**Skill model (2026-11-11): Reshape data** (owner's design; ARCHITECTURE §10.14 "Reshape data";
+branch `skills/reshape`; no migration). One built-in deterministic skill, `data.reshape` ("Reshape
+data"): any input in, an output whose fields the step defines, each a mapping (a copied input
+field, a literal, or a typed expression). It never writes and calls no model when it runs. Core
+`processes` (`process/reshape.ts`, `process/reshape-propose.ts`): `ReshapeMapping`, `ReshapeExpr`,
+`evaluateReshape`, `reshapeOutputSchema`, `reshapeExprSchema`, `reshapeProblems`,
+`schemaFitProblems`, `sampleFromSchema`, `reshapeContext`, `proposeReshape`, `wireToReshape`; core
+`units` (`convertUnits`, `unitOf`). agents: the skill and its pure handler (`tools/reshape.ts`), the
+runtime's Reshape branch, the Builder AI's suggestion (`builder/reshape.ts`). apps/api:
+`POST /api/ops/agents/:id/reshape/propose` and `/reshape/sample` (`routes/ops-reshape.ts`). Web: the
+inspector's mapping table (`reshape-step.tsx`), the offers (`reshape.ts`). Built-ins: 128.
+- // DECISION: the expression set is the rule rows' calculations (copy, literal, today, days
+  between, sum, difference, percent change, a bucket, here with its buckets inline since the step
+  has no parameters) plus `formatDate` (iso, mdy, dmy, long), `formatNumber` (places, text or a
+  number), `formatMoney` (a decimal string at 2 places by default, or an amount with a currency),
+  `join`, `split`, `pick` (by index or where a field equals a value, then a field), `pluck`,
+  `mapList` (a list of records field by field; `{item: …}` reads the item) and `convertUnit`. Data
+  only, parsed by Zod; nothing executes text. The sums go through the rule rows' own evaluator
+  (`evaluateSkillCompute`), so decimals, amounts in one currency and dates behave the same way.
+- // DECISION: the mapping is the step's `reshape` field (`SkillStep.reshape`: output fields in
+  order, each with its JSON Schema, `required` (absent: required) and `from`); the step's `input`
+  brings in the sources under keys taken from the steps' names (`readDocument:
+  "{{steps.read.output}}"`), and expressions read `input.<key>…`. Only a `data.reshape` step may
+  carry one, and one must (`reshape_mapping`).
+- // DECISION: the step's output is the mapping's fields (`stepOutputSchema`), so later steps type
+  by it; the skill's own schemas are open. The validator types each field against what the input
+  brings in (a field read that isn't there, a value that doesn't fit, a required field unmapped)
+  and against the next step on its path when that step reads the Reshape step's output (a field it
+  reads that the mapping doesn't give, a type it doesn't take, a required input left out). Every
+  problem is an error with code `reshape_mapping` on the Reshape step, field `reshape.<name>`, so a
+  version move of the step before or a change to the next step's input flags it by field.
+- // DECISION: an empty value (missing or null) leaves an optional field out (an invoice with no
+  due date makes a bill with none); a required one fails the step naming the field, unless its type
+  allows null. Any field the mapping can't fill fails the step: never a partial output.
+- // DECISION: a JS number read as money goes through its shortest decimal text, never its binary
+  value; money text such as "$1,250.00" or "(12.50)" is read; rounding is half up (core's Decimal).
+  An amount never changes currency in `formatMoney`.
+- // DECISION: core gains a small unit table (`packages/core/src/units.ts`: length, mass, volume,
+  counts, board feet; exact factors) for `convertUnit`. Materials keeps its own invoice-unit table:
+  what a box or a pail holds is the vendor's, not a fixed conversion.
+- // DECISION: the runtime runs the mapping through the skill's pure handler (`data.reshape`,
+  `sideEffect: none`, `pure`), so the call is logged like any tool call and may run on the test
+  bench; the executor hands the mapping to the agent port (`SkillStepRequest.reshape`), which
+  passes it to `runAgent`. Today is the run clock's date in UTC, as for rule rows. The handler is
+  not offered as a read step (`stepTools` leaves it out).
+- // DECISION: the deterministic proposal maps by name first: exact, any case or spelling
+  (`vendor.name` reads as `vendorName`), then a short synonym list for the fields our actions and
+  skills name; a type must fit, or convert plainly (a number into money text or number text, text
+  read as a number, a list of text joined, a list of records mapped field by field). A type alone
+  never maps a field. The nearest step wins a tie. "Propose an updated mapping" keeps every field
+  whose mapping still type-checks (`kept`) and proposes the rest.
+- // DECISION: the Builder AI is asked once per proposal, for top-level fields still unmapped
+  (a mapped list's leftover item fields are the operator's), on the Builder's model and path, in the
+  route's request (never in a client's run). Its answer takes each expression as any JSON; each is
+  parsed with `ReshapeExpr`, typed against the step's sources and fitted to its field, and dropped
+  with a reason when it fails (shown to the operator). The call's cost is returned to the builder,
+  not charged to the client. The hand-written replay is in `fixtures/llm`.
+- // DECISION: samples come from the client agent's latest test or live run that stored a
+  succeeded output for a step the Reshape input reads (its step rows, in the client's scope); a
+  step that run didn't reach, and a template, are sampled from the schemas (`sampleFromSchema`).
+- // DECISION (web): a Reshape step placed from the palette asks the server for its mapping once
+  (by name, then the Builder AI); the offers ("Add a Reshape step before this" on a step whose own
+  input errors say earlier steps can't fill it; "Add a Reshape step" after a skill whose output
+  fills at least two of a write's fields, one required, by the proposal, where it doesn't fit
+  whole) place it pre-filled with core's deterministic proposal and wire the next step, and the
+  operator asks the Builder AI from the inspector. A field is edited as not mapped, a copy (a path
+  picker over the sources), a fixed value, or an expression as JSON checked as it is typed.
+- Open question: Create bill's vendor by name. QuickBooks and BILL take a vendor by id; a Reshape
+  step can't look one up (it reads only its input), so a read step finding the vendor still comes
+  first, and the proposal leaves `vendorId` for the operator or the Builder AI.
+- Open question: whether a Reshape step's own output fields may nest (a record of records) beyond
+  a list's items, and whether the operator may add fields the next step doesn't take (today the
+  fields are the next step's, or the mapping's own with no next step).
+
+#### Worker startup (2026-11-11)
+
+Cloudflare refused the Worker (startup CPU over its limit, deploy of 3922f765): every tool's and
+built-in skill's JSON Schema (`z.toJSONSchema`) and every pack manifest and template version
+(`.parse`) was made while the modules loaded.
+
+| Decision | Choice |
+|---|---|
+| // DECISION: definitions built on first read | A tool spec's `input`/`output`, a built-in skill's schemas, a connector event's `payload`, a pack's manifest (`lazyParse`) and its template versions are computed on first read and kept, through enumerable memoised getters in place (`packages/core/src/lazy.ts`), so JSON, spreads, key order and equality are unchanged; senses' default registry is built on the first emit. A bad pack manifest now throws on first read, not at load: apps/api's tests build the platform with every pack. Zod schema construction, keepNames and pdf-lib's load stay as they are. |
+
+#### Merged with main's back office pass (2026-11-11)
+
+`main`'s agent lab gallery, compact canvas, Fix with the Builder, Utilities, skills library tabs
+and Sloan on by default were merged into this branch. Where both changed a screen, `main`'s
+structure stands and this branch's behaviour is put back on it.
+
+| Decision | Choice |
+|---|---|
+| // DECISION: Library and Utilities | The sidebar keeps Library (skills, tools, connectors, website logins and the other banks) and adds `main`'s Utilities at its foot. Utilities' tabs are Feedback, Audit queue (wave 6, `/ops/utilities/run-audit`), Audit log and Requests. Website logins stay in the Library (`/ops/library/browser-sites`, titled Websites as on `main`); `main`'s `/ops/utilities/websites` and the old `/ops/browser-sites` and `/ops/run-audit` redirect. |
+| // DECISION: the compact canvas on processes | A step card is `main`'s one row with its tooltip; a v4 kind has its own icon, the kind's words ("Save to records", "Change in QuickBooks Online") name it for screen readers and lead the tooltip, and a skill's kind (Deterministic or AI) stays on the row as a tag. Checks (a second check, notices) are marks like approval. The model a step runs on is in the tooltip. Triggers are one compact row each. Delete is in the side panel only. |
+| // DECISION: problems in plain words on processes | `main`'s rewording (`apps/web/src/ops/builder/problems.ts`) and its Fix dialog read v4 processes: triggers are a list, a path's owner is its `if`. Wave 5's outcome wording runs first. A Reshape mapping's problem is kept as the validator writes it, since its editor shows it beside the mapping's field. |
+| // DECISION: skill cards | `main`'s cards, list and side sheet with Clone, in the Library's Skills bank (no Automations tab there: they are the Processes bank's). A card's "how it runs" word is the skill's kind, Deterministic or AI, in place of Code, Task or Agent; the sheet still says how its mode runs. Each card keeps what it reads and browses, and the kind filter. |
+| // DECISION: Clone under the skill model | A clone is a new skill version, so `POST /api/ops/skills/:id/clone` refuses, besides code (a built-in's handler), what the skill model retires for new use, in its words (core's `newStepSkillReason`: the agent's own reasoning, rules then AI, a skill that writes): 422. An operator's deterministic skill (rule rows, no code) clones. The sheet offers Clone on AI task skills and an operator's deterministic skills only. |
+| Numbering | `main`'s client MCP section was §1.86 there; it is §1.89 here, and its references in code and docs follow. |
+| Seed | `main`'s `seedSloan` forks the supervisor template's live version, which is now v5 (the skill model's process): the Demo client's Sloan is a v4 bundle. |
+
+### 1.87 BILL connector (owner: "bill.com integrated", 2026-11-10; no migration)
+
+Connector `billcom` in `packages/connectors/src/billcom/` against a fake (`fakeBillcom` in
+`@countersign/connectors/testing`); nothing has called BILL yet. What came from BILL's docs and
+what is unchecked is in `billcom/NOTES.md`. Outside ARCHITECTURE v0.15's v1 scope, asked for by
+the owner; ARCHITECTURE v0.16 should list it with the other connectors (§6.11).
+
+| Topic | Decision |
+|---|---|
+| Connector | Id `billcom`, name "BILL", `auth: "api_key"` with three credential fields: `username`, `password` (secret), `organizationId`. So the portal's existing vault form ("Enter the login", `PUT /api/connections/billcom/credentials`, client admin only) takes it, with no new route or screen. Entities `Vendor`, `Bill`, `Payment`, `Document`. Registered everywhere, like Zoho, so it can be offered and built with. // DECISION |
+| Whose login | The client admin makes a BILL user for us (the smallest role that does the job, not an administrator) and enters its login in the vault: encrypted with the client's own key, write-only, never in a response, log, step output, error or model call (invariant 13). The operator never sees it and has no route that takes it. The developer key is ours. // DECISION |
+| Platform keys | `BILL_DEV_KEY` (secret, per environment) and `BILL_ENV` (`sandbox` or `production`, a var in `wrangler.jsonc`: sandbox locally and on staging, production in production) choose the host (`gateway.stage.bill.com` or `gateway.prod.bill.com`, `/connect/v3`). Without the key every tool refuses before anything is sent (`BillcomNotConfiguredError`, a refusal); the portal still offers the login form. A login BILL refuses for our key (its message names the dev key) is that refusal too, so a client's connection never goes to `error` over our key. // DECISION |
+| Not available yet | Not shown for BILL without `BILL_DEV_KEY`: `canSignIn` in `apps/api/src/routes/portal.ts` lets every API-key connector with a form be set up whatever `isConfigured` says, and changing that would also change browser logins without `BROWSER`. Left as it is; the tools refuse with a plain reason. // DECISION |
+| Sessions | Each tool call signs in when it first needs to (`POST /login` with the login read from the vault then, used once and kept nowhere), sends `devKey` and `sessionId` as headers, and signs out at the end (`POST /logout`, best effort). A skill run that holds sessions (`ConnectionContext.sessions`, v0.16) keeps one BILL session per connection for its calls and signs out when the run ends. A session BILL says has ended (401, or `BDC_1109`) is signed in again once and the request repeated (BILL refused it, so nothing was done); a second refusal, or a refused login, is `ReconnectRequiredError` (marked not written: BILL took nothing): the connection is marked as needing a person (`connection.needs_attention`), and entering the login again reconnects it. // DECISION |
+| Errors | 400/422 → `BillcomInvalidInputError` (`kind: "invalid_input"`); 403 `forbidden`; 404 `not_found`; 409 `conflict`; 429 `rate_limited` (retryable). Every 4xx is not written (`notWritten: true`), so a step with `onError: continue` may go on. After a write is sent, no answer, a 5xx or an answer that doesn't read is `UnconfirmedWriteError` (the operator checks). On reads, 5xx and no answer are retryable. BILL's messages are cut to 300 characters with our key, the session and the password taken out. No throttle: about 20,000 requests an hour per key is reported, unchecked, and a 429 is retried by the step. // DECISION |
+| Reads | `billcom.vendor.search` (start of name, email, archived only when asked), `billcom.vendor.get`, `billcom.bill.list` (vendor, payment status, due from/to, archived only when asked), `billcom.bill.get`, `billcom.payment.list` (vendor, bill, status), `billcom.payment.get`. Each output has `sources` (BILL's record ids); pages of up to 100 by BILL's `nextPage`. Our filters are applied again to the page BILL gives, so a filter syntax BILL reads differently never widens a result. Filter text has no quotes, backslashes or control characters; ids are letters and digits. A vendor's name, a bill's description and line text are data (invariant 9). // DECISION |
+| Money | Amounts read through text into `numeric(14,4)` decimals, currency named (USD unless BILL names one); amounts written as JSON numbers from the decimal's text (`billcomJson`, as QuickBooks' `qboJson`). Bills we create must say `USD` until a non-US organization is checked. // DECISION |
+| Writes | Each `external`, behind approval by default (invariant 8), run once per external action: `billcom.vendor.create`, `billcom.vendor.update`, `billcom.bill.create`, `billcom.bill.update`, `billcom.bill.archive`, `billcom.bill.attach_document`. No delete tool. One bill per action (BILL's `POST /bills/bulk` isn't used), so each is approved, checked and undone on its own. // DECISION |
+| Once only | BILL takes no idempotency key that we know of. A retried write finds its own earlier one instead: a bill from the same vendor with the same invoice number (letters and digits), total and line count (when proposed, any bill with that vendor and number is a duplicate and refused); a vendor of the same name with every asked field, made in the last day (any other vendor of that name is refused: update it instead); a document of the same file name already on the bill; an update whose fields already have the asked values. Up to 1,000 of a vendor's open bills are read for this; more is refused. // DECISION |
+| Bill create | Vendor, invoice number and date, due date, currency, lines (amount above zero, description, account), expected total: refused unless the lines add up to it. The approver rules read the amount (`expectedTotal`, `currency`). `before` names the vendor as BILL has it. A total BILL answers differently is unconfirmed (a person looks). // DECISION |
+| Updates | Vendor: name, email, phone, account number, address. Bill: invoice number and date, due date, description; never amounts or lines. A bill with a payment scheduled or made (payment status other than `UNPAID`) is refused, as is an archived record. An `expectedUpdatedTime` that no longer matches, or a record changed since the approval (`proposedBefore.updatedTime`), is refused, not written. Both `invoice` fields are sent when either changes. // DECISION |
+| Undo (R5) | `billcom.bill.create` is reversed by `billcom.bill.archive` (BILL's void: the bill stays, archived), guarded by the create's own `updatedTime`. Updates are `restore`: their own `undoInput` writes the before values back, guarded by the update's `updatedTime`; a field that was empty before has no undo (whether BILL clears a field on `null` is unchecked). Vendor create, archive and attach are `none`. // DECISION |
+| Payments | `billcom.payment.create` (entity `payment`, verb `create`) is defined but refused: BILL pays only from an MFA-trusted session, and that needs the BILL user's second factor through our code service (`apps/mfa`), not built. It refuses when proposed and at the write, before BILL is called (`BillcomPaymentRefused`, a refusal, not written). The connector's starting matrix has `payment.create` off; a client can't turn it on (tighten only); the operator can, but the tool is `approval: "always"`, so no matrix, grant, step setting or mode lets it run without a person. Open: docs/open.md. // DECISION |
+| Permission entities | `vendor` (read, create, update), `bill` (read, create, update), `payment` (read, create), `document` (create). Starting matrix: read auto, create and update approval, delete off, `entities.payment.create` off. // DECISION |
+| Compliance | `billcom` is a processor (`PROCESSORS`, `CONNECTOR_PROCESSORS`, named "BILL"), unlike QuickBooks or Ramp: the calls go out under Mezonas' developer key and agreement with BILL, as Plaid's do. A client in HIPAA mode is refused its tools, and can't be offered it, until `billcom` is in `BAA_PROCESSORS`. Not added to the site's subprocessors page (the owner's call: docs/open.md). // DECISION |
+| Web | No new screen. A mark (`B`, ink: BILL's logo isn't in Simple Icons), the money group on the portal's Accounts page, tool labels and the name "BILL" for run pages. The back office's Library → Connectors and the client's connections list it from the registry with its tools and default access. // DECISION |
+| Tests | `packages/connectors/src/billcom/billcom.test.ts` (each read and write against the fake, sign-in and sign-in again on an ended session, the password in no output, log, error or request but the sign-in, approval by default, once-only retries, the created bill archived as its undo, unconfirmed writes, refusals not written, payments refused, HIPAA refusal, the starting matrix) and `apps/api/src/billcom.test.ts` (the vault login, the starting matrix, the back office's catalogue, a bill made once after the client's approval, nothing kept holding the password, the HIPAA policy). |
+| Not built | Payments (MFA through `apps/mfa`); events or a poll for new bills; checking the login when it is entered; vendor archive, bill restore, vendor credits, BILL's own approvals, recurring bills. |
+
+### 1.88 The vendor catalog: `vendor_item` (owner, 2026-11-11; the data and engine built, migration 0047)
+
+The Purchasing area's next version. Today a vendor's version of a master item exists only as its
+aliases (`item_alias`: vendor SKU and descriptions) and its prices (`price_observation`); pack
+size, unit and anything not on an invoice have no home. The owner asked for a **vendor catalog**:
+every item each vendor sells this client, specifically, with its last price.
+
+| Topic | Plan |
+|---|---|
+| The table | `vendor_item`, one row per vendor per item the vendor sells (per client: `tenant_id`, forced RLS, invariant 1). Columns: `vendor_id`, `catalog_item_id` (the master item; **required**: a vendor item is created only once its master item is known, linked or new; an unresolved line stays with a person and has no vendor item yet), the vendor's `sku`, `name` (as the vendor writes it), `description`, `pack_size` and `vendor_uom` (e.g. bundle of 5), `std_per_vendor_uom` (decimal: how many standard units one vendor unit is, e.g. 5 sheets; the conversion rule for this vendor's item), `min_order_qty`, `lead_time_days`, `list_price` and `list_price_on` (when the vendor gave one), **`last_price`** (in the vendor's unit, as last invoiced or quoted), `last_price_std` (per standard unit), `last_price_on`, `last_price_source` (`invoice` \| `quote` \| `qbo_bill` \| `import` \| `person`, with the record id, invariant 10), `currency`, `preferred` (this vendor is the client's first choice for the master item), `status` (`active` \| `discontinued`), `ext`, timestamps. Unique per client on (`vendor_id`, `sku`) when a SKU exists. Money `numeric(14,4)` + currency (invariant 6). |
+| How it relates | `catalog_item` (the master item, e.g. "3/4 in Baltic Birch Plywood 4x8") ← many `vendor_item` (Vendor A's "BB34-48", Vendor B's "PLY-18-BB") ← many `item_alias` (each wording or SKU a vendor has used, now pointing at its `vendor_item` as well as the master item). `price_observation` gains `vendor_item_id`, so every price row says which vendor product it was. Comparing vendors stays on the master item in standard units; a price is never compared across units without a conversion (invariant 7): the vendor item's `std_per_vendor_uom` is that conversion. |
+| Last price | Updated by the same Save-to-records step that records a price (an `internal` tool, no approval by default): the newest observation by date wins; an older document never overwrites a newer price. The history stays in `price_observation`; `last_price` is the quick read. |
+| How rows appear | Created when a line is matched (Look up existing, Match the unmatched, or a person) and no vendor item exists for that vendor and SKU or wording; filled further by quotes, QuickBooks bill lines and an import (a vendor's price list as CSV). Never by a skill directly: skills output data, a Save to records step writes (the skill model). |
+| Tools | Reads: `materials.vendor_items.list` (one vendor's catalog: every item, last price, pack size), `materials.vendor_items.for_item` (every vendor's version of a master item, side by side in standard units, preferred first). Save to records: `materials.vendor_item.upsert`, `materials.vendor_item.set_preferred`, `materials.vendor_item.discontinue`. |
+| Screens | Back office and portal Purchasing: a **Vendor catalog** per vendor (items, SKU, pack, last price and date, list price, preferred), and on a master item, its vendors side by side. Editable by the operator; the client sees it (it is their data) and can mark a preferred vendor if the operator allows (owner to confirm). |
+| Migration | One, its own commit and PR, additive only: the new table, `item_alias.vendor_item_id` and `price_observation.vendor_item_id` (nullable), and a backfill of vendor items from existing aliases and the latest price per vendor and master item, so the catalog starts full. The previous Worker keeps working (new columns nullable, nothing removed). |
+| Open for the owner | Whether the client may mark preferred vendors; whether a list price from a vendor's price list should alert when an invoice differs from it. |
+
+**Master items are vendor-neutral** (owner, 2026-11-11): `catalog_item` holds only the generic
+name, category, attributes and standard unit (e.g. "3/4 in Baltic Birch Plywood 4x8"), never a SKU,
+a vendor's wording, a pack size or a price; those live on `vendor_item`. Every vendor item points at
+exactly one master item; a master item has one or many vendor items. A master item with one vendor
+looks almost like that vendor's item, minus the vendor specifics; a second vendor's version links to
+the same master item, and vendors are compared there in standard units.
+
+**The matching pipeline that goes with the vendor catalog** (owner, 2026-11-11). Built as skills and
+steps under the skill model, as agents need them; templates are the owner's, built per agent.
+
+| # | Step | Kind |
+|---|---|---|
+| 1 | Match vendor: the invoice's vendor to our vendor record (vendor id, email domain, tax id, known names); none → a person, or Create vendor behind approval | Deterministic |
+| 2 | Match by SKU at the vendor level: the line against this vendor's `vendor_item` rows by SKU, then by a description alias the vendor used before | Deterministic |
+| 3 | Semantic match at the vendor level: semantic (vector similarity) search over this vendor's items, then the AI picks one or says "not in this vendor's catalog", with a confidence; then Check matches (the hard rules veto) | AI with retrieval, then deterministic |
+| 4 | **Master item manager**: only for an item new to this vendor (steps 2–3 found no vendor item; a vendor item hit already gives its master item, so no other vendor is ever searched). Classifies it (category and attributes; the category parsers first, the model fills what they can't read), searches the client's **master items** (vendor-neutral; exact key attributes first, then semantic search) and decides: link to an existing master item, or create a new one | AI (deterministic parsing and lookup inside its reads) |
+| 5 | Register item: a Save to records step writes the vendor item, its alias, and either the link or the new master item, and records the price (the vendor item's last price). **An optional approval** sits on this step, set per agent (off unless the operator turns it on), so a person can confirm new master items | Save to records |
+| 6 | Anything unsure (low confidence, a hard-rule veto) → a person; their answer becomes an alias, caught at step 2 next time | If → person |
+
+- DECISION (owner, 2026-11-11): the master item manager decides create-or-link itself; the approval
+  that can confirm it is the optional approval on the Register item step, since a skill never writes.
+- DECISION (owner left it to us, 2026-11-11): embeddings come from **OpenAI** (`text-embedding-3-large`
+  at 1,024 dimensions, the existing `catalog_item.embedding` column's size; `text-embedding-3-small`
+  if cost matters more), behind the existing `openai:` provider and `OPENAI_API_KEY`. Why: OpenAI
+  already holds a processor entry, its API offers a BAA with zero data retention for HIPAA clients,
+  and its embeddings are well proven on short product text. Google's Gemini embeddings are the
+  alternative if quality tests on the matching goldens favour them. Unchecked: current model names
+  and prices (check OpenAI's pricing page). Embeddings are made when a master item or vendor item is
+  saved; known lines never need one.
+- DECISION (owner, 2026-11-11): the text embedded for a master item or a vendor item is one fixed
+  template, **name + description + specs**, because a detail may appear in any of them:
+  `Name: <name>` / `Description: <description as written; for a vendor item, the vendor's own
+  wording>` / `Specs: category <c>; <attribute> <value>; …` (from the parsed attributes, units
+  normalized, e.g. 3/4in (18mm)). Same order and labels for both, so comparisons are like for like;
+  empty fields left out; prices, quantities, dates and order or shipping terms stripped; capped at a
+  few hundred words; the embedding is made again when its name, description or specs change.
+
+**Built: the data and the engine** (branch `vendor/data`, 2026-11-11; migration 0047). Platform
+pieces only; templates are the owner's. Migration 0047 (its own commit): `vendor_item`,
+`item_alias.vendor_item_id` and `price_observation.vendor_item_id` (nullable), forced RLS, no DELETE,
+and the backfill. Embeddings on the `openai:` provider (`LlmTransport.embed`), declared in core
+(`EMBEDDING_FEATURE`) and held to HIPAA by apps/api's model guard. Materials tools (`none` reads,
+`internal` Save to records): `materials.vendor.match`, `materials.vendor_items.lookup`,
+`materials.vendor_items.similar` and `materials.master_items.candidates` (each embeds the lines it
+searches for), `materials.vendor_items.list`, `materials.vendor_items.for_item`;
+`materials.vendor_items.register`, `materials.vendor_item.upsert`, `.set_preferred`,
+`.discontinue`, `materials.embeddings.write`. Skills: Match vendor (`materials.match-vendor`) and
+Match by SKU (vendor) (`materials.match-sku-vendor`), Deterministic; Semantic match (vendor)
+(`materials.semantic-match-vendor`) and Master item manager (`materials.master-item-manager`), AI;
+Check matches reused after each AI skill. Pattern: `vendorCatalogSteps` / `vendorCatalogProcess`
+(`packs/materials/src/vendor/patterns.ts`). Back office: reports `materials/vendor-catalog` (an
+item: one vendor's catalog) and `materials/master-vendors` (an item: a master item's vendors side
+by side), actions `vendor-item-preferred` and `vendor-item-discontinue` (operator, audited).
+
+| Topic | Decision |
+|---|---|
+| Pack size | // DECISION: `pack_size` is the vendor's words ("bundle of 5"); `std_per_vendor_uom` is the number that converts, so nothing parses words to compare prices (invariant 7). |
+| A vendor item without a SKU | // DECISION: it is (vendor, master item, vendor unit), unique (hand-written index `vendor_item_no_sku_key`): a box and an each of one master item from one vendor are two vendor items. One preferred vendor item per master item (`vendor_item_preferred_key`); marking another clears the first. |
+| No approximate vector index | // DECISION: searches are exact cosine distance over one vendor's items (or one client's master items in a category), narrowed by the btree indexes. An HNSW index orders every client's rows and filters after, so it can return fewer than asked (pgvector before 0.8 has no iterative scans; the local one is 0.6). An index is for when a client's catalog passes tens of thousands of items. |
+| Backfill | // DECISION: one vendor item per SKU a vendor used (on its latest alias's item, a person's first), and one without a SKU per vendor and master item its wordings or prices name that no SKU covers; named as the vendor last wrote it. Priced in the master item's standard unit (`vendor_uom` the standard unit, `std_per_vendor_uom` 1), since every kept price is per standard unit. A wording or price is linked only where the vendor has exactly one vendor item for that master item (several SKUs: left null, never guessed); aliases and prices on a merged item are left. The last price is the newest by date. |
+| The previous Worker | // DECISION: what it writes after 0047 has no vendor item; the new Worker resolves such an alias or price by its vendor and master item (the vendor's only item for it), and Register item links the alias when it next sees the wording. |
+| Embeddings | // DECISION: `LlmTransport.embed` is optional; OpenAI's transport answers it from `/v1/embeddings`, routing sends it by model id, record/replay keeps it in the same fixture store under its own hash (`kind: "embedding"`), the client prices it by input tokens and reports it to `onEmbed` (kept apart from `onCall`, whose exchange is a message's), and an unpriced embedding model is refused before it is called. No transport: no vectors, and the searches fall back to names (trigrams); the model and the hard rules still decide. A test run makes none. |
+| What is embedded | // DECISION: superseded by "The embedding text" below (name + description + specs, the owner's template). Still so: only items Register item made, or saved (never a known line's); idempotent by `ext.embedding.text`; backfilled items get theirs from `materials.embeddings.write` with `missing` (up to 500 a call). |
+| Match vendor | // DECISION: the vendor id given, the document's purchase, the tax id (`vendor.ext.taxId`, letters and digits compared), the sender's email domain (`vendor.ext.domains`, one vendor only), the normalized name or a known name; a near name (trigrams) only when the agent's `min_name_similarity` is below 1 (default 1) and one vendor is that close. None: the pattern asks a person and stops. |
+| Match by SKU (vendor) | // DECISION: the vendor's item with the line's SKU (a discontinued one too: the vendor invoiced it), then a SKU alias, then a wording alias of this vendor; an alias with no vendor item still gives its master item, and Register item makes the vendor item. |
+| The semantic read | // DECISION: `materials.vendor_items.similar` scores this vendor's closest items (top 5 by embedding, then by name; one per master item) with the category's key attributes and lets the rules settle what they can (`decideByRules`): one equal item is a match; none that could be it, every required attribute stated, is new to this vendor; the rest are open for the model. The same document makes the same request (candidates in a fixed order), so recorded answers replay. |
+| Check matches reused | // DECISION: Semantic match (vendor) answers in Check matches' shape, `new_item` meaning "not in this vendor's catalog", plus the `vendorItemId` it chose (a hint Register item checks: same vendor, same master item, never another SKU's item). The Master item manager answers in the same shape: `matched` links, `new_item` creates. The hard rules and the per-agent threshold are Check matches' own, unchanged. |
+| Master item manager's read | // DECISION: `materials.master_items.candidates` takes the lines Check matches found new to the vendor: equal key attributes, close names, then close embeddings, in the line's category; one equal item links by the rules, none that could be it (every required attribute stated) creates by the rules, the rest go to the model. |
+| Register item | // DECISION: one transaction for the document. A line decided before is left as it is (a retried step adds nothing). The vendor item is the SKU's, else the semantic hint, else the vendor's item for that master item in the line's unit, else its only one; else a new one named as the vendor wrote it, with the conversion when a rule exists. A SKU that names another master item: an agent's line goes to a person; a person's answer moves the vendor item. Each line gets an `item_match` row (the agent version, or the person), aliases with the vendor item, a price observation with the vendor item (per standard unit only with a conversion, invariant 7) and the vendor item's last price in its own unit (`invoice`, or `person`), the newer date winning (on the same date, the later). Unsure lines get an unsure row and go to a person. |
+| A test run's Register item | // DECISION: it writes nothing: the work runs in its transaction and is rolled back, and the step answers what it would have written (the ids are the rolled-back rows'). |
+| The person's answer | // DECISION: the person step (`ask`) shows the unsure lines with their candidates; its answer is `{ lines: [{ lineNo, catalogItemId }] }` or `{ lineNo, newItem: true }`, and "Save to records: your answer" registers it with the step's `by` as the person (`human` aliases, `decided_by_user_id`), so the next invoice's wording is caught at step 2. An answer without who gave it is refused. |
+| Aliases | // DECISION: `learnAlias` takes the vendor item: an alias that keeps its master item keeps (or gains) its vendor item; one that changes master item takes the new vendor item (or none). |
+| Recording prices elsewhere | // DECISION: `materials.prices.record` also sets the price's vendor item and its last price where the vendor catalog has one; it never makes a vendor item (Register item does). |
+| The pattern's branches | // DECISION: an If repeats the steps after it in each branch with their own ids (`o-`/`s-`, then `m-`/`r-`): a step inside an If path isn't readable after it, and an AI skill with nothing to decide would still call its model. |
+| New steps | // DECISION: `PackManifest.superseded` names a pack's skills another of its skills replaces for new steps (Look up existing → Match by SKU (vendor), Match the unmatched → Semantic match (vendor)); core's `newStepSkillReason` keeps them off the palette and the Builder, and stored steps keep running them. Built-in definitions (and their hashes) are unchanged. |
+| Who sees the catalog | // DECISION: superseded by "The portal sees it" under The screens below. Was: the vendor catalog's reports are the back office's: the portal reads only the Materials reports its screens name (`portalReports`), until the owner decides what the client sees. Preferred and discontinued are operator actions (`/api/ops/clients/:id/packs/materials/actions/…`, audited, a refusal 422). |
+| Tests | // DECISION: `apps/api/src/vendor-catalog.test.ts` runs the pattern through the workflow engine on hand-written replays (`fixtures/llm`, `handWritten`; the embeddings are character-trigram vectors): a known SKU, a known wording, a semantic hit, a line new to the vendor linked by the rules and one by the Master item manager, a new master item, a hard-rule veto that goes to a person, and the next invoice caught at step 2 with no model call and an older price not overwriting a newer one. The split's matching golden (`fixtures/matching`) covers the rules both paths share (`decideByRules`, `checkMatches`). |
+| Start commit | The task named `4d66da642ab1…`, which doesn't exist; the branch starts at `4d66da64` (`4d66da649b54…`, `claude/busy-euler-cgu5kr`), the commit with that prefix and §1.88. |
+
+Open, for the owner or a later stream:
+- Whether the client may mark a preferred vendor (the actions are the operator's today), and
+  whether a vendor's list price should alert when an invoice differs from it.
+- The person step's card: the inbox shows an `ask` item's payload; a card that offers the master
+  items to pick (and "a new item") and sends `{ lines: [...] }` is the screens stream's.
+- When to embed what the backfill made: `materials.embeddings.write` with `missing` is a step; no
+  cron runs it yet.
+- Nothing writes `vendor.ext.taxId` yet (Match vendor reads it), and an invoice's tax id isn't read.
+- An approximate vector index once a client's catalog is large (pgvector 0.8's iterative scans on
+  Neon), and whether `text-embedding-3-small` is good enough on the goldens.
+- A line in category `other` (no key attributes) never makes a new master item by the rules; the
+  model or a person decides.
+
+**Finished and verified** (branch `vendor/engine2`, 2026-11-11; no migration). The owner's word
+that day: "build the platform … do the vendor catalog … forget about the skills, we will have to
+refactor them after". So the skills stay as built (the two AI skills are built-in, not Library
+skills; no new per-agent parameters beyond Match vendor's `min_name_similarity` and Check matches'
+threshold); the rest of §1.88 is finished:
+
+| Topic | Decision |
+|---|---|
+| The embedding text | // DECISION: one template for master items, vendor items and open lines (`packs/materials/src/vendor/embedding-text.ts`): `Name: …` / `Description: …` / `Specs: category <c>; <attribute> <value>; …`, empty lines left out. A master item: its name and its category and attributes (it has no description). A vendor item: the vendor's name and description as written, and its master item's specs (it is exactly that item, so its specs never depend on how one vendor abbreviates). An open line: its wording as the vendor wrote it as the name, no description, and the specs its category parser reads (Check matches' reading for a line new to its vendor). |
+| What the specs say | // DECISION: the category, then the category's key attributes in its own order, then the rest by name; values lower case, underscores as spaces, `none` left out; the measured thickness beside the nominal one (`thickness 3/4in (19mm)`); a pack size left out (it is the vendor's packaging, `vendor_item.pack_size`). |
+| What is stripped | // DECISION: from the name and the description: prices with a money mark, a currency or `@`, two-decimal prices per unit (`12.40/EA`), labelled prices; dates (ISO, matching separators, month names); labelled quantities (`QTY 40`, `shipped 12`, `B/O 3`); pack counts (`BOX OF 50`, `100/BOX`); order and shipping terms (PO and invoice numbers, FOB, net 30, ship via, freight, delivery, prepaid, collect, will call, drop ship, due on receipt, `terms:`). A bare fraction, a size, a thickness or a thread (`1/4-20`) is never touched. A description that only repeats the name is left out. |
+| The cap | // DECISION: 300 words ("a few hundred"), labels counted; the description is cut first, then the name; the specs are kept whole. |
+| Made again when it changes | // DECISION: what an item was embedded from is kept in `ext.embedding` with the template's name (`name-description-specs/1`). Due: no embedding, another template (or none named: everything embedded before this template), or, by ids, a different text. A vendor item's changed name, description or master item clears `ext.embedding` in the same update (`updateVendorItem`), so `missing` finds it; its old vector serves the searches until then. Register item hands the embeddings step the vendor items it moved to another master item as well as those it made. |
+| Embedded when saved | // DECISION: `materials.vendor_item.upsert` embeds the item after its transaction (`usesModel`), and only when its text changed (a price or lead time embeds nothing). No model, or a test run: it stays due for `missing`. |
+| Quotes fill the catalog | // DECISION: a quoted, available line whose request line has a master item sets the vendor's item for it (in the quoted unit, else its only one) to the quoted price (`quote`, the quote line as the record, the newer date winning) and its lead time. A quote never makes a vendor item, and a quote is still not a price observation. |
+| QuickBooks bills fill the catalog | // DECISION: a bill line priced by the backfill names its vendor item on the price observation (the vendor's item in the standard unit, else its only one) and sets its last price (`qbo_bill`, the raw record), never making one. |
+| A price in the vendor's unit | // DECISION: `priceForVendorItem`: the stated price when its unit is the vendor item's; else the standard-unit price when the vendor item is priced per standard unit (or names no unit), or through its `std_per_vendor_uom`; else the last price is left as it was (invariant 7). |
+| The price list import | // DECISION: `materials.vendor_items.import` (Save to records): a vendor's price list as CSV text (columns found by header spellings, `PRICE_LIST_COLUMNS`) or rows, up to 5,000. Each row is the vendor's item by SKU, else by a SKU or wording alias of the vendor's, else by the master item the row names; it takes the list's name, description, pack, unit, units per pack, minimum, lead time and list price (dated `listPriceOn`). A row no master item is known for is listed `unplaced` and gets no vendor item; a SKU twice is skipped. It sets list prices, never the last price (a list isn't what was paid or quoted). It returns the vendor items it made or re-worded for the embeddings step. A test run rolls back. |
+| The back office screen | // DECISION: Vendor catalog (`apps/web/src/packs/materials/VendorCatalog.tsx`), linked from the client's Packs tab, not named in the manifest (whose screens the portal reads): the vendors, one vendor's items (SKU, name, master item, pack, unit, last price with date and source, list price), a master item's vendors side by side per its standard unit, and Make preferred and Discontinue. English, as the back office's other screens. |
+
+Still open, beside the list above:
+- (Built below, "The screens".) The portal: §1.88's table says the client sees the vendor catalog (it is their data); today it is
+  the back office's. A portal screen needs its words in the six languages; the owner to confirm.
+- The skills: Semantic match (vendor) and Master item manager as editable Library skills, and the
+  deterministic skills' values (vendor identifiers, shortlist size) as per-agent parameters, wait
+  for the owner's skill refactor.
+- An import screen (upload a price list in the back office) and a person's place for its unplaced
+  rows; today the tool is a step an operator puts in a process.
+
+**The screens** (branch `vendor/web3`, from `vendor/engine3`, 2026-11-11; no migration). Purchasing
+gets its vendor catalog in the back office and, read only, in the portal; a master item's page;
+the builder's palette and the skill editor for the vendor-first skills. Code:
+`apps/web/src/packs/materials/VendorCatalog.tsx`, `apps/web/src/ops/skills/skill-form.ts`.
+
+| Topic | Decision |
+|---|---|
+| The portal sees it | // DECISION: the client reads its vendor catalog, read only (it is their data; the brief for this stream). The Materials manifest names the Vendor catalog as a screen (`/reports/materials/vendor-catalog`), so `screenReports` lets the portal read it, and apps/api adds `master-vendors` to the pack's `portalReports` for the catalog's item page. Preferred and discontinue stay operator actions (a client admin gets 403); the portal screens show no buttons. The responses carry no cost, prompt or instruction field (checked in `vendor-catalog.test.ts`). This replaces "Who sees the catalog" above. |
+| One screen, two shells | // DECISION: `VendorCatalogView` and `MasterItemView` take an optional `clientId`, as the other Materials reports do: with one they read the back office's routes and show the operator's actions; without, the portal's. Every word but the two buttons is a message key (`materials.vendors.*`, `materials.item.*`) in the six languages; the back office reads them in English. |
+| One vendor's items | // DECISION: SKU, their name, the master item (a link to its page), pack, the vendor's unit with what it holds in the standard unit ("bundle (5 × sheet)", from `std_per_vendor_uom`), last price, its date and source, list price (its date on hover), and a status word: Preferred, Discontinued or Active. The vendor is in the path (`…/vendor-catalog/:id`; none: the first), so a vendor's catalog can be linked; the picker counts every item its table lists. |
+| Search | // DECISION: one box over the shown vendor's items: SKU, their name, the master item's name and the pack, case-folded in the reader's locale, on the page (a vendor's catalog is at most 2,000 rows, `vendorCatalog`'s cap). |
+| A master item's page | // DECISION: `…/reports/materials/catalog/:id` in both shells (the Catalog's item names link there): its name, category, unit and attributes (the measured millimetres left out), and its vendors side by side per the standard unit, the preferred one first, then the active ones in the API's order (cheapest per standard unit, no conversion last), discontinued last (`preferredFirst`). A vendor's name opens its catalog. The back office has Make preferred and Discontinue on each row. |
+| Tables | // DECISION: the analytical table (`dt dt-ana`), not the ledger: the ledger's column heads stick 24px down for a group row these tables don't have and covered their first row. The Catalog's table changes with them. |
+| Palette | // DECISION: nothing new in the builder's logic: the catalog's `kind` labels the skills (Match vendor, Match by SKU (vendor), Check matches: Deterministic; Semantic match (vendor), Master item manager: AI), `palette: false` keeps Look up existing and Match the unmatched off, and Register item is a write on an `internal` tool, so it reads "Save to records" with approval off until the operator adds it (core `defaultWriteApproval`). The web gives the vendor catalog's tools plain names (`runs/labels.ts`: `materials.vendor_items.register` is "Register item"), and a pack's step tools sit under the pack's name in words ("Materials", `connectorLabel`) rather than its id. |
+| AI skills in the editor | // DECISION: under the owner's word of 2026-11-11 ("forget about the skills, we will have to refactor them after") the two AI skills are still built-ins, so they open in the skill editor as any built-in AI skill does: the Library's Clone makes a shared operator skill draft and opens its page, with instructions, model, tests and versions. The editor now carries a skill's declared `reads` (the form's `reads`): shown ticked beside its tools, listed as tools it may use, kept as `reads` on save (unticked ones leave; a tool known to write never stays). Before, a clone's retrieval read was invisible and could not be removed. The API test clones both and saves a second version of each. |
+| Sweep | // DECISION: the seeded database has no client with Materials on, so the route sweep doesn't reach these screens; they were opened in Chromium in the four looks (light and dark, desktop and phone) against wrangler dev with a throwaway fixture (the pack on for the Demo client, two vendors, two master items, three vendor items) and passed the sweep's checks. |
+
+Still open after the screens:
+- (Built below, "The review's fixes".) The skills refactor: Semantic match (vendor) and the Master
+  item manager shipped as shared, versioned Library skills (Edit, not Clone), and Match vendor's
+  identifiers and the shortlist size as per-agent parameters. Today a clone is a separate skill an
+  agent must be pointed at.
+- Whether the client may mark a preferred vendor (the portal shows it; only the operator sets it).
+- The seed: a client with Materials on and a few vendor items, so the route sweep reaches these
+  screens on its own.
+
+**The review's fixes** (branch `vendor/fix3`, from `vendor/web3`, 2026-11-11; migration 0047's
+backfill made re-runnable, in a commit of its own). The owner's rules for this work (2026-11-11):
+the AI skills are editable Library skills, the deterministic ones built-in code with what may change
+as per-agent parameters, only what the feature needs, no template made or edited, nothing already
+built removed. These rules replace the "forget about the skills" deferral above (under "Finished
+and verified"), which nothing earlier in the repo recorded. Code: `packs/materials/src/vendor/skills.ts`,
+`apps/api/src/routes/packs.ts` (`installLibrarySkills`), core `PackManifest.librarySkills`.
+
+| Topic | Decision |
+|---|---|
+| The AI skills are the Library's | // DECISION: Semantic match (vendor) (`custom:semantic-match-vendor`) and the Master item manager (`custom:master-item-manager`) ship as shared Library skills: operator skills (`custom:<slug>`, tenant_id null) the pack names in its manifest (`librarySkills`, core checks each is an operator skill) and apps/api installs once, v1 by the pack and published, the first time the pack is switched on for a client (as its templates are) and by "Update templates". From then on each is the operator's: Edit in the Library (instructions, model, parameters, tests, versions, publish); the pack never re-installs over it. The same instructions, model, schemas and reads as before, backed by the pack's tools (`materials.vendor_items.list`, `materials.catalog.search`). An agent references them as it does any shared skill: publishing a client agent snapshots the live version into the client (`shared:<slug>`), and a newer version reaches the client at the agent's next publish (invariant 11). The pattern (`vendorCatalogSteps`) names them. |
+| The built-in AI skills | // DECISION: `materials.semantic-match-vendor` and `materials.master-item-manager` stay registered (nothing built is removed; a stored step that names one still runs), renamed "(built-in)" so the Library tells them from its own, and replaced for new steps by the Library skills (the pack's `superseded`, core `newStepSkillReason`): off the palette and the Builder. They never reached staging. |
+| Look up existing, Match the unmatched | // DECISION: back on the palette and in the Builder (the owner: nothing already built is removed; §1.88 doesn't ask to retire them). This replaces "New steps" above: `superseded` now names only the built-in AI skills the Library's replace. |
+| Match vendor's parameters | // DECISION: `match_on` (text, comma-separated words: document, tax id, email domain, name; default all four) is what Match vendor may match on; the order tried stays the code's (a purchase or a tax id is surer than a name), a vendor id given is always taken, and a word it doesn't know fails the step in plain words. A list has no parameter type of its own (number, text, date, amount, buckets), so it is text. `min_name_similarity` stays. |
+| The shortlist sizes | // DECISION: `vendor_shortlist_size` and `master_shortlist_size` (1 to 10, default 5) are Match by SKU (vendor)'s parameters, the step that opens the vendor-level path: its output carries them (`shortlist`), and the pattern's two reads take them as their `limit` (`materials.vendor_items.similar`, `materials.master_items.candidates`). A read step gets no agent parameters of its own, and the AI skills come after their shortlist. `decideByRules` keeps as many candidates as the shortlist (`keep`). |
+| The shortlist is filtered by code | // DECISION: what the AI skills choose from leaves out the candidates a key attribute rules out (`openLines(…, { withoutVetoed: true })`); the line keeps them for the person's card and for Check matches. Match the unmatched keeps its requests as they were (its stored steps replay). A line with every candidate ruled out goes to the model with none: it can only say new or unsure, and Check matches still holds a new item to every required attribute. |
+| The last price in the vendor's unit | // DECISION: Register item and `materials.prices.record` reach the vendor item's last price through `priceForVendorItem` (the line's unit, else per standard unit through its conversion), and leave it as it was when they can't: a SKU's item priced per board foot never takes an MBF line's figure. This completes "A price in the vendor's unit" above. |
+| A merge moves the vendor items | // DECISION: `mergeItems` moves the merged items' vendor items to the item that stays (`moveVendorItemsOnMerge`): a moved one loses `preferred` when that item already has a preferred one and forgets what it was embedded from; one without a SKU that would collide with the staying item's for the same vendor and unit is folded into it (its aliases and prices name the staying one, which takes its last price when newer) and discontinued where it was (`ext.foldedInto`; no DELETE grant). Register item also moves, without asking anyone, a vendor item left on an item merged into the line's. |
+| Vendor-neutral master items | // DECISION: a master item Register item makes keeps no pack size (`withoutPackaging`), no `ext.firstDescription`, and, where its name falls back on the line's words (category `other`), none of the SKU, pack count, prices or terms (`neutralName`). The line's pack goes on the vendor item (`pack_size`, "100 per box"). A line converts by its own words over the master item's specs, never the master item's pack size, else by the vendor item's own conversion for that unit (`convertLine`), in Register item and in `materials.prices.record`; quotes and the purchase comparison still read the master item's attributes as before (an open question below). |
+| A no-vendor document | // DECISION: the person asked which vendor sent it answers `{ vendorId }`; Match vendor takes that vendor (`vendor-named`) and the lines go on with it (steps 2 to 6 again, ids prefixed `n-`), then the path stops. Rejecting stops the run, as before. Creating a vendor is not in the pattern: the person names one we have. This replaces "None: the pattern asks a person and stops" in "Match vendor" above. |
+| The lead time's date | // DECISION: a quote's lead time is kept with its date (`ext.leadTimeOn`, no new column): an older quote never replaces a newer lead time; on the same date the later wins (`recordLeadTime`). |
+| The embedding backlog | // DECISION: the pattern's embedding step also makes up to 50 of the client's due embeddings (`missing` beside the ids, `EMBED_BACKLOG_PER_RUN`): what the backfill made, or what was embedded under older text. No cron: the cost lands on the run, as every model call's does, and HIPAA mode holds through the run's model guard. An operator may still add a step with `missing` alone. |
+| Labelled prices in the embedding text | // DECISION: a labelled price is a whole figure (never a fraction's numerator: "TOTAL 5/8 EDGE" stays), and EXT is a price label only with a colon, an equals sign or a money mark ("CDX PLYWOOD EXT 3/4" stays). The labelled forms are stripped first, with their label. |
+| 0047's backfill run again | // DECISION: its first INSERT is `ON CONFLICT DO NOTHING` (the second already looked first), so a repair or a replay by hand adds nothing. 0047 has not reached staging or main, so it was changed in place, in a migration-only commit of its own (a fixup into its first commit would have flattened the branch's merges). |
+| Not done: a line embedded twice | // DECISION: a line new to its vendor is embedded by the semantic read and again by the master items' read (their texts differ when Check matches added attributes). Carrying the vectors between the steps would put about 8 KB per line into every run's stored step outputs, for an embedding that costs a few millionths of a dollar; left as it is. |
+
+Still open after the fixes:
+- Whether the Library skills should ship test cases with the pack (today the operator adds them;
+  a shared case needs a recorded answer to replay).
+- A later pack version that changes a Library skill: today the pack never touches an installed one;
+  offering the pack's newer definition as a draft beside the operator's is for when one exists.
+- Quotes (`quotes.ts`) and the purchase comparison (`compare.ts`) still convert with the master
+  item's attributes, pack size included, for master items made before this; whether to move them to
+  `convertLine` is the owner's call (it changes prices already compared).
+
+### 1.89 The client's MCP: the portal as a Claude connector (owner, 2026-11-10)
+
+Owner, 2026-11-10: "create an MCP for both Staging and Prod that has access to their account
+information, so that clients can connect to their account and see their information and we can
+use the same for the ops". §1.34's "client-facing MCP server, later" is built on its plumbing, on
+the same URL: `https://staging.mezonas.com/mcp` and `https://app.mezonas.com/mcp`. Code:
+`apps/api/src/mcp/client-tools.ts`, the sign-in and dispatch in `routes.ts`. (Numbered §1.86 on
+`main`, where it was written; renumbered when merged beside the process model's §1.86.)
+
+| Topic | Decision |
+|---|---|
+| One URL | One `/mcp` per environment for everyone, so there is one connector to add. Who signs in decides the tools: an operator gets §1.34's back-office tools, even where they also hold a client role (the back office already reaches the clients they serve); anyone else with a client role (`client_admin`, `client_user`) gets the client tools. A member of no client: 403. Sign-in is §1.34's (AuthKit, the same WorkOS environment as the portal); the person must have signed in to Mezonas in a browser once, and membership is read on every call, so removing someone cuts the connector off at once. // DECISION |
+| What it shows | Read only: `whoami`, `overview`, `inbox_list`, `runs_list`, `run_get`, `connections_list`, `requests_list`, `records_search`, `record_get`, `documents_list`, `document_get`, `reports_list`, `report_get`. Each runs a portal route's own handler through `invokeRoute` (its roles, so a client user sees what the portal shows them; its schemas; its response contract, which carries no agent bundle, instruction, prompt or cost: invariant 11). A back-office route (`routeFamily` `ops`) is refused in the client tools' `route()` before it runs. Approving, answering and every change stay in the portal, where a person signs (invariant 8). // DECISION |
+| One client per call | Each call narrows the session to one client (`buildSession` with the client asked for), so every read runs in `withTenant` for exactly one client, as a portal request does (invariant 1). Someone in one client never names it; someone in several passes `client` (whoami lists them) on each call, and leaving it out is the tool error `choose_client`. Nothing is remembered between calls. // DECISION |
+| Documents | `document_get` leaves out the file's 5-minute link: anyone holding it can download the file for those minutes, and a chat transcript is kept far longer. The portal opens the file. // DECISION |
+| Fence, audit, limits | As §1.34: every result in one `<untrusted-data>` block, secret-named fields replaced; one log line per call (`event: "mcp.tool_call"`, now with `audience` `ops` or `client`, and the client as `target`); each portal read is also an `audit_event` row (`mcp GET /api/…`, the client, the person and their role, §1.35); 120 calls a minute per person. The client tools' instructions say what the fence is and that the tools only read. |
+| HIPAA mode | Not refused: the client signs in and connects its own MCP client (claude.ai or another) to its own data, so that client is the client's vendor, not a processor of ours (`packages/core/src/compliance/processors.ts`). T1 (the operator's connector and HIPAA clients) is unchanged. // DECISION |
+| Metadata | The protected resource's `resource_name` is now "Mezonas (<environment>)"; the back-office server info stays `mezonas-ops`, the client's is `mezonas` / "Mezonas". No new var, secret, binding or migration: staging and production already have `WORKOS_AUTHKIT_DOMAIN`. |
+| Not built | Client writes through the connector (approve or answer an inbox item, raise a request), each two-step as §1.34's; a per-client switch to turn the connector off; a portal page that says how to connect. |
+
+### 1.90 Speed: one transaction per session request (speed run 5.1, 2026-11-11)
+
+Each session route opened two transactions: `getSession` read the user and memberships in
+`withUser`, then `inScope` opened `withOperator` or `withTenant` for the handler and its audit row.
+That was two `begin`s, two `commit`s and a membership read of two statements before any work.
+
+| Topic | Decision |
+|---|---|
+| One transaction | `withSession` (`packages/db`) sets only `app.user_id`, reads the account, works out the scope, then sets `app.tenant_ids` and `app.operator` and clears `app.user_id` in the same transaction, issued before the handler can issue anything (as §1.82's scope). The handler never runs with `app.user_id` set. A scope without `operator` must name exactly one client (`ScopeError`). // DECISION |
+| Before the transaction | The adapter's `identify` (the cookie, a WorkOS refresh, the idle lock) and the request body are read first, so neither a slow token refresh nor a slow upload holds a connection and a transaction. The body is parsed inside, after the scope check, so a refusal still comes before a 400. // DECISION |
+| Refusals | A missing user, no access, the wrong client or role leave the transaction (it wrote nothing) and write their audit row alone, as before (§1.35). Errors are audited alone, as before. |
+| The account in one statement | `accountIn`: the user row with its memberships as a JSON array (the same join, retired-client rule and order). `userWithMemberships`, `GET /api/session` and slow routes use it too. // DECISION |
+| Slow routes and MCP | `mountLong` keeps a transaction of its own for the account, since it holds none across the handler. `invokeRoute` builds its handler's context with `mount`'s helpers, one scoped transaction with the user cleared. The MCP server's `authenticate` still reads memberships in its own transaction once per call: not folded in. |
+| Measured | Local, demo seed: `GET /api/feedback/status` went from 7 statements, 2 `begin`s to 6 and 1; every back-office and portal screen's statements went down by 2 to 21, and `begin`s about halved. |
+| Checked | `scope.test.ts` (the switch, a drizzle select issued at once, one backend, rollback, a pooled connection clean after every kind of failure), `rls.test.ts` (as `cs_worker`: the sign-in half sees only the user's memberships, the handler only the scoped clients), `apps/api/src/http.test.ts` (through `mount` and `invokeRoute`). |
+
+### 1.91 Speed run: what the run decided (2026-11-11; `docs/audit-plan.md`)
+
+The decisions taken while running the speed and structure plan, item by item, as each merged into
+`speed/run`. Held items record theirs in their own PRs (§1.90 one transaction per request, §1.92
+website logins in their own Worker, §1.93 memberships in the cookie).
+
+**1.2 and 1.9, the store under `useApi`** (`apps/web/src/api/store.ts`, #251):
+
+1. Nothing older than five minutes is shown (`MAX_AGE_MS`).
+2. Fresh for ten seconds (`FRESH_MS`): a component that mounts while the stored answer is under
+   10 s old, with no write since, does not ask again. A change of options, and `reload`, always ask.
+3. The first session answer names the scope without emptying the store; every later change empties it.
+4. One store per `ApiProvider` (tests that render twice with one fake client expect a second ask).
+5. Keeping the last answer while a new query loads is opt-in (`keep: true`), and only for the same
+   route and path params: a query can name another entity (`?client=`, `?agent=`).
+6. Any successful write, through any client, marks every stored answer stale.
+7. Sign-out closes the store until the signed-in screens are gone. Tabs share who is signed in as a
+   fingerprint (a hash of user and client, never an answer or an id) in `cs.sessionScope`; a tab
+   that sees another fingerprint than its own empties its store and asks who is signed in.
+8. The operator's client picker does not empty the store: an operator call names its client in the
+   address, so answers for two clients never share a key.
+9. At most 200 answers, least recently used first.
+
+`cache: "none"` on every answer holding a short-lived link or a secret: signed document links,
+the feedback screenshot, client exports, webhook setup, the vault (`portalAccess`) and second
+factor (`portalReleaseRequest`, `opsRelease`, `opsAgentGrants`).
+
+**1.3, skeletons in place of Loading** (`apps/web/src/ui/skeleton.tsx`, #256):
+
+1. A data load's label is read by screen readers, not shown; `Loading progress` shows its words for
+   work the person started (saving, connecting), so a write is never only a grey shape (rule 7).
+2. `Loaded`'s default skeleton is a page body (a heading line and two cards); screens pass their own.
+3. Skeleton shapes use `--line` (the border token): `--surface-subtle` nearly vanished on a dark card.
+4. A block `Loading` is 640px wide at most and takes its parent's width (a shrink-to-fit parent
+   left it 0 wide).
+5. One fade for every skeleton, the sidebar's included: opacity only, 1.6 s, none under reduced motion.
+
+**The back-office frame, Home and Escalations** (#257):
+
+1. The frame's counts reload when the place changes (the first path segment after `/ops`), or inside
+   a place when a write came after them (`ApiStore.staleByWrite`); the 20 s poll keeps them current.
+2. Escalations hands the frame Needs us across every client; narrowed to one client it shares
+   nothing and the frame asks for its own counts.
+3. A list keeps its last rows, dimmed and `inert`, while a view, status or filter loads, never across
+   a client filter (`keep: !client`); dimming shows only for a kept answer, not on polls.
+4. Fetch on intent prefetches only the first call of the run, agent and client pages, from delegated
+   handlers on each list (`ops/command/prefetch.ts`).
+5. Home's sections each load on their own; a failed first load is one notice.
+6. 1.6's "prefetch the next screen once Home settles" is not built: it raises Home's calls, which
+   gate 2 forbids. Left for the owner (the same for the portal's Home → Inbox).
+
+**The first load** (#261: 1.1, 4.1, 4.3, 4.4, 4.5):
+
+1. A still frame inside `#root` (top bar, sidebar rows, a heading and two cards, on the shell's own
+   classes), the same picture as its React twin `session/StillFrame.tsx`, which covers the session,
+   its language and the `OpsApp` chunk; a test keeps the two identical. No script, CSP untouched.
+2. The frame follows the OS theme only: showing a stored light or dark choice before the bundle runs
+   needs a blocking script, which 1.1 rules out.
+3. Only English is in the bundle. Nothing is downloaded while the session is unknown; the session's
+   language once known, the browser's only signed out. A chunk that fails reads in English and is
+   asked for again on the next session refresh.
+4. The session call starts before React mounts; the frame's first calls are prefetched only after it
+   answers, never beside it (a WorkOS refresh rotates the refresh token, and a racing request with
+   the old cookie revokes the session), by `session.operator`, so nothing refused is asked.
+5. `OpsApp` starts loading at module load on `/ops` addresses.
+6. `/assets/*` is cached for good (`immutable`); both Geist faces are preloaded, and a build missing
+   either fails. Tests load all six catalogs in `test/setup.ts`; the app loads one.
+
+**The agent, run and client pages** (#258):
+
+1. The client page's frame is a pathless layout route around the tabs' routes; tab screens keep
+   wrapping themselves in `ClientFrame`, which inside the layout portals its intro and buttons into
+   the layout's header.
+2. The agent page resolves its slug from the client's own list; the list with discarded drafts is
+   asked only when the slug isn't there.
+3. `life: "catalog"` (event, builder and connector catalogs, models, client names): fresh for 5
+   minutes instead of 10 s; writes still mark it stale; emptied on scope change and sign-out.
+4. The agent page's connector names stay on the builder catalog, asked beside the agent on the
+   Overview (taking it off raised the Workflow tab's statements, which gate 2 forbids).
+5. Prefetch on intent fires for a mouse or pen hovering, or focus, once per target, never in a
+   hidden tab. Decisions and writes say what they are doing on the pressed button until the server
+   answers and cannot be pressed twice.
+
+**Polling and search** (#260): one `useDebounced` (300 ms, settled in a transition) for every search
+box; search lists keep their rows (`keep`) and dim them only while they answer an earlier query, with
+the error beside them if the new one fails, never across record kinds; a run that waits on a person
+is polled every 30 s (`runPollMs`, `portalRunPollMs`); the back-office Runs list uses it, the run
+pages switch in a follow-up.
+
+**The portal screens** (#259, #262):
+
+1. Fetch on intent is one listener around the portal's screens, reading the address under the
+   pointer (`data-intent` on rows that aren't links). Documents are never prefetched (signed links).
+2. The frame asks for the overview again on a move only when its answer is 5 s or older; the Inbox
+   refreshes the count when its open list disagrees.
+3. Pages draw their header from what is known (the overview, a list's row), in memory beside the
+   store and dropped with it. A run's open Inbox items are asked only once the run or its row says it
+   waits.
+4. The portal's waits (Sloan's answer, a document being read) back off from 3 s to 30 s; uploads
+   stop after 16 ticks.
+5. Home's "Not now" removes the row at once and puts it back if refused; the Runs list keeps its rows
+   across a status or start filter, never across a change of agent.
+
+**The heavy handlers** (phase 6: #264, #265, #266; server only):
+
+1. A handler reads its main row once, then asks the rest together inside the one scoped transaction
+   (never its own connection), and selects only the columns and JSON paths it shows.
+2. Run pages get a light status route (`GET /api/runs/:id/status`, `GET /api/ops/runs/:id/status`):
+   one statement whose key is an md5 of the content of every row the page shows (its
+   conversations' translations included), not a timestamp, which can miss changes or move
+   backwards. The web switches to polling it in a follow-up.
+3. Portal Home's table reads every agent's latest run, step and wait in one lateral query and every
+   KPI of every agent in one statement; nothing grows per agent or per KPI. The KPIs stay on the
+   table (a route of their own was not needed).
+4. `opsClient` returns each agent's go-live (`goLive`), built in bulk from one writes context
+   (`writesContext`) for all of the client's bundles; the client overview drops its per-agent
+   calls in a follow-up (2.6).
+5. `portalService` returns the stage, now, runs now and KPIs from one projection of the bundle; no
+   bundle, prompt or cost reaches the portal (invariant 11, contract tests).
+
+**Running the run.** Worker sessions cannot force-push, so a worker brings its branch up to date by
+merging `speed/run` into it, and the lead merges each PR with a merge commit (never a squash). The
+tree merged is the one the gates ran on. `pnpm typecheck` runs out of memory in a 15 GB cloud
+container at full parallelism; the run uses `pnpm -r --workspace-concurrency=4 typecheck` there.
+
+### 1.92 Website logins in their own Worker (owner's D3, 2026-11-11)
+
+The owner answered D3 of `docs/audit-plan.md` (4.7) "yes, both": website logins move to their own
+Worker, and our own model transport replaces the Anthropic SDK (a separate PR). This is the first.
+`apps/api`'s dry-run (staging) went from 13,515 KiB (gzip 2,883) to 10,110 KiB (gzip 2,228); the new
+Worker is 4,165 KiB (gzip 773).
+
+| Topic | Decision |
+|---|---|
+| The Worker | `apps/browser`, package `@countersign/browser`, Workers `mezonas-browser-staging` and `mezonas-browser`, built as `apps/mfa` is. It has the Browser Run binding (`BROWSER`) and Playwright, and nothing else: no secrets, no database, no storage, no route, no workers.dev or preview URL. Deployed after the code service and before `apps/api` (`deploy.yml`). Locally it is not bound and browser tools are off. // DECISION |
+| One primitive per call | `Browsers.open({hosts, keepAliveMs})` answers `{ok: true, url, tab}` or a refusal (`no_browser`, `invalid`). The tab is an `RpcTarget` with the `BrowserTab` primitives; `apps/api` drives it one call at a time, because sign-in waits on the code service and checks origins between steps, and those decisions stay in `apps/api`. Releasing the tab without closing it closes the browser (`Symbol.dispose`). // DECISION |
+| The address | Each answer carries the tab's address, which `url()` then answers. Before typing, sign-in asks the browser itself (`where()`), since the copy can be minutes old after the code wait; and every sign-in `fill` carries the login origins (`onlyOn`), which the service checks on the browser's own address as it types. `apps/api` decides the origins; the service only holds the typing to them. // DECISION |
+| Secrets | A password, a code or a held session's cookies cross for one call and are never stored or returned. A failed `fill` or `setCookies` answers a fixed message, not Playwright's. Our code writes no log line; Workers Logs keeps each invocation's metadata and any thrown error's message, and no message carries a typed value or a cookie. // DECISION |
+| The binding's name | `apps/api`'s binding keeps the name `BROWSER`, now a service binding (entrypoint `Browsers`), so `platform.ts` and `runs/execute.ts` read the same. // DECISION |
+| Where the code lives | The Playwright adapter is in `apps/browser`; the contract (`BrowserService`, `BrowserTabService`) and the client side (`remoteBrowserTab`) are in `packages/connectors`. `apps/browser` takes connectors' and core's types only (tests may use them), and nothing depends on it (`scripts/check-deps.mjs`, rule 7). // DECISION |
+| Limits | The service checks every input: selectors up to 2,048 characters, addresses up to 8,192, a typed value up to 16,384, at most 500 cookies (a value up to 16,384), at most 50 origins for a fill. A download crosses RPC as bytes, so a file over RPC's message cap (taken to be 32 MiB) fails; the connector has no cap of its own. Unchecked until staging: `apps/browser/NOTES.md`. |
+
+### 1.93 Speed: memberships in the sealed session cookie (speed run 5.2, 2026-11-11)
+
+The owner's D2 ("Yes"): a person's memberships ride in the sealed cookie for a few minutes, so most
+session requests skip reading them. It delays a removed member's loss of access by that long.
+
+| Topic | Decision |
+|---|---|
+| The window | `ACCOUNT_WINDOW_SEC` = 5 minutes (`packages/auth/src/account.ts`), the same as the WorkOS refresh interval on purpose: an account read by the request that refreshes the session goes stale when the next refresh is due, so the request that reseals it is usually the one that refreshed. A shorter window only means more reads; a longer one, more delay. The cookie carries the user (id, email, name) and their memberships (client id, name, role) with `at`, the second they were read; the operator flag and the clients served are worked out from them as before. // DECISION |
+| Fresh | Younger than the window: `mount` builds the session and scope from the cookie and opens one transaction already in that scope (`withOperator` or `withTenant`); no `app.user_id`, no account read. The handler, the scope and the audit row are as in §1.90. |
+| Stale or none | The request reads the account in its one transaction (§1.90) and the response seals the cookie again with what it read. `mountLong` does the same around its own read. |
+| Grants | A carried account that would refuse the request (a client it doesn't list, a role it lacks) is not used: the account is read before any refusal. // DECISION. So a request that names a new client, or needs a role the person was just given, is never delayed. Two grants do wait for the window: a list across clients (no client named, so nothing is refused) leaves a client added by someone else out, and a role raised in place within a client the route already admits (a client user made admin) shows the old role. |
+| The refresh race | The account is sealed into the WorkOS cookie only when its refresh token is safe to write back: the request refreshed it, or it is not due within `RACE_GRACE_SEC`. A request admitted on the race or outage grace (`resolveSession` says `grace`), or one just before a refresh another tab may be making, holds a token that may be spent; a cookie it wrote could land last and sign the person out at the next refresh. Such a request sends only what `identify` decided, and the account is read again next time. Admitted on a grace, `identify` itself writes nothing either, not even a moved `lat` (before 5.2 it did, with the old token); the next request that refreshes moves it. A slow request is judged when it answers (`carry` takes the time), not when it was identified. // DECISION |
+| Where | WorkOS: in the session cookie (`acct`), so it rotates with it and goes with it on sign-out, the idle lock and expiry; a new sign-in starts without one. Dev sign-in: its own sealed cookie (`cs_dev_account`) under a key made at random per isolate, cleared on sign-in and sign-out. Either way it is bound to the user the identity names: another user's account is never used. A cookie that does not open is refused (WorkOS) or ignored and replaced (dev). `acct` is parsed apart from the session, so a shape we stop reading costs a read, not a sign-out. // DECISION |
+| Size | A `Set-Cookie` over 4096 bytes is not sent with an account: an operator with very many clients (about 30 with long names) reads it on each request, as before 5.2. // DECISION |
+| Own changes | A handler that changes the signed-in person's own memberships calls `accountChanged()`; the response drops the carried account. The only such route is creating a client (the creating operator serves it). Invites add other people; no route removes members or changes a role. |
+| Not carried | `GET /api/session` still reads the account each time (the app's first call, and the only place client names are shown from it). The MCP server reads it per call (bearer tokens, no cookie). |
+| What RLS relies on | No policy reads `membership` except `own_memberships`, which only the sign-in half uses. Every client table checks `app.tenant_ids`, which is set from the scope. So for up to the window, a removed or demoted member's open session does what the carried membership allowed: that client's rows, through every route their old role reaches. |
+| For the owner: what the window lets a removed person do | A removed operator can still act in that client as an operator for up to 5 minutes: approve and sign (`withCanSign` takes an operator's word without reading `membership`), change and publish its agents, change its settings. A removed or demoted client admin can still invite people to that client, and an invitation made in the window stays after it. Code that reads `membership` itself sees the change at once: a removed client user's approvals are refused (`withCanSign` reads their `can_sign`), as are approver rules and who is notified. No route removes a member today; when one is built, it changes someone else's membership, so it cannot drop that person's cookie: their window still runs. Ending their WorkOS session ends it at the next refresh, within the same 5 minutes (and the 60 s race grace). |
+| Audit rows in the window | Rows written from a carried account name the user and role as carried: a role someone else changed shows the old one for up to 5 minutes. A refusal is written after a fresh read, and each decision starts from an anonymous actor, so a refusal never names what the cookie carried. |
+| Sign-out with a request in flight | A request that started before sign-out and answers after it can set the session cookie again (with an account, or with a refreshed token, as it could before 5.2). Sign-out ends the WorkOS session, so that cookie stops at its next refresh: within 5 minutes and the 60 s race grace. With the dev sign-in the user cookie is gone, so a stray account cookie names no one. |
+| A race with an own change | A request that read a stale account just before `accountChanged()` committed, and whose response lands after it, seals the old memberships back in. The new client then misses from lists across clients for up to the window; opening it (it is named) reads the account again. |
+| Measured | Local, demo seed, on top of §1.90: `GET /api/feedback/status` with a fresh cookie went from 6 statements to 4 (the account statement and the sign-in `set_config` are gone; one `begin` either way), `GET /api/ops/counts` from 15 to 13. Every back-office and portal screen's statements went down (by 2 to 40) and no screen's API calls changed. |
+| Checked | `apps/api/src/session-account.test.ts` (the window, a removed member, another user's cookie, tampering, an own change and a client created through the app, sign-out and sign-in, the size fallback), `packages/auth/src/workos/workos.test.ts` (carry, rotation, idle lock, sign-out, tampering, another user, size, and parallel requests across a refresh against a WorkOS that refuses spent tokens: no spent token is written back), `packages/auth/src/account.test.ts`. |
+
+### 1.94 Test runs: stand-in output for writes (owner's list #12, 2026-11-11)
+
+A test run never writes, so a write step gave later steps no output: an attach step that needs the
+new bill's id failed its input, the run failed, and Start trial waited for a passing test run that
+could never come.
+
+| Topic | Decision |
+|---|---|
+| Stand-in | A write tool may declare `testOutput(input)` (`defineWriteTool`): a pure function, in the tool's own output shape, that reads and calls nothing. `standInOutput` (connectors) validates its input and output with the tool's schemas. // DECISION |
+| Runtime | In a test run a write still settles as `would_have_done`, recorded as proposed and never executed; with a stand-in it carries it (`standIn`). A write step's output is then the stand-in's fields over `{ wouldHaveDone, actionId, before }`, with `standIn: true`, so `{{steps.x.output.id}}` reads it; the tool call's logged output says `standIn: true`. A tool without one behaves as before. An agent-mode skill's model is not told the stand-in (its replayed requests stay the same). |
+| Timeline | "Would create the bill (test run, not written; stand-in values)", in each language. |
+| QuickBooks | Every create whose output names a new record: bill, vendor, purchase order, purchase, deposit, transfer, account, class, location. Ids and versions are "0" (`QBO_STAND_IN`): digits, so `QboId` takes them, and never a record QuickBooks made (it numbers from 1). Other fields echo the input (number, total, line count, name). `qbo.attachable.upload` has none: nothing reads on from an attachment. // DECISION |
+| Passing | Unchanged: a test run whose writes were all would-have-done ends `succeeded`, which is what Start trial reads (`activationProblems`). |
+| Not covered | A later step that reads the provider again (look up the vendor just made) still finds nothing, and a later write's own checks still read QuickBooks: a bill for the stand-in vendor "0" is refused as not the company's. Such a flow passes a test run only if it uses the create's output and the next write doesn't check that record. |
+| Checked | `apps/api/src/actions.test.ts` (a test run of create bill then attach with the bill's id: succeeded, both writes proposed, no POST to QuickBooks, the stand-in marked; the attach, with no stand-in, as before), `packages/connectors/src/qbo/qbo.test.ts` (each create declares one, valid and calling nothing), `packages/agents/src/log/runtime.test.ts` (no stand-in without one). |
+
+### 1.95 The run step panel (owner's UI pass, 2026-11-11)
+
+Each step on a run page opens a panel beside the run that says what the step did, on both
+surfaces: the back office's `/ops/runs/:id` and the client's `/runs/:id`.
+
+| Topic | Decision |
+|---|---|
+| Opening | A step's title is a button (`StepList` `onOpen`); the panel is the side sheet from the right (`ui/sheet.tsx`), wide. Its address is `?step=<step run id>` (a back office step not reached yet: its checklist key), so a link to a run can open a step. Escape, the scrim and Close shut it and take `step` out of the address; Tab keeps focus inside it (`trapTab`). // DECISION |
+| Step tab | The step's summary, state, start and end, duration and tries (`step_run.attempts`, when above one); its checks and approvals (`StepChecks`); what went in and came out read as fields, lists and tables (`FieldsView`: ids by their tail, times and figures in the reader's locale), with the raw JSON behind a toggle; the changes it made to the client's tools, now and after (`ChangeTables`). |
+| Back office | Also the step id, its skill or tool, models, tokens and cost, the owner's decisions and checks, each model call with its prompt and answer on demand (`opsModelCall`), and its tool calls. No route change beyond `attempts`: `opsRun` already carries the rest. |
+| Portal | `TimelineStep` gains `input` and `output` (`clientStepData`: the stored value without any key the contract forbids a portal response, any secret field, or any key naming a model or a token, such as QuickBooks' `syncToken`; none on a confer's row), `attempts` and `ai` ("AI read this", never which model, its prompt or cost). Portal `actions` gain `stepRunId`, `before` and `input` (the signer's edit when there was one), as the Inbox already showed them. The screen reads the step's data through `clientStepData` again. // DECISION: a deny list over the stored data rather than a per-skill allow list; step data is business data and the contract names what a client never sees. |
+| Data tab | When the step made, changed or cited anything: its changes, the records it cites (`sources`) and the documents it names (`documentId`, `documentIds`; `stepDocumentIds`), each with its page. Records and documents have no link to a step run of their own, so the tab reads the step's data. |
+| Checked | `packages/core/src/api/step-data.test.ts`, `apps/web/src/runs/StepPanel.test.tsx`, `apps/web/src/portal/screens/RunStepPanel.test.tsx`, `apps/web/src/ops/screens/RunView.test.tsx` ("back-office step panel"), `apps/api/src/runs.test.ts` (the client's timeline carries the step's input and the change by its step, and `forbiddenKeys` finds none). |
+
+### 1.96 Hand off: a step that starts another agent at one of its steps (owner, 2026-11-11)
+
+"Add a handoff step at the bottom that you can select, to choose the output, then say which agent
+and which step to plug it into." AP bill clerk creates the bill, then hands the invoice to Price
+checker, which starts at its "Itemize" step (its earlier steps, which pull bills from QuickBooks,
+are skipped). The two run side by side: AP bill clerk doesn't wait.
+
+| Topic | Decision |
+|---|---|
+| Step | A v4 step kind `handoff` (`processes.HandoffStep`): `to.agent` (another client agent of the same client, its slug), `to.step` (a top-level step of that agent's live version) and `input` (that step's input, mapped field by field from this run, as any step's input). Its output is `{ runId, agent, step }`. Both pickers may be empty while the operator chooses; validation then asks for them. |
+| Which process | The first enabled workflow of the target's live version (an agent owns one process; a stored v3 agent may hold more), in the router (`handoffRunRequest`) and in the list the validator reads (`handoffAgents`) alike. // DECISION |
+| Run | The step resolves its input, then the port (`apps/api/src/runs/handoff.ts`) asks the router: never the same agent, at most three handoffs deep (`MAX_HANDOFF_DEPTH`, as handoff triggers), the target started (`isRunnable`: active, in trial or live), same client, the step in its live version. It writes the run row and starts the instance, and the step returns at once. The run id derives from the sending run and step (`handoffRunId`), so a retried step starts one run. |
+| Trigger | The run's trigger is a handoff (`type: "handoff"`, `fromRunId`, `depth`, `fromAgentId`, `fromStep`, `at`), and its payload `HandoffRunPayload` with `at` and `input` (the run's `{{trigger.…}}`). No migration: `run.trigger` is JSON and `step_run.node_type` has no check. |
+| Start at a step | `ExecutorContext.start` (from the trigger): the top-level steps before `at` are skipped (no rows, no outputs), and the entry step takes the input handed over as data, never rendered as a template (invariant 9). A version without that step fails the run rather than running from the top. A retry of such a run starts at the same step. |
+| Failures | A refusal fails the step in plain words ("Price checker isn't started, so the hand-off didn't run"); `onError: continue` is not offered on a hand-off. // DECISION |
+| Test runs | Start nothing: the step records "Would hand off to Price checker at 2 · Itemize the invoice (test run, nothing started)" with the resolved input. |
+| Approvals | Unchanged (invariant 8): starting another agent's run is internal, never a write; the run started applies its own approvals. |
+| Validation | Core's validator, with the client's agents (`ProcessValidationContext.handoff`, from `handoffAgents`: each agent's live top-level steps with names, kinds, input schemas and what each reads). The server passes it for a client agent's version that has a hand-off step; the builder fetches the same list (`GET /api/ops/clients/:id/handoff-agents`). Errors: not the same agent, an agent of this client, with a live version, a step there, a read, skill or write step; the input against that step's input schema (the step-input checks). A warning, not a block, names the target's later steps that read a step it skips. |
+| Builder | The palette's last section, "Other agents": "Hand off to another agent". The inspector picks the agent (the client's other agents), then the step (numbered and named; kinds without an input disabled), then the input fields (`SchemaForm` over the step's input schema, with the field picker). The builder names the step for its target ("Hand off to Price checker at 2 · Itemize the invoice"), so the canvas row reads that; a name the operator wrote stays. // DECISION |
+| Run views | The sender's step: "Handed off to Price checker (run R-1a2b3c)", linking to the run (back office and portal: `TimelineStep.handoff`). The run started: "Handed off from AP bill clerk (run R-1a2b3c) · started at 5 · Itemize the invoice" in its header (`RunHandoffView`, `handedOffFrom`). Portal words in all six languages; the portal gets names and a run id only (invariant 11). |
+| Checked | `packages/core/src/process/handoff.test.ts`, `packages/workflows/src/handoff.test.ts`, `apps/api/src/handoff-runtime.test.ts` (a real run of A handing off to B at its step 2, the trigger, both pages, the rules, a test run, a target not started, save-time validation), `apps/web/src/ops/builder/handoff.builder.test.tsx`, and the run views' tests. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
@@ -2420,6 +4512,7 @@ apps/api ─▶ workflows ─▶ agents ─▶ documents ─▶ connectors ─�
    └─▶ packs/materials ─▶ documents, connectors, llm, senses, db, core   (never agents or workflows)
 apps/web ─▶ core                    (route contract, schemas, workflow validation; HTTP to apps/api)
 apps/mfa ─▶ core                    (the code service, §1.26: its own Worker; apps/api reaches it only by service binding)
+apps/browser ─▶ connectors, core     (types and tests only: the browser service, §1.26, its own Worker with Browser Run; apps/api reaches it only by service binding)
 apps/site ─▶ design-system          (the public site, §1.29: no runtime dependencies)
 ```
 
@@ -2439,6 +4532,7 @@ apps/site ─▶ design-system          (the public site, §1.29: no runtime dep
 | `apps/api` | any |
 | `apps/web` | core |
 | `apps/mfa` | core |
+| `apps/browser` | connectors, core (types only in its code; tests may use them); runtime: `@cloudflare/playwright`, zod |
 | `apps/site` | design-system (files only) |
 
 \* only from `agents/src/registry/` and `agents/src/log/` (see §1.2).
@@ -3514,6 +5608,7 @@ Open
 8. **Before Wave 2:** (a) Sloan is the supervisor renamed and extended, one free agent per client; existing "Account check" forks become Sloan by a reviewed update: confirm the name and the merge. (b) The agent's email address: v0.12 builds `<agent>.<client>-<id>@<forwarding domain>`; the prototype's `<agent>@<client>.agents.mezonas.com` needs Email Routing per client subdomain, a Cloudflare API token to add them, and a domain apart from the code service's `agents.` (e.g. `<client>.mail.mezonas.com`). (c) Test cases from a client's own records stay in that client and never gate a shared skill: confirm. (d) A person's channel set to "on its own" is the operator's to set (the client asks the lead), as invariant 8 says: the prototype shows the client setting it. (e) Are trial and sign-off days billed (default yes: the agent is active)?
 9. **Before Wave 3:** the bank and card aggregator: answered (owner, 2026-11-06): **Plaid** (§1.52, built against a fake). Open: the price per connected account, and whether it is absorbed or passed into credits; Plaid's production review; HIPAA mode (whether Plaid signs a BAA; until then a HIPAA client isn't offered the feed). Also open: developer apps for Outlook (Entra, publisher verification), Ramp and HubSpot, Google Drive's `drive.file` on the consent screen, and Slack's timing.
 10. Smaller defaults to confirm when convenient: the undo window (60 s, delivered at the next minute, so 60–120 s); US federal holidays only; notifications by text only from the client's own Twilio number; replay as a test run in the same client, never in the Sandbox.
+11. Run audit (§1.86 "Run audit (wave 6)"): may the client see any of it (a run's audit marks, or its export without prompts and cost)? Built back office only.
 
 ---
 
@@ -3600,6 +5695,10 @@ reorder, reformat or rewrite another stream's block; on conflict keep both block
 | 0039 | M51 (§1.79) | `ledger_account`, `ledger_account_note`, `ledger_dimension`; the Bookkeeping pack's `bank_account_link`, `bank_feed_cursor`, `bank_txn`, `booking_rule`, `booking`, `booking_line` |
 | 0040 | M57 (§1.80) | The Bookkeeping pack's `reconciliation`, `reconciliation_item`, `reconciliation_match` |
 | 0041 | §1.81 | `qbo_webhook_event`: Intuit's webhook notifications, one row per change |
+| 0043 | R4 (§1.86) | `membership.hours`, `contact.hours`: a person's own week and away dates, nullable `jsonb` |
+| 0044 | R5 (§1.86) | `external_action.after`: the state a write left, for undo, nullable `jsonb` |
+| 0045 | R9 (§1.86) | `browser_script`, `browser_script_version`: a client's recorded scripts (scripted site tools), forced RLS on `tenant_id`, versions immutable |
+| 0046 | Wave 6 (§1.86 "Run audit (wave 6)") | `owner_check`, `run_audit`, `run_audit_mark`: the owner's check per attempt, the audit queue and reviewers' marks; forced RLS on `tenant_id`, all insert only |
 
 Wave 2's migrations (0026–0029) are written together in one PR (`claude/w2-migrations`), as Wave 1's
 were, so their Drizzle snapshots chain. // DECISION: `oversight_decision` was reserved as 0031 but is
@@ -3836,3 +5935,43 @@ from a space unbinds it. Against a fake. Owner: the Chat API configured on the G
 name, avatar, HTTP endpoint), the service account and its key as a secret, and the app published to
 the Google Workspace Marketplace (each client's Workspace admin must allow it). Done when an approved
 post goes once to a bound space, an unbound space is refused, and a space is bound only by its code.
+
+## 9. The process model refactor (§1.86)
+
+Each milestone ends green. Stored versions are never edited (invariant 3).
+
+- **R0 Design in the repo.** §1.86; ARCHITECTURE v0.16 written from the owner's doc before R3.
+- **R1 Process schema.** `packages/core/src/process`: workflow `schemaVersion: 4`, checks,
+  deadlines, business hours, the v3 converter and the v4 validator (ids, template typing,
+  invariant 8 on `required: not_required`, `when` and `proceed`).
+- **R2 Skills.** `method: rules | ai | rules_then_ai`, declared read tools; tool-mode skills retire
+  (85 of 100); the seeds' four unregistered skill names removed or registered.
+- **R3 Executor.** Runs v4: read and write steps, checks in order, deadlines, approval modes, urgent
+  notifications.
+- **R4 Business hours and channels.** Client and person hours, the business-hours clock, due times;
+  a number and email per account, optional per agent. Migration in its own PR.
+- **R5 Undo.** Write tools declare `undo`; the late-answer path through the external-action path.
+- **R6 The owner.** Agent = owner plus one process; `oversight` becomes the owner's watch and fix.
+- **R7 Conversation step.** P-4 conversations and calls as one step kind.
+- **R8 Builder and portal.** The Library (banks of processes, skills, tools, connectors, triggers,
+  record types, condition sets); skill templates customized per step; the checks panel; the
+  client's Connections (sign in, or a login into the vault), People, Business hours, Channels.
+- **R9 Templates and browser scripts.** Seeds and pack templates saved as v4 versions; recorded
+  scripted site tools.
+
+Status (2026-11-10): R0–R9 are built and merged on `claude/busy-euler-cgu5kr`, each wave reviewed
+and its findings fixed. Wave 1: R1, R2's schema, R5's declarations, ARCHITECTURE v0.16. Wave 2 (with
+2b and 2c): the v4 validator, executor and approval engine, the owner, the conversation step, hours
+and channels, the undo path and site-scoped browsing, wired end to end in apps/api. Wave 3 (with 3b
+and its follow-ups): R8 (the builder on processes, the Library, the portal's Connections, People,
+Business hours and Channels; the Builder chat and "Save as automation" on processes; every reader of
+a stored version reads v3 or v4) and R9's templates. Wave 4: R9's recorded scripts, run as
+`browser.script.read` and `browser.script.submit` (decisions in §1.86 "Scripts (wave 4)"). Wave 5
+(the owner's ask, after R9): a process forks on how any earlier step ended, not only on data: every
+v4 step records `steps.<id>.outcome` and its detail, an `if` routes on it, a step may carry on past
+a failure (`onError: continue`) only where nothing was written, and the builder's "Add a route"
+ends the new route with a stop (decisions in §1.86 "Forks (wave 5)").
+Migrations 0043, 0044 and 0045 are each their own commit, for their own PRs; so are the routes moved
+to `mountLong` (a pool of one connection never deadlocks), which touch sign-in callbacks. Not yet
+checked on staging: Browser Run's support for a context-wide `route` and `serviceWorkers: "block"`
+(scripts are refused if it is missing). Open for the owner: the questions in §1.86's DECISION rows.

@@ -147,4 +147,37 @@ describe("grants panel", () => {
     expect(screen.queryByTestId("agent-grant-acme-release-on")).toBeNull();
     expect(screen.queryByText("Turn off")).toBeNull();
   });
+
+  it("says Turning on while the release is sent, and only shows it on once the server has it (1.8)", async () => {
+    const CLIENT = "00000000-0000-4000-8000-00000000c111";
+    const ANA = "00000000-0000-4000-8000-0000000b0001";
+    let answer: (v: unknown) => void = () => {};
+    const api = fakeApi({
+      [`GET /api/ops/agents/${AGENT}/grants`]: () => ({ grants: [grant()] }),
+      [`GET /api/ops/clients/${CLIENT}/connections/${CONN}/release`]: () => ({
+        release: grant().release,
+        people: [{ id: ANA, name: "Ana Ruiz", email: "a•••@demo.example.com", canText: false }],
+      }),
+      [`PUT /api/ops/clients/${CLIENT}/connections/${CONN}/release`]: () =>
+        new Promise((r) => (answer = r)),
+    });
+    render(
+      <ApiProvider client={api.client}>
+        <MemoryRouter>
+          <GrantsPanel agentId={AGENT} clientId={CLIENT} />
+        </MemoryRouter>
+      </ApiProvider>,
+    );
+    const box = await screen.findByTestId("agent-grant-acme-release");
+    await userEvent.click(within(box).getByTestId("agent-grant-acme-release-on"));
+    const person = await within(box).findByTestId("release-person");
+    await waitFor(() => expect(within(person).getAllByRole("option")).toHaveLength(1));
+    await userEvent.click(within(box).getByTestId("release-save"));
+    const save = within(box).getByTestId("release-save");
+    expect(save).toHaveTextContent("Turning on…");
+    expect(save).toBeDisabled();
+    expect(box).toHaveTextContent("Off");
+    answer({ release: grant().release });
+    await waitFor(() => expect(screen.queryByText("Turning on…")).toBeNull());
+  });
 });
