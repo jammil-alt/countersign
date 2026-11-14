@@ -10,6 +10,8 @@ import {
   type Db,
   externalAction,
   inboxItem,
+  OVERSIGHT_ACTIONS,
+  OVERSIGHT_CAUSES,
   oversightDecision,
   run,
   stepRun,
@@ -17,7 +19,7 @@ import {
   tenant,
   withTenant,
 } from "@countersign/db";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { clientApproverSetting } from "../registry/runtime-store";
 import { resolveApprover } from "../runtime/context";
 import type {
@@ -35,7 +37,14 @@ export const OVERSIGHT_STOP_SUBJECT = "oversight_stop";
 
 type Row = typeof oversightDecision.$inferSelect;
 
+const isReviewAction = (action: string): action is RecordedDecision["action"] =>
+  (OVERSIGHT_ACTIONS as readonly string[]).includes(action);
+
+/** A review's decision (v0.17: the table also keeps the agent's choices, read elsewhere). */
 function recorded(row: Row): RecordedDecision {
+  if (!isReviewAction(row.action)) {
+    throw new Error(`oversight_decision ${row.id} is a choice (${row.action}), not a review`);
+  }
   return {
     id: row.id,
     action: row.action,
@@ -125,6 +134,7 @@ export function dbOversightStore(db: Db): OversightStore {
               eq(oversightDecision.runId, key.runId),
               eq(oversightDecision.nodeId, key.nodeId),
               eq(oversightDecision.seq, key.seq),
+              inArray(oversightDecision.cause, [...OVERSIGHT_CAUSES]),
             ),
           );
         return row ? recorded(row) : null;
@@ -137,7 +147,8 @@ export function dbOversightStore(db: Db): OversightStore {
           .select({
             // v0.13 M32: a `continue` changes nothing, so it is not an intervention (its cost
             // still counts).
-            count: sql<number>`(count(*) filter (where ${oversightDecision.action} <> 'continue'))::int`,
+            // v0.17: the agent's choices count in the cost, never as interventions.
+            count: sql<number>`(count(*) filter (where ${oversightDecision.action} <> 'continue' and ${inArray(oversightDecision.cause, [...OVERSIGHT_CAUSES])}))::int`,
             costUsd: sql<string>`coalesce(sum(${oversightDecision.costUsd}), 0)::text`,
           })
           .from(oversightDecision)
@@ -196,6 +207,7 @@ export function dbOversightStore(db: Db): OversightStore {
               eq(run.agentId, input.agentId),
               eq(oversightDecision.nodeId, input.nodeId),
               ne(oversightDecision.runId, input.runId),
+              inArray(oversightDecision.cause, [...OVERSIGHT_CAUSES]),
             ),
           )
           .orderBy(desc(oversightDecision.createdAt))
