@@ -27,6 +27,7 @@ import { ClientChannelsSection, ClientHoursSection } from "./ClientHours";
 import { ClientLanguageSetting } from "./ClientLanguageSetting";
 import { ClientRunAuditSection } from "./ClientRunAudit";
 import { ApproverChoice, type CreatedState } from "./NewClient";
+import { ResetSecondFactor } from "./ResetSecondFactor";
 
 const APPROVER_LABEL: Record<ExternalApprover, string> = {
   client_admin: "their admin",
@@ -476,7 +477,15 @@ function People({
             The Sandbox is our own test client: it has no client people.
           </p>
         ) : null}
-        <MemberList members={people} testId="ops-client-members" />
+        <MemberList
+          members={people}
+          testId="ops-client-members"
+          action={(m) =>
+            m.signedIn === false ? null : (
+              <ResetSecondFactor userId={m.userId} name={m.name ?? m.email} />
+            )
+          }
+        />
         {settings.client.sandbox ? null : (
           <>
             <InviteForm

@@ -8,7 +8,7 @@ import { SessionLanguage } from "./i18n/SessionLanguage";
 import { PortalApp } from "./portal/PortalApp";
 import { SignInScreen } from "./session/SignIn";
 import { StillFrame } from "./session/StillFrame";
-import { SessionProvider, useSessionState } from "./session/session";
+import { SECOND_STEP_PATH, SessionProvider, useSessionState } from "./session/session";
 import { IconSprite } from "./ui/icons";
 import { ErrorNotice } from "./ui/primitives";
 
@@ -25,6 +25,10 @@ const opsAppEarly =
 // A client's session never renders the back office; a chunk that failed is reported where it is used.
 opsAppEarly?.catch(() => {});
 const OpsApp = lazy(() => opsAppEarly ?? loadOpsApp());
+// §1.100: the sign-in's second step, only on the way in: its own chunk.
+const SecondStepScreen = lazy(() =>
+  import("./session/SecondStep").then((m) => ({ default: m.SecondStepScreen })),
+);
 // §1.98: the texting sign-up page is opened from a link, never in the app: its own chunk.
 const TextSignupScreen = lazy(() =>
   import("./signup/TextSignup").then((m) => ({ default: m.TextSignupScreen })),
@@ -34,6 +38,15 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/sign-in" element={<SignInScreen />} />
+      {/* docs/plan.md §1.100: the sign-in's second step (a code from an app, a text or WhatsApp). */}
+      <Route
+        path={SECOND_STEP_PATH}
+        element={
+          <Suspense fallback={<StillFrame />}>
+            <SecondStepScreen />
+          </Suspense>
+        }
+      />
       {/* docs/plan.md §1.98: choosing to get texts from a business; no sign-in. */}
       <Route
         path="/texts/:token"
@@ -83,6 +96,12 @@ function RequireSession({ surface, children }: { surface: "ops" | "portal"; chil
       <Centered>
         <ErrorNotice error={state.error} onRetry={() => void refresh()} />
       </Centered>
+    );
+  }
+  if (state.status === "second_step") {
+    const next = `${location.pathname}${location.search}`;
+    return (
+      <Navigate to={`${SECOND_STEP_PATH}?${new URLSearchParams({ return_to: next })}`} replace />
     );
   }
   if (state.status === "signed_out") {

@@ -282,6 +282,45 @@ describe("client settings", () => {
     expect(screen.queryByTestId("ops-client-members-operator@example.com")).toBeNull();
   });
 
+  it("resets a person's sign-in codes with a reason, never an invited person's (§1.100)", async () => {
+    const bodies: unknown[] = [];
+    const ADMIN = "00000000-0000-4000-8000-00000000d002";
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${DEMO}`]: () => ({
+        client: { id: DEMO, name: "Demo client", timezone: "UTC", settings: {}, createdAt: "x" },
+        agents: [],
+        connections: [],
+        members: [],
+      }),
+      [`GET /api/ops/clients/${DEMO}/settings`]: () =>
+        settings({
+          members: [
+            member("admin@demo.example.com", "client_admin", { signedIn: true, userId: ADMIN }),
+            member("new@demo.example.com", "client_user", { signedIn: false }),
+          ],
+        }),
+      [`POST /api/ops/users/${ADMIN}/second-factor/reset`]: async ({ init }) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return { ok: true, removed: 1 };
+      },
+    });
+    renderAt(`/ops/clients/${DEMO}/settings/people`, api);
+    await userEvent.click(await screen.findByTestId(`reset-2fa-${ADMIN}`, {}, { timeout: 10_000 }));
+    expect(screen.queryByTestId("reset-2fa-u-new@demo.example.com")).toBeNull();
+    await userEvent.click(screen.getByTestId(`reset-2fa-confirm-${ADMIN}`));
+    expect(screen.getByText("Say why, in a few words.")).toBeInTheDocument();
+    await userEvent.type(
+      screen.getByTestId(`reset-2fa-reason-${ADMIN}`),
+      "Lost phone, called them",
+    );
+    await userEvent.click(screen.getByTestId(`reset-2fa-confirm-${ADMIN}`));
+    expect(await screen.findByTestId(`reset-2fa-done-${ADMIN}`)).toHaveTextContent(
+      "Reset. admin@demo.example.com sets up a new method at their next sign-in.",
+    );
+    expect(bodies).toEqual([{ reason: "Lost phone, called them" }]);
+  });
+
   it("invites someone and says what became of the email, or why it was refused", async () => {
     let refuse = false;
     const api = fakeApi({
