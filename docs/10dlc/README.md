@@ -5,6 +5,11 @@ nobody gets texts until they sign up themselves, on a page we run, by ticking an
 folder is what to paste into Twilio's console and the evidence to point carriers at. Mezonas' campaign
 is the pilot: every client's campaign describes the same opt-in.
 
+**Two ways to register.** Through the platform, as every client will: back office, the client's
+Texts and WhatsApp page, then the portal's US texting registration, then "Submit to Twilio". The
+words below are what it fills in. Or by hand in Twilio's console, for the campaign already there
+for +1 469 378 9525. Use one, not both, for the same number.
+
 Edit the rejected campaign and resubmit it. Don't delete it and make a new one: an edited resubmit
 isn't charged vetting again, and a new campaign is ($15).
 
@@ -14,9 +19,9 @@ isn't charged vetting again, and a new campaign is ($15).
    "Texting sign-up link", "Show the link". Open it in a private window: it must load without signing
    in. That link goes in the message flow below, where it says `<your sign-up link>`. The page must
    be on the environment where Twelve Thirty-Four is a client (production has had no release yet).
-2. **The public explanation is live.** `https://mezonas.com/sms-terms#opt-in` must describe the
-   sign-up page and the invitation, with the screenshots in this folder. The site's PR (#284) still
-   describes the older notice-on-forms opt-in; update it before the site deploys.
+2. **The public explanation is live.** `https://mezonas.com/sms-terms#opt-in` shows the sign-up
+   page, the invitation and START, with these screenshots (jammil-alt/countersign#284). It goes live
+   when #284 merges and the site deploys from `main`.
 3. **HELP gets an answer.** Our code recognises HELP but doesn't reply to it. In Twilio's console,
    on the campaign's Messaging Service, set the HELP reply to the help message below (Advanced
    Opt-Out). Check that STOP and START replies are set too.
