@@ -2847,4 +2847,71 @@ export const de: Messages = {
   "peoplePage.signupLinkReplaceConfirm": "Erstellen: der alte funktioniert nicht mehr",
   "peoplePage.signupLinkReplaceHint":
     "Mit dem alten Link kann sich niemand mehr anmelden. Wer schon angemeldet ist, bleibt angemeldet.",
+  // §1.100: the sign-in's second step.
+  "error.wrong_code": "Dieser Code ist falsch oder abgelaufen.",
+  "error.too_many_attempts":
+    "Zu viele Versuche. Warten Sie 15 Minuten und versuchen Sie es erneut.",
+  "error.code_service_failed":
+    "Wir konnten den Code nicht senden oder prüfen. Versuchen Sie es erneut.",
+  "error.second_factor_unavailable":
+    "Codes können gerade nicht geprüft werden. Versuchen Sie es in einigen Minuten erneut.",
+  "error.not_pending":
+    "Diese Anmeldung wartet nicht mehr auf einen Code. Melden Sie sich erneut an.",
+  "error.already_set_up": "Sie haben bereits eine Methode. Melden Sie sich damit an.",
+  "error.method_not_allowed": "Mezonas-Mitarbeitende verwenden eine Authenticator-App.",
+  "secondStep.eyebrow": "Anmelden",
+  "secondStep.title": "Noch ein Schritt",
+  "secondStep.intro": "Geben Sie den Code von Ihrem Telefon ein, um die Anmeldung abzuschließen.",
+  "secondStep.setupTitle": "Zweiten Schritt einrichten",
+  "secondStep.setupIntro":
+    "Bei jeder Anmeldung fragen wir nach dem Passwort einen Code von Ihrem Telefon ab. Wählen Sie, wie Sie ihn erhalten möchten.",
+  "secondStep.operatorOnly": "Mezonas-Mitarbeitende verwenden eine Authenticator-App.",
+  "secondStep.method.totp": "Authenticator-App",
+  "secondStep.method.totpHint":
+    "Google Authenticator, Microsoft Authenticator, 1Password oder ähnlich.",
+  "secondStep.method.sms": "SMS",
+  "secondStep.method.smsHint": "Wir senden Ihnen einen Code per SMS.",
+  "secondStep.method.whatsapp": "WhatsApp",
+  "secondStep.method.whatsappHint": "Wir senden Ihnen einen Code über WhatsApp.",
+  "secondStep.continue": "Weiter",
+  "secondStep.totp.title": "Mezonas in Ihrer Authenticator-App hinzufügen",
+  "secondStep.totp.step1":
+    "Fügen Sie in Ihrer App ein Konto hinzu und geben Sie diesen Schlüssel ein. Auf diesem Telefon können Sie die App direkt öffnen.",
+  "secondStep.totp.openApp": "In meiner Authenticator-App öffnen",
+  "secondStep.totp.key": "Einrichtungsschlüssel",
+  "secondStep.totp.step2": "Geben Sie dann den 6-stelligen Code aus der App ein.",
+  "secondStep.phone.country": "Land",
+  "secondStep.phone.number": "Mobilnummer",
+  "secondStep.phone.hint": "Wir senden jetzt einen Code an diese Nummer.",
+  "secondStep.phone.invalid": "Geben Sie eine Mobilnummer ein, nur Ziffern.",
+  "secondStep.phone.send": "Code senden",
+  "secondStep.code.label": "Code",
+  "secondStep.code.hintApp": "Der 6-stellige Code in Ihrer Authenticator-App.",
+  "secondStep.code.hintSent": "Der Code, den wir an {phone} gesendet haben.",
+  "secondStep.code.invalid": "Geben Sie den Code ein: 6 bis 8 Ziffern.",
+  "secondStep.verify": "Bestätigen",
+  "secondStep.remember": "Diesen Browser 30 Tage lang merken",
+  "secondStep.resend": "Neuen Code senden",
+  "secondStep.sent": "Wir haben einen neuen Code an {phone} gesendet.",
+  "secondStep.otherMethod": "Andere Methode verwenden",
+  "secondStep.useRecovery": "Stattdessen einen Wiederherstellungscode verwenden",
+  "secondStep.recovery.title": "Wiederherstellungscode verwenden",
+  "secondStep.recovery.label": "Wiederherstellungscode",
+  "secondStep.recovery.hint":
+    "Einer der Codes, die Sie bei der Einrichtung gespeichert haben, z. B. ABCD-2345. Jeder gilt einmal.",
+  "secondStep.recovery.use": "Mit diesem Code anmelden",
+  "secondStep.recovery.back": "Zurück zum Code",
+  "secondStep.recovery.savedTitle": "Wiederherstellungscodes speichern",
+  "secondStep.recovery.savedIntro":
+    "Wenn Sie Ihr Telefon verlieren, schließt jeder Code eine Anmeldung ab. Wir zeigen sie nur jetzt. Bewahren Sie sie sicher auf, etwa in einem Passwortmanager.",
+  "secondStep.recovery.download": "Als Datei herunterladen",
+  "secondStep.recovery.confirm": "Gespeichert: weiter",
+  "secondStep.recoveryLow": {
+    one: "Angemeldet. Sie haben noch {count} Wiederherstellungscode.",
+    other: "Angemeldet. Sie haben noch {count} Wiederherstellungscodes.",
+  },
+  "secondStep.lost":
+    "Telefon und Wiederherstellungscodes verloren? Bitten Sie Ihre Administration oder Ihre Ansprechperson bei Mezonas, Ihre Anmeldung zurückzusetzen.",
+  "secondStep.signOut": "Abmelden",
+  "secondStep.failed": "Das hat nicht funktioniert. Versuchen Sie es erneut.",
 };

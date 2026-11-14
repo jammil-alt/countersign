@@ -857,10 +857,11 @@ checked by **Twilio Verify** on Mezonas' own Twilio account; we never hold a cod
 authenticator secret. People who sign in through their company's SSO are not asked.
 
 **Off until `TWILIO_VERIFY_SERVICE_SID` is set** (a var under the environment's `vars` in
-`apps/api/wrangler.jsonc`; left out of the file until it has a value). **Don't set it until the
-second step's screens are on `main`** (the server side is there first; without the screens a
-pending sign-in has nowhere to go). Set wrongly (the service set, a key missing), it fails closed:
-sign-ins wait on the step and its routes answer 503.
+`apps/api/wrangler.jsonc`; left out of the file until it has a value). **The screens are built (2026-11-14); the Claude connector's approval link is not.** Until
+it is, keep WorkOS's own multi-factor **on** (step 5 waits): the connector signs in through
+AuthKit alone, so without WorkOS's code an operator's Claude connection would have no second
+factor. Set wrongly (the service set, a key missing), the step fails closed: sign-ins wait on it and
+its routes answer 503.
 
 To turn it on for an environment (staging first):
 
@@ -873,7 +874,7 @@ To turn it on for an environment (staging first):
    release (production).
 4. Sign in once with a password: you're asked to set up a method. Check the items in
    `packages/connectors/src/twilio/VERIFY_NOTES.md` as you go.
-5. Only then turn **WorkOS's own multi-factor off** (WorkOS → the environment → Authentication →
+5. Only once the connector's approval link is built, turn **WorkOS's own multi-factor off** (WorkOS → the environment → Authentication →
    Multi-factor auth), so nobody is asked twice.
 
 Everyone signs in once more when it is turned on (sessions from before it are ended). Someone who

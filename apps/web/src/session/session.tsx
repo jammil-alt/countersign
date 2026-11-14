@@ -22,6 +22,22 @@ import { identifyForErrors } from "../observability";
 import { idleTooLong, watchInput } from "./activity";
 import { prefetchFrame, takeEarlySession } from "./early";
 
+/** The API's answer to a session that still owes its second step (packages/auth, §1.100). */
+export const SECOND_FACTOR_REQUIRED = "second_factor_required";
+
+/** §1.100: the second step's page; the API's sign-in callback sends a pending sign-in here too. */
+export const SECOND_STEP_PATH = "/sign-in/second-step";
+
+/**
+ * Where to go once signed in: the page asked for, if it is one of ours (a path, never another
+ * site or a protocol-relative `//host`), else the person's home.
+ */
+export function safeReturnTo(raw: string | null, fallback: string): string {
+  if (!raw?.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return fallback;
+  if (raw.startsWith(SECOND_STEP_PATH) || raw.startsWith("/sign-in")) return fallback;
+  return raw;
+}
+
 // DECISION: the app checks for idleness every 30 seconds; the API refuses an idle session anyway,
 // this only signs the browser out cleanly instead of failing its next call.
 const IDLE_CHECK_MS = 30_000;
@@ -67,6 +83,8 @@ export function stateLocale(state: SessionState): Locale {
 export type SessionState =
   | { status: "loading" }
   | { status: "signed_out" }
+  /** §1.100: the password was right; the sign-in waits on its second step (`/sign-in/second-step`). */
+  | { status: "second_step" }
   | { status: "error"; error: unknown }
   | { status: "signed_in"; session: SessionResponse };
 
@@ -92,12 +110,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       next = { status: "signed_in", session: await (early ?? client.call(apiRoutes.session)) };
     } catch (error) {
       next =
-        isApiError(error) && error.unauthenticated
-          ? { status: "signed_out" }
-          : {
-              status: "error",
-              error,
-            };
+        isApiError(error) && error.code === SECOND_FACTOR_REQUIRED
+          ? { status: "second_step" }
+          : isApiError(error) && error.unauthenticated
+            ? { status: "signed_out" }
+            : {
+                status: "error",
+                error,
+              };
     }
     // On the first load, the frame's calls start once the session has answered (never beside it:
     // early.ts), while the language loads and React renders (docs/audit-plan.md 4.3). The store's
@@ -155,7 +175,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // answer the sign-in page again.
   const status = state.status;
   useEffect(() => {
-    if (status === "signed_out" || status === "error") store.open();
+    if (status === "signed_out" || status === "second_step" || status === "error") store.open();
   }, [status, store]);
 
   // Another tab found someone else (or no one) signed in: forget everything and ask who is

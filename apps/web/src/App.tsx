@@ -6,9 +6,10 @@ import type { ApiClient } from "./api/client";
 import { ApiProvider } from "./api/useApi";
 import { SessionLanguage } from "./i18n/SessionLanguage";
 import { PortalApp } from "./portal/PortalApp";
+import { SecondStepScreen } from "./session/SecondStep";
 import { SignInScreen } from "./session/SignIn";
 import { StillFrame } from "./session/StillFrame";
-import { SessionProvider, useSessionState } from "./session/session";
+import { SECOND_STEP_PATH, SessionProvider, useSessionState } from "./session/session";
 import { IconSprite } from "./ui/icons";
 import { ErrorNotice } from "./ui/primitives";
 
@@ -34,6 +35,8 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/sign-in" element={<SignInScreen />} />
+      {/* docs/plan.md §1.100: the sign-in's second step (a code from an app, a text or WhatsApp). */}
+      <Route path={SECOND_STEP_PATH} element={<SecondStepScreen />} />
       {/* docs/plan.md §1.98: choosing to get texts from a business; no sign-in. */}
       <Route
         path="/texts/:token"
@@ -83,6 +86,12 @@ function RequireSession({ surface, children }: { surface: "ops" | "portal"; chil
       <Centered>
         <ErrorNotice error={state.error} onRetry={() => void refresh()} />
       </Centered>
+    );
+  }
+  if (state.status === "second_step") {
+    const next = `${location.pathname}${location.search}`;
+    return (
+      <Navigate to={`${SECOND_STEP_PATH}?${new URLSearchParams({ return_to: next })}`} replace />
     );
   }
   if (state.status === "signed_out") {

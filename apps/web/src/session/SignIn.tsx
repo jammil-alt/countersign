@@ -68,7 +68,7 @@ export function SignInScreen({ go = leave }: { go?: (url: string) => void } = {}
 }
 
 /** UI-3a: the logo, one card on the paper, and who to ask for access; the same for every sign-in. */
-function SignInFrame({ children }: { children: ReactNode }) {
+export function SignInFrame({ children }: { children: ReactNode }) {
   const { t } = useI18n();
   return (
     <div

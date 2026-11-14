@@ -13,7 +13,7 @@ import {
   isOwnPerson,
   type Member,
 } from "@countersign/core";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { isApiError } from "../api/client";
 import type { PlainKey } from "../i18n/catalog";
 import { EN, type I18n, useI18n } from "../i18n/i18n";
@@ -75,7 +75,16 @@ export function inviteProblem(
   }
 }
 
-export function MemberList({ members, testId }: { members: Member[]; testId: string }) {
+export function MemberList({
+  members,
+  testId,
+  action,
+}: {
+  members: Member[];
+  testId: string;
+  /** The back office's own control for a person (§1.100: reset their sign-in); none in the portal. */
+  action?: (member: Member) => ReactNode;
+}) {
   const { t } = useI18n();
   if (members.length === 0) return <EmptyState>{t("people.none")}</EmptyState>;
   return (
@@ -95,6 +104,7 @@ export function MemberList({ members, testId }: { members: Member[]; testId: str
               {m.signedIn === false ? <Badge>{t("people.invited")}</Badge> : null}
               <Tag tone={m.role === "operator" ? "person" : "neutral"}>{t(ROLE_LABEL[m.role])}</Tag>
             </span>
+            {action ? <div className="w-full">{action(m)}</div> : null}
           </li>
         ))}
       </ul>
