@@ -217,6 +217,43 @@ describe.skipIf(!h)("feedback", () => {
     }
   });
 
+  it("keeps an error page's report with its context, the client and user the session's", async () => {
+    const context = {
+      route: "/runs/:id",
+      url: "https://staging.mezonas.com/runs/not-a-uuid",
+      status: 0,
+      code: "invalid_request",
+      request: "GET /api/runs/not-a-uuid",
+      at: "2026-11-14T22:00:00.000Z",
+      tenantId: "someone-else",
+      userId: "someone-else",
+      release: "abc123",
+      sentryEventId: null,
+    };
+    const sent = await call(admin("a"), "POST", "/api/feedback", {
+      ...submission("The run link from my email is dead", null),
+      source: "error_page",
+      context,
+    });
+    expect(sent.status).toBe(200);
+    const { id } = sent.json as { id: string };
+    const [row] = await harness.t.db.select().from(feedback).where(eq(feedback.id, id));
+    expect(row?.source).toBe("error_page");
+    expect(row?.context).toMatchObject({ tenantId: harness.A.tenantId, request: context.request });
+    expect((row?.context as { userId: string }).userId).not.toBe("someone-else");
+
+    const only = await call(OPERATOR, "GET", "/api/ops/feedback?status=all&source=error_page");
+    const items = (only.json as { items: { id: string; source: string; context: unknown }[] })
+      .items;
+    expect(items.map((i) => i.id)).toEqual([id]);
+    expect(items[0]).toMatchObject({
+      source: "error_page",
+      context: { route: "/runs/:id", status: 0, code: "invalid_request", release: "abc123" },
+    });
+    const buttons = await call(OPERATOR, "GET", "/api/ops/feedback?status=all&source=button");
+    expect((buttons.json as { items: { id: string }[] }).items.map((i) => i.id)).not.toContain(id);
+  });
+
   it("switching it off hides the button and refuses again", async () => {
     const path = `/api/ops/clients/${harness.A.tenantId}/feedback`;
     const off = await call(OPERATOR, "PUT", path, { enabled: false, reason: "Beta over" });

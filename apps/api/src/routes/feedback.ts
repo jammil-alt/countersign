@@ -10,6 +10,7 @@ import { SIGNED_URL_TTL_SECONDS } from "@countersign/connectors";
 import {
   FEEDBACK_SCREENSHOT_MAX_BYTES,
   FEEDBACK_SCREENSHOT_TYPE,
+  FeedbackErrorContext,
   type FeedbackItem,
   type FeedbackSubmission,
   routes,
@@ -66,6 +67,13 @@ async function insertFeedback(
       viewport: input.viewport,
       pin: input.pin,
       target: input.target?.trim() || null,
+      source: input.source ?? "button",
+      // An error page's context, with the client and user the session says, never the page's.
+      // DECISION: context is kept only with `source: "error_page"`; the button sends none.
+      context:
+        input.source === "error_page" && input.context
+          ? { ...input.context, tenantId: input.tenantId, userId: input.userId }
+          : null,
     })
     .returning({ id: feedback.id });
   if (!row) throw new Error("feedback insert returned nothing");
@@ -166,6 +174,8 @@ async function toItems(tx: Tx, rows: FeedbackRow[]): Promise<FeedbackItem[]> {
     pin: r.pin ?? null,
     target: r.target,
     hasScreenshot: r.screenshotKey !== null,
+    source: r.source,
+    context: r.context ? (FeedbackErrorContext.safeParse(r.context).data ?? null) : null,
     status: r.status,
     createdAt: r.createdAt.toISOString(),
     resolvedAt: r.resolvedAt?.toISOString() ?? null,
@@ -305,6 +315,7 @@ export function feedbackRouteHandlers(app: Hono<AppEnv>): void {
   mount(app, routes.opsFeedback, async ({ tx, tenantIds, query }) => {
     const where = [inOperatorScope(tenantIds)];
     if (query.status !== "all") where.push(eq(feedback.status, query.status));
+    if (query.source) where.push(eq(feedback.source, query.source));
     const rows = await tx
       .select()
       .from(feedback)
