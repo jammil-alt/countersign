@@ -3,14 +3,14 @@
 // was pinned, the comment, the picture with the pin; Resolve (with an optional note, e.g. a PR
 // link) and Reopen. Drafted in the prototype's back-office style (no prototype screen;
 // docs/ui-plan.md): each item a card with who and where in its head, the actions in its foot.
-import type { FeedbackItem } from "@countersign/core";
+import type { FeedbackItem, FeedbackSource } from "@countersign/core";
 import { useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { PinnedPicture } from "../../feedback/Feedback";
 import { TextInput } from "../../ui/forms";
 import { Loaded, Page } from "../../ui/page";
-import { Badge, Button, Card, EmptyState, PageHeader } from "../../ui/primitives";
+import { Badge, Button, Card, EmptyState, PageHeader, Tag } from "../../ui/primitives";
 import { UtilitiesTabs } from "./UtilitiesTabs";
 
 type Filter = "open" | "resolved" | "all";
@@ -18,6 +18,15 @@ const FILTERS: [Filter, string][] = [
   ["open", "Open"],
   ["resolved", "Resolved"],
   ["all", "All"],
+];
+
+// "Report an issue" on a page that failed to load files feedback too (source `error_page`), with
+// what failed; the button's are `button`.
+type From = "any" | FeedbackSource;
+const FROM: [From, string][] = [
+  ["any", "Any source"],
+  ["button", "Feedback button"],
+  ["error_page", "Error pages"],
 ];
 
 function when(iso: string): string {
@@ -31,7 +40,10 @@ function when(iso: string): string {
 
 export function OpsFeedbackScreen() {
   const [filter, setFilter] = useState<Filter>("open");
-  const feedback = useApi(apiRoutes.opsFeedback, { query: { status: filter } });
+  const [from, setFrom] = useState<From>("any");
+  const feedback = useApi(apiRoutes.opsFeedback, {
+    query: { status: filter, ...(from === "any" ? {} : { source: from }) },
+  });
   const items = feedback.data?.items ?? [];
   const open = items.filter((i) => i.status === "open").length;
 
@@ -43,23 +55,38 @@ export function OpsFeedbackScreen() {
         subtitle={
           feedback.data
             ? filter === "resolved"
-              ? `${items.length} resolved. What people sent with the Feedback button.`
-              : `${open} open${filter === "all" ? ` of ${items.length}` : ""}. What people sent with the Feedback button.`
-            : "What people sent with the Feedback button."
+              ? `${items.length} resolved. What people sent with the Feedback button or Report an issue.`
+              : `${open} open${filter === "all" ? ` of ${items.length}` : ""}. What people sent with the Feedback button or Report an issue.`
+            : "What people sent with the Feedback button or Report an issue."
         }
         actions={
-          <div className="ds-seg" data-testid="ops-feedback-filter">
-            {FILTERS.map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={filter === value}
-                data-testid={`ops-feedback-filter-${value}`}
-                onClick={() => setFilter(value)}
-              >
-                {label}
-              </button>
-            ))}
+          <div className="flex flex-wrap gap-2">
+            <div className="ds-seg" data-testid="ops-feedback-source">
+              {FROM.map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={from === value}
+                  data-testid={`ops-feedback-source-${value}`}
+                  onClick={() => setFrom(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="ds-seg" data-testid="ops-feedback-filter">
+              {FILTERS.map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={filter === value}
+                  data-testid={`ops-feedback-filter-${value}`}
+                  onClick={() => setFilter(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         }
       />
@@ -131,6 +158,11 @@ function FeedbackCard({ item, onChanged }: { item: FeedbackItem; onChanged: () =
               {" · "}
               {when(item.createdAt)}
             </span>
+            {item.source === "error_page" ? (
+              <Tag className="ml-2" testId="ops-feedback-source-tag">
+                Error page
+              </Tag>
+            ) : null}
           </span>
           <span
             className="reference truncate text-sm font-normal text-ink-muted"
@@ -209,6 +241,7 @@ function FeedbackCard({ item, onChanged }: { item: FeedbackItem; onChanged: () =
               "No particular spot"
             )}
           </p>
+          {item.context ? <ErrorContext context={item.context} /> : null}
           {item.status === "resolved" ? (
             <p className="mt-3 text-sm text-ink-muted" data-testid="ops-feedback-resolution">
               Resolved by {item.resolvedBy?.name ?? item.resolvedBy?.email ?? "someone"}
@@ -269,5 +302,44 @@ function Screenshot({ item }: { item: FeedbackItem }) {
         testId="ops-feedback-picture"
       />
     </a>
+  );
+}
+
+/** What failed, for a report from an error page: each field on its own row, as sent. */
+function ErrorContext({ context }: { context: NonNullable<FeedbackItem["context"]> }) {
+  const rows: [string, string | null][] = [
+    ["Page", context.route],
+    ["Address", context.url],
+    [
+      "Status",
+      context.status === 0
+        ? "0 (no answer, or refused before it was sent)"
+        : String(context.status),
+    ],
+    ["Code", context.code],
+    ["Request", context.request],
+    ["When", when(context.at)],
+    ["Client", context.tenantId],
+    ["User", context.userId],
+    ["Release", context.release],
+    ["Sentry event", context.sentryEventId],
+  ];
+  return (
+    <dl
+      className="mt-3 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm"
+      data-testid="ops-feedback-context"
+    >
+      {rows.map(([label, value]) => (
+        <div key={label} className="contents">
+          <dt className="text-ink-muted">{label}</dt>
+          <dd
+            className="reference break-all text-ink"
+            data-testid={`ops-feedback-context-${label}`}
+          >
+            {value ?? "None"}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }

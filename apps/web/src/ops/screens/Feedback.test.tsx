@@ -111,6 +111,57 @@ describe("ops feedback", () => {
     expect(within(card).getByTestId("ops-feedback-target")).toHaveTextContent("No particular spot");
     expect(within(card).getByTestId("ops-feedback-no-picture")).toBeInTheDocument();
   });
+
+  it("shows an error page's report with what failed, and filters by source", async () => {
+    const queries: string[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/feedback": ({ url }) => {
+        queries.push(url.search);
+        return {
+          items: [
+            item({
+              comment: "This page didn't load.",
+              path: "/runs/not-a-uuid",
+              pin: null,
+              target: null,
+              hasScreenshot: false,
+              source: "error_page",
+              context: {
+                route: "/runs/not-a-uuid",
+                url: "https://staging.mezonas.com/runs/not-a-uuid",
+                status: 0,
+                code: "invalid_request",
+                request: "GET /api/runs/not-a-uuid",
+                at: "2026-11-14T22:00:00.000Z",
+                tenantId: DEMO,
+                userId: "u1",
+                release: "abc123",
+                sentryEventId: null,
+              },
+            }),
+          ],
+        };
+      },
+    });
+    renderAt("/ops/feedback", api);
+    const card = await screen.findByTestId(`ops-feedback-item-${ID}`);
+    expect(within(card).getByTestId("ops-feedback-source-tag")).toHaveTextContent("Error page");
+    const context = within(card).getByTestId("ops-feedback-context");
+    expect(within(context).getByTestId("ops-feedback-context-Code")).toHaveTextContent(
+      "invalid_request",
+    );
+    expect(within(context).getByTestId("ops-feedback-context-Request")).toHaveTextContent(
+      "GET /api/runs/not-a-uuid",
+    );
+    expect(within(context).getByTestId("ops-feedback-context-Release")).toHaveTextContent("abc123");
+    expect(within(context).getByTestId("ops-feedback-context-Sentry event")).toHaveTextContent(
+      "None",
+    );
+
+    await userEvent.click(screen.getByTestId("ops-feedback-source-error_page"));
+    await waitFor(() => expect(queries.at(-1)).toContain("source=error_page"));
+  });
 });
 
 describe("client feedback switch", () => {
