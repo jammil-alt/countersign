@@ -104,6 +104,7 @@ import { PortalHealth, supervisorRoutes } from "./supervisor";
 import { tableRoutes } from "./table";
 // v0.12 W2-C: the test bench
 import { testbenchRoutes } from "./testbench";
+import { textSignupRoutes } from "./text-signup";
 // v0.12 W1-C: threads, the lead and `/commands`
 import { PortalLead, threadRoutes } from "./threads";
 // v0.12 W2-E: the triggers list
@@ -2286,6 +2287,8 @@ export const routes = {
   ...recordRoutes,
   ...approverRuleRoutes,
   ...messagingRoutes,
+  // docs/plan.md §1.98: signing up for texts
+  ...textSignupRoutes,
   ...knowledgeRoutes,
   ...callRoutes,
   ...billingRoutes,

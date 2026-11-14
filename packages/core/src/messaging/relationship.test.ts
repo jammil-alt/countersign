@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ContactConsentChange, ContactCreate } from "../api/messaging";
 import { callBlock } from "../calls/rules";
 import { consentBlockFor } from "../reach/rules";
-import { A2pBusinessDetails, a2pRelationshipOptIn, smsDisclosureLine } from "./a2p";
+import { A2pBusinessDetails } from "./a2p";
 import {
   ChannelConsent,
   consentBasisOf,
@@ -14,6 +14,12 @@ import {
   relationshipChannelsFor,
   withIntroduction,
 } from "./rules";
+import {
+  a2pSignupOptIn,
+  normalizeSignupPhone,
+  textInvitationEmail,
+  textSignupTerms,
+} from "./signup";
 
 // The relationship basis and the first text (docs/plan.md §1.97).
 const AT = "2026-11-13T10:00:00.000Z";
@@ -29,9 +35,10 @@ describe("consent basis", () => {
     expect(ChannelConsent.safeParse({ ...given, basis: "implied" }).success).toBe(false);
   });
 
-  it("opens texts, calls and email on the relationship basis, never WhatsApp", () => {
+  it("opens calls and email on the relationship basis, never texts or WhatsApp (§1.98)", () => {
     const consent = { sms: given, voice: given, email: given, whatsapp: given };
-    expect(consentBlock({ ...base, consent }, "sms")).toBeNull();
+    expect(consentBlock({ ...base, consent }, "sms")).toBe("no_consent");
+    expect(consentBlock({ ...base, consent: { sms: agreed } }, "sms")).toBeNull();
     expect(callBlock({ ...base, consent })).toBeNull();
     expect(hasConsent(consent, "email")).toBe(true);
     expect(consentBlock({ ...base, consent }, "whatsapp")).toBe("no_consent");
@@ -62,7 +69,6 @@ describe("consent basis", () => {
 
   it("grants the channels the contact has an address for", () => {
     expect(relationshipChannelsFor({ phone: "+15555550100", email: "a@b.co" })).toEqual([
-      "sms",
       "voice",
       "email",
     ]);
@@ -126,16 +132,54 @@ describe("the first text", () => {
   });
 });
 
-describe("the 10DLC wording", () => {
-  it("points to the client's forms, the line they carry and the public opt-in", () => {
-    const words = a2pRelationshipOptIn("Rivera Supply");
-    expect(words).toContain(smsDisclosureLine("Rivera Supply"));
-    expect(smsDisclosureLine("Rivera Supply")).toBe(
-      "By giving us your mobile number you agree to texts from Rivera Supply about your orders. Msg & data rates may apply. Reply STOP to opt out.",
-    );
+describe("the 10DLC wording (§1.98)", () => {
+  it("describes the sign-up page, the invitation and START, with the exact words", () => {
+    const words = a2pSignupOptIn("Rivera Supply", "https://app.mezonas.com/texts/abc");
+    expect(words).toContain(textSignupTerms("Rivera Supply"));
+    expect(words).toContain("https://app.mezonas.com/texts/abc");
+    expect(words).toContain("email invitation");
+    expect(words).toContain("text START");
     expect(words).toContain("https://mezonas.com/sms-terms#opt-in");
-    expect(words).not.toContain("[where");
-    expect(a2pRelationshipOptIn("")).toContain("[Business]");
+    expect(words).toContain("No marketing.");
+    expect(a2pSignupOptIn("")).toContain("[Business]");
     expect(A2pBusinessDetails.shape.optIn.safeParse(words).success).toBe(true);
+  });
+
+  it("puts every element carriers check beside the box", () => {
+    const terms = textSignupTerms("Rivera Supply");
+    for (const part of [
+      "Rivera Supply",
+      "No marketing.",
+      "Msg frequency varies.",
+      "Msg & data rates may apply.",
+      "Reply STOP to opt out, HELP for help.",
+      "https://mezonas.com/sms-terms",
+      "https://mezonas.com/privacy",
+    ]) {
+      expect(terms).toContain(part);
+    }
+  });
+
+  it("offers texting as a choice in the invitation, and escapes the names", () => {
+    const mail = textInvitationEmail({
+      client: "R&D <Supply>",
+      name: "Pat Lee",
+      signUpUrl: "https://app.mezonas.com/texts/abc",
+      declineUrl: "https://app.mezonas.com/texts/abc?decline=1",
+      reminder: false,
+    });
+    expect(mail.subject).toBe("R&D <Supply> would like to text you");
+    expect(mail.text).toContain("Hi Pat,");
+    expect(mail.text).toContain("Texting is your choice. Email keeps working either way.");
+    expect(mail.text).toContain("Don't ask me again: https://app.mezonas.com/texts/abc?decline=1");
+    expect(mail.html).toContain("R&amp;D &lt;Supply&gt;");
+    expect(mail.html).not.toContain("<Supply>");
+  });
+
+  it("reads a US number as people type it", () => {
+    expect(normalizeSignupPhone("(512) 555-0177")).toBe("+15125550177");
+    expect(normalizeSignupPhone("1-512-555-0177")).toBe("+15125550177");
+    expect(normalizeSignupPhone("+44 20 7183 8750")).toBe("+442071838750");
+    expect(normalizeSignupPhone("555-0177")).toBeNull();
   });
 });

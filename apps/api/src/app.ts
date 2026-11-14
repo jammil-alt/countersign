@@ -120,6 +120,7 @@ import { supervisorRouteHandlers } from "./routes/supervisor";
 import { tableRouteHandlers } from "./routes/table";
 // v0.12 W2-C
 import { testbenchRoutes } from "./routes/testbench";
+import { textSignupRoutes } from "./routes/text-signup";
 // v0.12 W1-C
 import { threadRouteHandlers } from "./routes/threads";
 // P-7: message translation
@@ -201,6 +202,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   recordRouteHandlers(app);
   approverRuleRoutes(app);
   contactRoutes(app);
+  // docs/plan.md §1.98
+  textSignupRoutes(app);
   directoryRoutes(app);
   // The back office's chart of accounts (docs/plan.md §1.79).
   ledgerRoutes(app);

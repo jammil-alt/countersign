@@ -24,7 +24,13 @@ export interface AccountWords {
     addSigner(name: string): string;
     editPerson(name: string): string;
     changeContact(name: string): string;
+    /** docs/plan.md §1.98: an email inviting people to sign up for texts. */
+    inviteToTexts(names: string, count: number): string;
   };
+  /** Not signed up for texts. */
+  notOnTexts(name: string): string;
+  /** Gets the invitation email. */
+  getsTextInvite(name: string): string;
   /** Not on the team yet. */
   notOnTeam(name: string): string;
   /** On the team, and whether they approve. */
@@ -68,7 +74,12 @@ export const ACCOUNT_WORDS: Record<Locale, AccountWords> = {
       addSigner: (n) => `Add ${n} as an approver`,
       editPerson: (n) => `Update ${n}'s details`,
       changeContact: (n) => `Change how we reach ${n}`,
+      inviteToTexts: (n, c) =>
+        c === 1 ? `Invite ${n} to get texts` : `Invite ${c} people to get texts`,
     },
+    notOnTexts: (n) => `${n} hasn't signed up for texts.`,
+    getsTextInvite: (n) =>
+      `${n} gets an email inviting them to sign up for texts. Texting stays their choice.`,
     notOnTeam: (n) => `${n} is not on your team.`,
     onTeam: (n, s) =>
       s
@@ -89,7 +100,14 @@ export const ACCOUNT_WORDS: Record<Locale, AccountWords> = {
       addSigner: (n) => `Agregar a ${n} como aprobador`,
       editPerson: (n) => `Actualizar los datos de ${n}`,
       changeContact: (n) => `Cambiar cómo contactamos a ${n}`,
+      inviteToTexts: (n, c) =>
+        c === 1
+          ? `Invitar a ${n} a recibir mensajes de texto`
+          : `Invitar a ${c} personas a recibir mensajes de texto`,
     },
+    notOnTexts: (n) => `${n} no se ha registrado para recibir mensajes de texto.`,
+    getsTextInvite: (n) =>
+      `${n} recibe un correo que le invita a registrarse para recibir mensajes de texto. Sigue siendo su decisión.`,
     notOnTeam: (n) => `${n} no está en su equipo.`,
     onTeam: (n, s) =>
       s ? `${n} está en su equipo y aprueba cambios.` : `${n} está en su equipo y no aprueba nada.`,
@@ -122,7 +140,12 @@ export const ACCOUNT_WORDS: Record<Locale, AccountWords> = {
       addSigner: (n) => `Ajouter ${n} comme approbateur`,
       editPerson: (n) => `Mettre à jour les informations de ${n}`,
       changeContact: (n) => `Changer comment nous joignons ${n}`,
+      inviteToTexts: (n, c) =>
+        c === 1 ? `Inviter ${n} à recevoir des SMS` : `Inviter ${c} personnes à recevoir des SMS`,
     },
+    notOnTexts: (n) => `${n} ne s'est pas inscrit aux SMS.`,
+    getsTextInvite: (n) =>
+      `${n} reçoit un e-mail l'invitant à s'inscrire aux SMS. Le choix lui appartient.`,
     notOnTeam: (n) => `${n} ne fait pas partie de votre équipe.`,
     onTeam: (n, s) =>
       s
@@ -157,7 +180,14 @@ export const ACCOUNT_WORDS: Record<Locale, AccountWords> = {
       addSigner: (n) => `Adicionar ${n} como aprovador`,
       editPerson: (n) => `Atualizar os dados de ${n}`,
       changeContact: (n) => `Mudar como falamos com ${n}`,
+      inviteToTexts: (n, c) =>
+        c === 1
+          ? `Convidar ${n} para receber mensagens de texto`
+          : `Convidar ${c} pessoas para receber mensagens de texto`,
     },
+    notOnTexts: (n) => `${n} não se inscreveu para receber mensagens de texto.`,
+    getsTextInvite: (n) =>
+      `${n} recebe um e-mail convidando para se inscrever nas mensagens de texto. A escolha continua sendo dela.`,
     notOnTeam: (n) => `${n} não está na sua equipe.`,
     onTeam: (n, s) =>
       s
@@ -192,7 +222,12 @@ export const ACCOUNT_WORDS: Record<Locale, AccountWords> = {
       addSigner: (n) => `Aggiungere ${n} come approvatore`,
       editPerson: (n) => `Aggiornare i dati di ${n}`,
       changeContact: (n) => `Cambiare come contattiamo ${n}`,
+      inviteToTexts: (n, c) =>
+        c === 1 ? `Invitare ${n} a ricevere SMS` : `Invitare ${c} persone a ricevere SMS`,
     },
+    notOnTexts: (n) => `${n} non si è iscritto agli SMS.`,
+    getsTextInvite: (n) =>
+      `${n} riceve un'email che lo invita a iscriversi agli SMS. La scelta resta sua.`,
     notOnTeam: (n) => `${n} non fa parte del suo team.`,
     onTeam: (n, s) =>
       s
@@ -227,7 +262,11 @@ export const ACCOUNT_WORDS: Record<Locale, AccountWords> = {
       addSigner: (n) => `${n} als freigebende Person hinzufügen`,
       editPerson: (n) => `Angaben von ${n} aktualisieren`,
       changeContact: (n) => `Ändern, wie wir ${n} erreichen`,
+      inviteToTexts: (n, c) => (c === 1 ? `${n} zu SMS einladen` : `${c} Personen zu SMS einladen`),
     },
+    notOnTexts: (n) => `${n} hat sich nicht für SMS angemeldet.`,
+    getsTextInvite: (n) =>
+      `${n} erhält eine E-Mail mit der Einladung, sich für SMS anzumelden. Die Wahl bleibt bei ihnen.`,
     notOnTeam: (n) => `${n} ist nicht in Ihrem Team.`,
     onTeam: (n, s) =>
       s

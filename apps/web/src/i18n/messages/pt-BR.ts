@@ -1342,7 +1342,7 @@ export const ptBR: Messages = {
   "contacts.recordConsent": "Registrar o consentimento",
   "contacts.business": "Nos passou este número a trabalho",
   "contacts.businessHint":
-    "Cobre mensagens de texto, ligações do nosso assistente e e-mails sobre o trabalho de vocês. O WhatsApp ainda precisa do consentimento.",
+    "Cobre ligações do nosso assistente e e-mails sobre o trabalho de vocês. Mensagens de texto e WhatsApp precisam da inscrição deles: envie um convite.",
   "contacts.businessWhere": "Onde passou",
   "contacts.businessWhereHint": "Por exemplo: número nas faturas dele.",
   "contacts.businessRecord": "Registrar",
@@ -2377,9 +2377,9 @@ export const ptBR: Messages = {
   "texting.optIn": "Como as pessoas aceitam suas mensagens",
   "texting.optInHelp":
     "Com suas palavras: onde informam o número e o que aceitam. Pelo menos 40 caracteres.",
-  "texting.optInRelationship": "Começar com o texto para quem passou o número",
+  "texting.optInRelationship": "Começar com o texto da sua página de inscrição",
   "texting.optInRelationshipHelp":
-    "Coloque a frase entre aspas em todo formulário onde as pessoas passam o número e diga aqui onde estão esses formulários.",
+    "Descreve seu link de inscrição e os convites por e-mail, que as operadoras podem abrir e verificar. Edite se fizer algo mais.",
   "texting.privacy": "Link da política de privacidade",
   "texting.terms": "Link dos termos",
   "texting.hasLinks": "Nossas mensagens incluem links",
@@ -2773,4 +2773,22 @@ export const ptBR: Messages = {
   "accounts.how.login":
     "Você informa o acesso de uma conta criada para seus agentes. Ele fica no seu cofre, protegido com a chave da sua empresa, e nunca o vemos.",
   "accounts.add.enterLogin": "Informar um acesso",
+  // docs/plan.md §1.98: signing up for texts. REVIEW: needs a fluent speaker (§1.18).
+  "peoplePage.textInvite": "Convidar para receber mensagens",
+  "peoplePage.textInviteHint":
+    "Enviamos a cada um um convite por e-mail em seu nome. As mensagens só começam se a pessoa se inscrever. No máximo um lembrete.",
+  "peoplePage.textInviteSend": "Enviar convites",
+  "peoplePage.textInviteDone": "Enviados para {count}.",
+  "peoplePage.textInviteSkipped":
+    "{count} ficaram de fora: sem e-mail, já inscritos, recusaram ou foram convidados há pouco.",
+  "peoplePage.signupLink": "Link de inscrição para mensagens",
+  "peoplePage.signupLinkHint":
+    "Compartilhe com sua equipe. Cada pessoa se inscreve com o próprio número.",
+  "peoplePage.signupLinkShow": "Mostrar o link",
+  "peoplePage.signupLinkCopy": "Copiar",
+  "peoplePage.signupLinkCopied": "Copiado",
+  "peoplePage.signupLinkReplace": "Criar um novo link",
+  "peoplePage.signupLinkReplaceConfirm": "Criar: o antigo deixa de funcionar",
+  "peoplePage.signupLinkReplaceHint":
+    "Ninguém mais poderá se inscrever com o link antigo. Quem já se inscreveu continua inscrito.",
 };

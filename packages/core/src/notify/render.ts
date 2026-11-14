@@ -40,6 +40,15 @@ const SLATE = "#23415E";
 const PAPER = "#FAFAF9";
 const LINE = "#E6E8EA";
 
+/** The brand's colours for Mezonas' own email (mail clients don't read the design system's CSS). */
+export const EMAIL_COLORS = {
+  ink: INK,
+  muted: MUTED,
+  slate: SLATE,
+  paper: PAPER,
+  line: LINE,
+} as const;
+
 function numbers(counts: NotificationCounts, locale: Locale, weekStart?: string): NotifyNumbers {
   const fmt = new Intl.NumberFormat(locale);
   const week = weekStart

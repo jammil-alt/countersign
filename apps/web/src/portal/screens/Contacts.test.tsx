@@ -465,7 +465,7 @@ describe("a contact's hours and away dates", () => {
   });
 });
 
-// §1.97: "They gave us this number for business" (texts, calls and email, never WhatsApp).
+// §1.97, §1.98: "They gave us this number for business" (calls and email; never texts or WhatsApp).
 describe("C5 Contacts: numbers given for business", () => {
   const QBO_ROW = contact({
     id: "00000000-0000-4000-8000-0000000c0b04",
@@ -497,7 +497,7 @@ describe("C5 Contacts: numbers given for business", () => {
     await userEvent.click(screen.getByTestId(`people-pick-${MARCO}`));
     expect(within(bulk).getByTestId("people-bulk-count")).toHaveTextContent("2 selected");
     expect(bulk).toHaveTextContent("They gave us these numbers for business");
-    expect(bulk).toHaveTextContent("WhatsApp still needs them to agree");
+    expect(bulk).toHaveTextContent("Texts and WhatsApp need them to sign up");
     // The note of where is required.
     expect(within(bulk).getByTestId("people-bulk-record")).toBeDisabled();
     await userEvent.type(within(bulk).getByTestId("people-bulk-where"), "on their invoices");
@@ -508,6 +508,60 @@ describe("C5 Contacts: numbers given for business", () => {
     expect(await within(bulk).findByTestId("people-bulk-result")).toHaveTextContent(
       "Recorded for 2. 1 left out: opted out, or no phone or email.",
     );
+  });
+
+  // §1.98: an invitation by email to sign up for texts, for the people ticked.
+  it("invites the people ticked to sign up for texts", async () => {
+    const posts: unknown[] = [];
+    renderAt("/contacts", "client_admin", {
+      "GET /api/directory": () => ({ people, organizations: [], pendingSuggestions: 0 }),
+      "POST /api/contacts/text-invitations": ({ init }) => {
+        posts.push(JSON.parse(String(init.body)));
+        return {
+          sent: [{ id: MARCO, reminder: false }],
+          skipped: [{ id: QBO_ROW.id, reason: "no_email" }],
+        };
+      },
+    });
+    const bulk = await screen.findByTestId("people-bulk");
+    expect(within(bulk).queryByTestId("people-text-invite")).toBeNull();
+    await userEvent.click(screen.getByTestId(`people-pick-${MARCO}`));
+    await userEvent.click(screen.getByTestId(`people-pick-${QBO_ROW.id}`));
+    const invite = within(bulk).getByTestId("people-text-invite");
+    expect(invite).toHaveTextContent("Texts start only if they sign up.");
+    await userEvent.click(within(invite).getByTestId("people-text-invite-send"));
+    await waitFor(() => expect(posts).toEqual([{ contactIds: [MARCO, QBO_ROW.id] }]));
+    expect(await screen.findByTestId("people-text-invite-result")).toHaveTextContent(
+      "Sent to 1. 1 left out: no email, already signed up, said no, or asked recently.",
+    );
+  });
+
+  it("shows the texting sign-up link to share, and makes a new one only when asked twice", async () => {
+    let n = 0;
+    renderAt("/contacts", "client_admin", {
+      "GET /api/directory": () => ({ people, organizations: [], pendingSuggestions: 0 }),
+      "GET /api/texting/signup-link": () => ({ url: "https://app.mezonas.test/texts/first.link" }),
+      "POST /api/texting/signup-link": () => {
+        n += 1;
+        return { url: "https://app.mezonas.test/texts/second.link" };
+      },
+    });
+    const card = await screen.findByTestId("people-signup-link");
+    expect(card).toHaveTextContent("Share it with your team.");
+    await userEvent.click(within(card).getByTestId("people-signup-link-show"));
+    expect(await within(card).findByTestId("people-signup-link-url")).toHaveValue(
+      "https://app.mezonas.test/texts/first.link",
+    );
+    await userEvent.click(within(card).getByTestId("people-signup-link-replace"));
+    expect(n).toBe(0);
+    expect(card).toHaveTextContent("Anyone with the old link can no longer sign up with it.");
+    await userEvent.click(within(card).getByTestId("people-signup-link-replace-confirm"));
+    await waitFor(() =>
+      expect(within(card).getByTestId("people-signup-link-url")).toHaveValue(
+        "https://app.mezonas.test/texts/second.link",
+      ),
+    );
+    expect(n).toBe(1);
   });
 
   it("can be ticked when adding a person, and then needs where", async () => {

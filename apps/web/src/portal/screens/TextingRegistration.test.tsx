@@ -2,7 +2,7 @@
 // the EIN (sent once, then shown only as a hint); what Twilio asked for is shown in plain words; a
 // client user is told only the admin gives them; nothing in the screen names a SID or an amount.
 // The back office's review: the fees, a required reason and the confirmation before submitting.
-import { a2pRelationshipOptIn } from "@countersign/core";
+import { a2pSignupOptIn } from "@countersign/core";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -104,19 +104,22 @@ describe("portal US texting registration", () => {
     expect(document.body.textContent).not.toContain("3456789");
   });
 
-  // §1.97: "how people agree" starts from the relationship wording until the admin writes their own.
-  it("prefills the relationship wording with the business name, and puts it back after an edit", async () => {
+  // §1.98: "how people agree" starts from the sign-up page's wording until the admin writes their own.
+  it("prefills the sign-up wording with the business name and link, and puts it back after an edit", async () => {
+    const LINK = "https://app.mezonas.test/texts/abc.def";
     const api = fakeApi({
       "GET /api/session": () => CLIENT_SESSION,
       "GET /api/texting-registration": () => view(),
+      "GET /api/texting/signup-link": () => ({ url: LINK }),
     });
     renderAt("/settings/texting", api);
     const optIn = await screen.findByTestId("portal-texting-opt-in");
-    expect(optIn).toHaveValue(a2pRelationshipOptIn(""));
+    await waitFor(() => expect(optIn).toHaveValue(a2pSignupOptIn("", LINK)));
 
     await userEvent.type(screen.getByTestId("portal-texting-legal-name"), "Rivera Supply");
-    expect(optIn).toHaveValue(a2pRelationshipOptIn("Rivera Supply"));
+    expect(optIn).toHaveValue(a2pSignupOptIn("Rivera Supply", LINK));
     expect((optIn as HTMLTextAreaElement).value).toContain("https://mezonas.com/sms-terms#opt-in");
+    expect((optIn as HTMLTextAreaElement).value).toContain(LINK);
 
     await userEvent.clear(optIn);
     await userEvent.type(optIn, "People sign up on our website form and agree to texts from us.");
@@ -126,7 +129,7 @@ describe("portal US texting registration", () => {
     expect(optIn).toHaveValue("People sign up on our website form and agree to texts from us.");
 
     await userEvent.click(screen.getByTestId("portal-texting-opt-in-relationship"));
-    expect(optIn).toHaveValue(a2pRelationshipOptIn("Rivera Supply LLC"));
+    expect(optIn).toHaveValue(a2pSignupOptIn("Rivera Supply LLC", LINK));
   });
 
   it("shows what Twilio asked for, and locks the form while Twilio has it", async () => {

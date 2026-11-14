@@ -1350,7 +1350,7 @@ export const it: Messages = {
   "contacts.recordConsent": "Registra il consenso",
   "contacts.business": "Ci ha dato questo numero per lavoro",
   "contacts.businessHint":
-    "Copre SMS, chiamate del nostro assistente ed email sul vostro lavoro insieme. WhatsApp richiede ancora il loro consenso.",
+    "Copre chiamate del nostro assistente ed email sul vostro lavoro insieme. SMS e WhatsApp richiedono la loro iscrizione: inviate loro un invito.",
   "contacts.businessWhere": "Dove l'ha dato",
   "contacts.businessWhereHint": "Per esempio: numero sulle loro fatture.",
   "contacts.businessRecord": "Registra",
@@ -2392,9 +2392,9 @@ export const it: Messages = {
   "texting.optIn": "Come le persone accettano i tuoi SMS",
   "texting.optInHelp":
     "Con parole tue: dove danno il loro numero e cosa accettano. Almeno 40 caratteri.",
-  "texting.optInRelationship": "Parti dal testo per chi vi ha dato il numero",
+  "texting.optInRelationship": "Parti dal testo della tua pagina di iscrizione",
   "texting.optInRelationshipHelp":
-    "Mettete la frase tra virgolette su ogni modulo dove vi danno il numero, poi indicate qui dove si trovano quei moduli.",
+    "Descrive il tuo link di iscrizione e gli inviti via email, che gli operatori possono aprire e verificare. Modificalo se fai altro.",
   "texting.privacy": "Link all'informativa sulla privacy",
   "texting.terms": "Link ai termini",
   "texting.hasLinks": "I nostri SMS contengono link",
@@ -2789,4 +2789,22 @@ export const it: Messages = {
   "accounts.how.login":
     "Inserisci le credenziali di un account creato per i tuoi agenti. Restano nella tua cassaforte, cifrate con la chiave della tua azienda, e non le vediamo mai.",
   "accounts.add.enterLogin": "Inserisci le credenziali",
+  // docs/plan.md §1.98: signing up for texts. REVIEW: needs a fluent speaker (§1.18).
+  "peoplePage.textInvite": "Invitali a ricevere SMS",
+  "peoplePage.textInviteHint":
+    "Inviamo a ciascuno un invito via email a tuo nome. Gli SMS iniziano solo se si iscrivono. Al massimo un promemoria.",
+  "peoplePage.textInviteSend": "Invia inviti",
+  "peoplePage.textInviteDone": "Inviati a {count}.",
+  "peoplePage.textInviteSkipped":
+    "{count} esclusi: senza email, già iscritti, hanno rifiutato o chiesti di recente.",
+  "peoplePage.signupLink": "Link di iscrizione agli SMS",
+  "peoplePage.signupLinkHint":
+    "Condividilo con il tuo team. Ognuno si iscrive con il proprio numero.",
+  "peoplePage.signupLinkShow": "Mostra il link",
+  "peoplePage.signupLinkCopy": "Copia",
+  "peoplePage.signupLinkCopied": "Copiato",
+  "peoplePage.signupLinkReplace": "Crea un nuovo link",
+  "peoplePage.signupLinkReplaceConfirm": "Crealo: quello vecchio smette di funzionare",
+  "peoplePage.signupLinkReplaceHint":
+    "Con il vecchio link nessuno potrà più iscriversi. Chi è già iscritto resta iscritto.",
 };
