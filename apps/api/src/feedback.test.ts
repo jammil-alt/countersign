@@ -240,7 +240,9 @@ describe.skipIf(!h)("feedback", () => {
     const [row] = await harness.t.db.select().from(feedback).where(eq(feedback.id, id));
     expect(row?.source).toBe("error_page");
     expect(row?.context).toMatchObject({ tenantId: harness.A.tenantId, request: context.request });
-    expect((row?.context as { userId: string }).userId).not.toBe("someone-else");
+    expect((row?.context as { userId?: string } | null | undefined)?.userId).not.toBe(
+      "someone-else",
+    );
 
     const only = await call(OPERATOR, "GET", "/api/ops/feedback?status=all&source=error_page");
     const items = (only.json as { items: { id: string; source: string; context: unknown }[] })
