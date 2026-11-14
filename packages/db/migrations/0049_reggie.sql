@@ -72,9 +72,11 @@ ALTER TABLE reggie_message ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint
 ALTER TABLE reggie_message FORCE ROW LEVEL SECURITY;
 --> statement-breakpoint
+-- A message is visible only with its conversation: the subquery is held to reggie_conversation's
+-- own policy, so an operator never reads messages about a client the session doesn't serve.
 CREATE POLICY operator_only ON reggie_message FOR ALL TO PUBLIC
-  USING (app_is_operator())
-  WITH CHECK (app_is_operator());
+  USING (app_is_operator() AND conversation_id IN (SELECT id FROM reggie_conversation))
+  WITH CHECK (app_is_operator() AND conversation_id IN (SELECT id FROM reggie_conversation));
 --> statement-breakpoint
 ALTER TABLE reggie_action ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint
