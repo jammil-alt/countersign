@@ -204,7 +204,9 @@ describe("back-office record pages", () => {
         </AppProviders>
       </MemoryRouter>,
     );
-    expect(await screen.findByRole("alert")).toHaveTextContent("You don't have access to this.");
+    const end = await screen.findByTestId("error-forbidden");
+    expect(end).toHaveTextContent("You don't have access to this page.");
+    expect(screen.queryByText("Try again")).toBeNull();
   });
 });
 

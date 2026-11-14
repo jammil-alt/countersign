@@ -165,7 +165,11 @@ describe("ops audit log", () => {
       "GET /api/ops/audit": () => new Reply(500, { error: { code: "internal" } }),
     });
     renderAt("/ops/audit", api);
-    expect(await screen.findByRole("alert")).toHaveTextContent("internal");
+    // Our failure, in plain words, never the API's code; retry can help, so it is offered.
+    const alert = await screen.findByTestId("error-failure");
+    expect(alert).toHaveTextContent("Something went wrong loading this page.");
+    expect(alert).not.toHaveTextContent("internal");
+    expect(within(alert).getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 });
 

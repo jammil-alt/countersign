@@ -20,6 +20,8 @@ const item = (over: Record<string, unknown> = {}) => ({
   pin: { x: 250, y: 100 },
   target: 'button "Approve"',
   hasScreenshot: true,
+  source: "button",
+  context: null,
   status: "open",
   createdAt: "2026-11-04T10:00:00.000Z",
   resolvedAt: null,

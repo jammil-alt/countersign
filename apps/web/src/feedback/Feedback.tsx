@@ -5,7 +5,11 @@
 // viewport, and takes a picture of the page without this layer. A sheet shows the picture with the
 // pin, a comment box, "Leave the picture off" and Send. "No particular spot" skips the pin;
 // Escape or Cancel sends nothing. On phones the composer is full screen.
-import { FEEDBACK_COMMENT_MAX, type FeedbackSubmission } from "@countersign/core";
+import {
+  FEEDBACK_COMMENT_MAX,
+  type FeedbackErrorContext,
+  type FeedbackSubmission,
+} from "@countersign/core";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useLocation } from "react-router-dom";
 import { useApiClient } from "../api/useApi";
@@ -22,6 +26,19 @@ interface Draft {
   path: string;
   viewport: { width: number; height: number };
   picture: Blob | null;
+  /** From "Report an issue" on an error page: what failed, its first words, and who to tell. */
+  report?: FeedbackReport;
+}
+
+/**
+ * "Report an issue" on a page that failed to load: the same report as the Feedback button's, with
+ * no pin, a first line the person can add to, and what failed for us (never shown to them).
+ */
+export interface FeedbackReport {
+  context: FeedbackErrorContext;
+  comment: string;
+  /** Told once it is sent, so the page can say so. */
+  onSent?: () => void;
 }
 type Phase =
   | { kind: "idle" }
@@ -47,10 +64,12 @@ function elementAt(x: number, y: number): Element | null {
 }
 
 // The shell's sidebar row starts it: FeedbackButton (where it is on) registers how to start,
-// and the shell shows the button only while one is registered.
-let starter: (() => void) | null = null;
+// and the shell shows the button only while one is registered. An error page starts it with a
+// report; the sidebar with nothing.
+type Starter = (report?: FeedbackReport) => void;
+let starter: Starter | null = null;
 const listeners = new Set<() => void>();
-function setStarter(next: (() => void) | null) {
+function setStarter(next: Starter | null) {
   starter = next;
   for (const l of listeners) l();
 }
@@ -60,7 +79,7 @@ function subscribe(l: () => void) {
 }
 
 /** How to start a feedback report, or null where the Feedback button is off. */
-export function useFeedbackStarter(): (() => void) | null {
+export function useFeedbackStarter(): Starter | null {
   return useSyncExternalStore(subscribe, () => starter);
 }
 
@@ -82,7 +101,23 @@ export function FeedbackButton({ surface }: { surface: "ops" | "portal" }) {
   // DECISION (2026-11-10, the owner): the shell's floating button at the bottom right starts it,
   // as in Plenary Labs; it replaced QA round 1's avatar-menu item.
   useEffect(() => {
-    const start = () => setPhase({ kind: "picking" });
+    // An error page's report has no spot to pin: the picture is of the page as it failed.
+    async function captureFor(report: FeedbackReport) {
+      // The page's own address, as the router has it (the report names it).
+      const path = report.context.route;
+      const viewport = { width: window.innerWidth, height: window.innerHeight };
+      setPhase({ kind: "capturing" });
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      const picture = await captureViewport();
+      setPhase({
+        kind: "composing",
+        draft: { pin: null, target: null, path, viewport, picture, report },
+      });
+    }
+    const start: Starter = (report) => {
+      if (report) void captureFor(report);
+      else setPhase({ kind: "picking" });
+    };
     setStarter(start);
     return () => {
       if (starter === start) setStarter(null);
@@ -131,6 +166,7 @@ export function FeedbackButton({ surface }: { surface: "ops" | "portal" }) {
           draft={phase.draft}
           onCancel={cancel}
           onSent={(outcome) => {
+            phase.draft.report?.onSent?.();
             setPhase({ kind: "idle" });
             setToast({
               text: toastFor(outcome, i18n),
@@ -196,7 +232,7 @@ function Composer({
 }) {
   const client = useApiClient();
   const { t } = useI18n();
-  const [comment, setComment] = useState("");
+  const [comment, setComment] = useState(draft.report?.comment ?? "");
   const [leaveOff, setLeaveOff] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -227,6 +263,7 @@ function Composer({
       viewport: draft.viewport,
       pin: draft.pin,
       target: draft.target,
+      ...(draft.report ? { source: "error_page" as const, context: draft.report.context } : {}),
     };
     try {
       const { screenshot } = await sendFeedback(

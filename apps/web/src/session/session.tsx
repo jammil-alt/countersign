@@ -200,6 +200,12 @@ export function useSessionState(): SessionContextValue {
   return ctx;
 }
 
+/** The signed-in session, or null: signed out, or outside the provider (a part on its own). */
+export function useOptionalSession(): SessionResponse | null {
+  const ctx = useContext(SessionContext);
+  return ctx?.state.status === "signed_in" ? ctx.state.session : null;
+}
+
 /** The signed-in session; only for screens rendered behind the sign-in gate. */
 export function useSession(): SessionResponse {
   const { state } = useSessionState();

@@ -4,8 +4,6 @@
 // text-ink-muted, border-line, …), never raw values.
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { isApiError } from "../api/client";
-import { errorText } from "../i18n/errors";
 import { useI18n } from "../i18n/i18n";
 import { cx } from "./cx";
 import { Icon, type IconName } from "./icons";
@@ -404,25 +402,9 @@ export function Loading({
  */
 // DECISION: the code was shown so a contract break was recognisable; people read it as part of
 // the message ("You don't have access to this. tenant_forbidden"), so it moved to an attribute.
-export function ErrorNotice({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
-  const i18n = useI18n();
-  const message = errorText(error, i18n);
-  return (
-    <div
-      role="alert"
-      className="ds-banner items-center"
-      {...(isApiError(error) ? { "data-error-code": error.code } : {})}
-    >
-      <Icon name="alert" className="mt-px" />
-      <span className="min-w-0 flex-1">{message}</span>
-      {onRetry ? (
-        <Button variant="ghost" size="sm" onClick={onRetry} className="text-risk">
-          {i18n.t("common.tryAgain")}
-        </Button>
-      ) : null}
-    </div>
-  );
-}
+// A page that failed to load: by the failure (not found, forbidden, or our failure), with the way
+// back and "Report an issue" (./ErrorState.tsx).
+export { ErrorNotice } from "./ErrorState";
 
 /** A screen from ARCHITECTURE §15 that later milestones fill in. */
 export function Placeholder({ title, children }: { title: string; children?: ReactNode }) {

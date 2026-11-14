@@ -25,6 +25,37 @@ export const de: Messages = {
   "common.no": "Nein",
   "common.close": "Schließen",
 
+  // ── Error pages (a page that failed to load) ──
+  "errorPage.notFound.run": "Wir haben diesen Ablauf nicht gefunden.",
+  "errorPage.notFound.agent": "Wir haben diesen Agenten nicht gefunden.",
+  "errorPage.notFound.record": "Wir haben diesen Eintrag nicht gefunden.",
+  "errorPage.notFound.document": "Wir haben dieses Dokument nicht gefunden.",
+  "errorPage.notFound.conversation": "Wir haben dieses Gespräch nicht gefunden.",
+  "errorPage.notFound.client": "Wir haben diesen Kunden nicht gefunden.",
+  "errorPage.notFound.template": "Wir haben diese Vorlage nicht gefunden.",
+  "errorPage.notFound.skill": "Wir haben diese Fähigkeit nicht gefunden.",
+  "errorPage.notFound.page": "Wir haben diese Seite nicht gefunden.",
+  "errorPage.notFound.line":
+    "Vielleicht wurde es entfernt, oder der Link gehört zu einem anderen Konto.",
+  "errorPage.connection.title":
+    "Dafür fehlt eine Verbindung, die Sie noch nicht eingerichtet haben.",
+  "errorPage.connection.line":
+    "Verbinden Sie sie unter Konten und kommen Sie dann auf diese Seite zurück.",
+  "errorPage.forbidden.title": "Sie haben keinen Zugriff auf diese Seite.",
+  "errorPage.failure":
+    "Beim Laden dieser Seite ist etwas schiefgegangen. Versuchen Sie es gleich noch einmal.",
+  "errorPage.back.home": "Zur Startseite",
+  "errorPage.back.runs": "Zu den Abläufen",
+  "errorPage.back.records": "Zu den Einträgen",
+  "errorPage.back.sloan": "Zu Sloan",
+  "errorPage.back.accounts": "Zu den Konten",
+  "errorPage.back.clients": "Zu den Kunden",
+  "errorPage.back.lab": "Zum Agenten-Labor",
+  "errorPage.back.skills": "Zu den Fähigkeiten",
+  "errorPage.report": "Problem melden",
+  "errorPage.reportComment": "Diese Seite wurde nicht geladen.",
+  "errorPage.reported": "Danke, wir haben das Team informiert.",
+
   // ── Errors ──
   "error.not_found": "Nicht gefunden.",
   "error.forbidden": "Sie haben keinen Zugriff darauf.",
