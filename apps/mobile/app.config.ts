@@ -6,6 +6,10 @@ import type { ConfigContext, ExpoConfig } from "expo/config";
 const API_ORIGIN = process.env.EXPO_PUBLIC_API_ORIGIN?.trim() || "https://staging.mezonas.com";
 const PROJECT_ID = process.env.EAS_PROJECT_ID?.trim() || "";
 const OWNER = process.env.EAS_OWNER?.trim() || "";
+// Android push: Firebase's config for the Mezonas Android app. On EAS it is a file environment
+// variable (`GOOGLE_SERVICES_JSON`, made with `eas env:create --type file`), never committed.
+// DECISION: without it the build still works and the app simply gets no Android push token.
+const GOOGLE_SERVICES = process.env.GOOGLE_SERVICES_JSON?.trim() || "";
 
 const FACE_ID = "Mezonas uses Face ID so only you can open your Desk and sign from this phone.";
 
@@ -28,6 +32,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: "com.mezonas.app",
+    ...(GOOGLE_SERVICES ? { googleServicesFile: GOOGLE_SERVICES } : {}),
     adaptiveIcon: {
       foregroundImage: "../../packages/design-system/assets/Logos/mezonas-app-icon-512.png",
       backgroundColor: "#23415E",

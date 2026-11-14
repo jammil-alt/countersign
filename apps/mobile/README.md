@@ -58,6 +58,7 @@ EXPO_PUBLIC_FIXTURES=1 npx expo start --web
 | `EAS_PROJECT_ID` | the shell / EAS environment | The EAS project (`eas init` makes it). Push tokens need it; without it setup skips notifications. |
 | `EAS_OWNER` | the shell / EAS environment | The Expo account or organization that owns the project. |
 | `EXPO_PUBLIC_FIXTURES` | the shell | `1` runs on fixtures (`src/api/fixtures.ts`), never a real API. |
+| `GOOGLE_SERVICES_JSON` | EAS file variable (`eas env:create --type file`) | Firebase's `google-services.json` for the Android app: Android push needs it. Never committed. |
 
 ## Builds and stores
 
@@ -72,6 +73,38 @@ npx eas submit --platform android              # Google Play (internal testing f
 
 Push goes through Expo's push service: EAS holds the APNs key and the FCM V1 service account
 (`eas credentials`), and the API sends to Expo with the person's token.
+
+## Accounts (once)
+
+All in the company's name (Twelve Thirty-Four), never a person's, so the apps stay with the
+company. Nothing here is shared with Plenary Labs.
+
+**Both stores need a D-U-N-S number** for Twelve Thirty-Four, with the legal name and address
+exactly as registered. Look it up (or request one, free) through Apple's D-U-N-S lookup on the
+developer site; a new number takes up to about a week to reach Apple.
+
+**Apple** (iPhone builds need it; nothing installs on an iPhone without it):
+1. An Apple Account for the company (a shared address such as apps@ on the company's domain), with
+   two-factor on.
+2. Enroll at developer.apple.com/programs/enroll as an **organization**: the D-U-N-S number, the
+   company's website, and the authority to sign for it. $99 a year. Apple may call to check.
+3. Once approved: add the team in App Store Connect (Users and Access). EAS makes the bundle id
+   `com.mezonas.app`, the certificates and the push key (APNs) on the first
+   `npx eas build --platform ios`; register test iPhones first with `npx eas device:create`.
+4. TestFlight for testers before any store release.
+
+**Google** (Android builds install from a link without it; the store and push need it):
+1. Google Play Console as an **organization** ($25 once), with the same D-U-N-S number and a
+   payments profile for the company; Google verifies the business and a contact person.
+   Organization accounts are not held to the closed test (12 testers for 14 days) that new
+   personal accounts are.
+2. Create the app "Mezonas", package `com.mezonas.app`.
+3. Push: a Firebase project for Mezonas, add the Android app `com.mezonas.app`, download
+   `google-services.json` and store it as the EAS file variable `GOOGLE_SERVICES_JSON`; then a
+   service-account key for Firebase Cloud Messaging (V1), uploaded with `npx eas credentials`
+   (Android, push notifications).
+
+**Expo**: an organization account for Mezonas, then `npx eas init` here (set `EAS_OWNER` to it).
 
 ## What is checked here, and what isn't
 
