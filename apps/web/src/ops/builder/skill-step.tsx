@@ -441,7 +441,7 @@ function stepName(process: Process, id: string): string {
         }
         visit(s.otherwise.steps);
       }
-      if (s.kind === "for_each") visit(s.steps);
+      if (s.kind === "for_each" || s.kind === "repeat") visit(s.steps);
     }
   };
   visit(process.steps);

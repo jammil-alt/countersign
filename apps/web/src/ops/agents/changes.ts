@@ -39,6 +39,7 @@ const STEP_KIND: Record<string, string> = {
   person: "person step",
   fork: "fork",
   for_each: "for each",
+  repeat: "repeat",
   wait: "wait",
   notify: "notify step",
   stop: "stop",
@@ -47,7 +48,7 @@ const STEP_KIND: Record<string, string> = {
   write: "write step",
   conversation: "conversation",
   if: "if",
-  process: "process step",
+  process: "automation step",
 };
 
 // R8: the words for a v4 step's checks and deadlines (ARCHITECTURE §10.14 "Checks", "Deadlines"),

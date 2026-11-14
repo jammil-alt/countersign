@@ -476,12 +476,16 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
     const row = await agentInScope(ctx, ctx.params.id);
     const parsed = processes.Process.safeParse(body.process);
     if (!parsed.success) {
-      throw new HttpError(422, "invalid_process", "the process doesn't read as a v4 process");
+      throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
     }
     const process = parsed.data;
     const step = processes.findStep(process, body.stepId)?.step;
     if (step?.kind !== "skill") {
-      throw new HttpError(422, "not_a_skill_step", `no skill step "${body.stepId}" in the process`);
+      throw new HttpError(
+        422,
+        "not_a_skill_step",
+        `no skill step "${body.stepId}" in the workflow`,
+      );
     }
     if (parseSkillRef(step.skill).id !== parseSkillRef(body.to).id) {
       throw new HttpError(

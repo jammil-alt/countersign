@@ -36,6 +36,11 @@ describe("run checks", () => {
       node: "loop:2:post",
       suffix: ["approval", "1", "a1"],
     });
+    // v0.17: a repeat's pass.
+    expect(stepNodeOf("rep:r2:post:approval:1:a1")).toEqual({
+      node: "rep:r2:post",
+      suffix: ["approval", "1", "a1"],
+    });
     expect(checkKindOf("post:notify:0")).toBe("notify");
     expect(checkKindOf("loop:0:post")).toBeNull();
   });

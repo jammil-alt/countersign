@@ -55,7 +55,7 @@ export function AutomationPage() {
             <div>
               <p className="mb-2 text-sm text-ink-muted">
                 <Link to={LIBRARY_PATHS.processes} className="hover:underline">
-                  Library · Processes
+                  Library · Workflows
                 </Link>{" "}
                 / {a.name}
               </p>

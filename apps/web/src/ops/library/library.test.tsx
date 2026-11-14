@@ -338,7 +338,7 @@ describe("the Library", () => {
     await user.click(await screen.findByTestId("ops-nav-library"));
     expect(screen.getByTestId("location")).toHaveTextContent("/ops/library");
     expect(await screen.findByTestId("library-bank-processes-count")).toHaveTextContent(
-      "3 processes",
+      "3 workflows",
     );
     expect(screen.getByTestId("library-bank-skills-count")).toHaveTextContent(
       "15 skills · 85 tool wrappers retiring",
@@ -393,7 +393,7 @@ describe("the Library", () => {
     expect(within(draft).getByText("Draft")).toBeInTheDocument();
     expect(within(draft).getByText("No client agents yet")).toBeInTheDocument();
     // Processes used inside others: the automations, empty here.
-    expect(screen.getByTestId("automations")).toHaveTextContent("Used inside other processes");
+    expect(screen.getByTestId("automations")).toHaveTextContent("Automations");
 
     await user.type(screen.getByTestId("processes-search"), "overdue");
     expect(screen.queryByTestId("process-bill-keeper")).toBeNull();
@@ -566,7 +566,7 @@ describe("the Library", () => {
     expect(within(big).getByTestId("condition-0123456789abcdef-rules")).toHaveTextContent(
       "When trigger · total > 5000",
     );
-    expect(big).toHaveTextContent("3 uses · 2 processes");
+    expect(big).toHaveTextContent("3 uses · 2 workflows");
     const links = within(big).getAllByRole("link");
     expect(links[0]).toHaveAttribute("href", "/ops/templates/bill-keeper/workflows/enter-bills");
     expect(links[2]).toHaveAttribute("href", `/ops/skills/automations/${AUTO_ID}`);

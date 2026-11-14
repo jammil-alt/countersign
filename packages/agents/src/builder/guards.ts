@@ -93,13 +93,14 @@ export function replaceTemplates(text: string, fn: (inner: string) => string): s
 export function rewriteRefs(value: unknown, map: ReadonlyMap<string, string>): unknown {
   if (typeof value === "string") {
     if (!value.includes("{{")) return value;
-    const ref = /(^|[^A-Za-z0-9_.])steps\.([A-Za-z0-9][A-Za-z0-9_-]*)/g;
+    // v0.17: `loop.previous.<id>` names a step inside a repeat, as `steps.<id>` does.
+    const ref = /(^|[^A-Za-z0-9_.])(steps|loop\.previous)\.([A-Za-z0-9][A-Za-z0-9_-]*)/g;
     return replaceTemplates(
       value,
       (inner) =>
-        `{{${inner.replace(ref, (m, pre: string, id: string) => {
+        `{{${inner.replace(ref, (m, pre: string, root: string, id: string) => {
           const to = map.get(id);
-          return to ? `${pre}steps.${to}` : m;
+          return to ? `${pre}${root}.${to}` : m;
         })}}}`,
     );
   }
@@ -152,7 +153,7 @@ function filterSteps(steps: readonly Step[], keepStep: (s: Step) => boolean): St
         paths: s.paths.map((p) => ({ ...p, steps: filterSteps(p.steps, keepStep) })),
         otherwise: { ...s.otherwise, steps: filterSteps(s.otherwise.steps, keepStep) },
       });
-    } else if (s.kind === "for_each") {
+    } else if (s.kind === "for_each" || s.kind === "repeat") {
       out.push({ ...s, steps: filterSteps(s.steps, keepStep) });
     } else {
       out.push(s);
@@ -171,7 +172,9 @@ function mapSteps(steps: readonly Step[], fn: (s: Step) => Step): Step[] {
         otherwise: { ...s.otherwise, steps: mapSteps(s.otherwise.steps, fn) },
       });
     }
-    if (s.kind === "for_each") return fn({ ...s, steps: mapSteps(s.steps, fn) });
+    if (s.kind === "for_each" || s.kind === "repeat") {
+      return fn({ ...s, steps: mapSteps(s.steps, fn) });
+    }
     return fn(s);
   });
 }

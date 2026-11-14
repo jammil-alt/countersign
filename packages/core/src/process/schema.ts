@@ -330,12 +330,20 @@ export interface IfPath {
   id: string;
   name: string;
   when: Rules;
+  /** v0.17: when to take this path, in the operator's words, for the agent that chooses. */
+  describe?: string | undefined;
   steps: Step[];
 }
 export interface IfStep extends Base {
   kind: "if";
   paths: IfPath[];
   otherwise: { id: string; steps: Step[] };
+  /** v0.17: who picks the path: the first path whose rules match (absent), or the agent. */
+  decide?: "rules" | "agent" | undefined;
+  /** v0.17: what the agent reads to choose (absent: the trigger and the outputs in scope). */
+  show?: Record<string, unknown> | undefined;
+  /** v0.17: when the agent isn't sure: the otherwise path (absent), or a person picks. */
+  ifUnsure?: "otherwise" | "ask" | undefined;
 }
 export interface ForEachStep extends Base {
   kind: "for_each";
@@ -343,6 +351,23 @@ export interface ForEachStep extends Base {
   concurrency: number;
   steps: Step[];
 }
+
+/**
+ * v0.17 (ARCHITECTURE §10.14 "Automations, repeat and the agent's choice"): runs its steps again
+ * until it is done. M59: `until` is plain rules over the pass's outputs and outcomes.
+ */
+export interface RepeatStep extends Base {
+  kind: "repeat";
+  steps: Step[];
+  until: RepeatUntil;
+  maxTimes: number;
+  between?: string | undefined;
+  onLimit: "stop" | "proceed";
+}
+/** v0.17: plain rules over the pass, or the agent against a goal in the operator's words. */
+export type RepeatUntil =
+  | { rules: Rules }
+  | { agent: { goal: string; show?: Record<string, unknown> | undefined } };
 
 export type Step =
   | ReadStep
@@ -353,6 +378,7 @@ export type Step =
   | NotifyStep
   | IfStep
   | ForEachStep
+  | RepeatStep
   | WaitStep
   | StopStep
   | SubProcessStep
@@ -368,6 +394,7 @@ export const STEP_KINDS = [
   "notify",
   "if",
   "for_each",
+  "repeat",
   "wait",
   "stop",
   "process",
@@ -379,12 +406,23 @@ export const IfStep = z.object({
   kind: z.literal("if"),
   get paths() {
     return z
-      .array(z.object({ id: NodeId, name: z.string(), when: Rules, steps: z.array(Step) }))
+      .array(
+        z.object({
+          id: NodeId,
+          name: z.string(),
+          when: Rules,
+          describe: z.string().max(CHOICE_TEXT_MAX).optional(),
+          steps: z.array(Step),
+        }),
+      )
       .min(1);
   },
   get otherwise() {
     return z.object({ id: NodeId, steps: z.array(Step) });
   },
+  decide: z.enum(["rules", "agent"]).optional(),
+  show: TemplateObject.optional(),
+  ifUnsure: z.enum(["otherwise", "ask"]).optional(),
 });
 
 export const ForEachStep = z.object({
@@ -397,6 +435,34 @@ export const ForEachStep = z.object({
   },
 });
 
+/** The most passes a `repeat` may make (v0.17). */
+export const REPEAT_MAX_TIMES = 10;
+
+/** The most a path's `describe` or a repeat's goal may say. */
+export const CHOICE_TEXT_MAX = 300;
+
+export const RepeatUntil = z.union([
+  z.strictObject({ rules: Rules }),
+  z.strictObject({
+    agent: z.strictObject({
+      goal: z.string().trim().min(1).max(CHOICE_TEXT_MAX),
+      show: TemplateObject.optional(),
+    }),
+  }),
+]);
+
+export const RepeatStep = z.object({
+  ...base,
+  kind: z.literal("repeat"),
+  get steps() {
+    return z.array(Step).min(1);
+  },
+  until: RepeatUntil,
+  maxTimes: z.number().int().min(1).max(REPEAT_MAX_TIMES).default(3),
+  between: Duration.optional(),
+  onLimit: z.enum(["stop", "proceed"]).default("stop"),
+});
+
 export const Step: z.ZodType<Step> = z
   .discriminatedUnion("kind", [
     ReadStep,
@@ -407,6 +473,7 @@ export const Step: z.ZodType<Step> = z
     NotifyStep,
     IfStep,
     ForEachStep,
+    RepeatStep,
     WaitStep,
     StopStep,
     SubProcessStep,

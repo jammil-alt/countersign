@@ -28,7 +28,7 @@ export interface BankInfo {
 export const BANKS: readonly BankInfo[] = [
   {
     bank: "processes",
-    title: "Processes",
+    title: "Workflows",
     line: "A job from start to finish: what starts it, then its steps in order. A client's agent is a copy of one.",
     to: LIBRARY_PATHS.processes,
   },
@@ -54,7 +54,7 @@ export const BANKS: readonly BankInfo[] = [
   {
     bank: "triggers",
     title: "Triggers",
-    line: "What starts a process: a schedule, a message, a person, or something happening in a system.",
+    line: "What starts a workflow: a schedule, a message, a person, or something happening in a system.",
     to: LIBRARY_PATHS.triggers,
   },
   {
@@ -77,7 +77,7 @@ export function matches(query: string, ...texts: (string | null | undefined)[]):
   return !q || texts.some((t) => t?.toLowerCase().includes(q));
 }
 
-/** "1 process", "3 processes": a count with its noun. */
+/** "1 workflow", "3 automations": a count with its noun. */
 export function counted(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }

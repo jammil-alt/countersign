@@ -63,6 +63,7 @@ const OUTCOME_PHRASE: { [K in OutcomeKind]: Record<processes.StepOutcomeOf<K>, s
     some_failed: "some items failed",
     all_failed: "every item failed",
   },
+  repeat: { done: "was done", limit: "reached its most passes" },
   process: { completed: "was completed", stopped: "stopped", failed: "failed" },
 };
 

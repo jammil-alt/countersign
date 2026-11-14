@@ -151,7 +151,7 @@ function withApprovalChecks(
         },
       });
     }
-    if (step.kind === "for_each") {
+    if (step.kind === "for_each" || step.kind === "repeat") {
       return keep({
         ...step,
         steps: withApprovalChecks(step.steps, approvals, origins, overrides),

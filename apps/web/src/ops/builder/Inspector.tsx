@@ -283,14 +283,17 @@ const STEP_INTRO: Partial<Record<Step["kind"], string>> = {
   write: "Changes something through a tool, behind its checks.",
   if: "Paths are checked top to bottom. A run takes the first path whose rules match, then continues after the if.",
   for_each: "Runs the steps inside once for each item of a list.",
-  process: "Runs a saved process as one step. Its steps are edited in that process, not here.",
+  repeat:
+    "Runs the steps inside, then again until its rule holds, up to its most times. Each pass's changes are approved on their own.",
+  process:
+    "Runs a saved automation as one step. Its steps are edited in that automation, not here.",
   person: "Waits for a person in the inbox before the run goes on.",
   conversation: "Talks with someone until it has what it needs, within the limits below.",
   notify: "Tells the client's team or ours that something happened.",
 };
 
 /** Logic steps carry no checks in the builder: they do no work to check. */
-const LOGIC = new Set<Step["kind"]>(["if", "for_each", "wait", "stop"]);
+const LOGIC = new Set<Step["kind"]>(["if", "for_each", "repeat", "wait", "stop"]);
 
 function stepNumber(workflow: Process, id: string): string {
   const i = workflow.steps.findIndex((s) => s.id === id);
@@ -868,6 +871,8 @@ function KindFields(
       );
     case "if":
       return <IfEditor {...props} step={step} />;
+    case "repeat":
+      return <RepeatEditor {...props} step={step} />;
     case "for_each":
       return (
         <>
@@ -916,7 +921,7 @@ function KindFields(
       const used = props.data.catalog.automations?.find((a) => a.ref === step.process);
       return (
         <>
-          <Row label="Process" field="process" errors={fieldErrors}>
+          <Row label="Automation" field="process" errors={fieldErrors}>
             <p
               className="reference text-ink"
               data-field="process"
@@ -1205,6 +1210,136 @@ function TimelineSection({ step, set }: { step: Step; set: SetStep }) {
 
 // ── Ifs ──────────────────────────────────────────────────────────────────────────────────────────
 
+/** v0.17: a repeat's most passes, its wait between them, what happens at the limit, its rule. */
+function RepeatEditor(
+  props: InspectorProps & {
+    step: Extract<Step, { kind: "repeat" }>;
+    paths: PathOption[];
+    set: SetStep;
+  },
+) {
+  const { step, set, errors, workflow, ctx } = props;
+  const fieldErrors = errorsFor(errors, step.id);
+  const paths = useMemo(
+    () => labelPaths(workflow, processes.repeatUntilPaths(workflow, step.id, ctx)),
+    [workflow, step.id, ctx],
+  );
+  const quick = useMemo(() => outcomeRules(paths), [paths]);
+  const agentName = props.bundle.definition.identity.name || "the agent";
+  const until = step.until;
+  return (
+    <>
+      <Row label="Done when" field="until" errors={fieldErrors}>
+        <SmallSelect
+          data-testid="builder-repeat-until-by"
+          value={"rules" in until ? "rules" : "agent"}
+          onChange={(e) =>
+            set("until", (s) =>
+              s.kind !== "repeat"
+                ? s
+                : {
+                    ...s,
+                    until:
+                      e.target.value === "agent"
+                        ? { agent: { goal: "" } }
+                        : { rules: { match: "all", rules: [] } },
+                  },
+            )
+          }
+        >
+          <option value="rules">A rule holds</option>
+          <option value="agent">{agentName} says it's done</option>
+        </SmallSelect>
+      </Row>
+      {"rules" in until ? (
+        <RulesEditor
+          rules={until.rules}
+          paths={paths}
+          quick={quick}
+          errors={fieldErrors}
+          prefix="until.rules"
+          testPrefix="builder-repeat-until"
+          onChange={(rules, key) =>
+            set(key, (s) => (s.kind === "repeat" ? { ...s, until: { rules } } : s))
+          }
+        />
+      ) : (
+        <Row label="The goal" field="until.agent.goal" errors={fieldErrors}>
+          <SmallInput
+            data-field="until.agent.goal"
+            data-testid="builder-repeat-goal"
+            value={until.agent.goal}
+            placeholder="The RFQ names every line, a quantity and a date"
+            onChange={(e) =>
+              set("until.agent.goal", (s) =>
+                s.kind === "repeat" && "agent" in s.until
+                  ? { ...s, until: { agent: { ...s.until.agent, goal: e.target.value } } }
+                  : s,
+              )
+            }
+          />
+        </Row>
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        <Row label="At most" field="maxTimes" errors={fieldErrors} hint="1 to 10 passes">
+          <SmallInput
+            data-field="maxTimes"
+            data-testid="builder-repeat-max"
+            type="number"
+            min={1}
+            max={processes.REPEAT_MAX_TIMES}
+            value={step.maxTimes}
+            onChange={(e) =>
+              set("maxTimes", (s) =>
+                s.kind === "repeat"
+                  ? {
+                      ...s,
+                      maxTimes: Math.min(
+                        processes.REPEAT_MAX_TIMES,
+                        Math.max(1, Number(e.target.value) || 1),
+                      ),
+                    }
+                  : s,
+              )
+            }
+          />
+        </Row>
+        <Row label="Wait between" field="between" errors={fieldErrors} hint='e.g. "1 hour"'>
+          <SmallInput
+            data-field="between"
+            data-testid="builder-repeat-between"
+            value={step.between ?? ""}
+            placeholder="No wait"
+            onChange={(e) =>
+              set("between", (s) => {
+                if (s.kind !== "repeat") return s;
+                const { between: _b, ...rest } = s;
+                const v = e.target.value.trim();
+                return v ? { ...rest, between: e.target.value } : rest;
+              })
+            }
+          />
+        </Row>
+      </div>
+      <Row label="If never done" field="onLimit" errors={fieldErrors}>
+        <SmallSelect
+          data-field="onLimit"
+          data-testid="builder-repeat-on-limit"
+          value={step.onLimit}
+          onChange={(e) =>
+            set("onLimit", (s) =>
+              s.kind === "repeat" ? { ...s, onLimit: e.target.value as "stop" | "proceed" } : s,
+            )
+          }
+        >
+          <option value="stop">Stop the run</option>
+          <option value="proceed">Go on with the last pass</option>
+        </SmallSelect>
+      </Row>
+    </>
+  );
+}
+
 function IfEditor(
   props: InspectorProps & {
     step: Extract<Step, { kind: "if" }>;
@@ -1227,15 +1362,49 @@ function IfEditor(
       return next;
     });
 
+  // M61: the agent may choose among the paths its rules allow.
+  const byAgent = step.decide === "agent";
+  const agentName = props.bundle.definition.identity.name || "the agent";
+  const stepErrors = errorsFor(errors, step.id);
   return (
     <div className="flex flex-col gap-3">
-      {errorsFor(errors, step.id)
-        .at("paths")
-        .map((m) => (
-          <span key={m} className="text-sm text-risk">
-            {m}
-          </span>
-        ))}
+      {stepErrors.at("paths").map((m) => (
+        <span key={m} className="text-sm text-risk">
+          {m}
+        </span>
+      ))}
+      <label className="flex items-center gap-2 text-sm text-ink">
+        <input
+          type="checkbox"
+          data-testid="builder-if-agent"
+          checked={byAgent}
+          onChange={(e) =>
+            set("decide", (s) => {
+              if (s.kind !== "if") return s;
+              const { decide: _d, ifUnsure: _u, ...rest } = s;
+              return e.target.checked ? { ...rest, decide: "agent" } : rest;
+            })
+          }
+        />
+        Let {agentName} choose the path
+      </label>
+      {byAgent ? (
+        <Row label="If not sure" field="ifUnsure" errors={stepErrors}>
+          <SmallSelect
+            data-field="ifUnsure"
+            data-testid="builder-if-unsure"
+            value={step.ifUnsure ?? "otherwise"}
+            onChange={(e) =>
+              set("ifUnsure", (s) =>
+                s.kind === "if" ? { ...s, ifUnsure: e.target.value as "otherwise" | "ask" } : s,
+              )
+            }
+          >
+            <option value="otherwise">Take the otherwise path</option>
+            <option value="ask">Ask the client's admin to pick</option>
+          </SmallSelect>
+        </Row>
+      ) : null}
       {step.paths.map((p, i) => {
         const pathErrors = errorsFor(errors, p.id);
         const invalid = errors.some((e) => e.stepId === p.id);
@@ -1262,6 +1431,22 @@ function IfEditor(
                 {p.steps.length} {p.steps.length === 1 ? "step" : "steps"}
               </span>
             </div>
+            {byAgent ? (
+              <Row label="Take this when" field="describe" errors={pathErrors}>
+                <SmallInput
+                  data-field="describe"
+                  data-testid={`builder-path-${p.id}-describe`}
+                  value={p.describe ?? ""}
+                  placeholder="the item is on the usual vendor's list"
+                  onChange={(e) =>
+                    setPath(p.id, "describe", (x) => ({ ...x, describe: e.target.value }))
+                  }
+                />
+              </Row>
+            ) : null}
+            {byAgent ? (
+              <p className="text-xs text-ink-muted">Only if (leave empty to always allow):</p>
+            ) : null}
             <RulesEditor
               rules={p.when}
               paths={paths}
@@ -1362,8 +1547,8 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
         title="How it starts"
         intro={
           many
-            ? "Any of this process's triggers starts a run."
-            : "This trigger starts each run of this process."
+            ? "Any of this workflow's triggers starts a run."
+            : "This trigger starts each run of this workflow."
         }
       />
       <NodeErrors errors={errors} node={trigger.id} onFix={props.onFix} />

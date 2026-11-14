@@ -6,6 +6,7 @@
 
 import type { z } from "zod";
 import { CONVERSE_SKILL, converseProblems, typedResultOutput } from "../converse";
+import { isDuration, parseDuration } from "../duration";
 import { isUuid } from "../ids";
 import { isPlainObject } from "../json";
 import { levelFor } from "../permissions/decide";
@@ -104,11 +105,13 @@ import {
   type NotifyCheck,
   type Process,
   Process as ProcessSchema,
+  REPEAT_MAX_TIMES,
+  type RepeatStep,
   type Step,
   type SubProcessStep,
   type WriteStep,
 } from "./schema";
-import { stepCount, walkSteps } from "./walk";
+import { isLogic, stepCount, walkSteps } from "./walk";
 
 // ── Results ──────────────────────────────────────────────────────────────────────────────────
 
@@ -144,7 +147,17 @@ export type ProcessValidationCode =
   | "handoff_unknown_agent"
   | "handoff_no_live"
   | "handoff_unknown_step"
-  | "handoff_entry_kind";
+  | "handoff_entry_kind"
+  // v0.17: a repeat with no steps, inside another repeat, waiting too long or too short between
+  // passes, or one that could make the run too long for Cloudflare Workflows.
+  | "repeat_empty"
+  | "repeat_nested"
+  | "repeat_between"
+  | "repeat_too_big"
+  // M61: a path the agent may choose that doesn't say when to take it; more paths than a person
+  // can be asked to pick from.
+  | "choice_describe_missing"
+  | "choice_too_many";
 
 /**
  * `conversationProblems`' codes. A templated goal is reported as `input_not_fixed`, as every other
@@ -177,7 +190,11 @@ export type ProcessWarningCode =
   // on a step without `onError: continue`: the run has stopped before the condition is read).
   | "outcome_unreachable"
   // Hand off (2026-11-11): a later step of the target reads a step the hand-off skips.
-  | "handoff_skips_outputs";
+  | "handoff_skips_outputs"
+  // v0.17: a write inside a repeat (it can change a client's tool on every pass), and a for each
+  // inside one (its size is known only when it runs, so the step estimate can't count it).
+  | "repeat_write"
+  | "repeat_for_each";
 
 export interface ProcessWarning {
   stepId: string | null;
@@ -312,6 +329,9 @@ function schemaErrors(issues: z.core.$ZodIssue[], raw: unknown): ProcessValidati
       } else if (last === "steps" && node.kind === "for_each") {
         err.code = "for_each_empty";
         err.message = "a for each needs at least one step";
+      } else if (last === "steps" && node.kind === "repeat") {
+        err.code = "repeat_empty";
+        err.message = "a repeat needs at least one step";
       }
     } else if (missing && last === "deadline") {
       err.code = "deadline_missing";
@@ -356,6 +376,11 @@ export interface ProcessScope {
   >;
   /** Inside a for_each: the item schema (undefined when unknown). */
   loop?: { item: JsonSchema | undefined; step: ForEachStep };
+  /**
+   * v0.17: inside a repeat (and in its `until`): `{{loop.pass}}`, and the pass before's top-level
+   * steps as `{{loop.previous.<id>.output…}}`.
+   */
+  repeat?: { step: RepeatStep; previous: Record<string, JsonSchema | undefined> };
   /** In a step's checks: how many of its confer reviewers' verdicts are readable. */
   confer?: number;
   /**
@@ -390,6 +415,8 @@ export function stepOutputSchema(step: Step, ctx: TypingContext): JsonSchema | u
       return FORK_OUTPUT;
     case "for_each":
       return FOR_EACH_OUTPUT;
+    case "repeat":
+      return repeatOutputSchema(step, ctx);
     case "process": {
       const def = ctx.automations?.[step.process];
       if (!def) return undefined;
@@ -464,6 +491,8 @@ export function typeProcessPath(scope: ProcessScope, path: readonly string[]): P
       if (!scope.loop)
         return { ok: false, message: "{{item}} is only available inside a for_each" };
       return schemaAtPath(scope.loop.item, rest);
+    case "loop":
+      return typeLoopPath(scope, rest);
     case "index":
       if (!scope.loop)
         return { ok: false, message: "{{index}} is only available inside a for_each" };
@@ -491,7 +520,7 @@ export function typeProcessPath(scope: ProcessScope, path: readonly string[]): P
     default:
       return {
         ok: false,
-        message: `unknown reference "${root}": use trigger, settings, steps, item or index`,
+        message: `unknown reference "${root}": use trigger, settings, steps, item, index or loop`,
       };
   }
 }
@@ -503,6 +532,7 @@ function rootInScope(scope: ProcessScope, path: readonly string[]): boolean {
   if (root === "input") return scope.input !== undefined;
   if (root === "settings") return true;
   if (root === "item") return scope.loop !== undefined;
+  if (root === "loop") return scope.repeat !== undefined;
   if (root === "steps") {
     const s = id === undefined ? undefined : scope.steps[id];
     if (!s || third === undefined) return false;
@@ -543,10 +573,20 @@ function scopeList(
   const trigger = input ? undefined : processTriggerSchema(process, ctx);
   // A duplicated id (an error anyway) reads as its last step, as v3 does.
   const byId = new Map<string, Step>();
-  const locs: { step: Step; before: string[]; loop: ForEachStep | undefined }[] = [];
+  const locs: {
+    step: Step;
+    before: string[];
+    loop: ForEachStep | undefined;
+    repeat: RepeatStep | undefined;
+  }[] = [];
   walkSteps(process, (loc) => {
     byId.set(loc.step.id, loc.step);
-    locs.push({ step: loc.step, before: loc.before, loop: loc.loops.at(-1) });
+    locs.push({
+      step: loc.step,
+      before: loc.before,
+      loop: loc.loops.at(-1),
+      repeat: loc.repeats.at(-1),
+    });
   });
   return locs.map((l) => {
     const scope: ProcessScope = {
@@ -560,6 +600,7 @@ function scopeList(
       if (s) scope.steps[id] = { step: s, output: stepOutputSchema(s, ctx) };
     }
     if (l.loop) scope.loop = { step: l.loop, item: itemSchemaOf(l.loop.over, scope) };
+    if (l.repeat) scope.repeat = { step: l.repeat, previous: passOutputs(l.repeat, ctx) };
     return { step: l.step, scope };
   });
 }
@@ -1444,7 +1485,7 @@ function checkSubProcess(c: Checker, step: SubProcessStep, scope: ProcessScope) 
   checkErrorMessage(c, step.id, step.input, ["input"]);
   const def = ctx.automations?.[step.process];
   if (ctx.automations && !def) {
-    c.add(step.id, "process", "unknown_automation", `no process "${step.process}"`);
+    c.add(step.id, "process", "unknown_automation", `no automation "${step.process}"`);
   }
   const approvals = Object.entries(step.approvals ?? {});
   if (approvals.length > 0 && ctx.clientAgent === false) {
@@ -1452,7 +1493,7 @@ function checkSubProcess(c: Checker, step: SubProcessStep, scope: ProcessScope) 
       step.id,
       "approvals",
       "approvals_not_client",
-      "only a client agent's process step can change an inner step's approval",
+      "only a client agent's automation step can change an inner step's approval",
     );
   }
   if (!def) return;
@@ -1467,7 +1508,7 @@ function checkSubProcess(c: Checker, step: SubProcessStep, scope: ProcessScope) 
         step.id,
         `approvals.${innerId}`,
         "approval_unknown_step",
-        `the process has no step "${innerId}"`,
+        `the automation has no step "${innerId}"`,
       );
       continue;
     }
@@ -1627,6 +1668,8 @@ const NO_ON_ERROR: Partial<Record<Step["kind"], string>> = {
   stop: "a stop ends the run: it has no error to go on past",
   wait: "a wait can't fail",
   person: "a person step can't fail by itself: its deadline says what happens with no answer",
+  repeat:
+    "a repeat can't fail by itself: set onError on the steps inside it, and onLimit for when it never finishes",
   // DECISION (hand off): a hand-off that can't start ends the run; going on past it is not offered.
   handoff: "a hand-off that can't start ends the run",
 };
@@ -1737,7 +1780,8 @@ function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<str
     case "if":
       // Paths are evaluated at the if, so their rules see what the if itself sees. (The schema
       // requires a path: `if_no_paths`.)
-      for (const p of step.paths) checkRules(c, p.id, p.when, ["when"], scope, true);
+      if (step.decide === "agent") checkAgentIf(c, step, scope);
+      else for (const p of step.paths) checkRules(c, p.id, p.when, ["when"], scope, true);
       break;
     case "for_each":
       checkRefs(c, step.id, step.over, ["over"], scope);
@@ -1745,6 +1789,9 @@ function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<str
       if (!compatible(["array"], valueTypes(c, step.over, scope))) {
         c.add(step.id, "over", "for_each_not_array", "for each needs a list to go over");
       }
+      break;
+    case "repeat":
+      checkRepeat(c, step, scope);
       break;
     case "process":
       checkSubProcess(c, step, scope);
@@ -1761,6 +1808,196 @@ function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<str
     c.add(step.id, "onError", "on_error_not_here", noError);
   checkApproval(c, step);
   checkChecks(c, step, scope);
+}
+
+// ── v0.17: repeat ────────────────────────────────────────────────────────────────────────────
+
+/** The fewest and most time a repeat may wait between passes. */
+const REPEAT_BETWEEN_MIN_MS = 60_000;
+const REPEAT_BETWEEN_MAX_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * The durable steps a run may take, over Cloudflare Workflows' 1,024 per instance (docs/plan.md
+ * §1.86 "Forks"). // DECISION (v0.17): 900, a margin for the run's own start and end steps.
+ */
+export const REPEAT_DURABLE_MAX = 900;
+
+/** The outputs of a repeat's top-level steps, by id: what `{{loop.previous…}}` and `last` read. */
+function passOutputs(step: RepeatStep, ctx: TypingContext): Record<string, JsonSchema | undefined> {
+  const out: Record<string, JsonSchema | undefined> = {};
+  for (const s of step.steps) out[s.id] = stepOutputSchema(s, ctx);
+  return out;
+}
+
+/** v0.17: a repeat's output, `{ passes, done, last: { <inner step id>: output } }`. */
+function repeatOutputSchema(step: RepeatStep, ctx: TypingContext): JsonSchema {
+  const last: Record<string, JsonSchema> = {};
+  for (const [id, schema] of Object.entries(passOutputs(step, ctx))) last[id] = schema ?? {};
+  return {
+    type: "object",
+    properties: {
+      passes: { type: "integer" },
+      done: { type: "boolean" },
+      last: { type: "object", properties: last, additionalProperties: false },
+    },
+    required: ["passes", "done", "last"],
+    additionalProperties: false,
+  };
+}
+
+/** `{{loop.pass}}` and `{{loop.previous.<id>.output…}}`, inside a repeat only. */
+function typeLoopPath(scope: ProcessScope, rest: readonly string[]): PathType {
+  if (!scope.repeat) return { ok: false, message: "{{loop}} is only available inside a repeat" };
+  const [field, id, part, ...tail] = rest;
+  if (field === "pass") {
+    if (id !== undefined) return { ok: false, message: "{{loop.pass}} is a number" };
+    return { ok: true, schema: { type: "integer" } };
+  }
+  // M61: what the agent said the last pass still needed, where it says when the repeat is done.
+  if (field === "feedback") {
+    if (!("agent" in scope.repeat.step.until)) {
+      return { ok: false, message: "{{loop.feedback}} is there when the agent says it is done" };
+    }
+    if (id !== undefined) return { ok: false, message: "{{loop.feedback}} is text" };
+    return { ok: true, schema: { type: "string" } };
+  }
+  if (field === "previous") {
+    if (id === undefined || !Object.hasOwn(scope.repeat.previous, id)) {
+      return {
+        ok: false,
+        message: "use loop.previous.<id>.output, where <id> is a step at the top of the repeat",
+      };
+    }
+    if (part !== "output") return { ok: false, message: `use loop.previous.${id}.output.<field>` };
+    return schemaAtPath(scope.repeat.previous[id], tail);
+  }
+  return { ok: false, message: "use loop.pass, loop.feedback or loop.previous.<id>.output" };
+}
+
+/**
+ * A repeat: not inside another, its wait between passes within bounds, and its `until` typed
+ * against what it sees after a pass: what the repeat sees, plus its own top-level steps (their
+ * outputs and how they ended).
+ */
+function checkRepeat(c: Checker, step: RepeatStep, scope: ProcessScope) {
+  if (scope.repeat) {
+    c.add(step.id, "", "repeat_nested", "a repeat can't be inside another repeat");
+  }
+  if (step.between !== undefined && isDuration(step.between)) {
+    const ms = parseDuration(step.between);
+    if (ms < REPEAT_BETWEEN_MIN_MS || ms > REPEAT_BETWEEN_MAX_MS) {
+      c.add(step.id, "between", "repeat_between", "wait between 1 minute and 7 days");
+    }
+  }
+  const after: ProcessScope = {
+    ...scope,
+    steps: { ...scope.steps },
+    repeat: { step, previous: passOutputs(step, c.ctx) },
+  };
+  for (const s of step.steps) after.steps[s.id] = { step: s, output: stepOutputSchema(s, c.ctx) };
+  if ("rules" in step.until) {
+    checkRules(c, step.id, step.until.rules, ["until", "rules"], after, true);
+    return;
+  }
+  // M61: the agent says when it is done. Its goal becomes instructions (invariant 9); what it
+  // reads (`show`) is data, typed where the rules would be.
+  checkFixedText(c, step.id, step.until.agent.goal, "until.agent.goal", "goal");
+  if (step.until.agent.show) {
+    checkRefs(c, step.id, step.until.agent.show, ["until", "agent", "show"], after);
+  }
+}
+
+/** The most paths a person can be asked to pick from (a person step's choices). */
+const ASK_CHOICES_MAX = 6;
+
+/**
+ * M61: an `if` the agent decides. Each path says when to take it (fixed text: it becomes the
+ * agent's instructions, invariant 9); its rules only guard what may be picked, so they may be
+ * empty; what the agent reads is typed like any input; a person asked to pick sees at most six.
+ */
+function checkAgentIf(c: Checker, step: Extract<Step, { kind: "if" }>, scope: ProcessScope) {
+  for (const p of step.paths) {
+    if (!p.describe?.trim()) {
+      c.add(p.id, "describe", "choice_describe_missing", "say when to take this path");
+    } else {
+      checkFixedText(c, p.id, p.describe, "describe", "path's description");
+    }
+    checkRules(c, p.id, p.when, ["when"], scope, false);
+  }
+  if (step.show) checkRefs(c, step.id, step.show, ["show"], scope);
+  if (step.ifUnsure === "ask" && step.paths.length > ASK_CHOICES_MAX) {
+    c.add(
+      step.id,
+      "ifUnsure",
+      "choice_too_many",
+      `a person can pick from at most ${ASK_CHOICES_MAX} paths`,
+    );
+  }
+}
+
+/**
+ * About how many durable steps a run of these steps takes at most: each step one, an `if` its
+ * longest path, a `for_each` its steps once (its size is known only at run time), a repeat its
+ * steps plus its check and wait, times `maxTimes`. An estimate, to refuse what can't fit.
+ */
+export function durableEstimate(steps: readonly Step[]): number {
+  let n = 0;
+  for (const step of steps) {
+    n += 1;
+    if (step.kind === "if") {
+      n += Math.max(
+        durableEstimate(step.otherwise.steps),
+        ...step.paths.map((p) => durableEstimate(p.steps)),
+      );
+    } else if (step.kind === "for_each") {
+      n += durableEstimate(step.steps);
+    } else if (step.kind === "repeat") {
+      n += Math.min(step.maxTimes, REPEAT_MAX_TIMES) * (durableEstimate(step.steps) + 2);
+    }
+  }
+  return n;
+}
+
+/** v0.17: the size of a step list holding a repeat, and advice on what sits inside one. */
+function repeatProblems(steps: readonly Step[]): {
+  errors: ProcessValidationError[];
+  warnings: ProcessWarning[];
+} {
+  const errors: ProcessValidationError[] = [];
+  const warnings: ProcessWarning[] = [];
+  let any = false;
+  walkSteps({ steps: [...steps] }, ({ step, repeats }) => {
+    if (step.kind === "repeat") any = true;
+    const inside = repeats.at(-1);
+    if (!inside) return;
+    if (step.kind === "write") {
+      warnings.push({
+        stepId: step.id,
+        field: "",
+        code: "repeat_write",
+        message: `this can change the client's tools on every pass of "${inside.name}"`,
+      });
+    } else if (step.kind === "for_each") {
+      warnings.push({
+        stepId: step.id,
+        field: "",
+        code: "repeat_for_each",
+        message: `a for each inside "${inside.name}" runs once per item on every pass: keep its list short`,
+      });
+    }
+  });
+  if (any) {
+    const estimate = durableEstimate(steps);
+    if (estimate > REPEAT_DURABLE_MAX) {
+      errors.push({
+        stepId: null,
+        field: "steps",
+        code: "repeat_too_big",
+        message: `with every repeat at its most passes this could take about ${estimate} steps, over ${REPEAT_DURABLE_MAX}: lower a repeat's most passes or split the workflow`,
+      });
+    }
+  }
+  return { errors, warnings };
 }
 
 // ── Triggers and handoff ─────────────────────────────────────────────────────────────────────
@@ -1842,17 +2079,17 @@ function splitWarnings(process: Process): ProcessWarning[] {
       stepId: null,
       field: "steps",
       code: "split_long",
-      message: `${count} steps: a process of more than ${SPLIT_MAX_STEPS} is easier to follow split in two`,
+      message: `${count} steps: a workflow of more than ${SPLIT_MAX_STEPS} is easier to follow split in two`,
     });
   }
   walkSteps(process, ({ step, depth }) => {
     // Once per too-deep branch: at the first level past the limit.
-    if ((step.kind === "if" || step.kind === "for_each") && depth === SPLIT_MAX_DEPTH) {
+    if (isLogic(step) && depth === SPLIT_MAX_DEPTH) {
       warnings.push({
         stepId: step.id,
         field: "",
         code: "split_deep",
-        message: `logic nested more than ${SPLIT_MAX_DEPTH} deep: consider a separate process`,
+        message: `logic nested more than ${SPLIT_MAX_DEPTH} deep: consider a separate workflow`,
       });
     }
   });
@@ -1942,6 +2179,7 @@ export function validateProcessAutomation(
   // DECISION (wave 5, fix 3): an automation's output is the using step's output, which a write's
   // input reads anywhere: it never carries a step's error message, as a process step's input.
   checkErrorMessage(c, "", def.output, ["output"]);
+  errors.push(...repeatProblems(def.steps).errors);
   for (const e of errors) if (e.stepId === "") e.stepId = null;
   return { valid: errors.length === 0, errors, value: def };
 }
@@ -1978,10 +2216,12 @@ export function validateProcess(
   const allowed = allowedTools(ctx);
   for (const { step, scope } of list) checkStep(c, step, scope, allowed);
   checkReshapeNext(c, process);
+  const repeats = repeatProblems(process.steps);
+  errors.push(...repeats.errors);
   return {
     valid: errors.length === 0,
     errors,
-    warnings: [...splitWarnings(process), ...warnings],
+    warnings: [...splitWarnings(process), ...repeats.warnings, ...warnings],
     value: process,
   };
 }

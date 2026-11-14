@@ -4488,6 +4488,37 @@ are skipped). The two run side by side: AP bill clerk doesn't wait.
 | Run views | The sender's step: "Handed off to Price checker (run R-1a2b3c)", linking to the run (back office and portal: `TimelineStep.handoff`). The run started: "Handed off from AP bill clerk (run R-1a2b3c) · started at 5 · Itemize the invoice" in its header (`RunHandoffView`, `handedOffFrom`). Portal words in all six languages; the portal gets names and a run id only (invariant 11). |
 | Checked | `packages/core/src/process/handoff.test.ts`, `packages/workflows/src/handoff.test.ts`, `apps/api/src/handoff-runtime.test.ts` (a real run of A handing off to B at its step 2, the trigger, both pages, the rules, a test run, a target not started, save-time validation), `apps/web/src/ops/builder/handoff.builder.test.tsx`, and the run views' tests. |
 
+### 1.99 Automations again, loops, and the agent chooses the path (owner, 2026-11-14; ARCHITECTURE v0.17 §10.14)
+
+"Go back to automations rather than process and add the ability to add a loop, so some automations
+have loops, others don't; we can build the loops as a single automation in an agent or as a step
+within an agent." And: "allowing Pia to actually assess the task and choose the path." (Numbered §1.99: §1.97 and §1.98 went to the
+texting work, merged first; migration 0048's header, on `main` before the renumber, still says §1.97.) Pia stands
+for any agent: the owner of an agent is the agent itself, so each agent chooses its own paths.
+
+| Topic | Decision |
+|---|---|
+| Words | "Automation" for a reused chain of steps, "workflow" for an agent's own step list, in every screen, the Library (the bank "Workflows", its reused chains under "Automations"), the builder's palette, validation messages, the API's error words and the docs. The portal's catalogs had no "process" in this sense. Model prompts keep their wording, so recorded fixtures replay. Stored kinds, rows and JSON fields keep their names (`process` step kind, `automation_version`); code names may stay. // DECISION: words only (invariant 3). |
+| One loop construct | A `repeat` step, usable anywhere a step goes, automations included. "An automation with a loop" is one whose steps hold a `repeat`; "a loop as a step" is a `repeat` in the agent's workflow. One schema, one validator, one executor. // DECISION: not a loop flag on automations, which would give two ways to say the same thing. |
+| When it ends | `until` is plain rules (a confer's verdicts included) or the agent with a goal; `maxTimes` 1–10, default 3, required. `onLimit`: `stop` (default) or `proceed`; the outcome `done` or `limit` lets an `if` route a limit to a person. // DECISION: no `escalate` on the limit; an outcome fork already does it. |
+| Between passes | Optional `between`, 1 minute to 7 days, a durable wait on clock time. // DECISION: no business hours here; a person step inside uses the person's hours. |
+| Size | `durableEstimate` counts each step once, an `if` its longest path, a `for_each` its steps once, a `repeat` its steps plus 2 (its check and wait) times `maxTimes`; a version over 900 is refused (`repeat_too_big`; Cloudflare's 1,024 per instance, §1.86 "Forks"), checked only when a repeat is present, so nothing stored changes. A `for_each` inside a `repeat` and a write inside one are warnings (`repeat_for_each`, `repeat_write`). A `repeat` anywhere inside a `repeat` is refused (`repeat_nested`); `between` outside 1 minute to 7 days is `repeat_between`; `onError` on a repeat is refused (its inner steps carry it). // DECISION |
+| Node ids | `${repeatId}:r${pass}:${innerStepId}`, so writes, approvals and batch keys are per pass and a replay finds each pass; the check is `${repeatId}:r${pass}:until` and the wait `${repeatId}:r${pass}:wait`. `stepNodeOf` reads `r<n>` as it reads a loop's index; the back office's checklist names the pass ("· pass 2"). // DECISION: `r` keeps them apart from `for_each`'s `${stepId}:${index}:${childId}`. |
+| Run row | The repeat's `step_run` (`node_type` `repeat`, no check constraint) keeps `{ passes, done }` and the line "done after 2 rounds" / "stopped after 3 rounds" (core's timeline words, six languages); a stop at the limit fails the run with `error.key` `repeat:limit`. The scope's output adds `last`. A retried run's reused repeat reads `done` back as its outcome. |
+| Portal | A repeat is logic: hidden by default, like `for_each`; the steps inside show pass after pass. // DECISION: not a "Round 2" group in the portal; the order shows it, and logic stays out of the client's view unless the operator shows it. |
+| Choosing a path | `if` gains `decide: 'rules' \| 'agent'` (default `rules`), each path a `describe` (required when the agent decides), `show` and `ifUnsure: 'otherwise' \| 'ask'`. A path's `when` guards what the agent may pick. One model call on the owner's model, no tools; one allowed path or none makes no call. |
+| Saying a loop is done | `until: { agent: { goal } }`: the same call after each pass; its `feedback` is the next pass's `{{loop.feedback}}`. A failed or over-budget answer counts as the limit. // DECISION: never "again" by default, so a broken check can't spend passes. |
+| Budget | Choices count in the run's cost within the owner's `maxCostUsd`; they are not interventions (`maxPerRun` unchanged). // DECISION |
+| Record | `oversight_decision`, cause `choose` or `until`, action `choose`, `unsure`, `done` or `again`, the path in a new `choice` column. Migration 0048, additive, its own PR (M60). // DECISION: one table for everything the owner decides, not a new one. |
+| Portal | "Pia chose: Get two quotes"; "Pia wasn't sure, so it asked: …"; "Pia wasn't sure: otherwise"; "done after 2 rounds". Never the reason, goal, feedback or cost. // DECISION: the reason is model text (invariant 11, as oversight notes); for the owner to revisit. |
+| Unsure, ask | The client admin, as a person step with the allowed paths as quick answers, 1 day, `ifNoAnswer: stop`, under `${if}:ask`. // DECISION: an `if` names no approver; the client admin is the approver rules' last fallback. |
+| Prompt | The agent's identity and instructions, the step and its paths (id, name, "take this when") or the goal; the run's data in a tool result. No memory notes, as the owner's reviews. // DECISION |
+| First load | This work's core code (the repeat and choice checks) took the web app's first load over its 470 kB budget (`scripts/web-size.mjs`: 469.7 kB on main, 471.3 kB with it), because without a `sideEffects` field every module `@countersign/core`'s index re-exports was kept in the first load, the v4 validator included. `packages/core/package.json` now says `"sideEffects": false`: no core module does anything at import but define (checked: no top-level calls; zod's `.meta` ids are read only through schemas their callers import). First load 441.7 kB. The API Worker bundles and its tests pass. // DECISION |
+| Builder | The palette's logic section gains "Repeat"; an `if` with two or more paths offers "Let <agent> choose", which asks for each path's "Take this when…"; "Save as automation" works on selected steps that include a `repeat`. A write inside a `repeat` shows a warning. |
+
+Open for the owner: whether the portal should show the agent's reason for a choice; whether `between`
+should be allowed in business hours; whether a `repeat` should ever allow more than 10 passes.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
@@ -5509,6 +5540,87 @@ tools, skills, card and report with database tests, the Bookkeeper's monthly and
 the card and the Reconciliations screen in six languages, and `apps/api/src/reconcile.test.ts`
 (October explained by a deposit in transit and signed off, November carrying it in where it
 clears). Open: QuickBooks' register and Plaid's balances checked in their sandboxes (`NOTES.md`).
+
+### M58: Automations and workflows, the words back (A-1, §1.99)
+
+Copy only: the builder, the Library's bank, the back office, the portal, the Builder chat and the
+six message catalogs say "automation" for a reused chain and "workflow" for an agent's own steps;
+the docs follow. No schema, route or stored version changes.
+
+Tests: the catalog checks (every key in all six languages); the builder's and Library's tests
+updated to the new words; a test that the Library's bank lists automations by their stored rows.
+
+**Done when** no screen calls an agent's steps or a reused chain a "process", and every stored
+version opens and runs unchanged.
+
+### M59: Repeat, decided by rules (A-2, §1.99)
+
+Core: the `repeat` step in the v4 schema, its templates (`loop.pass`, `loop.previous`), the
+validator's limits and size estimate, the walkers and the merge. Workflows: the executor's passes,
+`until` rules, `between` waits, `onLimit`, outcomes, per-pass node ids. The builder's palette and
+inspector, the run views (back office and portal, six languages), test runs.
+
+Tests: an RFQ draft automation, confer-checked by a second model and repeated until it agrees, ends
+after its second pass in two agents that use it; a QuickBooks bill checked every hour (fake clock)
+until it is paid; `maxTimes` reached with `proceed` routes on `limit` to a person step; a write
+inside asks approval per pass with its own key, and a retried run redoes no pass; refused: `maxTimes`
+11, a `repeat` in a `repeat`, a version over 900 steps; a merge of one side's `maxTimes` change with
+the other side's inner step change.
+
+**Done when** a loop runs as an automation in one agent and as a step in another, each ending on
+its rules within its limit, with every write approved once per pass.
+
+Built (2026-11-14): `processes.RepeatStep` and its walkers, validation, scopes and field picker
+(`repeatUntilPaths`), the outcome words, merge flattening, "Save as automation" and the Builder's
+id aliases; the executor's passes (`packages/workflows/src/repeat.test.ts`); the builder's palette,
+block and inspector; the run checklist's pass. Tests: `packages/core/src/process/repeat.test.ts`,
+`packages/workflows/src/repeat.test.ts`, the builder's "adds a repeat". Open: the RFQ and QuickBooks
+examples run end to end on staging once those connectors are live (`docs/open.md`).
+
+### M60: Migration 0048, the agent's choices (A-3, §1.99)
+
+Its own PR: `oversight_decision` checks widened (cause `choose`, `until`; action `choose`, `unsure`,
+`done`, `again`) and a nullable `choice` text column. Additive: the previous Worker never writes
+them.
+
+Tests: the migration test loops, RLS and purge fixtures; the old Worker's inserts still pass.
+
+**Done when** 0048 applies on staging ahead of M61.
+
+Built (2026-11-14): `packages/db/migrations/0048_agent_choices.sql` (drizzle-kit numbered it 0047,
+since the journal skips 0035; renamed, its snapshot `0048_snapshot.json`, 0047's restored), the
+schema's `CHOICE_CAUSES` and `CHOICE_ACTIONS` beside the review's own (so `owner_check` keeps its
+narrower check), `src/agent-choices-migration.test.ts`. The review's readers keep to review causes:
+the owner's history and `existing`, the run view's lines, and the per-run intervention count (a
+choice's cost still counts). The client fixture names its decision's columns, so a client seeded on
+a database at an earlier migration gets one. Its own PR, before M61's.
+
+### M61: The agent chooses (A-4, §1.99)
+
+Core: `decide`, `describe`, `show`, `ifUnsure` on `if`, `until: { agent }` on `repeat`, the answer
+schemas and portal words. Agents: the choice call beside `overseeStep`, its rows written from
+`src/log/`. Workflows: a `ChoicePort` the executor calls, so it stays free of models. The builder's
+"Let <agent> choose" and "Take this when…"; the run views.
+
+Tests (recorded, `LLM_MODE=replay`): the buyer picks "reorder from the usual vendor" or "get two
+quotes" (each path an automation) with a reason and sources; a path whose rules fail is never picked
+even when the model names it; one allowed path makes no call; `unsure` with `ask` waits for the
+approver's pick; a `repeat` revises an RFQ with the agent's feedback until it says done, and a bad
+answer ends it at the limit; a replay decides nothing twice; the portal shows "Pia chose: Get two
+quotes" and no reason or cost (contract test); a test-bench case expecting a path passes.
+
+**Done when** an agent on staging assesses a purchase request, picks how to handle it among paths
+the operator built, and every write on that path is approved as before.
+
+Built (2026-11-14): core's `decide`, `describe`, `show`, `ifUnsure` on `if` and `until: { agent }` on
+`repeat`, their validation (`choice_describe_missing`, `choice_too_many`, fixed text, typed `show`),
+`{{loop.feedback}}`, the answer schemas (`processes.PathChoiceAnswer`, `PassVerdictAnswer`,
+`pickedPath`) and the timeline words; the executor's `agentFork` and the repeat's agent check
+through a `ChoicePort` (`packages/workflows/src/choose.test.ts`); `choosePath` and `judgePass` in
+`packages/agents/src/runtime/choose.ts` with the store's `existingChoice` and `recordChoice`
+(`choose.unit.test.ts`); apps/api's `choicePort`; the builder's "Let <agent> choose", "Take this
+when" and "<agent> says it's done". Open: recorded fixtures of the buyer's real choice on staging,
+once the connectors are live (`docs/open.md`).
 
 ---
 

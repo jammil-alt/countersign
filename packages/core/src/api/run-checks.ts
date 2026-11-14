@@ -36,14 +36,15 @@ import { singleRef } from "../template/template";
 
 /**
  * A step_run's or an item's node id split into the step it belongs to and the check suffix after it
- * (the executor's durable names: `<id>`, `<loop>:<n>:<child>` chains, then `:confer:<n>`,
- * `:approval:<n>:a<k>`, `:signoff:a<k>`, `:notify:<n>`, `:help`, `:seen` …). Step ids never hold
- * `:`, and a loop's index is all digits, so the first segment that is neither starts the suffix.
+ * (the executor's durable names: `<id>`, `<loop>:<n>:<child>` chains, v0.17's
+ * `<repeat>:r<pass>:<child>`, then `:confer:<n>`, `:approval:<n>:a<k>`, `:signoff:a<k>`,
+ * `:notify:<n>`, `:help`, `:seen` …). Step ids never hold `:`, and a loop's index is all digits (a
+ * repeat's pass `r` and digits), so the first segment that is neither starts the suffix.
  */
 export function stepNodeOf(nodeId: string): { node: string; suffix: string[] } {
   const segs = nodeId.split(":");
   let i = 1;
-  while (i + 1 < segs.length && /^\d+$/.test(segs[i] as string)) i += 2;
+  while (i + 1 < segs.length && /^r?\d+$/.test(segs[i] as string)) i += 2;
   return { node: segs.slice(0, i).join(":"), suffix: segs.slice(i) };
 }
 

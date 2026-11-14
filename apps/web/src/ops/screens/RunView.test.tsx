@@ -149,6 +149,7 @@ describe("run checklist", () => {
   it("reads loop node ids", () => {
     expect(parseNodeId("each:2:child")).toEqual({ stepId: "child", index: 2 });
     expect(parseNodeId("update")).toEqual({ stepId: "update", index: null });
+    expect(parseNodeId("rep:r2:child")).toEqual({ stepId: "child", index: null, pass: 2 });
   });
 });
 

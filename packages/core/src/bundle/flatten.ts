@@ -92,7 +92,9 @@ export function childLists(entity: Pick<Entity, "key" | "kind" | "content">): st
       if (isBranching(entity.content.kind)) {
         return [`${entity.key}>paths`, `${entity.key}>otherwise`];
       }
-      if (entity.content.kind === "for_each") return [`${entity.key}>steps`];
+      if (entity.content.kind === "for_each" || entity.content.kind === "repeat") {
+        return [`${entity.key}>steps`];
+      }
       return [];
     default:
       return [];
@@ -132,7 +134,7 @@ export function flattenBundle(bundle: AnyAgentBundle): FlatBundle {
         }
         add(`otherwise:${otherwise.id}`, "otherwise", { id: otherwise.id }, `${key}>otherwise`);
         steps(otherwise.steps, `otherwise:${otherwise.id}>steps`);
-      } else if (step.kind === "for_each") {
+      } else if (step.kind === "for_each" || step.kind === "repeat") {
         const { steps: inner, ...content } = step;
         add(key, "step", content, list);
         steps(inner, `${key}>steps`);
@@ -209,7 +211,8 @@ export function buildEntity(flat: FlatBundle, key: string): Record<string, unkno
         };
         return { ...c, paths: list(`${key}>paths`), otherwise };
       }
-      if (c.kind === "for_each") return { ...c, steps: list(`${key}>steps`) };
+      if (c.kind === "for_each" || c.kind === "repeat")
+        return { ...c, steps: list(`${key}>steps`) };
       return c;
     default:
       return c;

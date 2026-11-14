@@ -552,6 +552,7 @@ export const it: Messages = {
   "run.outcome.timed_out": "tempo scaduto",
   "run.outcome.some_failed": "alcuni elementi non riusciti",
   "run.outcome.all_failed": "nessun elemento riuscito",
+  "run.outcome.limit": "ha raggiunto il numero massimo di giri",
   "run.outcome.completed": "completato",
   "run.outcome.stopped": "fermato",
   "run.who.client_admin": "il tuo amministratore",

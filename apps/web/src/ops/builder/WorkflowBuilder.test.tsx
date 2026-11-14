@@ -637,6 +637,41 @@ describe("WorkflowBuilder", () => {
     expect(screen.getByTestId("builder-rail-step")).toHaveAttribute("aria-selected", "true");
   });
 
+  // v0.17: a repeat from the palette, its steps in its own block.
+  it("adds a repeat and sets its most passes, its wait and what happens at the limit", async () => {
+    setup();
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-logic:repeat-add"));
+    const block = document.querySelector<HTMLElement>('[data-testid^="builder-repeat-"]');
+    expect(block).not.toBeNull();
+    expect(block).toHaveTextContent("up to 3 times");
+    expect(screen.getByTestId("builder-inspector")).toHaveTextContent("again until its rule holds");
+    // A controlled number field: one change, as typing digit by digit would clamp on the way.
+    fireEvent.change(screen.getByTestId("builder-repeat-max"), { target: { value: "5" } });
+    await user.type(screen.getByTestId("builder-repeat-between"), "1 hour");
+    await user.selectOptions(screen.getByTestId("builder-repeat-on-limit"), "proceed");
+    expect(block).toHaveTextContent("up to 5 times · 1 hour apart");
+    expect(screen.getByTestId("builder-repeat-on-limit")).toHaveValue("proceed");
+  });
+
+  // M61: an if the agent decides, each path saying when to take it.
+  it("lets the agent choose an if's path, asking when to take each one", async () => {
+    setup();
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-step-confidence-select"));
+    expect(screen.queryByTestId("builder-path-low-describe")).toBeNull();
+    await user.click(screen.getByTestId("builder-if-agent"));
+    await user.type(screen.getByTestId("builder-path-low-describe"), "a line looks wrong");
+    await user.selectOptions(screen.getByTestId("builder-if-unsure"), "ask");
+    expect(screen.getByTestId("builder-path-low-describe")).toHaveValue("a line looks wrong");
+    expect(screen.getByTestId("builder-if-unsure")).toHaveValue("ask");
+    await user.click(screen.getByTestId("builder-if-agent"));
+    expect(screen.queryByTestId("builder-if-unsure")).toBeNull();
+  });
+
   it("groups triggers into a few kinds with plain names", async () => {
     setup();
     await ready();
@@ -1714,7 +1749,7 @@ describe("WorkflowBuilder on processes", () => {
     await user.click(screen.getByTestId("builder-add-step"));
     await user.click(screen.getByTestId("builder-palette-item-process:correct@1-add"));
     expect(screen.getByTestId("builder-approval-none")).toHaveTextContent(
-      "approved inside that process",
+      "approved inside that automation",
     );
     expect(screen.getByTestId("builder-approval-none")).not.toHaveTextContent("changes nothing");
     await user.click(screen.getByTestId("builder-add-step"));

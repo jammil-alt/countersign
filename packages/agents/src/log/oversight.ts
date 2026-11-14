@@ -7,6 +7,7 @@
 
 import {
   agent,
+  CHOICE_CAUSES,
   type Db,
   externalAction,
   inboxItem,
@@ -21,6 +22,7 @@ import {
 } from "@countersign/db";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { clientApproverSetting } from "../registry/runtime-store";
+import type { ChoiceRecord, ChoiceStore } from "../runtime/choose";
 import { resolveApprover } from "../runtime/context";
 import type {
   DecisionRecord,
@@ -98,8 +100,37 @@ async function proposalItem(
   return row.id;
 }
 
-export function dbOversightStore(db: Db): OversightStore {
+export function dbOversightStore(db: Db): OversightStore & ChoiceStore {
   return {
+    // M61 (ARCHITECTURE v0.17 §10.14): the agent's choices, kept beside its reviews (0048).
+    existingChoice(tenantId, key) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .select({ action: oversightDecision.action, choice: oversightDecision.choice })
+          .from(oversightDecision)
+          .where(
+            and(
+              eq(oversightDecision.tenantId, tenantId),
+              eq(oversightDecision.runId, key.runId),
+              eq(oversightDecision.nodeId, key.nodeId),
+              eq(oversightDecision.seq, key.seq),
+              inArray(oversightDecision.cause, [...CHOICE_CAUSES]),
+            ),
+          );
+        if (!row) return null;
+        const action = row.action as ChoiceRecord["action"];
+        return { action, choice: row.choice };
+      });
+    },
+    recordChoice(tenantId, c) {
+      return withTenant(db, tenantId, async (tx) => {
+        await tx
+          .insert(oversightDecision)
+          .values({ tenantId, ...c })
+          // A choice already kept for this node and pass stays as it was (insert only).
+          .onConflictDoNothing();
+      });
+    },
     // R6 (docs/plan.md §1.86): the owner's watch compares a total with this agent's earlier ones:
     // its live runs' succeeded steps of the same workflow, newest first, this client only.
     recentOutputs(tenantId, input) {

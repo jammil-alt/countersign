@@ -255,7 +255,7 @@ export function oneProcessProblems(bundle: Pick<AnyAgentBundle, "workflows">): {
         stepId: null,
         field: `workflows.${i}`,
         code: "one_process",
-        message: `an agent owns one process: "${w.slug}" runs beside "${first}", so make it its own agent (a handoff trigger can join them), or turn it off`,
+        message: `an agent owns one workflow: "${w.slug}" runs beside "${first}", so make it its own agent (a handoff trigger can join them), or turn it off`,
       });
     }
   }

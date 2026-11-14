@@ -535,6 +535,7 @@ export const en = {
   "run.outcome.timed_out": "timed out",
   "run.outcome.some_failed": "had some items fail",
   "run.outcome.all_failed": "had every item fail",
+  "run.outcome.limit": "reached its most passes",
   "run.outcome.completed": "was completed",
   "run.outcome.stopped": "stopped",
   "run.who.client_admin": "your admin",
