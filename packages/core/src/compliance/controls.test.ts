@@ -1,4 +1,4 @@
-// The security register (§1.100): ids are stable and unique, every reference resolves and the
+// The security register (§1.102): ids are stable and unique, every reference resolves and the
 // summaries count what they say. That its evidence files exist is checked in apps/api
 // (compliance-register.test.ts), which has Node.
 import { describe, expect, it } from "vitest";

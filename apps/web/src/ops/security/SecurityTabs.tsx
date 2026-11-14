@@ -1,4 +1,4 @@
-// The Security section's tabs (docs/plan.md §1.100), shared by its pages and the audit log.
+// The Security section's tabs (docs/plan.md §1.102), shared by its pages and the audit log.
 import { Tabs } from "../../ui/primitives";
 import { SECURITY_PATHS } from "./paths";
 

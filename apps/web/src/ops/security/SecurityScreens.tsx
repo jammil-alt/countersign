@@ -1,4 +1,4 @@
-// Security and compliance (`/ops/security/*`, docs/plan.md §1.100): one place for everything that
+// Security and compliance (`/ops/security/*`, docs/plan.md §1.102): one place for everything that
 // protects clients' data, from our own controls to each client's standing, so the owner can show an
 // auditor or a client's IT team where things are, and work through SOC 2, HIPAA and PCI.
 //
@@ -8,7 +8,7 @@
 // working), Clients (each client's tier and access, with a summary page for its IT team) and the
 // Audit log (moved here from Utilities).
 //
-// DECISION (§1.100): the register is code (`CONTROLS`), so these pages read it from
+// DECISION (§1.102): the register is code (`CONTROLS`), so these pages read it from
 // `@countersign/core`; only what changes with the data (clients, BAAs, the audit log) comes from
 // GET /api/ops/security.
 import {

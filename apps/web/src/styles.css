@@ -283,7 +283,7 @@
   }
 }
 
-/* §1.100: a security summary prints without the frame (top bar, sidebar) or its buttons and tabs. */
+/* §1.102: a security summary prints without the frame (top bar, sidebar) or its buttons and tabs. */
 @media print {
   .ui-topbar,
   .ui-sidebar,

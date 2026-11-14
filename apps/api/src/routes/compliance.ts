@@ -219,7 +219,7 @@ export function complianceRouteHandlers(app: Hono<AppEnv>): void {
     return { users: [...users.values()], generatedAt: new Date().toISOString() };
   });
 
-  // ── The Security section (§1.100) ──────────────────────────────────────────────────────────────
+  // ── The Security section (§1.102) ──────────────────────────────────────────────────────────────
 
   mount(app, routes.opsSecurity, async ({ tx, tenantIds, services }) => {
     const covered = [...coveredProcessors(services.env)];

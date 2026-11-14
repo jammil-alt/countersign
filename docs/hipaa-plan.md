@@ -4,7 +4,7 @@ The plan from here to a client in HIPAA mode, a SOC 2 report and a PCI self-asse
 `docs/security.md` has what is done. The design is in `docs/plan.md` §1.35. Each control, its
 status and its SOC 2, HIPAA and PCI references are in the register
 (`packages/core/src/compliance/controls.ts`), shown in the back office at `/ops/security`
-(`docs/plan.md` §1.100).
+(`docs/plan.md` §1.102).
 Last updated 2026-11-06.
 
 Until #82 and #84 merge, `docs/plan.md` §1.35 and `docs/operations.md` §1.2 exist only on their

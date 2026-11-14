@@ -6,7 +6,7 @@ outside the code. It is the record behind HIPAA, SOC 2 and PCI DSS; what is stil
 The policies we commit to are in `docs/policies/` (information security; data retention and
 deletion; adopted 2026-11-09). Every control with its status, evidence and framework references is
 in the register (`packages/core/src/compliance/controls.ts`), shown at `/ops/security`
-(`docs/plan.md` §1.100).
+(`docs/plan.md` §1.102).
 
 Status, 2026-11-06:
 - The settings outside the code are all in place (table below).
@@ -153,7 +153,7 @@ branches.
 - **Secret scanning** with push protection is on.
 - **Production is scanned from outside** every Monday and after each production release
   (`.github/workflows/zap-scan.yml`, OWASP ZAP's baseline scan of `https://app.mezonas.com`; plan
-  §1.100). It reads pages and headers only, never signs in and never reaches client data. Findings
+  §1.102). It reads pages and headers only, never signs in and never reaches client data. Findings
   go to one GitHub issue, "Production scan: findings", and are fixed on the policy's deadlines.
   Staging is not scanned. Until production's first release, the run says so and stops.
 - Migrations, CI changes and sign-in changes each get their own pull request, so each can be
@@ -193,7 +193,7 @@ finding each setting.
 | GitHub, `countersign` | CodeQL Default setup | Off (we run `codeql.yml`) |
 | GitHub, `countersign` | Ruleset "Protect main" | PR required; `checks / check`, `checks / static`, `analyze`; no force push or delete; admin bypass |
 | Neon, `mezonas` (Launch) | History window (Settings → Postgres) | 7 days (was 1) |
-| Cloudflare, account | Security Center → Security Insights | **To switch on** (owner; plan §1.100, control CHG-8); its findings are reviewed every quarter |
+| Cloudflare, account | Security Center → Security Insights | **To switch on** (owner; plan §1.102, control CHG-8); its findings are reviewed every quarter |
 
 ## 11. Our vendors
 

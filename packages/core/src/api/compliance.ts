@@ -100,11 +100,11 @@ export const RetireClient = z.strictObject({
   confirmName: z.string().trim().min(1).max(200),
 });
 
-/** §1.100: one client's place in the Security section: its tier, who can reach it, and its state. */
+/** §1.102: one client's place in the Security section: its tier, who can reach it, and its state. */
 export const SecurityClientRow = z.object({
   id: z.string(),
   name: z.string(),
-  /** Regulated = HIPAA mode (§1.100); everyone else is Standard. */
+  /** Regulated = HIPAA mode (§1.102); everyone else is Standard. */
   tier: z.enum(["standard", "regulated"]),
   sandbox: z.boolean(),
   retiredAt: z.string().nullable(),

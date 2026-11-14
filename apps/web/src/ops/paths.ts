@@ -30,7 +30,7 @@ export const OPS_PATHS = {
   utilities: "/ops/utilities",
   feedback: "/ops/utilities/feedback",
   requests: "/ops/utilities/requests",
-  // §1.100: the audit log is a tab of Security and compliance (./security/paths.ts).
+  // §1.102: the audit log is a tab of Security and compliance (./security/paths.ts).
   audit: "/ops/security/audit",
   security: "/ops/security",
   // Wave 6: the audit queue (runs picked for a person to check), a Utilities tab.

@@ -1,4 +1,4 @@
-// The security register (docs/plan.md §1.100) names files as evidence: each must exist, so the
+// The security register (docs/plan.md §1.102) names files as evidence: each must exist, so the
 // register can't drift from the code. Here rather than in packages/core, which has no Node.
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";

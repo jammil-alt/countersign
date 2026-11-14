@@ -78,7 +78,7 @@ describe("ops audit log", () => {
     });
     renderAt("/ops/audit", api);
     expect(await screen.findByRole("heading", { name: "Audit log" })).toBeInTheDocument();
-    // The old address lands on its Security tab (§1.100), with the sidebar's Security current.
+    // The old address lands on its Security tab (§1.102), with the sidebar's Security current.
     expect(screen.getByTestId("ops-nav-security")).toHaveAttribute("aria-current", "page");
     const tabs = screen.getByTestId("security-tabs");
     expect(within(tabs).getByRole("link", { name: "Audit log" })).toHaveAttribute(

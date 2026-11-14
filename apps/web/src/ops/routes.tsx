@@ -83,7 +83,7 @@ import { OpsRunAuditScreen } from "./screens/RunAuditQueue";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
 import { OpsUsageScreen } from "./screens/Usage";
-// §1.100: Security and compliance
+// §1.102: Security and compliance
 import {
   SecurityClientScreen,
   SecurityClientsScreen,
@@ -210,7 +210,7 @@ export const opsRoutes = (
     <Route path="usage" element={<OpsUsageScreen />} />
     <Route path="billing" element={<OpsBillingScreen />} />
     {/* Utilities: feedback, the audit queue and requests, a tab each (the audit log moved to
-        Security, §1.100). Website
+        Security, §1.102). Website
         logins are in the Library (R8): main's Websites tab redirects there. */}
     <Route path="utilities" element={<Redirect to="/ops/utilities/feedback" />} />
     <Route path="utilities/feedback" element={<OpsFeedbackScreen />} />
@@ -222,7 +222,7 @@ export const opsRoutes = (
     <Route path="feedback" element={<Redirect to="/ops/utilities/feedback" />} />
     <Route path="run-audit" element={<Redirect to="/ops/utilities/run-audit" />} />
     <Route path="audit" element={<Redirect to="/ops/security/audit" />} />
-    {/* §1.100 Security and compliance: our controls, vendors, policies and routines, each
+    {/* §1.102 Security and compliance: our controls, vendors, policies and routines, each
         client's standing (with a summary for its IT team) and the audit log, a tab each. */}
     <Route path="security" element={<SecurityOverviewScreen />} />
     <Route path="security/controls" element={<SecurityControlsScreen />} />

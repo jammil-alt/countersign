@@ -1,4 +1,4 @@
-// `/ops/security/audit` (docs/plan.md §1.33; a Security tab since §1.100): the audit log, who read or changed what, newest first, with
+// `/ops/security/audit` (docs/plan.md §1.33; a Security tab since §1.102): the audit log, who read or changed what, newest first, with
 // filters in the URL (`?client=`, `?user=`, `?action=`, `?outcome=`, `?from=`, `?to=`) and "Load
 // older" paging; and the access review (`?view=access`): every user, their role in each client and
 // when they last signed in, with a CSV download. Operator only; clients don't see the log in v1.

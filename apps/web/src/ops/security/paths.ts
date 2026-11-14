@@ -1,4 +1,4 @@
-// The Security section's pages (docs/plan.md §1.100; the routes: ../routes.tsx).
+// The Security section's pages (docs/plan.md §1.102; the routes: ../routes.tsx).
 export const SECURITY_PATHS = {
   overview: "/ops/security",
   controls: "/ops/security/controls",

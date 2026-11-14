@@ -1,4 +1,4 @@
-// Security and compliance (§1.100): the overview's frameworks and figures, the register filtered
+// Security and compliance (§1.102): the overview's frameworks and figures, the register filtered
 // by framework, the vendors with their BAA, a client's summary for its IT team, and the audit log's
 // move from Utilities.
 import { CONTROLS, FRAMEWORKS } from "@countersign/core";

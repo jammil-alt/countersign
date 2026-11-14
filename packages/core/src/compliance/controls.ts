@@ -1,4 +1,4 @@
-// The security and compliance register (docs/plan.md §1.100): every control Mezonas runs, what it
+// The security and compliance register (docs/plan.md §1.102): every control Mezonas runs, what it
 // commits to, where an auditor or a client's IT team sees the evidence, whether it is in place,
 // and which framework requirements it answers. The back office's Security section reads it; so
 // will the evidence pack and the questionnaire answers (S-3, S-5).
@@ -7,11 +7,11 @@
 // the work lands. What the code enforces is described in `docs/security.md`; what we commit to is
 // in `docs/policies/`; what is still open is in `docs/hipaa-plan.md`.
 //
-// DECISION (§1.100): framework references are our own mapping, at the level an auditor starts from
+// DECISION (§1.102): framework references are our own mapping, at the level an auditor starts from
 // (SOC 2 Trust Services Criteria 2017, rev. 2022; the HIPAA Security Rule, 45 CFR 164 Subpart C;
 // PCI DSS v4.0.1 SAQ A, by requirement). The auditor confirms them; the screen says so.
 //
-// DECISION (§1.100): two tiers. Every client gets the Standard controls. A Regulated client is one
+// DECISION (§1.102): two tiers. Every client gets the Standard controls. A Regulated client is one
 // in HIPAA mode (§1.35): it adds the controls marked `regulated` (BAAs, its own audit log). No new
 // column: the tier is read from the client's compliance settings.
 

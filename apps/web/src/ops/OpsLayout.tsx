@@ -267,7 +267,7 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 label="Marketing"
                 testId="ops-nav-marketing"
               />
-              {/* §1.100: our controls, vendors, policies, clients' standing and the audit log. */}
+              {/* §1.102: our controls, vendors, policies, clients' standing and the audit log. */}
               <SidebarLink
                 to={OPS_PATHS.security}
                 icon="sign"

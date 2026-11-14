@@ -109,7 +109,7 @@ describe.skipIf(!h)("compliance", () => {
     });
   });
 
-  describe("the Security section (§1.100)", () => {
+  describe("the Security section (§1.102)", () => {
     it("lists the clients served with their tier and people, and the vendors with a BAA", async () => {
       const res = await call(OPERATOR, "GET", "/api/ops/security");
       expect(res.status).toBe(200);
