@@ -39,6 +39,7 @@ const STEP_KIND: Record<string, string> = {
   person: "person step",
   fork: "fork",
   for_each: "for each",
+  repeat: "repeat",
   wait: "wait",
   notify: "notify step",
   stop: "stop",

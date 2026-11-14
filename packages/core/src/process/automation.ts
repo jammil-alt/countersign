@@ -152,7 +152,7 @@ function renumber(step: Step, ids: ReadonlyMap<string, string>): Step {
       },
     };
   }
-  if (step.kind === "for_each") {
+  if (step.kind === "for_each" || step.kind === "repeat") {
     return { ...step, id: id(step.id), steps: step.steps.map((s) => renumber(s, ids)) };
   }
   return { ...step, id: id(step.id) };
@@ -228,6 +228,10 @@ export function stepsToProcessAutomation(input: ProcessFromStepsInput): ProcessF
     if (root === "steps" && id !== undefined && inside.has(id)) {
       return ["steps", ids.get(id) as string, ...path.slice(2)];
     }
+    // v0.17: a repeat's previous pass, `loop.previous.<id>…`, names a step inside the repeat.
+    if (root === "loop" && id === "previous" && output !== undefined && inside.has(output)) {
+      return ["loop", "previous", ids.get(output) as string, ...path.slice(3)];
+    }
     const outside =
       root === "trigger" || root === "settings" || (root === "steps" && output === "output");
     if (!outside) return path;
@@ -275,7 +279,9 @@ export function stepsToProcessAutomation(input: ProcessFromStepsInput): ProcessF
         otherwise: { ...next.otherwise, steps: next.otherwise.steps.map(tighten) },
       };
     }
-    if (next.kind === "for_each") return { ...next, steps: next.steps.map(tighten) };
+    if (next.kind === "for_each" || next.kind === "repeat") {
+      return { ...next, steps: next.steps.map(tighten) };
+    }
     return next;
   };
   const copied = selected.map((s) => tighten(mapTemplateRefs(renumber(s, ids), intoInput) as Step));

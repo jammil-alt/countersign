@@ -262,7 +262,7 @@ export function nextStepOf(process: Pick<Process, "steps">, id: string): Step | 
       const inner =
         s.kind === "if"
           ? [...s.paths.map((p) => p.steps), s.otherwise.steps]
-          : s.kind === "for_each"
+          : s.kind === "for_each" || s.kind === "repeat"
             ? [s.steps]
             : [];
       for (const l of inner) {

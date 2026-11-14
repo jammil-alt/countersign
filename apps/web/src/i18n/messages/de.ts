@@ -567,6 +567,7 @@ export const de: Messages = {
   "run.outcome.timed_out": "Zeit abgelaufen",
   "run.outcome.some_failed": "einige Einträge fehlgeschlagen",
   "run.outcome.all_failed": "alle Einträge fehlgeschlagen",
+  "run.outcome.limit": "hat die höchste Zahl an Runden erreicht",
   "run.outcome.completed": "abgeschlossen",
   "run.outcome.stopped": "angehalten",
   "run.who.client_admin": "Ihr Admin",

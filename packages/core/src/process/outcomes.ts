@@ -104,6 +104,12 @@ export const WAIT_OUTCOMES = ["arrived", "timed_out"] as const;
 export const FOR_EACH_OUTCOMES = ["done", "some_failed", "all_failed"] as const;
 
 /**
+ * v0.17: a repeat: `done` (its `until` held after a pass) or `limit` (every pass ran and it never
+ * held; reached only with `onLimit: proceed`, since `stop` ends the run there).
+ */
+export const REPEAT_OUTCOMES = ["done", "limit"] as const;
+
+/**
  * A process step: `completed`, or with `onError: continue`, `stopped` (a stop step inside ended the
  * sub-process alone; `steps.<id>.stopStatus` is how that stop would have ended the run) or
  * `failed` (a step inside failed).
@@ -124,6 +130,7 @@ export const STEP_OUTCOMES = {
   notify: NOTIFY_OUTCOMES,
   wait: WAIT_OUTCOMES,
   for_each: FOR_EACH_OUTCOMES,
+  repeat: REPEAT_OUTCOMES,
   process: PROCESS_OUTCOMES,
 } as const satisfies Partial<Record<StepKind, readonly string[]>>;
 
@@ -195,6 +202,9 @@ export function stepOutcomes(step: Step): readonly string[] {
       break;
     case "wait":
       drop.add("arrived");
+      break;
+    case "repeat":
+      if (step.onLimit === "stop") drop.add("limit");
       break;
     default:
       break;
@@ -431,6 +441,7 @@ const KIND_OF_NODE: Record<string, OutcomeKind> = {
   notify: "notify",
   wait: "wait",
   for_each: "for_each",
+  repeat: "repeat",
   process: "process",
   use_automation: "process",
 };
@@ -499,6 +510,9 @@ export function outcomeOfRow(row: RowOutcomeInput): StepOutcomeWord | null {
       if (failed === 0) return "done";
       return typeof out.count === "number" && failed >= out.count ? "all_failed" : "some_failed";
     }
+    case "repeat":
+      if (row.status !== "succeeded") return null;
+      return out.done === false ? "limit" : "done";
     case "process":
       if (row.status === "succeeded") return "completed";
       return row.status === "failed" ? "failed" : "stopped";

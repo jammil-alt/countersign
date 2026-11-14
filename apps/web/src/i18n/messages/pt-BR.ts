@@ -544,6 +544,7 @@ export const ptBR: Messages = {
   "run.outcome.timed_out": "tempo esgotado",
   "run.outcome.some_failed": "alguns itens falharam",
   "run.outcome.all_failed": "todos os itens falharam",
+  "run.outcome.limit": "chegou ao máximo de rodadas",
   "run.outcome.completed": "concluído",
   "run.outcome.stopped": "parado",
   "run.who.client_admin": "seu administrador",

@@ -542,6 +542,7 @@ export const es: Messages = {
   "run.outcome.timed_out": "se acabó el tiempo",
   "run.outcome.some_failed": "fallaron algunos elementos",
   "run.outcome.all_failed": "fallaron todos los elementos",
+  "run.outcome.limit": "llegó a su máximo de rondas",
   "run.outcome.completed": "completado",
   "run.outcome.stopped": "detenido",
   "run.who.client_admin": "su administrador",

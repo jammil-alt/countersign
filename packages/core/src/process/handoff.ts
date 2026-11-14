@@ -40,7 +40,7 @@ function idsIn(step: Step): string[] {
   if (step.kind === "if") {
     for (const p of step.paths) for (const s of p.steps) out.push(...idsIn(s));
     for (const s of step.otherwise.steps) out.push(...idsIn(s));
-  } else if (step.kind === "for_each") {
+  } else if (step.kind === "for_each" || step.kind === "repeat") {
     for (const s of step.steps) out.push(...idsIn(s));
   }
   return out;

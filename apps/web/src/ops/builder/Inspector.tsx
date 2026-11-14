@@ -283,6 +283,8 @@ const STEP_INTRO: Partial<Record<Step["kind"], string>> = {
   write: "Changes something through a tool, behind its checks.",
   if: "Paths are checked top to bottom. A run takes the first path whose rules match, then continues after the if.",
   for_each: "Runs the steps inside once for each item of a list.",
+  repeat:
+    "Runs the steps inside, then again until its rule holds, up to its most times. Each pass's changes are approved on their own.",
   process:
     "Runs a saved automation as one step. Its steps are edited in that automation, not here.",
   person: "Waits for a person in the inbox before the run goes on.",
@@ -291,7 +293,7 @@ const STEP_INTRO: Partial<Record<Step["kind"], string>> = {
 };
 
 /** Logic steps carry no checks in the builder: they do no work to check. */
-const LOGIC = new Set<Step["kind"]>(["if", "for_each", "wait", "stop"]);
+const LOGIC = new Set<Step["kind"]>(["if", "for_each", "repeat", "wait", "stop"]);
 
 function stepNumber(workflow: Process, id: string): string {
   const i = workflow.steps.findIndex((s) => s.id === id);
@@ -869,6 +871,8 @@ function KindFields(
       );
     case "if":
       return <IfEditor {...props} step={step} />;
+    case "repeat":
+      return <RepeatEditor {...props} step={step} />;
     case "for_each":
       return (
         <>
@@ -1205,6 +1209,96 @@ function TimelineSection({ step, set }: { step: Step; set: SetStep }) {
 }
 
 // ── Ifs ──────────────────────────────────────────────────────────────────────────────────────────
+
+/** v0.17: a repeat's most passes, its wait between them, what happens at the limit, its rule. */
+function RepeatEditor(
+  props: InspectorProps & {
+    step: Extract<Step, { kind: "repeat" }>;
+    paths: PathOption[];
+    set: SetStep;
+  },
+) {
+  const { step, set, errors, workflow, ctx } = props;
+  const fieldErrors = errorsFor(errors, step.id);
+  const paths = useMemo(
+    () => labelPaths(workflow, processes.repeatUntilPaths(workflow, step.id, ctx)),
+    [workflow, step.id, ctx],
+  );
+  const quick = useMemo(() => outcomeRules(paths), [paths]);
+  return (
+    <>
+      <Row label="Done when" field="until" errors={fieldErrors}>
+        <RulesEditor
+          rules={step.until.rules}
+          paths={paths}
+          quick={quick}
+          errors={fieldErrors}
+          prefix="until.rules"
+          testPrefix="builder-repeat-until"
+          onChange={(rules, key) =>
+            set(key, (s) => (s.kind === "repeat" ? { ...s, until: { rules } } : s))
+          }
+        />
+      </Row>
+      <div className="grid grid-cols-2 gap-3">
+        <Row label="At most" field="maxTimes" errors={fieldErrors} hint="1 to 10 passes">
+          <SmallInput
+            data-field="maxTimes"
+            data-testid="builder-repeat-max"
+            type="number"
+            min={1}
+            max={processes.REPEAT_MAX_TIMES}
+            value={step.maxTimes}
+            onChange={(e) =>
+              set("maxTimes", (s) =>
+                s.kind === "repeat"
+                  ? {
+                      ...s,
+                      maxTimes: Math.min(
+                        processes.REPEAT_MAX_TIMES,
+                        Math.max(1, Number(e.target.value) || 1),
+                      ),
+                    }
+                  : s,
+              )
+            }
+          />
+        </Row>
+        <Row label="Wait between" field="between" errors={fieldErrors} hint='e.g. "1 hour"'>
+          <SmallInput
+            data-field="between"
+            data-testid="builder-repeat-between"
+            value={step.between ?? ""}
+            placeholder="No wait"
+            onChange={(e) =>
+              set("between", (s) => {
+                if (s.kind !== "repeat") return s;
+                const { between: _b, ...rest } = s;
+                const v = e.target.value.trim();
+                return v ? { ...rest, between: e.target.value } : rest;
+              })
+            }
+          />
+        </Row>
+      </div>
+      <Row label="If never done" field="onLimit" errors={fieldErrors}>
+        <SmallSelect
+          data-field="onLimit"
+          data-testid="builder-repeat-on-limit"
+          value={step.onLimit}
+          onChange={(e) =>
+            set("onLimit", (s) =>
+              s.kind === "repeat" ? { ...s, onLimit: e.target.value as "stop" | "proceed" } : s,
+            )
+          }
+        >
+          <option value="stop">Stop the run</option>
+          <option value="proceed">Go on with the last pass</option>
+        </SmallSelect>
+      </Row>
+    </>
+  );
+}
 
 function IfEditor(
   props: InspectorProps & {

@@ -1,7 +1,7 @@
 // R1 (docs/plan.md §1.86, §9): walking a v4 process's steps, the counterpart of
 // `workflow/walk.ts` for v3. Validation, template typing and the builder share it.
 
-import type { ForEachStep, IfStep, Process, Step, SubProcessStep } from "./schema";
+import type { ForEachStep, IfStep, Process, RepeatStep, Step, SubProcessStep } from "./schema";
 
 /** Where a step sits in a process's tree, and what runs before it on its own path. */
 export interface StepLocation {
@@ -12,9 +12,11 @@ export interface StepLocation {
   before: string[];
   /** Enclosing for_each steps, outermost first. */
   loops: ForEachStep[];
+  /** v0.17: enclosing repeat steps, outermost first. */
+  repeats: RepeatStep[];
   /** Enclosing ifs, with the path (or otherwise) id the step is on, outermost first. */
   ifs: { step: IfStep; branchId: string }[];
-  /** How many `if` and `for_each` steps enclose this one (0 at the top level). */
+  /** How many `if`, `for_each` and `repeat` steps enclose this one (0 at the top level). */
   depth: number;
 }
 
@@ -29,11 +31,12 @@ export function walkSteps(process: Walkable, visit: (loc: StepLocation) => void)
     loops: ForEachStep[],
     ifs: { step: IfStep; branchId: string }[],
     depth: number,
+    repeats: RepeatStep[],
   ) => {
     const before = [...outerBefore];
     steps.forEach((step, i) => {
       const here = [...pointer, i];
-      visit({ step, pointer: here, before: [...before], loops, ifs, depth });
+      visit({ step, pointer: here, before: [...before], loops, repeats, ifs, depth });
       if (step.kind === "if") {
         step.paths.forEach((p, pi) => {
           walkList(
@@ -43,6 +46,7 @@ export function walkSteps(process: Walkable, visit: (loc: StepLocation) => void)
             loops,
             [...ifs, { step, branchId: p.id }],
             depth + 1,
+            repeats,
           );
         });
         walkList(
@@ -52,15 +56,18 @@ export function walkSteps(process: Walkable, visit: (loc: StepLocation) => void)
           loops,
           [...ifs, { step, branchId: step.otherwise.id }],
           depth + 1,
+          repeats,
         );
       } else if (step.kind === "for_each") {
-        walkList(step.steps, [...here, "steps"], before, [...loops, step], ifs, depth + 1);
+        walkList(step.steps, [...here, "steps"], before, [...loops, step], ifs, depth + 1, repeats);
+      } else if (step.kind === "repeat") {
+        walkList(step.steps, [...here, "steps"], before, loops, ifs, depth + 1, [...repeats, step]);
       }
-      // An if or a for_each is visible after it (its own output), never the steps inside it.
+      // An if, for_each or repeat is visible after it (its own output), never the steps inside it.
       before.push(step.id);
     });
   };
-  walkList(process.steps, ["steps"], [], [], [], 0);
+  walkList(process.steps, ["steps"], [], [], [], 0, []);
 }
 
 /** Every step with its location, in run order. */
@@ -109,11 +116,16 @@ export function stepCount(process: Walkable): number {
   return n;
 }
 
-/** The deepest nesting of logic: 0 with no if or for_each, 1 with one not inside another, … */
+/** Whether a step holds other steps: an `if`, a `for_each` or (v0.17) a `repeat`. */
+export function isLogic(step: Step): step is IfStep | ForEachStep | RepeatStep {
+  return step.kind === "if" || step.kind === "for_each" || step.kind === "repeat";
+}
+
+/** The deepest nesting of logic: 0 with no if, for_each or repeat, 1 with one not inside another, … */
 export function logicDepth(process: Walkable): number {
   let max = 0;
   walkSteps(process, ({ step, depth }) => {
-    if (step.kind === "if" || step.kind === "for_each") max = Math.max(max, depth + 1);
+    if (isLogic(step)) max = Math.max(max, depth + 1);
   });
   return max;
 }
@@ -155,7 +167,9 @@ export function replaceSteps(
         },
       ];
     }
-    if (step.kind === "for_each") return [{ ...step, steps: replaceSteps(step.steps, replace) }];
+    if (step.kind === "for_each" || step.kind === "repeat") {
+      return [{ ...step, steps: replaceSteps(step.steps, replace) }];
+    }
     return [step];
   });
 }

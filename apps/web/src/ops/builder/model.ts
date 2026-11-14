@@ -102,7 +102,9 @@ export function childContainers(step: Step): { id: ContainerId; steps: Step[] }[
       { id: `otherwise:${step.otherwise.id}`, steps: step.otherwise.steps },
     ];
   }
-  if (step.kind === "for_each") return [{ id: `loop:${step.id}`, steps: step.steps }];
+  if (step.kind === "for_each" || step.kind === "repeat") {
+    return [{ id: `loop:${step.id}`, steps: step.steps }];
+  }
   return [];
 }
 
@@ -140,7 +142,9 @@ function withChildren(step: Step, map: (id: ContainerId, steps: Step[]) => Step[
       },
     };
   }
-  if (step.kind === "for_each") return { ...step, steps: map(`loop:${step.id}`, step.steps) };
+  if (step.kind === "for_each" || step.kind === "repeat") {
+    return { ...step, steps: map(`loop:${step.id}`, step.steps) };
+  }
   return step;
 }
 
@@ -289,7 +293,7 @@ export function addWorkflow(
 
 // ── New steps ────────────────────────────────────────────────────────────────────────────────────
 
-export type LogicKind = "if" | "for_each" | "wait" | "stop";
+export type LogicKind = "if" | "for_each" | "repeat" | "wait" | "stop";
 
 /** What the palette offers; each item makes one new step (or, for a trigger, a new start). */
 export type PaletteItem =
@@ -463,6 +467,17 @@ export function createStep(item: PaletteItem, ctx: TypingContext, newId: NewId =
           };
         case "for_each":
           return { id, kind: "for_each", name: "For each", over: "", concurrency: 10, steps: [] };
+        // v0.17: no rule yet; the inspector asks for one (validation does too).
+        case "repeat":
+          return {
+            id,
+            kind: "repeat",
+            name: "Repeat",
+            steps: [],
+            until: { rules: { match: "all", rules: [] } },
+            maxTimes: 3,
+            onLimit: "stop",
+          };
         case "wait":
           return { id, kind: "wait", name: "Wait", for: "1 day" };
         case "stop":
@@ -733,7 +748,9 @@ function shallow(step: Step): unknown {
       otherwise: { ...step.otherwise, steps: step.otherwise.steps.map((s) => s.id) },
     };
   }
-  if (step.kind === "for_each") return { ...step, steps: step.steps.map((s) => s.id) };
+  if (step.kind === "for_each" || step.kind === "repeat") {
+    return { ...step, steps: step.steps.map((s) => s.id) };
+  }
   return step;
 }
 

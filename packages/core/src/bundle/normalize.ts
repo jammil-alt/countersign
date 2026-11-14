@@ -87,7 +87,7 @@ function fillStep(raw: ProcessStep): ProcessStep {
       paths: s.paths.map((p) => ({ ...p, steps: p.steps.map(fillStep) })),
       otherwise: { ...s.otherwise, steps: s.otherwise.steps.map(fillStep) },
     };
-  } else if (s.kind === "for_each") {
+  } else if (s.kind === "for_each" || s.kind === "repeat") {
     s = { ...s, steps: s.steps.map(fillStep) };
   }
   const whole = Step.safeParse(s);
@@ -107,10 +107,10 @@ function fillStep(raw: ProcessStep): ProcessStep {
         otherwise: { ...shell.data.otherwise, steps: ifStep.otherwise.steps },
       };
     }
-  } else if (s.kind === "for_each") {
+  } else if (s.kind === "for_each" || s.kind === "repeat") {
     const loop = s;
     const shell = Step.safeParse({ ...loop, steps: [STUB] });
-    if (shell.success && shell.data.kind === "for_each")
+    if (shell.success && (shell.data.kind === "for_each" || shell.data.kind === "repeat"))
       return { ...shell.data, steps: loop.steps };
   }
   return s;
@@ -146,7 +146,7 @@ export function eachProcessStep(steps: readonly ProcessStep[], visit: (step: Pro
     if (step.kind === "if") {
       for (const p of step.paths) eachProcessStep(p.steps, visit);
       eachProcessStep(step.otherwise.steps, visit);
-    } else if (step.kind === "for_each") {
+    } else if (step.kind === "for_each" || step.kind === "repeat") {
       eachProcessStep(step.steps, visit);
     }
   }

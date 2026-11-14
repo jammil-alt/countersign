@@ -55,8 +55,40 @@ export function processPathsAt(
     out.push(...pathOptions(scope.loop.item, "item", depth));
     out.push({ path: "index", schema: { type: "integer" } });
   }
+  if (scope.repeat) out.push(...loopPaths(scope.repeat.previous, depth));
   for (let n = 0; n < (options.confer ?? 0); n += 1) {
     out.push(...pathOptions(CONFER_RESULT as JsonSchema, `confer.${n}`, 1));
   }
+  return out;
+}
+
+/** v0.17: `{{loop.pass}}` and the pass before's top-level steps, inside a repeat. */
+function loopPaths(previous: Record<string, JsonSchema | undefined>, depth: number): PathOption[] {
+  const out: PathOption[] = [{ path: "loop.pass", schema: { type: "integer" } }];
+  for (const [id, output] of Object.entries(previous)) {
+    out.push(...pathOptions(output, `loop.previous.${id}.output`, depth, id));
+  }
+  return out;
+}
+
+/**
+ * v0.17: what a repeat's `until` reads after a pass: what the repeat sees, its own top-level steps
+ * (their outputs and how they ended) and `{{loop.pass}}`.
+ */
+export function repeatUntilPaths(
+  process: Pick<Process, "triggers" | "steps">,
+  repeatId: string,
+  ctx: ProcessValidationContext = {},
+): PathOption[] {
+  const step = findStep(process, repeatId)?.step;
+  if (step?.kind !== "repeat") return [];
+  const out = processPathsAt(process, repeatId, ctx);
+  for (const inner of step.steps) {
+    out.push(...pathOptions(stepOutputSchema(inner, ctx), `steps.${inner.id}.output`, 4, inner.id));
+    for (const f of stepOutcomeFields(inner)) {
+      out.push({ path: `steps.${inner.id}.${f.path}`, schema: f.schema, stepId: inner.id });
+    }
+  }
+  out.push({ path: "loop.pass", schema: { type: "integer" } });
   return out;
 }

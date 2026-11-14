@@ -93,6 +93,7 @@ describe("the vocabulary", () => {
       "person",
       "process",
       "read",
+      "repeat",
       "skill",
       "wait",
       "write",

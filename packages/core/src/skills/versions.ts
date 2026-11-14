@@ -220,7 +220,7 @@ function ownConfig(step: Step): unknown {
     const { paths, otherwise: _o, ...rest } = step;
     return { ...rest, paths: paths.map(({ steps: _s, ...p }) => p) };
   }
-  if (step.kind === "for_each") {
+  if (step.kind === "for_each" || step.kind === "repeat") {
     const { steps: _s, ...rest } = step;
     return rest;
   }
@@ -340,7 +340,7 @@ export function withStepSkill(process: Process, stepId: string, toRef: string): 
           otherwise: { ...s.otherwise, steps: swap(s.otherwise.steps) },
         };
       }
-      if (s.kind === "for_each") return { ...s, steps: swap(s.steps) };
+      if (s.kind === "for_each" || s.kind === "repeat") return { ...s, steps: swap(s.steps) };
       return s;
     });
   return { ...process, steps: swap(process.steps) };

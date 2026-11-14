@@ -557,6 +557,7 @@ export const fr: Messages = {
   "run.outcome.timed_out": "délai écoulé",
   "run.outcome.some_failed": "certains éléments ont échoué",
   "run.outcome.all_failed": "tous les éléments ont échoué",
+  "run.outcome.limit": "a atteint son nombre maximal de tours",
   "run.outcome.completed": "terminé",
   "run.outcome.stopped": "arrêté",
   "run.who.client_admin": "votre administrateur",

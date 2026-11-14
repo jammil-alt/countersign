@@ -637,6 +637,25 @@ describe("WorkflowBuilder", () => {
     expect(screen.getByTestId("builder-rail-step")).toHaveAttribute("aria-selected", "true");
   });
 
+  // v0.17: a repeat from the palette, its steps in its own block.
+  it("adds a repeat and sets its most passes, its wait and what happens at the limit", async () => {
+    setup();
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-add-step"));
+    await user.click(screen.getByTestId("builder-palette-item-logic:repeat-add"));
+    const block = document.querySelector<HTMLElement>('[data-testid^="builder-repeat-"]');
+    expect(block).not.toBeNull();
+    expect(block).toHaveTextContent("up to 3 times");
+    expect(screen.getByTestId("builder-inspector")).toHaveTextContent("again until its rule holds");
+    // A controlled number field: one change, as typing digit by digit would clamp on the way.
+    fireEvent.change(screen.getByTestId("builder-repeat-max"), { target: { value: "5" } });
+    await user.type(screen.getByTestId("builder-repeat-between"), "1 hour");
+    await user.selectOptions(screen.getByTestId("builder-repeat-on-limit"), "proceed");
+    expect(block).toHaveTextContent("up to 5 times · 1 hour apart");
+    expect(screen.getByTestId("builder-repeat-on-limit")).toHaveValue("proceed");
+  });
+
   it("groups triggers into a few kinds with plain names", async () => {
     setup();
     await ready();

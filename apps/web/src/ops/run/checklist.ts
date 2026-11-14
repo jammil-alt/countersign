@@ -57,15 +57,22 @@ interface StepRunLike {
   finishedAt: string | null;
 }
 
-/** `loop:2:child` → the child step's id and the item index (0-based); a check's suffix ignored. */
-export function parseNodeId(nodeId: string): { stepId: string; index: number | null } {
+/**
+ * `loop:2:child` → the child step's id and the item index (0-based); v0.17's `repeat:r2:child` →
+ * the child and its pass (from 1). A check's suffix ignored.
+ */
+export function parseNodeId(nodeId: string): {
+  stepId: string;
+  index: number | null;
+  pass?: number;
+} {
   const parts = stepNodeOf(nodeId).node.split(":");
   if (parts.length >= 3) {
-    const index = Number(parts[parts.length - 2]);
-    return {
-      stepId: parts[parts.length - 1] ?? nodeId,
-      index: Number.isInteger(index) ? index : null,
-    };
+    const stepId = parts[parts.length - 1] ?? nodeId;
+    const seg = parts[parts.length - 2] ?? "";
+    if (/^r\d+$/.test(seg)) return { stepId, index: null, pass: Number(seg.slice(1)) };
+    const index = Number(seg);
+    return { stepId, index: Number.isInteger(index) ? index : null };
   }
   return { stepId: parts[0] ?? nodeId, index: null };
 }
@@ -133,7 +140,7 @@ export function checklistRows(input: {
   ];
   let reached = -1;
   for (const s of steps) {
-    const { stepId, index } = parseNodeId(s.nodeId);
+    const { stepId, index, pass } = parseNodeId(s.nodeId);
     const check = checkKindOf(s.nodeId);
     const loc = locations.get(stepId);
     const step = loc?.step;
@@ -142,7 +149,7 @@ export function checklistRows(input: {
     rows.push({
       key: s.id,
       kind: check ? (CHECK_WORD[check] ?? check) : kindWord(step, s.nodeType, v4),
-      title: `${step?.name ?? stepId}${index === null ? "" : ` · item ${index + 1}`}`,
+      title: `${step?.name ?? stepId}${index === null ? "" : ` · item ${index + 1}`}${pass === undefined ? "" : ` · pass ${pass}`}`,
       // A waiting step says what it waits for, not its stored line: lines written before steps
       // read by their state carried the done label ("Itemized the bill: waiting for approval").
       detail: s.status === "waiting" ? waitingText(step, s.nodeType) : s.summary,

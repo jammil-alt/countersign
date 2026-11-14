@@ -213,6 +213,11 @@ export interface PaletteSection {
 const LOGIC: { logic: LogicKind; title: string; detail: string }[] = [
   { logic: "if", title: "If", detail: "Paths with rules; the first that matches runs" },
   { logic: "for_each", title: "For each", detail: "Run steps once per item of a list" },
+  {
+    logic: "repeat",
+    title: "Repeat",
+    detail: "Run steps again until a rule holds, up to 10 times",
+  },
   { logic: "wait", title: "Wait", detail: "Pause for a while" },
   { logic: "stop", title: "Stop", detail: "End the run here" },
 ];

@@ -344,6 +344,20 @@ export interface ForEachStep extends Base {
   steps: Step[];
 }
 
+/**
+ * v0.17 (ARCHITECTURE §10.14 "Automations, repeat and the agent's choice"): runs its steps again
+ * until it is done. M59: `until` is plain rules over the pass's outputs and outcomes.
+ */
+export interface RepeatStep extends Base {
+  kind: "repeat";
+  steps: Step[];
+  until: RepeatUntil;
+  maxTimes: number;
+  between?: string | undefined;
+  onLimit: "stop" | "proceed";
+}
+export type RepeatUntil = { rules: Rules };
+
 export type Step =
   | ReadStep
   | SkillStep
@@ -353,6 +367,7 @@ export type Step =
   | NotifyStep
   | IfStep
   | ForEachStep
+  | RepeatStep
   | WaitStep
   | StopStep
   | SubProcessStep
@@ -368,6 +383,7 @@ export const STEP_KINDS = [
   "notify",
   "if",
   "for_each",
+  "repeat",
   "wait",
   "stop",
   "process",
@@ -397,6 +413,23 @@ export const ForEachStep = z.object({
   },
 });
 
+/** The most passes a `repeat` may make (v0.17). */
+export const REPEAT_MAX_TIMES = 10;
+
+export const RepeatUntil = z.strictObject({ rules: Rules });
+
+export const RepeatStep = z.object({
+  ...base,
+  kind: z.literal("repeat"),
+  get steps() {
+    return z.array(Step).min(1);
+  },
+  until: RepeatUntil,
+  maxTimes: z.number().int().min(1).max(REPEAT_MAX_TIMES).default(3),
+  between: Duration.optional(),
+  onLimit: z.enum(["stop", "proceed"]).default("stop"),
+});
+
 export const Step: z.ZodType<Step> = z
   .discriminatedUnion("kind", [
     ReadStep,
@@ -407,6 +440,7 @@ export const Step: z.ZodType<Step> = z
     NotifyStep,
     IfStep,
     ForEachStep,
+    RepeatStep,
     WaitStep,
     StopStep,
     SubProcessStep,

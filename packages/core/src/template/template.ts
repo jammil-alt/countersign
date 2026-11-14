@@ -169,6 +169,11 @@ export interface RunContext {
   steps: Record<string, StepScope>;
   item?: unknown;
   index?: number;
+  /**
+   * v0.17: inside a repeat, `{{loop.pass}}` (from 1) and the pass before's top-level steps as
+   * `{{loop.previous.<id>.output…}}` (absent on the first pass).
+   */
+  loop?: { pass: number; previous?: Record<string, { output: unknown }> };
 }
 
 /**

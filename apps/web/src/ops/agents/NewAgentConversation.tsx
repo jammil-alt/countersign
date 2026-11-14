@@ -461,7 +461,7 @@ function Access({
           for (const p of s.paths) walk(p.steps);
           walk(s.otherwise.steps);
         }
-        if (s.kind === "for_each") walk(s.steps);
+        if (s.kind === "for_each" || s.kind === "repeat") walk(s.steps);
       }
     };
     walk(w.workflow.steps);

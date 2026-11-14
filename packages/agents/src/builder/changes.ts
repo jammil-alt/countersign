@@ -45,7 +45,7 @@ function stepNumbers(flat: FlatBundle): Map<string, string> {
       const e = flat.entities.get(key);
       if (!e) return;
       if (e.kind === "step") {
-        if (e.content.kind === "for_each") walk(`${key}>steps`, n);
+        if (e.content.kind === "for_each" || e.content.kind === "repeat") walk(`${key}>steps`, n);
         if (e.content.kind === "fork" || e.content.kind === "if") {
           for (const p of flat.lists.get(`${key}>paths`) ?? []) walk(`${p}>steps`, n);
           for (const o of flat.lists.get(`${key}>otherwise`) ?? []) walk(`${o}>steps`, n);

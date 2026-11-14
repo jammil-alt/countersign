@@ -45,7 +45,9 @@ export function mapProcessSteps(
         },
       };
     }
-    if (s.kind === "for_each") return { ...s, id: next, steps: mapProcessSteps(s.steps, id) };
+    if (s.kind === "for_each" || s.kind === "repeat") {
+      return { ...s, id: next, steps: mapProcessSteps(s.steps, id) };
+    }
     return { ...s, id: next };
   });
 }

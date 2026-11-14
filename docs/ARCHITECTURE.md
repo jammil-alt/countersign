@@ -2780,7 +2780,7 @@ confer's) keep their wording, so recorded fixtures still replay; they are never 
 - **Inside**, templates read `{{loop.pass}}` (1 to `maxTimes`), `{{loop.previous.<stepId>.output.<path>}}`
   (the pass before; absent on the first) and `{{loop.feedback}}` (the agent's note from its last "not
   yet", below). They are values in a step's input like any other: data, never instructions (invariant 9).
-- **After**, `steps.<repeatId>.output` is `{ passes, last: { <innerStepId>: output } }` and its outcome
+- **After**, `steps.<repeatId>.output` is `{ passes, done, last: { <innerStepId>: output } }` and its outcome
   is `done` or `limit`, so an `if` can route on it (wave 5's outcome forks): a `limit` to a person, say.
   Inner steps are not visible after it, as with `for_each`.
 - **`until: { rules }`** is plain rules over the pass's outputs and outcomes, a confer check's verdicts
@@ -2789,12 +2789,12 @@ confer's) keep their wording, so recorded fixtures still replay; they are never 
 - **Where.** Anywhere a step goes: an agent's workflow, an `if` path, a `for_each`, or an automation.
   So an automation may loop or not, and a loop may be built once as an automation and reused, or placed
   in one agent's workflow directly. A `repeat` may hold an automation step. Still refused: an automation
-  inside an automation, and a `repeat` directly inside a `repeat`.
+  inside an automation, and a `repeat` anywhere inside a `repeat`.
 - **Bounded.** `maxTimes` is required and at most 10. A `repeat` counts as logic for the nesting signal
   (§10.14 "When to split"). The validator estimates a version's durable steps with every `repeat` at its
   `maxTimes` and refuses one over 900, under Cloudflare Workflows' 1,024 per instance (`docs/plan.md`
-  §1.86); a `for_each` inside a `repeat` is a warning, its size known only at run time. The executor
-  stops a run that would pass 1,000 as a failed step, never silently.
+  §1.86); a `for_each` inside a `repeat` is a warning, its size known only at run time, and an
+  automation step counts as one (its own version is checked when it is saved).
 - **Writes.** A write inside a pass is its own external action: its node id is
   `${repeatId}:r${pass}:${innerStepId}` (nested ids as `for_each`'s), so its idempotency key, approval
   and `batch_key` are per pass, and the gate decides each one (invariant 8). A later pass never undoes
@@ -2806,10 +2806,12 @@ confer's) keep their wording, so recorded fixtures still replay; they are never 
   reviews inner steps as any; its retries are inside a pass and are not passes.
 - **Merges.** A `repeat` is one step with a stable id; its fields merge field by field and its inner
   steps as any nested steps.
-- **Runs.** The back office's run view shows each pass ("Pass 2 of 3") and why it ended. The portal
-  shows the visible inner steps of each pass under "Round 2", and "Done after 2 rounds" or "Stopped
-  after 3 rounds", never a goal, a note or a cost (invariant 11). Test runs run every pass and write
-  nothing.
+- **Runs.** The back office's run view shows each inner step with its pass ("Check · pass 2") and the
+  repeat's line ("Check until ready: done after 2 rounds", or "stopped after 3 rounds"). The portal
+  shows each pass's visible steps in order; a repeat is logic, hidden by default like `for_each`, and
+  its line shows where the operator makes it visible. Never a goal, a note or a cost (invariant 11).
+  A run stopped at the limit fails with the error key `repeat:limit`. Test runs run every pass and
+  write nothing.
 
 **The agent chooses the path.** An `if` may let its agent decide:
 

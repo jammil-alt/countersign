@@ -201,6 +201,7 @@ const KIND_ICON: Record<Step["kind"], IconName> = {
   notify: "notifications",
   if: "filter",
   for_each: "copy",
+  repeat: "copy",
   wait: "calendar",
   stop: "close",
   process: "table",
@@ -226,7 +227,7 @@ function errorCount(step: Step, errors: readonly BuilderProblem[]): number {
 // (if, for each, wait, stop) never does. A step's own `client.visible` wins.
 export function processClientVisible(step: Step): boolean {
   if (step.client) return step.client.visible;
-  return !["if", "for_each", "wait", "stop"].includes(step.kind);
+  return !["if", "for_each", "repeat", "wait", "stop"].includes(step.kind);
 }
 
 export function Canvas(props: CanvasProps) {
@@ -586,6 +587,8 @@ function StepNode(
       <IfBlock {...props} step={step} />
     ) : step.kind === "for_each" ? (
       <Loop {...props} step={step} />
+    ) : step.kind === "repeat" ? (
+      <RepeatBlock {...props} step={step} />
     ) : null;
   return (
     <>
@@ -646,7 +649,8 @@ function StepCard(
   const invalid = errorCount(step, errors);
   const approval = approvalOption(step, env);
   const hidden =
-    !processClientVisible(step) && !["if", "for_each", "wait", "stop"].includes(step.kind);
+    !processClientVisible(step) &&
+    !["if", "for_each", "repeat", "wait", "stop"].includes(step.kind);
   const custom = customized.get(step.id);
   const isOver = props.overId === step.id && props.activeId !== step.id;
   const selected = selectedId === step.id;
@@ -1123,6 +1127,28 @@ function Loop(props: CanvasProps & { step: Extract<Step, { kind: "for_each" }> }
       <span aria-hidden className="h-3 border-l border-line-strong" />
       <div className="flex w-full flex-col gap-1.5 rounded-lg border border-dashed border-line-strong p-2">
         <p className="text-xs text-ink-muted">each item · up to {step.concurrency} at once</p>
+        <Branch {...props} id={`loop:${step.id}`} steps={step.steps} />
+      </div>
+    </div>
+  );
+}
+
+/** v0.17: a repeat's steps, run again until its rule holds. */
+function RepeatBlock(props: CanvasProps & { step: Extract<Step, { kind: "repeat" }> }) {
+  const { step } = props;
+  return (
+    <div
+      data-testid={`builder-repeat-${step.id}`}
+      className="flex w-full max-w-[360px] flex-col items-center"
+      style={{ minWidth: stepMinWidth(step) }}
+    >
+      <span aria-hidden className="h-3 border-l border-line-strong" />
+      <div className="flex w-full flex-col gap-1.5 rounded-lg border border-dashed border-line-strong p-2">
+        <p className="text-xs text-ink-muted">
+          again until its rule holds · up to {step.maxTimes}{" "}
+          {step.maxTimes === 1 ? "time" : "times"}
+          {step.between ? ` · ${step.between} apart` : ""}
+        </p>
         <Branch {...props} id={`loop:${step.id}`} steps={step.steps} />
       </div>
     </div>

@@ -761,6 +761,9 @@ class Executor {
           return await this.fork(step, name, frame);
         case "for_each":
           return await this.forEach(step, name, frame);
+        // v0.17
+        case "repeat":
+          return await this.repeat(step, name, frame);
         case "wait":
           return await this.wait(step, name, frame);
         case "notify":
@@ -3023,6 +3026,99 @@ class Executor {
     this.record(frame, step, output, { outcome, counts: { items: items.length, failed } });
   }
 
+  /**
+   * v0.17 (ARCHITECTURE §10.14 "Automations, repeat and the agent's choice"): runs its steps pass
+   * by pass until `until` holds after one, at most `maxTimes`, waiting `between` before each pass
+   * after the first. Each pass's steps run under `${name}:r${pass}:`, so a write's idempotency key
+   * and approval are per pass and a replay finds every pass it already ran. Inside, `{{loop.pass}}`
+   * and `{{loop.previous.<id>.output…}}` (the pass before's top-level steps).
+   */
+  async repeat(step: processes.RepeatStep, name: string, frame: Frame): Promise<void> {
+    const { run, log } = this.ctx;
+    const label = clientLabel(asLabelled(step));
+    const { stepRunId } = await this.runner.do(name, async () => {
+      const id = await log.start({
+        runId: run.id,
+        nodeId: name,
+        nodeType: "repeat",
+        input: { maxTimes: step.maxTimes },
+      });
+      await log.update(id, { status: "running" });
+      return { stepRunId: id };
+    });
+
+    // As a for each: the outermost loop gathers the owner's checks of every attempt inside it.
+    const own: OwnerCheckEntry[] | undefined =
+      this.ctx.ownerChecks && !frame.checks ? [] : undefined;
+    const checks = frame.checks ?? own;
+    let previous: Record<string, { output: unknown }> | undefined;
+    let passes = 0;
+    let done = false;
+    let ended: RunEnd | undefined;
+    try {
+      for (let pass = 1; pass <= step.maxTimes; pass += 1) {
+        if (pass > 1 && step.between) {
+          await this.runner.sleep(`${name}:r${pass}:wait`, step.between);
+        }
+        const scope: RunContext = {
+          ...frame.scope,
+          steps: { ...frame.scope.steps },
+          loop: { pass, ...(previous ? { previous } : {}) },
+        };
+        await this.runList(step.steps, {
+          prefix: `${name}:r${pass}:`,
+          scope,
+          ...(checks ? { checks } : {}),
+          ...(frame.automation ? { automation: frame.automation } : {}),
+        });
+        passes = pass;
+        previous = {};
+        for (const inner of step.steps) {
+          const entry = scope.steps[inner.id];
+          if (entry) previous[inner.id] = { output: entry.output };
+        }
+        // Decided inside a `do`, so a replay ends the loop where it ended.
+        const verdict = await this.runner.do(`${name}:r${pass}:until`, async () => ({
+          done: evaluateRules(step.until.rules, scope),
+        }));
+        if (verdict.done) {
+          done = true;
+          break;
+        }
+      }
+    } catch (error) {
+      if (!(error instanceof RunEnd)) {
+        await this.writeChecks(name, own);
+        throw error;
+      }
+      ended = error;
+    }
+    await this.writeChecks(name, own);
+
+    const last: Record<string, unknown> = {};
+    for (const [id, entry] of Object.entries(previous ?? {})) last[id] = entry.output;
+    const output = { passes, done, last };
+    const stops = !ended && !done && step.onLimit === "stop";
+    await this.runner.do(`${name}:done`, async () => {
+      await log.update(stepRunId, {
+        status: stops || ended?.result.status === "failed" ? "failed" : "succeeded",
+        output: { passes, done },
+        ...(ended ? {} : { summary: `${label}: ${this.words.rounds(passes, done)}` }),
+      });
+      return null;
+    });
+    if (ended) throw ended;
+    if (stops) {
+      throw new RunEnd({
+        status: "failed",
+        reason: `${label}: ${this.words.rounds(passes, false)}`,
+        nodeId: name,
+        errorKey: "repeat:limit",
+      });
+    }
+    this.record(frame, step, output, { outcome: done ? "done" : "limit" });
+  }
+
   async wait(step: processes.WaitStep, name: string, frame: Frame): Promise<void> {
     const { run, log } = this.ctx;
     const label = clientLabel(asLabelled(step));
@@ -3775,7 +3871,10 @@ export function resumePoint(
       ];
       return inner.some(holds);
     }
-    return step.kind === "for_each" && (step.steps as (V3Step | processes.Step)[]).some(holds);
+    return (
+      (step.kind === "for_each" || step.kind === "repeat") &&
+      (step.steps as (V3Step | processes.Step)[]).some(holds)
+    );
   };
   const steps = workflow.steps as (V3Step | processes.Step)[];
   return steps.find(holds)?.id ?? null;

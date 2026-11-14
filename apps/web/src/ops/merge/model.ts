@@ -331,7 +331,7 @@ export function removedSteps(
         }
         visit(s.otherwise.steps);
       }
-      if (s.kind === "for_each" && s.steps) visit(s.steps);
+      if ((s.kind === "for_each" || s.kind === "repeat") && s.steps) visit(s.steps);
     }
   };
   for (const w of merged.workflows) visit(w.workflow.steps as unknown as Node[]);

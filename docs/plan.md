@@ -4467,8 +4467,10 @@ for any agent: the owner of an agent is the agent itself, so each agent chooses 
 | One loop construct | A `repeat` step, usable anywhere a step goes, automations included. "An automation with a loop" is one whose steps hold a `repeat`; "a loop as a step" is a `repeat` in the agent's workflow. One schema, one validator, one executor. // DECISION: not a loop flag on automations, which would give two ways to say the same thing. |
 | When it ends | `until` is plain rules (a confer's verdicts included) or the agent with a goal; `maxTimes` 1–10, default 3, required. `onLimit`: `stop` (default) or `proceed`; the outcome `done` or `limit` lets an `if` route a limit to a person. // DECISION: no `escalate` on the limit; an outcome fork already does it. |
 | Between passes | Optional `between`, 1 minute to 7 days, a durable wait on clock time. // DECISION: no business hours here; a person step inside uses the person's hours. |
-| Size | The validator counts each `repeat` at `maxTimes` and refuses a version over 900 durable steps (Cloudflare's 1,024 per instance, §1.86 "Forks"); a `for_each` inside a `repeat` is a warning; the executor fails a run that would pass 1,000. `repeat` directly in `repeat` is refused. // DECISION |
-| Node ids | `${repeatId}:r${pass}:${innerStepId}`, so writes, approvals and batch keys are per pass and a replay finds each pass. // DECISION: `r` keeps them apart from `for_each`'s `${stepId}:${index}:${childId}`. |
+| Size | `durableEstimate` counts each step once, an `if` its longest path, a `for_each` its steps once, a `repeat` its steps plus 2 (its check and wait) times `maxTimes`; a version over 900 is refused (`repeat_too_big`; Cloudflare's 1,024 per instance, §1.86 "Forks"), checked only when a repeat is present, so nothing stored changes. A `for_each` inside a `repeat` and a write inside one are warnings (`repeat_for_each`, `repeat_write`). A `repeat` anywhere inside a `repeat` is refused (`repeat_nested`); `between` outside 1 minute to 7 days is `repeat_between`; `onError` on a repeat is refused (its inner steps carry it). // DECISION |
+| Node ids | `${repeatId}:r${pass}:${innerStepId}`, so writes, approvals and batch keys are per pass and a replay finds each pass; the check is `${repeatId}:r${pass}:until` and the wait `${repeatId}:r${pass}:wait`. `stepNodeOf` reads `r<n>` as it reads a loop's index; the back office's checklist names the pass ("· pass 2"). // DECISION: `r` keeps them apart from `for_each`'s `${stepId}:${index}:${childId}`. |
+| Run row | The repeat's `step_run` (`node_type` `repeat`, no check constraint) keeps `{ passes, done }` and the line "done after 2 rounds" / "stopped after 3 rounds" (core's timeline words, six languages); a stop at the limit fails the run with `error.key` `repeat:limit`. The scope's output adds `last`. A retried run's reused repeat reads `done` back as its outcome. |
+| Portal | A repeat is logic: hidden by default, like `for_each`; the steps inside show pass after pass. // DECISION: not a "Round 2" group in the portal; the order shows it, and logic stays out of the client's view unless the operator shows it. |
 | Choosing a path | `if` gains `decide: 'rules' \| 'agent'` (default `rules`), each path a `describe` (required when the agent decides), `show` and `ifUnsure: 'otherwise' \| 'ask'`. A path's `when` guards what the agent may pick. One model call on the owner's model, no tools; one allowed path or none makes no call. |
 | Saying a loop is done | `until: { agent: { goal } }`: the same call after each pass; its `feedback` is the next pass's `{{loop.feedback}}`. A failed or over-budget answer counts as the limit. // DECISION: never "again" by default, so a broken check can't spend passes. |
 | Budget | Choices count in the run's cost within the owner's `maxCostUsd`; they are not interventions (`maxPerRun` unchanged). // DECISION |
@@ -5529,6 +5531,13 @@ the other side's inner step change.
 
 **Done when** a loop runs as an automation in one agent and as a step in another, each ending on
 its rules within its limit, with every write approved once per pass.
+
+Built (2026-11-14): `processes.RepeatStep` and its walkers, validation, scopes and field picker
+(`repeatUntilPaths`), the outcome words, merge flattening, "Save as automation" and the Builder's
+id aliases; the executor's passes (`packages/workflows/src/repeat.test.ts`); the builder's palette,
+block and inspector; the run checklist's pass. Tests: `packages/core/src/process/repeat.test.ts`,
+`packages/workflows/src/repeat.test.ts`, the builder's "adds a repeat". Open: the RFQ and QuickBooks
+examples run end to end on staging once those connectors are live (`docs/open.md`).
 
 ### M60: Migration 0048, the agent's choices (A-3, §1.97)
 
