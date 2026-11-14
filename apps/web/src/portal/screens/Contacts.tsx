@@ -23,7 +23,7 @@ import {
   type ReachChannel,
   type Relationship,
 } from "@countersign/core";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, lazy, type ReactNode, Suspense, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
@@ -346,6 +346,11 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
               )}
             </div>
             {list.error ? <ErrorNotice error={list.error} onRetry={list.reload} /> : null}
+            {admin && !organizations ? (
+              <Suspense fallback={null}>
+                <TextingSignupLink />
+              </Suspense>
+            ) : null}
             {admin && !organizations && shown.length > 0 ? (
               <BusinessBulk
                 people={people}
@@ -526,8 +531,16 @@ function PersonRow({
   );
 }
 
+// §1.98: the texting sign-up link and invitations, for the client admin only: their own chunk.
+const TextingSignupLink = lazy(() =>
+  import("./TextingInvites").then((m) => ({ default: m.TextingSignupLink })),
+);
+const TextInviteBulk = lazy(() =>
+  import("./TextingInvites").then((m) => ({ default: m.TextInviteBulk })),
+);
+
 /**
- * The bulk "they gave us these numbers for business" (docs/plan.md §1.97): texts, calls and email
+ * The bulk "they gave us these numbers for business" (docs/plan.md §1.97, §1.98): calls and email
  * for the people ticked, with where the numbers came from. People imported from QuickBooks (whose
  * records carry their phone numbers) can be ticked in one go. Opted-out people are left out.
  */
@@ -601,6 +614,11 @@ function BusinessBulk({
             </Button>
           ) : null}
         </div>
+        {picked.size > 0 ? (
+          <Suspense fallback={null}>
+            <TextInviteBulk ids={ids} />
+          </Suspense>
+        ) : null}
         {picked.size > 0 ? (
           <>
             <div className="flex flex-col gap-1">

@@ -295,7 +295,7 @@ export const accountResumeAgent = defineInternalTool({
 export const accountDraftChange = defineInternalTool({
   id: "account.draft_change",
   description:
-    "Draft a change to the client's account for the client admin to sign on the Desk: add a signer with what they sign (`add_signer`), update a person's details (`edit_person`) or how we reach them (`change_contact`). Nothing changes until the admin signs. A change that would loosen anything is refused (`loosens: true`): offer to pass it to the lead instead.",
+    "Draft a change to the client's account for the client admin to sign on the Desk: add a signer with what they sign (`add_signer`), update a person's details (`edit_person`) or how we reach them (`change_contact`), or email people an invitation to sign up for texts (`invite_to_texts`, by their contact ids: texting starts only if they sign up themselves). Nothing changes until the admin signs. A change that would loosen anything is refused (`loosens: true`): offer to pass it to the lead instead.",
   sideEffect: "internal",
   verb: "create",
   summary: "Drafted a change for your admin to sign",

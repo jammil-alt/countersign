@@ -49,6 +49,9 @@ export const CONSENT_SOURCE_MAX = 200;
 // WhatsApp is left out: Meta's business policy asks for an opt-in before a business starts a
 // conversation, so WhatsApp still needs express consent, a START, or the contact writing first
 // (inside its 24-hour window). Counsel is to confirm the basis (docs/open.md).
+// DECISION: narrowed by the owner on 2026-11-14 (docs/plan.md §1.98): texts need express consent
+// too, from the sign-up page, an invitation or START, because US 10DLC review asks to see where
+// each person agreed to texts. The relationship basis covers calls and email only.
 export const CONSENT_BASES = ["express", "relationship"] as const;
 export const ConsentBasis = z.enum(CONSENT_BASES);
 export type ConsentBasis = z.infer<typeof ConsentBasis>;
@@ -89,12 +92,15 @@ export const ContactConsent = z.object({
 });
 export type ContactConsent = z.infer<typeof ContactConsent>;
 
-/** The channels the relationship basis covers: texts, calls and email, never WhatsApp. */
-export const RELATIONSHIP_CHANNELS = ["sms", "voice", "email"] as const satisfies ConsentChannel[];
+/** The channels the relationship basis covers: calls and email, never texts or WhatsApp (§1.98). */
+export const RELATIONSHIP_CHANNELS = ["voice", "email"] as const satisfies ConsentChannel[];
+
+/** The channels that take express consent only: texts (US 10DLC, §1.98) and WhatsApp (Meta). */
+export const EXPRESS_ONLY_CHANNELS = ["sms", "whatsapp"] as const satisfies ConsentChannel[];
 
 /**
- * The channels the relationship basis grants for a contact with these addresses: texts and calls
- * with a phone, email with an address.
+ * The channels the relationship basis grants for a contact with these addresses: calls with a
+ * phone, email with an address.
  */
 export function relationshipChannelsFor(c: {
   phone: string | null | undefined;
@@ -104,13 +110,15 @@ export function relationshipChannelsFor(c: {
 }
 
 /**
- * Whether the consent recorded lets this channel be used. WhatsApp takes express consent only, so
- * a relationship basis written there by any path still doesn't open it.
+ * Whether the consent recorded lets this channel be used. Texts and WhatsApp take express consent
+ * only, so a relationship basis written there by any path (including before §1.98) doesn't open it.
  */
 export function hasConsent(consent: ContactConsent, channel: ConsentChannel): boolean {
   const c = consent[channel];
   if (!c) return false;
-  if (channel === "whatsapp") return consentBasisOf(c) === "express";
+  if ((EXPRESS_ONLY_CHANNELS as readonly ConsentChannel[]).includes(channel)) {
+    return consentBasisOf(c) === "express";
+  }
   return true;
 }
 

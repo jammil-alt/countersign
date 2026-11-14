@@ -28,6 +28,18 @@ export interface MailMessage {
   html?: string;
   /** Resend's Idempotency-Key: the notification's id, so a retried send goes once. */
   idempotencyKey: string;
+  /** Sent in a client's name: `<name> via Mezonas` (docs/plan.md §1.98). Default `Mezonas`. */
+  onBehalfOf?: string;
+}
+
+/** The display name of the sender: Mezonas, or `<client> via Mezonas`, without header syntax. */
+export function senderName(onBehalfOf: string | undefined): string {
+  const name = (onBehalfOf ?? "")
+    .replace(/[\r\n"<>,;:\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+  return name ? `${name} via Mezonas` : "Mezonas";
 }
 
 export interface Mailer {
@@ -58,7 +70,9 @@ export function resendMailer(input: {
         "POST",
         "/emails",
         {
-          from: `Mezonas <${NOTIFY_LOCAL_PART}@${domain}>`,
+          from: m.onBehalfOf
+            ? `"${senderName(m.onBehalfOf)}" <${NOTIFY_LOCAL_PART}@${domain}>`
+            : `Mezonas <${NOTIFY_LOCAL_PART}@${domain}>`,
           to: [m.to],
           subject: m.subject,
           text: m.text,

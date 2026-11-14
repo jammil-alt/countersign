@@ -516,7 +516,7 @@ function ConsentForm({
       ) : (
         <>
           {contact.phone || contact.email ? (
-            // §1.97: they gave the client this number for business: texts, calls and email at once.
+            // §1.97, §1.98: they gave the client this number for business: calls and email (texts need a sign-up).
             <form
               className="flex flex-col gap-3"
               data-testid={`contact-${contact.id}-business`}

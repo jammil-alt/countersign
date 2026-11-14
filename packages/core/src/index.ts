@@ -92,6 +92,7 @@ export * from "./api/supervisor";
 export * from "./api/table";
 // v0.12 W2-C: the test bench
 export * from "./api/testbench";
+export * from "./api/text-signup";
 export * from "./api/threads";
 // P-7: message translation
 export * from "./api/translation";
@@ -179,6 +180,7 @@ export * from "./mappers/upload";
 // P-8: US texting registration
 export * from "./messaging/a2p";
 export * from "./messaging/rules";
+export * from "./messaging/signup";
 export * from "./money";
 export * from "./notify/notify";
 export * from "./notify/render";

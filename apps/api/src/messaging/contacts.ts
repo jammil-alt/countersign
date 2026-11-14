@@ -157,6 +157,16 @@ function phoneOrThrow(raw: string, field: string): string {
   return v;
 }
 
+export async function logContactChange(
+  tx: Tx,
+  tenantId: string,
+  contactId: string,
+  actorId: string | null,
+  change: Record<string, unknown>,
+) {
+  await log(tx, tenantId, contactId, actorId, change);
+}
+
 async function log(
   tx: Tx,
   tenantId: string,
@@ -608,6 +618,35 @@ export async function relationshipForMany(
     out.updated.push(id);
   }
   return out;
+}
+
+/**
+ * A person signed up for texts themselves (docs/plan.md §1.98): express consent for texts on their
+ * phone, and any opt-out lifted, as their own START lifts it. The evidence is logged with it: the
+ * way in, the exact words they agreed to and where the request came from.
+ */
+export async function recordTextSignup(
+  tx: Tx,
+  row: ContactRow,
+  input: { source: string; evidence: Record<string, unknown> },
+  now: Date,
+): Promise<ContactRow> {
+  const consent = { ...((row.consent ?? {}) as ContactConsent) };
+  consent.sms = { grantedAt: now.toISOString(), source: input.source, basis: "express" };
+  const [u] = await tx
+    .update(contact)
+    .set({ optedOutAt: null, optOutSource: null, consent: stored(consent) })
+    .where(and(eq(contact.id, row.id), eq(contact.tenantId, row.tenantId)))
+    .returning();
+  await log(tx, row.tenantId, row.id, null, {
+    kind: "opt_in",
+    by: "contact",
+    channel: "sms",
+    basis: "express",
+    source: input.source,
+    ...input.evidence,
+  });
+  return u ?? row;
 }
 
 /** When this contact was last sent a text (not WhatsApp, not a call), or null. */
