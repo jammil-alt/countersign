@@ -5,6 +5,9 @@ export const OPS_PATHS = {
   runs: "/ops/runs",
   clients: "/ops/clients",
   client: (id: string) => `/ops/clients/${id}`,
+  /** docs/plan.md §1.101: Reggie; `askReggie` starts a conversation about one client. */
+  reggie: "/ops/reggie",
+  askReggie: (clientId: string) => `/ops/reggie?client=${clientId}`,
   lab: "/ops/lab",
   // O5 New agent, O6 Workflow builder, O7 Triggers (UI-2c), under the agent page (UI-2b).
   newTemplate: "/ops/templates/new",

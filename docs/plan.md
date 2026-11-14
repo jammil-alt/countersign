@@ -4528,6 +4528,21 @@ for any agent: the owner of an agent is the agent itself, so each agent chooses 
 Open for the owner: whether the portal should show the agent's reason for a choice; whether `between`
 should be allowed in business hours; whether a `repeat` should ever allow more than 10 passes.
 
+### 1.101 Reggie, the operator's account agent (owner, 2026-11-14)
+
+The owner wants to run client set-up and accounts from the back office: create a client, review its account, provision it, and ask the client for what only they can give. Reggie is the operator's agent for that: the operator's counterpart to each client's Sloan. It works with the operator's own access, not through Sloan, and Sloan is unchanged (invariant 11 as before). Outside ARCHITECTURE v0.15: recorded here as the owner's decision.
+
+| Topic | Decision |
+|---|---|
+| What it is | One agent for the operator, not forked into clients: a conversation in the back office (`/ops/reggie`, and "Ask Reggie" on each client's page, which starts one about that client). Like the Builder, it is not a client run: its model loop runs in a slow route (`mountLong`) with the signed-in operator's session, so it reaches only the clients the operator serves (invariant 1). // DECISION |
+| Reading | Every tool call is a back-office route run as the operator through `invokeRoute`: the same roles, scope, contracts and audit row as `/api/ops`, the audit action marked `reggie …` (§1.35). Reggie's reads are the Ops MCP server's read tools (§1.34; one set of tools, two front doors) plus its own: `client_review` (the client page, its health, texting and its registration, what is waiting and on whom, the lead's open requests), `texting_get`, `lead_messages`, `lead_requests`. Results are fenced as untrusted data (invariant 9). // DECISION |
+| Changing | A change tool only proposes: its preview is saved (`reggie_action`, migration 0049) and shown as a card; the operator confirms or turns it down. Confirm claims the card while it is still proposed, then runs the change through the back office's own route as the operator, once; a second confirm is refused. Reggie never says a change is done; the next turn is told what the operator decided. Step 1's changes: `lead_message_post` (a message in the client's lead conversation, as the operator) and `lead_request_create` (a request on the client admin's Desk). // DECISION |
+| Reaching the client | Through the lead's channels, not Sloan: the lead conversation, and a request on the client admin's Desk (`POST /api/ops/clients/:id/lead-requests`; a `request` item, subject `lead_request`, assigned to the client admin; quick-answer choices or a written answer; read back with `GET …/lead-requests`). The client sees them as from their Mezonas lead, which they are; Sloan can see them in the portal like anything else. Nothing is applied by an answer: the lead reads it. // DECISION |
+| Secrets | Reggie never asks for, repeats or writes down secrets (passwords, keys, EINs, card numbers): clients enter those in the portal. Its tools read nothing the back office doesn't show. |
+| Model | `DEFAULT_MODELS.reggie` (Sonnet), the Builder's transport (`deps.llm` in tests, else the Worker's). Each answer keeps its model, cost and the tools it used (`reggie_message.meta`), and the exchange behind it (`blocks`) for later turns; the latest 20 messages go with a turn; at most 8 rounds of tool calls, then it says it stopped. |
+| Tables (0049, own PR) | `reggie_conversation`, `reggie_message`, `reggie_action`, operator sessions only (RLS forced; a row about a client only for operators serving it). Each conversation is its own operator's in code (`withOperator` sets no `app.user_id`). |
+| Build order | 1: the conversation, reads, `client_review`, lead messages and Desk requests (this step). 2: changes with cards: create a client, set up texting (subaccount, number), the US texting registration (request the client's details, submit with its fees, follow, resubmit, adopt one made elsewhere), add agents from templates, texting invitations. 3: the 10DLC gaps: adopt an existing registration, fewer questions for clients, our own HELP reply, every client's registration in one list. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

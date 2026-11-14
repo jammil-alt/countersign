@@ -14,7 +14,7 @@ import { apiRoutes } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
 import { AgentHuesProvider } from "../../ui/badges";
 import { Page } from "../../ui/page";
-import { ErrorNotice, PageHeader, SubTabs, Tabs, Tag } from "../../ui/primitives";
+import { buttonClass, ErrorNotice, PageHeader, SubTabs, Tabs, Tag } from "../../ui/primitives";
 import { SkeletonLine } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { useAgentsChanged } from "../agents/ui";
@@ -275,7 +275,19 @@ function FrameView({
                   <SkeletonLine width={320} />
                 )
               }
-              actions={actions}
+              actions={
+                <>
+                  {/* docs/plan.md §1.101: a conversation with Reggie about this client. */}
+                  <Link
+                    to={OPS_PATHS.askReggie(clientId)}
+                    className={buttonClass("ghost")}
+                    data-testid="ops-client-ask-reggie"
+                  >
+                    Ask Reggie
+                  </Link>
+                  {actions}
+                </>
+              }
             />
             {client.error ? <ErrorNotice error={client.error} onRetry={client.reload} /> : null}
             <div data-testid="ops-client-tabs">

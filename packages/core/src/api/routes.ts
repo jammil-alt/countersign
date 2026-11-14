@@ -71,6 +71,7 @@ import { peopleRoutes, voiceSampleRoutes } from "./people";
 import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
+import { reggieRoutes } from "./reggie";
 import { requestRoutes } from "./requests";
 // Reshape data (2026-11-11): the builder's proposal and samples for a Reshape step.
 import { reshapeRoutes } from "./reshape";
@@ -2290,6 +2291,8 @@ export const routes = {
   ...messagingRoutes,
   // docs/plan.md §1.98: signing up for texts
   ...textSignupRoutes,
+  // docs/plan.md §1.101: Reggie, the operator's account agent
+  ...reggieRoutes,
   ...knowledgeRoutes,
   ...callRoutes,
   ...billingRoutes,
