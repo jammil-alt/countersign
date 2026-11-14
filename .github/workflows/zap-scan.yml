@@ -1,0 +1,68 @@
+name: Production scan
+
+# Production scanned from outside (docs/plan.md §1.100, control CHG-7): OWASP ZAP's baseline scan of
+# https://app.mezonas.com, weekly and after each production release. Production only, by the
+# owner's call (2026-11-14); staging is not scanned.
+#
+# The baseline scan spiders the app for a minute and reads what comes back (headers, cookies, error
+# pages, what is public). It sends no attack payloads and does not sign in, so it never reaches
+# client data. Findings open (or update) one GitHub issue, "Production scan: findings"; they are
+# fixed on the policy's deadlines (docs/policies/information-security.md §6). The report is kept
+# with the run as the week's evidence.
+#
+# Until production's first release (a `v*` tag) it answers nothing, so the job says so and stops.
+
+on:
+  schedule:
+    - cron: "41 7 * * 1"
+  workflow_run:
+    workflows: [Deploy]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: production-scan
+  cancel-in-progress: false
+
+env:
+  TARGET: https://app.mezonas.com
+
+jobs:
+  scan:
+    # After a deploy, only a successful production release (a `v*` tag) is scanned.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Is production live?
+        id: live
+        run: |
+          status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$TARGET/api/health" || true)
+          if [ "$status" = "200" ]; then
+            echo "up=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "up=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Production ($TARGET) answered $status, not 200: not scanned. It is scanned once it is live."
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.live.outputs.up == 'true'
+
+      - name: ZAP baseline scan
+        if: steps.live.outputs.up == 'true'
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: ${{ env.TARGET }}
+          rules_file_name: .zap/rules.tsv
+          allow_issue_writing: true
+          issue_title: "Production scan: findings"
+          artifact_name: production-scan
+          # Warnings are triaged from the issue, not by failing the run.
+          fail_action: false
