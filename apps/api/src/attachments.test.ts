@@ -25,7 +25,7 @@ import {
   fakeResend,
   fakeTwilio,
 } from "@countersign/connectors/testing";
-import { AgentBundle, type AgentBundleInput } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, withIntroduction } from "@countersign/core";
 import {
   agent,
   document,
@@ -58,6 +58,10 @@ import { reachOutTick } from "./reach/service";
 import { credentialsFor, executeRun, reachDepsFor } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
 import { verifyFileToken, workerUrlSigner } from "./storage";
+
+// §1.97: a first text to a contact names the client and ends with the opt-out line, added at send.
+const firstText = (text: string, language?: string) =>
+  withIntroduction(text, { client: "Client A", language });
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -522,7 +526,9 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
         });
       }
       const send = twilio.sends().at(-1);
-      expect(send?.form.Body).toBe("Our purchase order is attached. Please send a quote.");
+      expect(send?.form.Body).toBe(
+        firstText("Our purchase order is attached. Please send a quote."),
+      );
       const urls = new URLSearchParams(send?.body ?? "").getAll("MediaUrl");
       expect(urls).toHaveLength(1);
       mediaUrl = urls[0] as string;

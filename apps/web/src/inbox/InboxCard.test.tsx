@@ -80,6 +80,36 @@ describe("InboxCard: external action", () => {
     expect(screen.queryByTestId("change-unchanged-id")).toBeNull();
   });
 
+  // §1.97: a first text names the client and ends with the opt-out line, added at send time.
+  it("shows a first text as it will go, from the before state, and not as a field", () => {
+    const sentAs = "Rivera Supply: Your order ships Friday. Reply STOP to opt out.";
+    renderCard({
+      item: {
+        ...CHANGE,
+        title: "Send a text. (sms.send)",
+        payload: {
+          ...CHANGE.payload,
+          tool: "sms.send",
+          verb: "create",
+          connector: "twilio",
+          input: { to: "+15125550123", text: "Your order ships Friday." },
+          before: { to: "+15125550123", name: "Pat Rivera", sentAs },
+        },
+      },
+    });
+    const block = screen.getByTestId("inbox-item-sent-as");
+    expect(block).toHaveTextContent("As it will go");
+    expect(block).toHaveTextContent(sentAs);
+    expect(block).toHaveTextContent("names you and ends with how to opt out");
+    expect(screen.queryByTestId("change-row-sentAs")).toBeNull();
+    expect(screen.queryByTestId("change-unchanged-sentAs")).toBeNull();
+  });
+
+  it("shows no 'as it will go' block when the text goes as written", () => {
+    renderCard();
+    expect(screen.queryByTestId("inbox-item-sent-as")).toBeNull();
+  });
+
   it("names the tool by its id in the back office", () => {
     renderCard({ showToolId: true });
     expect(screen.getByText("testkit.record.update")).toBeInTheDocument();

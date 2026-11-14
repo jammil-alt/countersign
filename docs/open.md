@@ -135,7 +135,7 @@ then one pass of its "To verify" list against the real service.
 | Texts and calls | Twilio (`twilio`) | Account and keys; per-client subaccounts (default) or the client's own; which countries first; run a US client's A2P registration (M41) against the real Trust Hub. |
 | Texts and calls | WhatsApp through Meta (`whatsapp_meta`) | Meta app, register as a Tech Provider, `META_*` secrets. |
 | Texts and calls | ElevenLabs (`elevenlabs`) | Account, `ELEVENLABS_API_KEY`, webhook secret. |
-| Texts and calls | All three | **Legal review** of consent, calling hours, recording consent and AI disclosure per country, before any live client call or text. |
+| Texts and calls | All three | **Legal review** of consent, calling hours, recording consent and AI disclosure per country, before any live client call or text. In it, counsel checks the **relationship basis** (`docs/plan.md` §1.97): texting and calling, with an automated assistant, people who gave the client their number within a business relationship, without asking first, against the TCPA and the CTIA's messaging principles; and the first text's wording and the 10DLC opt-in that rest on it. |
 | Access | Code service (`apps/mfa`) | Confirm the domains; Email Routing for `agents.staging.mezonas.com`; the codes Twilio subaccount; then turn email codes on (`apps/mfa/NOTES.md`). |
 | Access | Browser logins (`browser`) | Turn on Browser Run; then merge the `BROWSER` binding PR (`claude/browser-binding`, jammil-alt/countersign#55); the first real low-tier site; legal review of agent accounts. |
 | Finance | Plaid (`bankfeed`) | §1b above (K1–K3): keys, sandbox checks, production review and OAuth banks; price per bank; BAA (until then not offered to HIPAA clients). Several banks per client is built. |
@@ -191,7 +191,8 @@ bring this forward.
   German): the portal's message files, `TIMELINE_WORDS`, the language instruction in `runAgent`, and
   every pass since (§1.18, §1.27 invite strings, the Requests screens).
 - **Legal**: the site's terms and privacy (S3), measurement wording (S8), processor terms (S13),
-  calls and texts, agent accounts on third-party sites.
+  calls and texts (with the relationship basis under the TCPA and CTIA, §1.97), agent accounts on
+  third-party sites.
 
 ### HIPAA, SOC 2 and PCI (`docs/hipaa-plan.md`)
 

@@ -16,7 +16,12 @@ import {
   generateEncryptionKey,
 } from "@countersign/connectors";
 import { FAKE_TWILIO_MAIN, fakeTwilio } from "@countersign/connectors/testing";
-import { AgentBundle, type AgentBundleInput, DecimalString } from "@countersign/core";
+import {
+  AgentBundle,
+  type AgentBundleInput,
+  DecimalString,
+  withIntroduction,
+} from "@countersign/core";
 import {
   agent,
   auditEvent,
@@ -50,6 +55,10 @@ import { quietNever, quietNow } from "./quiet-hours.test-helper";
 import { reachOutTick } from "./reach/service";
 import { credentialsFor, executeRun, reachDepsFor } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
+
+// §1.97: a first text to a contact names the client and ends with the opt-out line, added at send.
+const firstText = (text: string, language?: string) =>
+  withIntroduction(text, { client: "Client A", language });
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -1101,12 +1110,12 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
       });
       await executeRun(deps(), params, cloudflareStepRunner(step));
       if (optOut) {
-        expect(sentTo(number).filter((m) => m.body === EDIT)).toHaveLength(0);
+        expect(sentTo(number).filter((m) => m.body === firstText(EDIT))).toHaveLength(0);
         expect(j((await stepRunOf(params.runId, "reach")).output)).toMatchObject({
           outcome: "opted_out",
         });
       } else {
-        expect(sentTo(number).map((m) => m.body)).toEqual([EDIT]);
+        expect(sentTo(number).map((m) => m.body)).toEqual([firstText(EDIT)]);
       }
       // A composed message replaced by a person's text: no model call.
       expect(model.requests).toHaveLength(0);
