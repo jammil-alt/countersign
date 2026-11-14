@@ -123,7 +123,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     shareScope(store.currentScope);
     setState(next);
     if (next.status === "signed_in") {
-      identifyForErrors({ id: next.session.user.id, operator: next.session.operator });
+      identifyForErrors({
+        id: next.session.user.id,
+        operator: next.session.operator,
+        tenantId: next.session.activeTenantId ?? null,
+      });
     } else if (next.status === "signed_out") {
       identifyForErrors(null);
     }

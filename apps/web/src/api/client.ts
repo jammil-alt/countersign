@@ -53,6 +53,15 @@ export class ApiError extends Error {
   readonly route: string;
   /** The parsed error body, when the server sent JSON. */
   readonly body: unknown;
+  /** The call as made, without its query: `GET /api/runs/not-a-uuid`; null when it wasn't built. */
+  readonly request: string | null;
+  /**
+   * A path parameter of the route was refused (`/runs/not-a-uuid`): here, before anything was
+   * sent, or by the server's 400. To the person it is a page that doesn't exist, not a failure.
+   */
+  readonly badParam: boolean;
+  /** Sentry's event for this failure, when it was reported there (5xx, network). */
+  sentryEventId: string | null = null;
 
   constructor(init: {
     status: number;
@@ -61,12 +70,16 @@ export class ApiError extends Error {
     route: string;
     body?: unknown;
     cause?: unknown;
+    request?: string | null;
+    badParam?: boolean;
   }) {
     super(init.message, init.cause === undefined ? undefined : { cause: init.cause });
     this.status = init.status;
     this.code = init.code;
     this.route = init.route;
     this.body = init.body;
+    this.request = init.request ?? null;
+    this.badParam = init.badParam ?? false;
   }
 
   /** Not signed in, or the session is gone: the app shows sign-in. */
@@ -99,8 +112,9 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
   return {
     async call(route, opts = {}) {
       const name = `${route.method} ${route.path}`;
+      let request: string | null = null;
       const fail = (init: Omit<ConstructorParameters<typeof ApiError>[0], "route">) => {
-        const error = new ApiError({ ...init, route: name });
+        const error = new ApiError({ request, ...init, route: name });
         options.onFailure?.(error);
         return error;
       };
@@ -109,7 +123,14 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
       if (route.params) {
         const parsed = route.params.safeParse(params ?? {});
         if (!parsed.success) {
-          throw fail({ status: 0, code: "invalid_request", message: issues(parsed.error) });
+          // The call as it would have been, so a report says which address was refused.
+          request = `${route.method} ${rawPath(route.path, params)}`;
+          throw fail({
+            status: 0,
+            code: "invalid_request",
+            message: issues(parsed.error),
+            badParam: true,
+          });
         }
         params = parsed.data as Record<string, string | number>;
       }
@@ -119,6 +140,7 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
       } catch (e) {
         throw fail({ status: 0, code: "invalid_request", message: (e as Error).message });
       }
+      request = `${route.method} ${path}`;
 
       let body: string | undefined;
       if (opts.body !== undefined) {
@@ -173,6 +195,7 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
           code: code ?? defaultCode(res.status),
           message: message ?? code ?? (res.statusText || `The API answered ${res.status}.`),
           body: isJson ? json : text,
+          badParam: res.status === 400 && refusesParam(route.path, json),
         });
       }
 
@@ -228,6 +251,25 @@ function describeError(json: unknown): { code?: string; message?: string } {
   if (code !== undefined) out.code = code;
   if (message !== undefined) out.message = message;
   return out;
+}
+
+/** The route's path with its parameters filled in as given, unchecked (`/api/runs/not-a-uuid`). */
+function rawPath(pattern: string, params: Record<string, string | number> | undefined): string {
+  return pattern.replace(/:([A-Za-z0-9_]+)/g, (_, k: string) =>
+    encodeURIComponent(String(params?.[k] ?? `:${k}`)),
+  );
+}
+
+/** Whether a server's 400 names one of the route's path parameters (its first issue's field). */
+function refusesParam(pattern: string, json: unknown): boolean {
+  const names = [...pattern.matchAll(/:([A-Za-z0-9_]+)/g)].map((m) => m[1]);
+  if (names.length === 0 || typeof json !== "object" || json === null) return false;
+  const inner = (json as { error?: unknown }).error;
+  const details =
+    typeof inner === "object" && inner !== null ? (inner as { details?: unknown }).details : null;
+  if (!Array.isArray(details)) return false;
+  const field = (details[0] as { path?: unknown[] } | undefined)?.path?.[0];
+  return typeof field === "string" && names.includes(field);
 }
 
 function defaultCode(status: number): string {

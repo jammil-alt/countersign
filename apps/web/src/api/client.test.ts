@@ -114,6 +114,41 @@ describe("api client", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("says which call failed, and when a route's own id was refused", async () => {
+    const fetch = respond(200, "{}");
+    const here = await failure(
+      createApiClient({ fetch }).call(apiRoutes.opsClient, { params: { id: "not-a-uuid" } }),
+    );
+    expect(here.badParam).toBe(true);
+    expect(here.request).toBe("GET /api/ops/clients/not-a-uuid");
+    expect(fetch).not.toHaveBeenCalled();
+
+    const refused = JSON.stringify({
+      error: {
+        code: "invalid_request",
+        message: "✖ not an id",
+        details: [{ path: ["id"], message: "not an id" }],
+      },
+    });
+    const server = await failure(
+      createApiClient({ fetch: respond(400, refused) }).call(thing, { params: { id: "x" } }),
+    );
+    expect([server.status, server.badParam, server.request]).toEqual([
+      400,
+      true,
+      "GET /api/ops/things/x",
+    ]);
+
+    const body = JSON.stringify({
+      error: { code: "invalid_request", message: "bad", details: [{ path: ["name"] }] },
+    });
+    const notParam = await failure(
+      createApiClient({ fetch: respond(400, body) }).call(thing, { params: { id: "x" } }),
+    );
+    expect(notParam.badParam).toBe(false);
+    expect(notParam.sentryEventId).toBeNull();
+  });
+
   it("turns a failed fetch into a network error, but lets an abort through", async () => {
     const down = createApiClient({
       fetch: vi.fn(async () => {
