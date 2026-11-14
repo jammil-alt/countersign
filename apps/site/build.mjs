@@ -161,6 +161,8 @@ export function build(outDir = join(here, "dist"), now = new Date(), options = {
   copyFileSync(join(src, "site.css"), join(outDir, "site.css"));
   copyFileSync(join(src, "site.js"), join(outDir, "site.js"));
   copyDir(join(src, "logos"), join(outDir, "logos"), /\.(svg|png)$/);
+  // The texting sign-up's screenshots, the 10DLC opt-in evidence on /sms-terms#opt-in.
+  copyDir(join(src, "sms-signup"), join(outDir, "sms-signup"), /\.png$/);
 
   let layout = readFileSync(join(src, "layout.html"), "utf8");
   if (measureUrl) {
