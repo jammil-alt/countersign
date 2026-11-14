@@ -2,7 +2,7 @@
 // sessions only, and only for the clients the session serves where a row names one; a client's
 // session (withTenant) and no scope see nothing.
 
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withOperator, withTenant } from "./client";
 import {
@@ -90,7 +90,8 @@ describe.skipIf(!online)("Reggie's tables", () => {
       // The conversation about no client and the one about A; not B's.
       expect(await count(tx, "reggie_conversation")).toBe(2);
       expect(await count(tx, "reggie_action")).toBe(2);
-      expect(await count(tx, "reggie_message")).toBe(3);
+      // Only the messages of the conversations it can see: none from B's.
+      expect(await count(tx, "reggie_message")).toBe(2);
     });
     await withOperator(t.db, [a, b], async (tx) => {
       await asWorker(tx);
@@ -117,6 +118,22 @@ describe.skipIf(!online)("Reggie's tables", () => {
       withOperator(t.db, [a], async (tx) => {
         await asWorker(tx);
         await tx.insert(reggieConversation).values({ userId: ann, clientId: b });
+      }),
+    );
+    expect(code).toBe("42501");
+  });
+
+  it("refuse an operator a message in a conversation about a client it doesn't serve", async () => {
+    const [aboutB] = await t.db
+      .select({ id: reggieConversation.id })
+      .from(reggieConversation)
+      .where(eq(reggieConversation.clientId, b));
+    const code = await errorCode(
+      withOperator(t.db, [a], async (tx) => {
+        await asWorker(tx);
+        await tx
+          .insert(reggieMessage)
+          .values({ conversationId: aboutB?.id ?? "", role: "operator", text: "hi" });
       }),
     );
     expect(code).toBe("42501");
