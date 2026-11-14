@@ -4,7 +4,9 @@ What protects our clients' data today, where it lives in the code, and which set
 outside the code. It is the record behind HIPAA, SOC 2 and PCI DSS; what is still open is in
 `docs/hipaa-plan.md`. The design and its decisions are in `docs/plan.md` §1.35 (owner, 2026-11-05).
 The policies we commit to are in `docs/policies/` (information security; data retention and
-deletion; adopted 2026-11-09).
+deletion; adopted 2026-11-09). Every control with its status, evidence and framework references is
+in the register (`packages/core/src/compliance/controls.ts`), shown at `/ops/security`
+(`docs/plan.md` §1.100).
 
 Status, 2026-11-06:
 - The settings outside the code are all in place (table below).
@@ -79,7 +81,7 @@ branches.
 - It can't be changed. The runtime can only insert and read; a trigger refuses updates and
   deletes for everyone. Rows are isolated per client like any client data.
 - It's kept 6 years.
-- Operators read it at `/ops/audit`, with filters and a CSV export of the access review: every
+- Operators read it at `/ops/security/audit`, with filters and a CSV export of the access review: every
   user, their roles and when they were last seen.
 - Agents' own work has its own trail: runs, steps, tool calls and every write to a client's tool
   (`external_action`, with its before state and who approved it).

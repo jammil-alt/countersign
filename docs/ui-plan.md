@@ -129,7 +129,7 @@ These exist today, or the API serves them, but they aren't in the prototype. We 
 | Agent page (back office) | `/ops/clients/:id/agents/:slug` | overview, versions, publish, activate, settings, around O6 and O7 |
 | Usage and billing | `/ops/usage`, `/ops/billing` | in the sidebar, with no screen in the prototype |
 | Feedback | `/ops/feedback` | in the sidebar, with no screen in the prototype |
-| Audit log | `/ops/audit` | compliance (SOC 2, HIPAA) |
+| Audit log | `/ops/security/audit` (Security, §1.100) | compliance (SOC 2, HIPAA) |
 | Website logins | `/ops/browser-sites` | allowed sites for browser connections |
 | Requests (all clients) | `/ops/requests` | clients' change requests |
 

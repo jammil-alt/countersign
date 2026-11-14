@@ -109,6 +109,31 @@ describe.skipIf(!h)("compliance", () => {
     });
   });
 
+  describe("the Security section (§1.100)", () => {
+    it("lists the clients served with their tier and people, and the vendors with a BAA", async () => {
+      const res = await call(OPERATOR, "GET", "/api/ops/security");
+      expect(res.status).toBe(200);
+      const body = res.json as {
+        covered: string[];
+        clients: { id: string; tier: string; admins: number; users: number }[];
+        audit30d: { events: number; refused: number };
+      };
+      expect(body.covered).toEqual(["cloudflare", "neon", "workos", "anthropic"]);
+      const ids = body.clients.map((c) => c.id);
+      expect(ids).toContain(A.tenantId);
+      expect(ids).not.toContain(C.tenantId);
+      const a = body.clients.find((c) => c.id === A.tenantId);
+      expect(a?.tier).toBe("standard");
+      expect(a?.admins).toBeGreaterThanOrEqual(1);
+      expect(body.audit30d.events).toBeGreaterThan(0);
+      expect(body.audit30d.refused).toBeLessThanOrEqual(body.audit30d.events);
+    });
+
+    it("is for operators only", async () => {
+      expect((await call(admin("a"), "GET", "/api/ops/security")).status).toBe(403);
+    });
+  });
+
   it("sends security headers on every API answer", async () => {
     const res = await call(admin("a"), "GET", "/api/runs");
     expect(res.headers.get("cache-control")).toBe("no-store");

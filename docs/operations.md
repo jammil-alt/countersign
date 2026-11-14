@@ -1146,7 +1146,7 @@ staging), which wrangler creates on the next deploy. Skill cases call the model 
 `ANTHROPIC_API_KEY`) and never reach a client's tools; template cases are test runs in the Sandbox
 client.
 
-**The audit log and access review** are at `/ops/audit` (operators only). Review access every
+**The audit log and access review** are at `/ops/security/audit` (operators only). Review access every
 quarter: remove anyone listed who should no longer be there, then save the CSV with the review's
 date. Audit rows are kept for 6 years. Removing older rows is a manual owner task: the trigger must
 be disabled, as in `db:purge-client`.

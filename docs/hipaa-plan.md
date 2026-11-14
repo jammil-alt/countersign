@@ -1,7 +1,10 @@
 # HIPAA, SOC 2 and PCI: what's still open
 
 The plan from here to a client in HIPAA mode, a SOC 2 report and a PCI self-assessment.
-`docs/security.md` has what is done. The design is in `docs/plan.md` §1.35.
+`docs/security.md` has what is done. The design is in `docs/plan.md` §1.35. Each control, its
+status and its SOC 2, HIPAA and PCI references are in the register
+(`packages/core/src/compliance/controls.ts`), shown in the back office at `/ops/security`
+(`docs/plan.md` §1.100).
 Last updated 2026-11-06.
 
 Until #82 and #84 merge, `docs/plan.md` §1.35 and `docs/operations.md` §1.2 exist only on their
@@ -120,7 +123,7 @@ way: no card fields in our pages, and card numbers never stored (already enforce
 
 | How often | What | Where |
 |---|---|---|
-| Every quarter | Access review: remove anyone who shouldn't be there; save the CSV with the date | `/ops/audit` → Access review |
+| Every quarter | Access review: remove anyone who shouldn't be there; save the CSV with the date | `/ops/security/audit` → Access review |
 | Every quarter | Restore test from Neon's history; note the result | `docs/operations.md` §4 |
 | Monthly | Merge Dependabot's grouped update once green; security updates as they arrive, within a month (PCI DSS 6.3.3) | GitHub |
 | As they come | Fix CodeQL findings and secret-scanning alerts | GitHub → Security |
