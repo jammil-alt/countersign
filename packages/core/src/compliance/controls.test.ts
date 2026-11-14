@@ -1,7 +1,6 @@
-// The security register (§1.100): ids are stable and unique, every reference resolves, every
-// file it names as evidence exists, and the summaries count what they say.
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+// The security register (§1.100): ids are stable and unique, every reference resolves and the
+// summaries count what they say. That its evidence files exist is checked in apps/api
+// (compliance-register.test.ts), which has Node.
 import { describe, expect, it } from "vitest";
 import {
   CONTROLS,
@@ -9,13 +8,10 @@ import {
   controlsForTier,
   FRAMEWORKS,
   frameworkSummaries,
-  POLICIES,
   PROCESSOR_RECEIVES,
   ROUTINES,
 } from "./controls";
 import { PROCESSORS } from "./processors";
-
-const ROOT = resolve(__dirname, "../../../..");
 
 describe("the security register", () => {
   it("has unique ids of the form AREA-n", () => {
@@ -53,16 +49,6 @@ describe("the security register", () => {
     for (const r of routines) {
       if (r !== "client-exit") expect(used.has(r), r).toBe(true);
     }
-  });
-
-  it("names files that exist, so the evidence doesn't drift from the code", () => {
-    const paths = [
-      ...CONTROLS.flatMap((c) => c.evidence)
-        .filter((e) => e.kind === "code" || e.kind === "policy")
-        .map((e) => e.ref),
-      ...POLICIES.flatMap((p) => (p.path ? [p.path] : [])),
-    ];
-    for (const p of new Set(paths)) expect(existsSync(resolve(ROOT, p)), p).toBe(true);
   });
 
   it("says what every vendor receives", () => {
