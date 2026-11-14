@@ -123,7 +123,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     shareScope(store.currentScope);
     setState(next);
     if (next.status === "signed_in") {
-      identifyForErrors({ id: next.session.user.id, operator: next.session.operator });
+      identifyForErrors({
+        id: next.session.user.id,
+        operator: next.session.operator,
+        tenantId: next.session.activeTenantId ?? null,
+      });
     } else if (next.status === "signed_out") {
       identifyForErrors(null);
     }
@@ -194,6 +198,12 @@ export function useSessionState(): SessionContextValue {
   const ctx = useContext(SessionContext);
   if (!ctx) throw new Error("useSessionState outside <SessionProvider>");
   return ctx;
+}
+
+/** The signed-in session, or null: signed out, or outside the provider (a part on its own). */
+export function useOptionalSession(): SessionResponse | null {
+  const ctx = useContext(SessionContext);
+  return ctx?.state.status === "signed_in" ? ctx.state.session : null;
 }
 
 /** The signed-in session; only for screens rendered behind the sign-in gate. */

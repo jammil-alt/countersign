@@ -26,6 +26,35 @@ export const FeedbackPin = z.strictObject({
   y: z.number().min(0).max(20_000),
 });
 
+/** How feedback was sent: the Feedback button, or "Report an issue" on a page that failed to load. */
+export const FeedbackSource = z.enum(["button", "error_page"]);
+export type FeedbackSource = z.infer<typeof FeedbackSource>;
+
+const Short = z.string().max(300);
+/**
+ * What an error page knew when it failed, for us: never shown to the person sending it, and only
+ * what debugging needs (no request or response bodies, no query strings of API calls).
+ */
+export const FeedbackErrorContext = z.strictObject({
+  /** The app route pattern or path, e.g. `/runs/:id`. */
+  route: Short,
+  /** The page's full address. */
+  url: z.string().max(2000),
+  /** HTTP status of the call that failed; 0 when it never reached us. */
+  status: z.number().int().min(0).max(999),
+  code: Short,
+  /** The call that failed, e.g. `GET /api/runs/not-a-uuid`. */
+  request: z.string().max(2000).nullable(),
+  /** When it failed, ISO 8601. */
+  at: z.string().max(40),
+  tenantId: Short.nullable(),
+  userId: Short.nullable(),
+  release: Short.nullable(),
+  /** Sentry's event for a failure we report there (5xx, network); null for an expected 4xx. */
+  sentryEventId: Short.nullable(),
+});
+export type FeedbackErrorContext = z.infer<typeof FeedbackErrorContext>;
+
 export const FeedbackSubmission = z.strictObject({
   comment: z.string().trim().min(1).max(FEEDBACK_COMMENT_MAX),
   /** The app path (and query) it was sent from. */
@@ -35,6 +64,10 @@ export const FeedbackSubmission = z.strictObject({
   pin: FeedbackPin.nullable(),
   /** A short description of what was under the pin, e.g. `button "Approve"`. */
   target: z.string().max(300).nullable(),
+  /** Left out: the Feedback button. */
+  source: FeedbackSource.optional(),
+  /** An error page's context; only with `source: "error_page"`. */
+  context: FeedbackErrorContext.optional(),
 });
 export type FeedbackSubmission = z.infer<typeof FeedbackSubmission>;
 
@@ -55,6 +88,9 @@ export const FeedbackItem = z.object({
   pin: FeedbackPin.nullable(),
   target: z.string().nullable(),
   hasScreenshot: z.boolean(),
+  source: FeedbackSource,
+  /** What failed, for "Report an issue" on an error page; null from the Feedback button. */
+  context: FeedbackErrorContext.nullable(),
   status: FeedbackStatus,
   createdAt: z.string(),
   resolvedAt: z.string().nullable(),
@@ -131,7 +167,11 @@ export const feedbackRoutes = {
     auth: "session",
     roles: OPS,
     summary: "Feedback from the back office and the clients this operator serves, newest first",
-    query: z.object({ status: z.enum(["open", "resolved", "all"]).default("open") }),
+    query: z.object({
+      status: z.enum(["open", "resolved", "all"]).default("open"),
+      /** Only the Feedback button's, or only error pages' reports; left out, both. */
+      source: FeedbackSource.optional(),
+    }),
     response: z.object({ items: z.array(FeedbackItem) }),
   }),
   opsFeedbackScreenshot: defineRoute({

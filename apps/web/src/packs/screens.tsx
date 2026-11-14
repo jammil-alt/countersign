@@ -26,6 +26,7 @@ import { CatalogView, PackReportLinks, PriceWatchView } from "./materials/Report
 import { RequestsView, RequestView } from "./materials/Requests";
 // §1.88
 import { MasterItemView, VendorCatalogView } from "./materials/VendorCatalog";
+import { PackGate } from "./PackGate";
 
 // ── Portal ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -64,7 +65,9 @@ export function OpsClientPriceWatchScreen() {
   const { clientId = "" } = useParams();
   return (
     <ClientFrame clientId={clientId}>
-      <PriceWatchView clientId={clientId} />
+      <PackGate clientId={clientId} pack="materials">
+        <PriceWatchView clientId={clientId} />
+      </PackGate>
     </ClientFrame>
   );
 }
@@ -73,7 +76,9 @@ export function OpsClientCatalogScreen() {
   const { clientId = "", id } = useParams();
   return (
     <ClientFrame clientId={clientId}>
-      {id ? <MasterItemView clientId={clientId} /> : <CatalogView clientId={clientId} />}
+      <PackGate clientId={clientId} pack="materials">
+        {id ? <MasterItemView clientId={clientId} /> : <CatalogView clientId={clientId} />}
+      </PackGate>
     </ClientFrame>
   );
 }
@@ -83,7 +88,9 @@ export function OpsClientVendorCatalogScreen() {
   const { clientId = "" } = useParams();
   return (
     <ClientFrame clientId={clientId}>
-      <VendorCatalogView clientId={clientId} />
+      <PackGate clientId={clientId} pack="materials">
+        <VendorCatalogView clientId={clientId} />
+      </PackGate>
     </ClientFrame>
   );
 }
@@ -93,7 +100,9 @@ export function OpsClientRequestsScreen() {
   const { clientId = "" } = useParams();
   return (
     <ClientFrame clientId={clientId}>
-      <RequestsView clientId={clientId} />
+      <PackGate clientId={clientId} pack="materials">
+        <RequestsView clientId={clientId} />
+      </PackGate>
     </ClientFrame>
   );
 }
@@ -102,7 +111,9 @@ export function OpsClientRequestScreen() {
   const { clientId = "" } = useParams();
   return (
     <ClientFrame clientId={clientId}>
-      <RequestView clientId={clientId} />
+      <PackGate clientId={clientId} pack="materials">
+        <RequestView clientId={clientId} />
+      </PackGate>
     </ClientFrame>
   );
 }
@@ -112,7 +123,9 @@ export function OpsClientBankTransactionsScreen() {
   const { clientId = "" } = useParams();
   return (
     <ClientFrame clientId={clientId}>
-      <BankTransactionsView clientId={clientId} />
+      <PackGate clientId={clientId} pack="bookkeeping">
+        <BankTransactionsView clientId={clientId} />
+      </PackGate>
     </ClientFrame>
   );
 }
@@ -122,7 +135,9 @@ export function OpsClientReconciliationsScreen() {
   const { clientId = "" } = useParams();
   return (
     <ClientFrame clientId={clientId}>
-      <ReconciliationsView clientId={clientId} />
+      <PackGate clientId={clientId} pack="bookkeeping">
+        <ReconciliationsView clientId={clientId} />
+      </PackGate>
     </ClientFrame>
   );
 }

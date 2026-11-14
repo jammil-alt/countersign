@@ -612,7 +612,11 @@ describe("the agent page", () => {
         new Reply(404, { error: { code: "not_found", message: "service not found" } }),
     });
     renderAt(`/agents/${SVC}`, api);
-    expect(await screen.findByText("Not found.")).toBeInTheDocument();
+    // A calm dead end with the way home, never "Try again".
+    const end = await screen.findByTestId("error-not-found");
+    expect(end).toHaveTextContent("We couldn't find this agent.");
+    expect(within(end).getByTestId("error-back")).toHaveAttribute("href", "/");
+    expect(screen.queryByText("Try again")).toBeNull();
   });
 
   it("lets the client admin pause it with a reason, and resume their own pause", async () => {

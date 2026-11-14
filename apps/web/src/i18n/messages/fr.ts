@@ -25,6 +25,35 @@ export const fr: Messages = {
   "common.no": "Non",
   "common.close": "Fermer",
 
+  // ── Error pages (a page that failed to load) ──
+  "errorPage.notFound.run": "Nous n'avons pas trouvé cette exécution.",
+  "errorPage.notFound.agent": "Nous n'avons pas trouvé cet agent.",
+  "errorPage.notFound.record": "Nous n'avons pas trouvé cet enregistrement.",
+  "errorPage.notFound.document": "Nous n'avons pas trouvé ce document.",
+  "errorPage.notFound.conversation": "Nous n'avons pas trouvé cette conversation.",
+  "errorPage.notFound.client": "Nous n'avons pas trouvé ce client.",
+  "errorPage.notFound.template": "Nous n'avons pas trouvé ce modèle.",
+  "errorPage.notFound.skill": "Nous n'avons pas trouvé cette compétence.",
+  "errorPage.notFound.page": "Nous n'avons pas trouvé cette page.",
+  "errorPage.notFound.line":
+    "Elle a peut-être été supprimée, ou le lien est celui d'un autre compte.",
+  "errorPage.connection.title": "Il faut pour cela une connexion que vous n'avez pas encore faite.",
+  "errorPage.connection.line": "Connectez-la dans Comptes, puis revenez sur cette page.",
+  "errorPage.forbidden.title": "Vous n'avez pas accès à cette page.",
+  "errorPage.failure":
+    "Un problème est survenu au chargement de cette page. Réessayez dans un instant.",
+  "errorPage.back.home": "Aller à l'accueil",
+  "errorPage.back.runs": "Aller aux exécutions",
+  "errorPage.back.records": "Aller aux enregistrements",
+  "errorPage.back.sloan": "Aller à Sloan",
+  "errorPage.back.accounts": "Aller aux comptes",
+  "errorPage.back.clients": "Aller aux clients",
+  "errorPage.back.lab": "Aller au laboratoire d'agents",
+  "errorPage.back.skills": "Aller aux compétences",
+  "errorPage.report": "Signaler un problème",
+  "errorPage.reportComment": "Cette page ne s'est pas chargée.",
+  "errorPage.reported": "Merci, nous avons prévenu l'équipe.",
+
   // ── Errors ──
   "error.not_found": "Introuvable.",
   "error.forbidden": "Vous n'avez pas accès à ceci.",

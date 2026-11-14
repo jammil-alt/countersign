@@ -133,6 +133,20 @@ function RunFrameSkeleton({
   const session = useSession();
   const clientName = row ? session.tenants.find((t) => t.id === row.tenantId)?.name : undefined;
   const chip = row ? runChip(row) : null;
+  // A run that failed to load has no number, client or title to show: none is made up from its
+  // address (`R-tauuid` from /ops/runs/not-a-uuid), only the way back and the error.
+  if (error && !row) {
+    return (
+      <Page testId="ops-run-skeleton">
+        <nav className="ds-crumbs flex-wrap" aria-label="Breadcrumb">
+          <Link to="/ops/runs" className="text-link hover:underline" data-testid="ops-run-back">
+            Runs
+          </Link>
+        </nav>
+        {children}
+      </Page>
+    );
+  }
   return (
     <Page testId="ops-run-skeleton">
       <nav className="ds-crumbs flex-wrap" aria-label="Breadcrumb">

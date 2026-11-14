@@ -112,10 +112,19 @@ export function startErrorTracking(): void {
 }
 
 /** Who saw it: their id and whether they are the operator, never their email. Null: signed out. */
-export function identifyForErrors(who: { id: string; operator: boolean } | null): void {
+export function identifyForErrors(
+  who: { id: string; operator: boolean; tenantId?: string | null } | null,
+): void {
   if (!started) return;
   Sentry.setUser(who ? { id: who.id } : null);
   Sentry.setTag("operator", who ? String(who.operator) : "signed_out");
+  // The client a failure happened in (an id, never its name).
+  Sentry.setTag("tenant", who?.tenantId ?? "none");
+}
+
+/** The release this build reports as (the commit), or null where none was given. */
+export function appRelease(): string | null {
+  return (import.meta.env.VITE_SENTRY_RELEASE as string | undefined)?.trim() || null;
 }
 
 /** A screen that crashed (React's root error handlers). */
@@ -146,8 +155,17 @@ export function reportApiFailure(error: ApiError): void {
   if (!started) return;
   const kind = apiFailureKind(error, leaving || automated);
   if (kind === null) return;
-  Sentry.captureException(error, {
-    tags: { kind, route: error.route, status: String(error.status) },
+  // The page it failed on (the app's address without its query) and the code, beside the call;
+  // the event id goes with the error so "Report an issue" can name it.
+  const page = typeof location === "undefined" ? "" : withoutQuery(location.pathname);
+  error.sentryEventId = Sentry.captureException(error, {
+    tags: {
+      kind,
+      route: error.route,
+      status: String(error.status),
+      code: error.code,
+      page,
+    },
     fingerprint: [kind, error.route, String(error.status)],
   });
 }

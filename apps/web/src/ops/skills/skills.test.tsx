@@ -409,6 +409,15 @@ describe("editing and cloning from the library", () => {
 });
 
 describe("new skill, with the Builder", () => {
+  it("says there is no skill at a made-up address, without asking the API", async () => {
+    const { api } = renderAt("/ops/skills/account.chat", {
+      "GET /api/ops/skills": () => LIBRARY,
+    });
+    expect(await screen.findByTestId("skill-not-found")).toHaveTextContent("no skill");
+    expect(api.calls.some((c) => c.startsWith("GET /api/ops/tests"))).toBe(false);
+    expect(api.calls).not.toContain("GET /api/ops/skills/account.chat");
+  });
+
   it("starts a skill conversation with the first turn and opens it", async () => {
     const started: unknown[] = [];
     const turns: unknown[] = [];

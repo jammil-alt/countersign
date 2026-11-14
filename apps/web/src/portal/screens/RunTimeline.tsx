@@ -136,7 +136,8 @@ export function PortalRunScreen() {
         <Link to={PORTAL_PATHS.runs} className="text-link hover:underline">
           {t("nav.runs")}
         </Link>
-        {` / ${short}`}
+        {/* A run that failed to load shows no number made up from its address. */}
+        {failed ? null : ` / ${short}`}
       </p>
       {failed ? (
         <Loaded state={state}>{() => null}</Loaded>

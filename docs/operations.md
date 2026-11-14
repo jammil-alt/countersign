@@ -776,8 +776,13 @@ A fix ships with a test that fails without it (the error's input as a fixture wh
 
 ### The first production release
 
-Production (`https://app.mezonas.com`) has never been deployed. In this order (owner and Claude,
-2026-11-09):
+Production (`https://app.mezonas.com`) is **already live**: Deploy run 207 put `747d7ff` there by
+hand on 2026-11-09 (migrations through 0041 on Neon `main`, the code service, the app, the cron).
+So the first `v*` tag is an **upgrade**: it applies every later migration to production before the
+new Worker deploys, as on staging. Check the steps below against what is already there rather than
+redoing them. Approve a production deploy only for current `main` (a stale hand-run deploy waiting
+for approval is cancelled, not approved). The steps, in this order (owner and Claude, 2026-11-09;
+updated 2026-11-14):
 
 **On `main` first:** the migrations PR, then the code PRs, then this file's config PR with the two
 WorkOS values below. Each PR's checks pass before it merges.
@@ -786,8 +791,11 @@ WorkOS values below. Each PR's checks pass before it merges.
 1. **DNS:** no record uses `app`, `codes`, `agents` or `in` on `mezonas.com`. The deploy creates
    `app.mezonas.com` and `codes.mezonas.com` itself.
 2. **WorkOS → Production environment:** redirect URI `https://app.mezonas.com/api/auth/callback`;
-   default sign-out URI `https://app.mezonas.com/`; Multi-factor auth required (Authentication →
-   Features); session 12 hours, inactivity 30 minutes (Applications → the app → Sessions). Its
+   default sign-out URI `https://app.mezonas.com/`; Multi-factor auth **optional** for now
+   (Authentication → Features; `docs/open.md` A1, until our own second step is on, below);
+   Dynamic Client Registration and Client ID Metadata Documents on (Applications → Configuration;
+   A3, for the Claude connector); session 12 hours, inactivity 30 minutes (Applications → the app
+   → Sessions). Its
    client id and AuthKit domain go in `apps/api/wrangler.jsonc` (`env.production.vars`,
    `WORKOS_CLIENT_ID` and `WORKOS_AUTHKIT_DOMAIN`) by PR: they aren't secrets.
 3. **GitHub → Settings → Environments → `production`:**
@@ -802,6 +810,9 @@ WorkOS values below. Each PR's checks pass before it merges.
      `QBO_WEBHOOK_VERIFIER` (Intuit), `PLAID_CLIENT_ID`, `PLAID_SECRET` (Plaid), then a redeploy
      (Actions → Deploy → production). Until then QuickBooks and bank feeds show "Not available
      yet" in production.
+   - Not yet: `TWILIO_VERIFY_SERVICE_SID` (our own second step). Leave it out of
+     `env.production.vars` until the second step's screens are on `main` and it has been checked
+     on staging (the sign-in codes section below).
 
 **The release:**
 1. Tag `v0.1.0` on `main` (or Actions → Deploy → production) and approve it. It runs the full

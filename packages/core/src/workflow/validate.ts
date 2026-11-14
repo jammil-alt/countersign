@@ -713,6 +713,39 @@ export function checkEntityOff(
 
 const CRON_FIELD = /^[0-9A-Za-z*/,?#LW-]+$/;
 
+// QA (2026-11-14): "99 99 99 99 99" passed the characters check and was saved. Each field's
+// numbers are now held to its range (minute, hour, day of month, month, day of week; 7 is Sunday
+// too, as the scheduler's cron-parser reads it) and a step must be 1 or more. Names (MON, JAN)
+// and the specials L, W, # and ? are left to the scheduler, as before.
+const CRON_RANGES: readonly (readonly [number, number])[] = [
+  [0, 59],
+  [0, 23],
+  [1, 31],
+  [1, 12],
+  [0, 7],
+];
+
+/** Whether `cron` is five fields whose numbers are in range and whose steps are 1 or more. */
+export function validCron(cron: string): boolean {
+  const fields = cron.trim().split(/\s+/);
+  if (fields.length !== 5) return false;
+  return fields.every((field, i) => {
+    if (!CRON_FIELD.test(field)) return false;
+    const [lo, hi] = CRON_RANGES[i] as readonly [number, number];
+    return field.split(",").every((part) => {
+      const [range = "", step, extra] = part.split("/");
+      if (extra !== undefined || range === "") return false;
+      if (step !== undefined && !(/^\d+$/.test(step) && Number(step) >= 1)) return false;
+      if (range === "*" || range === "?") return true;
+      const bounds = range.split("-");
+      if (bounds.length > 2) return false;
+      const numbers = bounds.filter((b) => /^\d+$/.test(b)).map(Number);
+      if (numbers.some((n) => n < lo || n > hi)) return false;
+      return !(numbers.length === 2 && (numbers[0] as number) > (numbers[1] as number));
+    });
+  });
+}
+
 // v0.13 W2-H: a skill step's model override (ARCHITECTURE §10.11, docs/plan.md §1.53).
 /** A step may override the model of a `task` or `agent` skill, with an id the platform knows. */
 export function checkStepModel(
@@ -786,8 +819,7 @@ export function checkTrigger<S>(
       }
     }
   } else if (on.type === "schedule") {
-    const fields = on.cron.trim().split(/\s+/);
-    if (fields.length !== 5 || !fields.every((f) => CRON_FIELD.test(f))) {
+    if (!validCron(on.cron)) {
       c.add(id, "on.cron", "invalid_cron", "a schedule needs five cron fields, e.g. 0 7 * * 1-5");
     }
     if (on.tz !== undefined && !validTimezone(on.tz)) {

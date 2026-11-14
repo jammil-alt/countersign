@@ -1676,6 +1676,8 @@ export const tenantChange = pgTable(
 
 export const FEEDBACK_SURFACES = ["ops", "portal"] as const;
 export const FEEDBACK_STATUSES = ["open", "resolved"] as const;
+/** How it was sent: the Feedback button, or "Report an issue" on a page that failed to load. */
+export const FEEDBACK_SOURCES = ["button", "error_page"] as const;
 
 /** Where a pin was dropped, in CSS pixels of the viewport, and what was under it. */
 export interface FeedbackPin {
@@ -1709,6 +1711,12 @@ export const feedback = pgTable(
     pin: json<FeedbackPin>("pin"),
     /** A short description of the element under the pin (e.g. `button "Approve"`). */
     target: text("target"),
+    source: text("source").$type<(typeof FEEDBACK_SOURCES)[number]>().notNull().default("button"),
+    /**
+     * For an error page's report: what failed, for us (route, URL, status, code, the request, when,
+     * the client and user, the release, the Sentry event). Never shown to the person sending it.
+     */
+    context: json<Record<string, unknown>>("context"),
     screenshotKey: text("screenshot_key"),
     screenshotBytes: integer("screenshot_bytes"),
     status: text("status").$type<(typeof FEEDBACK_STATUSES)[number]>().notNull().default("open"),
@@ -1722,6 +1730,7 @@ export const feedback = pgTable(
     index("feedback_tenant_idx").on(t.tenantId, t.createdAt),
     check("feedback_surface_check", oneOf(t.surface, FEEDBACK_SURFACES)),
     check("feedback_status_check", oneOf(t.status, FEEDBACK_STATUSES)),
+    check("feedback_source_check", oneOf(t.source, FEEDBACK_SOURCES)),
     // Portal feedback always names its client; back-office feedback never does.
     check(
       "feedback_surface_tenant_check",

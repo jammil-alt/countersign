@@ -11,6 +11,8 @@ import {
   RATE_LIMIT_WINDOWS,
   type TriggerOn,
   uuidv7,
+  validCron,
+  validTimezone,
 } from "@countersign/core";
 import { useState } from "react";
 import { apiRoutes } from "../../api/routes";
@@ -124,22 +126,26 @@ export function AddTriggerForm({
     ? "This agent has no workflow with room for another trigger."
     : kind === "schedule" && !cron.trim()
       ? "Write when it runs, as a cron line."
-      : kind === "event" && !eventType
-        ? "Pick an event."
-        : kind === "webhook" && !/^[0-9a-f-]{36}$/i.test(hookId.trim())
-          ? "Paste the hook's id from the client's webhook connection."
-          : kind === "webhook" && rateMax && (Number.isNaN(max) || max < 1)
-            ? "The limit is a whole number of runs."
-            : kind === "message" && channels.length === 0
-              ? "Pick at least one channel."
-              : kind === "message" &&
-                  tagList.length === 0 &&
-                  relationships.length === 0 &&
-                  clientRoles.length === 0
-                ? "Say who may start it: nobody can until you do."
-                : kind === "handoff" && !fromAgent.trim()
-                  ? "Pick the agent it follows."
-                  : null;
+      : kind === "schedule" && !validCron(cron)
+        ? "That cron line isn't one we can run: five fields, each in range, like 0 8 * * 1-5."
+        : kind === "schedule" && tz.trim() && !validTimezone(tz.trim())
+          ? "That time zone isn't one we know. Use a name like America/Chicago, or leave it empty."
+          : kind === "event" && !eventType
+            ? "Pick an event."
+            : kind === "webhook" && !/^[0-9a-f-]{36}$/i.test(hookId.trim())
+              ? "Paste the hook's id from the client's webhook connection."
+              : kind === "webhook" && rateMax && (Number.isNaN(max) || max < 1)
+                ? "The limit is a whole number of runs."
+                : kind === "message" && channels.length === 0
+                  ? "Pick at least one channel."
+                  : kind === "message" &&
+                      tagList.length === 0 &&
+                      relationships.length === 0 &&
+                      clientRoles.length === 0
+                    ? "Say who may start it: nobody can until you do."
+                    : kind === "handoff" && !fromAgent.trim()
+                      ? "Pick the agent it follows."
+                      : null;
 
   function build(): TriggerOn {
     switch (kind) {
