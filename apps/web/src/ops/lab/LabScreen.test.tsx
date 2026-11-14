@@ -2,7 +2,7 @@
 // with a status filter and a plain-words search, each opening its own page; and the template's
 // panels on that page: its lineage (merges to review, changes to promote), client view and
 // Assign to a client.
-import { act, render, renderHook, screen, within } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -245,6 +245,14 @@ describe("LabScreen", () => {
     await user.selectOptions(screen.getByTestId("lab-status"), "failing");
     expect(screen.getByTestId("lab-template-purchasing")).toBeInTheDocument();
     expect(screen.queryByTestId("lab-template-card-receipts")).toBeNull();
+  });
+
+  it("remembers the view shown for All agents, never junk from the address", async () => {
+    setup("/ops/lab?tab=all&status=%00&q=bi%00ll");
+    await screen.findByTestId("lab-status");
+    await waitFor(() =>
+      expect(window.sessionStorage.getItem("mezonas.lab.query")).toBe("tab=all&q=bill"),
+    );
   });
 
   it("shows a list and opens an agent from anywhere on its row", async () => {
