@@ -8,6 +8,7 @@ import { useClientSummary } from "../../../ops/OpsLayout";
 import { Select } from "../../../ui/forms";
 import { Page } from "../../../ui/page";
 import { buttonClass, EmptyState, PageHeader, Tabs, Tag } from "../../../ui/primitives";
+import { PackGate } from "../../PackGate";
 import { MARKETING_NAV, MARKETING_PATHS, sectionOf } from "./paths";
 
 /** The client the page is for, from the route (`/ops/clients/:clientId/marketing/…`). */
@@ -61,7 +62,9 @@ export function MarketingLayout({
       </div>
       <section data-testid={testId}>
         <PageHeader title={title} subtitle={subtitle} actions={actions} />
-        {children}
+        <PackGate clientId={clientId} pack="marketing">
+          {children}
+        </PackGate>
       </section>
     </Page>
   );
