@@ -1,4 +1,4 @@
-// Migration 0048 (ARCHITECTURE v0.17 §10.14; docs/plan.md §1.97, M60): `oversight_decision` also
+// Migration 0048 (ARCHITECTURE v0.17 §10.14; docs/plan.md §1.99, M60): `oversight_decision` also
 // keeps the agent's choices: an `if` it chooses (cause `choose`, the path in `choice`) and a
 // repeat it says is done or not (cause `until`). It applies on a database the previous Worker
 // used, every decision kept as it was; the previous Worker's insert (which never names `choice`)

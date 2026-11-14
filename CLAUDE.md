@@ -117,7 +117,8 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
 9. **Untrusted text stays data.** Document text and vendor descriptions go in tool results, never in
    instructions. Agents cannot change their own permissions. During a run an agent may retry a step or
    correct its input, never change its plan, approvals or permissions; a corrected write is decided
-   again by the gate (ARCHITECTURE §10.11).
+   again by the gate (ARCHITECTURE §10.11). Where a step lets it, it may pick one of the paths the
+   operator built or say a `repeat` is done; that is not a change to the plan (§10.14, v0.17).
 10. **Evidence.** Alerts and agent outputs carry `sources` (record ids); alert-producing commands without
     sources are rejected. Every agent-made decision records `agent_version_id`.
 11. **The operator builds; clients use.** The client's team runs its agents day to day; the operator

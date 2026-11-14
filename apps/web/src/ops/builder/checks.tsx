@@ -620,7 +620,7 @@ function ApprovalPart(
       <Part title="Approval" testId="builder-approval">
         <p className="text-xs text-ink-muted" data-testid="builder-approval-none">
           {step.kind === "process"
-            ? "This step runs another process. Its changes to the client's tools are approved inside that process, by its own steps' approvals. Add an approval if someone should say yes before it starts."
+            ? "This step runs an automation. Its changes to the client's tools are approved inside that automation, by its own steps' approvals. Add an approval if someone should say yes before it starts."
             : step.kind === "write"
               ? // Skill model (2026-11-10): "Save to records" starts with approval off.
                 "This step saves to our records, not the client's tools, so approval is off by default. Add one if someone should say yes first."

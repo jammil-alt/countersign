@@ -292,9 +292,10 @@ export const PROCESS_KIND_LABEL: Record<ProcessStep["kind"] | "trigger", string>
   notify: "Notify",
   if: "If",
   for_each: "For each",
+  repeat: "Repeat",
   wait: "Wait",
   stop: "Stop",
-  process: "Process",
+  process: "Automation",
   handoff: "Hand off",
 };
 
@@ -374,9 +375,11 @@ export function processStepDetail(step: ProcessStep, labels: StepLabels = {}): s
         .filter(Boolean)
         .join(" · ");
     case "if":
-      return `${step.paths.length} ${step.paths.length === 1 ? "path" : "paths"}`;
+      return `${step.paths.length} ${step.paths.length === 1 ? "path" : "paths"}${step.decide === "agent" ? " · the agent chooses" : ""}`;
     case "for_each":
       return `over ${fieldText(step.over)}`;
+    case "repeat":
+      return `until ${"rules" in step.until ? "its rule holds" : "the agent says it's done"} · up to ${step.maxTimes} ${step.maxTimes === 1 ? "time" : "times"}`;
     case "wait":
       return `for ${step.for}`;
     case "stop":

@@ -594,7 +594,8 @@ describe("Home's account check", () => {
     });
     renderAt("/", api);
     expect(await screen.findByText("Sus agentes")).toBeInTheDocument();
-    expect(screen.getByText("Le necesita")).toBeInTheDocument();
+    // The Needs you card waits for the table as well as the overview: wait for it too.
+    expect(await screen.findByText("Le necesita")).toBeInTheDocument();
     expect(await screen.findByText("Recordatorio")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Revisar y aprobar" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Añadir documentos" })).toBeInTheDocument();

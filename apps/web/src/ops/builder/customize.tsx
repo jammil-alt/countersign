@@ -182,7 +182,7 @@ export function CustomizeSection(props: CustomizeProps) {
         {/* Skill model (2026-11-10): the kind first; a stored retiring method says itself. */}
         {SKILL_KIND_LABEL[skillKind(skill, toolLookup(ctx.tools ?? {}))]}
         {method === "rules_then_ai" ? ` · ${METHOD_LABEL[method]}` : ""}. This step customizes the
-        skill for this process; the skill itself stays as it is in the Library.
+        skill for this workflow; the skill itself stays as it is in the Library.
       </p>
       {problems.length ? (
         <ul className="ds-banner flex-col gap-1 text-sm" data-testid="builder-customize-problems">

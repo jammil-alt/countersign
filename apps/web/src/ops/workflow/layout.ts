@@ -38,7 +38,8 @@ export function listMinWidth(steps: readonly Shaped[]): number {
 /** The width one step needs: a fork its paths side by side, a loop its block, else a card. */
 export function stepMinWidth(step: Shaped): number {
   if (branches(step)) return forkMinWidth(step);
-  if (step.kind === "for_each") return listMinWidth(step.steps ?? []) + BOX;
+  if (step.kind === "for_each" || step.kind === "repeat")
+    return listMinWidth(step.steps ?? []) + BOX;
   return CARD_MIN;
 }
 

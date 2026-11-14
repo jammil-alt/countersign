@@ -185,6 +185,15 @@ bring this forward.
   own (`urgent`, never held for quiet hours) needs a migration of `notification_kind_check`; do it
   in its own PR, then send from the outbox.
 
+### Automations, repeat and the agent's choice (code; ARCHITECTURE v0.17, `docs/plan.md` §1.99)
+
+- Built 2026-11-14 on `claude/laughing-babbage-vyfvog`: M58 (the words back), M59 (`repeat`), M60
+  (migration 0048, a commit of its own for its own PR), M61 (the agent chooses a path and says when
+  a `repeat` is done). Open: the RFQ, QuickBooks and buyer examples on staging once those
+  connectors are live, with their recorded model fixtures.
+- Owner decisions open: whether the portal shows the agent's reason for a choice; `between` in
+  business hours; more than 10 passes.
+
 ### Language and legal
 
 - A **fluent speaker's review** of the five translations (Spanish, French, Portuguese, Italian,

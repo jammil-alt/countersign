@@ -80,7 +80,7 @@ export function TriggersBank() {
     <LibraryFrame>
       <PageHeader
         title="Triggers"
-        subtitle="What starts a process. A process has one to ten triggers; you add them in the builder."
+        subtitle="What starts a workflow. A workflow has one to ten triggers; you add them in the builder."
       />
       <div className="-mt-2 flex justify-end">
         <BankSearch

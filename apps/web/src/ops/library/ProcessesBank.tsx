@@ -44,8 +44,8 @@ export function ProcessesBank() {
   return (
     <LibraryFrame>
       <PageHeader
-        title="Processes"
-        subtitle="Triggers, then steps top to bottom, each step able to carry checks. An agent is one process and its owner."
+        title="Workflows"
+        subtitle="Triggers, then steps top to bottom, each step able to carry checks. An agent is one workflow and its owner."
         actions={
           <Link to="/ops/templates/new" className={buttonClass("primary")}>
             Make a template
@@ -56,7 +56,7 @@ export function ProcessesBank() {
         <BankSearch
           value={search}
           onChange={setSearch}
-          label="Search processes"
+          label="Search workflows and automations"
           testId="processes-search"
         />
       </div>
@@ -94,8 +94,8 @@ export function ProcessesBank() {
       <AutomationsCard
         state={automations}
         shown={autos}
-        title="Used inside other processes"
-        line="Versioned step lists a process uses as one step, pinned to a version"
+        title="Automations"
+        line="Versioned chains of steps a workflow uses as one step, pinned to a version"
       />
     </LibraryFrame>
   );
@@ -184,7 +184,10 @@ function WorkflowRow({
           </span>
           {w.enabled ? null : <Tag>Off</Tag>}
           {w.schemaVersion === 3 ? (
-            <span className="text-xs text-ink-muted" title="Stored before processes; read as one">
+            <span
+              className="text-xs text-ink-muted"
+              title="Stored in the older format; read as the new one"
+            >
               Stored as a v3 workflow
             </span>
           ) : null}

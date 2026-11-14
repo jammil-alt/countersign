@@ -9,12 +9,12 @@ import { buttonClass, Card, PageHeader } from "../../ui/primitives";
 import { LibraryFrame } from "./LibraryFrame";
 import { BANKS, type BankInfo, counted } from "./paths";
 
-/** "3 processes", "15 skills · 85 tool wrappers retiring": the bank's count in words. */
+/** "3 workflows", "15 skills · 85 tool wrappers retiring": the bank's count in words. */
 export function bankCount(info: BankInfo, row: Index["banks"][number] | undefined): string {
   if (!row) return "";
   switch (info.bank) {
     case "processes":
-      return counted(row.count, "process", "processes");
+      return counted(row.count, "workflow");
     case "skills":
       return row.retired > 0
         ? `${counted(row.count, "skill")} · ${row.retired} tool wrappers retiring`
@@ -38,7 +38,7 @@ export function LibraryIndexScreen() {
     <LibraryFrame>
       <PageHeader
         title="Library"
-        subtitle="Everything agents are built from. A process puts a trigger, skills and tools in order; each client's agent is one process."
+        subtitle="Everything agents are built from. A workflow puts a trigger, skills and tools in order; each client's agent is one workflow."
         actions={
           <Link to="/ops/templates/new" className={buttonClass("primary")}>
             Make a template

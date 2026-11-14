@@ -37,7 +37,7 @@ function transport(ctx: Pick<Ctx, "services">): LlmTransport {
 function reshapeStep(body: { process: unknown; stepId: string }) {
   const parsed = processes.Process.safeParse(body.process);
   if (!parsed.success) {
-    throw new HttpError(422, "invalid_process", "the process doesn't read as a v4 process");
+    throw new HttpError(422, "invalid_process", "the workflow doesn't read in the new format");
   }
   const process = parsed.data;
   const step = processes.findStep(process, body.stepId)?.step;
@@ -78,7 +78,7 @@ export function opsReshapeRoutes(app: Hono<AppEnv>): void {
     const { process, step } = reshapeStep(body);
     const typing = await typingFor(ctx, row.tenantId, process);
     const context = processes.reshapeContext(process, step.id, typing);
-    if (!context) throw new HttpError(422, "not_a_reshape_step", "the step isn't in the process");
+    if (!context) throw new HttpError(422, "not_a_reshape_step", "the step isn't in the workflow");
     const proposal = processes.proposeReshape({
       context,
       ...(body.update ? { current: { input: step.input, mapping: step.reshape } } : {}),
@@ -145,7 +145,7 @@ export function opsReshapeRoutes(app: Hono<AppEnv>): void {
     const { process, step } = reshapeStep(body);
     const typing = await typingFor(ctx, row.tenantId, process);
     const context = processes.reshapeContext(process, step.id, typing);
-    if (!context) throw new HttpError(422, "not_a_reshape_step", "the step isn't in the process");
+    if (!context) throw new HttpError(422, "not_a_reshape_step", "the step isn't in the workflow");
 
     // The steps the input reads (`{{steps.<id>.output…}}`), and the trigger.
     const ids = new Set<string>();

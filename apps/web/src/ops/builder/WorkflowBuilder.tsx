@@ -447,7 +447,7 @@ function BuilderBody(
       : opensV3
         ? {
             tone: "neutral",
-            body: `v${from.version} is stored in the older workflow format. It opens here as a process with every step as it was; your next save makes a new version in the new format, and v${from.version} stays as it is.`,
+            body: `v${from.version} is stored in the older workflow format. It opens here in the new format with every step as it was; your next save makes a new version in the new format, and v${from.version} stays as it is.`,
           }
         : null,
   );
