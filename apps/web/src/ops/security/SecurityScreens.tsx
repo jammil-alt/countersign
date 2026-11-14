@@ -84,13 +84,11 @@ function SecurityPage({
 }) {
   return (
     <Page testId={testId}>
-      <PageHeader
-        eyebrow="Security and compliance"
-        title={title}
-        subtitle={subtitle}
-        actions={actions}
-      />
+      <PageHeader eyebrow="Security and compliance" title={title} subtitle={subtitle} />
       <SecurityTabs />
+      {/* Below the tabs, in a row that wraps: a header's actions don't shrink, and two filter
+          bars there scroll the page sideways at phone width (the route sweep). */}
+      {actions ? <div className="-mt-2 mb-6 flex flex-wrap gap-2">{actions}</div> : null}
       {children}
     </Page>
   );
@@ -248,20 +246,24 @@ export function SecurityControlsScreen() {
       subtitle="What we do to protect clients' data, where the evidence is, and what each answers."
       actions={
         <>
-          <StatusFilter
-            value={framework ?? "all"}
-            onChange={(v) => set("framework", v)}
-            area="ops-security-framework"
-            label="Framework"
-            options={FRAMEWORK_OPTIONS}
-          />
-          <StatusFilter
-            value={status ?? "all"}
-            onChange={(v) => set("status", v)}
-            area="ops-security-status"
-            label="Status"
-            options={STATUS_OPTIONS}
-          />
+          <div className="max-w-full overflow-x-auto">
+            <StatusFilter
+              value={framework ?? "all"}
+              onChange={(v) => set("framework", v)}
+              area="ops-security-framework"
+              label="Framework"
+              options={FRAMEWORK_OPTIONS}
+            />
+          </div>
+          <div className="max-w-full overflow-x-auto">
+            <StatusFilter
+              value={status ?? "all"}
+              onChange={(v) => set("status", v)}
+              area="ops-security-status"
+              label="Status"
+              options={STATUS_OPTIONS}
+            />
+          </div>
         </>
       }
     >
@@ -624,23 +626,21 @@ function ClientSummary({ client, data }: { client: SecurityClientRow; data: Secu
         eyebrow="Security summary"
         title={client.name}
         subtitle={`Prepared by Mezonas on ${day(data.generatedAt)}. ${TIER_NAMES[client.tier]} tier.`}
-        actions={
-          <span className="flex gap-2" data-print="hide">
-            <Link to={SECURITY_PATHS.clients} className="ds-btn ds-btn--ghost">
-              All clients
-            </Link>
-            <Link
-              to={`/ops/clients/${client.id}/settings/compliance`}
-              className="ds-btn ds-btn--secondary"
-            >
-              Compliance settings
-            </Link>
-            <Button variant="primary" onClick={() => window.print()} data-testid="security-print">
-              Print or save as PDF
-            </Button>
-          </span>
-        }
       />
+      <div className="-mt-2 mb-6 flex flex-wrap gap-2" data-print="hide">
+        <Link to={SECURITY_PATHS.clients} className="ds-btn ds-btn--ghost">
+          All clients
+        </Link>
+        <Link
+          to={`/ops/clients/${client.id}/settings/compliance`}
+          className="ds-btn ds-btn--secondary"
+        >
+          Compliance settings
+        </Link>
+        <Button variant="primary" onClick={() => window.print()} data-testid="security-print">
+          Print or save as PDF
+        </Button>
+      </div>
       <div className="flex flex-col gap-8">
         <KpiStrip testId="ops-security-client-figures">
           <StatTile label="Tier" value={TIER_NAMES[client.tier]} />
