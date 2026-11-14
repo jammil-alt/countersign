@@ -1,7 +1,7 @@
 // The session and the data auth needs from the database, as interfaces. The API implements the
 // directory with packages/db; auth's own logic never touches the database.
 
-import type { Role } from "@countersign/core";
+import type { Role, SecondFactorState } from "@countersign/core";
 import type { CarriedAccount } from "./account";
 
 export interface AuthUser {
@@ -36,6 +36,11 @@ export interface Session {
   /** The user's role in the active client. */
   readonly activeRole: Role | null;
   readonly adapter: AdapterKind;
+  /**
+   * Where the sign-in is with its second step (docs/plan.md §1.100). Absent: a session built
+   * without a cookie (the MCP server's bearer token, tests), which the step does not apply to.
+   */
+  readonly secondFactor?: SecondFactorState;
 }
 
 export type RefusalCode =
@@ -52,7 +57,9 @@ export type RefusalCode =
   /** The adapter must not run here (the dev adapter in production). */
   | "adapter_disabled"
   /** Sign-in is configured wrongly; nothing can be verified. */
-  | "misconfigured";
+  | "misconfigured"
+  /** Signed in with a password, but the second step is not done yet (docs/plan.md §1.100). */
+  | "second_factor_required";
 
 export interface AuthRefusal {
   readonly ok: false;
@@ -73,6 +80,7 @@ const STATUS: Record<RefusalCode, AuthRefusal["status"]> = {
   tenant_forbidden: 403,
   adapter_disabled: 503,
   misconfigured: 503,
+  second_factor_required: 401,
 };
 
 export function refuse(
@@ -93,6 +101,8 @@ export type Identification =
       readonly ok: true;
       readonly userId: string;
       readonly setCookies: readonly string[];
+      /** §1.100: where this sign-in is with its second step; absent means it does not apply. */
+      readonly secondFactor?: SecondFactorState;
       /**
        * The account the sealed cookie carries for this user, fresh or not (`accountFresh`
        * decides); absent when it carries none (docs/plan.md §1.93).

@@ -81,6 +81,7 @@ export * from "./api/runs-ask";
 export * from "./api/runs-filter";
 // v0.12 W2-F
 export * from "./api/search";
+export * from "./api/second-factor";
 // The skill model (owner, 2026-11-10)
 export * from "./api/skill-model";
 // v0.14 W4-C: the Slack channel picker

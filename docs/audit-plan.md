@@ -735,7 +735,7 @@ the phase is by how much later work it makes easier.
 - [ ] **10.10 Docs that agree.**
   "Migrations through" says 0040 in `CLAUDE.md`, 0038 in `docs/open.md`; the folder ends at 0042.
   `docs/plan.md` has two `### 1.83` and its opening status still says Phase 1. §2 lists one pack
-  of three. Keep the status in one place, renumber the second 1.83 (code comments cite both), and
+  of three. Keep the status in one place, renumber the second 1.83 (done: it is §1.100), and
   write ARCHITECTURE v0.16 before more area work.
 
 - [ ] **10.11 Stored JSON is parsed, not cast.** About 127 `as unknown as` outside tests, e.g.

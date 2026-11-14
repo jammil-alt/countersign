@@ -1,4 +1,4 @@
-// A person's second factor (migration 0042, docs/plan.md §1.83) as the Worker's role sees it: the
+// A person's second factor (migration 0042, docs/plan.md §1.100) as the Worker's role sees it: the
 // person signing in sees and writes only their own rows, an operator session sees everyone's, and
 // no scope sees nothing.
 

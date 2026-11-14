@@ -24,8 +24,11 @@
 
 import {
   SESSION_MAX_AGE_SEC as MAX_AGE,
+  SECOND_FACTOR_PENDING_SEC,
+  SECOND_FACTOR_REMEMBER_SEC,
   SESSION_ACTIVITY_WINDOW_SEC,
   SESSION_IDLE_SEC,
+  SecondFactorState,
 } from "@countersign/core";
 import { z } from "zod";
 import { clearCookie, serializeCookie } from "../cookies";
@@ -35,6 +38,8 @@ import { type WorkOSAuthentication, type WorkOSClient, WorkOSError } from "./cli
 /** `__Host-`: Secure, Path=/, no Domain, so a subdomain can neither read nor plant it. */
 export const SESSION_COOKIE = "__Host-cs_session";
 export const STATE_COOKIE = "__Host-cs_auth_state";
+/** §1.100: a browser that passed the second step, remembered for 30 days. */
+export const DEVICE_COOKIE = "__Host-cs_device";
 
 export const SESSION_MAX_AGE_SEC = MAX_AGE;
 export const IDLE_TIMEOUT_SEC = SESSION_IDLE_SEC;
@@ -63,12 +68,27 @@ export const SessionPayload = z.object({
   /** Last activity (seconds); absent on cookies from before the idle limit. */
   lat: z.int().optional(),
   /**
+   * §1.100: the second step. `pending` until passed (by `mfx`, else the sign-in starts again),
+   * `done`, or `exempt` (the step is off here, or the sign-in was the person's company SSO).
+   * Absent on cookies from before the step; refused once the step is on.
+   */
+  mf: SecondFactorState.optional(),
+  mfx: z.int().optional(),
+  /**
    * The account as last read (`compactAccount`), checked by `expandAccount` when used: a shape we
    * no longer read is a read, never a signed-out session.
    */
   acct: z.unknown().optional(),
 });
 export type SessionPayload = z.infer<typeof SessionPayload>;
+
+/** §1.100: the remembered browser. `fid` is the method it passed with: a reset removes it. */
+export const DevicePayload = z.object({
+  uid: z.uuid(),
+  fid: z.uuid(),
+  exp: z.int(),
+});
+export type DevicePayload = z.infer<typeof DevicePayload>;
 
 export const StatePayload = z.object({
   /** The nonce WorkOS echoes back as `state`. */
@@ -86,6 +106,8 @@ export interface NewSession {
   readonly workosOrganizationId: string | null;
   readonly sessionId: string | null;
   readonly refreshToken: string;
+  /** §1.100: where the new session starts with the second step (default exempt: the step is off). */
+  readonly secondFactor?: SecondFactorState;
 }
 
 /** Seconds since the epoch. */
@@ -104,6 +126,8 @@ export function newSession(input: NewSession, now: number): SessionPayload {
     rat: now + REFRESH_INTERVAL_SEC,
     exp: now + SESSION_MAX_AGE_SEC,
     lat: now,
+    mf: input.secondFactor ?? "exempt",
+    ...(input.secondFactor === "pending" ? { mfx: now + SECOND_FACTOR_PENDING_SEC } : {}),
   };
 }
 
@@ -128,6 +152,33 @@ export async function openSession(
 }
 
 export const sealState = (state: StatePayload, password: string) => seal(state, password, "state");
+
+export const sealDevice = (device: DevicePayload, password: string) =>
+  seal(device, password, "device");
+
+/** The remembered browser in a cookie value, or null when it does not open or has expired. */
+export async function openDevice(
+  sealed: string,
+  password: string,
+  now: number,
+): Promise<DevicePayload | null> {
+  const parsed = DevicePayload.safeParse(await unseal(sealed, password, "device"));
+  return parsed.success && now < parsed.data.exp ? parsed.data : null;
+}
+
+/** A browser remembered for 30 days for this person and method. */
+export async function deviceCookie(
+  input: { userId: string; factorId: string },
+  password: string,
+  now: number,
+): Promise<string> {
+  const sealed = await sealDevice(
+    { uid: input.userId, fid: input.factorId, exp: now + SECOND_FACTOR_REMEMBER_SEC },
+    password,
+  );
+  return serializeCookie(DEVICE_COOKIE, sealed, { maxAgeSec: SECOND_FACTOR_REMEMBER_SEC });
+}
+export const clearDeviceCookie = () => clearCookie(DEVICE_COOKIE);
 
 // DECISION: the one automatic restart of a failed callback (plan §1.35, "Sign-in callback") is
 // marked in the `state` WorkOS echoes back, as `2.` before the nonce. The callback reads it from
