@@ -59,37 +59,41 @@ export function OpsFeedbackScreen() {
               : `${open} open${filter === "all" ? ` of ${items.length}` : ""}. What people sent with the Feedback button or Report an issue.`
             : "What people sent with the Feedback button or Report an issue."
         }
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <div className="ds-seg" data-testid="ops-feedback-source">
-              {FROM.map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={from === value}
-                  data-testid={`ops-feedback-source-${value}`}
-                  onClick={() => setFrom(value)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="ds-seg" data-testid="ops-feedback-filter">
-              {FILTERS.map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={filter === value}
-                  data-testid={`ops-feedback-filter-${value}`}
-                  onClick={() => setFilter(value)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-        }
       />
+      {/* Below the header, in a row that wraps: a header's actions don't shrink, and two filter
+          bars there scroll the page sideways at phone width (the route sweep). */}
+      <div className="-mt-2 mb-6 flex flex-wrap gap-2">
+        <div className="max-w-full overflow-x-auto">
+          <div className="ds-seg" data-testid="ops-feedback-source">
+            {FROM.map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={from === value}
+                data-testid={`ops-feedback-source-${value}`}
+                onClick={() => setFrom(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="max-w-full overflow-x-auto">
+          <div className="ds-seg" data-testid="ops-feedback-filter">
+            {FILTERS.map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={filter === value}
+                data-testid={`ops-feedback-filter-${value}`}
+                onClick={() => setFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
       <UtilitiesTabs />
       <Loaded state={feedback}>
         {(data) =>
