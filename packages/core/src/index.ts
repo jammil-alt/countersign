@@ -64,6 +64,7 @@ export * from "./api/people";
 export * from "./api/qbo";
 export * from "./api/reach";
 export * from "./api/records";
+export * from "./api/reggie";
 export * from "./api/requests";
 export * from "./api/reshape";
 export * from "./api/routes";
@@ -132,6 +133,7 @@ export * from "./calls/rules";
 export * from "./canonical";
 export * from "./codes/service";
 export * from "./compliance/card-numbers";
+export * from "./compliance/controls";
 export * from "./compliance/processors";
 // P-4: conversations with people
 export * from "./converse";

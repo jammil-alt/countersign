@@ -453,7 +453,7 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
   await db
     .insert(tenantChange)
     .values({ tenantId, change: { setting: "feedback", to: true }, reason: "Beta" });
-  // 0049: its columns named, not drizzle's whole list (which has `source` and `context`), so a
+  // 0050: its columns named, not drizzle's whole list (which has `source` and `context`), so a
   // client seeded on a database migrated only to an earlier migration gets this row too.
   await db.execute(sql`
       insert into feedback (tenant_id, surface, user_id, comment, path, viewport)

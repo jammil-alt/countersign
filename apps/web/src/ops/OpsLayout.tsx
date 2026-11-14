@@ -224,6 +224,13 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 label="Clients"
                 testId="ops-nav-clients"
               />
+              {/* docs/plan.md §1.101: Reggie, the operator's account agent */}
+              <SidebarLink
+                to={OPS_PATHS.reggie}
+                icon="message"
+                label="Reggie"
+                testId="ops-nav-reggie"
+              />
             </div>
             <SidebarSection label="Build">
               <SidebarLink
@@ -259,6 +266,13 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 icon="message"
                 label="Marketing"
                 testId="ops-nav-marketing"
+              />
+              {/* §1.102: our controls, vendors, policies, clients' standing and the audit log. */}
+              <SidebarLink
+                to={OPS_PATHS.security}
+                icon="sign"
+                label="Security"
+                testId="ops-nav-security"
               />
             </SidebarSection>
           </nav>

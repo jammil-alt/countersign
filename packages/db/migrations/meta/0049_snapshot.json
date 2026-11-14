@@ -1,5 +1,5 @@
 {
-  "id": "ebfa0829-9db1-4a76-98fe-868d2461aa81",
+  "id": "f3c0b059-eea6-4c49-9898-53f0b78490f0",
   "prevId": "27630a6f-9a97-485b-8ad3-ba13bc798b5f",
   "version": "7",
   "dialect": "postgresql",
@@ -6430,19 +6430,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'button'"
-        },
-        "context": {
-          "name": "context",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "screenshot_key": {
           "name": "screenshot_key",
           "type": "text",
@@ -6584,10 +6571,6 @@
         "feedback_status_check": {
           "name": "feedback_status_check",
           "value": "\"feedback\".\"status\" in ('open', 'resolved')"
-        },
-        "feedback_source_check": {
-          "name": "feedback_source_check",
-          "value": "\"feedback\".\"source\" in ('button', 'error_page')"
         },
         "feedback_surface_tenant_check": {
           "name": "feedback_surface_tenant_check",
@@ -11268,6 +11251,364 @@
         "receivable_status_check": {
           "name": "receivable_status_check",
           "value": "\"receivable\".\"status\" in ('open', 'paid', 'void', 'deleted')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.reggie_action": {
+      "name": "reggie_action",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tool": {
+          "name": "tool",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "args": {
+          "name": "args",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "preview": {
+          "name": "preview",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'proposed'"
+        },
+        "result": {
+          "name": "result",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error": {
+          "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "reggie_action_conversation_idx": {
+          "name": "reggie_action_conversation_idx",
+          "columns": [
+            {
+              "expression": "conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "reggie_action_conversation_id_reggie_conversation_id_fk": {
+          "name": "reggie_action_conversation_id_reggie_conversation_id_fk",
+          "tableFrom": "reggie_action",
+          "tableTo": "reggie_conversation",
+          "columnsFrom": [
+            "conversation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "reggie_action_user_id_app_user_id_fk": {
+          "name": "reggie_action_user_id_app_user_id_fk",
+          "tableFrom": "reggie_action",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "reggie_action_client_id_tenant_id_fk": {
+          "name": "reggie_action_client_id_tenant_id_fk",
+          "tableFrom": "reggie_action",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "reggie_action_status_check": {
+          "name": "reggie_action_status_check",
+          "value": "\"reggie_action\".\"status\" in ('proposed', 'done', 'cancelled', 'failed')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.reggie_conversation": {
+      "name": "reggie_conversation",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "reggie_conversation_user_idx": {
+          "name": "reggie_conversation_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "reggie_conversation_user_id_app_user_id_fk": {
+          "name": "reggie_conversation_user_id_app_user_id_fk",
+          "tableFrom": "reggie_conversation",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "reggie_conversation_client_id_tenant_id_fk": {
+          "name": "reggie_conversation_client_id_tenant_id_fk",
+          "tableFrom": "reggie_conversation",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.reggie_message": {
+      "name": "reggie_message",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "text": {
+          "name": "text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "blocks": {
+          "name": "blocks",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "meta": {
+          "name": "meta",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "reggie_message_conversation_idx": {
+          "name": "reggie_message_conversation_idx",
+          "columns": [
+            {
+              "expression": "conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "reggie_message_conversation_id_reggie_conversation_id_fk": {
+          "name": "reggie_message_conversation_id_reggie_conversation_id_fk",
+          "tableFrom": "reggie_message",
+          "tableTo": "reggie_conversation",
+          "columnsFrom": [
+            "conversation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "reggie_message_role_check": {
+          "name": "reggie_message_role_check",
+          "value": "\"reggie_message\".\"role\" in ('operator', 'reggie')"
         }
       },
       "isRLSEnabled": false

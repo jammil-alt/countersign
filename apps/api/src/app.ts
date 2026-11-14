@@ -74,6 +74,7 @@ import { knowledgeRouteHandlers } from "./routes/knowledge";
 // v0.12 W2-C: the test bench, skill tests and the agent lab
 import { labRoutes } from "./routes/lab";
 import { languageRouteHandlers } from "./routes/language";
+import { leadRequestRoutes } from "./routes/lead-requests";
 import { ledgerRoutes } from "./routes/ledger";
 // R8: the Library's banks (docs/plan.md §1.86)
 import { libraryRoutes } from "./routes/library";
@@ -106,6 +107,7 @@ import { portalRouteHandlers } from "./routes/portal";
 import { qboCronTick, qboRoutes, qboSyncFor } from "./routes/qbo";
 import { reachRoutes } from "./routes/reach";
 import { recordRouteHandlers } from "./routes/records";
+import { reggieRoutes } from "./routes/reggie";
 import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
 import { runAuditRouteHandlers } from "./routes/run-audit";
@@ -207,6 +209,9 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   contactRoutes(app);
   // docs/plan.md §1.98
   textSignupRoutes(app);
+  // docs/plan.md §1.101: Reggie, and the lead's requests on a client admin's Desk
+  leadRequestRoutes(app);
+  reggieRoutes(app);
   directoryRoutes(app);
   // The back office's chart of accounts (docs/plan.md §1.79).
   ledgerRoutes(app);

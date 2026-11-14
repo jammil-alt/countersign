@@ -116,7 +116,7 @@ describe("back office layout", () => {
       "Demo client",
     ]);
 
-    // Places only: Home, Escalations, Runs, Clients, Build, Business, and Utilities.
+    // Places only: Home, Escalations, Runs, Clients, Reggie (§1.101), Build, Business, and Utilities.
     const nav = screen.getByRole("complementary", { name: "Navigation" });
     expect(within(nav).getByTestId("ops-nav-home")).toHaveAttribute("href", "/ops");
     expect(within(nav).getByTestId("ops-nav-home")).toHaveTextContent("Home");
@@ -129,13 +129,16 @@ describe("back office layout", () => {
       "Escalations",
       "Runs",
       "Clients",
+      "Reggie",
       "Agent lab",
       // R8: skills, tools, connectors and the other banks are in the Library.
       "Library",
       "Packs",
       "Usage and billing",
       "Marketing",
-      // Feedback, the audit queue (wave 6), the audit log and requests are tabs of Utilities;
+      // §1.102: our controls, vendors, policies, clients' standing and the audit log.
+      "Security",
+      // Feedback, the audit queue (wave 6) and requests are tabs of Utilities;
       // website logins are in the Library (R8).
       "Utilities",
     ]);
