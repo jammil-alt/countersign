@@ -297,6 +297,9 @@ export const en = {
   "inbox.reject": "Reject",
   "inbox.sign": "Approve",
   "inbox.findingSteps": "What to do",
+  "inbox.sentAs": "As it will go",
+  "inbox.sentAsNote":
+    "The first text to a person, and the first after 30 days, names you and ends with how to opt out. We add it.",
   "inbox.findingDone": "Done",
   "inbox.signAndUpdate": "Approve and update {tool}",
   // ── Your Desk (UI-1b) ──
@@ -1297,6 +1300,13 @@ export const en = {
   "contacts.howAgreed": "How they agreed",
   "contacts.howAgreedHint": "For example: signed the service agreement.",
   "contacts.recordConsent": "Record consent",
+  "contacts.business": "They gave us this number for business",
+  "contacts.businessHint":
+    "Covers texts, calls from our assistant and email about your work together. WhatsApp still needs them to agree.",
+  "contacts.businessWhere": "Where they gave it",
+  "contacts.businessWhereHint": "For example: number on their invoices.",
+  "contacts.businessRecord": "Record it",
+  "contacts.businessLine": "{channels}: they gave you this number for business ({source}).",
   "contacts.withdrawConsent": "Withdraw consent",
   "contacts.optOutAll": "Opt out of everything",
   "contacts.loadingMessages": "Loading messages…",
@@ -1719,6 +1729,14 @@ export const en = {
   "peoplePage.col.about": "About",
   "peoplePage.empty": "Nobody here yet.",
   "peoplePage.noMatch": "Nobody matches.",
+  "peoplePage.selectPerson": "Select {name}",
+  "peoplePage.selectShown": "Select everyone shown",
+  "peoplePage.selectQuickBooks": "Select everyone from QuickBooks",
+  "peoplePage.selected": "{count} selected",
+  "peoplePage.clearSelection": "Clear",
+  "peoplePage.bulkBusiness": "They gave us these numbers for business",
+  "peoplePage.bulkDone": "Recorded for {count}.",
+  "peoplePage.bulkSkipped": "{count} left out: opted out, or no phone or email.",
   "peoplePage.reachNone": "No way to reach them yet",
   "peoplePage.cannot.optedOut": "Opted out",
   "peoplePage.cannot.noConsent": "No consent yet",
@@ -2286,6 +2304,9 @@ export const en = {
   "texting.optIn": "How people agree to your texts",
   "texting.optInHelp":
     "In your own words: where they give their number and what they agree to. At least 40 characters.",
+  "texting.optInRelationship": "Start from the wording for people who gave you their number",
+  "texting.optInRelationshipHelp":
+    "Put the line in quotes on every form where people give you their number, then say here where those forms are.",
   "texting.privacy": "Privacy policy link",
   "texting.terms": "Terms link",
   "texting.hasLinks": "Our texts include links",

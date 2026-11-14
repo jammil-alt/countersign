@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConsentState, SendBlock } from "../messaging/rules";
+import { type ConsentState, hasConsent, type SendBlock } from "../messaging/rules";
 
 // Phone calls by agents (docs/plan.md §1.19, §1.23): who may be called, what every call says first,
 // and what a caller hears when no agent may answer. Checked in code before any call is placed or
@@ -9,7 +9,7 @@ import type { ConsentState, SendBlock } from "../messaging/rules";
 export function callBlock(c: ConsentState): SendBlock | null {
   if (c.optedOutAt) return "opted_out";
   if (!c.phone) return "no_number";
-  if (!c.consent.voice) return "no_consent";
+  if (!hasConsent(c.consent, "voice")) return "no_consent";
   return null;
 }
 

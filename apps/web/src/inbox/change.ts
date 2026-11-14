@@ -78,7 +78,11 @@ const NONE: ChangeValue = { type: "none" };
 // `replaceLineIds`) and version tokens (QBO's SyncToken, ETags); the record is named in the title.
 const TOKENS = /^(id|ids|sync_?token|etag|version_?token)$/i;
 const ID_NAMED = /^[a-z][A-Za-z0-9]*Ids?$|_ids?$/;
-const HIDDEN = { test: (k: string) => TOKENS.test(k) || ID_NAMED.test(k) };
+/** Before-state keys the card shows in a block of its own: a first text as it will go (§1.97). */
+const OWN_BLOCK = new Set(["sentAs"]);
+const HIDDEN = {
+  test: (k: string) => TOKENS.test(k) || ID_NAMED.test(k) || OWN_BLOCK.has(k),
+};
 
 /** True when the record does not exist yet (a create): there is no "now". */
 export function isCreate(before: unknown): boolean {

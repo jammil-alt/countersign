@@ -312,6 +312,9 @@ export const fr: Messages = {
   "inbox.reject": "Refuser",
   "inbox.sign": "Approuver",
   "inbox.findingSteps": "Que faire",
+  "inbox.sentAs": "Tel qu'il partira",
+  "inbox.sentAsNote":
+    "Le premier SMS à une personne, et le premier après 30 jours, vous nomme et se termine par la façon de se désinscrire. Nous l'ajoutons.",
   "inbox.findingDone": "Fait",
   "inbox.signAndUpdate": "Approuver et mettre à jour {tool}",
   // ── Your Desk (UI-1b) ──
@@ -1359,6 +1362,13 @@ export const fr: Messages = {
   "contacts.howAgreed": "Comment la personne a accepté",
   "contacts.howAgreedHint": "Par exemple : a signé le contrat de service.",
   "contacts.recordConsent": "Enregistrer le consentement",
+  "contacts.business": "Ce numéro nous a été donné pour nos échanges",
+  "contacts.businessHint":
+    "Couvre les SMS, les appels de notre assistant et les e-mails sur votre travail ensemble. WhatsApp demande toujours leur accord.",
+  "contacts.businessWhere": "Où il a été donné",
+  "contacts.businessWhereHint": "Par exemple : numéro sur leurs factures.",
+  "contacts.businessRecord": "Enregistrer",
+  "contacts.businessLine": "{channels} : ce numéro vous a été donné pour vos échanges ({source}).",
   "contacts.withdrawConsent": "Retirer le consentement",
   "contacts.optOutAll": "Désinscrire de tout",
   "contacts.loadingMessages": "Chargement des messages…",
@@ -1805,6 +1815,14 @@ export const fr: Messages = {
   "peoplePage.col.about": "À savoir",
   "peoplePage.empty": "Personne pour l'instant.",
   "peoplePage.noMatch": "Personne ne correspond.",
+  "peoplePage.selectPerson": "Sélectionner {name}",
+  "peoplePage.selectShown": "Sélectionner toutes les personnes affichées",
+  "peoplePage.selectQuickBooks": "Sélectionner toutes les personnes de QuickBooks",
+  "peoplePage.selected": "{count} sélectionnés",
+  "peoplePage.clearSelection": "Effacer",
+  "peoplePage.bulkBusiness": "Ces numéros nous ont été donnés pour nos échanges",
+  "peoplePage.bulkDone": "Enregistré pour {count}.",
+  "peoplePage.bulkSkipped": "{count} laissés de côté : désinscrits, ou sans téléphone ni e-mail.",
   "peoplePage.reachNone": "Pas encore de moyen de la joindre",
   "peoplePage.cannot.optedOut": "Désinscrit",
   "peoplePage.cannot.noConsent": "Pas encore de consentement",
@@ -2401,6 +2419,9 @@ export const fr: Messages = {
   "texting.optIn": "Comment les personnes acceptent vos SMS",
   "texting.optInHelp":
     "Avec vos mots : où elles donnent leur numéro et ce qu'elles acceptent. Au moins 40 caractères.",
+  "texting.optInRelationship": "Partir du texte pour les personnes qui vous ont donné leur numéro",
+  "texting.optInRelationshipHelp":
+    "Mettez la phrase entre guillemets sur chaque formulaire où l'on vous donne son numéro, puis indiquez ici où se trouvent ces formulaires.",
   "texting.privacy": "Lien vers la politique de confidentialité",
   "texting.terms": "Lien vers les conditions",
   "texting.hasLinks": "Nos SMS contiennent des liens",

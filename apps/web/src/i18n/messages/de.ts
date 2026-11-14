@@ -322,6 +322,9 @@ export const de: Messages = {
   "inbox.reject": "Ablehnen",
   "inbox.sign": "Freigeben", // fluent review
   "inbox.findingSteps": "Was zu tun ist",
+  "inbox.sentAs": "So geht sie raus",
+  "inbox.sentAsNote":
+    "Die erste SMS an eine Person, und die erste nach 30 Tagen, nennt Sie und endet mit dem Hinweis zur Abmeldung. Wir fügen ihn hinzu.",
   "inbox.findingDone": "Erledigt",
   "inbox.signAndUpdate": "Freigeben und {tool} aktualisieren", // fluent review
   // ── Your Desk (UI-1b) ──
@@ -1375,6 +1378,13 @@ export const de: Messages = {
   "contacts.howAgreed": "Wie zugestimmt",
   "contacts.howAgreedHint": "Zum Beispiel: hat den Servicevertrag unterschrieben.",
   "contacts.recordConsent": "Zustimmung erfassen",
+  "contacts.business": "Hat uns diese Nummer geschäftlich gegeben",
+  "contacts.businessHint":
+    "Gilt für SMS, Anrufe unseres Assistenten und E-Mails zu Ihrer Zusammenarbeit. WhatsApp braucht weiterhin ihre Zustimmung.",
+  "contacts.businessWhere": "Wo sie sie angegeben haben",
+  "contacts.businessWhereHint": "Zum Beispiel: Nummer auf ihren Rechnungen.",
+  "contacts.businessRecord": "Festhalten",
+  "contacts.businessLine": "{channels}: hat Ihnen diese Nummer geschäftlich gegeben ({source}).",
   "contacts.withdrawConsent": "Zustimmung widerrufen",
   "contacts.optOutAll": "Von allem abmelden",
   "contacts.loadingMessages": "Nachrichten werden geladen…",
@@ -1817,6 +1827,14 @@ export const de: Messages = {
   "peoplePage.col.about": "Hinweise",
   "peoplePage.empty": "Noch niemand.",
   "peoplePage.noMatch": "Niemand passt.",
+  "peoplePage.selectPerson": "{name} auswählen",
+  "peoplePage.selectShown": "Alle Angezeigten auswählen",
+  "peoplePage.selectQuickBooks": "Alle aus QuickBooks auswählen",
+  "peoplePage.selected": "{count} ausgewählt",
+  "peoplePage.clearSelection": "Auswahl aufheben",
+  "peoplePage.bulkBusiness": "Haben uns diese Nummern geschäftlich gegeben",
+  "peoplePage.bulkDone": "Für {count} festgehalten.",
+  "peoplePage.bulkSkipped": "{count} ausgelassen: abgemeldet oder ohne Telefon und E-Mail.",
   "peoplePage.reachNone": "Noch kein Weg, sie zu erreichen",
   "peoplePage.cannot.optedOut": "Abgemeldet",
   "peoplePage.cannot.noConsent": "Noch keine Einwilligung",
@@ -2411,6 +2429,10 @@ export const de: Messages = {
   "texting.optIn": "Wie Personen Ihren SMS zustimmen",
   "texting.optInHelp":
     "In Ihren Worten: wo sie ihre Nummer angeben und wozu sie zustimmen. Mindestens 40 Zeichen.",
+  "texting.optInRelationship":
+    "Mit dem Text für Personen beginnen, die Ihnen ihre Nummer gegeben haben",
+  "texting.optInRelationshipHelp":
+    "Setzen Sie den Satz in Anführungszeichen auf jedes Formular, auf dem man Ihnen die Nummer gibt, und nennen Sie hier, wo diese Formulare sind.",
   "texting.privacy": "Link zur Datenschutzerklärung",
   "texting.terms": "Link zu den Bedingungen",
   "texting.hasLinks": "Unsere SMS enthalten Links",

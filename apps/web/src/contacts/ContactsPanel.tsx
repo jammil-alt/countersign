@@ -475,6 +475,7 @@ function ConsentForm({
   const [error, setError] = useState<string | null>(null);
   const [channel, setChannel] = useState<ConsentChoice>(contact.phone ? "sms" : "whatsapp");
   const [source, setSource] = useState("");
+  const [where, setWhere] = useState("");
 
   async function change(body: ContactConsentChangeInput) {
     setBusy(true);
@@ -482,6 +483,7 @@ function ConsentForm({
     try {
       await api.consent(contact.id, body);
       setSource("");
+      setWhere("");
       onChanged();
     } catch (e) {
       setError(problemText(e, "contacts.problem.notSaved", i18n));
@@ -512,64 +514,102 @@ function ConsentForm({
           )}
         </div>
       ) : (
-        <form
-          className="flex flex-col gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (source.trim()) void change({ action: "grant", channel, source: source.trim() });
-          }}
-        >
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[160px_minmax(0,1fr)]">
-            <Field label={t("contacts.consentChannel")}>
-              <Select
-                value={channel}
-                onChange={(e) => setChannel(e.target.value as ConsentChoice)}
-                data-testid={`contact-${contact.id}-channel`}
-              >
-                <option value="sms">{t("contacts.channel.sms")}</option>
-                <option value="whatsapp">{t("contacts.channel.whatsapp")}</option>
-                <option value="voice">{t("contacts.consentOption.voice")}</option>
-                <option value="email">{t("contacts.channel.email")}</option>
-              </Select>
-            </Field>
-            <Field label={t("contacts.howAgreed")} hint={t("contacts.howAgreedHint")}>
-              <TextInput
-                value={source}
-                maxLength={CONSENT_SOURCE_MAX}
-                onChange={(e) => setSource(e.target.value)}
-                data-testid={`contact-${contact.id}-source`}
-              />
-            </Field>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              disabled={busy || !source.trim()}
-              data-testid={`contact-${contact.id}-grant`}
+        <>
+          {contact.phone || contact.email ? (
+            // §1.97: they gave the client this number for business: texts, calls and email at once.
+            <form
+              className="flex flex-col gap-3"
+              data-testid={`contact-${contact.id}-business`}
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (where.trim()) void change({ action: "relationship", source: where.trim() });
+              }}
             >
-              {t("contacts.recordConsent")}
-            </Button>
-            {contact.consent[channel] ? (
+              <div className="flex flex-col gap-1">
+                <span className="text-sm font-medium text-ink">{t("contacts.business")}</span>
+                <span className="text-sm text-ink-muted">{t("contacts.businessHint")}</span>
+              </div>
+              <Field label={t("contacts.businessWhere")} hint={t("contacts.businessWhereHint")}>
+                <TextInput
+                  value={where}
+                  required
+                  maxLength={CONSENT_SOURCE_MAX}
+                  onChange={(e) => setWhere(e.target.value)}
+                  data-testid={`contact-${contact.id}-business-where`}
+                />
+              </Field>
+              <div>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={busy || !where.trim()}
+                  data-testid={`contact-${contact.id}-business-record`}
+                >
+                  {t("contacts.businessRecord")}
+                </Button>
+              </div>
+            </form>
+          ) : null}
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (source.trim()) void change({ action: "grant", channel, source: source.trim() });
+            }}
+          >
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[160px_minmax(0,1fr)]">
+              <Field label={t("contacts.consentChannel")}>
+                <Select
+                  value={channel}
+                  onChange={(e) => setChannel(e.target.value as ConsentChoice)}
+                  data-testid={`contact-${contact.id}-channel`}
+                >
+                  <option value="sms">{t("contacts.channel.sms")}</option>
+                  <option value="whatsapp">{t("contacts.channel.whatsapp")}</option>
+                  <option value="voice">{t("contacts.consentOption.voice")}</option>
+                  <option value="email">{t("contacts.channel.email")}</option>
+                </Select>
+              </Field>
+              <Field label={t("contacts.howAgreed")} hint={t("contacts.howAgreedHint")}>
+                <TextInput
+                  value={source}
+                  maxLength={CONSENT_SOURCE_MAX}
+                  onChange={(e) => setSource(e.target.value)}
+                  data-testid={`contact-${contact.id}-source`}
+                />
+              </Field>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={busy || !source.trim()}
+                data-testid={`contact-${contact.id}-grant`}
+              >
+                {t("contacts.recordConsent")}
+              </Button>
+              {contact.consent[channel] ? (
+                <Button
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => void change({ action: "withdraw", channel })}
+                >
+                  {t("contacts.withdrawConsent")}
+                </Button>
+              ) : null}
               <Button
                 size="sm"
                 disabled={busy}
-                onClick={() => void change({ action: "withdraw", channel })}
+                onClick={() => void change({ action: "opt_out" })}
+                data-testid={`contact-${contact.id}-opt-out`}
               >
-                {t("contacts.withdrawConsent")}
+                {t("contacts.optOutAll")}
               </Button>
-            ) : null}
-            <Button
-              size="sm"
-              disabled={busy}
-              onClick={() => void change({ action: "opt_out" })}
-              data-testid={`contact-${contact.id}-opt-out`}
-            >
-              {t("contacts.optOutAll")}
-            </Button>
-          </div>
-        </form>
+            </div>
+          </form>
+        </>
       )}
       {error ? (
         <p role="alert" className="ds-error text-sm">
@@ -577,6 +617,26 @@ function ConsentForm({
         </p>
       ) : null}
     </>
+  );
+}
+
+/** The channels on the relationship basis, with where the number came from (§1.97). */
+function BusinessLine({ contact }: { contact: Contact }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  if (contact.optedOut) return null;
+  const on = REACH_CHANNELS.filter((ch) => contact.consent[ch]?.basis === "relationship");
+  const source = on.map((ch) => contact.consent[ch]?.source).find(Boolean);
+  if (on.length === 0 || !source) return null;
+  return (
+    <p className="text-sm text-ink" data-testid={`contact-${contact.id}-business-line`}>
+      {t("contacts.businessLine", {
+        channels: new Intl.ListFormat(i18n.intl, { type: "conjunction" }).format(
+          on.map((ch) => t(CHANNEL_KEY[ch])),
+        ),
+        source,
+      })}
+    </p>
   );
 }
 
@@ -633,6 +693,7 @@ export function ContactConsent({
       <div className="flex flex-wrap gap-1.5">
         <ConsentPills contact={contact} />
       </div>
+      <BusinessLine contact={contact} />
       <ReachSummary contact={contact} />
       {canEdit ? (
         <>

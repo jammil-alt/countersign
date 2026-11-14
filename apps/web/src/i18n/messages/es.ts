@@ -305,6 +305,9 @@ export const es: Messages = {
   "inbox.reject": "Rechazar",
   "inbox.sign": "Aprobar",
   "inbox.findingSteps": "Qué hacer",
+  "inbox.sentAs": "Como se enviará",
+  "inbox.sentAsNote":
+    "El primer mensaje a una persona, y el primero tras 30 días, le nombra a usted y termina con cómo darse de baja. Lo añadimos nosotros.",
   "inbox.findingDone": "Hecho",
   "inbox.signAndUpdate": "Aprobar y actualizar {tool}",
   // ── Your Desk (UI-1b) ──
@@ -1337,6 +1340,13 @@ export const es: Messages = {
   "contacts.howAgreed": "Cómo lo aceptó",
   "contacts.howAgreedHint": "Por ejemplo: firmó el contrato de servicio.",
   "contacts.recordConsent": "Registrar el consentimiento",
+  "contacts.business": "Nos dio este número por trabajo",
+  "contacts.businessHint":
+    "Cubre mensajes de texto, llamadas de nuestro asistente y correos sobre su trabajo juntos. WhatsApp sigue necesitando su consentimiento.",
+  "contacts.businessWhere": "Dónde lo dio",
+  "contacts.businessWhereHint": "Por ejemplo: el número de sus facturas.",
+  "contacts.businessRecord": "Registrar",
+  "contacts.businessLine": "{channels}: le dio este número por trabajo ({source}).",
   "contacts.withdrawConsent": "Retirar el consentimiento",
   "contacts.optOutAll": "Dar de baja de todo",
   "contacts.loadingMessages": "Cargando mensajes…",
@@ -1775,6 +1785,15 @@ export const es: Messages = {
   "peoplePage.col.about": "Notas",
   "peoplePage.empty": "Aún no hay nadie.",
   "peoplePage.noMatch": "Nadie coincide.",
+  "peoplePage.selectPerson": "Seleccionar a {name}",
+  "peoplePage.selectShown": "Seleccionar a todos los mostrados",
+  "peoplePage.selectQuickBooks": "Seleccionar a todos los de QuickBooks",
+  "peoplePage.selected": "{count} seleccionados",
+  "peoplePage.clearSelection": "Quitar selección",
+  "peoplePage.bulkBusiness": "Nos dieron estos números por trabajo",
+  "peoplePage.bulkDone": "Registrado para {count}.",
+  "peoplePage.bulkSkipped":
+    "{count} sin cambios: se dieron de baja o no tienen teléfono ni correo.",
   "peoplePage.reachNone": "Aún no hay forma de contactarle",
   "peoplePage.cannot.optedOut": "Se dio de baja",
   "peoplePage.cannot.noConsent": "Aún sin consentimiento",
@@ -2358,6 +2377,9 @@ export const es: Messages = {
   "texting.optIn": "Cómo aceptan las personas tus mensajes",
   "texting.optInHelp":
     "Con tus palabras: dónde dan su número y qué aceptan. Al menos 40 caracteres.",
+  "texting.optInRelationship": "Empezar con el texto para quienes le dieron su número",
+  "texting.optInRelationshipHelp":
+    "Ponga la frase entre comillas en cada formulario donde le dan su número y diga aquí dónde están esos formularios.",
   "texting.privacy": "Enlace a la política de privacidad",
   "texting.terms": "Enlace a los términos",
   "texting.hasLinks": "Nuestros mensajes incluyen enlaces",

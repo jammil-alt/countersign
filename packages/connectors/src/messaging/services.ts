@@ -27,6 +27,13 @@ export type SendCheck =
       contact: SendContact;
       /** The contact's last message to us on this channel (WhatsApp's 24-hour window). */
       lastInboundAt: Date | null;
+      /**
+       * Texts (docs/plan.md §1.97): when this contact was last sent one (null: never), and the
+       * client's name, for the first text's introduction and opt-out line. Absent: unknown, and
+       * the text is treated as a first one.
+       */
+      lastTextAt?: Date | null;
+      client?: string;
     }
   | { ok: false; block: SendBlock | "no_contact"; message: string };
 
@@ -145,7 +152,13 @@ export interface MessageFacts {
 
 export class SendBlockedError extends Error {
   constructor(
-    readonly block: SendBlock | "no_contact" | "no_services" | "outside_window" | "no_sender",
+    readonly block:
+      | SendBlock
+      | "no_contact"
+      | "no_services"
+      | "outside_window"
+      | "no_sender"
+      | "too_long",
     message: string,
   ) {
     super(message);

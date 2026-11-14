@@ -464,3 +464,123 @@ describe("a contact's hours and away dates", () => {
     expect(api.calls).not.toContain("GET /api/settings/people-hours");
   });
 });
+
+// §1.97: "They gave us this number for business" (texts, calls and email, never WhatsApp).
+describe("C5 Contacts: numbers given for business", () => {
+  const QBO_ROW = contact({
+    id: "00000000-0000-4000-8000-0000000c0b04",
+    name: "Dee from Acme",
+    phone: "+19725550199",
+    email: null,
+    source: "qbo",
+    relationship: "customer",
+    organization: null,
+  });
+  const people = [contact({}), LISA_ROW, QBO_ROW];
+
+  it("records it for the people ticked, with everyone from QuickBooks in one go", async () => {
+    const posts: unknown[] = [];
+    renderAt("/contacts", "client_admin", {
+      "GET /api/directory": () => ({ people, organizations: [], pendingSuggestions: 0 }),
+      "POST /api/contacts/consent/relationship": ({ init }) => {
+        posts.push(JSON.parse(String(init.body)));
+        return { updated: [QBO_ROW.id, MARCO], skipped: [{ id: LISA, reason: "no_address" }] };
+      },
+    });
+    const bulk = await screen.findByTestId("people-bulk");
+    expect(within(bulk).getByTestId("people-bulk-count")).toHaveTextContent("0 selected");
+    // Nothing to record until someone is ticked.
+    expect(within(bulk).queryByTestId("people-bulk-record")).toBeNull();
+    await userEvent.click(within(bulk).getByTestId("people-pick-quickbooks"));
+    expect(screen.getByTestId(`people-pick-${QBO_ROW.id}`)).toBeChecked();
+    expect(screen.getByTestId(`people-pick-${MARCO}`)).not.toBeChecked();
+    await userEvent.click(screen.getByTestId(`people-pick-${MARCO}`));
+    expect(within(bulk).getByTestId("people-bulk-count")).toHaveTextContent("2 selected");
+    expect(bulk).toHaveTextContent("They gave us these numbers for business");
+    expect(bulk).toHaveTextContent("WhatsApp still needs them to agree");
+    // The note of where is required.
+    expect(within(bulk).getByTestId("people-bulk-record")).toBeDisabled();
+    await userEvent.type(within(bulk).getByTestId("people-bulk-where"), "on their invoices");
+    await userEvent.click(within(bulk).getByTestId("people-bulk-record"));
+    await waitFor(() =>
+      expect(posts).toEqual([{ contactIds: [QBO_ROW.id, MARCO], source: "on their invoices" }]),
+    );
+    expect(await within(bulk).findByTestId("people-bulk-result")).toHaveTextContent(
+      "Recorded for 2. 1 left out: opted out, or no phone or email.",
+    );
+  });
+
+  it("can be ticked when adding a person, and then needs where", async () => {
+    const posts: unknown[] = [];
+    renderAt("/contacts", "client_admin", {
+      "POST /api/contacts": ({ init }) => {
+        posts.push(JSON.parse(String(init.body)));
+        return { contact: contact({ id: "00000000-0000-4000-8000-0000000c0b03", name: "Rosa" }) };
+      },
+    });
+    await screen.findByTestId(`people-row-${MARCO}`);
+    await userEvent.click(screen.getByTestId("people-add"));
+    const form = await screen.findByTestId("people-add-form");
+    await userEvent.type(within(form).getByTestId("directory-person-new-name"), "Rosa Gómez");
+    await userEvent.type(within(form).getByTestId("directory-person-new-phone"), "+19725550100");
+    expect(within(form).queryByTestId("directory-person-new-business-where")).toBeNull();
+    await userEvent.click(within(form).getByTestId("directory-person-new-business-check"));
+    await userEvent.type(
+      within(form).getByTestId("directory-person-new-business-where"),
+      "order form",
+    );
+    await userEvent.click(within(form).getByTestId("directory-person-new-save"));
+    await waitFor(() =>
+      expect(posts).toEqual([
+        {
+          name: "Rosa Gómez",
+          phone: "+19725550100",
+          consent: { basis: "relationship", source: "order form" },
+        },
+      ]),
+    );
+  });
+
+  it("records it on one person from their consent, and shows where it came from", async () => {
+    const posts: unknown[] = [];
+    const given = {
+      grantedAt: "2026-11-13T10:00:00.000Z",
+      source: "number on their invoices",
+      basis: "relationship",
+    };
+    renderAt(`/contacts?person=${MARCO}`, "client_admin", {
+      "GET /api/directory": () => ({
+        people: [contact({ consent: { sms: given, voice: given, email: given } }), LISA_ROW],
+        organizations: [],
+        pendingSuggestions: 0,
+      }),
+      [`POST /api/contacts/${MARCO}/consent`]: ({ init }) => {
+        posts.push(JSON.parse(String(init.body)));
+        return { contact: contact({}) };
+      },
+    });
+    const detail = await screen.findByTestId(`people-detail-${MARCO}`);
+    expect(within(detail).getByTestId(`contact-${MARCO}-business-line`)).toHaveTextContent(
+      "they gave you this number for business (number on their invoices)",
+    );
+    await userEvent.click(within(detail).getByTestId(`contact-${MARCO}-open`));
+    const form = within(detail).getByTestId(`contact-${MARCO}-business`);
+    await userEvent.type(
+      within(form).getByTestId(`contact-${MARCO}-business-where`),
+      "gave it on the phone",
+    );
+    await userEvent.click(within(form).getByTestId(`contact-${MARCO}-business-record`));
+    await waitFor(() =>
+      expect(posts).toEqual([{ action: "relationship", source: "gave it on the phone" }]),
+    );
+  });
+
+  it("offers a client user no tick boxes and no bulk action", async () => {
+    renderAt("/contacts", "client_user", {
+      "GET /api/directory": () => ({ people, organizations: [], pendingSuggestions: 0 }),
+    });
+    await screen.findByTestId(`people-row-${MARCO}`);
+    expect(screen.queryByTestId("people-bulk")).toBeNull();
+    expect(screen.queryByTestId(`people-pick-${MARCO}`)).toBeNull();
+  });
+});

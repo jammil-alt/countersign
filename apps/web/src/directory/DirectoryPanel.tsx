@@ -6,6 +6,7 @@
 // row and change nothing until applied; agents' suggestions wait for acceptance. Words in the
 // reader's language (plan §1.18); names, notes and what tools or agents wrote stay as written.
 import {
+  CONSENT_SOURCE_MAX,
   CONTACT_RELATIONSHIPS,
   type Contact,
   type ContactCreateInput,
@@ -503,10 +504,15 @@ export function PersonForm({
 }: {
   person: Contact | null;
   organizations: Organization[];
-  onSubmit: (body: ContactPatchInput) => Promise<void>;
+  /** A new person's body may carry `consent` (ContactCreateInput); an edit's never does. */
+  onSubmit: (body: ContactPatchInput & Pick<ContactCreateInput, "consent">) => Promise<void>;
 }) {
   const i18n = useI18n();
   const { t } = i18n;
+  // §1.97: they gave the client this number for business, and where (a new person only; an
+  // existing one's is recorded in their consent).
+  const [business, setBusiness] = useState(false);
+  const [where, setWhere] = useState("");
   const [name, setName] = useState(person?.name ?? "");
   const [email, setEmail] = useState(person?.email ?? "");
   const [phone, setPhone] = useState(person?.phone ?? "");
@@ -528,9 +534,13 @@ export function PersonForm({
       setMessage(t("directory.person.needsAddress"));
       return;
     }
+    if (!person && business && !where.trim()) {
+      setMessage(t("contacts.businessWhereHint"));
+      return;
+    }
     setBusy(true);
     setMessage(null);
-    const body: ContactPatchInput = person
+    const body: ContactPatchInput & Pick<ContactCreateInput, "consent"> = person
       ? {
           name: name.trim(),
           email: email.trim() || null,
@@ -548,6 +558,9 @@ export function PersonForm({
           ...(relationship ? { relationship } : {}),
           ...(organizationId ? { organizationId } : {}),
           ...(language ? { language } : {}),
+          ...(business && where.trim()
+            ? { consent: { basis: "relationship" as const, source: where.trim() } }
+            : {}),
         };
     try {
       await onSubmit(body);
@@ -559,6 +572,8 @@ export function PersonForm({
         setRelationship("");
         setOrganizationId("");
         setLanguage("");
+        setBusiness(false);
+        setWhere("");
         setMessage(t("directory.person.added"));
       }
     } catch (error) {
@@ -642,6 +657,34 @@ export function PersonForm({
           ))}
         </Select>
       </Field>
+      {person ? null : (
+        <div className="flex flex-col gap-3" data-testid={`${prefix}-business`}>
+          <label className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              className="mt-1 size-4 accent-slate"
+              checked={business}
+              onChange={(e) => setBusiness(e.target.checked)}
+              data-testid={`${prefix}-business-check`}
+            />
+            <span>
+              <span className="block font-medium text-ink">{t("contacts.business")}</span>
+              <span className="block text-sm text-ink-muted">{t("contacts.businessHint")}</span>
+            </span>
+          </label>
+          {business ? (
+            <Field label={t("contacts.businessWhere")} hint={t("contacts.businessWhereHint")}>
+              <TextInput
+                required
+                value={where}
+                maxLength={CONSENT_SOURCE_MAX}
+                onChange={(e) => setWhere(e.target.value)}
+                data-testid={`${prefix}-business-where`}
+              />
+            </Field>
+          ) : null}
+        </div>
+      )}
       {person && (email.trim() || null) !== person.email ? (
         <p className="text-sm text-ink-muted">{t("directory.person.addressNote")}</p>
       ) : null}
