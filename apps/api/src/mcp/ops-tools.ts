@@ -55,6 +55,8 @@ export interface OpsToolCtx {
   now(): Date;
   /** What a write did, for the audit entry (set by the tool). */
   audit: { outcome?: "preview" | "done"; target?: Record<string, string> };
+  /** Who is calling: the MCP server (default) or Reggie, which reads with these tools (§1.101). */
+  via?: "mcp" | "reggie";
 }
 
 const Id = z.string().refine(isUuid, "not an id").describe("A Mezonas id (uuid)");
@@ -69,7 +71,7 @@ const READ = {
 
 /** A back-office route, run as this operator. */
 function route<R extends RouteSpec>(ctx: OpsToolCtx, spec: R, raw: RouteInput = {}) {
-  return invokeRoute(ctx.app, ctx.c, ctx.session, spec, raw);
+  return invokeRoute(ctx.app, ctx.c, ctx.session, spec, raw, ctx.via ?? "mcp");
 }
 
 /** Work in the operator's scope: the clients they serve (withOperator), as /api/ops runs. */

@@ -61,6 +61,7 @@ import { RecordTypesBank } from "./library/RecordTypesBank";
 import { ToolsBank } from "./library/ToolsBank";
 import { TriggersBank } from "./library/TriggersBank";
 import { MergeScreen } from "./merge/MergeScreen";
+import { ReggieScreen } from "./reggie/ReggieScreen";
 import { AgentPage } from "./screens/AgentPage";
 import { OpsAgentRedirect } from "./screens/AgentRedirect";
 import { OpsAuditScreen } from "./screens/AuditLog";
@@ -124,6 +125,9 @@ export const opsRoutes = (
 
     {/* Clients: the client page with its five tabs (client/ClientFrame.tsx) and new client. Each
         page of the Data and Setup tabs keeps its own address. */}
+    {/* docs/plan.md §1.101: Reggie, the operator's account agent */}
+    <Route path="reggie" element={<ReggieScreen />} />
+    <Route path="reggie/:id" element={<ReggieScreen />} />
     <Route path="clients" element={<ClientsScreen />} />
     <Route path="clients/new" element={<NewClientScreen />} />
     {/* 1.4 (docs/audit-plan.md): the client page's tabs under one frame (client/ClientFrame.tsx),

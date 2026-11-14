@@ -23,6 +23,8 @@ export const DEFAULT_MODELS = {
   reasoning: MODELS.sonnet,
   extraction: MODELS.sonnet,
   builder: MODELS.sonnet,
+  /** Reggie, the operator's account agent (docs/plan.md §1.101). */
+  reggie: MODELS.sonnet,
   /** High-volume classification and adjudication (e.g. item matching). */
   classification: MODELS.haiku,
   /** Optional, for the Builder on complex requests. */

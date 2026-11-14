@@ -95,6 +95,9 @@ const PLUMBING = new Set([
   "mode",
   "testRun",
   "accessRelease",
+  // §1.101: a lead's request: its choices are the quick answers; who asked is the lead.
+  "choices",
+  "leadRequest",
   // A finding's fingerprint and its state (docs/plan.md §1.28): the steps show as a list.
   "fingerprint",
   "finding",
