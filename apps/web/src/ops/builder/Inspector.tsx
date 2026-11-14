@@ -40,6 +40,8 @@ import {
   writeLabelOf,
 } from "./catalog";
 import { ChecksPanel, NotifyEditor } from "./checks";
+// Connections (owner, 2026-11-14)
+import { ConnectionsSection } from "./connections-step";
 import { CustomizeSection } from "./customize";
 import { DeadlineEditor } from "./deadline";
 import {
@@ -138,6 +140,12 @@ export interface InspectorProps {
   onMoveSkill?(move: SkillMove): void;
   /** Opens the Fix dialog for one of the step's problems. */
   onFix?: ((e: BuilderProblem) => void) | undefined;
+  // Connections (owner, 2026-11-14)
+  /**
+   * The validator on this workflow as an edit would leave it (in plain words): what the "Prior
+   * step" and "Next step" pickers check a move with before making it.
+   */
+  assess?: ((p: Process) => BuilderProblem[]) | undefined;
 }
 
 function errorsFor(errors: readonly BuilderProblem[], node: string): FieldErrors {
@@ -356,6 +364,15 @@ function StepInspector(props: InspectorProps & { step: Step }) {
           onChange={(e) => set("name", (s) => ({ ...s, name: e.target.value }))}
         />
       </Row>
+      {props.assess && props.onProcess ? (
+        <ConnectionsSection
+          step={step}
+          workflow={workflow}
+          ctx={ctx}
+          assess={props.assess}
+          onProcess={props.onProcess}
+        />
+      ) : null}
 
       <KindFields {...props} paths={paths} fieldErrors={fieldErrors} set={set} />
 

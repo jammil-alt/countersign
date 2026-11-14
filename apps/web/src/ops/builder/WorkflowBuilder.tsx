@@ -691,6 +691,23 @@ function BuilderBody(
     () => problemLines(result.errors, bundle).length,
     [result.errors, bundle],
   );
+  // Connections (owner, 2026-11-14): the same check on this workflow as an edit would leave it,
+  // for the inspector's "Prior step" and "Next step" (always the v4 process the next save writes).
+  const assess = useCallback(
+    (next: Process) => {
+      const b = editWorkflow(bundle, slug, () => next);
+      const r = validateProcessesLikeServer(b, ctx, {
+        clientAgent: agent.kind === "client",
+        publish: agent.kind === "client" ? { matrices } : undefined,
+        handoff: data.handoff,
+      });
+      const mine = r.errors
+        .filter((e) => e.workflow === slug)
+        .map((e) => ({ ...e, message: plainOutcomeProblem(next, e) }));
+      return readableErrors(mine, b);
+    },
+    [bundle, slug, ctx, agent.kind, matrices, data.handoff],
+  );
   // In plain words for the step panel and its fields; the list below groups them too.
   const workflowErrors = useMemo(
     () =>
@@ -1431,6 +1448,7 @@ function BuilderBody(
                     }}
                     onProcess={(fn, key) => edit(fn, key)}
                     onFix={fixError}
+                    assess={assess}
                   />
                 </div>
               ) : null}

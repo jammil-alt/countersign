@@ -4528,6 +4528,21 @@ for any agent: the owner of an agent is the agent itself, so each agent chooses 
 Open for the owner: whether the portal should show the agent's reason for a choice; whether `between`
 should be allowed in business hours; whether a `repeat` should ever allow more than 10 passes.
 
+### 1.101 A step's prior and next step, checked before they change (owner, 2026-11-14)
+
+"In each step, two drop-downs: prior step and next step, filled in if there is a connection already.
+If changed in any way, it should assess any issues that would arise from that connection, like data
+structures or required context, and help resolve."
+
+| Topic | Decision |
+|---|---|
+| What a connection is | A place in the list: a process runs each list top to bottom, so the prior and next steps are the ones right above and below. Picking another one moves the step there (`apps/web/src/ops/builder/connections.ts`); "None" is the start or the end of the list. No schema change: steps keep their ids (invariant 3). |
+| Which steps | The steps of the step's own list (the workflow's, an if path's or a loop's). // DECISION: moving into another path or loop stays a drag on the canvas, since a step on another path doesn't say where on that path it would go. |
+| The check | Before the move, the builder runs the validator it already runs (`validateProcessesLikeServer`, the server's rules) on the workflow as the move would leave it and compares: problems made and problems cleared. They are grouped as data a step reads that would no longer come before it (`template_scope`, `template_path`), required inputs left empty (`input_missing`), data in the wrong shape (`input_type`, `input_unknown`, `for_each_not_array`), a Reshape mapping that no longer fits, and the rest. |
+| No problems | The move is made at once, one undo, and the panel says so ("none loses data it needs"). |
+| Problems | Nothing moves until the operator picks: put it in a place in the list where it makes no new problem (up to three, found by checking each place); connect it and add a Reshape step before each step whose inputs it leaves unfilled (its mapping proposed from what runs before, as "Add a Reshape step before this" does), in one undo; connect anyway (the problems then show on their steps, each with Fix); or keep it as it was. // DECISION: no Builder model call to assess a move: the validator is exact and free, and Fix already asks the Builder about any single problem. |
+| Checked | `apps/web/src/ops/builder/connections.test.ts` (against core's validator), `connections.builder.test.tsx` (the pickers in the builder). |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
