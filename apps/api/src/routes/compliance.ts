@@ -25,6 +25,7 @@ import {
 } from "@countersign/db";
 import {
   and,
+  count,
   desc,
   eq,
   gte,
@@ -37,6 +38,7 @@ import {
   ne,
   or,
   type SQL,
+  sql,
 } from "drizzle-orm";
 import type { Hono } from "hono";
 import type { Bindings } from "../env";
@@ -56,6 +58,9 @@ export const purgeAfter = (retiredAt: Date): Date =>
   new Date(retiredAt.getTime() + RETIREMENT_PURGE_DAYS * DAY_MS);
 
 const COMPLIANCE_SETTINGS = ["hipaa", "retired"];
+
+/** The client's own people, as the Security section counts them (Mezonas staff are not). */
+const CLIENT_ROLES = ["client_admin", "client_user"] as const;
 
 async function complianceView(tx: Tx, env: Bindings, tenantId: string): Promise<ClientCompliance> {
   const [t] = await tx.select().from(tenant).where(eq(tenant.id, tenantId));
@@ -212,6 +217,79 @@ export function complianceRouteHandlers(app: Hono<AppEnv>): void {
       users.set(r.userId, u);
     }
     return { users: [...users.values()], generatedAt: new Date().toISOString() };
+  });
+
+  // ── The Security section (§1.100) ──────────────────────────────────────────────────────────────
+
+  mount(app, routes.opsSecurity, async ({ tx, tenantIds, services }) => {
+    const covered = [...coveredProcessors(services.env)];
+    const generatedAt = new Date();
+    if (tenantIds.length === 0) {
+      return {
+        covered,
+        clients: [],
+        audit30d: { events: 0, refused: 0 },
+        generatedAt: generatedAt.toISOString(),
+      };
+    }
+    const ids = [...tenantIds];
+    const tenants = await tx
+      .select({
+        id: tenant.id,
+        name: tenant.name,
+        settings: tenant.settings,
+        retiredAt: tenant.retiredAt,
+      })
+      .from(tenant)
+      .where(inArray(tenant.id, ids))
+      .orderBy(tenant.name);
+    const people = await tx
+      .select({ tenantId: membership.tenantId, role: membership.role, n: count() })
+      .from(membership)
+      .where(and(inArray(membership.tenantId, ids), inArray(membership.role, [...CLIENT_ROLES])))
+      .groupBy(membership.tenantId, membership.role);
+    const signIns = await tx
+      .select({ tenantId: auditEvent.tenantId, at: max(auditEvent.createdAt) })
+      .from(auditEvent)
+      .where(
+        and(
+          inArray(auditEvent.tenantId, ids),
+          eq(auditEvent.action, "session.sign_in"),
+          eq(auditEvent.outcome, "ok"),
+          inArray(auditEvent.actorRole, [...CLIENT_ROLES]),
+        ),
+      )
+      .groupBy(auditEvent.tenantId);
+    const since = new Date(generatedAt.getTime() - 30 * DAY_MS);
+    const [audit] = await tx
+      .select({
+        events: count(),
+        refused: count(sql`case when ${auditEvent.outcome} = 'refused' then 1 end`),
+      })
+      .from(auditEvent)
+      .where(and(inArray(auditEvent.tenantId, ids), gte(auditEvent.createdAt, since)));
+    const lastSignIn = new Map(signIns.map((r) => [r.tenantId, r.at]));
+    const peopleOf = (id: string, role: string) =>
+      people.find((p) => p.tenantId === id && p.role === role)?.n ?? 0;
+    return {
+      covered,
+      clients: tenants.map((t) => {
+        const settings = t.settings as Record<string, unknown>;
+        return {
+          id: t.id,
+          name: t.name,
+          tier: complianceOf(settings).hipaa ? ("regulated" as const) : ("standard" as const),
+          sandbox: isSandbox(settings),
+          retiredAt: iso(t.retiredAt),
+          purgeAfter: t.retiredAt ? purgeAfter(t.retiredAt).toISOString() : null,
+          admins: peopleOf(t.id, "client_admin"),
+          users: peopleOf(t.id, "client_user"),
+          lastSignInAt: iso(lastSignIn.get(t.id) ?? null),
+        };
+      }),
+      audit30d: { events: audit?.events ?? 0, refused: audit?.refused ?? 0 },
+      generatedAt: generatedAt.toISOString(),
+    };
   });
 
   // ── HIPAA mode ─────────────────────────────────────────────────────────────────────────────────

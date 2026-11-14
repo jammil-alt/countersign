@@ -135,7 +135,9 @@ describe("back office layout", () => {
       "Packs",
       "Usage and billing",
       "Marketing",
-      // Feedback, the audit queue (wave 6), the audit log and requests are tabs of Utilities;
+      // §1.100: our controls, vendors, policies, clients' standing and the audit log.
+      "Security",
+      // Feedback, the audit queue (wave 6) and requests are tabs of Utilities;
       // website logins are in the Library (R8).
       "Utilities",
     ]);

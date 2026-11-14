@@ -82,6 +82,15 @@ import { OpsRunAuditScreen } from "./screens/RunAuditQueue";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
 import { OpsUsageScreen } from "./screens/Usage";
+// §1.100: Security and compliance
+import {
+  SecurityClientScreen,
+  SecurityClientsScreen,
+  SecurityControlsScreen,
+  SecurityOverviewScreen,
+  SecurityPoliciesScreen,
+  SecurityVendorsScreen,
+} from "./security/SecurityScreens";
 import { AutomationPage } from "./skills/AutomationPage";
 import { NewSkillScreen } from "./skills/NewSkill";
 import { SkillPage } from "./skills/SkillPage";
@@ -196,18 +205,28 @@ export const opsRoutes = (
     {/* Usage, billing, feedback, audit, website logins, requests (UI-3) */}
     <Route path="usage" element={<OpsUsageScreen />} />
     <Route path="billing" element={<OpsBillingScreen />} />
-    {/* Utilities: feedback, the audit queue, the audit log and requests, a tab each. Website
+    {/* Utilities: feedback, the audit queue and requests, a tab each (the audit log moved to
+        Security, §1.100). Website
         logins are in the Library (R8): main's Websites tab redirects there. */}
     <Route path="utilities" element={<Redirect to="/ops/utilities/feedback" />} />
     <Route path="utilities/feedback" element={<OpsFeedbackScreen />} />
     {/* Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): runs picked for a person to check */}
     <Route path="utilities/run-audit" element={<OpsRunAuditScreen />} />
-    <Route path="utilities/audit" element={<OpsAuditScreen />} />
+    <Route path="utilities/audit" element={<Redirect to="/ops/security/audit" />} />
     <Route path="utilities/requests" element={<OpsRequestsScreen />} />
     <Route path="utilities/websites" element={<Redirect to="/ops/library/browser-sites" />} />
     <Route path="feedback" element={<Redirect to="/ops/utilities/feedback" />} />
     <Route path="run-audit" element={<Redirect to="/ops/utilities/run-audit" />} />
-    <Route path="audit" element={<Redirect to="/ops/utilities/audit" />} />
+    <Route path="audit" element={<Redirect to="/ops/security/audit" />} />
+    {/* §1.100 Security and compliance: our controls, vendors, policies and routines, each
+        client's standing (with a summary for its IT team) and the audit log, a tab each. */}
+    <Route path="security" element={<SecurityOverviewScreen />} />
+    <Route path="security/controls" element={<SecurityControlsScreen />} />
+    <Route path="security/vendors" element={<SecurityVendorsScreen />} />
+    <Route path="security/policies" element={<SecurityPoliciesScreen />} />
+    <Route path="security/clients" element={<SecurityClientsScreen />} />
+    <Route path="security/clients/:clientId" element={<SecurityClientScreen />} />
+    <Route path="security/audit" element={<OpsAuditScreen />} />
     <Route path="requests" element={<Redirect to="/ops/utilities/requests" />} />
     {/* Packs (P-1): switch a business area on per client, and a client's pack reports */}
     <Route path="packs" element={<OpsPacksScreen />} />

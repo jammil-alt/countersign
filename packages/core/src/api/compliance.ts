@@ -100,7 +100,43 @@ export const RetireClient = z.strictObject({
   confirmName: z.string().trim().min(1).max(200),
 });
 
+/** §1.100: one client's place in the Security section: its tier, who can reach it, and its state. */
+export const SecurityClientRow = z.object({
+  id: z.string(),
+  name: z.string(),
+  /** Regulated = HIPAA mode (§1.100); everyone else is Standard. */
+  tier: z.enum(["standard", "regulated"]),
+  sandbox: z.boolean(),
+  retiredAt: z.string().nullable(),
+  purgeAfter: z.string().nullable(),
+  /** Client admins and users with access (Mezonas staff not counted). */
+  admins: z.number().int(),
+  users: z.number().int(),
+  /** The last time anyone from the client signed in. */
+  lastSignInAt: z.string().nullable(),
+});
+export type SecurityClientRow = z.infer<typeof SecurityClientRow>;
+
+export const SecurityOverview = z.object({
+  /** Vendors with a signed BAA (`BAA_PROCESSORS`). */
+  covered: z.array(z.enum(PROCESSORS)),
+  clients: z.array(SecurityClientRow),
+  /** Audit rows in the last 30 days for the clients served, and how many were refused. */
+  audit30d: z.object({ events: z.number().int(), refused: z.number().int() }),
+  generatedAt: z.string(),
+});
+export type SecurityOverview = z.infer<typeof SecurityOverview>;
+
 export const complianceRoutes = {
+  opsSecurity: defineRoute({
+    method: "GET",
+    path: "/api/ops/security",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "The Security section: each client's tier and access, the vendors with a BAA, and the audit log's last 30 days",
+    response: SecurityOverview,
+  }),
   opsAudit: defineRoute({
     method: "GET",
     path: "/api/ops/audit",

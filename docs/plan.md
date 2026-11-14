@@ -4528,6 +4528,40 @@ for any agent: the owner of an agent is the agent itself, so each agent chooses 
 Open for the owner: whether the portal should show the agent's reason for a choice; whether `between`
 should be allowed in business hours; whether a `repeat` should ever allow more than 10 passes.
 
+### 1.100 Security and compliance: one place for our controls and each client's standing (owner, 2026-11-14)
+
+"On the ops side let's start a security and compliance section that centralizes everything from our
+stuff to the clients... a concise way to show auditors or IT security teams the safety of their
+data, and start working through compliance certifications." It builds on §1.35 (the controls),
+`docs/security.md` (how each is built), `docs/policies/` (what we commit to, PR #219) and
+`docs/hipaa-plan.md` (what is open). Outside ARCHITECTURE v0.15's §1 scope, at the owner's request,
+like the Marketing and Bookkeeping areas.
+
+| Topic | Decision |
+|---|---|
+| Where | A **Security** place in the back office's sidebar (Business), `/ops/security`, with tabs: Overview, Controls, Vendors, Policies and routines, Clients, Audit log. The audit log and access review move there from Utilities; `/ops/audit` and `/ops/utilities/audit` redirect. |
+| The register | `packages/core/src/compliance/controls.ts`: every control with a stable id (`AREA-n`, never reused), what we do in a client's words, its status (`in_place`, `partial`, `planned`), what is still open, its evidence (code, setting, policy, record or screen) and its framework references. It is code, so a control changes by pull request and its status changes when the work lands. A test checks that every file it names as evidence exists, so the register can't drift from the code. // DECISION |
+| Frameworks | SOC 2 (Trust Services Criteria 2017, rev. 2022: Security, Availability, Confidentiality), HIPAA (Security Rule, as a business associate) and PCI DSS v4.0.1 SAQ A, by requirement. The references are our own mapping, at the level an auditor starts from; the screen says the auditor confirms them. // DECISION |
+| Two tiers | **Standard** for every client; **Regulated** = HIPAA mode (§1.35), which adds the controls marked `regulated` (vendor BAAs, the client's BAA, its own audit log). No new column: the tier is read from `tenant.settings.compliance`. Stricter sign-in for regulated clients (for example SSO only) comes with S-4 if a client asks. // DECISION |
+| Live data | `GET /api/ops/security` (operator only): each client served with its tier, sandbox, retirement, how many admins and users, and its last sign-in; the vendors with a signed BAA (`BAA_PROCESSORS`); the audit log's last 30 days (rows and refusals). The register itself is read from `@countersign/core` in the app. |
+| For a client's IT team | `/ops/security/clients/:id`: a one-page summary (tier, how data is protected, where it goes, the controls it gets), printed or saved as PDF from the browser; the frame, tabs and buttons hide on paper. A regulated client's vendor list shows only vendors with a signed BAA. No client data beyond counts and dates. // DECISION |
+| Scanning production | Owner, 2026-11-14: "focus on prod only". OWASP ZAP's baseline scan of `https://app.mezonas.com` from GitHub Actions (`zap-scan.yml`), every Monday and after each successful production deploy (a `v*` tag); a weekly run that finds production down says so and stops. Baseline only: it spiders and reads, sends no attacks and never signs in, so no client data and no new vendor (§1.35). Findings go to one GitHub issue; the run's report is the week's evidence (GitHub keeps it 90 days, so S-2 stores it). Cloudflare Security Insights reviews the edge settings, reviewed quarterly. Controls CHG-7 and CHG-8. Not an ASV scan: if PCI ever asks for one, that is a vendor's. // DECISION |
+| Routines | Listed with their cadence (`ROUTINES`): access review and restore test quarterly, dependency updates monthly, risk analysis, policy review, training, vendor review, penetration test, incident drill and audit retention yearly, client exit when it happens. Their records stay outside the product until S-2. |
+
+**Milestones** (each ends green; S-2 and S-4 carry a migration, in its own PR):
+
+| | What | State |
+|---|---|---|
+| S-1 | The register, the Security section, the client summary, the audit log moved | Built (this section) |
+| S-2 | Routine records: who did each routine when, a note and the file (the access-review CSV, the restore result), next due, overdue on the Overview. One operator table (no `tenant_id`, like `browser_site`), files in R2 | Next |
+| S-3 | Evidence pack: one download for an auditor (register, policies, routine records, access review, audit-log summary) per period | |
+| S-4 | Regulated tier extras: the client's own audit log in the portal (`docs/hipaa-plan.md` T3), a Security page in the portal, stricter sign-in on request | |
+| S-5 | Drift checks: a daily job reads the WorkOS, Cloudflare, GitHub and Neon settings `docs/security.md` §10 records, and flags any change. Needs read-only keys for each | |
+| S-6 | Questionnaire answers: common security questions (SIG Lite, CAIQ) answered from the register, for clients' vendor reviews | |
+
+Checked: `packages/core/src/compliance/controls.test.ts`, `apps/api/src/compliance.test.ts` (the
+Security section), `apps/web/src/ops/security/SecurityScreens.test.tsx`.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

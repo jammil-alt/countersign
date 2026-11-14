@@ -1,4 +1,4 @@
-// `/ops/audit` (docs/plan.md §1.33): the audit log, who read or changed what, newest first, with
+// `/ops/security/audit` (docs/plan.md §1.33; a Security tab since §1.100): the audit log, who read or changed what, newest first, with
 // filters in the URL (`?client=`, `?user=`, `?action=`, `?outcome=`, `?from=`, `?to=`) and "Load
 // older" paging; and the access review (`?view=access`): every user, their role in each client and
 // when they last signed in, with a CSV download. Operator only; clients don't see the log in v1.
@@ -28,8 +28,8 @@ import {
   PageHeader,
   Tag,
 } from "../../ui/primitives";
+import { SecurityTabs } from "../security/SecurityTabs";
 import { TableCard } from "./business";
-import { UtilitiesTabs } from "./UtilitiesTabs";
 
 type Outcome = AuditEventRow["outcome"];
 type View = "log" | "access";
@@ -100,7 +100,7 @@ export function OpsAuditScreen() {
   return (
     <Page testId="ops-audit">
       <PageHeader
-        eyebrow="Utilities"
+        eyebrow="Security and compliance"
         title="Audit log"
         subtitle={`Who read or changed what, newest first. We keep it for ${AUDIT_RETENTION_YEARS} years.`}
         actions={
@@ -113,7 +113,7 @@ export function OpsAuditScreen() {
           />
         }
       />
-      <UtilitiesTabs />
+      <SecurityTabs />
       {view === "log" ? (
         <AuditLog params={params} set={set} />
       ) : (

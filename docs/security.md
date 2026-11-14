@@ -4,7 +4,9 @@ What protects our clients' data today, where it lives in the code, and which set
 outside the code. It is the record behind HIPAA, SOC 2 and PCI DSS; what is still open is in
 `docs/hipaa-plan.md`. The design and its decisions are in `docs/plan.md` §1.35 (owner, 2026-11-05).
 The policies we commit to are in `docs/policies/` (information security; data retention and
-deletion; adopted 2026-11-09).
+deletion; adopted 2026-11-09). Every control with its status, evidence and framework references is
+in the register (`packages/core/src/compliance/controls.ts`), shown at `/ops/security`
+(`docs/plan.md` §1.100).
 
 Status, 2026-11-06:
 - The settings outside the code are all in place (table below).
@@ -79,7 +81,7 @@ branches.
 - It can't be changed. The runtime can only insert and read; a trigger refuses updates and
   deletes for everyone. Rows are isolated per client like any client data.
 - It's kept 6 years.
-- Operators read it at `/ops/audit`, with filters and a CSV export of the access review: every
+- Operators read it at `/ops/security/audit`, with filters and a CSV export of the access review: every
   user, their roles and when they were last seen.
 - Agents' own work has its own trail: runs, steps, tool calls and every write to a client's tool
   (`external_action`, with its before state and who approved it).
@@ -149,6 +151,11 @@ branches.
 - **CodeQL** (security queries) runs on pull requests, on `main` and weekly (in PR #81).
 - **Dependabot** sends alerts and security updates, plus monthly grouped version updates (one pull request per ecosystem).
 - **Secret scanning** with push protection is on.
+- **Production is scanned from outside** every Monday and after each production release
+  (`.github/workflows/zap-scan.yml`, OWASP ZAP's baseline scan of `https://app.mezonas.com`; plan
+  §1.100). It reads pages and headers only, never signs in and never reaches client data. Findings
+  go to one GitHub issue, "Production scan: findings", and are fixed on the policy's deadlines.
+  Staging is not scanned. Until production's first release, the run says so and stops.
 - Migrations, CI changes and sign-in changes each get their own pull request, so each can be
   reverted alone.
 
@@ -186,6 +193,7 @@ finding each setting.
 | GitHub, `countersign` | CodeQL Default setup | Off (we run `codeql.yml`) |
 | GitHub, `countersign` | Ruleset "Protect main" | PR required; `checks / check`, `checks / static`, `analyze`; no force push or delete; admin bypass |
 | Neon, `mezonas` (Launch) | History window (Settings → Postgres) | 7 days (was 1) |
+| Cloudflare, account | Security Center → Security Insights | **To switch on** (owner; plan §1.100, control CHG-8); its findings are reviewed every quarter |
 
 ## 11. Our vendors
 
