@@ -1302,7 +1302,7 @@ export const en = {
   "contacts.recordConsent": "Record consent",
   "contacts.business": "They gave us this number for business",
   "contacts.businessHint":
-    "Covers texts, calls from our assistant and email about your work together. WhatsApp still needs them to agree.",
+    "Covers calls from our assistant and email about your work together. Texts and WhatsApp need them to sign up: send them an invitation.",
   "contacts.businessWhere": "Where they gave it",
   "contacts.businessWhereHint": "For example: number on their invoices.",
   "contacts.businessRecord": "Record it",
@@ -2304,9 +2304,9 @@ export const en = {
   "texting.optIn": "How people agree to your texts",
   "texting.optInHelp":
     "In your own words: where they give their number and what they agree to. At least 40 characters.",
-  "texting.optInRelationship": "Start from the wording for people who gave you their number",
+  "texting.optInRelationship": "Start from the wording for your sign-up page",
   "texting.optInRelationshipHelp":
-    "Put the line in quotes on every form where people give you their number, then say here where those forms are.",
+    "It describes your sign-up link and email invitations, which carriers can open and check. Edit it if you do more.",
   "texting.privacy": "Privacy policy link",
   "texting.terms": "Terms link",
   "texting.hasLinks": "Our texts include links",
@@ -2695,4 +2695,50 @@ export const en = {
   "accounts.how.login":
     "You enter the login of an account made for your agents. It is kept in your vault, locked with your company's key, and we never see it.",
   "accounts.add.enterLogin": "Enter a login",
+  // docs/plan.md §1.98: signing up for texts.
+  "textSignup.footer": "Sent through Mezonas.",
+  "textSignup.terms": "Text message terms",
+  "textSignup.privacy": "Privacy",
+  "textSignup.goneTitle": "This link doesn't work",
+  "textSignup.gone": "It has expired or doesn't exist. Ask the business for a new one.",
+  "textSignup.doneTitle": "You're signed up",
+  "textSignup.doneSent": "We sent a text from {client} to confirm.",
+  "textSignup.donePending": "Texts from {client} start once its number is ready.",
+  "textSignup.stopAnyTime": "Reply STOP to any text to stop them.",
+  "textSignup.declinedTitle": "We won't ask again",
+  "textSignup.declined": "{client} won't ask you about texts again. Email keeps working.",
+  "textSignup.already": "You're already signed up for texts from {client}.",
+  "textSignup.title": "Get texts from {client}",
+  "textSignup.declineTitle": "Stop asking me about texts from {client}?",
+  "textSignup.declineHelp": "You won't get another invitation. Email keeps working.",
+  "textSignup.declineConfirm": "Don't ask me again",
+  "textSignup.declineBack": "I'd like texts after all",
+  "textSignup.eyebrow": "Text messages",
+  "textSignup.introNamed":
+    "Hi {name}, {client} would like to text you about your work together: quick questions, updates and alerts.",
+  "textSignup.intro":
+    "{client} would like to text you about your work together: quick questions, updates and alerts.",
+  "textSignup.optional": "Texting is your choice. Nothing else depends on it.",
+  "textSignup.name": "Your name",
+  "textSignup.phone": "Your mobile number",
+  "textSignup.phoneHint": "US or Canadian, for example (512) 555-0177.",
+  "textSignup.submit": "Text me",
+  "textSignup.no": "Don't ask me again",
+  "peoplePage.textInvite": "Invite them to get texts",
+  "peoplePage.textInviteHint":
+    "We email each one an invitation in your name. Texts start only if they sign up. One reminder at most.",
+  "peoplePage.textInviteSend": "Send invitations",
+  "peoplePage.textInviteDone": "Sent to {count}.",
+  "peoplePage.textInviteSkipped":
+    "{count} left out: no email, already signed up, said no, or asked recently.",
+  "peoplePage.signupLink": "Texting sign-up link",
+  "peoplePage.signupLinkHint":
+    "Share it with your team. Each person signs up for texts with their own number.",
+  "peoplePage.signupLinkShow": "Show the link",
+  "peoplePage.signupLinkCopy": "Copy",
+  "peoplePage.signupLinkCopied": "Copied",
+  "peoplePage.signupLinkReplace": "Make a new link",
+  "peoplePage.signupLinkReplaceConfirm": "Make it: the old one stops working",
+  "peoplePage.signupLinkReplaceHint":
+    "Anyone with the old link can no longer sign up with it. People already signed up stay signed up.",
 } as const;

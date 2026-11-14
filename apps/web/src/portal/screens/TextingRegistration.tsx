@@ -11,7 +11,7 @@ import {
   type A2pBusinessDetails,
   type A2pStage,
   type A2pUse,
-  a2pRelationshipOptIn,
+  a2pSignupOptIn,
 } from "@countersign/core";
 import { type FormEvent, useEffect, useState } from "react";
 import { isApiError } from "../../api/client";
@@ -97,12 +97,14 @@ export function PortalTextingRegistration() {
   const state = useApi(apiRoutes.portalTextingRegistration);
   const reg = state.data?.registration;
   const [form, setForm] = useState<Form>(EMPTY);
-  // §1.97: until the client writes their own, "how people agree" starts from the relationship
-  // wording, with their business name as they type it.
+  // §1.98: until the client writes their own, "how people agree" starts from the sign-up page and
+  // invitations, with their business name as they type it and their own sign-up link.
   // DECISION: a prefill, not a saved default: what goes to Twilio is what the admin saw and saved,
   // and the button below puts the wording back after an edit.
   const [optInEdited, setOptInEdited] = useState(false);
-  const optIn = form.optIn || optInEdited ? form.optIn : a2pRelationshipOptIn(form.legalName);
+  const signupLink = useApi(apiRoutes.portalTextSignupLink, reg?.editable ? {} : null);
+  const linkUrl = signupLink.data?.url ?? null;
+  const optIn = form.optIn || optInEdited ? form.optIn : a2pSignupOptIn(form.legalName, linkUrl);
   const [ein, setEin] = useState("");
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -411,7 +413,7 @@ export function PortalTextingRegistration() {
                         variant="ghost"
                         onClick={() => {
                           setOptInEdited(true);
-                          set({ optIn: a2pRelationshipOptIn(form.legalName) });
+                          set({ optIn: a2pSignupOptIn(form.legalName, linkUrl) });
                         }}
                         data-testid="portal-texting-opt-in-relationship"
                       >

@@ -1342,7 +1342,7 @@ export const es: Messages = {
   "contacts.recordConsent": "Registrar el consentimiento",
   "contacts.business": "Nos dio este número por trabajo",
   "contacts.businessHint":
-    "Cubre mensajes de texto, llamadas de nuestro asistente y correos sobre su trabajo juntos. WhatsApp sigue necesitando su consentimiento.",
+    "Cubre llamadas de nuestro asistente y correos sobre su trabajo juntos. Los mensajes de texto y WhatsApp necesitan que se registren: envíeles una invitación.",
   "contacts.businessWhere": "Dónde lo dio",
   "contacts.businessWhereHint": "Por ejemplo: el número de sus facturas.",
   "contacts.businessRecord": "Registrar",
@@ -2377,9 +2377,9 @@ export const es: Messages = {
   "texting.optIn": "Cómo aceptan las personas tus mensajes",
   "texting.optInHelp":
     "Con tus palabras: dónde dan su número y qué aceptan. Al menos 40 caracteres.",
-  "texting.optInRelationship": "Empezar con el texto para quienes le dieron su número",
+  "texting.optInRelationship": "Empezar con el texto de su página de registro",
   "texting.optInRelationshipHelp":
-    "Ponga la frase entre comillas en cada formulario donde le dan su número y diga aquí dónde están esos formularios.",
+    "Describe su enlace de registro y las invitaciones por correo, que las operadoras pueden abrir y revisar. Edítelo si hace algo más.",
   "texting.privacy": "Enlace a la política de privacidad",
   "texting.terms": "Enlace a los términos",
   "texting.hasLinks": "Nuestros mensajes incluyen enlaces",
@@ -2775,4 +2775,51 @@ export const es: Messages = {
   "accounts.how.login":
     "Usted ingresa el acceso de una cuenta creada para sus agentes. Se guarda en su bóveda, cifrado con la clave de su empresa, y nunca lo vemos.",
   "accounts.add.enterLogin": "Ingresar un acceso",
+  // docs/plan.md §1.98: signing up for texts. REVIEW: needs a fluent speaker (§1.18).
+  "textSignup.footer": "Enviado a través de Mezonas.",
+  "textSignup.terms": "Términos de mensajes de texto",
+  "textSignup.privacy": "Privacidad",
+  "textSignup.goneTitle": "Este enlace no funciona",
+  "textSignup.gone": "Venció o no existe. Pida uno nuevo a la empresa.",
+  "textSignup.doneTitle": "Ya está registrado",
+  "textSignup.doneSent": "Le enviamos un mensaje de {client} para confirmar.",
+  "textSignup.donePending": "Los mensajes de {client} empezarán cuando su número esté listo.",
+  "textSignup.stopAnyTime": "Responda STOP a cualquier mensaje para dejar de recibirlos.",
+  "textSignup.declinedTitle": "No volveremos a preguntar",
+  "textSignup.declined":
+    "{client} no volverá a preguntarle por mensajes de texto. El correo sigue funcionando.",
+  "textSignup.already": "Ya está registrado para recibir mensajes de {client}.",
+  "textSignup.title": "Reciba mensajes de texto de {client}",
+  "textSignup.declineTitle": "¿Dejar de preguntarme por mensajes de {client}?",
+  "textSignup.declineHelp": "No recibirá otra invitación. El correo sigue funcionando.",
+  "textSignup.declineConfirm": "No volver a preguntarme",
+  "textSignup.declineBack": "Prefiero recibir mensajes",
+  "textSignup.eyebrow": "Mensajes de texto",
+  "textSignup.introNamed":
+    "Hola, {name}: {client} quiere enviarle mensajes de texto sobre su trabajo juntos: preguntas rápidas, novedades y avisos.",
+  "textSignup.intro":
+    "{client} quiere enviarle mensajes de texto sobre su trabajo juntos: preguntas rápidas, novedades y avisos.",
+  "textSignup.optional": "Los mensajes de texto son opcionales. Nada más depende de ello.",
+  "textSignup.name": "Su nombre",
+  "textSignup.phone": "Su número de celular",
+  "textSignup.phoneHint": "De EE. UU. o Canadá, por ejemplo (512) 555-0177.",
+  "textSignup.submit": "Envíenme mensajes",
+  "textSignup.no": "No volver a preguntarme",
+  "peoplePage.textInvite": "Invitarlos a recibir mensajes",
+  "peoplePage.textInviteHint":
+    "Les enviamos por correo una invitación en su nombre. Los mensajes empiezan solo si se registran. Un recordatorio como máximo.",
+  "peoplePage.textInviteSend": "Enviar invitaciones",
+  "peoplePage.textInviteDone": "Enviadas a {count}.",
+  "peoplePage.textInviteSkipped":
+    "{count} quedaron fuera: sin correo, ya registrados, dijeron que no o se les preguntó hace poco.",
+  "peoplePage.signupLink": "Enlace de registro para mensajes",
+  "peoplePage.signupLinkHint":
+    "Compártalo con su equipo. Cada persona se registra con su propio número.",
+  "peoplePage.signupLinkShow": "Mostrar el enlace",
+  "peoplePage.signupLinkCopy": "Copiar",
+  "peoplePage.signupLinkCopied": "Copiado",
+  "peoplePage.signupLinkReplace": "Crear un enlace nuevo",
+  "peoplePage.signupLinkReplaceConfirm": "Crearlo: el anterior deja de funcionar",
+  "peoplePage.signupLinkReplaceHint":
+    "Con el enlace anterior ya no se podrá registrar nadie. Quienes ya se registraron siguen registrados.",
 };

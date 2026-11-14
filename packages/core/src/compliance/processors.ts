@@ -106,6 +106,17 @@ export const EMBEDDING_FEATURE = {
   model: "openai:text-embedding-3-large",
 } as const;
 
+/**
+ * §1.98: texting invitations, which send a client's contact's name and email address to Resend
+ * (Mezonas' own mail). The sign-up's confirmation text goes through the client's Twilio, which a
+ * client in HIPAA mode has only once `twilio` is covered.
+ */
+export const TEXT_INVITE_FEATURE = {
+  id: "texting.invitations",
+  what: "Texting invitations by email",
+  processors: ["resend"] as readonly Processor[],
+} as const;
+
 /** The processor an embedding model's provider is: `openai:` ids go to OpenAI. */
 export function processorForEmbedding(modelId: string): Processor {
   return modelProvider(modelId);

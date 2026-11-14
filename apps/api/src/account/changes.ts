@@ -28,6 +28,7 @@ import {
 import {
   agent,
   appUser,
+  contact,
   inboxItem,
   membership,
   organization,
@@ -35,11 +36,14 @@ import {
   tenant,
 } from "@countersign/db";
 import { type EventRow, emit } from "@countersign/senses";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { ruleWords } from "../desk/desk";
 import { type HandlerCtx, HttpError, notFound } from "../http";
 import type { InboxRow } from "../inbox";
 import { getContact, updateContact } from "../messaging/contacts";
+import { sendTextInvitations } from "../messaging/signup";
+import { mailerFromEnv } from "../notify/mailer";
+import { originOf } from "../notify/outbox";
 import type { Platform } from "../platform";
 import { save as saveApproverRules } from "../routes/approver-rules";
 import { inviteToClient } from "../routes/onboarding";
@@ -157,6 +161,21 @@ export async function draftAccountChange(
       w.joins(change.name, change.canSign),
       ...signerRuleLines(change.rules, change.name, ctx),
     ];
+  } else if (change.kind === "invite_to_texts") {
+    // §1.98: the people as the client has them; anyone not in this client is refused.
+    const ids = [...new Set(change.contactIds)];
+    const rows = await tx
+      .select({ id: contact.id, name: contact.name, email: contact.email })
+      .from(contact)
+      .where(and(eq(contact.tenantId, tenantId), inArray(contact.id, ids)));
+    if (rows.length !== ids.length) return refused(["no such person in your directory"], false);
+    const noEmail = rows.filter((r) => !r.email).map((r) => r.name);
+    if (noEmail.length > 0) {
+      return refused([`no email address for ${noEmail.join(", ")}: add one first`], false);
+    }
+    title = w.title.inviteToTexts(rows[0]?.name ?? "", rows.length);
+    now = rows.map((r) => w.notOnTexts(r.name));
+    after = rows.map((r) => w.getsTextInvite(r.name));
   } else {
     const row = await getContact(tx, tenantId, change.contactId).catch(() => null);
     if (!row) return refused(["no such person in your directory"], false);
@@ -329,6 +348,24 @@ async function applyAccountChange(
       });
     }
     return { kind: change.kind, userId: invited.member.userId, contactId: null };
+  }
+  if (change.kind === "invite_to_texts") {
+    // §1.98: the portal's own invitations, as the admin who signed. Who was left out (signed up,
+    // declined, asked twice) stays out; the Desk item records the draft as signed.
+    const env = ctx.services.env;
+    await sendTextInvitations(
+      {
+        tx,
+        env,
+        origin: originOf(env),
+        tenantId,
+        actorId,
+        via: "sloan",
+        mailer: mailerFromEnv(env, ctx.services.deps.fetch?.(env)),
+      },
+      change.contactIds,
+    );
+    return { kind: change.kind, userId: null, contactId: null };
   }
   const patch = change.kind === "edit_person" ? change.fields : change.addresses;
   const row = await updateContact(tx, tenantId, change.contactId, patch, actorId, { log });

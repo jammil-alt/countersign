@@ -9,6 +9,7 @@ import { PortalApp } from "./portal/PortalApp";
 import { SignInScreen } from "./session/SignIn";
 import { StillFrame } from "./session/StillFrame";
 import { SessionProvider, useSessionState } from "./session/session";
+import { TextSignupScreen } from "./signup/TextSignup";
 import { IconSprite } from "./ui/icons";
 import { ErrorNotice } from "./ui/primitives";
 
@@ -30,6 +31,8 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/sign-in" element={<SignInScreen />} />
+      {/* docs/plan.md §1.98: choosing to get texts from a business; no sign-in. */}
+      <Route path="/texts/:token" element={<TextSignupScreen />} />
       <Route
         path="/ops/*"
         element={

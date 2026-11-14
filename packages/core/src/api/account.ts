@@ -44,7 +44,7 @@ export const AccountChangeOutcome = z.object({
   /** What the approval changed: the person added or edited. */
   applied: z
     .object({
-      kind: z.enum(["add_signer", "edit_person", "change_contact"]),
+      kind: z.enum(["add_signer", "edit_person", "change_contact", "invite_to_texts"]),
       userId: z.string().nullable(),
       contactId: z.string().nullable(),
     })

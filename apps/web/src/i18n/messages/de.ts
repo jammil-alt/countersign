@@ -1380,7 +1380,7 @@ export const de: Messages = {
   "contacts.recordConsent": "Zustimmung erfassen",
   "contacts.business": "Hat uns diese Nummer geschäftlich gegeben",
   "contacts.businessHint":
-    "Gilt für SMS, Anrufe unseres Assistenten und E-Mails zu Ihrer Zusammenarbeit. WhatsApp braucht weiterhin ihre Zustimmung.",
+    "Gilt für Anrufe unseres Assistenten und E-Mails zu Ihrer Zusammenarbeit. Für SMS und WhatsApp müssen sie sich anmelden: Senden Sie ihnen eine Einladung.",
   "contacts.businessWhere": "Wo sie sie angegeben haben",
   "contacts.businessWhereHint": "Zum Beispiel: Nummer auf ihren Rechnungen.",
   "contacts.businessRecord": "Festhalten",
@@ -2429,10 +2429,9 @@ export const de: Messages = {
   "texting.optIn": "Wie Personen Ihren SMS zustimmen",
   "texting.optInHelp":
     "In Ihren Worten: wo sie ihre Nummer angeben und wozu sie zustimmen. Mindestens 40 Zeichen.",
-  "texting.optInRelationship":
-    "Mit dem Text für Personen beginnen, die Ihnen ihre Nummer gegeben haben",
+  "texting.optInRelationship": "Mit dem Text für Ihre Anmeldeseite beginnen",
   "texting.optInRelationshipHelp":
-    "Setzen Sie den Satz in Anführungszeichen auf jedes Formular, auf dem man Ihnen die Nummer gibt, und nennen Sie hier, wo diese Formulare sind.",
+    "Er beschreibt Ihren Anmeldelink und die E-Mail-Einladungen, die Netzbetreiber öffnen und prüfen können. Passen Sie ihn an, wenn Sie mehr tun.",
   "texting.privacy": "Link zur Datenschutzerklärung",
   "texting.terms": "Link zu den Bedingungen",
   "texting.hasLinks": "Unsere SMS enthalten Links",
@@ -2829,4 +2828,51 @@ export const de: Messages = {
   "accounts.how.login":
     "Sie geben die Zugangsdaten eines Kontos ein, das für Ihre Agenten angelegt wurde. Sie liegen in Ihrem Tresor, verschlüsselt mit dem Schlüssel Ihres Unternehmens, und wir sehen sie nie.",
   "accounts.add.enterLogin": "Zugangsdaten eingeben",
+  // docs/plan.md §1.98: signing up for texts. REVIEW: needs a fluent speaker (§1.18).
+  "textSignup.footer": "Gesendet über Mezonas.",
+  "textSignup.terms": "SMS-Bedingungen",
+  "textSignup.privacy": "Datenschutz",
+  "textSignup.goneTitle": "Dieser Link funktioniert nicht",
+  "textSignup.gone":
+    "Er ist abgelaufen oder existiert nicht. Bitten Sie das Unternehmen um einen neuen.",
+  "textSignup.doneTitle": "Sie sind angemeldet",
+  "textSignup.doneSent": "Wir haben Ihnen zur Bestätigung eine SMS von {client} gesendet.",
+  "textSignup.donePending": "SMS von {client} beginnen, sobald die Nummer bereit ist.",
+  "textSignup.stopAnyTime": "Antworten Sie auf eine SMS mit STOP, um sie zu beenden.",
+  "textSignup.declinedTitle": "Wir fragen nicht mehr",
+  "textSignup.declined": "{client} fragt Sie nicht mehr nach SMS. E-Mail funktioniert weiter.",
+  "textSignup.already": "Sie sind bereits für SMS von {client} angemeldet.",
+  "textSignup.title": "SMS von {client} erhalten",
+  "textSignup.declineTitle": "Nicht mehr nach SMS von {client} fragen?",
+  "textSignup.declineHelp": "Sie erhalten keine weitere Einladung. E-Mail funktioniert weiter.",
+  "textSignup.declineConfirm": "Nicht mehr fragen",
+  "textSignup.declineBack": "Doch lieber SMS",
+  "textSignup.eyebrow": "SMS",
+  "textSignup.introNamed":
+    "Hallo {name}, {client} möchte Ihnen SMS zu Ihrer Zusammenarbeit senden: kurze Fragen, Neuigkeiten und Hinweise.",
+  "textSignup.intro":
+    "{client} möchte Ihnen SMS zu Ihrer Zusammenarbeit senden: kurze Fragen, Neuigkeiten und Hinweise.",
+  "textSignup.optional": "SMS sind freiwillig. Nichts anderes hängt davon ab.",
+  "textSignup.name": "Ihr Name",
+  "textSignup.phone": "Ihre Mobilnummer",
+  "textSignup.phoneHint": "Aus den USA oder Kanada, zum Beispiel (512) 555-0177.",
+  "textSignup.submit": "SMS an mich senden",
+  "textSignup.no": "Nicht mehr fragen",
+  "peoplePage.textInvite": "Zu SMS einladen",
+  "peoplePage.textInviteHint":
+    "Wir senden jeder Person eine Einladung per E-Mail in Ihrem Namen. SMS beginnen nur, wenn sie sich anmeldet. Höchstens eine Erinnerung.",
+  "peoplePage.textInviteSend": "Einladungen senden",
+  "peoplePage.textInviteDone": "An {count} gesendet.",
+  "peoplePage.textInviteSkipped":
+    "{count} ausgelassen: keine E-Mail, bereits angemeldet, abgelehnt oder kürzlich gefragt.",
+  "peoplePage.signupLink": "Anmeldelink für SMS",
+  "peoplePage.signupLinkHint":
+    "Teilen Sie ihn mit Ihrem Team. Jede Person meldet sich mit der eigenen Nummer an.",
+  "peoplePage.signupLinkShow": "Link anzeigen",
+  "peoplePage.signupLinkCopy": "Kopieren",
+  "peoplePage.signupLinkCopied": "Kopiert",
+  "peoplePage.signupLinkReplace": "Neuen Link erstellen",
+  "peoplePage.signupLinkReplaceConfirm": "Erstellen: der alte funktioniert nicht mehr",
+  "peoplePage.signupLinkReplaceHint":
+    "Mit dem alten Link kann sich niemand mehr anmelden. Wer schon angemeldet ist, bleibt angemeldet.",
 };

@@ -1364,7 +1364,7 @@ export const fr: Messages = {
   "contacts.recordConsent": "Enregistrer le consentement",
   "contacts.business": "Ce numéro nous a été donné pour nos échanges",
   "contacts.businessHint":
-    "Couvre les SMS, les appels de notre assistant et les e-mails sur votre travail ensemble. WhatsApp demande toujours leur accord.",
+    "Couvre les appels de notre assistant et les e-mails sur votre travail ensemble. Les SMS et WhatsApp demandent leur inscription : envoyez-leur une invitation.",
   "contacts.businessWhere": "Où il a été donné",
   "contacts.businessWhereHint": "Par exemple : numéro sur leurs factures.",
   "contacts.businessRecord": "Enregistrer",
@@ -2419,9 +2419,9 @@ export const fr: Messages = {
   "texting.optIn": "Comment les personnes acceptent vos SMS",
   "texting.optInHelp":
     "Avec vos mots : où elles donnent leur numéro et ce qu'elles acceptent. Au moins 40 caractères.",
-  "texting.optInRelationship": "Partir du texte pour les personnes qui vous ont donné leur numéro",
+  "texting.optInRelationship": "Partir du texte de votre page d'inscription",
   "texting.optInRelationshipHelp":
-    "Mettez la phrase entre guillemets sur chaque formulaire où l'on vous donne son numéro, puis indiquez ici où se trouvent ces formulaires.",
+    "Il décrit votre lien d'inscription et les invitations par e-mail, que les opérateurs peuvent ouvrir et vérifier. Modifiez-le si vous faites autre chose.",
   "texting.privacy": "Lien vers la politique de confidentialité",
   "texting.terms": "Lien vers les conditions",
   "texting.hasLinks": "Nos SMS contiennent des liens",
@@ -2818,4 +2818,51 @@ export const fr: Messages = {
   "accounts.how.login":
     "Vous saisissez les identifiants d'un compte créé pour vos agents. Ils sont gardés dans votre coffre, chiffrés avec la clé de votre entreprise, et nous ne les voyons jamais.",
   "accounts.add.enterLogin": "Saisir des identifiants",
+  // docs/plan.md §1.98: signing up for texts. REVIEW: needs a fluent speaker (§1.18).
+  "textSignup.footer": "Envoyé via Mezonas.",
+  "textSignup.terms": "Conditions des SMS",
+  "textSignup.privacy": "Confidentialité",
+  "textSignup.goneTitle": "Ce lien ne fonctionne pas",
+  "textSignup.gone": "Il a expiré ou n'existe pas. Demandez-en un nouveau à l'entreprise.",
+  "textSignup.doneTitle": "Vous êtes inscrit",
+  "textSignup.doneSent": "Nous vous avons envoyé un SMS de {client} pour confirmer.",
+  "textSignup.donePending": "Les SMS de {client} commenceront dès que son numéro sera prêt.",
+  "textSignup.stopAnyTime": "Répondez STOP à n'importe quel SMS pour les arrêter.",
+  "textSignup.declinedTitle": "Nous ne vous le demanderons plus",
+  "textSignup.declined":
+    "{client} ne vous demandera plus de recevoir des SMS. L'e-mail continue de fonctionner.",
+  "textSignup.already": "Vous êtes déjà inscrit aux SMS de {client}.",
+  "textSignup.title": "Recevoir des SMS de {client}",
+  "textSignup.declineTitle": "Ne plus me proposer les SMS de {client} ?",
+  "textSignup.declineHelp": "Vous ne recevrez plus d'invitation. L'e-mail continue de fonctionner.",
+  "textSignup.declineConfirm": "Ne plus me demander",
+  "textSignup.declineBack": "Finalement, je veux bien des SMS",
+  "textSignup.eyebrow": "SMS",
+  "textSignup.introNamed":
+    "Bonjour {name}, {client} souhaite vous envoyer des SMS sur votre travail ensemble : questions rapides, nouvelles et alertes.",
+  "textSignup.intro":
+    "{client} souhaite vous envoyer des SMS sur votre travail ensemble : questions rapides, nouvelles et alertes.",
+  "textSignup.optional": "Les SMS sont facultatifs. Rien d'autre n'en dépend.",
+  "textSignup.name": "Votre nom",
+  "textSignup.phone": "Votre numéro de mobile",
+  "textSignup.phoneHint": "Des États-Unis ou du Canada, par exemple (512) 555-0177.",
+  "textSignup.submit": "Envoyez-moi des SMS",
+  "textSignup.no": "Ne plus me demander",
+  "peoplePage.textInvite": "Les inviter à recevoir des SMS",
+  "peoplePage.textInviteHint":
+    "Nous envoyons à chacun une invitation par e-mail en votre nom. Les SMS ne commencent que s'ils s'inscrivent. Un rappel au plus.",
+  "peoplePage.textInviteSend": "Envoyer les invitations",
+  "peoplePage.textInviteDone": "Envoyées à {count}.",
+  "peoplePage.textInviteSkipped":
+    "{count} laissés de côté : pas d'e-mail, déjà inscrits, ont refusé ou ont été sollicités récemment.",
+  "peoplePage.signupLink": "Lien d'inscription aux SMS",
+  "peoplePage.signupLinkHint":
+    "Partagez-le avec votre équipe. Chacun s'inscrit avec son propre numéro.",
+  "peoplePage.signupLinkShow": "Afficher le lien",
+  "peoplePage.signupLinkCopy": "Copier",
+  "peoplePage.signupLinkCopied": "Copié",
+  "peoplePage.signupLinkReplace": "Créer un nouveau lien",
+  "peoplePage.signupLinkReplaceConfirm": "Le créer : l'ancien cesse de fonctionner",
+  "peoplePage.signupLinkReplaceHint":
+    "Personne ne pourra plus s'inscrire avec l'ancien lien. Les personnes déjà inscrites le restent.",
 };

@@ -758,7 +758,8 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
     const KIM = "+15555550302";
     const ROY = "+15555550303";
 
-    it("covers texts, calls and email on a new contact, never WhatsApp, with the note kept", async () => {
+    // §1.98: calls and email only; texts and WhatsApp need the contact to sign up.
+    it("covers calls and email on a new contact, never texts or WhatsApp, with the note kept", async () => {
       const made = await H.call(admin("a"), "POST", "/api/contacts", {
         name: "Lee Park",
         phone: LEE,
@@ -769,15 +770,15 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
       expect(made.status, JSON.stringify(made.json)).toBe(200);
       const c = j(made.json).contact;
       expect(c).toMatchObject({
-        canMessage: { sms: true, whatsapp: false },
+        canMessage: { sms: false, whatsapp: false },
         canCall: true,
         canEmail: true,
         consent: {
-          sms: { basis: "relationship", source: "number on their invoices" },
-          voice: { basis: "relationship" },
+          voice: { basis: "relationship", source: "number on their invoices" },
           email: { basis: "relationship" },
         },
       });
+      expect(c.consent.sms).toBeUndefined();
       expect(c.consent.whatsapp).toBeUndefined();
       // The note is required.
       const bare = await H.call(admin("a"), "POST", "/api/contacts", {
@@ -905,7 +906,7 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
       expect(b?.consent).toEqual({});
       const list = j((await H.call(admin("a"), "GET", "/api/contacts")).json).items;
       expect(list.find((x: { id: string }) => x.id === roy)).toMatchObject({
-        canMessage: { sms: true },
+        canMessage: { sms: false },
         canCall: true,
       });
       expect(list.find((x: { id: string }) => x.id === mailOnly)).toMatchObject({ canEmail: true });
