@@ -151,6 +151,11 @@ branches.
 - **CodeQL** (security queries) runs on pull requests, on `main` and weekly (in PR #81).
 - **Dependabot** sends alerts and security updates, plus monthly grouped version updates (one pull request per ecosystem).
 - **Secret scanning** with push protection is on.
+- **Production is scanned from outside** every Monday and after each production release
+  (`.github/workflows/zap-scan.yml`, OWASP ZAP's baseline scan of `https://app.mezonas.com`; plan
+  §1.100). It reads pages and headers only, never signs in and never reaches client data. Findings
+  go to one GitHub issue, "Production scan: findings", and are fixed on the policy's deadlines.
+  Staging is not scanned. Until production's first release, the run says so and stops.
 - Migrations, CI changes and sign-in changes each get their own pull request, so each can be
   reverted alone.
 
@@ -188,6 +193,7 @@ finding each setting.
 | GitHub, `countersign` | CodeQL Default setup | Off (we run `codeql.yml`) |
 | GitHub, `countersign` | Ruleset "Protect main" | PR required; `checks / check`, `checks / static`, `analyze`; no force push or delete; admin bypass |
 | Neon, `mezonas` (Launch) | History window (Settings → Postgres) | 7 days (was 1) |
+| Cloudflare, account | Security Center → Security Insights | **To switch on** (owner; plan §1.100, control CHG-8); its findings are reviewed every quarter |
 
 ## 11. Our vendors
 

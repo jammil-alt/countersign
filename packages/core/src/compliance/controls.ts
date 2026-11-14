@@ -595,6 +595,38 @@ export const CONTROLS: readonly Control[] = [
     maps: { soc2: ["CC4.1", "CC7.1"], hipaa: ["164.308(a)(8)"], pci: ["11.4.1"] },
     routines: ["pen-test"],
   },
+  {
+    id: "CHG-7",
+    area: "change",
+    title: "Production scanned from outside every week",
+    statement:
+      "An automated scanner visits the live product as an outsider would, every week and after each release, and reports weak headers, cookies, error pages and anything public that shouldn't be. It never signs in, so it never reaches client data.",
+    status: "partial",
+    gap: "Built; it starts once production has its first release.",
+    tier: "all",
+    evidence: [
+      { kind: "code", ref: ".github/workflows/zap-scan.yml", note: "OWASP ZAP baseline" },
+      { kind: "record", ref: 'GitHub issue "Production scan: findings" and each run\'s report' },
+    ],
+    maps: { soc2: ["CC4.1", "CC7.1"], hipaa: ["164.308(a)(8)", "164.308(a)(1)(ii)(B)"] },
+    routines: ["production-scan"],
+  },
+  {
+    id: "CHG-8",
+    area: "change",
+    title: "Our network edge checked for weak settings",
+    statement:
+      "Cloudflare reviews our DNS, TLS and edge settings for exposures and weak configuration; we review its findings every quarter.",
+    status: "planned",
+    gap: "Cloudflare Security Insights is not switched on yet.",
+    tier: "all",
+    evidence: [
+      { kind: "setting", ref: "Cloudflare: Security Center, Security Insights" },
+      { kind: "record", ref: "Quarterly review of its findings" },
+    ],
+    maps: { soc2: ["CC6.6", "CC7.1"], hipaa: ["164.308(a)(1)(ii)(B)"] },
+    routines: ["edge-review"],
+  },
 
   // ── Incidents ──────────────────────────────────────────────────────────────────────────────────
   {
@@ -732,10 +764,11 @@ export const CONTROLS: readonly Control[] = [
 
 // ── Routines ─────────────────────────────────────────────────────────────────────────────────────
 
-export const ROUTINE_CADENCES = ["monthly", "quarterly", "yearly", "on_event"] as const;
+export const ROUTINE_CADENCES = ["weekly", "monthly", "quarterly", "yearly", "on_event"] as const;
 export type RoutineCadence = (typeof ROUTINE_CADENCES)[number];
 
 export const ROUTINE_CADENCE_NAMES: Record<RoutineCadence, string> = {
+  weekly: "Weekly",
   monthly: "Monthly",
   quarterly: "Every quarter",
   yearly: "Every year",
@@ -802,6 +835,20 @@ export const ROUTINES: readonly Routine[] = [
     cadence: "yearly",
     how: "For each vendor: its current security report, training terms and BAA status.",
     where: "/ops/security/vendors",
+  },
+  {
+    id: "production-scan",
+    title: "Production scan",
+    cadence: "weekly",
+    how: "Read the week's scan issue; fix findings on the policy's deadlines, or record why one is accepted.",
+    where: "GitHub: Actions, Production scan",
+  },
+  {
+    id: "edge-review",
+    title: "Edge settings review",
+    cadence: "quarterly",
+    how: "Read Cloudflare's Security Insights; fix or accept each finding, and note the date.",
+    where: "Cloudflare: Security Center",
   },
   {
     id: "pen-test",

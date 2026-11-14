@@ -125,6 +125,8 @@ way: no card fields in our pages, and card numbers never stored (already enforce
 |---|---|---|
 | Every quarter | Access review: remove anyone who shouldn't be there; save the CSV with the date | `/ops/security/audit` → Access review |
 | Every quarter | Restore test from Neon's history; note the result | `docs/operations.md` §4 |
+| Weekly | Read the production scan's issue; fix findings on the policy's deadlines | GitHub → Issues, "Production scan: findings" |
+| Every quarter | Review Cloudflare's Security Insights; fix or accept each finding | Cloudflare → Security Center |
 | Monthly | Merge Dependabot's grouped update once green; security updates as they arrive, within a month (PCI DSS 6.3.3) | GitHub |
 | As they come | Fix CodeQL findings and secret-scanning alerts | GitHub → Security |
 | Yearly | Risk analysis, policy review, training, penetration test (from T10) | — |
