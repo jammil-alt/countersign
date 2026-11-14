@@ -294,7 +294,7 @@ export const PROCESS_KIND_LABEL: Record<ProcessStep["kind"] | "trigger", string>
   for_each: "For each",
   wait: "Wait",
   stop: "Stop",
-  process: "Process",
+  process: "Automation",
   handoff: "Hand off",
 };
 

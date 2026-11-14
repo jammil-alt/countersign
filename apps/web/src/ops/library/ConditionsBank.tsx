@@ -56,7 +56,7 @@ export function ConditionsBank() {
         subtitle="Plain rules over the run that a check or an if step tests: “when the total is over $5,000”. Never a model."
       />
       <Notice tone="neutral" testId="conditions-derived">
-        These are the conditions your processes use today, grouped where the same rules appear more
+        These are the conditions your workflows use today, grouped where the same rules appear more
         than once. Naming a set to reuse it needs its own storage, which isn't built yet; edit a
         condition where it is used.
       </Notice>
@@ -79,7 +79,7 @@ export function ConditionsBank() {
             ),
           );
           if (data.sets.length === 0) {
-            return <EmptyState>No process tests a condition yet.</EmptyState>;
+            return <EmptyState>No workflow tests a condition yet.</EmptyState>;
           }
           if (shown.length === 0) return <EmptyState>No condition matches.</EmptyState>;
           return (
@@ -107,7 +107,7 @@ function ConditionCard({ set: s }: { set: LibraryConditionSet }) {
           </span>
         </span>
       }
-      meta={`${counted(s.uses.length, "use")} · ${counted(processCount(s), "process", "processes")}`}
+      meta={`${counted(s.uses.length, "use")} · ${counted(processCount(s), "workflow")}`}
     >
       <ul className="divide-y divide-line">
         {keyedUses(s.uses).map(([u, key]) => {

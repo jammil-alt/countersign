@@ -168,7 +168,7 @@ export interface CanvasProps {
   overId: string | null;
   /** A step id, or `trigger:<id>`. */
   onSelect(id: string): void;
-  /** Top-level steps picked for "Save as a process"; check boxes show while this is set. */
+  /** Top-level steps picked for "Save as automation"; check boxes show while this is set. */
   checked?: ReadonlySet<string> | undefined;
   onCheck?: ((id: string, on: boolean) => void) | undefined;
   /** Names for steps' second lines (skills, tools' connectors, people), from the catalog. */
@@ -1175,7 +1175,7 @@ export function Palette({
         <div>
           <h2 className="type-subheading text-ink">Add a step</h2>
           <p className="mt-1 text-sm text-ink-muted" data-testid="builder-palette-target">
-            Press + to add it {target}, or drag it onto the process.
+            Press + to add it {target}, or drag it onto the workflow.
           </p>
         </div>
         {onClose ? (

@@ -175,7 +175,7 @@ export function stepsToProcessAutomation(input: ProcessFromStepsInput): ProcessF
     return {
       ok: false,
       code: "not_top_level",
-      message: "only steps at the top of the process can become an automation",
+      message: "only steps at the top of the workflow can become an automation",
     };
   }
   indexes.sort((a, b) => a - b);

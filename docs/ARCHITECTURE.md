@@ -2756,11 +2756,13 @@ step by field, and the builder offers "Propose an updated mapping". Decisions: d
 
 The six definitions read: connector, tool, skill, trigger, workflow, person. Where this section and
 §10.14 above say "process", read "workflow" for an agent's own and "automation" for a reused one. Only
-words change: the builder, the Library (its "Processes" bank becomes "Automations"), the back office,
-the portal, the Builder chat and the docs, in all six languages. Stored versions keep `schemaVersion:
-4`, the step kind `process`, the `automation` and `automation_version` rows and every JSON field
-(invariant 3); code names may stay. // DECISION: words only; renaming a stored kind would mean a
-converter for no change in behaviour.
+words change: the builder (its palette's "Automations"), the Library (its "Processes" bank becomes
+"Workflows", with the reused ones under "Automations"), the back office, the portal and the docs.
+Stored versions keep `schemaVersion: 4`, the step kind `process`, the `automation` and
+`automation_version` rows and every JSON field (invariant 3); code names, routes (`/ops/library/
+processes`) and test ids may stay. // DECISION: words only; renaming a stored kind would mean a
+converter for no change in behaviour. // DECISION: the model prompts (the Builder's, the owner's,
+confer's) keep their wording, so recorded fixtures still replay; they are never shown to a person.
 
 **Repeat.** A logic step that runs its steps again until it is done:
 

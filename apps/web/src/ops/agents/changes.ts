@@ -47,7 +47,7 @@ const STEP_KIND: Record<string, string> = {
   write: "write step",
   conversation: "conversation",
   if: "if",
-  process: "process step",
+  process: "automation step",
 };
 
 // R8: the words for a v4 step's checks and deadlines (ARCHITECTURE §10.14 "Checks", "Deadlines"),

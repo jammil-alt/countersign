@@ -1714,7 +1714,7 @@ describe("WorkflowBuilder on processes", () => {
     await user.click(screen.getByTestId("builder-add-step"));
     await user.click(screen.getByTestId("builder-palette-item-process:correct@1-add"));
     expect(screen.getByTestId("builder-approval-none")).toHaveTextContent(
-      "approved inside that process",
+      "approved inside that automation",
     );
     expect(screen.getByTestId("builder-approval-none")).not.toHaveTextContent("changes nothing");
     await user.click(screen.getByTestId("builder-add-step"));

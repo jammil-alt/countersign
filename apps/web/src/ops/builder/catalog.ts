@@ -463,7 +463,7 @@ export function paletteSections(
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
 
-  // A process used inside another is one step (§10.14; today's automations, pinned).
+  // An automation is one step (§10.14, v0.17: the stored kind stays `process`), pinned.
   const used = (data.catalog.automations ?? []).map(
     (a): PaletteItem => ({
       type: "process",
@@ -476,7 +476,7 @@ export function paletteSections(
 
   return [
     { key: "triggers", label: "Triggers", items: groups.flatMap((g) => g.items), groups },
-    { key: "processes", label: "Processes", items: used },
+    { key: "processes", label: "Automations", items: used },
     { key: "skills", label: "Skills", items: platformSkills },
     // Skill model (2026-11-10): what to do, resolved from the agent's connections when it runs.
     {

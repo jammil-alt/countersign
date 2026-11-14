@@ -1096,7 +1096,7 @@ function checkUseStep(c: Checker, step: UseAutomationStep, scope: Scope) {
       step.id,
       "automation",
       "unknown_automation",
-      `"${step.automation}" holds process steps: only a process can use it (open this workflow in the builder to move it to a process)`,
+      `"${step.automation}" holds steps in the new format: only a workflow in the new format can use it (open this workflow in the builder to move it)`,
     );
     return;
   }

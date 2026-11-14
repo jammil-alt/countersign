@@ -1444,7 +1444,7 @@ function checkSubProcess(c: Checker, step: SubProcessStep, scope: ProcessScope) 
   checkErrorMessage(c, step.id, step.input, ["input"]);
   const def = ctx.automations?.[step.process];
   if (ctx.automations && !def) {
-    c.add(step.id, "process", "unknown_automation", `no process "${step.process}"`);
+    c.add(step.id, "process", "unknown_automation", `no automation "${step.process}"`);
   }
   const approvals = Object.entries(step.approvals ?? {});
   if (approvals.length > 0 && ctx.clientAgent === false) {
@@ -1452,7 +1452,7 @@ function checkSubProcess(c: Checker, step: SubProcessStep, scope: ProcessScope) 
       step.id,
       "approvals",
       "approvals_not_client",
-      "only a client agent's process step can change an inner step's approval",
+      "only a client agent's automation step can change an inner step's approval",
     );
   }
   if (!def) return;
@@ -1467,7 +1467,7 @@ function checkSubProcess(c: Checker, step: SubProcessStep, scope: ProcessScope) 
         step.id,
         `approvals.${innerId}`,
         "approval_unknown_step",
-        `the process has no step "${innerId}"`,
+        `the automation has no step "${innerId}"`,
       );
       continue;
     }
@@ -1842,7 +1842,7 @@ function splitWarnings(process: Process): ProcessWarning[] {
       stepId: null,
       field: "steps",
       code: "split_long",
-      message: `${count} steps: a process of more than ${SPLIT_MAX_STEPS} is easier to follow split in two`,
+      message: `${count} steps: a workflow of more than ${SPLIT_MAX_STEPS} is easier to follow split in two`,
     });
   }
   walkSteps(process, ({ step, depth }) => {
@@ -1852,7 +1852,7 @@ function splitWarnings(process: Process): ProcessWarning[] {
         stepId: step.id,
         field: "",
         code: "split_deep",
-        message: `logic nested more than ${SPLIT_MAX_DEPTH} deep: consider a separate process`,
+        message: `logic nested more than ${SPLIT_MAX_DEPTH} deep: consider a separate workflow`,
       });
     }
   });

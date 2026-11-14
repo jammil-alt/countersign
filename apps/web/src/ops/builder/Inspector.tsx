@@ -283,7 +283,8 @@ const STEP_INTRO: Partial<Record<Step["kind"], string>> = {
   write: "Changes something through a tool, behind its checks.",
   if: "Paths are checked top to bottom. A run takes the first path whose rules match, then continues after the if.",
   for_each: "Runs the steps inside once for each item of a list.",
-  process: "Runs a saved process as one step. Its steps are edited in that process, not here.",
+  process:
+    "Runs a saved automation as one step. Its steps are edited in that automation, not here.",
   person: "Waits for a person in the inbox before the run goes on.",
   conversation: "Talks with someone until it has what it needs, within the limits below.",
   notify: "Tells the client's team or ours that something happened.",
@@ -916,7 +917,7 @@ function KindFields(
       const used = props.data.catalog.automations?.find((a) => a.ref === step.process);
       return (
         <>
-          <Row label="Process" field="process" errors={fieldErrors}>
+          <Row label="Automation" field="process" errors={fieldErrors}>
             <p
               className="reference text-ink"
               data-field="process"
@@ -1362,8 +1363,8 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
         title="How it starts"
         intro={
           many
-            ? "Any of this process's triggers starts a run."
-            : "This trigger starts each run of this process."
+            ? "Any of this workflow's triggers starts a run."
+            : "This trigger starts each run of this workflow."
         }
       />
       <NodeErrors errors={errors} node={trigger.id} onFix={props.onFix} />

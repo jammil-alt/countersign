@@ -300,7 +300,7 @@ describe("skills and automations library", () => {
     expect(await within(row).findByText("Person: Client signs")).toBeInTheDocument();
     expect(within(row).getByText("Draft in owner's voice")).toBeInTheDocument();
     expect(within(row).getByText("v2")).toBeInTheDocument();
-    expect(screen.getByTestId("automations")).toHaveTextContent("Used inside other processes");
+    expect(screen.getByTestId("automations")).toHaveTextContent("Automations");
   });
 
   it("shows skills as cards or a list, from /ops/skills too", async () => {
