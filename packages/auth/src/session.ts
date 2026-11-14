@@ -2,7 +2,13 @@
 // a session or a typed refusal. The Hono middleware in apps/api turns a refusal into a response and
 // a session into `app.tenant_ids` (and `app.operator`) for withTenants().
 
-import { isClientRole, isOperatorRole, type Role, type SessionBase } from "@countersign/core";
+import {
+  isClientRole,
+  isOperatorRole,
+  type Role,
+  type SecondFactorState,
+  type SessionBase,
+} from "@countersign/core";
 import {
   type AuthAdapter,
   type AuthDirectory,
@@ -25,6 +31,11 @@ export interface GetSessionOptions {
    * client). Must be one of the user's; omitted means the only one, or all served for operators.
    */
   readonly tenantId?: string | null;
+  /**
+   * Admit a sign-in whose second step is still pending (docs/plan.md §1.100). Only the step's own
+   * routes pass this; everything else is refused with 401 `second_factor_required`.
+   */
+  readonly allowPendingSecondFactor?: boolean;
 }
 
 /** Build the session for a user from their memberships and the requested client. */
@@ -70,6 +81,10 @@ export async function getSession(
   const identified = await options.adapter.identify(request, options.now ?? new Date());
   if (!identified.ok) return identified;
   const { userId, setCookies } = identified;
+  // DECISION: the gate is `secondFactorGate`, called wherever a session is made from a cookie (here
+  // and apps/api's mount); only the second step's own routes opt out.
+  const gated = secondFactorGate(identified, options.allowPendingSecondFactor);
+  if (gated) return gated;
   const { directory } = options;
   const account = directory.account
     ? await directory.account(userId)
@@ -83,6 +98,7 @@ export async function getSession(
     options.adapter.kind,
     options.tenantId,
     setCookies,
+    identified.secondFactor,
   );
 }
 
@@ -96,11 +112,31 @@ export function sessionFromAccount(
   adapter: Session["adapter"],
   tenantId: string | null | undefined,
   setCookies: readonly string[],
+  /** §1.100: where the sign-in is with its second step, from `identify`. */
+  secondFactor?: SecondFactorState,
 ): SessionResult {
   if (!account.user) return refuse("session_invalid", "the signed-in user no longer exists");
   const built = buildSession(account.user, account.memberships, adapter, tenantId);
   if (!built.ok) return { ...built, setCookies: [...built.setCookies, ...setCookies] };
-  return { ok: true, session: built.session, setCookies };
+  const session = secondFactor ? { ...built.session, secondFactor } : built.session;
+  return { ok: true, session, setCookies };
+}
+
+/**
+ * The second step's gate (docs/plan.md §1.100): a sign-in whose step is still pending is refused
+ * with 401 `second_factor_required`, unless the caller is one of the step's own routes. Every path
+ * that makes a session from a cookie calls this: `getSession` and apps/api's `mount`.
+ */
+export function secondFactorGate(
+  identified: { readonly secondFactor?: SecondFactorState; readonly setCookies: readonly string[] },
+  allowPending = false,
+): AuthRefusal | null {
+  if (identified.secondFactor !== "pending" || allowPending) return null;
+  return refuse(
+    "second_factor_required",
+    "finish signing in with your second step",
+    identified.setCookies,
+  );
 }
 
 export type RoleCheck = { readonly ok: true; readonly role: Role } | AuthRefusal;

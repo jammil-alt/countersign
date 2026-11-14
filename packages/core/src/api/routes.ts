@@ -88,6 +88,7 @@ import {
   RunStatusSchema,
   RunsPerDay,
 } from "./runs-filter";
+import { secondFactorRoutes } from "./second-factor";
 // The skill model (owner, 2026-11-10)
 import {
   SkillKindSchema,
@@ -2358,6 +2359,8 @@ export const routes = {
   ...translationRoutes,
   // P-8: US texting registration (docs/plan.md §1.70)
   ...a2pRoutes,
+  // §1.100: a second factor by authenticator app, text or WhatsApp.
+  ...secondFactorRoutes,
   // R4: business hours, person hours and channels (docs/plan.md §1.86).
   ...hoursRoutes,
   // R8: the Library (docs/plan.md §1.86).

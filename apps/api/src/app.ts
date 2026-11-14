@@ -110,6 +110,7 @@ import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
 import { runAuditRouteHandlers } from "./routes/run-audit";
 import { runControlRoutes } from "./routes/run-controls";
+import { secondFactorRoutes } from "./routes/second-factor";
 import { sessionRoutes } from "./routes/session";
 // v0.14 W4-C: the Slack channel picker
 import { slackRoutes } from "./routes/slack";
@@ -160,6 +161,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   app.get(routes.health.path, (c) => c.json(routes.health.response.parse({ ok: true })));
   app.use("/api/*", requestState(deps));
   sessionRoutes(app);
+  // §1.100
+  secondFactorRoutes(app);
   opsClientRoutes(app);
   opsAgentRoutes(app);
   opsLineageRoutes(app);
