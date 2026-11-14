@@ -104,6 +104,10 @@ describe("Security and compliance", () => {
     const vendors = screen.getByTestId("ops-security-client-vendors");
     expect(within(vendors).getAllByRole("row")).toHaveLength(3);
     expect(screen.getByTestId("ops-control-VEN-3")).toBeInTheDocument();
+    // WorkOS multi-factor is required for every sign-in (docs/open.md A1, owner 2026-11-16).
+    expect(
+      screen.getByText(/Every sign-in needs a second factor\. Sessions end after 30 minutes idle/),
+    ).toBeInTheDocument();
   });
 
   it("leaves regulated-only controls out of a standard client's summary", async () => {
