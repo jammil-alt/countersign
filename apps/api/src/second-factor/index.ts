@@ -132,10 +132,19 @@ export const phoneHint = (phone: string | null): string | null =>
 /** No 0/O, 1/I/L: read aloud or typed from paper without guessing. */
 const RECOVERY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
+/** The largest multiple of the alphabet's length that fits in a byte: bytes at or above it are dropped. */
+const RECOVERY_BYTE_LIMIT = 256 - (256 % RECOVERY_ALPHABET.length);
+
 function recoveryCode(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(8));
-  // 256 is not a multiple of 31; the bias (under 1%) is irrelevant for one-time codes.
-  const chars = [...bytes].map((b) => RECOVERY_ALPHABET[b % RECOVERY_ALPHABET.length]).join("");
+  // Rejection sampling, so every character is equally likely (a plain `byte % 31` is biased).
+  let chars = "";
+  while (chars.length < 8) {
+    for (const b of crypto.getRandomValues(new Uint8Array(16))) {
+      if (b < RECOVERY_BYTE_LIMIT && chars.length < 8) {
+        chars += RECOVERY_ALPHABET[b % RECOVERY_ALPHABET.length];
+      }
+    }
+  }
   return `${chars.slice(0, 4)}-${chars.slice(4)}`;
 }
 
