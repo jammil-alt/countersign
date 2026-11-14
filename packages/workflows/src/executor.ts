@@ -154,7 +154,7 @@ export interface ExecutorContext {
   conversation?: ConversationPort;
   /** AI reviewers for confer checks; absent: an AI reviewer's verdict is `no_answer`. */
   confer?: ConferPort;
-  // M61 (ARCHITECTURE v0.17 §10.14; docs/plan.md §1.97)
+  // M61 (ARCHITECTURE v0.17 §10.14; docs/plan.md §1.99)
   /**
    * The agent choosing an `if`'s path or judging a repeat's pass; absent: it is unsure (the if
    * takes its `ifUnsure`) or gives no answer (the repeat ends at its limit).

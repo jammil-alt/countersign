@@ -1,4 +1,4 @@
-// v0.17 (ARCHITECTURE §10.14 "Automations, repeat and the agent's choice"; docs/plan.md §1.97,
+// v0.17 (ARCHITECTURE §10.14 "Automations, repeat and the agent's choice"; docs/plan.md §1.99,
 // M59): the repeat step in the schema, the validator and the walkers.
 import { describe, expect, it } from "vitest";
 import { flattenBundle, unflattenBundle } from "../bundle/flatten";

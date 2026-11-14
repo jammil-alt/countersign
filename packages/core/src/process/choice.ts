@@ -1,4 +1,4 @@
-// M61 (ARCHITECTURE v0.17 §10.14 "Automations, repeat and the agent's choice"; docs/plan.md §1.97):
+// M61 (ARCHITECTURE v0.17 §10.14 "Automations, repeat and the agent's choice"; docs/plan.md §1.99):
 // what the agent answers when it chooses an `if`'s path or says whether a repeat is done. One model
 // call each, no tools but `finish`; these schemas check the answer (invariant 5). An answer that
 // doesn't parse, or names a path the step doesn't allow, counts as unsure (an `if`) or as the limit

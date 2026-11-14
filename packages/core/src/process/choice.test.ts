@@ -1,4 +1,4 @@
-// M61 (ARCHITECTURE v0.17 §10.14; docs/plan.md §1.97): an `if` the agent decides and a repeat the
+// M61 (ARCHITECTURE v0.17 §10.14; docs/plan.md §1.99): an `if` the agent decides and a repeat the
 // agent judges, in the schema and the validator; and the answer's checks.
 import { describe, expect, it } from "vitest";
 import { pickedPath } from "./choice";

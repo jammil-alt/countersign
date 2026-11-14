@@ -4468,11 +4468,12 @@ are skipped). The two run side by side: AP bill clerk doesn't wait.
 | Run views | The sender's step: "Handed off to Price checker (run R-1a2b3c)", linking to the run (back office and portal: `TimelineStep.handoff`). The run started: "Handed off from AP bill clerk (run R-1a2b3c) · started at 5 · Itemize the invoice" in its header (`RunHandoffView`, `handedOffFrom`). Portal words in all six languages; the portal gets names and a run id only (invariant 11). |
 | Checked | `packages/core/src/process/handoff.test.ts`, `packages/workflows/src/handoff.test.ts`, `apps/api/src/handoff-runtime.test.ts` (a real run of A handing off to B at its step 2, the trigger, both pages, the rules, a test run, a target not started, save-time validation), `apps/web/src/ops/builder/handoff.builder.test.tsx`, and the run views' tests. |
 
-### 1.97 Automations again, loops, and the agent chooses the path (owner, 2026-11-14; ARCHITECTURE v0.17 §10.14)
+### 1.99 Automations again, loops, and the agent chooses the path (owner, 2026-11-14; ARCHITECTURE v0.17 §10.14)
 
 "Go back to automations rather than process and add the ability to add a loop, so some automations
 have loops, others don't; we can build the loops as a single automation in an agent or as a step
-within an agent." And: "allowing Pia to actually assess the task and choose the path." Pia stands
+within an agent." And: "allowing Pia to actually assess the task and choose the path." (Numbered §1.99: §1.97 and §1.98 went to the
+texting work, merged first; migration 0048's header, on `main` before the renumber, still says §1.97.) Pia stands
 for any agent: the owner of an agent is the agent itself, so each agent chooses its own paths.
 
 | Topic | Decision |
@@ -5519,7 +5520,7 @@ the card and the Reconciliations screen in six languages, and `apps/api/src/reco
 (October explained by a deposit in transit and signed off, November carrying it in where it
 clears). Open: QuickBooks' register and Plaid's balances checked in their sandboxes (`NOTES.md`).
 
-### M58: Automations and workflows, the words back (A-1, §1.97)
+### M58: Automations and workflows, the words back (A-1, §1.99)
 
 Copy only: the builder, the Library's bank, the back office, the portal, the Builder chat and the
 six message catalogs say "automation" for a reused chain and "workflow" for an agent's own steps;
@@ -5531,7 +5532,7 @@ updated to the new words; a test that the Library's bank lists automations by th
 **Done when** no screen calls an agent's steps or a reused chain a "process", and every stored
 version opens and runs unchanged.
 
-### M59: Repeat, decided by rules (A-2, §1.97)
+### M59: Repeat, decided by rules (A-2, §1.99)
 
 Core: the `repeat` step in the v4 schema, its templates (`loop.pass`, `loop.previous`), the
 validator's limits and size estimate, the walkers and the merge. Workflows: the executor's passes,
@@ -5555,7 +5556,7 @@ block and inspector; the run checklist's pass. Tests: `packages/core/src/process
 `packages/workflows/src/repeat.test.ts`, the builder's "adds a repeat". Open: the RFQ and QuickBooks
 examples run end to end on staging once those connectors are live (`docs/open.md`).
 
-### M60: Migration 0048, the agent's choices (A-3, §1.97)
+### M60: Migration 0048, the agent's choices (A-3, §1.99)
 
 Its own PR: `oversight_decision` checks widened (cause `choose`, `until`; action `choose`, `unsure`,
 `done`, `again`) and a nullable `choice` text column. Additive: the previous Worker never writes
@@ -5573,7 +5574,7 @@ the owner's history and `existing`, the run view's lines, and the per-run interv
 choice's cost still counts). The client fixture names its decision's columns, so a client seeded on
 a database at an earlier migration gets one. Its own PR, before M61's.
 
-### M61: The agent chooses (A-4, §1.97)
+### M61: The agent chooses (A-4, §1.99)
 
 Core: `decide`, `describe`, `show`, `ifUnsure` on `if`, `until: { agent }` on `repeat`, the answer
 schemas and portal words. Agents: the choice call beside `overseeStep`, its rows written from

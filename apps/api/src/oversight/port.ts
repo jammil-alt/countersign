@@ -50,7 +50,7 @@ export function oversightPort(
 }
 
 /**
- * M61 (ARCHITECTURE v0.17 §10.14; docs/plan.md §1.97): the executor's ChoicePort, the run's own
+ * M61 (ARCHITECTURE v0.17 §10.14; docs/plan.md §1.99): the executor's ChoicePort, the run's own
  * agent choosing an `if`'s path or judging a repeat's pass, on its owner's model and within the
  * owner's per-run budget, on its own client's data only (invariant 1).
  */

@@ -1,4 +1,4 @@
-// M61 (ARCHITECTURE v0.17 §10.14 "Automations, repeat and the agent's choice"; docs/plan.md §1.97):
+// M61 (ARCHITECTURE v0.17 §10.14 "Automations, repeat and the agent's choice"; docs/plan.md §1.99):
 // the agent, as its workflow's owner, choosing an `if`'s path among the ones its rules allow, or
 // saying whether a repeat's pass is done. The executor's `ChoicePort`. One model call each, on the
 // owner's model, through packages/llm, with no tool but `finish`. The agent's identity and

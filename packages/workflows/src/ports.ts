@@ -539,7 +539,7 @@ export interface OversightPort {
   review(request: OversightRequest): Promise<OversightVerdict>;
 }
 
-// ── M61: the agent chooses (ARCHITECTURE v0.17 §10.14; docs/plan.md §1.97) ────────────────────
+// ── M61: the agent chooses (ARCHITECTURE v0.17 §10.14; docs/plan.md §1.99) ────────────────────
 
 /** One path an agent may choose: its id, its name and when to take it (the operator's words). */
 export interface ChoicePath {

@@ -1,4 +1,4 @@
-// M61 (ARCHITECTURE v0.17 §10.14; docs/plan.md §1.97): the agent choosing an `if`'s path and
+// M61 (ARCHITECTURE v0.17 §10.14; docs/plan.md §1.99): the agent choosing an `if`'s path and
 // judging a repeat's pass, on the fake model, without a database: the paths' "take this when" and
 // the goal are instructions, the run's data stays data, only an allowed path is ever picked, each
 // answer is kept once with its sources, and a spent budget asks nothing.

@@ -1,4 +1,4 @@
-// v0.17 (ARCHITECTURE §10.14 "Automations, repeat and the agent's choice"; docs/plan.md §1.97,
+// v0.17 (ARCHITECTURE §10.14 "Automations, repeat and the agent's choice"; docs/plan.md §1.99,
 // M59): a repeat runs its steps pass by pass until its rules hold after one, at most `maxTimes`,
 // waiting `between` before each pass after the first. Each pass's steps run under their own node
 // names, so writes are per pass and a replay finds the passes it already ran.

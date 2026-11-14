@@ -1,4 +1,4 @@
-// M61 (ARCHITECTURE v0.17 §10.14 "Automations, repeat and the agent's choice"; docs/plan.md §1.97):
+// M61 (ARCHITECTURE v0.17 §10.14 "Automations, repeat and the agent's choice"; docs/plan.md §1.99):
 // an `if` its agent decides among the paths its rules allow, and a repeat its agent says is done.
 // The port is a fake here; packages/agents' runtime answers it in apps/api.
 import type { processes } from "@countersign/core";

@@ -14,7 +14,7 @@
 > the rules allow, with its reason and sources, or says it is unsure (the otherwise path, or a person
 > picks). The agent never adds or reorders steps, approves nothing and loosens nothing. Changed: §1,
 > §10.14 ("Automations, repeat and the agent's choice"), §18 (M58–M61), §20; CLAUDE.md invariant 9
-> (one sentence); `docs/plan.md` §1.97, M58–M61.
+> (one sentence); `docs/plan.md` §1.99, M58–M61.
 
 > **v0.16, the skill model (2026-11-10, owner):** **Two kinds of skill: deterministic or AI.** A
 > skill that needs both is two skills chained; skills never write (a write is "Save to records" or
@@ -3681,7 +3681,7 @@ Platform first; the Materials template, forked and customized for the millwork s
 | M37 | (P-4) Conversations | A three-turn WhatsApp clarification ends with a confirmed, typed result; a limit hands over to a person with the transcript; a replay sends nothing twice; a contact on "needs approval" makes each message wait |
 | M40 | (P-7) Message translation | An English WhatsApp reply to a Spanish-working client is stored with its Spanish translation beside the untouched original; an approver's Spanish words to an English-speaking vendor are translated, signed with both texts in view and sent once exactly as signed; a client without the setting works as before |
 | R0–R9 | (v0.16) The process model (§10.14) | As `docs/plan.md` §9, one milestone at a time: the v4 schema and converter (R1, built), skills, executor, business hours and channels, undo, the owner, the conversation step, the builder and portal, templates and browser scripts |
-| M58–M61 | (v0.17) Automations, repeat and the agent's choice (§10.14) | As `docs/plan.md` §1.97: the words back (M58); `repeat` decided by rules (M59); migration 0048 on its own (M60); the agent chooses a path and says when a `repeat` is done (M61) |
+| M58–M61 | (v0.17) Automations, repeat and the agent's choice (§10.14) | As `docs/plan.md` §1.99: the words back (M58); `repeat` decided by rules (M59); migration 0048 on its own (M60); the agent chooses a path and says when a `repeat` is done (M61) |
 
 **MVP** (§1): M0–M4 in full; M5 without client requests; M6 without the Builder, operator-written skills, template updates and
 promotion; M7 without the merge view; M8; M9 with the two MVP write tools; plus email forwarding (§6.5)
