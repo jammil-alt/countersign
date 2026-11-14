@@ -1,8 +1,20 @@
-# Mezonas — Architecture v0.16
+# Mezonas — Architecture v0.17
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
+
+> **v0.17 (2026-11-14, owner):** **Automations again, loops, and the agent chooses the path.** The
+> words go back: a reusable, versioned chain of steps used as one step is an **automation**, and an
+> agent's own step list is its **workflow** (v0.16 called both "process"; stored kinds and fields are
+> unchanged). A new logic step, **`repeat`**, runs its steps again until plain rules or the agent say
+> it is done, at most 10 passes, optionally waiting between them: an automation may hold one or not,
+> and an agent may use one directly. An `if` may let **the agent choose the path**: the operator builds
+> every path and says in plain words when to take it; the agent reads the run's data and picks one
+> the rules allow, with its reason and sources, or says it is unsure (the otherwise path, or a person
+> picks). The agent never adds or reorders steps, approves nothing and loosens nothing. Changed: §1,
+> §10.14 ("Automations, repeat and the agent's choice"), §18 (M58–M61), §20; CLAUDE.md invariant 9
+> (one sentence); `docs/plan.md` §1.97, M58–M61.
 
 > **v0.16, the skill model (2026-11-10, owner):** **Two kinds of skill: deterministic or AI.** A
 > skill that needs both is two skills chained; skills never write (a write is "Save to records" or
@@ -493,7 +505,9 @@ Out (designed for, not built):
   sending email without a person's approval; code steps in workflows; A/B versions; custom collections
   and fields UI; nesting automations inside automations
 - An agent changing its own workflow, approvals or permissions while it runs: oversight decides within
-  the plan, and lasting fixes are proposals the operator applies (v0.13, §10.11)
+  the plan, and lasting fixes are proposals the operator applies (v0.13, §10.11). Choosing one of the paths
+  the operator built, or saying a `repeat` is done, where the step lets it, is not a change (v0.17,
+  §10.14)
 - Other packs (Expenses, Bookkeeping, FP&A); they plug in the same way as Materials; use cases such as
   collections (Cole), invoice intake (Iris) and card receipts (Remy) are built from these parts
   separately (v0.9)
@@ -2731,6 +2745,125 @@ mapping against the steps before and the step after, so a new version of either 
 step by field, and the builder offers "Propose an updated mapping". Decisions: docs/plan.md §1.86
 "Skill model (2026-11-11): Reshape data".
 
+#### Automations, repeat and the agent's choice (v0.17, owner 2026-11-14)
+
+**Words.** v0.16's "process" goes back to two words people already used:
+
+| Word | What it is |
+|---|---|
+| **Workflow** | An agent's own step list: its triggers, then its steps. An agent is its workflow plus its owner (the agent itself, watching). |
+| **Automation** | A reusable, versioned chain of steps, used in a workflow (or in a `repeat` or `if` inside one) as one step (§10.7). |
+
+The six definitions read: connector, tool, skill, trigger, workflow, person. Where this section and
+§10.14 above say "process", read "workflow" for an agent's own and "automation" for a reused one. Only
+words change: the builder, the Library (its "Processes" bank becomes "Automations"), the back office,
+the portal, the Builder chat and the docs, in all six languages. Stored versions keep `schemaVersion:
+4`, the step kind `process`, the `automation` and `automation_version` rows and every JSON field
+(invariant 3); code names may stay. // DECISION: words only; renaming a stored kind would mean a
+converter for no change in behaviour.
+
+**Repeat.** A logic step that runs its steps again until it is done:
+
+```ts
+'repeat' { steps: Step[] /*≥ 1*/,
+           until: { rules: Rules } | { agent: { goal: Template, show?: TemplateObject } },
+           maxTimes: 1–10 = 3, between?: Duration /*1 minute to 7 days*/,
+           onLimit: 'stop' | 'proceed' = 'stop' }
+```
+
+- **A pass** runs the steps top to bottom. After it, `until` is checked: done, and the run goes on
+  after the `repeat`; not done, and after `between` (a durable wait, clock time) another pass runs, up
+  to `maxTimes`. Past the last pass, `onLimit`: `stop` stops the run there; `proceed` goes on with the
+  last pass's outputs.
+- **Inside**, templates read `{{loop.pass}}` (1 to `maxTimes`), `{{loop.previous.<stepId>.output.<path>}}`
+  (the pass before; absent on the first) and `{{loop.feedback}}` (the agent's note from its last "not
+  yet", below). They are values in a step's input like any other: data, never instructions (invariant 9).
+- **After**, `steps.<repeatId>.output` is `{ passes, last: { <innerStepId>: output } }` and its outcome
+  is `done` or `limit`, so an `if` can route on it (wave 5's outcome forks): a `limit` to a person, say.
+  Inner steps are not visible after it, as with `for_each`.
+- **`until: { rules }`** is plain rules over the pass's outputs and outcomes, a confer check's verdicts
+  included. Draft, check, revise needs no model to decide: a draft step with an AI confer, repeated
+  until the confer agrees. **`until: { agent }`** is the agent's choice, below.
+- **Where.** Anywhere a step goes: an agent's workflow, an `if` path, a `for_each`, or an automation.
+  So an automation may loop or not, and a loop may be built once as an automation and reused, or placed
+  in one agent's workflow directly. A `repeat` may hold an automation step. Still refused: an automation
+  inside an automation, and a `repeat` directly inside a `repeat`.
+- **Bounded.** `maxTimes` is required and at most 10. A `repeat` counts as logic for the nesting signal
+  (§10.14 "When to split"). The validator estimates a version's durable steps with every `repeat` at its
+  `maxTimes` and refuses one over 900, under Cloudflare Workflows' 1,024 per instance (`docs/plan.md`
+  §1.86); a `for_each` inside a `repeat` is a warning, its size known only at run time. The executor
+  stops a run that would pass 1,000 as a failed step, never silently.
+- **Writes.** A write inside a pass is its own external action: its node id is
+  `${repeatId}:r${pass}:${innerStepId}` (nested ids as `for_each`'s), so its idempotency key, approval
+  and `batch_key` are per pass, and the gate decides each one (invariant 8). A later pass never undoes
+  an earlier pass's write. The builder warns on a write inside a `repeat` ("this can change QuickBooks
+  on every pass").
+- **Durable.** Each pass's steps run under their pass's node ids, each `until` check is
+  `step.do('${repeatId}:r${pass}:until')` and each wait `${repeatId}:r${pass}:wait`, so a replayed or
+  retried run finds the passes it already ran and decides nothing twice. The owner's watch (§10.11)
+  reviews inner steps as any; its retries are inside a pass and are not passes.
+- **Merges.** A `repeat` is one step with a stable id; its fields merge field by field and its inner
+  steps as any nested steps.
+- **Runs.** The back office's run view shows each pass ("Pass 2 of 3") and why it ended. The portal
+  shows the visible inner steps of each pass under "Round 2", and "Done after 2 rounds" or "Stopped
+  after 3 rounds", never a goal, a note or a cost (invariant 11). Test runs run every pass and write
+  nothing.
+
+**The agent chooses the path.** An `if` may let its agent decide:
+
+```ts
+'if' { ..., decide: 'rules' | 'agent' = 'rules',
+       paths: [{ id, name, when: Rules, describe?: string /*1–300; required when decide is 'agent'*/,
+                 steps }],
+       show?: TemplateObject /*what the agent reads; default the trigger and the outputs in scope*/,
+       ifUnsure: 'otherwise' | 'ask' = 'otherwise' }
+```
+
+- **The operator builds every path.** Each says in plain words when to take it (`describe`: "the item
+  is on the usual vendor's list and under $2,000"). Its `when` is now a guard: the agent may pick only a
+  path whose rules pass (an empty rule list always passes). Deterministic first, model second, human
+  last (invariant 7): rules decide what is allowed, the agent picks among it, a person picks when the
+  agent is unsure.
+- **One model call**, no tools, on the owner's model (`definition.oversight.model`, default the agent's
+  model), with the agent's instructions and memory notes; the step's name, each allowed path's name and
+  `describe` in the instructions (the operator's words); `show` as data in a tool-result block
+  (invariant 9). The agent answers through `finish` (a Zod schema in core):
+  `{ path: <path id> | 'unsure', reason: string /*≤ 500*/, sources: string[] }`. A path that isn't
+  allowed or isn't the step's, or an answer that fails validation, counts as `unsure`.
+- **No call when there is nothing to choose:** one allowed path runs at once; none runs `otherwise`.
+- **Unsure:** `otherwise` runs it; `ask` asks the step's approver (the person step's chain and default
+  deadline, `ifNoAnswer: 'stop'`) to pick among the allowed paths, with the agent's leaning shown, and
+  the run waits.
+- **`until: { agent: { goal } }`** on a `repeat` is the same call after each pass, with the goal
+  ("the RFQ names every line, a quantity and a date") and the pass's outputs as data. The answer is
+  `{ done: boolean, reason, feedback?: string /*≤ 2000*/, sources }`; `feedback` reaches the next pass
+  as `{{loop.feedback}}`. An answer that fails validation, or a budget reached, counts as the limit
+  (`onLimit` applies), so a failing check never burns passes.
+- **Limits and cost.** Each call counts in the run's cost, the client's usage and credits (§13), within
+  the owner's `maxCostUsd` per run; over it, the answer is `unsure` (an `if`) or the limit (a `repeat`).
+  A choice is not an intervention: it doesn't count against `maxPerRun`.
+- **Durable and recorded.** Each choice is `step.do('${nodeId}:choose')` (a `repeat`'s check as above),
+  so a replay finds the same answer. Each is an `oversight_decision` row (cause `choose` or `until`;
+  action `choose`, `unsure`, `done` or `again`; the path id in `choice`) with `agent_version_id`, the
+  model, the cost and the record ids it relied on (invariant 10). Migration 0048 widens the row's checks
+  and adds `choice`; it is additive, in its own PR.
+- **What it never does.** It never adds, skips or reorders steps beyond picking one of the step's paths,
+  never builds a path, never picks an automation that isn't on a path, never approves a write or
+  changes an approval, matrix, grant, mode or stage (invariants 8, 9). A write on the chosen path goes
+  through the gate and its checks as always; in trial and sign-off every write is signed.
+- **Choosing an approach.** Paths that each hold one automation ("reorder from the usual vendor", "get
+  two quotes", "ask the owner first") let the agent assess the task and pick how to do it, every option
+  built, tested and approved in advance.
+- **Who sees what.** The back office's run view shows the allowed paths, the pick, the reason, the
+  model and the cost. The portal shows the platform's words with the operator's path name: "Pia chose:
+  Get two quotes", or "Pia wasn't sure, so Dana chose: Get two quotes"; never the reason, a prompt or a
+  cost (invariant 11). // DECISION: the reason is model text, kept to the back office like oversight
+  notes; the owner may revisit.
+- **Tests.** The test bench compares which path ran (`steps.<id>.outcome`) like any output, so a case
+  can expect a path; choices are recorded and replayed like any model call (`LLM_MODE=replay`).
+- **Off unless set.** `decide` defaults to `rules`, so stored versions run as before (invariant 3); the
+  builder offers "Let <agent> choose" on an `if` with two or more paths.
+
 ---
 
 ## 11. Inbox and threads
@@ -3541,6 +3674,7 @@ Platform first; the Materials template, forked and customized for the millwork s
 | M37 | (P-4) Conversations | A three-turn WhatsApp clarification ends with a confirmed, typed result; a limit hands over to a person with the transcript; a replay sends nothing twice; a contact on "needs approval" makes each message wait |
 | M40 | (P-7) Message translation | An English WhatsApp reply to a Spanish-working client is stored with its Spanish translation beside the untouched original; an approver's Spanish words to an English-speaking vendor are translated, signed with both texts in view and sent once exactly as signed; a client without the setting works as before |
 | R0–R9 | (v0.16) The process model (§10.14) | As `docs/plan.md` §9, one milestone at a time: the v4 schema and converter (R1, built), skills, executor, business hours and channels, undo, the owner, the conversation step, the builder and portal, templates and browser scripts |
+| M58–M61 | (v0.17) Automations, repeat and the agent's choice (§10.14) | As `docs/plan.md` §1.97: the words back (M58); `repeat` decided by rules (M59); migration 0048 on its own (M60); the agent chooses a path and says when a `repeat` is done (M61) |
 
 **MVP** (§1): M0–M4 in full; M5 without client requests; M6 without the Builder, operator-written skills, template updates and
 promotion; M7 without the merge view; M8; M9 with the two MVP write tools; plus email forwarding (§6.5)
@@ -3635,6 +3769,10 @@ Decided:
   one step list (workflow `schemaVersion: 4`) with checks on any step, one deadline shape whose default
   is `stop`, business hours per client (Monday to Friday, 8 to 6) and per person, undo offered never
   automatic, one agent per process with its owner; stored v3 is read as v4, never rewritten.
+- v0.17 (owner, 2026-11-14): "automation" for a reused chain of steps and "workflow" for an agent's
+  own, words only; a `repeat` step (at most 10 passes, rules or the agent decide when it is done);
+  an `if` may let the agent choose among the paths the operator built, rules guarding what it may
+  pick, a person when it is unsure (§10.14).
 
 Open:
 - v0.15, for the owner: embeddings for matching (when, and which provider: OpenAI or Voyage, named in
