@@ -882,6 +882,8 @@ export async function invokeRoute<R extends RouteSpec>(
   session: Session,
   spec: R,
   raw: RouteInput = {},
+  /** Which front door called it, for the audit row: the MCP server, or Reggie (§1.101). */
+  via: "mcp" | "reggie" = "mcp",
 ): Promise<z.output<R["response"]>> {
   const handler = mounted.get(app)?.get(spec);
   if (!handler) throw new Error(`${spec.method} ${spec.path} is not mounted`);
@@ -893,11 +895,11 @@ export async function invokeRoute<R extends RouteSpec>(
     body: spec.body ? spec.body.parse(raw.body) : undefined,
   };
   const services = c.get("req").services();
-  // Audited like the route itself, marked as through the MCP server (docs/plan.md §1.35).
+  // Audited like the route itself, marked as through the MCP server or Reggie (§1.35, §1.101).
   const entry = (outcome: AuditEntry["outcome"], httpStatus: number): AuditEntry => ({
     ...auditActor(session),
     tenantId: auditClient(scope, raw.query?.client ?? null, raw.params ?? {}),
-    action: `mcp ${spec.method} ${spec.path}`,
+    action: `${via} ${spec.method} ${spec.path}`,
     outcome,
     httpStatus,
     target: {

@@ -64,6 +64,7 @@ export * from "./api/people";
 export * from "./api/qbo";
 export * from "./api/reach";
 export * from "./api/records";
+export * from "./api/reggie";
 export * from "./api/requests";
 export * from "./api/reshape";
 export * from "./api/routes";
