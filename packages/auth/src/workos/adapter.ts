@@ -46,15 +46,15 @@ export interface Redirect {
   readonly signedIn?: {
     readonly userId: string;
     readonly method: string | null;
-    /** §1.99: where the session starts with the second step. */
+    /** §1.100: where the session starts with the second step. */
     readonly secondFactor: SecondFactorState;
-    /** §1.99: passed by a remembered browser. */
+    /** §1.100: passed by a remembered browser. */
     readonly remembered: boolean;
   };
 }
 
 /**
- * §1.99: the second step, as the API runs it. `on` when this environment has it set up;
+ * §1.100: the second step, as the API runs it. `on` when this environment has it set up;
  * `remembered` says whether this browser passed it for this person in the last 30 days (the API
  * checks the device cookie against the person's methods, so a reset forgets every browser).
  */
@@ -64,7 +64,7 @@ export interface SecondFactorPolicy {
 }
 
 /** Sign-ins whose own provider does the second factor: a company's SSO. */
-// DECISION (docs/plan.md §1.99): only SSO is exempt. Google and Microsoft sign-ins are not: we
+// DECISION (docs/plan.md §1.100): only SSO is exempt. Google and Microsoft sign-ins are not: we
 // can't see whether that account has a second factor of its own.
 export const SECOND_FACTOR_EXEMPT_METHODS: readonly string[] = ["SSO"];
 
@@ -108,7 +108,7 @@ export interface WorkOSAdapter extends AuthAdapter {
   callback(request: Request, now: Date): Promise<Redirect | CallbackRefusal>;
   signOut(request: Request): Promise<Redirect>;
   /**
-   * §1.99: the second step was passed. Reseals a pending session as `done`; refuses one that is
+   * §1.100: the second step was passed. Reseals a pending session as `done`; refuses one that is
    * not pending (done, exempt, expired or another person's).
    */
   passSecondFactor(
@@ -118,7 +118,7 @@ export interface WorkOSAdapter extends AuthAdapter {
   ): Promise<{ readonly ok: true; readonly setCookies: readonly string[] } | AuthRefusal>;
 }
 
-/** §1.99: the web app's page for the second step (apps/web). */
+/** §1.100: the web app's page for the second step (apps/web). */
 export const SECOND_FACTOR_PAGE = "/sign-in/second-step";
 
 const PROVISION_MESSAGES: Record<ProvisionRefusalReason, string> = {
@@ -138,7 +138,7 @@ export function createWorkOSAdapter(options: {
   /** Injected in tests; otherwise built over `fetch`. */
   readonly workos?: WorkOSClient;
   readonly fetch?: typeof fetch;
-  /** §1.99; off when not given. */
+  /** §1.100; off when not given. */
   readonly secondFactor?: SecondFactorPolicy;
 }): WorkOSAdapter {
   const { config, directory } = options;
@@ -165,7 +165,7 @@ export function createWorkOSAdapter(options: {
       }
       const now = epochSec(nowDate);
       if (step) {
-        // DECISION (docs/plan.md §1.99): once the step is on, a cookie from before it (no `mf`) is
+        // DECISION (docs/plan.md §1.100): once the step is on, a cookie from before it (no `mf`) is
         // signed in to again, and a pending step left past its 10 minutes starts over.
         const stale =
           opened.mf === undefined

@@ -140,7 +140,7 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
         httpStatus: 302,
         target: {
           ...(r.signedIn.method ? { method: r.signedIn.method } : {}),
-          // §1.99: where the sign-in starts with the second step.
+          // §1.100: where the sign-in starts with the second step.
           second_factor: r.signedIn.remembered ? "remembered" : r.signedIn.secondFactor,
         },
       });

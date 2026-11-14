@@ -157,7 +157,7 @@ export interface HarnessOptions {
   exports?: ExportJobs;
   /** The MCP server's authorization server, audit, rate limit and clock (fakes). */
   mcp?: McpDeps;
-  /** §1.99: the code service for sign-in codes (tests pass one in memory). */
+  /** §1.100: the code service for sign-in codes (tests pass one in memory). */
   codeVerifier?: CodeVerifier;
   // v0.12 W2-C
   /** Test suite jobs (in memory); none by default. */

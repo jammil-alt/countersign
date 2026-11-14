@@ -29,7 +29,7 @@ export interface Secrets {
   QBO_WEBHOOK_VERIFIER?: string;
   /** Mezonas' own Twilio account: it makes each client's subaccount (docs/plan.md §1.22). */
   TWILIO_ACCOUNT_SID?: string;
-  /** §1.99: Twilio Verify's service (`VA…`) for sign-in codes; empty: the second step is off. */
+  /** §1.100: Twilio Verify's service (`VA…`) for sign-in codes; empty: the second step is off. */
   TWILIO_VERIFY_SERVICE_SID?: string;
   TWILIO_AUTH_TOKEN?: string;
   /** Mezonas' own ElevenLabs account: the voice agents on calls (docs/plan.md §1.23). */

@@ -595,7 +595,7 @@ describe("workosStateOf", () => {
   });
 });
 
-describe("the second step (docs/plan.md §1.99)", () => {
+describe("the second step (docs/plan.md §1.100)", () => {
   const FACTOR = "00000000-0000-4000-8000-0000000000f1";
 
   async function signInWith(

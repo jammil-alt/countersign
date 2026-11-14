@@ -1,4 +1,4 @@
-// The second step of signing in (docs/plan.md §1.99) through the API, with a fake WorkOS and an
+// The second step of signing in (docs/plan.md §1.100) through the API, with a fake WorkOS and an
 // in-memory code service: off without its setting; on, a password sign-in is pending and reaches
 // only the step's routes; setting up a number, codes, recovery codes shown once, "remember this
 // browser" for 30 days, operators held to an authenticator app, the limit on wrong codes, and an
@@ -70,7 +70,7 @@ class Browser {
   }
 }
 
-describe.skipIf(!h)("the second step of signing in (§1.99)", () => {
+describe.skipIf(!h)("the second step of signing in (§1.100)", () => {
   const H = h as ApiHarness;
   let wuid = 0;
 

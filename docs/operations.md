@@ -849,7 +849,7 @@ first (Sandbox and Demo clients, the platform templates); the seed never runs on
 the workflow refuses to run there with "Run the seed first" ticked (it is ticked by default). Safe to
 run again, e.g. after new clients exist: it never adds a second first client.
 
-### Sign-in codes: the second step (`docs/plan.md` §1.99)
+### Sign-in codes: the second step (`docs/plan.md` §1.100)
 
 After WorkOS checks the password, Mezonas asks for a code itself: an authenticator app (operators:
 only this), a text or WhatsApp. A browser that passed can be remembered for 30 days. Codes are

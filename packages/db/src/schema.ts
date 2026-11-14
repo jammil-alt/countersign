@@ -143,7 +143,7 @@ export const appUser = pgTable("app_user", {
   createdAt: createdAt(),
 });
 
-// ── A person's second factor (docs/plan.md §1.99) ─────────────────────────────────────────────────
+// ── A person's second factor (docs/plan.md §1.100) ─────────────────────────────────────────────────
 // Per person, not per client: row-level security on `app.user_id` (the person signing in, set by
 // withUser) or an operator session (resets, Claude connection approvals). Twilio Verify holds every
 // code and authenticator secret; these rows only say which methods a person has.

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { E164 } from "../messaging/rules";
 import { defineRoute } from "./contract";
 
-// A second factor by authenticator app, text or WhatsApp (docs/plan.md §1.99). After WorkOS checks
+// A second factor by authenticator app, text or WhatsApp (docs/plan.md §1.100). After WorkOS checks
 // the password, a session is `pending` until the person passes this step; a pending session reaches
 // only these routes (every other session route answers 401 `second_factor_required`). The routes
 // are `public` in the contract because the API answers them outside `mount()`: they act for the
@@ -122,7 +122,7 @@ export const secondFactorRoutes = {
       "Start setting up the first method: an authenticator app (its QR link, once) or a number to send codes to",
     body: SecondFactorSetupBody,
     response: SecondFactorSetupResponse,
-    // DECISION (docs/plan.md §1.99): the person's own authenticator link, shown to them once at
+    // DECISION (docs/plan.md §1.100): the person's own authenticator link, shown to them once at
     // setup; Twilio keeps the secret and we never store it.
     secretShownOnce: ["otpauthUri"],
   }),

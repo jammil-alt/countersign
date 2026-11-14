@@ -2429,9 +2429,9 @@ and audit.
 
 ---
 
-### 1.99 A second factor by text, WhatsApp or authenticator app (owner, 2026-11-09)
+### 1.100 A second factor by text, WhatsApp or authenticator app (owner, 2026-11-09)
 
-(Written as a second §1.83; renumbered beside the speed run's §1.83. Migration 0042 still cites §1.83.)
+(Written as a second §1.83, then §1.99; renumbered beside the speed run's §1.83 and the automations §1.99. Migration 0042 still cites §1.83.)
 
 Owner, 2026-11-09: build sign-in codes by text and WhatsApp as well as an authenticator app, and
 require the authenticator app for operators. WorkOS's own MFA offers only the authenticator app.

@@ -161,7 +161,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   app.get(routes.health.path, (c) => c.json(routes.health.response.parse({ ok: true })));
   app.use("/api/*", requestState(deps));
   sessionRoutes(app);
-  // §1.99
+  // §1.100
   secondFactorRoutes(app);
   opsClientRoutes(app);
   opsAgentRoutes(app);

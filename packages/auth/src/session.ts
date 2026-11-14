@@ -32,7 +32,7 @@ export interface GetSessionOptions {
    */
   readonly tenantId?: string | null;
   /**
-   * Admit a sign-in whose second step is still pending (docs/plan.md §1.99). Only the step's own
+   * Admit a sign-in whose second step is still pending (docs/plan.md §1.100). Only the step's own
    * routes pass this; everything else is refused with 401 `second_factor_required`.
    */
   readonly allowPendingSecondFactor?: boolean;
@@ -112,7 +112,7 @@ export function sessionFromAccount(
   adapter: Session["adapter"],
   tenantId: string | null | undefined,
   setCookies: readonly string[],
-  /** §1.99: where the sign-in is with its second step, from `identify`. */
+  /** §1.100: where the sign-in is with its second step, from `identify`. */
   secondFactor?: SecondFactorState,
 ): SessionResult {
   if (!account.user) return refuse("session_invalid", "the signed-in user no longer exists");
@@ -123,7 +123,7 @@ export function sessionFromAccount(
 }
 
 /**
- * The second step's gate (docs/plan.md §1.99): a sign-in whose step is still pending is refused
+ * The second step's gate (docs/plan.md §1.100): a sign-in whose step is still pending is refused
  * with 401 `second_factor_required`, unless the caller is one of the step's own routes. Every path
  * that makes a session from a cookie calls this: `getSession` and apps/api's `mount`.
  */

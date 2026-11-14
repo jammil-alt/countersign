@@ -1,4 +1,4 @@
-// Twilio Verify for sign-in codes (docs/plan.md §1.99): the requests sent, and how answers read.
+// Twilio Verify for sign-in codes (docs/plan.md §1.100): the requests sent, and how answers read.
 
 import { describe, expect, it } from "vitest";
 import type { FetchLike, HttpResponseLike } from "../http";

@@ -101,7 +101,7 @@ export interface AppDeps {
   testSuites?(env: Bindings): TestSuiteJobs | null;
   /** The MCP server's authorization server, audit, rate limit and clock; tests pass fakes. */
   mcp?: McpDeps;
-  /** §1.99: the code service for sign-in codes; default Twilio Verify. Tests pass one in memory. */
+  /** §1.100: the code service for sign-in codes; default Twilio Verify. Tests pass one in memory. */
   codeVerifier?(env: Bindings): CodeVerifier;
 }
 
@@ -654,7 +654,7 @@ function mountWith<R extends RouteSpec>(
       const now = new Date();
       const identified = await choice.adapter.identify(c.req.raw, now);
       if (!identified.ok) return refused(identified);
-      // The second step (docs/plan.md §1.99): a pending sign-in reaches only the step's own routes,
+      // The second step (docs/plan.md §1.100): a pending sign-in reaches only the step's own routes,
       // which run outside mount. Checked before any account is read or carried.
       const pending = secondFactorGate(identified);
       if (pending) return refused(pending);

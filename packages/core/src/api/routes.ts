@@ -2359,7 +2359,7 @@ export const routes = {
   ...translationRoutes,
   // P-8: US texting registration (docs/plan.md §1.70)
   ...a2pRoutes,
-  // §1.99: a second factor by authenticator app, text or WhatsApp.
+  // §1.100: a second factor by authenticator app, text or WhatsApp.
   ...secondFactorRoutes,
   // R4: business hours, person hours and channels (docs/plan.md §1.86).
   ...hoursRoutes,

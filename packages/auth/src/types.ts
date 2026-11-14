@@ -37,7 +37,7 @@ export interface Session {
   readonly activeRole: Role | null;
   readonly adapter: AdapterKind;
   /**
-   * Where the sign-in is with its second step (docs/plan.md §1.99). Absent: a session built
+   * Where the sign-in is with its second step (docs/plan.md §1.100). Absent: a session built
    * without a cookie (the MCP server's bearer token, tests), which the step does not apply to.
    */
   readonly secondFactor?: SecondFactorState;
@@ -58,7 +58,7 @@ export type RefusalCode =
   | "adapter_disabled"
   /** Sign-in is configured wrongly; nothing can be verified. */
   | "misconfigured"
-  /** Signed in with a password, but the second step is not done yet (docs/plan.md §1.99). */
+  /** Signed in with a password, but the second step is not done yet (docs/plan.md §1.100). */
   | "second_factor_required";
 
 export interface AuthRefusal {
@@ -101,7 +101,7 @@ export type Identification =
       readonly ok: true;
       readonly userId: string;
       readonly setCookies: readonly string[];
-      /** §1.99: where this sign-in is with its second step; absent means it does not apply. */
+      /** §1.100: where this sign-in is with its second step; absent means it does not apply. */
       readonly secondFactor?: SecondFactorState;
       /**
        * The account the sealed cookie carries for this user, fresh or not (`accountFresh`

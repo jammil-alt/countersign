@@ -38,7 +38,7 @@ import { type WorkOSAuthentication, type WorkOSClient, WorkOSError } from "./cli
 /** `__Host-`: Secure, Path=/, no Domain, so a subdomain can neither read nor plant it. */
 export const SESSION_COOKIE = "__Host-cs_session";
 export const STATE_COOKIE = "__Host-cs_auth_state";
-/** §1.99: a browser that passed the second step, remembered for 30 days. */
+/** §1.100: a browser that passed the second step, remembered for 30 days. */
 export const DEVICE_COOKIE = "__Host-cs_device";
 
 export const SESSION_MAX_AGE_SEC = MAX_AGE;
@@ -68,7 +68,7 @@ export const SessionPayload = z.object({
   /** Last activity (seconds); absent on cookies from before the idle limit. */
   lat: z.int().optional(),
   /**
-   * §1.99: the second step. `pending` until passed (by `mfx`, else the sign-in starts again),
+   * §1.100: the second step. `pending` until passed (by `mfx`, else the sign-in starts again),
    * `done`, or `exempt` (the step is off here, or the sign-in was the person's company SSO).
    * Absent on cookies from before the step; refused once the step is on.
    */
@@ -82,7 +82,7 @@ export const SessionPayload = z.object({
 });
 export type SessionPayload = z.infer<typeof SessionPayload>;
 
-/** §1.99: the remembered browser. `fid` is the method it passed with: a reset removes it. */
+/** §1.100: the remembered browser. `fid` is the method it passed with: a reset removes it. */
 export const DevicePayload = z.object({
   uid: z.uuid(),
   fid: z.uuid(),
@@ -106,7 +106,7 @@ export interface NewSession {
   readonly workosOrganizationId: string | null;
   readonly sessionId: string | null;
   readonly refreshToken: string;
-  /** §1.99: where the new session starts with the second step (default exempt: the step is off). */
+  /** §1.100: where the new session starts with the second step (default exempt: the step is off). */
   readonly secondFactor?: SecondFactorState;
 }
 

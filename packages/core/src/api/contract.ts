@@ -29,7 +29,7 @@ export interface RouteSpec<
   response: R;
   /**
    * Secret-named response fields this route may carry because they are shown once to the person
-   * they belong to (§1.99: their own authenticator app's link at setup). Anything else named like
+   * they belong to (§1.100: their own authenticator app's link at setup). Anything else named like
    * a secret is refused; apps/api's contract test lists every route that uses this.
    */
   secretShownOnce?: readonly string[];
