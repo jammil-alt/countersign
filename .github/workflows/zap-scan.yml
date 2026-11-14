@@ -1,6 +1,6 @@
 name: Production scan
 
-# Production scanned from outside (docs/plan.md §1.100, control CHG-7): OWASP ZAP's baseline scan of
+# Production scanned from outside (docs/plan.md §1.102, control CHG-7): OWASP ZAP's baseline scan of
 # https://app.mezonas.com, weekly and after each production release. Production only, by the
 # owner's call (2026-11-14); staging is not scanned.
 #
