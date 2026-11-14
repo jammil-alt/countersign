@@ -12,8 +12,15 @@ import {
   parseSkillRef,
   processes,
 } from "@countersign/core";
-import { appUser, inboxItem, oversightDecision, stepRun, type Tx } from "@countersign/db";
-import { and, asc, eq } from "drizzle-orm";
+import {
+  appUser,
+  inboxItem,
+  OVERSIGHT_CAUSES,
+  oversightDecision,
+  stepRun,
+  type Tx,
+} from "@countersign/db";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Platform } from "../platform";
 import { tenantLocale } from "../routes/language";
 
@@ -27,8 +34,9 @@ export function decisionView(row: DecisionRow): OversightDecisionView {
     stepRunId: row.stepRunId,
     nodeId: row.nodeId,
     seq: row.seq,
-    cause: row.cause,
-    action: row.action,
+    // Reviews only: the queries below keep to their causes (v0.17's choices are read apart).
+    cause: row.cause as OversightDecisionView["cause"],
+    action: row.action as OversightDecisionView["action"],
     inputBefore: row.inputBefore ?? null,
     inputAfter: row.inputAfter ?? null,
     note: row.note,
@@ -56,7 +64,13 @@ export async function runOversight(
   const rows = await tx
     .select()
     .from(oversightDecision)
-    .where(and(eq(oversightDecision.tenantId, tenantId), eq(oversightDecision.runId, runId)))
+    .where(
+      and(
+        eq(oversightDecision.tenantId, tenantId),
+        eq(oversightDecision.runId, runId),
+        inArray(oversightDecision.cause, [...OVERSIGHT_CAUSES]),
+      ),
+    )
     .orderBy(asc(oversightDecision.createdAt), asc(oversightDecision.seq));
   return rows.map(decisionView);
 }
@@ -108,7 +122,13 @@ export async function timelineOversight(
       ),
     )
     .leftJoin(appUser, eq(appUser.id, inboxItem.assigneeUserId))
-    .where(and(eq(oversightDecision.tenantId, tenantId), eq(oversightDecision.runId, runId)))
+    .where(
+      and(
+        eq(oversightDecision.tenantId, tenantId),
+        eq(oversightDecision.runId, runId),
+        inArray(oversightDecision.cause, [...OVERSIGHT_CAUSES]),
+      ),
+    )
     .orderBy(asc(oversightDecision.createdAt), asc(oversightDecision.seq));
   const out = new Map<string, string[]>();
   if (rows.length === 0) return out;
@@ -125,7 +145,11 @@ export async function timelineOversight(
       r.action === "ask" && r.askedSubject === "oversight_ask" && r.askedId
         ? r.askedName?.trim() || (r.askedEmail?.split("@")[0] ?? null)
         : null;
-    const line = oversightLine(locale, { action: r.action, field, askedName });
+    const line = oversightLine(locale, {
+      action: r.action as OversightDecisionView["action"],
+      field,
+      askedName,
+    });
     out.set(r.stepRunId, [...(out.get(r.stepRunId) ?? []), line]);
   }
   return out;
