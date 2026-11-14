@@ -5549,6 +5549,14 @@ Tests: the migration test loops, RLS and purge fixtures; the old Worker's insert
 
 **Done when** 0048 applies on staging ahead of M61.
 
+Built (2026-11-14): `packages/db/migrations/0048_agent_choices.sql` (drizzle-kit numbered it 0047,
+since the journal skips 0035; renamed, its snapshot `0048_snapshot.json`, 0047's restored), the
+schema's `CHOICE_CAUSES` and `CHOICE_ACTIONS` beside the review's own (so `owner_check` keeps its
+narrower check), `src/agent-choices-migration.test.ts`. The review's readers keep to review causes:
+the owner's history and `existing`, the run view's lines, and the per-run intervention count (a
+choice's cost still counts). The client fixture names its decision's columns, so a client seeded on
+a database at an earlier migration gets one. Its own PR, before M61's.
+
 ### M61: The agent chooses (A-4, §1.97)
 
 Core: `decide`, `describe`, `show`, `ifUnsure` on `if`, `until: { agent }` on `repeat`, the answer

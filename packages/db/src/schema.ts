@@ -3299,6 +3299,16 @@ export const testCaseResult = pgTable(
 export const OVERSIGHT_CAUSES = ["failed", "checkpoint"] as const;
 export const OVERSIGHT_ACTIONS = ["continue", "retry", "retry_with", "ask", "stop"] as const;
 export type OversightAction = (typeof OVERSIGHT_ACTIONS)[number];
+/**
+ * v0.17 (ARCHITECTURE §10.14 "Automations, repeat and the agent's choice"): what the owner decides
+ * besides a review, kept in the same table: an `if` it chooses (`choose`: a path, or `unsure`) and
+ * a repeat it says is done or not (`until`: `done`, `again`, or `unsure` when no answer held).
+ */
+export const CHOICE_CAUSES = ["choose", "until"] as const;
+export const CHOICE_ACTIONS = ["choose", "unsure", "done", "again"] as const;
+export type ChoiceAction = (typeof CHOICE_ACTIONS)[number];
+const DECISION_CAUSES = [...OVERSIGHT_CAUSES, ...CHOICE_CAUSES] as const;
+const DECISION_ACTIONS = [...OVERSIGHT_ACTIONS, ...CHOICE_ACTIONS] as const;
 
 /**
  * One decision the run's own agent took about a step that failed or reached a checkpoint: what it
@@ -3316,8 +3326,10 @@ export const oversightDecision = pgTable(
     stepRunId: uuid("step_run_id").notNull(),
     nodeId: text("node_id").notNull(),
     seq: integer("seq").notNull(),
-    cause: text("cause").$type<(typeof OVERSIGHT_CAUSES)[number]>().notNull(),
-    action: text("action").$type<OversightAction>().notNull(),
+    cause: text("cause").$type<(typeof DECISION_CAUSES)[number]>().notNull(),
+    action: text("action").$type<OversightAction | ChoiceAction>().notNull(),
+    /** v0.17: `choose` only: the path id the agent picked. */
+    choice: text("choice"),
     /** `retry_with` only: the step's input before and after the correction. */
     inputBefore: json<unknown>("input_before"),
     inputAfter: json<unknown>("input_after"),
@@ -3355,8 +3367,12 @@ export const oversightDecision = pgTable(
     }),
     index("oversight_decision_step_run_idx").on(t.stepRunId),
     index("oversight_decision_tenant_idx").on(t.tenantId, t.createdAt),
-    check("oversight_decision_cause_check", oneOf(t.cause, OVERSIGHT_CAUSES)),
-    check("oversight_decision_action_check", oneOf(t.action, OVERSIGHT_ACTIONS)),
+    check("oversight_decision_cause_check", oneOf(t.cause, DECISION_CAUSES)),
+    check("oversight_decision_action_check", oneOf(t.action, DECISION_ACTIONS)),
+    check(
+      "oversight_decision_choice_check",
+      sql`(${t.action} = 'choose') = (${t.choice} is not null)`,
+    ),
     check("oversight_decision_seq_check", sql`${t.seq} >= 1`),
     check(
       "oversight_decision_input_check",

@@ -54,7 +54,6 @@ import {
   notification,
   organization,
   organizationChange,
-  oversightDecision,
   ownerCheck,
   qboWebhookEvent,
   rawRecord,
@@ -618,25 +617,16 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     })
     .returning();
   if (!tr) throw new Error("no test case result");
-  const [od] = await db
-    .insert(oversightDecision)
-    .values({
-      tenantId,
-      runId: r.id,
-      stepRunId: sr.id,
-      nodeId: "s1",
-      seq: 1,
-      cause: "failed",
-      action: "retry",
-      note: "The lookup timed out; trying again.",
-      sources: [rr?.id ?? ""],
-      model: "claude-opus-5-5",
-      costUsd: "0.0021",
-      tokensIn: 800,
-      tokensOut: 60,
-      agentVersionId: av.id,
-    })
-    .returning();
+  // v0.17 (0048): its columns named, not drizzle's whole list, so a client seeded on a database
+  // migrated only to an earlier migration (the 0047 test stops at 0046) gets this row too.
+  const [od] = await db.execute<{ id: string }>(sql`
+      insert into oversight_decision
+        (tenant_id, run_id, step_run_id, node_id, seq, cause, action, note, sources, model,
+         cost_usd, tokens_in, tokens_out, agent_version_id)
+      values (${tenantId}, ${r.id}, ${sr.id}, 's1', 1, 'failed', 'retry',
+        'The lookup timed out; trying again.', ${JSON.stringify([rr?.id ?? ""])}::jsonb,
+        'claude-opus-5-5', '0.0021', 800, 60, ${av.id})
+      returning id`);
   if (!od) throw new Error("no oversight decision");
   // Wave 3 (0030): a Builder conversation about the client's agent.
   const [bs] = await db
