@@ -12,12 +12,13 @@ import { useI18n } from "../i18n/i18n";
 import { Logo } from "../ui/brand";
 import { Field, TextInput } from "../ui/forms";
 import { Button, Card, ErrorNotice, Loading } from "../ui/primitives";
+import { signupWords } from "./words";
 
 const TERMS_URL = "https://mezonas.com/sms-terms";
 const PRIVACY_URL = "https://mezonas.com/privacy";
 
 function Frame({ children }: { children: ReactNode }) {
-  const { t } = useI18n();
+  const w = signupWords(useI18n().locale);
   return (
     <div
       className="flex min-h-screen flex-col items-center justify-center gap-8 bg-paper px-4 py-10"
@@ -28,13 +29,13 @@ function Frame({ children }: { children: ReactNode }) {
         {children}
       </Card>
       <p className="max-w-md text-center text-sm text-ink-muted">
-        {t("textSignup.footer")}{" "}
+        {w("footer")}{" "}
         <a className="underline" href={TERMS_URL}>
-          {t("textSignup.terms")}
+          {w("terms")}
         </a>{" "}
         ·{" "}
         <a className="underline" href={PRIVACY_URL}>
-          {t("textSignup.privacy")}
+          {w("privacy")}
         </a>
       </p>
     </div>
@@ -48,7 +49,7 @@ function shown(e164: string | null): string {
 }
 
 export function TextSignupScreen() {
-  const { t } = useI18n();
+  const w = signupWords(useI18n().locale);
   const api = useApiClient();
   const { token = "" } = useParams();
   const location = useLocation();
@@ -80,9 +81,9 @@ export function TextSignupScreen() {
     const gone = !wellFormed || (isApiError(view.error) && view.error.status === 404);
     return (
       <Frame>
-        <h1 className="type-heading text-ink">{t("textSignup.goneTitle")}</h1>
+        <h1 className="type-heading text-ink">{w("goneTitle")}</h1>
         <p className="mt-2 text-ink-muted" data-testid="text-signup-gone">
-          {gone ? t("textSignup.gone") : null}
+          {gone ? w("gone") : null}
         </p>
         {!gone && view.error ? <ErrorNotice error={view.error} onRetry={view.reload} /> : null}
       </Frame>
@@ -96,22 +97,20 @@ export function TextSignupScreen() {
   if (done) {
     return (
       <Frame>
-        <h1 className="type-heading text-ink">{t("textSignup.doneTitle")}</h1>
+        <h1 className="type-heading text-ink">{w("doneTitle")}</h1>
         <p className="mt-2 text-ink" data-testid="text-signup-done">
-          {done === "sent"
-            ? t("textSignup.doneSent", { client })
-            : t("textSignup.donePending", { client })}
+          {done === "sent" ? w("doneSent", { client }) : w("donePending", { client })}
         </p>
-        <p className="mt-2 text-sm text-ink-muted">{t("textSignup.stopAnyTime")}</p>
+        <p className="mt-2 text-sm text-ink-muted">{w("stopAnyTime")}</p>
       </Frame>
     );
   }
   if (declined) {
     return (
       <Frame>
-        <h1 className="type-heading text-ink">{t("textSignup.declinedTitle")}</h1>
+        <h1 className="type-heading text-ink">{w("declinedTitle")}</h1>
         <p className="mt-2 text-ink" data-testid="text-signup-declined">
-          {t("textSignup.declined", { client })}
+          {w("declined", { client })}
         </p>
       </Frame>
     );
@@ -119,11 +118,11 @@ export function TextSignupScreen() {
   if (v.state === "signed_up") {
     return (
       <Frame>
-        <h1 className="type-heading text-ink">{t("textSignup.title", { client })}</h1>
+        <h1 className="type-heading text-ink">{w("title", { client })}</h1>
         <p className="mt-2 text-ink" data-testid="text-signup-already">
-          {t("textSignup.already", { client })}
+          {w("already", { client })}
         </p>
-        <p className="mt-2 text-sm text-ink-muted">{t("textSignup.stopAnyTime")}</p>
+        <p className="mt-2 text-sm text-ink-muted">{w("stopAnyTime")}</p>
       </Frame>
     );
   }
@@ -144,8 +143,8 @@ export function TextSignupScreen() {
   if (askingNo && v.kind === "invitation") {
     return (
       <Frame>
-        <h1 className="type-heading text-ink">{t("textSignup.declineTitle", { client })}</h1>
-        <p className="mt-2 text-ink-muted">{t("textSignup.declineHelp")}</p>
+        <h1 className="type-heading text-ink">{w("declineTitle", { client })}</h1>
+        <p className="mt-2 text-ink-muted">{w("declineHelp")}</p>
         {error ? (
           <div className="mt-4">
             <ErrorNotice error={error} />
@@ -153,10 +152,10 @@ export function TextSignupScreen() {
         ) : null}
         <div className="mt-5 flex flex-wrap gap-3">
           <Button onClick={() => void decline()} disabled={busy} data-testid="text-signup-decline">
-            {t("textSignup.declineConfirm")}
+            {w("declineConfirm")}
           </Button>
           <Button variant="ghost" onClick={() => setAskingNo(false)} disabled={busy}>
-            {t("textSignup.declineBack")}
+            {w("declineBack")}
           </Button>
         </div>
       </Frame>
@@ -191,19 +190,17 @@ export function TextSignupScreen() {
 
   return (
     <Frame>
-      <p className="eyebrow text-ink-muted">{t("textSignup.eyebrow")}</p>
+      <p className="eyebrow text-ink-muted">{w("eyebrow")}</p>
       <h1 className="type-heading text-ink" data-testid="text-signup-title">
-        {t("textSignup.title", { client })}
+        {w("title", { client })}
       </h1>
       <p className="mt-2 text-ink">
-        {first
-          ? t("textSignup.introNamed", { name: first, client })
-          : t("textSignup.intro", { client })}
+        {first ? w("introNamed", { name: first, client }) : w("intro", { client })}
       </p>
-      <p className="mt-2 text-sm text-ink-muted">{t("textSignup.optional")}</p>
+      <p className="mt-2 text-sm text-ink-muted">{w("optional")}</p>
       <form className="mt-5 flex flex-col gap-4" onSubmit={(e) => void submit(e)}>
         {v.kind === "link" ? (
-          <Field label={t("textSignup.name")}>
+          <Field label={w("name")}>
             <TextInput
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -213,7 +210,7 @@ export function TextSignupScreen() {
             />
           </Field>
         ) : null}
-        <Field label={t("textSignup.phone")} hint={t("textSignup.phoneHint")}>
+        <Field label={w("phone")} hint={w("phoneHint")}>
           <TextInput
             type="tel"
             value={number}
@@ -241,7 +238,7 @@ export function TextSignupScreen() {
           disabled={!ready || busy}
           data-testid="text-signup-submit"
         >
-          {t("textSignup.submit")}
+          {w("submit")}
         </Button>
       </form>
       {v.kind === "invitation" ? (
@@ -252,7 +249,7 @@ export function TextSignupScreen() {
             onClick={() => setAskingNo(true)}
             data-testid="text-signup-no"
           >
-            {t("textSignup.no")}
+            {w("no")}
           </button>
         </p>
       ) : null}

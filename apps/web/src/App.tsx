@@ -9,7 +9,6 @@ import { PortalApp } from "./portal/PortalApp";
 import { SignInScreen } from "./session/SignIn";
 import { StillFrame } from "./session/StillFrame";
 import { SessionProvider, useSessionState } from "./session/session";
-import { TextSignupScreen } from "./signup/TextSignup";
 import { IconSprite } from "./ui/icons";
 import { ErrorNotice } from "./ui/primitives";
 
@@ -26,13 +25,24 @@ const opsAppEarly =
 // A client's session never renders the back office; a chunk that failed is reported where it is used.
 opsAppEarly?.catch(() => {});
 const OpsApp = lazy(() => opsAppEarly ?? loadOpsApp());
+// §1.98: the texting sign-up page is opened from a link, never in the app: its own chunk.
+const TextSignupScreen = lazy(() =>
+  import("./signup/TextSignup").then((m) => ({ default: m.TextSignupScreen })),
+);
 
 export function AppRoutes() {
   return (
     <Routes>
       <Route path="/sign-in" element={<SignInScreen />} />
       {/* docs/plan.md §1.98: choosing to get texts from a business; no sign-in. */}
-      <Route path="/texts/:token" element={<TextSignupScreen />} />
+      <Route
+        path="/texts/:token"
+        element={
+          <Suspense fallback={<StillFrame />}>
+            <TextSignupScreen />
+          </Suspense>
+        }
+      />
       <Route
         path="/ops/*"
         element={
