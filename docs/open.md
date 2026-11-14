@@ -187,8 +187,10 @@ bring this forward.
 
 ### Automations, repeat and the agent's choice (code; ARCHITECTURE v0.17, `docs/plan.md` §1.97)
 
-- Designed 2026-11-14, not built: M58 (the words back), M59 (`repeat` by rules), M60 (migration
-  0048, its own PR), M61 (the agent chooses a path and says when a `repeat` is done).
+- Built 2026-11-14 on `claude/laughing-babbage-vyfvog`: M58 (the words back), M59 (`repeat`), M60
+  (migration 0048, a commit of its own for its own PR), M61 (the agent chooses a path and says when
+  a `repeat` is done). Open: the RFQ, QuickBooks and buyer examples on staging once those
+  connectors are live, with their recorded model fixtures.
 - Owner decisions open: whether the portal shows the agent's reason for a choice; `between` in
   business hours; more than 10 passes.
 

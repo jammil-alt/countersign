@@ -153,7 +153,11 @@ export type ProcessValidationCode =
   | "repeat_empty"
   | "repeat_nested"
   | "repeat_between"
-  | "repeat_too_big";
+  | "repeat_too_big"
+  // M61: a path the agent may choose that doesn't say when to take it; more paths than a person
+  // can be asked to pick from.
+  | "choice_describe_missing"
+  | "choice_too_many";
 
 /**
  * `conversationProblems`' codes. A templated goal is reported as `input_not_fixed`, as every other
@@ -1776,7 +1780,8 @@ function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<str
     case "if":
       // Paths are evaluated at the if, so their rules see what the if itself sees. (The schema
       // requires a path: `if_no_paths`.)
-      for (const p of step.paths) checkRules(c, p.id, p.when, ["when"], scope, true);
+      if (step.decide === "agent") checkAgentIf(c, step, scope);
+      else for (const p of step.paths) checkRules(c, p.id, p.when, ["when"], scope, true);
       break;
     case "for_each":
       checkRefs(c, step.id, step.over, ["over"], scope);
@@ -1848,6 +1853,14 @@ function typeLoopPath(scope: ProcessScope, rest: readonly string[]): PathType {
     if (id !== undefined) return { ok: false, message: "{{loop.pass}} is a number" };
     return { ok: true, schema: { type: "integer" } };
   }
+  // M61: what the agent said the last pass still needed, where it says when the repeat is done.
+  if (field === "feedback") {
+    if (!("agent" in scope.repeat.step.until)) {
+      return { ok: false, message: "{{loop.feedback}} is there when the agent says it is done" };
+    }
+    if (id !== undefined) return { ok: false, message: "{{loop.feedback}} is text" };
+    return { ok: true, schema: { type: "string" } };
+  }
   if (field === "previous") {
     if (id === undefined || !Object.hasOwn(scope.repeat.previous, id)) {
       return {
@@ -1858,7 +1871,7 @@ function typeLoopPath(scope: ProcessScope, rest: readonly string[]): PathType {
     if (part !== "output") return { ok: false, message: `use loop.previous.${id}.output.<field>` };
     return schemaAtPath(scope.repeat.previous[id], tail);
   }
-  return { ok: false, message: "use loop.pass, or loop.previous.<id>.output" };
+  return { ok: false, message: "use loop.pass, loop.feedback or loop.previous.<id>.output" };
 }
 
 /**
@@ -1882,7 +1895,44 @@ function checkRepeat(c: Checker, step: RepeatStep, scope: ProcessScope) {
     repeat: { step, previous: passOutputs(step, c.ctx) },
   };
   for (const s of step.steps) after.steps[s.id] = { step: s, output: stepOutputSchema(s, c.ctx) };
-  checkRules(c, step.id, step.until.rules, ["until", "rules"], after, true);
+  if ("rules" in step.until) {
+    checkRules(c, step.id, step.until.rules, ["until", "rules"], after, true);
+    return;
+  }
+  // M61: the agent says when it is done. Its goal becomes instructions (invariant 9); what it
+  // reads (`show`) is data, typed where the rules would be.
+  checkFixedText(c, step.id, step.until.agent.goal, "until.agent.goal", "goal");
+  if (step.until.agent.show) {
+    checkRefs(c, step.id, step.until.agent.show, ["until", "agent", "show"], after);
+  }
+}
+
+/** The most paths a person can be asked to pick from (a person step's choices). */
+const ASK_CHOICES_MAX = 6;
+
+/**
+ * M61: an `if` the agent decides. Each path says when to take it (fixed text: it becomes the
+ * agent's instructions, invariant 9); its rules only guard what may be picked, so they may be
+ * empty; what the agent reads is typed like any input; a person asked to pick sees at most six.
+ */
+function checkAgentIf(c: Checker, step: Extract<Step, { kind: "if" }>, scope: ProcessScope) {
+  for (const p of step.paths) {
+    if (!p.describe?.trim()) {
+      c.add(p.id, "describe", "choice_describe_missing", "say when to take this path");
+    } else {
+      checkFixedText(c, p.id, p.describe, "describe", "path's description");
+    }
+    checkRules(c, p.id, p.when, ["when"], scope, false);
+  }
+  if (step.show) checkRefs(c, step.id, step.show, ["show"], scope);
+  if (step.ifUnsure === "ask" && step.paths.length > ASK_CHOICES_MAX) {
+    c.add(
+      step.id,
+      "ifUnsure",
+      "choice_too_many",
+      `a person can pick from at most ${ASK_CHOICES_MAX} paths`,
+    );
+  }
 }
 
 /**

@@ -1145,8 +1145,10 @@ function RepeatBlock(props: CanvasProps & { step: Extract<Step, { kind: "repeat"
       <span aria-hidden className="h-3 border-l border-line-strong" />
       <div className="flex w-full flex-col gap-1.5 rounded-lg border border-dashed border-line-strong p-2">
         <p className="text-xs text-ink-muted">
-          again until its rule holds · up to {step.maxTimes}{" "}
-          {step.maxTimes === 1 ? "time" : "times"}
+          {"rules" in step.until
+            ? "again until its rule holds"
+            : "again until the agent says it's done"}{" "}
+          · up to {step.maxTimes} {step.maxTimes === 1 ? "time" : "times"}
           {step.between ? ` · ${step.between} apart` : ""}
         </p>
         <Branch {...props} id={`loop:${step.id}`} steps={step.steps} />

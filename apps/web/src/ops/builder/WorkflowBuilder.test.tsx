@@ -656,6 +656,22 @@ describe("WorkflowBuilder", () => {
     expect(screen.getByTestId("builder-repeat-on-limit")).toHaveValue("proceed");
   });
 
+  // M61: an if the agent decides, each path saying when to take it.
+  it("lets the agent choose an if's path, asking when to take each one", async () => {
+    setup();
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-step-confidence-select"));
+    expect(screen.queryByTestId("builder-path-low-describe")).toBeNull();
+    await user.click(screen.getByTestId("builder-if-agent"));
+    await user.type(screen.getByTestId("builder-path-low-describe"), "a line looks wrong");
+    await user.selectOptions(screen.getByTestId("builder-if-unsure"), "ask");
+    expect(screen.getByTestId("builder-path-low-describe")).toHaveValue("a line looks wrong");
+    expect(screen.getByTestId("builder-if-unsure")).toHaveValue("ask");
+    await user.click(screen.getByTestId("builder-if-agent"));
+    expect(screen.queryByTestId("builder-if-unsure")).toBeNull();
+  });
+
   it("groups triggers into a few kinds with plain names", async () => {
     setup();
     await ready();

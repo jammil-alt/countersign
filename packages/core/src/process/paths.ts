@@ -55,7 +55,12 @@ export function processPathsAt(
     out.push(...pathOptions(scope.loop.item, "item", depth));
     out.push({ path: "index", schema: { type: "integer" } });
   }
-  if (scope.repeat) out.push(...loopPaths(scope.repeat.previous, depth));
+  if (scope.repeat) {
+    out.push(...loopPaths(scope.repeat.previous, depth));
+    if ("agent" in scope.repeat.step.until) {
+      out.push({ path: "loop.feedback", schema: { type: "string" } });
+    }
+  }
   for (let n = 0; n < (options.confer ?? 0); n += 1) {
     out.push(...pathOptions(CONFER_RESULT as JsonSchema, `confer.${n}`, 1));
   }

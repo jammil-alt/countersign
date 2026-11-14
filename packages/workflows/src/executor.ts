@@ -74,6 +74,7 @@ import {
 } from "./oversight";
 import {
   type AgentPort,
+  type ChoicePort,
   type ConferPort,
   type ConversationPort,
   type ConversationRequest,
@@ -153,6 +154,12 @@ export interface ExecutorContext {
   conversation?: ConversationPort;
   /** AI reviewers for confer checks; absent: an AI reviewer's verdict is `no_answer`. */
   confer?: ConferPort;
+  // M61 (ARCHITECTURE v0.17 §10.14; docs/plan.md §1.97)
+  /**
+   * The agent choosing an `if`'s path or judging a repeat's pass; absent: it is unsure (the if
+   * takes its `ifUnsure`) or gives no answer (the repeat ends at its limit).
+   */
+  choice?: ChoicePort;
   // Hand off (owner, 2026-11-11; docs/plan.md §1.96)
   /** Hand-off steps start other agents' runs through it; absent, a live hand-off step fails. */
   handoff?: HandoffPort;
@@ -2924,6 +2931,7 @@ class Executor {
   // ── logic ────────────────────────────────────────────────────────────────────────────────────
 
   async fork(step: processes.IfStep, name: string, frame: Frame): Promise<void> {
+    if (step.decide === "agent") return this.agentFork(step, name, frame);
     const { run, log } = this.ctx;
     // The choice is made inside the `do`, so a replay takes the same path even if data or the
     // rules engine changed in between.
@@ -2954,6 +2962,99 @@ class Executor {
       ...(frame.checks ? { checks: frame.checks } : {}),
     });
     this.record(frame, step, chosen.output);
+  }
+
+  /**
+   * M61: an `if` its agent decides. The rules guard what may be picked (an empty rule list always
+   * allows); with none allowed the run takes otherwise, with one it takes that one, and with more
+   * the agent picks, in a durable step of its own so a replay takes the same path. Unsure (or no
+   * port, or an answer that doesn't hold): otherwise, or with `ifUnsure: ask` a person picks.
+   */
+  async agentFork(step: processes.IfStep, name: string, frame: Frame): Promise<void> {
+    const { run, log } = this.ctx;
+    const label = clientLabel(asLabelled(step));
+    const opened = await this.runner.do(name, async () => {
+      const stepRunId = await log.start({
+        runId: run.id,
+        nodeId: name,
+        nodeType: storedKind(step, this.origin(step)) as never,
+      });
+      const allowed = step.paths
+        .filter((p) => p.when.rules.length === 0 || evaluateRules(p.when, frame.scope))
+        .map((p) => p.id);
+      return { stepRunId, allowed };
+    });
+    const allowed = step.paths.filter((p) => opened.allowed.includes(p.id));
+    let picked: processes.IfPath | undefined = allowed.length === 1 ? allowed[0] : undefined;
+    let by = "";
+    let unsure = false;
+    if (allowed.length > 1) {
+      const answer = await this.runner.do(`${name}:choose`, async () => {
+        if (!this.ctx.choice) return { path: null, by: "" };
+        return this.ctx.choice.choose({
+          run,
+          nodeId: name,
+          stepRunId: opened.stepRunId,
+          stepId: step.id,
+          stepName: step.name,
+          paths: allowed.map((p) => ({ id: p.id, name: p.name, describe: p.describe ?? "" })),
+          data: step.show ? resolveTemplate(step.show, frame.scope) : choiceData(frame.scope),
+        });
+      });
+      by = answer.by;
+      picked = allowed.find((p) => p.id === answer.path);
+      unsure = picked === undefined;
+    }
+    let asked = false;
+    if (unsure && step.ifUnsure === "ask") {
+      const ask = processes.PersonStep.parse({
+        id: step.id,
+        kind: "person",
+        name: step.name,
+        mode: "ask",
+        assignee: "client_admin",
+        title: `Which way for "${step.name}"?`,
+        payload: {
+          paths: allowed.map((p) => ({ name: p.name, when: p.describe ?? "" })),
+        },
+        deadline: { after: "1 day", ifNoAnswer: "stop" },
+        choices: allowed.map((p) => ({ value: p.id, label: p.name })),
+      });
+      await this.person(ask, `${name}:ask`, frame);
+      const answer = (frame.scope.steps[step.id]?.output as { answer?: unknown } | undefined)
+        ?.answer;
+      picked = allowed.find((p) => p.id === answer);
+      asked = picked !== undefined;
+    }
+    const output = picked
+      ? { pathId: picked.id, pathName: picked.name }
+      : { pathId: step.otherwise.id, pathName: "Otherwise" };
+    // The agent's name comes with its answer; without one (no port) the line names the path only.
+    const summary = !picked
+      ? by
+        ? this.words.unsure(by)
+        : this.words.otherwise
+      : !by
+        ? picked.name
+        : asked
+          ? this.words.askedThenTook(by, picked.name)
+          : this.words.chose(by, picked.name);
+    await this.runner.do(`${name}:done`, async () => {
+      await log.update(opened.stepRunId, {
+        status: "succeeded",
+        output,
+        summary: `${label}: ${summary}`,
+      });
+      return null;
+    });
+    const branch = picked ? picked.steps : step.otherwise.steps;
+    // Outputs inside the branch are not visible after the join (ARCHITECTURE §10.2).
+    await this.runList(branch, {
+      prefix: frame.prefix,
+      scope: { ...frame.scope, steps: { ...frame.scope.steps } },
+      ...(frame.checks ? { checks: frame.checks } : {}),
+    });
+    this.record(frame, step, output);
   }
 
   async forEach(step: processes.ForEachStep, name: string, frame: Frame): Promise<void> {
@@ -3054,6 +3155,7 @@ class Executor {
     let previous: Record<string, { output: unknown }> | undefined;
     let passes = 0;
     let done = false;
+    let feedback: string | undefined;
     let ended: RunEnd | undefined;
     try {
       for (let pass = 1; pass <= step.maxTimes; pass += 1) {
@@ -3063,7 +3165,11 @@ class Executor {
         const scope: RunContext = {
           ...frame.scope,
           steps: { ...frame.scope.steps },
-          loop: { pass, ...(previous ? { previous } : {}) },
+          loop: {
+            pass,
+            ...(previous ? { previous } : {}),
+            ...(feedback ? { feedback } : {}),
+          },
         };
         await this.runList(step.steps, {
           prefix: `${name}:r${pass}:`,
@@ -3078,13 +3184,38 @@ class Executor {
           if (entry) previous[inner.id] = { output: entry.output };
         }
         // Decided inside a `do`, so a replay ends the loop where it ended.
-        const verdict = await this.runner.do(`${name}:r${pass}:until`, async () => ({
-          done: evaluateRules(step.until.rules, scope),
-        }));
-        if (verdict.done) {
+        const until = step.until;
+        const verdict = await this.runner.do(
+          `${name}:r${pass}:until`,
+          async (): Promise<{ done: boolean | null; feedback?: string }> => {
+            if ("rules" in until) return { done: evaluateRules(until.rules, scope) };
+            // M61: the agent says. No port, or no answer that held: the repeat ends at its limit.
+            if (!this.ctx.choice) return { done: null };
+            const answer = await this.ctx.choice.judge({
+              run,
+              nodeId: name,
+              stepRunId,
+              stepId: step.id,
+              stepName: step.name,
+              pass,
+              maxTimes: step.maxTimes,
+              goal: until.agent.goal,
+              data: until.agent.show
+                ? resolveTemplate(until.agent.show, scope)
+                : { pass, outputs: passData(step, scope) },
+            });
+            return {
+              done: answer.done,
+              ...(answer.feedback ? { feedback: answer.feedback } : {}),
+            };
+          },
+        );
+        if (verdict.done === true) {
           done = true;
           break;
         }
+        if (verdict.done === null) break;
+        feedback = verdict.feedback;
       }
     } catch (error) {
       if (!(error instanceof RunEnd)) {
@@ -3917,4 +4048,29 @@ export async function pool(
   };
   await Promise.all(Array.from({ length: Math.max(0, Math.min(limit, count)) }, worker));
   if (failure) throw failure.error;
+}
+
+/**
+ * M61: what an agent choosing an `if` reads when the step names nothing: the trigger and the
+ * outputs in scope (inside a loop, its item). Data, never instructions.
+ */
+function choiceData(scope: RunContext): unknown {
+  const steps: Record<string, unknown> = {};
+  for (const [id, entry] of Object.entries(scope.steps)) steps[id] = entry.output;
+  return {
+    trigger: scope.trigger ?? null,
+    ...(scope.input !== undefined ? { input: scope.input } : {}),
+    steps,
+    ...(scope.item !== undefined ? { item: scope.item } : {}),
+  };
+}
+
+/** M61: a pass's top-level steps' outputs, by step id: what the agent judging it reads. */
+function passData(step: processes.RepeatStep, scope: RunContext): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const inner of step.steps) {
+    const entry = scope.steps[inner.id];
+    if (entry) out[inner.id] = entry.output;
+  }
+  return out;
 }

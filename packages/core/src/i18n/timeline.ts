@@ -38,6 +38,12 @@ export interface TimelineWords {
   waited(duration: string): string;
   /** v0.17: a repeat's line: "done after 2 rounds", or "stopped after 3 rounds" at its limit. */
   rounds(n: number, done: boolean): string;
+  /** M61: an `if` its agent decided: "Pia chose: Get two quotes". */
+  chose(agent: string, path: string): string;
+  /** M61: the agent wasn't sure, and a person picked: "Pia wasn't sure, so it asked: Get two quotes". */
+  askedThenTook(agent: string, path: string): string;
+  /** M61: the agent wasn't sure, and the run took the otherwise path. */
+  unsure(agent: string): string;
   // Hand off (owner, 2026-11-11)
   /** A hand-off step that started another agent's run: "Handed off to Price checker (run R-1a2b3c)". */
   handedOff(agent: string, run: string): string;
@@ -83,6 +89,9 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     waited: (d) => `waited ${d}`,
     rounds: (n, done) =>
       `${done ? "done after" : "stopped after"} ${plural("en", n, "round", "rounds")}`,
+    chose: (a, p) => `${a} chose: ${p}`,
+    askedThenTook: (a, p) => `${a} wasn't sure, so it asked: ${p}`,
+    unsure: (a) => `${a} wasn't sure: otherwise`,
     handedOff: (a, r) => `Handed off to ${a} (run ${r})`,
     wouldHandOff: (a, at) => `Would hand off to ${a} at ${at} (test run, nothing started)`,
     handOffNotStarted: (a) => `${a} isn't started, so the hand-off didn't run`,
@@ -111,6 +120,9 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     waited: (d) => `esperó ${d}`,
     rounds: (n, done) =>
       `${done ? "terminado tras" : "detenido tras"} ${plural("es", n, "ronda", "rondas")}`,
+    chose: (a, p) => `${a} eligió: ${p}`,
+    askedThenTook: (a, p) => `${a} no estaba seguro, así que preguntó: ${p}`,
+    unsure: (a) => `${a} no estaba seguro: en otro caso`,
     handedOff: (a, r) => `Pasado a ${a} (ejecución ${r})`,
     wouldHandOff: (a, at) => `Se pasaría a ${a} en ${at} (prueba, no se inició nada)`,
     handOffNotStarted: (a) => `${a} no está iniciado, así que no se pasó el trabajo`,
@@ -139,6 +151,9 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     waited: (d) => `attendu : ${d}`,
     rounds: (n, done) =>
       `${done ? "terminé après" : "arrêté après"} ${plural("fr", n, "tour", "tours")}`,
+    chose: (a, p) => `${a} a choisi : ${p}`,
+    askedThenTook: (a, p) => `${a} n'était pas sûr, donc a demandé : ${p}`,
+    unsure: (a) => `${a} n'était pas sûr : sinon`,
     handedOff: (a, r) => `Transmis à ${a} (exécution ${r})`,
     wouldHandOff: (a, at) => `Serait transmis à ${a} à l'étape ${at} (test, rien n'est lancé)`,
     handOffNotStarted: (a) => `${a} n'est pas démarré : le travail n'a pas été transmis`,
@@ -167,6 +182,9 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     waited: (d) => `aguardou ${d}`,
     rounds: (n, done) =>
       `${done ? "concluído após" : "parado após"} ${plural("pt-BR", n, "rodada", "rodadas")}`,
+    chose: (a, p) => `${a} escolheu: ${p}`,
+    askedThenTook: (a, p) => `${a} não tinha certeza, então perguntou: ${p}`,
+    unsure: (a) => `${a} não tinha certeza: caso contrário`,
     handedOff: (a, r) => `Passado para ${a} (execução ${r})`,
     wouldHandOff: (a, at) => `Passaria para ${a} em ${at} (teste, nada iniciado)`,
     handOffNotStarted: (a) => `${a} não está ativo, então o trabalho não foi passado`,
@@ -195,6 +213,9 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     waited: (d) => `atteso: ${d}`,
     rounds: (n, done) =>
       `${done ? "completato dopo" : "fermato dopo"} ${plural("it", n, "giro", "giri")}`,
+    chose: (a, p) => `${a} ha scelto: ${p}`,
+    askedThenTook: (a, p) => `${a} non era sicuro, quindi ha chiesto: ${p}`,
+    unsure: (a) => `${a} non era sicuro: altrimenti`,
     handedOff: (a, r) => `Passato a ${a} (esecuzione ${r})`,
     wouldHandOff: (a, at) => `Passerebbe a ${a} al passo ${at} (prova, nulla avviato)`,
     handOffNotStarted: (a) => `${a} non è avviato, quindi il lavoro non è stato passato`,
@@ -223,6 +244,9 @@ export const TIMELINE_WORDS: Record<Locale, TimelineWords> = {
     waited: (d) => `gewartet: ${d}`,
     rounds: (n, done) =>
       `${done ? "fertig nach" : "angehalten nach"} ${plural("de", n, "Runde", "Runden")}`,
+    chose: (a, p) => `${a} hat gewählt: ${p}`,
+    askedThenTook: (a, p) => `${a} war unsicher und hat gefragt: ${p}`,
+    unsure: (a) => `${a} war unsicher: sonst`,
     handedOff: (a, r) => `Übergeben an ${a} (Ablauf ${r})`,
     wouldHandOff: (a, at) => `Würde an ${a} bei ${at} übergeben (Testlauf, nichts gestartet)`,
     handOffNotStarted: (a) => `${a} ist nicht gestartet, daher wurde nicht übergeben`,

@@ -2829,22 +2829,24 @@ confer's) keep their wording, so recorded fixtures still replay; they are never 
   last (invariant 7): rules decide what is allowed, the agent picks among it, a person picks when the
   agent is unsure.
 - **One model call**, no tools, on the owner's model (`definition.oversight.model`, default the agent's
-  model), with the agent's instructions and memory notes; the step's name, each allowed path's name and
-  `describe` in the instructions (the operator's words); `show` as data in a tool-result block
-  (invariant 9). The agent answers through `finish` (a Zod schema in core):
+  model), with the agent's identity and instructions; the step's name, each allowed path's id, name and
+  `describe` in the instructions (the operator's words); `show` (else the trigger and the outputs in
+  scope) as data in a tool-result block (invariant 9). // DECISION: no memory notes, as the owner's
+  reviews (§10.11) take none. The agent answers through `finish` (a Zod schema in core):
   `{ path: <path id> | 'unsure', reason: string /*≤ 500*/, sources: string[] }`. A path that isn't
   allowed or isn't the step's, or an answer that fails validation, counts as `unsure`.
 - **No call when there is nothing to choose:** one allowed path runs at once; none runs `otherwise`.
-- **Unsure:** `otherwise` runs it; `ask` asks the step's approver (the person step's chain and default
-  deadline, `ifNoAnswer: 'stop'`) to pick among the allowed paths, with the agent's leaning shown, and
-  the run waits.
+- **Unsure:** `otherwise` runs it; `ask` asks the client admin, as a person step with the allowed
+  paths as its quick answers ("Which way for …?", 1 day, `ifNoAnswer: 'stop'`), and the run waits.
+  // DECISION: the client admin, the default approver's last fallback; an `if` names no approver.
 - **`until: { agent: { goal } }`** on a `repeat` is the same call after each pass, with the goal
   ("the RFQ names every line, a quantity and a date") and the pass's outputs as data. The answer is
   `{ done: boolean, reason, feedback?: string /*≤ 2000*/, sources }`; `feedback` reaches the next pass
-  as `{{loop.feedback}}`. An answer that fails validation, or a budget reached, counts as the limit
-  (`onLimit` applies), so a failing check never burns passes.
+  as `{{loop.feedback}}` (and is kept in the decision's note). An answer that fails validation, or a
+  budget reached, counts as the limit (`onLimit` applies), so a failing check never burns passes.
 - **Limits and cost.** Each call counts in the run's cost, the client's usage and credits (§13), within
-  the owner's `maxCostUsd` per run; over it, the answer is `unsure` (an `if`) or the limit (a `repeat`).
+  the owner's `maxCostUsd` per run (reviews and choices together); over it, nothing is asked or
+  recorded, and the answer is `unsure` (an `if`) or the limit (a `repeat`).
   A choice is not an intervention: it doesn't count against `maxPerRun`.
 - **Durable and recorded.** Each choice is `step.do('${nodeId}:choose')` (a `repeat`'s check as above),
   so a replay finds the same answer. Each is an `oversight_decision` row (cause `choose` or `until`;
@@ -2858,10 +2860,11 @@ confer's) keep their wording, so recorded fixtures still replay; they are never 
 - **Choosing an approach.** Paths that each hold one automation ("reorder from the usual vendor", "get
   two quotes", "ask the owner first") let the agent assess the task and pick how to do it, every option
   built, tested and approved in advance.
-- **Who sees what.** The back office's run view shows the allowed paths, the pick, the reason, the
-  model and the cost. The portal shows the platform's words with the operator's path name: "Pia chose:
-  Get two quotes", or "Pia wasn't sure, so Dana chose: Get two quotes"; never the reason, a prompt or a
-  cost (invariant 11). // DECISION: the reason is model text, kept to the back office like oversight
+- **Who sees what.** The back office's decisions list shows each choice with its reason, sources,
+  model and cost, and the run's step line says what was picked. The `if`'s line is in the platform's
+  words with the operator's path name: "Pia chose: Get two quotes", "Pia wasn't sure, so it asked:
+  Get two quotes", "Pia wasn't sure: otherwise" (six languages); an `if` is logic, hidden from the
+  portal unless the operator shows it. Never the reason, a prompt or a cost there (invariant 11). // DECISION: the reason is model text, kept to the back office like oversight
   notes; the owner may revisit.
 - **Tests.** The test bench compares which path ran (`steps.<id>.outcome`) like any output, so a case
   can expect a path; choices are recorded and replayed like any model call (`LLM_MODE=replay`).

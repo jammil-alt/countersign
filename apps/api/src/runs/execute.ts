@@ -104,7 +104,7 @@ import { connectorServicesFor } from "../messaging/services";
 import { mailerFromEnv, texterFromEnv } from "../notify/mailer";
 import { type NotifyDeps, originOf } from "../notify/outbox";
 // v0.13 W2-I
-import { oversightPort } from "../oversight/port";
+import { choicePort, oversightPort } from "../oversight/port";
 import type { Platform } from "../platform";
 import { dbDocumentServices } from "../qbo/documents";
 import { dbSyncedRecords } from "../qbo/receivables";
@@ -632,6 +632,8 @@ export async function executeRun(
     }),
     // R3: AI reviewers, one model call each.
     confer: { ai: (req) => conferAi(runtime, req) },
+    // M61: the agent choosing a path or judging a repeat's pass, on its owner's settings.
+    choice: choicePort(runtime, db, info, loaded.oversight),
     // Hand off (owner, 2026-11-11): other agents' runs started at a step, and this run's own start.
     handoff: handoffPort({ db, instances: deps.instances }, params),
     ...handoffStart(params),

@@ -1225,11 +1225,35 @@ function RepeatEditor(
     [workflow, step.id, ctx],
   );
   const quick = useMemo(() => outcomeRules(paths), [paths]);
+  const agentName = props.bundle.definition.identity.name || "the agent";
+  const until = step.until;
   return (
     <>
       <Row label="Done when" field="until" errors={fieldErrors}>
+        <SmallSelect
+          data-testid="builder-repeat-until-by"
+          value={"rules" in until ? "rules" : "agent"}
+          onChange={(e) =>
+            set("until", (s) =>
+              s.kind !== "repeat"
+                ? s
+                : {
+                    ...s,
+                    until:
+                      e.target.value === "agent"
+                        ? { agent: { goal: "" } }
+                        : { rules: { match: "all", rules: [] } },
+                  },
+            )
+          }
+        >
+          <option value="rules">A rule holds</option>
+          <option value="agent">{agentName} says it's done</option>
+        </SmallSelect>
+      </Row>
+      {"rules" in until ? (
         <RulesEditor
-          rules={step.until.rules}
+          rules={until.rules}
           paths={paths}
           quick={quick}
           errors={fieldErrors}
@@ -1239,7 +1263,23 @@ function RepeatEditor(
             set(key, (s) => (s.kind === "repeat" ? { ...s, until: { rules } } : s))
           }
         />
-      </Row>
+      ) : (
+        <Row label="The goal" field="until.agent.goal" errors={fieldErrors}>
+          <SmallInput
+            data-field="until.agent.goal"
+            data-testid="builder-repeat-goal"
+            value={until.agent.goal}
+            placeholder="The RFQ names every line, a quantity and a date"
+            onChange={(e) =>
+              set("until.agent.goal", (s) =>
+                s.kind === "repeat" && "agent" in s.until
+                  ? { ...s, until: { agent: { ...s.until.agent, goal: e.target.value } } }
+                  : s,
+              )
+            }
+          />
+        </Row>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <Row label="At most" field="maxTimes" errors={fieldErrors} hint="1 to 10 passes">
           <SmallInput
@@ -1322,15 +1362,49 @@ function IfEditor(
       return next;
     });
 
+  // M61: the agent may choose among the paths its rules allow.
+  const byAgent = step.decide === "agent";
+  const agentName = props.bundle.definition.identity.name || "the agent";
+  const stepErrors = errorsFor(errors, step.id);
   return (
     <div className="flex flex-col gap-3">
-      {errorsFor(errors, step.id)
-        .at("paths")
-        .map((m) => (
-          <span key={m} className="text-sm text-risk">
-            {m}
-          </span>
-        ))}
+      {stepErrors.at("paths").map((m) => (
+        <span key={m} className="text-sm text-risk">
+          {m}
+        </span>
+      ))}
+      <label className="flex items-center gap-2 text-sm text-ink">
+        <input
+          type="checkbox"
+          data-testid="builder-if-agent"
+          checked={byAgent}
+          onChange={(e) =>
+            set("decide", (s) => {
+              if (s.kind !== "if") return s;
+              const { decide: _d, ifUnsure: _u, ...rest } = s;
+              return e.target.checked ? { ...rest, decide: "agent" } : rest;
+            })
+          }
+        />
+        Let {agentName} choose the path
+      </label>
+      {byAgent ? (
+        <Row label="If not sure" field="ifUnsure" errors={stepErrors}>
+          <SmallSelect
+            data-field="ifUnsure"
+            data-testid="builder-if-unsure"
+            value={step.ifUnsure ?? "otherwise"}
+            onChange={(e) =>
+              set("ifUnsure", (s) =>
+                s.kind === "if" ? { ...s, ifUnsure: e.target.value as "otherwise" | "ask" } : s,
+              )
+            }
+          >
+            <option value="otherwise">Take the otherwise path</option>
+            <option value="ask">Ask the client's admin to pick</option>
+          </SmallSelect>
+        </Row>
+      ) : null}
       {step.paths.map((p, i) => {
         const pathErrors = errorsFor(errors, p.id);
         const invalid = errors.some((e) => e.stepId === p.id);
@@ -1357,6 +1431,22 @@ function IfEditor(
                 {p.steps.length} {p.steps.length === 1 ? "step" : "steps"}
               </span>
             </div>
+            {byAgent ? (
+              <Row label="Take this when" field="describe" errors={pathErrors}>
+                <SmallInput
+                  data-field="describe"
+                  data-testid={`builder-path-${p.id}-describe`}
+                  value={p.describe ?? ""}
+                  placeholder="the item is on the usual vendor's list"
+                  onChange={(e) =>
+                    setPath(p.id, "describe", (x) => ({ ...x, describe: e.target.value }))
+                  }
+                />
+              </Row>
+            ) : null}
+            {byAgent ? (
+              <p className="text-xs text-ink-muted">Only if (leave empty to always allow):</p>
+            ) : null}
             <RulesEditor
               rules={p.when}
               paths={paths}

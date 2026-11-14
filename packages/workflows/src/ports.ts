@@ -539,6 +539,55 @@ export interface OversightPort {
   review(request: OversightRequest): Promise<OversightVerdict>;
 }
 
+// ── M61: the agent chooses (ARCHITECTURE v0.17 §10.14; docs/plan.md §1.97) ────────────────────
+
+/** One path an agent may choose: its id, its name and when to take it (the operator's words). */
+export interface ChoicePath {
+  id: string;
+  name: string;
+  describe: string;
+}
+
+/** An `if` the agent decides, among the paths its rules allow (two or more). */
+export interface ChoiceRequest {
+  run: RunInfo;
+  /** The if's durable name: the call's label and the decision's node. */
+  nodeId: string;
+  stepRunId: string;
+  stepId: string;
+  stepName: string;
+  paths: ChoicePath[];
+  /** What the agent reads (the step's `show`, else the trigger and the outputs in scope): data. */
+  data: unknown;
+}
+
+/** A repeat's check after a pass, when the agent says whether it is done. */
+export interface JudgeRequest {
+  run: RunInfo;
+  /** The repeat's durable name; the decision's `seq` is the pass. */
+  nodeId: string;
+  stepRunId: string;
+  stepId: string;
+  stepName: string;
+  pass: number;
+  maxTimes: number;
+  /** The operator's goal, fixed text: the instruction side (invariant 9). */
+  goal: string;
+  /** The pass's outputs (or the step's `show`): data. */
+  data: unknown;
+}
+
+/**
+ * Where the agent chooses. Each answer is recorded by the port (an `oversight_decision` row) and
+ * returned once; the executor calls it inside a durable step, so a replay never asks again.
+ */
+export interface ChoicePort {
+  /** A path id the request allowed, or null when unsure (or no answer held). */
+  choose(request: ChoiceRequest): Promise<{ path: string | null; by: string }>;
+  /** Done or not, or null when no answer held (the repeat ends at its limit). */
+  judge(request: JudgeRequest): Promise<{ done: boolean | null; feedback?: string; by: string }>;
+}
+
 // Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): the owner's check on every step, recorded.
 /**
  * Where the owner's check on each attempt at a v4 read, skill or write step is kept (`owner_check`,

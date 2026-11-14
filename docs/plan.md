@@ -4475,7 +4475,9 @@ for any agent: the owner of an agent is the agent itself, so each agent chooses 
 | Saying a loop is done | `until: { agent: { goal } }`: the same call after each pass; its `feedback` is the next pass's `{{loop.feedback}}`. A failed or over-budget answer counts as the limit. // DECISION: never "again" by default, so a broken check can't spend passes. |
 | Budget | Choices count in the run's cost within the owner's `maxCostUsd`; they are not interventions (`maxPerRun` unchanged). // DECISION |
 | Record | `oversight_decision`, cause `choose` or `until`, action `choose`, `unsure`, `done` or `again`, the path in a new `choice` column. Migration 0048, additive, its own PR (M60). // DECISION: one table for everything the owner decides, not a new one. |
-| Portal | "Pia chose: Get two quotes"; "Pia wasn't sure, so Dana chose: …"; "Done after 2 rounds". Never the reason, goal, feedback or cost. // DECISION: the reason is model text (invariant 11, as oversight notes); for the owner to revisit. |
+| Portal | "Pia chose: Get two quotes"; "Pia wasn't sure, so it asked: …"; "Pia wasn't sure: otherwise"; "done after 2 rounds". Never the reason, goal, feedback or cost. // DECISION: the reason is model text (invariant 11, as oversight notes); for the owner to revisit. |
+| Unsure, ask | The client admin, as a person step with the allowed paths as quick answers, 1 day, `ifNoAnswer: stop`, under `${if}:ask`. // DECISION: an `if` names no approver; the client admin is the approver rules' last fallback. |
+| Prompt | The agent's identity and instructions, the step and its paths (id, name, "take this when") or the goal; the run's data in a tool result. No memory notes, as the owner's reviews. // DECISION |
 | Builder | The palette's logic section gains "Repeat"; an `if` with two or more paths offers "Let <agent> choose", which asks for each path's "Take this when…"; "Save as automation" works on selected steps that include a `repeat`. A write inside a `repeat` shows a warning. |
 
 Open for the owner: whether the portal should show the agent's reason for a choice; whether `between`
@@ -5573,6 +5575,16 @@ quotes" and no reason or cost (contract test); a test-bench case expecting a pat
 
 **Done when** an agent on staging assesses a purchase request, picks how to handle it among paths
 the operator built, and every write on that path is approved as before.
+
+Built (2026-11-14): core's `decide`, `describe`, `show`, `ifUnsure` on `if` and `until: { agent }` on
+`repeat`, their validation (`choice_describe_missing`, `choice_too_many`, fixed text, typed `show`),
+`{{loop.feedback}}`, the answer schemas (`processes.PathChoiceAnswer`, `PassVerdictAnswer`,
+`pickedPath`) and the timeline words; the executor's `agentFork` and the repeat's agent check
+through a `ChoicePort` (`packages/workflows/src/choose.test.ts`); `choosePath` and `judgePass` in
+`packages/agents/src/runtime/choose.ts` with the store's `existingChoice` and `recordChoice`
+(`choose.unit.test.ts`); apps/api's `choicePort`; the builder's "Let <agent> choose", "Take this
+when" and "<agent> says it's done". Open: recorded fixtures of the buyer's real choice on staging,
+once the connectors are live (`docs/open.md`).
 
 ---
 
