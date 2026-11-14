@@ -128,6 +128,8 @@ describe("new client", () => {
     expect(screen.getByTestId("new-client-name-error")).toHaveTextContent(
       "Give the client a name.",
     );
+    // The field with the problem is brought into view and focused, so Create isn't silent.
+    await waitFor(() => expect(screen.getByTestId("new-client-name")).toHaveFocus());
 
     await userEvent.type(screen.getByTestId("new-client-name"), "Cabinet shop");
     const tz = screen.getByTestId("new-client-timezone");

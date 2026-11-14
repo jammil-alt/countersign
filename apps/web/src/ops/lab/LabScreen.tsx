@@ -196,7 +196,15 @@ export function LabScreen() {
     : "any";
   const q = params.get("q") ?? "";
   const [view, setView] = useLabView();
-  useEffect(() => rememberLabQuery(params.toString()), [params]);
+  // What "All agents" returns to is the view shown, not the address as typed: a tab or status the
+  // lab doesn't know (QA: `?status=%00`) falls back above and isn't remembered.
+  const shown = new URLSearchParams();
+  if (tab !== "templates") shown.set("tab", tab);
+  if (status !== "any") shown.set("status", status);
+  const search = q.replace(/\p{Cc}/gu, "").trim();
+  if (search) shown.set("q", search);
+  const remembered = shown.toString();
+  useEffect(() => rememberLabQuery(remembered), [remembered]);
 
   function set(next: { tab?: Tab; status?: Status; q?: string }) {
     const p = new URLSearchParams(params);

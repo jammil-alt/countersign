@@ -14,7 +14,8 @@ the rest.**
   and the whole Marketing wave (M43–M50).
 - **Every provider is built against a fake.** Nothing has yet run against live QuickBooks, Gmail,
   Resend, Twilio, Meta, ElevenLabs, Stripe, Plaid, Search Console or the others.
-- **No open PRs or issues** on GitHub. Production has had no release (no `v*` tag).
+- **No open PRs or issues** on GitHub. Production is live from a hand-run deploy of `747d7ff`
+  (2026-11-09, migrations through 0041) but has had no `v*` tag; its next release is an upgrade.
 - Almost everything below is **a setup step, a key or a decision for the owner**, not code. Where
   code is still needed, it says so.
 
@@ -153,10 +154,20 @@ then one pass of its "To verify" list against the real service.
 
 ### Production's first release
 
-No `v*` tag yet. Before it: `app.mezonas.com` free in DNS, WorkOS production (redirect and sign-out
-URIs, MFA, session limits), production secrets, Email Routing for `in.mezonas.com`, the platform
-seed's templates installed by hand on production, and the Mezonas client created there. D2 (§2) may
-bring this forward.
+Production is **live** (`https://app.mezonas.com/api/health` answers 200): Deploy run 207 put
+`747d7ff` (PR #229) there by hand on 2026-11-09, migrations through 0041, and its cron runs every
+minute against Neon `main`. No `v*` tag yet, so the first tagged release is an **upgrade** of a
+live system (migrations 0042 onward on production; `docs/operations.md`, "The first production
+release"). Before it: WorkOS production checked against A1 and A3 below, the production secrets,
+Email Routing for `in.mezonas.com`, the platform templates installed by hand, and the Mezonas client.
+A second hand-run production deploy (run 210, `5d27cfc`) waited for approval from 2026-11-09 and
+was cancelled on 2026-11-14: approve only a deploy of current `main`. D2 (§2) may bring this forward.
+
+Owner, in Sentry (2026-11-14 review): the `mezonas-web` project's GitHub code mapping points at
+Plenary Labs' repository, so its suspect commits are Plenary Labs'; point it at
+`jammil-alt/countersign` (Settings → Integrations → GitHub → Code mappings). And the staging run
+behind MEZONAS-API-1 (an invoice read stuck as running since 2026-11-07) needs cancelling from
+the back office.
 
 ### Sign-in codes and the Claude connector (owner, 2026-11-10)
 

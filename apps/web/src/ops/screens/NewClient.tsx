@@ -13,7 +13,7 @@ import {
   type Locale,
   parseLocale,
 } from "@countersign/core";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
@@ -123,6 +123,20 @@ export function NewClientScreen() {
     form?: string;
   }>({});
 
+  // QA (2026-11-14): a problem shows beside its field, and the name is at the top of a long form,
+  // so a refused Create looked like nothing happened. The first field with a problem (else the
+  // form's own line) is brought into view and focused.
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (Object.keys(problems).length === 0) return;
+    const first = formRef.current?.querySelector<HTMLElement>(
+      '[aria-invalid="true"], [role="alert"]',
+    );
+    if (!first) return;
+    first.scrollIntoView?.({ block: "center" });
+    first.focus?.({ preventScroll: true });
+  }, [problems]);
+
   async function submit() {
     const next: typeof problems = {};
     if (!name.trim()) next.name = "Give the client a name.";
@@ -180,6 +194,7 @@ export function NewClientScreen() {
         subtitle="Set the client up, then invite their admin."
       />
       <form
+        ref={formRef}
         onSubmit={(e) => {
           e.preventDefault();
           void submit();

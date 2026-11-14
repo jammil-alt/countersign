@@ -9,6 +9,7 @@ import {
   type ValidationContext,
   validateBundle,
   validateWorkflow,
+  validCron,
 } from "./validate";
 
 const fork = (w: Workflow) => w.steps[1] as ForkStep;
@@ -266,6 +267,15 @@ describe("one failing fixture per rule", () => {
       "invalid_cron",
       (w) => {
         w.trigger.on = { type: "schedule", cron: "every day" };
+        w.steps = [];
+      },
+      { stepId: "t1", field: "on.cron" },
+    ],
+    [
+      "cron numbers are in range",
+      "invalid_cron",
+      (w) => {
+        w.trigger.on = { type: "schedule", cron: "99 99 99 99 99" };
         w.steps = [];
       },
       { stepId: "t1", field: "on.cron" },
@@ -739,5 +749,38 @@ describe("fixed inputs (text that becomes instructions)", () => {
       extract(w).input = {};
     });
     expect(fixedErrors(wf)).toEqual([{ code: "input_not_fixed", stepId: "s1", field: "skill" }]);
+  });
+});
+
+describe("validCron", () => {
+  it("takes the schedules the platform writes", () => {
+    for (const cron of [
+      "0 7 * * 1-5",
+      "*/15 * * * *",
+      "0 6,18 1 * *",
+      "30 8 * JAN-MAR MON",
+      "0 0 L * ?",
+      "0 9 * * 5#2",
+      "0 7 * * 7",
+    ]) {
+      expect(validCron(cron), cron).toBe(true);
+    }
+  });
+
+  it("refuses numbers out of range, a step of 0 and a backwards range", () => {
+    for (const cron of [
+      "99 99 99 99 99",
+      "60 * * * *",
+      "0 24 * * *",
+      "0 0 0 * *",
+      "0 0 * 13 *",
+      "0 0 * * 8",
+      "*/0 * * * *",
+      "0 9-5 * * *",
+      "0 7 * * 1-5 *",
+      "1/2/3 * * * *",
+    ]) {
+      expect(validCron(cron), cron).toBe(false);
+    }
   });
 });

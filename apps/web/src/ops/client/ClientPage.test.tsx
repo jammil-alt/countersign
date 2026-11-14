@@ -302,7 +302,8 @@ describe("the client page", () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
       [`GET /api/ops/clients/${CLIENT}`]: () => DETAIL,
-      "GET /api/connectors": () => ({
+      // The back office's catalog (the client one answers an operator 403).
+      "GET /api/ops/connectors": () => ({
         connectors: [
           {
             id: "qbo",
@@ -310,8 +311,21 @@ describe("the client page", () => {
             description: "",
             icon: "qbo",
             auth: "oauth2",
-            entities: [],
+            status: "live",
+            statusSource: "deployment",
+            testOnly: false,
+            note: "",
+            available: true,
+            clientsConnected: 1,
             tools: [],
+            permissionEntities: [],
+            errors: { toolCalls: 0, connections: 0 },
+            defaultAccess: {
+              matrix: { read: "auto", create: "approval", update: "approval", delete: "off" },
+              source: "platform",
+            },
+            waiting: [],
+            updatedAt: null,
           },
         ],
       }),
