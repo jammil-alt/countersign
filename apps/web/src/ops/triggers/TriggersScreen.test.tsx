@@ -157,6 +157,22 @@ describe("Triggers", () => {
     }
   });
 
+  it("refuses a cron line out of range and a time zone it doesn't know", async () => {
+    const { saved, user } = setup();
+    await user.click(screen.getByTestId("triggers-add"));
+    await user.clear(screen.getByTestId("trigger-form-cron"));
+    await user.type(screen.getByTestId("trigger-form-cron"), "99 99 99 99 99");
+    await user.click(screen.getByTestId("trigger-form-save"));
+    expect(screen.getByTestId("trigger-form-error")).toHaveTextContent(/cron line isn't one/);
+
+    await user.clear(screen.getByTestId("trigger-form-cron"));
+    await user.type(screen.getByTestId("trigger-form-cron"), "0 8 * * 1-5");
+    await user.type(screen.getByTestId("trigger-form-tz"), "Not/AZone");
+    await user.click(screen.getByTestId("trigger-form-save"));
+    expect(screen.getByTestId("trigger-form-error")).toHaveTextContent(/time zone/);
+    expect(saved).toEqual([]);
+  });
+
   it("adds a schedule trigger as a new draft, with a new id", async () => {
     const { saved, changed, user } = setup();
     await user.click(screen.getByTestId("triggers-add"));
