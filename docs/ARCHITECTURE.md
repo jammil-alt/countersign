@@ -1,8 +1,27 @@
-# Mezonas — Architecture v0.17
+# Mezonas — Architecture v0.18
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
+
+> **v0.18 (2026-11-15, owner):** **Vendor contracts, and invoices without an accounting tool.** The
+> owner's use case: digitize a vendor's contract (prices per item, plus terms), take invoices in by
+> email, review each against the contract for pricing and terms with the findings noted, and send it
+> to accounts payable, with no accounting tool needed. It reuses the Purchasing area rather than
+> adding a system beside it: a contract is a small terms record per vendor (`vendor_contract`:
+> dates, payment terms, early-pay discount, freight, minimum order, the signed document) and its
+> item prices are the vendor catalog's list prices, each naming the contract it is agreed in
+> (`vendor_item.contract_id`, migration 0051). The contract check is the price check with four
+> more rules (above the agreed price, not on the contract, contract not in effect, terms that
+> differ), run when the vendor has a contract: one alert table, evidence, dollar impact and
+> dedupe. An invoice read with valid totals makes its own purchase record (`transaction`, connector
+> `document`) when no tool synced one; a bill the client's tool syncs later takes it over. The
+> extraction also reads an invoice's payment terms. The Materials pack ships its first template,
+> "Vendor contracts and invoice review" (contract intake; invoice review that emails AP the invoice
+> and its notes, approval on). Changed: §1, §5.2, §6.3, §12.0, §12.2, §12.4, §18, §20; CLAUDE.md
+> (the Materials pack now ships one template); `docs/plan.md` §1.104. In the same version, from a
+> parallel thread: the Builder's v0.18 sections in §9.6, §10.2 and §10.5, and tools declaring their
+> area and entity (`ToolSpec.area`, `ToolSpec.entity`) in §12.0's "Access to an area".
 
 > **v0.17 (2026-11-14, owner):** **Automations again, loops, and the agent chooses the path.** The
 > words go back: a reusable, versioned chain of steps used as one step is an **automation**, and an
@@ -357,7 +376,10 @@ In:
   list of what the company buys (`catalog_item`), each vendor's names for it (`item_alias`), every
   invoice line matched to it (`item_match`, deterministic first, model second, person last),
   prices in a standard unit (`price_observation`), alerts, the Pia template, and the Price watch and
-  Catalog reports. Enabled per client. Millwork categories as built; embeddings off (§20)
+  Catalog reports. Enabled per client. Millwork categories as built; embeddings off (§20).
+  v0.18: **vendor contracts** (terms and agreed prices) checked on every invoice from that vendor,
+  invoices that make their own purchase record when no accounting tool has one, and the template
+  "Vendor contracts and invoice review", which emails accounts payable the invoice and its findings
 - **Texts and calls** (v0.9): **Twilio** (SMS, voice, phone numbers and WhatsApp first), then
   **WhatsApp through Meta's Cloud API** (the client's own number and account), and **ElevenLabs** (voice
   agents for live calls) as connectors whose tools agents use, drawing on the client's knowledge;
@@ -674,9 +696,11 @@ Records more than one pack will use. Connectors map into them; packs read them.
 ```
 vendor(id, tenant_id, name, normalized_name, aliases text[], external_refs jsonb, ext jsonb)
 
-transaction(id, tenant_id, kind /*purchase|bill|vendor_credit*/, vendor_id, txn_date, total, currency,
-            purchaser_ref text, payment_type, memo, source_raw_record_id, external_id,
+transaction(id, tenant_id, kind /*purchase|bill|vendor_credit*/, connector /*qbo|upload|document*/,
+            vendor_id, txn_date, total, currency, purchaser_ref text, payment_type, memo,
+            source_raw_record_id null, external_id,
             status /*needs_doc|doc_requested|doc_found|extracted|processed*/, ext jsonb)
+  unique(tenant_id, connector, external_id)
 
 transaction_line(id, tenant_id, transaction_id, line_no, detail_type /*account|item*/,
                  account_ref, item_ref, description, qty, unit_price, amount)
@@ -696,6 +720,18 @@ alert(id, tenant_id, pack null, kind, subject_type, subject_id, severity, title,
       evidence jsonb /*record ids*/, dollar_impact, status /*open|accepted|dismissed*/,
       raised_by_run_id, created_at)
 ```
+
+Where a transaction comes from (v0.18). A transaction is synced from the client's tool
+(QuickBooks: `connector = 'qbo'`, from its raw record), imported from a CSV of purchases
+(`upload`, from its raw record), or made from an invoice when no tool has it (`document`): an
+invoice read with totals that add up, through `docs.record_purchase`, makes its vendor (found by
+name, alias or the forwarding sender's domain, else added) and a `bill` from the reading, with the
+document's id as `external_id` and no raw record (the document and its reading are its immutable
+source, named in `ext.document`). A purchase already here with the same vendor, total and date is
+linked instead (§6.3's rule). When the client's tool later syncs the same bill (same vendor,
+currency and total, a date within 7 days, a document number that agrees), the sync takes the
+document-made row over (its connector, id and fields become the tool's) rather than adding a
+second: the tool stays the system of record (§12.0 rule 3).
 
 ### 5.3 Platform
 
@@ -1077,7 +1113,8 @@ its status for the tenant, and the tools it gives agents. Tool ids are `<connect
 ### 6.3 Upload connector
 
 - Upload PDF/JPG/PNG documents → `document` (no transaction yet) → linked to a transaction by vendor +
-  total + date (±7 days) when possible. Unlinked documents still extract.
+  total + date (±7 days) when possible. Unlinked documents still extract. v0.18: a step may make the
+  purchase from the invoice itself when no tool has one (`docs.record_purchase`, §5.2).
 - Upload CSV of purchases (date, vendor, amount, memo) → `raw_record(connector='upload')` → transactions.
 - The demo path when QBO is not connected.
 
@@ -3085,7 +3122,9 @@ through the area's tools (invariant 2), and it can use more than one area.
 2. **Areas build on the shared records and the directory.** They never keep their own copy of a
    vendor, a transaction or a person; their tables point at the shared rows.
 3. **The client's tools stay the system of record.** Synced data lands in `raw_record` first and is
-   normalised from there. Area tables hold what the client's tools don't: matches, a master list,
+   normalised from there. A client with no accounting tool still has purchases: an invoice makes its
+   own `transaction` from its reading (v0.18, §5.2), and the tool's record takes it over once it
+   syncs. Area tables hold what the client's tools don't: matches, a master list,
    history, our decisions. A change to a client's tool is an `external` tool and an
    `external_action` with approval (invariant 8). A change to an area's tables is an `internal`
    tool: logged and attributed to the agent version, with no approval.
@@ -3103,7 +3142,7 @@ through the area's tools (invariant 2), and it can use more than one area.
 
 | Area | Status | Built on | Its own data | Agents on it |
 |---|---|---|---|---|
-| **Purchasing** | **In v1 now (v0.15).** The shared records are built; the Materials pack is ported from its M8 branches (M34) | `vendor`, `transaction`, `document`, QuickBooks, upload and email | The Materials pack (§12.2–§12.4): `catalog_item` (the master list of what the company buys), `item_alias` (each vendor's name or SKU for it), `item_match` (each invoice line's decision), `price_observation` (price per item, vendor and date, in a standard unit). The shared `alert` table (§5.2) arrives with it | Invoice intake, the Bill clerk, price watch, purchasing (built in the Agent lab); later reorder and vendor comparison |
+| **Purchasing** | **In v1 now (v0.15).** The shared records are built; the Materials pack is ported from its M8 branches (M34). v0.18: vendor contracts, and invoices without an accounting tool | `vendor`, `transaction` (synced, or made from an invoice when no tool has it: v0.18), `document`, QuickBooks, upload and email | The Materials pack (§12.2–§12.4): `catalog_item` (the master list of what the company buys), `item_alias` (each vendor's name or SKU for it), `item_match` (each invoice line's decision), `price_observation` (price per item, vendor and date, in a standard unit), `vendor_item` (each vendor's catalog), and v0.18's `vendor_contract` (a vendor's contract terms; its agreed prices are vendor items' list prices that name it). The shared `alert` table (§5.2) arrives with it | Invoice intake, the Bill clerk, price watch, purchasing (built in the Agent lab); the pack's template "Vendor contracts and invoice review" (v0.18); later reorder and vendor comparison |
 | **Sales** | Designed for, not built | The directory's organizations and people, a CRM connector (Zoho CRM and Podio built, HubSpot next) | Deals and their stages, activities, the rep who owns an account, territories; what only we know (follow-up due, score, next step), fed from the CRM's raw records | Lead follow-up, pipeline hygiene, rep coaching. Agents change the CRM through its connector's tools, behind approval |
 | **Receivables** | Partly built (`receivable`, v0.12) | QuickBooks invoices, customers and payments | Collection attempts and promises to pay, when a collections use case needs them | Collections (Cole) |
 | **Marketing** | **Being built (owner, 2026-11-08; outside the v1 scope below until v0.16).** Measurement first (M43, `docs/plan.md` §1.72); plan in `docs/marketing-plan.md`. Mezonas is its first client | A client's website (first-party, cookie-free measurement), later Search Console and Bing | The Marketing pack: `site`, `site_event`, `site_visit`, daily totals; later search figures, content and the claims list | Weekly site report, titles and descriptions, article drafts, forum watch, social posts (templates the pack ships) |
@@ -3210,6 +3249,34 @@ Reports (portal): Price watch (`/reports/materials/prices`), Catalog (`/reports/
 with CSV export. Match review in the Inbox (`review` kind). Back office: the same views for any client,
 plus catalog merge.
 
+Vendor contracts (pack 0.4.0, v0.18, `docs/plan.md` §1.104):
+```
+vendor_contract(id, tenant_id, vendor_id, name, effective_from, effective_to null, payment_terms,
+                net_days, early_pay_discount_pct numeric(5,2), early_pay_days,
+                freight /*included|charged|unknown*/, min_order_amount, currency,
+                document_id null, sources jsonb, notes, created_by, ext, created_at, updated_at)
+  unique(tenant_id, vendor_id, effective_from)
+vendor_item + contract_id null   (its list price is that contract's agreed price; a list price is required)
+```
+Tools: `materials.contract.get` (none), `materials.contract.save` (internal: the terms, and the
+agreed prices through the price list import, each dated the contract's start), and
+`materials.invoice.review` (none: an invoice's review notes for accounts payable). Skills:
+`materials.read-contract` (AI: a contract or price sheet, attached, into terms and items; records
+nothing) and `materials.invoice-review` (deterministic, with the client agent's `ap_email`
+parameter). The contract check is `materials.price-check` / `materials.compare-prices` (§12.4).
+The platform's `docs.record_purchase` (internal) makes an invoice's purchase record (§5.2).
+
+Template **Vendor contracts and invoice review** (`vendor-contracts`, the pack's one template,
+installed when the pack is first switched on; `suggest_only`): **contract intake** (manual, a
+document: Read a vendor contract, then Save to records: the contract, with a person's approval)
+and **invoice review** (`document.extracted` with valid totals, or manual: read the invoice when
+nobody has, Save to records: its purchase (a person told and the run stopped when it is ambiguous
+or not ready), Look up existing, Match the unmatched, Check matches, a person for vetoed lines,
+Save to records: the matches, Compare to historicals and the contract, Save to records: the prices
+and the alerts, Review notes for AP, then Send email to the AP mailbox with the invoice attached,
+approval on; with no mailbox set, the operator is told). Creating the bill in QuickBooks or BILL is
+a swap-in step (Create bill), never a dependency.
+
 Template **Pia** (`purchasing`, functional; default portal service name "Material cost monitoring"): skills `docs.find-support`, `docs.extract`,
 `materials.match-lines`, `materials.record-prices`, `materials.price-check`, `materials.vendor-compare`,
 `materials.weekly-digest`; extra tools `qbo.attachable.upload`, `gmail.draft.create`, `gmail.label.apply`
@@ -3290,6 +3357,17 @@ adjudicates it. Only the bill backfill creates new items (step 6's rule).
   | `outlier` | qty or unit price > 3 MAD from item history |
 - `dollar_impact` = change × trailing 90-day quantity.
 - Deduplicate: one open alert per (kind, item, vendor).
+- **The contract check (v0.18).** When the invoice's vendor has a contract, the same check runs four
+  more rules against the contract that holds on the invoice's date (`packs/materials/src/pricing/contract.ts`):
+  | kind | rule | dollar impact | one open alert per |
+  | --- | --- | --- | --- |
+  | `above_contract` | a priced line costs more than the item's agreed price, per standard unit (the vendor's pack converts it; no conversion, no comparison: invariant 7), by at least a cent on the invoice | the difference × the line's quantity | kind, item, vendor |
+  | `not_on_contract` | the contract lists agreed prices and the line's item isn't among them | none | kind, item, vendor |
+  | `contract_not_in_effect` | the vendor has contracts, none holds on the invoice's date (nothing else is checked against them) | none | vendor, contract |
+  | `terms_mismatch` | the invoice's net days (its printed terms, else its due date less its date) or its early-pay discount differ from the contract's; freight charged where the contract includes it | the freight | vendor and term; freight per invoice |
+
+  A term either side doesn't state is never a mismatch. `ignore_vendors` leaves out the history
+  rules only: a vendor on contract pricing is still checked against its contract.
 - Quotes are not prices: price history stays what was paid. `materials.quote.compare` compares a
   request's quotes in code: per line in the item's standard unit through a conversion rule (an
   offer with no rule compares only with offers in its own unit, never across currencies), totals per
@@ -3681,6 +3759,7 @@ Platform first; the Materials template, forked and customized for the millwork s
 | M37 | (P-4) Conversations | A three-turn WhatsApp clarification ends with a confirmed, typed result; a limit hands over to a person with the transcript; a replay sends nothing twice; a contact on "needs approval" makes each message wait |
 | M40 | (P-7) Message translation | An English WhatsApp reply to a Spanish-working client is stored with its Spanish translation beside the untouched original; an approver's Spanish words to an English-speaking vendor are translated, signed with both texts in view and sent once exactly as signed; a client without the setting works as before |
 | R0–R9 | (v0.16) The process model (§10.14) | As `docs/plan.md` §9, one milestone at a time: the v4 schema and converter (R1, built), skills, executor, business hours and channels, undo, the owner, the conversation step, the builder and portal, templates and browser scripts |
+| §1.104 | (v0.18) Vendor contracts and invoices without an accounting tool (§5.2, §12.2, §12.4) | An emailed invoice from a vendor with a contract, for a client with no accounting tool, becomes a purchase, is matched and priced, raises an above-contract alert with its dollars and a freight mismatch, and its review notes and the invoice wait for approval to go to AP; the bill synced later from QuickBooks takes the purchase over; migration 0051 on its own |
 | M58–M61 | (v0.17) Automations, repeat and the agent's choice (§10.14) | As `docs/plan.md` §1.99: the words back (M58); `repeat` decided by rules (M59); migration 0048 on its own (M60); the agent chooses a path and says when a `repeat` is done (M61) |
 
 **MVP** (§1): M0–M4 in full; M5 without client requests; M6 without the Builder, operator-written skills, template updates and
@@ -3781,7 +3860,17 @@ Decided:
   an `if` may let the agent choose among the paths the operator built, rules guarding what it may
   pick, a person when it is unsure (§10.14).
 
+- v0.18 (owner, 2026-11-15): vendor contracts in the Purchasing area (a terms record per vendor;
+  agreed prices are vendor items' list prices that name the contract), the contract check as four
+  more rules of the price check, invoices that make their own purchase record when no tool has one
+  (taken over by the tool's bill when it syncs), and the pack's template "Vendor contracts and
+  invoice review" (§5.2, §12.0, §12.2, §12.4).
+
 Open:
+- v0.18, for the owner (`docs/plan.md` §1.104): whether a contract price below the paid price
+  should be noted too; tolerance on the agreed price beyond a cent; a minimum-order check; whether
+  the AP email should also go when there are no findings (it does today); BILL keeps no
+  transactions yet, so only QuickBooks takes a document's purchase over.
 - v0.15, for the owner: embeddings for matching (when, and which provider: OpenAI or Voyage, named in
   the compliance list); generalising the Materials categories beyond millwork (more parsers in code,
   or embeddings for categories without one); the Sales area's first use case and CRM.
