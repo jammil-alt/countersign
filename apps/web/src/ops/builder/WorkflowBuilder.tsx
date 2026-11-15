@@ -157,6 +157,7 @@ import { type Member, type People, personName } from "./people";
 import { type ProblemLine, problemLines, problemPlace, readableErrors } from "./problems";
 // Reshape data (2026-11-11)
 import { addReshapeBefore, addReshapeThenAction, newReshapeStep } from "./reshape";
+import { StepsList, stepRows } from "./StepsList";
 import { useClientScriptTools } from "./scripts";
 import { applySkillMove } from "./skill-move";
 // v0.18: the Builder beside the step's settings (opt-in).
@@ -188,6 +189,11 @@ export interface WorkflowBuilderProps {
   members?: readonly Member[];
   /** After a save or publish, so the agent page and sidebar follow. */
   onChanged(): void;
+  /**
+   * The agent page's Steps tab (docs/plan.md §1.108): the steps as a list in place of the canvas,
+   * the same side panel on the one clicked. Default the canvas.
+   */
+  view?: "canvas" | "steps";
 }
 
 export default function WorkflowBuilder(props: WorkflowBuilderProps) {
@@ -916,7 +922,7 @@ function BuilderBody(
   // ── Selecting what an error names ──
   const showError = (e: BuilderProblem) => {
     if (e.workflow && e.workflow !== slug) {
-      navigate(`${base}/workflows/${e.workflow}`);
+      navigate(`${base}/${props.view === "steps" ? "steps" : "workflows"}/${e.workflow}`);
       return;
     }
     if (!workflow || !e.stepId) return;
@@ -1285,6 +1291,7 @@ function BuilderBody(
                 base={base}
                 adding={panel === "add-workflow"}
                 onAdd={() => setPanel(panel === "add-workflow" ? null : "add-workflow")}
+                view={props.view}
               />
               {panel === "add-workflow" || bundle.workflows.length === 0 ? (
                 <AddWorkflowForm
@@ -1297,7 +1304,9 @@ function BuilderBody(
                     apply((b) => addWorkflow(b, input));
                     setPanel(null);
                     setSelection(null);
-                    navigate(`${base}/workflows/${input.slug}`);
+                    navigate(
+                      `${base}/${props.view === "steps" ? "steps" : "workflows"}/${input.slug}`,
+                    );
                   }}
                 />
               ) : null}
@@ -1393,7 +1402,16 @@ function BuilderBody(
               />
               <Advice warnings={result.warnings.filter((w) => w.workflow === slug)} />
 
-              {workflow ? (
+              {workflow && props.view === "steps" ? (
+                <StepsList
+                  rows={stepRows({ workflow, errors: workflowErrors, left: leftItems, labels })}
+                  selectedId={selection?.type === "step" ? selection.id : null}
+                  onSelect={(id) => {
+                    setSelection({ type: "step", id });
+                    showRail("step");
+                  }}
+                />
+              ) : workflow ? (
                 <Canvas
                   workflow={workflow}
                   selectedId={
@@ -1864,12 +1882,14 @@ function WorkflowSwitcher({
   base,
   adding,
   onAdd,
+  view,
 }: {
   bundle: Pick<ProcessAgentBundle, "workflows">;
   current: string;
   base: string;
   adding: boolean;
   onAdd(): void;
+  view?: "canvas" | "steps" | undefined;
 }) {
   return (
     <nav
@@ -1879,7 +1899,7 @@ function WorkflowSwitcher({
       {bundle.workflows.map((w) => (
         <Link
           key={w.slug}
-          to={`${base}/workflows/${w.slug}`}
+          to={`${base}/${view === "steps" ? "steps" : "workflows"}/${w.slug}`}
           data-testid={`builder-workflow-${w.slug}-select`}
           aria-current={w.slug === current ? "page" : undefined}
           className={cx(

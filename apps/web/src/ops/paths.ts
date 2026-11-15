@@ -9,6 +9,9 @@ export const OPS_PATHS = {
   reggie: "/ops/reggie",
   askReggie: (clientId: string) => `/ops/reggie?client=${clientId}`,
   lab: "/ops/lab",
+  /** docs/plan.md §1.108: builds, from intake to go-live. */
+  builds: "/ops/builds",
+  build: (id: string) => `/ops/builds/${id}`,
   // O5 New agent, O6 Workflow builder, O7 Triggers (UI-2c), under the agent page (UI-2b).
   newTemplate: "/ops/templates/new",
   newAgent: (clientId: string) => `/ops/clients/${clientId}/agents/new`,

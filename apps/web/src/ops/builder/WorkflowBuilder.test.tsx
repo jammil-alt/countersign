@@ -337,6 +337,8 @@ interface Setup {
   people?: { kind: "user" | "contact"; id: string; name: string; hours: null }[];
   /** More routes, answering from the first render. */
   routes?: Parameters<typeof fakeApi>[0];
+  /** §1.108: the Steps tab's list view. */
+  view?: "canvas" | "steps";
 }
 
 function setup(options: Setup = {}) {
@@ -411,6 +413,7 @@ function setup(options: Setup = {}) {
         onChanged={() => {
           changed += 1;
         }}
+        {...(options.view ? { view: options.view } : {})}
       />
     );
   }
@@ -1343,6 +1346,31 @@ describe("WorkflowBuilder", () => {
 });
 
 // UI-2c (O6): the Builder beside the canvas, "Save as automation", and a model per step.
+describe("WorkflowBuilder's Steps tab", () => {
+  it("lists the steps with their numbers, kinds and status, and opens one in the side panel", async () => {
+    setup({ view: "steps" });
+    const list = await screen.findByTestId("builder-steps-list");
+    expect(screen.queryByTestId("builder-canvas")).toBeNull();
+    const rows = within(list).getAllByRole("row").slice(1);
+    expect(rows.map((r) => r.querySelector("td")?.textContent)).toEqual(
+      expect.arrayContaining(["1", "2"]),
+    );
+    expect(list).toHaveTextContent("Ready");
+    // Needs work narrows the list to the steps that aren't ready.
+    await userEvent.click(within(list).getByTestId("builder-steps-filter-work"));
+    for (const badge of within(list).queryAllByText("Ready")) {
+      expect(badge.closest("tr")).toBeNull();
+    }
+    await userEvent.click(within(list).getByTestId("builder-steps-filter-all"));
+    const first = rows[0]?.getAttribute("data-testid")?.replace("builder-steps-row-", "") ?? "";
+    await userEvent.click(within(list).getByTestId(`builder-steps-open-${first}`));
+    expect(await screen.findByTestId("builder-inspector")).toHaveAttribute("data-node", first);
+    expect(within(list).getByTestId(`builder-steps-row-${first}`).className).toContain(
+      "bg-slate-tint",
+    );
+  });
+});
+
 describe("WorkflowBuilder with the Builder", () => {
   const SESSION = "00000000-0000-4000-8000-0000000c5001";
   const TURN = "00000000-0000-4000-8000-0000000c5102";

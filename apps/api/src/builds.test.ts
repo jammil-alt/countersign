@@ -309,6 +309,9 @@ describe.skipIf(!h)("builds", () => {
     expect(b.build.phase).toBe("qa");
 
     // QA: a failing check is accepted with a reason, then QA is signed.
+    // Every write asks first, and a published version stays to go back to.
+    expect(b.qaChecks.find((c) => c.id === "approvals")?.state).toBe("pass");
+    expect(b.qaChecks.find((c) => c.id === "rollback")?.state).toBe("pass");
     const failing = b.qaChecks.filter((c) => c.state === "fail").map((c) => c.id);
     expect(failing).toContain("trial");
     expect((await call("POST", `/api/ops/builds/${id}/qa`, { sign: true })).status).toBe(409);

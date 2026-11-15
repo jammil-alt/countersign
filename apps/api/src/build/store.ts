@@ -609,7 +609,7 @@ async function clientTestFacts(ctx: StoreCtx, row: BuildRow): Promise<BuildClien
 function loosenedApprovals(bundle: NonNullable<DraftFacts["bundle"]>): number {
   let n = 0;
   for (const w of bundle.workflows) {
-    for (const step of processes.allSteps(w.workflow)) {
+    for (const { step } of processes.allSteps(w.workflow)) {
       const checks = (step as { checks?: { approval?: unknown } }).checks;
       if (checks?.approval) {
         n += processes.approvalLoosenings(
