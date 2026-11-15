@@ -4,8 +4,9 @@
 // the Builder may not break). Wave 3b: the Builder drafts and edits v4 processes (docs/plan.md
 // §1.86); a stored v3 version reaches it read through the converter, every id kept.
 //
-// - Only registered skills and tools: a skill step, read or write step, listed skill or extra
-//   tool the registries don't know is removed and listed in `gaps`.
+// - Only registered skills and tools: a listed skill or extra tool the registries don't know is
+//   removed and listed in `gaps`. v0.18: a skill, read or write step on one becomes a missing step
+//   in its place (same id and name), so the canvas shows the hole (docs/plan.md §1.103).
 // - New agents are `suggest_only`; a revision keeps the mode of the version it revises.
 // - Every step that writes to a client's tool keeps approval on: a new one starts with an approval
 //   check, and no approval, sub-process override or conversation's message setting is loosened
@@ -140,26 +141,6 @@ export function assignIds(
     return { ...bw, slug, workflow };
   });
   return { ...bundle, workflows };
-}
-
-/** Every step list, depth first, dropping steps `keep` refuses. */
-function filterSteps(steps: readonly Step[], keepStep: (s: Step) => boolean): Step[] {
-  const out: Step[] = [];
-  for (const s of steps) {
-    if (!keepStep(s)) continue;
-    if (s.kind === "if") {
-      out.push({
-        ...s,
-        paths: s.paths.map((p) => ({ ...p, steps: filterSteps(p.steps, keepStep) })),
-        otherwise: { ...s.otherwise, steps: filterSteps(s.otherwise.steps, keepStep) },
-      });
-    } else if (s.kind === "for_each" || s.kind === "repeat") {
-      out.push({ ...s, steps: filterSteps(s.steps, keepStep) });
-    } else {
-      out.push(s);
-    }
-  }
-  return out;
 }
 
 /** Applies `fn` to every step (containers after their children), returning new lists. */
@@ -339,35 +320,51 @@ export function guardBundle(
     return false;
   });
 
-  // ── Steps: unknown skills and tools out, what steps use added to the agent ────────────────────
-  let removed = 0;
+  // ── Steps: unknown skills and tools held as missing steps, what steps use added to the agent ──
+  // v0.18: a step on a skill or tool that doesn't exist becomes a missing step in its place, with
+  // the same id and name, rather than being left out; its need says what was asked for.
+  let held = 0;
+  const placed = new Set<string>();
   const workflows = input.workflows.map((bw) => {
-    const keepStep = (s: Step) => {
+    const hold = (s: Step): Step => {
+      let need: string | null = null;
+      let fill: processes.MissingFill = "skill";
       if (s.kind === "skill" && !knownRef(s.skill)) {
-        gap(`No skill does "${s.name}" (asked for "${s.skill}").`);
-        removed += 1;
-        return false;
+        need = `No skill does this yet (asked for "${s.skill}").`;
+        placed.add(s.skill);
+      } else if (
+        // Skill model: an action write step names no tool; it resolves from the agent's bindings.
+        (s.kind === "read" || s.kind === "write") &&
+        s.tool !== undefined &&
+        !tools.has(s.tool)
+      ) {
+        need = `No connected tool can do this yet (asked for "${s.tool}").`;
+        fill = "tool";
       }
-      // Skill model: an action write step names no tool; it resolves from the agent's bindings.
-      if ((s.kind === "read" || s.kind === "write") && s.tool !== undefined && !tools.has(s.tool)) {
-        gap(`No connected tool can "${s.name}" (asked for "${s.tool}").`);
-        removed += 1;
-        return false;
-      }
-      return true;
+      if (need === null) return s;
+      held += 1;
+      return {
+        id: s.id,
+        kind: "missing",
+        name: s.name,
+        need: need.slice(0, processes.MISSING_NEED_MAX),
+        fill,
+      };
     };
-    const steps = mapSteps(filterSteps(bw.workflow.steps, keepStep), (s) =>
-      s.kind === "skill" ? { ...s, skill: normalRef(s.skill) } : s,
+    const steps = mapSteps(bw.workflow.steps, (s) =>
+      s.kind === "skill" && knownRef(s.skill) ? { ...s, skill: normalRef(s.skill) } : hold(s),
     );
     return { ...bw, workflow: { ...bw.workflow, steps } };
   });
   for (const ref of unknownListed) {
-    if (!gaps.some((g) => g.includes(`"${ref}"`))) {
+    if (!placed.has(ref) && !gaps.some((g) => g.includes(`"${ref}"`))) {
       gap(`There is no skill "${ref}"; it was left out.`);
     }
   }
-  if (removed > 0)
-    note(`${plural(removed, "step")} it asked for can't be built yet; see the gaps.`);
+  if (held > 0)
+    note(
+      `${plural(held, "step")} it asked for can't be built yet; ${held === 1 ? "it is" : "they are"} on the canvas as missing.`,
+    );
 
   const agentSkillIds = new Set(def.skills.map((s) => parseSkillRef(s.skill).id));
   const allowedTools = new Set(def.extraTools);

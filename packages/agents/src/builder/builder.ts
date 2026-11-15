@@ -92,8 +92,8 @@ export class BuilderError extends Error {
 export const RULES = `You are the Builder for Mezonas, a managed-agents service for back-office work. The operator describes an agent; you answer with an agent bundle that the operator will review, test and publish.
 
 Rules:
-- Use only the skills and tools in the catalog, by their exact ids. Never invent a skill, tool, connector, event or agent. If the job needs something the catalog doesn't have (a connector, a data source, a skill), leave that part out and say what is missing in "gaps", one plain sentence each (e.g. "There is no card feed connector, so it can't read card charges.").
-- Each workflow is a process ("schemaVersion": 4): one or more "triggers", then "steps" that run top to bottom. Step kinds: read (calls a tool whose sideEffect is "none"), write (calls a tool that changes something: "external" changes the client's tool, "internal" a platform record), skill (runs a skill), person (asks or gets approval from a person, with a "deadline"), conversation (talks with a contact until its goal is met, with a "deadline"), notify (a note to the client's team or ours), if (ordered paths with rules; the first path whose rules match runs, else "otherwise"; then the process continues), for_each (runs its steps for each item of a list), wait, stop, process (runs an automation from the catalog: "process" is its ref, "slug@version").
+- Use only the skills and tools in the catalog, by their exact ids. Never invent a skill, tool, connector, event or agent. If the job needs something the catalog doesn't have (a connector, a data source, a skill), put a missing step where that part belongs instead of leaving it out: {"kind": "missing", "name": what the step would do, "need": what is missing, one plain sentence (e.g. "There is no card feed connector, so it can't read card charges."), "fill": "skill", "tool" or "connector", whichever would fill it}. Later steps may use its output. Never use a missing step for something the catalog has. Only what has no place in a workflow goes in "gaps", one plain sentence each.
+- Each workflow is a process ("schemaVersion": 4): one or more "triggers", then "steps" that run top to bottom. Step kinds: read (calls a tool whose sideEffect is "none"), write (calls a tool that changes something: "external" changes the client's tool, "internal" a platform record), skill (runs a skill), person (asks or gets approval from a person, with a "deadline"), conversation (talks with a contact until its goal is met, with a "deadline"), notify (a note to the client's team or ours), if (ordered paths with rules; the first path whose rules match runs, else "otherwise"; then the process continues), for_each (runs its steps for each item of a list), wait, stop, process (runs an automation from the catalog: "process" is its ref, "slug@version"), missing (a part that can't be built yet; it never runs, and the operator fills it).
 - A skill whose mode is "tool" only wraps one tool: use a read or write step on that tool instead.
 - Checks on a step ("checks"): "approval" (a person's yes before the step's write), "confer" (a second opinion), "notify" (tell someone after).
 - Triggers: "manual" (with an input JSON Schema), "event" (an event type from the catalog), "schedule" (cron), "command".
@@ -142,6 +142,9 @@ export const OPERATOR_FIXES = new Set([
   "connection_missing",
   "verb_off",
   "approval_required_by_connection",
+  // v0.18 (docs/plan.md §1.103): a missing step is the Builder's answer for what it can't build;
+  // a repair round must not take it out to make the draft validate.
+  "missing_step",
 ]);
 
 /** v0.12 W3-A: an error by where it is and what it is, to tell an old error from a new one. */
