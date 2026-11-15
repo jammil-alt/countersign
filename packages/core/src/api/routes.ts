@@ -28,6 +28,8 @@ import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
 import { browserScriptRoutes } from "./browser-scripts";
+// docs/plan.md §1.108: builds
+import { buildRoutes } from "./build";
 // v0.12 W3-A: the Builder as a conversation
 import { builderRoutes } from "./builder";
 import { callRoutes } from "./calls";
@@ -2299,6 +2301,8 @@ export const routes = {
   ...textSignupRoutes,
   // docs/plan.md §1.101: Reggie, the operator's account agent
   ...reggieRoutes,
+  // docs/plan.md §1.108: builds, from intake to go-live
+  ...buildRoutes,
   ...knowledgeRoutes,
   ...callRoutes,
   ...billingRoutes,

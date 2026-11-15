@@ -9,6 +9,8 @@
 // never as a note the model's memory.write could also write.
 export { NEEDS_HELP_KEY } from "@countersign/connectors";
 // v0.12 W3-A: the Builder as a conversation
+// docs/plan.md §1.108: the Builder in a build
+export * from "./build/turn";
 export * from "./builder/aliases";
 export * from "./builder/builder";
 export * from "./builder/changes";
