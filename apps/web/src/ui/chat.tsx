@@ -532,6 +532,7 @@ export function Composer({
   return (
     <div className="ui-chat-composer" data-testid={testId}>
       {above}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: dropping files is a pointer shortcut; Attach is the keyboard's way */}
       <div
         className="ui-chat-composer__box"
         data-dragging={dragging ? "" : undefined}
