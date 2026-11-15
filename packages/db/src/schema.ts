@@ -304,6 +304,170 @@ export const reggieAction = pgTable(
 /** Reggie's tables (§1.101): only an operator session reads them; a client never does. */
 export const REGGIE_TABLES = ["reggie_conversation", "reggie_message", "reggie_action"] as const;
 
+// ── Builds: from intake to go-live (docs/plan.md §1.108, migration 0053) ─────────────────────────
+
+export const BUILD_KINDS = ["agent", "skill"] as const;
+export const BUILD_PHASES = ["intake", "fitgap", "draft", "poc", "client_test", "qa"] as const;
+export const BUILD_STATUSES = ["open", "live", "stopped"] as const;
+
+/**
+ * One build of a new agent or skill, for a client (`client_id`: a client agent or that client's
+ * skill) or for everyone (a template or a shared skill). `brief`, `fitgap`, `test_plan` and `qa`
+ * are the phases' records (core's schemas); each confirmed one is also kept in `build_event`.
+ * `agent_id` / `skill_id` name the draft once made; `test_client_id` / `test_agent_id` the client
+ * and the copy it is tested with. Updated in place; never deleted.
+ */
+// DECISION: operator only, like Reggie's tables: a build is the operator's project, and a client
+// sees only what it already sees (the agent once it runs, its Desk items).
+export const build = pgTable(
+  "build",
+  {
+    id: id(),
+    clientId: uuid("client_id").references(() => tenant.id),
+    kind: text("kind").$type<(typeof BUILD_KINDS)[number]>().notNull(),
+    title: text("title").notNull(),
+    phase: text("phase").$type<(typeof BUILD_PHASES)[number]>().notNull().default("intake"),
+    status: text("status").$type<(typeof BUILD_STATUSES)[number]>().notNull().default("open"),
+    brief: json("brief").notNull().default({}),
+    fitgap: json("fitgap").notNull().default({}),
+    testPlan: json("test_plan").notNull().default({}),
+    qa: json("qa").notNull().default({}),
+    agentId: uuid("agent_id").references(() => agent.id),
+    skillId: uuid("skill_id").references(() => skill.id),
+    sessionId: uuid("session_id").references(() => builderSession.id),
+    testClientId: uuid("test_client_id").references(() => tenant.id),
+    testAgentId: uuid("test_agent_id").references(() => agent.id),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    phaseAt: ts("phase_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("build_phase_idx").on(t.status, t.phase, t.updatedAt),
+    index("build_agent_idx").on(t.agentId),
+    index("build_test_agent_idx").on(t.testAgentId),
+    check("build_kind_check", oneOf(t.kind, BUILD_KINDS)),
+    check("build_phase_check", oneOf(t.phase, BUILD_PHASES)),
+    check("build_status_check", oneOf(t.status, BUILD_STATUSES)),
+    check("build_title_check", sql`length(${t.title}) between 1 and 200`),
+    check(
+      "build_target_check",
+      sql`(${t.kind} = 'agent' and ${t.skillId} is null) or (${t.kind} = 'skill' and ${t.agentId} is null and ${t.testAgentId} is null)`,
+    ),
+  ],
+);
+
+export const BUILD_ITEM_KINDS = [
+  "question",
+  "gap",
+  "precondition",
+  "test",
+  "feedback",
+  "qa",
+  "note",
+] as const;
+export const BUILD_ITEM_OWNERS = ["operator", "builder", "client", "engineering"] as const;
+export const BUILD_ITEM_STATES = ["open", "in_progress", "waiting", "done", "deferred"] as const;
+
+/**
+ * What is left on a build, from any phase: who has it and its state. `key` names an item made
+ * from something (a fit-gap row, a failed case, a rejected write) so it is made once; `ref` links
+ * it (`testCaseId`, `runId`, `actionId`, `buildId` of a skill build). Updated in place.
+ */
+export const buildItem = pgTable(
+  "build_item",
+  {
+    id: id(),
+    buildId: uuid("build_id")
+      .notNull()
+      .references(() => build.id),
+    phase: text("phase").$type<(typeof BUILD_PHASES)[number]>().notNull(),
+    kind: text("kind").$type<(typeof BUILD_ITEM_KINDS)[number]>().notNull(),
+    title: text("title").notNull(),
+    detail: text("detail").notNull().default(""),
+    owner: text("owner").$type<(typeof BUILD_ITEM_OWNERS)[number]>().notNull().default("operator"),
+    state: text("state").$type<(typeof BUILD_ITEM_STATES)[number]>().notNull().default("open"),
+    stepId: text("step_id"),
+    ref: json("ref").notNull().default({}),
+    key: text("key"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    resolvedAt: ts("resolved_at"),
+  },
+  (t) => [
+    index("build_item_build_idx").on(t.buildId, t.createdAt),
+    uniqueIndex("build_item_key").on(t.buildId, t.key).where(sql`${t.key} is not null`),
+    check("build_item_phase_check", oneOf(t.phase, BUILD_PHASES)),
+    check("build_item_kind_check", oneOf(t.kind, BUILD_ITEM_KINDS)),
+    check("build_item_owner_check", oneOf(t.owner, BUILD_ITEM_OWNERS)),
+    check("build_item_state_check", oneOf(t.state, BUILD_ITEM_STATES)),
+    check("build_item_title_check", sql`length(${t.title}) between 1 and 300`),
+  ],
+);
+
+export const BUILD_MESSAGE_ROLES = ["operator", "builder"] as const;
+
+/**
+ * The build's conversation: the operator's words, or the Builder's answer (`meta`: the chips it
+ * offered, what it changed, its model and cost). Tagged with the phase it was in. Insert only.
+ */
+export const buildMessage = pgTable(
+  "build_message",
+  {
+    id: id(),
+    buildId: uuid("build_id")
+      .notNull()
+      .references(() => build.id),
+    phase: text("phase").$type<(typeof BUILD_PHASES)[number]>().notNull(),
+    role: text("role").$type<(typeof BUILD_MESSAGE_ROLES)[number]>().notNull(),
+    text: text("text").notNull().default(""),
+    meta: json("meta").notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("build_message_build_idx").on(t.buildId, t.createdAt),
+    check("build_message_phase_check", oneOf(t.phase, BUILD_PHASES)),
+    check("build_message_role_check", oneOf(t.role, BUILD_MESSAGE_ROLES)),
+  ],
+);
+
+export const BUILD_EVENT_KINDS = ["phase", "record", "qa", "decision"] as const;
+
+/**
+ * A build's history: a phase move (`from_phase`, `to_phase`, `reason`), a confirmed record (the
+ * brief, fit-gap or test plan as confirmed, in `payload`), QA signed, go or no-go. Insert only.
+ */
+export const buildEvent = pgTable(
+  "build_event",
+  {
+    id: id(),
+    buildId: uuid("build_id")
+      .notNull()
+      .references(() => build.id),
+    kind: text("kind").$type<(typeof BUILD_EVENT_KINDS)[number]>().notNull(),
+    fromPhase: text("from_phase").$type<(typeof BUILD_PHASES)[number]>(),
+    toPhase: text("to_phase").$type<(typeof BUILD_PHASES)[number]>(),
+    payload: json("payload").notNull().default({}),
+    reason: text("reason"),
+    userId: uuid("user_id").references(() => appUser.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("build_event_build_idx").on(t.buildId, t.createdAt),
+    check("build_event_kind_check", oneOf(t.kind, BUILD_EVENT_KINDS)),
+  ],
+);
+
+/** The build tables (§1.108): only an operator session reads them; a client never does. */
+export const BUILD_TABLES = ["build", "build_item", "build_message", "build_event"] as const;
+
 // ── Tenant tables ────────────────────────────────────────────────────────────────────────────────
 
 const tenantId = () =>
