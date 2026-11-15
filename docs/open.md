@@ -14,7 +14,9 @@ the rest.**
   and the whole Marketing wave (M43–M50).
 - **Every provider is built against a fake.** Nothing has yet run against live QuickBooks, Gmail,
   Resend, Twilio, Meta, ElevenLabs, Stripe, Plaid, Search Console or the others.
-- **No open PRs or issues** on GitHub. Production is live from a hand-run deploy of `747d7ff`
+- **Unmerged work:** on 2026-11-15, 11 branches of finished work had never reached `main`, most
+  with no PR. What they hold and the order to merge them: `docs/merge-backlog.md`.
+- Production is live from a hand-run deploy of `747d7ff`
   (2026-11-09, migrations through 0041) but has had no `v*` tag; its next release is an upgrade.
 - Almost everything below is **a setup step, a key or a decision for the owner**, not code. Where
   code is still needed, it says so.
