@@ -281,7 +281,7 @@ export async function updateVendorItem(
   if (f.listPrice !== undefined) {
     set.listPrice = f.listPrice;
     set.listPriceOn = f.listPrice === null ? null : (f.listPriceOn ?? null);
-    // §1.104: a list price set without a contract is a plain list price (the agreed one goes).
+    // DECISION (§1.104): a list price set without a contract is a plain one (the link goes).
     set.contractId = f.listPrice === null ? null : (f.contractId ?? null);
   } else if (f.contractId !== undefined) {
     set.contractId = f.contractId;

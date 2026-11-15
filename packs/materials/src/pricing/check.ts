@@ -266,8 +266,8 @@ export async function checkPrices(
         vendorId: doc.vendorId,
         vendorName: doc.vendorName,
         contracts,
-        // The line's own vendor item when it is on the contract, else one of the item's whose
-        // price converts to the line's unit (invariant 7).
+        // DECISION: the line's own vendor item when it is on the contract, else one of the
+        // item's whose price converts to the line's unit (invariant 7).
         agreedFor: (o, c) => {
           const list = agreed.filter(
             (p) => p.contractId === c.id && p.catalogItemId === o.catalogItemId,
