@@ -110,7 +110,14 @@ describe.skipIf(!online)("materials tables (migration 0032)", () => {
     if (!contract) throw new Error("no contract");
     await t.db
       .update(vendorItem)
-      .set({ listPrice: "88.0000", listPriceOn: "2027-01-01", contractId: contract.id })
+      .set({
+        listPrice: "88.0000",
+        listPriceOn: "2027-01-01",
+        contractId: contract.id,
+        // §1.104 (0052): the client's tolerance on the agreed price.
+        priceToleranceAmount: "0.5000",
+        priceTolerancePct: "1.50",
+      })
       .where(sql`${vendorItem.id} = ${vi.id}`);
     await t.db.insert(itemAlias).values({
       tenantId: shop.tenantId,
@@ -387,6 +394,33 @@ describe.skipIf(!online)("materials tables (migration 0032)", () => {
     expect(await contract({ netDays: 400 })).toBe("23514");
     // One per vendor and start date.
     expect(await contract({ effectiveFrom: "2027-01-01" })).toBe("23505");
+    // §1.104 (0052): B never changes A's tolerance; a tolerance is never negative, nor 100% or more.
+    const tolerance = await withTenant(t.db, B.tenantId, async (tx) => {
+      await asWorker(tx);
+      return tx
+        .update(vendorItem)
+        .set({ priceTolerancePct: "50.00" })
+        .where(sql`${vendorItem.id} = ${rowsA.vendorItemId}`)
+        .returning();
+    });
+    expect(tolerance).toEqual([]);
+    const [mine] = await t.db
+      .select()
+      .from(vendorItem)
+      .where(sql`${vendorItem.id} = ${rowsA.vendorItemId}`);
+    expect(mine).toMatchObject({ priceToleranceAmount: "0.5000", priceTolerancePct: "1.50" });
+    for (const set of [
+      { priceToleranceAmount: "-1" },
+      { priceTolerancePct: "-0.5" },
+      { priceTolerancePct: "100" },
+    ]) {
+      expect(
+        await errorCode(
+          t.db.update(vendorItem).set(set).where(sql`${vendorItem.id} = ${rowsA.vendorItemId}`),
+        ),
+        JSON.stringify(set),
+      ).toBe("23514");
+    }
     // An agreed price is a list price.
     expect(
       await errorCode(
