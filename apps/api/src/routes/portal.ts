@@ -34,6 +34,7 @@ import {
   shownOnTimeline,
   stepNodeOf,
   stepStateLabel,
+  thinkingOf,
 } from "@countersign/core";
 import {
   agent,
@@ -667,6 +668,19 @@ export async function portalRunView(
                 step.kind === "write" && step.action !== undefined
                   ? actionTimelineWrite(platform, step.via)
                   : timelineWrite(platform, step.tool as string),
+            }
+          : {}),
+        // Agent motion (§1.106): the loop a running step shows; a confer's row rechecks.
+        ...(s.status === "running"
+          ? {
+              thinking: thinkingOf(
+                check?.confer
+                  ? { kind: "confer" }
+                  : {
+                      kind: labelled.kind,
+                      skill: labelled.kind === "skill" ? labelled.skill : null,
+                    },
+              ),
             }
           : {}),
       },

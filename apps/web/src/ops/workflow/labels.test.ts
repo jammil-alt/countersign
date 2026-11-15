@@ -21,16 +21,16 @@ describe("plain labels", () => {
   });
 
   it("reads common schedules", () => {
-    expect(cronText("0 7 * * 1-5")).toBe("Weekdays at 7:00");
-    expect(cronText("30 18 * * *")).toBe("Every day at 18:30");
-    expect(cronText("0 9 * * 1")).toBe("Mondays at 9:00");
+    expect(cronText("0 7 * * 1-5")).toBe("Weekdays at 7:00 AM");
+    expect(cronText("30 18 * * *")).toBe("Every day at 6:30 PM");
+    expect(cronText("0 9 * * 1")).toBe("Mondays at 9:00 AM");
     expect(cronText("*/5 * * * *")).toBe("*/5 * * * *");
   });
 
   it("describes triggers and steps with labels", () => {
     const trigger = { id: "t", on: { type: "schedule" as const, cron: "0 7 * * 1-5" } };
     expect(triggerTitle(trigger)).toBe("On a schedule");
-    expect(triggerDetail(trigger)).toBe("Weekdays at 7:00");
+    expect(triggerDetail(trigger)).toBe("Weekdays at 7:00 AM, in the client's time zone");
     const action = {
       id: "a",
       kind: "action",

@@ -88,7 +88,10 @@ describe("portal US texting registration", () => {
     await waitFor(() =>
       expect(screen.getByTestId("portal-texting-legal-name")).toHaveValue("Demo Millwork LLC"),
     );
+    // Nothing to save until something changes (feedback, 2026-11-14).
+    expect(screen.getByTestId("portal-texting-save")).toBeDisabled();
     await userEvent.type(screen.getByTestId("portal-texting-ein"), "12-3456789");
+    expect(screen.getByTestId("portal-texting-save")).toBeEnabled();
     await userEvent.click(screen.getByTestId("portal-texting-use-customer_care"));
     await userEvent.click(screen.getByTestId("portal-texting-save"));
     await screen.findByTestId("portal-texting-saved");
@@ -98,6 +101,8 @@ describe("portal US texting registration", () => {
     });
     // The field is cleared and the hint is all that is shown.
     await waitFor(() => expect(screen.getByTestId("portal-texting-ein")).toHaveValue(""));
+    // Saved: the button is off again until the next change.
+    expect(screen.getByTestId("portal-texting-save")).toBeDisabled();
     expect(
       screen.getByText("Saved (••-•••••89). Enter it again only to replace it."),
     ).toBeInTheDocument();

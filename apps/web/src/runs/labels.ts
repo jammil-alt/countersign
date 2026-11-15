@@ -176,23 +176,8 @@ export function roleLabel(value: string): string {
   return ROLE_LABEL[value] ?? "a person";
 }
 
-const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-/**
- * A cron schedule in words where it is a common one: "Weekdays at 7:00", "Every day at 18:30",
- * "Mondays at 9:00"; anything else as its cron, which the builder's field explains.
- */
-export function cronText(cron: string): string {
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length !== 5) return cron;
-  const [min, hour, dom, mon, dow] = parts as [string, string, string, string, string];
-  if (!/^\d+$/.test(min) || !/^\d+$/.test(hour) || dom !== "*" || mon !== "*") return cron;
-  const at = `${Number(hour)}:${min.padStart(2, "0")}`;
-  if (dow === "*") return `Every day at ${at}`;
-  if (dow === "1-5") return `Weekdays at ${at}`;
-  if (/^[0-6]$/.test(dow)) return `${DAYS[Number(dow)]}s at ${at}`;
-  return cron;
-}
+/** A cron schedule in words ("Weekdays at 7:00 AM"): core's, shared with the API. */
+export { cronText } from "@countersign/core";
 
 /** "update_lines bill" → "Update lines bill". */
 function words(text: string): string {

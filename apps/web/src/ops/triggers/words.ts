@@ -6,6 +6,7 @@ import {
   allTriggers,
   type LocalizedText,
   type PeopleFilter,
+  scheduleText,
   type Trigger,
   type TriggerOn,
 } from "@countersign/core";
@@ -125,7 +126,7 @@ export function eventWords(type: string, labels?: EventLabels): string {
   return labels?.get(type) ?? readableEvent(type);
 }
 
-/** "Weekdays at 8:00" stays the cron as written; the table shows what the trigger listens to. */
+/** What a trigger listens to, in words: a schedule as "Weekdays at 7:00 AM, Central Time". */
 export function whenWords(on: TriggerOn, labels?: EventLabels): string {
   switch (on.type) {
     case "event": {
@@ -133,7 +134,7 @@ export function whenWords(on: TriggerOn, labels?: EventLabels): string {
       return `When ${words.charAt(0).toLowerCase()}${words.slice(1)}`;
     }
     case "schedule":
-      return `On ${on.cron}`;
+      return scheduleText(on);
     case "manual":
       return "Started by hand";
     case "command":

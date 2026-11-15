@@ -7,6 +7,7 @@ import { isUuid } from "../ids";
 // Wave 6: the run audit (the owner's check on every step, the audit queue, the export)
 import { OwnerCheckView } from "../oversight/check";
 import { STEP_KINDS } from "../process/schema";
+import { THINKING_STATES } from "../process/thinking";
 import { ROLES, Role } from "../roles";
 import { JsonSchema } from "../schemas/common";
 import { ConnectorAuth } from "../schemas/connector";
@@ -677,6 +678,11 @@ export const TimelineStep = z.object({
   attempts: z.number().int().optional(),
   /** The step asked an AI model (never which one, or its prompt or cost): "AI read this". */
   ai: z.literal(true).optional(),
+  /**
+   * Agent motion (docs/plan.md §1.106): while the step runs, the kind of thinking its loop shows
+   * (`thinkingOf`); a picture only, never its skill or tool.
+   */
+  thinking: z.enum(THINKING_STATES).optional(),
 });
 
 export const PortalInboxItem = z.object({

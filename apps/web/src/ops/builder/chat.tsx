@@ -5,6 +5,7 @@
 import type { BuilderChange, BuilderTurnView } from "@countersign/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { AgentBadge } from "../../ui/badges";
+import { Thinking } from "../../ui/motion";
 import { Button, cx } from "../../ui/primitives";
 
 /** The Builder's tile: the same initials tile as any agent. */
@@ -54,9 +55,13 @@ export function Turns({ turns, onUndo, undoOff, busy, pending, empty }: TurnsPro
           <p className="ml-auto max-w-[85%] whitespace-pre-wrap rounded-lg bg-surface-subtle px-3.5 py-2.5 text-sm text-ink">
             {pending}
           </p>
-          <div className="flex items-start gap-3" data-testid="builder-thinking">
+          {/* Agent motion (docs/plan.md §1.106): the Builder drafts, so it shows Drafting. */}
+          <div className="flex items-center gap-3" data-testid="builder-thinking" role="status">
             <BuilderMark />
-            <p className="pt-1 text-sm text-ink-muted">The Builder is working on it…</p>
+            <p className="flex items-center gap-2 text-sm text-ink-muted">
+              <Thinking state="drafting" />
+              The Builder is working on it…
+            </p>
           </div>
         </>
       ) : null}
@@ -173,16 +178,21 @@ export function Composer({
 }: {
   placeholder: string;
   busy: boolean;
-  /** Resolves true when the turn went through, so the box empties. */
+  /** Resolves true when the turn went through; false puts the text back in the box. */
   onSend(text: string): Promise<boolean>;
   testId?: string;
 }) {
   const [text, setText] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
   const empty = !text.trim();
+  // Feedback (2026-11-11): the box empties as soon as the message goes, as in any chat, and
+  // the message shows in the conversation; if the turn fails, the text comes back unless
+  // something new was typed meanwhile.
   async function send() {
     if (empty || busy) return;
-    if (await onSend(text.trim())) setText("");
+    const sent = text.trim();
+    setText("");
+    if (!(await onSend(sent))) setText((now) => (now === "" ? sent : now));
   }
   return (
     <div className="rounded-md border border-line-strong bg-surface p-3" data-testid={testId}>

@@ -1,0 +1,100 @@
+/* Mezonas — agent motion: four thinking states (mz-think--*) and two progress displays
+ * (mz-progress--*), from the owner's delivery of 2026-11-15 (preview.html, as delivered).
+ * Every colour reads a token from tokens.css, so the dark theme works too; the delivery's own
+ * :root copy of the light tokens is left out. Load after tokens.css. */
+:root {
+  /* Multiplies every loop's duration: 1 = default, 2 = half speed. */
+  --mz-pace: 1;
+  --mz-ease: cubic-bezier(.45, 0, .25, 1);
+}
+
+/* ============ THINKING STATES ============ */
+/* All four are drawn on a 24x24 box. Decorative (aria-hidden); the step's words carry meaning. */
+.mz-think{position:relative;display:inline-block;flex:none;width:24px;height:24px}
+.mz-think>*{position:absolute}
+.mz-think svg{display:block;width:24px;height:24px;overflow:visible}
+
+/* Weighing: three options drift apart and pull into line; the middle one is chosen. */
+.mz-think--weighing i{left:10px;top:10px;width:4px;height:4px;border-radius:50%;background:var(--slate);
+  animation:calc(2.8s * var(--mz-pace)) var(--mz-ease) infinite}
+.mz-think--weighing i:nth-child(1){animation-name:mz-weigh-a;opacity:.55}
+.mz-think--weighing i:nth-child(2){animation-name:mz-weigh-b}
+.mz-think--weighing i:nth-child(3){animation-name:mz-weigh-c;opacity:.55}
+@keyframes mz-weigh-a{0%,100%{transform:translate(-7px,-5px)}35%,55%{transform:translate(-6px,0)}78%{transform:translate(-3px,7px)}}
+@keyframes mz-weigh-b{0%,100%{transform:translate(6px,-6px)}35%{transform:translate(0,0) scale(1)}45%{transform:translate(0,0) scale(1.35)}55%{transform:translate(0,0) scale(1)}78%{transform:translate(7px,2px)}}
+@keyframes mz-weigh-c{0%,100%{transform:translate(1px,7px)}35%,55%{transform:translate(6px,0)}78%{transform:translate(-6px,-4px)}}
+
+/* Drafting: lines write out; the last is erased and rewritten. A caret follows. */
+.mz-think--drafting i,.mz-think--drafting b{animation:calc(4.2s * var(--mz-pace)) ease-in-out infinite}
+.mz-think--drafting i{left:2px;height:2px;width:0;border-radius:1px;background:var(--line-strong)}
+.mz-think--drafting i:nth-child(1){top:6px;animation-name:mz-draft-a}
+.mz-think--drafting i:nth-child(2){top:11px;animation-name:mz-draft-b}
+.mz-think--drafting i:nth-child(3){top:16px;background:var(--slate);animation-name:mz-draft-c}
+.mz-think--drafting b{left:2px;top:4.5px;width:1px;height:5px;background:var(--slate);animation-name:mz-draft-caret}
+@keyframes mz-draft-a{0%{width:0;opacity:1}18%{width:16px}88%{width:16px;opacity:1}96%,100%{width:16px;opacity:0}}
+@keyframes mz-draft-b{0%,18%{width:0;opacity:1}36%{width:20px}88%{width:20px;opacity:1}96%,100%{width:20px;opacity:0}}
+@keyframes mz-draft-c{0%,36%{width:0;opacity:1}50%,56%{width:14px}64%,70%{width:5px}82%{width:11px}88%{width:11px;opacity:1}96%,100%{width:11px;opacity:0}}
+@keyframes mz-draft-caret{0%{left:2px;top:4.5px;opacity:1}18%{left:19px;top:4.5px}18.01%{left:2px;top:9.5px}36%{left:23px;top:9.5px}36.01%{left:2px;top:14.5px}50%,56%{left:17px;top:14.5px}64%,70%{left:8px;top:14.5px}82%,88%{left:14px;top:14.5px;opacity:1}96%,100%{left:14px;top:14.5px;opacity:0}}
+
+/* Tracing: one path is followed and set aside, another is tried, then they are linked. */
+.mz-think--tracing .p{fill:none;stroke:var(--slate);stroke-width:1.5;stroke-linecap:square;stroke-linejoin:miter;
+  stroke-dasharray:1;stroke-dashoffset:1;animation:calc(4.4s * var(--mz-pace)) var(--mz-ease) infinite}
+.mz-think--tracing .p1{animation-name:mz-trace-a}
+.mz-think--tracing .p2{animation-name:mz-trace-b}
+.mz-think--tracing .p3{animation-name:mz-trace-c}
+.mz-think--tracing .n{fill:var(--surface);stroke:var(--line-strong);stroke-width:1.2}
+.mz-think--tracing .n0{fill:var(--slate);stroke:var(--slate)}
+@keyframes mz-trace-a{0%{stroke-dashoffset:1;opacity:1}25%,40%{stroke-dashoffset:0;opacity:1}50%,86%{stroke-dashoffset:0;opacity:.25}95%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes mz-trace-b{0%,42%{stroke-dashoffset:1;opacity:1}68%,86%{stroke-dashoffset:0;opacity:1}95%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes mz-trace-c{0%,68%{stroke-dashoffset:1;opacity:1}80%,86%{stroke-dashoffset:0;opacity:1}95%,100%{stroke-dashoffset:0;opacity:0}}
+
+/* Rechecking: a cursor reads down the rows, then goes back up to check one. */
+.mz-think--rechecking i{left:5px;height:1.5px;border-radius:1px;background:var(--line-strong)}
+.mz-think--rechecking i:nth-of-type(1){top:3.75px;width:17px}
+.mz-think--rechecking i:nth-of-type(2){top:8.75px;width:13px}
+.mz-think--rechecking i:nth-of-type(3){top:13.75px;width:15px}
+.mz-think--rechecking i:nth-of-type(4){top:18.75px;width:11px}
+.mz-think--rechecking b{left:0;top:2.5px;width:24px;height:4px;border-radius:1px;background:var(--slate-tint);
+  animation:mz-recheck calc(4s * var(--mz-pace)) var(--mz-ease) infinite}
+.mz-think--rechecking b::before{content:"";position:absolute;left:.5px;top:1px;width:2px;height:2px;border-radius:50%;background:var(--slate)}
+@keyframes mz-recheck{0%{transform:translateY(0);opacity:0}5%,18%{transform:translateY(0);opacity:1}26%,38%{transform:translateY(5px)}46%,54%{transform:translateY(10px)}62%,72%{transform:translateY(5px)}82%,92%{transform:translateY(15px);opacity:1}98%,100%{transform:translateY(15px);opacity:0}}
+
+@media (prefers-reduced-motion: reduce){
+  .mz-think *,.mz-think *::before{animation:none !important}
+  .mz-think--drafting i:nth-child(1){width:16px}.mz-think--drafting i:nth-child(2){width:20px}.mz-think--drafting i:nth-child(3){width:11px}
+  .mz-think--tracing .p2,.mz-think--tracing .p3{stroke-dashoffset:0}
+  .mz-think--rechecking b{opacity:1}
+}
+
+/* ============ PROGRESS ============ */
+/* role="progressbar" with aria-valuenow; driven by real progress, 0-100. */
+.mz-progress{font-family:var(--font-sans);color:var(--ink);display:flex;flex-direction:column}
+.mz-progress__pct{font-weight:500;font-variant-numeric:tabular-nums}
+.mz-progress__label{font-size:15px;line-height:24px}
+
+/* Ruler: a large count over a 41-tick rule. */
+.mz-progress--ruler{gap:14px;width:100%;max-width:396px}
+.mz-progress--ruler .mz-progress__pct{font-size:56px;line-height:60px;letter-spacing:-.025em}
+.mz-progress--ruler .mz-progress__label{color:var(--ink-muted)}
+.mz-ruler{display:flex;align-items:flex-end;justify-content:space-between;height:24px}
+.mz-ruler span{display:block;width:2px;height:10px;background:var(--line)}
+.mz-ruler span:nth-child(5n+1){height:16px}
+.mz-ruler span:nth-child(10n+1){height:24px}
+.mz-ruler span.is-on{background:var(--slate)}
+.mz-ruler__scale{display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:12px;line-height:16px;font-weight:500;color:var(--ink-muted)}
+
+/* Sheets: ten sheets, one per 10%, each filling from the bottom. */
+.mz-progress--sheets{gap:16px;width:352px;max-width:100%}
+.mz-progress--sheets .mz-progress__head{display:flex;justify-content:space-between;align-items:baseline;gap:16px}
+.mz-progress--sheets .mz-progress__pct{font-size:22px;line-height:28px;letter-spacing:-.01em}
+.mz-sheets{display:flex;gap:8px}
+.mz-sheets span{position:relative;flex:1;max-width:28px;aspect-ratio:28/36;box-sizing:border-box;border:1.5px solid var(--line-strong);border-radius:3px;background:var(--surface);overflow:hidden}
+.mz-sheets span::after{content:"";position:absolute;left:0;right:0;bottom:0;height:calc(var(--fill,0) * 100%);background:var(--slate)}
+.mz-sheets span.is-started{border-color:var(--slate)}
+
+/* ============ STEP ROW (shared context for the thinking states) ============ */
+.mz-step{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);font-family:var(--font-sans);color:var(--ink)}
+.mz-step__text{flex:1;min-width:0;display:flex;flex-direction:column}
+.mz-step__title{font-size:15px;line-height:24px}
+.mz-step__who,.mz-step__meta{font-size:13px;line-height:20px;color:var(--ink-muted)}
+.mz-step__status{font-size:13px;line-height:16px;font-weight:500;color:var(--ink-muted);font-variant-numeric:tabular-nums}
