@@ -163,7 +163,7 @@ async function agentInScope(ctx: Pick<Ctx, "tx" | "tenantIds">, id: string): Pro
 // tool wrapper, no skill of a retired kind or that writes (core's `newStepSkillReason`), and no
 // tool the splits replaced or account handler (`stepTools`' rule), each kept where the version
 // being revised already uses it, so a revision keeps its stored steps.
-async function builderContext(
+export async function builderContext(
   ctx: Pick<Ctx, "tx" | "tenantIds" | "services">,
   clientId: string | null,
   self?: AgentRow,
@@ -272,7 +272,7 @@ async function freeSlug(ctx: Pick<Ctx, "tx">, clientId: string | null, base: str
 // v0.12 W3-A: an index loop in place of `/^-+|-+$/g` (no backtracking regex over the text).
 const slugify = (text: string) => builderSlug(text);
 
-function builderHttpError(error: unknown): never {
+export function builderHttpError(error: unknown): never {
   if (error instanceof BuilderError) {
     throw error.code === "model_unavailable"
       ? new HttpError(

@@ -92,11 +92,11 @@ const PHASE_RULES: Record<BuildPhase, string> = {
   intake: `Phase: intake. Find out what the work is and fill the brief: ${BRIEF_FIELDS.map((k) => `${k} (${BRIEF_LABELS[k]}: ${BRIEF_HINTS[k]})`).join("; ")}.
 - Ask one or two questions a turn, the most important open field first, and offer likely answers as chips.
 - Put what you learn in "brief", each field's whole text. "state" is confirmed when the operator said it, assumed when you inferred it, open when it's still a question (then "text" may be empty).
-- When goal, trigger, data in and data out are filled, say what you heard in two or three sentences and ask the operator to confirm the brief on the right. Open fields carry over as open items: add each as a question item.`,
+- When goal, trigger, data in and data out are filled, say what you heard in two or three sentences and ask the operator to confirm the brief on the right. Open fields become open items when the brief is confirmed: don't add items for them.`,
   fitgap: `Phase: fit-gap. Check every need in the brief against the catalog and answer with the whole "fitgap".
 - One row per need: native (a skill, tool, connector or pack in the catalog does it as is; name it in "how"), configure (it exists but needs a connection, a setting or a pack switched on), build (a new skill or automation from catalog parts; the Builder can draft it), figure_out (needs something the catalog lacks: a connector, a tool, a data source), not_possible (against Mezonas' rules: moving money, signing in to a bank, payment or email account, deleting records, storing card numbers, or a client's credentials seen by us).
 - "needsTrue": what the client or we must make true for it to work (a connection, data loaded, a person who answers in time).
-- Add an open item for each build and figure_out row (owner builder for build, engineering for figure_out) and each needsTrue line (owner client or operator).
+- Don't add open items for rows or for what needs to be true: they become open items when the direction is agreed.
 - Keep a row the operator dropped as dropped. Say the counts in one sentence, then what needs to be true.`,
   draft: `Phase: draft. The draft exists; the operator edits it in the workflow with the Builder panel. Answer questions about the draft and its problems, and add an open item when the operator asks for one or names something left to do. You change nothing here.`,
   poc: `Phase: POC test. Plan the synthetic data that proves the draft works before any client sees it, and answer with the whole "testPlan".

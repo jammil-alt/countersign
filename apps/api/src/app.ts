@@ -86,6 +86,7 @@ import { opsAgentRoutes } from "./routes/ops-agents";
 // v0.12 W2-B: automations
 import { opsAutomationRoutes } from "./routes/ops-automations";
 import { opsBuilderRoutes } from "./routes/ops-builder";
+import { opsBuildRoutes } from "./routes/ops-builds";
 import { opsClientRoutes } from "./routes/ops-clients";
 // v0.12 W2-A: the connectors catalog
 import { opsConnectorRoutes } from "./routes/ops-connectors";
@@ -212,6 +213,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // docs/plan.md §1.101: Reggie, and the lead's requests on a client admin's Desk
   leadRequestRoutes(app);
   reggieRoutes(app);
+  // docs/plan.md §1.108: builds, from intake to go-live
+  opsBuildRoutes(app);
   directoryRoutes(app);
   // The back office's chart of accounts (docs/plan.md §1.79).
   ledgerRoutes(app);

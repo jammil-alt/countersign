@@ -224,6 +224,7 @@ export const UpdateBuild = z.strictObject({
   testPlan: TestPlan.optional(),
 });
 
+/** An item made from a failed case or a rejected write is made once (its key is the case or write). */
 export const NewBuildItem = z.strictObject({
   title: z.string().trim().min(1).max(300),
   detail: z.string().trim().max(2000).optional(),
@@ -301,19 +302,9 @@ export const buildRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "Move a build to the next phase when its gate passes (a client test may move on with a reason), or back to any earlier phase with a reason",
+      "Move a build to the next phase when its gate passes (into the draft, the Builder drafts it; a client test may move on with a reason), or back to any earlier phase with a reason",
     params: IdParams,
     body: z.strictObject({ to: BuildPhase, reason: Reason.optional() }),
-    response: BuildDetail,
-  }),
-  opsDraftBuild: defineRoute({
-    method: "POST",
-    path: "/api/ops/builds/:id/draft",
-    auth: "session",
-    roles: OPS,
-    summary:
-      "Agree the direction: the Builder drafts the agent (or starts the skill) from the brief and fit-gap",
-    params: IdParams,
     response: BuildDetail,
   }),
   opsBuildCases: defineRoute({
@@ -330,7 +321,7 @@ export const buildRoutes = {
     path: "/api/ops/builds/:id/run-tests",
     auth: "session",
     roles: OPS,
-    summary: "Run the draft's test cases; each failing required case becomes an open item",
+    summary: "Run the draft's test cases (the test bench's suite run); results show on the build",
     params: IdParams,
     response: BuildDetail,
   }),
