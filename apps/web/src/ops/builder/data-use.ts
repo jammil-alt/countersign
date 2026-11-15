@@ -1,7 +1,7 @@
 // v0.18 (owner, 2026-11-15; docs/plan.md §1.103): what each step reads and saves, in words, and
 // what is left before a draft can go live. Core's `stepDataUse` says what a step's tools do with
 // data (ARCHITECTURE §12.0 `ToolSpec.area` and `entity`); this file words it ("Reads vendors
-// (filled by QuickBooks, uploads or the directory)", "Saves items (Purchasing)", "Changes bills in
+// (filled by QuickBooks, uploads, invoices or the directory)", "Saves items (Purchasing)", "Changes bills in
 // QuickBooks Online", "Saves nothing; kept in this run only"), warns when the client lacks what a
 // step needs, sums it up for the agent, and lists what's left: missing steps, connections and packs
 // the client lacks, and a test run. Problems come from the validator (./problems.ts words them).
@@ -44,6 +44,7 @@ const ENTITY_WORDS: Readonly<Record<string, string>> = {
   ledger_account: "accounts",
   catalog_item: "items",
   vendor_item: "vendor items",
+  contract: "contracts",
   item_match: "item matches",
   price: "prices",
   alert: "alerts",
@@ -71,9 +72,9 @@ const ENTITY_WORDS: Readonly<Record<string, string>> = {
 // DECISION (v0.18): what fills each shared record (ARCHITECTURE §5.2, §12.0) is written here once;
 // the sources are the platform's and change rarely.
 export const SHARED_FILLED_BY: Readonly<Record<string, string>> = {
-  vendor: "filled by QuickBooks, uploads or the directory",
+  vendor: "filled by QuickBooks, uploads, invoices or the directory",
   document: "filled by uploads, email forwarding or Gmail",
-  transaction: "filled by the bank feed or QuickBooks",
+  transaction: "filled by the bank feed, QuickBooks or invoices",
   contact: "filled by the client's People list and the directory",
   ledger_account: "filled by QuickBooks",
   alert: "made by agents' checks",

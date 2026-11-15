@@ -71,6 +71,7 @@ const ContractOut = z.object({
 /** A vendor's contracts, the one in effect on a day, and its agreed prices. */
 export const contractGet = defineTool({
   id: "materials.contract.get",
+  entity: "contract",
   description:
     "A vendor's contracts with the client (dates, payment terms, early-pay discount, freight, minimum order), the one in effect on a day (default today), and its agreed item prices in the vendor's units.",
   sideEffect: "none",
@@ -123,6 +124,7 @@ class RollBack extends Error {
 /** Save to records: a vendor's contract and its agreed prices. */
 export const contractSave = defineTool({
   id: "materials.contract.save",
+  entity: "contract",
   description:
     "Saves a vendor's contract or agreed price sheet: its terms (dates, payment terms, early-pay discount, freight, minimum order, the signed document) and its item prices into the vendor's catalog, each an agreed price dated the contract's start. The vendor by id, else by name (added when new). Saving the same vendor and start date again updates it. A row no master item is known for is listed as unplaced. A test run saves nothing.",
   sideEffect: "internal",

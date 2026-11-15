@@ -2002,7 +2002,7 @@ Operator only; clients never see it.
   finished.
 - **(v0.18) What each step reads and saves**: from its tools' `sideEffect`, `entity` and `area`
   (§12.0), a skill step rolled up from its skill's tools, in plain words on the canvas tooltip and in
-  the inspector's **Data** section: "Reads vendors (filled by QuickBooks, uploads or the directory)",
+  the inspector's **Data** section: "Reads vendors (filled by QuickBooks, uploads, invoices or the directory)",
   "Saves items (Purchasing)", "Changes bills in QuickBooks Online", or "Saves nothing; kept in this run
   only". A step whose connection isn't connected or bound, or whose pack is off, says what it needs.
   Below What's left, the agent's data at a glance: what it reads, saves and changes.

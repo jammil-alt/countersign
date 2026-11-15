@@ -256,6 +256,8 @@ const RecordPurchaseOut = z.object({
 
 export const docsRecordPurchase = defineInternalTool({
   id: "docs.record_purchase",
+  entity: "transaction",
+  area: "shared",
   description:
     "Save to records: the purchase an invoice is. The one purchase already here with the same vendor, total and date (within 7 days) is linked; else the invoice's vendor (by name, alias or the sender's domain, added when new) and a purchase made from the invoice are recorded and linked. Only an invoice read with totals that add up. A bill the client's tool syncs later takes that purchase over.",
   sideEffect: "internal",

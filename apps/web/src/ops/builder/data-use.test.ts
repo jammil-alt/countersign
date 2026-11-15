@@ -116,7 +116,7 @@ const skillStep: processes.Step = {
 describe("stepDataLines", () => {
   it("says a shared read's sources, an area's saves and a client tool's changes", () => {
     expect(stepDataLines(use(skillStep), NAMES)).toEqual([
-      "Reads vendors (filled by QuickBooks, uploads or the directory)",
+      "Reads vendors (filled by QuickBooks, uploads, invoices or the directory)",
       "Saves items (Purchasing)",
     ]);
     const write: processes.Step = {
@@ -144,7 +144,7 @@ describe("stepDataLines", () => {
 
   it("says a step that only reads keeps nothing, and logic says nothing", () => {
     expect(stepDataLines(use(read("materials.vendor.match")), NAMES)).toEqual([
-      "Reads vendors (filled by QuickBooks, uploads or the directory)",
+      "Reads vendors (filled by QuickBooks, uploads, invoices or the directory)",
       KEEPS_NOTHING,
     ]);
     expect(stepDataLines(use(read("web.search")), NAMES)).toEqual([KEEPS_NOTHING]);

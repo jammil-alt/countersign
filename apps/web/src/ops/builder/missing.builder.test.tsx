@@ -259,7 +259,7 @@ describe("a missing step in the builder", () => {
       .getAllByTestId("builder-data-line")
       .map((l) => l.textContent);
     expect(lines).toEqual([
-      "Reads vendors (filled by QuickBooks, uploads or the directory)",
+      "Reads vendors (filled by QuickBooks, uploads, invoices or the directory)",
       "Saves nothing; kept in this run only",
     ]);
     await waitFor(() =>
