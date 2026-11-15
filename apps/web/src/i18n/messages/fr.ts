@@ -2273,6 +2273,10 @@ export const fr: Messages = {
   "materials.alert.kind.price_creep": "Hausse progressive",
   "materials.alert.kind.new_fee": "Nouveaux frais",
   "materials.alert.kind.outlier": "Inhabituel",
+  "materials.alert.kind.above_contract": "Au-dessus du contrat",
+  "materials.alert.kind.not_on_contract": "Hors contrat",
+  "materials.alert.kind.contract_not_in_effect": "Contrat non en vigueur",
+  "materials.alert.kind.terms_mismatch": "Conditions différentes",
   "materials.alert.kind.other": "Alerte",
   "materials.prices.none":
     "Pas encore de prix. Ils apparaissent ici dès que nous avons lu votre première facture.",

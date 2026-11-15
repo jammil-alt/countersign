@@ -62,6 +62,13 @@ export interface PricedDocument {
   currency: string;
   freight: string;
   surcharges: { label: string; amount: string }[];
+  /** §1.104: the invoice's total as read, and what it says of its terms (the contract check). */
+  total: string;
+  terms: {
+    invoiceNumber: string | null;
+    dueDate: string | null;
+    paymentTerms: string | null;
+  };
 }
 
 export interface LinePrice {
@@ -94,6 +101,7 @@ export async function loadPricedDocument(
       extractionId: docExtraction.id,
       header: docExtraction.header,
       currency: docExtraction.currency,
+      total: docExtraction.total,
       freight: docExtraction.freight,
       surcharges: docExtraction.surcharges,
       transactionId: document.transactionId,
@@ -162,6 +170,15 @@ export async function loadPricedDocument(
     currency: row.currency ?? "USD",
     freight: toNumeric(row.freight ?? "0"),
     surcharges,
+    total: row.total,
+    terms: {
+      invoiceNumber: typeof header.invoiceNumber === "string" ? header.invoiceNumber : null,
+      dueDate: isoDay(header.dueDate),
+      paymentTerms:
+        typeof header.paymentTerms === "string" && header.paymentTerms.trim()
+          ? header.paymentTerms
+          : null,
+    },
   };
 }
 

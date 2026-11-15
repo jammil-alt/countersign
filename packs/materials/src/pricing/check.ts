@@ -1,5 +1,6 @@
 // The price check (ARCHITECTURE §12.4, skill `materials.price-check`): the six rules over a
-// document's prices against the client's history, and an alert for each that fires, with its
+// document's prices against the client's history, and (§1.104) the contract rules when its vendor
+// has a contract (./contract.ts), and an alert for each that fires, with its
 // evidence and dollar impact. One open alert per (kind, item, vendor): a repeat finds the open one
 // (the dedupe key's unique index decides when two runs race). `alert.raised` goes out for each new
 // alert. A test run evaluates the same rules and writes nothing.
@@ -16,9 +17,11 @@ import {
 } from "@countersign/db";
 import { emit } from "@countersign/senses";
 import { and, desc, eq, gte, inArray, ne } from "drizzle-orm";
+import { agreedPrices, vendorContracts } from "../contracts/store";
 import { materialsEventRegistry } from "../events";
 import { PACK_ID } from "../ids";
 import { catalogItem, priceObservation } from "../schema";
+import { agreedPriceStd, checkContract } from "./contract";
 import { loadPricedDocument, type PricingContext, priceLines } from "./record";
 import {
   type AlertDraft,
@@ -248,6 +251,54 @@ export async function checkPrices(
     // own prices and fees (a vendor the shop is leaving, or one on contract pricing).
     const ignored = new Set((input.ignoreVendors ?? []).map((v) => v.trim().toLowerCase()));
     const kept = drafted.filter((d) => !ignored.has(vendorName(d.vendorId).toLowerCase()));
+    // §1.104: the contract check, when the vendor has a contract. DECISION: `ignore_vendors`
+    // leaves out the history rules only; a vendor on contract pricing is checked against its
+    // contract all the same (that is what the contract is for).
+    const contracts = await vendorContracts(tx, ctx.tenantId, doc.vendorId);
+    if (contracts.length > 0) {
+      const agreed = await agreedPrices(
+        tx,
+        ctx.tenantId,
+        contracts.map((c) => c.id),
+      );
+      const vendorItemOf = new Map(drafts.map((d) => [d.docLineId, d.vendorItem?.id ?? null]));
+      const contract = checkContract({
+        vendorId: doc.vendorId,
+        vendorName: doc.vendorName,
+        contracts,
+        // The line's own vendor item when it is on the contract, else one of the item's whose
+        // price converts to the line's unit (invariant 7).
+        agreedFor: (o, c) => {
+          const list = agreed.filter(
+            (p) => p.contractId === c.id && p.catalogItemId === o.catalogItemId,
+          );
+          const own = vendorItemOf.get(o.docLineId);
+          return (
+            list.find((p) => p.vendorItemId === own) ??
+            list.find((p) => agreedPriceStd(p, o.standardUom) !== null) ??
+            list[0] ??
+            null
+          );
+        },
+        hasPrices: (c) => agreed.some((p) => p.contractId === c.id),
+        invoice: {
+          documentId: doc.documentId,
+          extractionId: doc.extractionId,
+          invoiceNumber: doc.terms.invoiceNumber,
+          invoiceDate: doc.observedOn,
+          dueDate: doc.terms.dueDate,
+          paymentTerms: doc.terms.paymentTerms,
+          freight: doc.freight,
+          currency: doc.currency,
+        },
+        lines: current,
+        names: (itemId) => ({
+          item: items.find((i) => i.id === itemId)?.name ?? "An item",
+          vendor: vendorName,
+        }),
+      });
+      kept.push(...contract.alerts);
+    }
     // The same alert key twice in one document (two lines of one item): the first stands.
     const seen = new Set<string>();
     const alerts: RaisedAlert[] = [];

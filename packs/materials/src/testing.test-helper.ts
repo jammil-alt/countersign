@@ -88,6 +88,10 @@ export interface InvoiceOptions {
   date?: string;
   freight?: string;
   surcharges?: { label: string; amount: string }[];
+  /** §1.104: more of the reading's header (invoice number, due date, payment terms). */
+  header?: Record<string, unknown>;
+  /** §1.104: no purchase behind it yet (an invoice from email, no accounting tool). */
+  unlinked?: boolean;
 }
 
 let counter = 0;
@@ -163,7 +167,7 @@ export async function insertShop(db: Db, name: string): Promise<ShopFixture> {
         .insert(document)
         .values({
           tenantId,
-          transactionId: tx.id,
+          transactionId: options.unlinked ? null : tx.id,
           source: "upload",
           storageKey: `tenants/${tenantId}/content/${sha.slice(0, 2)}/${sha}`,
           mimeType: "application/pdf",
@@ -179,7 +183,11 @@ export async function insertShop(db: Db, name: string): Promise<ShopFixture> {
           tenantId,
           documentId: d.id,
           model: "test-model",
-          header: { vendorName: "Vendor", ...(options.date ? { invoiceDate: options.date } : {}) },
+          header: {
+            vendorName: "Vendor",
+            ...(options.date ? { invoiceDate: options.date } : {}),
+            ...options.header,
+          },
           freight: options.freight ?? "0",
           surcharges: options.surcharges ?? [],
           subtotal: "100",

@@ -196,6 +196,8 @@ export interface VendorItemFields {
   listPrice?: string | null | undefined;
   listPriceOn?: string | null | undefined;
   currency?: string | undefined;
+  // §1.104: the contract the list price is the agreed price of (with a list price only).
+  contractId?: string | null | undefined;
 }
 
 export type VendorItemCreator = { agentVersionId: string } | { userId: string };
@@ -227,6 +229,7 @@ export async function createVendorItem(
       leadTimeDays: f.leadTimeDays ?? null,
       listPrice: f.listPrice ?? null,
       listPriceOn: f.listPrice ? (f.listPriceOn ?? null) : null,
+      contractId: f.listPrice ? (f.contractId ?? null) : null,
       currency: f.currency ?? "USD",
       ...("agentVersionId" in by
         ? { createdByAgentVersionId: by.agentVersionId || null }
@@ -278,6 +281,10 @@ export async function updateVendorItem(
   if (f.listPrice !== undefined) {
     set.listPrice = f.listPrice;
     set.listPriceOn = f.listPrice === null ? null : (f.listPriceOn ?? null);
+    // §1.104: a list price set without a contract is a plain list price (the agreed one goes).
+    set.contractId = f.listPrice === null ? null : (f.contractId ?? null);
+  } else if (f.contractId !== undefined) {
+    set.contractId = f.contractId;
   }
   if (f.currency !== undefined) set.currency = f.currency;
   // What the vendor item is embedded from changed: forget the text it was embedded from, so the

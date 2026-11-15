@@ -2290,6 +2290,10 @@ export const de: Messages = {
   "materials.alert.kind.price_creep": "Steigt schleichend",
   "materials.alert.kind.new_fee": "Neue Gebühr",
   "materials.alert.kind.outlier": "Ungewöhnlich",
+  "materials.alert.kind.above_contract": "Über Vertragspreis",
+  "materials.alert.kind.not_on_contract": "Nicht im Vertrag",
+  "materials.alert.kind.contract_not_in_effect": "Vertrag nicht gültig",
+  "materials.alert.kind.terms_mismatch": "Abweichende Bedingungen",
   "materials.alert.kind.other": "Hinweis",
   "materials.prices.none":
     "Noch keine Preise. Sie erscheinen hier, sobald wir Ihre erste Rechnung gelesen haben.",

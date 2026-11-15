@@ -2248,6 +2248,10 @@ export const it: Messages = {
   "materials.alert.kind.price_creep": "In lenta crescita",
   "materials.alert.kind.new_fee": "Nuovo costo",
   "materials.alert.kind.outlier": "Insolito",
+  "materials.alert.kind.above_contract": "Sopra il contratto",
+  "materials.alert.kind.not_on_contract": "Fuori contratto",
+  "materials.alert.kind.contract_not_in_effect": "Contratto non in vigore",
+  "materials.alert.kind.terms_mismatch": "Condizioni diverse",
   "materials.alert.kind.other": "Avviso",
   "materials.prices.none":
     "Ancora nessun prezzo. Compaiono qui appena leggiamo la tua prima fattura.",
