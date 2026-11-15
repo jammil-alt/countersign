@@ -147,6 +147,25 @@ async function twilio<T>(call: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Points each number that can take calls at our voice webhook; the sids now sending calls to us.
+ * Also used when a number is bought while calls are on (routes/messaging-setup.ts).
+ */
+export async function takeCalls(
+  fetch: FetchLike,
+  auth: { accountSid: string; authToken: string },
+  numbers: readonly { sid: string; capabilities: { voice: boolean } }[],
+  webhooks: { voice: string; status: string },
+): Promise<string[]> {
+  const taken: string[] = [];
+  for (const n of numbers) {
+    if (!n.capabilities.voice) continue;
+    await twilio(() => setNumberVoice(fetch, auth, n.sid, webhooks));
+    taken.push(n.sid);
+  }
+  return taken;
+}
+
 export function callsSetupRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsCalls, async (ctx) => {
     ensureClient(ctx, ctx.params.id);
@@ -156,18 +175,28 @@ export function callsSetupRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsCallsSettings, async (ctx) => {
     const tenantId = ctx.params.id;
     ensureClient(ctx, tenantId);
-    const { row, auth } = await connected(ctx.tx, ctx.services.env, tenantId);
+    const { row, config, auth } = await connected(ctx.tx, ctx.services.env, tenantId);
     const current = readVoiceConfig(row.config);
     if (ctx.body.enabled) {
+      const webhooks =
+        current?.webhooks ?? twilioVoiceUrls(originOf(ctx.c, ctx.services.env), tenantId);
+      // DECISION (owner, 2026-11-13): turning calls on points every number that can take calls at
+      // us. A number with nothing set to answer is refused by the carriers ("your call cannot be
+      // completed as dialed") and never reaches Twilio's logs; ours answers with the agent, the
+      // forward or voicemail (planInbound). The operator can still stop a number taking calls.
+      const answering = current
+        ? current.answering
+        : await takeCalls(fetchFor(ctx.services), auth, config.numbers, webhooks);
       const voice: TwilioVoiceConfig = {
         enabledAt: current?.enabledAt ?? new Date().toISOString(),
         forwardTo: ctx.body.forwardTo,
-        webhooks: current?.webhooks ?? twilioVoiceUrls(originOf(ctx.c, ctx.services.env), tenantId),
-        answering: current?.answering ?? [],
+        webhooks,
+        answering,
       };
       await saveVoice(ctx.tx, row, voice, ctx.session.user.id, {
         kind: current ? "calls_forwarding" : "calls_on",
         forwardTo: ctx.body.forwardTo,
+        ...(current ? {} : { numbers: answering.length }),
       });
     } else {
       if (!current) throw new HttpError(409, "no_op", "calls are already off");

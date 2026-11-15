@@ -19,6 +19,8 @@ against the live docs and a Zoho sandbox org before a client connects.
 | Revoke: `POST <accounts-server>/oauth/v2/token/revoke?token=<refresh token>` | **UNCHECKED** |
 | DC list: accounts.zoho.com / .eu / .in / .com.au / .jp / .ca / .com.cn / .sa / .uk, API domains `www.zohoapis.<same>` | **UNCHECKED** (third-party note says the published list is shorter than the live one; `accounts.zoho.com/oauth/serverinfo` lists them). Unknown servers are refused, never contacted |
 
+| API hosts of non-production orgs: a Developer Edition org's API is `https://developer.zohoapis.<dc>`, a sandbox's `https://sandbox.zohoapis.<dc>` (the org itself is at `developers.zoho.com/crm`) | **UNCHECKED**: from the owner's setup notes (2026-11-12), not yet seen in a token's `api_domain`. Both are accepted by `isZohoApiDomain` beside `www.zohoapis.<dc>` |
+
 Security: `accounts-server` is a query parameter anyone can forge, and the code exchange sends our
 client secret to it, so only the allowlisted hosts are accepted (`isZohoAccountsServer`). `api_domain`
 is checked against the same list.
@@ -73,6 +75,23 @@ follow-up if clients hit the cap.
 | Notifications: `POST /crm/v8/actions/watch` `{watch:[{channel_id (number), events:["Leads.all",…], channel_expiry (≤ 1 day), token (≤ 50 chars), notify_url}]}`, answered under `watch` | **UNCHECKED**: the shapes, the one-day expiry, the token length; we renew after 20 hours |
 | A notification is a POST to `notify_url` with `channel_id`, `token` (as given), `module`, `operation`, `ids` | **UNCHECKED** shape; we only check the token and channel, then poll |
 | Scopes `ZohoCRM.notifications.READ` and `.CREATE` for the watch | **UNCHECKED**; added to the sign-in, so connections made before need a new sign-in for notifications (the poll works without) |
+
+## Live setup (owner, 2026-11-12)
+
+- **API console client** "Mezonas" (Server-based Application) on the owner's Zoho login, US data
+  center, multi-DC on with the same credentials for every data center. Redirect URIs:
+  `https://staging.mezonas.com/connections/zoho_crm/callback`,
+  `https://app.mezonas.com/connections/zoho_crm/callback`,
+  `http://localhost:8787/connections/zoho_crm/callback`. Its ID and secret go in the GitHub
+  environments as `ZOHO_CLIENT_ID` and `ZOHO_CLIENT_SECRET`.
+- **Test org for this connector:** Zoho CRM Developer Edition "Mezonas Dev" (org 946623917; free, no
+  expiry, sample data; Central time, USD). Run the UNCHECKED items above against it first, starting
+  with the `api_domain` its token returns.
+- **Set up, no connector built:** Zoho Books, Zoho Inventory and Zoho Expense share one test org,
+  "Mezonas Test" (org 946624820; every Books and Inventory call passes `organization_id`). Books and
+  Inventory are on Premium trials until about 2026-11-26 and then drop to their free plans (tighter
+  API limits); Expense posts to Books. They are ready for when a client needs them: not in
+  ARCHITECTURE v0.15's v1 scope, so a connector for any of them is a scope decision first.
 
 ## Sources
 

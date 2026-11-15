@@ -109,8 +109,11 @@ describe("back-office calls", () => {
     expect(await within(panel).findByTestId("ops-calls-inbound")).toHaveTextContent(
       "goes to voicemail",
     );
+    // A number nothing answers is flagged: carriers refuse calls to it.
+    expect(within(panel).getByText(/Callers can't get through/)).toBeInTheDocument();
     await userEvent.click(within(panel).getByRole("button", { name: "Take its calls" }));
     expect(await within(panel).findByText("Calls come to us")).toBeInTheDocument();
+    expect(within(panel).queryByText(/Callers can't get through/)).toBeNull();
     await userEvent.type(within(panel).getByTestId("ops-calls-forward"), "+15555550199");
     await userEvent.click(within(panel).getByTestId("ops-calls-forward-save"));
     await waitFor(() =>

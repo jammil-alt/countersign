@@ -572,7 +572,10 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   multi-DC on, redirect URI `<APP_ORIGIN>/connections/zoho_crm/callback`) copied like the API keys, and
   `OAUTH_STATE_SECRET` (48 random bytes, base64) generated once like `ENCRYPTION_KEY`; replacing it only
   breaks sign-ins in progress. Until all three are set, Zoho CRM shows "Not available yet" in the portal.
-  Webhooks need no secret beyond `ENCRYPTION_KEY`.
+  Webhooks need no secret beyond `ENCRYPTION_KEY`. The client "Mezonas" exists (2026-11-12, US data
+  center, the three redirect URIs for staging, production and local); test against the CRM
+  Developer Edition org "Mezonas Dev", never a client's CRM (`zoho_crm/NOTES.md`, "Live setup").
+  Zoho Books, Inventory and Expense have a test org too, with no connector built.
 - Needed by the Podio connector, the same way: `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (an API key
   from Podio's account settings, its domain set to the app origin, redirect URI
   `<APP_ORIGIN>/connections/podio/callback`).
@@ -655,7 +658,11 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   secret of ElevenLabs' post-call webhook, pointed at `<APP_ORIGIN>/api/elevenlabs/post-call`; it
   also keys each call's tool token). Calls use the Twilio secrets above and `APP_ORIGIN` (Twilio is
   pointed at `<APP_ORIGIN>/api/twilio/<client>/voice`, `/voice/answer` and `/voice/status`; the voice
-  agents' tools at `<APP_ORIGIN>/api/voice/<client>/tools/…`). Without the ElevenLabs secrets, calls
+  agents' tools at `<APP_ORIGIN>/api/voice/<client>/tools/…`). Buy a client's numbers in the back
+  office, never in Twilio's console, then turn calls on in the client's Calls panel: every number
+  then takes calls (plan §1.23, "Numbers take calls by default"). A number nothing answers is
+  refused by the carriers ("your call cannot be completed as dialed") and never shows in Twilio's
+  logs. Without the ElevenLabs secrets, calls
   ringing in still reach voicemail or the forward, and no agent places a call. What to check first:
   `packages/connectors/src/elevenlabs/NOTES.md`.
 - Needed by billing (plan §1.32: Mezonas works out each bill, Stripe only bills it), copied like

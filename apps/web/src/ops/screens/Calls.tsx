@@ -119,7 +119,7 @@ export function CallsPanel({ clientId }: { clientId: string }) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-ink-muted">
             Calls are off. Turned on, agents can call contacts who agreed to calls, after approval,
-            and the numbers you choose send their calls to us.
+            and every number that takes calls sends them to us: to an agent, a forward or voicemail.
           </p>
           <Button
             variant="primary"
@@ -155,6 +155,11 @@ export function CallsPanel({ clientId }: { clientId: string }) {
                 <span className="figures text-ink">{n.phoneNumber}</span>
                 <span className="flex flex-wrap items-center gap-2">
                   {n.answering ? <Badge tone="positive">Calls come to us</Badge> : null}
+                  {n.voice && !n.answering ? (
+                    <span className="text-sm text-ink-muted">
+                      Callers can't get through: nothing answers this number
+                    </span>
+                  ) : null}
                   {n.voice ? (
                     <Button
                       size="sm"
