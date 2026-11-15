@@ -19,6 +19,12 @@ the rest.**
 - Almost everything below is **a setup step, a key or a decision for the owner**, not code. Where
   code is still needed, it says so.
 
+## 0. Enterprise readiness (2026-11-15)
+
+The owner's list for the first enterprise and high-volume pilots, checked against the code, with
+its gaps (E1–E16) and the open question of which accounting system they use:
+`docs/enterprise-readiness.md`.
+
 ## 1. The purchasing agent (the buyer) working on staging
 
 Goal: M42's done-when, on staging. A person emails the buyer; it opens a purchase request and
