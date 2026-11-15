@@ -335,6 +335,10 @@ interface Setup {
   sandbox?: boolean;
   /** The client's People list (GET /api/ops/clients/:id/hours). */
   people?: { kind: "user" | "contact"; id: string; name: string; hours: null }[];
+  /** More routes, answering from the first render. */
+  routes?: Parameters<typeof fakeApi>[0];
+  /** §1.108: the Steps tab's list view. */
+  view?: "canvas" | "steps";
 }
 
 function setup(options: Setup = {}) {
@@ -345,6 +349,7 @@ function setup(options: Setup = {}) {
     return body;
   };
   const api = fakeApi({
+    ...options.routes,
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => options.catalog ?? CATALOG,
     "GET /api/ops/catalog/events": () => EVENTS,
     ...(options.people
@@ -408,6 +413,7 @@ function setup(options: Setup = {}) {
         onChanged={() => {
           changed += 1;
         }}
+        {...(options.view ? { view: options.view } : {})}
       />
     );
   }
@@ -447,6 +453,7 @@ const realRect = HTMLElement.prototype.getBoundingClientRect;
 beforeEach(() => {
   try {
     window.localStorage.clear();
+    window.sessionStorage.clear();
   } catch {
     // no storage in this environment
   }
@@ -1339,6 +1346,31 @@ describe("WorkflowBuilder", () => {
 });
 
 // UI-2c (O6): the Builder beside the canvas, "Save as automation", and a model per step.
+describe("WorkflowBuilder's Steps tab", () => {
+  it("lists the steps with their numbers, kinds and status, and opens one in the side panel", async () => {
+    setup({ view: "steps" });
+    const list = await screen.findByTestId("builder-steps-list");
+    expect(screen.queryByTestId("builder-canvas")).toBeNull();
+    const rows = within(list).getAllByRole("row").slice(1);
+    expect(rows.map((r) => r.querySelector("td")?.textContent)).toEqual(
+      expect.arrayContaining(["1", "2"]),
+    );
+    expect(list).toHaveTextContent("Ready");
+    // Needs work narrows the list to the steps that aren't ready.
+    await userEvent.click(within(list).getByTestId("builder-steps-filter-work"));
+    for (const badge of within(list).queryAllByText("Ready")) {
+      expect(badge.closest("tr")).toBeNull();
+    }
+    await userEvent.click(within(list).getByTestId("builder-steps-filter-all"));
+    const first = rows[0]?.getAttribute("data-testid")?.replace("builder-steps-row-", "") ?? "";
+    await userEvent.click(within(list).getByTestId(`builder-steps-open-${first}`));
+    expect(await screen.findByTestId("builder-inspector")).toHaveAttribute("data-node", first);
+    expect(within(list).getByTestId(`builder-steps-row-${first}`).className).toContain(
+      "bg-slate-tint",
+    );
+  });
+});
+
 describe("WorkflowBuilder with the Builder", () => {
   const SESSION = "00000000-0000-4000-8000-0000000c5001";
   const TURN = "00000000-0000-4000-8000-0000000c5102";
@@ -1419,6 +1451,43 @@ describe("WorkflowBuilder with the Builder", () => {
     await user.click(screen.getByTestId("builder-change-undo"));
     await waitFor(() => expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]));
     expect(bodies[2]).toEqual({ turnId: TURN, changeId: "step:update" });
+  });
+
+  it("brings the conversation back after a reload, for the browser session (feedback, 2026-11-15)", async () => {
+    const operatorTurn = {
+      ...builderTurn([]),
+      id: "00000000-0000-4000-8000-0000000c5101",
+      seq: 1,
+      role: "operator",
+      text: "What parts of this process are not ready today?",
+      costUsd: "0",
+    };
+    window.sessionStorage.setItem(`countersign:builder-chat:${AGENT_ID}`, SESSION);
+    setup({
+      routes: {
+        [`GET /api/ops/builder/sessions/${SESSION}`]: () =>
+          detail(BUNDLE, [operatorTurn, builderTurn([])]),
+      },
+    });
+    await ready();
+    expect(
+      await screen.findByText("What parts of this process are not ready today?"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Removed the update; the fork's paths end the run."),
+    ).toBeInTheDocument();
+    // The canvas is as it opened.
+    expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]);
+  });
+
+  it("starts fresh when the remembered conversation is gone", async () => {
+    window.sessionStorage.setItem(`countersign:builder-chat:${AGENT_ID}`, SESSION);
+    setup();
+    await ready();
+    expect(screen.getByTestId("builder-chat-empty")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(window.sessionStorage.getItem(`countersign:builder-chat:${AGENT_ID}`)).toBeNull(),
+    );
   });
 
   it("opens Fix on a problem: says what's wrong, asks the Builder to explain and propose, then makes the fix", async () => {

@@ -130,6 +130,8 @@ describe("back office layout", () => {
       "Runs",
       "Clients",
       "Reggie",
+      // §1.108: every new agent and skill, from intake to go-live.
+      "Builds",
       "Agent lab",
       // R8: skills, tools, connectors and the other banks are in the Library.
       "Library",

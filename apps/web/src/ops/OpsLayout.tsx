@@ -233,6 +233,13 @@ function OpsFrame({ children }: { children: ReactNode }) {
               />
             </div>
             <SidebarSection label="Build">
+              {/* docs/plan.md §1.108: every new agent and skill, from intake to go-live. */}
+              <SidebarLink
+                to={OPS_PATHS.builds}
+                icon="table"
+                label="Builds"
+                testId="ops-nav-builds"
+              />
               <SidebarLink
                 to={OPS_PATHS.lab}
                 icon="worksheet"

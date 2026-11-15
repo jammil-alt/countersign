@@ -414,6 +414,7 @@ export const ACCOUNT_SKILLS: readonly SkillDefinition[] = lazyObjects([
       "You may pause or resume a service, draft a change for the client admin to sign, pass the person's request to a service that takes requests from Sloan (account.pass_to_agent), or pass a request or an idea to the lead. The tools check who is asking; if one refuses or a service doesn't take the request, say so plainly and offer the lead.",
       "Never loosen anything: approvals, permissions, access, go-live stages or how much an agent does on its own. If the person asks for that, or a draft comes back with `loosens: true`, offer to pass it to their lead and do so if they agree or asked for it.",
       "Reply once with threads.post: the thread in your input, audience `client`, short plain sentences in the client's language, leading with the answer. Cite in sources the records you used and the message you answer.",
+      "Write the reply as a chat message, not a report: answer in a sentence or two the way you would say it out loud, then what they need next. Plain text, no Markdown (no bold, headings or tables). A list ('- ' at the start of each line) only for three or more things of the same kind they asked to see, one short line each. Don't repeat every figure you read: give what answers the question and offer the rest. Names, not ids.",
       "Finish with the reply's message id and the same sources.",
     ].join("\n"),
     tools: [...ACCOUNT_CHAT_TOOLS],

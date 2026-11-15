@@ -40,6 +40,7 @@ import {
 import { Skeleton, SkeletonBlock, SkeletonCard, SkeletonLine } from "../../ui/skeleton";
 import { StatusChip, serviceChipState } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
+import { BuildView } from "../builds/BuildView";
 import { labPath } from "../lab/back";
 import { AssignToClient } from "../lab/TemplateParts";
 import { OPS_PATHS } from "../paths";
@@ -81,6 +82,8 @@ function AgentTabs({
   workflow,
   versions,
   workflowActive,
+  stepsActive = false,
+  build = false,
   agentId,
   isClient = false,
 }: {
@@ -89,6 +92,10 @@ function AgentTabs({
   workflow: string | null;
   versions: number | null;
   workflowActive: boolean;
+  /** docs/plan.md §1.108: the Steps tab is open (the builder's list view). */
+  stepsActive?: boolean;
+  /** The agent has an open build: its Build tab comes first. */
+  build?: boolean;
   /** Known: hovering or focusing a tab fetches that tab's own data (1.5, 1.6). */
   agentId?: string | undefined;
   /** A client agent; a template's Runs and Versions tabs prefetch nothing. */
@@ -114,11 +121,17 @@ function AgentTabs({
     >
       <Tabs
         items={[
+          ...(build ? [{ to: `${base}/build`, label: "Build" }] : []),
           { to: `${base}${keep}`, label: "Overview", end: true },
           {
             to: workflow ? `${base}/workflows/${workflow}` : `${base}/workflow`,
             label: "Workflow",
             active: workflowActive,
+          },
+          {
+            to: workflow ? `${base}/steps/${workflow}` : `${base}/steps`,
+            label: "Steps",
+            active: stepsActive,
           },
           { to: `${base}/runs${keep}`, label: "Runs" },
           {
@@ -267,9 +280,15 @@ export function AgentScreen({
 }) {
   const [search] = useSearchParams();
   const navigate = useNavigate();
-  const builder = useMatch(`${base}/workflows/:workflow`);
+  const canvas = useMatch(`${base}/workflows/:workflow`);
+  // docs/plan.md §1.108: the Steps tab is the builder with its steps as a list.
+  const stepsTab = useMatch(`${base}/steps/:workflow`);
+  const builder = canvas ?? stepsTab;
   const workflowTab = useMatch(`${base}/workflow`);
   const agent = useApi(apiRoutes.opsAgent, { params: { id: agentId } });
+  // The agent's open build, if it has one: the Build tab shows it.
+  const builds = useApi(apiRoutes.opsBuilds, { query: { agent: agentId, status: "open" } });
+  const openBuild = builds.data?.builds[0] ?? null;
   const data = agent.data ?? (initial?.agent.id === agentId ? initial : undefined);
   const skills = useApi(apiRoutes.opsAgentSkills, { params: { id: agentId } });
   // The Overview's connector names (`useConnectorNames`), asked beside the agent instead of after
@@ -358,7 +377,9 @@ export function AgentScreen({
       keep={keep}
       workflow={builderStart}
       versions={versions.length}
-      workflowActive={builder !== null || workflowTab !== null}
+      workflowActive={canvas !== null || workflowTab !== null}
+      stepsActive={stepsTab !== null}
+      build={openBuild !== null}
       agentId={view.id}
       isClient={view.kind === "client"}
     />
@@ -436,6 +457,7 @@ export function AgentScreen({
           connections={connections}
           members={members}
           onChanged={reload}
+          view={stepsTab ? "steps" : "canvas"}
         />
       </Suspense>
     );
@@ -494,6 +516,23 @@ export function AgentScreen({
               ) : (
                 <Navigate to={`${base}/workflows/${builderStart}`} replace />
               ))
+            }
+          />
+          {/* docs/plan.md §1.108: the Steps tab opens on the first workflow; the Build tab shows the
+              agent's open build. */}
+          <Route path="steps" element={<Navigate to={`${base}/steps/${builderStart}`} replace />} />
+          <Route
+            path="build"
+            element={
+              openBuild ? (
+                <BuildView id={openBuild.id} embedded />
+              ) : builds.loading ? (
+                <Loading />
+              ) : (
+                <EmptyState>
+                  This agent has no open build. <Link to="/ops/builds">See every build</Link>.
+                </EmptyState>
+              )
             }
           />
           {/* Triggers moved into the Workflow tab (its first step); the old address opens it. */}

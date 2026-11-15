@@ -5,6 +5,8 @@
 // from it when the canvas moved on), and the Builder's draft comes back onto the canvas as one
 // undoable edit. Nothing is saved as a version here: the operator saves, test-runs and publishes
 // as before. "Save as automation" turns the selected steps into an automation draft the same way.
+// The conversation outlives a reload (feedback, 2026-11-15): its id is kept for the browser
+// session, per agent, and the panel reads it back from the server when it opens.
 import {
   type AnyAgentBundle,
   AnyAgentBundle as AnyAgentBundleSchema,
@@ -12,9 +14,10 @@ import {
   type ProcessAgentBundle,
   Slug,
 } from "@countersign/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
+import { useApiClient } from "../../api/useApi";
 import { Button } from "../../ui/primitives";
 import { slugify } from "../agents/definition-form";
 import { errorText, isCode, Notice, useAction } from "../agents/ui";
@@ -22,6 +25,28 @@ import { BuilderMark, Composer, Turns } from "./chat";
 import { SmallInput } from "./fields";
 
 type Detail = ResponseOf<typeof apiRoutes.opsBuilderSession>;
+
+const CHAT_PREFIX = "countersign:builder-chat:";
+
+// DECISION: the browser session's storage, not the server's list of conversations: a reload or
+// a return to the agent in the same tab brings the conversation back, and a new tab or a new
+// sign-in starts fresh, as the owner asked ("at least for the session").
+function rememberedChat(agentId: string): string | null {
+  try {
+    return window.sessionStorage.getItem(`${CHAT_PREFIX}${agentId}`);
+  } catch {
+    return null;
+  }
+}
+
+function rememberChat(agentId: string, sessionId: string | null) {
+  try {
+    if (sessionId) window.sessionStorage.setItem(`${CHAT_PREFIX}${agentId}`, sessionId);
+    else window.sessionStorage.removeItem(`${CHAT_PREFIX}${agentId}`);
+  } catch {
+    // Storage may be blocked; the conversation then lasts as long as the page.
+  }
+}
 
 // R8: the conversation's draft is a v4 process bundle (wave 3b: the server reads a v3 one through
 // the converter); `read` keeps the canvas and the draft comparing like with like either way.
@@ -64,6 +89,31 @@ export function useBuilderSession({
   const [detail, setDetail] = useState<Detail | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const action = useAction();
+  const api = useApiClient();
+
+  // The conversation this tab had about this agent, back after a reload. It shows as it was; the
+  // canvas is left alone (its own unsaved edits come back from the device), and while the two
+  // differ the next turn starts a new conversation from the canvas, as before.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: read once per agent.
+  useEffect(() => {
+    const id = rememberedChat(agent.id);
+    if (!id) return;
+    let live = true;
+    api
+      .call(apiRoutes.opsBuilderSession, { params: { id } })
+      .then((out) => {
+        if (!live) return;
+        if (out.session.status === "open") setDetail((now) => now ?? out);
+        else rememberChat(agent.id, null);
+      })
+      .catch(() => rememberChat(agent.id, null));
+    return () => {
+      live = false;
+    };
+  }, [agent.id]);
+  useEffect(() => {
+    if (detail) rememberChat(agent.id, detail.session.id);
+  }, [agent.id, detail]);
   const raw = parsed(detail);
   const draft = raw ? read(raw) : null;
   const inSync = draft !== null && canonicalJson(draft) === canonicalJson(bundle);
@@ -173,6 +223,7 @@ export function BuilderPanel({ session }: { session: BuilderSession }) {
         placeholder="Add a step, change a rule, or ask why"
         busy={session.busy}
         onSend={session.send}
+        clientId={session.detail?.session.clientId}
       />
     </div>
   );

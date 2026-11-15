@@ -1093,6 +1093,254 @@ a.ui-stat--link:focus-visible {
   max-width: 100%;
   vertical-align: middle;
 }
+/* ── Conversations with an agent (chat.tsx): a reply's paragraphs and lists, the message box that
+ * grows, and the agent at work (its loop is the design system's motion.css). Agents' words stay
+ * ink. ── */
+.ui-chat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 22px;
+}
+/* The portal's reading size. */
+.ui-chat--roomy {
+  font-size: 15px;
+  line-height: 24px;
+}
+.ui-chat-meta {
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+.ui-chat-you {
+  display: flex;
+  max-width: 85%;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+.ui-chat-you__bubble {
+  padding: var(--space-2-5) var(--space-3-5);
+  border-radius: var(--radius-lg);
+  background: var(--surface-subtle);
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ui-chat-agent {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.ui-chat-agent__body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2-5);
+}
+.ui-chat-written {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ui-chat-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.ui-chat-composer__box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.ui-chat-composer__box:focus-within {
+  border-color: var(--slate);
+}
+.ui-chat-composer__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+.ui-chat-composer__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+/* Voice typing (voice.tsx): the Dictate button, its recording dot and what went wrong. */
+.ui-voice {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ui-voice__button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font: 500 12px / 16px var(--font-sans);
+  cursor: pointer;
+}
+.ui-voice__button:hover:not(:disabled) {
+  background: var(--surface-subtle);
+  color: var(--ink);
+}
+.ui-voice__button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.ui-voice__button[aria-pressed="true"] {
+  border-color: var(--slate);
+  background: var(--slate-tint);
+  color: var(--slate);
+}
+.ui-voice__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--slate);
+  animation: ui-skel-pulse 1.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-voice__dot {
+    animation: none;
+  }
+}
+.ui-voice__error {
+  color: var(--risk);
+  font-size: 12px;
+  line-height: 16px;
+}
+.ui-chat-composer__hint {
+  margin-left: auto;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+@media (max-width: 767.98px) {
+  /* Voice typing (voice.tsx): the Dictate button, its recording dot and what went wrong. */
+  .ui-voice {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .ui-voice__button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1-5);
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--ink-muted);
+    font: 500 12px / 16px var(--font-sans);
+    cursor: pointer;
+  }
+  .ui-voice__button:hover:not(:disabled) {
+    background: var(--surface-subtle);
+    color: var(--ink);
+  }
+  .ui-voice__button:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .ui-voice__button[aria-pressed="true"] {
+    border-color: var(--slate);
+    background: var(--slate-tint);
+    color: var(--slate);
+  }
+  .ui-voice__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--slate);
+    animation: ui-skel-pulse 1.2s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ui-voice__dot {
+      animation: none;
+    }
+  }
+  .ui-voice__error {
+    color: var(--risk);
+    font-size: 12px;
+    line-height: 16px;
+  }
+  .ui-chat-composer__hint {
+    display: none;
+  }
+}
+.ui-chat-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-3);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.ui-chat-text p {
+  white-space: pre-wrap;
+}
+.ui-chat-text ul,
+.ui-chat-text ol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-left: var(--space-5);
+}
+.ui-chat-text ul {
+  list-style: disc;
+}
+.ui-chat-text ol {
+  list-style: decimal;
+}
+.ui-chat-text li::marker {
+  color: var(--ink-muted);
+}
+.ui-chat-input {
+  display: block;
+  width: 100%;
+  resize: none;
+}
+/* In the composer's box: no border or focus ring of the field's own. */
+.ui-chat-input--bare {
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 22px;
+}
+.ui-chat-input--bare::placeholder {
+  color: var(--ink-muted);
+}
+.ui-chat-input--bare:focus {
+  outline: none;
+}
+.ui-chat-thinking {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--ink-muted);
+}
+.ui-chat-thinking__time {
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
 /* `Loading progress`: work the person started, in words ("Saving your choice…"). */
 .ui-progress {
   padding: var(--space-3) 0;

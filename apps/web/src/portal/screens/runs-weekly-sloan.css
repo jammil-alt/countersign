@@ -129,34 +129,7 @@
   gap: var(--space-8);
 }
 
-/* ── Sloan: the conversation and the composer ── */
-.ui-thread {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-}
-.ui-msg {
-  display: flex;
-  max-width: 44rem;
-  gap: var(--space-3);
-}
-.ui-msg__text {
-  min-width: 0;
-  color: var(--ink);
-  font-size: 15px;
-  line-height: 24px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.ui-msg--you {
-  align-self: flex-end;
-}
-.ui-msg--you .ui-msg__text {
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-subtle);
-}
+/* ── Sloan: the composer's place in its card (the conversation is ui/chat.tsx) ── */
 .ui-composer {
   display: flex;
   flex-direction: column;

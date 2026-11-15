@@ -37,7 +37,7 @@ import {
   withSession,
   withTenant,
 } from "@countersign/db";
-import type { LlmTransport } from "@countersign/llm";
+import { createOpenAITranscriber, type LlmTransport, type Transcriber } from "@countersign/llm";
 import { captureException } from "@sentry/cloudflare";
 import type { Context, Hono } from "hono";
 import { createMiddleware } from "hono/factory";
@@ -103,6 +103,20 @@ export interface AppDeps {
   mcp?: McpDeps;
   /** §1.100: the code service for sign-in codes; default Twilio Verify. Tests pass one in memory. */
   codeVerifier?(env: Bindings): CodeVerifier;
+  /**
+   * §1.109: voice typing's speech-to-text; default OpenAI's on OPENAI_API_KEY, null without it.
+   * Tests pass a fake.
+   */
+  transcriber?(env: Bindings): Transcriber | null;
+}
+
+/** Voice typing's speech-to-text, or null where it is off (no OpenAI key). */
+export function transcriberFor(deps: AppDeps, env: Bindings): Transcriber | null {
+  if (deps.transcriber) return deps.transcriber(env);
+  const key = env.OPENAI_API_KEY?.trim();
+  return key
+    ? createOpenAITranscriber({ apiKey: key, fetch: globalFetch() as unknown as typeof fetch })
+    : null;
 }
 
 /** The Stripe client for billing, or null where billing is off (no key). */
@@ -882,8 +896,8 @@ export async function invokeRoute<R extends RouteSpec>(
   session: Session,
   spec: R,
   raw: RouteInput = {},
-  /** Which front door called it, for the audit row: the MCP server, or Reggie (§1.101). */
-  via: "mcp" | "reggie" = "mcp",
+  /** Which front door called it, for the audit row: the MCP server, Reggie (§1.101), or a build (§1.108). */
+  via: "mcp" | "reggie" | "build" = "mcp",
 ): Promise<z.output<R["response"]>> {
   const handler = mounted.get(app)?.get(spec);
   if (!handler) throw new Error(`${spec.method} ${spec.path} is not mounted`);

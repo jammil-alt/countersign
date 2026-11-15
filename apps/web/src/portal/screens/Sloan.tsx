@@ -7,10 +7,11 @@
 // Sloan is the one place to ask (QA round 1): "Ask for a change" (`?mode=change`) holds the
 // requests to us that had their own page (`/requests` redirects there).
 import type { PortalMessage, PortalThread } from "@countersign/core";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { voiceFor } from "../../api/voice";
 import type { PlainKey } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
 import { InboxCard, isAccountChangeItem } from "../../inbox/InboxCard";
@@ -18,7 +19,8 @@ import { SourceLinks } from "../../records/SourceLinks";
 import { useSession } from "../../session/session";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
-import { Select, TextArea } from "../../ui/forms";
+import { AgentSaid, ChatLog, Composer, Thinking, YouSaid } from "../../ui/chat";
+import { Select } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
 import { Page, PageGrid, Section } from "../../ui/page";
 import { Button, Card, ErrorNotice, Loading, PageHeader, Tabs } from "../../ui/primitives";
@@ -201,21 +203,19 @@ function Conversation({
     api.call(apiRoutes.portalReadThread, { params: { id: threadId } }).catch(() => {});
   }, [api, threadId, messages.data]);
 
-  async function send(e?: FormEvent) {
-    e?.preventDefault();
-    const body = text.trim();
-    if (!body) return;
+  async function send(body: string): Promise<boolean> {
     setBusy(true);
     setError(null);
     try {
       const id = threadId ?? (await start());
-      if (!id) return;
+      if (!id) return false;
       await api.call(apiRoutes.portalPostMessage, { params: { id }, body: { text: body } });
-      setText("");
       if (threadId) messages.reload();
       else onStarted(id);
+      return true;
     } catch (err) {
       setError(err);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -231,61 +231,66 @@ function Conversation({
             {t("sloan.empty")}
           </p>
         ) : null}
-        {list.length > 0 ? (
-          <ol className="ui-thread" data-testid="portal-sloan-messages">
+        {list.length > 0 || waitingForAnswer ? (
+          <ChatLog
+            roomy
+            follow={`${list.length}:${waitingForAnswer}`}
+            testId="portal-sloan-messages"
+          >
             {list.map((m) => (
               <Message key={m.id} message={m} />
             ))}
-          </ol>
-        ) : null}
-        {waitingForAnswer ? (
-          <p role="status" className="text-sm text-ink-muted" data-testid="portal-sloan-thinking">
-            {t("sloan.answering")}
-          </p>
+            {waitingForAnswer ? (
+              <Thinking
+                badge={<AgentBadge name={t("sloan.title")} size="sm" />}
+                label={t("sloan.answering")}
+                state="drafting"
+                testId="portal-sloan-thinking"
+              />
+            ) : null}
+          </ChatLog>
         ) : null}
       </div>
-      <form onSubmit={(e) => void send(e)} className="ui-card__foot ui-composer">
-        <div className="flex flex-wrap gap-1.5">
-          {STARTERS.map((k) => (
-            <button
-              key={k}
-              type="button"
-              className="ds-tag hover:border-line-strong"
-              onClick={() => setText(t(k))}
-            >
-              {t(k)}
-            </button>
-          ))}
-        </div>
-        <div className="ui-composer__row">
-          <TextArea
-            aria-label={t("sloan.compose")}
-            data-testid="portal-sloan-input"
-            rows={2}
-            maxLength={4000}
-            value={text}
-            placeholder={t("sloan.compose")}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            className="flex-1"
-          />
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={busy || !text.trim()}
-            data-testid="portal-sloan-send"
-          >
-            {busy ? t("common.sending") : t("common.send")}
-          </Button>
-        </div>
+      <div className="ui-card__foot ui-composer">
+        <Composer
+          label={t("sloan.compose")}
+          placeholder={t("sloan.compose")}
+          busy={busy}
+          value={text}
+          onValueChange={setText}
+          onSend={send}
+          words={{
+            hint: t("common.enterToSend"),
+            send: t("common.send"),
+            sending: t("common.sending"),
+          }}
+          inputTestId="portal-sloan-input"
+          sendTestId="portal-sloan-send"
+          voice={voiceFor("portal", null, {
+            dictate: t("voice.dictate"),
+            stop: t("voice.stop"),
+            writing: t("voice.writing"),
+            blocked: t("voice.blocked"),
+            failed: t("voice.failed"),
+          })}
+          above={
+            <div className="flex flex-wrap gap-1.5">
+              {STARTERS.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  className="ds-tag hover:border-line-strong"
+                  onClick={() => setText(t(k))}
+                >
+                  {t(k)}
+                </button>
+              ))}
+            </div>
+          }
+        />
         <p className="text-sm text-ink-muted">{t("sloan.commandHint")}</p>
         {error ? <ErrorNotice error={error} /> : null}
-      </form>
+      </div>
     </Card>
   );
 }
@@ -294,27 +299,35 @@ function Message({ message: m }: { message: PortalMessage }) {
   const { t, fmt } = useI18n();
   const you = m.sender.you;
   const name = m.sender.name ?? (m.sender.type === "agent" ? t("sloan.title") : t("sloan.mezonas"));
-  const badge = you ? null : m.sender.lead ? (
+  const above = [you ? t("sloan.you") : name, fmt.time(m.createdAt)].join(" · ");
+  const sources = <SourceLinks ids={m.sources} href={(id) => `/records/${id}`} />;
+  if (you) {
+    return (
+      <div className="flex flex-col items-end gap-1" data-testid={`portal-sloan-message-${m.id}`}>
+        <YouSaid text={m.text} above={above} mono={m.kind === "command"} />
+        {sources}
+      </div>
+    );
+  }
+  const badge = m.sender.lead ? (
     <PersonBadge name={name} size="sm" />
   ) : m.sender.type === "agent" ? (
     <AgentBadge name={name} size="sm" />
   ) : (
     <PersonBadge name={name} size="sm" plain />
   );
+  // An agent's words read as a chat reply; a person's stay as they wrote them.
   return (
-    <li
-      className={you ? "ui-msg ui-msg--you" : "ui-msg"}
-      data-testid={`portal-sloan-message-${m.id}`}
+    <AgentSaid
+      badge={badge}
+      above={above}
+      text={m.text}
+      asWritten={m.sender.type !== "agent"}
+      mono={m.kind === "command"}
+      testId={`portal-sloan-message-${m.id}`}
     >
-      {badge}
-      <div className="flex min-w-0 flex-col gap-1">
-        <p className="text-xs text-ink-muted">
-          {[you ? t("sloan.you") : name, fmt.time(m.createdAt)].join(" · ")}
-        </p>
-        <p className={m.kind === "command" ? "ui-msg__text font-mono" : "ui-msg__text"}>{m.text}</p>
-        <SourceLinks ids={m.sources} href={(id) => `/records/${id}`} />
-      </div>
-    </li>
+      {sources}
+    </AgentSaid>
   );
 }
 

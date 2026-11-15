@@ -37,7 +37,7 @@ import {
   tenant,
 } from "@countersign/db";
 import { createTestDatabase, type TestDatabase } from "@countersign/db/testing";
-import { type LlmTransport, withRecording } from "@countersign/llm";
+import { type LlmTransport, type Transcriber, withRecording } from "@countersign/llm";
 import { fileFixtureStore } from "@countersign/llm/node";
 import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -159,6 +159,8 @@ export interface HarnessOptions {
   mcp?: McpDeps;
   /** §1.100: the code service for sign-in codes (tests pass one in memory). */
   codeVerifier?: CodeVerifier;
+  /** §1.109: voice typing's speech-to-text (a fake); none by default, so voice is off. */
+  transcriber?: Transcriber;
   // v0.12 W2-C
   /** Test suite jobs (in memory); none by default. */
   testSuites?: TestSuiteJobs;
@@ -230,6 +232,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     exports: () => options.exports ?? null,
     ...(options.mcp ? { mcp: options.mcp } : {}),
     ...(options.codeVerifier ? { codeVerifier: () => options.codeVerifier as CodeVerifier } : {}),
+    transcriber: () => options.transcriber ?? null,
     // v0.12 W2-C
     ...(options.testSuites ? { testSuites: () => options.testSuites as TestSuiteJobs } : {}),
     ...(options.browserOpener ? { browserOpener: () => options.browserOpener } : {}),

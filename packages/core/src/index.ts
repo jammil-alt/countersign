@@ -20,6 +20,8 @@ export * from "./api/bankfeed";
 export * from "./api/billing";
 export * from "./api/browser";
 export * from "./api/browser-scripts";
+// docs/plan.md §1.108: builds, from intake to go-live
+export * from "./api/build";
 // v0.12 W3-A: the Builder as a conversation
 export * from "./api/builder";
 export * from "./api/calls";
@@ -103,6 +105,8 @@ export * from "./api/triggers";
 // R5: the Undo a late no is offered
 export * from "./api/undo";
 export * from "./api/usage";
+// docs/plan.md §1.109: voice typing
+export * from "./api/voice";
 // v0.14 W4-A: WhatsApp through Meta
 export * from "./api/whatsapp-meta";
 // v0.14 W4-B
@@ -113,6 +117,7 @@ export * from "./attachments";
 export * from "./billing";
 export * from "./browser/script";
 export * from "./browser/site";
+export * from "./build/build";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";
 export {

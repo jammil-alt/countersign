@@ -46,6 +46,7 @@ import { Redirect } from "../shell/Redirect";
 import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
 import { NewTemplateScreen, TemplatePage } from "./agents/TemplateScreens";
+import { BuildScreen, BuildsScreen } from "./builds/BuildsScreen";
 import { ClientAgentsScreen } from "./client/ClientAgents";
 import { ClientLayout } from "./client/ClientFrame";
 import { OpsClientLedgerScreen } from "./client/ClientLedger";
@@ -137,6 +138,9 @@ export const opsRoutes = (
     {/* docs/plan.md §1.101: Reggie, the operator's account agent */}
     <Route path="reggie" element={<ReggieScreen />} />
     <Route path="reggie/:id" element={<ReggieScreen />} />
+    {/* docs/plan.md §1.108: builds, from intake to go-live */}
+    <Route path="builds" element={<BuildsScreen />} />
+    <Route path="builds/:id" element={<BuildScreen />} />
     <Route path="clients" element={<ClientsScreen />} />
     <Route path="clients/new" element={<NewClientScreen />} />
     {/* 1.4 (docs/audit-plan.md): the client page's tabs under one frame (client/ClientFrame.tsx),

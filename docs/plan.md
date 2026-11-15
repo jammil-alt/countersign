@@ -4690,6 +4690,61 @@ reviewing) and two progress displays for a job with a known total (Ruler, Sheets
 
 Checked: `packages/core/src/process/thinking.test.ts`, `apps/web/src/ui/motion.test.tsx`.
 
+### 1.107 One conversation component (owner, 2026-11-15)
+
+"Conversations with the agents should be more conversational… create this as a component, that
+is what we use across the board for all conversational interactions." Reggie's answers read as
+reports (bold group headings, a bullet for every run, a bulleted wrap-up), shown as raw text, so
+`**` showed; the thinking line sat still; the message box sent on Cmd+Enter and kept its words.
+
+| Topic | Decision |
+|---|---|
+| The component | `apps/web/src/ui/chat.tsx`: `ChatLog` (kept scrolled to the newest), `YouSaid`, `AgentSaid`, `Pending`, `Thinking` and `Composer`, styles `ui-chat*` in `ui/page.css`. Used by the Builder (new agent, its panel, a step's chat, Fix), the skill Builder, Reggie and Sloan; a screen adds its own content (changes, cards, sources) as children. A new conversation with an agent uses it. // DECISION |
+| An agent's words | `ChatText` reads a reply as paragraphs and plain lists; Markdown's bold, headings and inline code lose their marks (no Markdown library: replies are chat, not documents). A person's words stay as written. // DECISION |
+| Writing | The box starts two lines tall, grows to eight, then scrolls. Enter sends, Shift+Enter starts a new line (never while an IME composes). The words leave the box at once and show in the conversation; if the send fails they come back, unless something new was written. Slots for shortcuts, starters, examples, and later attachments and voice. |
+| Thinking | The agent's badge, §1.106's loop (Drafting for the Builder and Sloan, Tracing for Reggie), its words in a status region, and the seconds once past five. |
+| The prompts | Reggie's system prompt, Sloan's `account.chat` and the Builder's reply field say it is a chat: answer first in a sentence or two, plain text with no Markdown, a list only for three or more things asked for, names not ids, offer the rest. Reggie's "Read: tool_names" line reads "Looked at clients and runs". No recorded fixture carries these prompts. |
+| Keeping the conversation | The Builder panel keeps its conversation's id in the browser session per agent (`countersign:builder-chat:<agent>`) and reads it back on open; one no longer open, or gone, is forgotten. Reggie, Sloan, the new-agent page and the skill Builder keep theirs in the address already. // DECISION: the session's storage, as asked ("at least for the session"). |
+| Not yet | Attachments in the composer: they need storage and a model input. Voice is §1.109. Live progress words while Reggie works (which tool it is on) need the turn to stream. |
+
+Checked: `apps/web/src/ui/chat.test.tsx`, `apps/web/src/ops/reggie/ReggieScreen.test.tsx`,
+`apps/web/src/ops/builder/WorkflowBuilder.test.tsx` (the conversation after a reload).
+
+### 1.108 Builds: from intake to go-live, as a project (owner, 2026-11-15)
+
+"For the builder... the new skill, agent automation etc should follow the following flow: intake,
+fit gap, agree and build the draft (managed as a project), POC test with synthetic data, ready to
+test with a client, final QA and go / no-go." The owner approved the mockup (the "Builder build
+flow" canvas) and asked for it built. Outside ARCHITECTURE v0.15, as §1.101 and §1.105 are.
+
+| Topic | Decision |
+|---|---|
+| A build | One `build` row per new agent or skill, for a client (a client agent) or for everyone (a template or shared skill): its phase, the brief, the fit-gap, the test plan, the QA record, the draft it made and the client it is tested with. Operator only, like Reggie's tables (§1.101): RLS forced, a row about a client only for operators serving it. Migration 0053, its own PR. // DECISION |
+| Phases | `intake` → `fitgap` → `draft` → `poc` → `client_test` → `qa`, then `live` (status). A skill skips `client_test`: it is tested inside the agents that use it. Each phase closes only when the operator confirms it and its gate passes; going back is always allowed and logged. Every move, and every confirmed brief, fit-gap and test plan, is a `build_event` row: insert only, the build's history. // DECISION |
+| Gates | Intake: the brief has a goal, a start, data in and data out. Fit-gap: every row has a verdict. Draft: the draft exists and its latest version has no validation errors (a missing step is one, §1.103). POC: a template's or skill's latest suite run on its latest version passed every required case; a client agent's latest version has a passing test run. Client test: the copy under test reached sign-off or live, or the operator moves on with a reason. QA: the operator signs it. The checks are core's (`buildGate`), shared by the API and the screen. // DECISION |
+| Open items | `build_item`: what is left, from any phase, with who has it (you, the Builder, the client, Mezonas engineering) and its state (open, in progress, waiting, done, put off). The Builder adds them (an open question, a build or figure-out row, a failed case); the operator adds and closes them. The draft's own problems (validation errors, missing steps, connections the client hasn't made) are read live from the draft, never stored, so they can't go stale. Open items carry over from phase to phase; the moves into the client test and the go-live need each one done or put off. // DECISION |
+| The conversation | `build_message`: one conversation per build, each message tagged with its phase. The Builder's turn (`packages/agents/src/build/`) answers in the phase's way with one structured answer: its words, chips to answer with, changes to the brief, the fit-gap rows, the test plan's datasets and new open items. Fit-gap and test plans read the Builder's catalog (skills, tools, connectors, packs, templates). Editing the draft itself stays with the Builder panel in the workflow (§1.105): the build links to it. // DECISION |
+| The draft | "Agree the direction" (the move into the draft) drafts it with the Builder's own route (`opsDraftAgent`, run as the operator with `invokeRoute`, audited as the build's) from the confirmed brief and fit-gap; a skill build starts a skill Builder conversation with the brief as its first message. The brief's open fields become question items when it is confirmed, and the fit-gap's build and figure-out rows and what must be true become items when it is agreed (made once each, by key), not by the model. |
+| POC test | The Builder drafts the test plan (each dataset: what, how many, what it must cover, and generate, upload or the Sandbox's). "Make the test cases" asks the model for a template's or skill's cases from the plan and saves them as test bench cases (`source: builder`, §1.46); "Run" is the test bench's suite run. A client agent's POC is its test runs. Generated PDFs are not built yet. // DECISION |
+| Client test | A template is published, forked into the chosen client, the copy's version published and activated; a client agent is published and activated. What stops a step there (a connection not bound at the client, no passing test run there) is an open item, and the build is at the client either way. Its trial is §1.36's: every write signed. The build shows the trial's days and runs, and the client's signed, rejected and waiting writes with the reasons it gave; a rejection becomes an open item in one click. |
+| QA and go / no-go | A checklist read from the record: required cases pass, trial minimums, rejected writes under 10%, approval on for every write, a version to roll back to. A failing check can be accepted with a reason. The operator signs QA; go-live is the client admin's existing sign-off (§1.36). No-go sends the build back to a phase with a reason, which becomes an open item. Live when the copy under test is live. |
+| Screens | `/ops/builds` (the board: builds by phase, and the open items across them), `/ops/builds/:id` (the build: the stepper, the conversation, the phase's work), the agent page's Build tab while it has a build, and a Steps tab on every agent (`steps/:workflow`): the workflow builder with its steps as a list (numbered as the canvas numbers them, with their status: missing, invalid, needs setup, ready), the same side panel on the one clicked. |
+| Not yet | Automation builds (an automation is still made from an agent's steps), generated PDFs for test data, and attachments in the conversation (voice is §1.109). |
+
+### 1.109 Voice typing (owner, 2026-11-15)
+
+"It should have an add attachments and transcription… we should have them." Then: "Ok to use
+open ai for voice.. build this". §1.107 left both out; this is voice. Attachments are still open.
+
+| Topic | Decision |
+|---|---|
+| Vendor | OpenAI's speech-to-text (`gpt-4o-mini-transcribe`) on Mezonas' `OPENAI_API_KEY`, the owner's choice. Not the browser's own dictation, which sends audio to Google or Apple, vendors not on our list. `packages/llm/src/transcribe.ts`, plain fetch; the model and price are unchecked (`packages/llm/NOTES.md`). Without the key, voice is off (503 `voice_off`). // DECISION |
+| Where | The shared composer (§1.107) shows a Dictate button wherever a screen passes `voice`: Reggie, builds, the Builder (panel, step chat, Fix, new agent), the skill Builder and Sloan. A click records; a second click, or two minutes, stops. The words join what is already in the box, to read and change before sending; nothing is sent on its own. Hidden where the browser can't record. |
+| Routes | `POST /api/ops/transcribe?client=` (operators; the client the conversation is about) and `POST /api/transcribe` (the portal), slow routes: the body is the recording (webm, ogg, mp4, mp3 or wav, at most 4 MB), the answer `{ text }`. Nothing is stored or logged; the audit row is the route's own. The portal tells the model the language the person reads in (theirs, else the client's, else the browser's; `pt-BR` as `pt`); the back office leaves it to the model to detect. |
+| HIPAA mode | `VOICE_FEATURE` in `packages/core/src/compliance/processors.ts`: a client in HIPAA mode is refused (409 `hipaa`) until `openai` is in `BAA_PROCESSORS`, for its own people and for an operator dictating about it. An operator dictating with no client named (a template's Builder) isn't checked. // DECISION |
+| Words | The back office shows the server's reason (HIPAA, voice off); the portal shows its own language's words for a failure, so a client never reads our English. The subprocessors page, the privacy policy and `docs/security.md` say OpenAI writes out dictation and keeps nothing. |
+| Not yet | Attachments in the composer; the cost of transcription (OpenAI prices it per minute) in usage. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

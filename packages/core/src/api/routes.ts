@@ -28,6 +28,8 @@ import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
 import { browserRoutes } from "./browser";
 import { browserScriptRoutes } from "./browser-scripts";
+// docs/plan.md §1.108: builds
+import { buildRoutes } from "./build";
 // v0.12 W3-A: the Builder as a conversation
 import { builderRoutes } from "./builder";
 import { callRoutes } from "./calls";
@@ -117,6 +119,7 @@ import { triggerRoutes } from "./triggers";
 // R5: take back a change that went ahead before a late no
 import { undoRoutes } from "./undo";
 import { AgentRunsNow, DayRuns, usageRoutes } from "./usage";
+import { voiceRoutes } from "./voice";
 // v0.14 W4-A: WhatsApp through Meta
 import { whatsappMetaRoutes } from "./whatsapp-meta";
 // v0.14 W4-B
@@ -2299,6 +2302,10 @@ export const routes = {
   ...textSignupRoutes,
   // docs/plan.md §1.101: Reggie, the operator's account agent
   ...reggieRoutes,
+  // docs/plan.md §1.108: builds, from intake to go-live
+  ...buildRoutes,
+  // docs/plan.md §1.109: voice typing
+  ...voiceRoutes,
   ...knowledgeRoutes,
   ...callRoutes,
   ...billingRoutes,

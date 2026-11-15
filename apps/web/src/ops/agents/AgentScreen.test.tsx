@@ -126,7 +126,7 @@ describe("AgentScreen", () => {
       within(within(bar).getByRole("navigation"))
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Overview", "Workflow", "Runs", "Versions2", "Settings"]);
+    ).toEqual(["Overview", "Workflow", "Steps", "Runs", "Versions2", "Settings"]);
     expect(within(bar).getByTestId("agent-test-run")).toHaveAttribute(
       "href",
       `${BASE}/versions#tests`,
@@ -357,6 +357,60 @@ describe("AgentScreen", () => {
     expect(within(bar).queryByTestId("agent-publish")).toBeNull();
   });
 
+  it("shows its open build in a Build tab first (§1.108)", async () => {
+    const BUILD = "00000000-0000-4000-8000-0000000b0001";
+    const at = "2026-11-15T10:00:00.000Z";
+    const build = {
+      id: BUILD,
+      kind: "agent",
+      title: "Material costs",
+      client: { id: CLIENT, name: "Harbor Millwork" },
+      phase: "draft",
+      status: "open",
+      agentId: ID,
+      skillId: null,
+      testAgentId: null,
+      testClient: null,
+      openItems: 0,
+      waitingOnClient: 0,
+      createdBy: null,
+      createdAt: at,
+      updatedAt: at,
+      phaseAt: at,
+    };
+    setup(`${BASE}/build`, {
+      "GET /api/ops/builds": () => ({ builds: [build], items: [] }),
+      [`GET /api/ops/builds/${BUILD}`]: () => ({
+        build: {
+          ...build,
+          brief: {},
+          fitgap: { rows: [], needsTrue: [] },
+          testPlan: { datasets: [] },
+          qa: { accepted: {}, signedBy: null, signedAt: null, decision: null },
+        },
+        phases: [{ phase: "draft", label: "Draft", state: "current" }],
+        gate: { next: "poc", reasons: [] },
+        messages: [],
+        items: [],
+        draft: null,
+        poc: null,
+        clientTest: null,
+        qaChecks: [],
+        events: [],
+      }),
+    });
+    const bar = await screen.findByTestId("agent-bar");
+    expect(
+      within(within(bar).getByRole("navigation"))
+        .getAllByRole("link")
+        .map((l) => l.textContent?.replace(/\d+$/, "")),
+    ).toEqual(["Build", "Overview", "Workflow", "Steps", "Runs", "Versions", "Settings"]);
+    const view = await screen.findByTestId("build-view");
+    // On the agent page the build has no header of its own: the agent's bar is it.
+    expect(within(view).queryByTestId("build-header")).toBeNull();
+    expect(within(view).getByTestId("build-phase-draft")).toHaveAttribute("aria-current", "step");
+  });
+
   it("shows the page's frame while the agent loads", async () => {
     let answer: (v: unknown) => void = () => {};
     setup(BASE, {
@@ -369,7 +423,7 @@ describe("AgentScreen", () => {
       within(within(frame).getByRole("navigation"))
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Overview", "Workflow", "Runs", "Versions", "Settings"]);
+    ).toEqual(["Overview", "Workflow", "Steps", "Runs", "Versions", "Settings"]);
     answer(AGENT_DETAIL);
     expect(await screen.findByTestId("agent-bar")).toBeInTheDocument();
   });
