@@ -4690,6 +4690,26 @@ reviewing) and two progress displays for a job with a known total (Ruler, Sheets
 
 Checked: `packages/core/src/process/thinking.test.ts`, `apps/web/src/ui/motion.test.tsx`.
 
+### 1.107 One conversation component (owner, 2026-11-15)
+
+"Conversations with the agents should be more conversational… create this as a component, that
+is what we use across the board for all conversational interactions." Reggie's answers read as
+reports (bold group headings, a bullet for every run, a bulleted wrap-up), shown as raw text, so
+`**` showed; the thinking line sat still; the message box sent on Cmd+Enter and kept its words.
+
+| Topic | Decision |
+|---|---|
+| The component | `apps/web/src/ui/chat.tsx`: `ChatLog` (kept scrolled to the newest), `YouSaid`, `AgentSaid`, `Pending`, `Thinking` and `Composer`, styles `ui-chat*` in `ui/page.css`. Used by the Builder (new agent, its panel, a step's chat, Fix), the skill Builder, Reggie and Sloan; a screen adds its own content (changes, cards, sources) as children. A new conversation with an agent uses it. // DECISION |
+| An agent's words | `ChatText` reads a reply as paragraphs and plain lists; Markdown's bold, headings and inline code lose their marks (no Markdown library: replies are chat, not documents). A person's words stay as written. // DECISION |
+| Writing | The box starts two lines tall, grows to eight, then scrolls. Enter sends, Shift+Enter starts a new line (never while an IME composes). The words leave the box at once and show in the conversation; if the send fails they come back, unless something new was written. Slots for shortcuts, starters, examples, and later attachments and voice. |
+| Thinking | The agent's badge, §1.106's loop (Drafting for the Builder and Sloan, Tracing for Reggie), its words in a status region, and the seconds once past five. |
+| The prompts | Reggie's system prompt, Sloan's `account.chat` and the Builder's reply field say it is a chat: answer first in a sentence or two, plain text with no Markdown, a list only for three or more things asked for, names not ids, offer the rest. Reggie's "Read: tool_names" line reads "Looked at clients and runs". No recorded fixture carries these prompts. |
+| Keeping the conversation | The Builder panel keeps its conversation's id in the browser session per agent (`countersign:builder-chat:<agent>`) and reads it back on open; one no longer open, or gone, is forgotten. Reggie, Sloan, the new-agent page and the skill Builder keep theirs in the address already. // DECISION: the session's storage, as asked ("at least for the session"). |
+| Not yet | Attachments and voice in the composer: they need storage and a model input (attachments) and a transcription vendor named in `compliance` (voice). Live progress words while Reggie works (which tool it is on) need the turn to stream. |
+
+Checked: `apps/web/src/ui/chat.test.tsx`, `apps/web/src/ops/reggie/ReggieScreen.test.tsx`,
+`apps/web/src/ops/builder/WorkflowBuilder.test.tsx` (the conversation after a reload).
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

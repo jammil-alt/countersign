@@ -335,6 +335,8 @@ interface Setup {
   sandbox?: boolean;
   /** The client's People list (GET /api/ops/clients/:id/hours). */
   people?: { kind: "user" | "contact"; id: string; name: string; hours: null }[];
+  /** More routes, answering from the first render. */
+  routes?: Parameters<typeof fakeApi>[0];
 }
 
 function setup(options: Setup = {}) {
@@ -345,6 +347,7 @@ function setup(options: Setup = {}) {
     return body;
   };
   const api = fakeApi({
+    ...options.routes,
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => options.catalog ?? CATALOG,
     "GET /api/ops/catalog/events": () => EVENTS,
     ...(options.people
@@ -447,6 +450,7 @@ const realRect = HTMLElement.prototype.getBoundingClientRect;
 beforeEach(() => {
   try {
     window.localStorage.clear();
+    window.sessionStorage.clear();
   } catch {
     // no storage in this environment
   }
@@ -1419,6 +1423,43 @@ describe("WorkflowBuilder with the Builder", () => {
     await user.click(screen.getByTestId("builder-change-undo"));
     await waitFor(() => expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]));
     expect(bodies[2]).toEqual({ turnId: TURN, changeId: "step:update" });
+  });
+
+  it("brings the conversation back after a reload, for the browser session (feedback, 2026-11-15)", async () => {
+    const operatorTurn = {
+      ...builderTurn([]),
+      id: "00000000-0000-4000-8000-0000000c5101",
+      seq: 1,
+      role: "operator",
+      text: "What parts of this process are not ready today?",
+      costUsd: "0",
+    };
+    window.sessionStorage.setItem(`countersign:builder-chat:${AGENT_ID}`, SESSION);
+    setup({
+      routes: {
+        [`GET /api/ops/builder/sessions/${SESSION}`]: () =>
+          detail(BUNDLE, [operatorTurn, builderTurn([])]),
+      },
+    });
+    await ready();
+    expect(
+      await screen.findByText("What parts of this process are not ready today?"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Removed the update; the fork's paths end the run."),
+    ).toBeInTheDocument();
+    // The canvas is as it opened.
+    expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]);
+  });
+
+  it("starts fresh when the remembered conversation is gone", async () => {
+    window.sessionStorage.setItem(`countersign:builder-chat:${AGENT_ID}`, SESSION);
+    setup();
+    await ready();
+    expect(screen.getByTestId("builder-chat-empty")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(window.sessionStorage.getItem(`countersign:builder-chat:${AGENT_ID}`)).toBeNull(),
+    );
   });
 
   it("opens Fix on a problem: says what's wrong, asks the Builder to explain and propose, then makes the fix", async () => {
