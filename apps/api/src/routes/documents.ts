@@ -466,7 +466,9 @@ async function receiveUploads(
       results.push({
         ...base,
         kind: "refused" as const,
-        error: "Upload PDFs, images (PNG, JPEG, GIF, WebP) or a CSV of purchases.",
+        error: forChat
+          ? "Attach PDFs or images (PNG, JPEG, GIF, WebP)."
+          : "Upload PDFs, images (PNG, JPEG, GIF, WebP) or a CSV of purchases.",
       });
       continue;
     }
