@@ -380,7 +380,7 @@ function GoBack({
       <TextInput
         aria-label="Why it goes back"
         placeholder="Why it goes back"
-        className="min-w-0 flex-1"
+        className="w-auto min-w-0 flex-1"
         value={reason}
         onChange={(e) => setReason(e.target.value)}
       />
@@ -539,7 +539,7 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
                 {current ? (
                   <TextArea
                     aria-label={BRIEF_LABELS[k]}
-                    rows={1}
+                    rows={Math.min(5, Math.max(1, Math.ceil((f?.text.length ?? 0) / 48)))}
                     className="w-full"
                     placeholder={BRIEF_HINTS[k]}
                     value={f?.text ?? ""}
@@ -632,6 +632,7 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
                       {current ? (
                         <Select
                           aria-label={`Verdict: ${r.need}`}
+                          className="w-36"
                           value={r.verdict}
                           onChange={(e) =>
                             setFitgap((f) => ({
@@ -656,7 +657,7 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
                     <td className="px-4 py-3">
                       <input
                         type="checkbox"
-                        className="ds-check"
+                        className="size-4 accent-[var(--slate)]"
                         aria-label={`In scope: ${r.need}`}
                         checked={!r.dropped}
                         disabled={!current}
@@ -688,7 +689,7 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
               >
                 <input
                   type="checkbox"
-                  className="ds-check mt-0.5"
+                  className="mt-0.5 size-4 accent-[var(--slate)]"
                   aria-label={n.text}
                   checked={n.done}
                   disabled={!current}
@@ -1247,7 +1248,7 @@ function ClientTestPanel({ detail, current, busy, act }: PanelProps) {
             <TextInput
               aria-label="Why it moves on"
               placeholder="Why it moves on"
-              className="min-w-0 flex-1"
+              className="w-auto min-w-0 flex-1"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
             />
@@ -1322,7 +1323,7 @@ function QaPanel({ detail, current, busy, act }: PanelProps) {
                   <TextInput
                     aria-label="Why it's accepted"
                     placeholder="Why it's accepted"
-                    className="min-w-0 flex-1"
+                    className="w-auto min-w-0 flex-1"
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                   />
@@ -1404,7 +1405,7 @@ function QaPanel({ detail, current, busy, act }: PanelProps) {
               <TextInput
                 aria-label="Why not"
                 placeholder="Why not"
-                className="min-w-0 flex-1"
+                className="w-auto min-w-0 flex-1"
                 value={noGo.reason}
                 onChange={(e) => setNoGo((n) => ({ ...n, reason: e.target.value }))}
               />
@@ -1471,13 +1472,14 @@ function ItemsPanel({ detail, busy, act }: { detail: BuildDetail; busy: string |
             <TextInput
               aria-label="New open item"
               placeholder="Something left to do"
-              className="min-w-0 flex-1"
+              className="w-auto min-w-0 flex-1"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               data-testid="build-item-new"
             />
             <Select
               aria-label="Who has it"
+              className="w-48"
               value={owner}
               onChange={(e) => setOwner(e.target.value as BuildItemOwner)}
             >
