@@ -64,6 +64,8 @@ export const docsTotalsCheck = defineInternalTool({
   description:
     "Checks a document's reading: the lines add up to the subtotal (within 2 cents or 0.5%), and subtotal, freight, surcharges and tax add up to the total (within 2 cents). Reads only its input.",
   sideEffect: "none",
+  entity: "document",
+  area: "shared",
   pure: true,
   summary: "Totals {{totalsMatch}} for {{vendorName}} invoice {{invoiceNumber}}",
   input: z.object({ reading: InvoiceExtraction }),
@@ -92,6 +94,8 @@ export const docsReadingRecord = defineInternalTool({
   description:
     "Records a document's reading (from Read document) as its latest extraction: header, lines and totals. Totals that don't add up mark the document for review; nothing is sent to anyone.",
   sideEffect: "internal",
+  entity: "document",
+  area: "shared",
   verb: "create",
   summary: "Recorded {{lineCount}} lines from the document",
   input: z.object({
@@ -254,6 +258,8 @@ export const docsBillCheck = defineInternalTool({
   description:
     "Checks a prepared bill against the invoice as read and the vendors and accounts given: vendor and accounts among them, number, date and currency the invoice's, total the invoice's, lines adding up, and line amounts the invoice's. Reads only its input.",
   sideEffect: "none",
+  entity: "document",
+  area: "shared",
   pure: true,
   summary: "Bill check {{ok}}",
   input: BillCheckIn,

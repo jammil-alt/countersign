@@ -35,6 +35,14 @@ export const ExtractedHeader = z.object({
   invoiceNumber: z.string().min(1),
   invoiceDate: IsoDate,
   dueDate: IsoDate.nullable(),
+  // §1.104: the contract check compares them with the vendor's contract. Optional, so readings
+  // made before it still parse.
+  paymentTerms: z
+    .string()
+    .max(200)
+    .nullable()
+    .optional()
+    .describe('The payment terms as printed, e.g. "Net 30" or "2% 10, net 30"; null when none'),
   poNumber: z.string().nullable().describe("The customer's PO or job number, if printed"),
   currency: CurrencyCode,
   pageCount: z.number().int().positive(),

@@ -158,7 +158,12 @@ function AlertCard({ alert, clientId }: { alert: PriceWatchAlert; clientId?: str
         </div>
         {alert.dollarImpact && Number(alert.dollarImpact) !== 0 ? (
           <span className="text-sm tabular-nums text-ink" data-testid="materials-alert-impact">
-            {i18n.t("materials.alert.atStake", { amount: i18n.fmt.money(alert.dollarImpact) })}
+            {/* §1.104: a negative impact is a saving (paid below the agreed price). */}
+            {Number(alert.dollarImpact) < 0
+              ? i18n.t("materials.alert.saved", {
+                  amount: i18n.fmt.money(String(Math.abs(Number(alert.dollarImpact)))),
+                })
+              : i18n.t("materials.alert.atStake", { amount: i18n.fmt.money(alert.dollarImpact) })}
           </span>
         ) : null}
       </div>

@@ -61,6 +61,10 @@ export interface VendorItemRow {
   preferred: boolean;
   status: "active" | "discontinued";
   vendorName?: string;
+  // §1.104: the contract its list price is agreed in, and the client's tolerance on it.
+  contractId?: string | null;
+  priceToleranceAmount?: string | null;
+  priceTolerancePct?: string | null;
 }
 
 export interface MasterVendorsReport {
@@ -148,7 +152,117 @@ function useVendorReport(report: string, clientId: string | undefined, itemId?: 
   return { ...state, report: state.data?.report as Record<string, unknown> | undefined };
 }
 
-/** A vendor item's back-office actions: mark it preferred, or discontinued. */
+/** "± $0.50 or 1.5%": the client's tolerance on an agreed price; null with none. */
+export function toleranceWords(item: VendorItemRow, i18n: I18n): string | null {
+  const parts = [
+    item.priceToleranceAmount && Number(item.priceToleranceAmount) > 0
+      ? i18n.fmt.unitPrice(item.priceToleranceAmount, item.currency)
+      : null,
+    item.priceTolerancePct && Number(item.priceTolerancePct) > 0
+      ? `${Number(item.priceTolerancePct)}%`
+      : null,
+  ].filter((p): p is string => p !== null);
+  return parts.length ? `± ${parts.join(" / ")}` : null;
+}
+
+/** The list price, marked when it is a contract's agreed price, with the client's tolerance. */
+function ListPriceCell({ item, i18n }: { item: VendorItemRow; i18n: I18n }) {
+  const { t } = i18n;
+  if (!item.listPrice) return <>–</>;
+  const tolerance = toleranceWords(item, i18n);
+  return (
+    <span
+      className="inline-flex flex-col items-end"
+      title={
+        item.listPriceOn
+          ? t("materials.vendors.listedOn", { date: dayLabel(item.listPriceOn, i18n.intl) })
+          : undefined
+      }
+    >
+      <span>{i18n.fmt.unitPrice(item.listPrice, item.currency)}</span>
+      {item.contractId ? (
+        <span className="text-xs muted" data-testid="vendor-item-agreed">
+          {t("materials.vendors.agreed")}
+          {tolerance ? ` · ${t("materials.vendors.tolerance", { value: tolerance })}` : ""}
+        </span>
+      ) : tolerance ? (
+        <span className="text-xs muted">
+          {t("materials.vendors.tolerance", { value: tolerance })}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * The tolerance editor (§1.104, owner 2026-11-15: "allow for the client to add tolerance at an
+ * item level"): an amount in the vendor's unit and a percent; empty clears one.
+ */
+function ToleranceForm({
+  clientId,
+  item,
+  onDone,
+}: {
+  clientId: string;
+  item: VendorItemRow;
+  onDone: () => void;
+}) {
+  const client = useApiClient();
+  const [amount, setAmount] = useState(
+    item.priceToleranceAmount ? String(Number(item.priceToleranceAmount)) : "",
+  );
+  const [pct, setPct] = useState(
+    item.priceTolerancePct ? String(Number(item.priceTolerancePct)) : "",
+  );
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<unknown>(null);
+  const save = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await client.call(apiRoutes.opsClientPackAction, {
+        params: { id: clientId, pack: PACK, action: "vendor-item-tolerance" },
+        body: { vendorItemId: item.id, amount: amount.trim() || null, pct: pct.trim() || null },
+      });
+      onDone();
+    } catch (e) {
+      setProblem(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span
+      className="flex items-center gap-2 whitespace-nowrap"
+      data-testid="vendor-item-tolerance-form"
+    >
+      <input
+        className="ds-input w-20"
+        inputMode="decimal"
+        aria-label="Tolerance amount"
+        placeholder="$"
+        value={amount}
+        onChange={(e) => setAmount(e.target.value)}
+        data-testid="vendor-item-tolerance-amount"
+      />
+      <input
+        className="ds-input w-16"
+        inputMode="decimal"
+        aria-label="Tolerance percent"
+        placeholder="%"
+        value={pct}
+        onChange={(e) => setPct(e.target.value)}
+        data-testid="vendor-item-tolerance-pct"
+      />
+      <Button size="sm" disabled={busy} data-testid="vendor-item-tolerance-save" onClick={save}>
+        Save
+      </Button>
+      {problem ? <ErrorNotice error={problem} /> : null}
+    </span>
+  );
+}
+
+/** A vendor item's back-office actions: mark it preferred, or discontinued, or set a tolerance. */
 function ItemActions({
   clientId,
   item,
@@ -161,7 +275,20 @@ function ItemActions({
   const client = useApiClient();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<unknown>(null);
+  const [tolerance, setTolerance] = useState(false);
   if (item.status !== "active") return <span className="muted">–</span>;
+  if (tolerance) {
+    return (
+      <ToleranceForm
+        clientId={clientId}
+        item={item}
+        onDone={() => {
+          setTolerance(false);
+          onDone();
+        }}
+      />
+    );
+  }
   const act = async (action: string) => {
     setBusy(true);
     setProblem(null);
@@ -193,6 +320,17 @@ function ItemActions({
           Make preferred
         </Button>
       )}
+      {item.listPrice ? (
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={busy}
+          data-testid="vendor-item-tolerance"
+          onClick={() => setTolerance(true)}
+        >
+          Tolerance
+        </Button>
+      ) : null}
       <Button
         size="sm"
         variant="secondary"
@@ -314,7 +452,7 @@ export function MasterItemView({ clientId }: { clientId?: string }) {
                         </td>
                         <td className="n whitespace-nowrap">{day(v.lastPriceOn, intl)}</td>
                         <td className="n">
-                          {v.listPrice ? fmt.unitPrice(v.listPrice, v.currency) : "–"}
+                          <ListPriceCell item={v} i18n={i18n} />
                         </td>
                         <td>
                           <StatusCell item={v} />
@@ -431,21 +569,7 @@ function OneVendor({ clientId, vendorId }: { clientId?: string | undefined; vend
                       <td className="n whitespace-nowrap">{day(v.lastPriceOn, intl)}</td>
                       <td className="muted">{source ? t(source) : (v.lastPriceSource ?? "–")}</td>
                       <td className="n">
-                        {v.listPrice ? (
-                          <span
-                            title={
-                              v.listPriceOn
-                                ? t("materials.vendors.listedOn", {
-                                    date: day(v.listPriceOn, intl),
-                                  })
-                                : undefined
-                            }
-                          >
-                            {fmt.unitPrice(v.listPrice, v.currency)}
-                          </span>
-                        ) : (
-                          "–"
-                        )}
+                        <ListPriceCell item={v} i18n={i18n} />
                       </td>
                       <td>
                         <StatusCell item={v} />

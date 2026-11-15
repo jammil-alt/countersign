@@ -38,7 +38,8 @@ export interface BuilderSession {
   busy: boolean;
   error: unknown;
   pending: string | null;
-  send(text: string): Promise<boolean>;
+  /** v0.18: `focusStepId` makes the turn about that step of the draft (docs/plan.md §1.105). */
+  send(text: string, options?: { focusStepId?: string | undefined }): Promise<boolean>;
   undo(turnId: string, changeId: string): Promise<void>;
   saveAutomation(stepIds: string[], name: string, slug: string): Promise<boolean>;
 }
@@ -93,14 +94,18 @@ export function useBuilderSession({
     busy: action.busy,
     error: action.error,
     pending,
-    async send(text) {
+    async send(text, options) {
       setPending(text);
       const id = await sessionId();
       if (!id) {
         setPending(null);
         return false;
       }
-      const res = await action.call(apiRoutes.opsBuilderTurn, { params: { id }, body: { text } });
+      const focusStepId = options?.focusStepId;
+      const res = await action.call(apiRoutes.opsBuilderTurn, {
+        params: { id },
+        body: { text, ...(focusStepId ? { focusStepId } : {}) },
+      });
       setPending(null);
       if (!res.ok) return false;
       take(res.data);

@@ -114,6 +114,10 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
   // Skill model (2026-11-10): the tool calls a model inside it, and why. Only a tool that says so
   // is handed the model (apps/api's pack adapter gives every other `llm: null`).
   usesModel?: string;
+  // v0.18 (ARCHITECTURE §12.0): the record type it reads or saves, and its area when that isn't
+  // Purchasing (a shared record: `shared`). Metadata only, for the builder's "reads and saves".
+  entity?: string;
+  area?: string;
   input: I;
   output: O;
   run(input: z.output<I>, ctx: PackToolContext): Promise<z.input<O>>;
@@ -130,6 +134,10 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
       source: "materials",
       ...(def.summary ? { summary: def.summary } : {}),
       ...(def.usesModel ? { usesModel: def.usesModel } : {}),
+      // DECISION (v0.18): the Materials pack is the Purchasing area, so its tools are in it unless
+      // they say otherwise.
+      area: def.area ?? "purchasing",
+      ...(def.entity ? { entity: def.entity } : {}),
     }),
     input: def.input,
     output: def.output,
@@ -159,6 +167,7 @@ export const catalogSearch = defineTool({
   description:
     "Searches the client's catalog of materials by name, optionally in one category (sheet_goods, hardwood, mouldings, hardware, finishes, other). Answers live items with their attributes and unit.",
   sideEffect: "none",
+  entity: "catalog_item",
   input: z.object({
     query: z.string().max(200).optional(),
     category: Category.optional(),
@@ -183,6 +192,7 @@ export const catalogCreateItem = defineTool({
   description:
     "Adds an item to the client's catalog from a description such as '3/4 BB/BB BALTIC BIRCH 5X5'. Answers the existing item instead when one has the same key attributes. Refuses a description that doesn't state the category's required attributes.",
   sideEffect: "internal",
+  entity: "catalog_item",
   summary: "Added {{item.name}} to the catalog",
   input: z.object({ description: z.string().min(1).max(500) }),
   output: z.object({ item: ItemOut, created: z.boolean(), sources: z.array(z.string()) }),
@@ -291,6 +301,7 @@ export const matchLineTool = defineTool({
   description:
     "Matches one document line to the client's catalog: the vendor's alias, then the rules, then a model check of the closest candidates. Lines below the confidence threshold are left for a person (needsReview).",
   sideEffect: "internal",
+  entity: "item_match",
   summary: "Line matched: {{decision}}",
   input: z.object({ docLineId: z.uuid(), vendorId: z.uuid().optional() }),
   output: LineOut.extend({ sources: z.array(z.string()) }),
@@ -309,6 +320,7 @@ export const matchLinesTool = defineTool({
   description:
     "Matches every line of a document's latest extraction to the client's catalog, and lists the lines a person needs to review.",
   sideEffect: "internal",
+  entity: "item_match",
   summary: "Matched {{matched}} of {{total}} lines; {{needsReview}} to review",
   input: z.object({ documentId: z.uuid(), vendorId: z.uuid().optional() }),
   output: z.object({
@@ -373,6 +385,7 @@ export const catalogDuplicates = defineTool({
   description:
     "Lists pairs of catalog items that may be the same thing: same category, and no key attribute differs (one item states something the other doesn't).",
   sideEffect: "none",
+  entity: "catalog_item",
   input: z.object({
     category: Category.optional(),
     limit: z.number().int().min(1).max(50).optional(),
@@ -454,6 +467,7 @@ export const pricesRecord = defineTool({
   description:
     "Records the price of every matched line of a document's latest reading, in the catalog item's standard unit (freight and surcharges kept apart, as a landed price). Lines not matched yet, or in a unit with no conversion rule, are skipped with the reason.",
   sideEffect: "internal",
+  entity: "price",
   summary: "Recorded {{recorded}} prices from {{total}} lines",
   input: z.object({ documentId: z.uuid() }),
   output: z.object({
@@ -495,6 +509,8 @@ export const pricesCheck = defineTool({
   description:
     "Checks a document's recorded prices against the client's history with the six alert rules (jump, against the 90-day average, vendor spread, creep, new fee, outlier) and raises an alert, with its evidence and dollar impact, for each that fires. One open alert per kind, item and vendor.",
   sideEffect: "internal",
+  entity: "alert",
+  area: "shared",
   summary: "Checked {{checked}} prices; raised {{raised}} alerts",
   input: z.object({ documentId: z.uuid() }),
   output: z.object({
@@ -521,6 +537,7 @@ export const pricesHistory = defineTool({
   description:
     "An item's recorded prices, oldest first, in its standard unit, from every vendor or one, over the last `days` (default 180).",
   sideEffect: "none",
+  entity: "price",
   input: z.object({
     catalogItemId: z.uuid(),
     vendorId: z.uuid().optional(),
@@ -554,6 +571,7 @@ export const pricesCompareVendors = defineTool({
   description:
     "What each vendor charged for an item over the last `days` (default 90): last and average price, purchases and quantity, cheapest first.",
   sideEffect: "none",
+  entity: "price",
   summary: "Compared {{vendors.length}} vendors",
   input: z.object({
     catalogItemId: z.uuid(),
@@ -586,6 +604,7 @@ export const pricesDigest = defineTool({
   description:
     "The week in prices: what changed against the price before, the alerts raised and their dollar impact, as a short message for the client.",
   sideEffect: "none",
+  entity: "price",
   summary: "{{prices}} prices this week; {{alerts.length}} alerts",
   input: z.object({
     asOf: Day.optional(),

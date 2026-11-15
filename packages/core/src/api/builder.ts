@@ -48,6 +48,8 @@ export const BuilderTurnMeta = z.object({
     .object({ name: z.string(), target: z.string().nullable(), args: z.string() })
     .optional(),
   model: z.string().optional(),
+  /** v0.18 (docs/plan.md §1.105): the step the operator was working on, by id and its name then. */
+  focus: z.object({ stepId: z.string(), name: z.string() }).optional(),
 });
 export type BuilderTurnMeta = z.infer<typeof BuilderTurnMeta>;
 
@@ -67,6 +69,8 @@ export const BuilderTurnView = z.object({
   costUsd: z.string(),
   undoneAt: z.string().nullable(),
   createdAt: z.string(),
+  /** v0.18: an operator turn sent while working on one step: that step. */
+  focus: z.object({ stepId: z.string(), name: z.string() }).optional(),
 });
 export type BuilderTurnView = z.infer<typeof BuilderTurnView>;
 
@@ -179,6 +183,11 @@ export const builderRoutes = {
       examples: z.array(BuilderExample).max(50).optional(),
       /** A client's change request handed to the Builder (a client agent's conversation). */
       requestId: Id.optional(),
+      /**
+       * v0.18 (docs/plan.md §1.105): an agent conversation's turn about one step of the working
+       * draft (the step the operator has open): the Builder answers about it or changes it.
+       */
+      focusStepId: z.string().min(1).max(100).optional(),
     }),
     response: SessionDetail.extend({ turn: BuilderTurnView }),
   }),

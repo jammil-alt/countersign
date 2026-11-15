@@ -59,6 +59,7 @@ import {
   type ProcessAgentBundle,
   parseCommand,
   parseSkillRef,
+  processes,
   routes,
   type SkillDefinition,
   skillTools,
@@ -135,6 +136,18 @@ function asProcesses(ctx: Pick<Ctx, "services">, raw: unknown): ProcessAgentBund
 
 /** A v4 bundle where the registry's (v3-typed) readers take a stored bundle: they read either. */
 const stored = (bundle: ProcessAgentBundle): AgentBundle => bundle as unknown as AgentBundle;
+
+/** v0.18: the working draft's step by id, as a turn's focus (its id and its name now). */
+function focusedStep(
+  working: ProcessAgentBundle,
+  stepId: string,
+): { stepId: string; name: string } | null {
+  for (const w of working.workflows) {
+    const loc = processes.findStep(w.workflow, stepId);
+    if (loc) return { stepId, name: loc.step.name };
+  }
+  return null;
+}
 
 async function agentInScope(ctx: Pick<Ctx, "tx" | "tenantIds">, id: string): Promise<AgentRow> {
   const row = await getAgent(ctx.tx, id);
@@ -774,6 +787,9 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     if (!read.ok) throw new HttpError(422, read.code, read.message);
     const command = read.command;
     const request = body.requestId ? await requestText(ctx, s, body.requestId) : undefined;
+    // v0.18: a focus on a step the working draft no longer has is dropped (the turn is about the
+    // whole draft); the turn keeps the step's name as it was, for the chat.
+    const focus = body.focusStepId ? focusedStep(working, body.focusStepId) : null;
     const result = await agentTurn(
       {
         working,
@@ -782,6 +798,8 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
         message: body.text,
         command,
         ...(request ? { request } : {}),
+        // v0.18 (docs/plan.md §1.105): the step the operator has open, when the turn is about one.
+        ...(focus ? { focusStepId: focus.stepId } : {}),
         ctx: bctx,
       },
       {
@@ -806,8 +824,11 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
                     : command.trigger,
               args: command.args,
             },
+            ...(focus ? { focus } : {}),
           }
-        : {},
+        : focus
+          ? { focus }
+          : {},
     });
     const model = result.calls[0]?.model;
     const turn = await addTurn(tx, s, {

@@ -297,6 +297,8 @@ export const PROCESS_KIND_LABEL: Record<ProcessStep["kind"] | "trigger", string>
   stop: "Stop",
   process: "Automation",
   handoff: "Hand off",
+  // v0.18: a piece the Builder couldn't build, held where it belongs.
+  missing: "Missing",
 };
 
 const NOTIFY_CHANNEL: Record<string, string> = {
@@ -397,6 +399,9 @@ export function processStepDetail(step: ProcessStep, labels: StepLabels = {}): s
       const at = named?.at ?? step.to.step;
       return at ? `Hand off to ${name} at ${at}` : `Hand off to ${name}`;
     }
+    // v0.18: what is missing, in the Builder's sentence.
+    case "missing":
+      return step.need;
   }
 }
 

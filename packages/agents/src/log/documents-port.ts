@@ -13,6 +13,7 @@ import {
   getDocument,
   matchBill,
   readingFile,
+  recordPurchase,
   recordReading,
 } from "@countersign/documents";
 import { createLlmClient, type LlmCallRecord, type LlmTransport } from "@countersign/llm";
@@ -128,6 +129,13 @@ export function dbDocumentsPort(db: Db, options: DbDocumentsOptions): DocumentsP
 
     matchBill(tenantId, input) {
       return withTenant(db, tenantId, (tx) => matchBill(tx, tenantId, input));
+    },
+
+    // §1.104: an invoice's own purchase record, in one client-scoped transaction.
+    recordPurchase(tenantId, input) {
+      return withTenant(db, tenantId, (tx) =>
+        recordPurchase(tx, tenantId, input.documentId, { testRun: input.testRun }),
+      );
     },
 
     // Skill model (2026-11-10): the file an AI skill reads, and recording what it read.

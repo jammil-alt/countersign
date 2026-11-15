@@ -537,6 +537,18 @@ export async function executeWorkflow(
       ),
     };
   }
+  // v0.18 (docs/plan.md §1.103): a missing step is never published, so a run never meets one; if
+  // a version had one anyway, the run fails before any step runs, rather than part-way through.
+  const missing = processes.allSteps(loaded.process).find((l) => l.step.kind === "missing");
+  if (missing) {
+    const reason = `the step "${missing.step.name}" is missing and can't run`;
+    return {
+      status: "failed",
+      reason,
+      nodeId: missing.step.id,
+      errorKey: runErrorKey({ tool: null, kind: "missing" }, reason),
+    };
+  }
   // Hand off: the step the run starts at is in the version it is pinned to (checked when it was
   // started); a version without it fails rather than running from its first step.
   if (ctx.start && !loaded.process.steps.some((s) => s.id === ctx.start?.at)) {
@@ -783,6 +795,9 @@ class Executor {
         // Hand off (owner, 2026-11-11)
         case "handoff":
           return await this.handoff(step, name, frame);
+        // v0.18: refused (the check above fails the run first; this holds whatever reaches here).
+        case "missing":
+          throw new Error(`the step "${step.name}" is missing and can't run`);
       }
     } catch (error) {
       if (error instanceof RunEnd) {

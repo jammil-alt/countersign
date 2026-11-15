@@ -501,3 +501,66 @@ describe("draft-skill", () => {
     expect(undoSkillChange(edited, first as NonNullable<typeof first>).ok).toBe(false);
   });
 });
+
+// v0.18 (docs/plan.md §1.105): a turn about the step the operator has open.
+describe("a turn about one step", () => {
+  const draft = () => {
+    const b = blankAgentDraft({ name: "Remy" }, () => "trig-f");
+    b.workflows[0]?.workflow.steps.push(
+      matchStep("019a7f00-0000-7000-8000-0000000000f1") as unknown as Step,
+      noteStep(
+        "019a7f00-0000-7000-8000-0000000000f2",
+        "019a7f00-0000-7000-8000-0000000000f1",
+      ) as unknown as Step,
+    );
+    return b;
+  };
+
+  async function focused(focusStepId?: string) {
+    const working = draft();
+    const model = new FakeModel([
+      editing((b) => {
+        // Renames the step it was told about: the second one.
+        const steps = (b.workflows[0] as Draft["workflows"][number]).workflow.steps;
+        const s2 = steps.find((s) => (s as { id?: string }).id === "s2") as
+          | { name: string }
+          | undefined;
+        if (s2) s2.name = "Note the match";
+      }) as never,
+    ]);
+    const result = await agentTurn(
+      {
+        working,
+        origin: working,
+        history: [],
+        message: "Call it something clearer",
+        command: null,
+        ...(focusStepId ? { focusStepId } : {}),
+        ctx: context(),
+      },
+      { llm: createLlmClient({ transport: model }), validate, newId },
+    );
+    return { result, prompt: model.requests[0]?.messages[0]?.content as string };
+  }
+
+  it("names the step by its handle in the prompt, and the change lands on it", async () => {
+    const { result, prompt } = await focused("019a7f00-0000-7000-8000-0000000000f2");
+    expect(prompt).toContain(
+      'The operator is working on one step: s2 ("Note it on the record", a write step, step 2 of "Main").',
+    );
+    expect(prompt).toContain("Leave the other steps as they are unless the operator asks");
+    // The model never sees the real id.
+    expect(prompt).not.toContain("0000000000f2");
+    expect(stepsOf(result.bundle).map((s) => [s.id, s.name])).toEqual([
+      ["019a7f00-0000-7000-8000-0000000000f1", "Match the receipt"],
+      ["019a7f00-0000-7000-8000-0000000000f2", "Note the match"],
+    ]);
+  });
+
+  it("says nothing of a step without a focus, or with one the draft doesn't have", async () => {
+    const plain = await focused();
+    expect(plain.prompt).not.toContain("working on one step");
+    const gone = await focused("019a7f00-0000-7000-8000-0000000000ff");
+    expect(gone.prompt).toBe(plain.prompt);
+  });
+});

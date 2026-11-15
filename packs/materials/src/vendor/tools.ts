@@ -154,6 +154,8 @@ export const vendorMatch = defineTool({
   description:
     "Finds the client's vendor for a document, or for a name, email or tax id: the vendor id given, the document's purchase, the tax id, the sender's email domain, then the vendor's name or one of its known names. Writes nothing.",
   sideEffect: "none",
+  entity: "vendor",
+  area: "shared",
   summary: "Vendor: {{vendorName}}",
   input: z
     .object({
@@ -201,6 +203,7 @@ export const vendorItemsLookup = defineTool({
   description:
     "Looks up each line of a document's latest reading in this vendor's catalog: the vendor's item with the line's SKU, then a SKU or wording this vendor used before. A hit gives the master item; no other vendor is searched. Every other line comes back open. Writes nothing.",
   sideEffect: "none",
+  entity: "vendor_item",
   summary: "{{known.length}} lines known to this vendor; {{openCount}} open",
   input: z.object({ documentId: Uuid, vendorId: Uuid }),
   output: z.object({
@@ -255,6 +258,7 @@ export const vendorItemsSimilar = defineTool({
   description:
     "For each open line, this vendor's closest items (by meaning, then by name), one per master item, scored by the category's key attributes. One with every key attribute equal settles the line; none that could be it makes the line new to this vendor; the rest stay open for Semantic match. Writes nothing.",
   sideEffect: "none",
+  entity: "vendor_item",
   summary: "{{openCount}} lines for the semantic match",
   input: z.object({
     vendorId: Uuid,
@@ -306,6 +310,7 @@ export const masterItemsCandidates = defineTool({
   description:
     "For each line Check matches found new to its vendor, the client's master items it could be: equal key attributes, close names, then close meaning, in its category. One equal item links it; none that could be it, with every required attribute stated, makes a new master item; the rest are for the Master item manager. Writes nothing.",
   sideEffect: "none",
+  entity: "catalog_item",
   summary: "{{newCount}} lines new to this vendor; {{openCount}} for the master item manager",
   input: z.object({
     vendorId: Uuid,
@@ -381,6 +386,7 @@ export const vendorItemsRegister = defineTool({
   description:
     "Registers a document's decided lines: each line's match, the vendor's item (made when new), its SKU and wording, a new master item when the line is new everywhere, and the price, which becomes the vendor item's last price unless a newer one is kept. Lines nobody is sure of are listed for a person. Given a person's answers (each line's master item, or a new one) it registers them as theirs, so the vendor's wording is known next time. A line registered before is left as it is.",
   sideEffect: "internal",
+  entity: "vendor_item",
   summary: "Registered {{registered}} lines; {{needsPersonCount}} for a person",
   input: z.object({
     documentId: Uuid,
@@ -475,6 +481,7 @@ export const vendorItemsList = defineTool({
   description:
     "One vendor's catalog for this client: every item it sells, with its SKU, the vendor's name for it, pack and unit, the master item, the last price and its date, the list price, and whether it is preferred.",
   sideEffect: "none",
+  entity: "vendor_item",
   summary: "{{items.length}} items from {{vendor.name}}",
   input: z.object({
     vendorId: Uuid,
@@ -505,6 +512,7 @@ export const vendorItemsForItem = defineTool({
   description:
     "Every vendor's version of one master item, side by side: each vendor's SKU, pack and unit, and its last price per the item's standard unit, the preferred vendor first, then the cheapest. A price with no conversion to the standard unit is listed last and never compared.",
   sideEffect: "none",
+  entity: "vendor_item",
   summary: "{{vendors.length}} vendors sell {{item.name}}",
   input: z.object({ catalogItemId: Uuid, includeDiscontinued: z.boolean().optional() }),
   output: z.object({
@@ -534,6 +542,7 @@ export const vendorItemUpsert = defineTool({
   description:
     "Adds an item to a vendor's catalog, or changes one (by its id, or the vendor's SKU): the master item it is, the vendor's name and description, pack and unit with how many standard units one unit is, the minimum order, the lead time and the list price. Only the fields given change. A new item, or a changed name, description or master item, is embedded again for the search by meaning.",
   sideEffect: "internal",
+  entity: "vendor_item",
   summary: "Saved {{item.name}} in the vendor's catalog",
   input: z.object({
     id: Uuid.optional(),
@@ -662,6 +671,7 @@ export const vendorItemsImport = defineTool({
   description:
     "Imports a vendor's price list (CSV text, or its rows) into the vendor's catalog: each row is the vendor's item by its SKU, else by a SKU or wording the vendor used before, else by the master item the row names, and takes the list's name, description, pack, unit, minimum order, lead time and list price (dated `listPriceOn`). A row no master item is known for is listed as unplaced and gets no vendor item. Prices paid are not changed.",
   sideEffect: "internal",
+  entity: "vendor_item",
   summary: "{{updated}} vendor items updated, {{created}} added; {{unplaced}} unplaced",
   input: z
     .object({
@@ -720,6 +730,7 @@ export const vendorItemSetPreferred = defineTool({
   description:
     "Marks a vendor item as the client's first choice for its master item; the item another vendor was preferred for loses it.",
   sideEffect: "internal",
+  entity: "vendor_item",
   verb: "update",
   summary: "{{item.name}} is now preferred",
   input: z.object({ vendorItemId: Uuid }),
@@ -745,6 +756,7 @@ export const vendorItemDiscontinue = defineTool({
   description:
     "Marks a vendor item discontinued (the vendor no longer sells it): it leaves the vendor's catalog and its semantic search, and stops being preferred. Its prices are kept.",
   sideEffect: "internal",
+  entity: "vendor_item",
   verb: "update",
   summary: "{{item.name}} discontinued",
   input: z.object({ vendorItemId: Uuid }),
@@ -764,6 +776,7 @@ export const embeddingsWrite = defineTool({
   description:
     "Makes the embeddings the semantic searches use, for the master items and vendor items given (those just registered), and for up to `missing` more of the client's items that have none yet (or are due again); with no ids, for up to `missing` such items. An item already embedded from the same text is left as it is.",
   sideEffect: "internal",
+  entity: "catalog_item",
   verb: "update",
   summary: "Embedded {{embedded}} items",
   input: z.object({

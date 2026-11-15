@@ -23,6 +23,7 @@ export const readyTool = defineTool({
   description:
     "Lists the bookings on accounts set to book that are proposed or approved and not in the accounting tool yet, oldest first, for the write steps (each write waits for a person's signature).",
   sideEffect: "none",
+  entity: "booking",
   input: z.object({ limit: z.number().int().min(1).max(50).default(25) }),
   output: z.object({
     bookings: z.array(z.object({ bookingId: z.string(), kind: z.string() })),
@@ -233,6 +234,7 @@ export const qboInputTool = defineTool({
   description:
     "Lays out one approved booking as the QuickBooks write it needs: `entity` says which (purchase, deposit or transfer) and that field holds the write's input.",
   sideEffect: "none",
+  entity: "booking",
   input: z.object({ bookingId: Id }),
   output: z.object({
     entity: Entity,
@@ -254,6 +256,7 @@ export const postedTool = defineTool({
   description:
     "Records what a booking became in QuickBooks (its id), or, with no id, that the write didn't happen and why: the transaction goes back to a person.",
   sideEffect: "internal",
+  entity: "booking",
   verb: "update",
   summary: "Recorded the booking as {{status}}",
   input: z.object({

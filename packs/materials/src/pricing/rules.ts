@@ -5,6 +5,7 @@
 
 import { type Decimal, dec, formatAmount, toNumeric } from "@countersign/core";
 import type { StandardUom } from "../schema";
+import { CONTRACT_ALERT_KINDS, contractDedupeKey } from "./contract";
 
 export const ALERT_KINDS = [
   "price_jump",
@@ -13,6 +14,8 @@ export const ALERT_KINDS = [
   "price_creep",
   "new_fee",
   "outlier",
+  // §1.104: the contract check's (./contract.ts).
+  ...CONTRACT_ALERT_KINDS,
 ] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 
@@ -434,8 +437,9 @@ export function newFees(input: {
   return out;
 }
 
-/** One open alert per (kind, item, vendor); a fee's per (vendor, fee type). */
+/** One open alert per (kind, item, vendor); a fee's per (vendor, fee type); a contract's its own. */
 export function dedupeKey(a: AlertDraft): string {
+  if ((CONTRACT_ALERT_KINDS as readonly string[]).includes(a.kind)) return contractDedupeKey(a);
   return a.kind === "new_fee"
     ? `materials:new_fee:${a.vendorId}:${String(a.facts.feeType)}`
     : `materials:${a.kind}:${a.catalogItemId}:${a.vendorId}`;

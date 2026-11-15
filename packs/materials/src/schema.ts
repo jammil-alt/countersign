@@ -266,7 +266,7 @@ export const vendorItem = pgTable(
     ext: jsonb("ext").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    // §1.104 (0051): the list price is this contract's agreed price for the item (from
+    // §1.104 (0051). DECISION: the list price is this contract's agreed price for the item (from
     // `list_price_on`, until the contract ends). Null: a plain list price, or none.
     contractId: uuid("contract_id"),
     // §1.104 (0052, owner 2026-11-15): the client's tolerance on the agreed price, per item: an

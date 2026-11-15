@@ -5,6 +5,7 @@
     "invoiceNumber": "CR-7731",
     "invoiceDate": "2026-10-30",
     "dueDate": "2026-11-29",
+    "paymentTerms": "Net 30",
     "poNumber": "J-1185",
     "currency": "USD",
     "pageCount": 1,

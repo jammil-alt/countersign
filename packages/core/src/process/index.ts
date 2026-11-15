@@ -14,6 +14,8 @@ export * from "./conditions";
 export * from "./conversation";
 export * from "./convert";
 export * from "./customize";
+// v0.18: what each step reads and saves.
+export * from "./data-use";
 // Hand off (owner, 2026-11-11): what a hand-off step knows of the agent it hands off to.
 export * from "./handoff";
 export * from "./hours";

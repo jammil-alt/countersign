@@ -55,6 +55,8 @@ import {
 } from "./fields";
 // Hand off (owner, 2026-11-11)
 import { handoffChoices, handoffName } from "./handoff";
+// v0.18: a missing step's inspector, and each step's data.
+import { DataSection, type MissingActions, MissingFields } from "./missing";
 import {
   type ApprovalEnv,
   actionTarget,
@@ -138,6 +140,11 @@ export interface InspectorProps {
   onMoveSkill?(move: SkillMove): void;
   /** Opens the Fix dialog for one of the step's problems. */
   onFix?: ((e: BuilderProblem) => void) | undefined;
+  // v0.18 (docs/plan.md §1.103)
+  /** What a step reads and saves, and what the client lacks for it ("Data"). */
+  dataOf?: ((step: Step) => { lines: string[]; warnings: string[] }) | undefined;
+  /** A missing step: draft its skill, replace it from the palette, and whether a draft starts. */
+  missing?: Omit<MissingActions, "onDelete" | "tenantId"> | undefined;
 }
 
 function errorsFor(errors: readonly BuilderProblem[], node: string): FieldErrors {
@@ -311,6 +318,20 @@ function StepInspector(props: InspectorProps & { step: Step }) {
     [workflow, step.id, ctx],
   );
   const set: SetStep = (key, fn) => onStep(step.id, fn, `${step.id}:${key}`);
+  // v0.18: a missing step says what is missing and offers what fills it.
+  if (step.kind === "missing") {
+    return (
+      <MissingFields
+        {...props.missing}
+        step={step}
+        eyebrow={`${stepNumber(workflow, step.id)} · Missing`}
+        tenantId={props.tenantId}
+        onDelete={onDelete}
+        onName={(name) => set("name", (s) => ({ ...s, name }))}
+      />
+    );
+  }
+  const data = props.dataOf?.(step);
   // Skill model (2026-11-10): a write by where it writes, a skill step with its kind.
   const label =
     step.kind === "write"
@@ -358,6 +379,7 @@ function StepInspector(props: InspectorProps & { step: Step }) {
       </Row>
 
       <KindFields {...props} paths={paths} fieldErrors={fieldErrors} set={set} />
+      {data ? <DataSection lines={data.lines} warnings={data.warnings} /> : null}
 
       {step.kind === "skill" && skill ? (
         <>

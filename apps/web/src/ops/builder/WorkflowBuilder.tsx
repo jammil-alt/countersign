@@ -21,6 +21,7 @@ import {
   lookupSkill,
   type ProcessAgentBundle,
   parseSkillRef,
+  processes,
   providerModelName,
   Slug,
   skillKind,
@@ -98,6 +99,17 @@ import {
   validateProcessesLikeServer,
   writeLabelOf,
 } from "./catalog";
+// v0.18 (docs/plan.md §1.103): what each step reads and saves, and what's left on a draft.
+import {
+  agentDataSummary,
+  type ClientSetup,
+  type DataNames,
+  type LeftItem,
+  problemConnector,
+  stepDataLines,
+  stepDataWarnings,
+  whatsLeft,
+} from "./data-use";
 import { FixDialog, type FixRequest } from "./FixDialog";
 import { EventOptions, SmallInput, SmallSelect } from "./fields";
 // Hand off (owner, 2026-11-11): the client's agents a hand-off step can start.
@@ -128,6 +140,7 @@ import {
   redo,
   removeStep,
   removeTrigger,
+  replaceStep,
   setTrigger,
   startHistory,
   undo,
@@ -146,6 +159,9 @@ import { type ProblemLine, problemLines, problemPlace, readableErrors } from "./
 import { addReshapeBefore, addReshapeThenAction, newReshapeStep } from "./reshape";
 import { useClientScriptTools } from "./scripts";
 import { applySkillMove } from "./skill-move";
+// v0.18: the Builder beside the step's settings (opt-in).
+import { readStepChat, StepChat, writeStepChat } from "./step-chat";
+import { WhatsLeft } from "./whats-left";
 
 type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
 
@@ -412,6 +428,8 @@ function BuilderBody(
   const [beforeAdd, setBeforeAdd] = useState<Exclude<Rail, "add">>("builder");
   // The list the palette adds to: the end of the workflow, or a fork path or loop.
   const [addTarget, setAddTarget] = useState<ContainerId>(ROOT);
+  // v0.18: the missing step the palette's pick replaces, while "Replace with a step" is open.
+  const [replacing, setReplacing] = useState<string | null>(null);
   const [paletteFocus, setPaletteFocus] = useState(0);
   // A template's connectors the operator chose to build with in this session.
   const [extraConnectors, setExtraConnectors] = useState<string[]>([]);
@@ -488,17 +506,22 @@ function BuilderBody(
         });
     });
   };
-  const openPalette = (container: ContainerId) => {
+  const openPalette = (container: ContainerId, replace: string | null = null) => {
     if (rail !== "add") setBeforeAdd(rail);
     setAddTarget(container);
+    setReplacing(replace);
     setPaletteFocus((n) => n + 1);
     showRail("add");
   };
   const closePalette = () => {
     setRail(beforeAdd);
     setAddTarget(ROOT);
+    setReplacing(null);
   };
   const targetText = useMemo(() => {
+    // v0.18: the pick takes a missing step's place.
+    const replaced = replacing && workflow ? locate(workflow, replacing)?.step : undefined;
+    if (replaced) return `in place of “${replaced.name || "the missing step"}”`;
     if (!workflow || addTarget === ROOT) return "at the end";
     if (addTarget.startsWith("otherwise:")) {
       const branch = ifOfBranch(workflow, addTarget.slice("otherwise:".length));
@@ -512,7 +535,7 @@ function BuilderBody(
     }
     const loop = locate(workflow, addTarget.slice("loop:".length))?.step;
     return loop ? `inside “${loop.name || "For each"}”` : "at the end";
-  }, [workflow, addTarget]);
+  }, [workflow, addTarget, replacing]);
 
   // ── Whose tools the palette offers ──
   // DECISION (2.5): the frame's clients list (OpsLayout's `clients?view=names`) says whether the
@@ -628,6 +651,22 @@ function BuilderBody(
       return;
     }
     const step = createStep(item, ctx);
+    // v0.18: "Replace with a step" puts the pick in the missing step's place, with its id.
+    if (replacing && !target && rail === "add") {
+      const id = replacing;
+      setReplacing(null);
+      setAddTarget(ROOT);
+      apply((b) =>
+        allowStep(
+          editWorkflow(b, slug, (w) => replaceStep(w, id, step)),
+          step,
+          ctx,
+        ),
+      );
+      setSelection({ type: "step", id });
+      setRail("step");
+      return;
+    }
     // + adds at the end of the list the palette was opened for (the workflow's, by default).
     const container = rail === "add" ? addTarget : ROOT;
     const at = target ?? {
@@ -713,6 +752,120 @@ function BuilderBody(
     () => (workflow && template ? customizedSteps(workflow, templateWorkflow) : new Map()),
     [workflow, template, templateWorkflow],
   );
+
+  // ── v0.18: what each step reads and saves, and what's left (docs/plan.md §1.103) ──
+  const client = asks ? agent.tenantId : null;
+  // DECISION (v0.18): the packs and the test run come from the routes the back office already has
+  // (the client's packs, the runs list filtered to this agent's test runs of this version); while
+  // either is loading or fails, what's left leaves that item out rather than guessing.
+  const clientPacks = useApi(
+    apiRoutes.opsClientPacks,
+    client ? { params: { id: client }, life: "catalog" } : null,
+  );
+  const testRuns = useApi(
+    apiRoutes.opsRuns,
+    client ? { query: { agent: agent.id, mode: "test", versions: saved.id, limit: 1 } } : null,
+  );
+  // A test run started here, of the version it saved first.
+  const [testedHere, setTestedHere] = useState<string | null>(null);
+  const dataNames = useMemo<DataNames>(
+    () => ({
+      connector: (id) => connectorName(data, id),
+      pack: (id) =>
+        clientPacks.data?.packs.find((p) => p.id === id)?.name ?? connectorName(data, id),
+    }),
+    [data, clientPacks.data],
+  );
+  const dataCtx = useMemo(
+    () => ({ ...ctx, connectors: new Set(data.catalog.connectors.map((c) => c.id)) }),
+    [ctx, data.catalog.connectors],
+  );
+  const clientName =
+    (frameClients ?? clients.data?.clients)?.find((c) => c.id === agent.tenantId)?.name ??
+    "this client";
+  const setup = useMemo<ClientSetup | null>(() => {
+    if (!client) return null;
+    const live = (props.connections ?? []).filter((c) => c.status !== "disconnected");
+    return {
+      name: clientName,
+      connected: new Set(live.map((c) => c.connector)),
+      bound: new Set(
+        Object.entries(agent.bindings)
+          .filter(([connector, id]) => live.some((c) => c.id === id && c.connector === connector))
+          .map(([connector]) => connector),
+      ),
+      packs: clientPacks.data
+        ? new Map(clientPacks.data.packs.map((p) => [p.id, p.enabled]))
+        : null,
+    };
+  }, [client, clientName, props.connections, agent.bindings, clientPacks.data]);
+  // DECISION (v0.18): "tested" means a test run of the saved version with no change since; a
+  // template's test runs run as test copies in clients, so for a template it isn't known (no item).
+  const tested: boolean | null = !client
+    ? null
+    : dirty
+      ? false
+      : testedHere === saved.id || (testRuns.data ? testRuns.data.runs.length > 0 : null);
+  const leftItems = useMemo(
+    () => whatsLeft({ bundle, ctx: dataCtx, client: setup, names: dataNames, tested }),
+    [bundle, dataCtx, setup, dataNames, tested],
+  );
+  const dataSummary = useMemo(
+    () => agentDataSummary(bundle, dataCtx, dataNames),
+    [bundle, dataCtx, dataNames],
+  );
+  const dataOf = useCallback(
+    (step: processes.Step) => {
+      const use = processes.stepDataUse(step, dataCtx);
+      return {
+        lines: stepDataLines(use, dataNames),
+        warnings: stepDataWarnings(use, setup, dataNames),
+      };
+    },
+    [dataCtx, dataNames, setup],
+  );
+  // The problems list leaves out what's left lists on its own: missing steps, and a connection
+  // the client setup items already name.
+  const setupConnectors = new Set(
+    leftItems.flatMap((i) => (i.kind === "connection" ? [i.key.slice("connection:".length)] : [])),
+  );
+  const listedErrors = result.errors.filter(
+    (e) =>
+      e.code !== "missing_step" &&
+      !(e.code === "connection_missing" && setupConnectors.has(problemConnector(e.message) ?? "")),
+  );
+  const selectLeft = (item: Extract<LeftItem, { stepId: string }>) =>
+    showError({
+      workflow: item.workflow,
+      stepId: item.stepId,
+      field: "",
+      code: "missing_step",
+      message: "",
+    });
+  // Draft the skill a missing step needs: a Builder conversation about a new skill (§9.6), for
+  // this client's agents when the agent is a client's.
+  const [draftingSkill, setDraftingSkill] = useState(false);
+  const draftSkill = async (step: processes.MissingStep) => {
+    setDraftingSkill(true);
+    try {
+      const started = await action.call(apiRoutes.opsStartBuilderSession, {
+        body: { kind: "skill", ...(client ? { clientId: client } : {}) },
+      });
+      if (!started.ok) return;
+      const id = started.data.session.id;
+      await action.call(apiRoutes.opsBuilderTurn, {
+        params: { id },
+        body: {
+          text: `Draft a skill for the step "${step.name}" of the agent ${agent.name}. What is missing: ${step.need}`,
+        },
+      });
+      // The builder's draft is kept on this device now, so nothing is lost by going to the skill.
+      if (dirty) writeDraft(agent.id, { from: saved.id, at: Date.now(), bundle });
+      navigate(`/ops/skills/new?session=${id}`);
+    } finally {
+      setDraftingSkill(false);
+    }
+  };
 
   // ── The rolling draft ──
   useEffect(() => {
@@ -863,6 +1016,40 @@ function BuilderBody(
     ensureSaved: async () => (dirty ? await save() : saved),
     onDraft: (next) => apply(() => next),
   });
+  // ── v0.18: working on steps with the Builder (docs/plan.md §1.105) ──
+  // Opt-in and off by default; with it off the builder is exactly as before.
+  const [stepChat, setStepChat] = useState(readStepChat);
+  const steps = useMemo(() => (workflow ? processes.allSteps(workflow) : []), [workflow]);
+  const focusStep = (id: string) => {
+    setSelection({ type: "step", id });
+    showRail("step");
+  };
+  const toggleStepChat = (on: boolean) => {
+    setStepChat(on);
+    writeStepChat(on);
+    // On, with no step open: start at the first step.
+    if (on && selection?.type !== "step" && steps[0]) focusStep(steps[0].step.id);
+    else if (on) showRail("step");
+  };
+  // The step the conversation is on: the selected step, in run order, with its neighbours.
+  // DECISION (v0.18): previous and next go through every step in run order, nested ones included
+  // (a path's steps, a loop's), so "step by step" reaches all of them.
+  const stepFocus = (() => {
+    if (!stepChat || rail !== "step" || selection?.type !== "step") return null;
+    const at = steps.findIndex((l) => l.step.id === selection.id);
+    const here = steps[at];
+    if (!here) return null;
+    return {
+      step: {
+        id: here.step.id,
+        name: here.step.name,
+        place: `step ${at + 1} of ${steps.length}`,
+      },
+      previous: steps[at - 1]?.step.id,
+      next: steps[at + 1]?.step.id,
+    };
+  })();
+
   // ── Fix: a problem explained and a fix proposed by the Builder, in a dialog ──
   const [fixing, setFixing] = useState<FixRequest | null>(null);
   const workflowName = (s?: string) =>
@@ -1053,6 +1240,7 @@ function BuilderBody(
               params: { id: agent.id, vid: v.id },
               body: { workflow: slug, payload, ...(clientId ? { clientId } : {}) },
             });
+            if (res.ok) setTestedHere(v.id);
             return res.ok ? res.data.runId : null;
           }}
         />
@@ -1085,6 +1273,9 @@ function BuilderBody(
               railOpen
                 ? "@3xl:grid-cols-[minmax(0,1fr)_340px]"
                 : "@3xl:grid-cols-[minmax(0,1fr)_52px]",
+              // v0.18: with the Builder beside the step, the panel takes two columns where there's
+              // room; narrower, the chat sits under the settings.
+              railOpen && stepFocus && "@6xl:grid-cols-[minmax(0,1fr)_720px]",
             )}
           >
             <div className="min-w-0 bg-surface-subtle px-4 py-5 md:px-6">
@@ -1145,6 +1336,18 @@ function BuilderBody(
                       Select steps
                     </Button>
                   ) : null}
+                  {workflow && workflow.steps.length > 0 ? (
+                    // v0.18 (docs/plan.md §1.105): the Builder beside the step's settings, opt-in.
+                    <Button
+                      variant="ghost"
+                      aria-pressed={stepChat}
+                      data-testid="builder-step-chat-toggle"
+                      onClick={() => toggleStepChat(!stepChat)}
+                      className={cx(stepChat && "border-slate bg-slate-tint text-slate")}
+                    >
+                      Work on steps with the Builder
+                    </Button>
+                  ) : null}
                   {dirty ? (
                     <span className="text-xs text-ink-muted" data-testid="builder-draft-status">
                       {draftAt
@@ -1171,12 +1374,22 @@ function BuilderBody(
                 </span>
               </div>
 
-              <Problems
-                errors={result.errors}
-                bundle={bundle}
-                slug={slug}
-                onShow={showError}
-                onFix={fixLine}
+              <WhatsLeft
+                items={leftItems}
+                problemCount={problemLines(listedErrors, bundle).length}
+                problems={
+                  <Problems
+                    errors={listedErrors}
+                    valid={result.errors.length === 0}
+                    bundle={bundle}
+                    slug={slug}
+                    onShow={showError}
+                    onFix={fixLine}
+                  />
+                }
+                summary={dataSummary}
+                onSelect={selectLeft}
+                onTest={() => setPanel("test")}
               />
               <Advice warnings={result.warnings.filter((w) => w.workflow === slug)} />
 
@@ -1202,7 +1415,8 @@ function BuilderBody(
                     showRail("step");
                   }}
                   labels={labels}
-                  onAddAt={openPalette}
+                  data={dataOf}
+                  onAddAt={(container) => openPalette(container)}
                   addTarget={rail === "add" ? addTarget : null}
                   checked={checked ?? undefined}
                   onCheck={(id, on) =>
@@ -1356,7 +1570,20 @@ function BuilderBody(
                 <BuilderPanel session={session} />
               </div>
               {railOpen && workflow && rail === "step" ? (
-                <div className="min-h-0 flex-1 overflow-y-auto">
+                <StepPanel
+                  chat={
+                    stepFocus ? (
+                      <StepChat
+                        session={session}
+                        step={stepFocus.step}
+                        onPrevious={((id) => (id ? () => focusStep(id) : undefined))(
+                          stepFocus.previous,
+                        )}
+                        onNext={((id) => (id ? () => focusStep(id) : undefined))(stepFocus.next)}
+                      />
+                    ) : null
+                  }
+                >
                   <Inspector
                     workflow={workflow}
                     bundle={bundle}
@@ -1431,8 +1658,15 @@ function BuilderBody(
                     }}
                     onProcess={(fn, key) => edit(fn, key)}
                     onFix={fixError}
+                    // v0.18: each step's data, and what fills a missing step.
+                    dataOf={dataOf}
+                    missing={{
+                      onDraftSkill: draftSkill,
+                      onReplace: (id) => openPalette(ROOT, id),
+                      drafting: draftingSkill,
+                    }}
                   />
-                </div>
+                </StepPanel>
               ) : null}
             </aside>
           </div>
@@ -1455,16 +1689,35 @@ function BuilderBody(
   );
 }
 
+// ── v0.18: the step tab, with the Builder beside it when working on steps ────────────────────────
+
+/** Without a chat, the step's settings exactly as before; with one, the two side by side. */
+function StepPanel({ chat, children }: { chat: ReactNode; children: ReactNode }) {
+  if (!chat) return <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>;
+  return (
+    <div
+      className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto @6xl:grid-cols-2 @6xl:overflow-hidden"
+      data-testid="builder-step-with-chat"
+    >
+      <div className="min-h-0 @6xl:overflow-y-auto">{children}</div>
+      {chat}
+    </div>
+  );
+}
+
 // ── Problems ─────────────────────────────────────────────────────────────────────────────────────
 
 function Problems({
   errors,
+  valid,
   bundle,
   slug,
   onShow,
   onFix,
 }: {
   errors: BuilderProblem[];
+  /** v0.18: whether the bundle has no errors at all (what's left lists missing steps itself). */
+  valid: boolean;
   bundle: ProcessAgentBundle;
   slug: string;
   onShow(e: BuilderProblem): void;
@@ -1473,6 +1726,7 @@ function Problems({
 }) {
   const [open, setOpen] = useState(true);
   if (errors.length === 0) {
+    if (!valid) return null;
     return (
       <p className="mb-4 text-sm text-ink-muted" data-testid="builder-valid">
         Valid: ready to test-run and publish.

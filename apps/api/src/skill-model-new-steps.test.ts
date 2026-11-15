@@ -247,8 +247,10 @@ describe.skipIf(!h)("new steps in a first version", () => {
     const steps = out.bundle.workflows[0].workflow.steps as { skill?: string; tool?: string }[];
     expect(steps.some((s) => s.skill === "materials.read-quote")).toBe(false);
     expect(steps.some((s) => s.tool === "docs.extract")).toBe(false);
-    expect(JSON.stringify(out.gaps)).toContain("materials.read-quote");
-    expect(JSON.stringify(out.gaps)).toContain("docs.extract");
+    // v0.18: each is held as a missing step in its place, saying what was asked for.
+    const holes = JSON.stringify(steps.filter((s) => (s as { kind?: string }).kind === "missing"));
+    expect(holes).toContain("materials.read-quote");
+    expect(holes).toContain("docs.extract");
   });
 });
 

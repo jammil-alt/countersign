@@ -1,6 +1,7 @@
 // Packs on the platform (docs/plan.md §1.13, M8's done-when as far as it runs without a live model):
-// the operator switches the Materials pack on for a client, which installs no agent (§1.63: agents
-// are built in the Agent lab); an agent built from the pack's skills validates against the
+// the operator switches the Materials pack on for a client, which installs its one template once
+// (§1.104, "Vendor contracts and invoice review"; other agents are built in the Agent lab, §1.63)
+// and no client agent; an agent built from the pack's skills validates against the
 // platform's registries; a client's own copy of it runs its purchase intake on an invoice the
 // client uploaded (read from the recorded fixture) to priced lines with a price_jump alert, and the client sees it in Price watch (JSON and CSV); the back
 // office sees the same; another client sees nothing; the match review card's decisions teach the
@@ -92,12 +93,20 @@ describe.skipIf(!h)("packs on the platform", () => {
     return { status: res.status, json };
   }
 
-  it("lists the deployment's packs, with no templates, and each client's state", async () => {
+  it("lists the deployment's packs, their templates, and each client's state", async () => {
     const res = await H.call(OPERATOR, "GET", "/api/ops/packs");
     expect(res.status).toBe(200);
     const [materials] = (res.json as J).packs;
     expect(materials).toMatchObject({ id: "materials", name: "Materials" });
-    expect(materials.templates).toEqual([]);
+    // §1.104: the one template, not installed until the pack is first switched on.
+    expect(materials.templates).toEqual([
+      {
+        slug: "vendor-contracts",
+        name: "Vendor contracts and invoice review",
+        templateId: null,
+        newVersions: 0,
+      },
+    ]);
     expect(materials.clients.map((c: J) => c.enabled)).toEqual([false, false]);
     expect(materials.screens.map((s: J) => s.title)).toEqual([
       "Price watch",
@@ -118,7 +127,7 @@ describe.skipIf(!h)("packs on the platform", () => {
     expect(result.errors).toEqual([]);
   });
 
-  it("switches the pack on for a client and installs no agent", async () => {
+  it("switches the pack on for a client and installs its template once, no client agent", async () => {
     const res = await H.call(
       OPERATOR,
       "POST",
@@ -127,9 +136,10 @@ describe.skipIf(!h)("packs on the platform", () => {
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const body = res.json as J;
     expect(body.pack).toMatchObject({ id: "materials", enabled: true });
-    expect(body.installed).toEqual([]);
+    // §1.104: the template (v1, its processes as v2, the hand-off as v3), never a client's agent.
+    expect(body.installed.map((t: J) => t.slug)).toEqual(["vendor-contracts"]);
 
-    // Again, and for another client: switched on, still nothing installed.
+    // Again, and for another client: switched on, nothing more installed.
     const again = await H.call(
       OPERATOR,
       "POST",
@@ -146,7 +156,8 @@ describe.skipIf(!h)("packs on the platform", () => {
       .select()
       .from(agentVersion)
       .where(eq(agentVersion.authorType, "pack"));
-    expect(packTemplates).toEqual([]);
+    expect(packTemplates.map((v) => v.version).sort()).toEqual([1, 2, 3]);
+    expect(packTemplates.every((v) => v.tenantId === null)).toBe(true);
     const list = await H.call(OPERATOR, "GET", `/api/ops/clients/${H.A.tenantId}/packs`);
     expect((list.json as J).packs[0]).toMatchObject({ enabled: true });
     // A client the operator doesn't serve, and an unknown pack.
