@@ -5,6 +5,7 @@
 import type { BuilderChange, BuilderTurnView } from "@countersign/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { AgentBadge } from "../../ui/badges";
+import { Thinking } from "../../ui/motion";
 import { Button, cx } from "../../ui/primitives";
 
 /** The Builder's tile: the same initials tile as any agent. */
@@ -54,9 +55,13 @@ export function Turns({ turns, onUndo, undoOff, busy, pending, empty }: TurnsPro
           <p className="ml-auto max-w-[85%] whitespace-pre-wrap rounded-lg bg-surface-subtle px-3.5 py-2.5 text-sm text-ink">
             {pending}
           </p>
-          <div className="flex items-start gap-3" data-testid="builder-thinking">
+          {/* Agent motion (docs/plan.md §1.103): the Builder drafts, so it shows Drafting. */}
+          <div className="flex items-center gap-3" data-testid="builder-thinking" role="status">
             <BuilderMark />
-            <p className="pt-1 text-sm text-ink-muted">The Builder is working on it…</p>
+            <p className="flex items-center gap-2 text-sm text-ink-muted">
+              <Thinking state="drafting" />
+              The Builder is working on it…
+            </p>
           </div>
         </>
       ) : null}
