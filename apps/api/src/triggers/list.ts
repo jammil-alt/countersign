@@ -8,6 +8,7 @@ import {
   agentAddress,
   agentCommandNames,
   allTriggers,
+  scheduleText,
   type TriggerListItem,
   type TriggerOn,
 } from "@countersign/core";
@@ -20,9 +21,7 @@ function summaryOf(on: TriggerOn): string {
     case "event":
       return on.filter?.rules.length ? `When ${on.event}, if its rules match` : `When ${on.event}`;
     case "schedule":
-      return `On ${on.cron}${on.tz ? ` (${on.tz})` : " in the client's time zone"}${
-        on.skipHolidays ? ", skips holidays" : ""
-      }`;
+      return `${scheduleText(on)}${on.skipHolidays ? ", skips holidays" : ""}`;
     case "manual":
       return on.client?.canRun ? "Started by hand; the client may run it" : "Started by hand";
     case "command":

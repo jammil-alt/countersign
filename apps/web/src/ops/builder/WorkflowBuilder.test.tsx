@@ -564,9 +564,15 @@ describe("WorkflowBuilder", () => {
     ).toEqual(["AAny line below 90%", "BBig change", "COtherwise"]);
     expect(screen.getByRole("region", { name: "Path A: Any line below 90%" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Path C: Otherwise" })).toBeInTheDocument();
-    // A path's steps are numbered by its letter; top-level numbers stay as they were.
-    expect(screen.getByTestId("builder-step-ask-path-number")).toHaveTextContent("A1");
-    expect(screen.getByTestId("builder-step-halt-path-number")).toHaveTextContent("C1");
+    // A path's steps are numbered by the fork's number and the path's letter (feedback,
+    // 2026-11-15: "5 A1"); top-level numbers stay as they were.
+    const forkNumber = screen.getByTestId("builder-step-confidence-number").textContent;
+    expect(screen.getByTestId("builder-step-ask-path-number")).toHaveTextContent(
+      `${forkNumber} A1`,
+    );
+    expect(screen.getByTestId("builder-step-halt-path-number")).toHaveTextContent(
+      `${forkNumber} C1`,
+    );
     expect(screen.getByTestId("builder-step-update-number")).toHaveTextContent("4");
     // Otherwise ends; the paths that carry on don't.
     expect(screen.getByTestId("builder-fork-confidence-otherwise-ends")).toHaveTextContent(
@@ -654,6 +660,17 @@ describe("WorkflowBuilder", () => {
     await user.selectOptions(screen.getByTestId("builder-repeat-on-limit"), "proceed");
     expect(block).toHaveTextContent("up to 5 times · 1 hour apart");
     expect(screen.getByTestId("builder-repeat-on-limit")).toHaveValue("proceed");
+  });
+
+  it("opens a step from a click anywhere on its card, a fork's paths included (feedback, 2026-11-15)", async () => {
+    setup();
+    await ready();
+    const user = userEvent.setup();
+    const card = screen.getByTestId("builder-step-confidence");
+    expect(card).not.toHaveAttribute("data-selected");
+    const paths = screen.getByTestId("builder-step-confidence-paths");
+    await user.click(within(paths).getAllByRole("listitem")[0] as HTMLElement);
+    expect(screen.getByTestId("builder-step-confidence")).toHaveAttribute("data-selected", "true");
   });
 
   // M61: an if the agent decides, each path saying when to take it.

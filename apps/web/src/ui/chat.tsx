@@ -7,10 +7,12 @@
 // - `ChatLog`: the messages, kept scrolled to the newest.
 // - `YouSaid`: your words, on the right. `AgentSaid`: an agent's (or a person's) answer, on the
 //   left with its badge, its words as `ChatText` and whatever the screen adds under them.
-// - `Thinking`: the agent is working on an answer, with how long once it's more than a few seconds.
+// - `Thinking`: the agent is working on an answer: the design system's thinking loop (agent
+//   motion), its words, and how long once it's more than a few seconds.
 // - `Composer`: the message box. It grows from two lines to eight, then scrolls; Enter sends and
 //   Shift+Enter starts a new line; the words leave the box as they're sent and come back if the
 //   send fails. Shortcuts, starters, attach and voice go in its `tools` and `above` slots.
+import type { ThinkingState } from "@countersign/core";
 import {
   type KeyboardEvent,
   type ReactNode,
@@ -22,6 +24,7 @@ import {
   useState,
 } from "react";
 import { cx } from "./cx";
+import { Thinking as ThinkingLoop } from "./motion";
 import { Button } from "./primitives";
 
 // ── An agent's words ────────────────────────────────────────────────────────────────────────────
@@ -185,17 +188,22 @@ function useSeconds(since: number | undefined): number | null {
 }
 
 /**
- * The agent is working on an answer: its badge, three dots that move, its words, and how long it
- * has been once that is more than a few seconds (`since`, a time in ms). Still under reduced motion.
+ * The agent is working on an answer: its badge, the design system's thinking loop (agent motion,
+ * docs/plan.md §1.106: `drafting` for an agent that writes its reply, `tracing` for one that looks
+ * things up), its words, and how long it has been once that is more than a few seconds (`since`,
+ * a time in ms). A status region: the words are what screen readers hear; the loop is a picture
+ * and stops under reduced motion.
  */
 export function Thinking({
   badge,
   label,
+  state = "drafting",
   since,
   testId,
 }: {
   badge?: ReactNode | undefined;
   label: string;
+  state?: ThinkingState | undefined;
   since?: number | undefined;
   testId?: string | undefined;
 }) {
@@ -203,12 +211,8 @@ export function Thinking({
   return (
     <div className="ui-chat-thinking" role="status" data-testid={testId}>
       {badge}
-      <span className="ui-chat-thinking__dots" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </span>
-      <span className="ui-chat-thinking__label">
+      <ThinkingLoop state={state} />
+      <span>
         {label}
         {seconds !== null && seconds >= 5 ? (
           <span className="ui-chat-thinking__time"> · {seconds} s</span>
@@ -322,9 +326,11 @@ export function Pending({
   since,
   badge,
   label,
+  state,
   testId,
 }: {
   text: string;
+  state?: ThinkingState | undefined;
   since?: number | undefined;
   badge: ReactNode;
   label: string;
@@ -333,7 +339,7 @@ export function Pending({
   return (
     <>
       <YouSaid text={text} />
-      <Thinking badge={badge} label={label} since={since} testId={testId} />
+      <Thinking badge={badge} label={label} state={state} since={since} testId={testId} />
     </>
   );
 }

@@ -79,6 +79,8 @@ describe("Thinking", () => {
     render(<Thinking label="Reggie is looking into it" since={since} testId="thinking" />);
     const el = screen.getByTestId("thinking");
     expect(el).toHaveAttribute("role", "status");
+    // The design system's thinking loop (agent motion); Drafting unless told otherwise.
+    expect(el.querySelector(".mz-think--drafting")).not.toBeNull();
     expect(el).toHaveTextContent("Reggie is looking into it");
     expect(el).not.toHaveTextContent(" s");
     act(() => {

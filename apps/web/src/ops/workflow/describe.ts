@@ -9,10 +9,11 @@ import {
   type SkillKind,
   type Step,
   type StepKind,
+  scheduleText,
   type Trigger,
   type Workflow,
 } from "@countersign/core";
-import { cronText, roleLabel, toolLabel, whenEvent } from "./labels";
+import { roleLabel, toolLabel, whenEvent } from "./labels";
 
 export const KIND_LABEL: Record<StepKind | "trigger", string> = {
   trigger: "Trigger",
@@ -75,7 +76,7 @@ export function triggerDetail(trigger: Trigger): string | null {
     case "event":
       return on.filter && on.filter.rules.length > 0 ? `if ${rulesText(on.filter)}` : null;
     case "schedule":
-      return [cronText(on.cron), on.tz, on.skipHolidays ? "skips holidays" : null]
+      return [scheduleText(on), on.skipHolidays ? "skips holidays" : null]
         .filter(Boolean)
         .join(" · ");
     case "manual":

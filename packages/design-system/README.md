@@ -89,6 +89,7 @@ Built from Groundwork v0.1 and rethemed: plain CSS, no framework. Load `tokens.c
 
 - Mezonas service: `SignCard` (the approval on Your Desk), `WorksheetRow`, `ReceiptChip`, `PersonChip`, `TeamMarker` (work the team drafted, before the lead checks it), `ThreadMessage`, `NotesRail`.
 - Core: Button, TextField, Select, Checkbox, Radio, Switch, Segmented, Tabs, StatusPill, Tag, Avatar, Card, ListRow, StatCard, EmptyState, Banner, Dialog, SideSheet, Toast, Tooltip, AppHeader, Sidebar, Stepper.
+- Agent motion (`components/Motion/motion.css`, loaded on its own after `tokens.css`): four thinking states for a step while it runs (Weighing and Tracing for processing, Drafting for writing, Rechecking for reviewing) and two progress displays for a known total (Ruler, Sheets).
 - Data tables, picked by the reader's job and never mixed in one table: `TableLedger` to check and export, `TableAnalytical` to spot outliers, `TableGrouped` to drill into segments, `TableHeatmap` to compare across periods. Numbers right-aligned with tabular figures; only marks use `data-*` colors.
 - Icons and logos shown through `<img>` keep their file color; in the dark theme use the `-paper` logo files and inline SVG icons.
 

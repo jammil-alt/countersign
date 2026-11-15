@@ -207,7 +207,8 @@ function Conversation({ id, onChanged }: { id: string; onChanged(): void }) {
             text={pending.text}
             since={pending.since}
             badge={<AgentBadge name="Reggie" size="sm" />}
-            label="Reggie is looking into it"
+            label="Reggie is looking into it…"
+            state="tracing"
             testId="reggie-thinking"
           />
         ) : null}

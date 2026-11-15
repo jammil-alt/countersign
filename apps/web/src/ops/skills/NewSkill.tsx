@@ -363,7 +363,8 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
                 <Pending
                   text={sent}
                   badge={<AgentBadge name="Builder" size="sm" />}
-                  label="The Builder is working on it"
+                  label="The Builder is working on it…"
+                  state="drafting"
                   testId="builder-thinking"
                 />
               ) : null}

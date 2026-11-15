@@ -97,6 +97,8 @@ export function PortalTextingRegistration() {
   const state = useApi(apiRoutes.portalTextingRegistration);
   const reg = state.data?.registration;
   const [form, setForm] = useState<Form>(EMPTY);
+  // Feedback (2026-11-14): Save is off until something changes, so a saved form reads saved.
+  const [base, setBase] = useState<Form>(EMPTY);
   // §1.98: until the client writes their own, "how people agree" starts from the sign-up page and
   // invitations, with their business name as they type it and their own sign-up link.
   // DECISION: a prefill, not a saved default: what goes to Twilio is what the admin saw and saved,
@@ -111,8 +113,12 @@ export function PortalTextingRegistration() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (reg?.details) setForm(reg.details);
+    if (reg?.details) {
+      setForm(reg.details);
+      setBase(reg.details);
+    }
   }, [reg?.details]);
+  const changed = ein.trim() !== "" || JSON.stringify(form) !== JSON.stringify(base);
 
   const set = (patch: Partial<Form>) => {
     setSaved(false);
@@ -141,6 +147,7 @@ export function PortalTextingRegistration() {
         },
       });
       setEin("");
+      setBase(form);
       setSaved(true);
       state.reload();
     } catch (err) {
@@ -473,10 +480,10 @@ export function PortalTextingRegistration() {
                   type="submit"
                   variant="primary"
                   className="self-start"
-                  disabled={busy || form.uses.length === 0}
+                  disabled={busy || !changed || form.uses.length === 0}
                   data-testid="portal-texting-save"
                 >
-                  {t("texting.save")}
+                  {busy ? t("common.saving") : t("texting.save")}
                 </Button>
               </form>
             ) : reg.stage === "ready" ? null : (

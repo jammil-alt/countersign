@@ -60,7 +60,8 @@ export function Turns({ turns, onUndo, undoOff, busy, pending, empty }: TurnsPro
         <Pending
           text={pending}
           badge={<BuilderMark />}
-          label="The Builder is working on it"
+          label="The Builder is working on it…"
+          state="drafting"
           testId="builder-thinking"
         />
       ) : null}

@@ -243,6 +243,7 @@ function Conversation({
               <Thinking
                 badge={<AgentBadge name={t("sloan.title")} size="sm" />}
                 label={t("sloan.answering")}
+                state="drafting"
                 testId="portal-sloan-thinking"
               />
             ) : null}

@@ -4674,6 +4674,22 @@ parallel thread's.)
 | Step by step | "Previous step" and "Next step" walk every step in run order, nested ones included, selecting each (the canvas and the settings follow); "Working on Match vendor · step 3 of 7" says where the conversation is. // DECISION |
 | Checked | `packages/agents/src/builder/conversation.test.ts` (the prompt with and without a focus), `apps/api/src/builder-sessions.test.ts` (the route passes and keeps the focus), `apps/web/src/ops/builder/step-chat.builder.test.tsx` (off: nothing changes; on: the turn carries the step, the settings show the change, undo, previous and next). |
 
+### 1.106 Agent motion: thinking states and progress (owner's delivery, 2026-11-15)
+
+The owner sent `mezonas-agent-motion.html`: four looping thinking states for a step while it
+runs (Weighing and Tracing for processing or loading, Drafting for writing, Rechecking for
+reviewing) and two progress displays for a job with a known total (Ruler, Sheets).
+
+| Topic | Decision |
+|---|---|
+| Where it lives | `packages/design-system/components/Motion/`: `motion.css` (the delivery's component CSS), `preview.html` (the delivery as sent) and a README, exported as `@countersign/design-system/motion.css` and loaded by `apps/web/src/styles.css`. Added beside `bundle.css`, not into it, so the next whole delivery can carry it in or replace it. The delivery's `:root` copy of the light tokens is left out: the CSS reads the design system's own tokens, so the dark theme works. // DECISION |
+| Which state a step shows | `thinkingOf` in `packages/core/src/process/thinking.ts`: by kind first (a confer's row rechecks; read, write and v3 action trace; conversation and notify draft), then a skill by the words of its id after the namespace (check or review recheck; draft, summarize, digest or report draft; match, reconcile, search, extract or read trace); anything else weighs. Words of the id, not a field on the skill, so no skill version changes for a picture. // DECISION |
+| Run timelines | The shared `StepList` shows the current step's loop in place of the slate ring (both 24px), and keeps one polite live region ("In progress: <step>") so a screen reader hears the step change. The portal's `TimelineStep` carries `thinking` while a step runs, a picture only, never its skill or tool (invariant 11); the back office reads it from the step run's `nodeType` and `skillRef`. The Desk's worksheet follows the portal's. |
+| Progress | `ui/motion.tsx` renders both displays in React with the delivery's markup and arithmetic (`mzSetProgress` is not needed). The back office's run page shows Sheets in "What it did" while the run goes: steps done of the run's rows, with the running step's name. The portal shows none yet: its timeline lists only the steps that have run, so it has no total. Test suites do not either: their counts are written when the suite ends. Ruler is ready for the first place with a total worth a large number. // DECISION |
+| Reduced motion | The delivery's own rule: the loops stop on a still frame, progress still updates. |
+
+Checked: `packages/core/src/process/thinking.test.ts`, `apps/web/src/ui/motion.test.tsx`.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
