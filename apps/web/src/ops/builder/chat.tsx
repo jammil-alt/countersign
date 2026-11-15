@@ -66,7 +66,7 @@ export function Turns({ turns, onUndo, undoOff, busy, pending, empty }: TurnsPro
 }
 
 function OperatorTurn({ turn }: { turn: BuilderTurnView }) {
-  return (
+  const bubble = (
     <p
       className={cx(
         "ml-auto max-w-[85%] whitespace-pre-wrap rounded-lg bg-surface-subtle px-3.5 py-2.5 text-sm text-ink",
@@ -76,6 +76,16 @@ function OperatorTurn({ turn }: { turn: BuilderTurnView }) {
     >
       {turn.text}
     </p>
+  );
+  // v0.18 (docs/plan.md §1.105): a turn sent while working on one step says which.
+  if (!turn.focus) return bubble;
+  return (
+    <div className="ml-auto flex max-w-[85%] flex-col items-end gap-1">
+      <span className="text-xs text-ink-muted" data-testid={`builder-turn-${turn.seq}-focus`}>
+        On “{turn.focus.name}”
+      </span>
+      {bubble}
+    </div>
   );
 }
 

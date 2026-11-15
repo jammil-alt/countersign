@@ -159,6 +159,8 @@ import { type ProblemLine, problemLines, problemPlace, readableErrors } from "./
 import { addReshapeBefore, addReshapeThenAction, newReshapeStep } from "./reshape";
 import { useClientScriptTools } from "./scripts";
 import { applySkillMove } from "./skill-move";
+// v0.18: the Builder beside the step's settings (opt-in).
+import { readStepChat, StepChat, writeStepChat } from "./step-chat";
 import { WhatsLeft } from "./whats-left";
 
 type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
@@ -1014,6 +1016,40 @@ function BuilderBody(
     ensureSaved: async () => (dirty ? await save() : saved),
     onDraft: (next) => apply(() => next),
   });
+  // ── v0.18: working on steps with the Builder (docs/plan.md §1.105) ──
+  // Opt-in and off by default; with it off the builder is exactly as before.
+  const [stepChat, setStepChat] = useState(readStepChat);
+  const steps = useMemo(() => (workflow ? processes.allSteps(workflow) : []), [workflow]);
+  const focusStep = (id: string) => {
+    setSelection({ type: "step", id });
+    showRail("step");
+  };
+  const toggleStepChat = (on: boolean) => {
+    setStepChat(on);
+    writeStepChat(on);
+    // On, with no step open: start at the first step.
+    if (on && selection?.type !== "step" && steps[0]) focusStep(steps[0].step.id);
+    else if (on) showRail("step");
+  };
+  // The step the conversation is on: the selected step, in run order, with its neighbours.
+  // DECISION (v0.18): previous and next go through every step in run order, nested ones included
+  // (a path's steps, a loop's), so "step by step" reaches all of them.
+  const stepFocus = (() => {
+    if (!stepChat || rail !== "step" || selection?.type !== "step") return null;
+    const at = steps.findIndex((l) => l.step.id === selection.id);
+    const here = steps[at];
+    if (!here) return null;
+    return {
+      step: {
+        id: here.step.id,
+        name: here.step.name,
+        place: `step ${at + 1} of ${steps.length}`,
+      },
+      previous: steps[at - 1]?.step.id,
+      next: steps[at + 1]?.step.id,
+    };
+  })();
+
   // ── Fix: a problem explained and a fix proposed by the Builder, in a dialog ──
   const [fixing, setFixing] = useState<FixRequest | null>(null);
   const workflowName = (s?: string) =>
@@ -1237,6 +1273,9 @@ function BuilderBody(
               railOpen
                 ? "@3xl:grid-cols-[minmax(0,1fr)_340px]"
                 : "@3xl:grid-cols-[minmax(0,1fr)_52px]",
+              // v0.18: with the Builder beside the step, the panel takes two columns where there's
+              // room; narrower, the chat sits under the settings.
+              railOpen && stepFocus && "@6xl:grid-cols-[minmax(0,1fr)_720px]",
             )}
           >
             <div className="min-w-0 bg-surface-subtle px-4 py-5 md:px-6">
@@ -1295,6 +1334,18 @@ function BuilderBody(
                       onClick={() => setChecked(new Set())}
                     >
                       Select steps
+                    </Button>
+                  ) : null}
+                  {workflow && workflow.steps.length > 0 ? (
+                    // v0.18 (docs/plan.md §1.105): the Builder beside the step's settings, opt-in.
+                    <Button
+                      variant="ghost"
+                      aria-pressed={stepChat}
+                      data-testid="builder-step-chat-toggle"
+                      onClick={() => toggleStepChat(!stepChat)}
+                      className={cx(stepChat && "border-slate bg-slate-tint text-slate")}
+                    >
+                      Work on steps with the Builder
                     </Button>
                   ) : null}
                   {dirty ? (
@@ -1519,7 +1570,20 @@ function BuilderBody(
                 <BuilderPanel session={session} />
               </div>
               {railOpen && workflow && rail === "step" ? (
-                <div className="min-h-0 flex-1 overflow-y-auto">
+                <StepPanel
+                  chat={
+                    stepFocus ? (
+                      <StepChat
+                        session={session}
+                        step={stepFocus.step}
+                        onPrevious={((id) => (id ? () => focusStep(id) : undefined))(
+                          stepFocus.previous,
+                        )}
+                        onNext={((id) => (id ? () => focusStep(id) : undefined))(stepFocus.next)}
+                      />
+                    ) : null
+                  }
+                >
                   <Inspector
                     workflow={workflow}
                     bundle={bundle}
@@ -1602,7 +1666,7 @@ function BuilderBody(
                       drafting: draftingSkill,
                     }}
                   />
-                </div>
+                </StepPanel>
               ) : null}
             </aside>
           </div>
@@ -1621,6 +1685,22 @@ function BuilderBody(
           ) : null}
         </DragOverlay>
       </DndContext>
+    </div>
+  );
+}
+
+// ── v0.18: the step tab, with the Builder beside it when working on steps ────────────────────────
+
+/** Without a chat, the step's settings exactly as before; with one, the two side by side. */
+function StepPanel({ chat, children }: { chat: ReactNode; children: ReactNode }) {
+  if (!chat) return <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>;
+  return (
+    <div
+      className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto @6xl:grid-cols-2 @6xl:overflow-hidden"
+      data-testid="builder-step-with-chat"
+    >
+      <div className="min-h-0 @6xl:overflow-y-auto">{children}</div>
+      {chat}
     </div>
   );
 }
