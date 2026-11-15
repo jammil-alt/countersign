@@ -26,6 +26,7 @@ export const TOOL_TITLES: Record<string, string> = {
   "docs.totals.check": "Check a document's totals",
   "docs.reading.record": "Save a document's reading",
   "docs.bill.check": "Check a prepared bill",
+  "docs.record_purchase": "Record an invoice's purchase",
   "knowledge.search": "Search the client's knowledge",
   "knowledge.voice_samples": "Get writing samples",
   "directory.search": "Find people and organizations",

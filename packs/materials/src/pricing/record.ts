@@ -15,6 +15,7 @@ import {
   vendor,
   withTenant,
 } from "@countersign/db";
+import { vendorForDocument } from "@countersign/documents";
 import { emit } from "@countersign/senses";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { parseLine } from "../catalog/keys";
@@ -86,6 +87,7 @@ export async function loadPricedDocument(
   tx: Tx,
   tenantId: string,
   documentId: string,
+  options: { testRun?: boolean } = {},
 ): Promise<PricedDocument> {
   const [row] = await tx
     .select({
@@ -96,6 +98,7 @@ export async function loadPricedDocument(
       surcharges: docExtraction.surcharges,
       transactionId: document.transactionId,
       receivedAt: document.receivedAt,
+      meta: document.meta,
       vendorId: transaction.vendorId,
       txnDate: transaction.txnDate,
       vendorName: vendor.name,
@@ -112,6 +115,25 @@ export async function loadPricedDocument(
       "no_extraction",
       `document ${documentId} has no extraction; read it first`,
     );
+  }
+  // §1.104: a test run records no purchase (`docs.record_purchase` writes nothing), so its
+  // invoice's vendor is found the way linking finds it (name, alias, the sender's domain), read only.
+  // DECISION: only a test run falls back; a live run prices a document once it has its purchase.
+  if (!row.vendorId && options.testRun) {
+    const header = (row.header ?? {}) as { vendorName?: unknown };
+    const found =
+      typeof header.vendorName === "string"
+        ? await vendorForDocument(
+            tx,
+            tenantId,
+            { meta: row.meta },
+            { vendorName: header.vendorName },
+          )
+        : null;
+    if (found) {
+      row.vendorId = found.id;
+      row.vendorName = found.name;
+    }
   }
   if (!row.vendorId) {
     throw new PricingError(
@@ -288,7 +310,9 @@ export async function recordPrices(
 ): Promise<RecordResult> {
   const registry = materialsEventRegistry();
   return withTenant(db, ctx.tenantId, async (tx) => {
-    const doc = await loadPricedDocument(tx, ctx.tenantId, input.documentId);
+    const doc = await loadPricedDocument(tx, ctx.tenantId, input.documentId, {
+      testRun: ctx.testRun,
+    });
     const { drafts, lines } = await priceLines(tx, ctx.tenantId, doc);
     if (!ctx.testRun && drafts.length > 0) {
       for (const d of drafts) {

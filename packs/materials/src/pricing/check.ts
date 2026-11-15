@@ -180,7 +180,9 @@ export async function checkPrices(
   input: { documentId: string; settings: PriceSettings; ignoreVendors?: readonly string[] },
 ): Promise<CheckResult> {
   return withTenant(db, ctx.tenantId, async (tx) => {
-    const doc = await loadPricedDocument(tx, ctx.tenantId, input.documentId);
+    const doc = await loadPricedDocument(tx, ctx.tenantId, input.documentId, {
+      testRun: ctx.testRun,
+    });
     const { drafts } = await priceLines(tx, ctx.tenantId, doc);
     // Live runs check what was recorded; a test run checks what would have been.
     const current = ctx.testRun

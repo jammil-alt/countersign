@@ -40,7 +40,7 @@ import {
   transactionLine,
   vendor,
 } from "@countersign/db";
-import { attach, DocumentError, storeDocument } from "@countersign/documents";
+import { attach, DocumentError, documentPurchaseFor, storeDocument } from "@countersign/documents";
 import { type EventRow, emit } from "@countersign/senses";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { deleteReceivable, upsertReceivable } from "./receivables";
@@ -462,6 +462,38 @@ async function upsertTransaction(
     total: { amount: t.total, currency: t.currency },
     txnDate: t.txnDate,
   });
+  // §1.104: a bill whose invoice already made its own purchase (read from email or an upload, the
+  // client's tool not having it yet) takes that record over: one purchase, now the tool's, its
+  // document, prices and alerts kept.
+  const adopted =
+    !existing && t.kind === "bill"
+      ? await documentPurchaseFor(tx, tenantId, {
+          vendorId,
+          total: t.total,
+          currency: t.currency,
+          txnDate: t.txnDate,
+          docNumber: qboDocNumber(t),
+        })
+      : null;
+  if (adopted) {
+    await tx
+      .update(transaction)
+      .set({
+        connector: QBO_CONNECTOR_ID,
+        externalId: t.externalId,
+        ...fields,
+        ext: { ...adopted.ext, ...(t.ext ?? {}) },
+      })
+      .where(and(eq(transaction.id, adopted.id), eq(transaction.tenantId, tenantId)));
+    await writeLines(tx, tenantId, adopted.id, t);
+    await news({
+      tenantId,
+      type: "transaction.updated",
+      subjectId: adopted.id,
+      payload: { ...payload(adopted.id), changed: ["source", "lines"] },
+    });
+    return "updated";
+  }
   if (!existing) {
     const [row] = await tx
       .insert(transaction)
@@ -517,6 +549,12 @@ async function upsertTransaction(
     });
   }
   return "updated";
+}
+
+/** The bill's document number as the QuickBooks mapper keeps it (`ext.qbo.docNumber`). */
+function qboDocNumber(t: TransactionInput): string | null {
+  const qbo = (t.ext as { qbo?: { docNumber?: unknown } } | undefined)?.qbo;
+  return typeof qbo?.docNumber === "string" ? qbo.docNumber : null;
 }
 
 function linesKey(
