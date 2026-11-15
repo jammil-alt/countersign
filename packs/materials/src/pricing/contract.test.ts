@@ -112,6 +112,14 @@ describe("reading payment terms", () => {
     });
     expect(readTerms(null).netDays).toBeNull();
   });
+
+  it("reads net days with a dash or slash, and stays quick on long text", () => {
+    expect(readTerms("Net-30").netDays).toBe(30);
+    expect(readTerms("net / 45").netDays).toBe(45);
+    const started = Date.now();
+    expect(readTerms(`n${" ".repeat(50_000)}x`).netDays).toBeNull();
+    expect(Date.now() - started).toBeLessThan(100);
+  });
 });
 
 describe("the contract rules", () => {

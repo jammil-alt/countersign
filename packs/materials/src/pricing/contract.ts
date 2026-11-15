@@ -100,10 +100,11 @@ export interface ReadTerms {
 // term is never a mismatch (deterministic first: nothing is guessed).
 export function readTerms(text: string | null | undefined): ReadTerms {
   const out: ReadTerms = { netDays: null, discountPct: null, discountDays: null };
-  const t = (text ?? "").toLowerCase();
+  // Terms are a short phrase; a longer text is cut so no pattern below meets a long input.
+  const t = (text ?? "").slice(0, 200).toLowerCase();
   if (!t.trim()) return out;
   if (/due (on|upon) receipt|cash on delivery|\bcod\b/.test(t)) out.netDays = 0;
-  const net = t.match(/\bn(?:et)?\s*[-/]?\s*(\d{1,3})\b/);
+  const net = t.match(/\bn(?:et)?\s*(?:[-/]\s*)?(\d{1,3})\b/);
   if (net?.[1]) out.netDays = Number(net[1]);
   const discount =
     t.match(/(\d{1,2}(?:\.\d{1,2})?)\s*%\s*(?:in\s*|within\s*)?(\d{1,3})\s*(?:days?)?/) ??

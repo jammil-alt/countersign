@@ -297,11 +297,12 @@ const FindingIn = z.object({
   evidence: z.array(z.string()).default([]),
 });
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Domain labels hold no dot, so the pattern can match only one way (no slow backtracking).
+const EMAIL = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 const emailOf = (v: unknown): string | null => {
   const s = typeof v === "string" ? v.trim() : "";
-  return EMAIL.test(s) && s.length <= 320 ? s : null;
+  return s.length <= 320 && EMAIL.test(s) ? s : null;
 };
 
 /** The AP mailbox from the skill's parameter (`ap_email`), when it is an address. */
