@@ -1218,6 +1218,11 @@ be disabled, as in `db:purge-client`.
 
 - **`ci.yml`**: on every non-draft pull request (and by hand), runs `checks.yml`. Drafts cost nothing;
   marking a PR ready runs the check.
+- **`draft-pr.yml`**: on every push to a branch other than `main` (and Dependabot's), opens a draft
+  PR against `main` when the branch has commits main lacks and no open PR. That includes a branch
+  whose PR already merged and then got more commits. It needs Settings → Actions → General →
+  "Allow GitHub Actions to create and approve pull requests" turned on. Without that setting the
+  job fails, and the failure shows on the push.
 - **`checks.yml`**: install, Biome lint, layering check, typecheck, then tests against a Postgres 16 +
   pgvector service container set up with Neon's roles (`scripts/setup-postgres.sh`), which also applies
   every migration from scratch. It never connects to Neon. It used to copy `main` to a throwaway

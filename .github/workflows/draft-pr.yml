@@ -1,0 +1,71 @@
+name: Draft PR
+
+# Every pushed branch has a pull request (owner, 2026-11-15). Work sat on branches for days with no
+# PR, so nobody saw it and it never reached staging (docs/merge-backlog.md). On each push to a
+# branch that has commits main lacks and no open PR, this opens one as a draft against main.
+#
+# A branch whose PR already merged and then gets more commits gets a new draft too: those commits
+# are not on main. Drafts run no checks (ci.yml), so this costs one short job per push. Whoever owns
+# the work marks it ready when it should be checked and merged, as before.
+#
+# A PR opened with GITHUB_TOKEN triggers no other workflow. That's fine here: ci.yml skips drafts,
+# and a person marking the PR ready does trigger it.
+#
+# Needs Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests".
+
+on:
+  push:
+    branches-ignore:
+      - main
+      - "dependabot/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: draft-pr-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  open:
+    # A push that deletes a branch has nothing to open.
+    if: ${{ !github.event.deleted }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Open a draft PR if the branch has none
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          open=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json number --jq length)
+          if [ "$open" != "0" ]; then
+            echo "A PR is already open for $BRANCH."
+            exit 0
+          fi
+          ahead=$(git rev-list --count origin/main..HEAD)
+          if [ "$ahead" = "0" ]; then
+            echo "$BRANCH has nothing main lacks."
+            exit 0
+          fi
+          title=$(git log -1 --format=%s HEAD)
+          {
+            echo "Opened as a draft automatically: \`$BRANCH\` was pushed with no open PR."
+            echo "Mark it ready when it should be checked and merged."
+            echo
+            echo "Commits main lacks ($ahead):"
+            echo
+            git log --no-merges --format='- %s' origin/main..HEAD | head -50
+          } > "$RUNNER_TEMP/body.md"
+          # Someone may open one at the same moment; a PR that exists by then is fine.
+          if ! gh pr create --repo "$GITHUB_REPOSITORY" --draft --base main --head "$BRANCH" \
+              --title "$title" --body-file "$RUNNER_TEMP/body.md"; then
+            open=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json number --jq length)
+            [ "$open" != "0" ] || exit 1
+          fi

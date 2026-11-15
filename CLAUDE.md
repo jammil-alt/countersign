@@ -60,7 +60,7 @@ Other docs: `docs/open.md` (everything still open, in priority order), `docs/loc
 | `fixtures/` | Invoices + expected JSON, QBO payloads, matching pairs, recorded LLM responses. |
 | `scripts/check-deps.mjs` | Enforces package layering (`docs/plan.md` §2). |
 | `scripts/setup-postgres.sh` | Gives a plain Postgres Neon's roles (CI and local). |
-| `.github/workflows/` | `ci.yml` (non-draft PRs) → `checks.yml`; `deploy.yml` (main → staging, `v*` tag → production); `bootstrap.yml` (by hand: Neon project, roles, Hyperdrive, R2). |
+| `.github/workflows/` | `ci.yml` (non-draft PRs) → `checks.yml`; `draft-pr.yml` (a draft PR for any pushed branch without one); `deploy.yml` (main → staging, `v*` tag → production); `bootstrap.yml` (by hand: Neon project, roles, Hyperdrive, R2). |
 
 ## Commands
 
@@ -78,6 +78,11 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
 - `main` deploys to staging on every push; production deploys from a `v*` tag or by hand.
 - Work happens on a branch with its PR open as a **draft** (CI skips drafts). Mark it ready when it should
   be checked and merged; push fixes together after that, since each push to a ready PR runs CI.
+- **Open the draft PR with the branch's first push, every time, without being asked.** This file is
+  the standing request for it. A pushed branch with no PR is work nobody sees: it never reaches
+  staging (owner, 2026-11-15; `docs/merge-backlog.md`). `draft-pr.yml` opens one if a push finds
+  none, but don't rely on it. More work on a branch after its PR merged goes in a new PR. Before a
+  session ends, say which PR holds its work.
 - Migrations, CI/deploy workflows and sign-in changes get their own PR so they can be reverted alone.
 - Never edit a migration that has reached `staging` or `main`; add a new one. Migrations must keep the
   previous Worker working, because they apply before the new Worker deploys.
