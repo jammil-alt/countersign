@@ -241,6 +241,38 @@ export const docsMatchBill = defineInternalTool({
   },
 });
 
+// §1.104: an invoice that makes its own purchase record (a client with no accounting tool).
+const RecordPurchaseOut = z.object({
+  status: z.enum(["created", "linked", "already_linked", "ambiguous", "not_ready"]),
+  documentId: z.string(),
+  transactionId: z.string().nullable(),
+  vendorId: z.string().nullable(),
+  vendorName: z.string().nullable(),
+  vendorCreated: z.boolean(),
+  candidates: z.array(z.string()),
+  reason: z.string(),
+  sources: z.array(z.string()),
+});
+
+export const docsRecordPurchase = defineInternalTool({
+  id: "docs.record_purchase",
+  description:
+    "Save to records: the purchase an invoice is. The one purchase already here with the same vendor, total and date (within 7 days) is linked; else the invoice's vendor (by name, alias or the sender's domain, added when new) and a purchase made from the invoice are recorded and linked. Only an invoice read with totals that add up. A bill the client's tool syncs later takes that purchase over.",
+  sideEffect: "internal",
+  verb: "create",
+  summary: "{{reason}}",
+  input: z.object({ documentId: Uuid }),
+  output: RecordPurchaseOut,
+  async run(input, ctx) {
+    const docs = port(ctx);
+    if (!docs.recordPurchase) throw new Error("recording a purchase is not available here");
+    return docs.recordPurchase(ctx.tenantId, {
+      documentId: input.documentId,
+      testRun: ctx.mode === "test",
+    });
+  },
+});
+
 /** A bill as a connector's read tool returns it (the shape of `qbo.bill.query`'s bills). */
 const Named = z.object({ id: z.string(), name: z.string().nullable() });
 const ToolBillIn = z.object({
@@ -388,6 +420,8 @@ export const DOCS_TOOLS: readonly InternalTool[] = [
   docsExtract,
   docsFindSupport,
   docsMatchBill,
+  // §1.104
+  docsRecordPurchase,
   docsPlanBill,
   docsBillLines,
   // Skill model (2026-11-10): Check totals and Save to records: record the reading.

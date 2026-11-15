@@ -231,6 +231,7 @@ function expected(inv, c) {
       invoiceNumber: inv.invoiceNumber,
       invoiceDate: inv.invoiceDate,
       dueDate: inv.dueDate,
+      paymentTerms: inv.terms,
       poNumber: inv.poNumber,
       currency: "USD",
       pageCount,

@@ -54,7 +54,7 @@ Other docs: `docs/open.md` (everything still open, in priority order), `docs/loc
 | `packages/threads` | Threads, messages, `/command` parsing. |
 | `packages/agents` | Tool, skill and agent registries; bundle versions, fork, update and promote; runtime; permission gate; external actions; Builder. |
 | `packages/workflows` | Workflow (step list) executor against a `StepRunner` interface, trigger router. No Workers types; `apps/api` adapts Cloudflare Workflows to it. |
-| `packs/materials` | Materials pack: catalog, matching, pricing, alerts; its tools, skills, tables, routes, reports and screens. It ships no agent templates. |
+| `packs/materials` | Materials pack: catalog, matching, pricing, alerts, vendor contracts (`docs/plan.md` §1.104); its tools, skills, tables, routes, reports and screens. It ships one agent template, "Vendor contracts and invoice review". |
 | `packs/bookkeeping` | Bookkeeping pack (the Bookkeeping area, `docs/plan.md` §1.79): bank and card transactions from the bank feed, matched with QuickBooks, ruled or proposed from the client's chart of accounts (platform `ledger_account` and its notes), the review cards, reconciliation (`src/reconcile/`, §1.80) and the Bookkeeper template. |
 | `packs/marketing` | Marketing pack (the Marketing area, `docs/marketing-plan.md`): a client's measured websites, the collector's handler, the nightly build and retention, the overview report; search, content and the agent set come next. Mezonas is its first client. |
 | `fixtures/` | Invoices + expected JSON, QBO payloads, matching pairs, recorded LLM responses. |

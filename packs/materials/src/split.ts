@@ -397,7 +397,7 @@ export const SPLIT_SKILLS: readonly SkillDefinition[] = lazyObjects([
     id: "materials.compare-prices",
     name: "Compare to historicals",
     description:
-      "Compares an invoice's prices with what the client paid before and what other vendors charge, and says which alerts the price rules would raise. Records nothing. The same every time; no model.",
+      "Compares an invoice's prices with what the client paid before and what other vendors charge, and, when the vendor has a contract, with its agreed prices and terms; says which alerts the rules would raise. Records nothing. The same every time; no model.",
     category: "Materials",
     mode: "tool",
     handler: pricesCompare.spec.id,

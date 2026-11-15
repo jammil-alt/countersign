@@ -26,6 +26,7 @@ export const TOOL_TITLES: Record<string, string> = {
   "docs.totals.check": "Check a document's totals",
   "docs.reading.record": "Save a document's reading",
   "docs.bill.check": "Check a prepared bill",
+  "docs.record_purchase": "Record an invoice's purchase",
   "knowledge.search": "Search the client's knowledge",
   "knowledge.voice_samples": "Get writing samples",
   "directory.search": "Find people and organizations",
@@ -105,6 +106,10 @@ export const TOOL_TITLES: Record<string, string> = {
   "browser.script.submit": "Run a script that submits",
   // Materials
   "materials.catalog.search": "Search the catalog",
+  // §1.104
+  "materials.contract.get": "Read a vendor's contract",
+  "materials.contract.save": "Save a vendor's contract",
+  "materials.invoice.review": "Lay out an invoice's review for AP",
   "materials.catalog.create_item": "Add a catalog item",
   "materials.catalog.duplicates": "Find possible duplicates",
   "materials.catalog.match-text": "Match descriptions to the catalog",

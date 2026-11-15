@@ -21,7 +21,7 @@ import {
   type ToolSpec,
   type VoiceSampleChannel,
 } from "@countersign/core";
-import type { MatchBillInput, MatchBillResult } from "@countersign/documents";
+import type { MatchBillInput, MatchBillResult, RecordPurchaseResult } from "@countersign/documents";
 import type { LlmCallRecord, LlmExchange } from "@countersign/llm";
 import { z } from "zod";
 // v0.12 W2-D
@@ -183,6 +183,15 @@ export interface DocumentsPort {
   ): Promise<FindSupportOutcome>;
   /** The one synced bill an invoice belongs to (packages/documents' matchBill); reads only. */
   matchBill(tenantId: string, input: MatchBillInput): Promise<MatchBillResult>;
+  /**
+   * §1.104: the purchase record of an invoice read with valid totals (packages/documents'
+   * recordPurchase): the one already here linked, else one made from the document. Absent where
+   * nothing provides it.
+   */
+  recordPurchase?(
+    tenantId: string,
+    input: { documentId: string; testRun: boolean },
+  ): Promise<RecordPurchaseResult>;
   // Skill model (2026-11-10): "Read document" (an AI skill) and "record the reading" (a write).
   /**
    * The document's file, whole, for an AI skill's model call (packages/documents' readingFile).

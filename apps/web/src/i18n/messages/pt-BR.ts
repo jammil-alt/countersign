@@ -2236,6 +2236,10 @@ export const ptBR: Messages = {
   "materials.alert.kind.price_creep": "Subindo aos poucos",
   "materials.alert.kind.new_fee": "Nova taxa",
   "materials.alert.kind.outlier": "Incomum",
+  "materials.alert.kind.above_contract": "Acima do contrato",
+  "materials.alert.kind.not_on_contract": "Fora do contrato",
+  "materials.alert.kind.contract_not_in_effect": "Contrato fora da vigência",
+  "materials.alert.kind.terms_mismatch": "Condições diferentes",
   "materials.alert.kind.other": "Alerta",
   "materials.prices.none":
     "Ainda não há preços. Eles aparecem aqui assim que lermos sua primeira nota.",

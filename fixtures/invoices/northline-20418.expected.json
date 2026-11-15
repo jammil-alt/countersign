@@ -5,6 +5,7 @@
     "invoiceNumber": "20418",
     "invoiceDate": "2026-10-28",
     "dueDate": "2026-11-27",
+    "paymentTerms": "Net 30",
     "poNumber": "J-1182",
     "currency": "USD",
     "pageCount": 1,

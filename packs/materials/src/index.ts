@@ -33,11 +33,17 @@ export {
 } from "./catalog/parsers";
 export * from "./catalog/split";
 export { lookupDocument, recordMatches } from "./catalog/split-store";
+// §1.104: vendor contracts and invoices without an accounting tool.
+export * from "./contracts/skills";
+export * from "./contracts/store";
+export * from "./contracts/template";
+export * from "./contracts/tools";
 export { seedDemoPrices } from "./demo";
 export { MATERIALS_EVENTS, materialsEventRegistry } from "./events";
 export { MATERIALS_HANDLERS, MATERIALS_SKILLS, materialsManifest, PACK_ID } from "./manifest";
 export * from "./patterns";
 export { checkPrices } from "./pricing/check";
+export * from "./pricing/contract";
 export { PricingError, recordPrices } from "./pricing/record";
 export * from "./pricing/rules";
 export { convert, readUom } from "./pricing/uom";

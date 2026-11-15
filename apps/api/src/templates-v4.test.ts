@@ -204,6 +204,8 @@ describe("R2: the skills the latest seeds and templates name", () => {
       "docs.check-totals",
       "materials.check-matches",
       "materials.compare-prices",
+      // §1.104: Review notes for AP.
+      "materials.invoice-review",
       "materials.lookup-existing",
       // §1.88
       "materials.match-sku-vendor",

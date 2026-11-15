@@ -81,6 +81,8 @@ describe("tool registry", () => {
       // P-9
       "docs.read",
       "docs.reading.record",
+      // §1.104
+      "docs.record_purchase",
       "docs.totals.check",
       "health.agents",
       "health.connections",

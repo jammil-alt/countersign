@@ -109,6 +109,11 @@ export const ALERT_LABEL: Record<string, PlainKey> = {
   price_creep: "materials.alert.kind.price_creep",
   new_fee: "materials.alert.kind.new_fee",
   outlier: "materials.alert.kind.outlier",
+  // §1.104: the contract check.
+  above_contract: "materials.alert.kind.above_contract",
+  not_on_contract: "materials.alert.kind.not_on_contract",
+  contract_not_in_effect: "materials.alert.kind.contract_not_in_effect",
+  terms_mismatch: "materials.alert.kind.terms_mismatch",
 };
 
 // ── P-9: purchase requests (docs/plan.md §1.71) ─────────────────────────────────────────────────

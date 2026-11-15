@@ -132,11 +132,13 @@ export async function importPriceList(
     listPriceOn: string;
     by: VendorItemCreator;
     testRun: boolean;
+    /** §1.104: the contract whose agreed prices these are; absent, plain list prices. */
+    contractId?: string | null;
   },
 ): Promise<ImportResult> {
   try {
     return await withTenant(db, input.tenantId, async (tx) => {
-      const result = await importRows(tx, input);
+      const result = await importPriceListRows(tx, input);
       if (input.testRun) throw new RollBack(result);
       return result;
     });
@@ -146,7 +148,8 @@ export async function importPriceList(
   }
 }
 
-async function importRows(
+/** The import inside the caller's transaction (§1.104: saving a contract imports its prices). */
+export async function importPriceListRows(
   tx: Tx,
   input: Parameters<typeof importPriceList>[1],
 ): Promise<ImportResult> {
@@ -209,7 +212,9 @@ async function importRows(
       ...(stdPer && stdPer !== "0.0000" ? { stdPerVendorUom: stdPer } : {}),
       ...(money(r.minOrderQty) ? { minOrderQty: money(r.minOrderQty) } : {}),
       ...(days(r.leadTimeDays) !== null ? { leadTimeDays: days(r.leadTimeDays) } : {}),
-      ...(listPrice ? { listPrice, listPriceOn: input.listPriceOn } : {}),
+      ...(listPrice
+        ? { listPrice, listPriceOn: input.listPriceOn, contractId: input.contractId ?? null }
+        : {}),
     };
     // The vendor's item: by its SKU, else by an alias the vendor used before.
     let item = sku ? await vendorItemBySku(tx, tenantId, vendorId, sku) : null;
