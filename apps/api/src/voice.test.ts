@@ -10,7 +10,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR } from "./api.test-helper";
 
-const heard: { bytes: number; type: string }[] = [];
+const heard: { bytes: number; type: string; language?: string | undefined }[] = [];
 let failNext = false;
 const transcriber: Transcriber = {
   async transcribe(request) {
@@ -18,7 +18,7 @@ const transcriber: Transcriber = {
       failNext = false;
       throw new TranscribeError("OpenAI answered 500", 500);
     }
-    heard.push({ bytes: request.audio.length, type: request.type });
+    heard.push({ bytes: request.audio.length, type: request.type, language: request.language });
     return "Add a step that emails AP.";
   },
 };
@@ -29,10 +29,20 @@ afterAll(() => h?.close());
 describe.skipIf(!h)("voice typing", () => {
   const H = h as NonNullable<typeof h>;
   const AUDIO = new Uint8Array([26, 69, 223, 163, 1, 2, 3, 4]);
-  const post = async (email: string, path: string, body: Uint8Array, type = "audio/webm") => {
+  const post = async (
+    email: string,
+    path: string,
+    body: Uint8Array,
+    type = "audio/webm",
+    headers: Record<string, string> = {},
+  ) => {
     const res = await H.app.request(
       path,
-      { method: "POST", headers: { [DEV_USER_HEADER]: email, "content-type": type }, body },
+      {
+        method: "POST",
+        headers: { [DEV_USER_HEADER]: email, "content-type": type, ...headers },
+        body,
+      },
       H.env,
     );
     return {
@@ -44,12 +54,17 @@ describe.skipIf(!h)("voice typing", () => {
   it("writes out what the operator dictated", async () => {
     const res = await post(OPERATOR, "/api/ops/transcribe", AUDIO, "audio/webm;codecs=opus");
     expect(res).toEqual({ status: 200, json: { text: "Add a step that emails AP." } });
-    expect(heard.at(-1)).toEqual({ bytes: AUDIO.length, type: "audio/webm" });
+    // The back office leaves the language to the model.
+    expect(heard.at(-1)).toEqual({ bytes: AUDIO.length, type: "audio/webm", language: undefined });
   });
 
   it("writes out what a client's person dictated, in the portal", async () => {
-    const res = await post(admin("b"), "/api/transcribe", AUDIO, "audio/mp4");
+    const res = await post(admin("b"), "/api/transcribe", AUDIO, "audio/mp4", {
+      "accept-language": "pt-BR,pt;q=0.9",
+    });
     expect(res.json.text).toBe("Add a step that emails AP.");
+    // The language the person reads in, as the model takes it.
+    expect(heard.at(-1)?.language).toBe("pt");
   });
 
   it("refuses anything but a recording, and an empty one", async () => {
