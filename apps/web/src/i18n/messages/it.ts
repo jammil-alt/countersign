@@ -2252,6 +2252,9 @@ export const it: Messages = {
   "materials.alert.kind.not_on_contract": "Fuori contratto",
   "materials.alert.kind.contract_not_in_effect": "Contratto non in vigore",
   "materials.alert.kind.terms_mismatch": "Condizioni diverse",
+  "materials.alert.kind.below_contract": "Sotto il contratto",
+  "materials.alert.kind.within_tolerance": "Entro la tolleranza",
+  "materials.alert.saved": "{amount} risparmiati",
   "materials.alert.kind.other": "Avviso",
   "materials.prices.none":
     "Ancora nessun prezzo. Compaiono qui appena leggiamo la tua prima fattura.",
@@ -2317,6 +2320,8 @@ export const it: Messages = {
   "materials.vendors.search": "Cerca codice, nome o materiale",
   "materials.vendors.noMatch": "Nessun articolo corrisponde alla ricerca.",
   "materials.vendors.listedOn": "A listino dal {date}",
+  "materials.vendors.agreed": "Concordato",
+  "materials.vendors.tolerance": "Tolleranza {value}",
   "materials.vendors.holds": "{qty} × {unit}",
   "materials.vendors.preferred": "Preferito",
   "materials.vendors.discontinued": "Fuori produzione",

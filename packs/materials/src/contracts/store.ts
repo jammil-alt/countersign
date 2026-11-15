@@ -88,6 +88,8 @@ export async function agreedPrices(
             priceOn: r.listPriceOn,
             vendorUom: r.vendorUom,
             stdPerVendorUom: r.stdPerVendorUom,
+            toleranceAmount: r.priceToleranceAmount,
+            tolerancePct: r.priceTolerancePct,
             currency: r.currency,
           },
         ]

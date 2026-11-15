@@ -24,7 +24,9 @@ import { catalogCsv, catalogReport, priceWatch, priceWatchCsv, reviewLines } fro
 import { vendorItem } from "./schema";
 import {
   discontinue,
+  readTolerance,
   setPreferred,
+  setTolerance,
   VendorItemError,
   vendorCatalog,
   vendorItemView,
@@ -203,6 +205,33 @@ export const MATERIALS_ACTIONS: Readonly<Record<string, PackActionHandler>> = {
             ),
           ),
         })),
+      ),
+  },
+  // §1.104 (owner, 2026-11-15): the client's tolerance on a vendor item's agreed price, set by a
+  // person in the back office's vendor catalog; the audit row and `ext.priceTolerance` name them.
+  "vendor-item-tolerance": {
+    input: z.strictObject({
+      vendorItemId: z.uuid(),
+      amount: z.string().max(20).nullable(),
+      pct: z.string().max(20).nullable(),
+    }),
+    run: (db, ctx) =>
+      vendorRefusal(() =>
+        withTenant(db, ctx.tenantId, async (tx) => {
+          const input = ctx.input as {
+            vendorItemId: string;
+            amount: string | null;
+            pct: string | null;
+          };
+          const item = await setTolerance(
+            tx,
+            ctx.tenantId,
+            input.vendorItemId,
+            { amount: readTolerance(input.amount, "amount"), pct: readTolerance(input.pct, "pct") },
+            { userId: ctx.userId },
+          );
+          return { item: vendorItemView(item) };
+        }),
       ),
   },
   // P-9: "Import bill prices" in the back office (docs/plan.md §1.71).

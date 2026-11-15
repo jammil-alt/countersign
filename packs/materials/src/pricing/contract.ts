@@ -6,12 +6,15 @@
 // contract's. Every alert carries its evidence (invariant 10) and, where money is at stake, its
 // dollar impact; the same alert table, dedupe and test-run behaviour as the price rules.
 
-import { type Decimal, dec, formatAmount, toNumeric } from "@countersign/core";
+import { Decimal, dec, formatAmount, toNumeric } from "@countersign/core";
 import type { FreightTerm, StandardUom } from "../schema";
 import type { AlertDraft, Names, Observation } from "./rules";
 
 export const CONTRACT_ALERT_KINDS = [
   "above_contract",
+  // Owner, 2026-11-15: every variance is noted.
+  "below_contract",
+  "within_tolerance",
   "not_on_contract",
   "contract_not_in_effect",
   "terms_mismatch",
@@ -45,6 +48,9 @@ export interface ContractPrice {
   price: string;
   vendorUom: string | null;
   stdPerVendorUom: string | null;
+  /** The client's tolerance on it (0052): an amount in the vendor's unit, a percent. */
+  toleranceAmount?: string | null | undefined;
+  tolerancePct?: string | null | undefined;
 }
 
 /** What an invoice says about its terms (its latest reading). */
@@ -164,13 +170,41 @@ export function contractNotInEffect(input: {
   };
 }
 
-// DECISION: a line is above its agreed price when what it costs more on this invoice (the
-// difference per standard unit times the line's quantity) is at least a cent, so a conversion's
-// rounding never raises one. Its dollar impact is that amount: money to claim back on the invoice.
-const MIN_OVERCHARGE = dec("0.01");
+// DECISION: a line varies from its agreed price when the difference on this invoice (per standard
+// unit, times the line's quantity) is at least a cent either way, so a conversion's rounding never
+// raises one. Its dollar impact is that amount: positive to claim back, negative a saving.
+const MIN_VARIANCE = dec("0.01");
 
-/** `above_contract`: a priced line costs more than the item's agreed price under the contract. */
-export function aboveContract(
+/**
+ * The client's allowance per standard unit on an agreed price: its amount (in the vendor's unit,
+ * converted as the price is) or its percent of the agreed price, whichever allows more. Zero when
+ * the item has none.
+ */
+// DECISION (owner, 2026-11-15: "tolerance at an item level"): a vendor item may carry an amount, a
+// percent, or both; with both, the larger allowance holds (each is something the client accepts).
+// An amount with no conversion to the line's unit counts as none (invariant 7).
+export function toleranceStd(
+  p: ContractPrice,
+  agreedStd: Decimal,
+  standardUom: StandardUom,
+): Decimal {
+  const pct = p.tolerancePct ? agreedStd.abs().times(p.tolerancePct).dividedBy(100) : dec("0");
+  const amount = p.toleranceAmount
+    ? (agreedPriceStd({ ...p, price: p.toleranceAmount }, standardUom) ?? dec("0"))
+    : dec("0");
+  return Decimal.max(pct, amount);
+}
+
+/**
+ * The agreed-price rule (owner, 2026-11-15: "all variances should be highlighted"): a priced line
+ * above its agreed price is `above_contract` (a warning); below it, `below_contract` (info, a
+ * saving); either within the item's tolerance, `within_tolerance` (info, noted, with its
+ * direction). Nothing for a difference under a cent on the invoice.
+ */
+// DECISION: three kinds rather than one with a direction, so each keeps its own severity and its
+// own open alert per (kind, item, vendor): a note within tolerance never swallows a later
+// variance outside it, and a saving never hides an overcharge.
+export function contractVariance(
   current: Observation,
   agreed: ContractPrice | null,
   contract: ContractTerms,
@@ -180,27 +214,41 @@ export function aboveContract(
   const agreedStd = agreedPriceStd(agreed, current.standardUom);
   if (agreedStd === null) return null;
   const perUnit = dec(current.unitPriceStd).minus(agreedStd);
-  const over = perUnit.times(current.qtyStd);
-  if (over.lessThan(MIN_OVERCHARGE)) return null;
+  const variance = perUnit.times(current.qtyStd);
+  if (variance.abs().lessThan(MIN_VARIANCE)) return null;
+  const allowance = toleranceStd(agreed, agreedStd, current.standardUom);
+  const within = perUnit.abs().lessThanOrEqualTo(allowance);
+  const above = variance.greaterThan(0);
   const pct = agreedStd.isZero()
     ? null
     : perUnit.dividedBy(agreedStd).times(100).toDecimalPlaces(2);
+  const item = names.item;
+  const at = names.vendor(current.vendorId);
+  const against = `${usd(current.unitPriceStd)} against ${usd(agreedStd)} agreed in "${contract.name}"`;
+  const amount = usd(variance.abs());
+  const toleranceWords = allowance.isZero() ? "" : ` (tolerance ${usd(allowance)})`;
+  const kind = within ? "within_tolerance" : above ? "above_contract" : "below_contract";
   return {
-    kind: "above_contract",
-    severity: "warning",
+    kind,
+    severity: kind === "above_contract" ? "warning" : "info",
     catalogItemId: current.catalogItemId,
     vendorId: current.vendorId,
-    title: `${names.item} above the agreed price at ${names.vendor(current.vendorId)}`,
-    body: `${usd(current.unitPriceStd)} against ${usd(agreedStd)} agreed in "${contract.name}": ${usd(over)} more on this invoice.`,
+    title: within
+      ? `${item} ${above ? "above" : "below"} the agreed price at ${at}, within tolerance`
+      : `${item} ${above ? "above" : "below"} the agreed price at ${at}`,
+    body: `${against}${toleranceWords}: ${amount} ${above ? "more" : "less"} on this invoice.`,
     evidence: unique([
       ...lineEvidence(current),
       agreed.vendorItemId,
       ...contractEvidence(contract),
     ]),
-    dollarImpact: toNumeric(over),
+    dollarImpact: toNumeric(variance),
     facts: {
       contractId: contract.id,
       vendorItemId: agreed.vendorItemId,
+      direction: above ? "above" : "below",
+      withinTolerance: within,
+      tolerance: toNumeric(allowance),
       agreed: toNumeric(agreedStd),
       current: current.unitPriceStd,
       changePct: pct?.toString() ?? null,
@@ -324,7 +372,7 @@ export function termsMismatch(input: {
 }
 
 /** The per-line contract rules, in a fixed order (beside OBSERVATION_RULES). */
-export const CONTRACT_RULES = [aboveContract, notOnContract] as const;
+export const CONTRACT_RULES = [contractVariance, notOnContract] as const;
 
 /**
  * Every contract alert for one invoice: whether a contract holds on its date, then each priced
@@ -354,8 +402,8 @@ export function checkContract(input: {
   for (const o of input.lines) {
     const agreed = input.agreedFor(o, contract);
     const names = input.names(o.catalogItemId);
-    const above = aboveContract(o, agreed, contract, names);
-    if (above) alerts.push(above);
+    const variance = contractVariance(o, agreed, contract, names);
+    if (variance) alerts.push(variance);
     const missing = notOnContract(o, agreed, contract, names, hasPrices);
     if (missing) alerts.push(missing);
   }

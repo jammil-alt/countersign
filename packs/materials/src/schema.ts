@@ -269,6 +269,11 @@ export const vendorItem = pgTable(
     // §1.104 (0051). DECISION: the list price is this contract's agreed price for the item (from
     // `list_price_on`, until the contract ends). Null: a plain list price, or none.
     contractId: uuid("contract_id"),
+    // §1.104 (0052, owner 2026-11-15): the client's tolerance on the agreed price, per item: an
+    // amount in the vendor's unit (as the list price) and a percent of the agreed price. Null
+    // both: no tolerance (a variance of a cent or more on the invoice is outside it).
+    priceToleranceAmount: decimal("price_tolerance_amount"),
+    priceTolerancePct: numeric("price_tolerance_pct", { precision: 5, scale: 2 }),
   },
   (t) => [
     unique("vendor_item_id_tenant_key").on(t.id, t.tenantId),
@@ -278,6 +283,10 @@ export const vendorItem = pgTable(
       foreignColumns: [vendorContract.id, vendorContract.tenantId],
     }),
     check("vendor_item_contract_check", sql`${t.contractId} is null or ${t.listPrice} is not null`),
+    check(
+      "vendor_item_price_tolerance_check",
+      sql`(${t.priceToleranceAmount} is null or ${t.priceToleranceAmount} >= 0) and (${t.priceTolerancePct} is null or (${t.priceTolerancePct} >= 0 and ${t.priceTolerancePct} < 100))`,
+    ),
     index("vendor_item_contract_idx").on(t.tenantId, t.contractId),
     foreignKey({
       name: "vendor_item_vendor_fk",

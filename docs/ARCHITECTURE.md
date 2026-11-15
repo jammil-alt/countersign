@@ -11,14 +11,15 @@
 > adding a system beside it: a contract is a small terms record per vendor (`vendor_contract`:
 > dates, payment terms, early-pay discount, freight, minimum order, the signed document) and its
 > item prices are the vendor catalog's list prices, each naming the contract it is agreed in
-> (`vendor_item.contract_id`, migration 0051). The contract check is the price check with four
-> more rules (above the agreed price, not on the contract, contract not in effect, terms that
+> (`vendor_item.contract_id`, migration 0051), each with the client's tolerance (migration 0052).
+> The contract check is the price check with more rules (every variance from the agreed price,
+> above, below or within tolerance; not on the contract; contract not in effect; terms that
 > differ), run when the vendor has a contract: one alert table, evidence, dollar impact and
 > dedupe. An invoice read with valid totals makes its own purchase record (`transaction`, connector
 > `document`) when no tool synced one; a bill the client's tool syncs later takes it over. The
 > extraction also reads an invoice's payment terms. The Materials pack ships its first template,
-> "Vendor contracts and invoice review" (contract intake; invoice review that emails AP the invoice
-> and its notes, approval on). Changed: §1, §5.2, §6.3, §12.0, §12.2, §12.4, §18, §20; CLAUDE.md
+> "Vendor contracts and invoice review" (contract intake; invoice review whose hand-off is AP
+> control, every invoice to AP, or pricing issues only, approval on). Changed: §1, §5.2, §6.3, §12.0, §12.2, §12.4, §18, §20; CLAUDE.md
 > (the Materials pack now ships one template); `docs/plan.md` §1.104. In the same version, from a
 > parallel thread: the Builder's v0.18 sections in §9.6, §10.2 and §10.5, and tools declaring their
 > area and entity (`ToolSpec.area`, `ToolSpec.entity`) in §12.0's "Access to an area".
@@ -3293,13 +3294,18 @@ vendor_contract(id, tenant_id, vendor_id, name, effective_from, effective_to nul
                 document_id null, sources jsonb, notes, created_by, ext, created_at, updated_at)
   unique(tenant_id, vendor_id, effective_from)
 vendor_item + contract_id null   (its list price is that contract's agreed price; a list price is required)
+vendor_item + price_tolerance_amount null, price_tolerance_pct null
+            (migration 0052: the client's tolerance on the agreed price, per item; none = the cent rule)
 ```
 Tools: `materials.contract.get` (none), `materials.contract.save` (internal: the terms, and the
 agreed prices through the price list import, each dated the contract's start), and
-`materials.invoice.review` (none: an invoice's review notes for accounts payable). Skills:
-`materials.read-contract` (AI: a contract or price sheet, attached, into terms and items; records
-nothing) and `materials.invoice-review` (deterministic, with the client agent's `ap_email`
-parameter). The contract check is `materials.price-check` / `materials.compare-prices` (§12.4).
+`materials.invoice.review` (none: an invoice's review notes, and whether and to whom they are
+handed off), and `materials.vendor_item.set_tolerance` (internal: the client's tolerance on one
+item, attributed; also the back office's vendor catalog, which marks an agreed price and shows its
+tolerance). Skills: `materials.read-contract` (AI: a contract or price sheet, attached, into terms
+and items, tolerances included; records nothing) and `materials.invoice-review` (deterministic,
+with the client agent's parameters `handoff` (`ap_control` or `pricing_issues`), `ap_email` and
+`pricing_email`). The contract check is `materials.price-check` / `materials.compare-prices` (§12.4).
 The platform's `docs.record_purchase` (internal) makes an invoice's purchase record (§5.2).
 
 Template **Vendor contracts and invoice review** (`vendor-contracts`, the pack's one template,
@@ -3309,8 +3315,12 @@ and **invoice review** (`document.extracted` with valid totals, or manual: read 
 nobody has, Save to records: its purchase (a person told and the run stopped when it is ambiguous
 or not ready), Look up existing, Match the unmatched, Check matches, a person for vetoed lines,
 Save to records: the matches, Compare to historicals and the contract, Save to records: the prices
-and the alerts, Review notes for AP, then Send email to the AP mailbox with the invoice attached,
-approval on; with no mailbox set, the operator is told). Creating the bill in QuickBooks or BILL is
+and the alerts, Review notes, then the hand-off, one step whose way the operator picks per client
+agent: **AP control** (the default: every invoice to the AP mailbox with its notes, "no findings"
+included) or **pricing issues** (only an invoice with a finding outside tolerance, to the pricing
+mailbox, else the AP one; the rest are noted only); Send email with the invoice attached, approval
+on; with no mailbox where one is needed, the operator is told). Template v3 (2026-11-15) holds the
+hand-off; every v2 step id is kept. Creating the bill in QuickBooks or BILL is
 a swap-in step (Create bill), never a dependency.
 
 Template **Pia** (`purchasing`, functional; default portal service name "Material cost monitoring"): skills `docs.find-support`, `docs.extract`,
@@ -3393,17 +3403,26 @@ adjudicates it. Only the bill backfill creates new items (step 6's rule).
   | `outlier` | qty or unit price > 3 MAD from item history |
 - `dollar_impact` = change × trailing 90-day quantity.
 - Deduplicate: one open alert per (kind, item, vendor).
-- **The contract check (v0.18).** When the invoice's vendor has a contract, the same check runs four
-  more rules against the contract that holds on the invoice's date (`packs/materials/src/pricing/contract.ts`):
-  | kind | rule | dollar impact | one open alert per |
-  | --- | --- | --- | --- |
-  | `above_contract` | a priced line costs more than the item's agreed price, per standard unit (the vendor's pack converts it; no conversion, no comparison: invariant 7), by at least a cent on the invoice | the difference × the line's quantity | kind, item, vendor |
+- **The contract check (v0.18).** When the invoice's vendor has a contract, the same check runs
+  more rules against the contract that holds on the invoice's date (`packs/materials/src/pricing/contract.ts`).
+  Every variance from an agreed price is noted (owner, 2026-11-15), measured per standard unit
+  (the vendor's pack converts it; no conversion, no comparison: invariant 7) and only from a cent
+  on the invoice; the item's tolerance (an amount in the vendor's unit or a percent, the larger
+  allowance holding; none by default) says whether it is a variance or a note:
+  | kind | rule | severity | dollar impact | one open alert per |
+  | --- | --- | --- | --- | --- |
+  | `above_contract` | a priced line costs more than the agreed price, beyond the tolerance | warning | the difference × the line's quantity | kind, item, vendor |
+  | `below_contract` | it costs less, beyond the tolerance | info | the same, negative (a saving) | kind, item, vendor |
+  | `within_tolerance` | it differs either way within the tolerance (`facts.direction`) | info | the same, signed | kind, item, vendor |
   | `not_on_contract` | the contract lists agreed prices and the line's item isn't among them | none | kind, item, vendor |
   | `contract_not_in_effect` | the vendor has contracts, none holds on the invoice's date (nothing else is checked against them) | none | vendor, contract |
   | `terms_mismatch` | the invoice's net days (its printed terms, else its due date less its date) or its early-pay discount differ from the contract's; freight charged where the contract includes it | the freight | vendor and term; freight per invoice |
 
-  A term either side doesn't state is never a mismatch. `ignore_vendors` leaves out the history
-  rules only: a vendor on contract pricing is still checked against its contract.
+  The other rules carry warning or info as their rows say. A term either side doesn't state is
+  never a mismatch. `ignore_vendors` leaves out the history rules only: a vendor on contract
+  pricing is still checked against its contract. "At stake" (Price watch, the weekly digest, the
+  review notes) counts positive impacts only; a saving shows as saved. A minimum order is stored
+  with the contract and not checked (owner, 2026-11-15: not now).
 - Quotes are not prices: price history stays what was paid. `materials.quote.compare` compares a
   request's quotes in code: per line in the item's standard unit through a conversion rule (an
   offer with no rule compares only with offers in its own unit, never across currencies), totals per
@@ -3897,16 +3916,16 @@ Decided:
   pick, a person when it is unsure (§10.14).
 
 - v0.18 (owner, 2026-11-15): vendor contracts in the Purchasing area (a terms record per vendor;
-  agreed prices are vendor items' list prices that name the contract), the contract check as four
-  more rules of the price check, invoices that make their own purchase record when no tool has one
+  agreed prices are vendor items' list prices that name the contract, with the client's tolerance
+  per item), the contract check as more rules of the price check (every variance noted), invoices that make their own purchase record when no tool has one
   (taken over by the tool's bill when it syncs), and the pack's template "Vendor contracts and
   invoice review" (§5.2, §12.0, §12.2, §12.4).
 
 Open:
-- v0.18, for the owner (`docs/plan.md` §1.104): whether a contract price below the paid price
-  should be noted too; tolerance on the agreed price beyond a cent; a minimum-order check; whether
-  the AP email should also go when there are no findings (it does today); BILL keeps no
-  transactions yet, so only QuickBooks takes a document's purchase over.
+- v0.18 (`docs/plan.md` §1.104): answered by the owner on 2026-11-15: every variance is noted,
+  tolerance per item is the client's, and the AP hand-off is AP control or pricing issues. Still
+  open: a minimum-order check (a small-order fee on an invoice that met the minimum; not now);
+  BILL keeps no transactions yet, so only QuickBooks takes a document's purchase over.
 - v0.15, for the owner: embeddings for matching (when, and which provider: OpenAI or Voyage, named in
   the compliance list); generalising the Materials categories beyond millwork (more parsers in code,
   or embeddings for categories without one); the Sales area's first use case and CRM.

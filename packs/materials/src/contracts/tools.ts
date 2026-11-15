@@ -10,6 +10,13 @@ import { contractOn } from "../pricing/contract";
 import { loadPricedDocument, priceLines } from "../pricing/record";
 import { FREIGHT_TERMS } from "../schema";
 import { defineTool, type PackTool } from "../tools";
+import {
+  readTolerance,
+  setTolerance,
+  VendorItemError,
+  vendorItemById,
+  vendorItemView,
+} from "../vendor/store";
 import { agreedPrices, contractTerms, saveContract, vendorContracts } from "./store";
 
 const Uuid = z.uuid();
@@ -49,6 +56,9 @@ export const ContractItemIn = z.object({
   minOrderQty: z.string().max(20).nullable().optional(),
   listPrice: z.string().max(20).nullable().optional(),
   catalogItemId: z.string().max(40).nullable().optional(),
+  // §1.104 (0052): the client's tolerance on this price (an amount in the same unit, a percent).
+  priceToleranceAmount: z.string().max(20).nullable().optional(),
+  priceTolerancePct: z.string().max(20).nullable().optional(),
 });
 
 const ContractOut = z.object({
@@ -88,6 +98,8 @@ export const contractGet = defineTool({
         name: z.string(),
         price: z.string(),
         vendorUom: z.string().nullable(),
+        toleranceAmount: z.string().nullable(),
+        tolerancePct: z.string().nullable(),
         currency: z.string(),
       }),
     ),
@@ -108,6 +120,8 @@ export const contractGet = defineTool({
           name: p.name,
           price: p.price,
           vendorUom: p.vendorUom,
+          toleranceAmount: p.toleranceAmount ?? null,
+          tolerancePct: p.tolerancePct ?? null,
           currency: p.currency,
         })),
         sources: [...contracts.map((c) => c.id), ...prices.map((p) => p.vendorItemId)],
@@ -216,7 +230,62 @@ export const contractSave = defineTool({
   },
 });
 
-// ── The review notes for accounts payable ───────────────────────────────────────────────────────
+// ── A vendor item's tolerance ─────────────────────────────────────────────────────────────────
+
+/** Save to records: the client's tolerance on one vendor item's agreed price. */
+export const vendorItemSetTolerance = defineTool({
+  id: "materials.vendor_item.set_tolerance",
+  description:
+    "Sets the client's tolerance on one vendor item's agreed price: an amount in the vendor's unit, a percent of the price, or both (the larger allowance holds); empty clears one. A variance within it is noted as within tolerance; outside it, as a variance.",
+  sideEffect: "internal",
+  entity: "vendor_item",
+  verb: "update",
+  summary: "Set the tolerance on {{item.name}}",
+  input: z.object({
+    vendorItemId: Uuid,
+    amount: z.string().max(20).nullable(),
+    pct: z.string().max(20).nullable(),
+  }),
+  output: z.object({
+    item: z.object({
+      id: z.string(),
+      name: z.string(),
+      listPrice: z.string().nullable(),
+      vendorUom: z.string().nullable(),
+      contractId: z.string().nullable(),
+      priceToleranceAmount: z.string().nullable(),
+      priceTolerancePct: z.string().nullable(),
+    }),
+    sources: z.array(z.string()),
+  }),
+  run: (input, ctx) =>
+    withTenant(ctx.db, ctx.tenantId, async (tx) => {
+      const values = {
+        amount: readTolerance(input.amount, "amount"),
+        pct: readTolerance(input.pct, "pct"),
+      };
+      // A test run says what it would set and changes nothing.
+      const row =
+        ctx.mode === "test"
+          ? await vendorItemById(tx, ctx.tenantId, input.vendorItemId)
+          : await setTolerance(tx, ctx.tenantId, input.vendorItemId, values, {
+              agentVersionId: ctx.agentVersionId,
+            });
+      if (!row)
+        throw new VendorItemError("not_found", `vendor item ${input.vendorItemId} not found`);
+      return {
+        item: {
+          ...vendorItemView(row),
+          ...(ctx.mode === "test"
+            ? { priceToleranceAmount: values.amount, priceTolerancePct: values.pct }
+            : {}),
+        },
+        sources: [row.id],
+      };
+    }),
+});
+
+// ── The review notes, and who they go to ────────────────────────────────────────────────────────
 
 /** A finding as the price and contract check gives it (`materials.prices.compare`'s alerts). */
 const FindingIn = z.object({
@@ -230,11 +299,30 @@ const FindingIn = z.object({
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const emailOf = (v: unknown): string | null => {
+  const s = typeof v === "string" ? v.trim() : "";
+  return EMAIL.test(s) && s.length <= 320 ? s : null;
+};
+
 /** The AP mailbox from the skill's parameter (`ap_email`), when it is an address. */
 export function apEmailOf(settings: Readonly<Record<string, unknown>>): string | null {
-  const v = typeof settings.ap_email === "string" ? settings.ap_email.trim() : "";
-  return EMAIL.test(v) && v.length <= 320 ? v : null;
+  return emailOf(settings.ap_email);
 }
+
+/** How the review is handed off (the skill's `handoff` parameter). */
+export const HANDOFFS = ["ap_control", "pricing_issues"] as const;
+export type Handoff = (typeof HANDOFFS)[number];
+
+// DECISION (owner, 2026-11-15): "AP control" (the default) sends every invoice to AP with its
+// notes, "no findings" included; "Pricing issues" sends only an invoice with a finding outside
+// tolerance, to `pricing_email` (else the AP mailbox), and the rest are noted only. A value that
+// is neither reads as AP control: the safer way, every invoice still reaches AP.
+export function handoffOf(settings: Readonly<Record<string, unknown>>): Handoff {
+  return settings.handoff === "pricing_issues" ? "pricing_issues" : "ap_control";
+}
+
+/** A finding that is only a note: a variance within the item's tolerance. */
+const isNote = (f: { kind: string }) => f.kind === "within_tolerance";
 
 const money = (v: string, currency: string) =>
   currency === "USD" ? `$${formatAmount(v)}` : `${formatAmount(v)} ${currency}`;
@@ -243,9 +331,9 @@ const money = (v: string, currency: string) =>
 export const invoiceReview = defineTool({
   id: "materials.invoice.review",
   description:
-    "Lays out an invoice's review notes for accounts payable: the invoice (vendor, number, dates, total), the contract it was checked against, each finding of the price and contract check with its dollars, and the lines that couldn't be checked; with the email's subject and body, the invoice to attach, and the AP mailbox from the skill's `ap_email`. Writes nothing.",
+    "Lays out an invoice's review notes: the invoice (vendor, number, dates, total), the contract it was checked against, each finding of the price and contract check with its dollars, the variances within tolerance, and the lines that couldn't be checked; with the email's subject and body, the invoice to attach, and the hand-off: whether to send it and to whom, from the skill's `handoff` (ap_control: every invoice to `ap_email`; pricing_issues: only invoices with a finding outside tolerance, to `pricing_email`, else `ap_email`). Writes nothing.",
   sideEffect: "none",
-  summary: "{{findings}} findings on invoice {{invoiceNumber}}",
+  summary: "{{issues}} findings on invoice {{invoiceNumber}}",
   input: z.object({
     documentId: Uuid,
     findings: z.array(FindingIn).max(200).default([]),
@@ -259,12 +347,26 @@ export const invoiceReview = defineTool({
     total: z.string(),
     currency: z.string(),
     contractId: z.string().nullable(),
+    /** Every finding, the notes within tolerance included. */
     findings: z.number().int(),
+    /** Findings outside tolerance. */
+    issues: z.number().int(),
+    withinTolerance: z.number().int(),
+    /** At stake: the positive dollar impacts of the findings outside tolerance. */
     dollarImpact: z.string(),
+    /** Paid below the agreed prices, outside tolerance (a positive amount). */
+    savings: z.string(),
     unchecked: z.number().int(),
     subject: z.string(),
     body: z.string(),
     attachments: z.array(z.object({ documentId: z.string() })),
+    handoff: z.enum(HANDOFFS),
+    /** Whether the hand-off step sends it, and to whom. */
+    send: z.boolean(),
+    to: z.string().nullable(),
+    /** It should go, but no mailbox is set for it. */
+    missingMailbox: z.boolean(),
+    reason: z.string(),
     apEmail: z.string().nullable(),
     hasApEmail: z.boolean(),
     sources: z.array(z.string()),
@@ -278,20 +380,23 @@ export const invoiceReview = defineTool({
       const total = doc.total;
       const contracts = await vendorContracts(tx, ctx.tenantId, doc.vendorId);
       const contract = contractOn(contracts, doc.observedOn);
-      const findings = input.findings;
-      const atStake = findings.reduce(
-        (s, f) => (f.dollarImpact ? s.plus(f.dollarImpact) : s),
-        dec("0"),
-      );
+      const issues = input.findings.filter((f) => !isNote(f));
+      const notes = input.findings.filter(isNote);
+      const impacts = issues.flatMap((f) => (f.dollarImpact ? [dec(f.dollarImpact)] : []));
+      const atStake = impacts.filter((d) => d.greaterThan(0)).reduce((a, b) => a.plus(b), dec("0"));
+      const savings = impacts
+        .filter((d) => d.lessThan(0))
+        .reduce((a, b) => a.plus(b.abs()), dec("0"));
       const unchecked = lines.filter((l) => l.skipped !== null);
       const number = doc.terms.invoiceNumber;
       const cur = doc.currency;
+      const stake = atStake.greaterThan(0) ? `, ${money(atStake.toFixed(2), cur)} at stake` : "";
       const subject = `Invoice ${number ?? ""} from ${doc.vendorName}: ${
-        findings.length === 0
-          ? "no findings"
-          : `${findings.length} finding${findings.length === 1 ? "" : "s"}${
-              atStake.greaterThan(0) ? `, ${money(atStake.toFixed(2), cur)} at stake` : ""
-            }`
+        issues.length === 0
+          ? notes.length === 0
+            ? "no findings"
+            : "no findings outside tolerance"
+          : `${issues.length} finding${issues.length === 1 ? "" : "s"}${stake}`
       }`.replace(/\s+/g, " ");
       const terms = contract
         ? [
@@ -314,12 +419,19 @@ export const invoiceReview = defineTool({
             ? "No contract with this vendor holds on the invoice's date; we checked it against past prices."
             : "There is no contract on file for this vendor; we checked it against past prices.",
         "",
-        findings.length === 0
+        issues.length === 0
           ? "Findings: none."
           : [
-              `Findings (${findings.length}${atStake.greaterThan(0) ? `, ${money(atStake.toFixed(2), cur)} at stake` : ""}):`,
-              ...findings.map((f) => `- ${f.title}. ${f.body}`),
+              `Findings (${issues.length}${stake}${savings.greaterThan(0) ? `; ${money(savings.toFixed(2), cur)} below the agreed prices` : ""}):`,
+              ...issues.map((f) => `- ${f.title}. ${f.body}`),
             ].join("\n"),
+        ...(notes.length > 0
+          ? [
+              "",
+              `Within tolerance (${notes.length}):`,
+              ...notes.map((f) => `- ${f.title}. ${f.body}`),
+            ]
+          : []),
         ...(unchecked.length > 0
           ? [
               "",
@@ -331,6 +443,19 @@ export const invoiceReview = defineTool({
         "The invoice is attached. Nothing has been paid or entered in your books.",
       ].join("\n");
       const apEmail = apEmailOf(ctx.settings);
+      const handoff = handoffOf(ctx.settings);
+      const goes = handoff === "ap_control" || issues.length > 0;
+      const to =
+        handoff === "pricing_issues" ? (emailOf(ctx.settings.pricing_email) ?? apEmail) : apEmail;
+      const reason = !goes
+        ? "No finding outside tolerance: noted, not sent (pricing issues only)."
+        : to
+          ? handoff === "ap_control"
+            ? `To accounts payable (${to}).`
+            : `A pricing issue: to ${to}.`
+          : handoff === "ap_control"
+            ? "No AP mailbox is set, so it wasn't sent."
+            : "No mailbox for pricing issues is set, so it wasn't sent.";
       return {
         documentId: doc.documentId,
         vendorId: doc.vendorId,
@@ -340,12 +465,20 @@ export const invoiceReview = defineTool({
         total,
         currency: cur,
         contractId: contract?.id ?? null,
-        findings: findings.length,
+        findings: input.findings.length,
+        issues: issues.length,
+        withinTolerance: notes.length,
         dollarImpact: atStake.toFixed(2),
+        savings: savings.toFixed(2),
         unchecked: unchecked.length,
         subject: subject.slice(0, 200),
         body: body.slice(0, 20_000),
         attachments: [{ documentId: doc.documentId }],
+        handoff,
+        send: goes && to !== null,
+        to: goes ? to : null,
+        missingMailbox: goes && to === null,
+        reason,
         apEmail,
         hasApEmail: apEmail !== null,
         sources: [
@@ -353,11 +486,17 @@ export const invoiceReview = defineTool({
             doc.documentId,
             doc.extractionId,
             ...(contract ? [contract.id] : []),
-            ...findings.flatMap((f) => f.evidence),
+            ...input.findings.flatMap((f) => f.evidence),
           ]),
         ],
       };
     }),
 });
 
-export const CONTRACT_TOOLS: readonly PackTool[] = [contractGet, contractSave, invoiceReview];
+export const CONTRACT_TOOLS: readonly PackTool[] = [
+  contractGet,
+  contractSave,
+  invoiceReview,
+  // Owner, 2026-11-15: tolerance at an item level.
+  vendorItemSetTolerance,
+];

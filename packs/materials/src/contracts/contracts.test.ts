@@ -22,7 +22,7 @@ import {
   type ShopFixture,
 } from "../testing.test-helper";
 import { packToolContext } from "../tools";
-import { contractGet, contractSave, invoiceReview } from "./tools";
+import { contractGet, contractSave, invoiceReview, vendorItemSetTolerance } from "./tools";
 
 const online = await databaseAvailable();
 
@@ -270,6 +270,151 @@ describe.skipIf(!online)("vendor contracts (database)", () => {
     await expect(
       checkPrices(db, pricing(A), { documentId: doc.documentId, settings: priceSettingsFrom({}) }),
     ).rejects.toThrow(/isn't linked to a purchase/);
+  });
+
+  // Owner, 2026-11-15: a tolerance per item, set by the client; every variance noted.
+  it("sets a tolerance per item and notes a variance within it, or below the agreed price", async () => {
+    const [vi] = await t.db
+      .select()
+      .from(vendorItem)
+      .where(and(eq(vendorItem.tenantId, A.tenantId), eq(vendorItem.catalogItemId, bbItem)));
+    if (!vi) throw new Error("no vendor item");
+    // A test run sets nothing.
+    await vendorItemSetTolerance.run(
+      { vendorItemId: vi.id, amount: null, pct: "5" },
+      tools(A, "test"),
+    );
+    const [still] = await t.db.select().from(vendorItem).where(eq(vendorItem.id, vi.id));
+    expect(still?.priceTolerancePct).toBeNull();
+    const set = (await vendorItemSetTolerance.run(
+      { vendorItemId: vi.id, amount: null, pct: "5" },
+      tools(A),
+    )) as { item: { priceTolerancePct: string | null } };
+    expect(set.item.priceTolerancePct).toBe("5.00");
+    const [row] = await t.db.select().from(vendorItem).where(eq(vendorItem.id, vi.id));
+    expect(
+      (row?.ext as { priceTolerance?: { agentVersionId?: string } } | undefined)?.priceTolerance,
+    ).toMatchObject({ agentVersionId: A.agentVersionId, pct: "5.00" });
+    await expect(
+      vendorItemSetTolerance.run({ vendorItemId: vi.id, amount: "-1", pct: null }, tools(A)),
+    ).rejects.toThrow(/0 or more/);
+
+    // $61 a sheet against $60 agreed: within 5%, noted as within tolerance.
+    const within = await matchedInvoice(
+      A,
+      [{ description: BB, qty: "10", uom: "SHT", unitPrice: "61.00" }],
+      { date: "2027-04-01" },
+    );
+    const r1 = await checkPrices(db, pricing(A, true), {
+      documentId: within.documentId,
+      settings: priceSettingsFrom({}),
+    });
+    expect(r1.alerts.find((a) => a.kind === "within_tolerance")).toMatchObject({
+      severity: "info",
+      dollarImpact: "10.0000",
+    });
+    expect(r1.alerts.some((a) => a.kind === "above_contract")).toBe(false);
+
+    // $56 a sheet: $4 below, outside 5%: a saving, noted.
+    const below = await matchedInvoice(
+      A,
+      [{ description: BB, qty: "10", uom: "SHT", unitPrice: "56.00" }],
+      { date: "2027-04-02" },
+    );
+    const r2 = await checkPrices(db, pricing(A, true), {
+      documentId: below.documentId,
+      settings: priceSettingsFrom({}),
+    });
+    expect(r2.alerts.find((a) => a.kind === "below_contract")).toMatchObject({
+      severity: "info",
+      dollarImpact: "-40.0000",
+    });
+
+    // The tolerance shows where the agreed price does.
+    const read = (await contractGet.run({ vendorId: vendorA, on: "2027-04-01" }, tools(A))) as {
+      prices: { tolerancePct: string | null }[];
+    };
+    expect(read.prices[0]?.tolerancePct).toBe("5.00");
+
+    // A contract's price row can carry it too.
+    await contractSave.run(
+      {
+        vendorId: vendorA,
+        contract: CONTRACT,
+        items: [
+          {
+            sku: "BB34-55",
+            name: "3/4 BB/BB Baltic birch 5x5",
+            vendorUom: "bundle",
+            stdPerVendorUom: "5",
+            listPrice: "300.00",
+            catalogItemId: bbItem,
+            priceToleranceAmount: "2.50",
+          },
+        ],
+      },
+      tools(A),
+    );
+    const [saved] = await t.db.select().from(vendorItem).where(eq(vendorItem.id, vi.id));
+    expect(saved).toMatchObject({ priceToleranceAmount: "2.5000", priceTolerancePct: "5.00" });
+  });
+
+  // Owner, 2026-11-15: the hand-off is AP control (every invoice) or pricing issues (only those
+  // with a finding outside tolerance).
+  it("hands the review off as the agent's setting says", async () => {
+    const doc = await matchedInvoice(
+      A,
+      [{ description: BB, qty: "10", uom: "SHT", unitPrice: "60.00" }],
+      { date: "2027-04-03", header: { invoiceNumber: "20600" } },
+    );
+    const note = {
+      kind: "within_tolerance",
+      severity: "info",
+      title: "Baltic birch above the agreed price, within tolerance",
+      body: "x",
+      dollarImpact: "10.0000",
+      evidence: [doc.documentId],
+    };
+    const issue = { ...note, kind: "above_contract", severity: "warning", title: "Over" };
+    const review = (findings: (typeof note)[], settings: Record<string, unknown>) =>
+      invoiceReview.run(
+        { documentId: doc.documentId, findings },
+        tools(A, "live", settings),
+      ) as Promise<Record<string, unknown>>;
+    const ap = { ap_email: "ap@millwork-a.example" };
+    // AP control, the default: every invoice goes, "no findings" included.
+    expect(await review([], ap)).toMatchObject({
+      handoff: "ap_control",
+      send: true,
+      to: "ap@millwork-a.example",
+      subject: "Invoice 20600 from Northline Plywood: no findings",
+    });
+    const noted = await review([note], ap);
+    expect(noted).toMatchObject({ send: true, issues: 0, withinTolerance: 1 });
+    expect(String(noted.subject)).toContain("no findings outside tolerance");
+    expect(String(noted.body)).toContain("Within tolerance (1):");
+    // Pricing issues: only a finding outside tolerance goes, to the pricing mailbox.
+    const pricing = {
+      ...ap,
+      handoff: "pricing_issues",
+      pricing_email: "pricing@millwork-a.example",
+    };
+    expect(await review([note], pricing)).toMatchObject({
+      handoff: "pricing_issues",
+      send: false,
+      to: null,
+      missingMailbox: false,
+    });
+    expect(await review([note, issue], pricing)).toMatchObject({
+      send: true,
+      to: "pricing@millwork-a.example",
+      issues: 1,
+    });
+    // No pricing mailbox: the AP one. No mailbox at all: not sent, and the operator is told.
+    expect(await review([issue], { ...ap, handoff: "pricing_issues" })).toMatchObject({
+      to: "ap@millwork-a.example",
+    });
+    expect(await review([], {})).toMatchObject({ send: false, missingMailbox: true });
   });
 
   it("keeps each client's contracts its own", async () => {

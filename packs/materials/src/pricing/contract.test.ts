@@ -4,12 +4,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  aboveContract,
   agreedPriceStd,
   type ContractTerms,
   checkContract,
   contractDedupeKey,
   contractOn,
+  contractVariance,
   type InvoiceTerms,
   readTerms,
   termsMismatch,
@@ -116,15 +116,58 @@ describe("reading payment terms", () => {
 
 describe("the contract rules", () => {
   it("raises above_contract from a cent over on the invoice, with the dollars", () => {
-    const a = aboveContract(obs(), BUNDLE, C, names);
-    expect(a).toMatchObject({ kind: "above_contract", dollarImpact: "50.0000" });
+    const a = contractVariance(obs(), BUNDLE, C, names);
+    expect(a).toMatchObject({
+      kind: "above_contract",
+      severity: "warning",
+      dollarImpact: "50.0000",
+    });
     expect(a?.evidence).toEqual(expect.arrayContaining(["o1", "l1", "vi1", "c-2027"]));
-    expect(aboveContract(obs({ unitPriceStd: "60.0000" }), BUNDLE, C, names)).toBeNull();
+    expect(contractVariance(obs({ unitPriceStd: "60.0000" }), BUNDLE, C, names)).toBeNull();
     expect(
-      aboveContract(obs({ unitPriceStd: "60.0004", qtyStd: "1" }), BUNDLE, C, names),
+      contractVariance(obs({ unitPriceStd: "60.0004", qtyStd: "1" }), BUNDLE, C, names),
     ).toBeNull();
     // No conversion from the vendor's pack: never compared (invariant 7).
-    expect(aboveContract(obs(), { ...BUNDLE, stdPerVendorUom: null }, C, names)).toBeNull();
+    expect(contractVariance(obs(), { ...BUNDLE, stdPerVendorUom: null }, C, names)).toBeNull();
+  });
+
+  it("notes a price below the agreed one as a saving (owner: every variance)", () => {
+    const b = contractVariance(obs({ unitPriceStd: "59.0000" }), BUNDLE, C, names);
+    expect(b).toMatchObject({
+      kind: "below_contract",
+      severity: "info",
+      dollarImpact: "-20.0000",
+      facts: { direction: "below", withinTolerance: false },
+    });
+    expect(b?.title).toBe("Baltic birch 3/4in below the agreed price at Northline");
+  });
+
+  it("notes a variance within the item's tolerance as within tolerance, either way", () => {
+    // $1.50 a bundle is $0.30 a sheet; 1% of $60 is $0.60: the larger allowance holds.
+    const tol = { ...BUNDLE, toleranceAmount: "1.5000", tolerancePct: "1.00" };
+    const up = contractVariance(obs({ unitPriceStd: "60.5000" }), tol, C, names);
+    expect(up).toMatchObject({
+      kind: "within_tolerance",
+      severity: "info",
+      dollarImpact: "10.0000",
+      facts: { direction: "above", withinTolerance: true, tolerance: "0.6000" },
+    });
+    expect(up?.title).toContain("within tolerance");
+    const down = contractVariance(obs({ unitPriceStd: "59.4000" }), tol, C, names);
+    expect(down).toMatchObject({ kind: "within_tolerance", facts: { direction: "below" } });
+    // Past the allowance: the variance itself.
+    expect(contractVariance(obs({ unitPriceStd: "60.6100" }), tol, C, names)?.kind).toBe(
+      "above_contract",
+    );
+    // An amount alone, through the pack: $5 a bundle is $1 a sheet.
+    const amount = { ...BUNDLE, toleranceAmount: "5" };
+    expect(contractVariance(obs({ unitPriceStd: "61.0000" }), amount, C, names)?.kind).toBe(
+      "within_tolerance",
+    );
+    // No tolerance: the one-cent rule as before.
+    expect(contractVariance(obs({ unitPriceStd: "60.0100" }), BUNDLE, C, names)?.kind).toBe(
+      "above_contract",
+    );
   });
 
   it("finds terms that differ, and none where the invoice says nothing", () => {
@@ -203,7 +246,7 @@ describe("the contract rules", () => {
     });
     if (!freight) throw new Error("no freight alert");
     expect(dedupeKey(freight)).toBe("materials:terms_mismatch:v1:freight:doc-1");
-    const above = aboveContract(obs(), BUNDLE, C, names);
+    const above = contractVariance(obs(), BUNDLE, C, names);
     if (!above) throw new Error("no alert");
     expect(dedupeKey(above)).toBe("materials:above_contract:item-bb:v1");
     expect(contractDedupeKey({ ...freight, facts: { term: "payment" } })).toBe(
