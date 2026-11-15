@@ -1748,7 +1748,10 @@ offer to fork it instead. **Draft the new skill:** for a gap, the Builder drafts
 automation:** selected steps become an automation draft (§10.7), and the draft agent uses it in their
 place. The guards are unchanged: every write step keeps approval on, new agents are `suggest_only`,
 unknown skills and tools become gaps (v0.18: a step on one becomes a missing step in its place), ids
-are made by the server once. Save writes an ordinary draft
+are made by the server once. **(v0.18) Working on steps:** an opt-in beside a step's settings in
+the workflow builder: the same conversation, each turn naming the step that is open (`focusStepId`),
+so the Builder answers about that step or changes it and leaves the others alone unless asked;
+previous and next go step by step (`docs/plan.md` §1.105). Save writes an ordinary draft
 version (`author_type = 'builder'`); nothing is published from a conversation.
 
 ### 9.7 Platform agents (templates kind `platform`, seeded as v1 rows)

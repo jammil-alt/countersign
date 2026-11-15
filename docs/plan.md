@@ -4652,6 +4652,23 @@ and the vendor catalog's list prices); a test run of Invoice review needs the in
 already known; fork-time `requiresPacks` isn't enforced by the fork route (a fork of this template
 into a client without the pack is allowed; its runs fail on the pack's tools).
 
+### 1.105 Working on steps with the Builder (owner, 2026-11-15)
+
+"Work on the UI so we can talk to the builder while seeing the step settings... that way we can go
+step by step and edit/ask questions while looking at the settings. This does not replace the
+builder, it just enhances it." ARCHITECTURE v0.18 §9.6. No migration. (Numbered §1.105: §1.104 is the
+parallel thread's.)
+
+| Topic | Decision |
+|---|---|
+| Opt-in | "Work on steps with the Builder" in the workflow builder's toolbar, off by default and remembered per viewer in this browser (`mezonas.builder.stepchat`). Off, the builder is exactly as before: the Builder tab, the step's settings and the canvas. // DECISION: a toolbar toggle rather than a button in the inspector, so the inspector's content doesn't change. |
+| Layout | On, the step tab shows the step's settings (the inspector, unchanged) with the Builder beside them, two columns where the builder has room (the side panel widens to 720px at the `@6xl` container size), the chat under the settings where it hasn't. Turning it on with no step open opens the first step. |
+| One conversation | The same Builder session as the Builder tab (`useBuilderSession`): its turns, its Undo per change, its `/skill`, `/automation` and `/trigger` commands, the same working draft as the canvas. The Builder's change lands in the bundle the inspector shows, at once. // DECISION: one conversation, not one per step, so what was said about one step is there for the next and the Builder tab shows the same turns. |
+| Focus | Each turn from the step's chat sends `focusStepId` (optional on `POST /api/ops/builder/sessions/:id/turns`). The prompt (`focusBlock` in `packages/agents/src/builder/conversation.ts`) names the step by its alias, name, kind and place and asks the Builder to answer about it or change it, leaving the other steps alone unless asked. Without a focus, or with one on a step the draft no longer has, the prompt is exactly as before. The guards are unchanged. // DECISION: a line in the prompt, not a limit like `/skill`'s, so "add an approval after this" still works. |
+| Which step a turn was about | The operator turn keeps `focus: { stepId, name }` in `builder_turn.meta` (JSON, no migration), shown as "On “Match vendor”" above the bubble in either chat. |
+| Step by step | "Previous step" and "Next step" walk every step in run order, nested ones included, selecting each (the canvas and the settings follow); "Working on Match vendor · step 3 of 7" says where the conversation is. // DECISION |
+| Checked | `packages/agents/src/builder/conversation.test.ts` (the prompt with and without a focus), `apps/api/src/builder-sessions.test.ts` (the route passes and keeps the focus), `apps/web/src/ops/builder/step-chat.builder.test.tsx` (off: nothing changes; on: the turn carries the step, the settings show the change, undo, previous and next). |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

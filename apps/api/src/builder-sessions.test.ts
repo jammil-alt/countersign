@@ -430,6 +430,44 @@ describe.skipIf(!h)("the Builder as a conversation", () => {
     expect(rows.find((r) => r.version === 2)?.parentVersionId).toBe(v1.id);
   });
 
+  // v0.18 (docs/plan.md §1.105): a turn about the step the operator has open.
+  it("tells the Builder which step a turn is about, and keeps it on the turn", async () => {
+    const created = await ok(OPERATOR, "POST", `/api/ops/clients/${H.B.tenantId}/agents`, {
+      slug: "clerk-focus",
+      bundle: testBundle("Clerk"),
+    });
+    const agentId = (created.agent as Json).id as string;
+    const start = await ok(OPERATOR, "POST", "/api/ops/builder/sessions", {
+      kind: "agent",
+      agentId,
+      fromVersionId: (created.version as { id: string }).id,
+    });
+    const id = start.session.id as string;
+    model.push(edits("It asks the client admin to confirm.", () => {}));
+    const t = await ok(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/turns`, {
+      text: "What does this step do?",
+      focusStepId: "confirm",
+    });
+    const prompt = model.requests.at(-1)?.messages[0]?.content as string;
+    expect(prompt).toContain('The operator is working on one step: s2 ("');
+    expect(prompt).not.toContain('"confirm"');
+    const asked = t.turns.find(
+      (x) => x.role === "operator" && x.text === "What does this step do?",
+    );
+    expect((asked as Turn & { focus?: unknown }).focus).toMatchObject({ stepId: "confirm" });
+
+    // Without one, the prompt names no step and the turn keeps none.
+    model.push(edits("Nothing to change.", () => {}));
+    const plain = await ok(OPERATOR, "POST", `/api/ops/builder/sessions/${id}/turns`, {
+      text: "Anything else?",
+    });
+    expect(model.requests.at(-1)?.messages[0]?.content as string).not.toContain(
+      "working on one step",
+    );
+    const other = plain.turns.find((x) => x.text === "Anything else?");
+    expect((other as Turn & { focus?: unknown }).focus).toBeUndefined();
+  });
+
   // Wave 3b: the review's case: the workflow builder saved a v4 version, then the Builder panel
   // starts a conversation from it (it used to fail with a 500), and saves steps as an automation.
   it("starts from a v4 version and saves its steps as a v4 automation", async () => {
