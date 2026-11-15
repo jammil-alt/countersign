@@ -245,7 +245,13 @@ export async function priceWatch(
       items: new Set(out.map((r) => r.catalogItemId)).size,
       vendors: new Set(out.map((r) => r.vendorId)).size,
       openAlerts: open.length,
-      dollarImpact: toNumeric(open.reduce((s, a) => s.plus(a.dollarImpact ?? "0"), dec("0"))),
+      // §1.104: at stake is money to claim back; a saving (a negative impact) doesn't net it out.
+      dollarImpact: toNumeric(
+        open.reduce(
+          (s, a) => (dec(a.dollarImpact ?? "0").greaterThan(0) ? s.plus(a.dollarImpact ?? "0") : s),
+          dec("0"),
+        ),
+      ),
     },
   };
 }

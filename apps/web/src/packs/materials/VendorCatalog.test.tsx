@@ -311,6 +311,47 @@ describe("the vendor catalog in the back office", () => {
     );
   });
 
+  // §1.104 (owner, 2026-11-15): an agreed price shows as such, with the client's tolerance, which
+  // the back office sets per item.
+  it("shows an agreed price with its tolerance and sets the tolerance on one item", async () => {
+    const user = userEvent.setup();
+    const bodies: unknown[] = [];
+    const agreed = {
+      report: {
+        ...NORTHLINE_ITEMS.report,
+        items: [
+          {
+            ...NORTHLINE_ITEMS.report.items[0],
+            contractId: "00000000-0000-4000-8000-0000000f0001",
+            priceToleranceAmount: "2.5000",
+            priceTolerancePct: "1.50",
+          },
+          NORTHLINE_ITEMS.report.items[1],
+        ],
+      },
+    };
+    renderOps({
+      [`GET ${OPS}/vendor-catalog`]: () => VENDORS,
+      [`GET ${OPS}/vendor-catalog/items/${NORTHLINE}`]: () => agreed,
+      [`POST /api/ops/clients/${CLIENT}/packs/materials/actions/vendor-item-tolerance`]: ({
+        init,
+      }) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return { result: { item: { id: BB34 } } };
+      },
+    });
+    const [bb] = (await screen.findAllByTestId("vendor-catalog-row")) as [HTMLElement];
+    expect(within(bb).getByTestId("vendor-item-agreed").textContent).toBe(
+      "Agreed · Tolerance ± $2.50 / 1.5%",
+    );
+    await user.click(within(bb).getByTestId("vendor-item-tolerance"));
+    const pct = within(bb).getByTestId("vendor-item-tolerance-pct");
+    await user.clear(pct);
+    await user.type(pct, "3");
+    await user.click(within(bb).getByTestId("vendor-item-tolerance-save"));
+    await waitFor(() => expect(bodies).toEqual([{ vendorItemId: BB34, amount: "2.5", pct: "3" }]));
+  });
+
   it("says how items arrive when there are none", async () => {
     renderOps({ [`GET ${OPS}/vendor-catalog`]: () => ({ report: { vendors: [] } }) });
     expect(await screen.findByText(/No vendor items yet/)).toBeInTheDocument();

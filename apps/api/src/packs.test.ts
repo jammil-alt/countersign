@@ -136,7 +136,7 @@ describe.skipIf(!h)("packs on the platform", () => {
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const body = res.json as J;
     expect(body.pack).toMatchObject({ id: "materials", enabled: true });
-    // §1.104: the template (v1, then its processes as v2), never a client's agent.
+    // §1.104: the template (v1, its processes as v2, the hand-off as v3), never a client's agent.
     expect(body.installed.map((t: J) => t.slug)).toEqual(["vendor-contracts"]);
 
     // Again, and for another client: switched on, nothing more installed.
@@ -156,7 +156,7 @@ describe.skipIf(!h)("packs on the platform", () => {
       .select()
       .from(agentVersion)
       .where(eq(agentVersion.authorType, "pack"));
-    expect(packTemplates.map((v) => v.version).sort()).toEqual([1, 2]);
+    expect(packTemplates.map((v) => v.version).sort()).toEqual([1, 2, 3]);
     expect(packTemplates.every((v) => v.tenantId === null)).toBe(true);
     const list = await H.call(OPERATOR, "GET", `/api/ops/clients/${H.A.tenantId}/packs`);
     expect((list.json as J).packs[0]).toMatchObject({ enabled: true });

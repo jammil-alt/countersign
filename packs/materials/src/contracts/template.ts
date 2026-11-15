@@ -307,9 +307,93 @@ const v2 = once(() => {
   } satisfies AnyAgentBundleInput);
 });
 
-/** The template: v1 as first installed (the definition), then v2 (its processes). */
+// ── v3 (owner, 2026-11-15): the hand-off, one step whose way the operator picks ───────────────
+//
+// "Let's have AP hand-off be a step; we can choose to make this a pricing issue flow or the AP
+// control." The review notes skill's `handoff` parameter, set on each client's agent, says which:
+// AP control (the default: every invoice to AP, "no findings" included) or pricing issues (only an
+// invoice with a finding outside tolerance, to the pricing mailbox). The notes answer `send` and
+// `to`; the If and its Send email are v2's steps under their ids (merges line up by them), the
+// send's approval still required. With no mailbox where one is needed, the operator is told.
+// DECISION: the choice is a skill parameter (one place per client agent, typed and shown with the
+// skill's other values in the builder) rather than two Ifs in the process: the process reads the
+// same either way, and the notes say why an invoice went or didn't.
+
+/** The hand-off: v2's `ap-set` If, now routed by the notes' `send`. */
+function handoffStep(): Step {
+  // Parsed with the whole bundle (`AnyAgentBundle.parse`), which fills the defaults.
+  const step = {
+    id: "ap-set",
+    name: "Hand off the review",
+    kind: "if",
+    paths: [
+      {
+        id: "ap-send-path",
+        name: "Send it",
+        when: {
+          match: "all",
+          rules: [{ field: "{{steps.notes.output.send}}", op: "=", value: true }],
+        },
+        steps: [
+          {
+            id: "send-ap",
+            name: "Send the invoice and its review",
+            kind: "write",
+            action: "send_email",
+            input: {
+              to: "{{steps.notes.output.to}}",
+              subject: "{{steps.notes.output.subject}}",
+              body: "{{steps.notes.output.body}}",
+              attachments: "{{steps.notes.output.attachments}}",
+            },
+            checks: { approval: APPROVE },
+            client: { visible: true, label: "Sent the invoice and its review" },
+          },
+        ],
+      },
+    ],
+    otherwise: {
+      id: "ap-none",
+      steps: [
+        {
+          id: "tell-no-ap",
+          name: "Tell the operator when no mailbox is set",
+          kind: "notify",
+          notify: {
+            when: {
+              match: "all",
+              rules: [{ field: "{{steps.notes.output.missingMailbox}}", op: "=", value: true }],
+            },
+            to: ["operator"],
+            channel: "inbox",
+            message: "Invoice {{steps.notes.output.invoiceNumber}}: {{steps.notes.output.reason}}",
+            sources: ["{{trigger.documentId}}"],
+          },
+          client: { visible: false },
+        },
+      ],
+    },
+  };
+  return step as unknown as Step;
+}
+
+const v3 = once(() => {
+  const base = v2();
+  return AnyAgentBundle.parse({
+    ...base,
+    workflows: base.workflows.map((w) => {
+      if (w.slug !== "invoice-review" || w.workflow.schemaVersion !== 4) return w;
+      const steps = processes.replaceSteps(w.workflow.steps, (step) =>
+        step.id === "ap-set" ? [handoffStep()] : undefined,
+      );
+      return { ...w, workflow: { ...w.workflow, steps } };
+    }),
+  } satisfies AnyAgentBundleInput);
+});
+
+/** The template: v1 as first installed (the definition), v2 (its processes), v3 (the hand-off). */
 export const VENDOR_CONTRACTS_TEMPLATE = lazyObject({
   slug: V1.slug,
   bundle: lazy(() => V1.bundle),
-  versions: lazy(() => [v2()]),
+  versions: lazy(() => [v2(), v3()]),
 });

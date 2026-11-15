@@ -2240,6 +2240,9 @@ export const ptBR: Messages = {
   "materials.alert.kind.not_on_contract": "Fora do contrato",
   "materials.alert.kind.contract_not_in_effect": "Contrato fora da vigência",
   "materials.alert.kind.terms_mismatch": "Condições diferentes",
+  "materials.alert.kind.below_contract": "Abaixo do contrato",
+  "materials.alert.kind.within_tolerance": "Dentro da tolerância",
+  "materials.alert.saved": "Economia de {amount}",
   "materials.alert.kind.other": "Alerta",
   "materials.prices.none":
     "Ainda não há preços. Eles aparecem aqui assim que lermos sua primeira nota.",
@@ -2302,6 +2305,8 @@ export const ptBR: Messages = {
   "materials.vendors.search": "Buscar SKU, nome ou material",
   "materials.vendors.noMatch": "Nenhum item corresponde à sua busca.",
   "materials.vendors.listedOn": "Na lista desde {date}",
+  "materials.vendors.agreed": "Acordado",
+  "materials.vendors.tolerance": "Tolerância {value}",
   "materials.vendors.holds": "{qty} × {unit}",
   "materials.vendors.preferred": "Preferido",
   "materials.vendors.discontinued": "Descontinuado",

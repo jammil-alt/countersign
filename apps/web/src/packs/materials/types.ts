@@ -114,6 +114,8 @@ export const ALERT_LABEL: Record<string, PlainKey> = {
   not_on_contract: "materials.alert.kind.not_on_contract",
   contract_not_in_effect: "materials.alert.kind.contract_not_in_effect",
   terms_mismatch: "materials.alert.kind.terms_mismatch",
+  below_contract: "materials.alert.kind.below_contract",
+  within_tolerance: "materials.alert.kind.within_tolerance",
 };
 
 // ── P-9: purchase requests (docs/plan.md §1.71) ─────────────────────────────────────────────────

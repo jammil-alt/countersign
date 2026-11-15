@@ -59,6 +59,25 @@ describe("the vendor contracts template", () => {
     }
     expect(latest.definition.permissions.mode).toBe("suggest_only");
   });
+
+  // Owner, 2026-11-15: the hand-off is one step, routed by the notes' send; v2's ids are kept.
+  it("keeps every step id of v2 and routes the hand-off by the notes", () => {
+    const [v2, v3] = template?.versions ?? [];
+    if (!v2 || !v3) throw new Error("no versions");
+    const ids = (b: typeof v2) =>
+      b.workflows.flatMap((w) =>
+        w.workflow.schemaVersion === 4 ? processes.allSteps(w.workflow).map((l) => l.step.id) : [],
+      );
+    expect(ids(v3).sort()).toEqual(ids(v2).sort());
+    const review = v3.workflows.find((w) => w.slug === "invoice-review")?.workflow;
+    if (review?.schemaVersion !== 4) throw new Error("no review");
+    const handoff = processes.allSteps(review).find((l) => l.step.id === "ap-set")?.step;
+    expect(handoff?.kind === "if" && handoff.paths[0]?.when.rules[0]).toMatchObject({
+      field: "{{steps.notes.output.send}}",
+    });
+    const send = processes.allSteps(review).find((l) => l.step.id === "send-ap")?.step;
+    expect(send?.kind === "write" && send.checks?.approval?.required).toBe("required");
+  });
 });
 
 const h = await createApiHarness();

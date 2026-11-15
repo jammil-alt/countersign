@@ -16,6 +16,7 @@ import { readUom } from "../pricing/uom";
 import {
   cleanSku,
   createVendorItem,
+  readTolerance,
   updateVendorItem,
   type VendorItemCreator,
   VendorItemError,
@@ -35,6 +36,9 @@ export interface PriceListRow {
   leadTimeDays?: string | number | null | undefined;
   listPrice?: string | null | undefined;
   catalogItemId?: string | null | undefined;
+  // §1.104 (0052): the client's tolerance on the price (an amount in the same unit, a percent).
+  priceToleranceAmount?: string | null | undefined;
+  priceTolerancePct?: string | null | undefined;
 }
 
 // DECISION: a price list's columns are found by their header, in these spellings (lower case,
@@ -50,6 +54,8 @@ export const PRICE_LIST_COLUMNS: Readonly<Record<keyof PriceListRow, readonly st
   leadTimeDays: ["lead time", "lead time days", "lead days"],
   listPrice: ["list price", "price", "unit price", "net price", "cost"],
   catalogItemId: ["master item id", "catalog item id"],
+  priceToleranceAmount: ["tolerance", "tolerance amount", "price tolerance"],
+  priceTolerancePct: ["tolerance %", "tolerance pct", "tolerance percent", "price tolerance %"],
 };
 
 const header = (h: string) => h.replace(/^﻿/, "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -205,6 +211,22 @@ export async function importPriceListRows(
       ? (readUom(r.vendorUom) ?? r.vendorUom.trim().toLowerCase())
       : undefined;
     const stdPer = money(r.stdPerVendorUom);
+    // §1.104: a tolerance given on the row is set; a row without one leaves it as it was.
+    let tolerance: { priceToleranceAmount?: string | null; priceTolerancePct?: string | null };
+    try {
+      tolerance = {
+        ...(r.priceToleranceAmount?.trim()
+          ? { priceToleranceAmount: readTolerance(r.priceToleranceAmount, "amount") }
+          : {}),
+        ...(r.priceTolerancePct?.trim()
+          ? { priceTolerancePct: readTolerance(r.priceTolerancePct, "pct") }
+          : {}),
+      };
+    } catch (error) {
+      if (!(error instanceof VendorItemError)) throw error;
+      skip(error.message);
+      continue;
+    }
     const fields = {
       ...(r.description && r.name ? { description: r.description.trim() } : {}),
       ...(r.packSize?.trim() ? { packSize: r.packSize.trim() } : {}),
@@ -215,6 +237,7 @@ export async function importPriceListRows(
       ...(listPrice
         ? { listPrice, listPriceOn: input.listPriceOn, contractId: input.contractId ?? null }
         : {}),
+      ...tolerance,
     };
     // The vendor's item: by its SKU, else by an alias the vendor used before.
     let item = sku ? await vendorItemBySku(tx, tenantId, vendorId, sku) : null;

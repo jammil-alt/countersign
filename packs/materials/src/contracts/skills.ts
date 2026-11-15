@@ -60,7 +60,7 @@ export const INVOICE_REVIEW_SKILL: SkillDefinition = lazyObject({
   id: "materials.invoice-review",
   name: "Review notes for AP",
   description:
-    "Lays out an invoice's review for accounts payable: the invoice, the contract it was checked against, each finding with its dollars, and the lines that couldn't be checked, as an email's subject and body with the invoice to attach. The same every time; no model.",
+    "Lays out an invoice's review: the invoice, the contract it was checked against, each finding with its dollars, the variances within tolerance, and the lines that couldn't be checked, as an email's subject and body with the invoice to attach, and whether the hand-off sends it and to whom (AP control: every invoice; pricing issues: only those with a finding outside tolerance). The same every time; no model.",
   category: "Materials",
   mode: "tool",
   handler: invoiceReview.spec.id,
@@ -79,8 +79,25 @@ export const INVOICE_REVIEW_SKILL: SkillDefinition = lazyObject({
         "Where the review notes and the invoice go. It must be a contact in the client's directory who agreed to email.",
       default: "",
     },
+    // Owner, 2026-11-15: the AP hand-off is a step whose way the operator picks per client agent.
+    {
+      name: "handoff",
+      label: "Hand-off: ap_control or pricing_issues",
+      type: "text",
+      description:
+        "ap_control (the default): every invoice goes to accounts payable with its review notes, 'no findings' included. pricing_issues: only an invoice with a finding outside tolerance goes, to the pricing mailbox (else the AP mailbox); the rest are noted only.",
+      default: "ap_control",
+    },
+    {
+      name: "pricing_email",
+      label: "Pricing issues mailbox",
+      type: "text",
+      description:
+        "With pricing_issues: the person or mailbox handling pricing issues. Empty: the AP mailbox. A contact in the client's directory who agreed to email.",
+      default: "",
+    },
   ],
-  summary: "{{findings}} findings on invoice {{invoiceNumber}}",
+  summary: "{{issues}} findings on invoice {{invoiceNumber}}",
   requiresConnectors: [],
   requiresPacks: [PACK_ID],
   producesAlerts: false,

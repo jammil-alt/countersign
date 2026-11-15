@@ -154,7 +154,11 @@ export async function weeklyDigest(
       ),
     )
     .orderBy(desc(alert.createdAt));
-  const impact = alerts.reduce((s, a) => s.plus(a.dollarImpact ?? "0"), dec("0"));
+  // §1.104: a saving (a negative impact, paid below the agreed price) doesn't net out what is at stake.
+  const impact = alerts.reduce(
+    (s, a) => (dec(a.dollarImpact ?? "0").greaterThan(0) ? s.plus(a.dollarImpact ?? "0") : s),
+    dec("0"),
+  );
   const ups = changes.filter((c) => dec(c.changePct).greaterThan(0)).length;
   const lines = [
     `${recent.length} prices recorded from ${start} to ${input.today}; ${ups} went up and ${changes.length - ups} went down.`,
