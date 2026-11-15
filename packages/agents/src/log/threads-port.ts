@@ -18,6 +18,7 @@ import {
   agentVersion,
   appUser,
   areaOwner,
+  document,
   type Db,
   membership,
   run,
@@ -32,6 +33,7 @@ import {
   leadOf,
   leadThread,
   listMessages,
+  messageDocuments,
   messageText,
   postMessage,
   type ThreadRow,
@@ -250,6 +252,14 @@ export function dbThreadsPort(db: Db, options: { emit?: Emit } = {}): ThreadsPor
               .where(and(inArray(agentVersion.id, versionIds), eq(agentVersion.tenantId, tenantId)))
           : [];
 
+        const docIds = [...new Set(rows.flatMap((r) => messageDocuments(r)))];
+        const docs = docIds.length
+          ? await tx
+              .select({ id: document.id, name: document.filename })
+              .from(document)
+              .where(and(inArray(document.id, docIds), eq(document.tenantId, tenantId)))
+          : [];
+
         const nameOf = (r: (typeof rows)[number]): string | null => {
           if (r.senderType === "user" && r.senderId) {
             const u = users.find((x) => x.id === r.senderId);
@@ -273,6 +283,7 @@ export function dbThreadsPort(db: Db, options: { emit?: Emit } = {}): ThreadsPor
             command: r.command,
             text: messageText(r),
             sources: r.sources,
+            documents: messageDocuments(r).flatMap((id) => docs.filter((d) => d.id === id)),
           }),
         );
         return { threadId: t.id, subjectType: t.subjectType, messages };

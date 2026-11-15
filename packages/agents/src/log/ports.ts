@@ -79,7 +79,14 @@ export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePort
     carried: dbCarriedActions(db),
     ...(options.modelCalls ? { modelCalls: options.modelCalls } : {}),
     // v0.12 W2-D: Sloan's account, as the portal shows it; passing to an agent emits.
-    ...(options.account ? { account: dbAccountPort(db, options.account, emit) } : {}),
+    ...(options.account
+      ? {
+          account: dbAccountPort(db, options.account, {
+            ...emit,
+            ...(options.documents ? { documents: options.documents } : {}),
+          }),
+        }
+      : {}),
     // P-7: message translation, on the run's transport.
     ...(options.translation ? { translation: dbTranslationPort(db, options.translation) } : {}),
     // §1.77: web research, one port per run so its per-step caps are the run's.

@@ -10,6 +10,7 @@ import {
   type AnyAgentBundle,
   type AnyBundleWorkflow,
   allTriggers,
+  addressedTo,
   evaluateRules,
   eventRunId,
   type HandoffRunPayload,
@@ -222,6 +223,9 @@ export async function routeEvent(
     // An agent is never started by its own run's failure: one that watches failures (the
     // supervisor, docs/plan.md §1.28) and then fails itself can't loop.
     if (aboutOwnRun(event, agent.id)) continue;
+    // §1.110: an event addressed to one agent (a file Sloan handed over) starts no other.
+    const forAgent = addressedTo(event.payload);
+    if (forAgent && forAgent !== agent.id) continue;
     // v0.12 W2-E: webhook, message and handoff triggers (docs/plan.md §1.48).
     const more = await routeW2E(event, agent, options, problems);
     for (const r of more) if (!runs.some((x) => x.runId === r.runId)) runs.push(r);
@@ -312,7 +316,8 @@ function messageOf(event: RoutableEvent, agentId: string): MessageRunPayload | n
       rawRecordId: null,
       threadId: p.threadId,
       messageId: p.messageId,
-      documents: [],
+      // §1.110: the files the person's message carried go with the request.
+      documents: Array.isArray(p.documents) ? p.documents : [],
     };
   }
   return null;

@@ -16,6 +16,8 @@ export interface PersonPostInput {
   operator: boolean;
   text: string;
   sources: readonly string[];
+  /** §1.110: the files it carries, this client's documents (checked by the caller). */
+  documents?: readonly string[];
   audience: MessageAudience;
   /** The client's language, for the system's answer. */
   locale: Locale;
@@ -35,10 +37,17 @@ export async function postAsPerson(
     sources: input.sources,
     audience: input.audience,
   };
+  // §1.110: the files ride in the body, beside the words, on whatever the message becomes.
+  const files =
+    input.documents && input.documents.length > 0 ? { documents: [...input.documents] } : {};
   const parsed = parseCommand(input.text);
   if (!parsed) {
     return [
-      await postMessage(tx, { ...base, kind: "text", body: { text: input.text } }, emitPosted),
+      await postMessage(
+        tx,
+        { ...base, kind: "text", body: { text: input.text, ...files } },
+        emitPosted,
+      ),
     ];
   }
   const target = await resolveCommand(tx, {
@@ -54,7 +63,7 @@ export async function postAsPerson(
         ...base,
         kind: "command",
         command: target.command,
-        body: { text: input.text, args: parsed.args },
+        body: { text: input.text, args: parsed.args, ...files },
       },
       emitPosted,
     );
@@ -62,7 +71,7 @@ export async function postAsPerson(
   }
   const posted = await postMessage(
     tx,
-    { ...base, kind: "text", body: { text: input.text } },
+    { ...base, kind: "text", body: { text: input.text, ...files } },
     emitPosted,
   );
   const answer = await postMessage(

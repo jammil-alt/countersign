@@ -390,6 +390,10 @@ export async function recentDocuments(tx: Tx, tenantId: string, limit: number) {
 async function receiveUploads(
   ctx: Pick<HandlerCtx<typeof routes.portalUploads>, "c" | "tx" | "session" | "services" | "defer">,
   tenantId: string,
+  // DECISION (§1.110): a file attached to a conversation is stored quietly: no
+  // `document.received`, no reading in the background and no CSV import. It reaches an agent only
+  // when Sloan (or Reggie) passes the message on, so the same invoice isn't started twice.
+  forChat = false,
 ) {
   const { c, tx, session, services, defer } = ctx;
   let form: FormData;
@@ -417,7 +421,7 @@ async function receiveUploads(
       purchases: null,
       error: null,
     };
-    if (isCsv(file)) {
+    if (isCsv(file) && !forChat) {
       try {
         const r = await importPurchasesCsv(tx, {
           tenantId,
@@ -474,10 +478,13 @@ async function receiveUploads(
         bytes,
         filename: file.name,
         mimeType,
-        meta: { uploadedBy: session.user.id },
+        meta: forChat
+          ? { uploadedBy: session.user.id, via: "chat" }
+          : { uploadedBy: session.user.id },
+        ...(forChat ? { announce: false } : {}),
       });
       if (stored.event) events.push(stored.event);
-      if (stored.created) extract.push(stored.document.id);
+      if (stored.created && !forChat) extract.push(stored.document.id);
       results.push({
         ...base,
         kind: "document" as const,
@@ -497,7 +504,9 @@ async function receiveUploads(
 }
 
 export function documentRoutes(app: Hono<AppEnv>): void {
-  mount(app, routes.portalUploads, async (ctx) => receiveUploads(ctx, ctx.tenantIds[0] as string));
+  mount(app, routes.portalUploads, async (ctx) =>
+    receiveUploads(ctx, ctx.tenantIds[0] as string, ctx.query.for === "chat"),
+  );
 
   // DECISION: the operator uploads documents only to the Sandbox client, which has no client
   // people to do it (docs/plan.md §1.16), with the portal's upload as it is; in a real client the
