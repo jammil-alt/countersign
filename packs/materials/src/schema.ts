@@ -135,6 +135,83 @@ export const catalogItem = pgTable(
   ],
 );
 
+// §1.104 (migration 0051): a vendor's contract with the client. Whether freight is in the prices
+// (`included`), billed on top (`charged`), or the contract doesn't say (`unknown`).
+export const FREIGHT_TERMS = ["included", "charged", "unknown"] as const;
+export type FreightTerm = (typeof FREIGHT_TERMS)[number];
+
+/**
+ * A vendor's contract or agreed price sheet with this client (docs/plan.md §1.104): the dates it
+ * holds, its payment terms (net days, an early-pay discount), freight, a minimum order, and the
+ * signed document it was read from (`document_id`, with `sources`, invariant 10). Its item prices
+ * are the vendor items' list prices that name it (`vendor_item.contract_id`). One per vendor and
+ * start date: saving the same contract again updates it.
+ */
+export const vendorContract = pgTable(
+  "vendor_contract",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    vendorId: uuid("vendor_id").notNull(),
+    /** What the client calls it ("2027 supply agreement"); data, never instructions. */
+    name: text("name").notNull(),
+    effectiveFrom: date("effective_from").notNull(),
+    /** The last day it holds; null: until another replaces it. */
+    effectiveTo: date("effective_to"),
+    /** The payment terms as the contract writes them ("2% 10, net 30"). */
+    paymentTerms: text("payment_terms"),
+    /** Days from the invoice date to pay in full. */
+    netDays: integer("net_days"),
+    /** An early-payment discount: this percent off when paid within `early_pay_days`. */
+    earlyPayDiscountPct: numeric("early_pay_discount_pct", { precision: 5, scale: 2 }),
+    earlyPayDays: integer("early_pay_days"),
+    freight: text("freight").$type<FreightTerm>().notNull().default("unknown"),
+    /** The smallest order the vendor takes, in `currency`. */
+    minOrderAmount: decimal("min_order_amount"),
+    currency: text("currency").notNull().default("USD"),
+    /** The signed contract or price sheet it was read from. */
+    documentId: uuid("document_id"),
+    /** The records it was read or set from (the document, its reading), invariant 10. */
+    sources: jsonb("sources").$type<string[]>().notNull().default([]),
+    notes: text("notes"),
+    createdByAgentVersionId: uuid("created_by_agent_version_id").references(() => agentVersion.id),
+    createdByUserId: uuid("created_by_user_id").references(() => appUser.id),
+    ext: jsonb("ext").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("vendor_contract_id_tenant_key").on(t.id, t.tenantId),
+    // DECISION: one contract per vendor and start date, so saving it twice (a retried step, a
+    // corrected reading) updates the one row.
+    unique("vendor_contract_start_key").on(t.tenantId, t.vendorId, t.effectiveFrom),
+    foreignKey({
+      name: "vendor_contract_vendor_fk",
+      columns: [t.vendorId, t.tenantId],
+      foreignColumns: [vendor.id, vendor.tenantId],
+    }),
+    foreignKey({
+      name: "vendor_contract_document_fk",
+      columns: [t.documentId, t.tenantId],
+      foreignColumns: [document.id, document.tenantId],
+    }),
+    check("vendor_contract_freight_check", oneOf(t.freight, FREIGHT_TERMS)),
+    check(
+      "vendor_contract_dates_check",
+      sql`${t.effectiveTo} is null or ${t.effectiveTo} >= ${t.effectiveFrom}`,
+    ),
+    check(
+      "vendor_contract_terms_check",
+      sql`(${t.netDays} is null or ${t.netDays} between 0 and 365) and (${t.earlyPayDiscountPct} is null) = (${t.earlyPayDays} is null) and (${t.earlyPayDiscountPct} is null or (${t.earlyPayDiscountPct} > 0 and ${t.earlyPayDiscountPct} < 100)) and (${t.earlyPayDays} is null or ${t.earlyPayDays} between 0 and 365) and (${t.minOrderAmount} is null or ${t.minOrderAmount} >= 0)`,
+    ),
+    check(
+      "vendor_contract_created_by_check",
+      sql`num_nonnulls(${t.createdByAgentVersionId}, ${t.createdByUserId}) <= 1`,
+    ),
+    index("vendor_contract_vendor_idx").on(t.tenantId, t.vendorId, t.effectiveFrom),
+  ],
+);
+
 // §1.88 (migration 0047): the vendor catalog. Where a price came from, as `last_price_source`.
 export const VENDOR_PRICE_SOURCES = ["invoice", "quote", "qbo_bill", "import", "person"] as const;
 export type VendorPriceSource = (typeof VENDOR_PRICE_SOURCES)[number];
@@ -189,9 +266,28 @@ export const vendorItem = pgTable(
     ext: jsonb("ext").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // §1.104 (0051): the list price is this contract's agreed price for the item (from
+    // `list_price_on`, until the contract ends). Null: a plain list price, or none.
+    contractId: uuid("contract_id"),
+    // §1.104 (0052, owner 2026-11-15): the client's tolerance on the agreed price, per item: an
+    // amount in the vendor's unit (as the list price) and a percent of the agreed price. Null
+    // both: no tolerance (a variance of a cent or more on the invoice is outside it).
+    priceToleranceAmount: decimal("price_tolerance_amount"),
+    priceTolerancePct: numeric("price_tolerance_pct", { precision: 5, scale: 2 }),
   },
   (t) => [
     unique("vendor_item_id_tenant_key").on(t.id, t.tenantId),
+    foreignKey({
+      name: "vendor_item_contract_fk",
+      columns: [t.contractId, t.tenantId],
+      foreignColumns: [vendorContract.id, vendorContract.tenantId],
+    }),
+    check("vendor_item_contract_check", sql`${t.contractId} is null or ${t.listPrice} is not null`),
+    check(
+      "vendor_item_price_tolerance_check",
+      sql`(${t.priceToleranceAmount} is null or ${t.priceToleranceAmount} >= 0) and (${t.priceTolerancePct} is null or (${t.priceTolerancePct} >= 0 and ${t.priceTolerancePct} < 100))`,
+    ),
+    index("vendor_item_contract_idx").on(t.tenantId, t.contractId),
     foreignKey({
       name: "vendor_item_vendor_fk",
       columns: [t.vendorId, t.tenantId],
@@ -693,5 +789,7 @@ export const MATERIALS_TABLES = [
   "quote_line",
   // §1.88 (0047)
   "vendor_item",
+  // §1.104 (0051)
+  "vendor_contract",
 ] as const;
 export type MaterialsTable = (typeof MATERIALS_TABLES)[number];
