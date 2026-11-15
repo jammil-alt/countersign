@@ -512,6 +512,9 @@ export function defineInternalTool<I extends z.ZodType, O extends z.ZodType>(def
   pure?: boolean;
   /** Skill model (2026-11-10): the tool's code calls a model inside it, and why (`ToolSpec`). */
   usesModel?: string;
+  /** v0.18 (ARCHITECTURE §12.0): the area and record type it reads or saves; metadata only. */
+  area?: string;
+  entity?: string;
 }): InternalTool {
   return {
     ...(def.pure ? { pure: true } : {}),
@@ -526,6 +529,8 @@ export function defineInternalTool<I extends z.ZodType, O extends z.ZodType>(def
       source: def.source ?? "platform",
       ...(def.summary === undefined ? {} : { summary: def.summary }),
       ...(def.usesModel === undefined ? {} : { usesModel: def.usesModel }),
+      ...(def.area === undefined ? {} : { area: def.area }),
+      ...(def.entity === undefined ? {} : { entity: def.entity }),
     }),
     input: def.input,
     output: def.output,

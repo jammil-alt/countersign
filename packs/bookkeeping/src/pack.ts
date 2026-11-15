@@ -52,6 +52,10 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
   sideEffect: "none" | "internal";
   verb?: "update";
   summary?: string;
+  // v0.18 (ARCHITECTURE §12.0): the record type it reads or saves, and its area when that isn't
+  // Bookkeeping (a shared record: `shared`). Metadata only, for the builder's "reads and saves".
+  entity?: string;
+  area?: string;
   input: I;
   output: O;
   run(input: z.output<I>, ctx: PackToolContext): Promise<z.input<O>>;
@@ -67,6 +71,8 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
       verb: def.sideEffect === "none" ? "read" : (def.verb ?? "create"),
       source: PACK_ID,
       ...(def.summary ? { summary: def.summary } : {}),
+      area: def.area ?? "bookkeeping",
+      ...(def.entity ? { entity: def.entity } : {}),
     }),
     input: def.input,
     output: def.output,

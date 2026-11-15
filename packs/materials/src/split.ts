@@ -124,6 +124,8 @@ export const linesLookup = defineTool({
   description:
     "Looks up each line of a document's latest reading in the client's catalog, deterministically: the vendor's names for items, then the category's attribute rules over candidates with equal key attributes (and close names). Lines the rules settle are decided; the rest come back open, with their candidates. Writes nothing.",
   sideEffect: "none",
+  entity: "document",
+  area: "shared",
   summary: "Looked up {{lines.length}} lines; {{openCount}} open",
   input: z.object({ documentId: z.uuid(), vendorId: z.uuid().optional() }),
   output: z.object({
@@ -156,6 +158,7 @@ export const matchesCheck = defineTool({
   description:
     "Checks the model's answers for open lines against the hard rules: never a match when a key attribute differs or the item wasn't a candidate, never a new item when an equal item exists or a required attribute is missing. Below the confidence threshold a person decides. Reads only its input.",
   sideEffect: "none",
+  entity: "item_match",
   summary: "{{matched}} matched, {{newItems}} new, {{needsReview}} for a person",
   input: z.object({ lines: z.array(LookedUp), answers: z.array(Answer).default([]) }),
   output: z.object({ lines: z.array(Checked), ...Counts }),
@@ -175,6 +178,7 @@ export const matchesRecord = defineTool({
   description:
     "Records checked line decisions in the client's catalog: each line's match (with the agent version), the new items it needs, and the vendor's names for items. Unsure lines are recorded for a person's match review. A line decided before is left as it is.",
   sideEffect: "internal",
+  entity: "item_match",
   summary: "Recorded {{recorded}} line decisions",
   input: z.object({ lines: z.array(Checked), vendorId: z.uuid().optional() }),
   output: z.object({
@@ -232,6 +236,7 @@ export const pricesCompare = defineTool({
   description:
     "Compares a document's prices with the client's history and other vendors with the six price rules, and answers the alerts they would raise, with evidence and dollar impact. Records nothing: record the prices and raise the alerts in write steps.",
   sideEffect: "none",
+  entity: "price",
   summary: "Compared {{checked}} prices; {{alerts.length}} would raise an alert",
   input: z.object({ documentId: z.uuid() }),
   output: z.object({
