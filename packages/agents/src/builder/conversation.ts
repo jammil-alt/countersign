@@ -36,7 +36,7 @@ export const TurnAnswer = z.object({
     .min(1)
     .max(4000)
     .describe(
-      "Your reply to the operator: what you changed and why, or your answer, in plain words",
+      "Your reply to the operator, as a chat message: what you changed and why, or your answer, in a few plain sentences. Plain text, no Markdown (no bold, headings or tables). The changes are listed under it already, so don't list them again",
     ),
   questions: z
     .array(z.string().min(1).max(500))

@@ -125,7 +125,7 @@ describe("Sloan", () => {
   it("opens the latest conversation and sends a question to it", async () => {
     const { posts, reads } = setup();
     const list = await screen.findByTestId("portal-sloan-messages");
-    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    expect(list.querySelectorAll('[data-testid^="portal-sloan-message-"]')).toHaveLength(2);
     expect(list).toHaveTextContent("Emails to customers always need your sign.");
     await waitFor(() => expect(reads).toEqual([LATEST]));
 

@@ -12,6 +12,7 @@ export const it: Messages = {
   "common.copied": "Copiato",
   "common.sending": "Invio…",
   "common.send": "Invia",
+  "common.enterToSend": "Invio per inviare, Maiusc+Invio per andare a capo",
   "common.filter": "Filtro",
   "common.sections": "Sezioni",
   "common.waiting": "In attesa",

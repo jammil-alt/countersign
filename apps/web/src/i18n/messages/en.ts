@@ -12,6 +12,7 @@ export const en = {
   "common.copied": "Copied",
   "common.sending": "Sending…",
   "common.send": "Send",
+  "common.enterToSend": "Enter to send, Shift+Enter for a new line",
   "common.filter": "Filter",
   "common.sections": "Sections",
   "common.waiting": "Waiting",

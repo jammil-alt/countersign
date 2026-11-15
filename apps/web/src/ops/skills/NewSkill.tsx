@@ -6,13 +6,14 @@
 // version. The conversation lives at `?session=<id>`, so a reload picks it up again.
 // `?by=hand` keeps the form for writing a skill without the Builder.
 import { BuilderExample, type BuilderTurnView, SkillDefinition } from "@countersign/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { z } from "zod";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { useSession } from "../../session/session";
 import { AgentBadge } from "../../ui/badges";
+import { AgentSaid, Composer as ChatComposer, ChatLog, Pending, YouSaid } from "../../ui/chat";
 import { Columns, Page } from "../../ui/page";
 import {
   Badge,
@@ -154,7 +155,7 @@ function StartConversation() {
   );
 }
 
-/** The message box: text, and examples as JSON when attached. */
+/** The message box (the one conversation composer): text, and examples as JSON when attached. */
 function Composer({
   busy,
   disabled,
@@ -164,12 +165,11 @@ function Composer({
   disabled?: boolean;
   onSend(text: string, examples: z.infer<typeof Examples> | undefined): Promise<boolean>;
 }) {
-  const [text, setText] = useState("");
   const [attaching, setAttaching] = useState(false);
   const [examplesText, setExamplesText] = useState("");
   const [examplesError, setExamplesError] = useState<string | null>(null);
 
-  async function send() {
+  async function send(text: string): Promise<boolean> {
     let examples: z.infer<typeof Examples> | undefined;
     if (attaching && examplesText.trim()) {
       let raw: unknown;
@@ -177,55 +177,54 @@ function Composer({
         raw = JSON.parse(examplesText);
       } catch {
         setExamplesError("The examples aren't valid JSON.");
-        return;
+        return false;
       }
       const parsed = Examples.safeParse(Array.isArray(raw) ? raw : [raw]);
       if (!parsed.success) {
         setExamplesError(
           "Each example needs an input, and may have a name and an expected answer.",
         );
-        return;
+        return false;
       }
       examples = parsed.data;
     }
     setExamplesError(null);
-    if (await onSend(text.trim(), examples)) {
-      setText("");
+    const ok = await onSend(text, examples);
+    if (ok) {
       setExamplesText("");
       setAttaching(false);
     }
+    return ok;
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-line p-3">
-      <TextArea
-        aria-label="Message to the Builder"
-        data-testid="builder-input"
-        rows={3}
-        maxLength={4000}
-        placeholder="Describe what the skill should do, or drop examples"
-        className="border-0 p-1"
-        value={text}
-        disabled={disabled}
-        onChange={(e) => setText(e.target.value)}
-      />
-      {attaching ? (
-        <Field
-          label="Examples"
-          hint='JSON: a list of { "name", "input", "expected" }. They become test cases.'
-          error={examplesError ?? undefined}
-        >
-          <TextArea
-            data-testid="builder-examples"
-            rows={5}
-            className="reference"
-            value={examplesText}
-            invalid={examplesError !== null}
-            onChange={(e) => setExamplesText(e.target.value)}
-          />
-        </Field>
-      ) : null}
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <ChatComposer
+      label="Message to the Builder"
+      placeholder="Describe what the skill should do, or drop examples"
+      busy={busy}
+      disabled={disabled}
+      onSend={send}
+      inputTestId="builder-input"
+      sendTestId="builder-send"
+      extra={
+        attaching ? (
+          <Field
+            label="Examples"
+            hint='JSON: a list of { "name", "input", "expected" }. They become test cases.'
+            error={examplesError ?? undefined}
+          >
+            <TextArea
+              data-testid="builder-examples"
+              rows={5}
+              className="reference"
+              value={examplesText}
+              invalid={examplesError !== null}
+              onChange={(e) => setExamplesText(e.target.value)}
+            />
+          </Field>
+        ) : null
+      }
+      tools={
         <Button
           size="sm"
           variant="ghost"
@@ -236,17 +235,8 @@ function Composer({
         >
           {attaching ? "No examples" : "Attach examples"}
         </Button>
-        <Button
-          size="sm"
-          variant="primary"
-          data-testid="builder-send"
-          disabled={disabled || busy || !text.trim()}
-          onClick={() => void send()}
-        >
-          {busy ? "Sending…" : "Send"}
-        </Button>
-      </div>
-    </div>
+      }
+    />
   );
 }
 
@@ -257,6 +247,13 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const detail = useApi(apiRoutes.opsBuilderSession, { params: { id: sessionId } });
+  // The words on their way, shown with the Builder at work until its answer is in.
+  const [sent, setSent] = useState<string | null>(null);
+  const turnCount = detail.data?.turns.length;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the answer is in when the turns grow.
+  useEffect(() => {
+    setSent(null);
+  }, [turnCount]);
   const turn = useAction();
   const undo = useAction();
   const save = useAction();
@@ -273,10 +270,13 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
   const base = `/ops/skills/new?session=${session.id}`;
 
   async function send(text: string, examples: z.infer<typeof Examples> | undefined) {
+    setSent(text);
     const res = await turn.call(apiRoutes.opsBuilderTurn, {
       params: { id: sessionId },
       body: { text, ...(examples ? { examples } : {}) },
     });
+    // On success the words stay with the Builder at work until the reload brings its answer.
+    if (!res.ok) setSent(null);
     detail.reload();
     return res.ok;
   }
@@ -344,21 +344,31 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
             </span>
             <span className="text-sm text-ink-muted">Drafts the skill and its tests</span>
           </div>
-          <ol className="flex flex-col gap-5 px-6 py-5" data-testid="builder-turns">
-            {turns.length === 0 ? (
-              <li className="text-sm text-ink-muted">
-                Say what the skill should do. Attach real examples to get tests with them.
-              </li>
-            ) : null}
-            {turns.map((t) => (
-              <Turn
-                key={t.id}
-                turn={t}
-                busy={undo.busy || !open}
-                onUndo={(changeId) => void undoChange(t.id, changeId)}
-              />
-            ))}
-          </ol>
+          <div className="px-6 py-5">
+            <ChatLog follow={`${turns.length}:${sent ?? ""}`} testId="builder-turns">
+              {turns.length === 0 && !sent ? (
+                <p className="text-ink-muted">
+                  Say what the skill should do. Attach real examples to get tests with them.
+                </p>
+              ) : null}
+              {turns.map((t) => (
+                <Turn
+                  key={t.id}
+                  turn={t}
+                  busy={undo.busy || !open}
+                  onUndo={(changeId) => void undoChange(t.id, changeId)}
+                />
+              ))}
+              {sent ? (
+                <Pending
+                  text={sent}
+                  badge={<AgentBadge name="Builder" size="sm" />}
+                  label="The Builder is working on it"
+                  testId="builder-thinking"
+                />
+              ) : null}
+            </ChatLog>
+          </div>
           {[turn.error, undo.error].map((e, i) =>
             e ? (
               // biome-ignore lint/suspicious/noArrayIndexKey: two fixed slots.
@@ -525,59 +535,52 @@ function Turn({
   onUndo(changeId: string): void;
 }) {
   if (t.role === "operator") {
-    return (
-      <li
-        data-testid={`builder-turn-${t.seq}`}
-        className="ml-8 rounded-md bg-surface-subtle px-4 py-3 text-sm whitespace-pre-wrap text-ink"
-      >
-        {t.text}
-      </li>
-    );
+    return <YouSaid text={t.text} testId={`builder-turn-${t.seq}`} />;
   }
   return (
-    <li data-testid={`builder-turn-${t.seq}`} className="flex gap-3">
-      <AgentBadge name="Builder" size="sm" />
-      <div className="flex min-w-0 flex-1 flex-col gap-2 text-sm text-ink">
-        <p className="whitespace-pre-wrap">{t.text}</p>
-        {t.changes.map((c) => (
-          <div
-            key={c.id}
-            className="flex items-center justify-between gap-3 rounded-sm border border-line px-3 py-2"
-          >
-            <span className={cx("min-w-0", c.undone && "text-ink-muted line-through")}>
-              <span className="text-positive">+ </span>
-              {c.label}
-            </span>
-            {c.undoes ? null : c.undone ? (
-              <span className="text-ink-muted">Undone</span>
-            ) : (
-              <Button
-                size="sm"
-                variant="link"
-                disabled={busy}
-                data-testid={`builder-undo-${c.id}`}
-                onClick={() => onUndo(c.id)}
-              >
-                Undo
-              </Button>
-            )}
-          </div>
-        ))}
-        {t.questions.length > 0 ? (
-          <ol className="list-decimal pl-5">
-            {t.questions.map((q) => (
-              <li key={q}>{q}</li>
-            ))}
-          </ol>
-        ) : null}
-        {t.gaps.length > 0 ? <p className="text-ink-muted">Missing: {t.gaps.join("; ")}</p> : null}
-        {t.errors.length > 0 ? (
-          <Badge tone="risk">
-            {t.errors.length} {t.errors.length === 1 ? "problem" : "problems"} to fix
-          </Badge>
-        ) : null}
-      </div>
-    </li>
+    <AgentSaid
+      badge={<AgentBadge name="Builder" size="sm" />}
+      text={t.text}
+      testId={`builder-turn-${t.seq}`}
+    >
+      {t.changes.map((c) => (
+        <div
+          key={c.id}
+          className="flex items-center justify-between gap-3 rounded-sm border border-line px-3 py-2"
+        >
+          <span className={cx("min-w-0", c.undone && "text-ink-muted line-through")}>
+            <span className="text-positive">+ </span>
+            {c.label}
+          </span>
+          {c.undoes ? null : c.undone ? (
+            <span className="text-ink-muted">Undone</span>
+          ) : (
+            <Button
+              size="sm"
+              variant="link"
+              disabled={busy}
+              data-testid={`builder-undo-${c.id}`}
+              onClick={() => onUndo(c.id)}
+            >
+              Undo
+            </Button>
+          )}
+        </div>
+      ))}
+      {t.questions.length > 0 ? (
+        <ol className="list-decimal pl-5">
+          {t.questions.map((q) => (
+            <li key={q}>{q}</li>
+          ))}
+        </ol>
+      ) : null}
+      {t.gaps.length > 0 ? <p className="text-ink-muted">Missing: {t.gaps.join("; ")}</p> : null}
+      {t.errors.length > 0 ? (
+        <Badge tone="risk">
+          {t.errors.length} {t.errors.length === 1 ? "problem" : "problems"} to fix
+        </Badge>
+      ) : null}
+    </AgentSaid>
   );
 }
 

@@ -109,9 +109,8 @@ describe("Reggie", () => {
       "I proposed a question for Sandbox's admin. Confirm the card to send it.",
     );
     expect(turns).toEqual([{ text: "Ask Sandbox which area code" }]);
-    expect(screen.getByTestId("reggie-tools")).toHaveTextContent(
-      "Read: client_review, lead_request_create",
-    );
+    // What it read, in words; the change it proposed is its card.
+    expect(screen.getByTestId("reggie-tools")).toHaveTextContent("Looked at the client's account");
 
     const cardEl = screen.getByTestId(`reggie-action-${ACTION}`);
     expect(cardEl).toHaveTextContent("Ask Sandbox's admin");
@@ -131,6 +130,76 @@ describe("Reggie", () => {
       "Asked on Sandbox's admin's Desk.",
     );
     expect(within(cardEl).queryByTestId(`reggie-action-${ACTION}-confirm`)).toBeNull();
+  });
+
+  it("sends on Enter, shows Reggie at work, and reads its answer as a chat reply", async () => {
+    let answer: (v: unknown) => void = () => {};
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/reggie/conversations/${CONV}`]: () => ({
+        conversation,
+        messages: [],
+        actions: [],
+      }),
+      [`POST /api/ops/reggie/conversations/${CONV}/turns`]: () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    });
+    renderAt(`/ops/reggie/${CONV}`, api);
+    const box = await screen.findByTestId("reggie-input");
+    await userEvent.type(box, "How are Sloan's runs?{Shift>}{Enter}{/Shift}Any failed?");
+    expect(box).toHaveValue("How are Sloan's runs?\nAny failed?");
+    await userEvent.type(box, "{Enter}");
+    // The words leave the box at once; Reggie is at work on them.
+    expect(box).toHaveValue("");
+    expect(await screen.findByTestId("reggie-thinking")).toHaveTextContent(
+      "Reggie is looking into it",
+    );
+    answer({
+      conversation,
+      messages: [
+        {
+          id: "m1",
+          role: "operator",
+          text: "How are Sloan's runs?\nAny failed?",
+          tools: [],
+          createdAt: "2026-11-14T10:01:00.000Z",
+        },
+        {
+          id: "m2",
+          role: "reggie",
+          text: "**All 9 went through.**\n\n- Demo client: 5\n- Consulting: 4\n\nWant the list?",
+          tools: ["clients_list", "runs_list", "run_get"],
+          createdAt: "2026-11-14T10:01:02.000Z",
+        },
+      ],
+      actions: [],
+    });
+    const reply = await screen.findByTestId("reggie-answer");
+    expect(reply).not.toHaveTextContent("**");
+    expect(reply).toHaveTextContent("All 9 went through.");
+    expect(reply.querySelectorAll("li")).toHaveLength(2);
+    expect(screen.getByTestId("reggie-tools")).toHaveTextContent("Looked at clients and runs");
+    expect(screen.queryByTestId("reggie-thinking")).toBeNull();
+  });
+
+  it("puts your words back in the box when the turn fails", async () => {
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/reggie/conversations/${CONV}`]: () => ({
+        conversation,
+        messages: [],
+        actions: [],
+      }),
+      [`POST /api/ops/reggie/conversations/${CONV}/turns`]: () => {
+        throw new Error("down");
+      },
+    });
+    renderAt(`/ops/reggie/${CONV}`, api);
+    const box = await screen.findByTestId("reggie-input");
+    await userEvent.type(box, "Ask Sandbox which area code{Enter}");
+    await waitFor(() => expect(box).toHaveValue("Ask Sandbox which area code"));
   });
 
   it("starts a conversation about a client from its page's Ask Reggie", async () => {

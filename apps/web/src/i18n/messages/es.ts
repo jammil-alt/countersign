@@ -12,6 +12,7 @@ export const es: Messages = {
   "common.copied": "Copiado",
   "common.sending": "Enviando…",
   "common.send": "Enviar",
+  "common.enterToSend": "Intro para enviar, Mayús+Intro para una nueva línea",
   "common.filter": "Filtro",
   "common.sections": "Secciones",
   "common.waiting": "En espera",

@@ -12,6 +12,7 @@ export const ptBR: Messages = {
   "common.copied": "Copiado",
   "common.sending": "Enviando…",
   "common.send": "Enviar",
+  "common.enterToSend": "Enter para enviar, Shift+Enter para uma nova linha",
   "common.filter": "Filtro",
   "common.sections": "Seções",
   "common.waiting": "Aguardando",

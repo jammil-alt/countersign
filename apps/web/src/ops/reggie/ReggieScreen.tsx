@@ -3,14 +3,16 @@
 // with the tools it read, and a card for each change it proposed, which happens only when you
 // confirm it. `?client=<id>` starts a conversation about that client (the client page's "Ask
 // Reggie").
-import type { ReggieAction, ReggieMessage } from "@countersign/core";
+import { REGGIE_TEXT_MAX, type ReggieAction, type ReggieMessage } from "@countersign/core";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { AgentBadge } from "../../ui/badges";
+import { AgentSaid, ChatLog, Composer, Pending, YouSaid } from "../../ui/chat";
 import { Select } from "../../ui/forms";
 import { Badge, Button, Card, cx, ErrorNotice, Loading, PageHeader } from "../../ui/primitives";
+import { lookedAt } from "./words";
 
 const STATUS: Record<
   ReggieAction["status"],
@@ -139,24 +141,16 @@ function Conversation({ id, onChanged }: { id: string; onChanged(): void }) {
   const api = useApiClient();
   const loaded = useApi(apiRoutes.opsReggieConversation, { params: { id } });
   const [data, setData] = useState(loaded.data ?? null);
-  const [pending, setPending] = useState<string | null>(null);
+  const [pending, setPending] = useState<{ text: string; since: number } | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const [text, setText] = useState("");
-  const end = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (loaded.data) setData(loaded.data);
   }, [loaded.data]);
-  // jsdom has no scrollIntoView; browsers keep the newest message in view.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when the conversation grows.
-  useEffect(() => {
-    end.current?.scrollIntoView?.({ block: "end" });
-  }, [data?.messages.length, pending]);
 
-  async function send() {
-    const words = text.trim();
-    if (!words || pending) return;
-    setPending(words);
+  async function send(words: string): Promise<boolean> {
+    if (pending) return false;
+    setPending({ text: words, since: Date.now() });
     setError(null);
     try {
       const out = await api.call(apiRoutes.opsReggieTurn, {
@@ -164,10 +158,11 @@ function Conversation({ id, onChanged }: { id: string; onChanged(): void }) {
         body: { text: words },
       });
       setData(out);
-      setText("");
       onChanged();
+      return true;
     } catch (e) {
       setError(e);
+      return false;
     } finally {
       setPending(null);
     }
@@ -203,52 +198,30 @@ function Conversation({ id, onChanged }: { id: string; onChanged(): void }) {
           </Link>
         </p>
       ) : null}
-      <div className="flex flex-col gap-5">
+      <ChatLog follow={`${data.messages.length}:${pending?.text ?? ""}`}>
         {data.messages.map((m) => (
           <Message key={m.id} message={m} cards={cardsOf(m.id)} onDecided={replaced} />
         ))}
         {pending ? (
-          <>
-            <p className="ml-auto max-w-[85%] whitespace-pre-wrap rounded-lg bg-surface-subtle px-3.5 py-2.5 text-sm text-ink">
-              {pending}
-            </p>
-            <div className="flex items-start gap-3" data-testid="reggie-thinking">
-              <AgentBadge name="Reggie" size="sm" />
-              <p className="pt-1 text-sm text-ink-muted">Reggie is looking into it…</p>
-            </div>
-          </>
+          <Pending
+            text={pending.text}
+            since={pending.since}
+            badge={<AgentBadge name="Reggie" size="sm" />}
+            label="Reggie is looking into it"
+            testId="reggie-thinking"
+          />
         ) : null}
-        <div ref={end} />
-      </div>
+      </ChatLog>
       {error ? <ErrorNotice error={error} /> : null}
-      <div className="rounded-md border border-line-strong bg-surface p-3">
-        <textarea
-          aria-label="Message to Reggie"
-          data-testid="reggie-input"
-          rows={3}
-          value={text}
-          placeholder="Ask Reggie about a client, or ask it to get something from one."
-          className="w-full resize-none bg-transparent text-sm text-ink placeholder:text-ink-muted focus:outline-none"
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-        />
-        <div className="mt-2 flex justify-end">
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => void send()}
-            disabled={!text.trim() || !!pending}
-            data-testid="reggie-send"
-          >
-            Send
-          </Button>
-        </div>
-      </div>
+      <Composer
+        label="Message to Reggie"
+        placeholder="Ask Reggie about a client, or ask it to get something from one."
+        maxLength={REGGIE_TEXT_MAX}
+        busy={!!pending}
+        onSend={send}
+        inputTestId="reggie-input"
+        sendTestId="reggie-send"
+      />
     </div>
   );
 }
@@ -263,30 +236,25 @@ function Message({
   onDecided(a: ReggieAction): void;
 }) {
   if (m.role === "operator") {
-    return (
-      <p
-        className="ml-auto max-w-[85%] whitespace-pre-wrap rounded-lg bg-surface-subtle px-3.5 py-2.5 text-sm text-ink"
-        data-testid="reggie-operator-message"
-      >
-        {m.text}
-      </p>
-    );
+    return <YouSaid text={m.text} testId="reggie-operator-message" />;
   }
+  const looked = lookedAt(m.tools);
   return (
-    <div className="flex items-start gap-3" data-testid="reggie-message">
-      <AgentBadge name="Reggie" size="sm" />
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <p className="whitespace-pre-wrap text-sm text-ink">{m.text}</p>
-        {m.tools.length > 0 ? (
-          <p className="text-xs text-ink-muted" data-testid="reggie-tools">
-            Read: {m.tools.join(", ")}
-          </p>
-        ) : null}
-        {cards.map((a) => (
-          <ActionCard key={a.id} action={a} onDecided={onDecided} />
-        ))}
-      </div>
-    </div>
+    <AgentSaid
+      badge={<AgentBadge name="Reggie" size="sm" />}
+      text={m.text}
+      testId="reggie-message"
+      textTestId="reggie-answer"
+    >
+      {looked ? (
+        <p className="ui-chat-meta" data-testid="reggie-tools">
+          {looked}
+        </p>
+      ) : null}
+      {cards.map((a) => (
+        <ActionCard key={a.id} action={a} onDecided={onDecided} />
+      ))}
+    </AgentSaid>
   );
 }
 
