@@ -18,6 +18,11 @@
 // Three zoom levels drop detail rather than shrink text: Detail (everything, for editing), Steps
 // (titles only, 80%) and Map (shapes only, 50%). Zoomed out, nothing moves; a click on a step
 // zooms back in on it.
+//
+// v0.18 (owner, 2026-11-15; docs/plan.md §1.103): a missing step (a piece the Builder couldn't
+// build, held where it belongs) is a signal (gold) card with the word "Missing", since it waits on
+// the operator; each step's tooltip says what it reads and saves, and warns when the client lacks
+// what it needs.
 
 import { SKILL_KIND_LABEL, toolUsesModel } from "@countersign/core";
 import {
@@ -34,7 +39,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { brief } from "../../ui/brief";
 import { Icon, type IconName } from "../../ui/icons";
-import { cx, Tag } from "../../ui/primitives";
+import { Badge, cx, Tag } from "../../ui/primitives";
 import {
   processKindLabel,
   processStepDetail,
@@ -181,6 +186,11 @@ export interface CanvasProps {
   onTip?: ((tip: StepTip | null) => void) | undefined;
   /** Set by the canvas: how far out it is. */
   zoom?: ZoomLevel | undefined;
+  /**
+   * v0.18: what a step reads and saves, in lines ("Reads vendors (…)"), and what the client lacks
+   * for it ("QuickBooks Online isn't connected for Millwork"), for its tooltip.
+   */
+  data?: ((step: Step) => { lines: string[]; warnings: string[] }) | undefined;
 }
 
 /** What a step's tooltip says, and where its card is. */
@@ -206,6 +216,8 @@ const KIND_ICON: Record<Step["kind"], IconName> = {
   stop: "close",
   process: "table",
   handoff: "arrow",
+  // v0.18
+  missing: "alert",
 };
 
 /** The state a selected card shows: the design system's selection (slate). */
@@ -218,7 +230,9 @@ function errorCount(step: Step, errors: readonly BuilderProblem[]): number {
     for (const p of step.paths) ids.add(p.id);
     ids.add(step.otherwise.id);
   }
-  return errors.filter((e) => e.stepId !== null && ids.has(e.stepId)).length;
+  // v0.18: a missing step's own error is its "Missing" word, not an "Invalid" mark.
+  return errors.filter((e) => e.stepId !== null && ids.has(e.stepId) && e.code !== "missing_step")
+    .length;
 }
 
 /** Whether the client's run timeline shows the step: work does by default, logic never. */
@@ -664,10 +678,16 @@ function StepCard(
   const approvalWords = approval ? (approval.automatic ? "On its own" : "Needs approval") : null;
   const customWords = custom ? (custom === "added" ? "Added here" : "Customized") : null;
   const people = step.kind === "person" || step.kind === "conversation";
-  // The tooltip: what kind of step, what it does, its second line, and what its marks mean.
+  // v0.18: a missing step waits on the operator: signal (gold), always with its word.
+  const missing = step.kind === "missing";
+  const dataUse = props.data?.(step);
+  // The tooltip: what kind of step, what it does, its second line, what it reads and saves, what
+  // the client lacks for it, and what its marks mean.
   const tipLines = [
     description,
     detail,
+    ...(dataUse?.lines ?? []),
+    ...(dataUse?.warnings ?? []).map((w) => `Needs: ${w}`),
     [
       invalid > 0 ? "Invalid" : null,
       checks.confer,
@@ -693,17 +713,19 @@ function StepCard(
     // Shapes only: a fork is a diamond, a person copper, a change to a client's tool solid slate.
     const shape = fork
       ? "size-7 rotate-45 rounded-sm border-[3px] border-ink bg-surface"
-      : step.kind === "stop"
-        ? "size-6 border-[3px] border-dashed border-line-strong"
-        : cx(
-            // At most a card's width, in a path too: the map shows shape, not width.
-            "h-8 w-full max-w-[360px] rounded-md border",
-            people
-              ? "border-copper bg-copper-tint"
-              : step.kind === "write"
-                ? "border-slate bg-slate"
-                : "border-line-strong bg-surface",
-          );
+      : missing
+        ? "h-8 w-full max-w-[360px] rounded-md border-2 border-dashed border-signal bg-signal-tint"
+        : step.kind === "stop"
+          ? "size-6 border-[3px] border-dashed border-line-strong"
+          : cx(
+              // At most a card's width, in a path too: the map shows shape, not width.
+              "h-8 w-full max-w-[360px] rounded-md border",
+              people
+                ? "border-copper bg-copper-tint"
+                : step.kind === "write"
+                  ? "border-slate bg-slate"
+                  : "border-line-strong bg-surface",
+            );
     return (
       <div
         ref={(el) => {
@@ -754,11 +776,13 @@ function StepCard(
         number === undefined ? "" : "max-w-[360px]",
         selected
           ? SELECTED
-          : invalid
-            ? "border-risk bg-surface"
-            : fork
-              ? "border-ink bg-surface"
-              : "border-line bg-surface",
+          : missing
+            ? "border-dashed border-signal bg-signal-tint"
+            : invalid
+              ? "border-risk bg-surface"
+              : fork
+                ? "border-ink bg-surface"
+                : "border-line bg-surface",
         isDragging && "opacity-40",
       )}
     >
@@ -810,7 +834,11 @@ function StepCard(
         title={label}
         className={cx(
           "flex size-5 shrink-0 items-center justify-center rounded-sm",
-          people ? "bg-copper-tint text-copper" : "bg-surface-subtle text-ink-muted",
+          people
+            ? "bg-copper-tint text-copper"
+            : missing
+              ? "bg-signal-tint text-signal-ink"
+              : "bg-surface-subtle text-ink-muted",
         )}
       >
         <Icon name={KIND_ICON[step.kind]} size={14} />
@@ -830,8 +858,22 @@ function StepCard(
         </span>
         {name}
       </button>
+      {missing ? (
+        // The word stays at every zoom but the map: colour is never alone (brand book).
+        <Badge tone="warning" testId={`${testId}-missing`} className="shrink-0">
+          Missing
+        </Badge>
+      ) : null}
       <span className={cx("flex shrink-0 items-center gap-1", !detailed && "hidden")}>
         {skillKind ? <Tag testId={`${testId}-skill-kind`}>{skillKind}</Tag> : null}
+        {dataUse && dataUse.warnings.length > 0 ? (
+          <Mark
+            tone="neutral"
+            icon="info"
+            label={`Needs: ${dataUse.warnings.join("; ")}`}
+            testId={`${testId}-needs`}
+          />
+        ) : null}
         {invalid > 0 ? (
           <Mark tone="risk" icon="alert" label="Invalid" testId={`${testId}-invalid`} />
         ) : null}
