@@ -78,6 +78,8 @@ describe("tool registry", () => {
       "docs.get",
       "docs.match_bill",
       "docs.plan_bill",
+      // The price checker's step 2 (2026-11-11).
+      "docs.qbo_bills",
       // P-9
       "docs.read",
       "docs.reading.record",
