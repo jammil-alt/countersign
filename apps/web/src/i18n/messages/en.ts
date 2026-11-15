@@ -8,6 +8,7 @@ export const en = {
   "common.tryAgain": "Try again",
   "common.cancel": "Cancel",
   "common.save": "Save",
+  "common.saving": "Saving…",
   "common.copy": "Copy",
   "common.copied": "Copied",
   "common.sending": "Sending…",

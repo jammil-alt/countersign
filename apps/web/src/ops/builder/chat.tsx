@@ -168,16 +168,21 @@ export function Composer({
 }: {
   placeholder: string;
   busy: boolean;
-  /** Resolves true when the turn went through, so the box empties. */
+  /** Resolves true when the turn went through; false puts the text back in the box. */
   onSend(text: string): Promise<boolean>;
   testId?: string;
 }) {
   const [text, setText] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
   const empty = !text.trim();
+  // Feedback (2026-11-11): the box empties as soon as the message goes, as in any chat, and
+  // the message shows in the conversation; if the turn fails, the text comes back unless
+  // something new was typed meanwhile.
   async function send() {
     if (empty || busy) return;
-    if (await onSend(text.trim())) setText("");
+    const sent = text.trim();
+    setText("");
+    if (!(await onSend(sent))) setText((now) => (now === "" ? sent : now));
   }
   return (
     <div className="rounded-md border border-line-strong bg-surface p-3" data-testid={testId}>

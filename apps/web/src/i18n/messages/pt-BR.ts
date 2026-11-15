@@ -8,6 +8,7 @@ export const ptBR: Messages = {
   "common.tryAgain": "Tentar de novo",
   "common.cancel": "Cancelar",
   "common.save": "Salvar",
+  "common.saving": "Salvando…",
   "common.copy": "Copiar",
   "common.copied": "Copiado",
   "common.sending": "Enviando…",

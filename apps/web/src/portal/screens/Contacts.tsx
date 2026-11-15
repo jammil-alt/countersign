@@ -858,6 +858,8 @@ function ReachLevels({
   const [error, setError] = useState<unknown>(null);
   const channels = CHANNELS.filter((ch) => addressOf(p, ch));
   const saved = (ch: ReachChannel): Level => p.autonomy?.[ch] ?? "unset";
+  // Feedback (2026-11-14): Save is off until a level differs from what is saved.
+  const changed = CHANNELS.some((ch) => draft[ch] !== undefined && draft[ch] !== saved(ch));
 
   async function save() {
     setBusy(true);
@@ -949,11 +951,11 @@ function ReachLevels({
             <Button
               size="sm"
               variant="primary"
-              disabled={busy}
+              disabled={busy || !changed}
               data-testid="people-reach-save"
               onClick={() => void save()}
             >
-              {t("common.save")}
+              {busy ? t("common.saving") : t("common.save")}
             </Button>
             <Button
               size="sm"

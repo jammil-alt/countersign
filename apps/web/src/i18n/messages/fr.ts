@@ -8,6 +8,7 @@ export const fr: Messages = {
   "common.tryAgain": "Réessayer",
   "common.cancel": "Annuler",
   "common.save": "Enregistrer",
+  "common.saving": "Enregistrement…",
   "common.copy": "Copier",
   "common.copied": "Copié",
   "common.sending": "Envoi…",

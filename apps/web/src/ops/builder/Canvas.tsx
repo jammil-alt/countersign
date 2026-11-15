@@ -736,6 +736,8 @@ function StepCard(
   }
   const detailed = zoom === "detail";
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: a pointer shortcut; the name button opens it by keyboard.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: the name button is the keyboard's way in.
     <div
       ref={(el) => {
         setNodeRef(el);
@@ -747,8 +749,15 @@ function StepCard(
       data-selected={selected ? "true" : undefined}
       onPointerEnter={showTip}
       onPointerLeave={hideTip}
+      // Feedback (2026-11-15): a click anywhere on the card opens the step, not only on its
+      // name (a fork's card is mostly its list of paths). Keyboard users have the name button;
+      // the handle, checkbox and other controls keep their own clicks.
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest("button, input, a, label")) return;
+        props.onSelect(step.id);
+      }}
       className={cx(
-        "relative flex w-full flex-wrap items-center gap-2 rounded-md py-1.5 pr-2 pl-1",
+        "relative flex w-full cursor-pointer flex-wrap items-center gap-2 rounded-md py-1.5 pr-2 pl-1",
         // A fork stands out on the line: a heavier ink border.
         fork ? "border-2" : "border",
         number === undefined ? "" : "max-w-[360px]",
@@ -998,8 +1007,18 @@ function pathEnds(steps: readonly Step[]): boolean {
  * back to the line. A path that stops ends on its own marker. Each column draws its share of both
  * bars, so columns of any width meet.
  */
-function IfBlock(props: CanvasProps & { step: Extract<Step, { kind: "if" }> }) {
+function IfBlock(
+  props: CanvasProps & {
+    step: Extract<Step, { kind: "if" }>;
+    number?: number | undefined;
+    pathNumber?: string | undefined;
+  },
+) {
   const { step } = props;
+  // Feedback (2026-11-15): a path's steps carry the fork's own number, "5 A1", "5 A2", so a
+  // step reads the same wherever it is named; a fork inside a path or a loop keeps its code.
+  const forkCode = props.number ?? props.pathNumber;
+  const code = forkCode === undefined ? "" : `${forkCode} `;
   const zoom = props.zoom ?? "detail";
   const names = processStepNames(props.workflow);
   const columns = [
@@ -1076,7 +1095,7 @@ function IfBlock(props: CanvasProps & { step: Extract<Step, { kind: "if" }> }) {
               )}
               <span aria-hidden className="h-3 border-l border-line-strong" />
               <div className="w-full">
-                <Branch {...props} id={c.container} steps={c.steps} prefix={letter} />
+                <Branch {...props} id={c.container} steps={c.steps} prefix={`${code}${letter}`} />
               </div>
               {ends && zoom === "map" ? (
                 <span aria-hidden className="min-h-3 flex-1" />

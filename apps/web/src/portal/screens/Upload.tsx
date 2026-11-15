@@ -229,21 +229,27 @@ export function Forwarding({ isAdmin }: { isAdmin: boolean }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saveError, setSaveError] = useState<unknown>(null);
+  const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const f = data?.forwarding;
+  const allowed = draft
+    .split(/[\s,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  // Feedback (2026-11-14): Save is off until the list differs from what is saved.
+  const changed = allowed.join("\n") !== (f?.allowedSenders ?? []).join("\n");
 
   async function save() {
     setSaveError(null);
+    setSaving(true);
     try {
-      const allowed = draft
-        .split(/[\s,;]+/)
-        .map((s) => s.trim())
-        .filter(Boolean);
       await api.call(apiRoutes.portalForwardingSenders, { body: { allowed } });
       setEditing(false);
       reload();
     } catch (e) {
       setSaveError(e);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -322,9 +328,10 @@ export function Forwarding({ isAdmin }: { isAdmin: boolean }) {
                 <Button
                   data-testid="portal-forwarding-save"
                   variant="primary"
+                  disabled={saving || !changed}
                   onClick={() => void save()}
                 >
-                  {t("common.save")}
+                  {saving ? t("common.saving") : t("common.save")}
                 </Button>
                 <Button variant="ghost" onClick={() => setEditing(false)}>
                   {t("common.cancel")}
