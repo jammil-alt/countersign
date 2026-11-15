@@ -4705,7 +4705,7 @@ reports (bold group headings, a bullet for every run, a bulleted wrap-up), shown
 | Thinking | The agent's badge, §1.106's loop (Drafting for the Builder and Sloan, Tracing for Reggie), its words in a status region, and the seconds once past five. |
 | The prompts | Reggie's system prompt, Sloan's `account.chat` and the Builder's reply field say it is a chat: answer first in a sentence or two, plain text with no Markdown, a list only for three or more things asked for, names not ids, offer the rest. Reggie's "Read: tool_names" line reads "Looked at clients and runs". No recorded fixture carries these prompts. |
 | Keeping the conversation | The Builder panel keeps its conversation's id in the browser session per agent (`countersign:builder-chat:<agent>`) and reads it back on open; one no longer open, or gone, is forgotten. Reggie, Sloan, the new-agent page and the skill Builder keep theirs in the address already. // DECISION: the session's storage, as asked ("at least for the session"). |
-| Not yet | Attachments and voice in the composer: they need storage and a model input (attachments) and a transcription vendor named in `compliance` (voice). Live progress words while Reggie works (which tool it is on) need the turn to stream. |
+| Not yet | Attachments in the composer: they need storage and a model input. Voice is §1.109. Live progress words while Reggie works (which tool it is on) need the turn to stream. |
 
 Checked: `apps/web/src/ui/chat.test.tsx`, `apps/web/src/ops/reggie/ReggieScreen.test.tsx`,
 `apps/web/src/ops/builder/WorkflowBuilder.test.tsx` (the conversation after a reload).
@@ -4729,7 +4729,21 @@ flow" canvas) and asked for it built. Outside ARCHITECTURE v0.15, as §1.101 and
 | Client test | A template is published, forked into the chosen client, the copy's version published and activated; a client agent is published and activated. What stops a step there (a connection not bound at the client, no passing test run there) is an open item, and the build is at the client either way. Its trial is §1.36's: every write signed. The build shows the trial's days and runs, and the client's signed, rejected and waiting writes with the reasons it gave; a rejection becomes an open item in one click. |
 | QA and go / no-go | A checklist read from the record: required cases pass, trial minimums, rejected writes under 10%, approval on for every write, a version to roll back to. A failing check can be accepted with a reason. The operator signs QA; go-live is the client admin's existing sign-off (§1.36). No-go sends the build back to a phase with a reason, which becomes an open item. Live when the copy under test is live. |
 | Screens | `/ops/builds` (the board: builds by phase, and the open items across them), `/ops/builds/:id` (the build: the stepper, the conversation, the phase's work), the agent page's Build tab while it has a build, and a Steps tab on every agent (`steps/:workflow`): the workflow builder with its steps as a list (numbered as the canvas numbers them, with their status: missing, invalid, needs setup, ready), the same side panel on the one clicked. |
-| Not yet | Automation builds (an automation is still made from an agent's steps), generated PDFs for test data, and attachments and voice in the conversation (§1.107). |
+| Not yet | Automation builds (an automation is still made from an agent's steps), generated PDFs for test data, and attachments in the conversation (voice is §1.109). |
+
+### 1.109 Voice typing (owner, 2026-11-15)
+
+"It should have an add attachments and transcription… we should have them." Then: "Ok to use
+open ai for voice.. build this". §1.107 left both out; this is voice. Attachments are still open.
+
+| Topic | Decision |
+|---|---|
+| Vendor | OpenAI's speech-to-text (`gpt-4o-mini-transcribe`) on Mezonas' `OPENAI_API_KEY`, the owner's choice. Not the browser's own dictation, which sends audio to Google or Apple, vendors not on our list. `packages/llm/src/transcribe.ts`, plain fetch; the model and price are unchecked (`packages/llm/NOTES.md`). Without the key, voice is off (503 `voice_off`). // DECISION |
+| Where | The shared composer (§1.107) shows a Dictate button wherever a screen passes `voice`: Reggie, builds, the Builder (panel, step chat, Fix, new agent), the skill Builder and Sloan. A click records; a second click, or two minutes, stops. The words join what is already in the box, to read and change before sending; nothing is sent on its own. Hidden where the browser can't record. |
+| Routes | `POST /api/ops/transcribe?client=` (operators; the client the conversation is about) and `POST /api/transcribe` (the portal), slow routes: the body is the recording (webm, ogg, mp4, mp3 or wav, at most 4 MB), the answer `{ text }`. Nothing is stored or logged; the audit row is the route's own. |
+| HIPAA mode | `VOICE_FEATURE` in `packages/core/src/compliance/processors.ts`: a client in HIPAA mode is refused (409 `hipaa`) until `openai` is in `BAA_PROCESSORS`, for its own people and for an operator dictating about it. An operator dictating with no client named (a template's Builder) isn't checked. // DECISION |
+| Words | The back office shows the server's reason (HIPAA, voice off); the portal shows its own language's words for a failure, so a client never reads our English. The subprocessors page, the privacy policy and `docs/security.md` say OpenAI writes out dictation and keeps nothing. |
+| Not yet | Attachments in the composer; the cost of transcription (OpenAI prices it per minute) in usage. |
 
 ## 2. Package layering
 

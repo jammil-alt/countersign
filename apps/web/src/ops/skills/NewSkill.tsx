@@ -11,6 +11,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { z } from "zod";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { voiceFor } from "../../api/voice";
 import { useSession } from "../../session/session";
 import { AgentBadge } from "../../ui/badges";
 import { AgentSaid, Composer as ChatComposer, ChatLog, Pending, YouSaid } from "../../ui/chat";
@@ -143,7 +144,7 @@ function StartConversation() {
               ))}
             </Select>
           </Field>
-          <Composer busy={action.busy} onSend={send} />
+          <Composer busy={action.busy} onSend={send} clientId={clientId || null} />
           {action.error ? (
             <Notice tone="warning" testId="new-skill-error">
               {errorText(action.error)}
@@ -160,9 +161,12 @@ function Composer({
   busy,
   disabled,
   onSend,
+  clientId,
 }: {
   busy: boolean;
   disabled?: boolean;
+  /** §1.109: the client the skill is for, for voice typing's HIPAA check. */
+  clientId?: string | null | undefined;
   onSend(text: string, examples: z.infer<typeof Examples> | undefined): Promise<boolean>;
 }) {
   const [attaching, setAttaching] = useState(false);
@@ -206,6 +210,7 @@ function Composer({
       onSend={send}
       inputTestId="builder-input"
       sendTestId="builder-send"
+      voice={voiceFor("ops", clientId)}
       extra={
         attaching ? (
           <Field
@@ -382,7 +387,7 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
           )}
           <div className="border-t border-line px-6 py-4">
             {open ? (
-              <Composer busy={turn.busy} onSend={send} />
+              <Composer busy={turn.busy} onSend={send} clientId={session.clientId} />
             ) : (
               <p className="text-sm text-ink-muted">
                 This conversation is {session.status === "saved" ? "saved" : "closed"}.

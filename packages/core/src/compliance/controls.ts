@@ -935,7 +935,7 @@ export const PROCESSOR_RECEIVES: Record<Processor, string> = {
   neon: "The database",
   workos: "Users' names, emails and sign-ins",
   anthropic: "What agents read and write, and documents to extract",
-  openai: "The same, for agents set to OpenAI models",
+  openai: "The same, for agents set to OpenAI models; vendor catalog search; what people dictate",
   xai: "The same, for agents set to xAI models",
   google: "The same, for agents set to Gemini models",
   twilio: "Texts and calls of clients that use them",

@@ -133,6 +133,9 @@ branches.
 - **Security headers** on every API and MCP answer (in PR #84): `Cache-Control: no-store`,
   `nosniff`, no framing, HSTS, and a strict CSP. The app's pages get a CSP that allows only our own
   origin and Sentry (`apps/web/public/_headers`). Checked in Chromium on operator and client pages.
+  Their Permissions-Policy turns off the camera, location, payment and USB, and allows the
+  microphone to our own origin only, for voice typing (`microphone=(self)`, plan §1.109); the
+  browser still asks the person first, and no frame or other site may use it.
 - **Rate limiting** (Cloudflare): 50 requests per 10 seconds per IP on `/api/*`, webhooks
   excluded. The MCP connector has its own limit of 120 calls a minute per operator.
 - **Writes to clients' tools** need approval by default, run once each, and record their before
@@ -206,7 +209,7 @@ in `docs/hipaa-plan.md`.
 | Neon | The database | `neon` |
 | WorkOS | Users' names, emails and sign-ins | `workos` |
 | Anthropic | What agents read and write, and documents to extract | `anthropic` |
-| OpenAI | The same, for agents set to `openai:` models | `openai` |
+| OpenAI | The same, for agents set to `openai:` models; the vendor catalog's embeddings; voice typing's recordings (written out, never kept) | `openai` |
 | xAI | The same, for agents set to `xai:` models (Grok) | `xai` |
 | Google (Gemini API) | The same, for agents set to `google:` models (Gemini); not the client's own Google account | `google` |
 | Twilio | Texts and calls of clients that use them | `twilio` |

@@ -117,6 +117,20 @@ export const TEXT_INVITE_FEATURE = {
   processors: ["resend"] as readonly Processor[],
 } as const;
 
+/**
+ * Voice typing in conversations (the owner, 2026-11-15): what a person dictates is sent to OpenAI
+ * to be written out, then put in their message box to read before it goes. A client in HIPAA mode
+ * is refused it until `openai` is covered, as its OpenAI model calls are.
+ */
+// DECISION: OpenAI's speech-to-text on Mezonas' own key (the owner's choice), not the browser's
+// built-in dictation, which sends the audio to Google or Apple: vendors not on our list.
+export const VOICE_FEATURE = {
+  id: "voice.transcription",
+  what: "Voice typing",
+  processors: ["openai"] as readonly Processor[],
+  model: "gpt-4o-mini-transcribe",
+} as const;
+
 /** The processor an embedding model's provider is: `openai:` ids go to OpenAI. */
 export function processorForEmbedding(modelId: string): Processor {
   return modelProvider(modelId);

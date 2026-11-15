@@ -134,6 +134,7 @@ import { portalTriggerRoutes, triggerRouteHandlers } from "./routes/triggers";
 import { twilioHookRoutes } from "./routes/twilio-hooks";
 import { twilioVoiceRoutes } from "./routes/twilio-voice";
 import { usageRouteHandlers } from "./routes/usage";
+import { voiceRoutes } from "./routes/voice";
 import { voiceHookRoutes } from "./routes/voice-hooks";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
 import { whatsappMetaRoutes } from "./routes/whatsapp-meta";
@@ -215,6 +216,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   reggieRoutes(app);
   // docs/plan.md §1.108: builds, from intake to go-live
   opsBuildRoutes(app);
+  // docs/plan.md §1.109: voice typing
+  voiceRoutes(app);
   directoryRoutes(app);
   // The back office's chart of accounts (docs/plan.md §1.79).
   ledgerRoutes(app);

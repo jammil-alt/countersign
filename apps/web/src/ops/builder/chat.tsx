@@ -5,6 +5,7 @@
 // one conversation component (`ui/chat.tsx`), as every conversation with an agent is.
 import type { BuilderChange, BuilderTurnView } from "@countersign/core";
 import { type ReactNode, useRef, useState } from "react";
+import { voiceFor } from "../../api/voice";
 import { AgentBadge } from "../../ui/badges";
 import { AgentSaid, Composer as ChatComposer, ChatLog, Pending, YouSaid } from "../../ui/chat";
 import { cx } from "../../ui/primitives";
@@ -146,8 +147,11 @@ export function Composer({
   busy,
   onSend,
   testId = "builder-composer",
+  clientId,
 }: {
   placeholder: string;
+  /** §1.109: the client the conversation is about, for voice typing's HIPAA check. */
+  clientId?: string | null | undefined;
   busy: boolean;
   /** Resolves true when the turn went through; otherwise the words come back to the box. */
   onSend(text: string): Promise<boolean>;
@@ -167,6 +171,7 @@ export function Composer({
       testId={testId}
       inputTestId={`${testId}-input`}
       sendTestId={`${testId}-send`}
+      voice={voiceFor("ops", clientId)}
       tools={SHORTCUTS.map((s) => (
         <button
           key={s}

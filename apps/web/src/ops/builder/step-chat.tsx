@@ -118,6 +118,7 @@ export function StepChat({
         placeholder="Ask about this step, or say what to change"
         busy={session.busy}
         onSend={(text) => session.send(text, { focusStepId: step.id })}
+        clientId={session.detail?.session.clientId}
       />
     </section>
   );

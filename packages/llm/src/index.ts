@@ -13,6 +13,8 @@ export * from "./pricing";
 export * from "./provider";
 export * from "./record";
 export * from "./route";
+// docs/plan.md §1.109: voice typing
+export * from "./transcribe";
 export * from "./transport";
 export * from "./usage";
 export * from "./xai";

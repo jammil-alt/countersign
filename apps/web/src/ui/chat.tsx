@@ -26,6 +26,7 @@ import {
 import { cx } from "./cx";
 import { Thinking as ThinkingLoop } from "./motion";
 import { Button } from "./primitives";
+import { type Voice, VoiceButton } from "./voice";
 
 // ── An agent's words ────────────────────────────────────────────────────────────────────────────
 
@@ -366,8 +367,13 @@ export interface ComposerProps {
   above?: ReactNode | undefined;
   /** Under the words, inside the box: what goes with the message (examples, attachments). */
   extra?: ReactNode | undefined;
-  /** Beside Send: shortcuts, attach, voice. */
+  /** Beside Send: shortcuts, attach. */
   tools?: ReactNode | undefined;
+  /**
+   * §1.109: voice typing. A Dictate button beside Send; what is written out joins the words in
+   * the box, to read and change before sending. Left out: no button.
+   */
+  voice?: Voice | undefined;
   /** The send hint and the buttons' words, in the reader's language. */
   words?: { hint?: string; send?: string; sending?: string };
   /** Sends with nothing written (an attachment on its own). */
@@ -396,6 +402,7 @@ export function Composer({
   above,
   extra,
   tools,
+  voice,
   words,
   allowEmpty,
   inputRef,
@@ -403,6 +410,8 @@ export function Composer({
   inputTestId,
   sendTestId,
 }: ComposerProps) {
+  const ownRef = useRef<HTMLTextAreaElement | null>(null);
+  const box = inputRef ?? ownRef;
   const [own, setOwn] = useState("");
   const text = value ?? own;
   // What the box holds now, for a send that comes back after the screen re-rendered.
@@ -435,7 +444,7 @@ export function Composer({
       {above}
       <div className="ui-chat-composer__box">
         <ChatInput
-          ref={inputRef}
+          ref={box}
           aria-label={label}
           data-testid={inputTestId}
           className="ui-chat-input--bare"
@@ -449,6 +458,18 @@ export function Composer({
         {extra}
         <div className="ui-chat-composer__foot">
           {tools ? <div className="ui-chat-composer__tools">{tools}</div> : null}
+          {voice ? (
+            <VoiceButton
+              voice={voice}
+              disabled={disabled}
+              testId={testId ? `${testId}-voice` : "composer-voice"}
+              onText={(said) => {
+                const now = latest.current.trimEnd();
+                setText(now ? `${now} ${said}` : said);
+                box.current?.focus();
+              }}
+            />
+          ) : null}
           <span className="ui-chat-composer__hint">{w.hint}</span>
           <Button
             variant="primary"

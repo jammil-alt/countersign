@@ -36,6 +36,7 @@ import { Link } from "react-router-dom";
 import type { CallOptions } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { voiceFor } from "../../api/voice";
 import { AgentBadge } from "../../ui/badges";
 import { AgentSaid, ChatLog, Composer, Pending, Thinking, YouSaid } from "../../ui/chat";
 import { ErrorNotice } from "../../ui/ErrorState";
@@ -277,6 +278,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
                 onSend={say}
                 inputTestId="build-input"
                 sendTestId="build-send"
+                voice={voiceFor("ops", b.client?.id ?? b.testClient?.id)}
               />
             </div>
           ) : null}

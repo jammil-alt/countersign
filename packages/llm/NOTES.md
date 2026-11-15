@@ -112,3 +112,12 @@ call; the fake-fetch tests in `src/anthropic.test.ts` pin each one.
 | The 10-minute time limit covers the wait for the answer to start, not the stream after it; a connection error the runtime words as a time-out (`timed out` in it or its cause) counts as one | As the SDK did |
 | Errors: `<status> <body as JSON>` (`529 {"type":"error","error":{"type":"overloaded_error",…}}`), a stream's `error` event as its body in JSON, `Connection error.`, `Request timed out.`, `Request was aborted.`; class name `Error` | As the SDK worded them, so run error keys read the same |
 | SDK telemetry headers (`x-stainless-*`, `user-agent`) | Not sent: nothing reads them |
+
+## Voice typing (docs/plan.md §1.109)
+
+Written 2026-11-15 without network access to OpenAI's documentation. `src/transcribe.ts` calls
+`POST https://api.openai.com/v1/audio/transcriptions` (multipart: `model`, `file`,
+`response_format=json`, `prompt`, optional `language`) with `gpt-4o-mini-transcribe`.
+**UNCHECKED**: the model id, that it takes `prompt` and the browsers' webm/opus and mp4 audio, its
+size limit (we stop at 4 MB, about two minutes), and its price per minute (not tracked yet). Check
+https://platform.openai.com/docs/guides/speech-to-text and make one live call on staging.

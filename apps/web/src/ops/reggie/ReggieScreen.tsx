@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { voiceFor } from "../../api/voice";
 import { AgentBadge } from "../../ui/badges";
 import { AgentSaid, ChatLog, Composer, Pending, YouSaid } from "../../ui/chat";
 import { Select } from "../../ui/forms";
@@ -222,6 +223,7 @@ function Conversation({ id, onChanged }: { id: string; onChanged(): void }) {
         onSend={send}
         inputTestId="reggie-input"
         sendTestId="reggie-send"
+        voice={voiceFor("ops", data.conversation.client?.id)}
       />
     </div>
   );

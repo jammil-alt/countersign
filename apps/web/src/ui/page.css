@@ -1175,6 +1175,56 @@ a.ui-stat--link:focus-visible {
   align-items: center;
   gap: var(--space-1-5);
 }
+/* Voice typing (voice.tsx): the Dictate button, its recording dot and what went wrong. */
+.ui-voice {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ui-voice__button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font: 500 12px / 16px var(--font-sans);
+  cursor: pointer;
+}
+.ui-voice__button:hover:not(:disabled) {
+  background: var(--surface-subtle);
+  color: var(--ink);
+}
+.ui-voice__button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.ui-voice__button[aria-pressed="true"] {
+  border-color: var(--slate);
+  background: var(--slate-tint);
+  color: var(--slate);
+}
+.ui-voice__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--slate);
+  animation: ui-skel-pulse 1.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-voice__dot {
+    animation: none;
+  }
+}
+.ui-voice__error {
+  color: var(--risk);
+  font-size: 12px;
+  line-height: 16px;
+}
 .ui-chat-composer__hint {
   margin-left: auto;
   color: var(--ink-muted);
@@ -1182,6 +1232,56 @@ a.ui-stat--link:focus-visible {
   line-height: 16px;
 }
 @media (max-width: 767.98px) {
+  /* Voice typing (voice.tsx): the Dictate button, its recording dot and what went wrong. */
+  .ui-voice {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .ui-voice__button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1-5);
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--ink-muted);
+    font: 500 12px / 16px var(--font-sans);
+    cursor: pointer;
+  }
+  .ui-voice__button:hover:not(:disabled) {
+    background: var(--surface-subtle);
+    color: var(--ink);
+  }
+  .ui-voice__button:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .ui-voice__button[aria-pressed="true"] {
+    border-color: var(--slate);
+    background: var(--slate-tint);
+    color: var(--slate);
+  }
+  .ui-voice__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--slate);
+    animation: ui-skel-pulse 1.2s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ui-voice__dot {
+      animation: none;
+    }
+  }
+  .ui-voice__error {
+    color: var(--risk);
+    font-size: 12px;
+    line-height: 16px;
+  }
   .ui-chat-composer__hint {
     display: none;
   }

@@ -196,6 +196,7 @@ export function FixDialog({
             placeholder="Ask a question or suggest another fix"
             busy={session.busy}
             onSend={session.send}
+            clientId={session.detail?.session.clientId}
           />
         </div>
       </div>

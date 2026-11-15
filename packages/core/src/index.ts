@@ -105,6 +105,8 @@ export * from "./api/triggers";
 // R5: the Undo a late no is offered
 export * from "./api/undo";
 export * from "./api/usage";
+// docs/plan.md §1.109: voice typing
+export * from "./api/voice";
 // v0.14 W4-A: WhatsApp through Meta
 export * from "./api/whatsapp-meta";
 // v0.14 W4-B

@@ -195,6 +195,7 @@ export function NewAgentConversation({
               placeholder="Tell the Builder what to add or change"
               busy={action.busy}
               onSend={send}
+              clientId={clientId}
             />
           </div>
         </Card>

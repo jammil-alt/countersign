@@ -226,7 +226,9 @@ legal: true
         Agents use AI models to read documents, write messages and decide what to propose. For
         each step, we send the model provider only what that step needs, such as a document's
         text or the records involved, through the provider's API. Our model providers are
-        Anthropic and, for agents set up to use its models, OpenAI.
+        Anthropic and, for agents set up to use its models, OpenAI. When someone dictates a
+        message instead of typing it, the recording goes to OpenAI to be written out; we keep the
+        words they send, never the recording.
       </p>
       <p>
         We use these providers under their commercial API terms, not their consumer products.

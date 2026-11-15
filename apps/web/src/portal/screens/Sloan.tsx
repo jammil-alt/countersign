@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { voiceFor } from "../../api/voice";
 import type { PlainKey } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
 import { InboxCard, isAccountChangeItem } from "../../inbox/InboxCard";
@@ -265,6 +266,13 @@ function Conversation({
           }}
           inputTestId="portal-sloan-input"
           sendTestId="portal-sloan-send"
+          voice={voiceFor("portal", null, {
+            dictate: t("voice.dictate"),
+            stop: t("voice.stop"),
+            writing: t("voice.writing"),
+            blocked: t("voice.blocked"),
+            failed: t("voice.failed"),
+          })}
           above={
             <div className="flex flex-wrap gap-1.5">
               {STARTERS.map((k) => (

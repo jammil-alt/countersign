@@ -223,6 +223,7 @@ export function BuilderPanel({ session }: { session: BuilderSession }) {
         placeholder="Add a step, change a rule, or ask why"
         busy={session.busy}
         onSend={session.send}
+        clientId={session.detail?.session.clientId}
       />
     </div>
   );

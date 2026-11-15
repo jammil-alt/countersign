@@ -119,6 +119,7 @@ import { triggerRoutes } from "./triggers";
 // R5: take back a change that went ahead before a late no
 import { undoRoutes } from "./undo";
 import { AgentRunsNow, DayRuns, usageRoutes } from "./usage";
+import { voiceRoutes } from "./voice";
 // v0.14 W4-A: WhatsApp through Meta
 import { whatsappMetaRoutes } from "./whatsapp-meta";
 // v0.14 W4-B
@@ -2303,6 +2304,8 @@ export const routes = {
   ...reggieRoutes,
   // docs/plan.md §1.108: builds, from intake to go-live
   ...buildRoutes,
+  // docs/plan.md §1.109: voice typing
+  ...voiceRoutes,
   ...knowledgeRoutes,
   ...callRoutes,
   ...billingRoutes,
