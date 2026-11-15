@@ -338,6 +338,8 @@ function RunBody({
     selected: s.id === stepId,
     // R8: a confer is a step of its own: a person's answer in copper (§1.86).
     state: s.confer ? (s.confer.reviewer === "person" ? "person" : "done") : stepState(s.status),
+    // Agent motion (§1.103): the loop the step shows while it runs.
+    ...(s.thinking ? { thinking: s.thinking } : {}),
     time: s.startedAt ? time(s.startedAt) : "",
     title: s.confer ? conferTitle(i18n, s.confer) : s.label,
     detail: s.confer

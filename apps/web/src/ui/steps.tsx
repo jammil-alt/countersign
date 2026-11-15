@@ -1,13 +1,17 @@
 // A run's or a worksheet's steps in order (docs/design/prototype.html `.steps`, `.tl`): a numbered
 // mark on a rail, the step's title and detail, and optionally its time on the left. Marks: done is
-// a positive check, the current step a slate ring, waiting on you signal "!", failed risk "!",
+// a positive check, the current step its thinking loop, waiting on you signal "!", failed risk "!",
 // a person's step copper. Each mark also says its state in words for screen readers. A step with
 // `onOpen` opens its details (the run pages' step panel): its title is a button, marked while open.
+// Agent motion (docs/plan.md §1.103): the current step shows its thinking loop in place of the
+// ring, and a polite live region says which step is under way, so a screen reader hears it move.
+import type { ThinkingState } from "@countersign/core";
 import type { ReactNode } from "react";
 import type { MessageKey } from "../i18n/catalog";
 import { useI18n } from "../i18n/i18n";
 import { cx } from "./cx";
 import { Icon } from "./icons";
+import { Thinking } from "./motion";
 
 export const STEP_STATES = ["done", "current", "waiting", "failed", "person", "todo"] as const;
 export type StepState = (typeof STEP_STATES)[number];
@@ -27,6 +31,10 @@ export interface StepItem {
   onOpen?: () => void;
   /** The step whose details are open. */
   selected?: boolean;
+  /** The current step's thinking loop; weighing when not said. */
+  thinking?: ThinkingState;
+  /** The step's name in plain words, for the live region, when `title` is not a string. */
+  announce?: string;
 }
 
 const STATE_WORDS = {
@@ -41,55 +49,74 @@ const STATE_WORDS = {
 export function StepList({ steps, testId }: { steps: readonly StepItem[]; testId?: string }) {
   const { t } = useI18n();
   const timed = steps.some((s) => s.time !== undefined);
+  const current = steps.find((s) => s.state === "current");
+  const now = current
+    ? (current.announce ?? (typeof current.title === "string" ? current.title : null))
+    : null;
   return (
-    <ol data-testid={testId} className={cx("ui-steps", timed && "ui-steps--timed")}>
-      {steps.map((s, i) => (
-        <li
-          key={s.key}
-          data-testid={s.testId}
-          data-state={s.state}
-          className={cx("ui-steps__item", s.selected && "is-selected")}
-        >
-          {timed ? <span className="ui-steps__time">{s.time}</span> : null}
-          <span className="ui-steps__rail">
-            <span className={cx("ui-steps__mark", `is-${s.state}`)}>
-              {s.state === "done" ? (
-                <Icon name="check" size={14} />
-              ) : s.state === "waiting" || s.state === "failed" ? (
-                "!"
-              ) : (
-                i + 1
-              )}
-            </span>
-            <span className="sr-only">{t(STATE_WORDS[s.state])}</span>
-          </span>
-          <div className="ui-steps__body">
-            {s.onOpen ? (
-              <button
-                type="button"
-                className="ui-steps__open"
-                aria-haspopup="dialog"
-                aria-expanded={s.selected ?? false}
-                data-testid={s.testId ? `${s.testId}-open` : undefined}
-                onClick={s.onOpen}
+    <>
+      <p className="sr-only" role="status">
+        {now ? `${t("ui.step.current")}: ${now}` : ""}
+      </p>
+      <ol data-testid={testId} className={cx("ui-steps", timed && "ui-steps--timed")}>
+        {steps.map((s, i) => (
+          <li
+            key={s.key}
+            data-testid={s.testId}
+            data-state={s.state}
+            className={cx("ui-steps__item", s.selected && "is-selected")}
+          >
+            {timed ? <span className="ui-steps__time">{s.time}</span> : null}
+            <span className="ui-steps__rail">
+              <span
+                className={cx(
+                  "ui-steps__mark",
+                  `is-${s.state}`,
+                  s.state === "current" && "is-thinking",
+                )}
               >
-                <span className={cx("ui-steps__title", s.state === "person" && "text-copper-ink")}>
-                  {s.title}
-                </span>
-                {s.detail ? <span className="text-sm text-ink-muted">{s.detail}</span> : null}
-              </button>
-            ) : (
-              <>
-                <p className={cx("ui-steps__title", s.state === "person" && "text-copper-ink")}>
-                  {s.title}
-                </p>
-                {s.detail ? <p className="text-sm text-ink-muted">{s.detail}</p> : null}
-              </>
-            )}
-            {s.children}
-          </div>
-        </li>
-      ))}
-    </ol>
+                {s.state === "current" ? (
+                  <Thinking state={s.thinking ?? "weighing"} />
+                ) : s.state === "done" ? (
+                  <Icon name="check" size={14} />
+                ) : s.state === "waiting" || s.state === "failed" ? (
+                  "!"
+                ) : (
+                  i + 1
+                )}
+              </span>
+              <span className="sr-only">{t(STATE_WORDS[s.state])}</span>
+            </span>
+            <div className="ui-steps__body">
+              {s.onOpen ? (
+                <button
+                  type="button"
+                  className="ui-steps__open"
+                  aria-haspopup="dialog"
+                  aria-expanded={s.selected ?? false}
+                  data-testid={s.testId ? `${s.testId}-open` : undefined}
+                  onClick={s.onOpen}
+                >
+                  <span
+                    className={cx("ui-steps__title", s.state === "person" && "text-copper-ink")}
+                  >
+                    {s.title}
+                  </span>
+                  {s.detail ? <span className="text-sm text-ink-muted">{s.detail}</span> : null}
+                </button>
+              ) : (
+                <>
+                  <p className={cx("ui-steps__title", s.state === "person" && "text-copper-ink")}>
+                    {s.title}
+                  </p>
+                  {s.detail ? <p className="text-sm text-ink-muted">{s.detail}</p> : null}
+                </>
+              )}
+              {s.children}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </>
   );
 }

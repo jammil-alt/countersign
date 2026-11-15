@@ -8,7 +8,8 @@
     "./tokens.json": "./tokens.json",
     "./components.css": "./components/bundle.css",
     "./assets/*": "./assets/*",
-    "./fonts/*": "./fonts/*"
+    "./fonts/*": "./fonts/*",
+    "./motion.css": "./components/Motion/motion.css"
   },
   "scripts": {
     "typecheck": "true",

@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mezonas agent motion: thinking states and progress</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@500&display=swap" rel="stylesheet">
+<!--
+  HANDOFF NOTES FOR IMPLEMENTATION
+  ================================
+  Six components, plain CSS + a few lines of vanilla JS. No dependencies.
+
+  THINKING STATES (CSS only, loop forever while a step is running)
+    .mz-think--weighing    Processing / loading. Short, generic "working" steps.
+    .mz-think--tracing     Processing / loading. Fetching, connecting, matching, reconciling.
+                           (Weighing and Tracing are interchangeable.)
+    .mz-think--drafting    Writing. Drafts, summaries, replies.
+    .mz-think--rechecking  Reviewing. Checking work before it goes to the Mezonas lead.
+
+  PROGRESS (0-100%, driven by real progress; interchangeable)
+    .mz-progress--ruler    Large count over a 41-tick rule.
+    .mz-progress--sheets   Ten sheets, one per 10%, each filling from the bottom.
+    Set progress with:  mzSetProgress(element, percent)
+
+  Rules
+    - Every icon size is 24px (scale with --mz-think-size if needed: 16/20/24).
+    - --mz-pace multiplies durations (1 = default, 2 = half speed).
+    - Motion stops under prefers-reduced-motion; progress still updates.
+    - Thinking icons are decorative (aria-hidden); the step text carries meaning.
+      Wrap the step row in role="status" so screen readers hear step changes.
+    - Progress components expose role="progressbar" with aria-valuenow.
+    - Colors are Mezonas tokens (light theme) declared in :root below.
+    - Everything below the "DEMO PAGE ONLY" marker is presentation for this file, not part of the components.
+-->
+<style>
+/* ============ TOKENS (Mezonas, light theme) ============ */
+:root{
+  --paper:#F4F5F3; --surface:#FFFFFF; --surface-subtle:#ECEEF0;
+  --line:#DCDFE2; --line-strong:#7D858F;
+  --ink:#151A21; --ink-muted:#535B65;
+  --slate:#23415E; --slate-tint:#E4EAF0;
+  --positive:#1F6B4A;
+  --font-sans:"Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:"Geist Mono", ui-monospace, Menlo, monospace;
+  --radius-sm:6px; --radius-md:10px; --radius-lg:14px;
+  --mz-pace:1;
+  --mz-ease:cubic-bezier(.45,0,.25,1);
+}
+
+/* ============ THINKING STATES ============ */
+/* All four are drawn on a 24x24 box. */
+.mz-think{position:relative;display:inline-block;flex:none;width:24px;height:24px}
+.mz-think>*{position:absolute}
+.mz-think svg{display:block;width:24px;height:24px;overflow:visible}
+
+/* 1. Weighing: three options drift apart and pull into line; the middle one is chosen. */
+.mz-think--weighing i{left:10px;top:10px;width:4px;height:4px;border-radius:50%;background:var(--slate);
+  animation:calc(2.8s * var(--mz-pace)) var(--mz-ease) infinite}
+.mz-think--weighing i:nth-child(1){animation-name:mz-weigh-a;opacity:.55}
+.mz-think--weighing i:nth-child(2){animation-name:mz-weigh-b}
+.mz-think--weighing i:nth-child(3){animation-name:mz-weigh-c;opacity:.55}
+@keyframes mz-weigh-a{0%,100%{transform:translate(-7px,-5px)}35%,55%{transform:translate(-6px,0)}78%{transform:translate(-3px,7px)}}
+@keyframes mz-weigh-b{0%,100%{transform:translate(6px,-6px)}35%{transform:translate(0,0) scale(1)}45%{transform:translate(0,0) scale(1.35)}55%{transform:translate(0,0) scale(1)}78%{transform:translate(7px,2px)}}
+@keyframes mz-weigh-c{0%,100%{transform:translate(1px,7px)}35%,55%{transform:translate(6px,0)}78%{transform:translate(-6px,-4px)}}
+
+/* 3. Drafting: lines write out; the last is erased and rewritten. A caret follows. */
+.mz-think--drafting i,.mz-think--drafting b{animation:calc(4.2s * var(--mz-pace)) ease-in-out infinite}
+.mz-think--drafting i{left:2px;height:2px;width:0;border-radius:1px;background:var(--line-strong)}
+.mz-think--drafting i:nth-child(1){top:6px;animation-name:mz-draft-a}
+.mz-think--drafting i:nth-child(2){top:11px;animation-name:mz-draft-b}
+.mz-think--drafting i:nth-child(3){top:16px;background:var(--slate);animation-name:mz-draft-c}
+.mz-think--drafting b{left:2px;top:4.5px;width:1px;height:5px;background:var(--slate);animation-name:mz-draft-caret}
+@keyframes mz-draft-a{0%{width:0;opacity:1}18%{width:16px}88%{width:16px;opacity:1}96%,100%{width:16px;opacity:0}}
+@keyframes mz-draft-b{0%,18%{width:0;opacity:1}36%{width:20px}88%{width:20px;opacity:1}96%,100%{width:20px;opacity:0}}
+@keyframes mz-draft-c{0%,36%{width:0;opacity:1}50%,56%{width:14px}64%,70%{width:5px}82%{width:11px}88%{width:11px;opacity:1}96%,100%{width:11px;opacity:0}}
+@keyframes mz-draft-caret{0%{left:2px;top:4.5px;opacity:1}18%{left:19px;top:4.5px}18.01%{left:2px;top:9.5px}36%{left:23px;top:9.5px}36.01%{left:2px;top:14.5px}50%,56%{left:17px;top:14.5px}64%,70%{left:8px;top:14.5px}82%,88%{left:14px;top:14.5px;opacity:1}96%,100%{left:14px;top:14.5px;opacity:0}}
+
+/* 4. Tracing: one path is followed and set aside, another is tried, then they are linked. */
+.mz-think--tracing .p{fill:none;stroke:var(--slate);stroke-width:1.5;stroke-linecap:square;stroke-linejoin:miter;
+  stroke-dasharray:1;stroke-dashoffset:1;animation:calc(4.4s * var(--mz-pace)) var(--mz-ease) infinite}
+.mz-think--tracing .p1{animation-name:mz-trace-a}
+.mz-think--tracing .p2{animation-name:mz-trace-b}
+.mz-think--tracing .p3{animation-name:mz-trace-c}
+.mz-think--tracing .n{fill:var(--surface);stroke:var(--line-strong);stroke-width:1.2}
+.mz-think--tracing .n0{fill:var(--slate);stroke:var(--slate)}
+@keyframes mz-trace-a{0%{stroke-dashoffset:1;opacity:1}25%,40%{stroke-dashoffset:0;opacity:1}50%,86%{stroke-dashoffset:0;opacity:.25}95%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes mz-trace-b{0%,42%{stroke-dashoffset:1;opacity:1}68%,86%{stroke-dashoffset:0;opacity:1}95%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes mz-trace-c{0%,68%{stroke-dashoffset:1;opacity:1}80%,86%{stroke-dashoffset:0;opacity:1}95%,100%{stroke-dashoffset:0;opacity:0}}
+
+/* 5. Rechecking: a cursor reads down the rows, then goes back up to check one. */
+.mz-think--rechecking i{left:5px;height:1.5px;border-radius:1px;background:var(--line-strong)}
+.mz-think--rechecking i:nth-of-type(1){top:3.75px;width:17px}
+.mz-think--rechecking i:nth-of-type(2){top:8.75px;width:13px}
+.mz-think--rechecking i:nth-of-type(3){top:13.75px;width:15px}
+.mz-think--rechecking i:nth-of-type(4){top:18.75px;width:11px}
+.mz-think--rechecking b{left:0;top:2.5px;width:24px;height:4px;border-radius:1px;background:var(--slate-tint);
+  animation:mz-recheck calc(4s * var(--mz-pace)) var(--mz-ease) infinite}
+.mz-think--rechecking b::before{content:"";position:absolute;left:.5px;top:1px;width:2px;height:2px;border-radius:50%;background:var(--slate)}
+@keyframes mz-recheck{0%{transform:translateY(0);opacity:0}5%,18%{transform:translateY(0);opacity:1}26%,38%{transform:translateY(5px)}46%,54%{transform:translateY(10px)}62%,72%{transform:translateY(5px)}82%,92%{transform:translateY(15px);opacity:1}98%,100%{transform:translateY(15px);opacity:0}}
+
+@media (prefers-reduced-motion: reduce){
+  .mz-think *,.mz-think *::before{animation:none !important}
+  .mz-think--drafting i:nth-child(1){width:16px}.mz-think--drafting i:nth-child(2){width:20px}.mz-think--drafting i:nth-child(3){width:11px}
+  .mz-think--tracing .p2,.mz-think--tracing .p3{stroke-dashoffset:0}
+  .mz-think--rechecking b{opacity:1}
+}
+
+/* ============ PROGRESS ============ */
+.mz-progress{font-family:var(--font-sans);color:var(--ink);display:flex;flex-direction:column}
+.mz-progress__pct{font-weight:500;font-variant-numeric:tabular-nums}
+.mz-progress__label{font-size:15px;line-height:24px}
+
+/* E. Ruler */
+.mz-progress--ruler{gap:14px;width:100%;max-width:396px}
+.mz-progress--ruler .mz-progress__pct{font-size:56px;line-height:60px;letter-spacing:-.025em}
+.mz-progress--ruler .mz-progress__label{color:var(--ink-muted)}
+.mz-ruler{display:flex;align-items:flex-end;justify-content:space-between;height:24px}
+.mz-ruler span{display:block;width:2px;height:10px;background:var(--line)}
+.mz-ruler span:nth-child(5n+1){height:16px}
+.mz-ruler span:nth-child(10n+1){height:24px}
+.mz-ruler span.is-on{background:var(--slate)}
+.mz-ruler__scale{display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:12px;line-height:16px;font-weight:500;color:var(--ink-muted)}
+
+/* F. Sheets */
+.mz-progress--sheets{gap:16px;width:352px;max-width:100%}
+.mz-progress--sheets .mz-progress__head{display:flex;justify-content:space-between;align-items:baseline;gap:16px}
+.mz-progress--sheets .mz-progress__pct{font-size:22px;line-height:28px;letter-spacing:-.01em}
+.mz-sheets{display:flex;gap:8px}
+.mz-sheets span{position:relative;flex:1;max-width:28px;aspect-ratio:28/36;box-sizing:border-box;border:1.5px solid var(--line-strong);border-radius:3px;background:var(--surface);overflow:hidden}
+.mz-sheets span::after{content:"";position:absolute;left:0;right:0;bottom:0;height:calc(var(--fill,0) * 100%);background:var(--slate)}
+.mz-sheets span.is-started{border-color:var(--slate)}
+
+/* ============ STEP ROW (shared context for the thinking states) ============ */
+.mz-step{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);font-family:var(--font-sans);color:var(--ink)}
+.mz-step__text{flex:1;min-width:0;display:flex;flex-direction:column}
+.mz-step__title{font-size:15px;line-height:24px}
+.mz-step__who,.mz-step__meta{font-size:13px;line-height:20px;color:var(--ink-muted)}
+.mz-step__status{font-size:13px;line-height:16px;font-weight:500;color:var(--ink-muted);font-variant-numeric:tabular-nums}
+
+/* ============ DEMO PAGE ONLY ============ */
+body{margin:0;background:var(--paper);font-family:var(--font-sans);color:var(--ink)}
+.page{max-width:1200px;margin:0 auto;padding:64px 24px 96px}
+.eyebrow{font-family:var(--font-mono);font-size:11px;line-height:14px;font-weight:500;letter-spacing:.12em;color:var(--ink-muted);text-transform:uppercase}
+h1{font-size:36px;line-height:42px;font-weight:500;letter-spacing:-.02em;margin:8px 0 8px}
+h2{font-size:22px;line-height:28px;font-weight:500;letter-spacing:-.01em;margin:0}
+p{font-size:15px;line-height:24px;margin:0;color:var(--ink-muted);max-width:720px}
+section{margin-top:64px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(440px,100%),1fr));gap:24px;margin-top:24px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:24px;display:flex;flex-direction:column;gap:16px}
+.card__head{display:flex;flex-direction:column;gap:6px}
+.card__head p{font-size:13px;line-height:20px}
+.stage{display:flex;align-items:center;justify-content:center;min-height:180px;background:var(--paper);border-radius:var(--radius-md)}
+.stage .zoom{transform:scale(5)}
+.use{display:inline-block;align-self:flex-start;font-size:13px;line-height:16px;font-weight:500;padding:4px 10px;border-radius:999px;background:var(--slate-tint);color:var(--slate)}
+details{border-top:1px solid var(--line);padding-top:12px}
+summary{cursor:pointer;font-size:13px;line-height:20px;font-weight:500;color:var(--slate)}
+summary:focus-visible,button:focus-visible{outline:2px solid var(--slate);outline-offset:2px;border-radius:4px}
+pre{margin:12px 0 0;padding:12px;background:var(--surface-subtle);border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:12px;line-height:18px;white-space:pre-wrap;word-break:break-word;color:var(--ink)}
+table{width:100%;border-collapse:collapse;margin-top:24px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);overflow:hidden;font-size:15px;line-height:24px}
+th,td{text-align:left;padding:12px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--surface-subtle);font-size:13px;line-height:16px;font-weight:500;color:var(--ink-muted)}
+tr:last-child td{border-bottom:0}
+code{font-family:var(--font-mono);font-size:13px}
+</style>
+</head>
+<body>
+<main class="page">
+  <div class="eyebrow">Mezonas · Agent motion</div>
+  <h1>Thinking states and progress</h1>
+  <p>Four looping states that show what kind of thinking a step is doing, and two progress displays for jobs with a known end. Each card shows the motion large, then at real size in a step row. Open "Markup" for the exact HTML.</p>
+
+  <table>
+    <thead><tr><th>Use when the agent is…</th><th>Component</th><th>Class</th></tr></thead>
+    <tbody>
+      <tr><td>Processing or loading</td><td>Weighing or Tracing (interchangeable)</td><td><code>mz-think--weighing</code>, <code>mz-think--tracing</code></td></tr>
+      <tr><td>Writing</td><td>Drafting</td><td><code>mz-think--drafting</code></td></tr>
+      <tr><td>Reviewing its own work</td><td>Rechecking</td><td><code>mz-think--rechecking</code></td></tr>
+      <tr><td>Working toward a known total (0–100%)</td><td>Ruler or Sheets (interchangeable)</td><td><code>mz-progress--ruler</code>, <code>mz-progress--sheets</code></td></tr>
+    </tbody>
+  </table>
+
+  <section>
+    <div class="eyebrow">Thinking states</div>
+    <h2 style="margin-top:8px">Loop while a step runs</h2>
+    <div class="grid">
+
+      <article class="card">
+        <div class="card__head"><div class="eyebrow">01</div><h2>Weighing</h2><p>Three options drift apart and pull into line; the middle one is chosen.</p></div>
+        <span class="use">Processing / loading</span>
+        <div class="stage"><div class="zoom" data-clone="weighing"></div></div>
+        <div data-example="weighing">
+<div class="mz-step" role="status">
+  <span class="mz-think mz-think--weighing" aria-hidden="true"><i></i><i></i><i></i></span>
+  <div class="mz-step__text"><span class="mz-step__title">Comparing Baltic birch quotes from three vendors</span><span class="mz-step__who">Pia, Purchasing</span></div>
+  <span class="mz-step__status">Thinking</span>
+</div>
+        </div>
+        <details><summary>Markup</summary><pre data-snippet="weighing"></pre></details>
+      </article>
+
+      <article class="card">
+        <div class="card__head"><div class="eyebrow">04</div><h2>Tracing</h2><p>One path is followed and set aside, another is tried, then they are linked.</p></div>
+        <span class="use">Processing / loading</span>
+        <div class="stage"><div class="zoom" data-clone="tracing"></div></div>
+        <div data-example="tracing">
+<div class="mz-step" role="status">
+  <span class="mz-think mz-think--tracing" aria-hidden="true"><svg viewBox="0 0 24 24"><path class="p p1" pathLength="1" d="M4 6 L13 4 L20 10"/><path class="p p2" pathLength="1" d="M4 6 L7 18 L18 19"/><path class="p p3" pathLength="1" d="M18 19 L20 10"/><circle class="n n0" cx="4" cy="6" r="1.75"/><circle class="n" cx="13" cy="4" r="1.75"/><circle class="n" cx="20" cy="10" r="1.75"/><circle class="n" cx="7" cy="18" r="1.75"/><circle class="n" cx="18" cy="19" r="1.75"/></svg></span>
+  <div class="mz-step__text"><span class="mz-step__title">Matching deposits to open invoices</span><span class="mz-step__who">Rafa, Receivables</span></div>
+  <span class="mz-step__status">Thinking</span>
+</div>
+        </div>
+        <details><summary>Markup</summary><pre data-snippet="tracing"></pre></details>
+      </article>
+
+      <article class="card">
+        <div class="card__head"><div class="eyebrow">03</div><h2>Drafting</h2><p>Lines write out; the last one is erased and rewritten.</p></div>
+        <span class="use">Writing</span>
+        <div class="stage"><div class="zoom" data-clone="drafting"></div></div>
+        <div data-example="drafting">
+<div class="mz-step" role="status">
+  <span class="mz-think mz-think--drafting" aria-hidden="true"><i></i><i></i><i></i><b></b></span>
+  <div class="mz-step__text"><span class="mz-step__title">Drafting payment reminders for four customers</span><span class="mz-step__who">Rafa, Receivables</span></div>
+  <span class="mz-step__status">Thinking</span>
+</div>
+        </div>
+        <details><summary>Markup</summary><pre data-snippet="drafting"></pre></details>
+      </article>
+
+      <article class="card">
+        <div class="card__head"><div class="eyebrow">05</div><h2>Rechecking</h2><p>A cursor reads down the rows, then goes back up to check one.</p></div>
+        <span class="use">Reviewing</span>
+        <div class="stage"><div class="zoom" data-clone="rechecking"></div></div>
+        <div data-example="rechecking">
+<div class="mz-step" role="status">
+  <span class="mz-think mz-think--rechecking" aria-hidden="true"><b></b><i></i><i></i><i></i><i></i></span>
+  <div class="mz-step__text"><span class="mz-step__title">Checking March bills against the vendor ledger</span><span class="mz-step__who">Nell, Payables</span></div>
+  <span class="mz-step__status">Thinking</span>
+</div>
+        </div>
+        <details><summary>Markup</summary><pre data-snippet="rechecking"></pre></details>
+      </article>
+
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Progress</div>
+    <h2 style="margin-top:8px">0 to 100%</h2>
+    <p style="margin-top:8px">Both are driven by <code>mzSetProgress(el, percent)</code>. The demo below feeds them a simulated run that moves in bursts and pauses between steps; in production, pass real progress.</p>
+    <div class="grid">
+
+      <article class="card">
+        <div class="card__head"><div class="eyebrow">E</div><h2>Ruler</h2><p>A large count over a measuring rule that fills tick by tick.</p></div>
+        <span class="use">Known total</span>
+        <div class="stage" style="padding:24px" data-example="ruler">
+<div class="mz-progress mz-progress--ruler" role="progressbar" aria-label="Payment reminders" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-mz-progress>
+  <div>
+    <div class="mz-progress__pct" data-pct>0%</div>
+    <div class="mz-progress__label" data-label>Reading 14 open invoices</div>
+  </div>
+  <div class="mz-ruler" data-ruler></div>
+  <div class="mz-ruler__scale" aria-hidden="true"><span>0</span><span>25</span><span>50</span><span>75</span><span>100</span></div>
+</div>
+        </div>
+        <details><summary>Markup</summary><pre data-snippet="ruler"></pre></details>
+      </article>
+
+      <article class="card">
+        <div class="card__head"><div class="eyebrow">F</div><h2>Sheets</h2><p>Ten sheets, one per 10%. Each fills from the bottom, then the next starts.</p></div>
+        <span class="use">Known total</span>
+        <div class="stage" style="padding:24px" data-example="sheets">
+<div class="mz-progress mz-progress--sheets" role="progressbar" aria-label="Payment reminders" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-mz-progress>
+  <div class="mz-progress__head">
+    <span class="mz-progress__label" data-label>Reading 14 open invoices</span>
+    <span class="mz-progress__pct" data-pct>0%</span>
+  </div>
+  <div class="mz-sheets" data-sheets></div>
+  <span class="mz-step__who">Rafa, Receivables</span>
+</div>
+        </div>
+        <details><summary>Markup</summary><pre data-snippet="sheets"></pre></details>
+      </article>
+
+    </div>
+  </section>
+</main>
+
+<script>
+/* ============ COMPONENT JS (needed for progress) ============ */
+
+/* Builds ticks/sheets on first call, then updates to `percent` (0-100). */
+function mzSetProgress(el, percent){
+  var p = Math.max(0, Math.min(100, Math.round(percent)));
+  var ruler = el.querySelector('[data-ruler]');
+  if (ruler){
+    if (!ruler.children.length){ for (var i = 0; i <= 40; i++) ruler.appendChild(document.createElement('span')); }
+    for (var j = 0; j < ruler.children.length; j++) ruler.children[j].classList.toggle('is-on', p > 0 && j * 2.5 <= p);
+  }
+  var sheets = el.querySelector('[data-sheets]');
+  if (sheets){
+    if (!sheets.children.length){ for (var k = 0; k < 10; k++) sheets.appendChild(document.createElement('span')); }
+    for (var m = 0; m < 10; m++){
+      var f = Math.max(0, Math.min(1, (p - 10 * m) / 10));
+      sheets.children[m].style.setProperty('--fill', f);
+      sheets.children[m].classList.toggle('is-started', f > 0);
+    }
+  }
+  var pct = el.querySelector('[data-pct]');
+  if (pct) pct.textContent = p + '%';
+  el.setAttribute('aria-valuenow', p);
+}
+
+/* ============ DEMO PAGE ONLY ============ */
+(function(){
+  // Show the step-row markup in each "Markup" panel, and clone the icon into the large stage.
+  document.querySelectorAll('[data-snippet]').forEach(function(pre){
+    var src = document.querySelector('[data-example="' + pre.dataset.snippet + '"]');
+    pre.textContent = src.innerHTML.trim();
+  });
+  document.querySelectorAll('[data-clone]').forEach(function(z){
+    var icon = document.querySelector('[data-example="' + z.dataset.clone + '"] .mz-think');
+    z.appendChild(icon.cloneNode(true));
+  });
+
+  // Simulated run: bursts with pauses at each step change.
+  var curve = [[0,0],[.1,14],[.18,19],[.34,43],[.42,49],[.56,66],[.64,72],[.8,96],[.84,100],[1,100]];
+  var steps = ['Reading 14 open invoices','Matching deposits to invoices','Drafting four reminders','Checking the drafts'];
+  function at(t){
+    for (var i = 1; i < curve.length; i++){
+      if (t <= curve[i][0]){
+        var a = curve[i-1], b = curve[i], u = (t - a[0]) / (b[0] - a[0]);
+        var e = u < .5 ? 2*u*u : 1 - Math.pow(-2*u + 2, 2) / 2;
+        return a[1] + (b[1] - a[1]) * e;
+      }
+    }
+    return 100;
+  }
+  var els = document.querySelectorAll('[data-mz-progress]');
+  var t0 = performance.now(), L = 8000;
+  function tick(now){
+    var p = Math.round(at(((now - t0) % L) / L));
+    els.forEach(function(el){
+      mzSetProgress(el, p);
+      el.querySelector('[data-label]').textContent = p >= 100 ? 'Reminders ready to sign' : steps[Math.min(3, Math.floor(p / 25))];
+    });
+    requestAnimationFrame(tick);
+  }
+  els.forEach(function(el){ mzSetProgress(el, 0); });
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

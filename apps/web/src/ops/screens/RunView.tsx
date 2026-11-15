@@ -27,6 +27,7 @@ import {
   shortRunId,
   stepNodeOf,
   type TimelineChecks,
+  thinkingOf,
   urgentOf,
 } from "@countersign/core";
 import { type ReactNode, useMemo, useState } from "react";
@@ -50,6 +51,7 @@ import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { BeforeAfter } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
+import { Progress } from "../../ui/motion";
 import { Loaded, Page, PageGrid, Section } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader, Tag } from "../../ui/primitives";
 import { SkeletonCard, SkeletonLine } from "../../ui/skeleton";
@@ -757,6 +759,11 @@ function Timeline({
       onOpen: () => openStep(rowId),
       selected: rowId === stepId,
       state: stepState(r, s?.nodeType, checks),
+      // Agent motion (§1.103): the loop a running step shows; a confer's row rechecks.
+      thinking: thinkingOf(
+        r.check === "confer" ? { kind: "confer" } : { kind: s?.nodeType, skill: s?.skillRef },
+      ),
+      announce: r.title,
       time: r.at ? shortTime(r.at) : "next",
       title: (
         <span className="ops-step-head">
@@ -875,6 +882,18 @@ function Timeline({
       testId="ops-run-checklist"
       pad
     >
+      {/* Agent motion (§1.103): while the run goes, how far through its steps it is. */}
+      {run.status === "running" && rows.length > 0 ? (
+        <div className="mb-5">
+          <Progress
+            variant="sheets"
+            percent={(done / rows.length) * 100}
+            label={rows.find((r) => r.status === "running")?.title ?? "Starting"}
+            name="Run progress"
+            testId="ops-run-progress"
+          />
+        </div>
+      ) : null}
       <StepList steps={items} />
       {panel}
     </Card>

@@ -50,6 +50,7 @@ export function DeskWorksheet({ item, agent }: { item: DeskItem; agent: string |
       title: s.label,
       ...(s.summary ? { detail: s.summary } : {}),
       state: stepState(s.status),
+      ...(s.thinking ? { thinking: s.thinking } : {}),
       ...(s.finishedAt || s.startedAt ? { time: fmt.time(s.finishedAt ?? s.startedAt) } : {}),
     }));
   if (open && needOf(item) === "sign") {

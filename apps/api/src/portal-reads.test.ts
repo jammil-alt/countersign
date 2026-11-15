@@ -213,6 +213,30 @@ describe.skipIf(!h)("portal reads (speed run 6.2, 6.4)", () => {
     expect(n).toBe(9);
   });
 
+  it("says how a running step thinks, and nothing once it has run (§1.103)", async () => {
+    const [step] = await H.t.db
+      .select({ id: stepRun.id, status: stepRun.status, finishedAt: stepRun.finishedAt })
+      .from(stepRun)
+      .where(and(eq(stepRun.runId, runId), eq(stepRun.nodeId, "update")));
+    if (!step) throw new Error("no step");
+    const thinking = async () => {
+      const body = j((await H.call(user("a"), "GET", `/api/runs/${runId}`)).json);
+      return body.steps.find((s: { id: string }) => s.id === step.id)?.thinking;
+    };
+    expect(await thinking()).toBeUndefined();
+    await H.t.db
+      .update(stepRun)
+      .set({ status: "running", finishedAt: null })
+      .where(eq(stepRun.id, step.id));
+    // A write to the client's tool traces; never its tool or skill.
+    expect(await thinking()).toBe("tracing");
+    await H.t.db
+      .update(stepRun)
+      .set({ status: step.status, finishedAt: step.finishedAt })
+      .where(eq(stepRun.id, step.id));
+    expect(await thinking()).toBeUndefined();
+  });
+
   it("serves a run's status in one statement, and a new key whenever the page would change", async () => {
     const res = await H.call(user("a"), "GET", `/api/runs/${runId}/status`);
     expect(res.status, JSON.stringify(res.json)).toBe(200);
