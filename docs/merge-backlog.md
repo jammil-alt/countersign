@@ -22,8 +22,6 @@ Most PRs here are squash-merged, so a branch's commits are never on `main` even 
 
 | # | Branch | Date | What | Size | Conflicts with main | Migration | Plan § on the branch |
 |---|---|---|---|---|---|---|---|
-| A | `claude/inspiring-dirac-akchmi` (PR #302, open) | 11-15 | Builds from intake to go-live, a Steps tab, one conversation component, voice typing | 77 files | none (3 commits behind) | 0053, already merged (#301) | §1.107–1.109 |
-| B | `claude/zealous-allen-ls0ghl` (PR #300, open) | 11-15 | Docs: enterprise readiness list checked against the code | 2 files | none | none | none |
 | 1 | `claude/twilio-troubleshoot-test-3fb4b4` | 11-13 | ElevenLabs `end_call` as a built-in tool, TwiML answered as a JSON string; Zoho CRM developer and sandbox hosts; phone numbers take calls by default | 15 files | 0 | none | none |
 | 2 | `claude/security-docs-tiered-compliance-7cfd8e-x2qy5h` | 11-14 | Security register: what sign-in asks for today; Cloudflare and Sentry recorded. Pushed after #291 merged. | 4 files | 0 | none | none |
 | 3 | `claude/serene-curie-fmcd1c` | 11-09 | Docs: the trust claims plan (what we keep, what we change) | 1 file | 0 | none | none |
@@ -48,13 +46,23 @@ These change what gets merged, so they come before the work in wave 4.
 | D3 | 10, token counts | Still wanted? The Usage screen has changed since 11-06. | Yes. Redo the remainder (the report, the screen, `model_call.action`) from the branch on today's Usage screen. A rebase would mostly re-resolve the half that already merged. |
 | D4 | 9, compliance bundle | Which parts still stand? Main built its own second factor since (§1.100), so "a session only where a second factor is certain" may be covered already. | Split it into 5 PRs: Node 24; the scan workflows; de-provisioning with `remove-operator.yml`; the HIPAA mode checks; the Plaid doc. Drop the sign-in change if §1.100 covers it. |
 
+**The owner's answers (2026-11-15):**
+
+- **D1:** keep area owners; they are an important design feature. Take whichever path gets them in
+  most easily.
+- **D2:** merge the phone app into the repo now, server side and app, and finish it within the week
+  once the store accounts exist.
+- **D3:** keep the token counts; they are important.
+- **D4:** check the bundle against all the compliance and security work merged after 11-09, then
+  merge what still stands.
+
 ## The order
 
 Each wave starts when the one before it is green on staging. Inside a wave, one PR at a time, in
 the order listed: they touch the same few files (`docs/plan.md`, `skill-hashes.test.ts`, the
 migration journal).
 
-**Wave 0: the two open PRs.** Merge #302 first (it is ready and moves the plan to §1.109), then #300.
+**Wave 0: the two open PRs.** Done: #302 and #300 merged on 2026-11-15.
 
 **Wave 1: small, almost no conflicts.**
 
