@@ -40,6 +40,8 @@ import {
   writeLabelOf,
 } from "./catalog";
 import { ChecksPanel, NotifyEditor } from "./checks";
+// Connections (owner, 2026-11-14)
+import { ConnectionsSection, type MoveRequest } from "./connections-step";
 import { CustomizeSection } from "./customize";
 import { DeadlineEditor } from "./deadline";
 import {
@@ -145,6 +147,16 @@ export interface InspectorProps {
   dataOf?: ((step: Step) => { lines: string[]; warnings: string[] }) | undefined;
   /** A missing step: draft its skill, replace it from the palette, and whether a draft starts. */
   missing?: Omit<MissingActions, "onDelete" | "tenantId"> | undefined;
+  // Connections (owner, 2026-11-14)
+  /**
+   * The validator on this workflow as an edit would leave it (in plain words): what the "Prior
+   * step" and "Next step" pickers check a move with before making it.
+   */
+  assess?: ((p: Process) => BuilderProblem[]) | undefined;
+  /** Opens the palette to add a new step right before or right after a step. */
+  onAddHere?: ((stepId: string, where: "before" | "after") => void) | undefined;
+  /** Makes a move and asks the Builder to resolve what it breaks. */
+  onAskBuilder?: ((move: MoveRequest) => void) | undefined;
 }
 
 function errorsFor(errors: readonly BuilderProblem[], node: string): FieldErrors {
@@ -377,6 +389,17 @@ function StepInspector(props: InspectorProps & { step: Step }) {
           onChange={(e) => set("name", (s) => ({ ...s, name: e.target.value }))}
         />
       </Row>
+      {props.assess && props.onProcess ? (
+        <ConnectionsSection
+          step={step}
+          workflow={workflow}
+          ctx={ctx}
+          assess={props.assess}
+          onProcess={props.onProcess}
+          onAddHere={props.onAddHere ? (where) => props.onAddHere?.(step.id, where) : undefined}
+          onAskBuilder={props.onAskBuilder}
+        />
+      ) : null}
 
       <KindFields {...props} paths={paths} fieldErrors={fieldErrors} set={set} />
       {data ? <DataSection lines={data.lines} warnings={data.warnings} /> : null}

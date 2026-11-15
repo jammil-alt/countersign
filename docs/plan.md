@@ -4745,6 +4745,24 @@ open ai for voice.. build this". §1.107 left both out; this is voice. Attachmen
 | Words | The back office shows the server's reason (HIPAA, voice off); the portal shows its own language's words for a failure, so a client never reads our English. The subprocessors page, the privacy policy and `docs/security.md` say OpenAI writes out dictation and keeps nothing. |
 | Not yet | Attachments in the composer; the cost of transcription (OpenAI prices it per minute) in usage. |
 
+### 1.111 A step's prior and next step, checked before they change (owner, 2026-11-14; from a branch merged 2026-11-16, first numbered §1.101)
+
+"In each step, two drop-downs: prior step and next step, filled in if there is a connection already.
+If changed in any way, it should assess any issues that would arise from that connection, like data
+structures or required context, and help resolve." Then: "the builder agent should be able to
+resolve everything, this would just be essentially a manual fix."
+
+| Topic | Decision |
+|---|---|
+| What a connection is | A place in the list: a process runs each list top to bottom, so the prior and next steps are the ones right above and below. Picking another one moves the step there (`apps/web/src/ops/builder/connections.ts`); "None" is the start or the end of the list. No schema change: steps keep their ids (invariant 3). |
+| Which steps | The steps of the step's own list (the workflow's, an if path's or a loop's). // DECISION: moving into another path or loop stays a drag on the canvas, since a step on another path doesn't say where on that path it would go. |
+| The check | Before the move, the builder runs the validator it already runs (`validateProcessesLikeServer`, the server's rules) on the workflow as the move would leave it and compares: problems made and problems cleared. They are grouped as data a step reads that would no longer come before it (`template_scope`, `template_path`), required inputs left empty (`input_missing`), data in the wrong shape (`input_type`, `input_unknown`, `for_each_not_array`), a Reshape mapping that no longer fits, and the rest. |
+| No problems | The move is made at once, one undo, and the panel says so ("none loses data it needs"). |
+| Problems | Nothing moves until the operator picks: ask the Builder to resolve it; put it in a place in the list where it makes no new problem (up to three, found by checking each place); connect it and add a Reshape step before each step whose inputs it leaves unfilled (its mapping proposed from what runs before, as "Add a Reshape step before this" does), in one undo; connect anyway (the problems then show on their steps, each with Fix); or keep it as it was. // DECISION: the check itself makes no model call: the validator is exact and free. The pickers are the manual fix; the Builder resolves anything (owner, 2026-11-14). |
+| Ask the Builder | "Ask the Builder to resolve this" makes the move (one undo), then opens the Fix dialog on the moved draft with one question for the whole move: where the step was and went, keep it there if possible, every problem it makes in the validator's own words, explain and propose one fix, change nothing yet (`movePrompt`). "Make this fix" and Undo work as for any Fix. // DECISION: the move first, so the Builder works on the draft the operator asked for. |
+| A new step | Each picker ends with "Add a new step before this…" / "…after this…": the palette opens for that place in the step's list ("Adds before “Check vendor”") and what is picked goes there. |
+| Checked | `apps/web/src/ops/builder/connections.test.ts` (against core's validator), `connections.builder.test.tsx` (the pickers in the builder). |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
