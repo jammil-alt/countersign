@@ -112,7 +112,8 @@ function llmWith(model: FakeModel) {
 
 // What a model might answer for "flag card charges over $500 missing receipts" with no card
 // connector: everything it can't do is in gaps or asks for things that don't exist, and it tries
-// to act on its own and skip an approval.
+// to act on its own and skip an approval. v0.18: the steps on what doesn't exist are held as
+// missing steps in their place.
 const cardChargesAnswer = {
   summary: "Every week it lists card charges over $500 without a receipt and asks you about each.",
   gaps: ["There is no card feed connector, so it can't read card charges."],
@@ -189,7 +190,11 @@ describe("draftAgent", () => {
       { llm: llmWith(model), validate: validateWith(ctx), newId: counter() },
     );
 
-    expect(result.errors).toEqual([]);
+    // v0.18: the two steps on what doesn't exist are missing steps, which only stop a publish.
+    expect(result.errors.map((e) => [e.stepId, e.code])).toEqual([
+      ["n2", "missing_step"],
+      ["n6", "missing_step"],
+    ]);
     expect(result.bundle.workflows[0]?.workflow.schemaVersion).toBe(4);
     const def = result.bundle.definition;
     expect(def.kind).toBe("functional");
@@ -199,29 +204,42 @@ describe("draftAgent", () => {
     expect(def.canCommand).toEqual([]);
 
     const all = steps(result.bundle);
-    expect(all.map((s) => s.name)).toEqual([
-      "Summarize records",
-      "Ask for receipts",
-      "Mark the record",
+    expect(all.map((s) => [s.kind, s.name])).toEqual([
+      ["missing", "Find card charges over $500"],
+      ["skill", "Summarize records"],
+      ["person", "Ask for receipts"],
+      ["write", "Mark the record"],
+      ["missing", "Flag the charge in the card feed"],
     ]);
+    // v0.18: each hole says what was asked for, and what kind of thing would fill it.
+    expect(all[0]).toMatchObject({
+      need: 'No skill does this yet (asked for "custom:find-card-charges").',
+      fill: "skill",
+    });
+    expect(all[4]).toMatchObject({
+      need: 'No connected tool can do this yet (asked for "card.charge.flag").',
+      fill: "tool",
+    });
     const mark = all.find((s) => s.kind === "write");
     expect(mark?.checks?.approval).toMatchObject({ required: "required", ifNoAnswer: "stop" });
     // Ids are made by the server, once, and references follow them.
-    expect(all.map((s) => s.id)).toEqual(["n2", "n3", "n4"]);
+    expect(all.map((s) => s.id)).toEqual(["n2", "n3", "n4", "n5", "n6"]);
     const ask = all.find((s) => s.kind === "person");
     expect(ask?.kind === "person" && ask.title).toBe(
-      "Receipts needed: {{steps.n2.output.summary}}",
+      "Receipts needed: {{steps.n3.output.summary}}",
     );
 
+    // What has a place is on the canvas; only what has none stays a gap.
     expect(result.gaps).toEqual(
       expect.arrayContaining([
         "There is no card feed connector, so it can't read card charges.",
-        expect.stringContaining('"custom:find-card-charges"'),
-        expect.stringContaining('"card.charge.flag"'),
         expect.stringContaining('"card.charge.query"'),
         expect.stringContaining('"receipts-bot"'),
       ]),
     );
+    expect(result.gaps.join(" ")).not.toContain("custom:find-card-charges");
+    expect(result.gaps.join(" ")).not.toContain("card.charge.flag");
+    expect(result.notes.join(" ")).toMatch(/2 steps it asked for can't be built yet/);
     expect(result.notes.join(" ")).toMatch(/suggests only/);
     expect(result.notes.join(" ")).toMatch(/Approval stays on for 1 step/);
     expect(result.slug).toBe("card-receipts");
@@ -262,9 +280,11 @@ describe("draftAgent", () => {
       { description: "x", ctx },
       { llm: llmWith(model), validate: validateWith(ctx) },
     );
-    expect(result.errors).toEqual([]);
+    // The missing steps are left for the operator: not repaired away.
+    expect(result.errors.map((e) => e.code)).toEqual(["missing_step", "missing_step"]);
     expect(result.calls).toHaveLength(2);
     expect(JSON.stringify(model.requests[1]?.messages)).toContain("template_scope");
+    expect(JSON.stringify(model.requests[1]?.messages)).not.toContain("missing_step");
   });
 
   it("returns what still fails after the repair, for the operator to fix", async () => {
@@ -302,7 +322,7 @@ describe("draftAgent", () => {
       { description: "x", ctx },
       { llm: llmWith(ok), validate: validateWith(ctx) },
     );
-    expect(fixed.errors).toEqual([]);
+    expect(fixed.errors.map((e) => e.code)).toEqual(["missing_step", "missing_step"]);
 
     const bad = new FakeModel([
       { toolUse: { name: "submit_draft", input: noDefinition } },
@@ -311,6 +331,44 @@ describe("draftAgent", () => {
     await expect(
       draftAgent({ description: "x", ctx }, { llm: llmWith(bad), validate: validateWith(ctx) }),
     ).rejects.toMatchObject({ code: "invalid_answer" });
+  });
+
+  it("keeps a missing step the model placed, and doesn't spend a repair on it", async () => {
+    const ctx = context();
+    const answer = structuredClone(cardChargesAnswer) as unknown as {
+      bundle: { workflows: { workflow: { steps: unknown[] } }[] };
+    };
+    const w = answer.bundle.workflows[0]?.workflow as { steps: unknown[] };
+    w.steps = [
+      {
+        id: "feed",
+        kind: "missing",
+        name: "Read card charges",
+        need: "There is no card feed connector, so it can't read card charges.",
+        fill: "connector",
+      },
+      {
+        id: "summary",
+        kind: "skill",
+        name: "Summarize records",
+        skill: "custom:summarize-records",
+        input: { about: "{{steps.feed.output.charges}}" },
+      },
+    ];
+    const model = new FakeModel([{ toolUse: { name: "submit_draft", input: answer } }]);
+    const result = await draftAgent(
+      { description: "x", ctx },
+      { llm: llmWith(model), validate: validateWith(ctx), newId: counter() },
+    );
+    expect(result.calls).toHaveLength(1);
+    expect(result.errors.map((e) => [e.stepId, e.code])).toEqual([["n2", "missing_step"]]);
+    expect(steps(result.bundle)[0]).toMatchObject({ kind: "missing", fill: "connector" });
+    // The later step's reference follows the missing step's new id.
+    expect(steps(result.bundle)[1]).toMatchObject({
+      input: { about: "{{steps.n2.output.charges}}" },
+    });
+    // The rules ask for a missing step where the part belongs, not a gap.
+    expect(JSON.stringify(model.requests[0]?.system)).toContain("put a missing step where");
   });
 
   it("refuses an answer without the tool call, and says when the model is unavailable", async () => {

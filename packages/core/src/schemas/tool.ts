@@ -24,6 +24,13 @@ export const ToolUndo = z
   .meta({ id: "ToolUndo" });
 export type ToolUndo = z.infer<typeof ToolUndo>;
 
+/** v0.18 (§12.0): a business area's id, or `shared` for the shared business records. */
+export const AreaId = z.string().regex(/^[a-z][a-z0-9_]{0,39}$/, "lowercase letters, digits and _");
+export type AreaId = z.infer<typeof AreaId>;
+
+/** v0.18: the area of the shared business records (§5.2), which every area builds on. */
+export const SHARED_AREA = "shared";
+
 /**
  * The serializable description of a tool (ARCHITECTURE §9.4): what manifests, the Builder and the
  * builder palette see. The registry in packages/agents pairs it with a handler.
@@ -65,7 +72,19 @@ export const ToolSpec = z
     // v0.12 W1-F: the record type the tool touches (ARCHITECTURE §6.1 "Permissions per record
     // type"), e.g. `invoice`. v0.12 W2-A: one of its connector's `permissionEntities`; matrices and
     // grants set levels per entity.
+    // v0.18 (ARCHITECTURE §12.0, docs/plan.md §1.103): on a platform or pack tool (no connector),
+    // the record type it reads or saves (`vendor`, `catalog_item`), with `area`. Metadata only: the
+    // gate reads a connector tool's entity, and the area grant that would read these isn't built.
     entity: EntityId.optional(),
+    /**
+     * v0.18 (ARCHITECTURE §12.0): the business area whose data the tool reads or saves
+     * (`purchasing`, `bookkeeping`), or `shared` for the shared business records (§5.2: vendors,
+     * transactions, documents, the directory, alerts). Metadata only, for the builder's "reads and
+     * saves" words; a connector's tools leave it out (they change the client's own tool).
+     */
+    // DECISION (v0.18): the shared records are the area `shared`, so every platform or pack tool
+    // that keeps data names where it lives the same way; no gate reads it yet.
+    area: AreaId.optional(),
     // v0.12 W2-A: a tool that works on several record types names the input field that says which
     // (Zoho's `module`), and the entity of each of its values. The gate reads the entity from the
     // call's input; a value it can't map is `off`.

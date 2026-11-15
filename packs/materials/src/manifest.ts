@@ -2,6 +2,8 @@
 // catalog, matching, prices and alerts, and the client reports it adds to the portal.
 // DECISION: no agent templates (owner, 2026-11-07; docs/plan.md §1.63): agents on the Purchasing
 // area, Pia included, are built by the operator in the Agent lab from these tools and skills.
+// §1.104 (owner, 2026-11-15): one template, "Vendor contracts and invoice review", which the owner
+// asked for; it ships as the Bookkeeper does (installed when the pack is first switched on).
 
 import {
   lazy,
@@ -11,6 +13,9 @@ import {
   type SkillDefinition,
 } from "@countersign/core";
 import { MATCH_CONFIDENCE_AUTO } from "./catalog/settings";
+import { CONTRACT_SKILLS } from "./contracts/skills";
+import { VENDOR_CONTRACTS_TEMPLATE } from "./contracts/template";
+import { CONTRACT_TOOLS } from "./contracts/tools";
 import { MATERIALS_EVENTS } from "./events";
 import { PACK_ID } from "./ids";
 import { PRICE_DEFAULTS } from "./pricing/rules";
@@ -44,6 +49,8 @@ const ALL_TOOLS: readonly PackTool[] = [
   ...PURCHASING_TOOLS,
   ...SPLIT_TOOLS,
   ...VENDOR_TOOLS,
+  // §1.104: vendor contracts and the review notes for AP.
+  ...CONTRACT_TOOLS,
 ];
 
 // Worker startup (2026-11-11): a tool's schema is read on first use (core `lazy`); the list below
@@ -144,7 +151,7 @@ export const MATERIALS_SKILLS: readonly SkillDefinition[] = lazyObjects([
     id: "materials.price-check",
     name: "Check prices",
     description:
-      "Compares an invoice's prices with what the client paid before and what other vendors charge, and raises an alert, with the invoices behind it and the dollars at stake, when a price jumps, creeps, beats its average, another vendor is cheaper, a new fee appears or a purchase is unusual.",
+      "Compares an invoice's prices with what the client paid before and what other vendors charge, and raises an alert, with the invoices behind it and the dollars at stake, when a price jumps, creeps, beats its average, another vendor is cheaper, a new fee appears or a purchase is unusual. When the vendor has a contract, also when a price is above the agreed one, an item isn't on the contract, the contract doesn't hold on the invoice's date, or the payment terms or freight differ from it.",
     category: "Materials",
     // DECISION: the six rules are code with thresholds (ARCHITECTURE §12.4), so the skill runs them
     // as a tool (deterministic first); a model would add cost and nothing the rules don't decide.
@@ -235,6 +242,8 @@ export const MATERIALS_SKILLS: readonly SkillDefinition[] = lazyObjects([
   // AI ones built before the Library's, kept for stored steps); Check matches is reused after each
   // AI one.
   ...VENDOR_SKILLS,
+  // §1.104: Read a vendor contract (AI) and Review notes for AP.
+  ...CONTRACT_SKILLS,
 ]);
 
 // Worker startup (2026-11-11): parsed on first read (core `lazyParse`); apps/api's
@@ -244,14 +253,15 @@ export const materialsManifest: PackManifest = lazyParse(PackManifest, () => ({
   name: "Materials",
   // P-5: 0.2.0 adds purchase requests, quotes, purchase orders and prices from QuickBooks bills.
   // §1.88: 0.3.0 adds the vendor catalog and the vendor-first matching skills.
-  version: "0.3.0",
+  // §1.104: 0.4.0 adds vendor contracts, the contract check and its template.
+  version: "0.4.0",
   description:
     "Material cost management and purchasing: the client's catalog of materials, matching invoice lines across vendors, prices and alerts, purchase requests, quotes and purchase orders.",
   requiresConnectors: [],
   events: MATERIALS_EVENTS,
   tools: ALL_TOOLS.map((t) => t.spec),
   skills: MATERIALS_SKILLS,
-  templates: [],
+  templates: [VENDOR_CONTRACTS_TEMPLATE],
   // §1.88 (the owner's rule of 2026-11-11): the vendor-first AI skills ship as shared Library
   // skills the operator edits (installed once when the pack is first switched on); the built-ins
   // built before stay registered for stored steps, and new steps take the Library ones.

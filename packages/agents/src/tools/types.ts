@@ -21,7 +21,7 @@ import {
   type ToolSpec,
   type VoiceSampleChannel,
 } from "@countersign/core";
-import type { MatchBillInput, MatchBillResult } from "@countersign/documents";
+import type { MatchBillInput, MatchBillResult, RecordPurchaseResult } from "@countersign/documents";
 import type { LlmCallRecord, LlmExchange } from "@countersign/llm";
 import { z } from "zod";
 // v0.12 W2-D
@@ -183,6 +183,15 @@ export interface DocumentsPort {
   ): Promise<FindSupportOutcome>;
   /** The one synced bill an invoice belongs to (packages/documents' matchBill); reads only. */
   matchBill(tenantId: string, input: MatchBillInput): Promise<MatchBillResult>;
+  /**
+   * §1.104: the purchase record of an invoice read with valid totals (packages/documents'
+   * recordPurchase): the one already here linked, else one made from the document. Absent where
+   * nothing provides it.
+   */
+  recordPurchase?(
+    tenantId: string,
+    input: { documentId: string; testRun: boolean },
+  ): Promise<RecordPurchaseResult>;
   // Skill model (2026-11-10): "Read document" (an AI skill) and "record the reading" (a write).
   /**
    * The document's file, whole, for an AI skill's model call (packages/documents' readingFile).
@@ -512,6 +521,9 @@ export function defineInternalTool<I extends z.ZodType, O extends z.ZodType>(def
   pure?: boolean;
   /** Skill model (2026-11-10): the tool's code calls a model inside it, and why (`ToolSpec`). */
   usesModel?: string;
+  /** v0.18 (ARCHITECTURE §12.0): the area and record type it reads or saves; metadata only. */
+  area?: string;
+  entity?: string;
 }): InternalTool {
   return {
     ...(def.pure ? { pure: true } : {}),
@@ -526,6 +538,8 @@ export function defineInternalTool<I extends z.ZodType, O extends z.ZodType>(def
       source: def.source ?? "platform",
       ...(def.summary === undefined ? {} : { summary: def.summary }),
       ...(def.usesModel === undefined ? {} : { usesModel: def.usesModel }),
+      ...(def.area === undefined ? {} : { area: def.area }),
+      ...(def.entity === undefined ? {} : { entity: def.entity }),
     }),
     input: def.input,
     output: def.output,

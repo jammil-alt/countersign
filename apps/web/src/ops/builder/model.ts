@@ -216,6 +216,22 @@ export function removeStep(process: Process, id: string): Process {
 }
 
 /**
+ * v0.18: a missing step replaced by a step from the palette, in its place. The new step takes the
+ * missing step's id, so later steps' references to it follow (and the validator says if the new
+ * step's output lacks what they read).
+ */
+// DECISION (v0.18): the replacement keeps the missing step's id rather than a new one: a missing
+// step never ran or published, so no history depends on its id, and the hole and what fills it are
+// one step to the steps after it (and to a merge, which follows ids).
+export function replaceStep(process: Process, id: string, step: Step): Process {
+  const loc = locate(process, id);
+  if (!loc) return process;
+  return updateContainer(process, loc.container, (steps) =>
+    steps.map((s) => (s.id === id ? ({ ...step, id } as Step) : s)),
+  );
+}
+
+/**
  * Moves a step (with whatever it holds) to `index` of `container`, the index counted after the
  * step has left its place: the same rule as arrayMove within one list. A step can't move into
  * itself; that move changes nothing.

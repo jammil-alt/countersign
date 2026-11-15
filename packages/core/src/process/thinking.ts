@@ -1,4 +1,4 @@
-// Agent motion (docs/plan.md §1.103): which of the design system's four thinking states a step
+// Agent motion (docs/plan.md §1.106): which of the design system's four thinking states a step
 // shows while it runs. Weighing and Tracing are processing (Tracing for fetching, connecting,
 // matching, reconciling), Drafting is writing, Rechecking is reviewing work before it goes on.
 // The state is only a picture: the step's own words carry what it does. It is read from the

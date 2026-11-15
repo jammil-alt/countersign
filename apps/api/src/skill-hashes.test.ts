@@ -25,7 +25,9 @@ const builtins = platform.catalog.list();
 // §1.88: the vendor-first matching adds four: Match vendor, Match by SKU (vendor), Semantic match
 // (vendor), Master item manager (the AI two kept for stored steps: new steps take the Library
 // skills the pack installs, which are not built-ins).
-const BUILTINS = 132;
+// §1.104: vendor contracts add two that are no wrappers: Read a vendor contract (AI) and Review
+// notes for AP (built-in code).
+const BUILTINS = 134;
 const WRAPPERS = 92;
 
 describe("built-in skills under the R2 skill schema", () => {

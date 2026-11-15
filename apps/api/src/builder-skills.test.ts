@@ -311,7 +311,9 @@ describe.skipIf(!h)("the Builder", () => {
       notes: string[];
       errors: unknown[];
     };
-    expect(out.errors).toEqual([]);
+    // v0.18: the step on a skill that doesn't exist is a missing step in its place, which only
+    // stops a publish (docs/plan.md §1.103).
+    expect((out.errors as Json[]).map((e) => e.code)).toEqual(["missing_step"]);
     expect(out.agent).toMatchObject({
       kind: "template",
       slug: "card-receipts",
@@ -320,11 +322,12 @@ describe.skipIf(!h)("the Builder", () => {
     expect(out.version).toMatchObject({ version: 1, status: "draft", authorType: "builder" });
     expect(out.bundle.definition.permissions.mode).toBe("suggest_only");
     expect(out.gaps).toEqual(
-      expect.arrayContaining([
-        "There is no card feed connector, so it can't read card charges.",
-        expect.stringContaining("custom:find-card-charges"),
-      ]),
+      expect.arrayContaining(["There is no card feed connector, so it can't read card charges."]),
     );
+    expect(stepsOf(out.bundle).find((s) => s.kind === "missing")).toMatchObject({
+      need: expect.stringContaining("custom:find-card-charges"),
+      fill: "skill",
+    });
     expect(out.bundle.workflows[0]?.workflow.schemaVersion).toBe(4);
     const write = stepsOf(out.bundle).find((s) => s.kind === "write");
     expect(write?.checks?.approval?.required).toBe("required");
@@ -348,8 +351,10 @@ describe.skipIf(!h)("the Builder", () => {
     const prompt = JSON.stringify(model.requests[0]?.messages);
     expect(prompt).toContain("Client A");
     // A client's draft is checked against its (absent) bindings: the operator binds, not the model.
-    expect((res.json as { errors: Json[] }).errors.map((e) => e.code)).toEqual([
+    // v0.18: the step on a skill that doesn't exist is held as a missing step.
+    expect((res.json as { errors: Json[] }).errors.map((e) => e.code as string).sort()).toEqual([
       "connection_missing",
+      "missing_step",
     ]);
     expect(
       (

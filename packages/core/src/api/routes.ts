@@ -679,7 +679,7 @@ export const TimelineStep = z.object({
   /** The step asked an AI model (never which one, or its prompt or cost): "AI read this". */
   ai: z.literal(true).optional(),
   /**
-   * Agent motion (docs/plan.md §1.103): while the step runs, the kind of thinking its loop shows
+   * Agent motion (docs/plan.md §1.106): while the step runs, the kind of thinking its loop shows
    * (`thinkingOf`); a picture only, never its skill or tool.
    */
   thinking: z.enum(THINKING_STATES).optional(),

@@ -196,6 +196,11 @@ export interface VendorItemFields {
   listPrice?: string | null | undefined;
   listPriceOn?: string | null | undefined;
   currency?: string | undefined;
+  // §1.104: the contract the list price is the agreed price of (with a list price only).
+  contractId?: string | null | undefined;
+  // §1.104 (0052): the client's tolerance on the agreed price (an amount, a percent).
+  priceToleranceAmount?: string | null | undefined;
+  priceTolerancePct?: string | null | undefined;
 }
 
 export type VendorItemCreator = { agentVersionId: string } | { userId: string };
@@ -227,6 +232,9 @@ export async function createVendorItem(
       leadTimeDays: f.leadTimeDays ?? null,
       listPrice: f.listPrice ?? null,
       listPriceOn: f.listPrice ? (f.listPriceOn ?? null) : null,
+      contractId: f.listPrice ? (f.contractId ?? null) : null,
+      priceToleranceAmount: f.priceToleranceAmount ?? null,
+      priceTolerancePct: f.priceTolerancePct ?? null,
       currency: f.currency ?? "USD",
       ...("agentVersionId" in by
         ? { createdByAgentVersionId: by.agentVersionId || null }
@@ -278,8 +286,14 @@ export async function updateVendorItem(
   if (f.listPrice !== undefined) {
     set.listPrice = f.listPrice;
     set.listPriceOn = f.listPrice === null ? null : (f.listPriceOn ?? null);
+    // DECISION (§1.104): a list price set without a contract is a plain one (the link goes).
+    set.contractId = f.listPrice === null ? null : (f.contractId ?? null);
+  } else if (f.contractId !== undefined) {
+    set.contractId = f.contractId;
   }
   if (f.currency !== undefined) set.currency = f.currency;
+  if (f.priceToleranceAmount !== undefined) set.priceToleranceAmount = f.priceToleranceAmount;
+  if (f.priceTolerancePct !== undefined) set.priceTolerancePct = f.priceTolerancePct;
   // What the vendor item is embedded from changed: forget the text it was embedded from, so the
   // embedding write makes it again (the old vector serves the searches until then).
   const changes = [
@@ -297,6 +311,59 @@ export async function updateVendorItem(
   const [row] = await tx
     .update(vendorItem)
     .set(set)
+    .where(and(eq(vendorItem.id, id), eq(vendorItem.tenantId, tenantId)))
+    .returning();
+  if (!row) throw new VendorItemError("not_found", `vendor item ${id} not found`);
+  return row;
+}
+
+/** A tolerance as entered: a non-negative decimal, a percent under 100; blank is none. */
+export function readTolerance(
+  raw: string | number | null | undefined,
+  kind: "amount" | "pct",
+): string | null {
+  const s = String(raw ?? "")
+    .replace(/[$,%\s]/g, "")
+    .trim();
+  if (!s) return null;
+  if (!/^\d{1,10}(\.\d{1,4})?$/.test(s) || (kind === "pct" && Number(s) >= 100)) {
+    throw new VendorItemError(
+      "bad_input",
+      kind === "pct"
+        ? `a tolerance percent is a number from 0 to under 100, not "${raw}"`
+        : `a tolerance amount is a number of 0 or more, not "${raw}"`,
+    );
+  }
+  return kind === "pct" ? dec(s).toFixed(2) : toNumeric(s);
+}
+
+/**
+ * Sets a vendor item's tolerance on its agreed price (either may be null: none), attributed to
+ * the person or agent version that set it (`ext.priceTolerance`).
+ */
+// DECISION (owner, 2026-11-15): who set a tolerance, and when, is kept on the vendor item's `ext`
+// beside the values (the tool call's own log and, for a person, the audit row say the rest).
+export async function setTolerance(
+  tx: Tx,
+  tenantId: string,
+  id: string,
+  input: { amount: string | null; pct: string | null },
+  by: VendorItemCreator,
+): Promise<VendorItemRow> {
+  const stamp = {
+    ...by,
+    amount: input.amount,
+    pct: input.pct,
+    at: new Date().toISOString(),
+  };
+  const [row] = await tx
+    .update(vendorItem)
+    .set({
+      priceToleranceAmount: input.amount,
+      priceTolerancePct: input.pct,
+      ext: sql`${vendorItem.ext} || ${JSON.stringify({ priceTolerance: stamp })}::jsonb`,
+      updatedAt: new Date(),
+    })
     .where(and(eq(vendorItem.id, id), eq(vendorItem.tenantId, tenantId)))
     .returning();
   if (!row) throw new VendorItemError("not_found", `vendor item ${id} not found`);
@@ -579,6 +646,10 @@ export function vendorItemView(
     currency: v.currency,
     preferred: v.preferred,
     status: v.status,
+    // §1.104: the contract its list price is agreed in, and the client's tolerance on it.
+    contractId: v.contractId,
+    priceToleranceAmount: v.priceToleranceAmount,
+    priceTolerancePct: v.priceTolerancePct,
   };
 }
 export type VendorItemView = ReturnType<typeof vendorItemView>;

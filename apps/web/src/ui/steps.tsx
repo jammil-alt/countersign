@@ -3,7 +3,7 @@
 // a positive check, the current step its thinking loop, waiting on you signal "!", failed risk "!",
 // a person's step copper. Each mark also says its state in words for screen readers. A step with
 // `onOpen` opens its details (the run pages' step panel): its title is a button, marked while open.
-// Agent motion (docs/plan.md §1.103): the current step shows its thinking loop in place of the
+// Agent motion (docs/plan.md §1.106): the current step shows its thinking loop in place of the
 // ring, and a polite live region says which step is under way, so a screen reader hears it move.
 import type { ThinkingState } from "@countersign/core";
 import type { ReactNode } from "react";

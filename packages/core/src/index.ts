@@ -198,7 +198,7 @@ export * from "./permissions/grants";
 export * from "./permissions/release";
 // R1: processes, workflow schemaVersion 4 (docs/plan.md §1.86, §9), as the `processes` namespace.
 export * as processes from "./process";
-// Agent motion (docs/plan.md §1.103): the thinking state a running step shows.
+// Agent motion (docs/plan.md §1.106): the thinking state a running step shows.
 export { THINKING_STATES, type ThinkingState, thinkingOf } from "./process/thinking";
 export * from "./reach/rules";
 export * from "./roles";

@@ -313,6 +313,31 @@ export const HandoffStep = z.object({
   input: TemplateObject.default({}),
 });
 
+// v0.18 (owner, 2026-11-15; docs/plan.md §1.103): a missing piece, held where it belongs.
+/** What kind of thing would fill a missing step: a skill to draft, a tool, or a connector. */
+export const MISSING_FILLS = ["skill", "tool", "connector"] as const;
+export const MissingFill = z.enum(MISSING_FILLS);
+export type MissingFill = z.infer<typeof MissingFill>;
+
+/** The most a missing step's `need` may say: one plain sentence. */
+export const MISSING_NEED_MAX = 300;
+
+/**
+ * A missing step (v0.18): the Builder puts one where a piece it can't build belongs, instead of
+ * leaving it out, so the canvas shows the hole. `name` says what the step would do, `need` what is
+ * missing in one plain sentence, and `fill` (optional) what kind of thing would fill it. It never
+ * runs: validation refuses to publish a process that has one (`missing_step`), and the executor
+ * refuses it too. A draft with one can be saved.
+ */
+// DECISION (v0.18): a new step kind rather than a flag on an existing step, so a missing piece
+// has no tool, skill or input to half-fill, and older bundles parse and hash as before.
+export const MissingStep = z.object({
+  ...base,
+  kind: z.literal("missing"),
+  need: z.string().trim().min(1).max(MISSING_NEED_MAX),
+  fill: MissingFill.optional(),
+});
+
 export type ReadStep = z.infer<typeof ReadStep>;
 export type SkillStep = z.infer<typeof SkillStep>;
 export type WriteStep = z.infer<typeof WriteStep>;
@@ -323,6 +348,7 @@ export type WaitStep = z.infer<typeof WaitStep>;
 export type StopStep = z.infer<typeof StopStep>;
 export type SubProcessStep = z.infer<typeof SubProcessStep>;
 export type HandoffStep = z.infer<typeof HandoffStep>;
+export type MissingStep = z.infer<typeof MissingStep>;
 
 type Base = z.infer<z.ZodObject<typeof base>>;
 
@@ -382,7 +408,9 @@ export type Step =
   | WaitStep
   | StopStep
   | SubProcessStep
-  | HandoffStep;
+  | HandoffStep
+  // v0.18
+  | MissingStep;
 export type StepKind = Step["kind"];
 
 export const STEP_KINDS = [
@@ -399,6 +427,8 @@ export const STEP_KINDS = [
   "stop",
   "process",
   "handoff",
+  // v0.18
+  "missing",
 ] as const satisfies readonly StepKind[];
 
 export const IfStep = z.object({
@@ -478,6 +508,8 @@ export const Step: z.ZodType<Step> = z
     StopStep,
     SubProcessStep,
     HandoffStep,
+    // v0.18
+    MissingStep,
   ])
   .meta({ id: "ProcessStep" }) as unknown as z.ZodType<Step>;
 

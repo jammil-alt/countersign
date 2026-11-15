@@ -213,7 +213,7 @@ describe.skipIf(!h)("portal reads (speed run 6.2, 6.4)", () => {
     expect(n).toBe(9);
   });
 
-  it("says how a running step thinks, and nothing once it has run (§1.103)", async () => {
+  it("says how a running step thinks, and nothing once it has run (§1.106)", async () => {
     const [step] = await H.t.db
       .select({ id: stepRun.id, status: stepRun.status, finishedAt: stepRun.finishedAt })
       .from(stepRun)

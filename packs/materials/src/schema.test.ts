@@ -25,6 +25,7 @@ import {
   purchaseRequestLine,
   quoteLine,
   quoteRequest,
+  vendorContract,
   vendorItem,
 } from "./schema";
 import { insertShop, type ShopFixture } from "./testing.test-helper";
@@ -89,6 +90,35 @@ describe.skipIf(!online)("materials tables (migration 0032)", () => {
       })
       .returning();
     if (!vi) throw new Error("no vendor item");
+    // §1.104 (0051): the vendor's contract, and the item's agreed price under it.
+    const [contract] = await t.db
+      .insert(vendorContract)
+      .values({
+        tenantId: shop.tenantId,
+        vendorId,
+        name: "2027 supply agreement",
+        effectiveFrom: "2027-01-01",
+        effectiveTo: "2027-12-31",
+        paymentTerms: "2% 10, net 30",
+        netDays: 30,
+        earlyPayDiscountPct: "2.00",
+        earlyPayDays: 10,
+        freight: "included",
+        createdByAgentVersionId: shop.agentVersionId,
+      })
+      .returning();
+    if (!contract) throw new Error("no contract");
+    await t.db
+      .update(vendorItem)
+      .set({
+        listPrice: "88.0000",
+        listPriceOn: "2027-01-01",
+        contractId: contract.id,
+        // §1.104 (0052): the client's tolerance on the agreed price.
+        priceToleranceAmount: "0.5000",
+        priceTolerancePct: "1.50",
+      })
+      .where(sql`${vendorItem.id} = ${vi.id}`);
     await t.db.insert(itemAlias).values({
       tenantId: shop.tenantId,
       vendorId,
@@ -164,6 +194,8 @@ describe.skipIf(!online)("materials tables (migration 0032)", () => {
     return {
       vendorId,
       itemId: item.id,
+      contractId: contract.id,
+      vendorItemId: vi.id,
       lineId,
       requestId: request.id,
       requestLineId: requestLine.id,
@@ -313,6 +345,91 @@ describe.skipIf(!online)("materials tables (migration 0032)", () => {
         }),
       ),
     ).toBe("23503");
+  });
+
+  // §1.104 (0051)
+  it("keeps each client's contracts its own, and checks their terms", async () => {
+    // Client B's session never reads or changes A's contract.
+    const seen = await withTenant(t.db, B.tenantId, async (tx) => {
+      await asWorker(tx);
+      return tx
+        .update(vendorContract)
+        .set({ name: "stolen" })
+        .where(sql`${vendorContract.id} = ${rowsA.contractId}`)
+        .returning();
+    });
+    expect(seen).toEqual([]);
+    // Past RLS, the composite keys still refuse a contract or an agreed price across clients.
+    expect(
+      await errorCode(
+        t.db.insert(vendorContract).values({
+          tenantId: A.tenantId,
+          vendorId: rowsB.vendorId,
+          name: "x",
+          effectiveFrom: "2027-01-01",
+        }),
+      ),
+    ).toBe("23503");
+    expect(
+      await errorCode(
+        t.db
+          .update(vendorItem)
+          .set({ contractId: rowsB.contractId })
+          .where(sql`${vendorItem.id} = ${rowsA.vendorItemId}`),
+      ),
+    ).toBe("23503");
+    const contract = (values: Partial<typeof vendorContract.$inferInsert>) =>
+      errorCode(
+        t.db.insert(vendorContract).values({
+          tenantId: A.tenantId,
+          vendorId: rowsA.vendorId,
+          name: "x",
+          effectiveFrom: "2028-01-01",
+          ...values,
+        }),
+      );
+    expect(await contract({ effectiveTo: "2027-06-30" })).toBe("23514");
+    expect(await contract({ earlyPayDiscountPct: "2.00" })).toBe("23514");
+    expect(await contract({ freight: "maybe" as never })).toBe("23514");
+    expect(await contract({ netDays: 400 })).toBe("23514");
+    // One per vendor and start date.
+    expect(await contract({ effectiveFrom: "2027-01-01" })).toBe("23505");
+    // §1.104 (0052): B never changes A's tolerance; a tolerance is never negative, nor 100% or more.
+    const tolerance = await withTenant(t.db, B.tenantId, async (tx) => {
+      await asWorker(tx);
+      return tx
+        .update(vendorItem)
+        .set({ priceTolerancePct: "50.00" })
+        .where(sql`${vendorItem.id} = ${rowsA.vendorItemId}`)
+        .returning();
+    });
+    expect(tolerance).toEqual([]);
+    const [mine] = await t.db
+      .select()
+      .from(vendorItem)
+      .where(sql`${vendorItem.id} = ${rowsA.vendorItemId}`);
+    expect(mine).toMatchObject({ priceToleranceAmount: "0.5000", priceTolerancePct: "1.50" });
+    for (const set of [
+      { priceToleranceAmount: "-1" },
+      { priceTolerancePct: "-0.5" },
+      { priceTolerancePct: "100" },
+    ]) {
+      expect(
+        await errorCode(
+          t.db.update(vendorItem).set(set).where(sql`${vendorItem.id} = ${rowsA.vendorItemId}`),
+        ),
+        JSON.stringify(set),
+      ).toBe("23514");
+    }
+    // An agreed price is a list price.
+    expect(
+      await errorCode(
+        t.db
+          .update(vendorItem)
+          .set({ listPrice: null, listPriceOn: null })
+          .where(sql`${vendorItem.id} = ${rowsA.vendorItemId}`),
+      ),
+    ).toBe("23514");
   });
 
   it("keeps one alias per (vendor, sku, description hash), either part absent", async () => {

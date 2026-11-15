@@ -1,4 +1,4 @@
-// Agent motion (docs/plan.md §1.103): the thinking loops' markup, the progress displays, and the
+// Agent motion (docs/plan.md §1.106): the thinking loops' markup, the progress displays, and the
 // running step in a step list.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

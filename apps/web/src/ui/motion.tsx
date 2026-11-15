@@ -1,4 +1,4 @@
-// Agent motion (docs/plan.md §1.103, the design system's components/Motion): a running step's
+// Agent motion (docs/plan.md §1.106, the design system's components/Motion): a running step's
 // thinking state, and a job's progress toward a known total. The markup is the delivery's,
 // class for class; the CSS is the design system's motion.css. Both stop moving under
 // prefers-reduced-motion (the CSS's own rule); progress still updates.

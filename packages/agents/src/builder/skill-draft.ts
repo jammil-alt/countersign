@@ -130,6 +130,8 @@ export interface SkillTurnResult {
   costUsd: string | null;
 }
 
+// DECISION (v0.18, docs/plan.md §1.103): a skill has no steps to hold a missing piece, so what a
+// skill draft can't do stays in its gaps; missing steps are for agent drafts only.
 const SKILL_RULES = `You are the Builder for Mezonas, a managed-agents service for back-office work. In this conversation you draft one operator skill: a reusable job an agent's workflow step runs.
 
 Rules:

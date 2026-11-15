@@ -102,6 +102,7 @@ import {
   type DeadlineThen,
   type ForEachStep,
   type HandoffStep,
+  type MissingStep,
   type NotifyCheck,
   type Process,
   Process as ProcessSchema,
@@ -157,7 +158,10 @@ export type ProcessValidationCode =
   // M61: a path the agent may choose that doesn't say when to take it; more paths than a person
   // can be asked to pick from.
   | "choice_describe_missing"
-  | "choice_too_many";
+  | "choice_too_many"
+  // v0.18 (docs/plan.md §1.103): a missing step, which holds a piece nobody has built yet. A draft
+  // with one is saved; a publish is refused until it is filled or removed.
+  | "missing_step";
 
 /**
  * `conversationProblems`' codes. A templated goal is reported as `input_not_fixed`, as every other
@@ -395,6 +399,10 @@ export function stepOutputSchema(step: Step, ctx: TypingContext): JsonSchema | u
   switch (step.kind) {
     case "handoff":
       return HANDOFF_OUTPUT;
+    // v0.18: nothing is known of what a missing piece will give, so later steps read it untyped
+    // (any path reads) until it is filled; the missing step itself stops the publish.
+    case "missing":
+      return undefined;
     case "read":
       return ctx.tools?.[step.tool]?.output;
     // DECISION (skill model): an action's output is its provider tool's, known only once it
@@ -1674,6 +1682,11 @@ const NO_ON_ERROR: Partial<Record<Step["kind"], string>> = {
   handoff: "a hand-off that can't start ends the run",
 };
 
+/** v0.18: what a missing step's error says: what is missing, in the Builder's own sentence. */
+export function missingStepMessage(step: Pick<MissingStep, "name" | "need">): string {
+  return `"${step.name}" is missing: ${step.need}`;
+}
+
 /** Hand off (2026-11-11): what a hand-off step outputs. */
 export const HANDOFF_OUTPUT: JsonSchema = {
   type: "object",
@@ -1798,6 +1811,10 @@ function checkStep(c: Checker, step: Step, scope: ProcessScope, allowed: Set<str
       break;
     case "handoff":
       checkHandoffStep(c, step, scope);
+      break;
+    // v0.18: a missing step is never published (the executor refuses one too).
+    case "missing":
+      c.add(step.id, "", "missing_step", missingStepMessage(step));
       break;
     default:
       break;

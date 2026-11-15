@@ -759,7 +759,7 @@ function Timeline({
       onOpen: () => openStep(rowId),
       selected: rowId === stepId,
       state: stepState(r, s?.nodeType, checks),
-      // Agent motion (§1.103): the loop a running step shows; a confer's row rechecks.
+      // Agent motion (§1.106): the loop a running step shows; a confer's row rechecks.
       thinking: thinkingOf(
         r.check === "confer" ? { kind: "confer" } : { kind: s?.nodeType, skill: s?.skillRef },
       ),
@@ -882,7 +882,7 @@ function Timeline({
       testId="ops-run-checklist"
       pad
     >
-      {/* Agent motion (§1.103): while the run goes, how far through its steps it is. */}
+      {/* Agent motion (§1.106): while the run goes, how far through its steps it is. */}
       {run.status === "running" && rows.length > 0 ? (
         <div className="mb-5">
           <Progress

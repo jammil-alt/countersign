@@ -450,7 +450,7 @@ a.ui-stat--link:focus-visible {
   color: var(--slate);
   outline: 4px solid var(--slate-tint);
 }
-/* Agent motion (docs/plan.md §1.103): the running step's thinking loop takes the mark's place,
+/* Agent motion (docs/plan.md §1.106): the running step's thinking loop takes the mark's place,
  * on the surface so the rail stops behind it. */
 .ui-steps__mark.is-thinking {
   border: 0;

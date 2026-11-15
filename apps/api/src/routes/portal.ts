@@ -670,7 +670,7 @@ export async function portalRunView(
                   : timelineWrite(platform, step.tool as string),
             }
           : {}),
-        // Agent motion (§1.103): the loop a running step shows; a confer's row rechecks.
+        // Agent motion (§1.106): the loop a running step shows; a confer's row rechecks.
         ...(s.status === "running"
           ? {
               thinking: thinkingOf(
