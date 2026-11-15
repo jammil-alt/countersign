@@ -5,6 +5,8 @@
 // builder with their Fix buttons), the connections and packs the client lacks, and a test run. A
 // click on an item selects its step. Beside it, the agent's data at a glance: what it reads, saves
 // and changes.
+// DECISION (v0.18): the data summary sits with What's left rather than in a panel of its own: the
+// side panel already has three tabs, and the two are read together before publishing.
 
 import type { ReactNode } from "react";
 import { Badge, Count } from "../../ui/primitives";

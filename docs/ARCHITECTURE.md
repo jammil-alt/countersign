@@ -1679,6 +1679,12 @@ runAgent({ tenantId, agentVersionId, skill | task, input, threadId?, runContext 
   enabled), event types, the existing templates (so it can say "start from template X" instead of
   drafting from nothing), and the JSON Schemas of `AgentBundle`. It may only select existing skills and
   tools; anything that needs a missing capability goes in `gaps` (e.g. "no card feed connector").
+  **(v0.18)** A missing capability that has a place in the workflow is drafted as a **missing step**
+  there instead (`kind: "missing"`: what the step would do, `need`, one plain sentence on what is
+  missing, and optionally `fill`: a skill, a tool or a connector), so the canvas shows the hole rather
+  than a clean flow; only what has no place stays a gap. The guards do the same with a step the model
+  wrote on a skill or tool that doesn't exist: it becomes a missing step in its place, with its id and
+  name. A missing step blocks publishing (§10.2) and is never handed back to the model to repair.
 - `revise-agent({ agentId, fromVersionId, instruction })` → a new bundle draft + a human-readable diff.
   Works the same on templates and client agents (e.g. "for this client, skip the approval for invoices
   under $200").
@@ -1704,7 +1710,8 @@ offer to fork it instead. **Draft the new skill:** for a gap, the Builder drafts
 **test cases** with expected answers (§9.10; a client's examples stay that client's cases). **Save as
 automation:** selected steps become an automation draft (§10.7), and the draft agent uses it in their
 place. The guards are unchanged: every write step keeps approval on, new agents are `suggest_only`,
-unknown skills and tools become gaps, ids are made by the server once. Save writes an ordinary draft
+unknown skills and tools become gaps (v0.18: a step on one becomes a missing step in its place), ids
+are made by the server once. Save writes an ordinary draft
 version (`author_type = 'builder'`); nothing is published from a conversation.
 
 ### 9.7 Platform agents (templates kind `platform`, seeded as v1 rows)
@@ -1890,6 +1897,10 @@ A workflow can be saved as a draft with errors, but only a valid one can be test
   at publish: no action's verb is `off` on the bound connection, and a step set to `not_required` whose
   connection only allows `approval` is an error ("this connection requires approval for updates"). The
   builder marks which write steps will run automatically and which need approval.
+- **(v0.18)** A **missing step** (`kind: "missing"`, §9.6) is an error, `missing_step`, in the
+  Builder's own sentence ("“Read card charges” is missing: there is no card feed connector"): a draft
+  with one is saved, never test-run or published. Later steps may read its output, untyped, so the hole
+  is its only problem. The executor never runs one: a version that holds one fails before any step.
 Errors carry the step id and field, so the builder can mark the step and the inspector field.
 
 ### 10.3 Executor
@@ -1941,6 +1952,23 @@ Operator only; clients never see it.
   allows it) with the approver; fork paths as ordered rule
   rows ("+ Add condition", "+ Add path", remove fork); settings with defaults (and, on a client agent,
   the template's value beside a customized one); the step's client timeline label and visibility.
+- **(v0.18) Missing steps**: a missing step is a signal (gold) card with the word "Missing" (waiting
+  on you, never colour alone). Its inspector says what is missing and offers what already exists:
+  **Draft the skill** (a Builder skill conversation from its need, §9.6), **Replace with a step** (the
+  palette's pick takes its place and its id, so later steps' references follow) and **Remove it**.
+- **(v0.18) What's left**, above the canvas on a draft, worked out from the bundle and the client, not
+  the Builder's chat: the missing steps, the validation errors (in the problems list's plain words, each
+  with Fix), the connections the agent needs that the client hasn't connected or the agent isn't bound
+  to, the packs it needs that are off (`requiresPacks` and the packs its tools come from), and a test
+  run when this version hasn't had one since its last change (client agents; a template's test runs
+  run as test copies, so it isn't listed). A click selects the step; the list empties as the draft is
+  finished.
+- **(v0.18) What each step reads and saves**: from its tools' `sideEffect`, `entity` and `area`
+  (§12.0), a skill step rolled up from its skill's tools, in plain words on the canvas tooltip and in
+  the inspector's **Data** section: "Reads vendors (filled by QuickBooks, uploads or the directory)",
+  "Saves items (Purchasing)", "Changes bills in QuickBooks Online", or "Saves nothing; kept in this run
+  only". A step whose connection isn't connected or bound, or whose pack is off, says what it needs.
+  Below What's left, the agent's data at a glance: what it reads, saves and changes.
 - **Versions**: history with change notes and a step-by-step diff; rollback; on templates "Used by"
   (client agents, base versions, customizations); on client agents "Based on template vN" with "Update
   available", "Compare with template" and "Promote to template".
@@ -3123,7 +3151,12 @@ provider (Anthropic has none: OpenAI or Voyage) is a vendor named in `packages/c
 an **area grant** like a connection's (§6.9): per agent, `read` and `write` per area and per entity,
 with the strictest of the grant, the step and the mode winning, and the client admin able to tighten
 it. Tools would declare their area and entity (`ToolSpec.area`, `ToolSpec.entity`), and the gate
-would check them like a connection's matrix.
+would check them like a connection's matrix. **(v0.18) The declarations are built, as metadata only:**
+a platform or pack tool names the record type it reads or saves (`entity`: `vendor`, `catalog_item`)
+and its area (`area`: `purchasing`, `bookkeeping`, or `shared` for the shared business records);
+a connector's tools already name their entity for the connection's matrix. The workflow builder reads
+them to say what each step reads and saves (§10.5). No gate reads `area` yet, and the area grant is
+still to build.
 
 **Client extras (designed for, not built).** For data too small to be an area: `schema_extension`
 (a JSON Schema per client and target, versioned like a skill) checks the `ext` fields of a record or

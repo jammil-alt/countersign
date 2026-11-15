@@ -4579,6 +4579,35 @@ like the Marketing and Bookkeeping areas.
 Checked: `packages/core/src/compliance/controls.test.ts`, `apps/api/src/compliance.test.ts` (the
 Security section), `apps/web/src/ops/security/SecurityScreens.test.tsx`.
 
+### 1.103 The Builder shows what's unfinished (owner, 2026-11-15)
+
+The owner described an agent in the Builder; it drafted a flow that looked complete, but steps and
+capabilities were missing, with nowhere to see what was left to solve. And the builder didn't say
+which steps read or save data (vendors, items) and which keep nothing. The Builder used to leave out
+what it couldn't build and list it as a gap in the chat, where it scrolled away, tied to no step and
+blocking nothing. ARCHITECTURE v0.18 §9.6, §10.2, §10.5 and §12.0 ("Access to an area"). No migration.
+
+| Topic | Decision |
+|---|---|
+| Missing step | A v4 step kind `missing` (`processes.MissingStep`): `name` (what the step would do), `need` (what is missing, one plain sentence, at most 300 characters) and an optional `fill`: `skill`, `tool` or `connector`. It carries no tool, skill or input to half-fill, and older bundles parse and hash as before (a new union member, no new field elsewhere). // DECISION: a step kind, not a flag on an existing step. |
+| Validation | Core's shared validator reports `missing_step` on the step, in the Builder's sentence ("“Read card charges” is missing: …"). A draft with one is saved; it is never test-run or published (every error blocks both, as before). Later steps read its output untyped (`stepOutputSchema` is unknown), so the hole is its only problem. |
+| Executor | Never runs one: a version that holds a missing step anywhere fails before any step runs (`missing:` error key), and `runStep` refuses one that reaches it anyway. |
+| Builder | The rules (draft, revise, and the conversation, which shares them) ask for a missing step where a part the catalog lacks belongs; only what has no place stays in `gaps`. The guards hold a step the model wrote on a skill or tool that doesn't exist as a missing step in its place, with its id and name (`fill` `skill` or `tool`), rather than dropping it; an unknown skill or extra tool listed on the agent stays a gap. `missing_step` is with the operator's fixes, never sent back for the repair round, so a repair can't take the hole out. The skill draft (`skill-draft.ts`) is unchanged: a skill has no steps to hold a hole, so its gaps stay gaps. // DECISION |
+| Fixtures | The Builder's tests use the scripted model (`FakeModel`); no recorded fixture in `fixtures/llm` carries the Builder's prompt, so nothing was re-recorded. |
+| Canvas | Signal (gold) with the word "Missing" on the card (waiting on you, never colour alone); dashed signal on the map. Its own error is the word, not the "Invalid" mark. |
+| Inspector | What is missing, what would fill it, and what exists to fix it: **Draft the skill** (starts a Builder skill conversation with the step's need as its first message, for this client's agents on a client agent; the builder's draft is kept on the device first), **Open connections** (a connector fill on a client agent), **Replace with a step** (the palette, its pick taking the missing step's place) and **Remove it**. |
+| Replace keeps the id | The step picked takes the missing step's id, so later steps' references follow and the validator says if the new output lacks what they read. // DECISION: a missing step never ran or published, so nothing depends on its id but the steps after it. |
+| What's left | Above the canvas, from the bundle and the client, never the chat: missing steps; the validator's problems as before (`problems.ts` words, Fix); connections the steps need that the client hasn't connected, or that this agent isn't bound to; packs the steps need that are off (a skill's `requiresPacks` and the packs its tools come from); and a test run. Each connection or pack once, with how many steps need it; a click selects the first. A `connection_missing` problem it already lists as a connection isn't listed twice. It empties as the draft is finished; with no problems, "Valid: ready to test-run and publish." shows as before. |
+| Test run | Known for a client agent from `GET /api/ops/runs` (this agent, `mode=test`, this saved version, one row) and from a test run started in the session; unsaved changes count as not tested. A template's test runs run as test copies in clients, so for a template it isn't listed. While the runs or the client's packs are loading or fail, the item is left out rather than guessed. // DECISION |
+| Tools say what they touch | `ToolSpec.area` (new, optional) and `entity` (on platform and pack tools; connector tools already had it for the gate): metadata only, no area grant and no gate change. Annotated: documents, the directory, the chart of accounts (`shared`); every Materials pack tool (`purchasing`, by default in its `defineTool`; vendors, documents, contacts and alerts `shared`); every Bookkeeping tool (`bookkeeping`; transactions and accounts `shared`). QuickBooks and BILL tools name their entity (bill, vendor…) as before. // DECISION: the shared business records are the area `shared`. |
+| What a step reads and saves | Core's `stepDataUse`: a read or write by its tool, an action by the tools it can resolve to (its `via`'s, else each), a skill step rolled up from its skill's tools, with the connectors and packs it needs. The builder words it: "Reads vendors (filled by QuickBooks, uploads or the directory)", "Saves items (Purchasing)", "Changes bills in QuickBooks Online", "Saves nothing; kept in this run only"; people, notices, logic, automations and hand-offs keep no data of their own and say nothing. On the canvas tooltip (with a mark when the client lacks something) and in the inspector's **Data** section with "Needs" lines. Record types and what fills each shared record are worded in the web app (`data-use.ts`). // DECISION: words in the builder, not on each tool. |
+| Agent summary | Below What's left: what the agent reads, saves and changes, each once ("Reads vendors · Saves items (Purchasing) · Changes bills in QuickBooks Online"). // DECISION: with What's left rather than a panel of its own: the side panel already has three tabs. |
+| Checked | `packages/core/src/process/missing.test.ts` (schema, validator, hash, diff and merge), `packages/core/src/process/data-use.test.ts`, `packages/agents/src/builder/builder.test.ts` (rules, guards, no repair of a hole), `apps/web/src/ops/builder/data-use.test.ts` (words, warnings, What's left, summary), `apps/web/src/ops/builder/missing.builder.test.tsx` (canvas, What's left, inspector, replace, remove, saved as a draft). |
+
+Open for the owner: whether a template should say which packs and connectors a client needs before
+it is forked (What's left lists them only for a client agent); whether "Draft the skill" should open
+the skill conversation in the side panel instead of the Library.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
