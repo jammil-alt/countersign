@@ -179,6 +179,8 @@ describe.skipIf(!online)("migrations on an empty database", () => {
         "reconciliation_match",
         // §1.88 (0047): the vendor catalog.
         "vendor_item",
+        // §1.104 (0051): vendor contracts.
+        "vendor_contract",
       ].sort(),
     );
     expect(
@@ -276,6 +278,8 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "message_translation",
       // §1.88 (0047): a vendor item is discontinued, never deleted.
       "vendor_item",
+      // §1.104 (0051): a contract ends by its date, never deleted.
+      "vendor_contract",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
@@ -293,12 +297,14 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     // P-1 (0032): a person accepts or dismisses an alert; catalog items, aliases and prices are
     // corrected in place; a matching decision is a log (a person's decision is a new row).
     // §1.88 (0047): a vendor item's price, preference and status change in place.
+    // §1.104 (0051): a contract's terms are corrected in place when it is saved again.
     for (const table of [
       "alert",
       "catalog_item",
       "item_alias",
       "price_observation",
       "vendor_item",
+      "vendor_contract",
     ]) {
       expect(await can(table, "SELECT"), `${table} SELECT`).toBe(true);
       expect(await can(table, "INSERT"), `${table} INSERT`).toBe(true);
