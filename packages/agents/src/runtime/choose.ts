@@ -150,7 +150,12 @@ async function ask(
     await recordModelCall(
       deps.ports.modelCalls,
       tenantId,
-      { runId: req.run.id, stepRunId: req.stepRunId, agentVersionId: req.run.agentVersionId },
+      {
+        runId: req.run.id,
+        stepRunId: req.stepRunId,
+        agentVersionId: req.run.agentVersionId,
+        action: "choice",
+      },
       record,
       exchange,
     );
