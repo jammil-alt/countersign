@@ -15,6 +15,7 @@ import {
 } from "../types";
 import { createWorkOS, type WorkOSAuthentication, type WorkOSClient, WorkOSError } from "./client";
 import type { WorkOSConfig } from "./config";
+import { isMobileSignIn } from "./mobile";
 import {
   clearSessionCookie,
   clearStateCookie,
@@ -50,6 +51,8 @@ export interface Redirect {
     readonly secondFactor: SecondFactorState;
     /** §1.100: passed by a remembered browser. */
     readonly remembered: boolean;
+    /** §1.116: a sign-in for the phone app (never `remembered`). */
+    readonly phone: boolean;
   };
 }
 
@@ -321,11 +324,16 @@ export function createWorkOSAdapter(options: {
       const method = auth.authenticationMethod ?? null;
       let secondFactor: SecondFactorState = "exempt";
       let remembered = false;
+      // §1.116: a sign-in for the phone app; its session leaves this browser at the handoff.
+      const phone = isMobileSignIn(request);
       if (step && !(method && SECOND_FACTOR_EXEMPT_METHODS.includes(method))) {
-        remembered =
-          (await step
-            .remembered?.({ request, userId: outcome.userId, now: nowDate })
-            .catch(() => false)) ?? false;
+        // DECISION (§1.116): a remembered browser never lets a sign-in for the phone skip the
+        // step: the browser was remembered, not the phone the session goes to.
+        remembered = phone
+          ? false
+          : ((await step
+              .remembered?.({ request, userId: outcome.userId, now: nowDate })
+              .catch(() => false)) ?? false);
         secondFactor = remembered ? "done" : "pending";
       }
       const session = newSession(
@@ -349,7 +357,7 @@ export function createWorkOSAdapter(options: {
         ok: true,
         redirectTo,
         setCookies: [...clear, sessionCookie(await sealSession(session, password), session, now)],
-        signedIn: { userId: outcome.userId, method, secondFactor, remembered },
+        signedIn: { userId: outcome.userId, method, secondFactor, remembered, phone },
       };
     },
 

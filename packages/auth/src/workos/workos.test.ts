@@ -6,6 +6,7 @@ import type { ProvisionInput, ProvisionOutcome } from "../types";
 import { createWorkOSAdapter, SECOND_FACTOR_PAGE, type SecondFactorPolicy } from "./adapter";
 import { createWorkOS, type WorkOSAuthentication, type WorkOSClient, WorkOSError } from "./client";
 import { workosStateOf } from "./config";
+import { mobileStartCookie } from "./mobile";
 import {
   DEVICE_COOKIE,
   deviceCookie,
@@ -717,6 +718,22 @@ describe("the second step (docs/plan.md §1.100)", () => {
       { authenticationMethod: "Password" },
     );
     expect(broken.done.signedIn?.secondFactor).toBe("pending");
+  });
+
+  it("never skips the code for a sign-in for the phone app (docs/plan.md §1.116)", async () => {
+    const remembered = vi.fn(async () => true);
+    const start = await mobileStartCookie("c".repeat(43), PASSWORD, at(T0));
+    const { done } = await signInWith(
+      { on: true, remembered },
+      { authenticationMethod: "Password" },
+      start.split(";")[0] ?? "",
+    );
+    expect(done.signedIn).toMatchObject({
+      secondFactor: "pending",
+      remembered: false,
+      phone: true,
+    });
+    expect(remembered).not.toHaveBeenCalled();
   });
 
   it("signs in again a cookie from before the step, once the step is on", async () => {

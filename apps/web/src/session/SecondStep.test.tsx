@@ -6,10 +6,10 @@ import type { SecondFactorStatus } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
 import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION, Reply } from "../test/fixtures";
-import { cleanCode, otpSecret, toE164 } from "./SecondStep";
+import { cleanCode, fullPageLoad, otpSecret, toE164 } from "./SecondStep";
 import { safeReturnTo } from "./session";
 
 const pending = (over: Partial<SecondFactorStatus> = {}): SecondFactorStatus => ({
@@ -106,6 +106,32 @@ describe("the second step", () => {
     await userEvent.click(screen.getByTestId("second-step-saved-continue"));
     await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent(/^\/ops\/clients$/));
     expect(api.calls).toContain("GET /api/session");
+  });
+
+  it("goes on to the phone app's handoff with a full page load (docs/plan.md §1.116)", async () => {
+    const to = vi.spyOn(fullPageLoad, "to").mockImplementation(() => undefined);
+    let passed = false;
+    renderAt("/sign-in/second-step?return_to=%2Fapi%2Fmobile%2Fhandoff", {
+      "GET /api/session": () => (passed ? CLIENT_SESSION : REQUIRED),
+      "GET /api/auth/second-factor": () =>
+        pending({
+          setupNeeded: false,
+          recoveryCodesLeft: 8,
+          methods: [{ kind: "sms", phoneHint: "•••• 4567", verified: true }],
+        }),
+      "POST /api/auth/second-factor/send": () => ({ ok: true, phoneHint: "•••• 4567" }),
+      "POST /api/auth/second-factor/verify": () => {
+        passed = true;
+        return { ok: true, recoveryCodes: null, recoveryCodesLeft: 8 };
+      },
+    });
+    await userEvent.click(await screen.findByTestId("second-step-send"));
+    await userEvent.type(await screen.findByTestId("second-step-code"), "123456");
+    await userEvent.click(screen.getByTestId("second-step-verify"));
+    await waitFor(() => expect(to).toHaveBeenCalledWith("/api/mobile/handoff"));
+    // Not one of the app's own pages: the router stays where it was.
+    expect(screen.getByTestId("where")).toHaveTextContent("/sign-in/second-step");
+    to.mockRestore();
   });
 
   it("signs a client in with a texted code, after a wrong one", async () => {
