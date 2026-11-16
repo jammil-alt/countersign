@@ -9,6 +9,8 @@
 // Node only (it reads the seed files); not exported from the package's Worker-safe index.
 
 import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   ACCOUNT_AGENT_SERVICE_DESCRIPTION,
   ACCOUNT_AGENT_SERVICE_NAME,
@@ -57,8 +59,10 @@ export const SEED_USERS = {
   demoAdmin: { email: "admin@demo-client.example.com", name: "Demo admin" },
 } as const;
 
-const SEED_DIR = new URL("../seed/agents/", import.meta.url);
-const CLIENT_SEED_DIR = new URL("../seed/clients/", import.meta.url);
+// Paths, not URLs: under @types/node 24 Node's fs takes only its own URL type, which a Worker's
+// global URL (apps/api compiles this file) is not.
+const SEED_DIR = fileURLToPath(new URL("../seed/agents/", import.meta.url).href);
+const CLIENT_SEED_DIR = fileURLToPath(new URL("../seed/clients/", import.meta.url).href);
 
 export interface SeedTemplate {
   slug: string;
@@ -80,13 +84,13 @@ function validSeedBundle(raw: unknown, what: string): AnyAgentBundle {
 }
 
 /** Every `<slug>.v<n>.json` in a seed folder, parsed, by slug: version number → file. */
-async function seedFiles(dir: URL): Promise<Map<string, Record<number, unknown>>> {
+async function seedFiles(dir: string): Promise<Map<string, Record<number, unknown>>> {
   const out = new Map<string, Record<number, unknown>>();
   for (const file of (await readdir(dir)).sort()) {
     const m = /^([a-z0-9-]+)\.v(\d{1,4})\.json$/.exec(file);
     if (!m?.[1] || !m[2]) continue;
     const files = out.get(m[1]) ?? {};
-    files[Number(m[2])] = JSON.parse(await readFile(new URL(file, dir), "utf8"));
+    files[Number(m[2])] = JSON.parse(await readFile(join(dir, file), "utf8"));
     out.set(m[1], files);
   }
   return out;
@@ -112,7 +116,7 @@ export interface SeedTemplateVersion extends Omit<SeedTemplate, "bundle"> {
 }
 
 /** Every version after the first of each agent in a seed folder, by slug then version. */
-async function laterVersions(dir: URL, folder: string): Promise<SeedTemplateVersion[]> {
+async function laterVersions(dir: string, folder: string): Promise<SeedTemplateVersion[]> {
   const out: SeedTemplateVersion[] = [];
   for (const [slug, files] of await seedFiles(dir)) {
     for (const n of Object.keys(files).map(Number)) {
@@ -466,9 +470,7 @@ export interface DemoDesk {
 
 /** The Demo client agent's bundle, validated. Throws when the file fails validation. */
 export async function loadDemoAgent(): Promise<SeedTemplate> {
-  const raw: unknown = JSON.parse(
-    await readFile(new URL(DEMO_AGENT_FILE, CLIENT_SEED_DIR), "utf8"),
-  );
+  const raw: unknown = JSON.parse(await readFile(join(CLIENT_SEED_DIR, DEMO_AGENT_FILE), "utf8"));
   // Its v1 is a whole bundle of v3 workflows: the version the Desk item's run is on.
   const bundle = validSeedBundle(raw, `seed/clients/${DEMO_AGENT_FILE}`) as AgentBundle;
   return { slug: DEMO_AGENT_SLUG, bundle, hash: await bundleHash(bundle) };
