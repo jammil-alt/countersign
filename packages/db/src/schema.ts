@@ -715,6 +715,7 @@ export const agent = pgTable(
   },
   (t) => [
     unique("agent_tenant_slug_key").on(t.tenantId, t.slug).nullsNotDistinct(),
+
     unique("agent_id_tenant_key").on(t.id, t.tenantId),
     index("agent_template_idx").on(t.templateId),
     uniqueIndex("agent_test_copy_key").on(t.tenantId, t.templateId).where(sql`${t.testCopy}`),
@@ -735,6 +736,70 @@ export const agent = pgTable(
     ),
     check("agent_stage_check", sql`${t.stage} is null or ${oneOf(t.stage, AGENT_STAGES)}`),
     check("agent_stage_kind_check", sql`(${t.kind} = 'client') = (${t.stage} is not null)`),
+  ],
+);
+
+// ── Functions (migration 0057, ARCHITECTURE §12.0a) ──────────────────────────────────────────────
+
+/**
+ * A client's function: a named group of its agents (Supply chain, Finance), with the agent that
+ * oversees them, its lead. A grouping, never a fence: what an agent may use and touch is decided by
+ * its connections and grants, not by its function. Made by the operator per client.
+ */
+// DECISION (owner, 2026-11-16): functions are per client and made by the operator; no standard
+// list is seeded yet. The lead is a named agent of the same client (code: the function's lead).
+export const clientFunction = pgTable(
+  "client_function",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    /** The agent that oversees the function's agents; one of this client's agents, or none yet. */
+    leadAgentId: uuid("lead_agent_id"),
+    /** Order on the client's pages, lowest first. */
+    position: integer("position").notNull().default(0),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("client_function_id_tenant_key").on(t.id, t.tenantId),
+    uniqueIndex("client_function_name_key").on(t.tenantId, sql`lower(${t.name})`),
+    foreignKey({
+      name: "client_function_lead_fk",
+      columns: [t.leadAgentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    index("client_function_tenant_idx").on(t.tenantId, t.position),
+    check("client_function_name_check", sql`length(${t.name}) between 1 and 80`),
+    check("client_function_description_check", sql`length(${t.description}) <= 500`),
+  ],
+);
+
+/**
+ * Which function a client agent belongs to: one row per agent, none when it belongs to none. Its
+ * own table, not a column on `agent`, so the agent's row and every reader of it stay as they are.
+ */
+export const agentFunction = pgTable(
+  "agent_function",
+  {
+    tenantId: tenantId(),
+    agentId: uuid("agent_id").primaryKey(),
+    functionId: uuid("function_id").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "agent_function_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    foreignKey({
+      name: "agent_function_function_fk",
+      columns: [t.functionId, t.tenantId],
+      foreignColumns: [clientFunction.id, clientFunction.tenantId],
+    }),
+    index("agent_function_function_idx").on(t.functionId),
   ],
 );
 
@@ -4299,6 +4364,9 @@ export const TENANT_TABLES = [
   "skill",
   "skill_version",
   "agent",
+  // Migration 0057: a client's functions (groups of its agents) and which one each agent is in.
+  "client_function",
+  "agent_function",
   "agent_version",
   "agent_change",
   "run",

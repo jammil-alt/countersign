@@ -4838,6 +4838,22 @@ built: it waits for `Sites.Selected`, which the client's admin grants per site.
 | Checked | Each connector against its fake in `packages/connectors` (`onedrive`, `excel`, `teams`, `calendar`, `outlook_calendar`, `gcal`), and through the API: `apps/api/src/onedrive.test.ts` (Drive's workflow filed in OneDrive by the binding), `excel.test.ts`, `teams.test.ts` (the endpoint's token check, binding by code, two clients, removal, an approved post once), `calendars.test.ts` (one workflow books in either calendar). Portal: `TeamsSetup.test.tsx`, `ExcelSetup.test.tsx`. |
 | Not wired | `deploy.yml` doesn't copy the new secrets yet: a CI/deploy change gets its own PR (CLAUDE.md). Until it does, each new connector shows "Not available yet" on staging. |
 
+### 1.115 Functions: agents grouped by the work they serve (owner, 2026-11-16)
+
+ARCHITECTURE v0.19 §12.0a. The owner, on packs: "we are basically saying that the clients will be
+charged by agents and agents are all custom … we can have a supply chain one that includes sourcing,
+vendor management, purchasing … agents inside would manage them … anything we do should not be
+restrictive." Then: "build the structure first, not the functions yet"; the lead is a named agent;
+its summary goes on the function's home and in the Monday digest; agent pages stay as they are.
+
+| Topic | Decision |
+|---|---|
+| Data (migration 0057, its own PR) | `client_function` per client: `name` (1–80, unique per client ignoring case), `description` (≤ 500), `position`, `lead_agent_id` (one of the same client's agents, by a composite foreign key). `agent_function`: one row per client agent in a function (`agent_id` primary key, `function_id`), so an agent has at most one home. Their own tables rather than a column on `agent`, so `agent` and every reader of it are unchanged and the previous Worker keeps working. Both forced RLS on `app.tenant_ids`; the runtime may select, insert, update and delete (removing a function deletes its `agent_function` rows first, in the same transaction). Purge clears and deletes them like any client table. Not in the client data export yet. // DECISION |
+| No list yet | Functions are made per client by the operator; no standard list is seeded (owner). An agent in no function shows under "Not in a function". // DECISION |
+| A grouping, never a fence | Nothing reads a function to allow or refuse anything: tools, skills, automations, templates, connections and grants work as before. // DECISION |
+| The lead | `client_function.lead_agent_id`: an agent of the client, shown by its name. Making an agent a function's lead also puts it in that function. In code "the function's lead", on screens the agent's name ("Pia oversees Supply chain"): "lead" alone stays the Mezonas lead (§11.2). // DECISION |
+| Phases | 1. The structure: the tables, the back office's routes to make, rename, order and remove functions, set the lead and move agents; grouped agent lists and a function home in the back office and the portal, read from data that exists. 2. The lead: free in billing (like Sloan), its cost shown as the function's overhead, its summary on the home and in the Weekly Table. 3. Giving a client a function: pick its agents, fork them and the lead, one intake form from the templates' forms (§1.108). 4. Areas switched on by the agents that need them; the Packs page retired. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

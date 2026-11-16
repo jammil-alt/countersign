@@ -9,6 +9,7 @@ import {
   accessRelease,
   agent,
   agentChange,
+  agentFunction,
   agentGrant,
   agentVersion,
   alert,
@@ -26,6 +27,7 @@ import {
   browserScriptVersion,
   builderSession,
   builderTurn,
+  clientFunction,
   connection,
   connectionChange,
   connectorSetting,
@@ -160,6 +162,13 @@ export const AUTOMATION_DEFINITION: AutomationDefinition = {
 
 let counter = 0;
 
+async function tableExists(db: Db, table: string): Promise<boolean> {
+  const [row] = await db.execute<{ found: string | null }>(
+    sql`select to_regclass(${`public.${table}`})::text as found`,
+  );
+  return Boolean(row?.found);
+}
+
 export async function insertClient(db: Db, name: string): Promise<ClientFixture> {
   const n = ++counter;
   const [t] = await db.insert(tenant).values({ name }).returning();
@@ -224,6 +233,16 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     .returning();
   if (!av) throw new Error("no agent version");
   await db.insert(agentChange).values({ tenantId, agentId: a.id, change: { runStatus: "active" } });
+  // Migration 0057: a function the agent belongs to, led by it. Tests of earlier migrations build
+  // a database without these tables, so they are made only where they exist.
+  if (await tableExists(db, "client_function")) {
+    const [fn] = await db
+      .insert(clientFunction)
+      .values({ tenantId, name: "Supply chain", leadAgentId: a.id })
+      .returning();
+    if (!fn) throw new Error("no function");
+    await db.insert(agentFunction).values({ tenantId, agentId: a.id, functionId: fn.id });
+  }
   await db.insert(agentGrant).values({
     tenantId,
     agentId: a.id,

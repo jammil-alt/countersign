@@ -1,8 +1,17 @@
-# Mezonas — Architecture v0.18
+# Mezonas — Architecture v0.19
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
+
+> **v0.19 (2026-11-16, owner):** **Functions: agents grouped by the work they serve.** A client's
+> agents are grouped into **functions** (Supply chain, Finance, Sales, Marketing), each with a home
+> page and a **lead**: a named agent of the function (Pia for Supply chain) that oversees the others,
+> free to the client. A function is a grouping, never a fence: tools, skills, automations and
+> templates stay shared, and what an agent may touch is still its connections and grants. Areas
+> (the shared data) and packs (how code ships) stay underneath and are not something a person
+> manages. Agent pages stay as they are. Functions are made per client by the operator; no standard
+> list yet. Built in phases: the structure first (§12.0a, `docs/plan.md` §1.115).
 
 > **v0.18 (2026-11-15, owner):** **Vendor contracts, and invoices without an accounting tool.** The
 > owner's use case: digitize a vendor's contract (prices per item, plus terms), take invoices in by
@@ -3212,6 +3221,39 @@ a `custom_record` collection. Templates would declare the collections they need,
 them in the client, template updates merge schema changes, and agents reach them through generic
 `records.*` tools that check the schema and the client. Not in v1 (§1 "Out").
 
+### 12.0a Functions (v0.19, owner 2026-11-16)
+
+A **function** groups a client's agents by the work they serve: Supply chain (sourcing, vendor
+management, purchasing), Finance, Sales, Marketing. It is how people find, oversee and report on
+agents. It is not where data lives (an area, §12.0) or how code ships (a pack, §12.1).
+
+1. **Per client, made by the operator** (`client_function`: name, description, order, lead;
+   migration 0057). No standard list is seeded yet.
+2. **One home function per agent, or none** (`agent_function`): where the agent is grouped and who
+   oversees it. Operational, never in a version: moving an agent is not a new version.
+3. **A grouping, never a fence.** What an agent may use and touch is its skills, tools, connections
+   and grants (invariant 13), whatever its function. Tools, skills, automations and templates are
+   shared across functions; an AP agent in Finance uses Purchasing's vendor tools.
+4. **The lead** is one of the client's agents, named (Pia for Supply chain), that oversees the
+   function's agents: it watches their runs and deadlines, collects their hand-overs and issues,
+   batches what reaches people into one item, and reports. It conducts; it never changes their
+   workflows, approvals or permissions, and what runs next is decided by data and code, not its
+   model (invariant 7; the FP&A team plan's board). Sloan stays above it, one per client. In code it
+   is the function's lead (`client_function.lead_agent_id`); on screens, the agent's name, since
+   "lead" alone means the Mezonas lead, a person (§11.2).
+5. **The lead is free.** It is not billed as an agent; what it costs us is recorded like any run's
+   and shown to the operator as the function's overhead.
+6. **Screens.** Agent pages stay as they are. Agent lists group by function. Each function has a
+   home page in the back office and the portal: its lead, its agents, what is waiting and the lead's
+   latest summary (the portal's without cost or agent internals, invariant 11). The lead's summary
+   also goes in the Monday digest (Weekly Table).
+7. **Areas and packs stay underneath.** An area is on for a client once an agent of theirs needs it
+   (designed, not built); the Packs page gives way to functions and the Library.
+
+Built in phases (`docs/plan.md` §1.115): the structure (tables, grouped lists, function homes), then
+the lead (free billing, overhead, its summary), then giving a client a function (pick its agents,
+one intake form from the templates' forms, §1.108 of the plan).
+
 ### 12.1 Pack contract
 
 ```ts
@@ -3925,6 +3967,9 @@ Decided:
   per item), the contract check as more rules of the price check (every variance noted), invoices that make their own purchase record when no tool has one
   (taken over by the tool's bill when it syncs), and the pack's template "Vendor contracts and
   invoice review" (§5.2, §12.0, §12.2, §12.4).
+- v0.19 (owner, 2026-11-16): functions group a client's agents by the work they serve, each with a
+  home page and a named lead agent that oversees the others, free; a grouping, never a fence; areas
+  and packs stay underneath; agent pages unchanged; made per client, no standard list yet (§12.0a).
 
 Open:
 - v0.18 (`docs/plan.md` §1.104): answered by the owner on 2026-11-15: every variance is noted,
