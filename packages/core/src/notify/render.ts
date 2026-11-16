@@ -114,7 +114,8 @@ const escapeHtml = (s: string) =>
 
 export function renderNotification(input: RenderInput): RenderedNotification {
   const { headline, line, action } = sentences(input);
-  if (input.channel === "sms") {
+  // A phone notification's lock-screen words are `renderPush`'s; this one line is its record.
+  if (input.channel === "sms" || input.channel === "push") {
     return { subject: headline, text: `Mezonas: ${headline}. ${input.link}` };
   }
   const footer = NOTIFY_WORDS[input.locale].footer;

@@ -17,7 +17,8 @@ export const NOTIFICATION_KINDS = [
 export const NotificationKind = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof NotificationKind>;
 
-export const NOTIFICATION_CHANNELS = ["email", "sms"] as const;
+// §1.116: `push`, to the person's registered phones (migration 0056).
+export const NOTIFICATION_CHANNELS = ["email", "sms", "push"] as const;
 export const NotificationChannel = z.enum(NOTIFICATION_CHANNELS);
 export type NotificationChannel = z.infer<typeof NotificationChannel>;
 
