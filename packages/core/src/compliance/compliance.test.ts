@@ -97,8 +97,14 @@ describe("processors", () => {
       "bing_webmaster",
       // M50: the same Search Console account, by Google sign-in.
       "gsc_oauth",
-      // §1.97: the client's own Odoo.
+      // §1.113: the client's own Odoo.
       "odoo",
+      // §1.114: the client's own Microsoft and Google accounts; our Teams bot posts into its Teams.
+      "onedrive",
+      "excel",
+      "teams",
+      "outlook_calendar",
+      "gcal",
     ]) {
       expect(processorsForOffer(c), c).toEqual([]);
     }

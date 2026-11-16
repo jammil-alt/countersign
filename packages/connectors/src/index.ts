@@ -25,10 +25,15 @@ export * from "./billcom/index";
 // M45: Bing Webmaster Tools, read only (docs/plan.md §1.75).
 export * from "./bing_webmaster/index";
 export * from "./browser/index";
+// §1.114: calendars (Outlook Calendar and Google Calendar share the `calendar` tools).
+export * from "./calendar/index";
 export * from "./connector";
 export * from "./credentials";
 export * from "./credentials-accessor";
 export * from "./elevenlabs/index";
+// §1.114: Excel, the workbooks the client picks.
+export * from "./excel/index";
+export * from "./gcal/index";
 // v0.14 W4-E
 export * from "./gchat/index";
 export * from "./gdrive/index";
@@ -53,12 +58,17 @@ export * from "./linkedin/index";
 export * from "./logger";
 export * from "./messaging/services";
 export * from "./messaging/spec";
+// §1.114: the Microsoft connectors' shared sign-in.
+export * from "./microsoft/identity";
 export * from "./oauth/flow";
 export * from "./oauth/state";
 export * from "./oauth/tokens";
 // Odoo: CRM, sales, purchasing, invoicing and inventory, signed in with a key the client enters.
 export * from "./odoo/index";
+// §1.114: OneDrive, the app folder only (Google Drive's tools).
+export * from "./onedrive/index";
 export * from "./outlook/index";
+export * from "./outlook_calendar/index";
 export * from "./permissions";
 export * from "./podio/index";
 export * from "./qbo/index";
@@ -77,6 +87,8 @@ export * from "./storage/object-store";
 export * from "./storage/r2";
 export * from "./storage/signed-url";
 export * from "./stripe/index";
+// §1.114: Microsoft Teams, a Mezonas bot posting to bound channels.
+export * from "./teams/index";
 export * from "./tenant-keys";
 export * from "./testkit/index";
 export * from "./twilio/index";

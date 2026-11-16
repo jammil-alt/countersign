@@ -28,8 +28,11 @@ const builtins = platform.catalog.list();
 // §1.104: vendor contracts add two that are no wrappers: Read a vendor contract (AI) and Review
 // notes for AP (built-in code).
 // §1.113: Odoo's two reads (search and get) add two read skills, both wrappers.
-const BUILTINS = 136;
-const WRAPPERS = 94;
+// §1.114: three connector reads, each a wrapper: excel.range.read, and the calendars' shared
+// calendar.events.list and calendar.freebusy (registered once for both; OneDrive's
+// drive.file.list is Google Drive's, already counted).
+const BUILTINS = 139;
+const WRAPPERS = 97;
 
 describe("built-in skills under the R2 skill schema", () => {
   it("registers the platform's, the packs' and each connector's read skills, once each", () => {

@@ -34,6 +34,8 @@ import {
   // M45 (docs/plan.md §1.75)
   createBingWebmasterConnector,
   createBrowserConnector,
+  createExcelConnector,
+  createGcalConnector,
   // v0.14 W4-E
   createGchatConnector,
   createGdriveConnector,
@@ -49,6 +51,8 @@ import {
   createHubspotConnector,
   createLinkedInConnector,
   createOdooConnector,
+  createOnedriveConnector,
+  createOutlookCalendarConnector,
   createOutlookConnector,
   createPodioConnector,
   createQboConnector,
@@ -57,6 +61,7 @@ import {
   createResendConnector,
   // v0.14 W4-C
   createSlackConnector,
+  createTeamsConnector,
   createTestkitConnector,
   createTwilioConnector,
   createUploadConnector,
@@ -241,6 +246,16 @@ type OAuthEnvKey =
   // v0.12 W3-B: Outlook's Entra app.
   | "OUTLOOK_CLIENT_ID"
   | "OUTLOOK_CLIENT_SECRET"
+  // §1.114: the other Microsoft connectors' Entra apps, one each.
+  | "ONEDRIVE_CLIENT_ID"
+  | "ONEDRIVE_CLIENT_SECRET"
+  | "EXCEL_CLIENT_ID"
+  | "EXCEL_CLIENT_SECRET"
+  | "OUTLOOK_CALENDAR_CLIENT_ID"
+  | "OUTLOOK_CALENDAR_CLIENT_SECRET"
+  | "TEAMS_BOT_APP_ID"
+  | "TEAMS_BOT_APP_SECRET"
+  | "TEAMS_BOT_TENANT_ID"
   // v0.14 W4-E: the Google Chat app.
   | "GOOGLE_CHAT_SERVICE_ACCOUNT"
   | "GOOGLE_CHAT_PROJECT_NUMBER"
@@ -284,6 +299,14 @@ export function platformFor(
     env.RAMP_CLIENT_ID ?? "-",
     env.HUBSPOT_CLIENT_ID ?? "-",
     env.OUTLOOK_CLIENT_ID ?? "-",
+    // §1.114
+    env.ONEDRIVE_CLIENT_ID ?? "-",
+    env.EXCEL_CLIENT_ID ?? "-",
+    env.OUTLOOK_CALENDAR_CLIENT_ID ?? "-",
+    // Whether the bot's secret is set, never the secret.
+    env.TEAMS_BOT_APP_ID ?? "-",
+    env.TEAMS_BOT_TENANT_ID ?? "-",
+    env.TEAMS_BOT_APP_SECRET ? "teams" : "-",
     // v0.14 W4-E: whether the key is set, never the key.
     env.GOOGLE_CHAT_SERVICE_ACCOUNT ? "gchat" : "-",
     env.GOOGLE_CHAT_PROJECT_NUMBER ?? "-",
@@ -390,6 +413,29 @@ export function deploymentConnectors(
         ? { clientId: env.OUTLOOK_CLIENT_ID, clientSecret: env.OUTLOOK_CLIENT_SECRET }
         : {},
     ),
+    // §1.114: OneDrive (the app folder only, Google Drive's tools), on its own Entra app: registered
+    // everywhere, signing in once ONEDRIVE_CLIENT_ID, ONEDRIVE_CLIENT_SECRET and OAUTH_STATE_SECRET
+    // are set.
+    createOnedriveConnector(oauthClient(env.ONEDRIVE_CLIENT_ID, env.ONEDRIVE_CLIENT_SECRET, env)),
+    // §1.114: Excel (the workbooks the client picks), on its own Entra app: registered everywhere,
+    // signing in once EXCEL_CLIENT_ID, EXCEL_CLIENT_SECRET and OAUTH_STATE_SECRET are set.
+    createExcelConnector(oauthClient(env.EXCEL_CLIENT_ID, env.EXCEL_CLIENT_SECRET, env)),
+    // §1.114: the calendars, sharing the `calendar` tools: Outlook Calendar on its own Entra app,
+    // Google Calendar on Gmail's Google client; each signs in once its client and
+    // OAUTH_STATE_SECRET are set.
+    createOutlookCalendarConnector(
+      oauthClient(env.OUTLOOK_CALENDAR_CLIENT_ID, env.OUTLOOK_CALENDAR_CLIENT_SECRET, env),
+    ),
+    createGcalConnector(
+      googleReady ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : {},
+    ),
+    // §1.114: Microsoft Teams, our bot: registered everywhere; a client connects it once
+    // TEAMS_BOT_APP_ID, TEAMS_BOT_APP_SECRET and TEAMS_BOT_TENANT_ID are set.
+    createTeamsConnector({
+      appId: env.TEAMS_BOT_APP_ID,
+      appSecret: env.TEAMS_BOT_APP_SECRET,
+      tenantId: env.TEAMS_BOT_TENANT_ID,
+    }),
     // v0.14 W4-E: Google Chat, the app of Mezonas' own: registered everywhere; a client connects it
     // once GOOGLE_CHAT_SERVICE_ACCOUNT and GOOGLE_CHAT_PROJECT_NUMBER are set.
     createGchatConnector({

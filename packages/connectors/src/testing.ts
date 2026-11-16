@@ -349,6 +349,24 @@ export {
   type FakeRegisteredCall,
   fakeElevenLabs,
 } from "./elevenlabs/fake";
+export {
+  FAKE_EXCEL_ACCOUNT,
+  FAKE_EXCEL_APP,
+  type FakeCell,
+  type FakeDriveItem as FakeExcelDriveItem,
+  type FakeExcel,
+  type FakeFormula,
+  type FakeWorksheet,
+  fakeExcel,
+} from "./excel/fake";
+export {
+  FAKE_GOOGLE_CALENDAR,
+  type FakeGoogleAttendee,
+  type FakeGoogleCalendar,
+  type FakeGoogleEvent,
+  type FakeGoogleNotice,
+  fakeGoogleCalendar,
+} from "./gcal/fake";
 // v0.14 W4-E: Google Chat (docs/plan.md §1.60).
 export {
   FAKE_GCHAT,
@@ -400,7 +418,16 @@ export {
   type FakeLinkedInPost,
   fakeLinkedIn,
 } from "./linkedin/fake";
+// §1.114: the Microsoft connectors' shared fake sign-in.
+export {
+  FAKE_MICROSOFT_APP,
+  type FakeMicrosoftApp,
+  type FakeMicrosoftGrant,
+  type FakeMicrosoftIdentity,
+  fakeMicrosoftIdentity,
+} from "./microsoft/fake";
 export { FAKE_ODOO, type FakeOdoo, fakeOdoo } from "./odoo/fake";
+export { type FakeDriveItem, type FakeOnedrive, fakeOnedrive } from "./onedrive/fake";
 // v0.12 W3-B
 export {
   FAKE_MICROSOFT,
@@ -409,6 +436,14 @@ export {
   fakeMicrosoft,
   MICROSOFT_CONSUMER_TENANT,
 } from "./outlook/fake";
+export {
+  FAKE_OUTLOOK_CALENDAR,
+  type FakeGraphAttendee,
+  type FakeGraphEvent,
+  type FakeGraphNotice,
+  type FakeOutlookCalendar,
+  fakeOutlookCalendar,
+} from "./outlook_calendar/fake";
 export { FAKE_QBO_CLIENT, FAKE_QBO_REALM, type FakeQbo, fakeQbo, QBO_FIXTURES } from "./qbo/fake";
 export {
   FAKE_RAMP,
@@ -432,6 +467,15 @@ export {
   fakeSlack,
 } from "./slack/fake";
 export * from "./stripe/fake";
+export {
+  FAKE_TEAMS,
+  type FakeActivityOptions,
+  type FakeTeams,
+  type FakeTeamsPost,
+  type FakeTeamsReply,
+  type FakeTokenOptions,
+  fakeTeams,
+} from "./teams/fake";
 export { FAKE_TWILIO_MAIN, type FakeTwilio, fakeTwilio } from "./twilio/fake";
 // P-8: the fake A2P 10DLC resources (Trust Hub, brands, services, campaigns)
 export { FAKE_PRIMARY_PROFILE, type FakeA2p } from "./twilio/fake-a2p";
