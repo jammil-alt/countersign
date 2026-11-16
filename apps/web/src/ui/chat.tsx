@@ -248,6 +248,15 @@ export function Thinking({
  * The messages, newest last, kept in view as the conversation grows (`follow` changes when it
  * does: the message count, the words pending). `roomy` is the portal's reading size.
  */
+/** The nearest box around `el` that scrolls on its own, or null when only the page does. */
+function scrollBox(el: HTMLElement | null): HTMLElement | null {
+  for (let at = el?.parentElement ?? null; at && at !== document.body; at = at.parentElement) {
+    const y = getComputedStyle(at).overflowY;
+    if ((y === "auto" || y === "scroll") && at.scrollHeight > at.clientHeight) return at;
+  }
+  return null;
+}
+
 export function ChatLog({
   children,
   follow,
@@ -260,10 +269,13 @@ export function ChatLog({
   testId?: string | undefined;
 }) {
   const end = useRef<HTMLDivElement>(null);
-  // jsdom has no scrollIntoView; browsers keep the newest message in view.
+  // jsdom has no scrollIntoView; browsers keep the newest message in view. A log in a box of its
+  // own (the Builds page's conversation) scrolls that box only, never the page under it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when the conversation grows.
   useEffect(() => {
-    end.current?.scrollIntoView?.({ block: "end" });
+    const box = scrollBox(end.current);
+    if (box) box.scrollTop = box.scrollHeight;
+    else end.current?.scrollIntoView?.({ block: "end" });
   }, [follow]);
   return (
     <div className={cx("ui-chat", roomy && "ui-chat--roomy")} data-testid={testId}>

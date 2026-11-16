@@ -75,8 +75,13 @@ export const UsageTemplateRow = z.object({
   ...UsageSeries,
 });
 
-/** The longest range the report also splits by day (for the period's chart). */
-export const USAGE_DAILY_MAX_DAYS = 92;
+/**
+ * The longest range the report also splits by day (for the period's chart). Feedback
+ * (2026-11-16): the chart is daily for every preset, a year included (at most 366 rows).
+ */
+// DECISION: 400 days covers "Last 12 months" from any day of a month (its first day is up to 365
+// days back) with room; a longer custom range charts by month.
+export const USAGE_DAILY_MAX_DAYS = 400;
 
 /**
  * UI cleanup: model cost by model, from the model calls in the range (runs' calls, and the clients'
