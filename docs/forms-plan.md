@@ -32,17 +32,46 @@ transcription route a link can use without signing in, and saving half-finished 
 
 ## 2. Design
 
-### 2.1 Three things
+### 2.1 The tool: "Request info" (owner, 2026-11-16)
 
-1. **A form** is a versioned definition kept in the Library, shared or for one client, like skills
-   and automations (`form`, `form_version`; immutable versions, draft → publish → rollback). It holds
-   sections and questions, and the JSON Schema of its result, worked out from the questions.
-2. **A step, "Ask with a form"** (`forms.collect`), is a built-in skill run as a workflow step, like
-   `comms.converse`. It names the form (`slug@version`, pinned), who to ask, the channel, prefilled
-   values (templates over the run) and a due date. It waits, and its output is the typed answers plus
-   the documents' ids. Later steps and `if`s read `{{steps.<id>.output.answers.<field>}}`.
-3. **A form request** (`form_request`) is one person's copy of one form for one run step: the
-   link, its status, the saved draft, the submitted answers and the files.
+"This should be a tool that can be used by an agent: a custom-built form that can be sent to a
+contact for an info request."
+
+**`forms.request`** is a tool any agent can use: it sends one contact a form built for this case and
+waits for the answers. The agent writes the form for what it needs right now ("the Denver invoice
+is missing a PO number and the freight looks high: ask the vendor's rep for the PO and the freight
+quote"); the operator sets what it may ask, of whom, and how.
+
+How that fits the platform's rules (skills think, tools act; the agent never changes its plan):
+
+| Part | Who decides | How |
+|---|---|---|
+| Whether to ask | The agent, where the operator lets it | An `if` the agent chooses (v0.17), with a path holding the request; or the step simply runs |
+| What to ask | The agent | An AI skill, **`forms.draft`**, writes a `FormDefinition` from what is missing and the run's data: questions, help text, prefilled context ("we have: invoice 1042, $3,180"). Its output is checked against the schema and the step's limits before anything is sent |
+| What must come back | The operator | The step's **required fields** (a small fixed schema, e.g. `po_number: text`, `freight_quote: files`). The agent words them and adds context but can't drop them, so later steps get typed answers. Questions the agent adds beyond them come back under `extra` |
+| Limits | The operator | On the step: question types allowed, at most N extra questions (default 5), files allowed or not, "talk to it" on or off, due date, channel |
+| Who | The operator's rule, filled from the run | A directory contact only (the vendor's contact on the record, the budget line's owner, the person who sent the request); never an address the model writes |
+| Sending | The gate | `forms.request` is a write: approval on by default (invariant 8). The card shows the person, channel, due date **and the form as the agent wrote it**, so a person sees model-written questions before a contact does. In trial and sign-off every send is signed |
+
+So an agent "uses the tool" the way agents use any write here: the operator places a "Request info"
+step (once), the agent decides inside it, and the gate decides the send. The step waits for the
+answers (or the due date's `ifNoAnswer`), then returns `{ outcome, answers, extra, documents,
+respondent, submittedAt }`.
+
+**Two kinds of form, one tool.**
+- **Built in the run** (the case above): the definition is the `forms.draft` output, stored on the
+  request, never in the Library.
+- **Saved** in the Library, shared or for one client, versioned like skills and automations (`form`,
+  `form_version`): for questionnaires that are the same every time (a vendor's onboarding, the
+  quarterly driver inputs). The step names it `slug@version` and the agent only prefills it.
+
+**By hand too.** The same tool behind a button: "Request info" on a contact's page, in the back
+office (the operator) and the portal (a client user with the right), and `/request` in a thread.
+A person writes the form, or asks the agent to draft it, and the request is logged as theirs.
+
+**A form request** (`form_request`) is one contact's copy of one form: the definition (or the saved
+version it uses), the link, its status, the saved draft, the submitted answers and the files, and
+the run step or person that sent it.
 
 ```ts
 FormDefinition = {
@@ -143,8 +172,8 @@ the answers' `sources` (invariant 10).
 
 | Use | Form |
 |---|---|
-| Collector: why is my line over? | One request per owner, one section per flagged line (prefilled with actual, plan, diff and the top transactions): reason (`timing`, `one_off`, `run_rate`, `error`, `other`), explanation, the period it reverses in (if timing), support files. Answers write `variance.explanation` with `explained_by: owner` |
-| Quarterly plan and driver inputs | `rows` questions: headcount by month, pipeline by stage, price changes. Answers become `driver` and `plan_amount` rows |
+| Collector: why is my line over? | Built in the run by `forms.draft`: one request per owner, one section per flagged line (prefilled with actual, plan, diff and the top transactions): reason (`timing`, `one_off`, `run_rate`, `error`, `other`), explanation, the period it reverses in (if timing), support files. Answers write `variance.explanation` with `explained_by: owner` |
+| Quarterly plan and driver inputs | A saved form with `rows` questions: headcount by month, pipeline by stage, price changes. Answers become `driver` and `plan_amount` rows |
 | Budget upload | One `files` question reading a sheet, for owners who keep their budget in Excel |
 | Mapping questions to the finance lead | Stays a Desk card (a client user); the card can use the same form renderer |
 
@@ -158,15 +187,16 @@ through instead of writing.
 
 | Step | What | Done when |
 |---|---|---|
-| F-1 | Core: `FormDefinition` schema, validator (ids, conditions, result schema, refused question types), result typing for later steps | Core tests |
+| F-1 | Core: `FormDefinition` schema, validator (ids, conditions, result schema, refused question types), the step's limits and required fields, result typing for later steps | Core tests |
 | F-2 | Migration (own PR): `form`, `form_version`, `form_request` (tenant, run, node, form version, recipient, token hash, expires, status, draft, answers, documents, log), forced RLS | Migration tests |
-| F-3 | The step `forms.collect`, sending by email through reach out, the public page (type, files, save as you go, confirm), the Desk door for client users, deadline and one reminder | A run asks a contact, the link is filled in on a phone, the run continues with typed answers and two documents |
+| F-3 | The tool `forms.request` and its step (required fields, limits, approval card showing the form), sending by email through reach out, the public page (type, files, save as you go, confirm), the Desk door for client users, deadline and one reminder | A run asks a contact, the link is filled in on a phone, the run continues with typed answers and two documents |
+| F-3b | The AI skill `forms.draft` (the agent builds the form from what is missing), checked against the step's limits | Recorded fixtures: a missing PO and a high freight line become a two-question form with the context prefilled; a draft over the limits or without a required field is refused before any card |
 | F-4 | Dictation per question (token-scoped transcription) and the code check | Both behind their gates; HIPAA refusal tested |
 | F-5 | "Talk to it" (conversation channel `form`, proposals into fields) | Recorded fixtures: a spoken answer becomes accepted field values, and a nudge in the answer text changes nothing |
-| F-6 | Form editor in the Library, the Builder drafting forms, preview, texts and WhatsApp as channels, passing it on | An operator drafts the Collector's form from one sentence and publishes it |
+| F-6 | Saved forms: the editor in the Library, the Builder drafting them, preview; "Request info" by hand (contact page, portal, `/request`); texts and WhatsApp as channels; passing it on | An operator sends a contact a request by hand, and publishes a saved vendor-onboarding form |
 
-F-1 to F-3 come before FP&A phase 2 (the Collector needs them). F-4 to F-6 can run beside it.
-Size: F-1 to F-3 about 2 weeks, F-4 and F-5 about 1–2 weeks, F-6 about 1–2 weeks.
+F-1 to F-3b come before FP&A phase 2 (the Collector needs them). F-4 to F-6 can run beside it.
+Size: F-1 to F-3b about 2–3 weeks, F-4 and F-5 about 1–2 weeks, F-6 about 1–2 weeks.
 
 **Risks:** a public upload page is the platform's first place where a stranger can send files into a
 client's account (hence the code, size and type limits, and no file is ever shown back on the
