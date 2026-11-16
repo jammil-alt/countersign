@@ -32,6 +32,10 @@ import {
   OWNER_WORDS,
   PHASE_WORDS,
   type QaCheckId,
+  SETUP_KINDS,
+  SETUP_WORDS,
+  type SetupField,
+  type SetupKind,
   type TestPlan,
 } from "@countersign/core";
 import {
@@ -741,6 +745,7 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
   ).filter(([, n]) => n > 0);
   const shown = only ? inScope.filter((r) => r.verdict === only) : fitgap.rows;
   const checking = busy === apiRoutes.opsBuildVerdict.path;
+  const template = detail.build.kind === "agent" && !detail.build.client;
   return (
     <div className="flex flex-col gap-5">
       <Card
@@ -831,8 +836,22 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
           </div>
         )}
       </Card>
-      {fitgap.needsTrue.length > 0 ? (
-        <Card title="What needs to be true" meta="Each becomes an open item until it is">
+      {template ? (
+        <SetupFormCard
+          fields={fitgap.setup}
+          current={current}
+          onChange={(setup) => setFitgap((f) => ({ ...f, setup }))}
+        />
+      ) : null}
+      {fitgap.needsTrue.length > 0 && !(template && fitgap.setup.length > 0) ? (
+        <Card
+          title="What needs to be true"
+          meta={
+            template
+              ? "A template has no client yet: ask the Builder to make these the client intake form"
+              : "Each becomes an open item until it is"
+          }
+        >
           <ul className="flex flex-col">
             {fitgap.needsTrue.map((n, i) => (
               <li
@@ -893,6 +912,162 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A template's client intake form: what we get from each client to set up their copy. The Builder
+ * drafts it in the fit-gap; the operator edits, adds and takes fields out, and saves with the
+ * fit-gap. It stays with the build: a template has no client to give open items to.
+ */
+function SetupFormCard({
+  fields,
+  current,
+  onChange,
+}: {
+  fields: SetupField[];
+  current: boolean;
+  onChange: (fields: SetupField[]) => void;
+}) {
+  const [label, setLabel] = useState("");
+  const [kind, setKind] = useState<SetupKind>("answer");
+  const asked = fields.filter((f) => !f.dropped).length;
+  const edit = (id: string, patch: Partial<SetupField>) =>
+    onChange(fields.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+  return (
+    <Card
+      testId="build-setup"
+      title="Client intake form"
+      meta={`What we get from each client to set up their copy · ${plural(asked, "field")}`}
+      footer={
+        current ? (
+          <form
+            className="flex w-full flex-wrap gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!label.trim()) return;
+              onChange([
+                ...fields,
+                {
+                  id: `op-${Date.now().toString(36)}`,
+                  label: label.trim(),
+                  kind,
+                  hint: "",
+                  dropped: false,
+                  byOperator: true,
+                },
+              ]);
+              setLabel("");
+            }}
+          >
+            <TextInput
+              aria-label="New intake field"
+              placeholder="Something to ask each client"
+              className="w-auto min-w-0 flex-1"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              data-testid="build-setup-new"
+            />
+            <Select
+              aria-label="Kind of field"
+              className="w-44"
+              value={kind}
+              onChange={(e) => setKind(e.target.value as SetupKind)}
+            >
+              {SETUP_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {SETUP_WORDS[k]}
+                </option>
+              ))}
+            </Select>
+            <Button size="sm" type="submit" disabled={!label.trim()} data-testid="build-setup-add">
+              Add
+            </Button>
+          </form>
+        ) : null
+      }
+    >
+      {fields.length === 0 ? (
+        <p className="px-6 py-5 text-sm text-ink-muted">
+          The Builder drafts the form with the fit-gap: the tools each client connects, the packs
+          they need, and the answers and files we ask for.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-line bg-surface-subtle text-left text-xs text-ink-muted">
+                <th className="px-4 py-2.5 font-medium">What we ask</th>
+                <th className="px-4 py-2.5 font-medium">Kind</th>
+                <th className="px-4 py-2.5 font-medium">Why, or an example</th>
+                <th className="px-4 py-2.5 font-medium">Ask it</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fields.map((f) => (
+                <tr
+                  key={f.id}
+                  className="border-b border-line align-top last:border-b-0"
+                  data-testid={`build-setup-${f.id}`}
+                >
+                  <td className={cx("px-4 py-3", f.dropped && "text-ink-muted line-through")}>
+                    {current && !f.dropped ? (
+                      <TextInput
+                        aria-label={`Field: ${f.label}`}
+                        value={f.label}
+                        onChange={(e) => edit(f.id, { label: e.target.value })}
+                      />
+                    ) : (
+                      f.label
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {current && !f.dropped ? (
+                      <Select
+                        aria-label={`Kind: ${f.label}`}
+                        className="w-40"
+                        value={f.kind}
+                        onChange={(e) => edit(f.id, { kind: e.target.value as SetupKind })}
+                      >
+                        {SETUP_KINDS.map((k) => (
+                          <option key={k} value={k}>
+                            {SETUP_WORDS[k]}
+                          </option>
+                        ))}
+                      </Select>
+                    ) : (
+                      <Tag>{SETUP_WORDS[f.kind]}</Tag>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-ink-muted">
+                    {current && !f.dropped ? (
+                      <TextInput
+                        aria-label={`Hint: ${f.label}`}
+                        value={f.hint}
+                        onChange={(e) => edit(f.id, { hint: e.target.value })}
+                      />
+                    ) : (
+                      f.hint
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-[var(--slate)]"
+                      aria-label={`Ask it: ${f.label}`}
+                      checked={!f.dropped}
+                      disabled={!current}
+                      data-testid={`build-setup-${f.id}-ask`}
+                      onChange={(e) => edit(f.id, { dropped: !e.target.checked })}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   );
 }
 

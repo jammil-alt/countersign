@@ -96,8 +96,7 @@ const PHASE_RULES: Record<BuildPhase, string> = {
 - When goal, trigger, data in and data out are filled, say what you heard in two or three sentences and ask the operator to confirm the brief on the right. Open fields become open items when the brief is confirmed: don't add items for them.`,
   fitgap: `Phase: fit-gap. Check every need in the brief against the catalog and answer with the whole "fitgap".
 - One row per need: native (a skill, tool, connector or pack in the catalog does it as is; name it in "how"), configure (it exists but needs a connection, a setting or a pack switched on), build (a new skill or automation from catalog parts; the Builder can draft it), figure_out (needs something the catalog lacks: a connector, a tool, a data source), not_possible (against Mezonas' rules: moving money, signing in to a bank, payment or email account, deleting records, storing card numbers, or a client's credentials seen by us).
-- "needsTrue": what the client or we must make true for it to work (a connection, data loaded, a person who answers in time).
-- Don't add open items for rows or for what needs to be true: they become open items when the direction is agreed.
+- Don't add open items for rows, for what needs to be true or for the intake form: the API makes them when the direction is agreed.
 - Keep a row the operator dropped as dropped. Keep each row's id when you rewrite it. Say the counts in one sentence, then what needs to be true.
 - A row with "override": the operator set it to more work than you did, with their reason. Keep their verdict; use the reason in "how" if it helps.
 - A row with "challenge": the operator thinks the verdict should be "wanted" and says why. Answer it this turn with the whole fit-gap:
@@ -182,13 +181,28 @@ const OPENERS: Partial<Record<BuildPhase, string>> = {
   poc: "The draft has no problems left. Write the test plan for the POC test.",
 };
 
+/** What a fit-gap asks for besides its rows: the client's own setup, or a template's intake form. */
+const FITGAP_FOR_CLIENT = `This build is for one client.
+- "needsTrue": what the client or we must make true for it to work (a connection, data loaded, a person who answers in time). Leave "setup" empty.`;
+
+const FITGAP_FOR_TEMPLATE = `This build is a template: it has no client yet. What each client must give us goes in the client intake form, not in "needsTrue" (leave that empty).
+- "setup": the client intake form, every field we need from a client to set up their copy. connect: a tool they connect, by its catalog name (QuickBooks Online, Gmail). pack: a pack switched on for them. answer: a value that differs by client (price and terms tolerances, the AP address invoices come from, who approves). file: what they upload (vendor contracts, a vendor list).
+- One field per thing we ask, worded as we'd ask the client, with a one-sentence hint (why, or an example). Brief fields that vary by client, such as tolerances or volume, belong here.
+- Keep fields the operator added or changed as they are, and don't add back a field they took out.`;
+
 /** One turn of a build's conversation, in its phase's way. */
 export async function buildTurn(
   input: BuildTurnInput,
   options: BuildTurnOptions,
 ): Promise<BuildTurnResult> {
   const usesCatalog = input.ctx && (input.phase === "fitgap" || input.phase === "poc");
-  const system = `${BUILD_RULES}\n\n${PHASE_RULES[input.phase]}`;
+  const fitgapFor =
+    input.phase !== "fitgap"
+      ? ""
+      : input.kind === "agent" && !input.clientName
+        ? `\n${FITGAP_FOR_TEMPLATE}`
+        : `\n${FITGAP_FOR_CLIENT}`;
+  const system = `${BUILD_RULES}\n\n${PHASE_RULES[input.phase]}${fitgapFor}`;
   const context = [usesCatalog && input.ctx ? catalogBlock(input.ctx) : null, stateBlock(input)]
     .filter(Boolean)
     .join("\n\n");

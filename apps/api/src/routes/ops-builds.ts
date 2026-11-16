@@ -11,6 +11,7 @@ import {
   type Brief,
   type BuildDetail,
   type BuildPhase,
+  buildHasSetupForm,
   FIT_WORDS,
   type FitGap,
   type FitRow,
@@ -25,6 +26,7 @@ import {
   readQa,
   readTestPlan,
   routes,
+  SETUP_WORDS,
   testCaseProblems,
 } from "@countersign/core";
 import { build, buildItem, buildMessage, skillVersion, type Tx } from "@countersign/db";
@@ -76,7 +78,7 @@ function refuseClosed(row: BuildRow): void {
 
 /** The description the Builder drafts from: the confirmed brief and the agreed fit-gap. */
 export function draftDescription(
-  row: Pick<BuildRow, "title">,
+  row: Pick<BuildRow, "title" | "kind" | "clientId">,
   brief: Brief,
   fitgap: FitGap,
 ): string {
@@ -100,16 +102,24 @@ export function draftDescription(
     lines.push("", "Not in scope:");
     for (const r of out) lines.push(`- ${r.need}${r.how ? `: ${r.how}` : ""}`);
   }
-  if (fitgap.needsTrue.length > 0) {
+  if (fitgap.needsTrue.length > 0 && !buildHasSetupForm(row)) {
     lines.push("", "What needs to be true:");
     for (const n of fitgap.needsTrue) lines.push(`- ${n.text}`);
+  }
+  const asked = fitgap.setup.filter((f) => !f.dropped);
+  if (asked.length > 0 && buildHasSetupForm(row)) {
+    lines.push("", "What we get from each client to set it up:");
+    for (const f of asked) lines.push(`- ${f.label} (${SETUP_WORDS[f.kind]})`);
   }
   const text = lines.join("\n");
   return text.length > 4000 ? `${text.slice(0, 3990)}…` : text;
 }
 
-/** Items the agreed fit-gap leaves: what to build or find, and what must be true. */
-function fitGapItems(fitgap: FitGap): NewItem[] {
+/**
+ * Items the agreed fit-gap leaves: what to build or find, and, for one client, what must be true.
+ * A template has no client: what it needs from one is its intake form, which makes no items.
+ */
+function fitGapItems(fitgap: FitGap, template: boolean): NewItem[] {
   const out: NewItem[] = [];
   for (const r of fitgap.rows) {
     if (r.dropped) continue;
@@ -126,7 +136,7 @@ function fitGapItems(fitgap: FitGap): NewItem[] {
       });
     }
   }
-  for (const n of fitgap.needsTrue) {
+  for (const n of template ? [] : fitgap.needsTrue) {
     if (!n.done) {
       out.push({
         phase: "fitgap",
@@ -414,7 +424,7 @@ async function move(
         payload: { fitgap: readFitGap(r.fitgap) },
         userId,
       });
-      await addItems(scoped.tx, r, fitGapItems(readFitGap(r.fitgap)), userId);
+      await addItems(scoped.tx, r, fitGapItems(readFitGap(r.fitgap), buildHasSetupForm(r)), userId);
     }
     if (forward && r.phase === "poc") {
       await addEvent(scoped.tx, r, {

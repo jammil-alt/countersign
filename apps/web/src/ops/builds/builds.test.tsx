@@ -61,6 +61,7 @@ function detail(over: Partial<BuildDetail> = {}): BuildDetail {
           },
         ],
         needsTrue: [{ id: "qbo", text: "The client connects QuickBooks", done: false }],
+        setup: [],
       },
       testPlan: { datasets: [] },
       qa: { accepted: {}, signedBy: null, signedAt: null, decision: null },
@@ -169,6 +170,10 @@ describe("Builds", () => {
     );
     expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent("1 open item");
     expect(screen.getByTestId("builds-items")).toHaveTextContent("How many: still open");
+    // Who has each item, in words; gold says it waits on you.
+    const row = screen.getByTestId(`builds-item-${ITEM}`);
+    expect(row).toHaveTextContent("You");
+    expect(row).toHaveTextContent("Waiting on you");
 
     await userEvent.click(screen.getByTestId("builds-new"));
     await userEvent.type(screen.getByTestId("builds-start-title"), "Invoice intake reviewer");
@@ -391,6 +396,55 @@ describe("Builds", () => {
     await userEvent.click(within(fit).getByTestId("build-fit-read-change"));
     await userEvent.selectOptions(within(fit).getByTestId("build-fit-read-to"), "figure_out");
     expect(within(fit).getByTestId("build-fit-read-send")).toHaveTextContent("Change it");
+  });
+
+  it("keeps a template's client intake form on the build", async () => {
+    const saved: unknown[] = [];
+    const withForm = () => {
+      const d = detail();
+      return detail({
+        build: {
+          ...d.build,
+          fitgap: {
+            ...d.build.fitgap,
+            needsTrue: [],
+            setup: [
+              {
+                id: "ap",
+                label: "Your AP address",
+                kind: "answer",
+                hint: "Where invoices are forwarded",
+                dropped: false,
+                byOperator: false,
+              },
+            ],
+          },
+        },
+      });
+    };
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => withForm(),
+      [`PATCH /api/ops/builds/${ID}`]: ({ init }) => {
+        saved.push(JSON.parse(String(init.body)));
+        return withForm();
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const form = await screen.findByTestId("build-setup");
+    expect(form).toHaveTextContent("What we get from each client to set up their copy · 1 field");
+    expect(within(form).getByLabelText("Field: Your AP address")).toHaveValue("Your AP address");
+    await userEvent.type(within(form).getByTestId("build-setup-new"), "Your vendor contracts");
+    await userEvent.selectOptions(within(form).getByLabelText("Kind of field"), "file");
+    await userEvent.click(within(form).getByTestId("build-setup-add"));
+    await userEvent.click(screen.getByTestId("build-fitgap-save"));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    const setup = (saved[0] as { fitgap: { setup: { label: string; kind: string }[] } }).fitgap
+      .setup;
+    expect(setup.map((f) => [f.label, f.kind])).toEqual([
+      ["Your AP address", "answer"],
+      ["Your vendor contracts", "file"],
+    ]);
   });
 
   it("says why a phase can't close yet", async () => {

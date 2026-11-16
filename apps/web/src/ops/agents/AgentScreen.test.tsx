@@ -384,7 +384,7 @@ describe("AgentScreen", () => {
         build: {
           ...build,
           brief: {},
-          fitgap: { rows: [], needsTrue: [] },
+          fitgap: { rows: [], needsTrue: [], setup: [] },
           testPlan: { datasets: [] },
           qa: { accepted: {}, signedBy: null, signedAt: null, decision: null },
         },
