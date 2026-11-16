@@ -4894,6 +4894,23 @@ What's left is in `docs/open.md`, "The phone app".
 | Not in this pass | Operators on the phone; passkeys; releasing a saved website login by push and Face ID (the app releases with the six-digit code, as the portal does; the designed push release needs a route); `apps/mobile/src/desk/change.ts` is a port of `apps/web/src/inbox/change.ts` (apps import no app) and both should move into core together; Expo's push receipts (tickets only); a longer session for an unlocked registered phone (owner's call: today the phone signs in again after 30 idle minutes, with the second step's code each time); deep links beyond the Desk; store listing copy. |
 | Checked | `packages/core/src/mobile/mobile.test.ts`, `packages/auth/src/workos/mobile.test.ts` (handoff, PKCE, the header both ways, a pending second step refused, no carried account), `packages/auth/src/workos/workos.test.ts` (a phone sign-in is never remembered), `apps/web/src/session/SecondStep.test.tsx` (the step goes on to the handoff), `packages/db/src/person-device-migration.test.ts`, `apps/api/src/mobile.test.ts` (phones, settings, signing and every refusal, the header middleware), `apps/api/src/mobile-push.test.ts` (push through the real pass against a fake Expo: counts only, pace, gone phones, HIPAA), and the app's own tests (`apps/mobile/README.md`). Not checked here: a real phone, a real push, Face ID, the stores. |
 
+### 1.117 Area owners, owner chat and Home (ARCHITECTURE v0.19 §10.15, owner 2026-11-12)
+
+The owner (R6) moves from one per process to one named owner per business area per client, drafts
+changes between runs for approval, and talks with the client; Sloan becomes the client's chat,
+beside Home. Built in the O-stream (§10), one milestone at a time.
+
+The tables come first, in their own PR (migration 0057); the rest of the design comes with the
+code.
+
+| Topic | Decision |
+|---|---|
+| What an owner is | `area_owner` (one per client and area; its name the client's to change) and its immutable `area_owner_version` rows (`OwnerDefinition`: model, notes, oversight defaults). // DECISION (O1): a table of its own, not `agent.kind = 'owner'`: 59 queries over `agent` don't filter by kind (billing, weekly stats, exports, search). |
+| Area of a process | `agent.area` (column, operator-set), defaulting from the template's `definition.area`, else its one `requiresPacks` entry, else `general`. // DECISION: a column like `approver`, not in the bundle, so moving a process to another area makes no new version. |
+| Pinning | `run.owner_version_id`, set at run start; replays and the run view read it. |
+| Memory | A decision's `remember` (at most 2 notes, 300 characters each) becomes `memory_note` rows on the owner (`owner_id`), written in `src/log/` with the decision. Not from a test run. `remember` is in the finish tool only for an area owner's review, so other reviews' requests are unchanged. |
+| Conversation history | Every chat is kept as an account thread; the panel opens the latest, with New and a searchable History. After 30 quiet minutes the platform writes a summary as a `memory_note` (`scope = 'person'`, the person's id; migration O1); a new conversation starts with the person's last 10 summaries and their open items from the records; `account.history` searches older ones. Per person only; deletable. // DECISION: 30 minutes, 10 summaries. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
