@@ -30,7 +30,9 @@ import { type Voice, VoiceButton } from "./voice";
 
 // ── An agent's words ────────────────────────────────────────────────────────────────────────────
 
-type Block = { kind: "p"; lines: string[] } | { kind: "ul" | "ol"; items: string[] };
+type Block =
+  | { kind: "p"; lines: string[] }
+  | { kind: "ul" | "ol"; items: string[]; start?: number | undefined };
 
 const BULLET = /^\s*[-*•]\s+/;
 const NUMBERED = /^\s*\d+[.)]\s+/;
@@ -53,10 +55,16 @@ export function chatBlocks(text: string): Block[] {
   for (const chunk of text.replace(/\r\n/g, "\n").split(/\n\s*\n/)) {
     const lines = chunk.split("\n").filter((l) => l.trim() !== "");
     let para: string[] = [];
-    let list = null as { kind: "ul" | "ol"; items: string[] } | null;
+    let list = null as { kind: "ul" | "ol"; items: string[]; start?: number } | null;
     const flush = () => {
       if (para.length) out.push({ kind: "p", lines: para });
-      if (list) out.push(list);
+      if (list) {
+        // A list whose items are a blank line apart (a "loose" list) is still one list: carry on
+        // the one before it, so its numbers run 1, 2, 3 and not 1, 1, 1 (feedback, 2026-11-16).
+        const last = out.at(-1);
+        if (!para.length && last?.kind === list.kind) last.items.push(...list.items);
+        else out.push(list);
+      }
       para = [];
       list = null;
     };
@@ -64,7 +72,12 @@ export function chatBlocks(text: string): Block[] {
       const kind = BULLET.test(raw) ? "ul" : NUMBERED.test(raw) ? "ol" : null;
       if (kind) {
         if (para.length || list?.kind !== kind) flush();
-        list ??= { kind, items: [] };
+        if (!list) {
+          list = { kind, items: [] };
+          // A numbered list that starts past 1 keeps its first number.
+          const first = kind === "ol" ? Number(/^\s*(\d+)/.exec(raw)?.[1]) : 1;
+          if (first > 1) list.start = first;
+        }
         list.items.push(plainWords(raw.replace(kind === "ul" ? BULLET : NUMBERED, "")));
       } else if (list && /^\s{2,}\S/.test(raw)) {
         // A list item's second line, indented under it.
@@ -100,7 +113,13 @@ export function ChatText({
           // biome-ignore lint/suspicious/noArrayIndexKey: a reply's words never reorder.
           <li key={`${j}-${item}`}>{item}</li>
         ));
-        return b.kind === "ul" ? <ul key={key}>{items}</ul> : <ol key={key}>{items}</ol>;
+        return b.kind === "ul" ? (
+          <ul key={key}>{items}</ul>
+        ) : (
+          <ol key={key} start={b.start}>
+            {items}
+          </ol>
+        );
       })}
     </div>
   );
@@ -390,6 +409,30 @@ const ENGLISH = {
   sending: "Sending…",
 };
 
+/**
+ * The return key's arrow (down, then left), drawn as the design system draws its icons: a 24px
+ * box, 1.5 stroke, square ends. DECISION: the delivered icon set has no return arrow, so it lives
+ * here until the owner's next delivery has one.
+ */
+function ReturnArrow() {
+  return (
+    <svg
+      width={16}
+      height={16}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="square"
+      strokeLinejoin="miter"
+      aria-hidden
+      data-icon="return"
+    >
+      <path d="M19 5v8H6 M10 9l-4 4 4 4" />
+    </svg>
+  );
+}
+
 export function Composer({
   label,
   placeholder,
@@ -471,14 +514,18 @@ export function Composer({
             />
           ) : null}
           <span className="ui-chat-composer__hint">{w.hint}</span>
+          {/* Feedback (2026-11-16): Send is the return key's arrow, beside the hint that says so. */}
           <Button
             variant="primary"
             size="sm"
+            className="ds-btn--icon"
             data-testid={sendTestId}
+            aria-label={busy ? w.sending : w.send}
+            title={busy ? w.sending : w.send}
             disabled={off}
             onClick={() => void send()}
           >
-            {busy ? w.sending : w.send}
+            <ReturnArrow />
           </Button>
         </div>
       </div>

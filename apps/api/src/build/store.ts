@@ -301,6 +301,31 @@ interface DraftFacts {
   agentRow: Awaited<ReturnType<typeof getAgent>> | null;
 }
 
+/**
+ * Where a problem is, by name: its step's name and its workflow's (the latter only where the agent
+ * has more than one), so the screen can say "In Read document (Vendor flow)".
+ */
+export function problemPlace(
+  bundle: DraftFacts["bundle"],
+  workflow: string | null,
+  stepId: string | null,
+): { stepName: string | null; workflowName: string | null } {
+  if (!bundle) return { stepName: null, workflowName: null };
+  const flows = workflow ? bundle.workflows.filter((w) => w.slug === workflow) : bundle.workflows;
+  for (const w of flows) {
+    const found = stepId
+      ? processes.allSteps(w.workflow).find((l) => l.step.id === stepId)?.step
+      : null;
+    if (found || (!stepId && workflow)) {
+      return {
+        stepName: found ? found.name || null : null,
+        workflowName: bundle.workflows.length > 1 ? w.name : null,
+      };
+    }
+  }
+  return { stepName: null, workflowName: null };
+}
+
 async function draftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFacts> {
   const none: DraftFacts = {
     view: null,
@@ -381,6 +406,7 @@ async function draftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFacts> {
         title: e.message,
         stepId: e.stepId ?? null,
         workflow: e.workflow ?? null,
+        ...problemPlace(bundle, e.workflow ?? null, e.stepId ?? null),
       })),
     },
     bundle,
