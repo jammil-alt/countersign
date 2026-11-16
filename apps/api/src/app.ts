@@ -62,6 +62,7 @@ import { conversationRouteHandlers } from "./routes/conversations";
 import { deskRoutes } from "./routes/desk";
 import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
+import { excelRoutes } from "./routes/excel";
 import { exportRoutes } from "./routes/exports";
 import { feedbackRouteHandlers } from "./routes/feedback";
 // v0.14 W4-E: Google Chat
@@ -122,6 +123,8 @@ import { slackRoutes } from "./routes/slack";
 import { stepInRouteHandlers } from "./routes/step-in";
 import { supervisorRouteHandlers } from "./routes/supervisor";
 import { tableRouteHandlers } from "./routes/table";
+// §1.114
+import { teamsRoutes } from "./routes/teams";
 // v0.12 W2-C
 import { testbenchRoutes } from "./routes/testbench";
 import { textSignupRoutes } from "./routes/text-signup";
@@ -270,6 +273,10 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   gchatRoutes(app);
   // v0.14 W4-C: the Slack channel picker
   slackRoutes(app);
+  // §1.114: Microsoft Teams (the bot's endpoint and the channels card).
+  teamsRoutes(app);
+  // §1.114: Excel's picking.
+  excelRoutes(app);
   // v0.14 capture: WhatsApp conversations and their capture
   conversationRouteHandlers(app);
   // v0.14 W4-A: WhatsApp through Meta (the webhook and the groups setting)

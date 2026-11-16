@@ -110,6 +110,16 @@ const TOOLS: Record<string, string> = {
   "sheets.range.update": "Change cells in a sheet",
   "gchat.message.post": "Post a message",
   "slack.message.post": "Post a message",
+  // §1.114
+  "teams.message.post": "Post a message",
+  "excel.rows.append": "Add rows to a workbook",
+  "excel.range.update": "Change cells in a workbook",
+  "excel.range.read": "Read cells in a workbook",
+  "calendar.events.list": "Look at the calendar",
+  "calendar.freebusy": "Check when people are free",
+  "calendar.event.create": "Add a calendar event",
+  "calendar.event.update": "Change a calendar event",
+  "drive.file.list": "List filed documents",
   // §1.77
   "linkedin.post": "Post on LinkedIn",
   "hackernews.search": "Search Hacker News",
@@ -208,6 +218,12 @@ const CONNECTOR_NAMES: Record<string, string> = {
   gsc: "Search Console",
   bing_webmaster: "Bing Webmaster Tools",
   slack: "Slack",
+  // §1.114
+  onedrive: "OneDrive",
+  excel: "Excel",
+  teams: "Microsoft Teams",
+  outlook_calendar: "Outlook Calendar",
+  gcal: "Google Calendar",
   // §1.77
   linkedin: "LinkedIn",
   hackernews: "Hacker News",

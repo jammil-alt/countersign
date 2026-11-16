@@ -46,6 +46,8 @@ import { conversationRoutes } from "./conversations";
 import { deskRoutes } from "./desk";
 import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
+// §1.114: Excel's picking.
+import { excelRoutes } from "./excel";
 import { exportRoutes } from "./exports";
 import { feedbackRoutes } from "./feedback";
 // v0.14 W4-E: Google Chat
@@ -107,6 +109,8 @@ import { slackRoutes } from "./slack";
 import { SteppedIn, stepInRoutes } from "./step-in";
 import { PortalHealth, supervisorRoutes } from "./supervisor";
 import { tableRoutes } from "./table";
+// §1.114: Microsoft Teams (the bot's endpoint and the channels card).
+import { teamsRoutes } from "./teams";
 // v0.12 W2-C: the test bench
 import { testbenchRoutes } from "./testbench";
 import { textSignupRoutes } from "./text-signup";
@@ -2361,6 +2365,10 @@ export const routes = {
   ...gsheetsRoutes,
   // v0.14 W4-C: the Slack channel picker.
   ...slackRoutes,
+  // §1.114: Microsoft Teams.
+  ...teamsRoutes,
+  // §1.114: Excel's picking.
+  ...excelRoutes,
   // v0.14 capture: WhatsApp conversations and their capture.
   ...conversationRoutes,
   // v0.14 W4-A: WhatsApp through Meta (the webhook and the groups setting).

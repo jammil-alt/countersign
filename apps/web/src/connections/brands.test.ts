@@ -24,6 +24,12 @@ const CONNECTORS = [
   "billcom",
   "podio",
   "odoo",
+  // §1.114
+  "onedrive",
+  "excel",
+  "teams",
+  "outlook_calendar",
+  "gcal",
   "bankfeed",
   "upload",
   "resend",
@@ -68,6 +74,9 @@ describe("connectorBrand", () => {
     const hn = connectorBrand("hackernews");
     expect(hn?.kind).toBe("logo");
     if (hn?.kind === "logo") expect(hn.path).toMatch(/^M/);
+    // §1.114: no file or published path yet: the initials on the provider's colour.
+    expect(connectorBrand("teams")).toEqual({ kind: "monogram", fill: "#5B5FC7", letters: "T" });
+    expect(connectorBrand("outlook_calendar")?.kind).toBe("image");
     expect(connectorBrand("bankfeed")).toEqual({ kind: "icon", icon: "bank" });
     expect(connectorBrand("nope")).toBeNull();
     expect(connectorBrand(undefined)).toBeNull();
