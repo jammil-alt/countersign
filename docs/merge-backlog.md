@@ -31,9 +31,12 @@ Rows 1–8 below are done. The stale branches are deleted.
 **Open, in merge order.** Each migration takes the next number when it merges. Rebase each PR onto
 `main` first; `docs/plan.md` sections conflict where they meet.
 
-1. **Token counts:** migration 0055 (`model_call.action`), then the code (plan §1.115). Branches
-   `claude/sweet-sagan-xfbil6-migration-0055` and `…-token-counts`. Check how far it got; it was
-   paused mid-work.
+1. **Token counts:**
+   - #327: migration 0055 (`model_call.action`).
+   - #324: the code (plan §1.115).
+   - Built and checked, except one rerun of the web suite after main's last merges.
+   - Decide first: the trust-claims plan's `purpose` column on `model_call` (item 13). One column
+     should cover both.
 2. **Phone app:**
    - #321: migration 0056. Re-chain it after 0055.
    - #322: sign-in.
@@ -44,8 +47,15 @@ Rows 1–8 below are done. The stale branches are deleted.
    - #312: migration, numbered 0054 on its branch. Renumber it to 0057.
    - #313: the code (§1.117, ARCHITECTURE v0.19).
    - Expect a small conflict in `Sloan.tsx` with #305.
-4. **Removing a person:** `claude/sweet-sagan-xfbil6-remove-person`, then
-   `…-remove-operator-workflow`. Paused mid-work. Access ends within 5 minutes (owner).
+4. **Removing a person:** #325.
+   - Built, and the targeted tests pass. Left: the full web, api and db suites.
+   - The `remove-operator.yml` workflow is not started; it goes in its own PR.
+   - Its plan section is also numbered §1.115. Renumber it to §1.119.
+   - Access ends within 5 minutes (owner).
+   - Owner to confirm:
+     - Removing an operator hands their open items to the other operators and clears them as a
+       client's lead.
+     - An operator can remove a client's last admin.
 5. **Plan §1.118:** templates from staging to production (#314, docs only). Then build T-1 to T-4.
 
 **Not started:**
