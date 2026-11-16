@@ -1,7 +1,13 @@
 // `/ops/builds` (docs/plan.md §1.108): every open build by phase, a card each with what holds it,
 // the open items across them, and New build: an agent or a skill, for a client or for everyone.
 // `/ops/builds/:id` is the build itself (BuildView).
-import { type BuildKind, type BuildPhase, PHASE_WORDS } from "@countersign/core";
+import {
+  type BuildKind,
+  type BuildPhase,
+  ITEM_STATE_WORDS,
+  OWNER_WORDS,
+  PHASE_WORDS,
+} from "@countersign/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
@@ -110,28 +116,36 @@ export function BuildsScreen() {
                   <th className="px-4 py-2.5 font-medium">Item</th>
                   <th className="px-4 py-2.5 font-medium">Build</th>
                   <th className="px-4 py-2.5 font-medium">From</th>
+                  <th className="px-4 py-2.5 font-medium">Who has it</th>
                   <th className="px-4 py-2.5 font-medium">State</th>
                 </tr>
               </thead>
               <tbody>
                 {list.data.items.map((i) => (
-                  <tr key={i.id} className="border-b border-line last:border-b-0">
-                    <td className="px-4 py-3 text-ink">{i.title}</td>
+                  <tr
+                    key={i.id}
+                    className="border-b border-line align-top last:border-b-0"
+                    data-testid={`builds-item-${i.id}`}
+                  >
+                    <td className="px-4 py-3 text-ink">
+                      {i.title}
+                      {i.detail ? (
+                        <p className="mt-0.5 text-xs text-ink-muted">{i.detail}</p>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-3">
                       <Link to={buildPath(i.buildId)} className="text-slate hover:underline">
                         {i.buildTitle}
                       </Link>
                     </td>
                     <td className="px-4 py-3 text-ink-muted">{PHASE_WORDS[i.phase].label}</td>
+                    <td className="px-4 py-3 text-ink">{OWNER_WORDS[i.owner]}</td>
                     <td className="px-4 py-3">
-                      <Badge tone={ITEM_TONE[i.state]}>
-                        {i.owner === "client"
-                          ? "With the client"
-                          : i.state === "in_progress"
-                            ? "In progress"
-                            : i.state === "waiting"
-                              ? "Waiting"
-                              : "Open"}
+                      {/* Gold is "waiting on you": only the items that are yours. */}
+                      <Badge tone={i.owner === "operator" ? ITEM_TONE[i.state] : "neutral"}>
+                        {i.owner === "operator" && i.state === "open"
+                          ? "Waiting on you"
+                          : ITEM_STATE_WORDS[i.state]}
                       </Badge>
                     </td>
                   </tr>

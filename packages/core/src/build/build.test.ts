@@ -23,7 +23,7 @@ const base: GateFacts = {
   kind: "agent",
   phase: "intake",
   brief: {},
-  fitgap: { rows: [], needsTrue: [] },
+  fitgap: { rows: [], needsTrue: [], setup: [] },
   draft: false,
   draftErrors: 0,
   poc: { passed: false, detail: "No test has run yet." },
@@ -77,6 +77,7 @@ describe("gates", () => {
         },
       ],
       needsTrue: [],
+      setup: [],
     };
     expect(gateReasons({ ...base, phase: "fitgap", fitgap })).toEqual([
       "The fit-gap has no rows in scope.",
@@ -89,7 +90,7 @@ describe("records", () => {
     expect(readBrief({ goal: { text: "x", state: "confirmed" }, rules: { text: 3 } })).toEqual({
       goal: { text: "x", state: "confirmed" },
     });
-    expect(readFitGap("nonsense")).toEqual({ rows: [], needsTrue: [] });
+    expect(readFitGap("nonsense")).toEqual({ rows: [], needsTrue: [], setup: [] });
     expect(readTestPlan(null)).toEqual({ datasets: [] });
     expect(readQa({})).toEqual({ accepted: {}, signedBy: null, signedAt: null, decision: null });
   });
@@ -118,6 +119,7 @@ describe("verdicts", () => {
       row("pay", "not_possible"),
     ],
     needsTrue: [],
+    setup: [],
   };
 
   it("set more work at once and ask the Builder for less", () => {
@@ -131,6 +133,7 @@ describe("verdicts", () => {
     const merged = mergeFitGap(stored, {
       rows: [row("read", "native"), row("match", "native"), row("pay", "not_possible")],
       needsTrue: [],
+      setup: [],
     });
     // The override stays; the challenge is answered by the Builder's verdict; the dropped row the
     // Builder left out comes back, still dropped.
@@ -154,7 +157,9 @@ describe("verdicts", () => {
       rows: stored.rows.map((r) => ({ ...r, verdict: "native" as const })),
     };
     expect(operatorFitGap(stored, native)).toMatchObject({ ok: false });
-    expect(operatorFitGap(stored, { rows: [row("new", "native")], needsTrue: [] })).toMatchObject({
+    expect(
+      operatorFitGap(stored, { rows: [row("new", "native")], needsTrue: [], setup: [] }),
+    ).toMatchObject({
       ok: false,
     });
   });
@@ -175,5 +180,46 @@ describe("verdicts", () => {
     expect(how.endsWith(".")).toBe(true);
     expect(clampText("short", 500)).toBe("short");
     expect(clampText("a ".repeat(400), 100).endsWith("…")).toBe(true);
+  });
+
+  it("keep the operator's intake form fields through the Builder's rewrites", () => {
+    const field = (id: string, label: string, extra = {}) => ({
+      id,
+      label,
+      kind: "answer" as const,
+      hint: "",
+      dropped: false,
+      byOperator: false,
+      ...extra,
+    });
+    const before: FitGap = {
+      rows: [],
+      needsTrue: [],
+      setup: [
+        field("ap", "Your AP address"),
+        field("tol", "Price tolerance, in percent", { byOperator: true }),
+        field("vol", "Invoices a month", { dropped: true }),
+      ],
+    };
+    const draft = (id: string, label: string) => ({ id, label, kind: "answer" as const, hint: "" });
+    const merged = mergeFitGap(before, {
+      rows: [],
+      needsTrue: [],
+      setup: [draft("ap", "The AP inbox"), draft("tol", "Tolerance"), draft("who", "Who approves")],
+    });
+    expect(merged.setup.map((f) => [f.id, f.label, f.dropped])).toEqual([
+      ["ap", "The AP inbox", false],
+      ["tol", "Price tolerance, in percent", false],
+      ["who", "Who approves", false],
+      ["vol", "Invoices a month", true],
+    ]);
+    // An answer without a form leaves it as it was.
+    expect(mergeFitGap(before, { rows: [], needsTrue: [], setup: [] }).setup).toEqual(before.setup);
+    // Saving marks what the operator changed as theirs.
+    const saved = operatorFitGap(before, {
+      ...before,
+      setup: before.setup.map((f) => (f.id === "ap" ? { ...f, hint: "e.g. ap@client.com" } : f)),
+    });
+    expect(saved.ok && saved.fitgap.setup.map((f) => f.byOperator)).toEqual([true, true, false]);
   });
 });
