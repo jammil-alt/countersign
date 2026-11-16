@@ -262,7 +262,11 @@ export function withIntroduction(
   let out = text.trim();
   const client = input.client.trim();
   if (client && !out.toLowerCase().includes(client.toLowerCase())) out = `${client}: ${out}`;
-  if (!/\bSTOP\b/.test(out)) out = `${out} ${optOutLine(input.language)}`;
+  // DECISION (§1.117): a text that ends with lines of its own (the area owner's signature,
+  // ARCHITECTURE v0.19 §10.15) takes the opt-out line on a line of its own, under them.
+  if (!/\bSTOP\b/.test(out)) {
+    out = `${out}${out.includes("\n") ? "\n" : " "}${optOutLine(input.language)}`;
+  }
   return out;
 }
 

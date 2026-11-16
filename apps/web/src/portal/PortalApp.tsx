@@ -4,7 +4,7 @@
 // owner). The agents are on Home and the agent switcher on an agent's page; Settings and the lead
 // are in the avatar menu (Settings also at the sidebar's foot); Sloan is Ask Sloan in the top bar
 // and in the search box. The routes live in ./routes.tsx.
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import { Link, Route, Routes, useLocation, useMatch } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
@@ -22,7 +22,7 @@ import { INBOX_COUNT_POLL_MS, InboxCountProvider } from "./inboxCount";
 import { useIntentZone } from "./intent";
 import { askSloan, PORTAL_PATHS } from "./paths";
 import { portalRoutes } from "./routes";
-import { SloanPanel } from "./screens/Sloan";
+import { SloanPanelProvider, useSloanPanel } from "./SloanPanel";
 
 /** A page change asks the overview again only when its answer is older than this. */
 export const OVERVIEW_STALE_MS = 5_000;
@@ -74,7 +74,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
   );
 
   return (
-    <>
+    <SloanPanelProvider>
       <AppShell
         surface="portal"
         home="/"
@@ -177,7 +177,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
         </InboxCountProvider>
       </AppShell>
       {feedback.data?.enabled ? <FeedbackButton surface="portal" /> : null}
-    </>
+    </SloanPanelProvider>
   );
 }
 
@@ -189,28 +189,25 @@ export function PortalLayout({ children }: { children: ReactNode }) {
  */
 export function AskSloanButton() {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
   const onSloan = useMatch(`${PORTAL_PATHS.sloan}/*`);
   const label = t("shell.askSloanButton");
   const hint = t("shell.askSloanHint");
+  // v0.19 (§10.15 "Home"): opens Sloan's chat beside the screen; its link goes to /sloan.
+  const panel = useSloanPanel();
   return (
-    <>
-      <button
-        type="button"
-        className="ui-topbar__ask"
-        title={hint}
-        aria-label={`${label}. ${hint}`}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-current={onSloan ? "page" : undefined}
-        data-testid="shell-ask-sloan"
-        onClick={() => setOpen(true)}
-      >
-        <AgentBadge name="Sloan" size="sm" />
-        <span className="ui-topbar__asklabel">{label}</span>
-      </button>
-      {open ? <SloanPanel onClose={() => setOpen(false)} /> : null}
-    </>
+    <button
+      type="button"
+      className="ui-topbar__ask"
+      title={hint}
+      aria-label={`${label}. ${hint}`}
+      aria-haspopup="dialog"
+      aria-current={onSloan ? "page" : undefined}
+      data-testid="shell-ask-sloan"
+      onClick={() => panel.open()}
+    >
+      <AgentBadge name="Sloan" size="sm" />
+      <span className="ui-topbar__asklabel">{label}</span>
+    </button>
   );
 }
 

@@ -15,7 +15,7 @@ import {
   generateEncryptionKey,
 } from "@countersign/connectors";
 import { FAKE_TWILIO_MAIN, fakeTwilio } from "@countersign/connectors/testing";
-import { AgentBundle, type AgentBundleInput, withIntroduction } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, optOutLine } from "@countersign/core";
 import {
   agent,
   inboxItem,
@@ -39,15 +39,13 @@ import {
   FakeWorkflowStep,
   forbiddenKeys,
   OPERATOR,
+  optOutOf,
+  unsigned,
   user,
 } from "./api.test-helper";
 import { quietNever } from "./quiet-hours.test-helper";
 import { credentialsFor, executeRun } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
-
-// §1.97: a first text to a contact names the client and ends with the opt-out line, added at send.
-const firstText = (text: string, language?: string) =>
-  withIntroduction(text, { client: "Client A", language });
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -574,9 +572,10 @@ describe.skipIf(!h)("message translation", () => {
       throw new Error(`unexpected wait ${type}`);
     });
     await executeRun(deps(), params, cloudflareStepRunner(step));
-    // Exactly the signed English went, once (as a first text, with the client's name and the
+    // Exactly the signed English went, once (a first text: under the area owner's signature, the
     // opt-out line); the agent wrote nothing and the model translated once.
-    expect(sentTo(RAE).map((m) => m.body)).toEqual([firstText(ENGLISH)]);
+    expect(sentTo(RAE).map((m) => unsigned(m.body))).toEqual([ENGLISH]);
+    expect(sentTo(RAE).map((m) => optOutOf(m.body))).toEqual([optOutLine("en")]);
     expect(model.requests).toHaveLength(1);
     expect(runModel.requests).toHaveLength(0);
     const [row] = await H.t.db

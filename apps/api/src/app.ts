@@ -6,6 +6,7 @@ import { routes } from "@countersign/core";
 import type { Db } from "@countersign/db";
 import { Hono } from "hono";
 import { sloanTick } from "./account/sloan";
+import { summarizeQuietConversations } from "./account/summaries";
 import { bankfeedCron } from "./bankfeed/sync";
 import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
@@ -14,6 +15,7 @@ import { purgeRetiredFiles } from "./compliance/retention";
 import { CAPTURE_CRON_MINUTE, captureCronTick } from "./conversations/cron";
 import { captureDepsFor, captureJobsFor } from "./conversations/start";
 import type { Bindings } from "./env";
+import { platformHealthTick } from "./health/watch";
 import {
   type AppDeps,
   type AppEnv,
@@ -102,6 +104,7 @@ import { opsOversightRoutes } from "./routes/ops-oversight";
 // Reshape data (2026-11-11)
 import { opsReshapeRoutes } from "./routes/ops-reshape";
 import { opsSkillRoutes } from "./routes/ops-skills";
+import { ownerRoutes } from "./routes/owners";
 import { packInboundRoutes } from "./routes/pack-inbound";
 // M46
 import { packPreviewRoutes } from "./routes/pack-preview";
@@ -146,7 +149,13 @@ import { whatsappMetaRoutes } from "./routes/whatsapp-meta";
 // v0.14 W4-B
 import { zohoRoutes } from "./routes/zoho";
 import { cronTick, dispatchByIds, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
-import { credentialsFor, forClient, reachDepsFor, runDepsFromEnv } from "./runs/execute";
+import {
+  credentialsFor,
+  forClient,
+  reachDepsFor,
+  runDepsFromEnv,
+  runtimeFor,
+} from "./runs/execute";
 // M45: Search Console and Bing, nightly (docs/plan.md §1.75).
 import { searchSyncTick } from "./search-sync";
 import { securityHeaders } from "./security-headers";
@@ -273,6 +282,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   portalTriggerRoutes(app);
   // v0.13 W2-I: run oversight decisions for the agent lab
   opsOversightRoutes(app);
+  // v0.19: area owners (ARCHITECTURE §10.15)
+  ownerRoutes(app);
   // Wave 6: the audit queue, marks, stats, sampling settings and the run export (plan §1.86)
   runAuditRouteHandlers(app);
   // v0.14 W4-E: Google Chat's events and the portal's card
@@ -331,6 +342,13 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
         ...(codes
           ? { codesTick: (tenantId: string, at: Date) => raiseCodeAlerts(db, codes, tenantId, at) }
           : {}),
+        // v0.19: Sloan's old watches, as platform code (ARCHITECTURE §10.15).
+        healthTick: async (tenantId, at, timeZone) => {
+          const run = forClient(runDepsFromEnv(env, { db, platform, instances }), tenantId);
+          await platformHealthTick({ db, runtime: runtimeFor(run) }, tenantId, at, timeZone);
+          // v0.19: each person's quiet conversations summarized for next time (§10.15).
+          await summarizeQuietConversations({ db, transport: run.transport }, tenantId, at);
+        },
       },
       scheduledTime,
     );

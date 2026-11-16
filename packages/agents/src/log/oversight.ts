@@ -11,6 +11,7 @@ import {
   type Db,
   externalAction,
   inboxItem,
+  memoryNote,
   OVERSIGHT_ACTIONS,
   OVERSIGHT_CAUSES,
   oversightDecision,
@@ -349,6 +350,17 @@ export function dbOversightStore(db: Db): OversightStore & ChoiceStore {
           })
           .returning();
         if (!row) throw new Error("oversight_decision insert returned nothing");
+        // v0.19 (ARCHITECTURE §10.15): the area owner's notes for next time, written by code
+        // from its decision, in the same transaction; the owner itself calls no tool.
+        if (d.remember?.notes.length) {
+          await tx.insert(memoryNote).values(
+            d.remember.notes.map((note) => ({
+              tenantId,
+              ownerId: d.remember?.ownerId ?? null,
+              note,
+            })),
+          );
+        }
         return recorded(row);
       });
     },

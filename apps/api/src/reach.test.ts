@@ -28,8 +28,8 @@ import {
   AgentBundle,
   type AgentBundleInput,
   bundleHash,
+  optOutLine,
   type SkillStep,
-  withIntroduction,
 } from "@countersign/core";
 import {
   agent,
@@ -52,6 +52,9 @@ import {
   FakeWorkflowStep,
   OPERATOR,
   OTHER_OPERATOR,
+  optOutOf,
+  signatureOf,
+  unsigned,
   user,
 } from "./api.test-helper";
 import { handleEmail } from "./email";
@@ -60,10 +63,6 @@ import { quietNever } from "./quiet-hours.test-helper";
 import { planWhyApproval, reachOutTick, reachPort } from "./reach/service";
 import { credentialsFor, executeRun, reachDepsFor } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
-
-// §1.97: a first text to a contact names the client and ends with the opt-out line, added at send.
-const firstText = (text: string, language?: string) =>
-  withIntroduction(text, { client: "Client A", language });
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -543,8 +542,9 @@ describe.skipIf(!h)("reach out through the API", () => {
         reachEvent = type;
 
         // The approved plan's first attempt went out as a text.
-        expect(textsTo(PAT).map((m) => m.body)).toEqual([
-          firstText("Can you confirm Friday's delivery? Reply YES or NO."),
+        expect(textsTo(PAT).map((m) => optOutOf(m.body))).toEqual([optOutLine("en")]);
+        expect(textsTo(PAT).map((m) => unsigned(m.body))).toEqual([
+          "Can you confirm Friday's delivery? Reply YES or NO.",
         ]);
         expect(twilio.placed()).toHaveLength(0);
         // Before escalateAfter, the cron does nothing; after it, the next channel: a call.
@@ -652,8 +652,9 @@ describe.skipIf(!h)("reach out through the API", () => {
         });
       }
       if (type.startsWith("reachout-")) {
-        expect(textsTo(LOU).map((m) => m.body)).toEqual([
-          firstText("¿Confirma la entrega del viernes? Responda SÍ o NO.", "es"),
+        expect(textsTo(LOU).map((m) => optOutOf(m.body))).toEqual([optOutLine("es")]);
+        expect(textsTo(LOU).map((m) => unsigned(m.body))).toEqual([
+          "¿Confirma la entrega del viernes? Responda SÍ o NO.",
         ]);
         await textIn(LOU, "Sí");
         return H.instances.events.find((e) => e.event.type === type)?.event.payload;
@@ -982,8 +983,14 @@ describe.skipIf(!h)("reach out through the API", () => {
         from: "Client A orders <orders@shop.example>",
         to: ["sam@shop.example"],
         subject: PURPOSE,
-        text: "Can you confirm Friday's delivery? Reply YES or NO.",
       });
+      // v0.19: what the agent wrote, then its area owner's signature and "Powered by".
+      expect(unsigned(sent?.text as string)).toBe(
+        "Can you confirm Friday's delivery? Reply YES or NO.",
+      );
+      const [signature, powered] = signatureOf(sent?.text as string);
+      expect(signature).toMatch(/^\p{L}+, operations agent for /u);
+      expect(powered).toBe("Powered by mezonas.com");
       expect(sent?.idempotencyKey).toMatch(/:reach:0$/);
       const replyTo = sent?.reply_to as string;
       expect(replyTo.split("+")[0]).toBe(address.split("@")[0]);

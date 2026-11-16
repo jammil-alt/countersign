@@ -9,20 +9,50 @@ import {
   overseeStep,
   type RuntimeDeps,
 } from "@countersign/agents";
-import type { OversightSettings } from "@countersign/core";
-import type { Db } from "@countersign/db";
+import {
+  AREA_OWNER_WORDS,
+  type OversightSettings,
+  OWNER_MEMORY_IN_REVIEW,
+  type OwnerArea,
+} from "@countersign/core";
+import { type Db, withTenant } from "@countersign/db";
 import type { ChoicePort, OversightPort, RunInfo } from "@countersign/workflows";
+import { ownerMemory } from "../owners/store";
+
+/** The area owner a run pinned (ARCHITECTURE v0.19 §10.15). */
+export interface RunAreaOwner {
+  ownerId: string;
+  versionId: string;
+  name: string;
+  area: OwnerArea;
+  notes: string;
+}
 
 export function oversightPort(
   runtime: RuntimeDeps,
   db: Db,
   run: RunInfo,
   settings: OversightSettings | undefined,
+  owner?: RunAreaOwner,
 ): OversightPort {
   const store = dbOversightStore(db);
   return {
-    review: (req) =>
+    review: async (req) =>
       overseeStep(runtime, store, {
+        // v0.19: the area owner, with its memory read now (inside the review's durable step).
+        ...(owner
+          ? {
+              owner: {
+                ownerId: owner.ownerId,
+                name: owner.name,
+                area: AREA_OWNER_WORDS.en.functionOf[owner.area],
+                notes: owner.notes,
+                memory: await withTenant(db, run.tenantId, (tx) =>
+                  ownerMemory(tx, run.tenantId, owner.ownerId, OWNER_MEMORY_IN_REVIEW),
+                ),
+              },
+            }
+          : {}),
         tenantId: run.tenantId,
         runId: run.id,
         agentId: run.agentId,

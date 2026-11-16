@@ -4906,10 +4906,37 @@ code.
 | Topic | Decision |
 |---|---|
 | What an owner is | `area_owner` (one per client and area; its name the client's to change) and its immutable `area_owner_version` rows (`OwnerDefinition`: model, notes, oversight defaults). // DECISION (O1): a table of its own, not `agent.kind = 'owner'`: 59 queries over `agent` don't filter by kind (billing, weekly stats, exports, search). |
+| Creating owners | On first need: a run in the area (`run:load`), a signed message, the back office's list. No backfill script. The first version has no model and no notes. // DECISION (O3): no default model, so an existing client's reviews stay on each process's own model until the operator picks one. |
 | Area of a process | `agent.area` (column, operator-set), defaulting from the template's `definition.area`, else its one `requiresPacks` entry, else `general`. // DECISION: a column like `approver`, not in the bundle, so moving a process to another area makes no new version. |
+| No area | `general` is an area like the others; its owner is created only when a client has a process in it. |
 | Pinning | `run.owner_version_id`, set at run start; replays and the run view read it. |
+| Precedence | A process's saved `definition.oversight` wins (stored versions unchanged, invariant 3), then the owner's, then `failures`; model: step, process `oversight.model`, owner, process. |
+| Notes | The owner's `instructions` (Markdown, operator-written) go in the review's instructions; up to 20 memory notes, newest first, go in the `read_step` result as data. |
 | Memory | A decision's `remember` (at most 2 notes, 300 characters each) becomes `memory_note` rows on the owner (`owner_id`), written in `src/log/` with the decision. Not from a test run. `remember` is in the finish tool only for an area owner's review, so other reviews' requests are unchanged. |
+| Names | The pool below, in `packages/core/src/owners/names.ts`. A client's first owner takes the name at `hash(tenant_id) mod 40`; each next owner takes the next name whose first letter no owner of that client has. Never S (Sloan). // DECISION: a start per client from its id, no counter table, so neighbouring clients get different names. |
+| Renaming | The client admin renames an owner in the portal: `area_owner.name` on the owner's row, 2 to 12 letters, unique within the client, not Sloan; audited. Not a version. The only agent field a client edits. |
+| Signature | "{Name}, {function} agent for {client}" and "Powered by mezonas.com" under it; function from the area (`general`: operations). Email: both lines. Text and WhatsApp: the second line on a conversation's first message only. Platform words in the client's language; not removable. Added at send (`reach/service.ts`) to messages to contacts who aren't the client's employees; calls excepted. // DECISION (O3): the signer sees the message without the two fixed lines; O4 shows them on the card. |
+| Timeline words | "Pia corrected the vendor name and tried again" (English); other languages "Pia: …" until the fluent speakers review them (`ownerDid`). The owner's current name, so a rename shows at once. |
+| Approval | Every draft is suggested and approved (owner, 2026-11-12); no owner applies a change. Classes by code (`change-class.ts`): client settings (client admin), process (operator; a client-asked one is confirmed by the client admin first), never (not drafted). |
+| Watch after a change | 10 runs or 7 days against the 10 runs before; worse suggests a rollback, marked urgent, to the same approver. |
+| Signals | 3 in 14 days for repeated failures, corrections and edits on one field. // DECISION: low enough to catch a habit in a week of normal use, high enough to ignore a one-off. |
+| Owner chat | An account thread with the owner as subject; `@Name` or "Ask Name" routes to it. Read tools scoped to the owner's area; drafts through the paths above. Counts in usage like any model call; Sloan stays free. |
+| Home | The portal's home (`/`), replacing the Table's layout: Now, Your agents, Recent actions, Health, Conversations, Ideas, Quick actions (ARCHITECTURE §10.15). Named Home, not Sloan's room (owner, 2026-11-12): its panels are the platform's facts. |
 | Conversation history | Every chat is kept as an account thread; the panel opens the latest, with New and a searchable History. After 30 quiet minutes the platform writes a summary as a `memory_note` (`scope = 'person'`, the person's id; migration O1); a new conversation starts with the person's last 10 summaries and their open items from the records; `account.history` searches older ones. Per person only; deletable. // DECISION: 30 minutes, 10 summaries. |
+| Live chat | A Sloan button top right on every portal screen opens a side panel kept across screens; the screen's path and record go with each message as context. |
+| Sloan's new tools | `account.help` (the per-screen guide in `packages/core/src/help/`), `account.import_list` (the directory's CSV import: preview, suggested mapping, confirm), `account.switch_account` and `account.open` (links), `account.capabilities` (areas and published templates not in use: names and one line), `account.draft_feedback` (shown to the person before it is sent). |
+
+**The name pool** (40; 19 of three letters, 21 of four), in rotation order:
+
+Pia, Teo, Nora, Ivo, Bea, Milo, Zia, Lev, Cleo, Rio, Uma, Hugo, Kit, Faye, Ren, Dara, Jun, Wren, Eli,
+Tova, Ari, Noor, Gus, Yara, Mae, Arlo, Fen, Ines, Kira, Bram, Ora, Luca, Wyn, Rhea, Enzo, Jude, Gita,
+Theo, Nia, Vida.
+
+Left out on purpose: names of assistants and AI products (Siri, Alexa, Ava, Aria, Nova, Pi, Echo,
+HAL), Sloan, and anything starting with S.
+
+Open for the owner:
+1. **The name pool** above: keep, cut or add.
 
 ## 2. Package layering
 
@@ -6485,3 +6512,87 @@ Migrations 0043, 0044 and 0045 are each their own commit, for their own PRs; so 
 to `mountLong` (a pool of one connection never deadlocks), which touch sign-in callbacks. Not yet
 checked on staging: Browser Run's support for a context-wide `route` and `serviceWorkers: "block"`
 (scripts are refused if it is missing). Open for the owner: the questions in §1.86's DECISION rows.
+
+## 10. Area owners (§1.117, ARCHITECTURE v0.19 §10.15)
+
+Each milestone ends green. Migrations in their own PR (O1).
+
+- **O1 Migration.** `area_owner` (one per client and area) and its immutable `area_owner_version`
+  rows, RLS forced; `agent.area`; `run.owner_version_id`; `memory_note.owner_id` (a note is an
+  agent's or an owner's) and `memory_note.person_id` (null except for `scope = 'person'`). Built
+  as 0048 on 2026-11-12; renumbered when brought onto main (0054 when generated, the next free
+  number at merge).
+- **O2 Core.** The owner bundle schema, areas and their defaults, settings precedence, `remember` on
+  decisions, the name pool and rotation, the signature words, the change classifier with tests.
+- **O3 Runtime.** Owners created per client and area (on first fork into an area, and a backfill for
+  existing clients); the owner pinned at run start; reviews on the owner's model with its notes and
+  memory; names in the run's words; the signature on messages out. Done when: a Purchasing
+  process's failure is reviewed on the owner's model (Grok in a replayed fixture), with the owner's
+  name in the portal's words.
+- **O4 Back office.** The client's Owners, an owner's page (name, avatar, model, notes, review
+  default, limits, memory notes, processes, decisions, drafts), the area on a process.
+- **O5 Sloan as the chat.** Template v6 (chat only); the daily check on the Worker's cron; failed
+  runs and connections filed by code. Done when: a client's daily check, a failed run and a lapsed
+  connection each produce today's items with no Sloan run.
+- **O6 Home and the live chat.** Home; the top-right chat panel on every screen with the screen as
+  context; conversation history with per-person summaries and `account.history`; Sloan's new tools
+  (guide, list import, switch, open, capabilities, feedback). Done when: a client imports a vendor
+  list from the chat, after a preview, and Home shows it in Recent actions; the next day, in a new
+  conversation, "where were we on the import?" is answered from yesterday's summary.
+- **O7 Owner chat and renaming.** `@Name` threads answered by the owner within its area; the client
+  admin renames an owner. Done when: a client asks Pia what failed this week and gets this week's
+  failures with links, and a rename shows everywhere at once.
+- **O8 Drafted changes.** Signals, the draft through the Builder's revise path, test runs on
+  replayed inputs and test cases, approval by class, the client's confirm step, the watch and
+  rollback suggestion; "Tell Pia" on a run step and a process's "What changed". Done when: a client
+  asks Pia to run the vendor follow-up weekly; the client admin confirms the draft, the operator
+  approves it, and the next runs follow the new schedule.
+
+Status (2026-11-12): O1–O8 built on `claude/clever-allen-i6npwp`, each its own commit, every
+suite green locally (db, core, agents, workflows, api, web). The name pool is taken as proposed
+until the owner says otherwise.
+
+Brought onto main (2026-11-16), in two PRs: the migration on its own (0054, renumbered at merge if
+others land first), then the code. What changed on the way, and why:
+- **Numbers.** Main took ARCHITECTURE v0.17 (automations, `repeat`, the agent's choice) and v0.18
+  (vendor contracts, the Builder's missing steps), and plan §1.96 (Hand off), so this is v0.19
+  §10.15 and §1.117; its words note that its "process" is v0.17's agent and its workflow.
+- **First texts.** §1.97 names the client and adds the opt-out line to a first text. The owner's
+  signature already names the client, so no name goes in front; the opt-out line goes on a line
+  of its own under the signature (`withIntroduction`). // DECISION
+- **Choices are not corrections.** v0.17's path choices and `repeat` judgements are oversight
+  decisions too; Home's "Your agents" and the owner chat's "what it did lately" count reviews
+  only (`OVERSIGHT_CAUSES`), as main's run views do. A choice runs on the run's settings with the
+  area owner's merged in, so on the owner's model when the workflow names none.
+- **One conversation component.** The chat panel and owner chat use §1.107's component through
+  Sloan's `Conversation`; an agent's answer says its role in the line above it ("Pia · purchasing
+  agent").
+- **Names in core.** Main's builds export `OWNER_WORDS` (who has an open item); the area owners'
+  words are `AREA_OWNER_WORDS`.
+- **Memory notes.** The knowledge page counts an agent's notes only; an owner's are on its page.
+- **Reggie** (§1.101) is unchanged: the platform's health watch writes the same supervisor
+  findings its `client_review` reads.
+
+What each built, and what is left (DECISIONs in §1.117):
+- **O5:** Sloan v6 is chat only; `reportEvent` and `dailyCheck` run on the minute tick
+  (`apps/api/src/health/watch.ts`): findings from the last 10 minutes of events, the daily check at
+  08:00 in the client's zone. A Sloan still on v5 keeps its own watches.
+- **O6:** Home carries the owners, ideas and quick actions on its one call; the chat opens as a
+  side panel on every portal screen; quiet conversations are summarized per person; Sloan gained
+  `account.help`, `account.history`, `account.ideas`. Left: sending the current screen with each
+  message (the message path needs a field); importing a CSV inside the chat itself (Upload a list
+  opens the directory's import, with its preview and confirm; Sloan's guide points there).
+- **O7:** "@Pia" is answered in Pia's name through Sloan's chat run (`account.owner`,
+  `account.reply_as`), about her area only; the client admin renames an owner on Home.
+  // DECISION (O7): owner chat runs on Sloan's chat run and model, in the owner's name; the
+  owner's own model is for its reviews of runs. One chat runtime keeps invariant 11's rules in one
+  place; a per-owner chat model can follow if the owner wants it.
+- **O8:** once a day at 08:00 each owner's signals (the same step corrected 3+ times, the same
+  field edited before signing 3+ times, in 14 days) become one operator suggestion in its name with
+  the evidence, not repeated for 30 days (`apps/api/src/owners/signals.ts`); `classifyChange`
+  (core) labels every Builder revision `process` or `never`; "Tell us what was wrong" on a portal
+  run step opens the chat about that step. Left: the owner drafting the change itself through the
+  Builder with test runs (today the operator drafts it from the suggestion), the client admin's
+  confirm step for client-asked process changes (they go through the chat as requests), the watch
+  after a change and its rollback suggestion, rejections with a reason as a signal, and a
+  process's "What changed" in the portal.
