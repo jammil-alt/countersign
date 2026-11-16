@@ -60,7 +60,7 @@ Rows 1–8 below are done. The stale branches are deleted.
 
 **Not started:**
 - **The Claude connector's approval link.** Ported from `c194789f` onto main's second step as
-  `docs/plan.md` §1.120, in its own draft PR (branch `claude/sweet-sagan-xfbil6-mcp-approval`). It
+  `docs/plan.md` §1.120, in its own draft PR, #372. It
   also gates clients' Claude connections; the owner to confirm that.
 - **The compliance docs, rewritten** (audit piece 8): the Plaid attestations, the EOL inventory, the
   joining and leaving checklist, and the `security.md` and `hipaa-plan.md` edits. Leave out what the
