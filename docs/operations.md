@@ -1305,7 +1305,8 @@ removal and a new invite.
 
 **An operator leaves: the same day** (the policy allows one business day,
 `docs/policies/information-security.md` §3). Note each step's date:
-1. Mezonas, on production and on staging, as `cs_owner`:
+1. Mezonas, on production and on staging: Actions → **Remove operator** (`remove-operator.yml`),
+   once per environment, with their email. By hand instead, as `cs_owner`:
    `DIRECT_DATABASE_URL=<cs_owner url> pnpm --filter @countersign/db run db:remove-operator <email> "<your name>"`.
    Every operator membership goes: the back office refuses them within 5 minutes and the Ops MCP
    connector on its next call. Their open items by name go to the other operators, a client they led
