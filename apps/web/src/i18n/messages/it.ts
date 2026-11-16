@@ -400,6 +400,11 @@ export const it: Messages = {
   "desk.edit": "Modifica",
   "desk.edited": "Hai cambiato questa modifica. Usiamo la tua versione.",
   "desk.afterYouSign": "Dopo la tua approvazione",
+  // §1.115: a form request's card
+  "desk.form.heading": "Il modulo che riceveranno: {title}", // fluent review
+  "desk.form.fixed": "Domanda vostra", // fluent review
+  "desk.form.added": "Aggiunta dall’agente", // fluent review
+  "desk.form.required": "obbligatoria", // fluent review
   "desk.editHint": "Cambia quello che serve, poi salva. Lo ricontrolliamo prima che tu approvi.",
   "desk.editSave": "Salva le modifiche",
   "desk.snooze.until": "Fallo tornare",

@@ -14,6 +14,8 @@ import { purgeRetiredFiles } from "./compliance/retention";
 import { CAPTURE_CRON_MINUTE, captureCronTick } from "./conversations/cron";
 import { captureDepsFor, captureJobsFor } from "./conversations/start";
 import type { Bindings } from "./env";
+// §1.115: forms, "Request info"
+import { formsTick } from "./forms/service";
 import {
   type AppDeps,
   type AppEnv,
@@ -65,6 +67,8 @@ import { documentRoutes } from "./routes/documents";
 import { excelRoutes } from "./routes/excel";
 import { exportRoutes } from "./routes/exports";
 import { feedbackRouteHandlers } from "./routes/feedback";
+// §1.115: forms, "Request info"
+import { formRoutes } from "./routes/forms";
 // v0.14 W4-E: Google Chat
 import { gchatRoutes } from "./routes/gchat";
 // v0.14 W4-D: Google Sheets' picking
@@ -214,6 +218,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   contactRoutes(app);
   // docs/plan.md §1.98
   textSignupRoutes(app);
+  // §1.115: forms, "Request info": the public page's routes
+  formRoutes(app);
   // docs/plan.md §1.101: Reggie, and the lead's requests on a client admin's Desk
   leadRequestRoutes(app);
   reggieRoutes(app);
@@ -316,12 +322,15 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       {
         db,
         instances,
-        reachTick: (tenantId, at) =>
-          reachOutTick(
+        reachTick: async (tenantId, at) => {
+          await reachOutTick(
             reachDepsFor(forClient(runDepsFromEnv(env, { db, platform, instances }), tenantId)),
             tenantId,
             at,
-          ),
+          );
+          // §1.115: form requests past their due date close, and answered ones wake their runs.
+          await formsTick({ db, instances }, tenantId, at);
+        },
         ...(codes
           ? { codesTick: (tenantId: string, at: Date) => raiseCodeAlerts(db, codes, tenantId, at) }
           : {}),

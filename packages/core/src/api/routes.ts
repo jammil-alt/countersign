@@ -51,6 +51,8 @@ import { excelRoutes } from "./excel";
 import { exportRoutes } from "./exports";
 import { feedbackRoutes } from "./feedback";
 // v0.14 W4-E: Google Chat
+// docs/plan.md §1.115: forms, "Request info"
+import { formRoutes } from "./forms";
 import { gchatRoutes } from "./gchat";
 // v0.14 W4-D: Google Sheets' picking
 import { gsheetsRoutes } from "./gsheets";
@@ -2310,6 +2312,8 @@ export const routes = {
   ...buildRoutes,
   // docs/plan.md §1.109: voice typing
   ...voiceRoutes,
+  // docs/plan.md §1.115: forms, "Request info"
+  ...formRoutes,
   ...knowledgeRoutes,
   ...callRoutes,
   ...billingRoutes,

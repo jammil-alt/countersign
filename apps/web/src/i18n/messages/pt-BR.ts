@@ -393,6 +393,11 @@ export const ptBR: Messages = {
   "desk.edit": "Editar",
   "desk.edited": "Você editou esta alteração. Usamos a sua versão.",
   "desk.afterYouSign": "Depois que você aprovar",
+  // §1.115: a form request's card
+  "desk.form.heading": "O formulário que vão receber: {title}", // fluent review
+  "desk.form.fixed": "Sua pergunta", // fluent review
+  "desk.form.added": "Adicionada pelo agente", // fluent review
+  "desk.form.required": "obrigatória", // fluent review
   "desk.editHint": "Mude o que precisar e salve. Verificamos de novo antes de você aprovar.",
   "desk.editSave": "Salvar alterações",
   "desk.snooze.until": "Trazer de volta",

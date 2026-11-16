@@ -384,6 +384,11 @@ export const en = {
   "desk.edit": "Edit",
   "desk.edited": "You edited this change. We use your version.",
   "desk.afterYouSign": "After you approve",
+  // §1.115: a form request's card
+  "desk.form.heading": "The form they’ll get: {title}",
+  "desk.form.fixed": "Your question",
+  "desk.form.added": "Added by the agent",
+  "desk.form.required": "needed",
   "desk.editHint": "Change what you need, then save. We check it again before you approve.",
   "desk.editSave": "Save changes",
   "desk.snooze.until": "Bring it back",

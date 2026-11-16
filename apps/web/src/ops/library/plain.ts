@@ -36,6 +36,7 @@ export const TOOL_TITLES: Record<string, string> = {
   "ledger.dimensions.list": "List classes and locations",
   "comms.reach_out": "Reach out to a person",
   "comms.converse": "Hold a conversation",
+  "forms.request": "Request info with a form",
   "comms.translate": "Translate a message",
   "inbound.get": "Read the message that started it",
   "data.reshape": "Reshape data",

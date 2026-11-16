@@ -65,6 +65,8 @@ const DESK_PLUMBING = new Set([
   "directorySuggestion",
   "accountChange",
   "accessRelease",
+  // §1.115: a form request's form, shown as its own section.
+  "form",
 ]);
 
 export function DeskDetail({
@@ -553,6 +555,7 @@ function ItemBody({
       />
     );
   }
+  const form = formOf(item.payload);
   const facts =
     suggestionFacts(item.payload, i18n) ??
     payloadFacts(
@@ -561,6 +564,25 @@ function ItemBody({
   const steps = findingSteps(item.payload);
   return (
     <div className="flex flex-col gap-3">
+      {form ? (
+        <div className="flex flex-col gap-1.5" data-testid="desk-form">
+          <span className="text-sm font-medium text-ink">
+            {t("desk.form.heading", { title: form.title })}
+          </span>
+          {form.intro ? <p className="text-sm text-ink-muted">{form.intro}</p> : null}
+          <ol className="flex list-decimal flex-col gap-1 pl-5 text-ink">
+            {form.questions.map((q) => (
+              <li key={q.id}>
+                {q.label}{" "}
+                <span className="text-sm text-ink-muted">
+                  {q.fixed ? t("desk.form.fixed") : t("desk.form.added")}
+                  {q.required ? ` · ${t("desk.form.required")}` : ""}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
       {facts.length > 0 ? (
         <dl
           className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 text-sm max-sm:grid-cols-1"
@@ -1052,6 +1074,28 @@ function messageOf(item: DeskItem): string | null {
     if (isPlainObject(v) && typeof v.message === "string") return v.message;
   }
   return null;
+}
+
+/** §1.115: the form a request will send, as its plan's card carries it; null for any other item. */
+function formOf(payload: DeskItem["payload"]): {
+  title: string;
+  intro: string | null;
+  questions: { id: string; label: string; required: boolean; fixed: boolean }[];
+} | null {
+  const form = payload.form;
+  if (!isPlainObject(form) || typeof form.title !== "string" || !Array.isArray(form.questions)) {
+    return null;
+  }
+  const questions = form.questions.flatMap((q) =>
+    isPlainObject(q) && typeof q.id === "string" && typeof q.label === "string"
+      ? [{ id: q.id, label: q.label, required: q.required === true, fixed: q.fixed === true }]
+      : [],
+  );
+  return {
+    title: form.title,
+    intro: typeof form.intro === "string" ? form.intro : null,
+    questions,
+  };
 }
 
 function withMessage(payload: DeskItem["payload"], message: string): DeskItem["payload"] {

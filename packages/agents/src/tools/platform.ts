@@ -10,6 +10,8 @@ import { agentsAsk } from "./ask";
 import { converseTool } from "./converse";
 import { DIRECTORY_TOOLS } from "./directory";
 import { DOCS_TOOLS } from "./docs";
+// §1.115: forms, "Request info"
+import { formsRequestTool } from "./forms";
 import { HEALTH_TOOLS } from "./health";
 // v0.12 W2-E
 import { INBOUND_TOOLS } from "./inbound";
@@ -106,6 +108,8 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   reachOutTool,
   // P-4: conversations
   converseTool,
+  // §1.115: forms, "Request info"
+  formsRequestTool,
   ...HEALTH_TOOLS,
   agentsAsk,
   ...SUPERVISOR_TOOLS,

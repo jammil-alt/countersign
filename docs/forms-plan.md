@@ -1,9 +1,18 @@
-# Forms: collecting data from people by link (draft, 2026-11-16)
+# Forms: collecting data from people by link (2026-11-16)
+
+> **Built (2026-11-16): F-1 to F-3b**, against fakes: the form schema and its checks, migration
+> 0055 (`form_request`), the `forms.request` ("Request info") and `forms.draft` skills, sending the
+> link through reach out with the form on the approval card, the public page `/f/<token>` (type,
+> files, save, review, send), the wait and the cron's pass. Decisions: `docs/plan.md` §1.115, M63.
+> **Not built yet:** F-4 (dictation, the one-time code), F-5 ("talk it through"), F-6 (saved forms
+> in the Library, the editor, "Request info" by hand, texts and WhatsApp tested, passing it on), and
+> the Desk door for a client's own users. Below is the design as planned; where the build differs,
+> §1.115 is right.
 
 Owner, 2026-11-16: "We should build forms for human data collection too, something basically a link
 can be sent with a custom questionnaire that they can talk to or type into and upload documents as
-needed." Nothing here is built. Like the FP&A team (`docs/fpa-plan.md`), it is outside ARCHITECTURE
-v0.18's scope and goes into the v0.19 write-up first. Checked against the code on 2026-11-16.
+needed." Like the FP&A team (`docs/fpa-plan.md`), it is outside ARCHITECTURE v0.18's scope and
+goes into the v0.19 write-up. Checked against the code on 2026-11-16.
 
 The FP&A Collector is the first user (owners explaining variances, plan and driver inputs each
 quarter). It is a **platform** feature because others need the same thing: a vendor's onboarding

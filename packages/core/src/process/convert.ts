@@ -2,6 +2,7 @@
 // changes (invariant 3), and every step, path and trigger id is kept, so merges still line up.
 
 import { CONVERSE_SKILL } from "../converse";
+import { FORMS_REQUEST_SKILL } from "../forms";
 import { REACH_OUT_SKILL } from "../reach/rules";
 import type { Approval } from "../schemas/approval";
 import { parseSkillRef } from "../schemas/common";
@@ -52,7 +53,12 @@ export interface ConvertOptions {
 // DECISION: `comms.reach-out` stays a skill step even on upgrade: its plan approval, urgency,
 // message template, attachments and the role's conditions have no v4 field; a one-off message
 // with a reply is the reach-out it already is.
-export const STEP_ONLY_SKILLS: readonly string[] = [CONVERSE_SKILL, REACH_OUT_SKILL];
+// §1.115: `forms.request` likewise (its link goes out as a reach-out, and it waits on the form).
+export const STEP_ONLY_SKILLS: readonly string[] = [
+  CONVERSE_SKILL,
+  REACH_OUT_SKILL,
+  FORMS_REQUEST_SKILL,
+];
 
 function approvalOf(a: Approval): ApprovalCheck {
   const check: ApprovalCheck = {
