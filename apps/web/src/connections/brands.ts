@@ -18,6 +18,7 @@ import googleDriveLogo from "./logos/google-drive.svg?no-inline";
 import googleSheetsLogo from "./logos/google-sheets.svg?no-inline";
 import hubspotLogo from "./logos/hubspot.svg?no-inline";
 import linkedinLogo from "./logos/linkedin.svg?no-inline";
+import odooLogo from "./logos/odoo.png?no-inline";
 import outlookLogo from "./logos/outlook.svg?no-inline";
 import podioLogo from "./logos/podio.svg?no-inline";
 import quickbooksLogo from "./logos/quickbooks.svg?no-inline";
@@ -61,6 +62,7 @@ const IMAGES: Record<string, string> = {
   ramp: rampLogo,
   billcom: billLogo,
   podio: podioLogo,
+  odoo: odooLogo,
 };
 
 const LOGOS: Record<string, { fill: string; path: string }> = {
