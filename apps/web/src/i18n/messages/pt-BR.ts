@@ -2962,4 +2962,23 @@ export const ptBR: Messages = {
     "Perdeu o celular e os códigos de recuperação? Peça ao seu administrador ou ao seu contato na Mezonas para redefinir seu acesso.",
   "secondStep.signOut": "Sair",
   "secondStep.failed": "Não deu certo. Tente de novo.",
+  // §1.120: approving a Claude connection (the MCP server) from the browser.
+  "connectClaude.title": "Conectar o Claude",
+  "connectClaude.subtitle":
+    "O Claude pode usar a Mezonas em seu nome depois que você aprovar aqui.",
+  "connectClaude.card": "Conexão do Claude",
+  "connectClaude.status.waiting": "Esperando você",
+  "connectClaude.status.approved": "Aprovada",
+  "connectClaude.status.expired": "Expirada",
+  "connectClaude.waiting":
+    "O Claude pede para usar a Mezonas em seu nome. O primeiro pedido foi às {time}. Aprove só se você acabou de conectar o Claude.",
+  "connectClaude.lasts":
+    "Este link funciona até {time}. Depois de aprovada, dura até essa sessão do Claude terminar, no máximo 12 horas.",
+  "connectClaude.approve": "Aprovar",
+  "connectClaude.approving": "Aprovando…",
+  "connectClaude.approved":
+    "Aprovada. O Claude pode usar a Mezonas em seu nome até {time}, ou até você sair do Claude.",
+  "connectClaude.expired": "Este link expirou. Peça de novo ao Claude para receber um novo.",
+  "connectClaude.unknown":
+    "Este link não corresponde a nenhuma conexão do Claude sua. Peça de novo ao Claude para receber um novo.",
 };

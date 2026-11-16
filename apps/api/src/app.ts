@@ -119,7 +119,7 @@ import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
 import { runAuditRouteHandlers } from "./routes/run-audit";
 import { runControlRoutes } from "./routes/run-controls";
-import { secondFactorRoutes } from "./routes/second-factor";
+import { claudeConnectionRoutes, secondFactorRoutes } from "./routes/second-factor";
 import { sessionRoutes } from "./routes/session";
 // v0.14 W4-C: the Slack channel picker
 import { slackRoutes } from "./routes/slack";
@@ -185,6 +185,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   secondFactorRoutes(app);
   // §1.116: the phone app
   mobileRoutes(app);
+  claudeConnectionRoutes(app);
   opsClientRoutes(app);
   opsAgentRoutes(app);
   opsLineageRoutes(app);

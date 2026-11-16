@@ -2883,4 +2883,22 @@ export const en = {
     "Lost your phone and your recovery codes? Ask your admin or your Mezonas lead to reset your sign-in.",
   "secondStep.signOut": "Sign out",
   "secondStep.failed": "That didn't work. Try again.",
+  // §1.120: approving a Claude connection (the MCP server) from the browser.
+  "connectClaude.title": "Connect Claude",
+  "connectClaude.subtitle": "Claude can use Mezonas as you once you approve it here.",
+  "connectClaude.card": "Claude connection",
+  "connectClaude.status.waiting": "Waiting for you",
+  "connectClaude.status.approved": "Approved",
+  "connectClaude.status.expired": "Expired",
+  "connectClaude.waiting":
+    "Claude is asking to use Mezonas as you. It first asked at {time}. Approve it only if you just connected Claude yourself.",
+  "connectClaude.lasts":
+    "This link works until {time}. Once approved, it lasts until that Claude sign-in ends, 12 hours at most.",
+  "connectClaude.approve": "Approve",
+  "connectClaude.approving": "Approving…",
+  "connectClaude.approved":
+    "Approved. Claude can use Mezonas as you until {time}, or until you sign out of Claude.",
+  "connectClaude.expired": "This link has expired. Ask Claude again to get a new one.",
+  "connectClaude.unknown":
+    "This link doesn't match a Claude connection of yours. Ask Claude again to get a new one.",
 } as const;

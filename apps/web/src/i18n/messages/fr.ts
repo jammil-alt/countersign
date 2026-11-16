@@ -3011,4 +3011,23 @@ export const fr: Messages = {
     "Téléphone et codes de récupération perdus ? Demandez à votre administrateur ou à votre contact Mezonas de réinitialiser votre connexion.",
   "secondStep.signOut": "Se déconnecter",
   "secondStep.failed": "Cela n'a pas fonctionné. Réessayez.",
+  // §1.120: approving a Claude connection (the MCP server) from the browser.
+  "connectClaude.title": "Connecter Claude",
+  "connectClaude.subtitle":
+    "Claude peut utiliser Mezonas en votre nom une fois que vous l'approuvez ici.",
+  "connectClaude.card": "Connexion Claude",
+  "connectClaude.status.waiting": "En attente de vous",
+  "connectClaude.status.approved": "Approuvée",
+  "connectClaude.status.expired": "Expirée",
+  "connectClaude.waiting":
+    "Claude demande à utiliser Mezonas en votre nom. Première demande à {time}. Approuvez-la seulement si vous venez de connecter Claude vous-même.",
+  "connectClaude.lasts":
+    "Ce lien fonctionne jusqu'à {time}. Une fois approuvée, elle dure jusqu'à la fin de cette connexion à Claude, 12 heures au plus.",
+  "connectClaude.approve": "Approuver",
+  "connectClaude.approving": "Approbation…",
+  "connectClaude.approved":
+    "Approuvée. Claude peut utiliser Mezonas en votre nom jusqu'à {time}, ou jusqu'à ce que vous vous déconnectiez de Claude.",
+  "connectClaude.expired": "Ce lien a expiré. Redemandez à Claude pour en obtenir un nouveau.",
+  "connectClaude.unknown":
+    "Ce lien ne correspond à aucune de vos connexions Claude. Redemandez à Claude pour en obtenir un nouveau.",
 };

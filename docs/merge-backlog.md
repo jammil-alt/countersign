@@ -59,10 +59,9 @@ Rows 1–8 below are done. The stale branches are deleted.
 5. **Plan §1.118:** templates from staging to production (#314, docs only). Then build T-1 to T-4.
 
 **Not started:**
-- **The Claude connector's approval link.** Its source is `c194789f` on
-  `claude/sweet-sagan-xfbil6-second-factor-source`: `apps/api/src/mcp/approval.ts` and
-  `ConnectClaude.tsx`. Port only that onto main's second step. It is the code `docs/open.md` A2
-  still needs. It's a sign-in change, so it gets its own PR.
+- **The Claude connector's approval link.** Ported from `c194789f` onto main's second step as
+  `docs/plan.md` §1.120, in its own draft PR, #372. It
+  also gates clients' Claude connections; the owner to confirm that.
 - **The compliance docs, rewritten** (audit piece 8): the Plaid attestations, the EOL inventory, the
   joining and leaving checklist, and the `security.md` and `hipaa-plan.md` edits. Leave out what the
   policies contradict (the audit's notes).
