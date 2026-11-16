@@ -21,6 +21,13 @@ export interface FixRequest {
   /** The validator's messages behind this line (several when references were grouped). */
   raw: string[];
   workflowName: string;
+  // Connections (owner, 2026-11-14): a move handed to the Builder asks its own question.
+  /** What the Builder is asked, in place of the one-problem question. */
+  prompt?: string | undefined;
+  /** How that question reads in the dialog. */
+  short?: string | undefined;
+  /** Why it happens, in place of the problem kind's sentence. */
+  why?: string | undefined;
 }
 
 /** Why a kind of problem happens, in a sentence, shown before the Builder answers. */
@@ -42,6 +49,7 @@ const WHY: Partial<Record<ValidationCode, string>> = {
 
 /** What the Builder is asked first: explain and propose, change nothing. */
 export function fixPrompt(fix: FixRequest): string {
+  if (fix.prompt) return fix.prompt;
   const details = fix.raw.map((r) => `- ${r}`).join("\n");
   return [
     `Fix: “${fix.place}” in “${fix.workflowName}”. ${fix.text}`,
@@ -91,13 +99,13 @@ export function FixDialog({
 
   // The first ask is long (it carries the check's own words for the Builder): here it reads short.
   const prompt = fixPrompt(fix);
-  const SHORT = "Explain this and propose a fix.";
+  const SHORT = fix.short ?? "Explain this and propose a fix.";
   const turns = (session.detail?.turns ?? [])
     .filter((t) => !before.has(t.id))
     .map((t) => (t.role === "operator" && t.text === prompt ? { ...t, text: SHORT } : t));
   const pending = session.pending === prompt ? SHORT : session.pending;
   const answered = turns.some((t) => t.role === "builder");
-  const why = WHY[fix.error.code as ValidationCode];
+  const why = fix.why ?? WHY[fix.error.code as ValidationCode];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">

@@ -99,6 +99,8 @@ import {
   validateProcessesLikeServer,
   writeLabelOf,
 } from "./catalog";
+import { movePrompt, newProblems, reconnect } from "./connections";
+import type { MoveRequest } from "./connections-step";
 // v0.18 (docs/plan.md §1.103): what each step reads and saves, and what's left on a draft.
 import {
   agentDataSummary,
@@ -436,6 +438,13 @@ function BuilderBody(
   const [addTarget, setAddTarget] = useState<ContainerId>(ROOT);
   // v0.18: the missing step the palette's pick replaces, while "Replace with a step" is open.
   const [replacing, setReplacing] = useState<string | null>(null);
+  // Connections (owner, 2026-11-14): a place in a list ("before “Check vendor”"), from a step's
+  // "Prior step" or "Next step"; the palette then adds there rather than at a list's end.
+  const [addSpot, setAddSpot] = useState<{
+    container: ContainerId;
+    index: number;
+    text: string;
+  } | null>(null);
   const [paletteFocus, setPaletteFocus] = useState(0);
   // A template's connectors the operator chose to build with in this session.
   const [extraConnectors, setExtraConnectors] = useState<string[]>([]);
@@ -516,6 +525,7 @@ function BuilderBody(
     if (rail !== "add") setBeforeAdd(rail);
     setAddTarget(container);
     setReplacing(replace);
+    setAddSpot(null);
     setPaletteFocus((n) => n + 1);
     showRail("add");
   };
@@ -523,11 +533,25 @@ function BuilderBody(
     setRail(beforeAdd);
     setAddTarget(ROOT);
     setReplacing(null);
+    setAddSpot(null);
+  };
+  /** The palette, adding right before or right after a step, on its list. */
+  const openPaletteAt = (stepId: string, where: "before" | "after") => {
+    if (!workflow) return;
+    const loc = locate(workflow, stepId);
+    if (!loc) return;
+    openPalette(loc.container);
+    setAddSpot({
+      container: loc.container,
+      index: where === "before" ? loc.index : loc.index + 1,
+      text: `${where} “${loc.step.name || "this step"}”`,
+    });
   };
   const targetText = useMemo(() => {
     // v0.18: the pick takes a missing step's place.
     const replaced = replacing && workflow ? locate(workflow, replacing)?.step : undefined;
     if (replaced) return `in place of “${replaced.name || "the missing step"}”`;
+    if (addSpot) return addSpot.text;
     if (!workflow || addTarget === ROOT) return "at the end";
     if (addTarget.startsWith("otherwise:")) {
       const branch = ifOfBranch(workflow, addTarget.slice("otherwise:".length));
@@ -541,7 +565,7 @@ function BuilderBody(
     }
     const loop = locate(workflow, addTarget.slice("loop:".length))?.step;
     return loop ? `inside “${loop.name || "For each"}”` : "at the end";
-  }, [workflow, addTarget, replacing]);
+  }, [workflow, addTarget, replacing, addSpot]);
 
   // ── Whose tools the palette offers ──
   // DECISION (2.5): the frame's clients list (OpsLayout's `clients?view=names`) says whether the
@@ -675,11 +699,14 @@ function BuilderBody(
     }
     // + adds at the end of the list the palette was opened for (the workflow's, by default).
     const container = rail === "add" ? addTarget : ROOT;
-    const at = target ?? {
-      container,
-      index: getContainer(workflow, container)?.length ?? workflow.steps.length,
-    };
+    const spot = rail === "add" ? addSpot : null;
+    const at = target ??
+      (spot ? { container: spot.container, index: spot.index } : null) ?? {
+        container,
+        index: getContainer(workflow, container)?.length ?? workflow.steps.length,
+      };
     setAddTarget(ROOT);
+    setAddSpot(null);
     apply((b) =>
       allowStep(
         editWorkflow(b, slug, (w) => insertStep(w, at.container, at.index, step)),
@@ -735,6 +762,30 @@ function BuilderBody(
   const problemCount = useMemo(
     () => problemLines(result.errors, bundle).length,
     [result.errors, bundle],
+  );
+  // Connections (owner, 2026-11-14): the same check on this workflow as an edit would leave it,
+  // for the inspector's "Prior step" and "Next step" (always the v4 process the next save writes).
+  // `checkRaw` keeps the validator's own words (for the Builder), `assess` reads them plainly.
+  const checkRaw = useCallback(
+    (next: Process) =>
+      validateProcessesLikeServer(
+        editWorkflow(bundle, slug, () => next),
+        ctx,
+        {
+          clientAgent: agent.kind === "client",
+          publish: agent.kind === "client" ? { matrices } : undefined,
+          handoff: data.handoff,
+        },
+      ).errors.filter((e) => e.workflow === slug),
+    [bundle, slug, ctx, agent.kind, matrices, data.handoff],
+  );
+  const assess = useCallback(
+    (next: Process) =>
+      readableErrors(
+        checkRaw(next).map((e) => ({ ...e, message: plainOutcomeProblem(next, e) })),
+        editWorkflow(bundle, slug, () => next),
+      ),
+    [checkRaw, bundle, slug],
   );
   // In plain words for the step panel and its fields; the list below groups them too.
   const workflowErrors = useMemo(
@@ -1080,6 +1131,34 @@ function BuilderBody(
       text: e.message,
       raw: raw.length ? raw.map((r) => r.message) : [e.message],
       workflowName: workflowName(),
+    });
+  };
+
+  // Connections (owner, 2026-11-14): the move made, then the Builder asked to resolve all it breaks.
+  const askBuilderAboutMove = (move: MoveRequest) => {
+    if (!workflow) return;
+    const after = reconnect(workflow, move.stepId, move.change);
+    const made = newProblems(checkRaw(workflow), checkRaw(after));
+    const first = made[0];
+    edit((w) => reconnect(w, move.stepId, move.change), `${move.stepId}:connect:${uuidv7()}`);
+    if (!first) return;
+    const stepName = locate(after, move.stepId)?.step.name || "this step";
+    const readable = newProblems(assess(workflow), assess(after));
+    setFixing({
+      error: first,
+      place: stepName,
+      text: `Moved “${stepName}” to run ${move.to}. ${readable.length === 1 ? "It makes 1 problem" : `It makes ${readable.length} problems`}: ${readable.map((e) => e.message).join(" ")}`,
+      raw: made.map((e) => e.message),
+      workflowName: workflowName(),
+      prompt: movePrompt({
+        stepName,
+        workflowName: workflowName(),
+        from: move.from,
+        to: move.to,
+        problems: made,
+      }),
+      short: "Resolve what this move breaks and propose a fix.",
+      why: "A step can only use what the trigger gave or what a step before it on the same path gave back, in the shape it takes.",
     });
   };
 
@@ -1683,6 +1762,9 @@ function BuilderBody(
                       onReplace: (id) => openPalette(ROOT, id),
                       drafting: draftingSkill,
                     }}
+                    assess={assess}
+                    onAddHere={openPaletteAt}
+                    onAskBuilder={askBuilderAboutMove}
                   />
                 </StepPanel>
               ) : null}
