@@ -165,7 +165,7 @@ first, then widen.
 |---|---|---|
 | **0** | Owner decisions (section 8), ARCHITECTURE v0.19 "FP&A area" section, `docs/plan.md` §1 entry and milestones | Owner signs off |
 | **1. Ledger model and the team runtime** | Platform: `accounting_period`, `trial_balance` + `trial_balance_line`, dimension kinds widened; the accounting contract (section 4) implemented for QuickBooks. Pack skeleton `packs/fpa`: `fpa_role`, `fpa_cycle`, `fpa_handoff`, the graph, dispatcher, `fpa.handoff.mark`, `fpa.role.due`; "Add the team" | QuickBooks trial balance (fake, then sandbox) ties to its own report to the cent; a two-role toy graph runs end to end on the Sandbox |
-| **2. Budget vs. actual, end to end** | Budgets by upload / Sheets; `map-accounts`; Variance (compare, explain, report); Collector; a minimal Lead (cycle from the calendar, issue batching, one Desk card, approval, delivery); the second accounting connector | The four acceptance checks of the brief, the first one on two connectors with byte-identical bundles |
+| **2. Budget vs. actual, end to end** | Forms F-1 to F-3 first (`docs/forms-plan.md`); budgets by upload / Sheets; `map-accounts`; Variance (compare, explain, report); Collector; a minimal Lead (cycle from the calendar, issue batching, one Desk card, approval, delivery); the second accounting connector | The four acceptance checks of the brief, the first one on two connectors with byte-identical bundles |
 | **3. Forecast** | Drivers, `plan_amount` versions, roll-forward from explained variances, "what changed" | October's forecast version built from October's explained variances, with the diff |
 | **4. Cash** | Cash inputs doer (bank feed, open bills and invoices, payroll schedule by upload), 13-week projection, runway, floor alert (daily exception path) | A cash floor breach reaches the finance lead once, within a day, with sources |
 | **5. Metrics and Performance** | KPI definitions per client, refresh from accounting / CRM / Sheets, MAD anomalies, ties to variances | A KPI outlier is linked to its variance line in the pack |
@@ -204,7 +204,7 @@ row is two skills chained. Skills never write: each save is a write step on an i
 | map-accounts | Item matching's order (rules → known aliases → model → person, answer becomes an alias) | **New, two skills**: `fpa.map-accounts` (rules + saved mappings) then `fpa.map-accounts-ai` (model proposals with confidence) |
 | pull-cash-inputs | Bank feed, `receivable`, `transaction`, QuickBooks AR aging (`qbo/ar.ts`) | **New** composition; payroll by upload |
 | refresh-kpis | CRM connectors (HubSpot, Zoho CRM, Podio), Sheets | **New** |
-| request-explanation | The brief says "reuse the Collections follow-up pattern": **Collections (Cole) is named in ARCHITECTURE but not built**. What exists: the `conversation` step (§10.12), person steps with deadlines and business hours, reach out | **Reuse the steps**, new template |
+| request-explanation | The brief says "reuse the Collections follow-up pattern": **Collections (Cole) is named in ARCHITECTURE but not built**. What exists: the `conversation` step (§10.12), person steps with deadlines and business hours, reach out | **Reuse the steps**, plus the new forms step (`docs/forms-plan.md`), new template |
 | compare-to-plan | Price check (`packs/materials/src/pricing/check.ts`): % and absolute thresholds, severity, dedupe, evidence | **New**, same shape |
 | explain-variance | — | **New**, AI task skill over GL detail of the line's accounts |
 | roll-forecast | — | **New, two skills** (deterministic roll, AI adjustments with reasons) |
@@ -334,7 +334,7 @@ shows what should move to the platform.
 | Question | Proposal |
 |---|---|
 | Second accounting connector: Xero, NetSuite or Yardi? | **Odoo first for the acceptance gate** (the connector exists, and Odoo Community runs in Docker for a real tie-out), **Xero next** (free developer app and demo company, quick). Start NetSuite and Yardi partner access now; both take weeks. If a signed pilot is on one of them, it goes first instead |
-| Can budget owners reply by Slack or text? | **Email and text in v1**: the conversation step handles both inbound. Our Slack connector only posts to picked channels; replies need Slack's events API (later) |
+| Can budget owners reply by Slack or text? | **A form link by email or text** (`docs/forms-plan.md`): typed answers per flagged line, support files, dictation or talking it through. Our Slack connector only posts to picked channels; Slack replies need its events API (later) |
 | Accruals and timing adjustments before comparison | v1 compares as booked. An owner's explanation can be tagged "timing" with the period it reverses in; Forecast reads it. No journal entries proposed in v1 (a write to the books, approval-heavy, out of scope) |
 | Is the lead a new agent or Sloan? | New agent (1.8) |
 | Multi-entity and FX in v1? | Later. `ledger_account` is already per connection (the owner's 2026-11-08 decision), so a second entity brings its own chart; consolidation and FX translation are their own phase. v1: one entity, one currency per client, refused otherwise |
