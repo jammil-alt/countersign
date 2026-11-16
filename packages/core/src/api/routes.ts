@@ -4,6 +4,8 @@ import { ConverseOpsView, ConversePortalView } from "../converse";
 import { DESK_ITEM_FIELDS } from "../desk/item";
 import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
+// §1.116: the phone app
+import { DeviceSignature } from "../mobile/mobile";
 // Wave 6: the run audit (the owner's check on every step, the audit queue, the export)
 import { OwnerCheckView } from "../oversight/check";
 import { STEP_KINDS } from "../process/schema";
@@ -216,6 +218,8 @@ export const ResolveBody = z.strictObject({
   decision: z.enum(["approve", "reject"]).optional(),
   answer: z.unknown().optional(),
   note: Note.optional(),
+  /** §1.116: signed on a registered phone with Face ID or a fingerprint (checked, then recorded). */
+  deviceSignature: DeviceSignature.optional(),
 });
 
 // ── Back office shapes ───────────────────────────────────────────────────────────────────────────

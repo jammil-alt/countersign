@@ -222,6 +222,7 @@ in `docs/hipaa-plan.md`.
 | Meta (WhatsApp) | WhatsApp messages | `meta_whatsapp` |
 | ElevenLabs | Live calls and their transcripts | `elevenlabs` |
 | Resend | Emails sent from our sending service | `resend` |
+| Expo (push) | Phone notifications, once the phone app ships (`docs/plan.md` §1.116): a phone's token, Mezonas or the business's name, and a count. Off until `MOBILE_PUSH=on` | `expo_push` |
 | Stripe | Billing: client company, amounts. No client records | none (kept out of scope) |
 | Sentry | Error reports, scrubbed of client data | none (kept out of scope) |
 | GitHub | Code only. CI never gets client data | none |

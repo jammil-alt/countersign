@@ -1,6 +1,7 @@
-// The phone app's routes (docs/plan.md §1.116): signing in from the app. The app's session travels
-// in MOBILE_SESSION_HEADER (`mobileSession` below turns it into the cookie every session route
-// reads); Desk items and the rest are the portal's own routes.
+// The phone app's routes (docs/plan.md §1.116): signing in from the app, the person's phones and
+// their phone notifications. The app's session travels in MOBILE_SESSION_HEADER (`mobileSession`
+// below turns it into the cookie every session route reads); Desk items, signing and the rest are
+// the portal's own routes.
 
 import {
   MOBILE_HANDOFF_PATH,
@@ -16,14 +17,27 @@ import {
 import {
   MOBILE_SESSION_HEADER,
   MOBILE_SIGNED_IN_URL,
+  type MyPush,
   PkceChallenge,
+  personPush,
   routes,
 } from "@countersign/core";
+import type { Tx } from "@countersign/db";
 import type { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { auditAlone } from "../audit";
 import { authDirectory } from "../auth";
-import { type AppEnv, HttpError, mountPublic } from "../http";
+import { type AppEnv, HttpError, mount, mountPublic } from "../http";
+import {
+  myDevice,
+  myDevices,
+  registerDevice,
+  removeDevice,
+  toMyDevice,
+  updateDevice,
+} from "../mobile/devices";
+import { tenantRow } from "../notify/people";
+import { mergePersonSettings } from "./notify";
 
 /**
  * The app's session header in, as the session cookie; the session a response sets out, as the
@@ -48,6 +62,13 @@ function workosPassword(c: { env: AppEnv["Bindings"] }): string | null {
 }
 
 const toApp = (reason: string) => `${MOBILE_SIGNED_IN_URL}?error=${encodeURIComponent(reason)}`;
+
+async function myPush(tx: Tx, tenantId: string, userId: string): Promise<MyPush> {
+  const t = await tenantRow(tx, tenantId);
+  const p = personPush((t?.settings ?? {}) as Record<string, unknown>, userId);
+  const devices = (await myDevices(tx, tenantId, userId)).filter((d) => d.pushToken).length;
+  return { on: p.push, every: p.pushEvery, showClient: p.pushShowsClient, devices };
+}
 
 export function mobileRoutes(app: Hono<AppEnv>): void {
   // 1. From the app, in the system browser: remember the app's challenge, then the usual sign-in.
@@ -122,5 +143,42 @@ export function mobileRoutes(app: Hono<AppEnv>): void {
       target: {},
     });
     return { session: r.session, expiresAt: r.expiresAt.toISOString() };
+  });
+
+  mount(app, routes.myDevices, async ({ tx, tenantIds, session }) => ({
+    devices: (await myDevices(tx, tenantIds[0] as string, session.user.id)).map(toMyDevice),
+  }));
+
+  mount(app, routes.registerDevice, async ({ tx, tenantIds, session, body }) => ({
+    device: toMyDevice(
+      await registerDevice(tx, tenantIds[0] as string, session.user.id, body, new Date()),
+    ),
+  }));
+
+  mount(app, routes.updateDevice, async ({ tx, tenantIds, session, params, body }) => ({
+    device: toMyDevice(
+      await updateDevice(tx, tenantIds[0] as string, session.user.id, params.id, body, new Date()),
+    ),
+  }));
+
+  mount(app, routes.removeDevice, async ({ tx, tenantIds, session, params }) => {
+    const tenantId = tenantIds[0] as string;
+    await myDevice(tx, tenantId, session.user.id, params.id);
+    await removeDevice(tx, tenantId, session.user.id, params.id, new Date());
+    return { ok: true as const };
+  });
+
+  mount(app, routes.myPush, ({ tx, tenantIds, session }) =>
+    myPush(tx, tenantIds[0] as string, session.user.id),
+  );
+
+  mount(app, routes.setMyPush, async ({ tx, tenantIds, session, body }) => {
+    const tenantId = tenantIds[0] as string;
+    await mergePersonSettings(tx, tenantId, session.user.id, {
+      push: body.on,
+      pushEvery: body.every,
+      pushShowsClient: body.showClient,
+    });
+    return myPush(tx, tenantId, session.user.id);
   });
 }
