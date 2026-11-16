@@ -4,8 +4,8 @@
 // owner). The agents are on Home and the agent switcher on an agent's page; Settings and the lead
 // are in the avatar menu (Settings also at the sidebar's foot); Sloan is Ask Sloan in the top bar
 // and in the search box. The routes live in ./routes.tsx.
-import { type ReactNode, useCallback, useEffect, useRef } from "react";
-import { Link, NavLink, Route, Routes, useLocation, useMatch } from "react-router-dom";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { Link, Route, Routes, useLocation, useMatch } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
@@ -22,6 +22,7 @@ import { INBOX_COUNT_POLL_MS, InboxCountProvider } from "./inboxCount";
 import { useIntentZone } from "./intent";
 import { askSloan, PORTAL_PATHS } from "./paths";
 import { portalRoutes } from "./routes";
+import { SloanPanel } from "./screens/Sloan";
 
 /** A page change asks the overview again only when its answer is older than this. */
 export const OVERVIEW_STALE_MS = 5_000;
@@ -182,24 +183,34 @@ export function PortalLayout({ children }: { children: ReactNode }) {
 
 /**
  * Ask Sloan in the top bar, beside the Inbox: Sloan's badge and the words (the badge alone at
- * phone width, named for screen readers), with what Sloan is in its title. It opens `/sloan`;
- * the search box still offers "Ask Sloan" for what was typed.
+ * phone width, named for screen readers), with what Sloan is in its title. Feedback (2026-11-11):
+ * it opens Sloan in a side panel over the page you're on (`SloanPanel`), with the full `/sloan`
+ * page one link away; the search box still offers "Ask Sloan" for what was typed.
  */
 export function AskSloanButton() {
   const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const onSloan = useMatch(`${PORTAL_PATHS.sloan}/*`);
   const label = t("shell.askSloanButton");
   const hint = t("shell.askSloanHint");
   return (
-    <NavLink
-      to={PORTAL_PATHS.sloan}
-      className="ui-topbar__ask"
-      title={hint}
-      aria-label={`${label}. ${hint}`}
-      data-testid="shell-ask-sloan"
-    >
-      <AgentBadge name="Sloan" size="sm" />
-      <span className="ui-topbar__asklabel">{label}</span>
-    </NavLink>
+    <>
+      <button
+        type="button"
+        className="ui-topbar__ask"
+        title={hint}
+        aria-label={`${label}. ${hint}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-current={onSloan ? "page" : undefined}
+        data-testid="shell-ask-sloan"
+        onClick={() => setOpen(true)}
+      >
+        <AgentBadge name="Sloan" size="sm" />
+        <span className="ui-topbar__asklabel">{label}</span>
+      </button>
+      {open ? <SloanPanel onClose={() => setOpen(false)} /> : null}
+    </>
   );
 }
 

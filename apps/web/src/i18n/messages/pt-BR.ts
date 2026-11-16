@@ -2037,6 +2037,7 @@ export const ptBR: Messages = {
   "sloan.past": "Conversas anteriores",
   "sloan.pastItem": "Iniciada em {date}",
   "sloan.new": "Nova",
+  "sloan.openPage": "Abrir a página inteira",
   "sloan.empty":
     "Pergunte por que algo está esperando, pause um agente, adicione um aprovador ou passe uma ideia ao seu responsável.",
   "sloan.answering": "Sloan está respondendo…",

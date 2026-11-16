@@ -124,6 +124,14 @@ After the first run: save the project id from the run summary as the repository 
    Sessions → Session lifetime: maximum 12 hours, inactivity 30 minutes; access token duration
    stays 5 minutes). Our own cookie enforces both limits anyway, and an idle or expired session
    also ends WorkOS's, so the next sign-in asks for the password and code again.
+   **Branding**, on both environments (WorkOS → the environment → Branding; dashboard only, no API;
+   per application where an environment has several): without it the sign-in page shows WorkOS's
+   placeholder icon and a blank tab icon (feedback, 2026-11-16). From
+   `packages/design-system/assets/Logos/`: logo icon `mezonas-app-icon-512.png` (at least 160 px
+   square, under 100 KB), logo `mezonas-logo.svg` (for the dark theme, `mezonas-logo-paper.svg`),
+   favicon `favicon-48.png` (at least 32 px square, under 100 KB), shown as the logo icon; app
+   name "Mezonas"; button colour slate `#23415E` (dark theme `#8FB0D2`), page background paper
+   `#FAFAF9` (dark `#0F1318`). The email templates take the same logo.
 
 
 ### The public site (mezonas.com)

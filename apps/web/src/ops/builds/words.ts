@@ -1,5 +1,6 @@
 // Builds (docs/plan.md §1.108): the words and tones the build screens share.
 import {
+  type BuildItemKind,
   type BuildItemState,
   type BuildPhase,
   type FitVerdict,
@@ -27,6 +28,41 @@ export const ITEM_TONE: Record<BuildItemState, Tone> = {
   waiting: "warning",
   done: "positive",
   deferred: "neutral",
+};
+
+/**
+ * Feedback (2026-11-16): "what is the human ask, and how to resolve it". Each kind of open item
+ * by what it is and what settles it.
+ */
+export const ITEM_KIND_WORDS: Record<BuildItemKind, { label: string; how: string }> = {
+  question: {
+    label: "Question",
+    how: "Answer it to the Builder in the conversation; it marks it done when the brief has the answer.",
+  },
+  gap: {
+    label: "Gap",
+    how: "Decide how to cover it: build it, give it to a person, or drop it from scope. Tell the Builder which.",
+  },
+  precondition: {
+    label: "Must be true first",
+    how: "Get it done, often by the client in their portal, then set it to Done.",
+  },
+  test: {
+    label: "Test",
+    how: "Fix what failed, then run the tests again. It closes when the test passes.",
+  },
+  feedback: {
+    label: "Client feedback",
+    how: "Change the agent, or answer the client, then set it to Done.",
+  },
+  qa: {
+    label: "QA",
+    how: "Check it in QA and sign it, or accept it with a reason.",
+  },
+  note: {
+    label: "Note",
+    how: "A note to keep in mind. Set it to Done when it no longer matters.",
+  },
 };
 
 export const QA_TONE: Record<QaCheck["state"], Tone> = {

@@ -475,6 +475,50 @@ describe("command center", () => {
     expect(screen.getByTestId("ops-command-waiting")).toBeInTheDocument();
   });
 
+  it("shows each client as a card, a coloured square per active agent, with words", async () => {
+    // Feedback (2026-11-06): green, yellow and red for each active agent, never colour alone.
+    const failing = "00000000-0000-4000-8000-00000000b003";
+    const waiting = "00000000-0000-4000-8000-00000000b004";
+    const api = routes({
+      "GET /api/ops/command-center": () =>
+        center({
+          agents: [
+            ...center().agents,
+            agent({
+              id: failing,
+              name: "Rex",
+              serviceName: null,
+              recentRuns: [{ id: "r9", status: "failed", mode: "live", createdAt: hoursAgo(1) }],
+            }),
+            agent({ id: waiting, name: "Vera", serviceName: null, openRuns: 1, waitingRuns: 1 }),
+          ],
+        }),
+    });
+    renderAt(api);
+    const cards = await screen.findByTestId("ops-command-clients");
+    const demoCard = within(cards).getByTestId(`ops-client-card-${DEMO}`);
+    // The client with a failure comes first.
+    expect(within(cards).getAllByRole("listitem")[0]).toBe(demoCard);
+    expect(demoCard).toHaveTextContent("3agents");
+    expect(demoCard).toHaveTextContent("3 things need us");
+    expect(within(demoCard).getByTestId(`ops-client-card-agent-${AGENT}`)).toHaveAttribute(
+      "data-health",
+      "good",
+    );
+    expect(within(demoCard).getByRole("link", { name: "Rex: last run failed" })).toHaveAttribute(
+      "href",
+      `/ops/agents/${failing}`,
+    );
+    expect(
+      within(demoCard).getByRole("link", { name: "Vera: waiting on a person" }),
+    ).toBeInTheDocument();
+    expect(demoCard).toHaveTextContent("1 fine1 waiting on a person1 last run failed");
+    // A paused agent has no square and is counted as not on.
+    const otherCard = within(cards).getByTestId(`ops-client-card-${OTHER}`);
+    expect(otherCard).toHaveTextContent("1agent · 1 not on");
+    expect(otherCard).toHaveTextContent("No agent is on yet");
+  });
+
   it("names an agent's state in words", () => {
     expect(agentChip({ status: "active", openRuns: 0, recentRuns: [] }).words).toBe("Idle");
     expect(

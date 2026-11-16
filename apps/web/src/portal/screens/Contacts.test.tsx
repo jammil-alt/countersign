@@ -150,6 +150,11 @@ describe("C5 Contacts", () => {
     expect(await within(detail).findByTestId("people-recent")).toHaveTextContent(
       "Asked for a new copy of quote Q-7781",
     );
+    // Feedback (2026-11-12): the person opens in a side sheet over the list; Close shuts it.
+    expect(detail).toHaveAttribute("role", "dialog");
+    expect(screen.getByTestId(`people-row-${MARCO}`)).toBeInTheDocument();
+    await userEvent.click(within(detail).getByTestId(`people-detail-${MARCO}-close`));
+    expect(screen.queryByTestId(`people-detail-${MARCO}`)).toBeNull();
   });
 
   // QA round 1: two tabs; the admin's four other pages behind one "More".

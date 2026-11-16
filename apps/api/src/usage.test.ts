@@ -585,9 +585,13 @@ describe.skipIf(!h)("usage and reports", () => {
         .json,
     );
     expect(one.byModel).toEqual([]);
-    // A long range has no day split.
-    const long = j(
+    // A year is split by day (the chart is daily, feedback 2026-11-16); a longer range is not.
+    const year = j(
       (await call(OPERATOR, "GET", "/api/ops/usage?from=2026-01-01&to=2026-11-03")).json,
+    );
+    expect(year.byDay).toHaveLength(307);
+    const long = j(
+      (await call(OPERATOR, "GET", "/api/ops/usage?from=2025-01-01&to=2026-11-03")).json,
     );
     expect(long.byDay).toBeUndefined();
     await rollupAll();

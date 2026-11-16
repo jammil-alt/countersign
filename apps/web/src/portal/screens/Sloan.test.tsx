@@ -134,6 +134,25 @@ describe("Sloan", () => {
     expect(posts).toEqual([{ id: LATEST, body: { text: "Pause Cole until Monday" } }]);
   });
 
+  it("is asked in a side panel from any page, on the latest conversation", async () => {
+    // Feedback (2026-11-11): Sloan beside the page you're on, not on a page of its own.
+    const { posts } = setup(undefined, "/");
+    await userEvent.click(await screen.findByTestId("shell-ask-sloan"));
+    const panel = await screen.findByTestId("portal-sloan-panel");
+    expect(await within(panel).findByTestId("portal-sloan-messages")).toHaveTextContent(
+      "Emails to customers always need your sign.",
+    );
+    await userEvent.type(within(panel).getByTestId("portal-sloan-input"), "Pause Cole");
+    await userEvent.click(within(panel).getByTestId("portal-sloan-send"));
+    expect(posts).toEqual([{ id: LATEST, body: { text: "Pause Cole" } }]);
+    // The page under it stays where it was.
+    expect(screen.getByTestId("where")).toHaveTextContent(/^\/$/);
+    // The full page is one link away, on the same conversation.
+    await userEvent.click(within(panel).getByTestId("portal-sloan-panel-page"));
+    expect(screen.getByTestId("where")).toHaveTextContent(`/sloan/${LATEST}`);
+    expect(screen.queryByTestId("portal-sloan-panel")).toBeNull();
+  });
+
   it("starts a conversation with the first message", async () => {
     const { posts } = setup([]);
     expect(await screen.findByTestId("portal-sloan-empty")).toBeInTheDocument();

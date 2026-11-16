@@ -316,6 +316,93 @@ function NewSiteForm({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
   );
 }
 
+const SECOND_WORDS: Record<string, string> = {
+  none: "None",
+  totp: "Authenticator app code",
+  sms: "Code by text",
+  email: "Code by email",
+};
+
+/** A profile being edited: what the form reads and writes, before core's schema checks it. */
+interface Draft {
+  login?: {
+    url?: string;
+    origins?: string[];
+    usernameField?: string;
+    passwordField?: string;
+    submitButton?: string;
+    secondFactor?: {
+      kind?: string;
+      sender?: string;
+      pattern?: string;
+      codeField?: string;
+      codeButton?: string;
+    };
+    signedIn?: { url?: string | undefined; selector?: string | undefined };
+    stopSelectors?: string[];
+  };
+  signOut?: { url?: string | undefined; selector?: string | undefined };
+  allow?: string[];
+  block?: string[];
+  hosts?: string[];
+  session?: { keep?: boolean };
+  notes?: string;
+}
+
+/** The form's words for a schema path, so a problem reads by the field's label. */
+const FIELD_WORDS: Record<string, string> = {
+  "login.url": "Sign-in page",
+  "login.origins": "Typed only on",
+  "login.usernameField": "Username box",
+  "login.passwordField": "Password box",
+  "login.submitButton": "Sign-in button",
+  "login.secondFactor": "Second step",
+  "login.secondFactor.sender": "Codes come from",
+  "login.secondFactor.pattern": "The code in the message",
+  "login.secondFactor.codeField": "Code box",
+  "login.secondFactor.codeButton": "Code button",
+  "login.signedIn": "Signed in when",
+  signOut: "Sign out",
+  "signOut.url": "Sign-out page",
+  allow: "Pages agents may open",
+  block: "Pages agents never open",
+  hosts: "Other hosts",
+};
+
+/** Core's problems with the profile, by the form's labels. */
+function formProblems(text: string): string | undefined {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const parsed = BrowserSiteProfile.safeParse(json);
+  if (parsed.success) return undefined;
+  return parsed.error.issues
+    .map((i) => {
+      const path = i.path.filter((x) => typeof x === "string").join(".");
+      return `${FIELD_WORDS[path] ?? (path || "The profile")}: ${i.message}`;
+    })
+    .join("; ");
+}
+
+const lines = (list: readonly string[] | undefined) => (list ?? []).join("\n");
+const fromLines = (text: string) =>
+  text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+/** An optional text: left out of the profile when empty (core refuses an empty selector). */
+const opt = (v: string) => (v.trim() ? v : undefined);
+
+/**
+ * Feedback (2026-11-10): the site's profile as a form, not JSON: the sign-in page and its boxes,
+ * the second step, how to tell it signed in and out, and the pages agents may and may not open.
+ * It edits the same JSON (core's schema checks it before anything is sent); "Edit as JSON" stays
+ * for what the form doesn't hold. The agent account's username and password are never here: the
+ * client admin enters them in their portal's Vault, encrypted with the client's key.
+ */
 function ProfileField({
   text,
   onText,
@@ -325,23 +412,274 @@ function ProfileField({
   onText: (t: string) => void;
   error: string | undefined;
 }) {
+  const [json, setJson] = useState(false);
+  let draft: Draft | null = null;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) draft = parsed as Draft;
+  } catch {
+    draft = null;
+  }
+  const asForm = !json && draft !== null;
+  const shownError = asForm ? (formProblems(text) ?? error) : error;
   return (
-    <Field
-      label="Profile"
-      hint="Login page and the origins credentials may be typed into, selectors, second factor, signed-in check, sign-out, allowed and blocked pages."
-      error={error}
-      testId="site-profile"
-    >
+    <div className="flex flex-col gap-3" data-testid="site-profile">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-sm font-medium text-ink">How agents sign in</span>
+        <button
+          type="button"
+          className="ds-btn ds-btn--link text-sm"
+          data-testid="site-profile-json"
+          disabled={json && draft === null}
+          title={json && draft === null ? "Fix the JSON first" : undefined}
+          onClick={() => setJson((j) => !j)}
+        >
+          {json ? "Back to the form" : "Edit as JSON"}
+        </button>
+      </div>
+      <p className="text-sm text-ink-muted" data-testid="site-profile-vault">
+        No username or password goes here. The client admin enters the agent account's login in
+        their portal's Vault; it is encrypted with the client's key and we never see it.
+      </p>
+      {asForm && draft ? (
+        <ProfileForm draft={draft} onChange={(next) => onText(JSON.stringify(next, null, 2))} />
+      ) : (
+        <TextArea
+          data-testid="site-profile-text"
+          aria-label="Profile as JSON"
+          className="font-mono text-sm"
+          rows={18}
+          spellCheck={false}
+          value={text}
+          invalid={error !== undefined}
+          onChange={(e) => onText(e.target.value)}
+        />
+      )}
+      {shownError ? (
+        <p className="ds-error text-sm" data-testid="site-profile-error">
+          {shownError}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ProfileForm({ draft, onChange }: { draft: Draft; onChange: (next: Draft) => void }) {
+  const login = draft.login ?? {};
+  const second = login.secondFactor ?? { kind: "none" };
+  const setLogin = (patch: Partial<NonNullable<Draft["login"]>>) =>
+    onChange({ ...draft, login: { ...login, ...patch } });
+  const setSecond = (patch: Partial<NonNullable<NonNullable<Draft["login"]>["secondFactor"]>>) =>
+    setLogin({ secondFactor: { ...second, ...patch } });
+  const kind = second.kind ?? "none";
+  const setKind = (next: string) => {
+    // Each kind keeps only its own fields (core's schema is strict).
+    const code = { codeField: second.codeField ?? "", codeButton: second.codeButton ?? "" };
+    setLogin({
+      secondFactor:
+        next === "none"
+          ? { kind: "none" }
+          : next === "totp"
+            ? { kind: next, ...code }
+            : { kind: next, sender: second.sender ?? "", pattern: second.pattern ?? "", ...code },
+    });
+  };
+  const text = (
+    label: string,
+    value: string | undefined,
+    set: (v: string) => void,
+    testId: string,
+    hint?: string,
+  ) => (
+    <Field label={label} hint={hint}>
+      <TextInput data-testid={testId} value={value ?? ""} onChange={(e) => set(e.target.value)} />
+    </Field>
+  );
+  const list = (
+    label: string,
+    value: string[] | undefined,
+    set: (v: string[]) => void,
+    testId: string,
+    hint: string,
+  ) => (
+    <Field label={label} hint={hint}>
       <TextArea
-        data-testid="site-profile-text"
-        className="font-mono text-sm"
-        rows={18}
+        data-testid={testId}
+        rows={3}
         spellCheck={false}
-        value={text}
-        invalid={error !== undefined}
-        onChange={(e) => onText(e.target.value)}
+        value={lines(value)}
+        onChange={(e) => set(fromLines(e.target.value))}
       />
     </Field>
+  );
+  return (
+    <div className="flex flex-col gap-5" data-testid="site-profile-form">
+      <fieldset className="flex flex-col gap-3">
+        <legend className="eyebrow mb-2 text-ink-muted">The sign-in page</legend>
+        {text(
+          "Sign-in page",
+          login.url,
+          (url) => setLogin({ url }),
+          "site-form-url",
+          "Its full address, such as https://portal.example.com/login.",
+        )}
+        {list(
+          "Typed only on",
+          login.origins,
+          (origins) => setLogin({ origins }),
+          "site-form-origins",
+          "The only sites the login and codes are ever typed into, one per line: https://portal.example.com.",
+        )}
+        <div className="grid gap-3 md:grid-cols-3">
+          {text(
+            "Username box",
+            login.usernameField,
+            (usernameField) => setLogin({ usernameField }),
+            "site-form-username",
+            "The page element, such as #username.",
+          )}
+          {text(
+            "Password box",
+            login.passwordField,
+            (passwordField) => setLogin({ passwordField }),
+            "site-form-password",
+            "Such as #password.",
+          )}
+          {text(
+            "Sign-in button",
+            login.submitButton,
+            (submitButton) => setLogin({ submitButton }),
+            "site-form-submit",
+            "Such as button[type=submit].",
+          )}
+        </div>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-3">
+        <legend className="eyebrow mb-2 text-ink-muted">The second step</legend>
+        <Field label="Second step" hint="Codes are read by our code service, never by the agent.">
+          <Select
+            data-testid="site-form-second"
+            value={kind}
+            onChange={(e) => setKind(e.target.value)}
+          >
+            {Object.entries(SECOND_WORDS).map(([k, words]) => (
+              <option key={k} value={k}>
+                {words}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {kind === "sms" || kind === "email" ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            {text(
+              "Codes come from",
+              second.sender,
+              (sender) => setSecond({ sender }),
+              "site-form-sender",
+              kind === "sms"
+                ? "The number codes come from."
+                : "The address or domain, such as @example.com.",
+            )}
+            {text(
+              "The code in the message",
+              second.pattern,
+              (pattern) => setSecond({ pattern }),
+              "site-form-pattern",
+              "A pattern with the code in brackets, such as code is (\\d{6}).",
+            )}
+          </div>
+        ) : null}
+        {kind !== "none" ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            {text(
+              "Code box",
+              second.codeField,
+              (codeField) => setSecond({ codeField }),
+              "site-form-code-field",
+              "Such as #code.",
+            )}
+            {text(
+              "Code button",
+              second.codeButton,
+              (codeButton) => setSecond({ codeButton }),
+              "site-form-code-button",
+              "Such as button[type=submit].",
+            )}
+          </div>
+        ) : null}
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-3">
+        <legend className="eyebrow mb-2 text-ink-muted">Signed in, and signing out</legend>
+        <div className="grid gap-3 md:grid-cols-2">
+          {text(
+            "Signed in when the address is",
+            login.signedIn?.url,
+            (url) => setLogin({ signedIn: { ...login.signedIn, url: opt(url) } }),
+            "site-form-signed-in-url",
+            "Optional, such as https://portal.example.com/home*.",
+          )}
+          {text(
+            "Or when the page shows",
+            login.signedIn?.selector,
+            (selector) => setLogin({ signedIn: { ...login.signedIn, selector: opt(selector) } }),
+            "site-form-signed-in-selector",
+            "Optional, such as #account-menu. One of the two at least.",
+          )}
+          {text(
+            "Sign-out page",
+            draft.signOut?.url,
+            (url) => onChange({ ...draft, signOut: { ...draft.signOut, url: opt(url) } }),
+            "site-form-sign-out-url",
+            "Optional.",
+          )}
+          {text(
+            "Or the sign-out button",
+            draft.signOut?.selector,
+            (selector) =>
+              onChange({ ...draft, signOut: { ...draft.signOut, selector: opt(selector) } }),
+            "site-form-sign-out-selector",
+            "Optional. One of the two at least.",
+          )}
+        </div>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-3">
+        <legend className="eyebrow mb-2 text-ink-muted">Pages</legend>
+        {list(
+          "Pages agents may open",
+          draft.allow,
+          (allow) => onChange({ ...draft, allow }),
+          "site-form-allow",
+          "One per line; * matches the rest: https://portal.example.com/invoices*.",
+        )}
+        {list(
+          "Pages agents never open",
+          draft.block,
+          (block) => onChange({ ...draft, block }),
+          "site-form-block",
+          "Beside the pages always blocked (settings, passwords, users, billing, delete).",
+        )}
+        {list(
+          "Other hosts its pages load from",
+          draft.hosts,
+          (hosts) => onChange({ ...draft, hosts }),
+          "site-form-hosts",
+          "Optional, one per line, such as cdn.example.com. Nothing is typed or read there.",
+        )}
+        <label className="flex items-center gap-2 text-sm text-ink">
+          <input
+            type="checkbox"
+            className="size-4 accent-slate"
+            data-testid="site-form-keep"
+            checked={draft.session?.keep ?? false}
+            onChange={(e) => onChange({ ...draft, session: { keep: e.target.checked } })}
+          />
+          Keep the session between sign-ins (low tier only; kept encrypted in the client's Vault)
+        </label>
+      </fieldset>
+    </div>
   );
 }
 
@@ -416,7 +754,7 @@ function SiteCard({ site, onChanged }: { site: Site; onChanged: () => void }) {
           <dt className="text-ink-muted">Typed only on</dt>
           <dd className="text-ink">{profile.login.origins.join(", ")}</dd>
           <dt className="text-ink-muted">Second factor</dt>
-          <dd className="text-ink">{profile.login.secondFactor.kind}</dd>
+          <dd className="text-ink">{SECOND_WORDS[profile.login.secondFactor.kind]}</dd>
           <dt className="text-ink-muted">Allowed pages</dt>
           <dd className="text-ink">{profile.allow.join(", ")}</dd>
           <dt className="text-ink-muted">Blocked pages</dt>

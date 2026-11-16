@@ -272,9 +272,57 @@ describe("Builds", () => {
       expect(moves.at(-1)).toEqual({ to: "intake", reason: "The brief missed a field" }),
     );
 
-    // An open item's state changes in place.
+    // Feedback (2026-11-16): an open item says what it is, what settles it, and who has it; a
+    // question's Answer starts the reply in the conversation's box.
+    const items = within(view).getByTestId("build-items");
+    expect(within(items).getByRole("columnheader", { name: "Status" })).toBeInTheDocument();
+    expect(within(items).getByRole("columnheader", { name: "Who has it" })).toBeInTheDocument();
+    expect(within(view).getByTestId(`build-item-${ITEM}-kind`)).toHaveTextContent("Question");
+    expect(within(view).getByTestId(`build-item-${ITEM}-how`)).toHaveTextContent(
+      "To settle it: Answer it to the Builder in the conversation",
+    );
+    await userEvent.click(within(view).getByTestId(`build-item-${ITEM}-answer`));
+    expect(within(view).getByTestId("build-input")).toHaveValue("About “How many: still open”: ");
+    expect(within(view).getByTestId("build-input")).toHaveFocus();
+
+    // An open item's status changes in place.
     await userEvent.selectOptions(within(view).getByTestId(`build-item-${ITEM}-state`), "Done");
     await waitFor(() => expect(updates).toEqual([{ state: "done" }]));
+  });
+
+  it("shows the Builder at work beside a move, and keeps the column width you drag to", async () => {
+    let answer: (v: unknown) => void = () => {};
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => detail(),
+      [`POST /api/ops/builds/${ID}/phase`]: () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const view = await screen.findByTestId("build-view");
+
+    // Feedback (2026-11-16): agreeing the fit-gap takes a while; the loop and its words show it.
+    expect(within(view).queryByTestId("build-agree-working")).toBeNull();
+    await userEvent.click(within(view).getByTestId("build-agree"));
+    expect(within(view).getByTestId("build-agree")).toHaveTextContent("Working…");
+    expect(await within(view).findByTestId("build-agree-working")).toHaveTextContent(
+      "The Builder is drafting the workflow from the brief and the fit-gap…",
+    );
+    answer(detail());
+    await waitFor(() => expect(within(view).queryByTestId("build-agree-working")).toBeNull());
+
+    // The line between the columns moves with the arrows, within bounds, and is kept.
+    const split = within(view).getByTestId("build-split");
+    expect(split).toHaveAttribute("aria-valuenow", "420");
+    split.focus();
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}");
+    expect(split).toHaveAttribute("aria-valuenow", "468");
+    expect(localStorage.getItem("mezonas.build.chatWidth")).toBe("468");
+    for (let i = 0; i < 10; i++) await userEvent.keyboard("{ArrowLeft}");
+    expect(split).toHaveAttribute("aria-valuenow", "320");
+    localStorage.removeItem("mezonas.build.chatWidth");
   });
 
   it("filters the fit-gap by verdict and changes one only with a reason", async () => {

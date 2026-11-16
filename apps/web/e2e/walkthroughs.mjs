@@ -1,8 +1,7 @@
 // The prototype's two walkthroughs (docs/design/prototype.html, `#Start`), clicked through the real
 // UI on the seeded data: the client's morning (Home, an agent and its tabs, the Inbox, Runs,
-// Accounts, Contacts, Settings and its sections, the Weekly Table, Ask Sloan in the top bar and
-// Sloan from the search box) and
-// the back office's (Command center, Escalations,
+// Accounts, Contacts, Settings and its sections, the Weekly Table, Ask Sloan in the top bar (a side
+// panel) and Sloan from the search box) and the back office's (Command center, Escalations,
 // Runs, a client and its tabs, Agent lab, an agent and its tabs, the workflow builder, triggers,
 // the Library with Skills and Connectors, Usage and billing). Each step moves by clicking a link
 // the screen shows, as a person would, opening the menu on a phone; every page gets the route
@@ -282,15 +281,30 @@ async function clientWalk(w) {
     await w.follow("/weekly", { scope: "main", skip: "no weekly summary was sent yet" });
   });
   await w.step("Ask Sloan", async () => {
-    // The top bar's Ask Sloan, beside the Inbox (on a phone, Sloan's badge alone): opens Sloan.
+    // The top bar's Ask Sloan, beside the Inbox (on a phone, Sloan's badge alone): opens Sloan in
+    // a side panel over the page (feedback, 2026-11-11), with a box to ask in and the full page a
+    // link away. The link closes the panel and opens /sloan.
     const page = w.page;
     await w.goto("/");
     const ask = page.locator('[data-testid="shell-ask-sloan"]');
     if (!(await ask.isVisible())) throw new Error("no Ask Sloan in the top bar");
     if (!(await ask.getAttribute("title"))) throw new Error("Ask Sloan says nothing of Sloan");
     await ask.click();
+    const panel = page.locator('[data-testid="portal-sloan-panel"]');
+    await panel.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {
+      throw new Error("Ask Sloan didn't open Sloan");
+    });
     await settle(page);
-    if (new URL(page.url()).pathname !== "/sloan") throw new Error("Ask Sloan didn't open Sloan");
+    if ((await panel.locator('[data-testid="portal-sloan-input"]').count()) === 0) {
+      throw new Error("no box to ask Sloan in, in the panel");
+    }
+    if (new URL(page.url()).pathname !== "/") throw new Error("Ask Sloan left the page");
+    await panel.locator('[data-testid="portal-sloan-panel-page"]').click();
+    await settle(page);
+    if (!new URL(page.url()).pathname.startsWith("/sloan")) {
+      throw new Error("the panel's full-page link didn't open Sloan");
+    }
+    if (await panel.isVisible()) throw new Error("the panel stayed open on the full page");
   });
   await w.step("Sloan", async () => {
     // Sloan is also in the search box: "Ask Sloan" opens it with the question ready.
