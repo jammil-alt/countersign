@@ -1195,6 +1195,13 @@ export const event = pgTable(
     payload: json("payload").notNull().default({}),
     createdAt: createdAt(),
     dispatchedAt: ts("dispatched_at"),
+    // Dispatches that failed for this event (its own work threw; a run whose instance would not
+    // start is the engine's failure and not counted), the last one's error, and when it was set
+    // aside after too many: a set-aside event leaves the queue until an operator retries it
+    // (docs/operations.md §5).
+    dispatchAttempts: integer("dispatch_attempts").notNull().default(0),
+    dispatchError: text("dispatch_error"),
+    setAsideAt: ts("set_aside_at"),
   },
   (t) => [
     index("event_tenant_idx").on(t.tenantId, t.createdAt),

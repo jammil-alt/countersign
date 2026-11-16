@@ -36,7 +36,6 @@ import {
   docExtraction,
   docLine,
   document,
-  event,
   externalAction,
   feedback,
   inboxItem,
@@ -272,7 +271,10 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     status: "awaiting_approval",
     externalActionId: ea.id,
   });
-  await db.insert(event).values({ tenantId, type: "test.happened", payload: {} });
+  // 0054: its columns named, not drizzle's whole list, so a client seeded on a database migrated
+  // only to an earlier migration gets this row too.
+  await db.execute(sql`
+      insert into event (tenant_id, type, payload) values (${tenantId}, 'test.happened', '{}'::jsonb)`);
   const [th] = await db.insert(thread).values({ tenantId, title: "Thread" }).returning();
   if (!th) throw new Error("no thread");
   const [m] = await db
@@ -453,7 +455,7 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
   await db
     .insert(tenantChange)
     .values({ tenantId, change: { setting: "feedback", to: true }, reason: "Beta" });
-  // 0050: its columns named, not drizzle's whole list (which has `source` and `context`), so a
+  // 0054: its columns named, not drizzle's whole list (which has `source` and `context`), so a
   // client seeded on a database migrated only to an earlier migration gets this row too.
   await db.execute(sql`
       insert into feedback (tenant_id, surface, user_id, comment, path, viewport)

@@ -372,6 +372,13 @@
       "when": 1794774184026,
       "tag": "0053_builds",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1794787235035,
+      "tag": "0054_event_dispatch_failures",
+      "breakpoints": true
     }
   ]
 }
