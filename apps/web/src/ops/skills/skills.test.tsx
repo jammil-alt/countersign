@@ -520,6 +520,49 @@ describe("new skill, with the Builder", () => {
     );
   });
 
+  it("saves the draft and opens it to edit by hand", async () => {
+    // Feedback (2026-11-10): "this does not allow me to edit the draft, only save it".
+    const saves: string[] = [];
+    const { user } = renderAt(`/ops/skills/new?session=${SESSION_ID}`, {
+      [`GET /api/ops/builder/sessions/${SESSION_ID}`]: () => ({
+        session: BUILDER_SESSION(DRAFT),
+        turns: [TURN(2, "builder", "Drafted it.")],
+      }),
+      [`POST /api/ops/builder/sessions/${SESSION_ID}/save`]: () => {
+        saves.push(SESSION_ID);
+        const t = TURN(3, "builder", "Saved.");
+        return {
+          session: BUILDER_SESSION(DRAFT, "saved"),
+          turns: [t],
+          turn: t,
+          agent: null,
+          skill: { id: SKILL_ID, slug: "match-card-charge", ref: "custom:match-card-charge" },
+          version: { id: VERSION.id, version: 1 },
+          cases: [],
+          errors: [],
+        };
+      },
+    });
+    expect(await screen.findByTestId("new-skill-edit-hint")).toHaveTextContent(
+      "choose Save and edit to change any field yourself",
+    );
+    // What the Builder is, and where the steps after a skill are built.
+    const what = screen.getByTestId("new-skill-what");
+    expect(what).toHaveTextContent("A skill is one step");
+    expect(within(what).getByRole("link", { name: "Builds" })).toHaveAttribute(
+      "href",
+      "/ops/builds",
+    );
+    await user.click(screen.getByTestId("new-skill-edit"));
+    await waitFor(() => expect(saves).toEqual([SESSION_ID]));
+    // The skill's own page, on its Definition tab: the editor.
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        new RegExp(`/ops/skills/${SKILL_ID}$`),
+      ),
+    );
+  });
+
   it("still writes a skill by hand", async () => {
     const sent: { definition: Record<string, unknown> }[] = [];
     const { user } = renderAt("/ops/skills/new?by=hand", {
