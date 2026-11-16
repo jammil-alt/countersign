@@ -595,3 +595,15 @@ describe("odoo connector: wire values", () => {
     expect(e.retryable).toBe(true);
   });
 });
+
+describe("plainText (chatter HTML for comparing notes)", () => {
+  it("reads paragraphs and line breaks as lines, and decodes entities", async () => {
+    const { plainText } = await import("./records");
+    expect(plainText("<p>Price 5 &amp; up</p><p>Line<br/>two</p>")).toBe("Price 5 & up\nLine\ntwo");
+  });
+
+  it("leaves no tag behind when tags are nested", async () => {
+    const { plainText } = await import("./records");
+    expect(plainText("<scr<script>ipt>alert(1)</scr</script>ipt>")).not.toMatch(/<[a-z]/i);
+  });
+});

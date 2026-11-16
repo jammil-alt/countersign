@@ -349,12 +349,18 @@ export function odooDatetime(at: Date): string {
   return at.toISOString().slice(0, 19).replace("T", " ");
 }
 
-/** HTML from Odoo's chatter as plain text, to compare a note with the one we'd write. */
+/**
+ * HTML from Odoo's chatter as plain text, to compare a note with the one we'd write. Only ever
+ * compared, never shown or sent as HTML. Tags are stripped until none are left, so a nested one
+ * (`<scr<script>ipt>`) can't come back together.
+ */
 export function plainText(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>\s*<p[^>]*>/gi, "\n")
-    .replace(/<[^>]*>/g, "")
+  let text = html.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>\s*<p[^>]*>/gi, "\n");
+  for (let before = ""; before !== text; ) {
+    before = text;
+    text = text.replace(/<[^>]*>/g, "");
+  }
+  return text
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
