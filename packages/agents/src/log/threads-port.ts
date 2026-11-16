@@ -17,6 +17,7 @@ import {
   agent,
   agentVersion,
   appUser,
+  areaOwner,
   type Db,
   membership,
   run,
@@ -149,6 +150,25 @@ export function dbThreadsPort(db: Db, options: { emit?: Emit } = {}): ThreadsPor
             );
           }
         }
+        // v0.19: an answer in an area owner's name: the owner must be this client's.
+        // A conversation with an owner is answered as that owner, whatever the tool asked, so the
+        // client always knows who is talking.
+        const ownerId =
+          input.audience === "client" && t.subjectType === "account" && t.subjectId
+            ? t.subjectId
+            : input.as?.ownerId;
+        let as: { ownerId: string; name: string; area: string } | null = null;
+        if (ownerId) {
+          if (input.audience !== "client") {
+            throw new AgentsError("invalid_state", "only an answer to the client is an owner's");
+          }
+          const [o] = await tx
+            .select({ id: areaOwner.id, name: areaOwner.name, area: areaOwner.area })
+            .from(areaOwner)
+            .where(and(eq(areaOwner.id, ownerId), eq(areaOwner.tenantId, tenantId)));
+          if (!o) throw new AgentsError("invalid_state", "that owner isn't this client's");
+          as = { ownerId: o.id, name: o.name, area: o.area };
+        }
         const posted = await postMessage(
           tx,
           {
@@ -160,6 +180,7 @@ export function dbThreadsPort(db: Db, options: { emit?: Emit } = {}): ThreadsPor
             kind: "text",
             body: {
               text: input.text,
+              ...(as ? { as } : {}),
               stepId: input.stepId,
               runId: input.runId,
               ...(input.mode === "test" ? { testRunId: input.runId } : {}),

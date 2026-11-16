@@ -166,6 +166,15 @@ then one pass of its "To verify" list against the real service.
 
 ## 4. Everything else
 
+### Area owners, owner chat and Home (designed 2026-11-12)
+
+ARCHITECTURE v0.19 §10.15, `docs/plan.md` §1.117 and §10 (O1–O8). Built on
+`claude/clever-allen-i6npwp` and brought onto main in two PRs: the migration on its own, then the
+code. What is left of it is listed under §10's status. Waiting on the owner:
+- The **name pool** (40 short names, `docs/plan.md` §1.117).
+- The **public site** still calls Sloan "your manager agent" ("Every agent has a job, a manager and
+  a person who checks its work", `apps/site`): new words for Sloan as the chat.
+
 ### Production's first release
 
 Production is **live** (`https://app.mezonas.com/api/health` answers 200): Deploy run 207 put

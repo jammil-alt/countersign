@@ -25,10 +25,12 @@ import {
   type AccountRunView,
   type AccountService,
   type AccountWaitExplanation,
+  AREA_IDEAS,
   acceptingTriggers,
   acceptsSloan,
   isPlainObject,
   mayAskFor,
+  OWNER_AREAS,
   passToAgentEvent,
   ThreadMessagePostedPayload,
 } from "@countersign/core";
@@ -36,14 +38,18 @@ import {
   agent,
   agentVersion,
   appUser,
+  areaOwner,
   type Db,
   event,
   membership,
+  memoryNote,
+  message,
   run,
   type Tx,
+  thread,
   withTenant,
 } from "@countersign/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { AgentsError } from "../errors";
 import type {
   AccountCall,
@@ -81,7 +87,25 @@ export interface AccountScope {
  * The portal's views and writes, from apps/api (`apps/api/src/account/views.ts`). Each runs in the
  * port's transaction, for the asker, and returns the portal's own shapes.
  */
+/** v0.19: one of the client's area owners, as Sloan may name it in the chat (§10.15). */
+export interface AccountOwner {
+  id: string;
+  name: string;
+  area: string;
+  /** Its role in the client's language ("purchasing agent"). */
+  role: string;
+  /** The services (processes) in its area: what it may talk about. */
+  services: { id: string; name: string }[];
+  /** What it did lately, in the portal's words, newest first. */
+  recent: string[];
+}
+
 export interface AccountViews {
+  /**
+   * v0.19: the client's owner of that name (any case), or with no name the owner the asker's
+   * conversation is with; with its area's services and what it did lately. Null if none.
+   */
+  owner?(s: AccountScope, name: string | undefined): Promise<AccountOwner | null>;
   services(s: AccountScope): Promise<AccountService[]>;
   runs(s: AccountScope, query: AccountRunsQuery): Promise<AccountRunSummary[]>;
   run(s: AccountScope, runId: string): Promise<AccountRunView>;
@@ -277,6 +301,85 @@ export function dbAccountPort(
   const paused: AccountPauseOutcome = { status: "test_run", service: null };
 
   return {
+    // v0.19 (ARCHITECTURE §10.15 "Conversation history"): the asker's own, never anyone else's.
+    history: (tenantId, call, input) =>
+      scoped(tenantId, call, "read", async (s) => {
+        const userId = s.asker.userId;
+        if (!userId) return { summaries: [], messages: [] };
+        const summaries = await s.tx
+          .select({ note: memoryNote.note, at: memoryNote.createdAt, threadId: message.threadId })
+          .from(memoryNote)
+          .leftJoin(
+            message,
+            and(
+              eq(message.id, memoryNote.sourceMessageId),
+              eq(message.tenantId, memoryNote.tenantId),
+            ),
+          )
+          .where(
+            and(
+              eq(memoryNote.tenantId, tenantId),
+              eq(memoryNote.scope, "person"),
+              eq(memoryNote.personId, userId),
+            ),
+          )
+          .orderBy(desc(memoryNote.createdAt))
+          .limit(input.limit);
+        const words = input.query?.trim();
+        const messages = words
+          ? await s.tx
+              .select({
+                threadId: message.threadId,
+                title: thread.title,
+                body: message.body,
+                at: message.createdAt,
+              })
+              .from(message)
+              .innerJoin(
+                thread,
+                and(eq(thread.id, message.threadId), eq(thread.tenantId, message.tenantId)),
+              )
+              .where(
+                and(
+                  eq(message.tenantId, tenantId),
+                  eq(thread.subjectType, "account"),
+                  eq(thread.createdBy, userId),
+                  sql`${message.body}->>'text' ilike ${`%${words.replace(/[%_]/g, "")}%`}`,
+                ),
+              )
+              .orderBy(desc(message.createdAt))
+              .limit(input.limit)
+          : [];
+        return {
+          summaries: summaries.map((r) => ({
+            note: r.note,
+            at: r.at.toISOString(),
+            threadId: r.threadId ?? null,
+          })),
+          messages: messages.map((m) => ({
+            threadId: m.threadId,
+            title: m.title,
+            text: String((m.body as { text?: unknown }).text ?? "").slice(0, 500),
+            at: m.at.toISOString(),
+          })),
+        };
+      }),
+    // v0.19: the areas this client doesn't use yet (an area is in use once it has an owner).
+    ideas: (tenantId, call) =>
+      scoped(tenantId, call, "read", async (s) => {
+        const used = new Set(
+          (
+            await s.tx
+              .select({ area: areaOwner.area })
+              .from(areaOwner)
+              .where(eq(areaOwner.tenantId, tenantId))
+          ).map((r) => r.area),
+        );
+        return OWNER_AREAS.filter((a) => a !== "general" && !used.has(a)).map((a) => ({
+          area: a,
+          ...AREA_IDEAS[a],
+        }));
+      }),
     services: (tenantId, call) => scoped(tenantId, call, "read", (s) => views.services(s)),
     runs: (tenantId, call, query) => scoped(tenantId, call, "read", (s) => views.runs(s, query)),
     run: (tenantId, call, runId) => scoped(tenantId, call, "read", (s) => views.run(s, runId)),
@@ -314,5 +417,9 @@ export function dbAccountPort(
       ),
     passToAgent: (tenantId, call, input) =>
       scoped(tenantId, call, "pass", (s) => passToAgent(s, input.serviceId, options.emit)),
+    owner: (tenantId, call, input) =>
+      scoped(tenantId, call, "read", async (s) =>
+        views.owner ? views.owner(s, input.name) : null,
+      ),
   };
 }

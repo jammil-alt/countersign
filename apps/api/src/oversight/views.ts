@@ -9,14 +9,18 @@ import {
   findAnyStep,
   type OversightDecisionView,
   oversightLine,
+  ownerDid,
   parseSkillRef,
   processes,
 } from "@countersign/core";
 import {
   appUser,
+  areaOwner,
+  areaOwnerVersion,
   inboxItem,
   OVERSIGHT_CAUSES,
   oversightDecision,
+  run,
   stepRun,
   type Tx,
 } from "@countersign/db";
@@ -133,6 +137,20 @@ export async function timelineOversight(
   const out = new Map<string, string[]>();
   if (rows.length === 0) return out;
   const locale = await tenantLocale(tx, tenantId);
+  // v0.19 (ARCHITECTURE §10.15): the area owner that watched the run, by its name now (a rename
+  // shows at once); none for a run from before owners.
+  const [owned] = await tx
+    .select({ name: areaOwner.name })
+    .from(run)
+    .innerJoin(
+      areaOwnerVersion,
+      and(eq(areaOwnerVersion.id, run.ownerVersionId), eq(areaOwnerVersion.tenantId, run.tenantId)),
+    )
+    .innerJoin(
+      areaOwner,
+      and(eq(areaOwner.id, areaOwnerVersion.ownerId), eq(areaOwner.tenantId, run.tenantId)),
+    )
+    .where(and(eq(run.id, runId), eq(run.tenantId, tenantId)));
   for (const r of rows) {
     let field: string | null = null;
     if (r.action === "retry_with") {
@@ -145,11 +163,12 @@ export async function timelineOversight(
       r.action === "ask" && r.askedSubject === "oversight_ask" && r.askedId
         ? r.askedName?.trim() || (r.askedEmail?.split("@")[0] ?? null)
         : null;
-    const line = oversightLine(locale, {
+    const said = oversightLine(locale, {
       action: r.action as OversightDecisionView["action"],
       field,
       askedName,
     });
+    const line = owned?.name ? ownerDid(locale, owned.name, said) : said;
     out.set(r.stepRunId, [...(out.get(r.stepRunId) ?? []), line]);
   }
   return out;

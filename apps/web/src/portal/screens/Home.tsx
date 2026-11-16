@@ -13,7 +13,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
-import { useApi, useApiClient } from "../../api/useApi";
+import { useApi, useApiClient, useApiStore } from "../../api/useApi";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { shortTime } from "../../runs/format";
@@ -22,9 +22,10 @@ import { useSession } from "../../session/session";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
 import { Delta, hasRuns, KpiStrip, Sparkline, StatTile } from "../../ui/figures";
-import { Field, TextArea } from "../../ui/forms";
+import { Field, TextArea, TextInput } from "../../ui/forms";
 import { Columns, Loaded, Page, PageGrid, Section } from "../../ui/page";
 import {
+  Badge,
   Button,
   buttonClass,
   Card,
@@ -38,6 +39,7 @@ import { type ChipState, StatusChip } from "../../ui/status";
 import { longDay, partOfDay, sameDay, stageWord } from "../agentState";
 import { INBOX_COUNT_POLL_MS, useRefreshInboxCount } from "../inboxCount";
 import { PORTAL_PATHS } from "../paths";
+import { useSloanPanel } from "../SloanPanel";
 import { agentChip, runChip, runOpen } from "../status";
 
 type Service = TableView["services"][number];
@@ -126,6 +128,9 @@ export function HomeScreen() {
                 />
               ) : null}
               {data.recent.length > 0 ? <Latest recent={data.recent} /> : null}
+              {/* v0.19 (§10.15 "Home"): what else we could do, and the quick actions. */}
+              {data.ideas.length > 0 ? <Ideas ideas={data.ideas} /> : null}
+              <QuickActions />
             </>
           ) : table.error ? null : (
             <Skeleton>
@@ -134,6 +139,7 @@ export function HomeScreen() {
           )
         }
       >
+        {data && data.owners.length > 0 ? <Owners owners={data.owners} /> : null}
         <Section title={t("home.agents")} testId="home-agents">
           <Loaded state={table} skeleton={<AgentsSkeleton />}>
             {(d) => <Agents services={d.services} access={access.data} />}
@@ -770,5 +776,160 @@ function FindingRow({ finding: f }: { finding: PortalFinding }) {
         {t("table.openItem")}
       </Link>
     </div>
+  );
+}
+
+// ── v0.19 (ARCHITECTURE §10.15 "Home"): owners, ideas and quick actions ─────────────────────────
+
+// Waiting on you is signal (the design system's warning tone), always with its word.
+const HEALTH_TONE = { working: "positive", needs_you: "warning", paused: "neutral" } as const;
+
+/** The client's area owners: who looks after what, how its week went, and Ask. */
+function Owners({ owners }: { owners: TableView["owners"] }) {
+  const { t } = useI18n();
+  const panel = useSloanPanel();
+  const session = useSession();
+  // v0.19: the client admin may rename an owner (the one change a client makes to an agent).
+  const isAdmin =
+    (session.tenants.find((c) => c.id === session.activeTenantId)?.role ??
+      session.tenants[0]?.role) === "client_admin";
+  return (
+    <Section title={t("home.owners")} testId="home-owners">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        {owners.map((o) => (
+          <Card key={o.id} pad testId={`home-owner-${o.area}`}>
+            <div className="flex items-center gap-3">
+              <AgentBadge name={o.name} size="sm" />
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-ink">{o.name}</p>
+              </div>
+              <Badge tone={HEALTH_TONE[o.health]}>{t(`home.owner.health.${o.health}`)}</Badge>
+            </div>
+            <p className="mt-3 text-sm text-ink-muted">
+              {t("home.owner.week", { runs: o.runs, corrected: o.corrected })}
+            </p>
+            {o.last ? <p className="mt-1 text-sm text-ink">{o.last}</p> : null}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                data-testid={`home-owner-ask-${o.area}`}
+                onClick={() => panel.open({ ownerId: o.id })}
+              >
+                {t("home.owner.ask", { name: o.name })}
+              </Button>
+              {isAdmin ? <RenameOwner id={o.id} name={o.name} area={o.area} /> : null}
+            </div>
+          </Card>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+/** The areas the client doesn't use yet, each with "Ask us about this". */
+function Ideas({ ideas }: { ideas: TableView["ideas"] }) {
+  const { t } = useI18n();
+  const panel = useSloanPanel();
+  return (
+    <Card pad title={t("home.ideas")} testId="home-ideas">
+      <ul className="flex flex-col gap-3">
+        {ideas.map((i) => (
+          <li key={i.area} className="text-sm">
+            <p className="font-medium text-ink">{i.title}</p>
+            <p className="text-ink-muted">{i.line}</p>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="mt-1 px-0"
+              data-testid={`home-idea-${i.area}`}
+              onClick={() => panel.open(t("home.ideas.prompt", { title: i.title }))}
+            >
+              {t("home.ideas.ask")}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function QuickActions() {
+  const { t } = useI18n();
+  const panel = useSloanPanel();
+  return (
+    <Card pad title={t("home.quick")} testId="home-quick">
+      <div className="flex flex-col gap-2">
+        <Link
+          to={PORTAL_PATHS.contactsImport}
+          className={buttonClass("secondary")}
+          data-testid="home-quick-upload"
+        >
+          {t("home.quick.upload")}
+        </Link>
+        <Button
+          data-testid="home-quick-feedback"
+          onClick={() => panel.open(t("home.quick.feedbackPrompt"))}
+        >
+          {t("home.quick.feedback")}
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+/** The client admin's rename of an owner: 2 to 12 letters, not Sloan; the API says why not. */
+function RenameOwner({ id, name, area }: { id: string; name: string; area: string }) {
+  const { t } = useI18n();
+  const api = useApiClient();
+  const refresh = useApiStore();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(name);
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  if (!editing) {
+    return (
+      <Button
+        size="sm"
+        variant="ghost"
+        data-testid={`home-owner-rename-${area}`}
+        onClick={() => setEditing(true)}
+      >
+        {t("home.owner.rename")}
+      </Button>
+    );
+  }
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.call(apiRoutes.ownerRename, { params: { id }, body: { name: value.trim() } });
+      setEditing(false);
+      refresh.clear();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <form className="flex flex-wrap items-center gap-2" onSubmit={save}>
+      <TextInput
+        aria-label={t("home.owner.renameLabel", { name })}
+        value={value}
+        className="w-32"
+        data-testid={`home-owner-rename-input-${area}`}
+        onChange={(e) => setValue(e.target.value)}
+      />
+      <Button
+        type="submit"
+        size="sm"
+        disabled={busy}
+        data-testid={`home-owner-rename-save-${area}`}
+      >
+        {t("home.owner.save")}
+      </Button>
+      {error ? <ErrorNotice error={error} /> : null}
+    </form>
   );
 }
