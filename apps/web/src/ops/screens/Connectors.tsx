@@ -29,7 +29,6 @@ import {
   Badge,
   Button,
   buttonClass,
-  Card,
   cx,
   EmptyState,
   ErrorNotice,

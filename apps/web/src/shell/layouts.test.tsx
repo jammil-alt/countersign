@@ -447,7 +447,7 @@ describe("portal layout", () => {
     });
     renderAt("/", api);
     const ask = await screen.findByTestId("shell-ask-sloan");
-    expect(ask).toHaveAttribute("href", "/sloan");
+    expect(ask).toHaveAttribute("aria-haspopup", "dialog");
     expect(ask).toHaveTextContent("Ask Sloan");
     expect(ask).toHaveAttribute("title", "Your account agent: ask about your agents' work");
     // Its name starts with the words it shows, so it reads the same with the badge alone.
@@ -455,6 +455,16 @@ describe("portal layout", () => {
     // It sits in the top bar, before the Inbox.
     const inbox = screen.getByTestId("shell-inbox");
     expect(ask.compareDocumentPosition(inbox) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // Feedback (2026-11-11): it opens Sloan in a side panel over the page, the full page a link
+    // away; Close goes back to the page as it was.
+    await userEvent.click(ask);
+    const panel = await screen.findByTestId("portal-sloan-panel");
+    expect(panel).toHaveAttribute("role", "dialog");
+    expect(within(panel).getByTestId("portal-sloan-input")).toBeInTheDocument();
+    expect(within(panel).getByTestId("portal-sloan-panel-page")).toHaveAttribute("href", "/sloan");
+    await userEvent.click(within(panel).getByTestId("portal-sloan-panel-close"));
+    expect(screen.queryByTestId("portal-sloan-panel")).toBeNull();
   });
 
   it("switches between agents from an agent's page", async () => {
