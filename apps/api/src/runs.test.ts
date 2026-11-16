@@ -21,6 +21,7 @@ import {
   usageDaily,
 } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
+import { DISPATCH_ATTEMPTS } from "@countersign/senses";
 import { isWaitTimeout } from "@countersign/workflows";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -777,5 +778,90 @@ describe.skipIf(!h)("runs", () => {
     const before = H.instances.started.size;
     expect(await dispatchByIds({ db: H.db, instances: H.instances }, H.B.tenantId, [e.id])).toBe(1);
     expect(H.instances.started.size).toBe(before + 1);
+  });
+
+  it("rolls back a failing event alone, and sets it aside after the last try", async () => {
+    const old = new Date(Date.now() - 120_000);
+    // A message whose contact id is not an id: matching it against reach-outs throws. It reaches
+    // the outbox only by a direct insert (emit checks payloads), as an older Worker's might.
+    const [poison, good] = await H.t.db
+      .insert(event)
+      .values([
+        {
+          tenantId: H.B.tenantId,
+          type: "message.received",
+          payload: { contactId: "not-an-id", channel: "sms", text: "hi" },
+          createdAt: old,
+        },
+        {
+          tenantId: H.B.tenantId,
+          type: "inbox.resolved",
+          payload: {
+            inboxItemId: crypto.randomUUID(),
+            kind: "beside-poison",
+            runId: null,
+            approved: true,
+            resolvedBy: null,
+          },
+          createdAt: new Date(old.getTime() + 1),
+        },
+      ])
+      .returning();
+    if (!poison || !good) throw new Error("setup");
+    const sweep = () =>
+      dispatchTenant({ db: H.db, instances: H.instances }, H.B.tenantId, { olderThanSeconds: 30 });
+    const read = async (id: string) =>
+      (await H.t.db.select().from(event).where(eq(event.id, id)))[0];
+    const before = H.instances.started.size;
+    // The good event, claimed in the same batch after the bad one, is dispatched and starts its run.
+    expect(await sweep()).toBe(1);
+    expect((await read(good.id))?.dispatchedAt).not.toBeNull();
+    expect(H.instances.started.size).toBe(before + 1);
+    // The bad one is counted, keeps its error and waits for the next sweep.
+    let bad = await read(poison.id);
+    expect(bad?.dispatchedAt).toBeNull();
+    expect(bad?.dispatchAttempts).toBe(1);
+    expect(bad?.dispatchError).toMatch(/uuid/);
+    expect(bad?.setAsideAt).toBeNull();
+    // Each sweep tries it again until the last try sets it aside.
+    for (let i = 2; i <= DISPATCH_ATTEMPTS; i++) expect(await sweep()).toBe(0);
+    bad = await read(poison.id);
+    expect(bad?.dispatchAttempts).toBe(DISPATCH_ATTEMPTS);
+    expect(bad?.setAsideAt).not.toBeNull();
+    // Set aside, it is no longer claimed: the sweep finds nothing and counts nothing more.
+    expect(await sweep()).toBe(0);
+    expect((await read(poison.id))?.dispatchAttempts).toBe(DISPATCH_ATTEMPTS);
+  });
+
+  it("doesn't count a run that won't start against its event", async () => {
+    const [e] = await H.t.db
+      .insert(event)
+      .values({
+        tenantId: H.B.tenantId,
+        type: "inbox.resolved",
+        payload: {
+          inboxItemId: crypto.randomUUID(),
+          kind: "down-again",
+          runId: null,
+          approved: true,
+          resolvedBy: null,
+        },
+      })
+      .returning();
+    if (!e) throw new Error("setup");
+    const down = {
+      start: async () => {
+        throw new Error("the Workflows engine is unreachable");
+      },
+      sendEvent: async () => {},
+      terminate: async () => "missing" as const,
+    };
+    await dispatchByIds({ db: H.db, instances: down }, H.B.tenantId, [e.id]);
+    const [row] = await H.t.db.select().from(event).where(eq(event.id, e.id));
+    // Given back to the sweep, as before, but not counted: an engine outage must not set events
+    // aside.
+    expect(row?.dispatchedAt).toBeNull();
+    expect(row?.dispatchAttempts).toBe(0);
+    expect(row?.setAsideAt).toBeNull();
   });
 });

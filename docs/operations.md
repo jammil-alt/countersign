@@ -1295,3 +1295,26 @@ Test a restore every quarter (SOC 2 A1.3, HIPAA §164.308(a)(7)):
 4. Note the date and the result.
 
 Set Neon's history retention to at least 7 days on the production project.
+
+## 5. Events set aside
+
+An event that fails to dispatch five times (its own routing throws: bad data or a bug in a trigger,
+not an engine outage) is set aside so it can't hold up its client's other events (`docs/plan.md` §1.112). Each one is
+reported to Sentry as "an event was set aside after failing to dispatch", tagged with the client
+and the event. To see them, as `cs_owner`:
+
+```sql
+select id, tenant_id, type, created_at, dispatch_attempts, dispatch_error, set_aside_at
+from event where set_aside_at is not null order by set_aside_at desc;
+```
+
+Fix the cause first (`dispatch_error` and the Sentry events for that event id say what failed),
+then give it back to the sweep, which dispatches it within a minute. Starting its runs again is safe:
+run ids come from the event id.
+
+```sql
+update event set set_aside_at = null, dispatch_attempts = 0, dispatch_error = null
+where id = '<event id>' and dispatched_at is null;
+```
+
+An event that should never run (it was wrong, not the code) can stay set aside: it starts nothing.

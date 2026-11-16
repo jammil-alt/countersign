@@ -1,7 +1,9 @@
 // The senses outbox (docs/plan.md §1.2 "Senses outbox"). `emit` inserts the event in the caller's
 // transaction, so the event exists exactly when the change it reports commits. After commit
 // apps/api hands it to the trigger router and stamps `dispatched_at`; the every-minute cron sweeps
-// up whatever is still undispatched. A dispatcher claims its events first (claimUndispatched: a row
+// up whatever is still undispatched. An event whose dispatch keeps failing is counted
+// (recordDispatchFailure) and, after DISPATCH_ATTEMPTS tries, set aside: it leaves the queue so it
+// can't hold up its client's other events, until an operator retries it. A dispatcher claims its events first (claimUndispatched: a row
 // lock, skipped by any other dispatcher) and stamps them in the same transaction, so an event is
 // dispatched once even when the after-commit dispatch and the sweep reach it together. Starting a
 // run twice would be harmless anyway: triggered run ids are derived from the event id (eventRunId).
@@ -11,7 +13,7 @@
 
 import { isUuid, once, type PlatformEventType } from "@countersign/core";
 import { event, type Tx } from "@countersign/db";
-import { and, asc, gte, inArray, isNull, lt, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lt, type SQL, sql } from "drizzle-orm";
 import type { PlatformEventPayloads } from "./platform";
 import { type EventTypeRegistry, platformRegistry } from "./registry";
 
@@ -107,7 +109,10 @@ export interface UndispatchedOptions {
   limit?: number;
 }
 
-/** Events still waiting for dispatch, oldest first, among the clients `tx` is scoped to. */
+/**
+ * Events still waiting for dispatch, oldest first, among the clients `tx` is scoped to. Set-aside
+ * events are not waiting: they wait for an operator.
+ */
 export function undispatched(tx: Tx, options: UndispatchedOptions = {}): Promise<EventRow[]> {
   const seconds = options.olderThanSeconds ?? 30;
   const limit = options.limit ?? 500;
@@ -117,6 +122,7 @@ export function undispatched(tx: Tx, options: UndispatchedOptions = {}): Promise
     where: (e, { and, isNull, lt, sql }) =>
       and(
         isNull(e.dispatchedAt),
+        isNull(e.setAsideAt),
         lt(e.createdAt, sql`now() - make_interval(secs => ${seconds}::double precision)`),
       ),
     orderBy: (e, { asc }) => [asc(e.createdAt), asc(e.id)],
@@ -157,14 +163,15 @@ const seconds = (n: number, name: string) => {
 
 /**
  * Claims undispatched events for this transaction, oldest first: their rows are locked until it
- * ends, and events another dispatcher holds are skipped (`for update skip locked`). The caller
+ * ends, and events another dispatcher holds are skipped (`for update skip locked`), as are events
+ * set aside. The caller
  * routes them and stamps them (markDispatched) before committing, so whoever comes next finds them
  * stamped, or locked and skips them: an event is dispatched once.
  */
 export async function claimUndispatched(tx: Tx, options: ClaimOptions = {}): Promise<EventRow[]> {
   const limit = options.limit ?? 500;
   if (!Number.isInteger(limit) || limit < 1) throw new Error("limit must be a positive integer");
-  const conds: (SQL | undefined)[] = [isNull(event.dispatchedAt)];
+  const conds: (SQL | undefined)[] = [isNull(event.dispatchedAt), isNull(event.setAsideAt)];
   if (options.ids !== undefined) {
     if (options.ids.length === 0) return [];
     for (const id of options.ids) if (!isUuid(id)) throw new Error(`not an event id: ${id}`);
@@ -198,4 +205,71 @@ export async function releaseDispatched(tx: Tx, ids: readonly string[]): Promise
     .where(inArray(event.id, [...new Set(ids)]))
     .returning({ id: event.id });
   return rows.map((r) => r.id);
+}
+
+/**
+ * How many failed dispatches an event gets before it is set aside. The after-commit dispatch is the
+ * first try and the every-minute sweep the rest, so a failing event leaves the queue in about four
+ * minutes, and a passing hiccup (a deploy, a lock timeout) still gets through.
+ */
+// DECISION: 5 tries, a count on the row, no backoff between them: the sweep's minute already spaces
+// them, and a column is the simplest place for the count (docs/plan.md §1.112).
+export const DISPATCH_ATTEMPTS = 5;
+
+/** The most of an error kept on the event: enough to find the cause, not a stack. */
+const ERROR_CHARS = 1000;
+
+export interface DispatchFailure {
+  id: string;
+  attempts: number;
+  /** True when this failure set the event aside (it was the last try). */
+  setAside: boolean;
+}
+
+/**
+ * One line for `dispatch_error`: the error's name and message, cut short. A wrapped error is
+ * described by its innermost cause: a failed query's wrapper repeats the SQL and its parameters,
+ * which are not worth keeping; the database's own message says what went wrong.
+ */
+export function dispatchErrorText(error: unknown): string {
+  let inner = error;
+  for (
+    let depth = 0;
+    depth < 5 && inner instanceof Error && inner.cause instanceof Error;
+    depth++
+  ) {
+    inner = inner.cause;
+  }
+  const text = inner instanceof Error ? `${inner.name}: ${inner.message}` : String(inner);
+  return text.length > ERROR_CHARS ? `${text.slice(0, ERROR_CHARS - 1)}…` : text;
+}
+
+/**
+ * Records a failed dispatch of one event: takes its stamp off (as releaseDispatched does), counts
+ * the try and keeps the error; the try that reaches `maxAttempts` also sets it aside. Returns null
+ * for an event outside the transaction's clients.
+ */
+export async function recordDispatchFailure(
+  tx: Tx,
+  id: string,
+  error: unknown,
+  maxAttempts: number = DISPATCH_ATTEMPTS,
+): Promise<DispatchFailure | null> {
+  if (!isUuid(id)) throw new Error(`not an event id: ${id}`);
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+    throw new Error("maxAttempts must be a positive integer");
+  }
+  // In an UPDATE's SET, a column is its value before the update: both counts read the old one.
+  const [row] = await tx
+    .update(event)
+    .set({
+      dispatchedAt: null,
+      dispatchAttempts: sql`${event.dispatchAttempts} + 1`,
+      dispatchError: dispatchErrorText(error),
+      setAsideAt: sql`case when ${event.dispatchAttempts} + 1 >= ${maxAttempts} then now() else null end`,
+    })
+    .where(eq(event.id, id))
+    .returning({ id: event.id, attempts: event.dispatchAttempts, setAsideAt: event.setAsideAt });
+  if (!row) return null;
+  return { id: row.id, attempts: row.attempts, setAside: row.setAsideAt !== null };
 }

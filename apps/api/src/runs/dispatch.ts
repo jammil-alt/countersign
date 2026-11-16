@@ -10,11 +10,13 @@ import { clientHolidays } from "@countersign/core";
 import { agent, agentVersion, type Db, type Tx, tenant, withTenant } from "@countersign/db";
 import {
   claimUndispatched,
+  type DispatchFailure,
   type EmittedEvents,
   type EventRow,
   type EventTypeRegistry,
   emit,
   markDispatched,
+  recordDispatchFailure,
   releaseDispatched,
 } from "@countersign/senses";
 import {
@@ -25,7 +27,7 @@ import {
   type StepRunner,
 } from "@countersign/workflows";
 import { and, eq, isNotNull } from "drizzle-orm";
-import { reportHandled } from "../observability/report";
+import { reportHandled, reportProblem } from "../observability/report";
 import { matchRepliesIn, wakeAll } from "../reach/replies";
 // v0.12 W2-E
 import { countLimited, overLimit } from "../triggers/limits";
@@ -115,11 +117,19 @@ export type DispatchPick =
  * dispatch and the sweep reach it together. A run whose instance can't start gives its event back
  * (unstamped) to the sweep; starting it again is safe (deterministic run ids). Returns how many
  * events it dispatched.
+ *
+ * Each event is handled in its own savepoint: one that throws (bad data, a bug in a trigger) is
+ * rolled back alone, counted and left for the sweep, and the client's other events go on. After
+ * DISPATCH_ATTEMPTS failures it is set aside and reported, so it can't stall the client's queue.
+ * A run that won't start is not counted: that is the engine, not the event, and an outage must not
+ * set every client's events aside.
  */
 // DECISION: the claim is a row lock held by the dispatching transaction (`for update skip
 // locked`), not a lease column: no migration, and a dispatcher that dies before committing leaves
 // the events as they were for the sweep. Instances start after the commit, as before, so a run's
 // row exists before its instance reads it.
+// DECISION: a savepoint per event, not a transaction per event: the claim stays one lock and one
+// commit, and only an event's own work is undone when it fails (docs/plan.md §1.112).
 export async function dispatchTenant(
   deps: DispatchDeps,
   tenantId: string,
@@ -128,40 +138,30 @@ export async function dispatchTenant(
   const claimed = await withTenant(deps.db, tenantId, async (tx) => {
     const events = await claimUndispatched(tx, pick);
     if (events.length === 0) return null;
-    // Replies and opt-outs end the reach-outs they answer first, so a run woken by one sees it.
-    const woken = await matchRepliesIn(tx, tenantId, events, new Date());
+    const now = new Date();
     const agents = await routableAgents(tx, tenantId);
+    const woken: Awaited<ReturnType<typeof matchRepliesIn>> = [];
     const starts: { eventId: string; request: RunRequest }[] = [];
+    const failures: DispatchFailure[] = [];
+    const dispatched: string[] = [];
     for (const event of events) {
-      const { runs, problems } = await routeEvent(
-        { id: event.id, tenantId, type: event.type, payload: event.payload },
-        agents,
-        // v0.12 W2-E: message triggers read the sender from the client's People.
-        { sender: senderLookup(tx, tenantId) },
-      );
-      for (const p of problems) console.warn("trigger could not be evaluated", p);
-      for (const request of runs) {
-        // v0.12 W2-E: a webhook trigger's rate limit, counted from that trigger's runs.
-        if (request.limit && (await overLimit(tx, request))) {
-          await countLimited(tx, tenantId, request.limit);
-          continue;
-        }
-        try {
-          await createRunRow(tx, request);
-        } catch (error) {
-          // The agent was paused between routing and starting: nothing to start (createRun
-          // refuses before it writes, so the transaction goes on).
-          if (error instanceof AgentsError && error.code === "invalid_state") continue;
-          throw error;
-        }
-        starts.push({ eventId: event.id, request });
+      try {
+        const done = await tx.transaction((sp) => dispatchEvent(sp, tenantId, event, agents, now));
+        woken.push(...done.woken);
+        for (const request of done.runs) starts.push({ eventId: event.id, request });
+        dispatched.push(event.id);
+      } catch (error) {
+        const failure = await recordDispatchFailure(tx, event.id, error);
+        if (failure) failures.push(failure);
+        reportHandled(`dispatching event ${event.id} failed`, error, {
+          job: "dispatch",
+          client: tenantId,
+          event: event.id,
+        });
       }
     }
-    await markDispatched(
-      tx,
-      events.map((e) => e.id),
-    );
-    return { events, woken, starts };
+    await markDispatched(tx, dispatched);
+    return { dispatched, woken, starts, failures };
   });
   if (!claimed) return 0;
   const failed = new Set<string>();
@@ -179,7 +179,57 @@ export async function dispatchTenant(
   if (failed.size > 0) {
     await withTenant(deps.db, tenantId, (tx) => releaseDispatched(tx, [...failed]));
   }
-  return claimed.events.length;
+  for (const f of claimed.failures) {
+    if (f.setAside) {
+      reportProblem("an event was set aside after failing to dispatch", {
+        job: "dispatch",
+        client: tenantId,
+        event: f.id,
+        attempts: String(f.attempts),
+      });
+    }
+  }
+  return claimed.dispatched.length;
+}
+
+/**
+ * One event's share of a dispatch, in its own savepoint: ends the reach-outs it answers, routes it
+ * and writes its runs' rows. Returns the runs to start and the waiting runs to wake.
+ */
+async function dispatchEvent(
+  tx: Tx,
+  tenantId: string,
+  event: EventRow,
+  agents: RoutableAgent[],
+  now: Date,
+): Promise<{ runs: RunRequest[]; woken: Awaited<ReturnType<typeof matchRepliesIn>> }> {
+  // Replies and opt-outs end the reach-outs they answer first, so a run woken by one sees it.
+  const woken = await matchRepliesIn(tx, tenantId, [event], now);
+  const { runs, problems } = await routeEvent(
+    { id: event.id, tenantId, type: event.type, payload: event.payload },
+    agents,
+    // v0.12 W2-E: message triggers read the sender from the client's People.
+    { sender: senderLookup(tx, tenantId) },
+  );
+  for (const p of problems) console.warn("trigger could not be evaluated", p);
+  const started: RunRequest[] = [];
+  for (const request of runs) {
+    // v0.12 W2-E: a webhook trigger's rate limit, counted from that trigger's runs.
+    if (request.limit && (await overLimit(tx, request))) {
+      await countLimited(tx, tenantId, request.limit);
+      continue;
+    }
+    try {
+      await createRunRow(tx, request);
+    } catch (error) {
+      // The agent was paused between routing and starting: nothing to start (createRun refuses
+      // before it writes, so the savepoint goes on).
+      if (error instanceof AgentsError && error.code === "invalid_state") continue;
+      throw error;
+    }
+    started.push(request);
+  }
+  return { runs: started, woken };
 }
 
 /** Dispatches one client's committed events by id; a failure is logged and left to the sweep. */
@@ -295,8 +345,15 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
   const from = new Date(to.getTime() - 60_000);
   for (const client of clients) {
     try {
-      // The sweep: what the after-commit dispatches left (30 s and older).
-      await dispatchTenant(deps, client.id, { olderThanSeconds: SWEEP_AFTER_SECONDS });
+      // The sweep: what the after-commit dispatches left (30 s and older). A failed sweep is
+      // reported and the client's minute goes on: schedules and reach-outs don't wait on it.
+      await dispatchTenant(deps, client.id, { olderThanSeconds: SWEEP_AFTER_SECONDS }).catch(
+        (error) =>
+          reportHandled(`sweep for client ${client.id} failed`, error, {
+            job: "dispatch",
+            client: client.id,
+          }),
+      );
       const agents = await withTenant(deps.db, client.id, (tx) => routableAgents(tx, client.id));
       const { runs, problems } = await dueSchedules({
         agents,
