@@ -3,8 +3,9 @@
 // The filters live in the URL (`?client=`, `?template=`, `?view=`, `?range=`, `?from=&to=` for a
 // custom range, `?all=1` to show empty rows) so a client page or a template can link straight to
 // its usage. Drafted in the prototype's back-office style (no prototype screen; docs/ui-plan.md):
-// the period's figures as stat tiles, the cost as a bar chart, the chosen grouping (rows with
-// nothing in them hidden until "Show all"), the split by vendor and model, then the months.
+// the period's figures as stat tiles, the cost as a line by day (from the first day with usage),
+// the chosen grouping (rows with nothing in them hidden until "Show all"), the split by vendor and
+// model, then the months.
 import {
   dec,
   MODEL_PROVIDER_NAMES,
@@ -34,14 +35,18 @@ import {
   periodLabel,
   plural,
 } from "../../usage/format";
-import { type ChartPoint, SpendChart } from "../../usage/SpendChart";
+import { type ChartPoint, fromFirstUsage, LineChart } from "../../usage/LineChart";
 import { Select } from "../agents/ui";
 import { BusinessTabs, TableCard } from "./business";
 
 // UI cleanup: the periods people ask for, as well as whole months, and a custom range.
 const RANGES = [
   ["today", "Today"],
+  ["yesterday", "Yesterday"],
   ["7d", "Last 7 days"],
+  ["30d", "Last 30 days"],
+  ["week", "This week"],
+  ["lastweek", "Last week"],
   ["mtd", "Month to date"],
   ["month", "This month"],
   ["last", "Last month"],
@@ -68,10 +73,17 @@ const VIEWS = [
 ] as const;
 type View = (typeof VIEWS)[number][0];
 
+/** The Monday of `day`'s week (weeks run Monday to Sunday). */
+function weekStart(day: string): string {
+  const dow = new Date(`${day}T00:00:00.000Z`).getUTCDay();
+  return addDays(day, -((dow + 6) % 7));
+}
+
 /** The range's days in UTC, as the rollup counts them. */
 // DECISION: periods are UTC days like usage_daily; "This month" is the whole calendar month (its
 // days to come show empty), "Month to date" stops today; "Last N months" are whole months back to
-// today. The default, six months, is the API's default too. A custom range with a missing or
+// today. Weeks run Monday to Sunday (ISO 8601): "This week" is Monday to today, "Last week" the
+// whole week before (feedback, 2026-11-06). The default, six months, is the API's default too. A custom range with a missing or
 // backwards end falls back to month to date.
 export function usageRange(
   key: RangeKey,
@@ -82,8 +94,20 @@ export function usageRange(
   switch (key) {
     case "today":
       return { from: day, to: day };
+    case "yesterday": {
+      const y = addDays(day, -1);
+      return { from: y, to: y };
+    }
     case "7d":
       return { from: addDays(day, -6), to: day };
+    case "30d":
+      return { from: addDays(day, -29), to: day };
+    case "week":
+      return { from: weekStart(day), to: day };
+    case "lastweek": {
+      const from = addDays(weekStart(day), -7);
+      return { from, to: addDays(from, 6) };
+    }
     case "mtd":
       return { from: monthStart(day), to: day };
     case "month":
@@ -238,19 +262,16 @@ export function OpsUsageScreen() {
         />
         <BusinessTabs />
       </div>
+      {/* The period first (dataviz: date range first), then the client, then the grouping. */}
       <div className="flex flex-wrap items-center gap-3" data-testid="ops-usage-filters">
-        <StatusFilter
-          value={view}
-          onChange={(v) => set({ view: v === "clients" ? "" : v })}
-          area="ops-usage-view"
-          label="Group by"
-          options={VIEWS.map(([v, l]) => [v, l])}
-        />
         {/* biome-ignore lint/a11y/noLabelWithoutControl: the Select is the label's control. */}
         <label className="flex items-center gap-2 text-sm text-ink-muted">
           Period
           <Select
             data-testid="ops-usage-range"
+            // Feedback (2026-11-16): the box read "Today" over six months' figures; a browser
+            // restoring a select's last value on reload can do that, so it doesn't.
+            autoComplete="off"
             value={range}
             onChange={(e) => {
               const next = e.target.value;
@@ -315,6 +336,13 @@ export function OpsUsageScreen() {
             ))}
           </Select>
         </label>
+        <StatusFilter
+          value={view}
+          onChange={(v) => set({ view: v === "clients" ? "" : v })}
+          area="ops-usage-view"
+          label="Group by"
+          options={VIEWS.map(([v, l]) => [v, l])}
+        />
         {template ? (
           <span className="flex items-center gap-2 text-sm text-ink-muted">
             Template: <span className="text-ink">{templateName ?? "this template"}</span>
@@ -344,7 +372,15 @@ export function OpsUsageScreen() {
   );
 }
 
-/** The chart's bars: by day for a short period, else by month. */
+/** "From Nov 2, the first day with usage", when the line starts after the period does. */
+function chartSpan(data: UsageReport): string | undefined {
+  const first = data.byDay?.find((d) => !isEmptyFigures(d.figures));
+  return first && first.day !== data.from
+    ? `From ${dayLabel(first.day)}, the first day with usage`
+    : undefined;
+}
+
+/** The chart's points: by day (every preset, up to a year), else by month. */
 function chartPoints(data: UsageReport): ChartPoint[] {
   if (data.byDay) {
     return data.byDay.map((d) => ({
@@ -441,9 +477,12 @@ function UsageReportView({
       </Columns>
 
       {isEmptyFigures(data.total) && !data.byVendor?.length ? null : (
-        <Section title={data.byDay ? "Model cost by day" : "Model cost by month"}>
+        <Section
+          title={data.byDay ? "Model cost by day" : "Model cost by month"}
+          meta={data.byDay ? chartSpan(data) : undefined}
+        >
           <Card pad>
-            <SpendChart points={chartPoints(data)} testId="ops-usage-chart" />
+            <LineChart points={fromFirstUsage(chartPoints(data))} testId="ops-usage-chart" />
           </Card>
         </Section>
       )}

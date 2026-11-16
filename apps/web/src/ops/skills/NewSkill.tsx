@@ -31,6 +31,7 @@ import {
 } from "../../ui/primitives";
 import { errorText, Field, Notice, Select, TextArea, useAction } from "../agents/ui";
 import { toolTitle } from "../builder/model";
+import { OPS_PATHS } from "../paths";
 import { SchemaCard } from "./parts";
 import { SkillEditor } from "./SkillEditor";
 import { SKILLS_PATH, skillPath } from "./SkillsLibrary";
@@ -294,10 +295,21 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
     detail.reload();
   }
 
-  async function saveDraft() {
+  /**
+   * Saves the draft and opens the skill: on its tests, or (Save and edit) on its Definition tab,
+   * where every field is editable by hand. Feedback (2026-11-10): "this does not allow me to edit
+   * the draft, only save it". The draft here is the Builder's; it is edited by asking the Builder,
+   * or by hand once saved.
+   */
+  async function saveDraft(then: "tests" | "edit" = "tests") {
     const res = await save.call(apiRoutes.opsBuilderSave, { params: { id: sessionId }, body: {} });
-    if (res.ok && res.data.skill) navigate(`${skillPath(res.data.skill.id)}?tab=tests`);
-    else detail.reload();
+    if (res.ok && res.data.skill) {
+      navigate(
+        then === "edit"
+          ? skillPath(res.data.skill.id)
+          : `${skillPath(res.data.skill.id)}?tab=tests`,
+      );
+    } else detail.reload();
   }
 
   return (
@@ -316,14 +328,24 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
           }
           actions={
             open ? (
-              <Button
-                variant="primary"
-                data-testid="new-skill-save"
-                disabled={!def || save.busy}
-                onClick={saveDraft}
-              >
-                {save.busy ? "Saving…" : "Save draft"}
-              </Button>
+              <span className="flex flex-wrap gap-2">
+                <Button
+                  data-testid="new-skill-edit"
+                  disabled={!def || save.busy}
+                  title="Saves the draft and opens it with every field editable"
+                  onClick={() => void saveDraft("edit")}
+                >
+                  Save and edit
+                </Button>
+                <Button
+                  variant="primary"
+                  data-testid="new-skill-save"
+                  disabled={!def || save.busy}
+                  onClick={() => void saveDraft()}
+                >
+                  {save.busy ? "Saving…" : "Save draft"}
+                </Button>
+              </span>
             ) : session.skillId ? (
               <Link to={skillPath(session.skillId)} className={buttonClass("primary")}>
                 Open the skill
@@ -347,8 +369,22 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
               <AgentBadge name="Builder" size="sm" />
               <h2 className="type-subheading text-ink">Builder</h2>
             </span>
-            <span className="text-sm text-ink-muted">Drafts the skill and its tests</span>
+            <span className="text-sm text-ink-muted">Our drafting agent: it writes the skill</span>
           </div>
+          {/* Feedback (2026-11-10): "why is this called Builder, and how would we add steps like
+              reading the replies?" The page says what the Builder is and what a skill is for. */}
+          <p
+            className="border-b border-line px-6 py-3 text-sm text-ink-muted"
+            data-testid="new-skill-what"
+          >
+            The Builder drafts the skill and its tests from what you tell it. A skill is one step:
+            it does one job when an agent's workflow reaches it. Waiting for replies, reading them
+            and updating a task are the steps after it, built in the agent's workflow in{" "}
+            <Link to={OPS_PATHS.builds} className="font-medium text-slate hover:underline">
+              Builds
+            </Link>
+            .
+          </p>
           <div className="px-6 py-5">
             <ChatLog follow={`${turns.length}:${sent ?? ""}`} testId="builder-turns">
               {turns.length === 0 && !sent ? (
@@ -426,6 +462,12 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
             <EmptyState>Nothing drafted yet. Tell the Builder what the skill should do.</EmptyState>
           ) : tab === "definition" ? (
             <>
+              {open ? (
+                <p className="text-sm text-ink-muted" data-testid="new-skill-edit-hint">
+                  To change the draft, tell the Builder what to change, or choose Save and edit to
+                  change any field yourself.
+                </p>
+              ) : null}
               <Columns count={2}>
                 <SchemaCard
                   title="Takes in"

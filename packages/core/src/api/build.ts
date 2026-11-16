@@ -98,6 +98,9 @@ export const DraftProblem = z.object({
   title: z.string(),
   stepId: z.string().nullable(),
   workflow: z.string().nullable(),
+  /** Feedback (2026-11-16): the step and workflow by the names the operator reads. */
+  stepName: z.string().nullable().optional(),
+  workflowName: z.string().nullable().optional(),
 });
 export type DraftProblem = z.infer<typeof DraftProblem>;
 

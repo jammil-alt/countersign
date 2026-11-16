@@ -106,6 +106,7 @@ export function CommandCenterScreen() {
           <Loaded state={state} skeleton={<FiguresSkeleton />}>
             {(data) => <Figures data={data} />}
           </Loaded>
+          {state.data && state.data.agents.length > 0 ? <ClientCards data={state.data} /> : null}
           {/* What needs us beside what just ran: the two lists read side by side. */}
           <Columns count={2}>
             <Loaded
@@ -703,6 +704,132 @@ function AgentGroup({
         );
       })}
     </>
+  );
+}
+
+// ── Clients as cards ──
+
+/** An active agent's health, as a square's colour and its word (brand book: never colour alone). */
+type Health = "good" | "waiting" | "failed";
+const HEALTH: Record<Health, { label: string; square: string }> = {
+  good: { label: "fine", square: "bg-positive" },
+  waiting: { label: "waiting on a person", square: "bg-signal" },
+  failed: { label: "last run failed", square: "bg-risk" },
+};
+
+/** Null for an agent that isn't on (paused, setting up, retired): it gets no square. */
+export function agentHealth(a: Agent): Health | null {
+  const chip = agentChip(a);
+  if (chip.state === "failed") return "failed";
+  if (chip.state === "waiting") return "waiting";
+  if (chip.state === "running" || chip.state === "idle")
+    return a.status === "active" ? "good" : null;
+  return null;
+}
+
+/**
+ * Feedback (2026-11-06): "cards and lists; the number of agents in coloured squares, green,
+ * yellow and red for the status of each agent that is active". A card per client: its agents,
+ * a square per active agent (each a link to it, named in its tooltip and for screen readers),
+ * and the count of each colour in words. Clients with a failure come first, then a wait.
+ */
+function ClientCards({ data }: { data: CommandCenter }) {
+  const needs = new Map((data.clientCounts ?? []).map((c) => [c.id, c.needsUs]));
+  const clients = useMemo(() => {
+    const by = new Map<string, { id: string; name: string; agents: Agent[] }>();
+    for (const a of data.agents) {
+      const c = by.get(a.client.id) ?? { id: a.client.id, name: a.client.name, agents: [] };
+      c.agents.push(a);
+      by.set(a.client.id, c);
+    }
+    const rank = (c: { agents: Agent[] }) =>
+      c.agents.some((a) => agentHealth(a) === "failed")
+        ? 0
+        : c.agents.some((a) => agentHealth(a) === "waiting")
+          ? 1
+          : 2;
+    return [...by.values()].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  }, [data.agents]);
+  return (
+    <section aria-label="Clients" data-testid="ops-command-clients">
+      <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {clients.map((c) => {
+          const active = c.agents
+            .map((a) => ({ a, health: agentHealth(a) }))
+            .filter((x): x is { a: Agent; health: Health } => x.health !== null);
+          const count = (h: Health) => active.filter((x) => x.health === h).length;
+          const off = c.agents.length - active.length;
+          const needsUs = needs.get(c.id) ?? 0;
+          return (
+            <li
+              key={c.id}
+              className="ds-card flex flex-col gap-3 p-5"
+              data-testid={`ops-client-card-${c.id}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <Link
+                  to={OPS_PATHS.client(c.id)}
+                  className="min-w-0 truncate font-medium text-ink hover:underline"
+                >
+                  {c.name}
+                </Link>
+                {needsUs > 0 ? (
+                  <StatusChip state="waiting">
+                    {plural(needsUs, "thing needs", "things need")} us
+                  </StatusChip>
+                ) : null}
+              </div>
+              <p className="flex items-baseline gap-2">
+                <span className="type-title figures text-ink">{c.agents.length}</span>
+                <span className="text-sm text-ink-muted">
+                  {c.agents.length === 1 ? "agent" : "agents"}
+                  {off > 0 ? ` · ${off} not on` : ""}
+                </span>
+              </p>
+              {active.length > 0 ? (
+                <ul className="flex flex-wrap gap-1.5" aria-label="Active agents">
+                  {active.map(({ a, health }) => {
+                    const name = a.serviceName ?? a.name;
+                    return (
+                      <li key={a.id}>
+                        <Link
+                          to={`/ops/agents/${a.id}`}
+                          title={`${name}: ${HEALTH[health].label}`}
+                          aria-label={`${name}: ${HEALTH[health].label}`}
+                          data-testid={`ops-client-card-agent-${a.id}`}
+                          data-health={health}
+                          className={cx(
+                            "block size-5 rounded-sm outline-offset-2 hover:opacity-80",
+                            HEALTH[health].square,
+                          )}
+                        />
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+              <p className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-muted">
+                {active.length === 0 ? (
+                  <span>No agent is on yet</span>
+                ) : (
+                  (["good", "waiting", "failed"] as const)
+                    .filter((h) => count(h) > 0)
+                    .map((h) => (
+                      <span key={h} className="flex items-center gap-1.5">
+                        <span
+                          aria-hidden
+                          className={cx("size-2 rounded-[2px]", HEALTH[h].square)}
+                        />
+                        {count(h)} {HEALTH[h].label}
+                      </span>
+                    ))
+                )}
+              </p>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

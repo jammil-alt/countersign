@@ -14,7 +14,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useLocation, useMatch, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useMatch } from "react-router-dom";
 import type { ResponseOf } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient, useApiStore } from "../api/useApi";
@@ -26,8 +26,9 @@ import { AgentSwitcher, canSwitch } from "../shell/AgentSwitcher";
 import type { SearchRun } from "../shell/Search";
 import { AppShell, SidebarLink, SidebarSection } from "../shell/Shell";
 import { opsSearchGroups } from "../shell/searchGroups";
-import { Icon } from "../ui/icons";
+import { AgentBadge } from "../ui/badges";
 import { useAgentsChanged } from "./agents/ui";
+import { ClientPicker } from "./ClientPicker";
 import { OPS_PATHS } from "./paths";
 import { PickedClientProvider, usePickedClient, useRouteClientId } from "./pickedClient";
 
@@ -194,6 +195,7 @@ function OpsFrame({ children }: { children: ReactNode }) {
             <AgentSwitcher current={agentSlug} agents={switchAgents} />
           ) : null
         }
+        topAction={<AskReggieButton clientId={picked.clientId} clients={clients} />}
         sidebar={
           <nav className="flex flex-col">
             <div className="flex flex-col gap-0.5">
@@ -305,43 +307,29 @@ function OpsFrame({ children }: { children: ReactNode }) {
   );
 }
 
-/** The top bar's client picker: picking a client opens its page; "All clients" opens Home. */
-function ClientPicker({
-  selected,
+/**
+ * Feedback (2026-11-15): "Ask Reggie" in the top bar, as the portal has "Ask Sloan". With a client
+ * picked it asks about that client (`/ops/reggie?client=`).
+ */
+export function AskReggieButton({
+  clientId,
   clients,
-  onPick,
 }: {
-  selected: string | null;
+  clientId: string | null;
   clients: readonly { id: string; name: string }[];
-  onPick: (id: string | null) => void;
 }) {
-  const navigate = useNavigate();
-  // A remembered client this operator no longer serves shows as all clients.
-  const value = selected && clients.some((c) => c.id === selected) ? selected : "";
+  const served = clientId && clients.some((c) => c.id === clientId) ? clientId : null;
+  const hint = "Reggie, our account agent: ask about any client, its runs, feedback and records";
   return (
-    <label className="ds-selectwrap flex items-center">
-      <span className="sr-only">Client</span>
-      <select
-        data-testid="ops-client-switcher"
-        value={value}
-        onChange={(e) => {
-          const id = e.target.value || null;
-          onPick(id);
-          navigate(id ? OPS_PATHS.client(id) : OPS_PATHS.command);
-        }}
-        className="ds-select h-8 max-w-56 bg-surface-subtle pr-8 pl-2 text-sm font-medium hover:border-line-strong"
-      >
-        <option value="">All clients</option>
-        {clients.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name}
-          </option>
-        ))}
-      </select>
-      <Icon
-        name="chevron-down"
-        className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-ink-muted"
-      />
-    </label>
+    <NavLink
+      to={served ? OPS_PATHS.askReggie(served) : OPS_PATHS.reggie}
+      className="ui-topbar__ask"
+      title={hint}
+      aria-label={`Ask Reggie. ${hint}`}
+      data-testid="shell-ask-reggie"
+    >
+      <AgentBadge name="Reggie" size="sm" />
+      <span className="ui-topbar__asklabel">Ask Reggie</span>
+    </NavLink>
   );
 }

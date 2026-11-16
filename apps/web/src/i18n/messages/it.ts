@@ -2051,6 +2051,7 @@ export const it: Messages = {
   "sloan.past": "Conversazioni precedenti",
   "sloan.pastItem": "Iniziata il {date}",
   "sloan.new": "Nuova",
+  "sloan.openPage": "Apri la pagina intera",
   "sloan.empty":
     "Chiedi perché qualcosa è in attesa, metti in pausa un agente, aggiungi chi approva o passa un'idea al tuo referente.",
   "sloan.answering": "Sloan sta rispondendo…",

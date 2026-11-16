@@ -77,7 +77,14 @@ describe("ops connectors catalog", () => {
       "GET /api/ops/connectors": () => ({ connectors: [qbo(), gmail] }),
     });
     renderAt(api);
+    // Feedback (2026-11-10): the catalog's figures on top, then a card per connector.
+    const figures = await screen.findByTestId("connectors-figures");
+    expect(figures).toHaveTextContent("Connectors2");
+    expect(within(figures).getByTestId("connectors-figures-errors")).toHaveTextContent(
+      "1 connector with errors",
+    );
     const row = await screen.findByTestId("connector-qbo");
+    expect(row.tagName).toBe("ARTICLE");
     expect(within(row).getByText("Live")).toBeInTheDocument();
     expect(within(row).getByText("API · OAuth")).toBeInTheDocument();
     expect(within(row).getByTestId("connector-qbo-clients")).toHaveTextContent("2");
@@ -117,7 +124,7 @@ describe("ops connectors catalog", () => {
     expect(within(gmailPanel).getByRole("heading", { name: "Gmail" })).toBeInTheDocument();
     // No internal ids on the page.
     expect(gmailPanel).not.toHaveTextContent("connectors/gmail");
-    expect(screen.getByTestId("connector-gmail")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("connector-gmail")).toHaveAttribute("aria-current", "true");
   });
 
   it("reads a status nobody set from the deployment, never as 'Not set'", async () => {

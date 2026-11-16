@@ -111,6 +111,8 @@ describe("ops websites", () => {
     renderAt(api);
     const card = await screen.findByTestId("site-supplier");
     await userEvent.click(within(card).getByTestId("site-edit"));
+    // JSON stays one click away for what the form doesn't hold.
+    await userEvent.click(within(card).getByTestId("site-profile-json"));
     const text = within(card).getByTestId("site-profile-text");
     // A login page off its origins is refused before anything is sent.
     const bad = { ...PROFILE, login: { ...PROFILE.login, url: "https://evil.test/login" } };
@@ -128,6 +130,55 @@ describe("ops websites", () => {
     expect(posts[0]).toMatchObject({
       changeNote: "Statements too",
       profile: { allow: good.allow },
+    });
+  });
+
+  it("edits the profile as a form, by its labels, with no password in it", async () => {
+    // Feedback (2026-11-10): a human form, not JSON; logins go in the client's Vault.
+    const posts: unknown[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/browser-sites": () => ({ sites: [site()] }),
+      "POST /api/ops/browser-sites/supplier/versions": ({ init }) => {
+        posts.push(JSON.parse(String(init.body)));
+        return { site: site({ versions: 2 }) };
+      },
+    });
+    renderAt(api);
+    const card = await screen.findByTestId("site-supplier");
+    await userEvent.click(within(card).getByTestId("site-edit"));
+    expect(within(card).getByTestId("site-profile-form")).toBeInTheDocument();
+    expect(within(card).queryByTestId("site-profile-text")).toBeNull();
+    expect(within(card).getByTestId("site-profile-vault")).toHaveTextContent(
+      "No username or password goes here",
+    );
+    expect(within(card).getByTestId("site-form-url")).toHaveValue(PROFILE.login.url);
+    // A sign-in page off the origins is named by its label, and nothing can be saved.
+    const url = within(card).getByTestId("site-form-url");
+    fireEvent.change(url, { target: { value: "https://evil.test/login" } });
+    expect(within(card).getByTestId("site-profile-error")).toHaveTextContent(
+      "Sign-in page: the login page must be on one of the login origins",
+    );
+    expect(within(card).getByTestId("site-save-version")).toBeDisabled();
+    fireEvent.change(url, { target: { value: PROFILE.login.url } });
+    // Pages, one per line; the second step's own fields show for its kind.
+    const allow = within(card).getByTestId("site-form-allow");
+    fireEvent.change(allow, {
+      target: { value: `${PROFILE.allow.join("\n")}\nhttps://portal.supplier.test/statements*` },
+    });
+    await userEvent.selectOptions(within(card).getByTestId("site-form-second"), "totp");
+    expect(within(card).queryByTestId("site-form-sender")).toBeNull();
+    // The code box and button carry over from the email kind.
+    expect(within(card).getByTestId("site-form-code-button")).toHaveValue("#verify");
+    await userEvent.clear(within(card).getByTestId("site-form-code-field"));
+    await userEvent.type(within(card).getByTestId("site-form-code-field"), "#otp");
+    await userEvent.click(within(card).getByTestId("site-save-version"));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toMatchObject({
+      profile: {
+        allow: [...PROFILE.allow, "https://portal.supplier.test/statements*"],
+        login: { secondFactor: { kind: "totp", codeField: "#otp", codeButton: "#verify" } },
+      },
     });
   });
 
