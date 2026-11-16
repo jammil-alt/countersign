@@ -439,16 +439,6 @@ describe("pack pages", () => {
               description: "Material cost management.",
               templates: [],
               screens: [{ route: "/reports/materials/prices", title: "Price watch" }],
-              requiresConnectors: [],
-              records: ["vendor", "vendor_item"],
-              tools: [
-                {
-                  id: "materials.match-vendor",
-                  description: "Matches an invoice's vendor.",
-                  sideEffect: "none",
-                },
-              ],
-              skills: [],
               clients: [
                 {
                   id: CLIENT,
@@ -477,17 +467,8 @@ describe("pack pages", () => {
       },
       OPERATOR_SESSION,
     );
-    // A list: one row a pack, with how many clients have it on.
-    const row = await screen.findByTestId("ops-pack-materials");
-    expect(within(row).getByTestId("ops-pack-materials-on")).toHaveTextContent("0 of 1");
-    // Its details open beside the list.
-    await userEvent.click(within(row).getByTestId("ops-pack-materials-open"));
-    const pack = await screen.findByTestId("ops-pack-panel");
+    const pack = await screen.findByTestId("ops-pack-materials");
     expect(pack).not.toHaveTextContent("Templates");
-    expect(within(pack).getByTestId("ops-pack-panel-records")).toHaveTextContent(
-      "Vendors, vendor items.",
-    );
-    expect(within(pack).getByTestId("ops-pack-panel-tools")).toHaveTextContent("Reads");
     await userEvent.click(within(pack).getByTestId(`pack-enable-materials-${CLIENT}`));
     await waitFor(() => expect(within(pack).getByText(/^On since/)).toBeInTheDocument());
     expect(api.calls).toContain(`POST /api/ops/clients/${CLIENT}/packs/materials/enable`);

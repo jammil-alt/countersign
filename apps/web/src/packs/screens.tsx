@@ -5,27 +5,20 @@
 // agents are built in the Agent lab, so a pack's template list is usually empty.
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import type { ResponseOf } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
-import { entityWords } from "../ops/builder/data-use";
 import { ClientFrame } from "../ops/client/ClientFrame";
-import { toolLine, toolName } from "../ops/library/plain";
 import { shortTime } from "../runs/format";
-import { connectorLabel } from "../runs/labels";
 import {
   Badge,
   Button,
   Card,
-  cx,
   EmptyState,
   ErrorNotice,
   Loading,
   PageHeader,
   SectionLabel,
-  Tag,
 } from "../ui/primitives";
-import { SheetSection, SideSheet } from "../ui/sheet";
 import { BankTransactionsView } from "./bookkeeping/BankTransactions";
 import { ReconciliationsView } from "./bookkeeping/Reconciliations";
 import { CatalogView, PackReportLinks, PriceWatchView } from "./materials/Reports";
@@ -296,32 +289,18 @@ function UpdateTemplatesButton({ pack, onDone }: { pack: string; onDone: (note: 
   );
 }
 
-type PackInfo = ResponseOf<typeof apiRoutes.opsPacks>["packs"][number];
-
-const EFFECT_WORDS: Record<PackInfo["tools"][number]["sideEffect"], string> = {
-  none: "Reads",
-  internal: "Keeps records",
-  external: "Writes to the client's tools",
-};
-
-/**
- * The deployment's packs as a list; a pack's details open beside it: what it keeps for each
- * client, which clients have it on (and the switch), its templates, reports, tools and skills.
- */
 export function OpsPacksScreen() {
   const { data, error, loading, reload } = useApi(apiRoutes.opsPacks);
   const [installed, setInstalled] = useState<string[]>([]);
   const [updated, setUpdated] = useState<string | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
   if (loading && !data) return <Loading />;
   if (error) return <ErrorNotice error={error} onRetry={reload} />;
   if (!data) return null;
-  const open = data.packs.find((p) => p.id === openId) ?? null;
   return (
     <div data-testid="ops-packs">
       <PageHeader
         title="Packs"
-        subtitle="The data and tools for one business area. Switch a pack on for a client so its agents can keep that data and use those tools."
+        subtitle="Tools, skills and reports for one kind of work. Switch a pack on for a client so its agents can use them."
       />
       {installed.length > 0 ? (
         <p className="mb-4 text-sm text-ink" data-testid="ops-packs-installed">
@@ -333,202 +312,91 @@ export function OpsPacksScreen() {
           {updated}
         </p>
       ) : null}
-      {data.packs.length === 0 ? (
-        <EmptyState>This deployment has no packs.</EmptyState>
-      ) : (
-        <Card>
-          <div className="dt dt-ana overflow-x-auto">
-            <table data-testid="ops-packs-table">
-              <thead>
-                <tr className="dt-cols">
-                  <th>Pack</th>
-                  <th className="text-right">Clients on</th>
-                  <th className="text-right">Templates</th>
-                  <th className="text-right">Reports</th>
-                  <th className="text-right">Tools</th>
-                  <th>Version</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.packs.map((p) => {
-                  const on = p.clients.filter((c) => c.enabled).length;
-                  return (
-                    <tr
-                      key={p.id}
-                      data-testid={`ops-pack-${p.id}`}
-                      aria-selected={p.id === openId}
-                      className={cx(p.id === openId && "bg-slate-tint")}
+      {data.packs.map((p) => (
+        <section key={p.id} className="mb-8" data-testid={`ops-pack-${p.id}`}>
+          <Card className="p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-medium text-ink">{p.name}</h2>
+                <p className="mt-1 max-w-2xl text-sm text-ink-muted">{p.description}</p>
+              </div>
+              <span className="reference text-ink-muted">v{p.version}</span>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div>
+                {p.templates.length > 0 ? <SectionLabel>Templates</SectionLabel> : null}
+                <ul className="flex flex-col gap-1.5">
+                  {p.templates.map((t) => (
+                    <li key={t.slug} className="flex items-center gap-2 text-sm">
+                      {t.templateId ? (
+                        <Link to={`/ops/templates/${t.slug}`} className="text-ink hover:underline">
+                          {t.name}
+                        </Link>
+                      ) : (
+                        <span className="text-ink">{t.name}</span>
+                      )}
+                      <Badge tone={t.templateId ? "positive" : "neutral"}>
+                        {t.templateId ? "Installed" : "Installs when switched on"}
+                      </Badge>
+                      {t.newVersions > 0 ? (
+                        <Badge tone="warning">
+                          {t.newVersions === 1
+                            ? "1 newer version"
+                            : `${t.newVersions} newer versions`}
+                        </Badge>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+                {p.templates.some((t) => t.newVersions > 0) ? (
+                  <div className="mt-2">
+                    <UpdateTemplatesButton
+                      pack={p.id}
+                      onDone={(note) => {
+                        setUpdated(note);
+                        reload();
+                      }}
+                    />
+                  </div>
+                ) : null}
+                <SectionLabel>Reports</SectionLabel>
+                <p className="text-sm text-ink-muted">{p.screens.map((s) => s.title).join(", ")}</p>
+              </div>
+              <div>
+                <SectionLabel>Clients</SectionLabel>
+                <ul className="flex flex-col divide-y divide-line">
+                  {p.clients.map((c) => (
+                    <li
+                      key={c.id}
+                      className="flex items-center justify-between gap-3 py-2 text-sm"
+                      data-testid={`ops-pack-client-${c.id}`}
                     >
-                      <td>
-                        <button
-                          type="button"
-                          className="group flex flex-col text-left"
-                          aria-haspopup="dialog"
-                          data-testid={`ops-pack-${p.id}-open`}
-                          onClick={() => setOpenId(p.id)}
-                        >
-                          <span className="font-medium text-ink group-hover:underline">
-                            {p.name}
-                          </span>
-                          <span className="max-w-xl text-sm text-ink-muted">
-                            {firstSentence(p.description)}
-                          </span>
-                        </button>
-                      </td>
-                      <td className="text-right figures" data-testid={`ops-pack-${p.id}-on`}>
-                        {on} of {p.clients.length}
-                      </td>
-                      <td className="text-right figures">{p.templates.length}</td>
-                      <td className="text-right figures">{p.screens.length}</td>
-                      <td className="text-right figures">{p.tools.length}</td>
-                      <td className="reference text-ink-muted">v{p.version}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-      {open ? (
-        <PackPanel
-          key={open.id}
-          pack={open}
-          onClose={() => setOpenId(null)}
-          onInstalled={(slugs) => {
-            setInstalled(slugs);
-            reload();
-          }}
-          onUpdated={(note) => {
-            setUpdated(note);
-            reload();
-          }}
-        />
-      ) : null}
+                      <Link to={`/ops/clients/${c.id}`} className="text-ink hover:underline">
+                        {c.name}
+                      </Link>
+                      {c.enabled ? (
+                        <Badge tone="positive">On since {shortTime(c.enabledAt)}</Badge>
+                      ) : (
+                        <EnableButton
+                          clientId={c.id}
+                          pack={p.id}
+                          onDone={(slugs) => {
+                            setInstalled(slugs);
+                            reload();
+                          }}
+                        />
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </Card>
+        </section>
+      ))}
     </div>
   );
 }
-
-function firstSentence(text: string): string {
-  const at = text.indexOf(". ");
-  return at > 0 ? text.slice(0, at + 1) : text;
-}
-
-function PackPanel({
-  pack: p,
-  onClose,
-  onInstalled,
-  onUpdated,
-}: {
-  pack: PackInfo;
-  onClose: () => void;
-  onInstalled: (slugs: string[]) => void;
-  onUpdated: (note: string) => void;
-}) {
-  return (
-    <SideSheet
-      testId="ops-pack-panel"
-      onClose={onClose}
-      eyebrow={<span className="reference text-ink-muted">v{p.version}</span>}
-      title={p.name}
-    >
-      <p className="text-ink">{p.description}</p>
-      {p.records.length > 0 ? (
-        <SheetSection label="What it keeps for each client">
-          <p className="text-sm text-ink" data-testid="ops-pack-panel-records">
-            {sentenceCase(p.records.map(entityWords).join(", "))}.
-          </p>
-          <p className="text-sm text-ink-muted">
-            Each client's records are their own and never shared. They fill as the client's agents
-            work and as you import.
-          </p>
-        </SheetSection>
-      ) : null}
-      <SheetSection label="Clients">
-        <ul className="flex flex-col divide-y divide-line">
-          {p.clients.map((c) => (
-            <li
-              key={c.id}
-              className="flex items-center justify-between gap-3 py-2 text-sm"
-              data-testid={`ops-pack-client-${c.id}`}
-            >
-              <Link to={`/ops/clients/${c.id}`} className="text-ink hover:underline">
-                {c.name}
-              </Link>
-              {c.enabled ? (
-                <Badge tone="positive">On since {shortTime(c.enabledAt)}</Badge>
-              ) : (
-                <EnableButton clientId={c.id} pack={p.id} onDone={onInstalled} />
-              )}
-            </li>
-          ))}
-        </ul>
-      </SheetSection>
-      {p.requiresConnectors.length > 0 ? (
-        <SheetSection label="Needs connected">
-          <p className="text-sm text-ink">{p.requiresConnectors.map(connectorLabel).join(", ")}</p>
-        </SheetSection>
-      ) : null}
-      {p.templates.length > 0 ? (
-        <SheetSection label="Templates">
-          <ul className="flex flex-col gap-1.5">
-            {p.templates.map((t) => (
-              <li key={t.slug} className="flex flex-wrap items-center gap-2 text-sm">
-                {t.templateId ? (
-                  <Link to={`/ops/templates/${t.slug}`} className="text-ink hover:underline">
-                    {t.name}
-                  </Link>
-                ) : (
-                  <span className="text-ink">{t.name}</span>
-                )}
-                <Badge tone={t.templateId ? "positive" : "neutral"}>
-                  {t.templateId ? "Installed" : "Installs when switched on"}
-                </Badge>
-                {t.newVersions > 0 ? (
-                  <Badge tone="warning">
-                    {t.newVersions === 1 ? "1 newer version" : `${t.newVersions} newer versions`}
-                  </Badge>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-          {p.templates.some((t) => t.newVersions > 0) ? (
-            <div className="mt-1">
-              <UpdateTemplatesButton pack={p.id} onDone={onUpdated} />
-            </div>
-          ) : null}
-        </SheetSection>
-      ) : null}
-      {p.screens.length > 0 ? (
-        <SheetSection label="Reports in the client's portal">
-          <p className="text-sm text-ink">{p.screens.map((s) => s.title).join(", ")}</p>
-        </SheetSection>
-      ) : null}
-      {p.tools.length > 0 ? (
-        <SheetSection label={`Tools · ${p.tools.length}`}>
-          <ul className="flex flex-col divide-y divide-line" data-testid="ops-pack-panel-tools">
-            {p.tools.map((t) => (
-              <li key={t.id} className="flex items-start justify-between gap-3 py-2 text-sm">
-                <span className="flex flex-col">
-                  <span className="text-ink">{toolName(t.id)}</span>
-                  <span className="text-ink-muted">{toolLine(t)}</span>
-                </span>
-                <Tag>{EFFECT_WORDS[t.sideEffect]}</Tag>
-              </li>
-            ))}
-          </ul>
-        </SheetSection>
-      ) : null}
-      {p.skills.length > 0 ? (
-        <SheetSection label={`Skills · ${p.skills.length}`}>
-          <p className="text-sm text-ink">{p.skills.map((k) => k.name).join(", ")}</p>
-        </SheetSection>
-      ) : null}
-    </SideSheet>
-  );
-}
-
-const sentenceCase = (s: string) => (s ? s[0]?.toUpperCase() + s.slice(1) : s);
 
 /** The client page's packs: which are on, switch one on, and that client's reports. */
 export function ClientPacks({ clientId }: { clientId: string }) {

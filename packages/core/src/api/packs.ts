@@ -39,21 +39,6 @@ export const PackInfo = z.object({
   templates: z.array(PackTemplateInfo),
   /** Client report screens it adds to the portal. */
   screens: z.array(z.object({ route: z.string(), title: z.string() })),
-  /** Connectors a client needs connected for it to work. */
-  requiresConnectors: z.array(z.string()).default([]),
-  /** The kinds of record its tools keep or change for a client (entity ids, e.g. `vendor_item`). */
-  records: z.array(z.string()).default([]),
-  /** The tools it gives agents: reads, internal records, and writes to the client's tools. */
-  tools: z
-    .array(
-      z.object({
-        id: z.string(),
-        description: z.string(),
-        sideEffect: z.enum(["none", "internal", "external"]),
-      }),
-    )
-    .default([]),
-  skills: z.array(z.object({ id: z.string(), name: z.string() })).default([]),
   clients: z.array(
     z.object({
       id: z.string(),

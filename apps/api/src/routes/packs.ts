@@ -488,14 +488,6 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
         name: p.manifest.name,
         version: p.manifest.version,
         description: p.manifest.description,
-        requiresConnectors: p.manifest.requiresConnectors,
-        records: [...new Set(p.manifest.tools.flatMap((t) => (t.entity ? [t.entity] : [])))].sort(),
-        tools: p.manifest.tools.map((t) => ({
-          id: t.id,
-          description: t.description,
-          sideEffect: t.sideEffect,
-        })),
-        skills: p.manifest.skills.map((k) => ({ id: k.id, name: k.name })),
         templates: await Promise.all(
           p.manifest.templates.map(async (t) => {
             const templateId = have.find((h) => h.slug === t.slug)?.id ?? null;
