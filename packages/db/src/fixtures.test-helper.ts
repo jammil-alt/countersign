@@ -38,6 +38,7 @@ import {
   document,
   externalAction,
   feedback,
+  formRequest,
   inboxItem,
   knowledgeChunk,
   knowledgeEntry,
@@ -345,6 +346,20 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     urgency: "normal",
     plan: {},
     status: "open",
+  });
+  // §1.115 (0055): a form one contact was asked to fill in.
+  await db.insert(formRequest).values({
+    tenantId,
+    agentId: a.id,
+    agentVersionId: av.id,
+    runId: r.id,
+    nodeId: "s2",
+    contactId: ct.id,
+    purpose: "Invoice 1042 has no PO number",
+    definition: { schemaVersion: 1, title: "Invoice 1042", questions: [] },
+    ask: { required: [] },
+    status: "open",
+    dueAt: new Date(Date.now() + 86_400_000),
   });
   await db.insert(accessRelease).values({
     tenantId,

@@ -280,6 +280,8 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "vendor_item",
       // §1.104 (0051): a contract ends by its date, never deleted.
       "vendor_contract",
+      // §1.115 (0055): a form request is answered, expired or cancelled, never deleted.
+      "form_request",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
