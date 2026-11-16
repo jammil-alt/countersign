@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createPlatform, deploymentConnectors } from "./platform";
 
-const ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "../../..");
+const ROOT = resolve(fileURLToPath(new URL(".", import.meta.url).href), "../../..");
 const SCANNED = ["packages/agents/src/tools", "packages/connectors/src", "packs"];
 
 /** What reaches a model from a tool's code: a model client, or the step's model-call recorders. */
