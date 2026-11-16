@@ -9,6 +9,78 @@ delete it.
 To stop this happening again, every pushed branch now gets a draft PR: CLAUDE.md asks for it, and
 `.github/workflows/draft-pr.yml` opens one if a push finds none (`docs/operations.md` §2).
 
+## Where we paused (2026-11-16)
+
+**Merged to `main` (on staging):**
+- #300 (docs) and #302 (builds, voice typing).
+- #303: draft-PR rule.
+- #304: Twilio, ElevenLabs, Zoho.
+- #306: price checker step 2.
+- #307: the Builder's previous/next step.
+- #308 and #309: migration 0054 and the event dispatch code.
+- #310: Odoo.
+- #311: Microsoft 365 and calendars.
+- #315: CodeQL v4.
+- #316: OSV-Scanner and patch deadlines.
+- #317: Node 24.
+- #318: security register.
+- #319 and #320: Dependabot.
+
+Rows 1–8 below are done. The stale branches are deleted.
+
+**Open, in merge order.** Each migration takes the next number when it merges. Rebase each PR onto
+`main` first; `docs/plan.md` sections conflict where they meet.
+
+1. **Token counts:**
+   - #327: migration 0055 (`model_call.action`).
+   - #324: the code (plan §1.115).
+   - Built and checked, except one rerun of the web suite after main's last merges.
+   - Decide first: the trust-claims plan's `purpose` column on `model_call` (item 13). One column
+     should cover both.
+2. **Phone app:**
+   - #321: migration 0056. Re-chain it after 0055.
+   - #322: sign-in.
+   - #323: the app (§1.116).
+   - Push stays off (`MOBILE_PUSH`) until the store accounts exist.
+   - Expect a lockfile conflict with #320.
+3. **Area owners:**
+   - #312: migration, numbered 0054 on its branch. Renumber it to 0057.
+   - #313: the code (§1.117, ARCHITECTURE v0.19).
+   - Expect a small conflict in `Sloan.tsx` with #305.
+4. **Removing a person:** #325.
+   - Built, and the targeted tests pass. Left: the full web, api and db suites.
+   - The `remove-operator.yml` workflow is not started; it goes in its own PR.
+   - Its plan section is also numbered §1.115. Renumber it to §1.119.
+   - Access ends within 5 minutes (owner).
+   - Owner to confirm:
+     - Removing an operator hands their open items to the other operators and clears them as a
+       client's lead.
+     - An operator can remove a client's last admin.
+5. **Plan §1.118:** templates from staging to production (#314, docs only). Then build T-1 to T-4.
+
+**Not started:**
+- **The Claude connector's approval link.** Its source is `c194789f` on
+  `claude/sweet-sagan-xfbil6-second-factor-source`: `apps/api/src/mcp/approval.ts` and
+  `ConnectClaude.tsx`. Port only that onto main's second step. It is the code `docs/open.md` A2
+  still needs. It's a sign-in change, so it gets its own PR.
+- **The compliance docs, rewritten** (audit piece 8): the Plaid attestations, the EOL inventory, the
+  joining and leaving checklist, and the `security.md` and `hipaa-plan.md` edits. Leave out what the
+  policies contradict (the audit's notes).
+- **The trust claims plan** (`fe7dbcac`), refreshed. Keep the masking promise on the Security page
+  (owner).
+- **HIPAA mode for the Claude connector, the Builder and questions** (audit T1/T2): later, when the
+  first HIPAA client comes (owner: none yet, no PHI flows).
+- **Dropped:** `c2747d76`, the sign-in change refusing Google. It contradicts the owner's decision that
+  Google sign-ins get a code.
+
+**Owner answers recorded:**
+- WorkOS multi-factor is on.
+- Removal within 5 minutes is fine.
+- Keep the masking promise.
+- No HIPAA block now.
+
+**Still open for the owner:** the phone app's questions in #323, and §1.118's two open points.
+
 ## How we checked
 
 Most PRs here are squash-merged, so a branch's commits are never on `main` even after it lands.
