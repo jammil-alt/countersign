@@ -146,6 +146,13 @@ as Harbor Millwork, with its own people, invoice numbers and times):
   they belong to; 12 contacts at the shop and its vendors, with consent; three knowledge entries;
   30 days of usage; last week's Weekly Table, sent; two open findings and the latest health check.
 
+It also adds three builds in the Draft phase (Builds, `packages/db/src/seed-builds.ts`), each with
+its confirmed brief, agreed fit-gap, open items, conversation and the draft agent the Builder made:
+**Vendor statement check** (a template, for every client: two missing steps and a client intake
+form), Harbor Millwork's **Delivery ticket check** (one missing step, and one thing the client must
+do first) and Fox River Cabinetry's **Receipt chaser** (no problems: ready to move to the POC test).
+Moving one on, or asking the Builder anything, needs `ANTHROPIC_API_KEY`.
+
 Running it again changes nothing: ids are fixed and every time is counted from the first run. The
 Demo client and the Sandbox are left as they are (the end-to-end Desk item and the sweep expect the
 Demo client as the base seed leaves it). An operator signed in before the seed ran sees the new
