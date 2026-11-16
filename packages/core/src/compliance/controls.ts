@@ -957,6 +957,8 @@ export const PROCESSOR_RECEIVES: Record<Processor, string> = {
   anthropic_web: "Search terms and addresses an agent looks up",
   hackernews: "Search terms an agent looks up",
   billcom: "Bills and payables, for clients that connect BILL",
+  // §1.116
+  expo_push: "Phone notifications: a phone's token, Mezonas or the business's name, and a count",
 };
 
 /** Vendors we use that are kept out of scope for client data, and how. */

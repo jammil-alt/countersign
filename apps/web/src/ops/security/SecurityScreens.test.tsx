@@ -68,7 +68,7 @@ describe("Security and compliance", () => {
     }
     const figures = await screen.findByTestId("ops-security-figures");
     expect(within(figures).getByText("1 regulated, 1 standard")).toBeInTheDocument();
-    expect(within(figures).getByText(`2 of ${15}`)).toBeInTheDocument();
+    expect(within(figures).getByText(`2 of ${16}`)).toBeInTheDocument();
     expect(within(figures).getByText("1,234")).toBeInTheDocument();
     const open = screen.getByTestId("ops-security-open");
     const notInPlace = CONTROLS.filter((c) => c.status !== "in_place");

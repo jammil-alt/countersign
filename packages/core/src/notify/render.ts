@@ -140,3 +140,21 @@ export function renderNotification(input: RenderInput): RenderedNotification {
   ].join("");
   return { subject: headline, text, html };
 }
+
+/** A phone notification (§1.116): a title and one sentence, the count and nothing else. */
+export interface RenderedPush {
+  title: string;
+  body: string;
+}
+
+/**
+ * The lock screen's words: "Mezonas" and the kind's sentence, or the business's name in its place
+ * when the person chose that. No amounts, vendors, customers or links: the app opens the page.
+ */
+export function renderPush(
+  input: Omit<RenderInput, "channel" | "link"> & { clientName?: string | null },
+): RenderedPush {
+  const { headline } = sentences({ ...input, channel: "push", link: "" });
+  const name = input.clientName?.trim();
+  return { title: name ? name : "Mezonas", body: `${headline}.` };
+}

@@ -27,6 +27,7 @@ import {
   LEAD_ASSIGNEE,
   leadCheckLabel,
   type PermissionEntity,
+  PortalInboxItem,
   portalRunFilter,
   type Role,
   routes,
@@ -53,6 +54,7 @@ import {
 import type { EventRow } from "@countersign/senses";
 import { and, desc, eq, inArray, isNull, ne, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { auditInTx } from "../audit";
 import { changeDisplay, clientTitles, itemDisplay, plainTitle } from "../change-display";
 import { syncedRefNames } from "../change-names";
 // P-6
@@ -61,6 +63,7 @@ import { mayControlConversation } from "../converse/control";
 import { portalConversation, runConversations } from "../converse/views";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
 import { type InboxRow, resolveInboxItem, scrubForPortal, sendResolution } from "../inbox";
+import { checkDeviceSignature } from "../mobile/devices";
 // v0.13 W2-I
 import { timelineOversight } from "../oversight/views";
 import type { Platform } from "../platform";
@@ -912,7 +915,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     const { tx, tenantIds, role, session, params, body, services } = ctx;
     const tenantId = tenantIds[0] as string;
     const [visible] = await tx
-      .select({ id: inboxItem.id })
+      .select()
       .from(inboxItem)
       .where(
         and(
@@ -922,6 +925,39 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
         ),
       );
     if (!visible) throw notFound("inbox item");
+    // §1.116: signed on a phone: checked against the item as the portal shows it, before anything
+    // changes, and written to the audit log with the phone and what it signed.
+    if (body.deviceSignature) {
+      // As the response schema sends it to the app, so both sides hash the same object.
+      const [raw] = await portalItems(tx, [visible], services.platform);
+      if (!raw) throw notFound("inbox item");
+      const shown = PortalInboxItem.parse(raw);
+      await checkDeviceSignature(tx, {
+        tenantId,
+        userId: session.user.id,
+        item: shown,
+        decision: body.decision,
+        signature: body.deviceSignature,
+        now: new Date(),
+      });
+      await auditInTx(tx, ctx.c, {
+        tenantId,
+        actorKind: "user",
+        actorUserId: session.user.id,
+        actorEmail: session.user.email,
+        actorRole: role,
+        action: "inbox.device_signed",
+        outcome: "ok",
+        httpStatus: 200,
+        target: {
+          item: visible.id,
+          device: body.deviceSignature.deviceId,
+          decision: body.decision ?? "",
+          fingerprint: body.deviceSignature.fingerprint,
+          at: body.deviceSignature.at,
+        },
+      });
+    }
     const collect: EventRow[] = [];
     const outcome = await resolveInboxItem(tx, {
       tenantId,

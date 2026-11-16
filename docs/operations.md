@@ -954,6 +954,25 @@ which also forgets every browser they had remembered. Every step is in the audit
 `session.second_factor_send`, `session.recovery_codes`, `session.second_factor_reset`, and the
 sign-in row's `second_factor` (`pending`, `exempt` or `remembered`).
 
+### The phone app (`docs/plan.md` §1.116)
+
+`apps/mobile`, an Expo app (iOS and Android), built and submitted with EAS, not by `deploy.yml`.
+It talks to the API of the environment it was built for (`EXPO_PUBLIC_API_ORIGIN`: staging for the
+`development` and `preview` profiles, `https://app.mezonas.com` for `production`). The Worker side:
+
+- Sign-in needs nothing new in WorkOS: `/api/mobile/sign-in` runs the usual sign-in and returns to
+  `/api/mobile/handoff` on our own origin, which hands the session to `mezonas://signed-in`. With
+  the second step on, a phone sign-in always asks for the code (a remembered browser doesn't
+  count), and the sign-in's audit row says `app: phone`.
+- Not usable until the store accounts exist and a build is made (`docs/open.md`, "The phone app"):
+  until then nothing calls these routes and no push is sent.
+- Phone notifications go through Expo's push service, off unless `MOBILE_PUSH=on` (a Worker
+  variable); `EXPO_ACCESS_TOKEN` (a Worker secret) once Expo's enhanced push security is on.
+  `deploy.yml` copies neither yet: set them by hand (`wrangler secret put`) until it does. Expo is a
+  processor: HIPAA clients get no phone notifications until `expo_push` is in `BAA_PROCESSORS`.
+- Builds: `cd apps/mobile && npx eas-cli build --profile preview --platform all`; store releases
+  with `--profile production` and `npx eas-cli submit`. Full steps: `apps/mobile/README.md`.
+
 ### MCP server (Claude connector for the back office and for clients)
 
 Mezonas as a Claude connector: `https://staging.mezonas.com/mcp` and `https://app.mezonas.com/mcp`,

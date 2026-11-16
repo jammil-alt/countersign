@@ -10,3 +10,6 @@ allowBuilds:
 overrides:
   "@cloudflare/vitest-pool-workers>miniflare": 5.20260910.0-alpha
   "@cloudflare/vitest-pool-workers>wrangler": 4.131.0
+  # The phone app's build tooling (expo > @expo/fingerprint) asks for minimatch ^10.2.6, which has
+  # a ReDoS (GHSA-g3hv-75wg-m249, fixed in 11.0.1; OSV-Scanner on #323). Same API, patched major.
+  "@expo/fingerprint>minimatch": ^11.0.1
