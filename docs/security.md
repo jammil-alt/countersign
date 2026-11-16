@@ -66,6 +66,16 @@ branches.
   - Sign-out, the idle limit and a new sign-in drop them, and creating a client drops the
     creator's at once. Row-level security never reads memberships: it reads only the clients the
     request set.
+- **Removing someone ends their access within 5 minutes** (`docs/plan.md` §1.119). Their
+  membership goes at once; their open session keeps what its cookie carries for the rest of its
+  5 minutes (above), and the MCP connector refuses them on its next call.
+  - A client's person: Remove, from the client's People (operator) or the portal's Team (client
+    admin; never themselves or an operator). Their open items go to the client admin, and approver
+    rules naming them already fall to the client admin. The request's audit row names whom.
+  - An operator: `db:remove-operator`, as `cs_owner`: every operator membership, one
+    `operator.remove` audit row, never the last operator. Their open items go to the other
+    operators, and a client they led has no lead until one is set. The rest of the day's steps are
+    in `docs/operations.md`, "People: joining and leaving".
 - Roles are `operator`, `client_admin` and `client_user`. Only operators reach `/api/ops` and the
   MCP connector's back-office tools; a client's admin or user signing in to the same connector gets
   read-only tools over the portal's routes, for one of their own clients per call (`docs/plan.md`

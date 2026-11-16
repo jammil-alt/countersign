@@ -19,7 +19,7 @@ import type { PlainKey } from "../i18n/catalog";
 import { EN, type I18n, useI18n } from "../i18n/i18n";
 import { Field, Select, TextInput } from "../ui/forms";
 import { Icon } from "../ui/icons";
-import { Badge, Button, Card, cx, EmptyState, Tag } from "../ui/primitives";
+import { Badge, Button, buttonClass, Card, cx, EmptyState, Tag } from "../ui/primitives";
 
 export const ROLE_LABEL: Record<Member["role"], PlainKey> = {
   client_admin: "people.role.client_admin",
@@ -75,15 +75,88 @@ export function inviteProblem(
   }
 }
 
+/** "Remove" on a person's row; the row then shows `RemoveConfirm`. */
+export function RemoveButton({ testId, onClick }: { testId: string; onClick: () => void }) {
+  const { t } = useI18n();
+  return (
+    <Button size="sm" variant="ghost" data-testid={`${testId}-remove`} onClick={onClick}>
+      {t("people.remove")}
+    </Button>
+  );
+}
+
+/**
+ * Removing someone (de-provisioning, docs/security.md §2), after this confirmation. Their access
+ * ends within 5 minutes, since an open session carries memberships for up to 5 minutes
+ * (docs/plan.md §1.93); what waited on them goes to the client admin. `onRemove` reads the list
+ * again, which takes the row away.
+ */
+export function RemoveConfirm({
+  name,
+  testId,
+  onRemove,
+  onCancel,
+}: {
+  name: string;
+  testId: string;
+  onRemove: () => Promise<void>;
+  onCancel: () => void;
+}) {
+  const { t } = useI18n();
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState(false);
+  const keep = useRef<HTMLButtonElement>(null);
+  useEffect(() => keep.current?.focus(), []);
+  return (
+    <div className="ds-banner block" data-testid={`${testId}-remove-confirm`}>
+      <p>{t("people.removeWarning", { name })}</p>
+      {problem ? (
+        <p role="alert" className="mt-1 font-medium" data-testid={`${testId}-remove-problem`}>
+          {t("people.removeProblem")}
+        </p>
+      ) : null}
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={busy}
+          data-testid={`${testId}-remove-yes`}
+          onClick={() => {
+            setBusy(true);
+            setProblem(false);
+            onRemove()
+              .catch(() => setProblem(true))
+              .finally(() => setBusy(false));
+          }}
+        >
+          {t("people.remove")}
+        </Button>
+        <button
+          type="button"
+          ref={keep}
+          className={buttonClass("ghost", undefined, "sm")}
+          data-testid={`${testId}-remove-keep`}
+          onClick={onCancel}
+        >
+          {t("people.removeKeep")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function MemberList({
   members,
   testId,
   action,
+  onRemove,
 }: {
   members: Member[];
   testId: string;
   /** The back office's own control for a person (§1.100: reset their sign-in); none in the portal. */
   action?: (member: Member) => ReactNode;
+  /** Remove a client admin or user (never an operator: `db:remove-operator` does that). */
+  onRemove?: (member: Member) => Promise<void>;
 }) {
   const { t } = useI18n();
   if (members.length === 0) return <EmptyState>{t("people.none")}</EmptyState>;
@@ -91,24 +164,60 @@ export function MemberList({
     <Card className="overflow-hidden" testId={testId}>
       <ul>
         {members.map((m) => (
-          <li
+          <MemberRow
             key={m.userId}
-            data-testid={`${testId}-${m.email}`}
-            className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3 last:border-b-0"
-          >
-            <span className="min-w-0">
-              <span className="block font-medium text-ink">{m.name ?? m.email}</span>
-              {m.name ? <span className="block text-sm text-ink-muted">{m.email}</span> : null}
-            </span>
-            <span className="flex shrink-0 items-center gap-2">
-              {m.signedIn === false ? <Badge>{t("people.invited")}</Badge> : null}
-              <Tag tone={m.role === "operator" ? "person" : "neutral"}>{t(ROLE_LABEL[m.role])}</Tag>
-            </span>
-            {action ? <div className="w-full">{action(m)}</div> : null}
-          </li>
+            member={m}
+            testId={`${testId}-${m.email}`}
+            action={action}
+            onRemove={onRemove && m.role !== "operator" ? () => onRemove(m) : undefined}
+          />
         ))}
       </ul>
     </Card>
+  );
+}
+
+function MemberRow({
+  member: m,
+  testId,
+  action,
+  onRemove,
+}: {
+  member: Member;
+  testId: string;
+  action: ((member: Member) => ReactNode) | undefined;
+  onRemove: (() => Promise<void>) | undefined;
+}) {
+  const { t } = useI18n();
+  const [removing, setRemoving] = useState(false);
+  return (
+    <li
+      data-testid={testId}
+      className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3 last:border-b-0"
+    >
+      <span className="min-w-0">
+        <span className="block font-medium text-ink">{m.name ?? m.email}</span>
+        {m.name ? <span className="block text-sm text-ink-muted">{m.email}</span> : null}
+      </span>
+      <span className="flex shrink-0 items-center gap-2">
+        {m.signedIn === false ? <Badge>{t("people.invited")}</Badge> : null}
+        <Tag tone={m.role === "operator" ? "person" : "neutral"}>{t(ROLE_LABEL[m.role])}</Tag>
+        {onRemove && !removing ? (
+          <RemoveButton testId={testId} onClick={() => setRemoving(true)} />
+        ) : null}
+      </span>
+      {action ? <div className="w-full">{action(m)}</div> : null}
+      {onRemove && removing ? (
+        <div className="w-full">
+          <RemoveConfirm
+            name={m.name ?? m.email}
+            testId={testId}
+            onRemove={onRemove}
+            onCancel={() => setRemoving(false)}
+          />
+        </div>
+      ) : null}
+    </li>
   );
 }
 

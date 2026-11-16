@@ -1106,6 +1106,11 @@ export const de: Messages = {
   "people.role.client_user": "Nutzer",
   "people.role.operator": "Mezonas",
   "people.invited": "Eingeladen",
+  "people.remove": "Entfernen",
+  "people.removeWarning":
+    "{name} verliert den Zugang innerhalb von 5 Minuten. Was auf diese Person wartet, geht an die Administratoren.",
+  "people.removeKeep": "Behalten",
+  "people.removeProblem": "Wir konnten die Person nicht entfernen. Versuchen Sie es noch einmal.",
   "people.none": "Noch niemand. Laden Sie unten jemanden ein.",
   "people.email": "E-Mail",
   "people.name": "Name (optional)",
