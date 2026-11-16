@@ -49,7 +49,6 @@ import {
   memoryNote,
   message,
   messageTranslation,
-  modelCall,
   notification,
   organization,
   organizationChange,
@@ -295,23 +294,16 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     costUsd: "0.0123",
   });
   await db.insert(threadRead).values({ tenantId, threadId: th.id, userId: u.id });
-  const [mc] = await db
-    .insert(modelCall)
-    .values({
-      tenantId,
-      runId: r.id,
-      stepRunId: sr.id,
-      agentVersionId: av.id,
-      provider: "anthropic",
-      model: "claude-opus-5-5",
-      tokensIn: 100,
-      tokensOut: 20,
-      costUsd: "0.0040",
-      durationMs: 900,
-      stopReason: "end_turn",
-      bodyKey: `tenants/${tenantId}/model-calls/${sr.id}.json`,
-    })
-    .returning();
+  // 0055: its columns named, not drizzle's whole list (which has `action`), so a client seeded on
+  // a database migrated only to an earlier migration gets this row too.
+  const [mc] = [
+    ...(await db.execute<{ id: string }>(sql`
+      insert into model_call (tenant_id, run_id, step_run_id, agent_version_id, provider, model,
+                              tokens_in, tokens_out, cost_usd, duration_ms, stop_reason, body_key)
+      values (${tenantId}, ${r.id}, ${sr.id}, ${av.id}, 'anthropic', 'claude-opus-5-5', 100, 20,
+              0.0040, 900, 'end_turn', ${`tenants/${tenantId}/model-calls/${sr.id}.json`})
+      returning id`)),
+  ];
   if (!mc) throw new Error("no model call");
   const [nt] = await db
     .insert(notification)
