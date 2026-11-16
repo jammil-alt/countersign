@@ -25,18 +25,18 @@
     "@countersign/threads": "workspace:*",
     "@countersign/workflows": "workspace:*",
     "@hono/zod-validator": "^0.9.1",
-    "@sentry/cloudflare": "11.10.0",
+    "@sentry/cloudflare": "11.12.0",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.13.7",
-    "jose": "^6.2.15",
+    "hono": "^4.13.18",
+    "jose": "^6.2.17",
     "pdf-lib": "1.17.1",
-    "postgres": "^4.0.0",
+    "postgres": "^4.1.1",
     "zod": "^4.6.2"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.23.0",
     "@types/node": "^24.19.2",
     "vitest": "^4.1.11",
-    "wrangler": "4.157.0"
+    "wrangler": "4.161.0"
   }
 }
