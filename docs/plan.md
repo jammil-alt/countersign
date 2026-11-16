@@ -4764,6 +4764,17 @@ resolve everything, this would just be essentially a manual fix."
 | A new step | Each picker ends with "Add a new step before this…" / "…after this…": the palette opens for that place in the step's list ("Adds before “Check vendor”") and what is picked goes there. |
 | Checked | `apps/web/src/ops/builder/connections.test.ts` (against core's validator), `connections.builder.test.tsx` (the pickers in the builder). |
 
+### 1.112 An event that keeps failing to dispatch is set aside (2026-11-14)
+
+Before this, a client's events were dispatched in one transaction, so one event that threw (bad data, a bug in a trigger) rolled back the whole batch, and the every-minute sweep met it again each minute with no limit: the client's other events never started their runs, and the cron's pass for that client (schedules, reach-out timeouts) stopped there too. A run whose instance would not start was likewise given back to the sweep forever.
+
+| Topic | Decision |
+|---|---|
+| One event at a time | `dispatchTenant` still claims a batch with one row lock and stamps it in one commit, but handles each event in its own savepoint: one that throws is rolled back alone and the rest are dispatched. A failure that is not the event's (the database gone) still fails the batch, which counts nothing. // DECISION |
+| Counting | The event row keeps `dispatch_attempts`, the last `dispatch_error` (the innermost cause's name and message, at most 1,000 characters; never a failed query's SQL or parameters) and `set_aside_at` (migration 0050, own PR). Only the event's own work counts (`recordDispatchFailure`, senses): a run whose instance would not start is given back to the sweep uncounted, as before, since that is the Workflows engine, and an outage must not set every client's events aside. // DECISION |
+| Setting aside | The fifth failure (`DISPATCH_ATTEMPTS`; the after-commit dispatch, then four sweeps, about four minutes) sets the event aside: no dispatcher claims it again. It is reported to Sentry ("an event was set aside after failing to dispatch", tags `client`, `event`). An operator fixes the cause and retries it (`docs/operations.md` §5). No backoff between tries: the sweep's minute spaces them. // DECISION |
+| The cron's pass | A failed sweep is reported and the client's minute goes on: schedules, resolutions and reach-outs don't wait on it. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

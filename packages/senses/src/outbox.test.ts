@@ -7,13 +7,16 @@ import {
   databaseAvailable,
   type TestDatabase,
 } from "@countersign/db/testing";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   claimUndispatched,
   collectEmitted,
+  dispatchErrorText,
   EmittedEvents,
   emit,
   markDispatched,
+  recordDispatchFailure,
   releaseDispatched,
   undispatched,
 } from "./outbox";
@@ -309,5 +312,50 @@ describe.skipIf(!online)("senses outbox", () => {
     await expect(asClient(B, (tx) => claimUndispatched(tx, { ids: ["x"] }))).rejects.toThrow(
       /not an event id/,
     );
+  });
+
+  it("counts failed dispatches and sets an event aside after the last try", async () => {
+    const [row] = await t.db
+      .insert(event)
+      .values({
+        tenantId: A,
+        type: "schedule.tick",
+        payload: {},
+        createdAt: new Date(Date.now() - 300_000),
+        dispatchedAt: new Date(),
+      })
+      .returning();
+    if (!row) throw new Error("setup");
+    const fail = (error: unknown) =>
+      asClient(A, (tx) => recordDispatchFailure(tx, row.id, error, 3));
+    // The first tries give it back to the sweep, with the error kept.
+    expect(await fail(new TypeError("bad payload"))).toEqual({
+      id: row.id,
+      attempts: 1,
+      setAside: false,
+    });
+    let [now] = await t.db.select().from(event).where(eq(event.id, row.id));
+    expect(now?.dispatchedAt).toBeNull();
+    expect(now?.dispatchError).toBe("TypeError: bad payload");
+    // A wrapped error is kept as its cause (a failed query's wrapper carries its parameters).
+    const wrapped = new Error("Failed query: select 1 params: secret", {
+      cause: new RangeError("invalid input"),
+    });
+    expect(dispatchErrorText(wrapped)).toBe("RangeError: invalid input");
+    const sweep = () => asClient(A, (tx) => claimUndispatched(tx, { olderThanSeconds: 30 }));
+    expect((await sweep()).map((e) => e.id)).toContain(row.id);
+    expect((await fail("again"))?.setAside).toBe(false);
+    // The last try sets it aside: no dispatcher claims it, and the sweep no longer lists it.
+    expect(await fail("x".repeat(5000))).toEqual({ id: row.id, attempts: 3, setAside: true });
+    [now] = await t.db.select().from(event).where(eq(event.id, row.id));
+    expect(now?.setAsideAt).not.toBeNull();
+    expect(now?.dispatchError).toHaveLength(1000);
+    expect((await sweep()).map((e) => e.id)).not.toContain(row.id);
+    expect(await asClient(A, (tx) => claimUndispatched(tx, { ids: [row.id] }))).toEqual([]);
+    expect(
+      (await asClient(A, (tx) => undispatched(tx, { olderThanSeconds: 0 }))).map((e) => e.id),
+    ).not.toContain(row.id);
+    // RLS: B's session can't touch A's event.
+    expect(await asClient(B, (tx) => recordDispatchFailure(tx, row.id, "no"))).toBeNull();
   });
 });
