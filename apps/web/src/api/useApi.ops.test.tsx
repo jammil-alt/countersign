@@ -1,11 +1,11 @@
 // The operator's client switch, on the real path (the top bar's picker): the next client's page
 // never shows the last client's answers (docs/audit-plan.md 1.2, the store under useApi).
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
 import { fakeApi, OPERATOR_SESSION, SANDBOX_DETAIL } from "../test/fixtures";
+import { pickClient } from "../test/pickClient";
 
 const ALPHA = "00000000-0000-4000-8000-0000000aa001";
 const BETA = "00000000-0000-4000-8000-0000000aa002";
@@ -53,7 +53,7 @@ describe("the operator's client picker and the store", () => {
       </MemoryRouter>,
     );
     await screen.findByRole("heading", { level: 1, name: "Alpha Works" });
-    await userEvent.selectOptions(await screen.findByTestId("ops-client-switcher"), BETA);
+    await pickClient(BETA);
     // Beta's page is open and its answer not in yet: nothing of Alpha's page shows under it.
     await waitFor(() => expect(api.calls).toContain(`GET /api/ops/clients/${BETA}`));
     expect(screen.queryByRole("heading", { level: 1, name: "Alpha Works" })).toBeNull();

@@ -13,6 +13,7 @@ import {
   tableService,
   tableView,
 } from "../test/fixtures";
+import { clientOptions, pickClient } from "../test/pickClient";
 
 function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
   return render(
@@ -108,13 +109,10 @@ describe("back office layout", () => {
     expect(screen.getByTestId("shell-avatar")).toHaveTextContent("O");
     expect(screen.getByTestId("shell-avatar")).toHaveClass("mz-lead");
 
-    const switcher = screen.getByTestId("ops-client-switcher") as HTMLSelectElement;
-    expect(switcher.value).toBe(SANDBOX);
-    expect([...switcher.options].map((o) => o.text)).toEqual([
-      "All clients",
-      "Sandbox",
-      "Demo client",
-    ]);
+    const switcher = screen.getByTestId("ops-client-switcher");
+    expect(switcher).toHaveAttribute("data-value", SANDBOX);
+    expect(switcher).toHaveTextContent("Sandbox");
+    expect(await clientOptions()).toEqual(["All clients", "Sandbox", "Demo client"]);
 
     // Places only: Home, Escalations, Runs, Clients, Reggie (§1.101), Build, Business, and Utilities.
     const nav = screen.getByRole("complementary", { name: "Navigation" });
@@ -167,20 +165,22 @@ describe("back office layout", () => {
       }),
     });
     const { unmount } = renderAt("/ops/lab", api);
-    const switcher = (await screen.findByTestId("ops-client-switcher")) as HTMLSelectElement;
-    await waitFor(() => expect(switcher.options.length).toBe(3));
-    expect(switcher.value).toBe("");
-    await userEvent.selectOptions(switcher, DEMO);
+    const switcher = await screen.findByTestId("ops-client-switcher");
+    await waitFor(async () => expect(await clientOptions()).toHaveLength(3));
+    expect(switcher).toHaveAttribute("data-value", "");
+    await pickClient(DEMO);
     await screen.findByRole("heading", { level: 1, name: "Demo client" });
     unmount();
 
     // A page with no client of its own (Agent lab) shows the last pick, in this tab's session.
     renderAt("/ops/lab", api);
-    const again = (await screen.findByTestId("ops-client-switcher")) as HTMLSelectElement;
-    await waitFor(() => expect(again.value).toBe(DEMO));
+    const again = await screen.findByTestId("ops-client-switcher");
+    await waitFor(() => expect(again).toHaveAttribute("data-value", DEMO));
     // "All clients" forgets it.
-    await userEvent.selectOptions(again, "");
-    await waitFor(() => expect(again.value).toBe(""));
+    await pickClient("");
+    await waitFor(() =>
+      expect(screen.getByTestId("ops-client-switcher")).toHaveAttribute("data-value", ""),
+    );
     expect(sessionStorage.getItem("mezonas.ops.client")).toBeNull();
   });
 
@@ -206,7 +206,7 @@ describe("back office layout", () => {
 
     // A page change asks for the counts again; the list is not loaded again.
     needs = 5;
-    await userEvent.selectOptions(await screen.findByTestId("ops-client-switcher"), DEMO);
+    await pickClient(DEMO);
     await screen.findByRole("heading", { level: 1, name: "Demo client" });
     await waitFor(() => expect(escalations).toHaveTextContent("Escalations5"));
     expect(api.calls.filter((c) => c === "GET /api/ops/clients")).toHaveLength(1);
@@ -214,6 +214,57 @@ describe("back office layout", () => {
     await waitFor(() =>
       expect(screen.getByTestId("ops-client-needs-us")).toHaveTextContent("Needs us 5"),
     );
+  });
+
+  it("finds a client by typing, says what picking does, and asks Reggie about it", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/clients": () => ({
+        clients: [clientRow(SANDBOX, "Sandbox"), clientRow(DEMO, "Demo client")],
+      }),
+      [`GET /api/ops/clients/${DEMO}`]: () => ({
+        ...SANDBOX_DETAIL,
+        client: { ...SANDBOX_DETAIL.client, id: DEMO, name: "Demo client" },
+        agents: [],
+      }),
+    });
+    renderAt("/ops", api);
+    const user = userEvent.setup();
+    // Feedback (2026-11-15): Ask Reggie in the top bar, as the portal has Ask Sloan.
+    expect(await screen.findByTestId("shell-ask-reggie")).toHaveAttribute("href", "/ops/reggie");
+
+    // Feedback (2026-11-10): the list is searchable, and says it opens a page, not a sign-in.
+    await waitFor(async () => expect(await clientOptions(user)).toHaveLength(3));
+    await user.click(screen.getByTestId("ops-client-switcher"));
+    expect(screen.getByTestId("ops-client-switcher-hint")).toHaveTextContent(
+      "never signs in to a client's tools",
+    );
+    await user.type(screen.getByTestId("ops-client-switcher-search"), "dem");
+    const menu = screen.getByTestId("ops-client-switcher-menu");
+    expect(
+      within(menu)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Demo client"]);
+    await user.keyboard("{Enter}");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Demo client" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("ops-client-switcher-menu")).toBeNull();
+    // With a client picked, Reggie is asked about it.
+    expect(screen.getByTestId("shell-ask-reggie")).toHaveAttribute(
+      "href",
+      `/ops/reggie?client=${DEMO}`,
+    );
+
+    // Nothing matches: it says so.
+    await user.click(screen.getByTestId("ops-client-switcher"));
+    await user.type(screen.getByTestId("ops-client-switcher-search"), "zzz");
+    expect(screen.getByTestId("ops-client-switcher-none")).toHaveTextContent(
+      "No client matches “zzz”.",
+    );
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("ops-client-switcher-menu")).toBeNull();
   });
 
   it("opens a client from the switcher", async () => {
@@ -226,13 +277,12 @@ describe("back office layout", () => {
       }),
     });
     renderAt("/ops", api);
-    const switcher = await screen.findByTestId("ops-client-switcher");
-    await userEvent.selectOptions(switcher, DEMO);
+    await pickClient(DEMO);
     expect(
       await screen.findByRole("heading", { level: 1, name: "Demo client" }),
     ).toBeInTheDocument();
     expect(screen.getAllByText(/^No agents yet\./).length).toBeGreaterThan(0);
-    expect(switcher).toHaveValue(DEMO);
+    expect(screen.getByTestId("ops-client-switcher")).toHaveAttribute("data-value", DEMO);
   });
 
   it("switches between a client's agents from an agent's page", async () => {

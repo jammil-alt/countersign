@@ -183,6 +183,14 @@ describe("ops usage", () => {
   it("knows every period, and a custom range", () => {
     const now = new Date("2026-11-04T10:00:00Z");
     expect(usageRange("today", now)).toEqual({ from: "2026-11-04", to: "2026-11-04" });
+    // 2026-11-04 is a Wednesday; weeks start on Monday.
+    expect(usageRange("yesterday", now)).toEqual({ from: "2026-11-03", to: "2026-11-03" });
+    expect(usageRange("week", now)).toEqual({ from: "2026-11-02", to: "2026-11-04" });
+    expect(usageRange("lastweek", now)).toEqual({ from: "2026-10-26", to: "2026-11-01" });
+    // On a Sunday, this week began six days before; last week is the one before that.
+    const sunday = new Date("2026-11-08T12:00:00Z");
+    expect(usageRange("week", sunday)).toEqual({ from: "2026-11-02", to: "2026-11-08" });
+    expect(usageRange("lastweek", sunday)).toEqual({ from: "2026-10-26", to: "2026-11-01" });
     expect(usageRange("7d", now)).toEqual({ from: "2026-10-29", to: "2026-11-04" });
     expect(usageRange("mtd", now)).toEqual({ from: "2026-11-01", to: "2026-11-04" });
     expect(usageRange("month", now)).toEqual({ from: "2026-11-01", to: "2026-11-30" });

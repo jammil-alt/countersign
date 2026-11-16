@@ -41,7 +41,10 @@ import { BusinessTabs, TableCard } from "./business";
 // UI cleanup: the periods people ask for, as well as whole months, and a custom range.
 const RANGES = [
   ["today", "Today"],
+  ["yesterday", "Yesterday"],
   ["7d", "Last 7 days"],
+  ["week", "This week"],
+  ["lastweek", "Last week"],
   ["mtd", "Month to date"],
   ["month", "This month"],
   ["last", "Last month"],
@@ -68,10 +71,17 @@ const VIEWS = [
 ] as const;
 type View = (typeof VIEWS)[number][0];
 
+/** The Monday of `day`'s week (weeks run Monday to Sunday). */
+function weekStart(day: string): string {
+  const dow = new Date(`${day}T00:00:00.000Z`).getUTCDay();
+  return addDays(day, -((dow + 6) % 7));
+}
+
 /** The range's days in UTC, as the rollup counts them. */
 // DECISION: periods are UTC days like usage_daily; "This month" is the whole calendar month (its
 // days to come show empty), "Month to date" stops today; "Last N months" are whole months back to
-// today. The default, six months, is the API's default too. A custom range with a missing or
+// today. Weeks run Monday to Sunday (ISO 8601): "This week" is Monday to today, "Last week" the
+// whole week before (feedback, 2026-11-06). The default, six months, is the API's default too. A custom range with a missing or
 // backwards end falls back to month to date.
 export function usageRange(
   key: RangeKey,
@@ -82,8 +92,18 @@ export function usageRange(
   switch (key) {
     case "today":
       return { from: day, to: day };
+    case "yesterday": {
+      const y = addDays(day, -1);
+      return { from: y, to: y };
+    }
     case "7d":
       return { from: addDays(day, -6), to: day };
+    case "week":
+      return { from: weekStart(day), to: day };
+    case "lastweek": {
+      const from = addDays(weekStart(day), -7);
+      return { from, to: addDays(from, 6) };
+    }
     case "mtd":
       return { from: monthStart(day), to: day };
     case "month":

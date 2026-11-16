@@ -56,6 +56,13 @@ const item = (id: string, tenantId: string, resolvableByOperator: boolean) => ({
   resolvableByOperator,
 });
 
+/** Opens an item's row and returns its card in the side sheet. */
+async function openItem(id: string): Promise<HTMLElement> {
+  await userEvent.click(await screen.findByTestId(`ops-inbox-row-${id}-open`));
+  const sheet = await screen.findByTestId("ops-inbox-sheet");
+  return within(sheet).getByTestId(`inbox-item-${id}`);
+}
+
 describe("escalations", () => {
   it("lets the operator answer the Sandbox's client-admin items, not a real client's", async () => {
     const resolved: unknown[] = [];
@@ -79,12 +86,21 @@ describe("escalations", () => {
       </MemoryRouter>,
     );
 
-    const sandbox = await screen.findByTestId(`inbox-item-${SANDBOX_ITEM}`);
-    const demo = screen.getByTestId(`inbox-item-${DEMO_ITEM}`);
+    // Feedback (2026-11-15): each item is a compact row; the row opens its card in a side sheet.
+    const demoRow = await screen.findByTestId(`ops-inbox-row-${DEMO_ITEM}`);
+    expect(demoRow).toHaveTextContent(/Waiting on the client admin for/);
+    expect(within(demoRow).getByTestId(`ops-inbox-row-${DEMO_ITEM}-status`)).toHaveTextContent(
+      "Waiting",
+    );
+    expect(screen.queryByTestId(`inbox-item-${DEMO_ITEM}`)).toBeNull();
+    const demo = await openItem(DEMO_ITEM);
     expect(within(demo).queryByTestId("inbox-item-approve")).toBeNull();
     expect(demo).toHaveTextContent(
       /Waiting on the client admin for [^.]+\. Only they can answer it\./,
     );
+    await userEvent.click(screen.getByTestId("ops-inbox-sheet-close"));
+    expect(screen.queryByTestId("ops-inbox-sheet")).toBeNull();
+    const sandbox = await openItem(SANDBOX_ITEM);
     expect(sandbox).not.toHaveTextContent("Waiting on");
     await userEvent.click(within(sandbox).getByTestId("inbox-item-approve"));
     expect(resolved).toEqual([{ decision: "approve" }]);
@@ -152,17 +168,20 @@ describe("escalations", () => {
     );
     expect(await screen.findByRole("heading", { name: "Escalations" })).toBeInTheDocument();
     expect(await screen.findByText("1 thing needs us.")).toBeInTheDocument();
-    const card = await screen.findByTestId(`inbox-item-${SANDBOX_ITEM}`);
+    const card = await openItem(SANDBOX_ITEM);
     await userEvent.click(within(card).getByTestId("inbox-item-approve"));
+    // The sheet stays open on what was just approved, with its Undo; the row is under Just resolved.
     const recent = await screen.findByTestId("ops-inbox-recent");
+    expect(within(recent).getByTestId(`ops-inbox-row-${SANDBOX_ITEM}`)).toBeInTheDocument();
+    const sheet = screen.getByTestId("ops-inbox-sheet");
     // Nothing needs us now: said once, where the urgency figures were.
     expect(await screen.findByText("Nothing needs us.")).toBeInTheDocument();
     expect(screen.getByTestId("ops-inbox-clear")).toBeInTheDocument();
     expect(screen.getAllByText("Nothing needs us")).toHaveLength(1);
-    await userEvent.click(within(recent).getByTestId("inbox-item-undo"));
+    await userEvent.click(within(sheet).getByTestId("inbox-item-undo"));
     await waitFor(() => expect(undone).toEqual([SANDBOX_ITEM]));
     await waitFor(() => expect(screen.queryByTestId("ops-inbox-recent")).toBeNull());
-    expect(await screen.findByTestId(`inbox-item-${SANDBOX_ITEM}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`ops-inbox-row-${SANDBOX_ITEM}`)).toBeInTheDocument();
     // Undo puts it back in Needs us too (review of #257): the count is asked again.
     expect(await screen.findByText("1 thing needs us.")).toBeInTheDocument();
   });
@@ -230,12 +249,13 @@ describe("escalations", () => {
         </AppProviders>
       </MemoryRouter>,
     );
-    const card = await screen.findByTestId(`inbox-item-${DEMO_ITEM}`);
+    await screen.findByTestId(`ops-inbox-row-${DEMO_ITEM}`);
+    // Items for us aren't "waiting on clients".
+    expect(screen.queryByTestId(`ops-inbox-row-${SANDBOX_ITEM}`)).toBeNull();
+    const card = await openItem(DEMO_ITEM);
     expect(card).toHaveTextContent(
       "Only they can answer it. Everyone who may approve it is still invited and hasn't signed in.",
     );
-    // Items for us aren't "waiting on clients".
-    expect(screen.queryByTestId(`inbox-item-${SANDBOX_ITEM}`)).toBeNull();
     expect(screen.getByTestId("ops-inbox-view-filter-clients")).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -295,11 +315,11 @@ describe("escalations", () => {
         </AppProviders>
       </MemoryRouter>,
     );
-    await screen.findByTestId(`inbox-item-${SANDBOX_ITEM}`);
+    await screen.findByTestId(`ops-inbox-row-${SANDBOX_ITEM}`);
     api.on("GET /api/ops/inbox", () => new Promise((resolve) => (answer = resolve)));
     await userEvent.click(screen.getByTestId("ops-inbox-filter-resolved"));
     expect(screen.getByTestId("ops-inbox-list")).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByTestId(`inbox-item-${SANDBOX_ITEM}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`ops-inbox-row-${SANDBOX_ITEM}`)).toBeInTheDocument();
     answer({ items: [], agents: [] });
     expect(await screen.findByText("Nothing resolved yet")).toBeInTheDocument();
 
@@ -328,7 +348,7 @@ describe("escalations", () => {
         </AppProviders>
       </MemoryRouter>,
     );
-    expect(await screen.findByTestId(`inbox-item-${DEMO_ITEM}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`ops-inbox-row-${DEMO_ITEM}`)).toBeInTheDocument();
     expect(screen.getByTestId("ops-inbox-view-filter-clients")).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -373,8 +393,10 @@ describe("escalations", () => {
         </AppProviders>
       </MemoryRouter>,
     );
-    await screen.findByTestId(`inbox-item-${DEMO_ITEM}`);
+    await openItem(CODE_ITEM);
     expect(screen.queryByTestId(`step-in-${CODE_ITEM}-open`)).toBeNull();
+    await userEvent.click(screen.getByTestId("ops-inbox-sheet-close"));
+    await openItem(DEMO_ITEM);
     await userEvent.click(screen.getByTestId(`step-in-${DEMO_ITEM}-open`));
     const approve = screen.getByTestId(`step-in-${DEMO_ITEM}-approve`);
     expect(approve).toBeDisabled();
