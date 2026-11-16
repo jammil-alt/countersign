@@ -227,14 +227,17 @@ export const CONTROLS: readonly Control[] = [
   {
     id: "ACC-2",
     area: "access",
-    title: "A second factor for every sign-in",
+    title: "A second factor at sign-in",
     statement:
-      "Multi-factor authentication is required for everyone, staff and clients. Staff use passkeys or hardware keys on the systems that hold client data.",
+      "Every sign-in needs a second factor after the password: WorkOS's multi-factor (an authenticator app) today, and our own second step (an app, a text or WhatsApp, 10 one-time recovery codes, a browser remembered for 30 days) once it is switched on. Sign-ins through a company's own SSO use its second factor. Staff use passkeys or hardware keys on the systems that hold client data.",
     status: "partial",
-    gap: "Staff passkeys on provider consoles are policy, not yet checked and recorded.",
+    gap: "Staff second factors on Cloudflare, Sentry and GitHub (a passkey) are not on yet (2026-11-14). Every sign-in to Mezonas has one: WorkOS's multi-factor is required (owner, 2026-11-16), and our own second step switches on with Twilio Verify (docs/open.md A2).",
     tier: "all",
     evidence: [
-      { kind: "setting", ref: "WorkOS: MFA required", note: "docs/security.md §10" },
+      { kind: "setting", ref: "WorkOS: multi-factor required", note: "docs/open.md A1" },
+      { kind: "code", ref: "apps/api/src/second-factor", note: "plan §1.100" },
+      { kind: "code", ref: "packages/auth/src/session.ts", note: "the gate in getSession" },
+      { kind: "setting", ref: "TWILIO_VERIFY_SERVICE_SID", note: "docs/open.md A2" },
       { kind: "policy", ref: ISP, note: "§3" },
     ],
     maps: { soc2: ["CC6.1"], hipaa: ["164.312(d)"], pci: ["8.3.1", "8.4.1"] },
@@ -625,8 +628,8 @@ export const CONTROLS: readonly Control[] = [
     title: "Our network edge checked for weak settings",
     statement:
       "Cloudflare reviews our DNS, TLS and edge settings for exposures and weak configuration; we review its findings every quarter.",
-    status: "planned",
-    gap: "Cloudflare Security Insights is not switched on yet.",
+    status: "partial",
+    gap: "Security Insights is on (scanned every 7 days, first full scan 2026-11-14, docs/security.md §10); the first quarterly review of its findings is not recorded yet.",
     tier: "all",
     evidence: [
       { kind: "setting", ref: "Cloudflare: Security Center, Security Insights" },

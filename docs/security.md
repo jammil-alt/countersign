@@ -8,6 +8,10 @@ deletion; adopted 2026-11-09). Every control with its status, evidence and frame
 in the register (`packages/core/src/compliance/controls.ts`), shown at `/ops/security`
 (`docs/plan.md` §1.102).
 
+**2026-11-16:** WorkOS multi-factor is on and required for every sign-in (owner; `docs/open.md` A1).
+Our own second step (plan §1.100) is built and switches on with Twilio Verify (A2). Staff accounts
+on Cloudflare, Sentry and GitHub (a passkey) have no second factor yet.
+
 Status, 2026-11-06:
 - The settings outside the code are all in place (table below).
 - The code is in four pull requests, not yet merged: #81, #82, #83 and #84.
@@ -196,7 +200,9 @@ finding each setting.
 | GitHub, `countersign` | CodeQL Default setup | Off (we run `codeql.yml`) |
 | GitHub, `countersign` | Ruleset "Protect main" | PR required; `checks / check`, `checks / static`, `analyze`; no force push or delete; admin bypass |
 | Neon, `mezonas` (Launch) | History window (Settings → Postgres) | 7 days (was 1) |
-| Cloudflare, account | Security Center → Security Insights | **To switch on** (owner; plan §1.102, control CHG-8); its findings are reviewed every quarter |
+| Cloudflare, account | Security Center → Security Insights | On, scanned every 7 days (Free plan); first full scan 2026-11-14 (plan §1.102, control CHG-8). Findings for Mezonas: the account's only member has no second factor; Access policies on `datum.mezonas.com/v1` and `dev.datum.mezonas.com/v1` flagged as too broad; no DMARC on `in.` and `agents.mezonas.com` (receive only), `p=none` on `mail.mezonas.com`; no security.txt. Bot Fight Mode left off on purpose: on Free it can't spare webhooks. Reviewed every quarter |
+| Sentry, organization | Security & Privacy | Data Scrubber, default scrubbers and "Prevent Storing of IP Addresses" on and enforced on `mezonas-api` and `mezonas-web`; sensitive fields email, cookie, session, prompt, completion, utterance, transcript (checked 2026-11-14). "Require Two-Factor Authentication" off: Sentry refuses it until the owner's own account has a second factor |
+| Sentry, `mezonas-api` and `mezonas-web` | Alerts | "Production errors to the security officer": a new or regressed issue in `environment:production`, email to the owner, at most every 30 minutes (#6345968, #6345969; 2026-11-14). The default "high priority issues" alert stays, all environments. Developer plan: one user, events kept 30 days |
 
 ## 11. Our vendors
 
