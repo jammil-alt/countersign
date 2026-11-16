@@ -104,6 +104,27 @@ export const SecondFactorResetBody = z.strictObject({
 
 const OPS = ["operator"] as const;
 
+// The Claude connector's approval link (docs/plan.md §1.100, §1.120). The MCP server (§1.34, §1.89)
+// signs people in through AuthKit, never through our cookie, so it has no second step of its own.
+// While the step is on, a Claude connection is tied to its AuthKit session and its tool calls are
+// refused with a link until the person, signed in past the step in a browser, approves it here.
+
+/** How long an approval link works after Claude was given it. */
+export const CLAUDE_LINK_MIN = 30;
+
+/** The approval link's code: 32 random base32 letters and digits (160 bits). */
+export const ClaudeConnectionCode = z.object({ code: z.string().regex(/^[a-z2-7]{32}$/) });
+
+export const ClaudeConnection = z.object({
+  /** waiting: the link works; approved: Claude may use Mezonas as you; expired: ask Claude again. */
+  status: z.enum(["waiting", "approved", "expired"]),
+  /** When Claude first asked in this sign-in. */
+  startedAt: z.string(),
+  /** Waiting: when the link stops working. Approved: when the approval ends, at the latest. */
+  expiresAt: z.string(),
+});
+export type ClaudeConnection = z.infer<typeof ClaudeConnection>;
+
 export const secondFactorRoutes = {
   secondFactorStatus: defineRoute({
     method: "GET",
@@ -164,5 +185,28 @@ export const secondFactorRoutes = {
     params: z.object({ id: z.uuid() }),
     body: SecondFactorResetBody,
     response: z.object({ ok: z.literal(true), removed: z.int() }),
+  }),
+  // DECISION (docs/plan.md §1.120): `public` in the contract, as the step's own routes: the API
+  // answers them outside mount() for the signed-in person (operator or client), never in a
+  // client. A pending session is refused (401 second_factor_required): only a browser past the
+  // step approves. Each finds only the person's own connection (withUser), so another person's
+  // link answers 404.
+  claudeConnection: defineRoute({
+    method: "GET",
+    path: "/api/auth/claude-connections/:code",
+    auth: "public",
+    roles: [],
+    summary: "Your Claude connection waiting for approval, from the link Claude gave you",
+    params: ClaudeConnectionCode,
+    response: ClaudeConnection,
+  }),
+  claudeConnectionApprove: defineRoute({
+    method: "POST",
+    path: "/api/auth/claude-connections/:code/approve",
+    auth: "public",
+    roles: [],
+    summary: "Approve your Claude connection until its sign-in ends (12 hours at most)",
+    params: ClaudeConnectionCode,
+    response: ClaudeConnection,
   }),
 } as const;

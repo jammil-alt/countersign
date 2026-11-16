@@ -2978,4 +2978,23 @@ export const it: Messages = {
     "Ha perso telefono e codici di recupero? Chieda al suo amministratore o al suo referente Mezonas di reimpostare l'accesso.",
   "secondStep.signOut": "Esci",
   "secondStep.failed": "Non ha funzionato. Riprovi.",
+  // §1.120: approving a Claude connection (the MCP server) from the browser.
+  "connectClaude.title": "Collega Claude",
+  "connectClaude.subtitle": "Claude può usare Mezonas a Suo nome dopo che Lei lo approva qui.",
+  "connectClaude.card": "Connessione di Claude",
+  "connectClaude.status.waiting": "In attesa di Lei",
+  "connectClaude.status.approved": "Approvata",
+  "connectClaude.status.expired": "Scaduta",
+  "connectClaude.waiting":
+    "Claude chiede di usare Mezonas a Suo nome. La prima richiesta è delle {time}. La approvi solo se ha appena collegato Claude Lei stesso.",
+  "connectClaude.lasts":
+    "Questo link funziona fino alle {time}. Una volta approvata, dura finché non termina quell'accesso a Claude, al massimo 12 ore.",
+  "connectClaude.approve": "Approva",
+  "connectClaude.approving": "Approvazione…",
+  "connectClaude.approved":
+    "Approvata. Claude può usare Mezonas a Suo nome fino alle {time}, o finché non esce da Claude.",
+  "connectClaude.expired":
+    "Questo link è scaduto. Lo chieda di nuovo a Claude per riceverne uno nuovo.",
+  "connectClaude.unknown":
+    "Questo link non corrisponde a nessuna Sua connessione di Claude. Lo chieda di nuovo a Claude per riceverne uno nuovo.",
 };

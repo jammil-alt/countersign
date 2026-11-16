@@ -926,10 +926,12 @@ checked by **Twilio Verify** on Mezonas' own Twilio account; we never hold a cod
 authenticator secret. People who sign in through their company's SSO are not asked.
 
 **Off until `TWILIO_VERIFY_SERVICE_SID` is set** (a var under the environment's `vars` in
-`apps/api/wrangler.jsonc`; left out of the file until it has a value). **The screens are built (2026-11-14); the Claude connector's approval link is not.** Until
-it is, keep WorkOS's own multi-factor **on** (step 5 waits): the connector signs in through
-AuthKit alone, so without WorkOS's code an operator's Claude connection would have no second
-factor. Set wrongly (the service set, a key missing), the step fails closed: sign-ins wait on it and
+`apps/api/wrangler.jsonc`; left out of the file until it has a value). The Claude connector
+signs in through AuthKit alone, never through our step, so while the step is on each Claude
+connection is approved from a browser that passed it (`docs/plan.md` §1.120): Claude's first tool
+call answers with a link (`/ops/connect-claude/…` for an operator, `/connect-claude/…` for a
+client's person), good for 30 minutes; approved, it lasts until that Claude sign-in ends (12 hours
+at most). Set wrongly (the service set, a key missing), the step fails closed: sign-ins wait on it and
 its routes answer 503.
 
 To turn it on for an environment (staging first):
@@ -943,7 +945,10 @@ To turn it on for an environment (staging first):
    release (production).
 4. Sign in once with a password: you're asked to set up a method. Check the items in
    `packages/connectors/src/twilio/VERIFY_NOTES.md` as you go.
-5. Only once the connector's approval link is built, turn **WorkOS's own multi-factor off** (WorkOS → the environment → Authentication →
+5. Connect Claude to the environment's `/mcp` and ask it something ("whoami in Mezonas staging"):
+   it answers with an approval link. Open it in the browser from step 4, approve, ask again: it
+   answers. The audit log has `mcp.approve`.
+6. Then turn **WorkOS's own multi-factor off** (WorkOS → the environment → Authentication →
    Multi-factor auth), so nobody is asked twice.
 
 Everyone signs in once more when it is turned on (sessions from before it are ended). Someone who
@@ -951,8 +956,8 @@ lost their phone uses a recovery code; otherwise an operator resets their method
 (`POST /api/ops/users/:id/second-factor/reset` with a reason; the button comes with the screens),
 which also forgets every browser they had remembered. Every step is in the audit log:
 `session.second_factor_setup`, `session.second_factor` (ok or refused, with the method),
-`session.second_factor_send`, `session.recovery_codes`, `session.second_factor_reset`, and the
-sign-in row's `second_factor` (`pending`, `exempt` or `remembered`).
+`session.second_factor_send`, `session.recovery_codes`, `session.second_factor_reset`,
+`mcp.approve` (a Claude connection approved), and the sign-in row's `second_factor` (`pending`, `exempt` or `remembered`).
 
 ### The phone app (`docs/plan.md` §1.116)
 
@@ -1030,6 +1035,8 @@ If connecting fails:
 | 401 "the access token is not for this server" on every call | AuthKit did not put this server's URL in the token's `aud` (RFC 8707 resource indicator; UNCHECKED) | Look at a token's `aud` in the Worker log or WorkOS, and set `MCP_AUDIENCE` to it under the environment's `vars`. Empty means the default (the `/mcp` URL); there is no way to turn the check off |
 | 503 "the sign-in service can't be reached" | The Worker could not read AuthKit's metadata at `<domain>/.well-known/oauth-authorization-server` | Check `WORKOS_AUTHKIT_DOMAIN` |
 | 503 "the MCP server is not set up here" | `WORKOS_AUTHKIT_DOMAIN` is set but WorkOS sign-in is not fully on (client id, API key, cookie password) | Fix WorkOS sign-in first |
+| A tool error `approval_needed: approve this Claude connection first: open …` | Our second step is on here (`docs/plan.md` §1.120): each Claude sign-in is approved once from a browser | Open the link in the browser where you're signed in to Mezonas (past the code), approve, then ask again. A link works for 30 minutes and only the newest one Claude gave |
+| A tool error `approval_needed: this sign-in can't be approved` | AuthKit's token carries no session id (`sid`; UNCHECKED that AuthKit always sends it) | Disconnect the connector in Claude and connect again; if it persists, look at a token's claims |
 | 429 | More than 120 calls a minute from you (Cloudflare rate limiting, `MCP_RATE_LIMIT`) | Wait a minute |
 
 To cut a connector off: remove the person's memberships (takes effect on the next call),

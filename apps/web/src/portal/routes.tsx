@@ -6,6 +6,7 @@
 // The route sweep (#141, apps/web/e2e/route-sweep.mjs) reads the `path="…"` lines of this file.
 import { Route } from "react-router-dom";
 import { PortalRecordScreen } from "../records/RecordScreens";
+import { ConnectClaudeScreen } from "../session/ConnectClaude";
 import { Redirect } from "../shell/Redirect";
 import { AccountsScreen, VaultRedirect } from "./screens/Accounts";
 import { AgentScreen } from "./screens/Agent";
@@ -77,6 +78,8 @@ export const portalRoutes = (
     <Route path="connections/:connector/callback" element={<OAuthCallbackScreen />} />
     <Route path="connections/gsheets/pick" element={<GsheetsPickScreen />} />
     <Route path="connections/whatsapp_meta/signup" element={<WhatsappMetaSignupScreen />} />
+    {/* §1.120: the link Claude gives a client's person to approve its connection; it never moves. */}
+    <Route path="connect-claude/:code" element={<ConnectClaudeScreen />} />
 
     {/* Old addresses → their new homes */}
     <Route path="desk" element={<Redirect to="/inbox" />} />

@@ -3026,4 +3026,24 @@ export const de: Messages = {
     "Telefon und Wiederherstellungscodes verloren? Bitten Sie Ihre Administration oder Ihre Ansprechperson bei Mezonas, Ihre Anmeldung zurückzusetzen.",
   "secondStep.signOut": "Abmelden",
   "secondStep.failed": "Das hat nicht funktioniert. Versuchen Sie es erneut.",
+  // §1.120: approving a Claude connection (the MCP server) from the browser.
+  "connectClaude.title": "Claude verbinden",
+  "connectClaude.subtitle":
+    "Claude kann Mezonas in Ihrem Namen nutzen, sobald Sie es hier freigeben.",
+  "connectClaude.card": "Claude-Verbindung",
+  "connectClaude.status.waiting": "Wartet auf Sie",
+  "connectClaude.status.approved": "Freigegeben",
+  "connectClaude.status.expired": "Abgelaufen",
+  "connectClaude.waiting":
+    "Claude möchte Mezonas in Ihrem Namen nutzen. Die erste Anfrage kam um {time}. Geben Sie es nur frei, wenn Sie Claude gerade selbst verbunden haben.",
+  "connectClaude.lasts":
+    "Dieser Link gilt bis {time}. Nach der Freigabe gilt sie, bis diese Claude-Anmeldung endet, höchstens 12 Stunden.",
+  "connectClaude.approve": "Freigeben",
+  "connectClaude.approving": "Wird freigegeben…",
+  "connectClaude.approved":
+    "Freigegeben. Claude kann Mezonas bis {time} in Ihrem Namen nutzen oder bis Sie sich bei Claude abmelden.",
+  "connectClaude.expired":
+    "Dieser Link ist abgelaufen. Fragen Sie Claude erneut, um einen neuen zu erhalten.",
+  "connectClaude.unknown":
+    "Dieser Link passt zu keiner Ihrer Claude-Verbindungen. Fragen Sie Claude erneut, um einen neuen zu erhalten.",
 };

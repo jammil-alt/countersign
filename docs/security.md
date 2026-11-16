@@ -50,6 +50,10 @@ branches.
   signed in; it never creates a session. Each refusal is in the audit log with its reason.
 - WorkOS sessions are capped at the same 12 hours and 30 minutes. That also covers the Ops MCP
   connector, which signs in with 5-minute WorkOS access tokens instead of our cookie.
+- Once our own second step is on (`docs/plan.md` §1.100), the MCP connector, which never passes it,
+  answers no tool call until the person approves that Claude sign-in from a browser that did pass
+  it (§1.120). The approval link's code is kept only as an HMAC, works for 30 minutes and only for
+  its own person; the approval ends with that Claude sign-in, 12 hours at most.
 - **A person's clients and roles are read again at most every 5 minutes** (`docs/plan.md` §1.93,
   the owner's D2). The sealed session cookie carries them with the time they were read; a request
   inside those 5 minutes uses them instead of reading them.
