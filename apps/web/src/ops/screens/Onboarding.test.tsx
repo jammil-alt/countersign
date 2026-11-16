@@ -321,6 +321,54 @@ describe("client settings", () => {
     expect(bodies).toEqual([{ reason: "Lost phone, called them" }]);
   });
 
+  it("removes a client's person after a confirmation, and reads the people again", async () => {
+    const USER = "00000000-0000-4000-8000-0000000000e2";
+    let members = [
+      member("operator@example.com", "operator"),
+      member("admin@demo.example.com", "client_admin", { signedIn: true }),
+      member("clerk@demo.example.com", "client_user", { signedIn: true, userId: USER }),
+    ];
+    const removed: string[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${DEMO}`]: () => ({
+        client: { id: DEMO, name: "Demo client", timezone: "UTC", settings: {}, createdAt: "x" },
+        agents: [],
+        connections: [],
+        members: [],
+      }),
+      [`GET /api/ops/clients/${DEMO}/settings`]: () => settings({ members }),
+      [`DELETE /api/ops/clients/${DEMO}/members/${USER}`]: () => {
+        removed.push(USER);
+        members = members.filter((m) => m.userId !== USER);
+        return { removed: { userId: USER, email: "clerk@demo.example.com" }, reassigned: 0 };
+      },
+    });
+    renderAt(`/ops/clients/${DEMO}/settings/people`, api);
+    const row = await screen.findByTestId(
+      "ops-client-members-clerk@demo.example.com",
+      {},
+      { timeout: 10_000 },
+    );
+    // Beside the sign-in reset, not in place of it.
+    expect(within(row).getByTestId(`reset-2fa-${USER}`)).toBeInTheDocument();
+    await userEvent.click(
+      within(row).getByTestId("ops-client-members-clerk@demo.example.com-remove"),
+    );
+    expect(row).toHaveTextContent(
+      "clerk@demo.example.com loses access within 5 minutes. Anything waiting on them goes to the admins.",
+    );
+    expect(removed).toEqual([]);
+    await userEvent.click(
+      within(row).getByTestId("ops-client-members-clerk@demo.example.com-remove-yes"),
+    );
+    await waitFor(() => expect(removed).toEqual([USER]));
+    await waitFor(() =>
+      expect(screen.queryByTestId("ops-client-members-clerk@demo.example.com")).toBeNull(),
+    );
+    expect(screen.getByTestId("ops-client-members-admin@demo.example.com")).toBeInTheDocument();
+  });
+
   it("invites someone and says what became of the email, or why it was refused", async () => {
     let refuse = false;
     const api = fakeApi({

@@ -1034,6 +1034,11 @@ export const en = {
   "people.role.client_user": "User",
   "people.role.operator": "Mezonas",
   "people.invited": "Invited",
+  "people.remove": "Remove",
+  "people.removeWarning":
+    "{name} loses access within 5 minutes. Anything waiting on them goes to the admins.",
+  "people.removeKeep": "Keep them",
+  "people.removeProblem": "We couldn't remove them. Try again.",
   "people.none": "Nobody yet. Invite someone below.",
   "people.email": "Email",
   "people.name": "Name (optional)",

@@ -14,6 +14,7 @@ import {
 import { cloneJson } from "@countersign/core";
 import {
   appUser,
+  auditEvent,
   connection,
   inboxItem,
   membership,
@@ -21,7 +22,7 @@ import {
   tenant,
   tenantChange,
 } from "@countersign/db";
-import { eq } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   type ApiHarness,
@@ -314,6 +315,107 @@ describe.skipIf(!h)("onboarding", () => {
         role: "client_user",
       });
       expect(code(member.json)).toBe("already_member");
+    });
+
+    it("removes someone: their membership, then their access, and their named items go to the admin", async () => {
+      const invited = await H.call(admin("a"), "POST", "/api/users", {
+        email: "leaver@a.example.com",
+        role: "client_user",
+      });
+      expect(invited.status, JSON.stringify(invited.json)).toBe(200);
+      const leaverId = j(invited.json).member.userId as string;
+      expect((await H.call("leaver@a.example.com", "GET", "/api/runs")).status).toBe(200);
+      const [item, other] = await H.t.db
+        .insert(inboxItem)
+        .values([
+          {
+            tenantId: H.A.tenantId,
+            kind: "request",
+            title: "Leaver's item",
+            assigneeUserId: leaverId,
+          },
+          {
+            tenantId: H.A.tenantId,
+            kind: "request",
+            title: "Answered already",
+            assigneeUserId: leaverId,
+            status: "resolved",
+          },
+        ])
+        .returning({ id: inboxItem.id });
+
+      // A client user can't remove anyone; an admin can't remove themselves, or reach an operator.
+      expect((await H.call(user("a"), "DELETE", `/api/users/${leaverId}`)).status).toBe(403);
+      const self = await H.call(admin("a"), "DELETE", `/api/users/${H.A.admin}`);
+      expect([self.status, code(self.json)]).toEqual([409, "self"]);
+      expect((await H.call(admin("a"), "DELETE", `/api/users/${H.operator}`)).status).toBe(404);
+      // Another client's person is not found from here.
+      expect((await H.call(admin("a"), "DELETE", `/api/users/${H.B.admin}`)).status).toBe(404);
+      expect(await membershipsOf(H, admin("b"))).toEqual([
+        { tenantId: H.B.tenantId, role: "client_admin" },
+      ]);
+
+      const removed = await H.call(admin("a"), "DELETE", `/api/users/${leaverId}`);
+      expect(removed.status, JSON.stringify(removed.json)).toBe(200);
+      expect(j(removed.json)).toEqual({
+        removed: { userId: leaverId, email: "leaver@a.example.com" },
+        reassigned: 1,
+      });
+      expect(await membershipsOf(H, "leaver@a.example.com")).toEqual([]);
+      // A request that reads memberships (no carried account) is refused.
+      expect((await H.call("leaver@a.example.com", "GET", "/api/runs")).status).toBe(403);
+      const items = await H.t.db
+        .select({ id: inboxItem.id, role: inboxItem.assigneeRole, user: inboxItem.assigneeUserId })
+        .from(inboxItem)
+        .where(inArray(inboxItem.id, [item?.id ?? "", other?.id ?? ""]));
+      expect(items).toEqual(
+        expect.arrayContaining([
+          { id: item?.id, role: "client_admin", user: null },
+          { id: other?.id, role: null, user: leaverId },
+        ]),
+      );
+      // The request is in the audit log, naming whom.
+      const [audit] = await H.t.db
+        .select()
+        .from(auditEvent)
+        .where(eq(auditEvent.action, "DELETE /api/users/:id"))
+        .orderBy(desc(auditEvent.createdAt))
+        .limit(1);
+      expect(audit).toMatchObject({ outcome: "ok", target: { id: leaverId } });
+      // Removing them again: not found.
+      expect((await H.call(admin("a"), "DELETE", `/api/users/${leaverId}`)).status).toBe(404);
+      // And they can be invited again.
+      const back = await H.call(admin("a"), "POST", "/api/users", {
+        email: "leaver@a.example.com",
+        role: "client_user",
+      });
+      expect(back.status, JSON.stringify(back.json)).toBe(200);
+      expect(j(back.json).member.userId).toBe(leaverId);
+    });
+
+    it("lets an operator remove a client's person, never an operator, only in clients served", async () => {
+      const invited = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.B.tenantId}/invites`, {
+        email: "leaver@b.example.com",
+        role: "client_admin",
+      });
+      expect(invited.status, JSON.stringify(invited.json)).toBe(200);
+      const leaverId = j(invited.json).member.userId as string;
+      const path = `/api/ops/clients/${H.B.tenantId}/members`;
+
+      expect((await H.call(OTHER_OPERATOR, "DELETE", `${path}/${leaverId}`)).status).toBe(404);
+      expect((await H.call(admin("b"), "DELETE", `${path}/${leaverId}`)).status).toBe(403);
+      const op = await H.call(OPERATOR, "DELETE", `${path}/${H.operator}`);
+      expect([op.status, code(op.json)]).toEqual([409, "is_operator"]);
+      // Someone who isn't in this client: not found.
+      expect((await H.call(OPERATOR, "DELETE", `${path}/${H.A.user}`)).status).toBe(404);
+
+      const removed = await H.call(OPERATOR, "DELETE", `${path}/${leaverId}`);
+      expect(removed.status, JSON.stringify(removed.json)).toBe(200);
+      expect(j(removed.json)).toEqual({
+        removed: { userId: leaverId, email: "leaver@b.example.com" },
+        reassigned: 0,
+      });
+      expect(await membershipsOf(H, "leaver@b.example.com")).toEqual([]);
     });
 
     it("stores notification settings for the client admin's own client", async () => {

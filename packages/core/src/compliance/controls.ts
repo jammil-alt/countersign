@@ -296,12 +296,24 @@ export const CONTROLS: readonly Control[] = [
     area: "access",
     title: "Access removed within a business day",
     statement:
-      "When someone leaves or changes role, their access is removed within one business day; a removed person's open session keeps it for at most 5 minutes.",
+      "When someone leaves or changes role, we remove their access within one business day: a client's person from the portal's Team (their admin) or the client's People (us), a Mezonas operator with the remove-operator script, and a change of role by removing them and inviting them again. A removed person's open session keeps its access for at most 5 minutes. What waited on them goes to an admin, or to us. Each removal is in the audit log.",
     status: "in_place",
     tier: "all",
     evidence: [
       { kind: "policy", ref: ISP, note: "§3" },
-      { kind: "screen", ref: "/ops/security/audit", note: "membership changes" },
+      {
+        kind: "code",
+        ref: "apps/api/src/routes/onboarding.ts",
+        note: "removeFromClient: DELETE /api/users/:id and /api/ops/clients/:id/members/:userId",
+      },
+      { kind: "code", ref: "packages/db/src/operators.ts", note: "removeOperator" },
+      { kind: "code", ref: "packages/db/scripts/remove-operator.ts", note: "db:remove-operator" },
+      { kind: "code", ref: "packages/auth/src/account.ts", note: "the 5-minute window" },
+      {
+        kind: "screen",
+        ref: "/ops/security/audit",
+        note: "each removal: its DELETE request, or operator.remove",
+      },
     ],
     maps: { soc2: ["CC6.2"], hipaa: ["164.308(a)(3)(ii)(C)"], pci: ["8.2.5"] },
   },

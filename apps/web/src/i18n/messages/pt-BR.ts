@@ -1066,6 +1066,11 @@ export const ptBR: Messages = {
   "people.role.client_user": "Usuário",
   "people.role.operator": "Mezonas",
   "people.invited": "Convidado",
+  "people.remove": "Remover",
+  "people.removeWarning":
+    "{name} perde o acesso em até 5 minutos. O que estiver esperando por essa pessoa vai para os administradores.",
+  "people.removeKeep": "Manter",
+  "people.removeProblem": "Não conseguimos remover essa pessoa. Tente de novo.",
   "people.none": "Ninguém ainda. Convide alguém abaixo.",
   "people.email": "E-mail",
   "people.name": "Nome (opcional)",

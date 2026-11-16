@@ -201,7 +201,7 @@ function SettingsForm({
       <People
         clientId={clientId}
         settings={current}
-        onInvited={settings.reload}
+        onChanged={settings.reload}
         created={
           // A new client opens here: what was set up, and whether its admin was invited.
           created ? (
@@ -453,12 +453,13 @@ function Approvals({ settings, onSave }: { settings: OpsClientSettings; onSave: 
 function People({
   clientId,
   settings,
-  onInvited,
+  onChanged,
   created,
 }: {
   clientId: string;
   settings: OpsClientSettings;
-  onInvited: () => void;
+  /** After an invite or a removal: read the settings (and so the people) again. */
+  onChanged: () => void;
   created: ReactNode;
 }) {
   const api = useApiClient();
@@ -485,6 +486,12 @@ function People({
               <ResetSecondFactor userId={m.userId} name={m.name ?? m.email} />
             )
           }
+          onRemove={async (m) => {
+            await api.call(apiRoutes.opsRemoveMember, {
+              params: { id: clientId, userId: m.userId },
+            });
+            onChanged();
+          }}
         />
         {settings.client.sandbox ? null : (
           <>
@@ -496,7 +503,7 @@ function People({
                   params: { id: clientId },
                   body,
                 });
-                onInvited();
+                onChanged();
                 return result;
               }}
             />

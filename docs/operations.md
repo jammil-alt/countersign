@@ -1271,7 +1271,7 @@ staging), which wrangler creates on the next deploy. Skill cases call the model 
 client.
 
 **The audit log and access review** are at `/ops/security/audit` (operators only). Review access every
-quarter: remove anyone listed who should no longer be there, then save the CSV with the review's
+quarter: remove anyone listed who should no longer be there (§1.3), then save the CSV with the review's
 date. Audit rows are kept for 6 years. Removing older rows is a manual owner task: the trigger must
 be disabled, as in `db:purge-client`.
 
@@ -1290,6 +1290,34 @@ be disabled, as in `db:purge-client`.
   request, the checks `checks / check`, `checks / static` and `analyze`, no force pushes or
   deletion, admin bypass.
 - Neon, project `mezonas` (Launch): History window 7 days (Settings → Postgres).
+
+## 1.3 People: joining and leaving (access control)
+
+**Joining.** An operator: Actions → **Add operator**, on each environment ("The first operator"
+above). A client's person: invited from the client's People (back office) or Team (portal, the
+client admin).
+
+**A client's person leaves** from the client's People (back office) or Team (portal, the client
+admin): Remove, then confirm. Their access ends within 5 minutes (an open session keeps what its
+cookie carries for that long, `docs/plan.md` §1.93), their open items go to the client admin, and
+the audit log has the request. Their user stays, so they can be invited again. A change of role is a
+removal and a new invite.
+
+**An operator leaves: the same day** (the policy allows one business day,
+`docs/policies/information-security.md` §3). Note each step's date:
+1. Mezonas, on production and on staging, as `cs_owner`:
+   `DIRECT_DATABASE_URL=<cs_owner url> pnpm --filter @countersign/db run db:remove-operator <email> "<your name>"`.
+   Every operator membership goes: the back office refuses them within 5 minutes and the Ops MCP
+   connector on its next call. Their open items by name go to the other operators, a client they led
+   has no lead until you set one, and the audit log records `operator.remove`. It refuses the last
+   operator.
+2. WorkOS, both environments: delete the user. That ends their WorkOS sessions at the next refresh,
+   within the same 5 minutes.
+3. GitHub: remove them from the repository's collaborators.
+4. Every other console they could sign in to: Cloudflare, Neon, WorkOS's dashboard, Sentry,
+   Stripe, Twilio, Resend, ElevenLabs, the model providers' consoles, the domain registrar.
+5. Any key they could read: rotate it (§1, "Worker secrets"). There should be none: keys live in
+   GitHub secrets and Workers, never with people.
 
 ## 2. What CI does
 

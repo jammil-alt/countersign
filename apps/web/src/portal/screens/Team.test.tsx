@@ -1,5 +1,6 @@
 // `/settings/team` (UI-3a): the admin sees everyone with what they sign, who hasn't signed in, and
-// invites (a refusal never says why); a client user reads the team and loads nothing of the admin's.
+// invites (a refusal never says why) and removes someone after a confirmation (never themselves or
+// Mezonas); a client user reads the team and loads nothing of the admin's.
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -310,5 +311,58 @@ describe("people's hours on the team", () => {
     // Nobody else's hours: the admin's list is never asked for.
     expect(api.calls).not.toContain("GET /api/settings/people-hours");
     expect(screen.queryByTestId("portal-team-dana@demo.example.com-hours-toggle")).toBeNull();
+  });
+
+  it("lets the admin remove someone after confirming, never themselves or Mezonas", async () => {
+    const viewerId = "00000000-0000-4000-8000-0000000000e1";
+    const users = [
+      {
+        ...person("admin@demo-client.example.com", "client_admin"),
+        userId: CLIENT_SESSION.user.id,
+      },
+      { ...person("viewer@demo.example.com", "client_user"), userId: viewerId },
+      { ...person("lead@mezonas.example.com", "operator"), userId: "u-lead" },
+    ];
+    const removed: string[] = [];
+    let fail = true;
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/overview": () => overview,
+      "GET /api/team": () => team,
+      "GET /api/users": () => ({ users }),
+      [`DELETE /api/users/${viewerId}`]: () => {
+        if (fail) {
+          fail = false;
+          return new Reply(409, { error: { code: "conflict", message: "x" } });
+        }
+        removed.push(viewerId);
+        users.splice(1, 1);
+        return { removed: { userId: viewerId, email: "viewer@demo.example.com" }, reassigned: 1 };
+      },
+    });
+    renderAt("/settings/team", api);
+    const viewer = await screen.findByTestId("portal-team-viewer@demo.example.com");
+    for (const email of ["admin@demo-client.example.com", "lead@mezonas.example.com"]) {
+      expect(within(screen.getByTestId(`portal-team-${email}`)).queryByText("Remove")).toBeNull();
+    }
+
+    // Keep them: nothing is sent.
+    await userEvent.click(within(viewer).getByTestId("portal-team-viewer@demo.example.com-remove"));
+    expect(viewer).toHaveTextContent("loses access within 5 minutes");
+    await userEvent.click(within(viewer).getByText("Keep them"));
+    expect(api.calls).not.toContain(`DELETE /api/users/${viewerId}`);
+
+    await userEvent.click(within(viewer).getByTestId("portal-team-viewer@demo.example.com-remove"));
+    const yes = within(viewer).getByTestId("portal-team-viewer@demo.example.com-remove-yes");
+    // A failure says so, and the row stays.
+    await userEvent.click(yes);
+    expect(
+      await within(viewer).findByTestId("portal-team-viewer@demo.example.com-remove-problem"),
+    ).toHaveTextContent("We couldn't remove them.");
+    await userEvent.click(yes);
+    await waitFor(() => expect(removed).toEqual([viewerId]));
+    await waitFor(() =>
+      expect(screen.queryByTestId("portal-team-viewer@demo.example.com")).toBeNull(),
+    );
   });
 });
