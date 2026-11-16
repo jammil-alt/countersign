@@ -1239,6 +1239,15 @@ be disabled, as in `db:purge-client`.
   staging in a transaction before its Worker deploys, and production only from a later tag.
 - **`codeql.yml`**: CodeQL's security queries on ready pull requests, pushes to `main` and weekly.
   Findings are under Security → Code scanning.
+- **`vulnerability-scan.yml`**: OSV-Scanner reads `pnpm-lock.yaml` against OSV.dev. On a ready pull
+  request it fails only on a vulnerability the pull request adds; on `main`, weekly and by hand it
+  reports everything to Security → Code scanning and never fails.
+- **`vulnerability-sla.yml`**: daily, every open alert (Dependabot, CodeQL, OSV-Scanner) against the
+  patch deadlines in `docs/policies/information-security.md` §6 (critical 7 days, high 30, medium and
+  low at the next monthly update, counted as 30): one issue labelled `vulnerability` per alert, due
+  date in its title, closed with how long the fix took. **Owner setting:** the `ALERTS_TOKEN` secret, a
+  fine-grained token on this repository with "Dependabot alerts: read"; without it the job tracks
+  code scanning only and says so.
 - **Dependabot** (`.github/dependabot.yml`): security updates as GitHub learns of them; npm and
   Actions version updates monthly, one grouped pull request each, majors included. Turn on Dependabot alerts and security updates, and
   secret scanning with push protection, in the repository's Settings → Code security.

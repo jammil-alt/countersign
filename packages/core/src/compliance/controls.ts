@@ -548,11 +548,12 @@ export const CONTROLS: readonly Control[] = [
     area: "change",
     title: "Scanning for vulnerabilities and secrets",
     statement:
-      "CodeQL scans every change and the code weekly; Dependabot alerts and updates dependencies; secret scanning blocks pushes with keys.",
+      "CodeQL scans every change and the code weekly; OSV-Scanner checks every dependency against the public vulnerability databases on every change and weekly; Dependabot alerts and updates dependencies; secret scanning blocks pushes with keys.",
     status: "in_place",
     tier: "all",
     evidence: [
       { kind: "code", ref: ".github/workflows/codeql.yml" },
+      { kind: "code", ref: ".github/workflows/vulnerability-scan.yml" },
       { kind: "setting", ref: "GitHub: Dependabot, secret scanning, push protection" },
     ],
     maps: { soc2: ["CC7.1"], hipaa: ["164.308(a)(1)(ii)(B)"], pci: ["6.3.1", "6.3.3"] },
@@ -565,7 +566,14 @@ export const CONTROLS: readonly Control[] = [
     statement: "Critical fixes within 7 days, high within 30, the rest at the monthly update.",
     status: "in_place",
     tier: "all",
-    evidence: [{ kind: "policy", ref: ISP, note: "§6" }],
+    evidence: [
+      { kind: "policy", ref: ISP, note: "§6" },
+      {
+        kind: "code",
+        ref: ".github/workflows/vulnerability-sla.yml",
+        note: "an issue per alert, due date in its title",
+      },
+    ],
     maps: { soc2: ["CC7.1"], hipaa: ["164.308(a)(1)(ii)(B)"], pci: ["6.3.3"] },
     routines: ["dependency-updates"],
   },
