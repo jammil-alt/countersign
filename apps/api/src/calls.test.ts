@@ -356,6 +356,23 @@ describe.skipIf(!h)("calls through the API", () => {
       },
       inbound: { decision: "voicemail", agentId: null },
     });
+    // Turning calls on points every number that takes calls at us: a number with nothing set to
+    // answer is refused by the carriers before it reaches Twilio.
+    expect(j(on.json).setup.numbers[0]).toMatchObject({ answering: true, voice: true });
+    expect(twilio.numbers.get(numberSid)).toMatchObject({
+      voice_url: `${ORIGIN}/api/twilio/${A()}/voice`,
+      status_callback: `${ORIGIN}/api/twilio/${A()}/voice/status`,
+    });
+    expect(
+      (await H.call(OPERATOR, "PUT", calls(`/numbers/${numberSid}`), { answering: true })).status,
+    ).toBe(409);
+    // The operator can still stop a number taking calls, and point it at us again.
+    const stopped = await H.call(OPERATOR, "PUT", calls(`/numbers/${numberSid}`), {
+      answering: false,
+    });
+    expect(stopped.status, JSON.stringify(stopped.json)).toBe(200);
+    expect(j(stopped.json).setup.numbers[0]).toMatchObject({ answering: false });
+    expect(twilio.numbers.get(numberSid)?.voice_url).toBe("");
     const pointed = await H.call(OPERATOR, "PUT", calls(`/numbers/${numberSid}`), {
       answering: true,
     });
@@ -363,7 +380,28 @@ describe.skipIf(!h)("calls through the API", () => {
     expect(j(pointed.json).setup.numbers[0]).toMatchObject({ answering: true, voice: true });
     expect(twilio.numbers.get(numberSid)).toMatchObject({
       voice_url: `${ORIGIN}/api/twilio/${A()}/voice`,
+    });
+  });
+
+  it("points a number bought while calls are on at us, and forgets it when released", async () => {
+    const bought = await H.call(OPERATOR, "POST", msg("/numbers"), { phoneNumber: "+17375550103" });
+    expect(bought.status, JSON.stringify(bought.json)).toBe(200);
+    const sid = j(bought.json).setup.twilio.numbers.find(
+      (n: { phoneNumber: string }) => n.phoneNumber === "+17375550103",
+    ).sid;
+    expect(twilio.numbers.get(sid)).toMatchObject({
+      voice_url: `${ORIGIN}/api/twilio/${A()}/voice`,
       status_callback: `${ORIGIN}/api/twilio/${A()}/voice/status`,
+    });
+    const after = j((await H.call(OPERATOR, "GET", calls())).json).setup.numbers;
+    expect(after.find((n: { sid: string }) => n.sid === sid)).toMatchObject({ answering: true });
+
+    expect((await H.call(OPERATOR, "DELETE", msg(`/numbers/${sid}`))).status).toBe(200);
+    const left = j((await H.call(OPERATOR, "GET", calls())).json).setup.numbers;
+    expect(left.some((n: { sid: string }) => n.sid === sid)).toBe(false);
+    // The first number still takes calls.
+    expect(left.find((n: { sid: string }) => n.sid === numberSid)).toMatchObject({
+      answering: true,
     });
   });
 
@@ -461,7 +499,10 @@ describe.skipIf(!h)("calls through the API", () => {
       const tools = body.conversation_config.agent.prompt.tools.map(
         (t: { name: string }) => t.name,
       );
-      expect(tools).toEqual(["messages__search", "propose_follow_up", "end_call"]);
+      expect(tools).toEqual(["messages__search", "propose_follow_up"]);
+      expect(body.conversation_config.agent.prompt.built_in_tools.end_call.params).toEqual({
+        system_tool_type: "end_call",
+      });
       expect(body.platform_settings.privacy.record_voice).toBe(false);
       expect(body.conversation_config.conversation.max_duration_seconds).toBe(300);
       const vars = el.calls[0]?.dynamicVariables ?? {};

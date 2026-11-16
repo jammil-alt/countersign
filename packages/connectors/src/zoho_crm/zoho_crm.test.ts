@@ -12,6 +12,7 @@ import { fakeZoho, ZOHO_FIXTURES } from "../testing";
 import {
   createZohoCrmConnector,
   isZohoAccountsServer,
+  isZohoApiDomain,
   mapZohoRecord,
   ZOHO_SCOPES,
   ZOHO_TOOLS,
@@ -153,6 +154,22 @@ describe("zoho_crm connector", () => {
     expect(zoho.requests).toHaveLength(0);
     expect(isZohoAccountsServer("https://accounts.zoho.com.evil.example")).toBe(false);
     expect(isZohoAccountsServer("https://accounts.zoho.com.au")).toBe(true);
+    // Zoho's own API hosts, including a Developer Edition's and a sandbox's; nothing else.
+    for (const host of [
+      "https://www.zohoapis.com",
+      "https://zohoapis.eu",
+      "https://developer.zohoapis.com",
+      "https://sandbox.zohoapis.com",
+    ]) {
+      expect(isZohoApiDomain(host)).toBe(true);
+    }
+    for (const host of [
+      "https://evil.zohoapis.com",
+      "https://developer.zohoapis.com.evil.example",
+      "http://developer.zohoapis.com",
+    ]) {
+      expect(isZohoApiDomain(host)).toBe(false);
+    }
     await expect(
       connector.handleCallback?.(
         { code: "used-code", "accounts-server": "https://accounts.zoho.eu" },
