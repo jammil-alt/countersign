@@ -14,6 +14,8 @@ the rest.**
   and the whole Marketing wave (M43–M50).
 - **Every provider is built against a fake.** Nothing has yet run against live QuickBooks, Gmail,
   Resend, Twilio, Meta, ElevenLabs, Stripe, Plaid, Search Console or the others.
+- **Templates to production** (owner, 2026-11-16): planned in `docs/plan.md` §1.118, not built. Only
+  a template's tested set-up moves from staging to production, never client agents or their data.
 - **Unmerged work:** on 2026-11-15, 11 branches of finished work had never reached `main`, most
   with no PR. What they hold and the order to merge them: `docs/merge-backlog.md`.
 - Production is live from a hand-run deploy of `747d7ff`
