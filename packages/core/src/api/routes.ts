@@ -64,6 +64,8 @@ import { libraryRoutes } from "./library";
 // v0.12 W1-A: go-live stages and client controls
 import { GoLive, lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
+// §1.116: the phone app
+import { mobileRoutes } from "./mobile";
 import { modelRoutes } from "./models";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyRoutes } from "./notify";
@@ -2334,6 +2336,8 @@ export const routes = {
   ...lifecycleRoutes,
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   ...notifyRoutes,
+  // §1.116: the phone app
+  ...mobileRoutes,
   ...tableRoutes,
   // v0.12 W1-D: the Desk
   ...deskRoutes,

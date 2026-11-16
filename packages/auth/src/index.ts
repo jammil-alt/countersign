@@ -11,4 +11,5 @@ export * from "./types";
 export * from "./workos/adapter";
 export * from "./workos/client";
 export * from "./workos/config";
+export * from "./workos/mobile";
 export * from "./workos/session";
