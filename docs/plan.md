@@ -4938,6 +4938,35 @@ HAL), Sloan, and anything starting with S.
 Open for the owner:
 1. **The name pool** above: keep, cut or add.
 
+### 1.118 Templates from staging to production (owner, 2026-11-16; plan, not built)
+
+"If we build an agent in staging and get it to work, we should be able to promote it to prod." Then:
+"it would only be the templates, not the actual agent, no data etc, just the tested set up." Staging
+is where new agents, capabilities and connections are tried; production gets only what worked. Code
+already moves by release (`main` → staging, a `v*` tag → production); this moves the one thing that
+lives in the database, a template's tested set-up. Outside ARCHITECTURE v0.15's §1 scope, at the
+owner's request. Needs ARCHITECTURE v0.20 (§9.3, beside fork, update and promote) before it is built.
+
+| Topic | Decision |
+|---|---|
+| What moves | A **template** (an `agent` with no `tenant_id`) at one published version: its bundle, with every step id and fork-path id as they are (merges depend on them, invariant 3), and the **shared** skills (`skill` with no `tenant_id`) and browser scripts its steps name, at the versions it uses. Nothing else. |
+| What never moves | Client agents, a client's own skills, memory, aliases, catalogs, records, documents, runs, test runs, connections, bindings, grants, contact details, usage and cost. A template holds none of these (invariant 11); the exporter checks again and refuses a bundle with a `clientSpecific` setting filled in. Test bench cases stay too. // DECISION: they can hold copied-in client documents; synthetic cases can be made again in production. |
+| The file | One JSON file: format version, `source` (`staging`), exported at and by (operator id only), the template's slug, name and version number, its `origin` (below), the bundle and its `bundle_hash`, each shared skill version's definition and hash, each browser script version, and **what it needs**: tool ids, connectors, packs, model ids, and the release it was built on (the Worker's commit). A SHA-256 over the whole, and an **Ed25519 signature** by staging. // DECISION: a key pair, not a shared secret: staging keeps the private key (`TEMPLATE_EXPORT_KEY`), production has only the public one (`TEMPLATE_IMPORT_PUBLIC_KEY`), so production can check a file came from our staging and nothing in production can make one. |
+| Where it lives | Export only where `TEMPLATE_EXPORT=on` (staging); import only where the public key is set (production). Both operator only, each with an audit row naming the template, version and hash (invariant 14). |
+| Export | On a published template version in staging: **Export for production** downloads the file. The template must have passed its test bench at that version (its latest suite run green), else export says what failed. |
+| Import checks | Production refuses the file, changing nothing, when the signature or hash fails, the format is unknown, or **anything it needs is missing**: a tool, connector or pack not registered here, or a model id not allowed here. It names each ("needs the Odoo connector: release it first"). Code always reaches production by tag first; the template follows. Every definition is parsed with core's schemas and the bundle checked with the shared validator (invariants 4, 5). |
+| Where it lands | A **draft** version, never published or forked by the import: a new template whose first version is the draft, or, when a template here has the same `origin`, the next version of that one (`parent_version_id` its latest). `author_type` `import`. Shared skills land the same way, matched by slug; one whose definition hash equals a version here reuses it. The bundle's `skill@N` references are rewritten to this environment's version numbers. // DECISION: version numbers differ between environments; the hash says which version is the same. |
+| Approval | Every step that can write arrives with `approval: 'required'`, as a new step or a pack template does (invariant 8). The review lists the steps that were loosened on staging so the operator can loosen them again here, one by one. |
+| Lineage | `agent.origin`: the staging template's id, set on the first import and matched on later ones (unique where set). So a second export of the same template becomes v2 here, and production clients forked from v1 see "update available" and take it through the usual three-way merge, their own changes kept (invariant 11: publishing changes no client agent). |
+| After the import | The operator opens the draft, sees the diff against the template's latest version here (the existing merge view), runs the test bench in production if wanted, then **publishes**. From there it is an ordinary template: fork into a client, bind the client's own connections, and the client agent goes through its trial with every write signed. Staging runs against fakes, so the trial is the first live check. |
+| Tables | Migration (own PR): `agent.origin` (text, null, unique where set), `import` added to the author types, and `skill.origin` likewise. No new table: the import's record is its version row and its audit row. |
+| Milestones | T-1 the migration. T-2 core: the file's schema, export, checks, import into a draft, with tests for each refusal and for a second import becoming v2. T-3 the routes (`GET /api/ops/templates/:id/versions/:vid/export`, `POST /api/ops/templates/import`) and the keys in `docs/operations.md`. T-4 the screens: Export on staging's template page; Import, the review (what it needs, the loosened steps, the diff) and Publish on production's. |
+
+Open for the owner: whether a client's own skill, made on staging for a template, should be allowed to
+move once it is made shared there (today: make it shared on staging first, then export); whether
+production should also be able to send a fix back to staging (not planned: staging is rebuilt from
+`main` and its own data).
+
 ### 1.119 Removing a client's person, or an operator (de-provisioning, owner, 2026-11-16)
 
 From a branch of 2026-11-09 (`claude/clever-volta-s13mur`, "De-provisioning"), rebuilt on main.
