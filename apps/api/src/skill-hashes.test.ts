@@ -27,8 +27,9 @@ const builtins = platform.catalog.list();
 // skills the pack installs, which are not built-ins).
 // §1.104: vendor contracts add two that are no wrappers: Read a vendor contract (AI) and Review
 // notes for AP (built-in code).
-const BUILTINS = 134;
-const WRAPPERS = 92;
+// §1.113: Odoo's two reads (search and get) add two read skills, both wrappers.
+const BUILTINS = 136;
+const WRAPPERS = 94;
 
 describe("built-in skills under the R2 skill schema", () => {
   it("registers the platform's, the packs' and each connector's read skills, once each", () => {

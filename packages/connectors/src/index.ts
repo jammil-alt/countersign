@@ -8,7 +8,8 @@
 // to the spaces a client binds; v0.14 W4-E), `gsc` and `bing_webmaster` (search figures, read only;
 // M45; `gsc_oauth`, Search Console by Google sign-in, M50), `website` (guides published to a client's own site; M46), `hackernews` (read only) and
 // `linkedin` (company page posts, always signed; §1.77), `billcom` (BILL: vendors, bills, payments
-// read only, signed in with a login the client enters; §1.87), and `testkit`, the test connector. Also
+// read only, signed in with a login the client enters; §1.87), `odoo` (the client's Odoo: CRM, sales,
+// purchasing, invoicing and inventory, with a key the client enters; §1.97), and `testkit`, the test connector. Also
 // `stripe/`, Mezonas' own billing client (not a connector: no manifest, no agent tools).
 // No Workers, DOM or Node types: Web APIs are reached through ./runtime, R2 through a structural type.
 // Allowed workspace dependencies: db core. See docs/plan.md §2.
@@ -55,6 +56,8 @@ export * from "./messaging/spec";
 export * from "./oauth/flow";
 export * from "./oauth/state";
 export * from "./oauth/tokens";
+// Odoo: CRM, sales, purchasing, invoicing and inventory, signed in with a key the client enters.
+export * from "./odoo/index";
 export * from "./outlook/index";
 export * from "./permissions";
 export * from "./podio/index";

@@ -24,6 +24,8 @@ const GROUP_OF: Record<string, ConnectorGroup> = {
   bankfeed: "money",
   ramp: "money",
   billcom: "money",
+  // Odoo is accounting, sales, purchasing and stock at once: listed with money, as the site does.
+  odoo: "money",
   stripe: "money",
   gmail: "email",
   outlook: "email",

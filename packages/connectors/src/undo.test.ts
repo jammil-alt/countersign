@@ -23,6 +23,7 @@ import { createGsheetsConnector } from "./gsheets/index";
 import { createHackerNewsConnector } from "./hackernews/index";
 import { createHubspotConnector } from "./hubspot/index";
 import { createLinkedInConnector } from "./linkedin/index";
+import { createOdooConnector } from "./odoo/index";
 import { createOutlookConnector } from "./outlook/index";
 import { createPodioConnector } from "./podio/index";
 import { createQboConnector } from "./qbo/index";
@@ -65,6 +66,8 @@ const ALL: Connector[] = [
   createLinkedInConnector(),
   // §1.87
   createBillcomConnector(),
+  // Odoo: CRM, sales, purchasing, invoicing and inventory.
+  createOdooConnector(),
   createTestkitConnector(),
 ];
 
@@ -124,6 +127,7 @@ describe("undo on connector writes", () => {
       "testkit.record.update",
       "billcom.vendor.update",
       "billcom.bill.update",
+      "odoo.record.update",
     ]) {
       expect(undoOf(id), id).toEqual({ kind: "restore" });
     }
