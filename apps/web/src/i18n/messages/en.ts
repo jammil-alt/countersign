@@ -1980,6 +1980,7 @@ export const en = {
   "sloan.past": "Past conversations",
   "sloan.pastItem": "Started {date}",
   "sloan.new": "New",
+  "sloan.openPage": "Open the full page",
   "sloan.empty":
     "Ask why something waits, pause an agent, add an approver, or pass an idea to your lead.",
   "sloan.answering": "Sloan is answering…",

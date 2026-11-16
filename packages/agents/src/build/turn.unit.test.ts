@@ -30,7 +30,7 @@ const base: BuildTurnInput = {
   title: "Invoice intake reviewer",
   clientName: "Harbor Millwork",
   brief: {},
-  fitgap: { rows: [], needsTrue: [] },
+  fitgap: { rows: [], needsTrue: [], setup: [] },
   testPlan: { datasets: [] },
   items: [],
   facts: [],
@@ -54,7 +54,11 @@ describe("buildTurn", () => {
             text: "Got it. Where do the invoices arrive today?",
             chips: ["A shared mailbox", "Uploads"],
             brief: { goal: { text: "Check invoices against contracts", state: "confirmed" } },
-            fitgap: { rows: [{ id: "x", need: "y", verdict: "native", how: "" }], needsTrue: [] },
+            fitgap: {
+              rows: [{ id: "x", need: "y", verdict: "native", how: "" }],
+              needsTrue: [],
+              setup: [],
+            },
             items: [],
           },
         },
@@ -121,6 +125,33 @@ describe("buildTurn", () => {
     expect(lastUser(req)).toContain("<catalog>");
     expect(lastUser(req)).toContain("Check it against the catalog");
     expect(req?.messages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+    // A build for one client asks for what needs to be true.
+    expect(JSON.stringify(req?.system)).toContain("This build is for one client");
+  });
+
+  it("asks a template for its client intake form, not what needs to be true", async () => {
+    const model = new FakeModel([
+      {
+        toolUse: {
+          name: BUILD_TURN_TOOL,
+          input: {
+            text: "Here's the form.",
+            fitgap: {
+              rows: [{ id: "read", need: "Read PDFs", verdict: "native", how: "Read document" }],
+              setup: [{ id: "ap", label: "Your AP address", kind: "answer", hint: "ap@" }],
+            },
+          },
+        },
+      },
+    ]);
+    const out = await buildTurn(
+      { ...base, clientName: null, phase: "fitgap", words: null },
+      { llm: createLlmClient({ transport: model }) },
+    );
+    expect(out.answer.fitgap?.setup).toEqual([
+      { id: "ap", label: "Your AP address", kind: "answer", hint: "ap@" },
+    ]);
+    expect(JSON.stringify(model.requests[0]?.system)).toContain("client intake form");
   });
 });
 

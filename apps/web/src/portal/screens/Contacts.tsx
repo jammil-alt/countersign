@@ -44,7 +44,7 @@ import { useAnswered, useDebounced } from "../../runs/useDebounced";
 import { useSession } from "../../session/session";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
 import { Field, Select, TextInput } from "../../ui/forms";
-import { Loaded, Page, PageGrid } from "../../ui/page";
+import { Loaded, Page } from "../../ui/page";
 import {
   Button,
   buttonClass,
@@ -55,6 +55,7 @@ import {
   PageHeader,
   Tag,
 } from "../../ui/primitives";
+import { SideSheet } from "../../ui/sheet";
 import { SkeletonRows, SkeletonText } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { PORTAL_PATHS } from "../paths";
@@ -246,55 +247,54 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
           relationship === "all" ? people : people.filter((p) => p.relationship === relationship);
         const selected = people.find((p) => p.id === selectedId) ?? null;
         return (
-          <PageGrid
-            rail={
-              organizations ? null : adding ? (
-                <Card title={t("peoplePage.addTitle")} pad testId="people-add-form">
-                  <PersonForm
-                    person={null}
-                    organizations={data.organizations}
-                    onSubmit={async (body) => {
-                      const res = await api.call(apiRoutes.portalCreateContact, {
-                        body: body as ContactCreateInput,
-                      });
-                      list.reload();
-                      // The new contact's place on the People hours list (it may sit past the cap).
-                      hours.reload();
-                      select(res.contact.id);
-                    }}
-                  />
-                </Card>
-              ) : selected ? (
-                <PersonDetail
-                  key={selected.id}
-                  person={selected}
+          // Feedback (2026-11-12): a person opens in a side sheet over the list, not under it.
+          <div className="flex flex-col gap-6">
+            {organizations ? null : adding ? (
+              <SideSheet
+                title={t("peoplePage.addTitle")}
+                onClose={() => select(null)}
+                testId="people-add-form"
+              >
+                <PersonForm
+                  person={null}
                   organizations={data.organizations}
-                  agents={agentsOf.get(selected.id) ?? []}
-                  admin={admin}
-                  onChanged={list.reload}
-                  hours={
-                    hours.data
-                      ? {
-                          hours: listedHours(hours.data, "contact", selected.id),
-                          business: hours.data.business.hours,
-                          save: async (next) => {
-                            await api.call(apiRoutes.portalSetContactHours, {
-                              params: { id: selected.id },
-                              body: { hours: next },
-                            });
-                            hours.reload();
-                          },
-                        }
-                      : null
-                  }
+                  onSubmit={async (body) => {
+                    const res = await api.call(apiRoutes.portalCreateContact, {
+                      body: body as ContactCreateInput,
+                    });
+                    list.reload();
+                    // The new contact's place on the People hours list (it may sit past the cap).
+                    hours.reload();
+                    select(res.contact.id);
+                  }}
                 />
-              ) : shown.length > 0 ? (
-                <Card pad testId="people-pick">
-                  <p className="text-sm text-ink-muted">{t("peoplePage.pick")}</p>
-                </Card>
-              ) : null
-            }
-          >
+              </SideSheet>
+            ) : selected ? (
+              <PersonDetail
+                key={selected.id}
+                person={selected}
+                organizations={data.organizations}
+                agents={agentsOf.get(selected.id) ?? []}
+                admin={admin}
+                onChanged={list.reload}
+                onClose={() => select(null)}
+                hours={
+                  hours.data
+                    ? {
+                        hours: listedHours(hours.data, "contact", selected.id),
+                        business: hours.data.business.hours,
+                        save: async (next) => {
+                          await api.call(apiRoutes.portalSetContactHours, {
+                            params: { id: selected.id },
+                            body: { hours: next },
+                          });
+                          hours.reload();
+                        },
+                      }
+                    : null
+                }
+              />
+            ) : null}
             <div className="flex flex-wrap items-center justify-between gap-3">
               {/* biome-ignore lint/a11y/useSemanticElements: the design system's Segmented control. */}
               <div
@@ -428,7 +428,7 @@ function PeopleDirectory({ admin }: { admin: boolean }) {
                 </Card>
               </div>
             )}
-          </PageGrid>
+          </div>
         );
       }}
     </Loaded>
@@ -659,13 +659,17 @@ function BusinessBulk({
   );
 }
 
-/** One person beside the table: who they are, what agents should know, how agents may reach them. */
+/**
+ * One person in a side sheet over the table: who they are, what agents should know, how agents
+ * may reach them.
+ */
 function PersonDetail({
   person: p,
   organizations,
   agents,
   admin,
   onChanged,
+  onClose,
   hours,
 }: {
   person: Contact;
@@ -673,6 +677,7 @@ function PersonDetail({
   agents: string[];
   admin: boolean;
   onChanged: () => void;
+  onClose: () => void;
   /**
    * Their hours and away dates, and how to save them (the client admin's); null: not shown.
    * `hours` undefined: not on the People hours list (past its cap), so not known here.
@@ -688,40 +693,42 @@ function PersonDetail({
   const api = useApiClient();
   const [editing, setEditing] = useState(false);
   return (
-    <Card testId={`people-detail-${p.id}`}>
-      <div className="flex items-start gap-3 px-6 py-5">
-        <PersonBadge name={p.name} plain size="lg" />
-        <div className="min-w-0 flex-1">
-          <h2 className="type-subheading text-ink">{p.name}</h2>
-          <p className="text-sm text-ink-muted">
+    <SideSheet
+      testId={`people-detail-${p.id}`}
+      onClose={onClose}
+      eyebrow={
+        <span className="flex items-center gap-3">
+          <PersonBadge name={p.name} plain size="lg" />
+          <span className="text-sm text-ink-muted">
             {[p.title, p.organization?.name].filter(Boolean).join(" · ") ||
               t("directory.person.noOrganization")}
-          </p>
-        </div>
-        {admin ? (
+          </span>
+        </span>
+      }
+      title={p.name}
+      footer={
+        admin ? (
           <Button
             size="sm"
-            variant="ghost"
+            variant="secondary"
             data-testid="people-detail-edit"
             aria-expanded={editing}
             onClick={() => setEditing((e) => !e)}
           >
             {editing ? t("common.cancel") : t("directory.edit")}
           </Button>
-        ) : null}
-      </div>
+        ) : undefined
+      }
+    >
       {p.relationship || p.languageUsed ? (
-        <div className="flex flex-wrap gap-2 px-6 pb-4">
+        <div className="flex flex-wrap gap-2">
           {p.relationship ? <Tag>{t(RELATIONSHIP_KEY[p.relationship])}</Tag> : null}
           {p.languageUsed ? <Tag>{languageUsedText(p.languageUsed, i18n)}</Tag> : null}
         </div>
       ) : null}
       {admin && (p.access || isOwnPerson(p, p.organization)) ? (
         // Signing in (2026-11-08): the client's own people only, for the client admin.
-        <div
-          className="flex flex-wrap items-center gap-2 px-6 pb-4"
-          data-testid="people-detail-access"
-        >
+        <div className="flex flex-wrap items-center gap-2" data-testid="people-detail-access">
           <AccessBadge access={p.access} testId="people-detail-access-badge" />
           <InviteContactAction
             person={p}
@@ -735,7 +742,7 @@ function PersonDetail({
         </div>
       ) : null}
       {editing ? (
-        <div className="border-t border-line px-6 py-4">
+        <div className="border-t border-line pt-4">
           <PersonForm
             person={p}
             organizations={organizations}
@@ -797,13 +804,13 @@ function PersonDetail({
           <RecentMessages contactId={p.id} />
         </DetailBlock>
       ) : null}
-    </Card>
+    </SideSheet>
   );
 }
 
 function DetailBlock({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="flex flex-col gap-3 border-t border-line px-6 py-4">
+    <section className="flex flex-col gap-3 border-t border-line pt-4">
       <h3 className="eyebrow text-ink-muted">{title}</h3>
       {children}
     </section>

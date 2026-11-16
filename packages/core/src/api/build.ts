@@ -11,6 +11,8 @@ import {
   BuildPhase,
   BuildStatus,
   FitGap,
+  FitReason,
+  FitVerdict,
   QaCheck,
   QaCheckId,
   QaRecord,
@@ -82,6 +84,8 @@ export const BuildItemView = z.object({
   state: BuildItemState,
   stepId: z.string().nullable(),
   ref: BuildItemRef,
+  /** What made it once, e.g. `fit:<row id>` for a fit-gap row. */
+  key: z.string().nullable(),
   createdAt: z.string(),
   resolvedAt: z.string().nullable(),
 });
@@ -94,6 +98,9 @@ export const DraftProblem = z.object({
   title: z.string(),
   stepId: z.string().nullable(),
   workflow: z.string().nullable(),
+  /** Feedback (2026-11-16): the step and workflow by the names the operator reads. */
+  stepName: z.string().nullable().optional(),
+  workflowName: z.string().nullable().optional(),
 });
 export type DraftProblem = z.infer<typeof DraftProblem>;
 
@@ -294,6 +301,21 @@ export const buildRoutes = {
     summary: "Your words in the build's conversation, and the Builder's answer for the phase",
     params: IdParams,
     body: z.strictObject({ text: z.string().trim().min(1).max(BUILD_TEXT_MAX) }),
+    response: BuildDetail,
+  }),
+  opsBuildVerdict: defineRoute({
+    method: "POST",
+    path: "/api/ops/builds/:id/verdicts",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Change a fit-gap row's verdict, with why: to more work it changes at once; to less work it's a challenge the Builder answers against the catalog",
+    params: IdParams,
+    body: z.strictObject({
+      rowId: z.string().min(1).max(40),
+      to: FitVerdict,
+      reason: FitReason,
+    }),
     response: BuildDetail,
   }),
   opsMoveBuild: defineRoute({

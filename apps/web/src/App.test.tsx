@@ -14,6 +14,7 @@ import {
   Reply,
   SANDBOX_DETAIL,
 } from "./test/fixtures";
+import { clientOptions, pickClient } from "./test/pickClient";
 
 function backend(): FakeApi & { signedInAs: () => string | null } {
   let signedIn: string | null = null;
@@ -110,11 +111,8 @@ describe("app", () => {
     // Operators land in the back office's command center; a client opens from the top bar's
     // client picker.
     expect(await screen.findByTestId("ops-command")).toBeInTheDocument();
-    const picker = await screen.findByTestId("ops-client-switcher");
-    await waitFor(() =>
-      expect(within(picker).getByRole("option", { name: "Sandbox" })).toBeInTheDocument(),
-    );
-    await user.selectOptions(picker, "00000000-0000-4000-8000-00000000a001");
+    await waitFor(async () => expect(await clientOptions(user)).toContain("Sandbox"));
+    await pickClient("00000000-0000-4000-8000-00000000a001", user);
     // The client page opens on its Overview; its agents are on the Agents tab.
     await user.click(
       within(await screen.findByTestId("ops-client-tabs")).getByRole("link", { name: "Agents" }),

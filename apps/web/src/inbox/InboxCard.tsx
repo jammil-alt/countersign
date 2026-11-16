@@ -201,7 +201,8 @@ export function isAccountChangeItem(item: Pick<InboxCardItem, "payload">): boole
 }
 
 /** An item's accent colour, from its status badge's tone (none for neutral and slate). */
-const BADGE_ACCENT: Record<Tone, AccentTone | undefined> = {
+/** A status badge's tone as the accent on a card's or a row's left edge. */
+export const BADGE_ACCENT: Record<Tone, AccentTone | undefined> = {
   neutral: undefined,
   accent: undefined,
   positive: "positive",
@@ -210,7 +211,8 @@ const BADGE_ACCENT: Record<Tone, AccentTone | undefined> = {
   person: "copper",
 };
 
-function statusBadge(
+/** An item's status in a word and its tone: "Needs approval" (signal), "Approved by you" (copper). */
+export function statusBadge(
   item: InboxCardItem,
   outcome: string | null,
   { t }: Pick<I18n, "t">,
@@ -234,6 +236,34 @@ function statusBadge(
   }
   if (item.kind === "request") return { label: t("inbox.status.needsAnswer"), tone: "warning" };
   return { label: t("common.waiting"), tone: "warning" };
+}
+
+/**
+ * An item's title as its card reads it: a change to a client's tool by what it does ("Create a
+ * bill in QuickBooks"), anything else by its own title. For a row that opens the card.
+ */
+export function inboxItemTitle(
+  item: InboxCardItem,
+  i18n: Pick<I18n, "locale">,
+  connectorNames?: Record<string, string>,
+): string {
+  if (item.kind !== "external_action") return item.title;
+  const tool = typeof item.payload.tool === "string" ? item.payload.tool : null;
+  if (!tool) return item.title;
+  const connector =
+    typeof item.payload.connector === "string" ? item.payload.connector : connectorOf(tool);
+  const toolName = item.display?.connectorName
+    ? item.display.connectorName
+    : connector
+      ? connectorName(connector, connectorNames)
+      : null;
+  return changeHeading(
+    toolName ? { connectorName: toolName, tool: item.display?.tool ?? null } : null,
+    tool,
+    item.payload.before,
+    item.payload.input,
+    i18n.locale,
+  ).title;
 }
 
 export function InboxCard({

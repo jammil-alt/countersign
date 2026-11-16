@@ -138,7 +138,46 @@ const ShortId = z
   .regex(/^[a-z0-9][a-z0-9_-]{0,39}$/)
   .describe("A short id, lowercase letters, digits and dashes");
 
-export const FitRow = z.object({
+/**
+ * How much work a verdict means, least first. The operator may set a row to more work at once,
+ * with a reason; less work is a challenge the Builder answers against the catalog, since only the
+ * catalog says a part exists.
+ */
+// DECISION: the operator never sets a verdict to less work: picking "Native" doesn't make the part
+// exist, and it would drop the open item that tracks the gap. A challenge goes to the Builder.
+export const FIT_WORK: Record<FitVerdict, number> = {
+  native: 0,
+  configure: 1,
+  build: 2,
+  figure_out: 3,
+  not_possible: 4,
+};
+
+/** A reason the operator gives for a verdict: why the Builder's is wrong. */
+export const FIT_REASON_MIN = 20;
+export const FitReason = z.string().trim().min(FIT_REASON_MIN).max(1000);
+
+/** The operator set the row to more work than the Builder did. */
+export const FitOverride = z.object({
+  /** The Builder's verdict. */
+  from: FitVerdict,
+  reason: FitReason,
+  by: z.string().nullable().default(null),
+  at: z.string().nullable().default(null),
+});
+export type FitOverride = z.infer<typeof FitOverride>;
+
+/** The operator asked the Builder to look again; cleared by the Builder's next fit-gap. */
+export const FitChallenge = z.object({
+  wanted: FitVerdict,
+  reason: FitReason,
+  by: z.string().nullable().default(null),
+  at: z.string().nullable().default(null),
+});
+export type FitChallenge = z.infer<typeof FitChallenge>;
+
+/** A row as the Builder writes it. */
+export const FitRowDraft = z.object({
   id: ShortId,
   need: z.string().trim().min(1).max(300).describe("What the brief needs, in a few words"),
   verdict: FitVerdict,
@@ -149,6 +188,11 @@ export const FitRow = z.object({
     .describe("How: the platform part that does it, what to configure or build, or why not"),
   dropped: z.boolean().default(false).describe("Taken out of scope by the operator"),
 });
+
+export const FitRow = FitRowDraft.extend({
+  override: FitOverride.nullish(),
+  challenge: FitChallenge.nullish(),
+});
 export type FitRow = z.infer<typeof FitRow>;
 
 export const NeedsTrue = z.object({
@@ -158,15 +202,229 @@ export const NeedsTrue = z.object({
 });
 export type NeedsTrue = z.infer<typeof NeedsTrue>;
 
+// ── The client intake form (a template's) ───────────────────────────────────────────────────────
+
+/**
+ * What we get from each client to set up their copy of a template: a tool to connect, a pack to
+ * switch on, an answer (a value such as a tolerance or an address) or a file (contracts, a list).
+ * A template has no client yet, so these are a form that travels with the build, not open items.
+ */
+// DECISION (owner, 2026-11-16): a template's "what needs to be true" is its client intake form,
+// kept on the build (in its fit-gap record, no migration); a build for one client keeps open items.
+export const SETUP_KINDS = ["connect", "pack", "answer", "file"] as const;
+export const SetupKind = z.enum(SETUP_KINDS);
+export type SetupKind = z.infer<typeof SetupKind>;
+
+export const SETUP_WORDS: Record<SetupKind, string> = {
+  connect: "Connect a tool",
+  pack: "Switch on a pack",
+  answer: "Answer",
+  file: "File",
+};
+
+/** A field as the Builder writes it. */
+export const SetupFieldDraft = z.object({
+  id: ShortId,
+  label: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .describe("What we ask the client, as a question or a short label"),
+  kind: SetupKind.describe(
+    "connect (a tool they connect, by name), pack (a pack switched on for them), answer (a value: a tolerance, an address, a person), file (contracts, a vendor list)",
+  ),
+  hint: z
+    .string()
+    .trim()
+    .max(300)
+    .default("")
+    .describe("Why we need it, or an example answer, in one sentence"),
+});
+
+export const SetupField = SetupFieldDraft.extend({
+  /** Not asked of clients: taken out by the operator. */
+  dropped: z.boolean().default(false),
+  /** Added or changed by the operator: the Builder's rewrites keep it as it is. */
+  byOperator: z.boolean().default(false),
+});
+export type SetupField = z.infer<typeof SetupField>;
+
+/** Whether a build makes a client intake form: an agent for every client (a template). */
+export function buildHasSetupForm(b: { kind: BuildKind; clientId: string | null }): boolean {
+  return b.kind === "agent" && !b.clientId;
+}
+
 export const FitGap = z.object({
   rows: z.array(FitRow).max(40).default([]),
   needsTrue: z.array(NeedsTrue).max(20).default([]),
+  /** A template's client intake form. */
+  setup: z.array(SetupField).max(30).default([]),
 });
 export type FitGap = z.infer<typeof FitGap>;
 
 export function readFitGap(raw: unknown): FitGap {
   const parsed = FitGap.safeParse(raw ?? {});
-  return parsed.success ? parsed.data : { rows: [], needsTrue: [] };
+  return parsed.success ? parsed.data : { rows: [], needsTrue: [], setup: [] };
+}
+
+/** A fit-gap as the Builder writes it: no overrides or challenges, which are the operator's. */
+export const FitGapDraft = z.object({
+  rows: z.array(FitRowDraft).max(40).default([]),
+  needsTrue: z.array(NeedsTrue).max(20).default([]),
+  setup: z.array(SetupFieldDraft).max(30).default([]),
+});
+export type FitGapDraft = z.infer<typeof FitGapDraft>;
+
+/** The longest "how" and "need" a row keeps. */
+export const FIT_HOW_MAX = 500;
+export const FIT_NEED_MAX = 300;
+
+/**
+ * The fit-gap as the model may send it: longer text than a row keeps, so one wordy row doesn't
+ * throw the whole answer away. `clampFitGap` cuts it to size.
+ */
+// DECISION: a model's "how" over the limit is cut at a sentence, not refused (a refused answer
+// loses the whole turn).
+export const FitGapAnswer = z.object({
+  rows: z
+    .array(
+      FitRowDraft.extend({
+        need: z.string().trim().min(1).max(1000).describe("What the brief needs, in a few words"),
+        how: z
+          .string()
+          .trim()
+          .max(2000)
+          .describe(
+            `How: the platform part that does it, what to configure or build, or why not. At most two sentences, under ${FIT_HOW_MAX} characters`,
+          ),
+      }),
+    )
+    .max(40)
+    .default([]),
+  needsTrue: z
+    .array(NeedsTrue)
+    .max(20)
+    .default([])
+    .describe("A build for one client only: what the client or we must make true"),
+  setup: z
+    .array(SetupFieldDraft)
+    .max(30)
+    .default([])
+    .describe(
+      "A template only: the client intake form, what we get from each client to set up their copy",
+    ),
+});
+export type FitGapAnswer = z.infer<typeof FitGapAnswer>;
+
+/** Cuts text to `max` characters, at the last sentence end that fits, else at a word, with "…". */
+export function clampText(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = text.slice(0, max - 1);
+  const stop = Math.max(head.lastIndexOf(". "), head.lastIndexOf("; "));
+  if (stop >= max / 2) return head.slice(0, stop + 1);
+  const space = head.lastIndexOf(" ");
+  return `${(space > max / 2 ? head.slice(0, space) : head).trimEnd()}…`;
+}
+
+export function clampFitGap(answer: FitGapAnswer): FitGapDraft {
+  return {
+    rows: answer.rows.map((r) => ({
+      ...r,
+      need: clampText(r.need, FIT_NEED_MAX),
+      how: clampText(r.how, FIT_HOW_MAX),
+    })),
+    needsTrue: answer.needsTrue,
+    setup: answer.setup,
+  };
+}
+
+/**
+ * The Builder's new fit-gap with the operator's changes kept: dropped rows stay dropped, a row the
+ * operator set to more work keeps that verdict, and a challenged row takes the Builder's answer
+ * (its challenge is answered, and an override on it goes). A row the operator changed that the
+ * Builder left out is kept.
+ */
+export function mergeFitGap(before: FitGap, after: FitGapDraft): FitGap {
+  const prev = new Map(before.rows.map((r) => [r.id, r]));
+  const rows: FitRow[] = after.rows.map((r) => {
+    const p = prev.get(r.id);
+    const base: FitRow = { ...r, override: null, challenge: null };
+    if (!p) return base;
+    const dropped = p.dropped || r.dropped;
+    if (p.challenge) return { ...base, dropped };
+    if (p.override) return { ...base, dropped, verdict: p.verdict, override: p.override };
+    return { ...base, dropped };
+  });
+  const ids = new Set(rows.map((r) => r.id));
+  for (const p of before.rows) {
+    if (!ids.has(p.id) && (p.dropped || p.override)) rows.push({ ...p, challenge: null });
+  }
+  return {
+    rows: rows.slice(0, 40),
+    needsTrue: after.needsTrue,
+    setup: mergeSetup(before.setup, after.setup),
+  };
+}
+
+/**
+ * The Builder's intake form with the operator's changes kept: fields the operator added or changed
+ * stay as they are, and fields taken out stay out (the Builder's version of them is ignored).
+ */
+function mergeSetup(before: readonly SetupField[], after: FitGapDraft["setup"]): SetupField[] {
+  // An answer without a form leaves the form as it was.
+  if (after.length === 0) return [...before];
+  const kept = new Map(before.filter((f) => f.byOperator || f.dropped).map((f) => [f.id, f]));
+  const out: SetupField[] = after.map(
+    (f) => kept.get(f.id) ?? { ...f, dropped: false, byOperator: false },
+  );
+  const ids = new Set(out.map((f) => f.id));
+  for (const f of kept.values()) if (!ids.has(f.id)) out.push(f);
+  return out.slice(0, 30);
+}
+
+/**
+ * The operator's save of the fit-gap (what's in scope, what needs to be true) onto the stored one.
+ * Rows, verdicts, overrides and challenges stay as stored: a verdict changes only with a reason
+ * (`fitVerdictChange`). Returns why not, or the fit-gap to save.
+ */
+export function operatorFitGap(
+  stored: FitGap,
+  sent: FitGap,
+): { ok: true; fitgap: FitGap } | { ok: false; reason: string } {
+  const byId = new Map(sent.rows.map((r) => [r.id, r]));
+  for (const r of sent.rows) {
+    const s = stored.rows.find((x) => x.id === r.id);
+    if (!s) return { ok: false, reason: "The Builder writes the fit-gap's rows." };
+    if (s.verdict !== r.verdict) {
+      return {
+        ok: false,
+        reason: `"${s.need}" is ${FIT_WORDS[s.verdict]}. Change a verdict with a reason.`,
+      };
+    }
+  }
+  return {
+    ok: true,
+    fitgap: {
+      rows: stored.rows.map((s) => ({ ...s, dropped: byId.get(s.id)?.dropped ?? s.dropped })),
+      needsTrue: sent.needsTrue,
+      setup: sent.setup.map((f) => {
+        const s = stored.setup.find((x) => x.id === f.id);
+        const changed =
+          !s ||
+          s.label !== f.label ||
+          s.kind !== f.kind ||
+          s.hint !== f.hint ||
+          s.dropped !== f.dropped;
+        return { ...f, byOperator: f.byOperator || changed };
+      }),
+    },
+  };
+}
+
+/** What a verdict change does: more work is set now, less work asks the Builder. */
+export function fitChangeKind(from: FitVerdict, to: FitVerdict): "override" | "challenge" {
+  return FIT_WORK[to] > FIT_WORK[from] ? "override" : "challenge";
 }
 
 // ── POC test: the test plan ─────────────────────────────────────────────────────────────────────
@@ -325,6 +583,16 @@ export function gateReasons(f: GateFacts): string[] {
     case "fitgap":
       if (f.fitgap.rows.filter((r) => !r.dropped).length === 0) {
         out.push("The fit-gap has no rows in scope.");
+      }
+      {
+        const asked = f.fitgap.rows.filter((r) => !r.dropped && r.challenge).length;
+        if (asked > 0) {
+          out.push(
+            asked === 1
+              ? "1 challenged verdict is waiting on the Builder."
+              : `${asked} challenged verdicts are waiting on the Builder.`,
+          );
+        }
       }
       break;
     case "draft":

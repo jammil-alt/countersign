@@ -15,8 +15,9 @@ import {
   BuildItemOwner,
   type BuildKind,
   type BuildPhase,
+  clampFitGap,
   type FitGap,
-  FitGap as FitGapSchema,
+  FitGapAnswer,
   PHASE_WORDS,
   type TestPlan,
   TestPlan as TestPlanSchema,
@@ -74,7 +75,7 @@ export const BuildTurnAnswer = z.object({
     .default([])
     .describe("Short answers the operator can pick for your question, if it has likely answers"),
   brief: BriefPatch.optional(),
-  fitgap: FitGapSchema.optional().describe(
+  fitgap: FitGapAnswer.optional().describe(
     "Fit-gap only: the whole fit-gap after this turn (rows and what needs to be true)",
   ),
   testPlan: TestPlanSchema.optional().describe(
@@ -95,9 +96,13 @@ const PHASE_RULES: Record<BuildPhase, string> = {
 - When goal, trigger, data in and data out are filled, say what you heard in two or three sentences and ask the operator to confirm the brief on the right. Open fields become open items when the brief is confirmed: don't add items for them.`,
   fitgap: `Phase: fit-gap. Check every need in the brief against the catalog and answer with the whole "fitgap".
 - One row per need: native (a skill, tool, connector or pack in the catalog does it as is; name it in "how"), configure (it exists but needs a connection, a setting or a pack switched on), build (a new skill or automation from catalog parts; the Builder can draft it), figure_out (needs something the catalog lacks: a connector, a tool, a data source), not_possible (against Mezonas' rules: moving money, signing in to a bank, payment or email account, deleting records, storing card numbers, or a client's credentials seen by us).
-- "needsTrue": what the client or we must make true for it to work (a connection, data loaded, a person who answers in time).
-- Don't add open items for rows or for what needs to be true: they become open items when the direction is agreed.
-- Keep a row the operator dropped as dropped. Say the counts in one sentence, then what needs to be true.`,
+- Don't add open items for rows, for what needs to be true or for the intake form: the API makes them when the direction is agreed.
+- Keep a row the operator dropped as dropped. Keep each row's id when you rewrite it. Say the counts in one sentence, then what needs to be true.
+- A row with "override": the operator set it to more work than you did, with their reason. Keep their verdict; use the reason in "how" if it helps.
+- A row with "challenge": the operator thinks the verdict should be "wanted" and says why. Answer it this turn with the whole fit-gap:
+  1. First check the need is captured right. Read the brief and the operator's reason: the client's real step may differ from how the row says it, or the row may hold two steps. If so, rewrite the row's need (keep its id), or split it into rows with new ids for the extra steps, and judge each.
+  2. Then judge the verdict against the catalog. Change it only when you can name the catalog part that does it, in "how". A row that still does something on the not_possible list stays not_possible: those are Mezonas' rules. If the real step is different (preparing a bill for payment, not paying it), rewrite the need and judge that.
+  3. If you keep the verdict, say in your reply exactly what the catalog is missing and why nothing in it does this, so the operator can see where the gap is.`,
   draft: `Phase: draft. The draft exists; the operator edits it in the workflow with the Builder panel. Answer questions about the draft and its problems, and add an open item when the operator asks for one or names something left to do. You change nothing here.`,
   poc: `Phase: POC test. Plan the synthetic data that proves the draft works before any client sees it, and answer with the whole "testPlan".
 - One dataset per kind of data the draft reads (vendors, items with prices, contracts, invoices…): how many, and the cases it must cover (clean ones, edge cases, errors the draft must catch). Default source "generate"; "upload" when the operator has real examples, "sandbox" for data the Sandbox client already has.
@@ -176,13 +181,28 @@ const OPENERS: Partial<Record<BuildPhase, string>> = {
   poc: "The draft has no problems left. Write the test plan for the POC test.",
 };
 
+/** What a fit-gap asks for besides its rows: the client's own setup, or a template's intake form. */
+const FITGAP_FOR_CLIENT = `This build is for one client.
+- "needsTrue": what the client or we must make true for it to work (a connection, data loaded, a person who answers in time). Leave "setup" empty.`;
+
+const FITGAP_FOR_TEMPLATE = `This build is a template: it has no client yet. What each client must give us goes in the client intake form, not in "needsTrue" (leave that empty).
+- "setup": the client intake form, every field we need from a client to set up their copy. connect: a tool they connect, by its catalog name (QuickBooks Online, Gmail). pack: a pack switched on for them. answer: a value that differs by client (price and terms tolerances, the AP address invoices come from, who approves). file: what they upload (vendor contracts, a vendor list).
+- One field per thing we ask, worded as we'd ask the client, with a one-sentence hint (why, or an example). Brief fields that vary by client, such as tolerances or volume, belong here.
+- Keep fields the operator added or changed as they are, and don't add back a field they took out.`;
+
 /** One turn of a build's conversation, in its phase's way. */
 export async function buildTurn(
   input: BuildTurnInput,
   options: BuildTurnOptions,
 ): Promise<BuildTurnResult> {
   const usesCatalog = input.ctx && (input.phase === "fitgap" || input.phase === "poc");
-  const system = `${BUILD_RULES}\n\n${PHASE_RULES[input.phase]}`;
+  const fitgapFor =
+    input.phase !== "fitgap"
+      ? ""
+      : input.kind === "agent" && !input.clientName
+        ? `\n${FITGAP_FOR_TEMPLATE}`
+        : `\n${FITGAP_FOR_CLIENT}`;
+  const system = `${BUILD_RULES}\n\n${PHASE_RULES[input.phase]}${fitgapFor}`;
   const context = [usesCatalog && input.ctx ? catalogBlock(input.ctx) : null, stateBlock(input)]
     .filter(Boolean)
     .join("\n\n");
@@ -230,7 +250,7 @@ export async function buildTurn(
 function cleanAnswer(phase: BuildPhase, answer: BuildTurnAnswer): BuildTurnAnswer {
   const out: BuildTurnAnswer = { text: answer.text, chips: answer.chips, items: answer.items };
   if (phase === "intake" && answer.brief) out.brief = answer.brief;
-  if (phase === "fitgap" && answer.fitgap) out.fitgap = answer.fitgap;
+  if (phase === "fitgap" && answer.fitgap) out.fitgap = clampFitGap(answer.fitgap);
   if (phase === "poc" && answer.testPlan) out.testPlan = answer.testPlan;
   return out;
 }

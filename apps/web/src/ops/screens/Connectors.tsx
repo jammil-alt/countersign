@@ -1,6 +1,7 @@
 // O3 Connectors (`#O3-Connectors` → `/ops/connectors`; ARCHITECTURE §6.1 "Connectors catalog",
-// docs/plan.md §1.44): every registered connector in one table (kind, status, clients connected,
-// tools, errors in the last 24 hours), filtered by status; the selected one in the rail with its
+// docs/plan.md §1.44): the catalog's figures, then every registered connector as a card (status,
+// what it does, clients connected, tools, errors in the last 24 hours, kind; feedback 2026-11-10),
+// filtered by status and searched; the selected one in the rail with its
 // status and note (the operator sets them), the tools it gives agents, the default access a new
 // client's connection starts with, who is waiting to connect, and whether a client is offered it.
 // Below, the default access matrix with entities (never looser than the platform's defaults).
@@ -21,13 +22,13 @@ import { ConnectorMark } from "../../connections/ConnectorMark";
 import { MatrixTable } from "../../connections/MatrixTable";
 import { useSession } from "../../session/session";
 import { saysMore } from "../../ui/brief";
+import { KpiStrip, StatTile } from "../../ui/figures";
 import { Field, Select, TextInput } from "../../ui/forms";
 import { Page, Section } from "../../ui/page";
 import {
   Badge,
   Button,
   buttonClass,
-  Card,
   cx,
   EmptyState,
   ErrorNotice,
@@ -108,6 +109,41 @@ function errorWords(c: Connector): string | null {
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
+/** The catalog in four figures: how many, how many live, clients connected, errors today. */
+function ConnectorFigures({ connectors }: { connectors: readonly Connector[] }) {
+  const live = connectors.filter((c) => c.status === "live").length;
+  const clients = connectors.reduce((n, c) => n + c.clientsConnected, 0);
+  const failing = connectors.filter((c) => errorWords(c) !== null);
+  const calls = connectors.reduce((n, c) => n + c.errors.toolCalls, 0);
+  return (
+    <KpiStrip testId="connectors-figures">
+      <StatTile label="Connectors" value={connectors.length} note={`${live} live`} />
+      <StatTile
+        label="Client connections"
+        value={clients}
+        note="Clients signed in to a connector"
+      />
+      <StatTile
+        label="Tools"
+        value={connectors.reduce((n, c) => n + c.tools.length, 0)}
+        note="What agents can use through them"
+      />
+      <StatTile
+        testId="connectors-figures-errors"
+        label="Errors, 24 h"
+        value={calls}
+        note={
+          failing.length === 0
+            ? "None failing"
+            : `${failing.length} ${failing.length === 1 ? "connector" : "connectors"} with errors`
+        }
+        noteTone={failing.length > 0 ? "risk" : "positive"}
+        alert={failing.length > 0}
+      />
+    </KpiStrip>
+  );
+}
+
 export function OpsConnectorsScreen() {
   const api = useApiClient();
   const { data, error, loading, reload } = useApi(apiRoutes.opsConnectors);
@@ -178,6 +214,7 @@ export function OpsConnectorsScreen() {
           testId="connectors-search"
         />
       </div>
+      {all.length > 0 ? <ConnectorFigures connectors={all} /> : null}
       {saveError ? <ErrorNotice error={saveError} /> : null}
       {all.length === 0 ? (
         <EmptyState>No connector is registered here.</EmptyState>
@@ -193,82 +230,91 @@ export function OpsConnectorsScreen() {
               onClose={() => setSelectedId(null)}
             />
           ) : null}
-          <Card>
-            <div className="dt dt-ana overflow-x-auto">
-              <table data-testid="connectors-table">
-                <thead>
-                  <tr className="dt-cols">
-                    <th>Connector</th>
-                    <th>Kind</th>
-                    <th>Status</th>
-                    <th className="text-right">Clients</th>
-                    <th className="text-right">Tools</th>
-                    <th>Errors 24 h</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shown.map((c) => {
-                    const errs = errorWords(c);
-                    const on = selected?.id === c.id;
-                    return (
-                      <tr
-                        key={c.id}
-                        data-testid={`connector-${c.id}`}
-                        aria-selected={on}
-                        className={cx(on && "bg-slate-tint")}
-                      >
-                        <td>
-                          <button
-                            type="button"
-                            className="group flex items-center gap-3 text-left"
-                            aria-haspopup="dialog"
-                            data-testid={`connector-${c.id}-open`}
-                            onClick={() => setSelectedId(c.id)}
-                          >
-                            <ConnectorMark name={c.name} connector={c.id} size="sm" />
-                            <span className="flex flex-col">
-                              <span className="font-medium text-ink group-hover:underline">
-                                {c.name}
-                              </span>
-                              <span
-                                className="max-w-xl text-sm text-ink-muted"
-                                data-testid={`connector-${c.id}-line`}
-                              >
-                                {connectorLine(c)}
-                              </span>
-                            </span>
-                          </button>
-                        </td>
-                        <td className="text-sm whitespace-nowrap text-ink">{KIND_LABEL[c.auth]}</td>
-                        <td>
-                          <ConnectorStatusChip status={c.status} />
-                        </td>
-                        <td
-                          className="text-right figures"
+          {/* Feedback (2026-11-10): cards with their figures, a search on top, and the side
+              sheet with everything when one is clicked. */}
+          {shown.length === 0 ? (
+            <EmptyState>
+              {search.trim() ? "No connector matches." : "No connector has this status."}
+            </EmptyState>
+          ) : (
+            <div
+              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+              data-testid="connectors-cards"
+            >
+              {shown.map((c) => {
+                const errs = errorWords(c);
+                const on = selected?.id === c.id;
+                return (
+                  <article
+                    key={c.id}
+                    data-testid={`connector-${c.id}`}
+                    aria-current={on ? "true" : undefined}
+                    className={cx(
+                      "ds-card relative flex flex-col gap-3 p-5 transition-colors hover:border-line-strong",
+                      on && "border-slate bg-slate-tint",
+                      errs && "ui-accent ui-accent--left",
+                    )}
+                    data-tone={errs ? "risk" : undefined}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="flex min-w-0 items-center gap-3">
+                        <ConnectorMark name={c.name} connector={c.id} size="sm" />
+                        <button
+                          type="button"
+                          className="ops-row__link truncate text-left font-medium text-ink hover:underline"
+                          aria-haspopup="dialog"
+                          data-testid={`connector-${c.id}-open`}
+                          onClick={() => setSelectedId(c.id)}
+                        >
+                          {c.name}
+                        </button>
+                      </span>
+                      <ConnectorStatusChip status={c.status} />
+                    </div>
+                    <p
+                      className="line-clamp-2 text-sm text-ink-muted"
+                      data-testid={`connector-${c.id}-line`}
+                    >
+                      {connectorLine(c)}
+                    </p>
+                    <dl className="mt-auto grid grid-cols-3 gap-2 border-t border-line pt-3 text-sm">
+                      <div className="flex flex-col">
+                        <dt className="text-xs text-ink-muted">Clients</dt>
+                        <dd
+                          className="figures font-medium text-ink"
                           data-testid={`connector-${c.id}-clients`}
                         >
                           {c.clientsConnected}
-                        </td>
-                        <td className="text-right figures">{c.tools.length}</td>
-                        <td className="text-sm" data-testid={`connector-${c.id}-errors`}>
-                          {errs ? (
-                            <span className="text-risk">{errs}</span>
-                          ) : (
-                            <span className="text-positive figures">0</span>
+                        </dd>
+                      </div>
+                      <div className="flex flex-col">
+                        <dt className="text-xs text-ink-muted">Tools</dt>
+                        <dd className="figures font-medium text-ink">{c.tools.length}</dd>
+                      </div>
+                      <div className="flex flex-col">
+                        <dt className="text-xs text-ink-muted">Errors, 24 h</dt>
+                        <dd
+                          className={cx(
+                            "figures font-medium",
+                            errs ? "text-risk" : "text-positive",
                           )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          data-testid={errs ? undefined : `connector-${c.id}-errors`}
+                        >
+                          {c.errors.toolCalls + c.errors.connections}
+                        </dd>
+                      </div>
+                    </dl>
+                    {errs ? (
+                      <p className="text-xs text-risk" data-testid={`connector-${c.id}-errors`}>
+                        {errs}
+                      </p>
+                    ) : null}
+                    <p className="text-xs text-ink-muted">{KIND_LABEL[c.auth]}</p>
+                  </article>
+                );
+              })}
             </div>
-            {shown.length === 0 ? (
-              <p className="ui-card__body text-sm text-ink-muted">
-                {search.trim() ? "No connector matches." : "No connector has this status."}
-              </p>
-            ) : null}
-          </Card>
+          )}
           <Section title="Default access for new clients">
             <MatrixTable
               editor="operator"

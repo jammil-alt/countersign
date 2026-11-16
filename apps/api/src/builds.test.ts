@@ -163,7 +163,11 @@ describe.skipIf(!h)("builds", () => {
               how: "Agents never move money",
             },
           ],
-          needsTrue: [{ id: "conn", text: "The client connects the testkit" }],
+          needsTrue: [],
+          setup: [
+            { id: "conn", label: "Connect the testkit", kind: "connect", hint: "It writes there" },
+            { id: "tol", label: "Your price tolerance", kind: "answer", hint: "e.g. 2%" },
+          ],
         },
       }),
     );
@@ -172,28 +176,128 @@ describe.skipIf(!h)("builds", () => {
     expect(b.items.map((i) => i.title)).toEqual(["How many: still open"]);
     expect(b.build.fitgap.rows).toHaveLength(4);
 
-    // The operator drops the portal row; agreeing drafts it with the Builder's own route.
+    // A verdict doesn't change by saving the fit-gap: it needs a reason.
+    const native = {
+      ...b.build.fitgap,
+      rows: b.build.fitgap.rows.map((r) => (r.id === "portal" ? { ...r, verdict: "native" } : r)),
+    };
+    expect((await call("PATCH", `/api/ops/builds/${id}`, { fitgap: native })).status).toBe(409);
+    const why = "Their records come in as scanned images, never text.";
+    expect(
+      (
+        await call("POST", `/api/ops/builds/${id}/verdicts`, {
+          rowId: "update",
+          to: "figure_out",
+          reason: "short",
+        })
+      ).status,
+    ).toBe(400);
+    // More work changes at once, with the Builder's verdict and the reason kept.
+    b = await ok("POST", `/api/ops/builds/${id}/verdicts`, {
+      rowId: "update",
+      to: "build",
+      reason: why,
+    });
+    expect(b.build.fitgap.rows[0]).toMatchObject({
+      verdict: "build",
+      override: { from: "native", reason: why },
+    });
+    // Less work is a challenge: the Builder answers it, and the override survives its rewrite.
+    model.push(
+      turnAnswer({
+        text: "Volume tiers is native: the Testkit update takes tiers.",
+        fitgap: {
+          rows: [
+            { id: "update", need: "Update the record", verdict: "native", how: "Testkit update" },
+            { id: "tiers", need: "Volume tiers", verdict: "native", how: "Testkit update" },
+            { id: "portal", need: "Read a vendor portal", verdict: "figure_out", how: "None" },
+            { id: "pay", need: "Pay the vendor", verdict: "not_possible", how: "Never" },
+          ],
+          needsTrue: [],
+        },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/verdicts`, {
+      rowId: "tiers",
+      to: "native",
+      reason: "The testkit update already takes a tier field.",
+    });
+    expect(JSON.stringify(model.requests.at(-1)?.messages)).toContain(
+      'challenging \\"Volume tiers',
+    );
+    expect(b.build.fitgap.rows.map((r) => [r.id, r.verdict, !!r.challenge])).toEqual([
+      ["update", "build", false],
+      ["tiers", "native", false],
+      ["portal", "figure_out", false],
+      ["pay", "not_possible", false],
+    ]);
+    // Back as it was, so the rest of the build is the same.
+    model.push(
+      turnAnswer({
+        text: "Agreed: the records are text, so the update is native.",
+        fitgap: {
+          rows: [
+            { id: "update", need: "Update the record", verdict: "native", how: "Testkit update" },
+            { id: "tiers", need: "Volume tiers", verdict: "native", how: "Testkit update" },
+            { id: "portal", need: "Read a vendor portal", verdict: "figure_out", how: "None" },
+            { id: "pay", need: "Pay the vendor", verdict: "not_possible", how: "Never" },
+          ],
+          needsTrue: [],
+        },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/verdicts`, {
+      rowId: "update",
+      to: "native",
+      reason: "I was wrong, the records are text after all.",
+    });
+    b = await ok("POST", `/api/ops/builds/${id}/verdicts`, {
+      rowId: "tiers",
+      to: "build",
+      reason: "The tier field doesn't do volume breaks.",
+    });
+    expect(b.build.fitgap.rows.map((r) => r.verdict)).toEqual([
+      "native",
+      "build",
+      "figure_out",
+      "not_possible",
+    ]);
+
+    // A template's intake form survives the Builder's rewrites: the challenges above rewrote
+    // the fit-gap without one, and the form stayed.
+    expect(b.build.fitgap.setup.map((f) => f.id)).toEqual(["conn", "tol"]);
+    // The operator drops the portal row and edits the form's fields; agreeing drafts it.
     const fitgap = {
       ...b.build.fitgap,
       rows: b.build.fitgap.rows.map((r) => (r.id === "portal" ? { ...r, dropped: true } : r)),
+      setup: [
+        { id: "conn", label: "Connect the testkit", kind: "connect", hint: "It writes there" },
+        { id: "tol", label: "Your price tolerance", kind: "answer", hint: "Within 2%" },
+      ],
     };
     b = await ok("PATCH", `/api/ops/builds/${id}`, { fitgap });
+    // Only the field the operator changed is theirs.
+    expect(b.build.fitgap.setup.map((f) => [f.id, f.byOperator])).toEqual([
+      ["conn", false],
+      ["tol", true],
+    ]);
     model.push(draftAnswer());
     b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "draft" });
     expect(b.build.phase).toBe("draft");
     expect(b.build.agentId).toBeTruthy();
     expect(b.draft).toMatchObject({ version: 1, live: false, problems: [] });
-    // The fit-gap's build row and what must be true are open items; the dropped row isn't.
+    // The fit-gap's build row is an open item; the dropped row isn't, and a template's intake
+    // form makes no items: there is no client yet.
     expect(b.items.map((i) => [i.title, i.owner])).toEqual([
       ["How many: still open", "operator"],
       ["Volume tiers", "builder"],
-      ["The client connects the testkit", "client"],
     ]);
     // The Builder drew its description from the brief and the fit-gap.
     const sent = JSON.stringify(model.requests.at(-1)?.messages);
     expect(sent).toContain("Keep records right");
     expect(sent).toContain("Volume tiers");
     expect(sent).not.toContain("Read a vendor portal (");
+    expect(sent).toContain("Your price tolerance (Answer)");
 
     // POC: the Builder plans the data, makes the cases; the gate waits for them to pass.
     model.push(
@@ -256,7 +360,7 @@ describe.skipIf(!h)("builds", () => {
     b = await ok("GET", `/api/ops/builds/${id}`);
     expect(b.poc?.passed).toBe(true);
     // Open items hold the move into the client test.
-    expect(b.gate.reasons).toEqual(["3 open items are not done or put off."]);
+    expect(b.gate.reasons).toEqual(["2 open items are not done or put off."]);
     for (const item of b.items) {
       b = await ok("PATCH", `/api/ops/builds/${id}/items/${item.id}`, { state: "deferred" });
     }

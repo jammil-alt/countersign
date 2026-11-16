@@ -2091,6 +2091,7 @@ export const de: Messages = {
   "sloan.past": "Frühere Gespräche",
   "sloan.pastItem": "Begonnen am {date}",
   "sloan.new": "Neu",
+  "sloan.openPage": "Ganze Seite öffnen",
   "sloan.empty":
     "Fragen Sie, warum etwas wartet, pausieren Sie einen Agenten, fügen Sie eine freigebende Person hinzu oder geben Sie eine Idee an Ihre Ansprechperson weiter.",
   "sloan.answering": "Sloan antwortet…",

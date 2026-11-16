@@ -11,16 +11,22 @@ import {
   type Brief,
   type BuildDetail,
   type BuildPhase,
+  buildHasSetupForm,
   FIT_WORDS,
   type FitGap,
+  type FitRow,
+  fitChangeKind,
   itemOpen,
+  mergeFitGap,
   nextPhase,
+  operatorFitGap,
   phaseIndex,
   readBrief,
   readFitGap,
   readQa,
   readTestPlan,
   routes,
+  SETUP_WORDS,
   testCaseProblems,
 } from "@countersign/core";
 import { build, buildItem, buildMessage, skillVersion, type Tx } from "@countersign/db";
@@ -72,7 +78,7 @@ function refuseClosed(row: BuildRow): void {
 
 /** The description the Builder drafts from: the confirmed brief and the agreed fit-gap. */
 export function draftDescription(
-  row: Pick<BuildRow, "title">,
+  row: Pick<BuildRow, "title" | "kind" | "clientId">,
   brief: Brief,
   fitgap: FitGap,
 ): string {
@@ -84,23 +90,36 @@ export function draftDescription(
   const inScope = fitgap.rows.filter((r) => !r.dropped && r.verdict !== "not_possible");
   if (inScope.length > 0) {
     lines.push("", "What it does, and how:");
-    for (const r of inScope) lines.push(`- ${r.need} (${FIT_WORDS[r.verdict]}): ${r.how}`);
+    for (const r of inScope) {
+      const changed = r.override
+        ? `; the operator changed it from ${FIT_WORDS[r.override.from]}: ${r.override.reason}`
+        : "";
+      lines.push(`- ${r.need} (${FIT_WORDS[r.verdict]}${changed}): ${r.how}`);
+    }
   }
   const out = fitgap.rows.filter((r) => r.dropped || r.verdict === "not_possible");
   if (out.length > 0) {
     lines.push("", "Not in scope:");
     for (const r of out) lines.push(`- ${r.need}${r.how ? `: ${r.how}` : ""}`);
   }
-  if (fitgap.needsTrue.length > 0) {
+  if (fitgap.needsTrue.length > 0 && !buildHasSetupForm(row)) {
     lines.push("", "What needs to be true:");
     for (const n of fitgap.needsTrue) lines.push(`- ${n.text}`);
+  }
+  const asked = fitgap.setup.filter((f) => !f.dropped);
+  if (asked.length > 0 && buildHasSetupForm(row)) {
+    lines.push("", "What we get from each client to set it up:");
+    for (const f of asked) lines.push(`- ${f.label} (${SETUP_WORDS[f.kind]})`);
   }
   const text = lines.join("\n");
   return text.length > 4000 ? `${text.slice(0, 3990)}…` : text;
 }
 
-/** Items the agreed fit-gap leaves: what to build or find, and what must be true. */
-function fitGapItems(fitgap: FitGap): NewItem[] {
+/**
+ * Items the agreed fit-gap leaves: what to build or find, and, for one client, what must be true.
+ * A template has no client: what it needs from one is its intake form, which makes no items.
+ */
+function fitGapItems(fitgap: FitGap, template: boolean): NewItem[] {
   const out: NewItem[] = [];
   for (const r of fitgap.rows) {
     if (r.dropped) continue;
@@ -109,13 +128,15 @@ function fitGapItems(fitgap: FitGap): NewItem[] {
         phase: "fitgap",
         kind: "gap",
         title: r.need,
-        detail: r.how,
+        detail: r.override
+          ? `${r.how} You set it to ${FIT_WORDS[r.verdict]}: ${r.override.reason}`
+          : r.how,
         owner: r.verdict === "build" ? "builder" : "engineering",
         key: `fit:${r.id}`,
       });
     }
   }
-  for (const n of fitgap.needsTrue) {
+  for (const n of template ? [] : fitgap.needsTrue) {
     if (!n.done) {
       out.push({
         phase: "fitgap",
@@ -139,13 +160,21 @@ function briefItems(brief: Brief): NewItem[] {
   }));
 }
 
-/** A fit-gap from the model, with the operator's dropped rows kept dropped. */
-function mergeFitGap(before: FitGap, after: FitGap): FitGap {
-  const dropped = new Set(before.rows.filter((r) => r.dropped).map((r) => r.id));
-  return {
-    ...after,
-    rows: after.rows.map((r) => (dropped.has(r.id) ? { ...r, dropped: true } : r)),
-  };
+/** The Builder's answers to the operator's challenges, as the build's record. */
+function answeredChallenges(before: FitGap, after: FitGap) {
+  const out: { rowId: string; need: string; wanted: string; from: string; to: string }[] = [];
+  for (const p of before.rows) {
+    if (!p.challenge) continue;
+    const a = after.rows.find((r) => r.id === p.id);
+    out.push({
+      rowId: p.id,
+      need: a?.need ?? p.need,
+      wanted: p.challenge.wanted,
+      from: p.verdict,
+      to: a?.verdict ?? "removed",
+    });
+  }
+  return out;
 }
 
 /** One line per thing the turn changed, for the conversation. */
@@ -268,7 +297,18 @@ async function turn(ctx: LongCtx, id: string, words: string | null): Promise<voi
     const set: Partial<BuildRow> = {};
     if (fresh.phase === row.phase) {
       if (answer.brief) set.brief = { ...readBrief(fresh.brief), ...answer.brief };
-      if (answer.fitgap) set.fitgap = mergeFitGap(readFitGap(fresh.fitgap), answer.fitgap);
+      if (answer.fitgap) {
+        const before = readFitGap(fresh.fitgap);
+        const merged = mergeFitGap(before, answer.fitgap);
+        set.fitgap = merged;
+        for (const a of answeredChallenges(before, merged)) {
+          await addEvent(scoped.tx, fresh, {
+            kind: "record",
+            payload: { verdict: { ...a, as: "builder" } },
+            userId: null,
+          });
+        }
+      }
       if (answer.testPlan) set.testPlan = answer.testPlan;
     }
     if (Object.keys(set).length > 0) await scoped.tx.update(build).set(set).where(eq(build.id, id));
@@ -384,7 +424,7 @@ async function move(
         payload: { fitgap: readFitGap(r.fitgap) },
         userId,
       });
-      await addItems(scoped.tx, r, fitGapItems(readFitGap(r.fitgap)), userId);
+      await addItems(scoped.tx, r, fitGapItems(readFitGap(r.fitgap), buildHasSetupForm(r)), userId);
     }
     if (forward && r.phase === "poc") {
       await addEvent(scoped.tx, r, {
@@ -462,7 +502,14 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsUpdateBuild, async (ctx) => {
     const row = await readBuild(ctx.tx, ctx.params.id, true);
     refuseClosed(row);
-    const { title, brief, fitgap, testPlan } = ctx.body;
+    const { title, brief, testPlan } = ctx.body;
+    let fitgap: FitGap | undefined;
+    if (ctx.body.fitgap) {
+      // What's in scope and what needs to be true; a verdict changes only with a reason.
+      const out = operatorFitGap(readFitGap(row.fitgap), ctx.body.fitgap);
+      if (!out.ok) throw new HttpError(409, "verdict_needs_reason", out.reason);
+      fitgap = out.fitgap;
+    }
     await ctx.tx
       .update(build)
       .set({
@@ -481,6 +528,56 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
 
   mountLong(app, routes.opsBuildTurn, async (ctx) => {
     await turn(long(ctx.c, ctx.session, ctx.services, ctx.inTx), ctx.params.id, ctx.body.text);
+    return detailOf(ctx, ctx.params.id);
+  });
+
+  mountLong(app, routes.opsBuildVerdict, async (ctx) => {
+    const lc = long(ctx.c, ctx.session, ctx.services, ctx.inTx);
+    const { rowId, to, reason } = ctx.body;
+    const user = ctx.session.user;
+    const words = await ctx.inTx(async (scoped) => {
+      const row = await readBuild(scoped.tx, ctx.params.id, true);
+      refuseClosed(row);
+      if (row.phase !== "fitgap") {
+        throw new HttpError(409, "not_fitgap", "verdicts change in the fit-gap");
+      }
+      const fitgap = readFitGap(row.fitgap);
+      const r = fitgap.rows.find((x) => x.id === rowId);
+      if (!r) throw notFound("fit-gap row");
+      if (r.verdict === to) {
+        throw new HttpError(409, "same_verdict", `"${r.need}" is already ${FIT_WORDS[to]}`);
+      }
+      if (r.challenge) {
+        throw new HttpError(409, "challenged", `"${r.need}" is waiting on the Builder already`);
+      }
+      const as = fitChangeKind(r.verdict, to);
+      const stamp = { reason, by: user.name ?? user.email, at: now().toISOString() };
+      const next: FitRow =
+        as === "override"
+          ? { ...r, verdict: to, override: { from: r.override?.from ?? r.verdict, ...stamp } }
+          : { ...r, challenge: { wanted: to, ...stamp } };
+      await scoped.tx
+        .update(build)
+        .set({
+          fitgap: { ...fitgap, rows: fitgap.rows.map((x) => (x.id === rowId ? next : x)) },
+          updatedAt: now(),
+        })
+        .where(eq(build.id, row.id));
+      await addEvent(scoped.tx, row, {
+        kind: "record",
+        payload: { verdict: { rowId, need: r.need, from: r.verdict, to, as } },
+        reason,
+        userId: user.id,
+      });
+      return as === "challenge"
+        ? [
+            `I'm challenging "${r.need}" (row ${r.id}): you have it as ${FIT_WORDS[r.verdict]}, I think it's ${FIT_WORDS[to]}.`,
+            `Why: ${reason}`,
+          ].join("\n")
+        : null;
+    });
+    // Less work is the Builder's to decide: it checks the catalog and answers.
+    if (words) await turn(lc, ctx.params.id, words);
     return detailOf(ctx, ctx.params.id);
   });
 

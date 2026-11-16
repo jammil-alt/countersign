@@ -183,6 +183,14 @@ describe("ops usage", () => {
   it("knows every period, and a custom range", () => {
     const now = new Date("2026-11-04T10:00:00Z");
     expect(usageRange("today", now)).toEqual({ from: "2026-11-04", to: "2026-11-04" });
+    // 2026-11-04 is a Wednesday; weeks start on Monday.
+    expect(usageRange("yesterday", now)).toEqual({ from: "2026-11-03", to: "2026-11-03" });
+    expect(usageRange("week", now)).toEqual({ from: "2026-11-02", to: "2026-11-04" });
+    expect(usageRange("lastweek", now)).toEqual({ from: "2026-10-26", to: "2026-11-01" });
+    // On a Sunday, this week began six days before; last week is the one before that.
+    const sunday = new Date("2026-11-08T12:00:00Z");
+    expect(usageRange("week", sunday)).toEqual({ from: "2026-11-02", to: "2026-11-08" });
+    expect(usageRange("lastweek", sunday)).toEqual({ from: "2026-10-26", to: "2026-11-01" });
     expect(usageRange("7d", now)).toEqual({ from: "2026-10-29", to: "2026-11-04" });
     expect(usageRange("mtd", now)).toEqual({ from: "2026-11-01", to: "2026-11-04" });
     expect(usageRange("month", now)).toEqual({ from: "2026-11-01", to: "2026-11-30" });
@@ -243,6 +251,7 @@ describe("ops usage", () => {
         byMonth: [{ month: "2026-10", figures: zero }, REPORT.byMonth[1]],
         clients: [...REPORT.clients, idle],
         byDay: [
+          { day: "2026-10-01", figures: zero },
           { day: "2026-11-02", figures: fig("2.0000", 2) },
           { day: "2026-11-03", figures: fig("0.3456", 1) },
         ],
@@ -287,11 +296,22 @@ describe("ops usage", () => {
     expect(await screen.findByTestId(`ops-usage-row-${idle.id}`)).toBeInTheDocument();
     expect(within(screen.getByTestId("ops-usage-months")).getAllByRole("row")).toHaveLength(3);
 
-    // A bar a day, each with its figure.
+    // Feedback (2026-11-16): a line by day, from the first day with usage, each day read by
+    // pointer or by the arrow keys.
     expect(screen.getByText("Model cost by day")).toBeInTheDocument();
-    expect(screen.getByTestId("ops-usage-chart-bar-2026-11-02")).toHaveAccessibleName(
-      "Nov 2, 2026: $2.00, 2 runs",
+    expect(screen.getByText("From Nov 2, 2026, the first day with usage")).toBeInTheDocument();
+    const plot = screen.getByTestId("ops-usage-chart-plot");
+    expect(plot).toHaveAccessibleName(
+      "Model cost by day, Nov 2, 2026 to Nov 3, 2026, highest $2.00 on Nov 2, 2026. Use the arrow keys to read each day.",
     );
+    expect(screen.getByTestId("ops-usage-chart-path")).toBeInTheDocument();
+    plot.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(screen.getByTestId("ops-usage-chart-readout")).toHaveTextContent(
+      "$2.00 · 2 runs · Nov 2, 2026",
+    );
+    await userEvent.keyboard("{ArrowRight}");
+    expect(screen.getByTestId("ops-usage-chart-readout")).toHaveTextContent("$0.35 · 1 run");
     // By vendor and by model, the model by its label.
     expect(screen.getByTestId("ops-usage-vendor-twilio")).toHaveTextContent(
       "Twilio (texts and WhatsApp)12 messagesabout $0.10",

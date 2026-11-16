@@ -20,18 +20,32 @@ import {
   type BuildPhase,
   DATA_SOURCES,
   type Dataset,
+  FIT_REASON_MIN,
   FIT_VERDICTS,
   FIT_WORDS,
   type FitGap,
+  type FitRow,
   type FitVerdict,
+  fitChangeKind,
   ITEM_STATE_WORDS,
   itemOpen,
   OWNER_WORDS,
   PHASE_WORDS,
   type QaCheckId,
+  SETUP_KINDS,
+  SETUP_WORDS,
+  type SetupField,
+  type SetupKind,
   type TestPlan,
 } from "@countersign/core";
-import { type ReactNode, useEffect, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { Link } from "react-router-dom";
 import type { CallOptions } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
@@ -41,10 +55,12 @@ import { AgentBadge } from "../../ui/badges";
 import { AgentSaid, ChatLog, Composer, Pending, Thinking, YouSaid } from "../../ui/chat";
 import { ErrorNotice } from "../../ui/ErrorState";
 import { Select, TextArea, TextInput } from "../../ui/forms";
-import { Badge, Button, Card, cx, Loading } from "../../ui/primitives";
+import { Badge, Button, Card, cx, Loading, Tag } from "../../ui/primitives";
+import { problemAdvice, problemWhere } from "./problems";
 import {
   BRIEF_STATE_TONE,
   BRIEF_STATE_WORDS,
+  ITEM_KIND_WORDS,
   ITEM_TONE,
   plural,
   QA_STATE_WORDS,
@@ -63,6 +79,10 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   const [busy, setBusy] = useState<string | null>(null);
   const [pending, setPending] = useState<{ text: string; since: number } | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const split = useSplit();
+  // The conversation's box, so an open question's "Answer" can start the reply there.
+  const [draftText, setDraftText] = useState("");
+  const box = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (loaded.data) setDetail(loaded.data);
@@ -184,9 +204,14 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
       ) : null}
       {error ? <ErrorNotice error={error} /> : null}
 
-      <div className="grid items-start gap-6 xl:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
+      {/* Feedback (2026-11-16): the conversation stays within the screen and scrolls on its own;
+          on a wide screen the line between the two columns drags to make either wider. */}
+      <div
+        className="grid items-start gap-6 xl:grid-cols-[var(--build-chat-w)_minmax(0,1fr)] xl:gap-0"
+        style={{ "--build-chat-w": `${split.width}px` } as CSSProperties}
+      >
         <section
-          className="ds-card flex flex-col"
+          className="ds-card flex flex-col xl:sticky xl:top-[calc(var(--header-h)+16px)] xl:max-h-[calc(100vh-var(--header-h)-32px)]"
           aria-label="Builder conversation"
           data-testid="build-chat"
         >
@@ -197,7 +222,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
             </span>
             <span className="text-sm text-ink-muted">{PHASE_WORDS[b.phase].label}</span>
           </div>
-          <div className="px-5 py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4" data-testid="build-chat-scroll">
             <ChatLog
               follow={`${detail.messages.length}:${pending?.text ?? ""}`}
               testId="build-messages"
@@ -275,6 +300,9 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
                 label="Message to the Builder"
                 placeholder={PLACEHOLDER[b.phase]}
                 busy={!!pending}
+                value={draftText}
+                onValueChange={setDraftText}
+                inputRef={box}
                 onSend={say}
                 inputTestId="build-input"
                 sendTestId="build-send"
@@ -284,7 +312,8 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
           ) : null}
         </section>
 
-        <div className="flex min-w-0 flex-col gap-5">
+        <div className="relative flex min-w-0 flex-col gap-5 xl:pl-6">
+          <SplitHandle split={split} />
           <PhasePanel
             phase={shown}
             detail={detail}
@@ -292,9 +321,105 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
             busy={busy}
             act={act}
           />
-          <ItemsPanel detail={detail} busy={busy} act={act} />
+          <ItemsPanel
+            detail={detail}
+            busy={busy}
+            act={act}
+            onAnswer={
+              open
+                ? (title) => {
+                    setDraftText(`About “${title}”: `);
+                    box.current?.focus();
+                  }
+                : undefined
+            }
+          />
         </div>
       </div>
+    </div>
+  );
+}
+
+// The conversation's width on a wide screen: dragged, or moved with the arrow keys, between these
+// bounds, and kept for this browser.
+const SPLIT_KEY = "mezonas.build.chatWidth";
+const SPLIT_MIN = 320;
+const SPLIT_MAX = 900;
+const SPLIT_DEFAULT = 420;
+
+interface Split {
+  width: number;
+  setWidth(width: number): void;
+}
+
+export function clampSplit(width: number): number {
+  return Math.round(Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, width)));
+}
+
+function useSplit(): Split {
+  const [width, set] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem(SPLIT_KEY));
+      return saved ? clampSplit(saved) : SPLIT_DEFAULT;
+    } catch {
+      return SPLIT_DEFAULT;
+    }
+  });
+  return {
+    width,
+    setWidth(next) {
+      const w = clampSplit(next);
+      set(w);
+      try {
+        localStorage.setItem(SPLIT_KEY, String(w));
+      } catch {
+        // The width is a convenience; it just isn't kept.
+      }
+    },
+  };
+}
+
+/** The line between the columns: drag it, or focus it and use the arrows; a double click resets. */
+function SplitHandle({ split }: { split: Split }) {
+  const start = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const from = e.clientX;
+    const was = split.width;
+    const move = (ev: PointerEvent) => split.setWidth(was + ev.clientX - from);
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.style.removeProperty("cursor");
+    };
+    document.body.style.cursor = "col-resize";
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: a focusable splitter has no element of its own.
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the conversation"
+      aria-valuemin={SPLIT_MIN}
+      aria-valuemax={SPLIT_MAX}
+      aria-valuenow={split.width}
+      tabIndex={0}
+      data-testid="build-split"
+      onPointerDown={start}
+      onDoubleClick={() => split.setWidth(SPLIT_DEFAULT)}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowLeft") split.setWidth(split.width - 24);
+        else if (e.key === "ArrowRight") split.setWidth(split.width + 24);
+        else return;
+        e.preventDefault();
+      }}
+      className="group absolute top-0 bottom-0 left-0 hidden w-6 cursor-col-resize justify-center outline-none xl:flex"
+    >
+      <span
+        aria-hidden
+        className="h-full w-px bg-line group-hover:bg-slate group-focus-visible:bg-slate"
+      />
     </div>
   );
 }
@@ -393,6 +518,16 @@ function GoBack({
   );
 }
 
+/** What the Builder is doing while a phase's move runs. */
+const NEXT_WORKING: Record<BuildPhase, string> = {
+  intake: "The Builder is checking the brief against the catalog for the fit-gap…",
+  fitgap: "The Builder is drafting the workflow from the brief and the fit-gap…",
+  draft: "The Builder is setting up the POC test…",
+  poc: "Moving on…",
+  client_test: "Moving to QA…",
+  qa: "Saving…",
+};
+
 /** The move out of a phase: its button, off with the gate's reasons while they hold. */
 function Next({
   label,
@@ -410,6 +545,11 @@ function Next({
   extra?: ReactNode;
 }) {
   const reasons = detail.gate.reasons;
+  // Feedback (2026-11-16): a move can take the Builder a minute (agreeing the brief drafts the
+  // fit-gap; agreeing the fit-gap drafts the workflow). While it works, the button says so and the
+  // Builder's thinking loop runs beside it with the time it has taken, as it does in the chat.
+  const [since, setSince] = useState<number | null>(null);
+  useEffect(() => setSince(busy ? Date.now() : null), [busy]);
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-3">
@@ -417,12 +557,23 @@ function Next({
         <Button
           variant="primary"
           disabled={busy || reasons.length > 0}
+          aria-busy={busy || undefined}
           onClick={onClick}
           data-testid={testId}
         >
           {busy ? "Working…" : label}
         </Button>
-        <span className="text-sm text-ink-muted">{PHASE_WORDS[detail.build.phase].closes}</span>
+        {busy ? (
+          <Thinking
+            badge={<AgentBadge name="Builder" size="sm" />}
+            label={NEXT_WORKING[detail.build.phase]}
+            state={detail.build.phase === "fitgap" ? "drafting" : "tracing"}
+            since={since ?? undefined}
+            testId={`${testId}-working`}
+          />
+        ) : (
+          <span className="text-sm text-ink-muted">{PHASE_WORDS[detail.build.phase].closes}</span>
+        )}
       </div>
       {reasons.length > 0 ? (
         <ul
@@ -585,11 +736,16 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
   const id = detail.build.id;
   const [fitgap, setFitgap] = useState<FitGap>(detail.build.fitgap);
   useEffect(() => setFitgap(detail.build.fitgap), [detail.build.fitgap]);
+  const [only, setOnly] = useState<FitVerdict | null>(null);
+  const [changing, setChanging] = useState<string | null>(null);
   const dirty = JSON.stringify(fitgap) !== JSON.stringify(detail.build.fitgap);
   const inScope = fitgap.rows.filter((r) => !r.dropped);
   const counts = FIT_VERDICTS.map(
     (v) => [v, inScope.filter((r) => r.verdict === v).length] as const,
   ).filter(([, n]) => n > 0);
+  const shown = only ? inScope.filter((r) => r.verdict === only) : fitgap.rows;
+  const checking = busy === apiRoutes.opsBuildVerdict.path;
+  const template = detail.build.kind === "agent" && !detail.build.client;
   return (
     <div className="flex flex-col gap-5">
       <Card
@@ -598,9 +754,21 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
         meta={
           <span className="flex flex-wrap gap-1.5">
             {counts.map(([v, n]) => (
-              <Badge key={v} tone={VERDICT_TONE[v]}>
-                {n} {FIT_WORDS[v].toLowerCase()}
-              </Badge>
+              <button
+                key={v}
+                type="button"
+                aria-pressed={only === v}
+                title={
+                  only === v ? "Show every row" : `Show only the ${FIT_WORDS[v].toLowerCase()} rows`
+                }
+                onClick={() => setOnly(only === v ? null : v)}
+                data-testid={`build-fit-count-${v}`}
+                className={cx("rounded-full", only === v && "ring-1 ring-slate ring-offset-1")}
+              >
+                <Badge tone={VERDICT_TONE[v]}>
+                  {n} {FIT_WORDS[v].toLowerCase()}
+                </Badge>
+              </button>
             ))}
           </span>
         }
@@ -611,6 +779,21 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
           </p>
         ) : (
           <div className="overflow-x-auto">
+            {only ? (
+              <p
+                className="border-b border-line px-4 py-2.5 text-sm text-ink-muted"
+                data-testid="build-fit-filter"
+              >
+                Showing the {plural(shown.length, `${FIT_WORDS[only].toLowerCase()} row`)}.{" "}
+                <button
+                  type="button"
+                  className="font-medium text-slate hover:underline"
+                  onClick={() => setOnly(null)}
+                >
+                  Show all
+                </button>
+              </p>
+            ) : null}
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-line bg-surface-subtle text-left text-xs text-ink-muted">
@@ -621,68 +804,54 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
                 </tr>
               </thead>
               <tbody>
-                {fitgap.rows.map((r, i) => (
-                  <tr
+                {shown.map((r) => (
+                  <FitRowView
                     key={r.id}
-                    className="border-b border-line align-top last:border-b-0"
-                    data-testid={`build-fit-${r.id}`}
-                  >
-                    <td className={cx("px-4 py-3", r.dropped && "text-ink-muted line-through")}>
-                      {r.need}
-                    </td>
-                    <td className="px-4 py-3">
-                      {current ? (
-                        <Select
-                          aria-label={`Verdict: ${r.need}`}
-                          className="w-36"
-                          value={r.verdict}
-                          onChange={(e) =>
-                            setFitgap((f) => ({
-                              ...f,
-                              rows: f.rows.map((x, j) =>
-                                j === i ? { ...x, verdict: e.target.value as FitVerdict } : x,
-                              ),
-                            }))
-                          }
-                        >
-                          {FIT_VERDICTS.map((v) => (
-                            <option key={v} value={v}>
-                              {FIT_WORDS[v]}
-                            </option>
-                          ))}
-                        </Select>
-                      ) : (
-                        <Badge tone={VERDICT_TONE[r.verdict]}>{FIT_WORDS[r.verdict]}</Badge>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-ink-muted">{r.how}</td>
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        className="size-4 accent-[var(--slate)]"
-                        aria-label={`In scope: ${r.need}`}
-                        checked={!r.dropped}
-                        disabled={!current}
-                        data-testid={`build-fit-${r.id}-scope`}
-                        onChange={(e) =>
-                          setFitgap((f) => ({
-                            ...f,
-                            rows: f.rows.map((x, j) =>
-                              j === i ? { ...x, dropped: !e.target.checked } : x,
-                            ),
-                          }))
-                        }
-                      />
-                    </td>
-                  </tr>
+                    row={r}
+                    item={detail.items.find((i) => i.key === `fit:${r.id}`) ?? null}
+                    current={current}
+                    changing={changing === r.id}
+                    checking={checking && changing === r.id}
+                    locked={dirty || isBusy(busy)}
+                    onScope={(inScope) =>
+                      setFitgap((f) => ({
+                        ...f,
+                        rows: f.rows.map((x) => (x.id === r.id ? { ...x, dropped: !inScope } : x)),
+                      }))
+                    }
+                    onChange={() => setChanging(changing === r.id ? null : r.id)}
+                    onSend={async (to, reason) => {
+                      if (
+                        await act(apiRoutes.opsBuildVerdict, {
+                          params: { id },
+                          body: { rowId: r.id, to, reason },
+                        })
+                      )
+                        setChanging(null);
+                    }}
+                  />
                 ))}
               </tbody>
             </table>
           </div>
         )}
       </Card>
-      {fitgap.needsTrue.length > 0 ? (
-        <Card title="What needs to be true" meta="Each becomes an open item until it is">
+      {template ? (
+        <SetupFormCard
+          fields={fitgap.setup}
+          current={current}
+          onChange={(setup) => setFitgap((f) => ({ ...f, setup }))}
+        />
+      ) : null}
+      {fitgap.needsTrue.length > 0 && !(template && fitgap.setup.length > 0) ? (
+        <Card
+          title="What needs to be true"
+          meta={
+            template
+              ? "A template has no client yet: ask the Builder to make these the client intake form"
+              : "Each becomes an open item until it is"
+          }
+        >
           <ul className="flex flex-col">
             {fitgap.needsTrue.map((n, i) => (
               <li
@@ -746,6 +915,349 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
   );
 }
 
+/**
+ * A template's client intake form: what we get from each client to set up their copy. The Builder
+ * drafts it in the fit-gap; the operator edits, adds and takes fields out, and saves with the
+ * fit-gap. It stays with the build: a template has no client to give open items to.
+ */
+function SetupFormCard({
+  fields,
+  current,
+  onChange,
+}: {
+  fields: SetupField[];
+  current: boolean;
+  onChange: (fields: SetupField[]) => void;
+}) {
+  const [label, setLabel] = useState("");
+  const [kind, setKind] = useState<SetupKind>("answer");
+  const asked = fields.filter((f) => !f.dropped).length;
+  const edit = (id: string, patch: Partial<SetupField>) =>
+    onChange(fields.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+  return (
+    <Card
+      testId="build-setup"
+      title="Client intake form"
+      meta={`What we get from each client to set up their copy · ${plural(asked, "field")}`}
+      footer={
+        current ? (
+          <form
+            className="flex w-full flex-wrap gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!label.trim()) return;
+              onChange([
+                ...fields,
+                {
+                  id: `op-${Date.now().toString(36)}`,
+                  label: label.trim(),
+                  kind,
+                  hint: "",
+                  dropped: false,
+                  byOperator: true,
+                },
+              ]);
+              setLabel("");
+            }}
+          >
+            <TextInput
+              aria-label="New intake field"
+              placeholder="Something to ask each client"
+              className="w-auto min-w-0 flex-1"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              data-testid="build-setup-new"
+            />
+            <Select
+              aria-label="Kind of field"
+              className="w-44"
+              value={kind}
+              onChange={(e) => setKind(e.target.value as SetupKind)}
+            >
+              {SETUP_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {SETUP_WORDS[k]}
+                </option>
+              ))}
+            </Select>
+            <Button size="sm" type="submit" disabled={!label.trim()} data-testid="build-setup-add">
+              Add
+            </Button>
+          </form>
+        ) : null
+      }
+    >
+      {fields.length === 0 ? (
+        <p className="px-6 py-5 text-sm text-ink-muted">
+          The Builder drafts the form with the fit-gap: the tools each client connects, the packs
+          they need, and the answers and files we ask for.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-line bg-surface-subtle text-left text-xs text-ink-muted">
+                <th className="px-4 py-2.5 font-medium">What we ask</th>
+                <th className="px-4 py-2.5 font-medium">Kind</th>
+                <th className="px-4 py-2.5 font-medium">Why, or an example</th>
+                <th className="px-4 py-2.5 font-medium">Ask it</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fields.map((f) => (
+                <tr
+                  key={f.id}
+                  className="border-b border-line align-top last:border-b-0"
+                  data-testid={`build-setup-${f.id}`}
+                >
+                  <td className={cx("px-4 py-3", f.dropped && "text-ink-muted line-through")}>
+                    {current && !f.dropped ? (
+                      <TextInput
+                        aria-label={`Field: ${f.label}`}
+                        value={f.label}
+                        onChange={(e) => edit(f.id, { label: e.target.value })}
+                      />
+                    ) : (
+                      f.label
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {current && !f.dropped ? (
+                      <Select
+                        aria-label={`Kind: ${f.label}`}
+                        className="w-40"
+                        value={f.kind}
+                        onChange={(e) => edit(f.id, { kind: e.target.value as SetupKind })}
+                      >
+                        {SETUP_KINDS.map((k) => (
+                          <option key={k} value={k}>
+                            {SETUP_WORDS[k]}
+                          </option>
+                        ))}
+                      </Select>
+                    ) : (
+                      <Tag>{SETUP_WORDS[f.kind]}</Tag>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-ink-muted">
+                    {current && !f.dropped ? (
+                      <TextInput
+                        aria-label={`Hint: ${f.label}`}
+                        value={f.hint}
+                        onChange={(e) => edit(f.id, { hint: e.target.value })}
+                      />
+                    ) : (
+                      f.hint
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-[var(--slate)]"
+                      aria-label={`Ask it: ${f.label}`}
+                      checked={!f.dropped}
+                      disabled={!current}
+                      data-testid={`build-setup-${f.id}-ask`}
+                      onChange={(e) => edit(f.id, { dropped: !e.target.checked })}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** Who an agreed row's open item goes to. */
+const FIT_ITEM_OWNER: Partial<Record<FitVerdict, BuildItemOwner>> = {
+  build: "builder",
+  figure_out: "engineering",
+};
+
+function FitRowView({
+  row: r,
+  item,
+  current,
+  changing,
+  checking,
+  locked,
+  onScope,
+  onChange,
+  onSend,
+}: {
+  row: FitRow;
+  item: BuildDetail["items"][number] | null;
+  current: boolean;
+  changing: boolean;
+  checking: boolean;
+  locked: boolean;
+  onScope: (inScope: boolean) => void;
+  onChange: () => void;
+  onSend: (to: FitVerdict, reason: string) => Promise<void>;
+}) {
+  const owner = FIT_ITEM_OWNER[r.verdict];
+  return (
+    <>
+      <tr
+        className={cx("align-top", !changing && "border-b border-line last:border-b-0")}
+        data-testid={`build-fit-${r.id}`}
+      >
+        <td className={cx("px-4 py-3", r.dropped && "text-ink-muted line-through")}>{r.need}</td>
+        <td className="px-4 py-3">
+          <div className="flex flex-col items-start gap-1.5">
+            <Badge tone={VERDICT_TONE[r.verdict]} testId={`build-fit-${r.id}-verdict`}>
+              {FIT_WORDS[r.verdict]}
+            </Badge>
+            {r.override ? (
+              <span className="text-xs text-ink-muted" data-testid={`build-fit-${r.id}-override`}>
+                Changed from {FIT_WORDS[r.override.from]}
+                {r.override.by ? ` by ${r.override.by}` : ""}
+              </span>
+            ) : null}
+            {r.challenge ? (
+              <Badge tone="neutral" testId={`build-fit-${r.id}-challenge`}>
+                {checking ? "Builder checking" : "Asked the Builder"}
+              </Badge>
+            ) : null}
+            {current && !r.dropped && !r.challenge ? (
+              <button
+                type="button"
+                className="text-xs font-medium text-slate hover:underline disabled:opacity-60"
+                disabled={locked && !changing}
+                title={locked && !changing ? "Save or undo your changes first" : undefined}
+                onClick={onChange}
+                data-testid={`build-fit-${r.id}-change`}
+              >
+                {changing ? "Cancel" : "Challenge"}
+              </button>
+            ) : null}
+          </div>
+        </td>
+        <td className="px-4 py-3 text-ink-muted">
+          {r.how}
+          {r.override ? <p className="mt-1 text-xs">Why it changed: {r.override.reason}</p> : null}
+          {r.challenge ? (
+            <p className="mt-1 text-xs">
+              You asked for {FIT_WORDS[r.challenge.wanted]}: {r.challenge.reason}
+            </p>
+          ) : null}
+          {r.dropped ? null : item ? (
+            <button
+              type="button"
+              className="mt-1 block text-xs font-medium text-slate hover:underline"
+              onClick={() =>
+                document
+                  .getElementById(`build-item-${item.id}`)
+                  ?.scrollIntoView({ behavior: "smooth", block: "center" })
+              }
+              data-testid={`build-fit-${r.id}-item`}
+            >
+              Open item · {OWNER_WORDS[item.owner]} · {ITEM_STATE_WORDS[item.state]}
+            </button>
+          ) : owner ? (
+            <p className="mt-1 text-xs" data-testid={`build-fit-${r.id}-item`}>
+              Becomes an open item for {OWNER_WORDS[owner]} when you agree the direction.
+            </p>
+          ) : null}
+        </td>
+        <td className="px-4 py-3">
+          <input
+            type="checkbox"
+            className="size-4 accent-[var(--slate)]"
+            aria-label={`In scope: ${r.need}`}
+            checked={!r.dropped}
+            disabled={!current}
+            data-testid={`build-fit-${r.id}-scope`}
+            onChange={(e) => onScope(e.target.checked)}
+          />
+        </td>
+      </tr>
+      {changing ? (
+        <tr className="border-b border-line last:border-b-0">
+          <td colSpan={4} className="bg-surface-subtle px-4 py-3">
+            <VerdictChange row={r} busy={locked} onSend={onSend} />
+          </td>
+        </tr>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Challenging a verdict: why is it wrong. More work changes it at once; less work goes to the
+ * Builder, which checks the catalog and whether the step is captured right.
+ */
+function VerdictChange({
+  row,
+  busy,
+  onSend,
+}: {
+  row: FitRow;
+  busy: boolean;
+  onSend: (to: FitVerdict, reason: string) => Promise<void>;
+}) {
+  const options = FIT_VERDICTS.filter((v) => v !== row.verdict);
+  const [to, setTo] = useState<FitVerdict>(options[0] ?? "figure_out");
+  const [reason, setReason] = useState("");
+  const as = fitChangeKind(row.verdict, to);
+  const short = reason.trim().length < FIT_REASON_MIN;
+  return (
+    <div className="flex flex-col gap-2.5" data-testid={`build-fit-${row.id}-form`}>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-ink">It's {FIT_WORDS[row.verdict]} now. It should be</span>
+        <Select
+          aria-label={`New verdict: ${row.need}`}
+          className="w-40"
+          value={to}
+          onChange={(e) => setTo(e.target.value as FitVerdict)}
+          data-testid={`build-fit-${row.id}-to`}
+        >
+          {options.map((v) => (
+            <option key={v} value={v}>
+              {FIT_WORDS[v]}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <p className="text-xs text-ink-muted">
+        {as === "challenge"
+          ? "That's less work, so the Builder checks it against the catalog and answers in the conversation. Say why you think we have it: the part that does it, or what the client really does at this step. If the row doesn't describe the step right, say how it should read."
+          : "That's more work, so it changes now and stays when the Builder writes the fit-gap again. Say why the Builder's verdict is wrong: what's missing, or what makes this case harder."}
+      </p>
+      <TextArea
+        aria-label={`Why: ${row.need}`}
+        rows={3}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder={
+          as === "challenge"
+            ? "e.g. The client's invoices come in as PDFs attached to the email, so this is the same step as reading the PDF."
+            : "e.g. Their contracts are scanned images, and read document hasn't been checked on scans."
+        }
+        data-testid={`build-fit-${row.id}-reason`}
+      />
+      <div className="flex items-center gap-3">
+        <Button
+          size="sm"
+          disabled={busy || short}
+          onClick={() => void onSend(to, reason.trim())}
+          data-testid={`build-fit-${row.id}-send`}
+        >
+          {as === "challenge" ? "Ask the Builder" : "Change it"}
+        </Button>
+        {short ? (
+          <span className="text-xs text-ink-muted">
+            Say why in at least {FIT_REASON_MIN} characters.
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 // ── 3 Draft ─────────────────────────────────────────────────────────────────────────────────────
 
 function DraftPanel({ detail, current, busy, act }: PanelProps) {
@@ -798,18 +1310,44 @@ function DraftPanel({ detail, current, busy, act }: PanelProps) {
           {b.kind === "agent" ? "Look it over on the agent's Steps tab." : null}
         </p>
       ) : (
+        // Feedback (2026-11-16): each problem in plain words, where it is, what would fix it and
+        // what that fix costs (./problems.ts).
         <ul className="flex flex-col" data-testid="build-draft-problems">
-          {d.problems.map((p) => (
-            <li
-              key={p.key}
-              className="flex items-start justify-between gap-3 border-b border-line px-6 py-3 text-sm last:border-b-0"
-            >
-              <span className="text-ink">{p.title}</span>
-              <Badge tone={p.code === "missing_step" ? "warning" : "risk"}>
-                {p.code === "missing_step" ? "Missing" : "Invalid"}
-              </Badge>
-            </li>
-          ))}
+          {d.problems.map((p) => {
+            const advice = problemAdvice(p);
+            const where = problemWhere(p);
+            return (
+              <li
+                key={p.key}
+                data-testid="build-draft-problem"
+                className="flex flex-col gap-2 border-b border-line px-6 py-4 text-sm last:border-b-0"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="font-medium text-ink">{advice.what}</span>
+                    {where ? <span className="text-xs text-ink-muted">{where}</span> : null}
+                  </div>
+                  <Badge tone={p.code === "missing_step" ? "warning" : "risk"}>
+                    {p.code === "missing_step" ? "Missing" : "Invalid"}
+                  </Badge>
+                </div>
+                <dl className="grid gap-x-3 gap-y-1 sm:grid-cols-[110px_minmax(0,1fr)]">
+                  <dt className="text-ink-muted">To fix it</dt>
+                  <dd className="text-ink" data-testid="build-draft-problem-fix">
+                    {advice.fix}
+                  </dd>
+                  {advice.cost ? (
+                    <>
+                      <dt className="text-ink-muted">What it costs</dt>
+                      <dd className="text-ink" data-testid="build-draft-problem-cost">
+                        {advice.cost}
+                      </dd>
+                    </>
+                  ) : null}
+                </dl>
+              </li>
+            );
+          })}
         </ul>
       )}
     </Card>
@@ -1438,7 +1976,18 @@ function QaPanel({ detail, current, busy, act }: PanelProps) {
 const OWNERS: BuildItemOwner[] = ["operator", "builder", "client", "engineering"];
 const STATES: BuildItemState[] = ["open", "in_progress", "waiting", "done", "deferred"];
 
-function ItemsPanel({ detail, busy, act }: { detail: BuildDetail; busy: string | null; act: Act }) {
+function ItemsPanel({
+  detail,
+  busy,
+  act,
+  onAnswer,
+}: {
+  detail: BuildDetail;
+  busy: string | null;
+  act: Act;
+  /** Starts an answer to an open question in the conversation's box. */
+  onAnswer?: ((title: string) => void) | undefined;
+}) {
   const id = detail.build.id;
   const [title, setTitle] = useState("");
   const [owner, setOwner] = useState<BuildItemOwner>("operator");
@@ -1514,24 +2063,54 @@ function ItemsPanel({ detail, busy, act }: { detail: BuildDetail; busy: string |
               <tr className="border-b border-line bg-surface-subtle text-left text-xs text-ink-muted">
                 <th className="px-4 py-2.5 font-medium">Item</th>
                 <th className="px-4 py-2.5 font-medium">From</th>
-                <th className="px-4 py-2.5 font-medium">Who</th>
-                <th className="px-4 py-2.5 font-medium">State</th>
+                <th className="px-4 py-2.5 font-medium">Who has it</th>
+                <th className="px-4 py-2.5 font-medium">Status</th>
               </tr>
             </thead>
             <tbody>
               {[...open, ...detail.items.filter((i) => !itemOpen(i.state))].map((i) => (
                 <tr
                   key={i.id}
+                  id={`build-item-${i.id}`}
                   className="border-b border-line align-top last:border-b-0"
                   data-testid={`build-item-${i.id}`}
                 >
-                  <td
-                    className={cx("px-4 py-3", !itemOpen(i.state) && "text-ink-muted line-through")}
-                  >
-                    {i.title}
-                    {i.detail ? (
-                      <p className="mt-0.5 text-xs text-ink-muted no-underline">{i.detail}</p>
-                    ) : null}
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col gap-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <Tag testId={`build-item-${i.id}-kind`}>
+                          {ITEM_KIND_WORDS[i.kind]?.label ?? i.kind}
+                        </Tag>
+                        <span
+                          className={cx(
+                            "font-medium text-ink",
+                            !itemOpen(i.state) && "text-ink-muted line-through",
+                          )}
+                        >
+                          {i.title}
+                        </span>
+                      </span>
+                      {i.detail ? <p className="text-xs text-ink-muted">{i.detail}</p> : null}
+                      {itemOpen(i.state) ? (
+                        <p className="text-xs text-ink" data-testid={`build-item-${i.id}-how`}>
+                          <span className="text-ink-muted">To settle it: </span>
+                          {ITEM_KIND_WORDS[i.kind]?.how}
+                          {i.kind === "question" && onAnswer ? (
+                            <>
+                              {" "}
+                              <button
+                                type="button"
+                                className="ds-btn ds-btn--link text-xs"
+                                data-testid={`build-item-${i.id}-answer`}
+                                onClick={() => onAnswer(i.title)}
+                              >
+                                Answer it
+                              </button>
+                            </>
+                          ) : null}
+                        </p>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-ink-muted">{PHASE_WORDS[i.phase].label}</td>
                   <td className="px-4 py-3">
@@ -1561,7 +2140,7 @@ function ItemsPanel({ detail, busy, act }: { detail: BuildDetail; busy: string |
                   <td className="px-4 py-3">
                     {editable ? (
                       <Select
-                        aria-label={`State: ${i.title}`}
+                        aria-label={`Status: ${i.title}`}
                         value={i.state}
                         data-testid={`build-item-${i.id}-state`}
                         onChange={(e) =>

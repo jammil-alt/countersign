@@ -7,7 +7,7 @@
 // Sloan is the one place to ask (QA round 1): "Ask for a change" (`?mode=change`) holds the
 // requests to us that had their own page (`/requests` redirects there).
 import type { PortalMessage, PortalThread } from "@countersign/core";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
@@ -23,7 +23,8 @@ import { AgentSaid, ChatLog, Composer, Thinking, YouSaid } from "../../ui/chat";
 import { Select } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
 import { Page, PageGrid, Section } from "../../ui/page";
-import { Button, Card, ErrorNotice, Loading, PageHeader, Tabs } from "../../ui/primitives";
+import { Button, Card, cx, ErrorNotice, Loading, PageHeader, Tabs } from "../../ui/primitives";
+import { SideSheet } from "../../ui/sheet";
 import { Skeleton, SkeletonCard } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { useRefreshInboxCount } from "../inboxCount";
@@ -175,10 +176,13 @@ function Conversation({
   threadId,
   start,
   onStarted,
+  bare,
 }: {
   threadId: string | null;
   start: () => Promise<string | null>;
   onStarted: (id: string) => void;
+  /** In the side panel: no card around it, the box pinned to the panel's foot. */
+  bare?: boolean;
 }) {
   const { t } = useI18n();
   const api = useApiClient();
@@ -221,9 +225,10 @@ function Conversation({
     }
   }
 
+  const Frame = bare ? BareFrame : Card;
   return (
-    <Card testId="portal-sloan-conversation">
-      <div className="ui-card__body flex flex-col gap-6">
+    <Frame testId="portal-sloan-conversation">
+      <div className={cx("flex flex-col gap-6", !bare && "ui-card__body", bare && "flex-1")}>
         {messages.error ? <ErrorNotice error={messages.error} onRetry={messages.reload} /> : null}
         {threadId && messages.loading && !messages.data ? <Loading /> : null}
         {list.length === 0 && !messages.loading ? (
@@ -251,7 +256,12 @@ function Conversation({
           </ChatLog>
         ) : null}
       </div>
-      <div className="ui-card__foot ui-composer">
+      <div
+        className={cx(
+          "ui-composer",
+          bare ? "sticky bottom-0 flex flex-col gap-2 bg-surface pt-3" : "ui-card__foot",
+        )}
+      >
         <Composer
           label={t("sloan.compose")}
           placeholder={t("sloan.compose")}
@@ -291,7 +301,79 @@ function Conversation({
         <p className="text-sm text-ink-muted">{t("sloan.commandHint")}</p>
         {error ? <ErrorNotice error={error} /> : null}
       </div>
-    </Card>
+    </Frame>
+  );
+}
+
+/** The conversation's frame in the side panel: a plain column, the panel is its card. */
+function BareFrame({ children, testId }: { children: ReactNode; testId?: string }) {
+  return (
+    <div className="flex min-h-full flex-col gap-4" data-testid={testId}>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Feedback (2026-11-11): Sloan beside the page, in a side panel, from Ask Sloan in the top bar:
+ * the newest conversation (or a new one), and the full page one link away for past conversations
+ * and asking us for a change.
+ */
+export function SloanPanel({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
+  const api = useApiClient();
+  const threads = useApi(apiRoutes.portalThreads, { query: { subject: "account" } });
+  const [started, setStarted] = useState<string | null>(null);
+  const current = started ?? newest(threads.data?.threads ?? [])?.id ?? null;
+  const [error, setError] = useState<unknown>(null);
+
+  async function start(): Promise<string | null> {
+    setError(null);
+    try {
+      const { thread } = await api.call(apiRoutes.portalStartThread, {
+        body: { subject: "account" },
+      });
+      threads.reload();
+      return thread.id;
+    } catch (e) {
+      setError(e);
+      return null;
+    }
+  }
+
+  return (
+    <SideSheet
+      wide
+      testId="portal-sloan-panel"
+      eyebrow={<AgentBadge name="Sloan" size="sm" />}
+      title={t("sloan.title")}
+      onClose={onClose}
+      footer={
+        <Link
+          to={current ? `${PORTAL_PATHS.sloan}/${current}` : PORTAL_PATHS.sloan}
+          onClick={onClose}
+          className="text-sm font-medium text-slate hover:underline"
+          data-testid="portal-sloan-panel-page"
+        >
+          {t("sloan.openPage")}
+        </Link>
+      }
+    >
+      <p className="text-sm text-ink-muted">{t("sloan.subtitle")}</p>
+      {error ? <ErrorNotice error={error} /> : null}
+      {threads.error ? <ErrorNotice error={threads.error} onRetry={threads.reload} /> : null}
+      {threads.loading && !threads.data ? (
+        <Loading />
+      ) : (
+        <Conversation
+          bare
+          key={current ?? "new"}
+          threadId={current}
+          start={start}
+          onStarted={setStarted}
+        />
+      )}
+    </SideSheet>
   );
 }
 

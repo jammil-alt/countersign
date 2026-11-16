@@ -61,6 +61,7 @@ function detail(over: Partial<BuildDetail> = {}): BuildDetail {
           },
         ],
         needsTrue: [{ id: "qbo", text: "The client connects QuickBooks", done: false }],
+        setup: [],
       },
       testPlan: { datasets: [] },
       qa: { accepted: {}, signedBy: null, signedAt: null, decision: null },
@@ -105,6 +106,7 @@ function detail(over: Partial<BuildDetail> = {}): BuildDetail {
         state: "open",
         stepId: null,
         ref: {},
+        key: "brief:volume",
         createdAt: at,
         resolvedAt: null,
       },
@@ -168,6 +170,10 @@ describe("Builds", () => {
     );
     expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent("1 open item");
     expect(screen.getByTestId("builds-items")).toHaveTextContent("How many: still open");
+    // Who has each item, in words; gold says it waits on you.
+    const row = screen.getByTestId(`builds-item-${ITEM}`);
+    expect(row).toHaveTextContent("You");
+    expect(row).toHaveTextContent("Waiting on you");
 
     await userEvent.click(screen.getByTestId("builds-new"));
     await userEvent.type(screen.getByTestId("builds-start-title"), "Invoice intake reviewer");
@@ -266,9 +272,179 @@ describe("Builds", () => {
       expect(moves.at(-1)).toEqual({ to: "intake", reason: "The brief missed a field" }),
     );
 
-    // An open item's state changes in place.
+    // Feedback (2026-11-16): an open item says what it is, what settles it, and who has it; a
+    // question's Answer starts the reply in the conversation's box.
+    const items = within(view).getByTestId("build-items");
+    expect(within(items).getByRole("columnheader", { name: "Status" })).toBeInTheDocument();
+    expect(within(items).getByRole("columnheader", { name: "Who has it" })).toBeInTheDocument();
+    expect(within(view).getByTestId(`build-item-${ITEM}-kind`)).toHaveTextContent("Question");
+    expect(within(view).getByTestId(`build-item-${ITEM}-how`)).toHaveTextContent(
+      "To settle it: Answer it to the Builder in the conversation",
+    );
+    await userEvent.click(within(view).getByTestId(`build-item-${ITEM}-answer`));
+    expect(within(view).getByTestId("build-input")).toHaveValue("About “How many: still open”: ");
+    expect(within(view).getByTestId("build-input")).toHaveFocus();
+
+    // An open item's status changes in place.
     await userEvent.selectOptions(within(view).getByTestId(`build-item-${ITEM}-state`), "Done");
     await waitFor(() => expect(updates).toEqual([{ state: "done" }]));
+  });
+
+  it("shows the Builder at work beside a move, and keeps the column width you drag to", async () => {
+    let answer: (v: unknown) => void = () => {};
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => detail(),
+      [`POST /api/ops/builds/${ID}/phase`]: () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const view = await screen.findByTestId("build-view");
+
+    // Feedback (2026-11-16): agreeing the fit-gap takes a while; the loop and its words show it.
+    expect(within(view).queryByTestId("build-agree-working")).toBeNull();
+    await userEvent.click(within(view).getByTestId("build-agree"));
+    expect(within(view).getByTestId("build-agree")).toHaveTextContent("Working…");
+    expect(await within(view).findByTestId("build-agree-working")).toHaveTextContent(
+      "The Builder is drafting the workflow from the brief and the fit-gap…",
+    );
+    answer(detail());
+    await waitFor(() => expect(within(view).queryByTestId("build-agree-working")).toBeNull());
+
+    // The line between the columns moves with the arrows, within bounds, and is kept.
+    const split = within(view).getByTestId("build-split");
+    expect(split).toHaveAttribute("aria-valuenow", "420");
+    split.focus();
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}");
+    expect(split).toHaveAttribute("aria-valuenow", "468");
+    expect(localStorage.getItem("mezonas.build.chatWidth")).toBe("468");
+    for (let i = 0; i < 10; i++) await userEvent.keyboard("{ArrowLeft}");
+    expect(split).toHaveAttribute("aria-valuenow", "320");
+    localStorage.removeItem("mezonas.build.chatWidth");
+  });
+
+  it("filters the fit-gap by verdict and changes one only with a reason", async () => {
+    const sent: unknown[] = [];
+    const withTiers = () => {
+      const d = detail();
+      return detail({
+        build: {
+          ...d.build,
+          fitgap: {
+            ...d.build.fitgap,
+            rows: [
+              ...d.build.fitgap.rows,
+              {
+                id: "tiers",
+                need: "Volume tiers",
+                verdict: "build",
+                how: "A new skill",
+                dropped: false,
+              },
+            ],
+          },
+        },
+      });
+    };
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => withTiers(),
+      [`POST /api/ops/builds/${ID}/verdicts`]: ({ init }) => {
+        sent.push(JSON.parse(String(init.body)));
+        return withTiers();
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const fit = await screen.findByTestId("build-fitgap");
+    // A verdict is a fact from the catalog, not a picker.
+    expect(within(fit).queryByLabelText("Verdict: Read invoice PDFs")).toBeNull();
+    expect(within(fit).getByTestId("build-fit-read-verdict")).toHaveTextContent("Native");
+    expect(within(fit).getByTestId("build-fit-tiers-item")).toHaveTextContent(
+      "Becomes an open item for Builder",
+    );
+
+    // A count shows which rows it counts.
+    await userEvent.click(within(fit).getByTestId("build-fit-count-build"));
+    expect(within(fit).getByTestId("build-fit-filter")).toHaveTextContent(
+      "Showing the 1 build row",
+    );
+    expect(within(fit).queryByTestId("build-fit-read")).toBeNull();
+    expect(within(fit).getByTestId("build-fit-tiers")).toBeInTheDocument();
+    await userEvent.click(within(fit).getByRole("button", { name: "Show all" }));
+    expect(within(fit).getByTestId("build-fit-read")).toBeInTheDocument();
+
+    // Less work is a challenge to the Builder, with why.
+    await userEvent.click(within(fit).getByTestId("build-fit-tiers-change"));
+    await userEvent.selectOptions(within(fit).getByTestId("build-fit-tiers-to"), "native");
+    const send = within(fit).getByTestId("build-fit-tiers-send");
+    expect(send).toHaveTextContent("Ask the Builder");
+    expect(send).toBeDisabled();
+    await userEvent.type(
+      within(fit).getByTestId("build-fit-tiers-reason"),
+      "The contract tool already reads volume breaks.",
+    );
+    await userEvent.click(send);
+    await waitFor(() =>
+      expect(sent).toEqual([
+        { rowId: "tiers", to: "native", reason: "The contract tool already reads volume breaks." },
+      ]),
+    );
+
+    // More work changes it at once.
+    await userEvent.click(within(fit).getByTestId("build-fit-read-change"));
+    await userEvent.selectOptions(within(fit).getByTestId("build-fit-read-to"), "figure_out");
+    expect(within(fit).getByTestId("build-fit-read-send")).toHaveTextContent("Change it");
+  });
+
+  it("keeps a template's client intake form on the build", async () => {
+    const saved: unknown[] = [];
+    const withForm = () => {
+      const d = detail();
+      return detail({
+        build: {
+          ...d.build,
+          fitgap: {
+            ...d.build.fitgap,
+            needsTrue: [],
+            setup: [
+              {
+                id: "ap",
+                label: "Your AP address",
+                kind: "answer",
+                hint: "Where invoices are forwarded",
+                dropped: false,
+                byOperator: false,
+              },
+            ],
+          },
+        },
+      });
+    };
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => withForm(),
+      [`PATCH /api/ops/builds/${ID}`]: ({ init }) => {
+        saved.push(JSON.parse(String(init.body)));
+        return withForm();
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const form = await screen.findByTestId("build-setup");
+    expect(form).toHaveTextContent("What we get from each client to set up their copy · 1 field");
+    expect(within(form).getByLabelText("Field: Your AP address")).toHaveValue("Your AP address");
+    await userEvent.type(within(form).getByTestId("build-setup-new"), "Your vendor contracts");
+    await userEvent.selectOptions(within(form).getByLabelText("Kind of field"), "file");
+    await userEvent.click(within(form).getByTestId("build-setup-add"));
+    await userEvent.click(screen.getByTestId("build-fitgap-save"));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    const setup = (saved[0] as { fitgap: { setup: { label: string; kind: string }[] } }).fitgap
+      .setup;
+    expect(setup.map((f) => [f.label, f.kind])).toEqual([
+      ["Your AP address", "answer"],
+      ["Your vendor contracts", "file"],
+    ]);
   });
 
   it("says why a phase can't close yet", async () => {

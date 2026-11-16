@@ -16,8 +16,16 @@ import { Link, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
-import { InboxCard, outcomeText } from "../../inbox/InboxCard";
+import { useI18n } from "../../i18n/i18n";
+import {
+  BADGE_ACCENT,
+  InboxCard,
+  inboxItemTitle,
+  outcomeText,
+  statusBadge,
+} from "../../inbox/InboxCard";
 import { OPEN_RESOLVED, StatusFilter } from "../../inbox/StatusFilter";
+import { shortTime } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { AgentBadge } from "../../ui/badges";
@@ -25,8 +33,9 @@ import { cx } from "../../ui/cx";
 import { KpiStrip, StatTile } from "../../ui/figures";
 import { Icon } from "../../ui/icons";
 import { Loaded, Page, Section } from "../../ui/page";
-import { buttonClass, Card, EmptyState, PageHeader } from "../../ui/primitives";
-import { SkeletonCard, SkeletonStats } from "../../ui/skeleton";
+import { Badge, buttonClass, Card, EmptyState, PageHeader } from "../../ui/primitives";
+import { SideSheet } from "../../ui/sheet";
+import { SkeletonRows, SkeletonStats } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import {
   escalationAction,
@@ -84,6 +93,7 @@ export function waitingOnLine(
 export function OpsInboxScreen() {
   const api = useApiClient();
   const session = useSession();
+  const i18n = useI18n();
   // `?view=clients`, or a run page's "See it in Escalations" (`?assigned=all&client=`), opens on
   // what waits in the clients' inboxes; `?client=` narrows to one client.
   const [params, setParams] = useSearchParams();
@@ -148,7 +158,9 @@ export function OpsInboxScreen() {
     escalations.filter((e) => e.kind === "approval" && e.runId).map((e) => [e.runId, e]),
   );
 
-  const card = (item: Item) => {
+  // What a row and its card both say about an item: who asks, for whom, how it ended, whom it
+  // waits on.
+  const describe = (item: Item) => {
     const agent = item.agentId ? agents.get(item.agentId) : undefined;
     const mine = operatorMayResolve(item);
     const resolution = (item.resolution ?? {}) as { approved?: unknown; decision?: unknown };
@@ -164,23 +176,82 @@ export function OpsInboxScreen() {
       : item.resolvedBy
         ? (ROLE_WORDS[item.assigneeRole ?? "client_admin"] ?? null)
         : null;
+    return {
+      agent,
+      mine,
+      byUs,
+      context: [
+        agent ? (agent.serviceName ?? agent.name) : null,
+        clients.get(item.tenantId) ?? null,
+        item.payload.testRun === true ? "test run" : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      outcome: item.status === "resolved" ? outcomeText(item.kind, approved, by) : null,
+      waitingOn: mine
+        ? null
+        : waitingOnLine(item, item.runId ? stuckByRun.get(item.runId) : undefined),
+    };
+  };
+
+  // Feedback (2026-11-15): "smaller boxes that open up to a side modal". Each item is one row;
+  // the row opens its whole card (the change, the run, the decision) in a side sheet, kept in the
+  // address as `?item=` so a link opens it.
+  const openId = params.get("item");
+  const openItem = (id: string | null) => setParam("item", id);
+  const row = (item: Item) => {
+    const { agent, context, outcome, waitingOn } = describe(item);
+    const badge = statusBadge(item, outcome, i18n);
+    const title = inboxItemTitle(item, i18n);
+    return (
+      <div
+        key={item.id}
+        className="ops-row ops-row--link ops-row--avatar ui-accent ui-accent--left relative"
+        data-tone={BADGE_ACCENT[badge.tone]}
+        data-testid={`ops-inbox-row-${item.id}`}
+        aria-current={openId === item.id ? "true" : undefined}
+      >
+        {agent ? (
+          <AgentBadge name={agent.serviceName ?? agent.name} seed={agent.id} size="sm" />
+        ) : (
+          <span />
+        )}
+        <span className="ops-row__text">
+          <button
+            type="button"
+            className="ops-row__link truncate text-left font-medium text-ink"
+            data-testid={`ops-inbox-row-${item.id}-open`}
+            onClick={() => openItem(item.id)}
+          >
+            {title}
+          </button>
+          <span className="truncate text-sm text-ink-muted">
+            {[context, waitingOn].filter(Boolean).join(" · ")}
+          </span>
+        </span>
+        <span className="ops-row__when">
+          <Badge tone={badge.tone} testId={`ops-inbox-row-${item.id}-status`}>
+            {badge.label}
+          </Badge>
+          <span className="text-xs text-ink-muted">
+            {shortTime(item.resolvedAt ?? item.createdAt, undefined, i18n)}
+          </span>
+        </span>
+      </div>
+    );
+  };
+
+  const card = (item: Item) => {
+    const { mine, byUs, context, outcome, waitingOn } = describe(item);
     const shown = (
       <InboxCard
         key={item.id}
         item={item}
-        context={[
-          agent ? (agent.serviceName ?? agent.name) : null,
-          clients.get(item.tenantId) ?? null,
-          item.payload.testRun === true ? "test run" : null,
-        ]
-          .filter(Boolean)
-          .join(" · ")}
+        context={context}
         runHref={item.runId ? `/ops/runs/${item.runId}` : null}
         recordHref={(id) => `/ops/clients/${item.tenantId}/records/${id}`}
-        outcome={item.status === "resolved" ? outcomeText(item.kind, approved, by) : null}
-        waitingOn={
-          mine ? null : waitingOnLine(item, item.runId ? stuckByRun.get(item.runId) : undefined)
-        }
+        outcome={outcome}
+        waitingOn={waitingOn}
         onResolve={
           item.status === "open" && mine
             ? async (body) => {
@@ -239,6 +310,11 @@ export function OpsInboxScreen() {
       </div>
     );
   };
+
+  // The open item: from what we just resolved first (it carries its Undo), else the list.
+  const sheetItem = openId
+    ? (recent.find((i) => i.id === openId) ?? data?.items.find((i) => i.id === openId) ?? null)
+    : null;
 
   return (
     <Page testId="ops-escalations">
@@ -336,9 +412,9 @@ export function OpsInboxScreen() {
       ) : null}
       {recent.length > 0 ? (
         <Section title="Just resolved" meta="You can undo an approval for a short while.">
-          <div className="flex flex-col gap-4" data-testid="ops-inbox-recent">
-            {recent.map(card)}
-          </div>
+          <Card className="overflow-hidden" testId="ops-inbox-recent">
+            {recent.map(row)}
+          </Card>
         </Section>
       ) : null}
       <Loaded state={state} skeleton={<InboxSkeleton />}>
@@ -375,29 +451,33 @@ export function OpsInboxScreen() {
           ) : (
             <div
               data-testid="ops-inbox-list"
-              className={cx("flex flex-col gap-4 transition-opacity", kept && "opacity-60")}
+              className={cx("transition-opacity", kept && "opacity-60")}
               aria-busy={kept || undefined}
               inert={kept}
               {...intent}
             >
-              {items.map(card)}
+              <Card className="overflow-hidden">{items.map(row)}</Card>
             </div>
           )
         }
       </Loaded>
+      {sheetItem ? (
+        <SideSheet
+          wide
+          testId="ops-inbox-sheet"
+          title={inboxItemTitle(sheetItem, i18n)}
+          onClose={() => openItem(null)}
+        >
+          {card(sheetItem)}
+        </SideSheet>
+      ) : null}
     </Page>
   );
 }
 
-/** The items while they load: cards the height of an inbox card. */
+/** The items while they load: rows the height of an item's row. */
 function InboxSkeleton() {
-  return (
-    <div className="flex flex-col gap-4">
-      <SkeletonCard lines={3} />
-      <SkeletonCard lines={3} />
-      <SkeletonCard lines={2} />
-    </div>
-  );
+  return <SkeletonRows rows={4} />;
 }
 
 /** Needs us that isn't an item for us: what waits, on whom, how long, and a link to it. */

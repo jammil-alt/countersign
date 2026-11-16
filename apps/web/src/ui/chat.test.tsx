@@ -35,6 +35,22 @@ describe("ChatText", () => {
     expect(reply.querySelectorAll("ol li")).toHaveLength(2);
   });
 
+  it("keeps a numbered list one list when its items are a blank line apart", () => {
+    // Feedback (2026-11-16): the Builder's six problems all read "1.".
+    const text = "Here are the problems.\n\n1. First\n\n2. Second\n\n3. Third\n\nThen publish.";
+    expect(chatBlocks(text)).toEqual([
+      { kind: "p", lines: ["Here are the problems."] },
+      { kind: "ol", items: ["First", "Second", "Third"] },
+      { kind: "p", lines: ["Then publish."] },
+    ]);
+    render(<ChatText text={text} testId="loose" />);
+    expect(screen.getByTestId("loose").querySelectorAll("ol")).toHaveLength(1);
+    // A list that starts past 1 keeps its number.
+    expect(chatBlocks("4. Fourth\n5. Fifth")).toEqual([
+      { kind: "ol", items: ["Fourth", "Fifth"], start: 4 },
+    ]);
+  });
+
   it("leaves snake_case, single stars and plain sentences alone", () => {
     expect(plainWords("runs_list read 2 * 3 rows")).toBe("runs_list read 2 * 3 rows");
     expect(plainWords("`clients_list` and __this__")).toBe("clients_list and this");
