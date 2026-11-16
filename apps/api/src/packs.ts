@@ -227,6 +227,8 @@ function adapt(tool: PackTool): InternalTool {
           db,
           transport,
           recordUsage: ctx.recordUsage,
+          // §1.115: a pack tool's model call is its step's `model_call` too, as a platform tool's.
+          recordModelCall: ctx.recordModelCall,
           content,
         }),
       );

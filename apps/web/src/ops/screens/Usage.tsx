@@ -5,7 +5,8 @@
 // its usage. Drafted in the prototype's back-office style (no prototype screen; docs/ui-plan.md):
 // the period's figures as stat tiles, the cost as a line by day (from the first day with usage),
 // the chosen grouping (rows with nothing in them hidden until "Show all"), the split by vendor and
-// model, then the months.
+// model, the tokens by client, agent, model and action (`?tokens=`, docs/plan.md §1.115), then the
+// months.
 import {
   dec,
   MODEL_PROVIDER_NAMES,
@@ -38,6 +39,7 @@ import {
 import { type ChartPoint, fromFirstUsage, LineChart } from "../../usage/LineChart";
 import { Select } from "../agents/ui";
 import { BusinessTabs, TableCard } from "./business";
+import { TOKEN_VIEWS, type TokenView, UsageTokens } from "./UsageTokens";
 
 // UI cleanup: the periods people ask for, as well as whole months, and a custom range.
 const RANGES = [
@@ -232,6 +234,8 @@ export function OpsUsageScreen() {
   const client = params.get("client") ?? "";
   const template = params.get("template") ?? "";
   const showAll = params.get("all") === "1";
+  const tokenView = (TOKEN_VIEWS.find(([v]) => v === params.get("tokens"))?.[0] ??
+    "clients") as TokenView;
   const set = (patch: Record<string, string>) => {
     const next = new URLSearchParams(params);
     for (const [k, v] of Object.entries(patch)) {
@@ -365,6 +369,16 @@ export function OpsUsageScreen() {
             showAll={showAll}
             onShowAll={(on) => set({ all: on ? "1" : "" })}
             onTemplate={(id) => set({ template: id, view: "agents" })}
+            tokenSection={
+              <UsageTokens
+                from={from}
+                to={to}
+                client={client}
+                template={template}
+                view={tokenView}
+                onView={(v) => set({ tokens: v === "clients" ? "" : v })}
+              />
+            }
           />
         )}
       </Loaded>
@@ -406,6 +420,7 @@ function UsageReportView({
   showAll,
   onShowAll,
   onTemplate,
+  tokenSection,
 }: {
   data: UsageReport;
   view: View;
@@ -413,6 +428,8 @@ function UsageReportView({
   showAll: boolean;
   onShowAll: (on: boolean) => void;
   onTemplate: (id: string) => void;
+  /** The tokens section, with its own request (./UsageTokens.tsx). */
+  tokenSection: React.ReactNode;
 }) {
   const thisMonth = data.byMonth.at(-1);
   const allRows = rowsFor(view, data, onTemplate);
@@ -542,6 +559,8 @@ function UsageReportView({
       </Section>
 
       <UsageSplits data={data} />
+
+      {tokenSection}
 
       {shownMonths.length > 0 ? (
         <Section>

@@ -542,7 +542,12 @@ export async function overseeStep(
     await recordModelCall(
       deps.ports.modelCalls,
       tenantId,
-      { runId: req.runId, stepRunId: req.stepRunId, agentVersionId: req.agentVersionId },
+      {
+        runId: req.runId,
+        stepRunId: req.stepRunId,
+        agentVersionId: req.agentVersionId,
+        action: "oversight",
+      },
       record,
       exchange,
     );

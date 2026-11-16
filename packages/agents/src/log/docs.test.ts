@@ -139,6 +139,8 @@ describe.skipIf(!harness)("docs tools in the runtime", () => {
       agentVersionId: versionId,
       model: x?.model,
       provider: "anthropic",
+      // §1.115: a tool's own call.
+      action: "tool_call",
     });
     expect(Number(call?.costUsd)).toBeGreaterThan(0);
     expect(call?.bodyKey).toBe(`tenants/${h.A.tenantId}/model-calls/${call?.id}.json`);

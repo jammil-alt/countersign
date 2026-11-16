@@ -509,6 +509,7 @@ describe("composeReachMessage", () => {
       runId: RUN,
       stepRunId: STEP_RUN,
       agentVersionId: VERSION,
+      action: "reach_out",
       provider: "anthropic",
       model: "claude-haiku-4-5",
       tokensIn: 100,

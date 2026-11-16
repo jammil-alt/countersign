@@ -1,8 +1,10 @@
 // v0.12 W1-E: one model call as the `modelCalls` port records it (docs/plan.md §1.40), from what
-// the model client reports (`onCall`). Used by the agent loop, a reach-out's message and a tool's
-// own call (a document read by `docs.extract`).
+// the model client reports (`onCall`). Used by the agent loop, the oversight review, a reach-out's
+// message, a tool's own call (a document read by `docs.extract`, a web search, a translation), a
+// conversation step's turn, the AI's second check and the agent's choice of a path; each says
+// what the call was for (§1.115).
 
-import { isUuid } from "@countersign/core";
+import { isUuid, type ModelCallAction } from "@countersign/core";
 import { type LlmCallRecord, type LlmExchange, providerOf } from "@countersign/llm";
 import type { ModelCallPort } from "../log/model-calls";
 
@@ -11,6 +13,8 @@ export interface ModelCallPlace {
   runId: string;
   stepRunId: string;
   agentVersionId: string | null;
+  /** What the call was for (docs/plan.md §1.115), so tokens can be counted by action. */
+  action: ModelCallAction;
 }
 
 /**

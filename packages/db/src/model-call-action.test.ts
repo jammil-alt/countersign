@@ -2,6 +2,7 @@
 // Worker inserts model calls without naming it, and those still succeed and read `agent_turn`; an
 // action outside the list is refused; the column changes nothing about the row being insert only.
 
+import { MODEL_CALL_ACTIONS as CORE_ACTIONS } from "@countersign/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ClientFixture, insertClient } from "./fixtures.test-helper";
 import { MODEL_CALL_ACTIONS } from "./schema";
@@ -19,6 +20,12 @@ async function errorCode(promise: Promise<unknown>): Promise<string | undefined>
   }
   return undefined;
 }
+
+describe("model call actions", () => {
+  it("are core's list", () => {
+    expect([...MODEL_CALL_ACTIONS]).toEqual([...CORE_ACTIONS]);
+  });
+});
 
 describe.skipIf(!online)("model_call.action (0055)", () => {
   let t: TestDatabase;
