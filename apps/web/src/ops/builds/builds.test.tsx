@@ -105,6 +105,7 @@ function detail(over: Partial<BuildDetail> = {}): BuildDetail {
         state: "open",
         stepId: null,
         ref: {},
+        key: "brief:volume",
         createdAt: at,
         resolvedAt: null,
       },
@@ -269,6 +270,79 @@ describe("Builds", () => {
     // An open item's state changes in place.
     await userEvent.selectOptions(within(view).getByTestId(`build-item-${ITEM}-state`), "Done");
     await waitFor(() => expect(updates).toEqual([{ state: "done" }]));
+  });
+
+  it("filters the fit-gap by verdict and changes one only with a reason", async () => {
+    const sent: unknown[] = [];
+    const withTiers = () => {
+      const d = detail();
+      return detail({
+        build: {
+          ...d.build,
+          fitgap: {
+            ...d.build.fitgap,
+            rows: [
+              ...d.build.fitgap.rows,
+              {
+                id: "tiers",
+                need: "Volume tiers",
+                verdict: "build",
+                how: "A new skill",
+                dropped: false,
+              },
+            ],
+          },
+        },
+      });
+    };
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => withTiers(),
+      [`POST /api/ops/builds/${ID}/verdicts`]: ({ init }) => {
+        sent.push(JSON.parse(String(init.body)));
+        return withTiers();
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const fit = await screen.findByTestId("build-fitgap");
+    // A verdict is a fact from the catalog, not a picker.
+    expect(within(fit).queryByLabelText("Verdict: Read invoice PDFs")).toBeNull();
+    expect(within(fit).getByTestId("build-fit-read-verdict")).toHaveTextContent("Native");
+    expect(within(fit).getByTestId("build-fit-tiers-item")).toHaveTextContent(
+      "Becomes an open item for Builder",
+    );
+
+    // A count shows which rows it counts.
+    await userEvent.click(within(fit).getByTestId("build-fit-count-build"));
+    expect(within(fit).getByTestId("build-fit-filter")).toHaveTextContent(
+      "Showing the 1 build row",
+    );
+    expect(within(fit).queryByTestId("build-fit-read")).toBeNull();
+    expect(within(fit).getByTestId("build-fit-tiers")).toBeInTheDocument();
+    await userEvent.click(within(fit).getByRole("button", { name: "Show all" }));
+    expect(within(fit).getByTestId("build-fit-read")).toBeInTheDocument();
+
+    // Less work is a challenge to the Builder, with why.
+    await userEvent.click(within(fit).getByTestId("build-fit-tiers-change"));
+    await userEvent.selectOptions(within(fit).getByTestId("build-fit-tiers-to"), "native");
+    const send = within(fit).getByTestId("build-fit-tiers-send");
+    expect(send).toHaveTextContent("Ask the Builder");
+    expect(send).toBeDisabled();
+    await userEvent.type(
+      within(fit).getByTestId("build-fit-tiers-reason"),
+      "The contract tool already reads volume breaks.",
+    );
+    await userEvent.click(send);
+    await waitFor(() =>
+      expect(sent).toEqual([
+        { rowId: "tiers", to: "native", reason: "The contract tool already reads volume breaks." },
+      ]),
+    );
+
+    // More work changes it at once.
+    await userEvent.click(within(fit).getByTestId("build-fit-read-change"));
+    await userEvent.selectOptions(within(fit).getByTestId("build-fit-read-to"), "figure_out");
+    expect(within(fit).getByTestId("build-fit-read-send")).toHaveTextContent("Change it");
   });
 
   it("says why a phase can't close yet", async () => {

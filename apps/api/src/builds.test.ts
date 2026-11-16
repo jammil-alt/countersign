@@ -172,6 +172,93 @@ describe.skipIf(!h)("builds", () => {
     expect(b.items.map((i) => i.title)).toEqual(["How many: still open"]);
     expect(b.build.fitgap.rows).toHaveLength(4);
 
+    // A verdict doesn't change by saving the fit-gap: it needs a reason.
+    const native = {
+      ...b.build.fitgap,
+      rows: b.build.fitgap.rows.map((r) => (r.id === "portal" ? { ...r, verdict: "native" } : r)),
+    };
+    expect((await call("PATCH", `/api/ops/builds/${id}`, { fitgap: native })).status).toBe(409);
+    const why = "Their records come in as scanned images, never text.";
+    expect(
+      (
+        await call("POST", `/api/ops/builds/${id}/verdicts`, {
+          rowId: "update",
+          to: "figure_out",
+          reason: "short",
+        })
+      ).status,
+    ).toBe(400);
+    // More work changes at once, with the Builder's verdict and the reason kept.
+    b = await ok("POST", `/api/ops/builds/${id}/verdicts`, {
+      rowId: "update",
+      to: "build",
+      reason: why,
+    });
+    expect(b.build.fitgap.rows[0]).toMatchObject({
+      verdict: "build",
+      override: { from: "native", reason: why },
+    });
+    // Less work is a challenge: the Builder answers it, and the override survives its rewrite.
+    model.push(
+      turnAnswer({
+        text: "Volume tiers is native: the Testkit update takes tiers.",
+        fitgap: {
+          rows: [
+            { id: "update", need: "Update the record", verdict: "native", how: "Testkit update" },
+            { id: "tiers", need: "Volume tiers", verdict: "native", how: "Testkit update" },
+            { id: "portal", need: "Read a vendor portal", verdict: "figure_out", how: "None" },
+            { id: "pay", need: "Pay the vendor", verdict: "not_possible", how: "Never" },
+          ],
+          needsTrue: [{ id: "conn", text: "The client connects the testkit" }],
+        },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/verdicts`, {
+      rowId: "tiers",
+      to: "native",
+      reason: "The testkit update already takes a tier field.",
+    });
+    expect(JSON.stringify(model.requests.at(-1)?.messages)).toContain(
+      'challenging \\"Volume tiers',
+    );
+    expect(b.build.fitgap.rows.map((r) => [r.id, r.verdict, !!r.challenge])).toEqual([
+      ["update", "build", false],
+      ["tiers", "native", false],
+      ["portal", "figure_out", false],
+      ["pay", "not_possible", false],
+    ]);
+    // Back as it was, so the rest of the build is the same.
+    model.push(
+      turnAnswer({
+        text: "Agreed: the records are text, so the update is native.",
+        fitgap: {
+          rows: [
+            { id: "update", need: "Update the record", verdict: "native", how: "Testkit update" },
+            { id: "tiers", need: "Volume tiers", verdict: "native", how: "Testkit update" },
+            { id: "portal", need: "Read a vendor portal", verdict: "figure_out", how: "None" },
+            { id: "pay", need: "Pay the vendor", verdict: "not_possible", how: "Never" },
+          ],
+          needsTrue: [{ id: "conn", text: "The client connects the testkit" }],
+        },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/verdicts`, {
+      rowId: "update",
+      to: "native",
+      reason: "I was wrong, the records are text after all.",
+    });
+    b = await ok("POST", `/api/ops/builds/${id}/verdicts`, {
+      rowId: "tiers",
+      to: "build",
+      reason: "The tier field doesn't do volume breaks.",
+    });
+    expect(b.build.fitgap.rows.map((r) => r.verdict)).toEqual([
+      "native",
+      "build",
+      "figure_out",
+      "not_possible",
+    ]);
+
     // The operator drops the portal row; agreeing drafts it with the Builder's own route.
     const fitgap = {
       ...b.build.fitgap,

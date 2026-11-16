@@ -2,9 +2,16 @@
 // read leniently from storage.
 import { describe, expect, it } from "vitest";
 import {
+  clampFitGap,
+  clampText,
+  type FitGap,
+  FitGapAnswer,
+  fitChangeKind,
   type GateFacts,
   gateReasons,
+  mergeFitGap,
   nextPhase,
+  operatorFitGap,
   phasesOf,
   readBrief,
   readFitGap,
@@ -85,5 +92,88 @@ describe("records", () => {
     expect(readFitGap("nonsense")).toEqual({ rows: [], needsTrue: [] });
     expect(readTestPlan(null)).toEqual({ datasets: [] });
     expect(readQa({})).toEqual({ accepted: {}, signedBy: null, signedAt: null, decision: null });
+  });
+});
+
+describe("verdicts", () => {
+  const why = "Their invoices are scanned images, never PDFs with text.";
+  const row = (id: string, verdict: FitGap["rows"][number]["verdict"]) => ({
+    id,
+    need: `Need ${id}`,
+    verdict,
+    how: "",
+    dropped: false,
+  });
+  const stored: FitGap = {
+    rows: [
+      {
+        ...row("read", "figure_out"),
+        override: { from: "native", reason: why, by: "Ada", at: "t" },
+      },
+      {
+        ...row("match", "configure"),
+        challenge: { wanted: "native", reason: why, by: null, at: null },
+      },
+      { ...row("tiers", "build"), dropped: true },
+      row("pay", "not_possible"),
+    ],
+    needsTrue: [],
+  };
+
+  it("set more work at once and ask the Builder for less", () => {
+    expect(fitChangeKind("native", "figure_out")).toBe("override");
+    expect(fitChangeKind("configure", "not_possible")).toBe("override");
+    expect(fitChangeKind("figure_out", "native")).toBe("challenge");
+    expect(fitChangeKind("not_possible", "build")).toBe("challenge");
+  });
+
+  it("keep the operator's changes when the Builder writes the fit-gap again", () => {
+    const merged = mergeFitGap(stored, {
+      rows: [row("read", "native"), row("match", "native"), row("pay", "not_possible")],
+      needsTrue: [],
+    });
+    // The override stays; the challenge is answered by the Builder's verdict; the dropped row the
+    // Builder left out comes back, still dropped.
+    expect(
+      merged.rows.map((r) => [r.id, r.verdict, !!r.override, !!r.challenge, r.dropped]),
+    ).toEqual([
+      ["read", "figure_out", true, false, false],
+      ["match", "native", false, false, false],
+      ["pay", "not_possible", false, false, false],
+      ["tiers", "build", false, false, true],
+    ]);
+  });
+
+  it("let the operator change scope, never a verdict, when saving the fit-gap", () => {
+    const sent = { ...stored, rows: stored.rows.map((r) => ({ ...r, dropped: r.id === "pay" })) };
+    const out = operatorFitGap(stored, sent);
+    expect(out.ok && out.fitgap.rows.map((r) => r.dropped)).toEqual([false, false, false, true]);
+    expect(out.ok && out.fitgap.rows[0]?.override?.from).toBe("native");
+    const native = {
+      ...stored,
+      rows: stored.rows.map((r) => ({ ...r, verdict: "native" as const })),
+    };
+    expect(operatorFitGap(stored, native)).toMatchObject({ ok: false });
+    expect(operatorFitGap(stored, { rows: [row("new", "native")], needsTrue: [] })).toMatchObject({
+      ok: false,
+    });
+  });
+
+  it("hold the fit-gap while a challenge waits on the Builder", () => {
+    expect(gateReasons({ ...base, phase: "fitgap", fitgap: stored })).toEqual([
+      "1 challenged verdict is waiting on the Builder.",
+    ]);
+  });
+
+  it("cut a wordy answer to size instead of refusing it", () => {
+    const long = `${"Read document takes a stored document id. ".repeat(20)}End`;
+    const answer = FitGapAnswer.parse({
+      rows: [{ id: "a", need: "x", verdict: "native", how: long }],
+    });
+    const how = clampFitGap(answer).rows[0]?.how ?? "";
+    expect(how.length).toBeLessThanOrEqual(500);
+    expect(how.endsWith(".")).toBe(true);
+    expect(clampText("short", 500)).toBe("short");
+    expect(clampText("a ".repeat(400), 100).endsWith("…")).toBe(true);
   });
 });
