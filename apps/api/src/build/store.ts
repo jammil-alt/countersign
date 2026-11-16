@@ -169,6 +169,7 @@ export function itemView(r: BuildItemRow): BuildItemView {
     state: r.state,
     stepId: r.stepId,
     ref: { ...str("testCaseId"), ...str("runId"), ...str("actionId"), ...str("buildId") },
+    key: r.key ?? null,
     createdAt: iso(r.createdAt) as string,
     resolvedAt: iso(r.resolvedAt),
   };

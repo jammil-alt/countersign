@@ -20,10 +20,13 @@ import {
   type BuildPhase,
   DATA_SOURCES,
   type Dataset,
+  FIT_REASON_MIN,
   FIT_VERDICTS,
   FIT_WORDS,
   type FitGap,
+  type FitRow,
   type FitVerdict,
+  fitChangeKind,
   ITEM_STATE_WORDS,
   itemOpen,
   OWNER_WORDS,
@@ -729,11 +732,15 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
   const id = detail.build.id;
   const [fitgap, setFitgap] = useState<FitGap>(detail.build.fitgap);
   useEffect(() => setFitgap(detail.build.fitgap), [detail.build.fitgap]);
+  const [only, setOnly] = useState<FitVerdict | null>(null);
+  const [changing, setChanging] = useState<string | null>(null);
   const dirty = JSON.stringify(fitgap) !== JSON.stringify(detail.build.fitgap);
   const inScope = fitgap.rows.filter((r) => !r.dropped);
   const counts = FIT_VERDICTS.map(
     (v) => [v, inScope.filter((r) => r.verdict === v).length] as const,
   ).filter(([, n]) => n > 0);
+  const shown = only ? inScope.filter((r) => r.verdict === only) : fitgap.rows;
+  const checking = busy === apiRoutes.opsBuildVerdict.path;
   return (
     <div className="flex flex-col gap-5">
       <Card
@@ -742,9 +749,21 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
         meta={
           <span className="flex flex-wrap gap-1.5">
             {counts.map(([v, n]) => (
-              <Badge key={v} tone={VERDICT_TONE[v]}>
-                {n} {FIT_WORDS[v].toLowerCase()}
-              </Badge>
+              <button
+                key={v}
+                type="button"
+                aria-pressed={only === v}
+                title={
+                  only === v ? "Show every row" : `Show only the ${FIT_WORDS[v].toLowerCase()} rows`
+                }
+                onClick={() => setOnly(only === v ? null : v)}
+                data-testid={`build-fit-count-${v}`}
+                className={cx("rounded-full", only === v && "ring-1 ring-slate ring-offset-1")}
+              >
+                <Badge tone={VERDICT_TONE[v]}>
+                  {n} {FIT_WORDS[v].toLowerCase()}
+                </Badge>
+              </button>
             ))}
           </span>
         }
@@ -755,6 +774,21 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
           </p>
         ) : (
           <div className="overflow-x-auto">
+            {only ? (
+              <p
+                className="border-b border-line px-4 py-2.5 text-sm text-ink-muted"
+                data-testid="build-fit-filter"
+              >
+                Showing the {plural(shown.length, `${FIT_WORDS[only].toLowerCase()} row`)}.{" "}
+                <button
+                  type="button"
+                  className="font-medium text-slate hover:underline"
+                  onClick={() => setOnly(null)}
+                >
+                  Show all
+                </button>
+              </p>
+            ) : null}
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-line bg-surface-subtle text-left text-xs text-ink-muted">
@@ -765,60 +799,32 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
                 </tr>
               </thead>
               <tbody>
-                {fitgap.rows.map((r, i) => (
-                  <tr
+                {shown.map((r) => (
+                  <FitRowView
                     key={r.id}
-                    className="border-b border-line align-top last:border-b-0"
-                    data-testid={`build-fit-${r.id}`}
-                  >
-                    <td className={cx("px-4 py-3", r.dropped && "text-ink-muted line-through")}>
-                      {r.need}
-                    </td>
-                    <td className="px-4 py-3">
-                      {current ? (
-                        <Select
-                          aria-label={`Verdict: ${r.need}`}
-                          className="w-36"
-                          value={r.verdict}
-                          onChange={(e) =>
-                            setFitgap((f) => ({
-                              ...f,
-                              rows: f.rows.map((x, j) =>
-                                j === i ? { ...x, verdict: e.target.value as FitVerdict } : x,
-                              ),
-                            }))
-                          }
-                        >
-                          {FIT_VERDICTS.map((v) => (
-                            <option key={v} value={v}>
-                              {FIT_WORDS[v]}
-                            </option>
-                          ))}
-                        </Select>
-                      ) : (
-                        <Badge tone={VERDICT_TONE[r.verdict]}>{FIT_WORDS[r.verdict]}</Badge>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-ink-muted">{r.how}</td>
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        className="size-4 accent-[var(--slate)]"
-                        aria-label={`In scope: ${r.need}`}
-                        checked={!r.dropped}
-                        disabled={!current}
-                        data-testid={`build-fit-${r.id}-scope`}
-                        onChange={(e) =>
-                          setFitgap((f) => ({
-                            ...f,
-                            rows: f.rows.map((x, j) =>
-                              j === i ? { ...x, dropped: !e.target.checked } : x,
-                            ),
-                          }))
-                        }
-                      />
-                    </td>
-                  </tr>
+                    row={r}
+                    item={detail.items.find((i) => i.key === `fit:${r.id}`) ?? null}
+                    current={current}
+                    changing={changing === r.id}
+                    checking={checking && changing === r.id}
+                    locked={dirty || isBusy(busy)}
+                    onScope={(inScope) =>
+                      setFitgap((f) => ({
+                        ...f,
+                        rows: f.rows.map((x) => (x.id === r.id ? { ...x, dropped: !inScope } : x)),
+                      }))
+                    }
+                    onChange={() => setChanging(changing === r.id ? null : r.id)}
+                    onSend={async (to, reason) => {
+                      if (
+                        await act(apiRoutes.opsBuildVerdict, {
+                          params: { id },
+                          body: { rowId: r.id, to, reason },
+                        })
+                      )
+                        setChanging(null);
+                    }}
+                  />
                 ))}
               </tbody>
             </table>
@@ -886,6 +892,193 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
           />
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** Who an agreed row's open item goes to. */
+const FIT_ITEM_OWNER: Partial<Record<FitVerdict, BuildItemOwner>> = {
+  build: "builder",
+  figure_out: "engineering",
+};
+
+function FitRowView({
+  row: r,
+  item,
+  current,
+  changing,
+  checking,
+  locked,
+  onScope,
+  onChange,
+  onSend,
+}: {
+  row: FitRow;
+  item: BuildDetail["items"][number] | null;
+  current: boolean;
+  changing: boolean;
+  checking: boolean;
+  locked: boolean;
+  onScope: (inScope: boolean) => void;
+  onChange: () => void;
+  onSend: (to: FitVerdict, reason: string) => Promise<void>;
+}) {
+  const owner = FIT_ITEM_OWNER[r.verdict];
+  return (
+    <>
+      <tr
+        className={cx("align-top", !changing && "border-b border-line last:border-b-0")}
+        data-testid={`build-fit-${r.id}`}
+      >
+        <td className={cx("px-4 py-3", r.dropped && "text-ink-muted line-through")}>{r.need}</td>
+        <td className="px-4 py-3">
+          <div className="flex flex-col items-start gap-1.5">
+            <Badge tone={VERDICT_TONE[r.verdict]} testId={`build-fit-${r.id}-verdict`}>
+              {FIT_WORDS[r.verdict]}
+            </Badge>
+            {r.override ? (
+              <span className="text-xs text-ink-muted" data-testid={`build-fit-${r.id}-override`}>
+                Changed from {FIT_WORDS[r.override.from]}
+                {r.override.by ? ` by ${r.override.by}` : ""}
+              </span>
+            ) : null}
+            {r.challenge ? (
+              <Badge tone="neutral" testId={`build-fit-${r.id}-challenge`}>
+                {checking ? "Builder checking" : "Asked the Builder"}
+              </Badge>
+            ) : null}
+            {current && !r.dropped && !r.challenge ? (
+              <button
+                type="button"
+                className="text-xs font-medium text-slate hover:underline disabled:opacity-60"
+                disabled={locked && !changing}
+                title={locked && !changing ? "Save or undo your changes first" : undefined}
+                onClick={onChange}
+                data-testid={`build-fit-${r.id}-change`}
+              >
+                {changing ? "Cancel" : "Challenge"}
+              </button>
+            ) : null}
+          </div>
+        </td>
+        <td className="px-4 py-3 text-ink-muted">
+          {r.how}
+          {r.override ? <p className="mt-1 text-xs">Why it changed: {r.override.reason}</p> : null}
+          {r.challenge ? (
+            <p className="mt-1 text-xs">
+              You asked for {FIT_WORDS[r.challenge.wanted]}: {r.challenge.reason}
+            </p>
+          ) : null}
+          {r.dropped ? null : item ? (
+            <button
+              type="button"
+              className="mt-1 block text-xs font-medium text-slate hover:underline"
+              onClick={() =>
+                document
+                  .getElementById(`build-item-${item.id}`)
+                  ?.scrollIntoView({ behavior: "smooth", block: "center" })
+              }
+              data-testid={`build-fit-${r.id}-item`}
+            >
+              Open item · {OWNER_WORDS[item.owner]} · {ITEM_STATE_WORDS[item.state]}
+            </button>
+          ) : owner ? (
+            <p className="mt-1 text-xs" data-testid={`build-fit-${r.id}-item`}>
+              Becomes an open item for {OWNER_WORDS[owner]} when you agree the direction.
+            </p>
+          ) : null}
+        </td>
+        <td className="px-4 py-3">
+          <input
+            type="checkbox"
+            className="size-4 accent-[var(--slate)]"
+            aria-label={`In scope: ${r.need}`}
+            checked={!r.dropped}
+            disabled={!current}
+            data-testid={`build-fit-${r.id}-scope`}
+            onChange={(e) => onScope(e.target.checked)}
+          />
+        </td>
+      </tr>
+      {changing ? (
+        <tr className="border-b border-line last:border-b-0">
+          <td colSpan={4} className="bg-surface-subtle px-4 py-3">
+            <VerdictChange row={r} busy={locked} onSend={onSend} />
+          </td>
+        </tr>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Challenging a verdict: why is it wrong. More work changes it at once; less work goes to the
+ * Builder, which checks the catalog and whether the step is captured right.
+ */
+function VerdictChange({
+  row,
+  busy,
+  onSend,
+}: {
+  row: FitRow;
+  busy: boolean;
+  onSend: (to: FitVerdict, reason: string) => Promise<void>;
+}) {
+  const options = FIT_VERDICTS.filter((v) => v !== row.verdict);
+  const [to, setTo] = useState<FitVerdict>(options[0] ?? "figure_out");
+  const [reason, setReason] = useState("");
+  const as = fitChangeKind(row.verdict, to);
+  const short = reason.trim().length < FIT_REASON_MIN;
+  return (
+    <div className="flex flex-col gap-2.5" data-testid={`build-fit-${row.id}-form`}>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-ink">It's {FIT_WORDS[row.verdict]} now. It should be</span>
+        <Select
+          aria-label={`New verdict: ${row.need}`}
+          className="w-40"
+          value={to}
+          onChange={(e) => setTo(e.target.value as FitVerdict)}
+          data-testid={`build-fit-${row.id}-to`}
+        >
+          {options.map((v) => (
+            <option key={v} value={v}>
+              {FIT_WORDS[v]}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <p className="text-xs text-ink-muted">
+        {as === "challenge"
+          ? "That's less work, so the Builder checks it against the catalog and answers in the conversation. Say why you think we have it: the part that does it, or what the client really does at this step. If the row doesn't describe the step right, say how it should read."
+          : "That's more work, so it changes now and stays when the Builder writes the fit-gap again. Say why the Builder's verdict is wrong: what's missing, or what makes this case harder."}
+      </p>
+      <TextArea
+        aria-label={`Why: ${row.need}`}
+        rows={3}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder={
+          as === "challenge"
+            ? "e.g. The client's invoices come in as PDFs attached to the email, so this is the same step as reading the PDF."
+            : "e.g. Their contracts are scanned images, and read document hasn't been checked on scans."
+        }
+        data-testid={`build-fit-${row.id}-reason`}
+      />
+      <div className="flex items-center gap-3">
+        <Button
+          size="sm"
+          disabled={busy || short}
+          onClick={() => void onSend(to, reason.trim())}
+          data-testid={`build-fit-${row.id}-send`}
+        >
+          {as === "challenge" ? "Ask the Builder" : "Change it"}
+        </Button>
+        {short ? (
+          <span className="text-xs text-ink-muted">
+            Say why in at least {FIT_REASON_MIN} characters.
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -1703,6 +1896,7 @@ function ItemsPanel({
               {[...open, ...detail.items.filter((i) => !itemOpen(i.state))].map((i) => (
                 <tr
                   key={i.id}
+                  id={`build-item-${i.id}`}
                   className="border-b border-line align-top last:border-b-0"
                   data-testid={`build-item-${i.id}`}
                 >
