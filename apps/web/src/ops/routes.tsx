@@ -104,6 +104,7 @@ import { EnhancementPage } from "./work/build/EnhancementPage";
 import { IssuePage } from "./work/build/IssuePage";
 import { NewIssue } from "./work/build/NewIssue";
 import { YourCallScreen } from "./work/call/YourCallScreen";
+import { ClientFileScreen } from "./work/onboarding/ClientFileTab";
 import { DealScreen } from "./work/sales/DealPage";
 import { SalesScreen } from "./work/sales/SalesSection";
 
@@ -159,6 +160,8 @@ export const opsRoutes = (
     <Route element={<ClientLayout />}>
       <Route path="clients/:clientId" element={<ClientOverviewScreen />} />
       <Route path="clients/:clientId/agents" element={<ClientAgentsScreen />} />
+      {/* §1.125: the client file. */}
+      <Route path="clients/:clientId/file" element={<ClientFileScreen />} />
       {/* Data: Documents and Records */}
       <Route path="clients/:clientId/documents" element={<OpsDocumentsScreen />} />
       <Route path="clients/:clientId/records" element={<OpsRecordsScreen />} />

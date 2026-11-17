@@ -206,8 +206,11 @@ export interface NewActivity {
 }
 
 /** One line on a deal's timeline (insert only). */
+// DECISION (§1.125): a line is stamped with the clock, not the transaction's start, so the lines one
+// transaction writes (a move and the stages it skipped) keep their order on the timeline.
 export async function addActivity(tx: Tx, dealId: string, a: NewActivity): Promise<void> {
   await tx.insert(dealActivity).values({
+    createdAt: sql`clock_timestamp()`,
     dealId,
     kind: a.kind,
     actor: a.actor,
@@ -284,6 +287,7 @@ export async function dealDetail(tx: Tx, row: DealRow, today: string): Promise<D
       evidence: row.evidence,
       agreedFrom: row.agreedFrom,
       signedCopy: row.signedCopyKey ? { name: row.signedCopyName ?? "Signed copy.pdf" } : null,
+      fileId: row.clientFileId,
       people: people.map((p) => ({
         id: p.id,
         name: p.name,

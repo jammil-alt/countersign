@@ -152,7 +152,8 @@ export type InvitePreview = z.infer<typeof InvitePreview>;
 export const InviteSent = z.object({
   clientId: z.string(),
   fileId: z.string(),
-  dealId: z.string(),
+  /** Null: only people invited to an existing client, no deal moved. */
+  dealId: z.string().nullable(),
   /** Null: "Just the account". */
   intakeId: z.string().nullable(),
   agentIds: z.array(z.string()),

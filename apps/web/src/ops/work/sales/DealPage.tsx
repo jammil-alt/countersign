@@ -2,6 +2,8 @@
 // deal's stage stepper, the composer and its timeline, and beside them its terms, people, Reggie's
 // read, the builds it opened and its details. "Set up the account" on a new deal at its proposal
 // or set-up creates the client and a build per agent; an agreed expansion opens its builds.
+// §1.125 (onboarding): Invite and, on a lead record, Sign up now open as side panels; the main
+// column has the timeline (with skipped stages and the intake's log) and the client file.
 import {
   type DealActivityView,
   type DealDetail,
@@ -23,6 +25,15 @@ import { Page } from "../../../ui/page";
 import { Button, Loading } from "../../../ui/primitives";
 import { OPS_PATHS } from "../../paths";
 import { TodosPanel } from "../call/TodosPanel";
+import { ClientFileView, StartFile } from "../onboarding/ClientFile";
+import { type InviteSetup, InviteSheet } from "../onboarding/InviteSheet";
+import { SignUpNowSheet } from "../onboarding/SignUpNow";
+import {
+  isSkippedLine,
+  type OnboardingLine,
+  skippedStages,
+  useOnboardingLines,
+} from "../onboarding/timeline";
 import { Due, monthValue, plural, Standing } from "./parts";
 import { TermsPanel } from "./TermsPanel";
 
@@ -49,6 +60,8 @@ function DealPage({ id }: { id: string }) {
   const api = useApiClient();
   const [error, setError] = useState<unknown>(null);
   const [closing, setClosing] = useState(false);
+  const [panel, setPanel] = useState<"invite" | "signup" | null>(null);
+  const [main, setMain] = useState<"timeline" | "file">("timeline");
   if (res.loading && !res.data) return <Loading />;
   if (!res.data) return res.error ? <ErrorNotice error={res.error} onRetry={res.reload} /> : null;
   const detail = res.data;
@@ -57,6 +70,7 @@ function DealPage({ id }: { id: string }) {
   const isLead = d.kind === "new" && !d.client;
   const idx = detail.stages.findIndex((s) => s.id === d.stage);
   const closed = d.outcome !== "open";
+  const skipped = skippedStages(detail);
 
   async function moveTo(stage: DealStage) {
     setError(null);
@@ -109,12 +123,48 @@ function DealPage({ id }: { id: string }) {
         <div className="flex flex-wrap items-center gap-2">
           <Standing standing={d.standing} text={d.statusText} testId="deal-standing" />
           {closed ? null : (
+            <>
+              {isLead ? (
+                <Button size="sm" onClick={() => setPanel("signup")} data-testid="deal-signup">
+                  Sign up now
+                </Button>
+              ) : null}
+              <Button
+                size="sm"
+                variant={isLead ? "primary" : "secondary"}
+                onClick={() => setPanel("invite")}
+                data-testid="deal-invite"
+              >
+                Invite
+              </Button>
+            </>
+          )}
+          {closed ? null : (
             <Button size="sm" onClick={() => setClosing((c) => !c)} data-testid="deal-close">
               {d.kind === "new" ? "Lost" : "Close"}
             </Button>
           )}
         </div>
       </header>
+      {panel === "invite" ? (
+        <InviteSheet
+          setup={inviteSetupOf(detail)}
+          onClose={() => setPanel(null)}
+          onSent={() => res.reload()}
+        />
+      ) : null}
+      {panel === "signup" ? (
+        <SignUpNowSheet
+          prefill={{
+            ...(d.fileId ? { fileId: d.fileId } : { company: d.company ?? d.title }),
+            dealId: d.id,
+            companyName: d.company ?? d.title,
+            person: primaryPerson(detail),
+          }}
+          onClose={() => setPanel(null)}
+          onSent={() => res.reload()}
+        />
+      ) : null}
       {closing ? (
         <OutcomeForm
           id={id}
@@ -142,13 +192,20 @@ function DealPage({ id }: { id: string }) {
               "min-w-0 flex-1 rounded-sm border px-3 py-2 text-left text-xs font-medium",
               n === idx
                 ? "border-slate bg-slate-tint text-slate"
-                : n < idx
-                  ? "border-line bg-surface-subtle text-ink"
-                  : "border-line bg-surface text-ink-muted hover:text-ink",
+                : n < idx && skipped.has(s.id)
+                  ? "border-dashed border-line bg-surface text-ink-muted"
+                  : n < idx
+                    ? "border-line bg-surface-subtle text-ink"
+                    : "border-line bg-surface text-ink-muted hover:text-ink",
             )}
             data-testid={`deal-stage-${s.id}`}
           >
             {s.name}
+            {n < idx && skipped.has(s.id) ? (
+              <span className="block font-normal" data-testid={`deal-stage-${s.id}-skipped`}>
+                Skipped
+              </span>
+            ) : null}
           </button>
         ))}
       </fieldset>
@@ -156,8 +213,40 @@ function DealPage({ id }: { id: string }) {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex min-w-0 flex-col gap-4">
           <SetUp detail={detail} onChanged={res.reload} />
-          <Composer id={id} isLead={isLead} onDone={res.reload} />
-          <Timeline items={detail.activity} />
+          <div className="ds-tabs" role="tablist" aria-label="Deal">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={main === "timeline"}
+              onClick={() => setMain("timeline")}
+              data-testid="deal-tab-timeline"
+            >
+              Timeline
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={main === "file"}
+              onClick={() => setMain("file")}
+              data-testid="deal-tab-file"
+            >
+              Client file
+            </button>
+          </div>
+          {main === "timeline" ? (
+            <>
+              <Composer id={id} isLead={isLead} onDone={res.reload} />
+              <DealTimeline detail={detail} />
+            </>
+          ) : d.fileId ? (
+            <ClientFileView fileId={d.fileId} />
+          ) : (
+            <StartFile
+              name={d.company ?? d.client?.name ?? d.title}
+              dealId={d.id}
+              onMade={() => res.reload()}
+            />
+          )}
         </div>
         <aside className="flex flex-col gap-4">
           <TermsPanel detail={detail} onChanged={res.reload} />
@@ -569,11 +658,59 @@ function when(at: string): string {
   return `${shortDay(at)} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-function Timeline({ items }: { items: DealActivityView[] }) {
+/** The people Invite offers first: the main contact, then the rest with an email. */
+function invitees(detail: DealDetail): { name: string; email: string }[] {
+  return [...detail.deal.people]
+    .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary))
+    .flatMap((p) => (p.email ? [{ name: p.name, email: p.email }] : []));
+}
+
+function primaryPerson(detail: DealDetail): { name: string; email: string } | null {
+  return invitees(detail)[0] ?? null;
+}
+
+/** Invite from a deal: its client (more people, a new area) or its company's file. */
+function inviteSetupOf(detail: DealDetail): InviteSetup {
+  const d = detail.deal;
+  const sold = [
+    ...new Set(d.agentsSold.flatMap((a) => (a.templateId ? [a.templateId] : []))),
+  ].slice(0, 10);
+  return {
+    target: d.client
+      ? { clientId: d.client.id, dealId: d.id }
+      : d.fileId
+        ? { fileId: d.fileId, dealId: d.id }
+        : { company: d.company ?? d.title, dealId: d.id },
+    name: d.client?.name ?? d.company ?? d.title,
+    people: invitees(detail),
+    existingClient: Boolean(d.client),
+    // DECISION (§1.125, stream screens): until Reggie suggests what to cover, a new account starts
+    // with the general questions and the agents sold on the deal; an existing client with its agents.
+    state: { covers: { general: !d.client, areas: [], templateIds: sold } },
+  };
+}
+
+type TimelineItem =
+  | { from: "deal"; at: string; a: DealActivityView }
+  | { from: "intake"; at: string; line: OnboardingLine };
+
+/** The deal's lines and its intakes' log, newest first. */
+function DealTimeline({ detail }: { detail: DealDetail }) {
+  const onboarding = useOnboardingLines(detail);
+  const items: TimelineItem[] = [
+    ...detail.activity.map((a) => ({ from: "deal" as const, at: a.createdAt, a })),
+    ...onboarding.map((line) => ({ from: "intake" as const, at: line.createdAt, line })),
+  ].sort((x, y) => y.at.localeCompare(x.at));
+  return <Timeline items={items} />;
+}
+
+function Timeline({ items }: { items: TimelineItem[] }) {
   if (items.length === 0) return null;
   return (
     <ol className="m-0 flex list-none flex-col gap-3 p-0" data-testid="deal-timeline">
-      {items.map((a) => {
+      {items.map((item) => {
+        if (item.from === "intake") return <IntakeLine key={item.line.id} line={item.line} />;
+        const a = item.a;
         const system = a.kind === "stage" || a.kind === "system";
         const note = a.kind === "note";
         return (
@@ -593,6 +730,7 @@ function Timeline({ items }: { items: DealActivityView[] }) {
                   {KIND_WORDS[a.kind]}
                 </span>
               ) : null}
+              {isSkippedLine(a) ? <span className="ds-tag">Skipped</span> : null}
               <span>{when(a.createdAt)}</span>
             </div>
             {a.subject ? <p className="m-0 font-medium text-ink">{a.subject}</p> : null}
@@ -603,6 +741,26 @@ function Timeline({ items }: { items: DealActivityView[] }) {
         );
       })}
     </ol>
+  );
+}
+
+function IntakeLine({ line }: { line: OnboardingLine }) {
+  return (
+    <li
+      data-testid={`deal-activity-${line.id}`}
+      className="rounded-sm border border-transparent bg-transparent px-4 py-1 text-sm text-ink-muted"
+    >
+      <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+        <span className="ds-tag">Onboarding</span>
+        {line.failed ? (
+          <span className="ds-pill ds-pill--sm border-risk-line bg-risk-tint text-risk-ink">
+            Needs a look
+          </span>
+        ) : null}
+        <span>{when(line.createdAt)}</span>
+      </div>
+      <p className="m-0 whitespace-pre-wrap text-ink-muted">{line.body}</p>
+    </li>
   );
 }
 
