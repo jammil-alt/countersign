@@ -1,4 +1,4 @@
-// Forms (docs/plan.md §1.115): the built-in skills `forms.request` ("Request info": send a contact
+// Forms (docs/plan.md §1.121): the built-in skills `forms.request` ("Request info": send a contact
 // a form and wait for the answers) and `forms.draft` ("Draft a form": write the form for what is
 // missing). `forms.request` runs only as a workflow step: apps/api carries it out (it needs the
 // contacts, reach out, the link, the waits and the cron); its handler here only refuses to run

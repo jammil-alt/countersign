@@ -85,7 +85,7 @@ export * from "./tools/converse";
 export * from "./tools/directory";
 export * from "./tools/docs";
 export * from "./tools/docs-split";
-// §1.115: forms, "Request info"
+// §1.121: forms, "Request info"
 export * from "./tools/forms";
 export * from "./tools/health";
 // v0.12 W2-E

@@ -24,7 +24,6 @@ import { Select } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
 import { Page, PageGrid, Section } from "../../ui/page";
 import { Button, Card, cx, ErrorNotice, Loading, PageHeader, Tabs } from "../../ui/primitives";
-import { SideSheet } from "../../ui/sheet";
 import { Skeleton, SkeletonCard } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { useRefreshInboxCount } from "../inboxCount";
@@ -172,22 +171,25 @@ export function PortalSloanScreen() {
   );
 }
 
-function Conversation({
+export function Conversation({
   threadId,
   start,
   onStarted,
   bare,
+  prefill,
 }: {
   threadId: string | null;
   start: () => Promise<string | null>;
   onStarted: (id: string) => void;
   /** In the side panel: no card around it, the box pinned to the panel's foot. */
   bare?: boolean;
+  /** Text put in the box when the chat panel opens ("@Pia "; ARCHITECTURE v0.19 §10.15). */
+  prefill?: string | undefined;
 }) {
   const { t } = useI18n();
   const api = useApiClient();
   const [params] = useSearchParams();
-  const [text, setText] = useState(() => params.get("ask") ?? "");
+  const [text, setText] = useState(() => prefill || (params.get("ask") ?? ""));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const messages = useApi(
@@ -314,74 +316,14 @@ function BareFrame({ children, testId }: { children: ReactNode; testId?: string 
   );
 }
 
-/**
- * Feedback (2026-11-11): Sloan beside the page, in a side panel, from Ask Sloan in the top bar:
- * the newest conversation (or a new one), and the full page one link away for past conversations
- * and asking us for a change.
- */
-export function SloanPanel({ onClose }: { onClose: () => void }) {
-  const { t } = useI18n();
-  const api = useApiClient();
-  const threads = useApi(apiRoutes.portalThreads, { query: { subject: "account" } });
-  const [started, setStarted] = useState<string | null>(null);
-  const current = started ?? newest(threads.data?.threads ?? [])?.id ?? null;
-  const [error, setError] = useState<unknown>(null);
-
-  async function start(): Promise<string | null> {
-    setError(null);
-    try {
-      const { thread } = await api.call(apiRoutes.portalStartThread, {
-        body: { subject: "account" },
-      });
-      threads.reload();
-      return thread.id;
-    } catch (e) {
-      setError(e);
-      return null;
-    }
-  }
-
-  return (
-    <SideSheet
-      wide
-      testId="portal-sloan-panel"
-      eyebrow={<AgentBadge name="Sloan" size="sm" />}
-      title={t("sloan.title")}
-      onClose={onClose}
-      footer={
-        <Link
-          to={current ? `${PORTAL_PATHS.sloan}/${current}` : PORTAL_PATHS.sloan}
-          onClick={onClose}
-          className="text-sm font-medium text-slate hover:underline"
-          data-testid="portal-sloan-panel-page"
-        >
-          {t("sloan.openPage")}
-        </Link>
-      }
-    >
-      <p className="text-sm text-ink-muted">{t("sloan.subtitle")}</p>
-      {error ? <ErrorNotice error={error} /> : null}
-      {threads.error ? <ErrorNotice error={threads.error} onRetry={threads.reload} /> : null}
-      {threads.loading && !threads.data ? (
-        <Loading />
-      ) : (
-        <Conversation
-          bare
-          key={current ?? "new"}
-          threadId={current}
-          start={start}
-          onStarted={setStarted}
-        />
-      )}
-    </SideSheet>
-  );
-}
-
 function Message({ message: m }: { message: PortalMessage }) {
   const { t, fmt } = useI18n();
   const you = m.sender.you;
   const name = m.sender.name ?? (m.sender.type === "agent" ? t("sloan.title") : t("sloan.mezonas"));
-  const above = [you ? t("sloan.you") : name, fmt.time(m.createdAt)].join(" · ");
+  // An agent's answer says who it is ("Pia · purchasing agent", ARCHITECTURE v0.19 §10.15).
+  const above = [you ? t("sloan.you") : name, you ? null : m.sender.role, fmt.time(m.createdAt)]
+    .filter((v): v is string => !!v)
+    .join(" · ");
   const sources = <SourceLinks ids={m.sources} href={(id) => `/records/${id}`} />;
   if (you) {
     return (

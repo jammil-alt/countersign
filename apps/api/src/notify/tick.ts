@@ -4,7 +4,7 @@
 // One withTenant per client (invariant 1); one client's failure never holds up the next.
 
 import { type FetchLike, globalFetch } from "@countersign/connectors";
-import { NOTIFY_PASS_MINUTES } from "@countersign/core";
+import { NOTIFY_PASS_MINUTES, parseCoveredProcessors } from "@countersign/core";
 import { type Db, tenant, withTenant } from "@countersign/db";
 import { isNull } from "drizzle-orm";
 import type { Bindings } from "../env";
@@ -14,11 +14,18 @@ import { weeklyTick } from "../weekly/tables";
 import { mailerFromEnv, texterFromEnv } from "./mailer";
 import { enqueue, type NotifyDeps, originOf, type SendSummary, sendQueued } from "./outbox";
 import { clientPeople, tenantRow } from "./people";
+import { pusherFromEnv } from "./push";
 import { scanCandidates } from "./scan";
 
 export function notifyDepsFromEnv(env: Bindings, fetch?: FetchLike): NotifyDeps {
   const f = fetch ?? globalFetch();
-  return { mailer: mailerFromEnv(env, f), texter: texterFromEnv(env, f), origin: originOf(env) };
+  return {
+    mailer: mailerFromEnv(env, f),
+    texter: texterFromEnv(env, f),
+    pusher: pusherFromEnv(env, f),
+    covered: parseCoveredProcessors(env.BAA_PROCESSORS),
+    origin: originOf(env),
+  };
 }
 
 /** One client's pass: candidates found by scanning, inserted, then the queue sent. */

@@ -1,4 +1,4 @@
-// Forms, "Request info" (docs/plan.md §1.115), through the API against a fake Gmail (nothing live):
+// Forms, "Request info" (docs/plan.md §1.121), through the API against a fake Gmail (nothing live):
 // the agent drafts a form, the request step checks it against the operator's ask, the link goes out
 // as a reach-out whose approval card shows the form, the contact opens the page with no sign-in,
 // adds a file, saves, is told what is missing, sends the answers, and the run goes on with them,

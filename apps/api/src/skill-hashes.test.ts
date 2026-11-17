@@ -31,7 +31,7 @@ const builtins = platform.catalog.list();
 // §1.114: three connector reads, each a wrapper: excel.range.read, and the calendars' shared
 // calendar.events.list and calendar.freebusy (registered once for both; OneDrive's
 // drive.file.list is Google Drive's, already counted).
-// §1.115: forms.request (a step-only skill on its handler, counted as a wrapper like
+// §1.121: forms.request (a step-only skill on its handler, counted as a wrapper like
 // comms.reach-out) and forms.draft (an AI task skill).
 const BUILTINS = 141;
 const WRAPPERS = 98;

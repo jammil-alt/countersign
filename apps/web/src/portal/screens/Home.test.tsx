@@ -636,4 +636,101 @@ describe("Home's account check", () => {
     await userEvent.click(screen.getByTestId("desk-done"));
     expect(sent).toEqual([{ decision: "approve" }]);
   });
+
+  // v0.19 (ARCHITECTURE §10.15 "Home"): who looks after what, ideas, and Ask opening the chat.
+  it("shows each area owner with its week, the ideas, and opens Sloan's chat at Ask", async () => {
+    const threads: unknown[] = [];
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(),
+      "GET /api/table": () =>
+        tableView({
+          ...TABLE,
+          owners: [
+            {
+              id: "00000000-0000-4000-8000-0000000a0a01",
+              name: "Pia",
+              area: "purchasing",
+              processes: 3,
+              health: "needs_you",
+              runs: 21,
+              corrected: 3,
+              last: "Pia corrected the vendor name and tried again",
+            },
+          ],
+          ideas: [{ area: "sales", title: "Sales", line: "Follow up quotes that went quiet." }],
+        }),
+      "GET /api/access": () => ACCESS,
+      "GET /api/weekly": () => ({ table: null, weeks: [] }),
+      "GET /api/threads": () => {
+        threads.push(1);
+        return { threads: [] };
+      },
+      "GET /api/owners": () => ({
+        owners: [
+          {
+            id: "00000000-0000-4000-8000-0000000a0a01",
+            name: "Pia",
+            area: "purchasing",
+            avatar: null,
+          },
+        ],
+      }),
+    });
+    renderAt("/", api);
+    const card = await screen.findByTestId("home-owner-purchasing");
+    expect(card).toHaveTextContent("Pia");
+    expect(card).toHaveTextContent("Needs you");
+    expect(card).toHaveTextContent("Runs this week: 21. Corrected and tried again: 3.");
+    expect(card).toHaveTextContent("Pia corrected the vendor name and tried again");
+    expect(screen.getByTestId("home-ideas")).toHaveTextContent("Follow up quotes that went quiet.");
+    await userEvent.click(within(card).getByRole("button", { name: "Ask Pia" }));
+    // The chat opens on Pia, and says plainly who she is.
+    const panel = await screen.findByTestId("portal-sloan-panel");
+    await waitFor(() =>
+      expect(within(panel).getByTestId("portal-sloan-panel-who")).toHaveTextContent(
+        "purchasing agent · A Mezonas agent",
+      ),
+    );
+    expect(within(panel).getByRole("heading", { name: "Pia" })).toBeInTheDocument();
+    expect(threads.length).toBeGreaterThan(0);
+  });
+
+  it("lets the client admin rename an owner", async () => {
+    const renamed: unknown[] = [];
+    const OWNER = "00000000-0000-4000-8000-0000000a0a01";
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(),
+      "GET /api/table": () =>
+        tableView({
+          ...TABLE,
+          owners: [
+            {
+              id: OWNER,
+              name: "Pia",
+              area: "purchasing",
+              processes: 1,
+              health: "working",
+              runs: 0,
+              corrected: 0,
+              last: null,
+            },
+          ],
+        }),
+      "GET /api/access": () => ACCESS,
+      "GET /api/weekly": () => ({ table: null, weeks: [] }),
+      [`PATCH /api/owners/${OWNER}`]: ({ init }) => {
+        renamed.push(JSON.parse(String(init.body)));
+        return { owner: { id: OWNER, name: "Wren", area: "purchasing", avatar: null } };
+      },
+    });
+    renderAt("/", api);
+    await userEvent.click(await screen.findByTestId("home-owner-rename-purchasing"));
+    const input = screen.getByTestId("home-owner-rename-input-purchasing");
+    await userEvent.clear(input);
+    await userEvent.type(input, "Wren");
+    await userEvent.click(screen.getByTestId("home-owner-rename-save-purchasing"));
+    await waitFor(() => expect(renamed).toEqual([{ name: "Wren" }]));
+  });
 });

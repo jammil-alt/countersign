@@ -197,7 +197,12 @@ export async function converseTurn(
     await recordModelCall(
       deps.ports.modelCalls,
       req.tenantId,
-      { runId: req.runId, stepRunId: req.stepRunId, agentVersionId: req.agentVersionId },
+      {
+        runId: req.runId,
+        stepRunId: req.stepRunId,
+        agentVersionId: req.agentVersionId,
+        action: "conversation",
+      },
       record,
       exchange,
     );

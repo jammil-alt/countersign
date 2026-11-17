@@ -1,4 +1,4 @@
-// Forms (docs/plan.md §1.115): the words of the message that carries a form's link, and of the page
+// Forms (docs/plan.md §1.121): the words of the message that carries a form's link, and of the page
 // a person fills it in on, in each language. The platform writes them, never a model; the form's
 // own questions are the agent's or the operator's, in the words they wrote. Marked for a fluent
 // speaker's review, as every client-facing word file is (plan §1.18).

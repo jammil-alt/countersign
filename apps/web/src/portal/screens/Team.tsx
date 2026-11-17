@@ -7,6 +7,10 @@
 // week, or the business's) and away dates. The client admin sees and changes everyone's
 // (`/api/settings/people-hours`); a client user sees and changes their own (`/api/settings/my-
 // hours`), as the routes allow.
+//
+// The client admin removes someone from the list (never themselves or Mezonas), after a
+// confirmation: their access ends within 5 minutes, and what waited on them comes to the admins
+// (docs/security.md §2).
 import type { Member, processes, TeamMember } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -14,7 +18,7 @@ import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { PersonHoursEditor, PersonHoursLine } from "../../hours/HoursParts";
 import { useI18n } from "../../i18n/i18n";
-import { InviteForm, ROLE_LABEL } from "../../people/People";
+import { InviteForm, RemoveButton, RemoveConfirm, ROLE_LABEL } from "../../people/People";
 import { useSession } from "../../session/session";
 import { PersonBadge } from "../../ui/badges";
 import { Icon } from "../../ui/icons";
@@ -137,6 +141,7 @@ function MyHours() {
 function AdminTeam({ team }: { team: ReturnType<typeof useApi<typeof apiRoutes.portalTeam>> }) {
   const { t } = useI18n();
   const api = useApiClient();
+  const session = useSession();
   const users = useApi(apiRoutes.portalUsers);
   const people = useApi(apiRoutes.portalPeopleHours);
   const hours = people.data;
@@ -165,6 +170,13 @@ function AdminTeam({ team }: { team: ReturnType<typeof useApi<typeof apiRoutes.p
           <TeamList
             rows={teamRows(data.users, team.data?.members ?? [])}
             {...(hoursOf ? { hoursOf } : {})}
+            removable={(r) => r.role !== "operator" && r.userId !== session.user.id}
+            onRemove={async (r) => {
+              await api.call(apiRoutes.portalRemoveUser, { params: { id: r.userId } });
+              users.reload();
+              team.reload();
+              people.reload();
+            }}
           />
         )}
       </Loaded>
@@ -197,10 +209,15 @@ function AdminTeam({ team }: { team: ReturnType<typeof useApi<typeof apiRoutes.p
 function TeamList({
   rows,
   hoursOf,
+  removable,
+  onRemove,
 }: {
   rows: Row[];
   /** Each person's hours, where this reader may see them. */
   hoursOf?: (userId: string) => RowHours | null;
+  /** The client admin's: whom they may remove (never themselves or Mezonas). */
+  removable?: (row: Row) => boolean;
+  onRemove?: (row: Row) => Promise<void>;
 }) {
   const { t } = useI18n();
   if (rows.length === 0) return <EmptyState>{t("people.none")}</EmptyState>;
@@ -213,16 +230,30 @@ function TeamList({
     >
       <ul>
         {rows.map((r) => (
-          <TeamRow key={r.userId} row={r} hours={hoursOf?.(r.userId) ?? null} />
+          <TeamRow
+            key={r.userId}
+            row={r}
+            hours={hoursOf?.(r.userId) ?? null}
+            remove={onRemove && removable?.(r) ? () => onRemove(r) : null}
+          />
         ))}
       </ul>
     </Card>
   );
 }
 
-function TeamRow({ row: r, hours }: { row: Row; hours: RowHours | null }) {
+function TeamRow({
+  row: r,
+  hours,
+  remove,
+}: {
+  row: Row;
+  hours: RowHours | null;
+  remove: (() => Promise<void>) | null;
+}) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const [removing, setRemoving] = useState(false);
   return (
     <li
       data-testid={`portal-team-${r.email}`}
@@ -263,8 +294,21 @@ function TeamRow({ row: r, hours }: { row: Row; hours: RowHours | null }) {
               <Icon name={open ? "chevron-down" : "chevron-right"} size={16} />
             </Button>
           ) : null}
+          {remove && !removing ? (
+            <RemoveButton testId={`portal-team-${r.email}`} onClick={() => setRemoving(true)} />
+          ) : null}
         </span>
       </div>
+      {remove && removing ? (
+        <div className="mt-4">
+          <RemoveConfirm
+            name={r.name ?? r.email}
+            testId={`portal-team-${r.email}`}
+            onRemove={remove}
+            onCancel={() => setRemoving(false)}
+          />
+        </div>
+      ) : null}
       {hours && open ? (
         <div className="mt-4 border-t border-line pt-4">
           <PersonHoursEditor

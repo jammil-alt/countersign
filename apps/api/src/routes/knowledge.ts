@@ -29,7 +29,7 @@ import {
   listKnowledgeEntries,
   searchKnowledge,
 } from "@countersign/documents";
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, HttpError, iso, mount, notFound } from "../http";
 
@@ -123,7 +123,12 @@ async function faqOrPolicy(tx: Tx, tenantId: string, entryId: string): Promise<v
 
 async function memoryNotes(tx: Tx, tenantId: string) {
   // Live notes only: a test run's notes are tagged with the run and stay out (ARCHITECTURE §10.4).
-  const where = and(eq(memoryNote.tenantId, tenantId), eq(memoryNote.scope, "agent"));
+  // An agent's own notes: an area owner's (ARCHITECTURE v0.19 §10.15) are on the owner's page.
+  const where = and(
+    eq(memoryNote.tenantId, tenantId),
+    eq(memoryNote.scope, "agent"),
+    isNotNull(memoryNote.agentId),
+  );
   const [total] = await tx.select({ n: count() }).from(memoryNote).where(where);
   const rows = await tx
     .select({

@@ -2452,7 +2452,7 @@ is asked twice. Two PRs: migration 0042, then sign-in.
 | Limits | At most 5 wrong codes and 5 sends per person in 15 minutes, counted from the audit log's `session.second_factor*` rows. Past that, the step refuses for 15 minutes. Twilio has its own limits on top. |
 | Losing the phone | Recovery codes first. Otherwise an operator resets the person's methods from the back office (a client's People list), with a reason. The person then sets up again at their next sign-in. A reset is an audit row, and it deletes the Twilio factor too. |
 | The audit log | `session.second_factor_setup`, `session.second_factor` (ok or refused, with the method), `session.second_factor_send`, `session.recovery_codes`, `session.second_factor_reset` and `mcp.approve`. The rows have no client, so only operators read them. |
-| The Ops MCP connector (§1.34) | It signs in through AuthKit directly, not through our cookie. With WorkOS MFA off it would have no second factor. So when the step is on, a Claude connection is tied to its AuthKit session (`sid`). The first call of a new session is refused with a link to `/ops/connect-claude/<code>`. An operator who has passed the step in the browser opens the link and approves the connection. The approval lasts until the AuthKit session ends, 12 hours at most (`mcp_session_approval`). |
+| The Ops MCP connector (§1.34) | It signs in through AuthKit directly, not through our cookie. With WorkOS MFA off it would have no second factor. So when the step is on, a Claude connection is tied to its AuthKit session (`sid`). The first call of a new session is refused with a link to `/ops/connect-claude/<code>`. An operator who has passed the step in the browser opens the link and approves the connection. The approval lasts until the AuthKit session ends, 12 hours at most (`mcp_session_approval`). As built (§1.120): tool calls are what is refused, for client users too. |
 | Not in this pass | Changing your own method or recovery codes without an operator reset; email codes (Magic Auth is a sign-in method, not a second factor); passkeys. |
 | Remember this browser (owner, 2026-11-10) | "Can it not remember the browser for some time?" A browser that passed the step can be remembered for **30 days** (a box on the step's page, off by default). A cookie of its own, `__Host-cs_device`, sealed under its own purpose (`device`) with the WorkOS cookie password, holds the person and the method it passed with. At sign-in the WorkOS adapter asks the API (`SecondFactorPolicy.remembered`): the cookie opens, unexpired, for this person, and that method is still theirs, verified and allowed for their role. Then the session starts `done`. A reset removes the methods, so it forgets every browser; a check that fails is not remembered. It skips only the code: the 30-minute idle and 12-hour limits still apply. No table. // DECISION |
 | Who is exempt | SSO only (WorkOS's `authentication_method` `SSO`). Google and Microsoft sign-ins are asked: we can't see whether that account has a second factor of its own. // DECISION |
@@ -2460,7 +2460,7 @@ is asked twice. Two PRs: migration 0042, then sign-in.
 | Routes | `GET /api/auth/second-factor` (state, allowed methods, the person's methods with a number's last four digits, recovery codes left), `POST …/setup` (only while the person has no usable method; changing one is an operator's reset, so a stolen password can't swap in the thief's phone), `…/send`, `…/verify` (`remember`), `…/recovery`, and the operator's `POST /api/ops/users/:id/second-factor/reset` (`reason`; only people in clients the operator serves). In the contract as `public`: the API answers them outside `mount()`. // DECISION |
 | The authenticator link | `otpauthUri` is a secret-named field the contract refuses in responses (agents' logins are write-only). The setup route may carry it, shown once to the person it belongs to: `RouteSpec.secretShownOnce`, and apps/api's contract test lists the only route allowed to use it. // DECISION |
 | Limits, as built | The counts read the person's own client-less audit rows in an operator scope over no clients (the only scope that reads rows without a client), filtered to their user id. Wrong recovery codes count as wrong codes. // DECISION |
-| Built, 2026-11-10 (server) | packages/auth (session `mf`/`mfx`, the gate, `passSecondFactor`, the device cookie), packages/connectors `twilio/verify.ts` (Twilio Verify, and one in memory for tests; `VERIFY_NOTES.md` lists what isn't checked), apps/api `second-factor/` and `routes/second-factor.ts`, `TWILIO_VERIFY_SERVICE_SID` (off when empty). **Built, 2026-11-14 (web):** the step page (`/sign-in/second-step`, `apps/web/src/session/SecondStep.tsx`: choose a method, the authenticator key to type with a link that opens the app on a phone, a number with its country, the code, "remember this browser", the 10 recovery codes shown once with a download, a recovery code instead, sign out); a session answering `second_factor_required` goes there with `return_to`, which is checked to be one of our own pages (`safeReturnTo`); the step's error codes in the six languages; "Reset sign-in codes" with a reason on a client's People (`ResetSecondFactor`). // DECISION: no QR image yet (the key and the `otpauth:` link instead), until a QR library is added to the web app. **Still to build:** the MCP connector's approval link, server and page. Until it exists, WorkOS's own multi-factor stays on (operators reach every client through the connector), so a browser sign-in is asked twice: WorkOS's code, then ours. |
+| Built, 2026-11-10 (server) | packages/auth (session `mf`/`mfx`, the gate, `passSecondFactor`, the device cookie), packages/connectors `twilio/verify.ts` (Twilio Verify, and one in memory for tests; `VERIFY_NOTES.md` lists what isn't checked), apps/api `second-factor/` and `routes/second-factor.ts`, `TWILIO_VERIFY_SERVICE_SID` (off when empty). **Built, 2026-11-14 (web):** the step page (`/sign-in/second-step`, `apps/web/src/session/SecondStep.tsx`: choose a method, the authenticator key to type with a link that opens the app on a phone, a number with its country, the code, "remember this browser", the 10 recovery codes shown once with a download, a recovery code instead, sign out); a session answering `second_factor_required` goes there with `return_to`, which is checked to be one of our own pages (`safeReturnTo`); the step's error codes in the six languages; "Reset sign-in codes" with a reason on a client's People (`ResetSecondFactor`). // DECISION: no QR image yet (the key and the `otpauth:` link instead), until a QR library is added to the web app. **Built, 2026-11-16:** the MCP connector's approval link, server and page (§1.120). WorkOS's own multi-factor can be switched off once ours is on and checked (`docs/operations.md`). |
 
 ### 1.85 Connector marks: logos, a brand's colour, or our icon (2026-11-09)
 
@@ -4437,10 +4437,10 @@ session requests skip reading them. It delays a removed member's loss of access 
 | The refresh race | The account is sealed into the WorkOS cookie only when its refresh token is safe to write back: the request refreshed it, or it is not due within `RACE_GRACE_SEC`. A request admitted on the race or outage grace (`resolveSession` says `grace`), or one just before a refresh another tab may be making, holds a token that may be spent; a cookie it wrote could land last and sign the person out at the next refresh. Such a request sends only what `identify` decided, and the account is read again next time. Admitted on a grace, `identify` itself writes nothing either, not even a moved `lat` (before 5.2 it did, with the old token); the next request that refreshes moves it. A slow request is judged when it answers (`carry` takes the time), not when it was identified. // DECISION |
 | Where | WorkOS: in the session cookie (`acct`), so it rotates with it and goes with it on sign-out, the idle lock and expiry; a new sign-in starts without one. Dev sign-in: its own sealed cookie (`cs_dev_account`) under a key made at random per isolate, cleared on sign-in and sign-out. Either way it is bound to the user the identity names: another user's account is never used. A cookie that does not open is refused (WorkOS) or ignored and replaced (dev). `acct` is parsed apart from the session, so a shape we stop reading costs a read, not a sign-out. // DECISION |
 | Size | A `Set-Cookie` over 4096 bytes is not sent with an account: an operator with very many clients (about 30 with long names) reads it on each request, as before 5.2. // DECISION |
-| Own changes | A handler that changes the signed-in person's own memberships calls `accountChanged()`; the response drops the carried account. The only such route is creating a client (the creating operator serves it). Invites add other people; no route removes members or changes a role. |
+| Own changes | A handler that changes the signed-in person's own memberships calls `accountChanged()`; the response drops the carried account. The only such route is creating a client (the creating operator serves it). Invites add other people, and removing someone (§1.119) changes someone else's membership; no route changes a role. |
 | Not carried | `GET /api/session` still reads the account each time (the app's first call, and the only place client names are shown from it). The MCP server reads it per call (bearer tokens, no cookie). |
 | What RLS relies on | No policy reads `membership` except `own_memberships`, which only the sign-in half uses. Every client table checks `app.tenant_ids`, which is set from the scope. So for up to the window, a removed or demoted member's open session does what the carried membership allowed: that client's rows, through every route their old role reaches. |
-| For the owner: what the window lets a removed person do | A removed operator can still act in that client as an operator for up to 5 minutes: approve and sign (`withCanSign` takes an operator's word without reading `membership`), change and publish its agents, change its settings. A removed or demoted client admin can still invite people to that client, and an invitation made in the window stays after it. Code that reads `membership` itself sees the change at once: a removed client user's approvals are refused (`withCanSign` reads their `can_sign`), as are approver rules and who is notified. No route removes a member today; when one is built, it changes someone else's membership, so it cannot drop that person's cookie: their window still runs. Ending their WorkOS session ends it at the next refresh, within the same 5 minutes (and the 60 s race grace). |
+| For the owner: what the window lets a removed person do | A removed operator can still act in that client as an operator for up to 5 minutes: approve and sign (`withCanSign` takes an operator's word without reading `membership`), change and publish its agents, change its settings. A removed or demoted client admin can still invite people to that client, and an invitation made in the window stays after it. Code that reads `membership` itself sees the change at once: a removed client user's approvals are refused (`withCanSign` reads their `can_sign`), as are approver rules and who is notified. Removing a member (§1.119) changes someone else's membership, so it cannot drop that person's cookie: their window still runs. Ending their WorkOS session ends it at the next refresh, within the same 5 minutes (and the 60 s race grace). |
 | Audit rows in the window | Rows written from a carried account name the user and role as carried: a role someone else changed shows the old one for up to 5 minutes. A refusal is written after a fresh read, and each decision starts from an anonymous actor, so a refusal never names what the cookie carried. |
 | Sign-out with a request in flight | A request that started before sign-out and answers after it can set the session cookie again (with an account, or with a refreshed token, as it could before 5.2). Sign-out ends the WorkOS session, so that cookie stops at its next refresh: within 5 minutes and the 60 s race grace. With the dev sign-in the user cookie is gone, so a stray account cookie names no one. |
 | A race with an own change | A request that read a stale account just before `accountChanged()` committed, and whose response lands after it, seals the old memberships back in. The new client then misses from lists across clients for up to the window; opening it (it is named) reads the account again. |
@@ -4838,7 +4838,175 @@ built: it waits for `Sites.Selected`, which the client's admin grants per site.
 | Checked | Each connector against its fake in `packages/connectors` (`onedrive`, `excel`, `teams`, `calendar`, `outlook_calendar`, `gcal`), and through the API: `apps/api/src/onedrive.test.ts` (Drive's workflow filed in OneDrive by the binding), `excel.test.ts`, `teams.test.ts` (the endpoint's token check, binding by code, two clients, removal, an approved post once), `calendars.test.ts` (one workflow books in either calendar). Portal: `TeamsSetup.test.tsx`, `ExcelSetup.test.tsx`. |
 | Not wired | `deploy.yml` doesn't copy the new secrets yet: a CI/deploy change gets its own PR (CLAUDE.md). Until it does, each new connector shows "Not available yet" on staging. |
 
-### 1.115 Forms: "Request info", a form an agent sends a contact (owner, 2026-11-16; migration 0055)
+### 1.115 Tokens by client, agent, model and action (owner, 2026-11-06, kept 2026-11-16; migration 0055)
+
+Owner, 2026-11-06: "a count for every token used in an agent, and for Sloan, tallied at an account
+level, by model, by agent and by action, so we can look at it in the back end". Built then on
+`claude/vibrant-darwin-9r6iln` (as §1.62 there, migration 0032), never merged; the owner kept it on
+2026-11-16 ("the token counts are really important", `docs/merge-backlog.md` D3) and it was rebuilt
+on that day's main. Its other half, Grok and Gemini, was already on main.
+
+| Topic | Decision |
+|---|---|
+| What a call was for | `model_call.action` (migration 0055, default `agent_turn`, so the previous Worker's inserts and the rows already there still read): `agent_turn` (an agent's or task skill's loop, Sloan's conversation and `agents.ask` included), `oversight` (the run's review, §1.54), `reach_out` (a reach-out's message), `tool_call` (a tool's own call: a document read, a web search or fetch, `comms.translate`, a pack tool's model call), `question` (a portal question answered for Sloan), `conversation` (a conversation step's turn, §1.66), `check` (the AI's second check of a step, §1.86) and `choice` (the agent choosing a path or ending a repeat, §1.99). Core's `MODEL_CALL_ACTIONS`, mirrored by the schema's check; each place that records a call names its action (`ModelCallPlace.action`). Rows from before 0055 all read `agent_turn`, the oversight and reach-out calls among them. // DECISION: the three kinds of call main gained after 2026-11-06 get their own action, not `agent_turn`, so the tally shows what each costs. |
+| Pack tools | A pack tool's model call (the Materials pack's name reading) was step usage only; it is now its step's `model_call` row too (`tool_call`), through the tool invocation's `recordModelCall`, which `apps/api/src/packs.ts` hands the pack's context. An embedding call keeps no row (no message request and answer to store): its tokens and cost stay on the step and out of the tally. // DECISION |
+| Sloan's questions | A portal question's model call becomes a `model_call` row on its question run (action `question`, Sloan's version) without a body: the step keeps the question and the filter. Back-office questions stay the operator's own cost, logged only (§1.49). // DECISION |
+| The tally | `GET /api/ops/usage/tokens?from=&to=&client=&agent=&template=&model=&action=` (operator only; default this month in UTC): calls, tokens in (cache reads and writes included) and out, and cost, per client (the account-level tally), per agent (Sloan flagged `account`), per model (with its provider), per action, and per client, agent, model and action. Counted on read from `model_call` (each with its run's agent), plus the client's own use no agent asked for: background reading (`doc_extraction` with no agent version, action `background_read`) and background translation (`message_translation` with a model and no agent version, `background_translation`), as `usage_platform_daily` counts them. Not rolled up into a table: the rows are the ledger. Narrowed to an agent or a template, the background use is left out, as in `/api/ops/usage`. // DECISION |
+| Not in it | The operator's own model calls, which have no client to count under and no `model_call` row: the Builder (panel, step chat, skill drafts, reshape), builds (§1.108), Reggie (§1.101, its cost on `reggie_message.meta`), back-office questions and search, and the test bench. Voice typing (§1.109) is priced per minute and not in usage yet. Recording these is the trust-claims plan's "log every model call" (its item 13: nullable `run_id` and `step_run_id` and a `purpose` column on this same table), open for the owner. |
+| Screen | `/ops/usage` gains a Tokens section under the split by vendor and model: "Tokens by" clients, agents, models, actions or every combination (`?tokens=`), over the screen's period, client and template. Design system classes only (`ds-seg`, `dt`, cards). |
+| Files | `packages/core/src/api/usage.ts`, `packages/db` (0055), `packages/agents/src/{runtime/model-call,log/model-calls}.ts` and the seven call sites, `packs/materials/src/tools.ts`, `apps/api/src/packs.ts`, `apps/api/src/routes/usage-tokens.ts`, `apps/api/src/runs-ask/usage.ts`, `apps/web/src/ops/screens/UsageTokens.tsx`. |
+
+### 1.116 The Mezonas phone app: approvals, notifications and signing with Face ID (owner, 2026-11-13)
+
+(Written as §1.99 on the branch of 2026-11-13 to 14, with migration 0049; renumbered when it was
+merged on 2026-11-16, beside the automations §1.99 and the second step's §1.100.)
+
+Owner, 2026-11-13: "a mobile app for approvals and notifications … push notifications and 2FA in an
+app linked to a person", built in Expo, to deploy and test the next day. New scope, outside
+ARCHITECTURE v0.15 (whose §1 lists live push and signing by reply as out): it goes into v0.16 with
+the Marketing and Bookkeeping areas. It lifts "the app polls" for phones only, and keeps "signing
+needs a session": signing happens inside the app, signed in and unlocked, never from a lock screen.
+The designs: the canvas "Mezonas mobile app" (ten screens). Three PRs by the rule for migrations
+and sign-in: migration 0056 alone, then the sign-in handoff, then the rest.
+
+Owner, 2026-11-15: put it in the repo now, server side and app, though it isn't finished; it is
+finished within the week, once the Apple and Google developer accounts and store listings exist.
+So everything that needs those accounts is off or unconfigured until then: no build is published,
+phone notifications are off (`MOBILE_PUSH`), and the API routes do nothing until an app calls them.
+What's left is in `docs/open.md`, "The phone app".
+
+| Topic | Decision |
+|---|---|
+| Framework | **Expo** (SDK 58, React Native, expo-router) in `apps/mobile`: TypeScript and React like `apps/web`, imports `@countersign/core` (schemas, route contract, the signed text), builds for both stores on EAS without a Mac. Flutter or Swift and Kotlin would share nothing; a web view would risk Apple's review. // DECISION |
+| Who | Client users only in v1 (the portal's routes, `CLIENT` roles): the Desk, the lead thread, notification settings and phones. No reports, connections or agents on the phone. Operators keep the back office. |
+| Sign-in | The usual WorkOS sign-in in the system browser, then the session is handed to the app: `GET /api/mobile/sign-in?challenge=` (a sealed cookie keeps the app's PKCE challenge) → sign-in with `return_to=/api/mobile/handoff` → the handoff seals the session cookie with the challenge into a 2-minute code, clears the browser's cookies and sends `mezonas://signed-in?code=` → `POST /api/mobile/session {code, verifier}` returns the session. A code caught by another app is useless without the verifier (RFC 7636). Code: `packages/auth/src/workos/mobile.ts`. // DECISION |
+| The second step (§1.100) | A phone session never skips it and never holds a pending one. The callback of a sign-in for the phone (the browser carries the app's start cookie) starts `pending` like any password sign-in and lands on `/sign-in/second-step?return_to=/api/mobile/handoff`; the step page goes on to the handoff with a full page load. The handoff identifies the session as every route does (idle and 12-hour limits, a WorkOS refresh) and sends a pending one back to the step; `mobileHandoff` and `mobileRedeem` refuse a pending session themselves too. With the step off, sessions are `exempt`, as in a browser. // DECISION |
+| Remembered browsers | A sign-in for the phone is never let through by a remembered browser (§1.100's 30 days): the system browser was remembered, and the session leaves it for the phone. So each phone sign-in asks for the code, unless the person signs in with their company's SSO. The sign-in's audit row says `app: phone`. Stricter than the browser on purpose; the owner may loosen it (below). // DECISION |
+| The account it carries (§1.93) | Not handed to the phone: the handoff reseals the session without `acct`, so the phone's first request reads the person's memberships again, and the deep link stays short. After that the header carries it like the cookie, refreshed every 5 minutes by the same rules. // DECISION |
+| The session | The app holds the very session a browser holds (the sealed WorkOS session) and sends it in `x-mezonas-session`; `apps/api`'s `mobileSession` middleware reads it as the session cookie and answers a refreshed session in the same header (empty: signed out), and the app keeps no cookies. So every rule holds unchanged on the phone: 12 hours at most, 30 minutes idle, WorkOS refresh and revocation, the account it carries (§1.93). An empty or malformed header is no session, never a fallback to a cookie. // DECISION |
+| App lock | After 5 minutes in the background the app asks for Face ID or the fingerprint before showing anything. |
+| Phones | `person_device` (migration 0056): client, person, name, platform, an Expo push token and the public half of the phone's signing key (an EC P-256 JWK). Tenant RLS like every client table; never deleted: removing a phone sets `revoked_at` and clears the token and key (a check enforces it), since signatures in the audit log name it. A reinstall (the same token) replaces the old entry; 10 phones at most. Routes: `/api/me/devices` (list, register, rename or new token, remove); responses never carry the token or key. |
+| Signing on a phone | The app keeps a P-256 private key in the phone's secure store behind Face ID or the fingerprint (`requireAuthentication`); reading it is the biometric check. It signs core's `deviceSignedText` (device, item, decision, the item's fingerprint, the time) and sends it on the portal's own `POST /api/inbox/:id/resolve` as `deviceSignature`. The API checks, before the item is touched: the person's own unrevoked phone with a key, the time within 5 minutes, the fingerprint equal to the item as the portal returns it now, through its response schema (`itemFingerprintText`: id, title, the change's display and the payload, which holds the input, the edit, the record before and the amounts), and the ECDSA signature over that text; then writes `inbox.device_signed` to the audit log (item, phone, decision, fingerprint, time). Then the usual resolve, gate and undo window (invariant 8). Refusals: `device_unknown` 403, `signature_stale` 401, `item_changed` 409, `signature_invalid` 401. // DECISION |
+| Passkeys | Not in this pass. The phone's own key does the job for signing; passkeys as a sign-in factor are not in §1.100 either ("Not in this pass"). The owner's "2FA in an app linked to a person" (the phone app as a second factor) is not built: §1.100's step runs by Twilio Verify; the app could be a method later. |
+| Push | A third notification channel, `push` (migration 0056 widens the check), in the same outbox: the same kinds, counts and dedupe keys, quiet hours as for texts. The words are core's `renderPush`: "Mezonas" (or the business's name if the person chose it) and the kind's sentence with its count; no amounts, vendors, customers or links. The app opens the page from `data.path`. Items waiting go to phones on the person's own pace: each 5-minute pass with something new ("right away", the default) or hourly; email and texts keep their hour. A phone Expo reports gone loses its token. |
+| Push service | **Expo's push service** (`exp.host`), which hands on to Apple's and Google's: one request shape for both, and Apple's service speaks only HTTP/2, which a Worker's fetch is not known to offer. Off unless `MOBILE_PUSH=on` (a Worker variable; until then push rows are `skipped`, `not_configured`); `EXPO_ACCESS_TOKEN` once the Expo project turns on enhanced push security (it should). Neither is copied by `deploy.yml` yet. Expo is a processor (`expo_push`), on the site's subprocessors page; a client in HIPAA mode gets no phone notifications (`skipped`, `not_covered`) until `expo_push` is in `BAA_PROCESSORS`. // DECISION |
+| Settings | Each person's, beside email and texts in `tenant.settings.user_notifications[userId]`: `push` (on), `pushEvery` (`now`), `pushShowsClient` (off). `GET/PUT /api/settings/my-push`. Writing either set keeps the other (the jsonb merge is per person now). |
+| Not in this pass | Operators on the phone; passkeys; releasing a saved website login by push and Face ID (the app releases with the six-digit code, as the portal does; the designed push release needs a route); `apps/mobile/src/desk/change.ts` is a port of `apps/web/src/inbox/change.ts` (apps import no app) and both should move into core together; Expo's push receipts (tickets only); a longer session for an unlocked registered phone (owner's call: today the phone signs in again after 30 idle minutes, with the second step's code each time); deep links beyond the Desk; store listing copy. |
+| Checked | `packages/core/src/mobile/mobile.test.ts`, `packages/auth/src/workos/mobile.test.ts` (handoff, PKCE, the header both ways, a pending second step refused, no carried account), `packages/auth/src/workos/workos.test.ts` (a phone sign-in is never remembered), `apps/web/src/session/SecondStep.test.tsx` (the step goes on to the handoff), `packages/db/src/person-device-migration.test.ts`, `apps/api/src/mobile.test.ts` (phones, settings, signing and every refusal, the header middleware), `apps/api/src/mobile-push.test.ts` (push through the real pass against a fake Expo: counts only, pace, gone phones, HIPAA), and the app's own tests (`apps/mobile/README.md`). Not checked here: a real phone, a real push, Face ID, the stores. |
+
+### 1.117 Area owners, owner chat and Home (ARCHITECTURE v0.19 §10.15, owner 2026-11-12)
+
+The owner (R6) moves from one per process to one named owner per business area per client, drafts
+changes between runs for approval, and talks with the client; Sloan becomes the client's chat,
+beside Home. Built in the O-stream (§10), one milestone at a time.
+
+The tables come first, in their own PR (migration 0057); the rest of the design comes with the
+code.
+
+| Topic | Decision |
+|---|---|
+| What an owner is | `area_owner` (one per client and area; its name the client's to change) and its immutable `area_owner_version` rows (`OwnerDefinition`: model, notes, oversight defaults). // DECISION (O1): a table of its own, not `agent.kind = 'owner'`: 59 queries over `agent` don't filter by kind (billing, weekly stats, exports, search). |
+| Creating owners | On first need: a run in the area (`run:load`), a signed message, the back office's list. No backfill script. The first version has no model and no notes. // DECISION (O3): no default model, so an existing client's reviews stay on each process's own model until the operator picks one. |
+| Area of a process | `agent.area` (column, operator-set), defaulting from the template's `definition.area`, else its one `requiresPacks` entry, else `general`. // DECISION: a column like `approver`, not in the bundle, so moving a process to another area makes no new version. |
+| No area | `general` is an area like the others; its owner is created only when a client has a process in it. |
+| Pinning | `run.owner_version_id`, set at run start; replays and the run view read it. |
+| Precedence | A process's saved `definition.oversight` wins (stored versions unchanged, invariant 3), then the owner's, then `failures`; model: step, process `oversight.model`, owner, process. |
+| Notes | The owner's `instructions` (Markdown, operator-written) go in the review's instructions; up to 20 memory notes, newest first, go in the `read_step` result as data. |
+| Memory | A decision's `remember` (at most 2 notes, 300 characters each) becomes `memory_note` rows on the owner (`owner_id`), written in `src/log/` with the decision. Not from a test run. `remember` is in the finish tool only for an area owner's review, so other reviews' requests are unchanged. |
+| Names | The pool below, in `packages/core/src/owners/names.ts`. A client's first owner takes the name at `hash(tenant_id) mod 40`; each next owner takes the next name whose first letter no owner of that client has. Never S (Sloan). // DECISION: a start per client from its id, no counter table, so neighbouring clients get different names. |
+| Renaming | The client admin renames an owner in the portal: `area_owner.name` on the owner's row, 2 to 12 letters, unique within the client, not Sloan; audited. Not a version. The only agent field a client edits. |
+| Signature | "{Name}, {function} agent for {client}" and "Powered by mezonas.com" under it; function from the area (`general`: operations). Email: both lines. Text and WhatsApp: the second line on a conversation's first message only. Platform words in the client's language; not removable. Added at send (`reach/service.ts`) to messages to contacts who aren't the client's employees; calls excepted. // DECISION (O3): the signer sees the message without the two fixed lines; O4 shows them on the card. |
+| Timeline words | "Pia corrected the vendor name and tried again" (English); other languages "Pia: …" until the fluent speakers review them (`ownerDid`). The owner's current name, so a rename shows at once. |
+| Approval | Every draft is suggested and approved (owner, 2026-11-12); no owner applies a change. Classes by code (`change-class.ts`): client settings (client admin), process (operator; a client-asked one is confirmed by the client admin first), never (not drafted). |
+| Watch after a change | 10 runs or 7 days against the 10 runs before; worse suggests a rollback, marked urgent, to the same approver. |
+| Signals | 3 in 14 days for repeated failures, corrections and edits on one field. // DECISION: low enough to catch a habit in a week of normal use, high enough to ignore a one-off. |
+| Owner chat | An account thread with the owner as subject; `@Name` or "Ask Name" routes to it. Read tools scoped to the owner's area; drafts through the paths above. Counts in usage like any model call; Sloan stays free. |
+| Home | The portal's home (`/`), replacing the Table's layout: Now, Your agents, Recent actions, Health, Conversations, Ideas, Quick actions (ARCHITECTURE §10.15). Named Home, not Sloan's room (owner, 2026-11-12): its panels are the platform's facts. |
+| Conversation history | Every chat is kept as an account thread; the panel opens the latest, with New and a searchable History. After 30 quiet minutes the platform writes a summary as a `memory_note` (`scope = 'person'`, the person's id; migration O1); a new conversation starts with the person's last 10 summaries and their open items from the records; `account.history` searches older ones. Per person only; deletable. // DECISION: 30 minutes, 10 summaries. |
+| Live chat | A Sloan button top right on every portal screen opens a side panel kept across screens; the screen's path and record go with each message as context. |
+| Sloan's new tools | `account.help` (the per-screen guide in `packages/core/src/help/`), `account.import_list` (the directory's CSV import: preview, suggested mapping, confirm), `account.switch_account` and `account.open` (links), `account.capabilities` (areas and published templates not in use: names and one line), `account.draft_feedback` (shown to the person before it is sent). |
+
+**The name pool** (40; 19 of three letters, 21 of four), in rotation order:
+
+Pia, Teo, Nora, Ivo, Bea, Milo, Zia, Lev, Cleo, Rio, Uma, Hugo, Kit, Faye, Ren, Dara, Jun, Wren, Eli,
+Tova, Ari, Noor, Gus, Yara, Mae, Arlo, Fen, Ines, Kira, Bram, Ora, Luca, Wyn, Rhea, Enzo, Jude, Gita,
+Theo, Nia, Vida.
+
+Left out on purpose: names of assistants and AI products (Siri, Alexa, Ava, Aria, Nova, Pi, Echo,
+HAL), Sloan, and anything starting with S.
+
+Open for the owner:
+1. **The name pool** above: keep, cut or add.
+
+### 1.118 Templates from staging to production (owner, 2026-11-16; plan, not built)
+
+"If we build an agent in staging and get it to work, we should be able to promote it to prod." Then:
+"it would only be the templates, not the actual agent, no data etc, just the tested set up." Staging
+is where new agents, capabilities and connections are tried; production gets only what worked. Code
+already moves by release (`main` → staging, a `v*` tag → production); this moves the one thing that
+lives in the database, a template's tested set-up. Outside ARCHITECTURE v0.15's §1 scope, at the
+owner's request. Needs ARCHITECTURE v0.20 (§9.3, beside fork, update and promote) before it is built.
+
+| Topic | Decision |
+|---|---|
+| What moves | A **template** (an `agent` with no `tenant_id`) at one published version: its bundle, with every step id and fork-path id as they are (merges depend on them, invariant 3), and the **shared** skills (`skill` with no `tenant_id`) and browser scripts its steps name, at the versions it uses. Nothing else. |
+| What never moves | Client agents, a client's own skills, memory, aliases, catalogs, records, documents, runs, test runs, connections, bindings, grants, contact details, usage and cost. A template holds none of these (invariant 11); the exporter checks again and refuses a bundle with a `clientSpecific` setting filled in. Test bench cases stay too. // DECISION: they can hold copied-in client documents; synthetic cases can be made again in production. |
+| The file | One JSON file: format version, `source` (`staging`), exported at and by (operator id only), the template's slug, name and version number, its `origin` (below), the bundle and its `bundle_hash`, each shared skill version's definition and hash, each browser script version, and **what it needs**: tool ids, connectors, packs, model ids, and the release it was built on (the Worker's commit). A SHA-256 over the whole, and an **Ed25519 signature** by staging. // DECISION: a key pair, not a shared secret: staging keeps the private key (`TEMPLATE_EXPORT_KEY`), production has only the public one (`TEMPLATE_IMPORT_PUBLIC_KEY`), so production can check a file came from our staging and nothing in production can make one. |
+| Where it lives | Export only where `TEMPLATE_EXPORT=on` (staging); import only where the public key is set (production). Both operator only, each with an audit row naming the template, version and hash (invariant 14). |
+| Export | On a published template version in staging: **Export for production** downloads the file. The template must have passed its test bench at that version (its latest suite run green), else export says what failed. |
+| Import checks | Production refuses the file, changing nothing, when the signature or hash fails, the format is unknown, or **anything it needs is missing**: a tool, connector or pack not registered here, or a model id not allowed here. It names each ("needs the Odoo connector: release it first"). Code always reaches production by tag first; the template follows. Every definition is parsed with core's schemas and the bundle checked with the shared validator (invariants 4, 5). |
+| Where it lands | A **draft** version, never published or forked by the import: a new template whose first version is the draft, or, when a template here has the same `origin`, the next version of that one (`parent_version_id` its latest). `author_type` `import`. Shared skills land the same way, matched by slug; one whose definition hash equals a version here reuses it. The bundle's `skill@N` references are rewritten to this environment's version numbers. // DECISION: version numbers differ between environments; the hash says which version is the same. |
+| Approval | Every step that can write arrives with `approval: 'required'`, as a new step or a pack template does (invariant 8). The review lists the steps that were loosened on staging so the operator can loosen them again here, one by one. |
+| Lineage | `agent.origin`: the staging template's id, set on the first import and matched on later ones (unique where set). So a second export of the same template becomes v2 here, and production clients forked from v1 see "update available" and take it through the usual three-way merge, their own changes kept (invariant 11: publishing changes no client agent). |
+| After the import | The operator opens the draft, sees the diff against the template's latest version here (the existing merge view), runs the test bench in production if wanted, then **publishes**. From there it is an ordinary template: fork into a client, bind the client's own connections, and the client agent goes through its trial with every write signed. Staging runs against fakes, so the trial is the first live check. |
+| Tables | Migration (own PR): `agent.origin` (text, null, unique where set), `import` added to the author types, and `skill.origin` likewise. No new table: the import's record is its version row and its audit row. |
+| Milestones | T-1 the migration. T-2 core: the file's schema, export, checks, import into a draft, with tests for each refusal and for a second import becoming v2. T-3 the routes (`GET /api/ops/templates/:id/versions/:vid/export`, `POST /api/ops/templates/import`) and the keys in `docs/operations.md`. T-4 the screens: Export on staging's template page; Import, the review (what it needs, the loosened steps, the diff) and Publish on production's. |
+
+Open for the owner: whether a client's own skill, made on staging for a template, should be allowed to
+move once it is made shared there (today: make it shared on staging first, then export); whether
+production should also be able to send a fix back to staging (not planned: staging is rebuilt from
+`main` and its own data).
+
+### 1.119 Removing a client's person, or an operator (de-provisioning, owner, 2026-11-16)
+
+From a branch of 2026-11-09 (`claude/clever-volta-s13mur`, "De-provisioning"), rebuilt on main.
+The owner's decision: access ends **within 5 minutes**, not at once. Memberships stay in the
+sealed session cookie for up to 5 minutes (§1.93); the cookie behaviour is unchanged.
+
+| Topic | Decision |
+|---|---|
+| Routes | `DELETE /api/users/:id` (client admin, the session's one client; never themselves, never an operator: an operator is "not found", so the portal learns nothing of who serves it) and `DELETE /api/ops/clients/:id/members/:userId` (operator, clients served; an operator is refused with `is_operator`). Both run `removeFromClient` (`apps/api/src/routes/onboarding.ts`). |
+| What goes | The membership row. The `app_user` row stays: history and the audit log name it, and the person can be invited again. The audit row is the request's own (`mount()`), naming whom. |
+| Their items | Open inbox items assigned to them by name go to the client admin role. Approver rules and person steps that name them already fall to the client admin, since both check membership when they assign (`routeApproval`, `personAssignee`). // DECISION |
+| When access ends | Within 5 minutes: their open session keeps its carried memberships for the rest of its window (§1.93). Checks that read `membership` themselves (signing, approver rules, who is notified) and the MCP server see it at once. The words on the confirmation say "within 5 minutes" in every language. |
+| Operators | `removeOperator` (`packages/db/src/operators.ts`), run as `cs_owner` by `db:remove-operator <email> [by]`: every operator membership, one `operator.remove` audit row (no client, `by` in its target). Never the last operator. Their open items by name go to the operator role, and a client they led has no lead (`settings.lead` null) until an operator sets one, so nothing waits on, or is newly assigned to, someone who can't sign in. // DECISION |
+| Not here | Removing someone doesn't end their WorkOS session; deleting the user in WorkOS does, at the next refresh (`docs/operations.md`, "People: joining and leaving"). A change of role is a removal and a new invite. A client can be left with no admin by an operator's removal; its items then wait for us or a new admin. |
+| Screens | Remove on each row of the portal's Team (client admin) and the back office's client People, beside the sign-in reset; a confirmation (the design system's banner) says what happens, and the list is read again after. |
+| Checked | `apps/api/src/onboarding.test.ts` (both routes: who may, self, operators, other clients, items moved, the audit row, invited again), `packages/db/src/operators.test.ts`, `apps/web/src/portal/screens/Team.test.tsx`, `apps/web/src/ops/screens/Onboarding.test.tsx`. |
+
+### 1.120 The Claude connector's approval link (2026-11-16; §1.100's last piece)
+
+The MCP server (§1.34, §1.89) signs people in through AuthKit directly, never through our cookie,
+so it never passes our second step (§1.100). Once WorkOS's own multi-factor is switched off, a
+password alone would reach it. This is the approval link §1.100 planned, ported from the first
+build of the step (`c194789f`, `apps/api/src/mcp/approval.ts` and the `ConnectClaude` screen)
+onto main's second step and MCP server. No migration: `mcp_session_approval` is in 0042.
+
+| Topic | Decision |
+|---|---|
+| When | Only while the step is on (`TWILIO_VERIFY_SERVICE_SID` set). Off, nothing changes. Set up wrongly (`misconfigured`), every tool call is refused with `second_factor_unavailable`: it fails closed, as a browser sign-in does. // DECISION |
+| Who | Everyone the MCP server serves: operators (the back office's tools) and a client's admin or user (the portal's tools, §1.89). §1.100 named only the Ops connector because §1.89 came a day later; its rule is "everyone who signs in with a password", and a client's Claude would otherwise read their portal with a password alone. An SSO person approves too: the token doesn't say how AuthKit signed them in. // DECISION |
+| What is held back | Tool calls, not the connection. `initialize` and `tools/list` answer as before (they show no one's data), so Claude connects and the first tool call comes back as a tool error the person reads: `approval_needed: approve this Claude connection first: open <link> in the browser where you're signed in to Mezonas (the link works for 30 minutes), then ask again`. A refused connection would show only "couldn't connect" in claude.ai. The gate is asked once per HTTP request. // DECISION |
+| Tied to | The access token's `sid` (AuthKit's session) and the person, one `mcp_session_approval` row per pair. A token without `sid` is refused ("disconnect and connect again"): it can't be tied to one sign-in. A new Claude sign-in has a new `sid` and asks again. // DECISION |
+| The link | `<APP_ORIGIN>/ops/connect-claude/<code>` for an operator, `<APP_ORIGIN>/connect-claude/<code>` for a client's person: one screen (`apps/web/src/session/ConnectClaude.tsx`) in both shells, in the six languages. The code is 32 random base32 characters (160 bits), stored only as an HMAC-SHA256 under ENCRYPTION_KEY with its own label (`mezonas-claude-connection:`; the previous key still matches, as recovery codes). Each refused call makes a new code and the last stops matching, so only the newest link Claude showed works, for 30 minutes. The code never reaches a log line. // DECISION |
+| Approving | `GET /api/auth/claude-connections/:code` and `POST …/approve`, `public` in the contract and answered outside `mount()` as the step's own routes (`apps/api/src/routes/second-factor.ts`): they act for the person, never in a client. They refuse a pending sign-in (401 `second_factor_required`), so only a browser past the step (or exempt by SSO) approves. Each reads only the person's own rows (`withUser`), so another person's link answers 404 and says nothing about it; the first build's "belongs to another person" is gone with that. An expired link answers 409 `expired`. // DECISION |
+| How long | Until 12 hours after Claude first asked in that AuthKit session (the row's `created_at`), not 12 hours after approving: the session began before that call and AuthKit ends it 12 hours after it began, so an approval never outlives its session. Removing a person's membership still cuts the connector off at the next call (§1.89). // DECISION |
+| The audit log | `mcp.approve` (no client, the connection's row id as target), once per approval. Each refused tool call is the usual `mcp.tool_call` log line with `outcome: "error"` and `code: "approval_needed"`. |
+| A browser exempt from before | A session signed in while the step was off carries `exempt` and is not signed out when it turns on (§1.100's gate), so for up to 12 hours it could approve without having passed the step. WorkOS's own multi-factor is still on at that point in the rollout (`docs/operations.md`), so that browser had WorkOS's code. Not changed here. |
+| Not in this pass | Approving from the back office for someone else; listing or ending one's approved connections; refusing tokens by AuthKit's own authentication method. |
+| Checked | `apps/api/src/mcp-approval.test.ts` (off; connect then refused with the link; a new link per refusal; pending and signed-out browsers refused; another person's link 404; approve, audit row, calls work; a new `sid` asks again; no `sid`; an expired link; a client's portal link; misconfigured fails closed; a malformed code 400), with the request's database pool at one connection. `apps/web/src/session/ConnectClaude.test.tsx` (back office and portal, Spanish, approved, expired, unknown, malformed, a refused approval). |
+
+### 1.121 Forms: "Request info", a form an agent sends a contact (owner, 2026-11-16; migration 0058)
 
 "We should build forms for human data collection too: a link can be sent with a custom
 questionnaire that they can talk to or type into and upload documents as needed." Then: "this
@@ -4859,7 +5027,7 @@ v0.18's scope at the owner's request, as §1.101 and §1.108 are. The design and
 | The page | Public routes (`GET`/`POST /api/forms/:token`, `PUT …/draft`, `POST …/files?question=`), no sign-in, no audit row (the request keeps its own log: created, sent, opened, saved, file, submitted, with time, address and browser). It shows the client's name, the purpose, the form, the due date; saves a draft; adds files one at a time (stored as the client's documents, source `request`, at most 30 per request); reviews and sends once. Answers are checked by kind (`answerProblems`); a file in the answers must be one uploaded through this link. The page reads in the request's language (`FORM_PAGE_WORDS`, six languages). `apps/web/src/forms/FormPage.tsx`. |
 | Waiting | Once sent the step waits on `form-<id>` until the due date (`due`, default 5 days, between an hour and 30 days). Sending wakes the run; the cron closes requests past their due date and re-sends events the run hasn't taken (`formsTick`). Output: `{ outcome: submitted | no_answer | not_sent | declined, answers (the required ones), extra (the agent's), documents, contact, channel, submittedAt, reason, sources }`; the answers are what the person wrote, data and never instructions (invariant 9). |
 | Test runs | Never send: the step returns `not_sent` with the form as it would have gone. |
-| Table | `form_request` (migration 0055, its own PR): the form as sent, the ask, status (`sending`, `open`, `submitted`, `expired`, `cancelled`, `not_sent`), language, due date, draft, answers, documents, log; forced RLS; no DELETE for the runtime. |
+| Table | `form_request` (migration 0058, its own PR): the form as sent, the ask, status (`sending`, `open`, `submitted`, `expired`, `cancelled`, `not_sent`), language, due date, draft, answers, documents, log; forced RLS; no DELETE for the runtime. |
 | Not yet | Dictation and "talk it through" on the page (F-4, F-5 in `docs/forms-plan.md`); a one-time code before a link opens; passing a form on to a colleague; saved forms in the Library and the form editor; "Request info" by hand from a contact's page; the Desk door for a client's own users; a rate limit per link beyond the file cap. |
 | Checked | `packages/core/src/forms/index.test.ts`, `apps/api/src/forms.test.ts` (draft, approval card, email, page, file, draft, missing answer, send, the run's output; a form outside the limits; no answer; a test run; forged links), `apps/web/src/forms/FormPage.test.tsx`, and the database's RLS and migration tests. |
 
@@ -4880,6 +5048,7 @@ apps/web ─▶ core                    (route contract, schemas, workflow valid
 apps/mfa ─▶ core                    (the code service, §1.26: its own Worker; apps/api reaches it only by service binding)
 apps/browser ─▶ connectors, core     (types and tests only: the browser service, §1.26, its own Worker with Browser Run; apps/api reaches it only by service binding)
 apps/site ─▶ design-system          (the public site, §1.29: no runtime dependencies)
+apps/mobile ─▶ core, design-system  (the phone app, §1.116: HTTP to apps/api; nothing depends on it)
 ```
 
 | Package | Workspace deps |
@@ -5980,9 +6149,9 @@ Built (2026-11-13): all of the above (tests listed in §1.114). Open: each provi
 registrations (owner), `deploy.yml` copying the new secrets (its own PR), and every `NOTES.md`'s
 "To verify" against the live services; SharePoint (`Sites.Selected`) not built.
 
-### M63: Forms, "Request info" (§1.115)
+### M63: Forms, "Request info" (§1.121)
 
-Migration 0055 (`form_request`, its own PR), then the step: core's form schema and checks, the
+Migration 0058 (`form_request`, its own PR), then the step: core's form schema and checks, the
 `forms.request` and `forms.draft` skills, the forms service sending the link through reach out,
 the public page's routes and screen, the form on the approval card, and the cron's pass.
 
@@ -6447,3 +6616,87 @@ Migrations 0043, 0044 and 0045 are each their own commit, for their own PRs; so 
 to `mountLong` (a pool of one connection never deadlocks), which touch sign-in callbacks. Not yet
 checked on staging: Browser Run's support for a context-wide `route` and `serviceWorkers: "block"`
 (scripts are refused if it is missing). Open for the owner: the questions in §1.86's DECISION rows.
+
+## 10. Area owners (§1.117, ARCHITECTURE v0.19 §10.15)
+
+Each milestone ends green. Migrations in their own PR (O1).
+
+- **O1 Migration.** `area_owner` (one per client and area) and its immutable `area_owner_version`
+  rows, RLS forced; `agent.area`; `run.owner_version_id`; `memory_note.owner_id` (a note is an
+  agent's or an owner's) and `memory_note.person_id` (null except for `scope = 'person'`). Built
+  as 0048 on 2026-11-12; renumbered when brought onto main (0054 when generated, the next free
+  number at merge).
+- **O2 Core.** The owner bundle schema, areas and their defaults, settings precedence, `remember` on
+  decisions, the name pool and rotation, the signature words, the change classifier with tests.
+- **O3 Runtime.** Owners created per client and area (on first fork into an area, and a backfill for
+  existing clients); the owner pinned at run start; reviews on the owner's model with its notes and
+  memory; names in the run's words; the signature on messages out. Done when: a Purchasing
+  process's failure is reviewed on the owner's model (Grok in a replayed fixture), with the owner's
+  name in the portal's words.
+- **O4 Back office.** The client's Owners, an owner's page (name, avatar, model, notes, review
+  default, limits, memory notes, processes, decisions, drafts), the area on a process.
+- **O5 Sloan as the chat.** Template v6 (chat only); the daily check on the Worker's cron; failed
+  runs and connections filed by code. Done when: a client's daily check, a failed run and a lapsed
+  connection each produce today's items with no Sloan run.
+- **O6 Home and the live chat.** Home; the top-right chat panel on every screen with the screen as
+  context; conversation history with per-person summaries and `account.history`; Sloan's new tools
+  (guide, list import, switch, open, capabilities, feedback). Done when: a client imports a vendor
+  list from the chat, after a preview, and Home shows it in Recent actions; the next day, in a new
+  conversation, "where were we on the import?" is answered from yesterday's summary.
+- **O7 Owner chat and renaming.** `@Name` threads answered by the owner within its area; the client
+  admin renames an owner. Done when: a client asks Pia what failed this week and gets this week's
+  failures with links, and a rename shows everywhere at once.
+- **O8 Drafted changes.** Signals, the draft through the Builder's revise path, test runs on
+  replayed inputs and test cases, approval by class, the client's confirm step, the watch and
+  rollback suggestion; "Tell Pia" on a run step and a process's "What changed". Done when: a client
+  asks Pia to run the vendor follow-up weekly; the client admin confirms the draft, the operator
+  approves it, and the next runs follow the new schedule.
+
+Status (2026-11-12): O1–O8 built on `claude/clever-allen-i6npwp`, each its own commit, every
+suite green locally (db, core, agents, workflows, api, web). The name pool is taken as proposed
+until the owner says otherwise.
+
+Brought onto main (2026-11-16), in two PRs: the migration on its own (0054, renumbered at merge if
+others land first), then the code. What changed on the way, and why:
+- **Numbers.** Main took ARCHITECTURE v0.17 (automations, `repeat`, the agent's choice) and v0.18
+  (vendor contracts, the Builder's missing steps), and plan §1.96 (Hand off), so this is v0.19
+  §10.15 and §1.117; its words note that its "process" is v0.17's agent and its workflow.
+- **First texts.** §1.97 names the client and adds the opt-out line to a first text. The owner's
+  signature already names the client, so no name goes in front; the opt-out line goes on a line
+  of its own under the signature (`withIntroduction`). // DECISION
+- **Choices are not corrections.** v0.17's path choices and `repeat` judgements are oversight
+  decisions too; Home's "Your agents" and the owner chat's "what it did lately" count reviews
+  only (`OVERSIGHT_CAUSES`), as main's run views do. A choice runs on the run's settings with the
+  area owner's merged in, so on the owner's model when the workflow names none.
+- **One conversation component.** The chat panel and owner chat use §1.107's component through
+  Sloan's `Conversation`; an agent's answer says its role in the line above it ("Pia · purchasing
+  agent").
+- **Names in core.** Main's builds export `OWNER_WORDS` (who has an open item); the area owners'
+  words are `AREA_OWNER_WORDS`.
+- **Memory notes.** The knowledge page counts an agent's notes only; an owner's are on its page.
+- **Reggie** (§1.101) is unchanged: the platform's health watch writes the same supervisor
+  findings its `client_review` reads.
+
+What each built, and what is left (DECISIONs in §1.117):
+- **O5:** Sloan v6 is chat only; `reportEvent` and `dailyCheck` run on the minute tick
+  (`apps/api/src/health/watch.ts`): findings from the last 10 minutes of events, the daily check at
+  08:00 in the client's zone. A Sloan still on v5 keeps its own watches.
+- **O6:** Home carries the owners, ideas and quick actions on its one call; the chat opens as a
+  side panel on every portal screen; quiet conversations are summarized per person; Sloan gained
+  `account.help`, `account.history`, `account.ideas`. Left: sending the current screen with each
+  message (the message path needs a field); importing a CSV inside the chat itself (Upload a list
+  opens the directory's import, with its preview and confirm; Sloan's guide points there).
+- **O7:** "@Pia" is answered in Pia's name through Sloan's chat run (`account.owner`,
+  `account.reply_as`), about her area only; the client admin renames an owner on Home.
+  // DECISION (O7): owner chat runs on Sloan's chat run and model, in the owner's name; the
+  owner's own model is for its reviews of runs. One chat runtime keeps invariant 11's rules in one
+  place; a per-owner chat model can follow if the owner wants it.
+- **O8:** once a day at 08:00 each owner's signals (the same step corrected 3+ times, the same
+  field edited before signing 3+ times, in 14 days) become one operator suggestion in its name with
+  the evidence, not repeated for 30 days (`apps/api/src/owners/signals.ts`); `classifyChange`
+  (core) labels every Builder revision `process` or `never`; "Tell us what was wrong" on a portal
+  run step opens the chat about that step. Left: the owner drafting the change itself through the
+  Builder with test runs (today the operator drafts it from the suggestion), the client admin's
+  confirm step for client-asked process changes (they go through the chat as requests), the watch
+  after a change and its rollback suggestion, rejections with a reason as a signal, and a
+  process's "What changed" in the portal.

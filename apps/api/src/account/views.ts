@@ -10,12 +10,24 @@ import {
   DESK_WORDS,
   isPlainObject,
   type Locale,
+  oversightLine,
+  ownerDid,
+  ownerRole,
   readWhyApproval,
 } from "@countersign/core";
-import { inboxItem, run } from "@countersign/db";
-import { and, desc, eq, inArray, type SQL } from "drizzle-orm";
+import {
+  areaOwner,
+  inboxItem,
+  OVERSIGHT_CAUSES,
+  type OversightAction,
+  oversightDecision,
+  run,
+  thread,
+} from "@countersign/db";
+import { and, desc, eq, gte, inArray, type SQL, sql } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
 import { controllableAgents, pauseAgent, resumeAgent, serviceControl } from "../lifecycle/pause";
+import { processesOf } from "../owners/store";
 import type { Platform } from "../platform";
 import { tenantLocale } from "../routes/language";
 import {
@@ -195,6 +207,71 @@ export function accountViews(platform: Platform): AccountViews {
         },
       }).catch(refusalOf);
       return { status: "passed", requestId: row.id };
+    },
+    // v0.19 (§10.15 "Talking to an owner"): an owner by its name, with its area's services.
+    async owner(s, name) {
+      // With no name: the owner this conversation is with (the account thread's subject).
+      let subject: string | null = null;
+      if (!name && s.asker.threadId) {
+        const [t] = await s.tx
+          .select({ subjectId: thread.subjectId })
+          .from(thread)
+          .where(and(eq(thread.id, s.asker.threadId), eq(thread.tenantId, s.tenantId)));
+        subject = t?.subjectId ?? null;
+        if (!subject) return null;
+      }
+      if (!name && !subject) return null;
+      const [o] = await s.tx
+        .select({ id: areaOwner.id, name: areaOwner.name, area: areaOwner.area })
+        .from(areaOwner)
+        .where(
+          and(
+            eq(areaOwner.tenantId, s.tenantId),
+            subject
+              ? eq(areaOwner.id, subject)
+              : sql`lower(${areaOwner.name}) = ${(name ?? "").trim().replace(/^@/, "").toLowerCase()}`,
+          ),
+        );
+      if (!o) return null;
+      const locale = await tenantLocale(s.tx, s.tenantId);
+      const mine = (await processesOf(s.tx, s.tenantId, platform)).filter((p) => p.area === o.area);
+      const services = mine.map((p) => ({ id: p.agentId, name: p.name }));
+      // What it did lately: its decisions on its processes' runs, in the portal's words.
+      const ids = mine.map((p) => p.agentId);
+      const since = new Date(Date.now() - 14 * 86_400_000);
+      const decided = ids.length
+        ? await s.tx
+            .select({ action: oversightDecision.action, at: oversightDecision.createdAt })
+            .from(oversightDecision)
+            .innerJoin(
+              run,
+              and(
+                eq(run.id, oversightDecision.runId),
+                eq(run.tenantId, oversightDecision.tenantId),
+              ),
+            )
+            .where(
+              and(
+                eq(oversightDecision.tenantId, s.tenantId),
+                inArray(run.agentId, ids),
+                eq(run.mode, "live"),
+                // Its reviews only, not an agent's path choices (v0.17 §10.14).
+                inArray(oversightDecision.cause, [...OVERSIGHT_CAUSES]),
+                gte(oversightDecision.createdAt, since),
+              ),
+            )
+            .orderBy(desc(oversightDecision.createdAt))
+            .limit(10)
+        : [];
+      return {
+        ...o,
+        role: ownerRole(locale, o.area),
+        services,
+        recent: decided.map(
+          (d) =>
+            `${d.at.toISOString().slice(0, 10)}: ${ownerDid(locale, o.name, oversightLine(locale, { action: d.action as OversightAction }))}`,
+        ),
+      };
     },
   };
 }

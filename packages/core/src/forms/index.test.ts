@@ -1,4 +1,4 @@
-// Forms (docs/plan.md §1.115): the definition, the operator's ask (required questions and the
+// Forms (docs/plan.md §1.121): the definition, the operator's ask (required questions and the
 // limits on what the agent adds), secrets refused, answers checked by kind, and the output's split.
 
 import { describe, expect, it } from "vitest";

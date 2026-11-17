@@ -4,13 +4,13 @@
 
 import { z } from "zod";
 // v0.12 W2-D
-import { ACCOUNT_TOOLS } from "./account";
+import { ACCOUNT_GUIDE_TOOLS, ACCOUNT_TOOLS } from "./account";
 import { agentsAsk } from "./ask";
 // P-4
 import { converseTool } from "./converse";
 import { DIRECTORY_TOOLS } from "./directory";
 import { DOCS_TOOLS } from "./docs";
-// §1.115: forms, "Request info"
+// §1.121: forms, "Request info"
 import { formsRequestTool } from "./forms";
 import { HEALTH_TOOLS } from "./health";
 // v0.12 W2-E
@@ -108,13 +108,15 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   reachOutTool,
   // P-4: conversations
   converseTool,
-  // §1.115: forms, "Request info"
+  // §1.121: forms, "Request info"
   formsRequestTool,
   ...HEALTH_TOOLS,
   agentsAsk,
   ...SUPERVISOR_TOOLS,
   // v0.12 W2-D: Sloan's account tools
   ...ACCOUNT_TOOLS,
+  // v0.19: Sloan's guide, history and ideas (ARCHITECTURE §10.15)
+  ...ACCOUNT_GUIDE_TOOLS,
   // v0.12 W2-E
   ...INBOUND_TOOLS,
   // P-7: message translation (docs/plan.md §1.69)

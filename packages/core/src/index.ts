@@ -43,7 +43,7 @@ export * from "./api/excel";
 export * from "./api/exports";
 export * from "./api/feedback";
 // v0.14 W4-E: Google Chat
-// docs/plan.md §1.115: forms, "Request info"
+// docs/plan.md §1.121: forms, "Request info"
 export * from "./api/forms";
 export * from "./api/gchat";
 // v0.14 W4-D
@@ -58,12 +58,16 @@ export * from "./api/library";
 // v0.12 W1-A: go-live stages and client controls
 export * from "./api/lifecycle";
 export * from "./api/messaging";
+// §1.116: the phone app
+export * from "./api/mobile";
 export * from "./api/models";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 export * from "./api/notify";
 export * from "./api/onboarding";
 // v0.13 W2-I: run oversight
 export * from "./api/oversight";
+// v0.19: area owners (ARCHITECTURE §10.15)
+export * from "./api/owners";
 export * from "./api/packs";
 export * from "./api/people";
 export * from "./api/qbo";
@@ -158,6 +162,8 @@ export * from "./directory/search";
 export * from "./directory/voice-samples";
 export * from "./documents/extraction";
 export * from "./duration";
+// v0.19: area owners (ARCHITECTURE §10.15)
+export * from "./help/guide";
 // v0.12 W2-E
 export * from "./forms";
 export * from "./holidays/us";
@@ -169,6 +175,8 @@ export * from "./i18n/locale";
 export * from "./i18n/notify";
 // v0.13 W2-I
 export * from "./i18n/oversight";
+// v0.19: area owners (ARCHITECTURE §10.15)
+export * from "./i18n/owners";
 export * from "./i18n/release";
 // P-6
 export * from "./i18n/step-in";
@@ -195,6 +203,7 @@ export * from "./mappers/upload";
 export * from "./messaging/a2p";
 export * from "./messaging/rules";
 export * from "./messaging/signup";
+export * from "./mobile/mobile";
 export * from "./money";
 export * from "./notify/notify";
 export * from "./notify/render";
@@ -202,6 +211,9 @@ export * from "./notify/render";
 export * from "./oversight/check";
 // v0.13 W2-I: run oversight
 export * from "./oversight/decision";
+export * from "./owners/areas";
+export * from "./owners/definition";
+export * from "./owners/names";
 export * from "./permissions/decide";
 export * from "./permissions/entities";
 export * from "./permissions/explain";
@@ -209,6 +221,7 @@ export * from "./permissions/grants";
 export * from "./permissions/release";
 // R1: processes, workflow schemaVersion 4 (docs/plan.md §1.86, §9), as the `processes` namespace.
 export * as processes from "./process";
+export * from "./process/change-class";
 // Agent motion (docs/plan.md §1.106): the thinking state a running step shows.
 export { THINKING_STATES, type ThinkingState, thinkingOf } from "./process/thinking";
 export * from "./reach/rules";

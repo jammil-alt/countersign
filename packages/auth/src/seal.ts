@@ -18,9 +18,17 @@ export const MIN_COOKIE_PASSWORD_LENGTH = 32;
 /**
  * `mcp-confirm`: the two-step write tokens of the MCP server (apps/api/src/mcp). `account`: the dev
  * sign-in's carried account (../dev.ts); WorkOS carries it inside `session`. `device`: a browser
- * remembered after it passed the second step (§1.100).
+ * remembered after it passed the second step (§1.100). `mobile-start` and `mobile-handoff`: the
+ * phone app's sign-in (./workos/mobile.ts, §1.116).
  */
-export type SealPurpose = "session" | "state" | "mcp-confirm" | "account" | "device";
+export type SealPurpose =
+  | "session"
+  | "state"
+  | "mcp-confirm"
+  | "account"
+  | "device"
+  | "mobile-start"
+  | "mobile-handoff";
 
 const FORMAT = "v1";
 

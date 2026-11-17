@@ -1,4 +1,4 @@
-// Forms, "Request info" (docs/plan.md §1.115): the built-in skill `forms.request`, carried out here
+// Forms, "Request info" (docs/plan.md §1.121): the built-in skill `forms.request`, carried out here
 // like reach out and conversations. It checks the form (the agent's or the operator's) against the
 // step's ask, keeps one `form_request` row, and sends the link as a reach-out of its own, so every
 // check reach out makes holds: consent, opt-out, quiet hours, the bound channel, the person's daily

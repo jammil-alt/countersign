@@ -14,6 +14,8 @@ the rest.**
   and the whole Marketing wave (M43–M50).
 - **Every provider is built against a fake.** Nothing has yet run against live QuickBooks, Gmail,
   Resend, Twilio, Meta, ElevenLabs, Stripe, Plaid, Search Console or the others.
+- **Templates to production** (owner, 2026-11-16): planned in `docs/plan.md` §1.118, not built. Only
+  a template's tested set-up moves from staging to production, never client agents or their data.
 - **Unmerged work:** on 2026-11-15, 11 branches of finished work had never reached `main`, most
   with no PR. What they hold and the order to merge them: `docs/merge-backlog.md`.
 - Production is live from a hand-run deploy of `747d7ff`
@@ -166,6 +168,15 @@ then one pass of its "To verify" list against the real service.
 
 ## 4. Everything else
 
+### Area owners, owner chat and Home (designed 2026-11-12)
+
+ARCHITECTURE v0.19 §10.15, `docs/plan.md` §1.117 and §10 (O1–O8). Built on
+`claude/clever-allen-i6npwp` and brought onto main in two PRs: the migration on its own, then the
+code. What is left of it is listed under §10's status. Waiting on the owner:
+- The **name pool** (40 short names, `docs/plan.md` §1.117).
+- The **public site** still calls Sloan "your manager agent" ("Every agent has a job, a manager and
+  a person who checks its work", `apps/site`): new words for Sloan as the chat.
+
 ### Production's first release
 
 Production is **live** (`https://app.mezonas.com/api/health` answers 200): Deploy run 207 put
@@ -183,12 +194,29 @@ Plenary Labs' repository, so its suspect commits are Plenary Labs'; point it at
 behind MEZONAS-API-1 (an invoice read stuck as running since 2026-11-07) needs cancelling from
 the back office.
 
+### The phone app (owner, 2026-11-13; `docs/plan.md` §1.116, `apps/mobile/README.md`)
+
+Merged unfinished on purpose (owner, 2026-11-15), in three PRs: migration 0056, the sign-in
+handoff, then the phones, push, signing and `apps/mobile`. Built and tested against fakes; nothing
+has run on a phone or against Expo yet. Off until the steps below: no app build exists, and phone
+notifications stay off until `MOBILE_PUSH=on`. To finish it:
+
+| # | Step | Notes |
+|---|---|---|
+| M1 | **Merge migration 0056 first** (its own PR, re-chained after 0055), let it reach staging, then the sign-in PR, then the app's PR. | 0056 adds `person_device` and widens the notification channel check; the previous Worker keeps working. |
+| M2 | **An Expo account**, then in `apps/mobile`: `npx eas-cli login`, `npx eas-cli init` (makes the project; put its id in `EAS_PROJECT_ID` for builds, or in `app.config.ts`'s env). | Push tokens need the project id; without it the app skips notifications and still signs. |
+| M3 | **iPhone**: the Apple Developer Program (organisation account, $99 a year, D-U-N-S for Twelve Thirty-Four), then `npx eas-cli build --profile development --platform ios` and let EAS make the certificates and the push key (APNs). Register your phone with `npx eas-cli device:create` first. | Bundle id `com.mezonas.app`. Approving the developer account can take a day or more: start it first. |
+| M4 | **Android**: `npx eas-cli build --profile development --platform android` installs from a link. For push, a Firebase project: its `google-services.json` as the EAS file variable `GOOGLE_SERVICES_JSON`, and its FCM v1 service-account key uploaded with `npx eas-cli credentials`. Account steps: `apps/mobile/README.md`, "Accounts". The Play Console ($25 once) only for the store. | Package `com.mezonas.app`. |
+| M5 | **Try it on staging**: set `MOBILE_PUSH=on` on staging's Worker (`wrangler secret put` or a variable; `deploy.yml` doesn't copy it yet), sign in from the app (WorkOS in the system browser, then the second step's code if it is on there), set up the phone (notifications, Face ID), make a Desk item on the Sandbox (any approval), and check: the notification arrives within 5 minutes with a count only, tapping opens the Desk, signing asks for Face ID, the audit log has `inbox.device_signed`, Undo works within 60 seconds, removing the phone in Settings stops its notifications. | Nothing in WorkOS changes: the sign-in returns to `/api/mobile/handoff` on our own origin. |
+| M6 | Expo's **enhanced push security** on, and `MOBILE_PUSH` and `EXPO_ACCESS_TOKEN` copied by `deploy.yml` (a small PR of its own), before production's `MOBILE_PUSH=on`. | Until then anyone holding a phone's token could send it a notification through Expo. |
+| M7 | Owner decisions: a longer session for an unlocked registered phone (today 30 idle minutes, as the browser, and the second step's code at each sign-in); whether a remembered browser may let a phone sign-in skip the code (today never); whether operators get the app; the phone app as a second-step method ("2FA in an app"); the store listing (name, screenshots, privacy answers); TestFlight testers. | `docs/plan.md` §1.116 "Not in this pass". |
+
 ### Sign-in codes and the Claude connector (owner, 2026-11-10)
 
 | # | Step | Notes |
 |---|---|---|
 | A1 | **WorkOS multi-factor is on** (owner, 2026-11-16): required for every sign-in on staging and production (WorkOS dashboard → the environment → Authentication → Multi-factor auth). The rest of this row is the earlier state. | Owner's call, 2026-11-10 (since reversed): a code on every sign-in is too much for now. HIPAA today requires "person or entity authentication", not multi-factor; the proposed rule that would require it is not final (projected July 2027). Until A2 ships, sign-in is the password (or Google) alone, operators included. **No HIPAA client signs in before A2.** `docs/operations.md` and `docs/security.md` still describe multi-factor as required: that is the target, restored by A2. |
-| A2 | **Our own second step (`docs/plan.md` §1.100)**: server and screens built (screens 2026-11-14). To switch on: a Twilio Verify service per environment and `TWILIO_VERIFY_SERVICE_SID` under its `vars` in `apps/api/wrangler.jsonc` (staging first), then one sign-in checked (`docs/operations.md`). | Code still needed: the Claude connector's approval link. Until then WorkOS multi-factor stays **required** (A1 reversed for launch), so a browser sign-in is asked twice once ours is on. |
+| A2 | **Our own second step (`docs/plan.md` §1.100)**: server, screens (2026-11-14) and the Claude connector's approval link (§1.120, 2026-11-16) built; no code left. To switch on: a Twilio Verify service per environment and `TWILIO_VERIFY_SERVICE_SID` under its `vars` in `apps/api/wrangler.jsonc` (staging first), then one sign-in and one Claude connection checked (`docs/operations.md`), then WorkOS multi-factor off for that environment (owner). | Until WorkOS multi-factor is off, a browser sign-in is asked twice once ours is on (WorkOS's code, then ours), and Claude asks for WorkOS's code and then our approval. Owner to confirm: the approval link also applies to clients' Claude connections (§1.120, "Who"). |
 | A3 | **WorkOS production: Dynamic Client Registration and Client ID Metadata Documents on** (Applications → Configuration), as on staging. | Without it, connecting Claude to `https://app.mezonas.com/mcp` stops at "application not found" (`docs/operations.md`, "MCP server"). Check: `curl https://app.mezonas.com/.well-known/oauth-authorization-server` lists `registration_endpoint`. |
 
 ### Owner decisions still open (`docs/plan.md` §7 and the sections named)

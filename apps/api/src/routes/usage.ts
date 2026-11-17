@@ -69,6 +69,7 @@ import type { Platform } from "../platform";
 import { clientState, forClient, noRuns, OPEN_RUN, runCounts } from "../runs/client-status";
 import { clientDescription, isLiveService } from "../weekly/stats";
 import { runSummaries } from "./portal";
+import { tokenReport } from "./usage-tokens";
 
 // ── Days and months ──────────────────────────────────────────────────────────────────────────────
 
@@ -1048,6 +1049,17 @@ export function usageRouteHandlers(app: Hono<AppEnv>): void {
     const from = query.from ?? monthStart(to, 5);
     checkRange(from, to);
     return usageReport(tx, tenantIds, { ...query, from, to });
+  });
+
+  // Owner, 2026-11-06, kept 2026-11-16 (docs/plan.md §1.115): tokens by client, agent, model and
+  // action, over the same period and client as the usage report.
+  mount(app, routes.opsUsageTokens, async ({ tx, tenantIds, query }) => {
+    // DECISION: this month so far by default (UTC), the period an operator checks spend in; the
+    // Usage screen always sends its own period.
+    const to = query.to ?? new Date().toISOString().slice(0, 10);
+    const from = query.from ?? monthStart(to);
+    checkRange(from, to);
+    return tokenReport(tx, tenantIds, { ...query, from, to });
   });
 
   mount(app, routes.portalActivityReport, async ({ tx, tenantIds, query, services }) => {

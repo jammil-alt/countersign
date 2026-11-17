@@ -393,7 +393,7 @@ export const ptBR: Messages = {
   "desk.edit": "Editar",
   "desk.edited": "Você editou esta alteração. Usamos a sua versão.",
   "desk.afterYouSign": "Depois que você aprovar",
-  // §1.115: a form request's card
+  // §1.121: a form request's card
   "desk.form.heading": "O formulário que vão receber: {title}", // fluent review
   "desk.form.fixed": "Sua pergunta", // fluent review
   "desk.form.added": "Adicionada pelo agente", // fluent review
@@ -1071,6 +1071,11 @@ export const ptBR: Messages = {
   "people.role.client_user": "Usuário",
   "people.role.operator": "Mezonas",
   "people.invited": "Convidado",
+  "people.remove": "Remover",
+  "people.removeWarning":
+    "{name} perde o acesso em até 5 minutos. O que estiver esperando por essa pessoa vai para os administradores.",
+  "people.removeKeep": "Manter",
+  "people.removeProblem": "Não conseguimos remover essa pessoa. Tente de novo.",
   "people.none": "Ninguém ainda. Convide alguém abaixo.",
   "people.email": "E-mail",
   "people.name": "Nome (opcional)",
@@ -2140,6 +2145,26 @@ export const ptBR: Messages = {
   "nav.home": "Início",
   "nav.inbox": "Caixa de entrada",
   "home.addDocuments": "Adicionar documentos",
+  "home.owner.rename": "Renomear",
+  "home.owner.renameLabel": "Novo nome para {name}",
+  "home.owner.save": "Salvar",
+  "stepPanel.tell": "Diga o que estava errado",
+  "stepPanel.tellPrompt": 'Sobre "{step}" nesta execução: ',
+  "home.owners": "Quem cuida de quê",
+  "home.owner.health.working": "Trabalhando",
+  "home.owner.health.needs_you": "Precisa de você",
+  "home.owner.health.paused": "Pausado",
+  "home.owner.week": "Execuções nesta semana: {runs}. Corrigidas e repetidas: {corrected}.",
+  "home.owner.ask": "Perguntar a {name}",
+  "home.ideas": "Ideias para você",
+  "home.ideas.ask": "Fale conosco sobre isso",
+  "home.ideas.prompt": "Conte-me mais sobre {title}.",
+  "home.quick": "Ações rápidas",
+  "home.quick.upload": "Enviar uma lista",
+  "home.quick.feedback": "Enviar comentários",
+  "home.quick.feedbackPrompt": "Tenho um comentário para a Mezonas: ",
+  "sloanPanel.new": "Nova conversa",
+  "sloanPanel.full": "Histórico completo",
   "home.agents": "Seus agentes",
   "home.needsYou": "Precisa de você",
   "home.openInbox": "Abrir sua caixa de entrada",
@@ -2942,4 +2967,23 @@ export const ptBR: Messages = {
     "Perdeu o celular e os códigos de recuperação? Peça ao seu administrador ou ao seu contato na Mezonas para redefinir seu acesso.",
   "secondStep.signOut": "Sair",
   "secondStep.failed": "Não deu certo. Tente de novo.",
+  // §1.120: approving a Claude connection (the MCP server) from the browser.
+  "connectClaude.title": "Conectar o Claude",
+  "connectClaude.subtitle":
+    "O Claude pode usar a Mezonas em seu nome depois que você aprovar aqui.",
+  "connectClaude.card": "Conexão do Claude",
+  "connectClaude.status.waiting": "Esperando você",
+  "connectClaude.status.approved": "Aprovada",
+  "connectClaude.status.expired": "Expirada",
+  "connectClaude.waiting":
+    "O Claude pede para usar a Mezonas em seu nome. O primeiro pedido foi às {time}. Aprove só se você acabou de conectar o Claude.",
+  "connectClaude.lasts":
+    "Este link funciona até {time}. Depois de aprovada, dura até essa sessão do Claude terminar, no máximo 12 horas.",
+  "connectClaude.approve": "Aprovar",
+  "connectClaude.approving": "Aprovando…",
+  "connectClaude.approved":
+    "Aprovada. O Claude pode usar a Mezonas em seu nome até {time}, ou até você sair do Claude.",
+  "connectClaude.expired": "Este link expirou. Peça de novo ao Claude para receber um novo.",
+  "connectClaude.unknown":
+    "Este link não corresponde a nenhuma conexão do Claude sua. Peça de novo ao Claude para receber um novo.",
 };

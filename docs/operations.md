@@ -926,10 +926,12 @@ checked by **Twilio Verify** on Mezonas' own Twilio account; we never hold a cod
 authenticator secret. People who sign in through their company's SSO are not asked.
 
 **Off until `TWILIO_VERIFY_SERVICE_SID` is set** (a var under the environment's `vars` in
-`apps/api/wrangler.jsonc`; left out of the file until it has a value). **The screens are built (2026-11-14); the Claude connector's approval link is not.** Until
-it is, keep WorkOS's own multi-factor **on** (step 5 waits): the connector signs in through
-AuthKit alone, so without WorkOS's code an operator's Claude connection would have no second
-factor. Set wrongly (the service set, a key missing), the step fails closed: sign-ins wait on it and
+`apps/api/wrangler.jsonc`; left out of the file until it has a value). The Claude connector
+signs in through AuthKit alone, never through our step, so while the step is on each Claude
+connection is approved from a browser that passed it (`docs/plan.md` §1.120): Claude's first tool
+call answers with a link (`/ops/connect-claude/…` for an operator, `/connect-claude/…` for a
+client's person), good for 30 minutes; approved, it lasts until that Claude sign-in ends (12 hours
+at most). Set wrongly (the service set, a key missing), the step fails closed: sign-ins wait on it and
 its routes answer 503.
 
 To turn it on for an environment (staging first):
@@ -943,7 +945,10 @@ To turn it on for an environment (staging first):
    release (production).
 4. Sign in once with a password: you're asked to set up a method. Check the items in
    `packages/connectors/src/twilio/VERIFY_NOTES.md` as you go.
-5. Only once the connector's approval link is built, turn **WorkOS's own multi-factor off** (WorkOS → the environment → Authentication →
+5. Connect Claude to the environment's `/mcp` and ask it something ("whoami in Mezonas staging"):
+   it answers with an approval link. Open it in the browser from step 4, approve, ask again: it
+   answers. The audit log has `mcp.approve`.
+6. Then turn **WorkOS's own multi-factor off** (WorkOS → the environment → Authentication →
    Multi-factor auth), so nobody is asked twice.
 
 Everyone signs in once more when it is turned on (sessions from before it are ended). Someone who
@@ -951,8 +956,27 @@ lost their phone uses a recovery code; otherwise an operator resets their method
 (`POST /api/ops/users/:id/second-factor/reset` with a reason; the button comes with the screens),
 which also forgets every browser they had remembered. Every step is in the audit log:
 `session.second_factor_setup`, `session.second_factor` (ok or refused, with the method),
-`session.second_factor_send`, `session.recovery_codes`, `session.second_factor_reset`, and the
-sign-in row's `second_factor` (`pending`, `exempt` or `remembered`).
+`session.second_factor_send`, `session.recovery_codes`, `session.second_factor_reset`,
+`mcp.approve` (a Claude connection approved), and the sign-in row's `second_factor` (`pending`, `exempt` or `remembered`).
+
+### The phone app (`docs/plan.md` §1.116)
+
+`apps/mobile`, an Expo app (iOS and Android), built and submitted with EAS, not by `deploy.yml`.
+It talks to the API of the environment it was built for (`EXPO_PUBLIC_API_ORIGIN`: staging for the
+`development` and `preview` profiles, `https://app.mezonas.com` for `production`). The Worker side:
+
+- Sign-in needs nothing new in WorkOS: `/api/mobile/sign-in` runs the usual sign-in and returns to
+  `/api/mobile/handoff` on our own origin, which hands the session to `mezonas://signed-in`. With
+  the second step on, a phone sign-in always asks for the code (a remembered browser doesn't
+  count), and the sign-in's audit row says `app: phone`.
+- Not usable until the store accounts exist and a build is made (`docs/open.md`, "The phone app"):
+  until then nothing calls these routes and no push is sent.
+- Phone notifications go through Expo's push service, off unless `MOBILE_PUSH=on` (a Worker
+  variable); `EXPO_ACCESS_TOKEN` (a Worker secret) once Expo's enhanced push security is on.
+  `deploy.yml` copies neither yet: set them by hand (`wrangler secret put`) until it does. Expo is a
+  processor: HIPAA clients get no phone notifications until `expo_push` is in `BAA_PROCESSORS`.
+- Builds: `cd apps/mobile && npx eas-cli build --profile preview --platform all`; store releases
+  with `--profile production` and `npx eas-cli submit`. Full steps: `apps/mobile/README.md`.
 
 ### MCP server (Claude connector for the back office and for clients)
 
@@ -1011,6 +1035,8 @@ If connecting fails:
 | 401 "the access token is not for this server" on every call | AuthKit did not put this server's URL in the token's `aud` (RFC 8707 resource indicator; UNCHECKED) | Look at a token's `aud` in the Worker log or WorkOS, and set `MCP_AUDIENCE` to it under the environment's `vars`. Empty means the default (the `/mcp` URL); there is no way to turn the check off |
 | 503 "the sign-in service can't be reached" | The Worker could not read AuthKit's metadata at `<domain>/.well-known/oauth-authorization-server` | Check `WORKOS_AUTHKIT_DOMAIN` |
 | 503 "the MCP server is not set up here" | `WORKOS_AUTHKIT_DOMAIN` is set but WorkOS sign-in is not fully on (client id, API key, cookie password) | Fix WorkOS sign-in first |
+| A tool error `approval_needed: approve this Claude connection first: open …` | Our second step is on here (`docs/plan.md` §1.120): each Claude sign-in is approved once from a browser | Open the link in the browser where you're signed in to Mezonas (past the code), approve, then ask again. A link works for 30 minutes and only the newest one Claude gave |
+| A tool error `approval_needed: this sign-in can't be approved` | AuthKit's token carries no session id (`sid`; UNCHECKED that AuthKit always sends it) | Disconnect the connector in Claude and connect again; if it persists, look at a token's claims |
 | 429 | More than 120 calls a minute from you (Cloudflare rate limiting, `MCP_RATE_LIMIT`) | Wait a minute |
 
 To cut a connector off: remove the person's memberships (takes effect on the next call),
@@ -1252,7 +1278,7 @@ staging), which wrangler creates on the next deploy. Skill cases call the model 
 client.
 
 **The audit log and access review** are at `/ops/security/audit` (operators only). Review access every
-quarter: remove anyone listed who should no longer be there, then save the CSV with the review's
+quarter: remove anyone listed who should no longer be there (§1.3), then save the CSV with the review's
 date. Audit rows are kept for 6 years. Removing older rows is a manual owner task: the trigger must
 be disabled, as in `db:purge-client`.
 
@@ -1271,6 +1297,35 @@ be disabled, as in `db:purge-client`.
   request, the checks `checks / check`, `checks / static` and `analyze`, no force pushes or
   deletion, admin bypass.
 - Neon, project `mezonas` (Launch): History window 7 days (Settings → Postgres).
+
+## 1.3 People: joining and leaving (access control)
+
+**Joining.** An operator: Actions → **Add operator**, on each environment ("The first operator"
+above). A client's person: invited from the client's People (back office) or Team (portal, the
+client admin).
+
+**A client's person leaves** from the client's People (back office) or Team (portal, the client
+admin): Remove, then confirm. Their access ends within 5 minutes (an open session keeps what its
+cookie carries for that long, `docs/plan.md` §1.93), their open items go to the client admin, and
+the audit log has the request. Their user stays, so they can be invited again. A change of role is a
+removal and a new invite.
+
+**An operator leaves: the same day** (the policy allows one business day,
+`docs/policies/information-security.md` §3). Note each step's date:
+1. Mezonas, on production and on staging: Actions → **Remove operator** (`remove-operator.yml`),
+   once per environment, with their email. By hand instead, as `cs_owner`:
+   `DIRECT_DATABASE_URL=<cs_owner url> pnpm --filter @countersign/db run db:remove-operator <email> "<your name>"`.
+   Every operator membership goes: the back office refuses them within 5 minutes and the Ops MCP
+   connector on its next call. Their open items by name go to the other operators, a client they led
+   has no lead until you set one, and the audit log records `operator.remove`. It refuses the last
+   operator.
+2. WorkOS, both environments: delete the user. That ends their WorkOS sessions at the next refresh,
+   within the same 5 minutes.
+3. GitHub: remove them from the repository's collaborators.
+4. Every other console they could sign in to: Cloudflare, Neon, WorkOS's dashboard, Sentry,
+   Stripe, Twilio, Resend, ElevenLabs, the model providers' consoles, the domain registrar.
+5. Any key they could read: rotate it (§1, "Worker secrets"). There should be none: keys live in
+   GitHub secrets and Workers, never with people.
 
 ## 2. What CI does
 

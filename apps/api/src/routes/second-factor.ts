@@ -1,8 +1,9 @@
 // The second step of signing in (docs/plan.md §1.100): where a sign-in is with it, setting up the
 // first method, sending a code, checking it (and remembering the browser for 30 days), recovery
-// codes, and an operator's reset. The step's routes run outside mount(): they act for the person,
-// never in a client, and a `pending` session must reach them (getSession's
-// `allowPendingSecondFactor`); every other route refuses it.
+// codes, an operator's reset, and approving a Claude connection (§1.120). The step's routes run
+// outside mount(): they act for the person, never in a client, and a `pending` session must reach
+// them (getSession's `allowPendingSecondFactor`); every other route refuses it. The Claude
+// connection routes run outside mount() for the same reason, but refuse a pending session.
 
 import { deviceCookie, getSession, type Session, type WorkOSAdapter } from "@countersign/auth";
 import { routes, type SecondFactorKind } from "@countersign/core";
@@ -12,6 +13,7 @@ import type { Hono } from "hono";
 import { type AuditEntry, auditAlone, auditInTx } from "../audit";
 import { authDirectory } from "../auth";
 import { type AppContext, type AppEnv, HttpError, mount, mountPublic, notFound } from "../http";
+import { approveConnection, connectionView, findConnection } from "../mcp/approval";
 import {
   allowedKinds,
   factorsOf,
@@ -35,8 +37,11 @@ interface StepCtx {
   config: SecondFactorConfig | null;
 }
 
-/** The signed-in person, pending or not, and the step's configuration. */
-async function stepContext(c: AppContext): Promise<StepCtx> {
+/**
+ * The signed-in person and the step's configuration; pending or not, unless `passed` (then a
+ * pending sign-in is refused with 401 second_factor_required, as on every session route).
+ */
+async function stepContext(c: AppContext, passed = false): Promise<StepCtx> {
   const services = c.get("req").services();
   const choice = services.auth();
   if (!choice.ok)
@@ -44,7 +49,7 @@ async function stepContext(c: AppContext): Promise<StepCtx> {
   const result = await getSession(c.req.raw, {
     adapter: choice.adapter,
     directory: authDirectory(services.db),
-    allowPendingSecondFactor: true,
+    allowPendingSecondFactor: !passed,
   });
   if (!result.ok) {
     sendCookies(c, result.setCookies);
@@ -301,6 +306,52 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
       return { ok: true as const, removed: factors.length };
     },
   );
+}
+
+// ── The Claude connector's approval link (docs/plan.md §1.120) ─────────────────────────────────
+
+/** The signed-in person (past the step) and their own connection behind `code`. */
+async function connectionFor(c: AppContext, code: string) {
+  const { session, config } = await stepContext(c, true);
+  // Links are only given while the step is on; without its key no code can be matched.
+  if (!config) {
+    throw new HttpError(503, "second_factor_unavailable", "codes can't be checked right now");
+  }
+  const { db } = c.get("req").services();
+  const row = await findConnection(db, config.recoveryKeys, session.user.id, code);
+  // Another person's link answers as one that matches nothing: it says nothing about theirs.
+  if (!row) throw notFound("Claude connection");
+  return { session, row };
+}
+
+export function claudeConnectionRoutes(app: Hono<AppEnv>): void {
+  mountPublic(app, routes.claudeConnection, async ({ c }) => {
+    const { row } = await connectionFor(c, c.req.param("code") ?? "");
+    return connectionView(row, new Date());
+  });
+
+  mountPublic(app, routes.claudeConnectionApprove, async ({ c, services }) => {
+    const { session, row } = await connectionFor(c, c.req.param("code") ?? "");
+    const now = new Date();
+    const view = connectionView(row, now);
+    if (view.status === "approved") return view;
+    if (view.status === "expired") {
+      throw new HttpError(409, "expired", "this link has expired; ask Claude again for a new one");
+    }
+    const approved = await approveConnection(services.db, row, now);
+    if (approved.approvedNow) {
+      await auditAlone(
+        services.db,
+        c,
+        entry(session, "mcp.approve", "ok", 200, { connection: row.id }),
+      );
+    }
+    const after = connectionView(approved.row, now);
+    if (after.status !== "approved") {
+      throw new HttpError(409, "expired", "this sign-in has ended; connect Claude again");
+    }
+    return after;
+  });
 }
 
 const tooMany = () =>

@@ -121,7 +121,12 @@ export async function conferAi(deps: RuntimeDeps, req: ConferAiInput): Promise<C
     await recordModelCall(
       deps.ports.modelCalls,
       tenantId,
-      { runId: req.run.id, stepRunId: req.stepRunId, agentVersionId: req.run.agentVersionId },
+      {
+        runId: req.run.id,
+        stepRunId: req.stepRunId,
+        agentVersionId: req.run.agentVersionId,
+        action: "check",
+      },
       record,
       exchange,
     );

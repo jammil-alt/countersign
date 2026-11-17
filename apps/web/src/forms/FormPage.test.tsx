@@ -1,4 +1,4 @@
-// `/f/:token` (docs/plan.md §1.115): a "Request info" form, with no sign-in. The person answers in
+// `/f/:token` (docs/plan.md §1.121): a "Request info" form, with no sign-in. The person answers in
 // their own language, is told what is needed before sending, sees the server's problems by
 // question, saves to finish later, reviews and sends once; a closed or unknown link says so.
 import { render, screen, waitFor } from "@testing-library/react";

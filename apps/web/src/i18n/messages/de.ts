@@ -418,7 +418,7 @@ export const de: Messages = {
   "desk.edit": "Bearbeiten",
   "desk.edited": "Sie haben diese Änderung bearbeitet. Wir verwenden Ihre Fassung.",
   "desk.afterYouSign": "Nach Ihrer Freigabe", // fluent review
-  // §1.115: a form request's card
+  // §1.121: a form request's card
   "desk.form.heading": "Das Formular, das sie bekommen: {title}", // fluent review
   "desk.form.fixed": "Ihre Frage", // fluent review
   "desk.form.added": "Vom Agenten ergänzt", // fluent review
@@ -1111,6 +1111,11 @@ export const de: Messages = {
   "people.role.client_user": "Nutzer",
   "people.role.operator": "Mezonas",
   "people.invited": "Eingeladen",
+  "people.remove": "Entfernen",
+  "people.removeWarning":
+    "{name} verliert den Zugang innerhalb von 5 Minuten. Was auf diese Person wartet, geht an die Administratoren.",
+  "people.removeKeep": "Behalten",
+  "people.removeProblem": "Wir konnten die Person nicht entfernen. Versuchen Sie es noch einmal.",
   "people.none": "Noch niemand. Laden Sie unten jemanden ein.",
   "people.email": "E-Mail",
   "people.name": "Name (optional)",
@@ -2194,6 +2199,26 @@ export const de: Messages = {
   "nav.home": "Start",
   "nav.inbox": "Posteingang",
   "home.addDocuments": "Dokumente hinzufügen",
+  "home.owner.rename": "Umbenennen",
+  "home.owner.renameLabel": "Neuer Name für {name}",
+  "home.owner.save": "Speichern",
+  "stepPanel.tell": "Sagen Sie uns, was falsch war",
+  "stepPanel.tellPrompt": "Zu „{step}“ in diesem Lauf: ",
+  "home.owners": "Wer sich um was kümmert",
+  "home.owner.health.working": "Läuft",
+  "home.owner.health.needs_you": "Braucht Sie",
+  "home.owner.health.paused": "Pausiert",
+  "home.owner.week": "Läufe diese Woche: {runs}. Korrigiert und wiederholt: {corrected}.",
+  "home.owner.ask": "{name} fragen",
+  "home.ideas": "Ideen für Sie",
+  "home.ideas.ask": "Fragen Sie uns dazu",
+  "home.ideas.prompt": "Erzählen Sie mir mehr über {title}.",
+  "home.quick": "Schnellaktionen",
+  "home.quick.upload": "Liste hochladen",
+  "home.quick.feedback": "Feedback senden",
+  "home.quick.feedbackPrompt": "Ich habe Feedback für Mezonas: ",
+  "sloanPanel.new": "Neues Gespräch",
+  "sloanPanel.full": "Verlauf",
   "home.agents": "Ihre Agenten",
   "home.needsYou": "Braucht Sie",
   "home.openInbox": "Posteingang öffnen",
@@ -3006,4 +3031,24 @@ export const de: Messages = {
     "Telefon und Wiederherstellungscodes verloren? Bitten Sie Ihre Administration oder Ihre Ansprechperson bei Mezonas, Ihre Anmeldung zurückzusetzen.",
   "secondStep.signOut": "Abmelden",
   "secondStep.failed": "Das hat nicht funktioniert. Versuchen Sie es erneut.",
+  // §1.120: approving a Claude connection (the MCP server) from the browser.
+  "connectClaude.title": "Claude verbinden",
+  "connectClaude.subtitle":
+    "Claude kann Mezonas in Ihrem Namen nutzen, sobald Sie es hier freigeben.",
+  "connectClaude.card": "Claude-Verbindung",
+  "connectClaude.status.waiting": "Wartet auf Sie",
+  "connectClaude.status.approved": "Freigegeben",
+  "connectClaude.status.expired": "Abgelaufen",
+  "connectClaude.waiting":
+    "Claude möchte Mezonas in Ihrem Namen nutzen. Die erste Anfrage kam um {time}. Geben Sie es nur frei, wenn Sie Claude gerade selbst verbunden haben.",
+  "connectClaude.lasts":
+    "Dieser Link gilt bis {time}. Nach der Freigabe gilt sie, bis diese Claude-Anmeldung endet, höchstens 12 Stunden.",
+  "connectClaude.approve": "Freigeben",
+  "connectClaude.approving": "Wird freigegeben…",
+  "connectClaude.approved":
+    "Freigegeben. Claude kann Mezonas bis {time} in Ihrem Namen nutzen oder bis Sie sich bei Claude abmelden.",
+  "connectClaude.expired":
+    "Dieser Link ist abgelaufen. Fragen Sie Claude erneut, um einen neuen zu erhalten.",
+  "connectClaude.unknown":
+    "Dieser Link passt zu keiner Ihrer Claude-Verbindungen. Fragen Sie Claude erneut, um einen neuen zu erhalten.",
 };

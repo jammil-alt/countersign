@@ -1,4 +1,4 @@
-// `/f/:token` (docs/plan.md §1.115): the page a contact answers a "Request info" form on. No
+// `/f/:token` (docs/plan.md §1.121): the page a contact answers a "Request info" form on. No
 // sign-in: the signed link names one request. It shows the client's name, why we ask and the
 // questions, saves a draft to finish later, takes files one at a time, lets the person review
 // their answers and sends them once. The words are the person's language (the request's), the

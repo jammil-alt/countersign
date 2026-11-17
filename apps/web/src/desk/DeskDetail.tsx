@@ -65,7 +65,7 @@ const DESK_PLUMBING = new Set([
   "directorySuggestion",
   "accountChange",
   "accessRelease",
-  // §1.115: a form request's form, shown as its own section.
+  // §1.121: a form request's form, shown as its own section.
   "form",
 ]);
 
@@ -1076,7 +1076,7 @@ function messageOf(item: DeskItem): string | null {
   return null;
 }
 
-/** §1.115: the form a request will send, as its plan's card carries it; null for any other item. */
+/** §1.121: the form a request will send, as its plan's card carries it; null for any other item. */
 function formOf(payload: DeskItem["payload"]): {
   title: string;
   intro: string | null;

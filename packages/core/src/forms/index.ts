@@ -1,4 +1,4 @@
-// Forms: "Request info" (owner, 2026-11-16; docs/forms-plan.md, docs/plan.md §1.115).
+// Forms: "Request info" (owner, 2026-11-16; docs/forms-plan.md, docs/plan.md §1.121).
 //
 // The built-in skill `forms.request` sends one contact a form built for this case and waits for the
 // answers. The agent may write the form (`forms.draft`, or any earlier step); the operator fixes

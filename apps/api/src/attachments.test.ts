@@ -25,7 +25,7 @@ import {
   fakeResend,
   fakeTwilio,
 } from "@countersign/connectors/testing";
-import { AgentBundle, type AgentBundleInput, withIntroduction } from "@countersign/core";
+import { AgentBundle, type AgentBundleInput, optOutLine } from "@countersign/core";
 import {
   agent,
   document,
@@ -48,6 +48,8 @@ import {
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
+  optOutOf,
+  unsigned,
 } from "./api.test-helper";
 import { MESSAGE_MEDIA_ENTITY } from "./conversations/capture";
 import { handleEmail } from "./email";
@@ -58,10 +60,6 @@ import { reachOutTick } from "./reach/service";
 import { credentialsFor, executeRun, reachDepsFor } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
 import { verifyFileToken, workerUrlSigner } from "./storage";
-
-// §1.97: a first text to a contact names the client and ends with the opt-out line, added at send.
-const firstText = (text: string, language?: string) =>
-  withIntroduction(text, { client: "Client A", language });
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -526,8 +524,11 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
         });
       }
       const send = twilio.sends().at(-1);
-      expect(send?.form.Body).toBe(
-        firstText("Our purchase order is attached. Please send a quote."),
+      // §1.97: a first text, signed by the area owner (whose signature names the client), ends
+      // with the opt-out line.
+      expect(optOutOf(send?.form.Body)).toBe(optOutLine("en"));
+      expect(unsigned(send?.form.Body)).toBe(
+        "Our purchase order is attached. Please send a quote.",
       );
       const urls = new URLSearchParams(send?.body ?? "").getAll("MediaUrl");
       expect(urls).toHaveLength(1);
@@ -625,7 +626,9 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
       }
       const send = twilio.sends().at(-1);
       expect(send?.form.To).toBe(`whatsapp:${WA}`);
-      expect(send?.form.Body).toBe("Our purchase order is attached. Please send a quote.");
+      expect(unsigned(send?.form.Body)).toBe(
+        "Our purchase order is attached. Please send a quote.",
+      );
       expect(new URLSearchParams(send?.body ?? "").getAll("MediaUrl")).toHaveLength(1);
       await textIn([{ contentType: "application/pdf", bytes: QUOTE }], "Quote", {
         from: WA,

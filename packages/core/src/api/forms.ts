@@ -1,4 +1,4 @@
-// Forms (docs/plan.md §1.115): the public page a contact answers a "Request info" form on, opened
+// Forms (docs/plan.md §1.121): the public page a contact answers a "Request info" form on, opened
 // by a signed link, with no sign-in. It reads the form and the person's saved answers, saves a
 // draft, takes files one at a time and sends the answers once.
 

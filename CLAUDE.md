@@ -10,7 +10,7 @@ runs agents for client businesses from a **back office** that reaches into every
 customized (data, settings, drag-and-drop step workflows) and versioned per client, with lineage so template
 updates can be merged in and client improvements promoted back. Agents do the work and update the
 client's tools (QuickBooks Online and Gmail) within each connection's permissions. Each client gets a
-**portal** for reports, runs, approvals, requests and connections (clients sign in to their own tools); clients never edit agents. Use cases
+**portal** for reports, runs, approvals, requests and connections (clients sign in to their own tools); clients never edit agents (they may rename an area owner). Use cases
 are built only from platform parts. The data they share is organised by **business area** (purchasing,
 sales, receivables), each a pack used by many agents through its tools; agents never map to tables
 (ARCHITECTURE §12.0, v0.15). The **Purchasing area** (the Materials pack: master list, cross-vendor
@@ -43,6 +43,7 @@ Other docs: `docs/open.md` (everything still open, in priority order), `docs/loc
 | `apps/mfa` | The code service (ARCHITECTURE §6.9): a separate Worker with its own key and Durable Object storage for second-factor codes; `apps/api` reaches it only by service binding. Imports `@countersign/core` only. |
 | `apps/browser` | The browser service (`docs/plan.md` §1.92): a separate Worker with Browser Run and Playwright for website logins and browser tool calls; `apps/api` reaches it only by service binding and keeps every decision. No secrets; imports connectors' and core's types only. |
 | `apps/site` | The public site at `mezonas.com`: What we do (`/`), Hire, don't build (`/hire`), Security (`/security`), terms, privacy policy, subprocessors. Static HTML and CSS built from the design system's files, with the demos rendered at build from `src/content` and one small script (`src/site.js`) that only switches them, a small Worker that serves guides from R2 (off unless `SITE_GUIDES=on`), and the measuring script only in a build with `MEZONAS_MEASURE_URL`; imports nothing from the platform. |
+| `apps/mobile` | The Mezonas phone app (`docs/plan.md` §1.116): Expo (iOS and Android) for client users: the Desk, signing with Face ID, phone notifications, settings. Talks to `apps/api` over HTTP with its session in a header; imports `@countersign/core` and the design system's tokens; built with EAS, not `deploy.yml`. Merged unfinished: no store build yet, push off until `MOBILE_PUSH=on` (`docs/open.md`). |
 | `packages/design-system` | The Mezonas design system as delivered: `tokens.json` (source of truth) and `tokens.css`, component CSS (`ds-*`, `dt-*`, `mz-*`), logos, icons, Geist fonts, brand book. Plain CSS; don't edit it here, replace it with the owner's next delivery. |
 | `packages/core` | Domain types and Zod schemas (agent bundle, skill, workflow steps and rules, tool, connector, pack), workflow validation and template typing, bundle diff and three-way merge (shared with the builder and merge view), API route contract, units, money, mappers. |
 | `packages/db` | Drizzle schema, migrations (generated plus custom SQL), seed (agent/workflow definitions as JSON), `withTenant()`. |
@@ -60,7 +61,7 @@ Other docs: `docs/open.md` (everything still open, in priority order), `docs/loc
 | `fixtures/` | Invoices + expected JSON, QBO payloads, matching pairs, recorded LLM responses. |
 | `scripts/check-deps.mjs` | Enforces package layering (`docs/plan.md` §2). |
 | `scripts/setup-postgres.sh` | Gives a plain Postgres Neon's roles (CI and local). |
-| `.github/workflows/` | `ci.yml` (non-draft PRs) → `checks.yml`; `draft-pr.yml` (a draft PR for any pushed branch without one); `deploy.yml` (main → staging, `v*` tag → production); `bootstrap.yml` (by hand: Neon project, roles, Hyperdrive, R2). |
+| `.github/workflows/` | `ci.yml` (non-draft PRs) → `checks.yml`; `draft-pr.yml` (a draft PR for any pushed branch without one); `deploy.yml` (main → staging, `v*` tag → production); `bootstrap.yml` (by hand: Neon project, roles, Hyperdrive, R2); `add-operator.yml` and `remove-operator.yml` (by hand). |
 
 ## Commands
 
@@ -124,6 +125,8 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
    correct its input, never change its plan, approvals or permissions; a corrected write is decided
    again by the gate (ARCHITECTURE §10.11). Where a step lets it, it may pick one of the paths the
    operator built or say a `repeat` is done; that is not a change to the plan (§10.14, v0.17).
+   Between runs, an area owner may draft a new version of a process it oversees; it is applied
+   only once approved, and an owner never drafts one that loosens (§10.15, v0.19).
 10. **Evidence.** Alerts and agent outputs carry `sources` (record ids); alert-producing commands without
     sources are rejected. Every agent-made decision records `agent_version_id`.
 11. **The operator builds; clients use.** The client's team runs its agents day to day; the operator
@@ -133,7 +136,8 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
     merge. Forks and promotions never carry one client's memory, records or connections anywhere else.
     No portal route returns agent bundles, instructions, prompts or cost. Sloan, the client's account
     agent, sees only what the portal shows, writes only internal records for the person asking, and
-    never loosens a rule. Contract tests enforce these.
+    never loosens a rule. Clients may rename their area owners and talk to them; an owner in chat
+    keeps Sloan's rules for its own area (§10.15, v0.19). Contract tests enforce these.
 12. **Email stays narrow.** Gmail sync stores only messages matching the connection's query (headers,
     snippet, attachments); bodies are fetched on demand; email text reaches models only in tool results.
 13. **Access is explicit and secrets stay apart.** An agent reaches a connection only through its binding,

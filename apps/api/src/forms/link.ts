@@ -1,4 +1,4 @@
-// Forms (docs/plan.md §1.115): the signed link a contact opens a form with. It carries the client,
+// Forms (docs/plan.md §1.121): the signed link a contact opens a form with. It carries the client,
 // the request and an expiry, nothing else; the request's own row says whether it still takes
 // answers. Signed like the texting sign-up link, under its own label, so no other link opens it.
 
