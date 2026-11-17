@@ -102,7 +102,10 @@ describe("back office layout", () => {
     expect(screen.getByTestId("shell-search")).toHaveTextContent(
       "Find a client, agent, run or record",
     );
-    const escalations = screen.getByTestId("shell-inbox");
+    // §1.123.3: the top bar's desk is Your call; Escalations keeps its count in the sidebar.
+    expect(screen.getByTestId("shell-inbox")).toHaveAttribute("href", "/ops/call");
+    expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Your call");
+    const escalations = screen.getByTestId("ops-nav-inbox");
     expect(escalations).toHaveAttribute("href", "/ops/inbox");
     await waitFor(() => expect(escalations).toHaveTextContent("Escalations2"));
     // The operator is a Mezonas person: their avatar is the lead's copper one.
@@ -114,7 +117,7 @@ describe("back office layout", () => {
     expect(switcher).toHaveTextContent("Sandbox");
     expect(await clientOptions()).toEqual(["All clients", "Sandbox", "Demo client"]);
 
-    // Places only: Home, Escalations, Runs, Clients, Reggie (§1.101), Build, Business, and Utilities.
+    // Places only (§1.123.3): Home, Your call, Clients; Work; Run; Make; Business; and Utilities.
     const nav = screen.getByRole("complementary", { name: "Navigation" });
     expect(within(nav).getByTestId("ops-nav-home")).toHaveAttribute("href", "/ops");
     expect(within(nav).getByTestId("ops-nav-home")).toHaveTextContent("Home");
@@ -124,12 +127,15 @@ describe("back office layout", () => {
         .map((l) => l.textContent?.replace(/\d+$/, "")),
     ).toEqual([
       "Home",
-      "Escalations",
-      "Runs",
+      "Your call",
       "Clients",
+      "Sales",
+      "Build",
+      "Runs",
+      "Escalations",
       "Reggie",
-      // §1.108: every new agent and skill, from intake to go-live.
-      "Builds",
+      "Autopilot",
+      // §1.108's Builder board is reached from Build's Agent builds tab.
       "Agent lab",
       // R8: skills, tools, connectors and the other banks are in the Library.
       "Library",
@@ -199,7 +205,7 @@ describe("back office layout", () => {
       }),
     });
     renderAt("/ops/lab", api);
-    const escalations = await screen.findByTestId("shell-inbox");
+    const escalations = await screen.findByTestId("ops-nav-inbox");
     await waitFor(() => expect(escalations).toHaveTextContent("Escalations2"));
     // The picker's list is names only (§1.84): its counts come from GET /api/ops/counts.
     expect(api.calls).not.toContain("GET /api/ops/needs-us");

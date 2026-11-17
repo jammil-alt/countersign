@@ -22,6 +22,7 @@ import { Icon } from "../../../ui/icons";
 import { Page } from "../../../ui/page";
 import { Button, Loading } from "../../../ui/primitives";
 import { OPS_PATHS } from "../../paths";
+import { TodosPanel } from "../call/TodosPanel";
 import { Due, monthValue, plural, Standing } from "./parts";
 import { TermsPanel } from "./TermsPanel";
 
@@ -160,6 +161,7 @@ function DealPage({ id }: { id: string }) {
         </div>
         <aside className="flex flex-col gap-4">
           <TermsPanel detail={detail} onChanged={res.reload} />
+          <TodosPanel about={{ kind: "deal", id: d.id }} clientId={d.client?.id ?? null} />
           <ReggieRead detail={detail} />
           <People detail={detail} onChanged={res.reload} />
           {detail.builds.length > 0 ? <Builds detail={detail} /> : null}

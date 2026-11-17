@@ -19,6 +19,7 @@ import { ErrorNotice } from "../../../ui/ErrorState";
 import { Page } from "../../../ui/page";
 import { Button, Loading } from "../../../ui/primitives";
 import { OPS_PATHS } from "../../paths";
+import { TodoAddToggle } from "../call/TodosPanel";
 import { Due, StandingPill, shortDate, TodoLine, UrgencyPill } from "../parts";
 
 type Tab = "reply" | "note" | "desk";
@@ -319,6 +320,11 @@ function IssueView({ detail, reload }: { detail: IssueDetail; reload: () => void
             ) : (
               <p className="text-sm text-ink-muted">None open.</p>
             )}
+            <TodoAddToggle
+              about={{ kind: "issue", id: issue.id }}
+              clientId={issue.client.id}
+              onAdded={reload}
+            />
           </section>
           <section className="ds-card p-4" data-testid="issue-read">
             <div className="mb-2">

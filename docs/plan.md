@@ -5095,6 +5095,31 @@ written by stage 0; this table is the Sales stream's only.
 | Not here | The deal's email (`POST /api/ops/deals/:id/email`, §1.123.4): the composer's Email tab says it comes with Reggie's inbox; to-dos on a deal (§1.123.3); the sidebar entry (B1); Reggie's read beyond the deal's evidence. |
 | Checked | `packages/core/src/work/deals.test.ts`, `apps/api/src/deals.test.ts` (lead to set-up, the client served and a build per agent with its origin and promised date, set-up refused early and twice, outcomes and the check-back, terms and the signed copy, the hold, open-builds, the scope rules, set-up on one connection), `apps/web/src/ops/work/sales/sales.test.tsx`, and the route contract's operator-only checks. |
 
+### 1.123.3 Your call (stream B1, M66; `docs/cases-plan.md` T1)
+
+The one list of what needs a person (`/ops/call`), the client page's work, activity and to-dos,
+and the back office's sidebar, as the agreed prototype has them (`docs/design/pipelines.html`,
+`yourCall()` and `clientPage()`). This table is the Your call stream's only.
+
+| Topic | Decision |
+|---|---|
+| Where | Core `work/call.ts` (owners, the kind chips, tags, Later, the words) and `api/todos.ts` (the routes); `apps/api/src/work/todos.ts`, `work/activity.ts`, `work/client-work.ts`, `routes/todos.ts`; `apps/web/src/ops/work/call/` and `apps/web/src/ops/client/ClientWork.tsx`. Operator only: `todo` and `play_log` are operator-only tables (migrations 0062, 0064), and no portal route returns any of it. |
+| Who has it | `owner` is the operator, Reggie or the client, with an optional named operator (`owner_user_id`). // DECISION (owner): to-dos are owned by operator, reggie or client, with an optional operator. "Only mine" shows the to-dos named to you and those named to no one. A to-do about no client is every operator's; one about a client only the operators serving it (RLS and the query). |
+| Yours | Open to-do rows plus, read where they are kept and never copied: open escalations (inbox items for us), runs queued for audit and not yet marked, open build items we own on open builds, and changes Reggie proposed to you. The read ones link to their own screens (`editable: false`). Critical first, then by due date, undated last. |
+| The clients' | Client to-dos plus the open items on their Desks (approvals, requests and forms for client roles), each with its due date; a Desk item a to-do already mirrors (`desk_item_id`) shows once. |
+| Do it | Runs the to-do's primary action as the operator through `invokeRoute` (audited `todo …`): `send_reply` posts the (edited) draft on the issue as a client message; `approve_plan` makes a to-do per step (Reggie's for its `auto` steps, the client's for theirs, else yours, once each); `decide` sends the chosen option to the enhancement's decide or the deal's outcome or stage; `send_requirements` the build's requirements request; `confirm_card` Reggie's confirm. Then the to-do is done. `open` only takes you there. // DECISION: a deal's email reply is refused (409 `not_yet`) until Reggie's inbox (§1.123.4) adds `opsDealEmail`; the route is looked up by name, so it works once it is there. |
+| Undo | // DECISION: the 5 seconds before a draft goes are the page's: it waits before asking, so nothing is sent or stored in that time. |
+| Later | Until 9:00 the next weekday. // DECISION: in UTC: a to-do spans clients in many zones and an operator has no zone of its own yet. |
+| Take it | Moves one of Reggie's to the operator, named to them. Remind (a client's) is Reggie's stream's route (§1.123.4); its button shows once that route exists. |
+| Done today | `play_log` rows sent or done today (UTC), by flow, Sent or Internal; Flag sets `flagged_at`, the one update a play_log row takes. |
+| Counts | Need you (due today), Critical held (the holds), Reggie is on (done today), Waiting on clients (overdue), Questions this week (client people's messages in their account conversations, with the median minutes to the first answer). The top bar's desk is Your call with its count, read from `GET /api/ops/todos` with the badges' refreshes. |
+| Client page | On top of the Overview tab: KPIs (A month, Open issues, Builds, Sales open, Questions), its open Sales and Build work, its activity and its to-dos with Add. // DECISION: "A month" is the won deals' agreed price, else their value, by hand (owner: contracts stay by hand). |
+| Activity | Read across the tables that keep it, 50 a page, newest first: messages on the lead's, issues' and asks' conversations (notes marked Internal note), questions in account conversations with Sloan's answer time, live runs, and decisions and changes (issue history, the client's deals' activity, setting and agent changes, writes signed or turned down). |
+| Records | The issue page adds a to-do in place; the deal and enhancement pages have a to-dos panel (`GET /api/ops/todos?about=kind:id`). |
+| Sidebar | Home, Your call (count), Clients; Work: Sales, Build; Run: Runs, Escalations (count), Reggie, Autopilot; Make: Agent lab, Library, Packs; Business; Utilities at the foot. The Builder board is reached from Build's Agent builds tab. |
+| Not yet | The prototype's form preview on a requirements card (the request is sent from the build); the phone alert (owner: none yet); play logging when a person sends a play's draft (§1.123.4's). |
+| Checked | `packages/core/src/work/call.test.ts`, `apps/api/src/todos.test.ts` (roles, scope and RLS, Mine, Later, Take it, escalations and Desk items, Do it through the issue's route, Approve plan, the deal email refused, Done today and Flag, activity, the client page), `apps/web/src/ops/work/call/call.test.tsx`, and the route contract's operator-only checks. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
@@ -6234,6 +6259,13 @@ portal's Requests.
 **Done when** the owner and a test client go back and forth on an issue on staging; a held
 agent's run writes nothing and its items wait, and only an operator releases it; `/ops/requests`
 redirects; All work lists everything in the agreed order with a reason for each.
+
+### M66: Your call (§1.123.3)
+
+To-dos (`todo`), Your call with Yours, Reggie's, the clients' and Done today, the client page's
+to-dos and activity read across existing tables, and the sidebar.
+
+**Done when** every item that needs a person is on one list with a due date.
 
 ---
 
