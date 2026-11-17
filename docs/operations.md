@@ -883,6 +883,7 @@ WorkOS values below. Each PR's checks pass before it merges.
    check, applies every migration to Neon `main`, deploys the code service and the app, and runs
    `scripts/smoke.sh https://app.mezonas.com`.
 2. Check from outside: `curl -sS https://app.mezonas.com/api/health` answers 200;
+   `curl -sS https://app.mezonas.com/api/ready` answers 200 with `"db":"ok"` and the tag's commit;
    `curl -sS -X POST https://app.mezonas.com/api/connections/qbo/webhook -d '{}'` answers 401
    (once `QBO_WEBHOOK_VERIFIER` is set; 503 before).
 3. **Email Routing** (Cloudflare → `mezonas.com` → Email → Email Routing; one catch-all for the
@@ -899,15 +900,17 @@ WorkOS values below. Each PR's checks pass before it merges.
 5. **The platform templates** (the seed never runs on production): signed in to the back office,
    open the browser's console and run, once:
    ```js
-   for (const [slug, version] of [["bill-clerk", 1], ["builder", 1], ["coordinator", 1],
-     ["document-clerk", 1], ["supervisor", 3]]) {
+   for (const slug of ["bill-clerk", "builder", "coordinator", "document-clerk", "supervisor"]) {
      const r = await fetch(`/api/ops/platform-templates/${slug}/install`, { method: "POST",
-       headers: { "content-type": "application/json" }, body: JSON.stringify({ version }) });
-     console.log(slug, r.status);
+       headers: { "content-type": "application/json" }, body: "{}" });
+     console.log(slug, r.status, (await r.json()).version?.version);
    }
    ```
-   Each answers 200 (and 200 again if run twice). Pack templates (the Bookkeeper) install
-   themselves when a pack is switched on.
+   With no version named, each installs its newest seeded version (today bill-clerk 3, builder 2,
+   coordinator 2, document-clerk 2, supervisor 6). Each answers 200 (and 200 again if run twice,
+   changing nothing). Naming a seeded version older than one the template already holds answers
+   409 `older_version`: an install never goes back; a rollback in the back office does. Pack
+   templates (the Bookkeeper) install themselves when a pack is switched on.
 6. **Clients:** finish the Mezonas client from step 4 (`### Mezonas, our own client` below: its
    internal flag, approvals, packs) and create the first real client; switch on their packs; build or fork their agents as on staging.
 
@@ -1380,9 +1383,13 @@ step's date:
   secrets, then the browser service (`apps/browser`), builds `apps/web` and runs `wrangler deploy`
   for apps/api (whose `CODES` and `BROWSER` bindings need both deployed first). Its `site` job builds `apps/site` and deploys `mezonas-site`, from
   `main` only. After the Worker deploys, **`scripts/smoke.sh`** checks the app from the outside
-  (`/api/health` answers, the page and its script load, `/api/session` refuses with a JSON 401),
-  retrying for 2 minutes; a failure marks the deploy failed. Run it by hand against either
-  environment: `scripts/smoke.sh https://staging.mezonas.com`.
+  (`/api/health` answers; `/api/ready` answers 200 with `"db":"ok"`, which it does only when the
+  Worker's own database connection, Hyperdrive as `cs_worker`, answers `select 1` within 3 s; the
+  page and its script load; `/api/session` refuses with a JSON 401), retrying for 2 minutes; a
+  failure marks the deploy failed. Given a commit (a second argument, or `EXPECTED_SHA`), it also
+  checks that `/api/ready`'s `sha` (the Worker's `DEPLOYED_SHA`) is that commit; without one it
+  skips that comparison. Run it by hand against either environment:
+  `scripts/smoke.sh https://staging.mezonas.com [commit]`.
 - **The screen sweep** (`checks.yml`'s `sweep` job, `apps/web/e2e/route-sweep.mjs`): beside the
   tests, on the seeded database, the built app runs on `wrangler dev` with the dev sign-in and real
   Chromium opens every screen of the back office (as the operator) and the portal (as the Demo
