@@ -168,6 +168,14 @@ then one pass of its "To verify" list against the real service.
 
 ## 4. Everything else
 
+### Client intake and onboarding (designed 2026-11-17, not built)
+
+From a lead to the first agent built: a short discovery by link before "yes", the client made at
+"yes", then an intake interview in the portal (chat, voice or a call, tools connected as it goes)
+that ends in a signed scope and opens one build per agent sold. Ties into the Sales and Build
+design (`docs/cases-plan.md`). The design, its steps (I1–I6) and the owner's open questions:
+`docs/onboarding-plan.md`.
+
 ### Area owners, owner chat and Home (designed 2026-11-12)
 
 ARCHITECTURE v0.19 §10.15, `docs/plan.md` §1.117 and §10 (O1–O8). Built on
