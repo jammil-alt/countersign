@@ -40,6 +40,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { consumeTextReply, type Wake, wakeRelease } from "../access/release";
+import { readTextLimited } from "../body";
 // v0.14 capture: WhatsApp conversations and their attachments
 import {
   type ConversationRow,
@@ -79,10 +80,8 @@ function twiml(c: Context<AppEnv>, status = 200) {
 }
 
 async function readForm(req: Request): Promise<Record<string, string>> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > MAX_BYTES) throw new HttpError(413, "too_large", "the body is too large");
-  const text = await req.text();
-  if (text.length > MAX_BYTES) throw new HttpError(413, "too_large", "the body is too large");
+  const text = await readTextLimited(req, MAX_BYTES);
+  if (text === null) throw new HttpError(413, "too_large", "the body is too large");
   try {
     return formDecode(text);
   } catch {

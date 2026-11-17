@@ -46,6 +46,7 @@ import { type EventRow, emit } from "@countersign/senses";
 import { and, eq, sql } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
+import { readTextLimited } from "../body";
 import {
   ensureVoiceAgent,
   planInbound,
@@ -82,10 +83,8 @@ function twiml(c: Context<AppEnv>, body: string) {
 }
 
 async function readForm(req: Request): Promise<Record<string, string>> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > MAX_BYTES) throw new HttpError(413, "too_large", "the body is too large");
-  const text = await req.text();
-  if (text.length > MAX_BYTES) throw new HttpError(413, "too_large", "the body is too large");
+  const text = await readTextLimited(req, MAX_BYTES);
+  if (text === null) throw new HttpError(413, "too_large", "the body is too large");
   try {
     return formDecode(text);
   } catch {

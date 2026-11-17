@@ -47,6 +47,7 @@ import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import { type AuditEntry, auditAction, auditAlone, auditInTx, auditTarget } from "./audit";
 import { type AdapterChoice, accountInTx, authDirectory, chooseAdapter } from "./auth";
+import { readTextLimited } from "./body";
 import type { BrowserDeps } from "./browser/services";
 import type { Bindings } from "./env";
 import type { ExportJobs } from "./exports/instances";
@@ -386,7 +387,21 @@ export interface HandlerCtx<R extends RouteSpec> extends PublicCtx<R> {
 
 type Result<R extends RouteSpec> = z.input<R["response"]>;
 
-async function parseInput<R extends RouteSpec>(c: AppContext, spec: R) {
+/**
+ * The most a route with no session takes as its JSON body. DECISION (audit 6.5): 1 MiB. It holds
+ * a form of 40 long answers at their 20,000-character cap (about 800 KB) and is far past the
+ * sign-in steps' and texting sign-up's few fields. It does not hold the form schema's ceiling: 40
+ * table questions of 50 rows by 8 long-text cells allow 320 million characters, which no limit
+ * should take; a form that large gets 413 when its draft is saved or it is sent.
+ */
+export const PUBLIC_BODY_MAX_BYTES = 1024 * 1024;
+
+async function parseInput<R extends RouteSpec>(
+  c: AppContext,
+  spec: R,
+  /** Read the body bounded, refusing a longer one with 413 (routes with no session). */
+  maxBytes?: number,
+) {
   const params = spec.params ? spec.params.parse(c.req.param()) : undefined;
   const query = spec.query ? spec.query.parse(c.req.query()) : undefined;
   let body: unknown;
@@ -398,8 +413,10 @@ async function parseInput<R extends RouteSpec>(c: AppContext, spec: R) {
       throw new HttpError(415, "invalid_request", "the body must be JSON (application/json)");
     }
     let raw: unknown;
+    const text = maxBytes === undefined ? undefined : await readTextLimited(c.req.raw, maxBytes);
+    if (text === null) throw new HttpError(413, "too_large", "the body is too large");
     try {
-      raw = await c.req.json();
+      raw = text === undefined ? await c.req.json() : JSON.parse(text);
     } catch {
       throw new HttpError(400, "invalid_request", "the body must be JSON");
     }
@@ -428,7 +445,7 @@ export function mountPublic<R extends RouteSpec>(
 ): void {
   app.on(spec.method, spec.path, async (c) => {
     try {
-      const { query, body } = await parseInput(c, spec);
+      const { query, body } = await parseInput(c, spec, PUBLIC_BODY_MAX_BYTES);
       const services = c.get("req").services();
       return respond(c, spec, await handler({ c, body, query, services }));
     } catch (error) {

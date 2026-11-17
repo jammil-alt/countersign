@@ -24,6 +24,7 @@ import { type EventRow, emit } from "@countersign/senses";
 import { and, count, eq, gt, like, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
+import { readBodyLimited } from "../body";
 import { type AppEnv, errorResponse, HttpError } from "../http";
 import { dispatchEvents } from "../runs/dispatch";
 import { connectionCredentials } from "../secrets";
@@ -31,31 +32,9 @@ import { connectionCredentials } from "../secrets";
 const spec = routes.inboundHook;
 const Params = z.object({ tenantId: z.uuid(), hookId: z.uuid() });
 
-/** Reads at most `limit + 1` bytes, so an oversized body is refused without reading it all. */
+/** The body, bounded; one past `limit` stands for any body longer than it (`deliveryText`). */
 async function readBody(req: Request, limit: number): Promise<Uint8Array> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > limit) return new Uint8Array(limit + 1);
-  if (!req.body) return new Uint8Array();
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.length;
-    chunks.push(value);
-    if (size > limit) {
-      await reader.cancel();
-      break;
-    }
-  }
-  const out = new Uint8Array(size);
-  let at = 0;
-  for (const c of chunks) {
-    out.set(c, at);
-    at += c.length;
-  }
-  return out;
+  return (await readBodyLimited(req, limit)) ?? new Uint8Array(limit + 1);
 }
 
 function refused(r: { status: number; code: string; message: string }): HttpError {
