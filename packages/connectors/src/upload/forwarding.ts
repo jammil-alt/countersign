@@ -8,7 +8,7 @@ import { randomBytes, utf8 } from "../runtime";
 
 const B32 = "abcdefghijklmnopqrstuvwxyz234567";
 
-function base32(bytes: Uint8Array): string {
+export function base32(bytes: Uint8Array): string {
   let bits = 0;
   let value = 0;
   let out = "";
@@ -24,7 +24,7 @@ function base32(bytes: Uint8Array): string {
   return out;
 }
 
-function unbase32(text: string): Uint8Array | null {
+export function unbase32(text: string): Uint8Array | null {
   let bits = 0;
   let value = 0;
   const out: number[] = [];
@@ -41,7 +41,7 @@ function unbase32(text: string): Uint8Array | null {
   return new Uint8Array(out);
 }
 
-function uuidBytes(id: string): Uint8Array {
+export function uuidBytes(id: string): Uint8Array {
   const hex = id.replace(/-/g, "").toLowerCase();
   if (!/^[0-9a-f]{32}$/.test(hex)) throw new Error(`not a client id: ${id}`);
   const out = new Uint8Array(16);
@@ -49,7 +49,7 @@ function uuidBytes(id: string): Uint8Array {
   return out;
 }
 
-function bytesUuid(bytes: Uint8Array): string {
+export function bytesUuid(bytes: Uint8Array): string {
   const h = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }

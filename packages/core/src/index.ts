@@ -15,6 +15,8 @@ export * from "./api/account";
 export * from "./api/approver-rules";
 // v0.12 W2-B: automations
 export * from "./api/automations";
+// docs/plan.md §1.123.4: Reggie and Autopilot.
+export * from "./api/autopilot";
 // v0.12 bankfeed
 export * from "./api/bankfeed";
 export * from "./api/billing";

@@ -2,11 +2,13 @@
 // Worker and in Node tests (with a test database and in-memory Workflow instances).
 
 import { credentialKeysFromEnv, globalFetch } from "@countersign/connectors";
-import { routes } from "@countersign/core";
+import { parseCoveredProcessors, routes } from "@countersign/core";
 import type { Db } from "@countersign/db";
 import { Hono } from "hono";
 import { sloanTick } from "./account/sloan";
 import { summarizeQuietConversations } from "./account/summaries";
+// §1.123 back office work: Reggie's pass, email, chases, questions and spotting
+import { backOfficeTick } from "./backoffice/tick";
 import { bankfeedCron } from "./bankfeed/sync";
 import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
@@ -31,6 +33,7 @@ import { lifecycleTick } from "./lifecycle/cron";
 import { mcpRoutes } from "./mcp/routes";
 // P-8: US texting registration
 import { a2pCronTick } from "./messaging/a2p";
+import { mailerFromEnv } from "./notify/mailer";
 // v0.12 W2-G
 import { originOf } from "./notify/outbox";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
@@ -47,6 +50,8 @@ import { accessRoutes } from "./routes/access";
 import { accountRoutes } from "./routes/account";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { auditExportRoutes } from "./routes/audit-export";
+// §1.123 back office work: Reggie and Autopilot
+import { autopilotRoutes } from "./routes/autopilot";
 // v0.12 bankfeed
 import { bankfeedRoutes } from "./routes/bankfeed";
 import { billingRouteHandlers } from "./routes/billing";
@@ -166,6 +171,7 @@ import {
   reachDepsFor,
   runDepsFromEnv,
   runtimeFor,
+  workerTransport,
 } from "./runs/execute";
 // M45: Search Console and Bing, nightly (docs/plan.md §1.75).
 import { searchSyncTick } from "./search-sync";
@@ -330,6 +336,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   workRouteHandlers(app);
   portalIssueRouteHandlers(app);
   todoRoutes(app);
+  autopilotRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
@@ -381,6 +388,20 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     // §1.123 back office work: change requests and Feedback raised before Build, adopted hourly.
     await adoptLegacy(db, scheduledTime).catch((error: unknown) =>
       reportHandled("adopting requests failed", error, { job: "work_adopt" }),
+    );
+    // §1.123 back office work: Reggie reads new issues (every minute), emails go, chases, questions
+    // (hourly) and expansion spotting (nightly).
+    await backOfficeTick(
+      {
+        db,
+        transport: deps.llm?.(env) ?? workerTransport(env),
+        mailer: mailerFromEnv(env, deps.fetch?.(env)),
+        domain: env.EMAIL_FORWARDING_DOMAIN,
+        covered: parseCoveredProcessors(env.BAA_PROCESSORS),
+      },
+      scheduledTime,
+    ).catch((error: unknown) =>
+      reportHandled("back office tick failed", error, { job: "backoffice" }),
     );
     await lifecycleTick(db, scheduledTime).catch((error: unknown) =>
       reportHandled("lifecycle tick failed", error, { job: "lifecycle" }),

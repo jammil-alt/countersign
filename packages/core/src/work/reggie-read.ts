@@ -3,7 +3,7 @@
 // Stored on `issue.reggie_read`; never in a portal response.
 
 import { z } from "zod";
-import { WorkUrgency } from "./pipelines";
+import { WorkCauseKind, WorkUrgency } from "./pipelines";
 
 export const ReggieRead = z.object({
   kind: z.enum(["issue", "ask", "question", "not_ours"]),
@@ -24,6 +24,8 @@ export const ReggieRead = z.object({
     .max(6),
   draft: z.object({ text: z.string().max(4000) }).nullable(),
   sure: z.string().max(200),
+  /** Reggie's guess at the cause's kind, when it has one (§1.123.4: "Find the cause"). */
+  cause: WorkCauseKind.nullable().optional(),
   confident: z.boolean(),
   at: z.string(),
   sourceMessageId: z.string().nullable(),
