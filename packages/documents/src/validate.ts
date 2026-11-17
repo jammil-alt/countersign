@@ -71,11 +71,15 @@ export function lineArithmetic(line: LineFigures): { per: 1 | 100 | 1000; proble
   const amount = dec(line.extPrice).abs();
   const computed = qty.abs().times(unitPrice.abs());
   const half = (places: number) => dec("0.5").times(dec(`1e-${places}`));
-  const allowance = dec(LINE_TOLERANCE)
-    .plus(qty.abs().times(half(Math.max(2, unitPrice.decimalPlaces()))))
+  // The printed figures' rounding scales with the price (per hundred or thousand); the cent the
+  // amount is rounded to doesn't.
+  const rounding = qty
+    .abs()
+    .times(half(Math.max(2, unitPrice.decimalPlaces())))
     .plus(qty.decimalPlaces() > 0 ? unitPrice.abs().times(half(qty.decimalPlaces())) : dec("0"));
   for (const per of [1, 100, 1000] as const) {
-    if (computed.dividedBy(per).minus(amount).abs().lessThanOrEqualTo(allowance.dividedBy(per))) {
+    const allowance = dec(LINE_TOLERANCE).plus(rounding.dividedBy(per));
+    if (computed.dividedBy(per).minus(amount).abs().lessThanOrEqualTo(allowance)) {
       return { per, problem: null };
     }
   }

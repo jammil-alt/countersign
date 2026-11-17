@@ -109,6 +109,13 @@ describe("validateTotals", () => {
     // Priced per thousand (M) and per hundred (C).
     expect(fits({ qty: "1240", unitPrice: "1850.00", extPrice: "2294.00" })).toBe(true);
     expect(fits({ qty: "500", unitPrice: "12.50", extPrice: "62.50" })).toBe(true);
+    // ...with the amount rounded to the cent: 733 BF at 1,855.00/M is 1,359.715; 50 at 12.55/C
+    // is 6.275.
+    expect(fits({ qty: "733", unitPrice: "1855.00", extPrice: "1359.72" })).toBe(true);
+    expect(fits({ qty: "50", unitPrice: "12.55", extPrice: "6.28" })).toBe(true);
+    expect(lineArithmetic({ qty: "733", unitPrice: "1855.00", extPrice: "1359.72" }).per).toBe(
+      1000,
+    );
     expect(lineArithmetic({ qty: "1240", unitPrice: "1850.00", extPrice: "2294.00" }).per).toBe(
       1000,
     );
