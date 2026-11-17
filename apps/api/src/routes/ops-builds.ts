@@ -194,7 +194,12 @@ function changeLines(answer: Awaited<ReturnType<typeof buildTurn>>["answer"]): s
   const out: string[] = [];
   if (answer.brief) {
     for (const key of BRIEF_FIELDS) {
-      if (answer.brief[key]) out.push(`Brief: ${BRIEF_LABELS[key].toLowerCase()}`);
+      const f = answer.brief[key];
+      if (!f) continue;
+      // QA (2026-11-17): a field the turn left open read as filled ("+ Brief: done well means").
+      const state =
+        f.state === "open" ? " (still open)" : f.state === "assumed" ? " (assumed)" : "";
+      out.push(`Brief: ${BRIEF_LABELS[key].toLowerCase()}${state}`);
     }
   }
   if (answer.fitgap) {

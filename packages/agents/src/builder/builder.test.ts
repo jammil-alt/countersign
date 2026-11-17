@@ -14,11 +14,11 @@ import {
   processes,
   type SkillDefinition,
 } from "@countersign/core";
-import { createLlmClient, FakeModel, type FakeTurn } from "@countersign/llm";
+import { createLlmClient, FakeModel, type FakeTurn, fakeMessage } from "@countersign/llm";
 import { describe, expect, it } from "vitest";
 import { ToolRegistry } from "../registry/tools";
 import { PLATFORM_TOOLS } from "../tools/platform";
-import { BuilderError, draftAgent, reviseAgent } from "./builder";
+import { BUILDER_ANSWER_TOKENS, BuilderError, draftAgent, reviseAgent } from "./builder";
 import type { BuilderContext } from "./context";
 import { guardBundle, replaceTemplates } from "./guards";
 
@@ -331,6 +331,38 @@ describe("draftAgent", () => {
     await expect(
       draftAgent({ description: "x", ctx }, { llm: llmWith(bad), validate: validateWith(ctx) }),
     ).rejects.toMatchObject({ code: "invalid_answer" });
+  });
+
+  // QA on staging (2026-11-17): a 17-step reconciliation was cut off twice at 16,000 tokens.
+  it("asks for a smaller draft once when the answer is cut off, with a high limit", async () => {
+    const ctx = context();
+    const cut = (): FakeTurn => ({
+      message: fakeMessage(
+        "claude-sonnet-5-5",
+        [{ type: "tool_use", id: "toolu_cut", name: "submit_draft", input: {} }] as never,
+        "max_tokens",
+      ),
+    });
+    const model = new FakeModel([
+      cut(),
+      { toolUse: { name: "submit_draft", input: cardChargesAnswer } },
+    ]);
+    const result = await draftAgent(
+      { description: "A monthly bank reconciliation", ctx },
+      { llm: llmWith(model), validate: validateWith(ctx) },
+    );
+    expect(result.bundle.workflows).toHaveLength(1);
+    expect(model.requests[0]?.max_tokens).toBe(BUILDER_ANSWER_TOKENS);
+    const retried = JSON.stringify(model.requests[1]?.messages);
+    expect(retried).toContain("the main path only");
+    expect(model.requests[1]?.messages).toHaveLength(1);
+
+    // Cut off again: it stops, and says so.
+    const twice = new FakeModel([cut(), cut()]);
+    await expect(
+      draftAgent({ description: "x", ctx }, { llm: llmWith(twice), validate: validateWith(ctx) }),
+    ).rejects.toMatchObject({ code: "invalid_answer", details: { code: "max_tokens" } });
+    expect(twice.requests).toHaveLength(2);
   });
 
   it("keeps a missing step the model placed, and doesn't spend a repair on it", async () => {

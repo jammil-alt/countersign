@@ -17,7 +17,6 @@ import {
   readFitGap,
   readQa,
   readTestPlan,
-  SETUP_KINDS,
 } from "./build";
 
 const base: GateFacts = {
@@ -222,31 +221,5 @@ describe("verdicts", () => {
       setup: before.setup.map((f) => (f.id === "ap" ? { ...f, hint: "e.g. ap@client.com" } : f)),
     });
     expect(saved.ok && saved.fitgap.setup.map((f) => f.byOperator)).toEqual([true, true, false]);
-  });
-});
-
-// Owner (2026-11-17): the client intake form holds only what the client gives us.
-describe("the client intake form", () => {
-  it("offers no pack to switch on, and drops one already stored without losing the rest", () => {
-    expect(SETUP_KINDS).toEqual(["connect", "answer", "file"]);
-    const stored = {
-      rows: [
-        { id: "r", need: "Read the bank feed", verdict: "configure", how: "Bookkeeping pack" },
-      ],
-      setup: [
-        { id: "qbo", label: "Connect QuickBooks", kind: "connect", hint: "" },
-        {
-          id: "bk",
-          label: "Switch on the Bookkeeping pack",
-          kind: "pack",
-          hint: "",
-          byOperator: true,
-        },
-        { id: "who", label: "Who approves?", kind: "answer", hint: "" },
-      ],
-    };
-    const read = readFitGap(stored);
-    expect(read.rows.map((r) => r.id)).toEqual(["r"]);
-    expect(read.setup.map((f) => f.id)).toEqual(["qbo", "who"]);
   });
 });

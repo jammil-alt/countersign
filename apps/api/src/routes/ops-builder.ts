@@ -101,6 +101,7 @@ import {
   updateSession,
 } from "../builder/sessions";
 import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound } from "../http";
+import { reportHandled } from "../observability/report";
 import { workerTransport } from "../runs/execute";
 import { agentSummary, versionSummary } from "./mappers";
 import { builderAutomations } from "./ops-automations";
@@ -273,15 +274,34 @@ async function freeSlug(ctx: Pick<Ctx, "tx">, clientId: string | null, base: str
 // v0.12 W3-A: an index loop in place of `/^-+|-+$/g` (no backtracking regex over the text).
 const slugify = (text: string) => builderSlug(text);
 
+/**
+ * A Builder failure as the answer: reported (Sentry; a 4xx is not reported on its own), and said in
+ * plain words with whether trying again helps. The internals (the model's error, the tool's name)
+ * go to the report and the details, never into the words on screen.
+ */
+// DECISION (QA on staging, 2026-11-17): the screen showed "the answer was cut off at max_tokens
+// partway through submit_draft" and Sentry had nothing, across two builds and four errors.
 export function builderHttpError(error: unknown): never {
   if (error instanceof BuilderError) {
-    throw error.code === "model_unavailable"
-      ? new HttpError(
-          503,
-          "builder_unavailable",
-          `the Builder could not reach its model: ${error.message}`,
-        )
-      : new HttpError(422, "builder_failed", error.message, error.details);
+    const cause = (error.details as { code?: unknown } | undefined)?.code;
+    const failure = typeof cause === "string" ? cause : error.code;
+    reportHandled("a Builder answer could not be used", error, { kind: "builder", failure });
+    if (error.code === "model_unavailable") {
+      throw new HttpError(
+        503,
+        "builder_unavailable",
+        "The Builder couldn't reach its model just now, so nothing changed. Try again in a minute.",
+        { failure },
+      );
+    }
+    throw new HttpError(
+      422,
+      "builder_failed",
+      failure === "max_tokens"
+        ? "The Builder's answer was too long to finish, even as a smaller first draft, so nothing changed. Try again; if it stops again, take some rows out of the fit-gap to add to the draft later."
+        : "The Builder's answer came back in a form we couldn't use, so nothing changed. Trying again usually works; we've logged it.",
+      { failure },
+    );
   }
   throw error;
 }

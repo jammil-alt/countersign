@@ -12,6 +12,13 @@ import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR } from "./api.test-helper";
 
+// What reaches Sentry (a no-op here otherwise): a Builder failure must (QA on staging, 2026-11-17).
+const sentry = vi.hoisted(() => ({ captureException: vi.fn() }));
+vi.mock("@sentry/cloudflare", async (real) => ({
+  ...(await real<object>()),
+  captureException: sentry.captureException,
+}));
+
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
 }
@@ -600,6 +607,60 @@ describe.skipIf(!h)("builds", () => {
     });
     expect(b.messages.find((m) => m.id === again?.id)?.proposal?.state).toBe("declined");
     expect(b.items.find((i) => i.id === w9)?.state).toBe("open");
+  });
+
+  // QA on staging (2026-11-17): a 17-step draft was cut off twice; the banner said "max_tokens"
+  // and "submit_draft", nothing said whether trying again would help, and Sentry had nothing.
+  it("says a draft that can't be finished in plain words, and reports it", async () => {
+    let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Monthly reconciliation" });
+    const id = b.build.id;
+    model.push(
+      turnAnswer({
+        text: "Got it.",
+        brief: {
+          goal: { text: "Reconcile each account monthly", state: "confirmed" },
+          trigger: { text: "Month end", state: "confirmed" },
+          dataIn: { text: "Bank lines and the statement", state: "confirmed" },
+          dataOut: { text: "A reconciliation report", state: "open" },
+        },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Monthly bank reconciliation." });
+    // A field the turn left open says so in the change tags.
+    expect(b.messages.at(-1)?.changes).toContain("Brief: data out (still open)");
+    model.push(
+      turnAnswer({
+        text: "One we do as is.",
+        fitgap: { rows: [{ id: "lines", need: "Read bank lines", verdict: "native", how: "x" }] },
+      }),
+    );
+    await ok("POST", `/api/ops/builds/${id}/phase`, { to: "fitgap" });
+    const cut = () => ({
+      message: fakeMessage(
+        "claude-sonnet-5-5",
+        [{ type: "tool_use", id: "toolu_cut", name: "submit_draft", input: {} }] as never,
+        "max_tokens",
+      ),
+    });
+    model.push(cut(), cut());
+    sentry.captureException.mockClear();
+    const res = await call("POST", `/api/ops/builds/${id}/phase`, { to: "draft" });
+    expect(res.status).toBe(422);
+    const error = (res.json as unknown as { error: { code: string; message: string } }).error;
+    expect(error.code).toBe("builder_failed");
+    expect(error.message).toContain("too long to finish, even as a smaller first draft");
+    expect(error.message).not.toMatch(/max_tokens|submit_draft/);
+    // The smaller draft was asked for before giving up, with the higher limit.
+    expect(model.requests.at(-2)?.max_tokens).toBe(64_000);
+    expect(JSON.stringify(model.requests.at(-1)?.messages)).toContain("the main path only");
+    expect(sentry.captureException).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        tags: expect.objectContaining({ kind: "builder", failure: "max_tokens" }),
+      }),
+    );
+    b = await ok("GET", `/api/ops/builds/${id}`);
+    expect(b.build.phase).toBe("fitgap");
   });
 
   // Owner (2026-11-17): the draft changes in the build's conversation, agreed and undoable.

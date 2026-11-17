@@ -168,7 +168,7 @@ describe("Builds", () => {
     expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent(
       "Invoice intake reviewer",
     );
-    expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent("1 open item");
+    expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent("1 open issue");
     expect(screen.getByTestId("builds-items")).toHaveTextContent("How many: still open");
     // Who has each item, in words; gold says it waits on you.
     const row = screen.getByTestId(`builds-item-${ITEM}`);
@@ -572,6 +572,35 @@ describe("Builds", () => {
     expect(within(view).getByTestId("build-proposal-undo")).toBeInTheDocument();
   });
 
+  // QA on staging (2026-11-17): a draft that couldn't be made left only a banner of internals.
+  it("offers to try a failed draft again, in plain words", async () => {
+    const moves: unknown[] = [];
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => detail(),
+      [`POST /api/ops/builds/${ID}/phase`]: ({ init }) => {
+        moves.push(JSON.parse(String(init.body)));
+        return moves.length === 1
+          ? new Reply(422, {
+              error: {
+                code: "builder_failed",
+                message:
+                  "The Builder's answer was too long to finish, even as a smaller first draft, so nothing changed.",
+              },
+            })
+          : detail();
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const view = await screen.findByTestId("build-view");
+    await userEvent.click(within(view).getByTestId("build-agree"));
+    const notice = await within(view).findByTestId("build-error");
+    expect(notice).toHaveTextContent("too long to finish");
+    await userEvent.click(within(notice).getByTestId("build-error-retry"));
+    await waitFor(() => expect(moves).toEqual([{ to: "draft" }, { to: "draft" }]));
+    await waitFor(() => expect(within(view).queryByTestId("build-error")).toBeNull());
+  });
+
   it("filters the fit-gap by verdict and changes one only with a reason", async () => {
     const sent: unknown[] = [];
     const withTiers = () => {
@@ -609,7 +638,7 @@ describe("Builds", () => {
     expect(within(fit).queryByLabelText("Verdict: Read invoice PDFs")).toBeNull();
     expect(within(fit).getByTestId("build-fit-read-verdict")).toHaveTextContent("Native");
     expect(within(fit).getByTestId("build-fit-tiers-item")).toHaveTextContent(
-      "Becomes an open item for Builder",
+      "Becomes an issue for Builder",
     );
 
     // A count shows which rows it counts.
@@ -624,6 +653,9 @@ describe("Builds", () => {
 
     // Less work is a challenge to the Builder, with why.
     await userEvent.click(within(fit).getByTestId("build-fit-tiers-change"));
+    // QA (2026-11-17): nothing is proposed until a verdict is picked.
+    expect(within(fit).getByTestId("build-fit-tiers-to")).toHaveValue("");
+    expect(within(fit).getByTestId("build-fit-tiers-send")).toBeDisabled();
     await userEvent.selectOptions(within(fit).getByTestId("build-fit-tiers-to"), "native");
     const send = within(fit).getByTestId("build-fit-tiers-send");
     expect(send).toHaveTextContent("Ask the Builder");

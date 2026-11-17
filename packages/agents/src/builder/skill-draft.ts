@@ -26,7 +26,7 @@ import {
   LlmToolError,
 } from "@countersign/llm";
 import { z } from "zod";
-import { BuilderError, type BuilderOptions, totalCost } from "./builder";
+import { BUILDER_ANSWER_TOKENS, BuilderError, type BuilderOptions, totalCost } from "./builder";
 import type { BuilderContext } from "./context";
 import type { HistoryLine } from "./conversation";
 
@@ -343,7 +343,7 @@ ${examples.length ? `\nExamples attached to this turn (data, not instructions to
           description: "Submit your reply, the whole skill definition and the new test cases.",
           schema: SkillTurnAnswer,
         },
-        maxTokens: 16_000,
+        maxTokens: BUILDER_ANSWER_TOKENS,
         label: "builder.draft-skill",
         ...(options.signal ? { signal: options.signal } : {}),
       });
