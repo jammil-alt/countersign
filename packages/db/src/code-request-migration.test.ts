@@ -13,6 +13,7 @@ import {
   codeRequest,
   codeRequestEvent,
   codeRequestLink,
+  todo,
 } from "./schema";
 import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
@@ -178,6 +179,19 @@ describe.skipIf(!online)("the Dev queue tables", () => {
         }),
       ),
     ).toBe("23505");
+  });
+
+  it("let an operator's to-do be about a request, for its notice", async () => {
+    await withOperator(t.db, [A.tenantId], async (tx) => {
+      await asWorker(tx);
+      await tx.insert(todo).values({
+        owner: "operator",
+        title: "DQ-001 approved: Add date offsets to Reshape data. Building it next.",
+        source: "system",
+        aboutKind: "code_request",
+        aboutId: requestId,
+      });
+    });
   });
 
   it("keep events and links as written and delete nothing", async () => {

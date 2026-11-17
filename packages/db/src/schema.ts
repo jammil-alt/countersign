@@ -5090,6 +5090,8 @@ export const TODO_ABOUT_KINDS = [
   "question",
   "run",
   "client",
+  // docs/plan.md §1.125 (migration 0065): a Dev queue request's notice (accepted, shipped).
+  "code_request",
 ] as const;
 export const TODO_STATES = ["open", "done", "snoozed", "dropped"] as const;
 export const TODO_SOURCES = ["operator", "reggie", "play", "question", "email", "system"] as const;

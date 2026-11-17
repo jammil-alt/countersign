@@ -1,5 +1,5 @@
 {
-  "id": "95d1aa21-9cd2-4509-8053-37a1d275a8a9",
+  "id": "d4128611-68b6-45cf-83f8-86ddb5b7b902",
   "prevId": "22888cb1-517e-4964-bd40-da86b38b733d",
   "version": "7",
   "dialect": "postgresql",
@@ -14626,7 +14626,7 @@
         },
         "play_log_about_kind_check": {
           "name": "play_log_about_kind_check",
-          "value": "\"play_log\".\"about_kind\" is null or \"play_log\".\"about_kind\" in ('issue', 'client_ask', 'enhancement', 'build', 'deal', 'question', 'run', 'client')"
+          "value": "\"play_log\".\"about_kind\" is null or \"play_log\".\"about_kind\" in ('issue', 'client_ask', 'enhancement', 'build', 'deal', 'question', 'run', 'client', 'code_request')"
         },
         "play_log_about_check": {
           "name": "play_log_about_check",
@@ -18810,7 +18810,7 @@
         },
         "todo_about_kind_check": {
           "name": "todo_about_kind_check",
-          "value": "\"todo\".\"about_kind\" is null or \"todo\".\"about_kind\" in ('issue', 'client_ask', 'enhancement', 'build', 'deal', 'question', 'run', 'client')"
+          "value": "\"todo\".\"about_kind\" is null or \"todo\".\"about_kind\" in ('issue', 'client_ask', 'enhancement', 'build', 'deal', 'question', 'run', 'client', 'code_request')"
         },
         "todo_about_check": {
           "name": "todo_about_check",
