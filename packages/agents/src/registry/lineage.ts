@@ -244,7 +244,10 @@ export function holdsRecordId(value: unknown): boolean {
   return false;
 }
 
-const EMAIL_IN_TEXT = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
+// The lookbehind lets a match start only where a run of address characters starts, so a long run
+// with no "@" is read once, not once per character (CodeQL: polynomial regular expression).
+const EMAIL_IN_TEXT =
+  /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+){0,10}\.[A-Za-z]{2,}/g;
 // Review of 5.10: a phone number in E.164 (+15551230000), or written with its area code in
 // brackets ((555) 123-4567) or after a leading 1 (+1 555 123 4567, 1-555-123-4567), anywhere;
 // a plain 555-123-4567 only in free text, since an input's 400-100-2000 is a part or account
