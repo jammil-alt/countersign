@@ -1,0 +1,198 @@
+/* The Mezonas design system (packages/design-system): tokens, then the component classes. This
+   file only lays the window out with the system's tokens; no new colours, fonts, radii or
+   shadows. Light and dark follow the OS (tokens.css). */
+@import "@countersign/design-system/tokens.css";
+@import "@countersign/design-system/components.css";
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 14px / 1.45 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.app {
+  display: flex;
+  height: 100%;
+}
+
+.app__side {
+  flex: none;
+  justify-content: space-between;
+}
+
+.app__brand {
+  display: flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-2-5) var(--space-4);
+}
+
+.app__main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.app__page {
+  max-width: 880px;
+  padding: var(--space-8) var(--space-10);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.app__title {
+  margin: 0;
+}
+
+.app__lede {
+  margin: 0;
+  color: var(--ink-muted);
+  max-width: 60ch;
+}
+
+.app__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.app__foot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2-5);
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.welcome {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+}
+
+.welcome__card {
+  width: 460px;
+  max-width: 100%;
+  padding: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.logo-dark {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .logo-light {
+    display: none;
+  }
+  .logo-dark {
+    display: inline;
+  }
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  stroke: currentColor;
+  color: var(--ink-muted);
+}
+
+.ds-btn .icon,
+.ds-navitem[aria-current="page"] .icon {
+  color: currentColor;
+}
+
+/* The access choice is a fieldset (a group of choices); the system's look, without its defaults. */
+.seg-fieldset {
+  margin: 0;
+  min-width: 0;
+}
+
+.path {
+  font: 400 12px / 1.4 var(--font-mono);
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+
+.folder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--line);
+}
+
+.folder:first-of-type {
+  border-top: 0;
+}
+
+.folder__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.activity {
+  display: grid;
+  grid-template-columns: 120px 1fr auto;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: var(--space-2-5) var(--space-5);
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.activity:first-of-type {
+  border-top: 0;
+}
+
+.activity__at {
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.notice {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.notice--info {
+  padding: var(--space-3) var(--space-3-5);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.muted {
+  color: var(--ink-muted);
+}

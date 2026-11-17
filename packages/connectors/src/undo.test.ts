@@ -14,6 +14,7 @@ import {
   defineWriteTool,
   undoProblems,
 } from "./connector";
+import { createDesktopConnector } from "./desktop/index";
 import { createGchatConnector } from "./gchat/index";
 import { createGdriveConnector } from "./gdrive/index";
 import { createGmailConnector } from "./gmail/index";
@@ -68,6 +69,8 @@ const ALL: Connector[] = [
   createBillcomConnector(),
   // Odoo: CRM, sales, purchasing, invoicing and inventory.
   createOdooConnector(),
+  // §1.151: folders on a client's computer (registered by apps/api with the desktop API).
+  createDesktopConnector(),
   createTestkitConnector(),
 ];
 

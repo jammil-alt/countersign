@@ -5715,6 +5715,41 @@ decision. Sloan is built (no migration); Reggie is planned below, its own PR.
 | How a turn runs | The email or text is saved as the operator's words in their Reggie conversation ("By email", "By text"), then the turn runs in the background as that operator (`buildSession` from their memberships, as the MCP server builds one; only the clients they serve), with the same tools, audit rows (`reggie …`, marked by email or text) and limits. Reggie's turns can outlast `waitUntil`, so they run in a Workflow (or the cron picks them up). The answer goes back the same way, a text cut as Sloan's is. |
 | Before it ships | Mezonas' own Twilio number and campaign; Email Routing already covers the forwarding domain. |
 
+### 1.151 The Mezonas desktop app: folders on a client's computer (owner, 2026-11-17)
+
+Owner, 2026-11-17: "a desktop app that can work with files in a computer … for both mac and PC …
+push notifications, approvals etc … the MVP purpose though is to be able to work within their
+computer … ingest documents for folders it has access to and read and write on approved software,
+mainly excel and others." Then: "ok to go with electron … lets start working on this … use the
+design system for look and feel." New scope, outside ARCHITECTURE v0.15 §1: it goes into v0.16 with
+the phone app. Built in three PRs by the rule for migrations: this one (core's protocol, the
+`desktop` connector against a fake, and `apps/desktop`), then the migration, then the API's routes.
+Until the last, the app pairs with nothing and says so.
+
+| Topic | Decision |
+|---|---|
+| The shape | The cloud decides, the computer does the file work. Agents, the gate, approvals and `external_action` stay in `apps/api`; the computer gets one job at a time (core's `DesktopJobRequest`), checks it again against its own folders and the disk, does it and answers. Like `apps/browser` (§1.92): a place work happens, never a place decisions are made. // DECISION |
+| Framework | **Electron** (owner, 2026-11-17) in `apps/desktop`: its main process is Node, so it imports `@countersign/core` as it is and runs the workbook code in TypeScript; React 19.3 and the design system's CSS for the window. Tauri would have put the file and Excel work in Rust or a sidecar. // DECISION |
+| Who | Client users, as the phone (operators are refused at the handoff). A client admin adds the computer and gives its folders; once added, the computer works while nobody is signed in. Signing in shows the person Your Desk. |
+| Sign-in | The phone's handoff unchanged (§1.116): browser sign-in with a PKCE challenge, `mezonas://signed-in?code=`, `POST /api/mobile/session`, the session in `x-mezonas-session`, kept encrypted by the OS. So it needs `MOBILE_SIGNIN=on`, and the audit row says `app: phone` until the sign-in PR names the desktop. // DECISION |
+| The computer's key | An EC P-256 pair made when it is added (Node's crypto); the private half is kept encrypted by the OS (`safeStorage`: Keychain, DPAPI) and never leaves; the public half goes to `POST /api/desktop/devices` with the admin's session. Every later request is signed over core's `desktopRequestText` (device, method, path, the body's SHA-256, the time; r‖s as Web Crypto verifies) in `x-mezonas-device`, `-time`, `-signature`, within 5 minutes. A machine without a keychain can't be added: no key in the clear. // DECISION |
+| Folders | Picked with the OS's folder picker and checked by core's `folderGrantProblem`: never the top of a drive, the home folder or anything above it, a system folder, a hidden folder in home, `~/Library` or `AppData`; drive paths only (no `\\server\share` in v1; a mapped drive works). Each is `read` or `read_write` and may send new files. At most 20. Delete is never offered. // DECISION |
+| Two lists | The computer keeps its list; the API keeps one in the `desktop` connection's `config` (as Excel's picked workbooks). The computer works only in folders on both, with the stricter access (`effectiveFolders`); the connector refuses a folder not on the API's list before any job is sent. Taking a folder back on the computer stops it at once, whatever the API says. // DECISION |
+| Paths | A job names `folderId` and a `/`-separated path inside it (`relativePathProblem`: no `..`, no absolute path, no `:` or `\`, no Windows reserved names). The computer resolves it after following links (`realpath`) and refuses one that leaves the folder; a new file's folder is made inside the grant and checked the same way. // DECISION |
+| Jobs | A long poll (`GET /api/desktop/jobs`, up to 25 s), not a WebSocket: `apps/api` has no Durable Objects, and the protocol doesn't change if one replaces the poll. Each job expires 120 s after it is issued. Results go to `POST /api/desktop/jobs/:id/result`; the connector checks each against core's output schema (invariant 5). A computer that doesn't pick the job up is `DesktopUnavailableError` ("may be off, asleep or signed out; nothing was changed"). // DECISION |
+| Tools | `desktop.files.list`, `desktop.file.read` (.csv, .txt, .md), `desktop.xlsx.read` (values, with dates as ISO dates, or formulas); writes `desktop.xlsx.append` (create, undo none), `desktop.xlsx.update` (update, undo restore unless a cell held a formula), `desktop.file.create` (create, never over a file). Every write is an `external` tool: approval on by default (invariant 8). Not a shared namespace with `excel.*`: their shapes differ (a folder and path, not a OneDrive id). // DECISION |
+| Once | Each write carries the external action's idempotency key; the computer keeps what each key answered (90 days) and answers a retry `alreadyDone`. An update whose cells already hold the new values is `alreadyDone` too. No attempts table on our side: the computer is the one place the write can happen. // DECISION |
+| Workbooks | Edited in place (`apps/desktop/src/main/xlsx.ts`, fflate and xmldom): only the cells written change, every other part of the zip is copied byte for byte, so formats, charts, pivots, names and parts we don't read stay. Text is inline text (never a formula); formulas are never replaced; new rows take the formats of the row above; the workbook is marked to recalculate on open. Refused: macros, encrypted or old `.xls` files, more than 300 MB unpacked. Not a spreadsheet library: those drop what they don't model. // DECISION |
+| Closed only | A workbook is written only while closed: Excel's owner file (`~$Name.xlsx`) beside it, or on Windows an exclusive open, means `file_open` ("Close it and we'll make the change"). The write reads fresh, checks the cells against what the approver saw (`expect`, from `proposedBefore`), backs the file up (30 days, the app's own folder), writes a temporary file beside it and renames it over, but only if the workbook wasn't saved or opened since it was read. Editing an open workbook is the Office add-in's job, later. // DECISION |
+| Files sent | From folders set to send: PDFs, images, .xlsx, .docx, .csv, .txt, .md (`DESKTOP_FILE_TYPES`), up to 25 MB, never hidden or lock files, each once per content (SHA-256), to `POST /api/desktop/files` as multipart (meta and file), signed. Only files added or changed after the folder was given: giving ten years of invoices doesn't send them. They become documents, so a workflow starts from them as from an upload. // DECISION |
+| The window | Sandboxed, context isolation, no Node, a strict CSP with no network; its files on a private `app://mezonas/` scheme (not `file://`), IPC accepted only from that origin and only for the bridge's methods (`BRIDGE_METHODS`). Links leave the app only to the API's own origin. Closing it keeps the app in the menu bar or tray. |
+| Notifications | The Desk is read with the person's session every minute (`GET /api/inbox?view=waiting`); new items give an OS notification with a count only, as the phone's push: no amounts, vendors or customers. No push service: nothing new to name in `compliance`. Signing happens in the portal for now (the item opens there). |
+| Activity | What the app did, in plain words ("Added 3 row(s) to Costs.xlsx in Books"), 200 rows on the computer; never a file's contents. |
+| Updates and builds | `electron-builder` from `pnpm dlx` at a pinned version (the workspace doesn't install it): a signed, notarised .dmg (Apple silicon and Intel) and a signed NSIS installer (x64, arm64); updates from our own feed (`downloads.mezonas.com/desktop/`), checked every 6 hours, each signature checked against the installed app's. Electron's binary isn't fetched in CI (its install script isn't in `allowBuilds`). // DECISION |
+| Not in this pass | The migration and the API's routes (next two PRs); signing an item in the app (a Face ID or Windows Hello signature like the phone's); the Office add-in for open workbooks; Word editing; QuickBooks Desktop; network shares; sending files already in a folder; a release workflow; managed installs (MSI, pkg). `docs/open.md`, "The desktop app". |
+| Checked | `packages/core/src/desktop/desktop.test.ts` (folder rules on both platforms, paths, A1, jobs, the signed text), `packages/connectors/src/desktop/desktop.test.ts` (the six tools against `fake.ts`: folders refused before a job, read only, once, open workbook, changed cells, formulas, undo, offline, a bad answer), `apps/desktop/src/main/*.test.ts` (workbooks read and written with every other part unchanged; jobs on a real folder with a link out refused, backups and no temporary file left; the signature checked with Web Crypto; the poller; files sent; the controller against a fake API). The window checked in Chromium in light and dark with a stand-in bridge. |
+
+
 
 ## 2. Package layering
 
@@ -5734,6 +5769,7 @@ apps/mfa ─▶ core                    (the code service, §1.26: its own Worke
 apps/browser ─▶ connectors, core     (types and tests only: the browser service, §1.26, its own Worker with Browser Run; apps/api reaches it only by service binding)
 apps/site ─▶ design-system          (the public site, §1.29: no runtime dependencies)
 apps/mobile ─▶ core, design-system  (the phone app, §1.116: HTTP to apps/api; nothing depends on it)
+apps/desktop ─▶ core, design-system (the desktop app, §1.151: HTTP to apps/api; nothing depends on it)
 ```
 
 | Package | Workspace deps |
@@ -5754,6 +5790,8 @@ apps/mobile ─▶ core, design-system  (the phone app, §1.116: HTTP to apps/ap
 | `apps/mfa` | core |
 | `apps/browser` | connectors, core (types only in its code; tests may use them); runtime: `@cloudflare/playwright`, zod |
 | `apps/site` | design-system (files only) |
+| `apps/mobile` | core, design-system |
+| `apps/desktop` | core, design-system |
 
 \* only from `agents/src/registry/` and `agents/src/log/` (see §1.2).
 

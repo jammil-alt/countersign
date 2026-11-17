@@ -177,6 +177,10 @@ export * from "./compliance/processors";
 export * from "./converse";
 export * from "./desk/item";
 export * from "./desk/rules";
+// The Mezonas desktop app (docs/plan.md §1.151): folders, jobs and the computer's signed requests.
+export * from "./desktop/a1";
+export * from "./desktop/paths";
+export * from "./desktop/protocol";
 export * from "./directory/autonomy";
 export * from "./directory/invite";
 export * from "./directory/kinds";

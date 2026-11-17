@@ -236,3 +236,45 @@ test("nothing may depend on apps/mobile", () => {
   assert.equal(r.ok, false);
   assert.match(r.out, /the phone app, not a library/);
 });
+
+// §1.151: the desktop app.
+const desktop = (dependencies, src = 'import { routes } from "@countersign/core";\n') => ({
+  "apps/desktop/package.json": { name: "@countersign/desktop", dependencies },
+  "apps/desktop/src/main/api.ts": src,
+});
+
+test("apps/desktop may use core and the design system", () => {
+  const r = check({
+    ...core,
+    ...designSystem,
+    ...desktop({
+      "@countersign/core": "workspace:*",
+      "@countersign/design-system": "workspace:*",
+      fflate: "^0.8.3",
+    }),
+  });
+  assert.equal(r.ok, true, r.out);
+});
+
+test("apps/desktop may not depend on the connectors or any other platform package", () => {
+  const r = check({
+    ...core,
+    ...desktop({ "@countersign/core": "workspace:*", "@countersign/connectors": "workspace:*" }),
+    "packages/connectors/package.json": { name: "@countersign/connectors" },
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.out, /apps\/desktop\/package.json: may depend only on/);
+});
+
+test("nothing may depend on apps/desktop", () => {
+  const r = check({
+    ...core,
+    ...desktop({ "@countersign/core": "workspace:*" }),
+    "apps/web/package.json": {
+      name: "@countersign/web",
+      dependencies: { "@countersign/desktop": "workspace:*" },
+    },
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.out, /the desktop app, not a library/);
+});

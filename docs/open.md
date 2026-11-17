@@ -311,6 +311,23 @@ sign-in stays off until `MOBILE_SIGNIN=on` and phone notifications until `MOBILE
 | M9 | Signing follow-ups (audit, 2026-11-17): the signature covers the item, the decision, the fingerprint and the time, not a question's answer text or a note; a v2 signed text (`mezonas-sign:v2`) would add them. The time window is ±5 minutes, so a signature dated up to 5 minutes ahead is accepted. | Code. `deviceSignedText` in `packages/core/src/mobile/mobile.ts`. |
 | M10 | Decide: whether a release-code card may be resolved from a phone without a signature; whether a phone session may turn human release off (a setting, not a card). Possible, not checked: an admin's phone undoes another person's rejection, then a step set to `ifNoAnswer: proceed` goes on at its deadline. | Owner decisions; the last one needs a test first. |
 
+### The desktop app (owner, 2026-11-17; `docs/plan.md` §1.151, `apps/desktop/README.md`)
+
+The app, core's protocol and the `desktop` connector are merged in one PR, built and tested against
+fakes; nothing has run on a Mac or a PC yet, and the API doesn't take computers until D2 and D3. To
+finish it:
+
+| # | Step | Notes |
+|---|---|---|
+| D1 | Owner review of §1.151's decisions (Electron; closed workbooks only; only files added after a folder is given; drive paths only; a long poll). | Each is a `// DECISION` in the code. |
+| D2 | **Code, its own PR: the migration.** `desktop_device` (client, connection, name, platform, the public key as a JWK, app version, last seen, `revoked_at`; tenant RLS, never deleted, as `person_device`) and `desktop_job` (client, device, the request, issued and expiry times, the result; RLS). | The previous Worker keeps working: new tables only. |
+| D3 | **Code, its own PR: the API.** `POST/DELETE /api/desktop/devices` and `PUT …/folders` (client admin, session, `mount()`), the device's signed routes (`GET /api/desktop/jobs`, `POST …/jobs/:id/result`, `POST /api/desktop/files`; signature, time and key checked, `auditAlone`), `services.desktop` (queue a job, wait for its result), the connector registered in `platform.ts`, files into the documents capability. | Contract tests: no portal route returns the computer's key; a revoked computer's requests are refused. |
+| D4 | **A Mac and a PC**: `node apps/desktop/node_modules/electron/install.js`, then `MEZONAS_API_URL=https://staging.mezonas.com pnpm --filter @countersign/desktop start`, with `MOBILE_SIGNIN=on` on staging. Check each item in `packages/connectors/src/desktop/NOTES.md` (Excel's owner file on both, a written workbook opens without repair, OneDrive-synced folders, Mac privacy prompts). | |
+| D5 | **Signing certificates**: the Apple Developer ID (the same account as the phone, M3) for signing and notarising; for Windows, Azure Trusted Signing (or an OV certificate). | Without them Mac Gatekeeper and Windows SmartScreen warn on install. |
+| D6 | **The update feed**: an R2 bucket of ours behind `downloads.mezonas.com/desktop/`, and a release workflow that builds on macOS and Windows runners and uploads there (its own PR). | |
+| D7 | Before production: the handoff's audit row naming the desktop (`app: desktop`), and the same confirm page as M8 (another app could register `mezonas://` on a computer; the code is useless without the app's verifier). | |
+| D8 | Next: signing Desk items in the app (Touch ID, Windows Hello), the Office add-in for open workbooks, Word, QuickBooks Desktop (Web Connector), sending files already in a folder, network shares, managed installs. | Owner's order. |
+
 ### Sign-in codes and the Claude connector (owner, 2026-11-10)
 
 | # | Step | Notes |
