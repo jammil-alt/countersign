@@ -128,6 +128,17 @@ export const TEXT_INVITE_FEATURE = {
 } as const;
 
 /**
+ * Sloan by email (docs/plan.md §1.150): Sloan's answer to a person who emailed it goes back by
+ * Mezonas' own mail, so its words reach Resend. A client in HIPAA mode gets the answer only in the
+ * portal until `resend` is covered. Texts go through the client's Twilio, as every text does.
+ */
+export const SLOAN_EMAIL_FEATURE = {
+  id: "sloan.email",
+  what: "Sloan's answers by email",
+  processors: ["resend"] as readonly Processor[],
+} as const;
+
+/**
  * §1.124.4: Reggie's read of a client's issue sends the client's words and the gathered records to
  * the model (Anthropic, Mezonas' key). A client in HIPAA mode gets no read until it is covered;
  * the issue comes to the operator to read instead.
@@ -145,6 +156,18 @@ export const REGGIE_READ_FEATURE = {
 export const BACKOFFICE_EMAIL_FEATURE = {
   id: "backoffice.email",
   what: "Replies to requests by email",
+  processors: ["resend"] as readonly Processor[],
+} as const;
+
+/**
+ * §1.149: onboarding's emails (the invite, a colleague asked, a few more questions) send the
+ * client's name, the person's name and address, the lead's note and the cards' titles to Resend
+ * (Mezonas' own mail). A client in HIPAA mode is refused them until `resend` is covered: Invite
+ * and Ask someone else say so before anything is made, and a queued one is skipped `hipaa`.
+ */
+export const ONBOARDING_EMAIL_FEATURE = {
+  id: "onboarding.emails",
+  what: "Onboarding email",
   processors: ["resend"] as readonly Processor[],
 } as const;
 

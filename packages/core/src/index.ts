@@ -7,6 +7,8 @@
 // v0.12 W2-D: Sloan, the account agent
 export * from "./account/changes";
 export * from "./account/guard";
+// §1.150: Sloan by email and text
+export * from "./account/reach";
 export * from "./account/views";
 export * from "./account/words";
 export * from "./api/a2p";
@@ -29,6 +31,8 @@ export * from "./api/build";
 // v0.12 W3-A: the Builder as a conversation
 export * from "./api/builder";
 export * from "./api/calls";
+// docs/plan.md §1.149: onboarding v1 (client files and starts)
+export * from "./api/client-files";
 // v0.12 W2-G: KPIs and the client view, credits, the client's audit export
 export * from "./api/client-view";
 export * from "./api/code-requests";
@@ -57,6 +61,9 @@ export * from "./api/gchat";
 export * from "./api/gsheets";
 // R4: business hours, person hours and channels (docs/plan.md §1.86).
 export * from "./api/hours";
+// docs/plan.md §1.149: onboarding v1 (the intake, the welcome page, Invite and Sign up now)
+export * from "./api/intake";
+export * from "./api/invite";
 export * from "./api/knowledge";
 export * from "./api/language";
 export * from "./api/ledger";
@@ -104,6 +111,8 @@ export * from "./api/second-factor";
 export * from "./api/skill-model";
 // v0.14 W4-C: the Slack channel picker
 export * from "./api/slack";
+// §1.150
+export * from "./api/sloan-reach";
 export * from "./api/step-code-request";
 export * from "./api/step-data";
 // P-6
@@ -184,6 +193,9 @@ export * from "./documents/extraction";
 export * from "./duration";
 // Inbound email: whose verdicts count, and which mail is automatic.
 export * from "./email/authentication";
+// docs/plan.md §1.149: the branded layout and the onboarding emails.
+export * from "./email/layout";
+export * from "./email/onboarding";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./forms";
 // v0.19: area owners (ARCHITECTURE §10.15)
@@ -196,6 +208,8 @@ export * from "./i18n/gmail-test";
 export * from "./i18n/lifecycle";
 export * from "./i18n/locale";
 export * from "./i18n/notify";
+// docs/plan.md §1.149: the onboarding emails' and the welcome page's words.
+export * from "./i18n/onboarding";
 // v0.13 W2-I
 export * from "./i18n/oversight";
 // v0.19: area owners (ARCHITECTURE §10.15)
@@ -230,6 +244,8 @@ export * from "./mobile/mobile";
 export * from "./money";
 export * from "./notify/notify";
 export * from "./notify/render";
+// docs/plan.md §1.149: onboarding v1 (the client file, starts, the guide, the intake).
+export * from "./onboarding";
 // Wave 6: the owner's check on every step, and which runs go to a person's audit
 export * from "./oversight/check";
 // v0.13 W2-I: run oversight

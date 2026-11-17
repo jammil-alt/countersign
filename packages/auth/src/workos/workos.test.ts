@@ -3,7 +3,13 @@ import { type CarriedAccount, MAX_COOKIE_BYTES } from "../account";
 import { readCookie } from "../cookies";
 import { getSession } from "../session";
 import type { ProvisionInput, ProvisionOutcome } from "../types";
-import { createWorkOSAdapter, SECOND_FACTOR_PAGE, type SecondFactorPolicy } from "./adapter";
+import {
+  createWorkOSAdapter,
+  parseSignInMethod,
+  SECOND_FACTOR_PAGE,
+  type SecondFactorPolicy,
+  signInHint,
+} from "./adapter";
 import { createWorkOS, type WorkOSAuthentication, type WorkOSClient, WorkOSError } from "./client";
 import { workosStateOf } from "./config";
 import { mobileStartCookie } from "./mobile";
@@ -125,6 +131,33 @@ async function sessionCookieFor(now = T0) {
 
 const withCookie = (cookie: string, url = `${ORIGIN}/api/session`) =>
   new Request(url, { headers: { cookie } });
+
+describe("sign-in from the welcome page (§1.149)", () => {
+  it("passes the method and a plain address on, and drops anything else", async () => {
+    const seen: Parameters<WorkOSClient["authorizationUrl"]>[0][] = [];
+    const { adapter } = setup(
+      fakeWorkOS({
+        authorizationUrl: (input) => {
+          seen.push(input);
+          return "https://workos.test/authorize";
+        },
+      }),
+    );
+    await adapter.signIn(
+      { returnTo: "/start/abc.def", method: "microsoft", loginHint: " Dana@Acme.test " },
+      at(T0),
+    );
+    await adapter.signIn({ returnTo: "/", method: "email", loginHint: "a b@c" }, at(T0));
+    await adapter.signIn({ returnTo: "/" }, at(T0));
+    expect(seen[0]).toMatchObject({ provider: "MicrosoftOAuth", loginHint: "dana@acme.test" });
+    expect(seen[1]).toMatchObject({ provider: "authkit" });
+    expect(seen[1]?.loginHint).toBeUndefined();
+    expect(seen[2]?.provider).toBeUndefined();
+    expect(parseSignInMethod("google")).toBe("google");
+    expect(parseSignInMethod("GoogleOAuth")).toBeNull();
+    expect(signInHint(`${"x".repeat(320)}@a.test`)).toBeNull();
+  });
+});
 
 describe("sign-in flow", () => {
   it("signs in through state, callback and provisioning, and the cookie identifies the user", async () => {
@@ -344,6 +377,32 @@ describe("sign-in flow", () => {
   });
 });
 
+describe("the welcome page's fallback invitation (§1.149, unchecked)", () => {
+  it("makes a WorkOS invitation and hands back its accept link, or WorkOS's code", async () => {
+    const workos = fakeWorkOS({
+      sendInvitation: vi.fn(async () => ({ id: "inv_9", acceptUrl: "https://workos.test/a/9" })),
+    });
+    const { adapter } = setup(workos);
+    expect(await adapter.invitationLink(" Dana@Acme.Test ")).toEqual({
+      status: "made",
+      invitationId: "inv_9",
+      acceptUrl: "https://workos.test/a/9",
+    });
+    expect(workos.sendInvitation).toHaveBeenCalledWith("dana@acme.test");
+    const failing = setup(
+      fakeWorkOS({
+        sendInvitation: vi.fn(async () => {
+          throw new WorkOSError("no", 422, "user_already_exists");
+        }),
+      }),
+    );
+    expect(await failing.adapter.invitationLink("x@y.test")).toEqual({
+      status: "failed",
+      reason: "user_already_exists",
+    });
+  });
+});
+
 describe("invitations", () => {
   it("asks WorkOS to email the invitation, lowercased", async () => {
     const workos = fakeWorkOS();
@@ -353,6 +412,16 @@ describe("invitations", () => {
       invitationId: "inv_1",
     });
     expect(workos.sendInvitation).toHaveBeenCalledWith("new@millwork.test");
+  });
+
+  it("makes no WorkOS invitation when Mezonas sends its own invite (§1.149)", async () => {
+    const workos = fakeWorkOS();
+    const { adapter } = setup(workos);
+    expect(await adapter.invite("new@millwork.test", { providerEmail: false })).toEqual({
+      status: "not_sent",
+      reason: "ours",
+    });
+    expect(workos.sendInvitation).not.toHaveBeenCalled();
   });
 
   it("reports a refused or unreachable WorkOS as failed, with the code only", async () => {
@@ -563,6 +632,25 @@ describe("WorkOS client over fetch", () => {
       refresh_token: "rt_1",
       organization_id: "org_1",
     });
+  });
+
+  it("starts sign-in at AuthKit, or Google's or Microsoft's own, with a login hint (§1.149)", () => {
+    const client = createWorkOS({ clientId: "client_1", apiKey: "sk", fetch: vi.fn() });
+    const plain = new URL(
+      client.authorizationUrl({ redirectUri: "https://x.test/cb", state: "s" }),
+    );
+    expect(plain.searchParams.get("provider")).toBe("authkit");
+    expect(plain.searchParams.has("login_hint")).toBe(false);
+    const google = new URL(
+      client.authorizationUrl({
+        redirectUri: "https://x.test/cb",
+        state: "s",
+        provider: "GoogleOAuth",
+        loginHint: "dana@acme.test",
+      }),
+    );
+    expect(google.searchParams.get("provider")).toBe("GoogleOAuth");
+    expect(google.searchParams.get("login_hint")).toBe("dana@acme.test");
   });
 
   it("turns an error answer into a WorkOSError carrying only the code", async () => {

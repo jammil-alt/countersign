@@ -1,7 +1,8 @@
 // Sales (docs/plan.md §1.124.2; docs/cases-plan.md S1–S2): the operator's deals for new accounts
 // and expansion. Every route is the operator's (`/api/ops`), in a transaction scoped to the clients
 // the operator serves; a deal for a lead names no client. Set-up, which creates the client and
-// its builds, is in ../work/deal-setup.ts.
+// its builds, is in ../work/deal-setup.ts. §1.149: a deal points at its client file, and stages are
+// a record, not a gate (../work/deal-stages.ts).
 
 import { SIGNED_URL_TTL_SECONDS } from "@countersign/connectors";
 import {
@@ -12,7 +13,6 @@ import {
   type DealKind,
   type DealStage,
   dealCheckBackOn,
-  dealStageOf,
   firstDealStage,
   isDealStage,
   lastDealStage,
@@ -23,12 +23,14 @@ import {
   toNumeric,
   wholeMoney,
 } from "@countersign/core";
-import { deal, dealPerson, type Tx } from "@countersign/db";
+import { deal, dealPerson, tenant } from "@countersign/db";
 import { and, asc, eq, gte, isNotNull, or, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppContext, type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
+import { ensureClientFile, newFile, prospectFileNamed, readFile } from "../onboarding/files";
 import { signerFor } from "../storage";
 import { dealSetupRoutes } from "../work/deal-setup";
+import { addWantedTodos, moveDealStage } from "../work/deal-stages";
 import {
   addActivity,
   addCheckBack,
@@ -40,6 +42,7 @@ import {
   salesToday,
   summariesOf,
 } from "../work/deals";
+import { addTodo, closeTodosAbout } from "../work/todos-store";
 
 /** Closed deals stay on the lists (the Done filter, this month's wins) for this long. */
 const CLOSED_SHOWN_DAYS = 90;
@@ -88,32 +91,17 @@ async function readPdf(c: AppContext): Promise<Uint8Array> {
   return bytes;
 }
 
-/** A stage move: the row, its time and the line on the timeline. Reaching the last stage wins it. */
-async function moveStage(
-  tx: Tx,
-  row: DealRow,
-  to: DealStage,
-  userId: string,
-  reason: string | undefined,
-): Promise<Partial<typeof deal.$inferInsert>> {
-  const kind = row.kind as DealKind;
-  const from = dealStageOf(kind, row.stage as DealStage);
-  const next = dealStageOf(kind, to);
-  await addActivity(tx, row.id, {
-    kind: "stage",
-    actor: "operator",
-    userId,
-    body: `Moved from ${from.name} to ${next.name}.${reason ? ` ${reason}` : ""}`,
-    meta: { from: from.id, to: next.id },
-  });
-  // DECISION: the last stage (first agent live, live and billed) is the win: the deal is won there,
-  // so the board's last column and the Done filter agree without a second step.
-  const now = new Date();
-  return {
-    stage: to,
-    stageAt: now,
-    ...(to === lastDealStage(kind) ? { outcome: "won" as const, wonAt: now, closedAt: now } : {}),
-  };
+/** Who a deal is about, in words: its company, else its client's name, else its title. */
+async function dealWho(tx: Parameters<typeof readDeal>[0], row: DealRow): Promise<string> {
+  if (row.company) return row.company;
+  if (row.clientId) {
+    const [t] = await tx
+      .select({ name: tenant.name })
+      .from(tenant)
+      .where(eq(tenant.id, row.clientId));
+    if (t) return t.name;
+  }
+  return row.title;
 }
 
 export function dealRoutes(app: Hono<AppEnv>): void {
@@ -160,6 +148,25 @@ export function dealRoutes(app: Hono<AppEnv>): void {
       throw new HttpError(422, "wrong_stage", "a new deal starts before its last stage");
     }
     const agentsSold = body.agentsSold ?? [];
+    // §1.149: a deal points at its company's client file: the one named, the client's, the
+    // company's prospect file, else one made from the company.
+    let file = body.fileId ? await readFile(tx, tenantIds, body.fileId) : null;
+    if (file?.clientId && body.clientId && file.clientId !== body.clientId) {
+      throw new HttpError(422, "other_client", "that file is another client's");
+    }
+    if (!file && body.clientId) {
+      const [t] = await tx
+        .select({ name: tenant.name })
+        .from(tenant)
+        .where(eq(tenant.id, body.clientId));
+      if (!t) throw notFound("client");
+      file = await ensureClientFile(tx, body.clientId, t.name, session.user.id);
+    }
+    if (!file && body.company) {
+      file =
+        (await prospectFileNamed(tx, body.company)) ??
+        (await newFile(tx, { name: body.company, userId: session.user.id }));
+    }
     const [row] = await tx
       .insert(deal)
       .values({
@@ -179,6 +186,7 @@ export function dealRoutes(app: Hono<AppEnv>): void {
         nextDueOn: body.nextDueOn ?? null,
         originKind: body.origin?.kind ?? null,
         originId: body.origin?.id ?? null,
+        clientFileId: file?.id ?? null,
         createdBy: session.user.id,
       })
       .returning();
@@ -209,6 +217,7 @@ export function dealRoutes(app: Hono<AppEnv>): void {
         : "Opened the deal.",
       meta: body.origin ? { origin: body.origin } : {},
     });
+    await addWantedTodos(tx, row, await dealWho(tx, row), session.user.id);
     return dealDetail(tx, row, salesToday());
   });
 
@@ -237,16 +246,24 @@ export function dealRoutes(app: Hono<AppEnv>): void {
     if (body.nextStep !== undefined) set.nextStep = body.nextStep;
     if (body.nextDueOn !== undefined) set.nextDueOn = body.nextDueOn;
     if (body.sourceDetail !== undefined) set.sourceDetail = body.sourceDetail;
-    if (body.stage !== undefined && body.stage !== row.stage) {
+    const moved = body.stage !== undefined && body.stage !== row.stage;
+    if (body.stage !== undefined && moved) {
       Object.assign(
         set,
-        await moveStage(tx, row, stageOrRefuse(kind, body.stage), session.user.id, body.reason),
+        await moveDealStage(tx, row, stageOrRefuse(kind, body.stage), {
+          actor: "operator",
+          userId: session.user.id,
+          why: body.reason,
+        }),
       );
     }
     if (Object.keys(set).length > 0) {
       await tx.update(deal).set(set).where(eq(deal.id, row.id));
     }
-    return dealDetail(tx, await readDeal(tx, tenantIds, row.id), salesToday());
+    const after = await readDeal(tx, tenantIds, row.id);
+    // What the stage it reached wants and wasn't given: a to-do each, never a block.
+    if (moved) await addWantedTodos(tx, after, await dealWho(tx, after), session.user.id);
+    return dealDetail(tx, after, salesToday());
   });
 
   mount(app, routes.opsDealActivity, async ({ tx, tenantIds, params, body, session }) => {
@@ -322,6 +339,7 @@ export function dealRoutes(app: Hono<AppEnv>): void {
       body: `Recorded the agreed terms: ${wholeMoney(agreed, currency)} a month from ${shortDay(body.from)}.${body.note ? ` ${body.note}` : ""}`,
       meta: { agreedMrr: agreed, currency, from: body.from },
     });
+    await closeTodosAbout(tx, "deal", row.id, session.user.id, { titlePrefix: "Record " });
     return dealDetail(tx, await readDeal(tx, tenantIds, row.id), salesToday());
   });
 
@@ -347,6 +365,7 @@ export function dealRoutes(app: Hono<AppEnv>): void {
       body: `Attached the signed copy: ${name}.`,
       meta: { signedCopyKey: key, bytes: bytes.length },
     });
+    await closeTodosAbout(tx, "deal", row.id, session.user.id, { titlePrefix: "Attach " });
     return { ok: true as const, bytes: bytes.length };
   });
 
@@ -389,6 +408,30 @@ export function dealRoutes(app: Hono<AppEnv>): void {
     });
     const closed = await readDeal(tx, tenantIds, row.id);
     if (checkBackOn) await addCheckBack(tx, closed, checkBackOn, session.user.id);
+    // DECISION (cases-plan §8 q14, docs/plan.md §1.149): a lost lead we had already made an
+    // account for (Invite or Sign up now, before the deal was won) has its account retired at
+    // Lost. Retiring stays a person's typed confirm (§1.35's Retire), so Lost leaves the operator
+    // a to-do for it, due today, once per deal.
+    if (body.outcome === "lost" && row.kind === "new" && row.clientId) {
+      const [client] = await tx
+        .select({ name: tenant.name, retiredAt: tenant.retiredAt })
+        .from(tenant)
+        .where(eq(tenant.id, row.clientId));
+      if (client && !client.retiredAt) {
+        await addTodo(tx, {
+          clientId: row.clientId,
+          owner: "operator",
+          ownerUserId: session.user.id,
+          title: `Retire ${client.name}'s account`,
+          why: "The deal was lost after we made their account.",
+          dueAt: new Date(`${salesToday(now)}T23:59:59Z`),
+          about: { kind: "deal", id: row.id },
+          source: "system",
+          dedupeKey: `deal:${row.id}:retire`,
+          createdBy: session.user.id,
+        });
+      }
+    }
     return dealDetail(tx, closed, salesToday());
   });
 

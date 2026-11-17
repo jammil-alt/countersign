@@ -40,6 +40,10 @@ const RequestDetailScreen = lazy(() =>
 const RequirementsScreen = lazy(() =>
   import("../requests/RequirementsForm").then((m) => ({ default: m.RequirementsScreen })),
 );
+// §1.149: Getting started is the client's home only while an intake is open, so it loads when opened.
+const GettingStartedScreen = lazy(() =>
+  import("./screens/GettingStarted").then((m) => ({ default: m.GettingStartedScreen })),
+);
 const OnDemand = ({ children }: { children: ReactNode }) => (
   <Suspense fallback={<Loading />}>{children}</Suspense>
 );
@@ -79,6 +83,15 @@ export const portalRoutes = (
     <Route path="settings/texting" element={<PortalSettingsScreen section="texting" />} />
 
     {/* Off the nav, reached from an agent, a run, Home or Sloan */}
+    {/* §1.149.2: Getting started, the client's home while an intake is open and no agent is live */}
+    <Route
+      path="start"
+      element={
+        <OnDemand>
+          <GettingStartedScreen />
+        </OnDemand>
+      }
+    />
     <Route path="weekly" element={<PortalWeeklyScreen />} />
     <Route path="sloan" element={<PortalSloanScreen />} />
     <Route path="sloan/:id" element={<PortalSloanScreen />} />

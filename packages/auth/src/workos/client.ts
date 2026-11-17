@@ -49,8 +49,18 @@ export interface WorkOSAuthentication {
   readonly authenticationMethod?: string | null;
 }
 
+/** WorkOS's `provider` values on the authorize URL that we use. */
+export type WorkOSProvider = "authkit" | "GoogleOAuth" | "MicrosoftOAuth";
+
 export interface WorkOSClient {
-  authorizationUrl(input: { redirectUri: string; state: string }): string;
+  authorizationUrl(input: {
+    redirectUri: string;
+    state: string;
+    /** §1.149: AuthKit (default), or straight to Google's or Microsoft's own sign-in. */
+    provider?: WorkOSProvider;
+    /** §1.149: the address to fill in (the invited one, from the welcome page). */
+    loginHint?: string;
+  }): string;
   authenticateWithCode(code: string): Promise<WorkOSAuthentication>;
   refresh(refreshToken: string, organizationId: string | null): Promise<WorkOSAuthentication>;
   logoutUrl(sessionId: string, returnTo: string): string;
@@ -163,13 +173,16 @@ export function createWorkOS(options: WorkOSOptions): WorkOSClient {
     }).then(toAuthentication);
 
   return {
-    authorizationUrl({ redirectUri, state }) {
+    authorizationUrl({ redirectUri, state, provider, loginHint }) {
       const url = new URL(`${base}/user_management/authorize`);
       url.searchParams.set("response_type", "code");
       url.searchParams.set("client_id", options.clientId);
       url.searchParams.set("redirect_uri", redirectUri);
-      url.searchParams.set("provider", "authkit");
+      url.searchParams.set("provider", provider ?? "authkit");
       url.searchParams.set("state", state);
+      // §1.149: unchecked against WorkOS (NOTES.md): AuthKit fills its email field with it, and
+      // Google and Microsoft are said to preselect the account.
+      if (loginHint) url.searchParams.set("login_hint", loginHint);
       return url.toString();
     },
 

@@ -11,6 +11,7 @@ import {
 } from "@countersign/core";
 import { BOOK_CONFIDENCE_AUTO } from "./bookings";
 import { PACK_ID } from "./ids";
+import { BOOKKEEPING_INTAKE_SECTION } from "./intake";
 import type { PackTool } from "./pack";
 import { POSTING_TOOLS, postedTool, qboInputTool, readyTool } from "./posting";
 import { RECONCILE_SKILLS } from "./reconcile/skills";
@@ -180,6 +181,8 @@ export const bookkeepingManifest: PackManifest = lazyParse(PackManifest, () => (
   tools: ALL_TOOLS.map((t) => t.spec),
   skills: BOOKKEEPING_SKILLS,
   templates: [BOOKKEEPER_TEMPLATE],
+  // §1.149.2: the area's questions for a client's intake (Getting started's card).
+  intakeSection: BOOKKEEPING_INTAKE_SECTION,
   screens: [
     {
       route: "/reports/bookkeeping/transactions",

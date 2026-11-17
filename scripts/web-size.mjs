@@ -24,7 +24,10 @@ import { gzipSync } from "node:zlib";
 // write-path fix adds two approval reasons in all six languages (every language's Desk wording
 // ships in the first load). Loading each language's wording on demand is the follow-up that
 // brings it back down.
-export const BUDGET_KB = 480;
+// DECISION (owner, 2026-11-17): raised to 490 kB for onboarding v1 (docs/plan.md §1.146, §1.149).
+// main was at 478.8 kB and onboarding at 483.5 kB after its routes left the registry. Each screen
+// loading only the routes it uses (audit item 4.6) is the follow-up that brings it back down.
+export const BUDGET_KB = 490;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = process.argv[2] ?? join(root, "apps/web/dist");

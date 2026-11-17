@@ -177,6 +177,75 @@ export function weightedMrr(kind: DealKind, stage: DealStage, mrr: string): stri
 export const isRenewal = (d: { kind: DealKind; title: string }): boolean =>
   d.kind === "expansion" && /^renewal\b/i.test(d.title.trim());
 
+// ── Stages are a record, not a gate (docs/cases-plan.md §3.1) ─────────────────────────────────
+
+/**
+ * The stages a move passes over: those strictly between `from` and `to` when moving forward
+ * (empty when moving back or one step on). Each shows on the timeline as skipped, with who and why.
+ */
+export function skippedStages(kind: DealKind, from: DealStage, to: DealStage): DealStage[] {
+  const a = dealStageIndex(kind, from);
+  const b = dealStageIndex(kind, to);
+  if (a < 0 || b < 0 || b <= a + 1) return [];
+  return dealStages(kind)
+    .slice(a + 1, b)
+    .map((s) => s.id);
+}
+
+/** The stages before `stage` (a deal opened there skipped all of them). */
+export function stagesBefore(kind: DealKind, stage: DealStage): DealStage[] {
+  const at = dealStageIndex(kind, stage);
+  return at <= 0
+    ? []
+    : dealStages(kind)
+        .slice(0, at)
+        .map((s) => s.id);
+}
+
+/** Why a stage was skipped when the operator gave no reason. */
+export const SIGNED_UP_DIRECTLY = "signed up directly";
+
+/**
+ * What a later stage wants that may not have been given: the agreed price, the signed copy, what
+ * we're starting with. Each missing one becomes a to-do on Your call, never a block.
+ */
+export const DEAL_WANTS = ["price", "signed_copy", "start"] as const;
+export type DealWant = (typeof DEAL_WANTS)[number];
+
+/** Days until a missing item's to-do is due. */
+export const DEAL_WANT_DUE_DAYS = 7;
+
+export const DEAL_WANT_WORDS: Record<DealWant, (who: string) => string> = {
+  price: (who) => `Record ${who}'s agreed price`,
+  signed_copy: (who) => `Attach ${who}'s signed contract`,
+  start: (who) => `What are we starting with for ${who}?`,
+};
+
+/**
+ * What a deal at its stage wants and hasn't got. A new account from Set up the account on wants
+ * the agreed price and the signed copy (Proposal and contract's); an expansion from Agreed on wants
+ * the agreed price. `start` only when the caller knows nothing was chosen ("Just the account").
+ */
+// DECISION: an expansion asks for no signed copy: contracts are by hand, and the first one covers
+// the account; the owner can add it when expansions get their own paper.
+export function dealWants(d: {
+  kind: DealKind;
+  stage: DealStage;
+  agreedMrr: string | null;
+  hasSignedCopy: boolean;
+  nothingChosen?: boolean;
+}): DealWant[] {
+  const out: DealWant[] = [];
+  const at = dealStageIndex(d.kind, d.stage);
+  const from = dealStageIndex(d.kind, d.kind === "new" ? "setup" : "agreed");
+  if (at >= from) {
+    if (d.agreedMrr === null) out.push("price");
+    if (d.kind === "new" && !d.hasSignedCopy) out.push("signed_copy");
+  }
+  if (d.nothingChosen) out.push("start");
+  return out;
+}
+
 // ── Where a deal stands ─────────────────────────────────────────────────────────────────────────
 
 export const DEAL_STANDINGS = ["you", "agent", "client", "stalled", "done"] as const;

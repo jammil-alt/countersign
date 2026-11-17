@@ -11,6 +11,8 @@ import {
   receiveVoiceSampleEmail,
 } from "@countersign/documents";
 import { receiveReleaseEmail, wakeRelease } from "./access/release";
+// §1.150: Sloan by email
+import { receiveSloanEmail } from "./account/reach";
 // §1.124.4: the back office's support@ and hello@
 import { receiveBackOfficeEmail } from "./backoffice/inbound-email";
 import { backOfficeLocals } from "./backoffice/outbound-email";
@@ -145,6 +147,53 @@ export async function handleEmail(
       };
     }
     const content = new ContentStore(deps.objects(env));
+    // §1.150: mail to Sloan's address (`sloan.<client>-<id>@domain`) is the person's message in
+    // their conversation with Sloan; it is never an agent's mail or forwarded mail.
+    const toSloan = await receiveSloanEmail(
+      { db, content, registry: deps.platform(env).events },
+      { from: message.from, to: message.to, raw, size: message.rawSize },
+      { domain },
+    );
+    if (toSloan) {
+      if (toSloan.status !== "accepted") {
+        console.log(`sloan email ${toSloan.status}: ${toSloan.reason}`, {
+          tenantId: toSloan.tenantId,
+        });
+      }
+      const tenantId = toSloan.tenantId;
+      if (tenantId && (toSloan.events.length > 0 || toSloan.replies.length > 0)) {
+        const services = { db, env, deps } as Pick<Services, "db" | "env" | "deps">;
+        closeLater = true;
+        waitUntil(
+          (async () => {
+            try {
+              await dispatchEvents({ db, instances: deps.instances(env) }, toSloan.events);
+              await sendReplies(
+                db,
+                tenantId,
+                replyDepsFromEnv(env, deps.fetch?.(env)),
+                toSloan.replies,
+              );
+              if (toSloan.status === "accepted") {
+                await extractInBackground(services, tenantId, toSloan.fresh);
+                await translateLater(translationDepsFor(services), tenantId);
+              }
+            } finally {
+              await close();
+            }
+          })(),
+        );
+      }
+      return toSloan.status === "accepted"
+        ? {
+            status: "accepted",
+            tenantId: toSloan.tenantId ?? "",
+            documents: [],
+            skipped: [],
+            events: [],
+          }
+        : { status: "dropped", tenantId: toSloan.tenantId, reason: "unknown_address" };
+    }
     // v0.12 W2-E: mail to an agent's own address (`<agent>.<client>-<id>@domain`, docs/plan.md
     // §1.48) is a message to that agent: its message triggers, never forwarded mail.
     const toAgent = await receiveAgentEmail(

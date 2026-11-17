@@ -43,6 +43,14 @@ export async function routeInboundText(
     // v0.14 capture
     /** The conversation's capture agent: told after the downloads, so not here (§1.55). */
     skipAgentId?: string | null;
+    // §1.150: Sloan by text
+    /**
+     * The sender is one of the client's people whom Sloan answers when no agent takes the text:
+     * an agent that doesn't take them sends no polite reply and leaves the lead no note.
+     */
+    sloanTakesTheRest?: boolean;
+    /** Set to true when an agent takes the text (a new run or its reach-out's reply). */
+    taken?: { value: boolean };
   },
 ): Promise<InboundReply[]> {
   const { tenantId } = input;
@@ -105,10 +113,15 @@ export async function routeInboundText(
         ),
       )
       .limit(1);
-    if (open) continue;
+    if (open) {
+      if (input.taken) input.taken.value = true;
+      continue;
+    }
     const agentName = r.bundle.definition.identity.name;
     const accepting = acceptingTriggers(r.bundle, input.channel, facts);
     if (accepting.length === 0) {
+      // §1.150: Sloan answers this person if nobody else takes it.
+      if (input.sloanTakesTheRest) continue;
       if (!noted) {
         noted = true;
         await noteStranger(tx, {
@@ -157,6 +170,7 @@ export async function routeInboundText(
       { registry: input.registry },
     );
     if (ev) input.collect.push(ev);
+    if (input.taken) input.taken.value = true;
     const confirm = accepting.find((t) => t.on.reply)?.on.reply?.confirm;
     // Never to an automated sender, and a few a day at most, so an auto-responder and an agent
     // that confirms can't text each other without end (as email's confirmations).

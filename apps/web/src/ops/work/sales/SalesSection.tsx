@@ -29,6 +29,8 @@ import { Icon } from "../../../ui/icons";
 import { Page } from "../../../ui/page";
 import { Button, buttonClass, Loading, PageHeader } from "../../../ui/primitives";
 import { OPS_PATHS } from "../../paths";
+import { SignUpNowSheet } from "../onboarding/SignUpNow";
+import { StartsSheet } from "../onboarding/StartsSheet";
 import { NewDeal } from "./NewDeal";
 import {
   Due,
@@ -145,6 +147,8 @@ function SalesSection({ tab }: { tab: SalesTab }) {
   const [view, setView] = useState<"board" | "list">(tab === "all" ? "list" : "board");
   const [sort, setSort] = useState<Sort<Col>>({ col: "due", dir: 1 });
   const [moveError, setMoveError] = useState<unknown>(null);
+  // §1.149: Sign up now and the saved starts open as side panels from the header.
+  const [panel, setPanel] = useState<"signup" | "starts" | null>(null);
 
   const today = all.data?.today ?? new Date().toISOString().slice(0, 10);
   const everything = all.data?.deals ?? [];
@@ -194,6 +198,17 @@ function SalesSection({ tab }: { tab: SalesTab }) {
               {SALES_WORDS.autopilot}
             </Link>
             <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setPanel("starts")}
+              data-testid="sales-starts"
+            >
+              Starts
+            </Button>
+            <Button size="sm" onClick={() => setPanel("signup")} data-testid="sales-signup">
+              Sign up now
+            </Button>
+            <Button
               variant="primary"
               size="sm"
               onClick={() => setStarting((s) => !s)}
@@ -214,6 +229,10 @@ function SalesSection({ tab }: { tab: SalesTab }) {
           current: t === tab,
         }))}
       />
+      {panel === "signup" ? (
+        <SignUpNowSheet onClose={() => setPanel(null)} onSent={() => all.reload()} />
+      ) : null}
+      {panel === "starts" ? <StartsSheet onClose={() => setPanel(null)} /> : null}
       {starting ? (
         <NewDeal
           kind={tab === "grow" || from?.startsWith("enhancement:") ? "expansion" : "new"}

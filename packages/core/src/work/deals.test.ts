@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEAL_WANT_WORDS,
   type DealStanding,
   dealIsLate,
   dealPasses,
   dealStanding,
   dealStatusText,
+  dealWants,
   isDealStage,
   isRenewal,
   SALES_PIPELINES,
   type SalesFigureInput,
   salesFigures,
+  skippedStages,
+  stagesBefore,
   weightedMrr,
   wholeMoney,
 } from "./deals";
@@ -160,5 +164,31 @@ describe("the Sales figures", () => {
     expect(wholeMoney("2400.0000")).toBe("$2,400");
     expect(wholeMoney("1234567.5")).toBe("$1,234,568");
     expect(wholeMoney("12", "EUR")).toBe("12 EUR");
+  });
+});
+
+describe("stages as a record, not a gate (§1.149)", () => {
+  it("names the stages a forward move skips, none going back or one step on", () => {
+    expect(skippedStages("new", "lead", "setup")).toEqual(["qualified", "diagnostic", "proposal"]);
+    expect(skippedStages("new", "lead", "qualified")).toEqual([]);
+    expect(skippedStages("new", "setup", "lead")).toEqual([]);
+    expect(skippedStages("expansion", "spotted", "agreed")).toEqual(["pitch", "offered"]);
+    expect(stagesBefore("new", "setup")).toEqual(["lead", "qualified", "diagnostic", "proposal"]);
+    expect(stagesBefore("new", "lead")).toEqual([]);
+  });
+
+  it("wants the price and the signed copy from Set up the account, the price from Agreed", () => {
+    const none = { agreedMrr: null, hasSignedCopy: false };
+    expect(dealWants({ ...none, kind: "new", stage: "proposal" })).toEqual([]);
+    expect(dealWants({ ...none, kind: "new", stage: "setup" })).toEqual(["price", "signed_copy"]);
+    expect(
+      dealWants({ kind: "new", stage: "live", agreedMrr: "10.0000", hasSignedCopy: true }),
+    ).toEqual([]);
+    expect(dealWants({ ...none, kind: "expansion", stage: "offered" })).toEqual([]);
+    expect(dealWants({ ...none, kind: "expansion", stage: "agreed" })).toEqual(["price"]);
+    expect(dealWants({ ...none, kind: "new", stage: "lead", nothingChosen: true })).toEqual([
+      "start",
+    ]);
+    expect(DEAL_WANT_WORDS.start("Acme")).toBe("What are we starting with for Acme?");
   });
 });

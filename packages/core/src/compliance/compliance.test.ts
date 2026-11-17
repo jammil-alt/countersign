@@ -5,6 +5,7 @@ import {
   EMBEDDING_FEATURE,
   hipaaReadiness,
   inboundHeld,
+  ONBOARDING_EMAIL_FEATURE,
   PROCESSORS,
   type Processor,
   parseCoveredProcessors,
@@ -173,6 +174,27 @@ describe("processors", () => {
         parseCoveredProcessors("cloudflare neon workos openai"),
         [processorForEmbedding(EMBEDDING_FEATURE.model)],
         "x",
+      ),
+    ).toBeNull();
+  });
+
+  it("declares onboarding's emails as Resend's, refused in HIPAA mode until covered", () => {
+    expect(ONBOARDING_EMAIL_FEATURE.processors).toEqual(["resend"]);
+    const refused = processingRefusal(
+      { hipaa: true },
+      all,
+      ONBOARDING_EMAIL_FEATURE.processors,
+      ONBOARDING_EMAIL_FEATURE.what,
+    );
+    expect(refused).toBe(
+      "Onboarding email sends data to Resend, which has no signed BAA; this client is in HIPAA mode",
+    );
+    expect(
+      processingRefusal(
+        { hipaa: true },
+        parseCoveredProcessors("cloudflare neon workos resend"),
+        ONBOARDING_EMAIL_FEATURE.processors,
+        ONBOARDING_EMAIL_FEATURE.what,
       ),
     ).toBeNull();
   });
