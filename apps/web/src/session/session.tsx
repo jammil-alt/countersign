@@ -20,6 +20,7 @@ import { loadCatalog } from "../i18n/catalog";
 import { browserLanguages } from "../i18n/i18n";
 import { identifyForErrors } from "../observability";
 import { idleTooLong, watchInput } from "./activity";
+import { forgetLocalDrafts } from "./drafts";
 import { prefetchFrame, takeEarlySession } from "./early";
 
 /** The API's answer to a session that still owes its second step (packages/auth, §1.100). */
@@ -140,6 +141,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       else store.open();
       store.setScope("");
     }
+    // The builder's drafts in this browser: only the signed-in person's are kept, none once the
+    // session has ended however it ended (an error to reach the API changes nothing).
+    if (next.status === "signed_in") forgetLocalDrafts(next.session.user.id);
+    else if (next.status === "signed_out") forgetLocalDrafts();
     shareScope(store.currentScope);
     setState(next);
     if (next.status === "signed_in") {
@@ -160,6 +165,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     store.close();
     store.setScope("");
     shareScope("");
+    // The builder's unsaved drafts in this browser go too, whoever's they were (./drafts.ts).
+    forgetLocalDrafts();
     let redirectTo: string | null = null;
     try {
       redirectTo = (await client.call(apiRoutes.signOut)).redirectTo;

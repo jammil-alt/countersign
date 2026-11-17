@@ -56,6 +56,10 @@ export const de: Messages = {
   "errorPage.forbidden.title": "Sie haben keinen Zugriff auf diese Seite.",
   "errorPage.failure":
     "Beim Laden dieser Seite ist etwas schiefgegangen. Versuchen Sie es gleich noch einmal.",
+  "errorPage.crash":
+    "Beim Anzeigen dieser Seite ist etwas schiefgegangen. Bitte versuchen Sie es noch einmal oder öffnen Sie eine andere Seite.",
+  "errorPage.crashPart":
+    "Dieser Teil konnte nicht angezeigt werden. Bitte versuchen Sie es noch einmal oder öffnen Sie eine andere Seite.",
   "errorPage.back.home": "Zur Startseite",
   "errorPage.back.runs": "Zu den Abläufen",
   "errorPage.back.records": "Zu den Einträgen",

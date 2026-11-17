@@ -52,6 +52,10 @@ export const ptBR: Messages = {
   "errorPage.connection.line": "Conecte em Contas e depois volte a esta página.",
   "errorPage.forbidden.title": "Você não tem acesso a esta página.",
   "errorPage.failure": "Algo deu errado ao carregar esta página. Tente de novo em instantes.",
+  "errorPage.crash":
+    "Algo deu errado ao mostrar esta página. Tente de novo ou vá para outra página.",
+  "errorPage.crashPart":
+    "Não foi possível mostrar esta parte. Tente de novo ou vá para outra página.",
   "errorPage.back.home": "Ir para o início",
   "errorPage.back.runs": "Ir para Execuções",
   "errorPage.back.records": "Ir para Registros",

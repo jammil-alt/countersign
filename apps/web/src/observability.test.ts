@@ -1,11 +1,12 @@
 // Error tracking in the browser (./observability.ts): the privacy filters, where it runs, and
 // which failed calls are worth reporting. Nothing here reaches Sentry.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "./api/client";
 import {
   apiFailureKind,
   environmentOf,
   reportApiFailure,
+  reportScreenCrash,
   scrubBreadcrumb,
   scrubEvent,
   withoutQuery,
@@ -70,5 +71,15 @@ describe("error tracking in the browser", () => {
 
   it("is a no-op until started (tests and local development never send)", () => {
     expect(() => reportApiFailure(failure(500, "internal"))).not.toThrow();
+  });
+});
+
+describe("a screen crash with error tracking off", () => {
+  it("goes to the console, since React's own logging is replaced", () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const error = new Error("render failed");
+    reportScreenCrash(error, "\n    at Broken");
+    expect(log).toHaveBeenCalledWith("A screen crashed:", error, "\n    at Broken");
+    log.mockRestore();
   });
 });

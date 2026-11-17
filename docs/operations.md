@@ -1395,8 +1395,8 @@ step's date:
   Chromium opens every screen of the back office (as the operator) and the portal (as the Demo
   client's admin). It starts from each route without parameters and follows the links the screens
   show, one page per route, so new screens are swept without editing it. A page fails on a crash
-  (an empty `#root`), a page error, a console error, an `/api` answer of 500 or more, or a link to
-  "Not found". It clicks and submits nothing. Routes no seeded link reaches (a run, a document) are
+  (an empty `#root`, or an error boundary's fallback on the page), a page error, a console error,
+  an `/api` answer of 500 or more, or a link to "Not found". It clicks and submits nothing. Routes no seeded link reaches (a run, a document) are
   listed as a note, not a failure; they are covered once the seed has such rows. It runs in light
   and dark at desktop width and in dark at phone width (390×844), where a page that scrolls
   sideways also fails. Then **the walkthroughs** (`apps/web/e2e/walkthroughs.mjs`) click through the
