@@ -17,6 +17,7 @@ import {
   notFound,
   requestedClient,
 } from "../http";
+import { PHONE_ENDED_MESSAGE, phoneEndedForPerson } from "../mobile/phone-session";
 import { sessionLanguage } from "./language";
 // v0.12 W1-C
 import { sessionLead } from "./threads";
@@ -45,6 +46,10 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
       if (!result.ok) {
         sendCookies(c, result.setCookies);
         return c.json({ error: { code: result.code, message: result.message } }, result.status);
+      }
+      // Audit 5.2: a phone session ended by a removed phone is signed out here too.
+      if (await phoneEndedForPerson(services.db, result.session)) {
+        return c.json({ error: { code: "session_invalid", message: PHONE_ENDED_MESSAGE } }, 401);
       }
       sendCookies(c, result.setCookies);
       const language = await sessionLanguage(

@@ -3067,6 +3067,11 @@ export const fr: Messages = {
     "Claude demande à utiliser Mezonas en votre nom. Première demande à {time}. Approuvez-la seulement si vous venez de connecter Claude vous-même.",
   "connectClaude.lasts":
     "Ce lien fonctionne jusqu'à {time}. Une fois approuvée, elle dure jusqu'à la fin de cette connexion à Claude, 12 heures au plus.",
+  "connectClaude.requested":
+    "Claude vous a donné ce lien à {time}. Si vous ne venez pas de le demander à Claude, ne l'approuvez pas.",
+  "connectClaude.confirm": "Le code que Claude vous a montré",
+  "connectClaude.confirmHint":
+    "Claude affiche un code à 6 chiffres avec ce lien. Saisissez celui que votre propre Claude vous montre, jamais un code envoyé par quelqu'un d'autre.",
   "connectClaude.approve": "Approuver",
   "connectClaude.approving": "Approbation…",
   "connectClaude.approved":

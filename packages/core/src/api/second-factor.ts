@@ -115,11 +115,26 @@ export const CLAUDE_LINK_MIN = 30;
 /** The approval link's code: 32 random base32 letters and digits (160 bits). */
 export const ClaudeConnectionCode = z.object({ code: z.string().regex(/^[a-z2-7]{32}$/) });
 
+/**
+ * Audit 5.3: the short code Claude shows beside the link, typed on the approval page, so a
+ * connection is approved only by someone looking at that Claude.
+ */
+export const CLAUDE_CONFIRM_DIGITS = 6;
+export const ClaudeConnectionApproveBody = z.strictObject({
+  confirm: z
+    .string()
+    .trim()
+    .regex(new RegExp(`^[0-9]{${CLAUDE_CONFIRM_DIGITS}}$`)),
+});
+export type ClaudeConnectionApproveBody = z.infer<typeof ClaudeConnectionApproveBody>;
+
 export const ClaudeConnection = z.object({
   /** waiting: the link works; approved: Claude may use Mezonas as you; expired: ask Claude again. */
   status: z.enum(["waiting", "approved", "expired"]),
   /** When Claude first asked in this sign-in. */
   startedAt: z.string(),
+  /** When Claude asked with this link (the newest refused call); null once approved. */
+  requestedAt: z.string().nullable(),
   /** Waiting: when the link stops working. Approved: when the approval ends, at the latest. */
   expiresAt: z.string(),
 });
@@ -205,8 +220,10 @@ export const secondFactorRoutes = {
     path: "/api/auth/claude-connections/:code/approve",
     auth: "public",
     roles: [],
-    summary: "Approve your Claude connection until its sign-in ends (12 hours at most)",
+    summary:
+      "Approve your Claude connection until its sign-in ends (12 hours at most), with the code Claude showed",
     params: ClaudeConnectionCode,
+    body: ClaudeConnectionApproveBody,
     response: ClaudeConnection,
   }),
 } as const;

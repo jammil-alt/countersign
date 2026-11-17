@@ -3085,6 +3085,11 @@ export const de: Messages = {
     "Claude möchte Mezonas in Ihrem Namen nutzen. Die erste Anfrage kam um {time}. Geben Sie es nur frei, wenn Sie Claude gerade selbst verbunden haben.",
   "connectClaude.lasts":
     "Dieser Link gilt bis {time}. Nach der Freigabe gilt sie, bis diese Claude-Anmeldung endet, höchstens 12 Stunden.",
+  "connectClaude.requested":
+    "Claude hat Ihnen diesen Link um {time} gegeben. Wenn Sie Claude nicht gerade selbst gefragt haben, geben Sie ihn nicht frei.",
+  "connectClaude.confirm": "Der Code, den Claude Ihnen gezeigt hat",
+  "connectClaude.confirmHint":
+    "Claude zeigt mit diesem Link einen 6-stelligen Code. Geben Sie den ein, den Ihr eigenes Claude zeigt, nie einen, den Ihnen jemand anderes schickt.",
   "connectClaude.approve": "Freigeben",
   "connectClaude.approving": "Wird freigegeben…",
   "connectClaude.approved":
