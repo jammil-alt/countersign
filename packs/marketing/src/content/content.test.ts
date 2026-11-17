@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { checkGuide, guidePath, publishable, queryInTitle, slugOf } from "./checks";
 import { ClaimsList, lintClaims, phrasePattern } from "./claims";
-import { renderMarkdown } from "./markdown";
+import { renderMarkdown, textOf } from "./markdown";
 
 const PATHS = new Set(["/", "/privacy", "/guides/approvals"]);
 
@@ -200,5 +200,23 @@ describe("addresses and queries", () => {
     expect(r.headings.map((h) => h.id)).toEqual(["one", "one-2"]);
     expect(r.html).toContain("<ul><li>a</li><li>b</li></ul>");
     expect(r.html).toContain("<pre><code>code &lt;b&gt;</code></pre>");
+  });
+});
+
+describe("textOf", () => {
+  it("joins inline tags, separates blocks and unescapes once", () => {
+    expect(textOf("<p>Fast <strong>quotes</strong></p><p>a &amp;lt; b &amp; c</p>")).toBe(
+      "Fast quotes a &lt; b & c",
+    );
+  });
+
+  it("leaves no tag that was split around another", () => {
+    expect(textOf("<scr<b>ipt>alert(1)</scr</b>ipt>")).not.toMatch(/<\s*script/i);
+  });
+
+  it("stays quick on a long run of <", () => {
+    const started = performance.now();
+    textOf("<".repeat(50_000));
+    expect(performance.now() - started).toBeLessThan(500);
   });
 });

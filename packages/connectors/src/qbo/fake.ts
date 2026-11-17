@@ -332,7 +332,7 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
     // QBO answers at most 1,000 rows to a query.
     if (max > 1000) throw new FakeFault(400, "4001", "maxresults is at most 1000");
     const start = Number(take(/startposition\s+(\d+)/i) ?? "1");
-    const order = take(/orderby\s+(.+)$/i);
+    const order = take(/orderby\s+(\S.*)$/i);
     const where = take(/^where\s+(.+)$/i);
     let rows = [...table(entity).values()];
     if (where) for (const c of splitAnd(where)) rows = rows.filter((r) => matches(r, c));
