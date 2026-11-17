@@ -58,7 +58,7 @@ describe("the account tools", () => {
     const port = {
       passToAgent: async (_tenantId: string, call: unknown, input: unknown) => {
         seen.push({ call, input });
-        return { status: "passed", reason: null, messageId: "m1" };
+        return { status: "passed", reason: null, messageId: "m1", files: [] };
       },
     } as unknown as AccountPort;
     const tool = ACCOUNT_TOOLS.find((t) => t.spec.id === "account.pass_to_agent");
@@ -91,6 +91,7 @@ describe("the account tools", () => {
       status: "passed",
       reason: null,
       messageId: "m1",
+      files: [],
       sources: [serviceId, "m1"],
     });
     expect(seen).toEqual([

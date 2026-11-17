@@ -4746,7 +4746,23 @@ open ai for voice.. build this". §1.107 left both out; this is voice. Attachmen
 | Routes | `POST /api/ops/transcribe?client=` (operators; the client the conversation is about) and `POST /api/transcribe` (the portal), slow routes: the body is the recording (webm, ogg, mp4, mp3 or wav, at most 4 MB), the answer `{ text }`. Nothing is stored or logged; the audit row is the route's own. The portal tells the model the language the person reads in (theirs, else the client's, else the browser's; `pt-BR` as `pt`); the back office leaves it to the model to detect. |
 | HIPAA mode | `VOICE_FEATURE` in `packages/core/src/compliance/processors.ts`: a client in HIPAA mode is refused (409 `hipaa`) until `openai` is in `BAA_PROCESSORS`, for its own people and for an operator dictating about it. An operator dictating with no client named (a template's Builder) isn't checked. // DECISION |
 | Words | The back office shows the server's reason (HIPAA, voice off); the portal shows its own language's words for a failure, so a client never reads our English. The subprocessors page, the privacy policy and `docs/security.md` say OpenAI writes out dictation and keeps nothing. |
-| Not yet | Attachments in the composer; the cost of transcription (OpenAI prices it per minute) in usage. |
+| Not yet | Attachments in the composer (§1.110 for Sloan); the cost of transcription (OpenAI prices it per minute) in usage. |
+
+### 1.110 Files in a conversation, passed on by Sloan (owner, 2026-11-15)
+
+"The goal with Reggie and Sloan is that they can manage your account… uploading an invoice into
+Sloan and saying can you send to Pia for processing would then put it into the invoice processing
+agent." Pia is an agent's team name ("Pia, Purchasing"), so Sloan finds the service by name.
+
+| Topic | Decision |
+|---|---|
+| Attaching | The shared composer (§1.107) takes `attach`: an Attach button and files dropped on the box. Files go up at once and wait as chips, each with Remove, until Send; a failed send puts them back. At most 5 on a message (`MESSAGE_DOCUMENTS_MAX`). Sloan's conversation has it; other conversations come next. |
+| Storing | `POST /api/uploads?for=chat` keeps PDFs and images as the client's documents, quietly: no `document.received`, no reading in the background and no CSV import (`storeDocument`'s `announce: false`, `meta.via: "chat"`). A file attached to a conversation reaches an agent only when someone passes it on, so the same invoice isn't started twice. // DECISION |
+| The message | `ThreadPost.documents` (ids): each must be one of the client's own documents (422 `invalid_document`). The ids are in the message body; the portal's and the back office's messages show each file's name and type (`MessageDocument`), and `threads.read` gives Sloan each file's id and name. |
+| Passing on | `account.pass_to_agent` sends the message's files with it (`account.request_passed.documents`). An agent with a `sloan` message trigger gets them from `inbound.get`. An agent that starts on documents (an event trigger on `document.received` or `document.extracted`) takes the files without a `sloan` trigger, from any of the client's people, as a portal upload would reach it: `document.received` is emitted for it, or the file is read for it after commit (the run's transport, `extractDocument`'s `forAgentId`) so its `document.extracted` starts it. Bill clerk is the second kind. // DECISION |
+| Addressed events | An event whose payload has `forAgentId` starts only that agent (the router; core's `addressedTo`). The two document payloads take it as optional. |
+| Once | A message goes to an agent once (`already_passed`). Only a file still quiet (attached in a chat, not yet read) is handed over; one that came another way already reached the agents that start on documents. A copy of an invoice already here starts nothing, as on upload. |
+| Not yet | Reggie handing a client's file to an agent (the back office uploads only to the Sandbox client, a decision in `apps/api/src/routes/documents.ts`, so Reggie would name a document the client already has); the Builder and builds reading attached files; attachments in the other conversations. |
 
 ### 1.111 A step's prior and next step, checked before they change (owner, 2026-11-14; from a branch merged 2026-11-16, first numbered §1.101)
 

@@ -88,6 +88,8 @@ export interface AccountPassToAgentOutcome {
   reason: string | null;
   /** The person's message that was passed (the request itself); null in a test run. */
   messageId: string | null;
+  /** The files that went with it (§1.110). */
+  files: { id: string; name: string }[];
 }
 
 /** The client's account as Sloan reaches it; implemented in `src/log/account-port.ts`. */
@@ -389,7 +391,7 @@ export const accountPassToLead = defineInternalTool({
 export const accountPassToAgent = defineInternalTool({
   id: "account.pass_to_agent",
   description:
-    "Pass the person's request (their message in this conversation, as they wrote it) to one of the client's services that takes requests from Sloan; the service reads the message itself. If it doesn't take requests from Sloan or from this person, or isn't running, the answer is `not_accepted` with the reason: say so plainly and offer to pass it to the lead.",
+    "Pass the person's request (their message in this conversation, as they wrote it) to one of the client's services that takes requests from Sloan; the service reads the message itself, and the files attached to it go with it. A service that works on documents (invoices, for one) takes the files even without taking requests: they reach it as if just uploaded. If it doesn't take requests or files from Sloan or from this person, or isn't running, the answer is `not_accepted` with the reason: say so plainly and offer to pass it to the lead.",
   sideEffect: "internal",
   verb: "create",
   summary: "Passed it to a service",
@@ -398,11 +400,15 @@ export const accountPassToAgent = defineInternalTool({
     status: z.enum(["passed", "already_passed", "not_accepted", "test_run"]),
     reason: z.string().nullable(),
     messageId: z.string().nullable(),
+    files: z.array(z.object({ id: z.string(), name: z.string() })).default([]),
     sources: Sources,
   }),
   async run(input, ctx) {
     const out = await port(ctx).passToAgent(ctx.tenantId, call(ctx), input);
-    return { ...out, sources: uniq([input.serviceId, out.messageId]) };
+    return {
+      ...out,
+      sources: uniq([input.serviceId, out.messageId, ...out.files.map((f) => f.id)]),
+    };
   },
 });
 
@@ -583,6 +589,7 @@ export const ACCOUNT_SKILLS: readonly SkillDefinition[] = lazyObjects([
       "First call account.owner with no name: it tells you whether this conversation is with one of the client's agents. If it is, you are that agent for the whole conversation: answer every message with account.reply_as, in its voice, about its own services only (runs, what waits, errors, what changed, schedules, who it contacts), using what it did lately. In your first answer say who you are: its name, its role (for example 'purchasing agent'), that you are a Mezonas agent, and what you look after. A message starting with @Name in a conversation with you, Sloan, is for that agent: look it up by name and answer as it the same way.",
       "For a change an agent is asked for (a schedule, who is contacted), draft it for the client admin with account.draft_change when it is the client's own setting, else pass it to the lead as a request naming the agent and the service; say who approves it and that nothing changes until then. Never loosen anything.",
       "You may pause or resume a service, draft a change for the client admin to sign, pass the person's request to a service that takes requests from Sloan (account.pass_to_agent), or pass a request or an idea to the lead. The tools check who is asking; if one refuses or a service doesn't take the request, say so plainly and offer the lead.",
+      "A message may carry files (its `documents` in threads.read). When the person asks you to send them to a service, such as an invoice to the one that processes invoices, find it with your tools by what it does or who looks after it, and pass the message: its files go with it. Say which service has it and that you'll see its run in Runs. If the message has no file but they talk about one, ask them to attach it.",
       "Never loosen anything: approvals, permissions, access, go-live stages or how much an agent does on its own. If the person asks for that, or a draft comes back with `loosens: true`, offer to pass it to their lead and do so if they agree or asked for it.",
       "Reply once with threads.post: the thread in your input, audience `client`, short plain sentences in the client's language, leading with the answer. Cite in sources the records you used and the message you answer.",
       "Write the reply as a chat message, not a report: answer in a sentence or two the way you would say it out loud, then what they need next. Plain text, no Markdown (no bold, headings or tables). A list ('- ' at the start of each line) only for three or more things of the same kind they asked to see, one short line each. Don't repeat every figure you read: give what answers the question and offer the rest. Names, not ids.",

@@ -1413,3 +1413,50 @@ a.ui-stat--link:focus-visible {
     height: 30px;
   }
 }
+/* Files in a conversation (attach.tsx): the chips in the box and on a sent message. */
+.ui-chat-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+}
+.ui-chat-file {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 18px;
+}
+.ui-chat-file[data-pending] {
+  color: var(--ink-muted);
+}
+.ui-chat-file__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+}
+a.ui-chat-file__name:hover {
+  text-decoration: underline;
+}
+.ui-chat-file__remove {
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--ink-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.ui-chat-file__remove:hover {
+  color: var(--ink);
+}
+.ui-chat-composer__box[data-dragging] {
+  border-color: var(--slate);
+  background: var(--slate-tint);
+}

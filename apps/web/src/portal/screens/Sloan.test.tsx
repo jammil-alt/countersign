@@ -4,7 +4,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { CLIENT_SESSION, fakeApi } from "../../test/fixtures";
 
@@ -131,7 +131,9 @@ describe("Sloan", () => {
 
     await userEvent.type(screen.getByTestId("portal-sloan-input"), "Pause Cole until Monday");
     await userEvent.click(screen.getByTestId("portal-sloan-send"));
-    expect(posts).toEqual([{ id: LATEST, body: { text: "Pause Cole until Monday" } }]);
+    expect(posts).toEqual([
+      { id: LATEST, body: { text: "Pause Cole until Monday", documents: [] } },
+    ]);
   });
 
   it("is asked in a side panel from any page, on the latest conversation", async () => {
@@ -144,7 +146,7 @@ describe("Sloan", () => {
     );
     await userEvent.type(within(panel).getByTestId("portal-sloan-input"), "Pause Cole");
     await userEvent.click(within(panel).getByTestId("portal-sloan-send"));
-    expect(posts).toEqual([{ id: LATEST, body: { text: "Pause Cole" } }]);
+    expect(posts).toEqual([{ id: LATEST, body: { text: "Pause Cole", documents: [] } }]);
     // The page under it stays where it was.
     expect(screen.getByTestId("where")).toHaveTextContent(/^\/$/);
     // The full page is one link away, on the same conversation.
@@ -158,8 +160,70 @@ describe("Sloan", () => {
     expect(await screen.findByTestId("portal-sloan-empty")).toBeInTheDocument();
     await userEvent.type(screen.getByTestId("portal-sloan-input"), "Hello");
     await userEvent.click(screen.getByTestId("portal-sloan-send"));
-    await waitFor(() => expect(posts).toEqual([{ id: OLD, body: { text: "Hello" } }]));
+    await waitFor(() =>
+      expect(posts).toEqual([{ id: OLD, body: { text: "Hello", documents: [] } }]),
+    );
     await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent(`/sloan/${OLD}`));
+  });
+
+  it("attaches a file and sends it with the message (§1.110)", async () => {
+    const uploads: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      uploads.push(String(input));
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              filename: "inv-1042.pdf",
+              kind: "document",
+              created: true,
+              purchases: null,
+              error: null,
+              document: {
+                id: "0192f7a0-0000-7000-8000-00000000d001",
+                source: "upload",
+                filename: "inv-1042.pdf",
+                mimeType: "application/pdf",
+                sizeBytes: 4,
+                status: "stored",
+                pageCount: null,
+                transactionId: null,
+                receivedAt: "2026-11-05T09:00:00.000Z",
+                vendorName: null,
+                invoiceNumber: null,
+                total: null,
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    try {
+      const { posts } = setup();
+      await screen.findByTestId("portal-sloan-messages");
+      await userEvent.upload(
+        screen.getByTestId("portal-sloan-composer-attach-input"),
+        new File([new Uint8Array([1])], "inv-1042.pdf", { type: "application/pdf" }),
+      );
+      expect(await screen.findByText("inv-1042.pdf")).toBeInTheDocument();
+      expect(uploads).toEqual(["/api/uploads?for=chat"]);
+      await userEvent.type(screen.getByTestId("portal-sloan-input"), "Send this to Pia");
+      await userEvent.click(screen.getByTestId("portal-sloan-send"));
+      await waitFor(() =>
+        expect(posts).toEqual([
+          {
+            id: LATEST,
+            body: {
+              text: "Send this to Pia",
+              documents: ["0192f7a0-0000-7000-8000-00000000d001"],
+            },
+          },
+        ]),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("fills the box from ?ask= and sends nothing until you do", async () => {

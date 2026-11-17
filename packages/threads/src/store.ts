@@ -212,6 +212,12 @@ export function messageText(row: Pick<MessageRow, "body">): string {
   return typeof text === "string" ? text : "";
 }
 
+/** §1.110: the document ids a message carries (its files), as stored in its body. */
+export function messageDocuments(row: Pick<MessageRow, "body">): string[] {
+  const docs = (row.body as { documents?: unknown } | null)?.documents;
+  return Array.isArray(docs) ? docs.filter((d): d is string => typeof d === "string") : [];
+}
+
 export interface PostInput {
   tenantId: string;
   thread: Pick<ThreadRow, "id" | "tenantId" | "subjectType" | "subjectId">;
