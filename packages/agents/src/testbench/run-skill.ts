@@ -246,6 +246,7 @@ export async function runSkillCase(
     claim: refuse("external action"),
     complete: refuse("external action"),
     fail: refuse("external action"),
+    refuse: refuse("external action"),
   };
   // An escalation (a budget hit) opens no inbox item: the case just fails.
   const platform: PlatformStore = {

@@ -134,6 +134,18 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # Production runs only code that is on main: a tag, or a manual run, on a commit main doesn't
+      # contain would put unreviewed code in front of clients. Checked before anything migrates.
+      - name: Production deploys only commits on main
+        if: steps.ready.outputs.ready == 'true' && env.TARGET == 'production'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --filter=blob:none --unshallow origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "::error::$SHA is not on main. Production deploys only commits on main (docs/operations.md)."
+            exit 1
+          fi
+
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
         if: steps.ready.outputs.ready == 'true'
 

@@ -83,6 +83,11 @@ Or open http://localhost:8787 and pick a user on the sign-in screen. The seed ha
 Millwork's two people. To start from an empty database, drop `countersign` and run
 `scripts/setup-postgres.sh` again.
 
+Signing a card on the Desk needs the browser's Web Crypto (`crypto.subtle`, for the card's
+fingerprint), which browsers give only to a secure context: `http://localhost` is one, but an
+address like `http://192.168.1.20:8787` from another device is not. Use localhost or an https
+tunnel there.
+
 ### The end-to-end seed (SEED_E2E=1)
 
 The browser walkthroughs sign and undo a change on the Demo client's Desk. That change is seeded

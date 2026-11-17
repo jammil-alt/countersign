@@ -13,8 +13,13 @@ type Names = Record<string, Record<string, string>>;
 
 const NAME_KEYS = ["name", "displayName", "title", "label"] as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** At most this many record lookups per response, so a long done list never slows the Desk. */
-const MAX_LOOKUPS = 40;
+/**
+ * At most this many record lookups per item, so a card with many lines never slows the Desk.
+ * Review (audit 3.4): per item, not per response, so a card reads the same alone as in a list
+ * (what is shown never depends on the other cards beside it). Names found are shared across a
+ * response's cards.
+ */
+const MAX_LOOKUPS_PER_ITEM = 40;
 
 function idText(v: unknown): string | null {
   if (typeof v === "string" && v.length > 0) return v;
@@ -96,7 +101,8 @@ export function unnamedIds(
  * bare, by inbox item id. An id no synced record names stays unnamed.
  */
 // DECISION: the lookup runs when a response is built (nothing stored, no migration), only for ids
-// the before state leaves unnamed, newest synced record first, at most MAX_LOOKUPS per response.
+// the before state leaves unnamed, newest synced record first, at most MAX_LOOKUPS_PER_ITEM per
+// item.
 export async function syncedRefNames(
   tx: Tx,
   platform: Registries,
@@ -104,8 +110,8 @@ export async function syncedRefNames(
 ): Promise<Map<string, Names>> {
   const out = new Map<string, Names>();
   const cache = new Map<string, string | null>();
-  let lookups = 0;
   for (const row of rows) {
+    let lookups = 0;
     if (row.kind !== "external_action" || !isPlainObject(row.payload)) continue;
     const p = row.payload;
     const tool = changeDisplay(platform, p.tool)?.tool;
@@ -123,8 +129,12 @@ export async function syncedRefNames(
         const key = `${row.tenantId}|${connectionId}|${list}|${id}`;
         if (!cache.has(key)) {
           let name: string | null = null;
+          let cut = false;
           for (const look of connector.syncedNames(list, id)) {
-            if (lookups >= MAX_LOOKUPS) break;
+            if (lookups >= MAX_LOOKUPS_PER_ITEM) {
+              cut = true;
+              break;
+            }
             lookups += 1;
             const [hit] = await tx
               .select({ payload: rawRecord.payload })
@@ -138,14 +148,16 @@ export async function syncedRefNames(
                   sql`${rawRecord.payload} @> ${JSON.stringify(look.contains)}::jsonb`,
                 ),
               )
-              .orderBy(desc(rawRecord.syncedAt))
+              // The newest record, and the same one each time when two were synced together.
+              .orderBy(desc(rawRecord.syncedAt), desc(rawRecord.id))
               .limit(1);
             name = hit ? look.name(hit.payload) : null;
             if (name !== null) break;
           }
-          cache.set(key, name);
+          // A lookup cut short by this item's budget is not an answer for the next item.
+          if (name !== null || !cut) cache.set(key, name);
         }
-        const name = cache.get(key);
+        const name = cache.get(key) ?? null;
         if (name) found.set(list, (found.get(list) ?? new Map()).set(id, name));
       }
     }

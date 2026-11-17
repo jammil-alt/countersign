@@ -15,6 +15,7 @@ import {
   undoLeft,
   whyLines,
 } from "../../src/desk/model";
+import { itemFingerprint } from "../../src/device/signing";
 import { useApp } from "../../src/state/app";
 import { useDesk } from "../../src/state/desk";
 import { radius, space, usePalette } from "../../src/theme/theme";
@@ -158,7 +159,8 @@ function DeskCard({ item, onLater }: { item: DeskItem; onLater: () => void }) {
     try {
       await api.call(routes.portalResolveInbox, {
         params: { id: item.id },
-        body: { decision: "approve", answer: value },
+        // Audit 3.4: the item as the person saw it.
+        body: { decision: "approve", answer: value, fingerprint: itemFingerprint(item) },
         byPerson: true,
       });
       desk.drop(item.id);

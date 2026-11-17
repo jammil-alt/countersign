@@ -1427,7 +1427,8 @@ step's date:
   failure marks the deploy failed. Given a commit (a second argument, or `EXPECTED_SHA`), it also
   checks that `/api/ready`'s `sha` (the Worker's `DEPLOYED_SHA`) is that commit; without one it
   skips that comparison. Every deploy passes the commit it deployed, so a green smoke test means
-  that commit is live. Run it by hand against either environment:
+  that commit is live. A production deploy (a tag or a manual run) first checks that its commit
+  is on `main` and stops before migrating if it isn't. Run it by hand against either environment:
   `scripts/smoke.sh https://staging.mezonas.com [commit]`. The run's summary says which branch
   and commit the target now runs.
 - **Quick deploy to staging** (`quick-deploy.yml`, by hand): any branch on staging without

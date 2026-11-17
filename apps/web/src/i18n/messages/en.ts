@@ -79,6 +79,9 @@ export const en = {
   "error.no_op": "Nothing to change: it is already set that way.",
   "error.already_resolved": "Someone has already answered this.",
   "error.expired": "This has expired.",
+  "error.changed": "This card changed since you opened it; look again.",
+  "error.run_ended": "This run has ended; nothing will be done with this card.",
+  "error.fingerprint_required": "This page is out of date; reload it and look again.",
   "error.not_assignee": "This waits on someone else.",
   "error.not_connected": "That tool isn't connected.",
   "error.not_available": "That isn't available yet.",
@@ -412,6 +415,7 @@ export const en = {
   "desk.outcome.answered": "Answered by you",
   "desk.outcome.declined": "Declined by you",
   "desk.outcome.done": "Done by you",
+  "desk.notDone": "Not done: {reason}",
   "desk.outcome.batch": {
     one: "{count} of {total} done by you",
     other: "{count} of {total} done by you",

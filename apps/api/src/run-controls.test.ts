@@ -242,6 +242,89 @@ describe.skipIf(!h)("run controls", () => {
     expect(H.backend.writes.at(-1)?.idempotencyKey).toBe(`${id}:update:0`);
   });
 
+  it("asks again for a write signed after its run had ended, never carrying that signature", async () => {
+    const first = await failedAtWrite();
+    const [ended] = await H.t.db.select().from(run).where(eq(run.id, first));
+    const finishedAt = ended?.finishedAt;
+    if (!finishedAt) throw new Error("the run has no end");
+    // As a Worker from before a run's end closed its cards left it: signed once the run was over.
+    await H.t.db
+      .update(externalAction)
+      .set({
+        status: "approved",
+        error: null,
+        approvedAt: new Date(finishedAt.getTime() + 60_000),
+      })
+      .where(eq(externalAction.runId, first));
+    const { id, params } = await retry(first);
+    const seen: string[] = [];
+    const result = await executeRun(
+      deps(),
+      params,
+      cloudflareStepRunner(new FakeWorkflowStep(approveAs(admin("a"), seen))),
+    );
+    expect(result).toEqual({ status: "succeeded" });
+    expect(seen).toEqual(["external_action", "approval"]);
+    expect(H.backend.writes.at(-1)?.idempotencyKey).toBe(`${id}:update:0`);
+    const [stale] = await H.t.db
+      .select()
+      .from(externalAction)
+      .where(eq(externalAction.runId, first));
+    expect(stale?.status).toBe("approved");
+  });
+
+  it("refuses a card whose run has ended, and records nothing", async () => {
+    const { runId, params } = await startLive();
+    let waiting!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      waiting = resolve;
+    });
+    void executeRun(
+      deps(),
+      params,
+      cloudflareStepRunner(
+        new FakeWorkflowStep(() => {
+          waiting();
+          return new Promise(() => {});
+        }),
+      ),
+    );
+    await reached;
+    const [item] = await H.t.db
+      .select()
+      .from(inboxItem)
+      .where(and(eq(inboxItem.runId, runId), eq(inboxItem.status, "open")));
+    if (!item) throw new Error("no open card");
+    // Its run ended without closing it (a Worker from before a run's end did).
+    await H.t.db
+      .update(run)
+      .set({ status: "failed", finishedAt: new Date() })
+      .where(eq(run.id, runId));
+    const res = await H.call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, {
+      decision: "approve",
+    });
+    expect([res.status, j(res.json).error]).toEqual([
+      409,
+      expect.objectContaining({
+        code: "run_ended",
+        message: "This run has ended; nothing will be done with this card",
+      }),
+    ]);
+    const [after] = await H.t.db.select().from(inboxItem).where(eq(inboxItem.id, item.id));
+    expect(after).toMatchObject({ status: "open", resolvedBy: null });
+    const [action] = await H.t.db
+      .select()
+      .from(externalAction)
+      .where(eq(externalAction.runId, runId));
+    expect(action).toMatchObject({ status: "proposed", approvedBy: null });
+    // Once expired by a run's end it is refused the same way.
+    await H.t.db.update(inboxItem).set({ status: "expired" }).where(eq(inboxItem.id, item.id));
+    const again = await H.call(admin("a"), "POST", `/api/inbox/${item.id}/resolve`, {
+      decision: "approve",
+    });
+    expect([again.status, j(again.json).error.code]).toEqual([409, "run_ended"]);
+  });
+
   it("asks again for an automatic write once the client has tightened its matrix", async () => {
     const first = await failedAtWrite();
     // As if the system had approved it (the automatic path): no signer.

@@ -3,6 +3,7 @@
 // test run in the same client, downloads the runs list as CSV, reads a run's model calls and keeps
 // saved views of the runs list. RunFilter's SQL is here too: both runs lists use it.
 
+import { closeRunApprovalsTx } from "@countersign/agents";
 import {
   Decimal,
   errorGroupKey,
@@ -461,26 +462,14 @@ export function runControlRoutes(app: Hono<AppEnv>): void {
           inArray(stepRun.status, [...OPEN_STEP]),
         ),
       );
-    await tx
-      .update(inboxItem)
-      .set({ status: "expired" })
-      .where(
-        and(
-          eq(inboxItem.runId, r.id),
-          eq(inboxItem.tenantId, r.tenantId),
-          eq(inboxItem.status, "open"),
-        ),
-      );
-    await tx
-      .update(externalAction)
-      .set({ status: "rejected", error: { code: "run_cancelled", message: "run cancelled" } })
-      .where(
-        and(
-          eq(externalAction.runId, r.id),
-          eq(externalAction.tenantId, r.tenantId),
-          eq(externalAction.status, "proposed"),
-        ),
-      );
+    // Audit 3.3: the same close as every run's end, of every open item here.
+    await closeRunApprovalsTx(
+      tx,
+      r.tenantId,
+      r.id,
+      { code: "run_cancelled", message: "run cancelled" },
+      { items: "all" },
+    );
     return { runId: r.id, status: "cancelled" as const };
   });
 

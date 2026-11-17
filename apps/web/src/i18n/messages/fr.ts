@@ -84,6 +84,10 @@ export const fr: Messages = {
   "error.no_op": "Rien à changer : c'est déjà le cas.",
   "error.already_resolved": "Quelqu'un a déjà répondu.",
   "error.expired": "Ceci a expiré.",
+  "error.changed": "Cet élément a changé depuis que vous l'avez ouvert ; regardez-le à nouveau.",
+  "error.run_ended": "Cette exécution est terminée ; rien ne sera fait avec cet élément.",
+  "error.fingerprint_required":
+    "Cette page n'est plus à jour ; rechargez-la et regardez à nouveau.",
   "error.not_assignee": "Ceci attend quelqu'un d'autre.",
   "error.not_connected": "Cet outil n'est pas connecté.",
   "error.not_available": "Ce n'est pas encore disponible.",
@@ -440,6 +444,7 @@ export const fr: Messages = {
   "desk.outcome.answered": "Répondu par vous",
   "desk.outcome.declined": "Décliné par vous",
   "desk.outcome.done": "Fait par vous",
+  "desk.notDone": "Non fait : {reason}",
   "desk.outcome.batch": {
     one: "{count} sur {total} fait par vous",
     other: "{count} sur {total} faits par vous",

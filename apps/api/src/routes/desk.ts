@@ -41,7 +41,7 @@ import { forClient, runDepsFromEnv, runtimeFor } from "../runs/execute";
 // P-7: message translation
 import { translateForContact, translationDepsFor } from "../translate/service";
 import { operatorApprovers } from "./ops-clients";
-import { portalInboxFilter } from "./portal";
+import { portalInboxFilter, shownFingerprint } from "./portal";
 
 type Scoped = {
   tx: Tx;
@@ -163,6 +163,7 @@ export function deskRoutes(app: Hono<AppEnv>): void {
       visible: (ids) => visibleIds(ctx, ids),
       registry: ctx.services.platform.events,
       collect,
+      shown: (row) => shownFingerprint(ctx.tx, row, ctx.services.platform),
     });
     sendResumes(ctx, ctx.services, outcomes, collect);
     return { items: outcomes.map((o) => deskState(o.item)) };

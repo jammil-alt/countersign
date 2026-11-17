@@ -13,6 +13,7 @@ import {
   type RuntimeDeps,
   recordEditTx,
   reopenApprovedTx,
+  runEndedTx,
 } from "@countersign/agents";
 import {
   type ApproverRule,
@@ -159,6 +160,11 @@ export async function undoItem(
     .where(eq(inboxItem.id, item.id));
   if (item.status !== "resolved" || !live?.open) {
     throw new HttpError(409, "too_late", "the undo window has passed");
+  }
+  // Review of audit 3.3: a card whose run has ended stays as it was answered. Opened again, it
+  // would wait for an answer nothing can use.
+  if (item.runId && (await runEndedTx(tx, input.tenantId, item.runId))) {
+    throw new HttpError(409, "run_ended", "This run has ended, so this can't be undone");
   }
   // The change goes back to proposed before anything can claim it (the claim skips items inside
   // their window, and the window is still open).
@@ -503,6 +509,8 @@ export async function resolveBatch(
     visible: (ids: string[]) => Promise<Set<string>>;
     registry: EventTypeRegistry;
     collect: EventRow[];
+    /** Audit 3.4: the fingerprint of an item as the portal shows it now (`shownFingerprint`). */
+    shown: (item: InboxRow) => Promise<string>;
   },
 ): Promise<ResolveOutcome[]> {
   const approve = input.body.approve ?? [];
@@ -535,6 +543,8 @@ export async function resolveBatch(
         },
         registry: input.registry,
         collect: input.collect,
+        // Audit 3.4: each item as the person saw it (the body's schema requires one for each).
+        seen: { fingerprint: input.body.fingerprints[id] ?? "", of: input.shown },
       }),
     );
   }
