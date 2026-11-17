@@ -294,7 +294,11 @@ export async function inviteToClient(
     canSign?: boolean | undefined;
     agentIds?: MemberAgents | undefined;
   },
-  options: { surface: "ops" | "portal" },
+  options: {
+    surface: "ops" | "portal";
+    /** §1.149: false when Mezonas sends its own branded invite (the sign-in provider sends none). */
+    providerEmail?: boolean;
+  },
 ): Promise<InviteResult> {
   const { tx } = ctx;
   const email = input.email.trim().toLowerCase();
@@ -364,7 +368,12 @@ export async function inviteToClient(
     ctx.afterCommit(async () => {
       const choice = ctx.services.auth();
       if (!choice.ok) return;
-      result.email = emailOf(await choice.adapter.invite(email));
+      result.email = emailOf(
+        await choice.adapter.invite(
+          email,
+          options.providerEmail === false ? { providerEmail: false } : undefined,
+        ),
+      );
     });
   }
   return result;

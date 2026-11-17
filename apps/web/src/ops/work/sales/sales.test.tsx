@@ -139,6 +139,7 @@ function detail(over: Partial<DealDetail["deal"]> = {}): DealDetail {
           isPrimary: true,
         },
       ],
+      fileId: null,
       ...over,
     },
     activity: [

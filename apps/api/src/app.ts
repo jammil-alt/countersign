@@ -65,6 +65,7 @@ import { browserScriptRoutes } from "./routes/browser-scripts";
 import { callsSetupRoutes } from "./routes/calls-setup";
 // R4: business hours, person hours and channels (docs/plan.md §1.86)
 import { channelRoutes } from "./routes/channels";
+import { clientFileRoutes } from "./routes/client-files";
 import { clientViewRoutes } from "./routes/client-view";
 // v0.12 W2-F: the command center, search and plain-words questions
 import { commandCenterRoutes } from "./routes/command-center";
@@ -89,6 +90,8 @@ import { gchatRoutes } from "./routes/gchat";
 import { gsheetsRoutes } from "./routes/gsheets";
 import { hookRoutes } from "./routes/hooks";
 import { hoursRoutes } from "./routes/hours";
+import { intakeRoutes } from "./routes/intake";
+import { inviteRoutes } from "./routes/invite";
 import { knowledgeRouteHandlers } from "./routes/knowledge";
 // v0.12 W2-C: the test bench, skill tests and the agent lab
 import { labRoutes } from "./routes/lab";
@@ -168,6 +171,7 @@ import { usageRouteHandlers } from "./routes/usage";
 import { voiceRoutes } from "./routes/voice";
 import { voiceHookRoutes } from "./routes/voice-hooks";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
+import { welcomeRoutes } from "./routes/welcome";
 import { whatsappMetaRoutes } from "./routes/whatsapp-meta";
 // §1.124 back office work
 import { workRouteHandlers } from "./routes/work";
@@ -298,6 +302,11 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsCodeRequestRoutes(app);
   // §1.124 back office work
   dealRoutes(app);
+  // §1.149 onboarding v1: client files and starts, Invite and Sign up now, the intake, the welcome page
+  clientFileRoutes(app);
+  inviteRoutes(app);
+  intakeRoutes(app);
+  welcomeRoutes(app);
   // docs/plan.md §1.109: voice typing
   voiceRoutes(app);
   directoryRoutes(app);

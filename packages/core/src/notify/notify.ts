@@ -19,6 +19,26 @@ export const NOTIFICATION_KINDS = [
 export const NotificationKind = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof NotificationKind>;
 
+/**
+ * §1.149: the onboarding emails, written to the same outbox (migration 0066 allows them) but
+ * rendered at send from the intake and its person (`apps/api/src/onboarding/emails.ts`), never
+ * from `counts`, and never by `renderNotification`. This wave sends the first three; the rest are
+ * next wave's (a row of theirs is skipped `unsupported` until then).
+ */
+export const ONBOARDING_NOTIFICATION_KINDS = [
+  "intake_invite",
+  "intake_colleague",
+  "intake_more_questions",
+  "intake_reminder",
+  "intake_scope_ready",
+  "intake_next",
+] as const;
+export type OnboardingNotificationKind = (typeof ONBOARDING_NOTIFICATION_KINDS)[number];
+
+export function isOnboardingNotificationKind(kind: string): kind is OnboardingNotificationKind {
+  return (ONBOARDING_NOTIFICATION_KINDS as readonly string[]).includes(kind);
+}
+
 // §1.116: `push`, to the person's registered phones (migration 0056).
 export const NOTIFICATION_CHANNELS = ["email", "sms", "push"] as const;
 export const NotificationChannel = z.enum(NOTIFICATION_CHANNELS);
@@ -84,7 +104,19 @@ export const dedupeKeys = {
   signoff: (itemId: string, userId: string) => `signoff:${itemId}:${userId}`,
   /** §1.124: one per reply on a request and person. */
   issue: (messageId: string, userId: string) => `issue:${messageId}:${userId}`,
+  /**
+   * §1.149: one onboarding email per kind and intake person (`intake_person.id`). An email asked
+   * again (a colleague asked twice, more questions added twice) names what it is about (`ref`).
+   */
+  intake: (kind: OnboardingNotificationKind, personId: string, ref?: string) =>
+    `${kind}:${personId}${ref ? `:${ref}` : ""}`,
 } as const;
+
+/** §1.149: the intake person an onboarding email's key names (`<kind>:<person>[:<ref>]`). */
+export function intakePersonOfKey(key: string): string | null {
+  const m = /^intake_[a-z_]+:([0-9a-f-]{36})(?::|$)/.exec(key);
+  return m?.[1] ?? null;
+}
 
 /** The prefix every reconnect key of one connection on one UTC day shares (the remind check). */
 /** The week a weekly_table key names (`weekly:<week start>:<user>`). */

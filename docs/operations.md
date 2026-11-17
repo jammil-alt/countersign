@@ -138,6 +138,14 @@ After the first run: save the project id from the run summary as the repository 
    favicon `favicon-48.png` (at least 32 px square, under 100 KB), shown as the logo icon; app
    name "Mezonas"; button colour slate `#23415E` (dark theme `#8FB0D2`), page background paper
    `#FAFAF9` (dark `#0F1318`). The email templates take the same logo.
+   **Onboarding's invites** (`docs/plan.md` §1.149): the client's people get one email, ours, and
+   sign in from our welcome page with Google, Microsoft or email. On both environments: switch on
+   **Google** and **Microsoft** sign-in (Authentication → Social login) with Mezonas' own OAuth
+   clients in production; brand AuthKit's sign-in and the code emails WorkOS sends as above; put
+   AuthKit on `auth.mezonas.com` if the plan allows (Custom domains). Then check on staging what
+   `packages/auth/NOTES.md` lists as unchecked, first whether a new address can sign up without a
+   WorkOS invitation; if it can't, turn WorkOS's own invitation email off and tell the developers
+   (the fallback in the notes).
 
 
 ### The public site (mezonas.com)
@@ -789,6 +797,14 @@ What to check against Stripe's docs and a test-mode account before the first rea
   client's domain is verified) and `RESEND_FALLBACK_DOMAIN_ID` (Resend's id for it, so fallback keys
   can send only from it). Replies come back through `EMAIL_FORWARDING_DOMAIN` to each client's
   forwarding address. What to check first: `packages/connectors/src/resend/NOTES.md`.
+- The same key and domain send Mezonas' own mail: notifications from `notify@` and, since
+  §1.149, onboarding's invites from the lead, `"<Lead> at Mezonas" <hello@RESEND_FALLBACK_DOMAIN>`
+  with Reply-To the lead's own address. Owner steps for production: verify `mezonas.com` itself in
+  Resend (its SPF, DKIM and DMARC records in Cloudflare DNS; DMARC at least `p=quarantine` once
+  mail passes) and set `RESEND_FALLBACK_DOMAIN=mezonas.com` (and its `RESEND_FALLBACK_DOMAIN_ID`)
+  in the production environment, so invites come from `hello@mezonas.com`; give `hello@` a mailbox
+  or an Email Routing rule to a person, since some people will write to it rather than reply.
+  Without the key, invites are written `skipped` (`not_configured`) and the intake says so.
 
 ### GitHub summary
 
