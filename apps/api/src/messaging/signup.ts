@@ -30,7 +30,7 @@ import {
   textSignupTerms,
 } from "@countersign/core";
 import { contact, contactChange, type Db, type Tx, tenant, withTenant } from "@countersign/db";
-import { and, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, eq, gt, gte, inArray, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { HttpError } from "../http";
 import type { Mailer } from "../notify/mailer";
@@ -276,6 +276,11 @@ export async function submitTextSignup(
       "Enter your mobile number with its area code, for example (555) 123-4567.",
     );
   }
+  // DECISION: both ways in take US and Canadian numbers only: the page sends a text to whatever
+  // number is typed, and an invitation link can be forwarded as easily as the client's link.
+  if (!isNanpNumber(phone)) {
+    throw new HttpError(422, "invalid_phone", "Enter a US or Canadian mobile number.");
+  }
   return withTenant(db, payload.t, async (tx) => {
     const t = await tenantOf(tx, payload.t);
     if (!t) throw gone();
@@ -292,12 +297,9 @@ export async function submitTextSignup(
     let row: ContactRow;
     if (payload.k === "l") {
       if (linkKeyOf(t) !== payload.n) throw gone();
-      // DECISION: the client's link takes US and Canadian numbers only, and at most
-      // TEXT_SIGNUP_LINK_HOURLY_MAX sign-ups an hour: a public form that sends a text is what SMS
-      // pumping looks for. An invitation is tied to one person and has neither limit.
-      if (!isNanpNumber(phone)) {
-        throw new HttpError(422, "invalid_phone", "Enter a US or Canadian mobile number.");
-      }
+      // DECISION: the client's link takes at most TEXT_SIGNUP_LINK_HOURLY_MAX sign-ups an hour: a
+      // public form that sends a text is what SMS pumping looks for. An invitation is tied to one
+      // person and signs up once (below).
       const name = body.name?.trim();
       if (!name) throw new HttpError(422, "invalid_name", "Enter your name.");
       const [recent] = await tx
@@ -326,8 +328,36 @@ export async function submitTextSignup(
         }));
       row = await recordTextSignup(tx, row, { source: TEXT_SIGNUP_SOURCES.link, evidence }, now);
     } else {
-      const found = await contactOf(tx, payload.t, payload.c);
+      // The person's row, locked: two presses at once sign up once.
+      const [found] = await tx
+        .select()
+        .from(contact)
+        .where(and(eq(contact.id, payload.c), eq(contact.tenantId, payload.t)))
+        .for("update");
       if (!found) throw gone();
+      // DECISION: an invitation signs up once, so it sends at most one confirmation text. "Used"
+      // is a sign-up through an invitation logged since this one was sent (its expiry less
+      // TEXT_INVITE_DAYS): no table or token id is needed.
+      const sentAt = new Date((payload.e - TEXT_INVITE_DAYS * 24 * 60 * 60) * 1000);
+      const [used] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(contactChange)
+        .where(
+          and(
+            eq(contactChange.tenantId, payload.t),
+            eq(contactChange.contactId, found.id),
+            gte(contactChange.createdAt, sentAt),
+            sql`${contactChange.change}->>'kind' = 'opt_in'`,
+            sql`${contactChange.change}->>'via' = 'invitation'`,
+          ),
+        );
+      if ((used?.n ?? 0) > 0) {
+        throw new HttpError(
+          409,
+          "used",
+          "This invitation has already been used. To change your number, ask the business.",
+        );
+      }
       row = found;
       if (row.phone !== phone) {
         // Their own number: the old one's consent for texts and calls goes with it (§1.22).

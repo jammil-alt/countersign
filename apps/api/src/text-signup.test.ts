@@ -304,6 +304,40 @@ describe.skipIf(!h)("signing up for texts", () => {
       expect(kinds).toEqual(expect.arrayContaining(["text_invite", "edited", "opt_in"]));
     });
 
+    it("takes US and Canadian numbers only, and signs up once per invitation", async () => {
+      const SAM = await newContact(admin("a"), { name: "Sam Diaz", email: "sam@vendor.example" });
+      expect(j((await invite(admin("a"), [SAM])).json).sent).toEqual([
+        { id: SAM, reminder: false },
+      ]);
+      const link = /Choose to get texts: (\S+)/.exec(
+        lastEmailTo("sam@vendor.example")?.text ?? "",
+      )?.[1];
+      const token = tokenIn(link as string);
+      // The same number rules as the client's link.
+      const abroad = await submit(token, { phone: "+442071838750" });
+      expect(abroad.status).toBe(422);
+      expect(j(abroad.json).error.code).toBe("invalid_phone");
+      expect(textsTo("+442071838750")).toHaveLength(0);
+
+      // Two presses at once: one sign-up and one text.
+      const both = await Promise.all([
+        submit(token, { phone: "+15125550184" }),
+        submit(token, { phone: "+15125550185" }),
+      ]);
+      expect(both.map((r) => r.status).sort()).toEqual([200, 409]);
+      expect(textsTo("+15125550184").length + textsTo("+15125550185").length).toBe(1);
+
+      // Used: the link signs up no one else and sends nothing more.
+      const again = await submit(token, { phone: "+15125550186" });
+      expect(again.status).toBe(409);
+      expect(j(again.json).error.code).toBe("used");
+      expect(textsTo("+15125550186")).toHaveLength(0);
+      const optIns = (await logOf(SAM)).filter(
+        (l) => (l.change as { kind: string }).kind === "opt_in",
+      );
+      expect(optIns).toHaveLength(1);
+    });
+
     it("sends one reminder after three days, then no more", async () => {
       const LEE = await newContact(admin("a"), { name: "Lee Park", email: "lee@vendor.example" });
       expect(j((await invite(admin("a"), [LEE])).json).sent).toEqual([
