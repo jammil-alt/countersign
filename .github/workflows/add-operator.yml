@@ -41,6 +41,8 @@ jobs:
   add-operator:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Production waits for the production environment's approval, like a production deploy.
+    environment: ${{ inputs.target }}
     env:
       TARGET: ${{ inputs.target }}
       EMAIL: ${{ inputs.email }}
