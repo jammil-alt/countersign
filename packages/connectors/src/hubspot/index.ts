@@ -18,6 +18,7 @@ import { type FetchLike, formEncode, globalFetch, timeoutSignal } from "../http"
 import {
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   type TokenRefresher,
   tokenManager,
 } from "../oauth/tokens";
@@ -271,7 +272,8 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
       if (!r.ok) {
         if (r.status === 400 || r.status === 401) {
           // BAD_REFRESH_TOKEN / invalid_grant: the app was uninstalled or the token revoked.
-          throw new ReconnectRequiredError(`HubSpot refused the refresh: ${r.error}`);
+          // BAD_CLIENT_ID and the like are our keys: not the client's to fix.
+          throw refreshRefused("HubSpot", r.error, ["BAD_REFRESH_TOKEN", "invalid_grant"]);
         }
         throw new HubspotApiError(
           r.status,

@@ -22,6 +22,7 @@ import {
 import {
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   SignInRefusedError,
   type TokenRefresher,
   tokenManager,
@@ -329,8 +330,9 @@ export function microsoftSignIn(
         scope: scopes.join(" "),
       });
       if ("error" in answer) {
-        // invalid_grant: revoked, expired, or the password changed.
-        throw new ReconnectRequiredError(`Microsoft refused the refresh: ${answer.error}`);
+        // invalid_grant: revoked, expired, or the password changed; interaction_required: the
+        // tenant's policy wants the person to sign in again (MFA, conditional access).
+        throw refreshRefused("Microsoft", answer.error, ["invalid_grant", "interaction_required"]);
       }
       // Microsoft rotates refresh tokens: the new one is kept (tokenManager persists it).
       return {

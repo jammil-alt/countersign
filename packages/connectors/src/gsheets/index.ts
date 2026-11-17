@@ -36,6 +36,7 @@ import {
 import {
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   SignInRefusedError,
   type TokenRefresher,
   tokenManager,
@@ -557,7 +558,8 @@ export function createGsheetsConnector(options: GsheetsOptions = {}): GsheetsCon
         client_secret: c.secret,
       });
       if ("error" in answer) {
-        throw new ReconnectRequiredError(`Google refused the refresh: ${answer.error}`);
+        // invalid_grant: revoked, or expired (after 7 days while the app is in Testing).
+        throw refreshRefused("Google", answer.error);
       }
       return {
         ...tokens,

@@ -11,6 +11,7 @@ import { type FetchLike, formEncode, globalFetch, timeoutSignal } from "../http"
 import {
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   type TokenRefresher,
   tokenManager,
 } from "../oauth/tokens";
@@ -228,7 +229,7 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
       if (!r.ok) {
         if (r.status === 400 || r.status === 401) {
           // invalid_grant: revoked, or unused past its lifetime. The client signs in again.
-          throw new ReconnectRequiredError(`Podio refused the refresh: ${r.error}`);
+          throw refreshRefused("Podio", r.error);
         }
         throw new PodioApiError(
           r.status,

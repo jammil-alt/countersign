@@ -13,7 +13,7 @@ connected.
 |---|---|
 | Authorize at `https://appcenter.intuit.com/connect/oauth2` with `client_id`, `response_type=code`, `scope`, `redirect_uri`, `state`; the callback carries `code`, `state` and `realmId` | `index.ts` (`authorize`, `handleCallback`) |
 | Scope `com.intuit.quickbooks.accounting` only | `api.ts` `QBO_SCOPE` |
-| Token endpoint `POST https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer`, Basic auth (`client_id:client_secret`), form body `grant_type=authorization_code&code&redirect_uri` or `grant_type=refresh_token&refresh_token`; answer `access_token`, `refresh_token`, `token_type`, `expires_in` (3600), `x_refresh_token_expires_in` (about 100 days); `{"error":"invalid_grant"}` when the grant is gone | `api.ts` `qboTokenCall`, `qboRefresher` |
+| Token endpoint `POST https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer`, Basic auth (`client_id:client_secret`), form body `grant_type=authorization_code&code&redirect_uri` or `grant_type=refresh_token&refresh_token`; answer `access_token`, `refresh_token`, `token_type`, `expires_in` (3600), `x_refresh_token_expires_in` (about 100 days); `{"error":"invalid_grant"}` when the grant is gone (only that asks the client to connect again; `invalid_client` and the rest are our keys or Intuit's trouble, retried) | `api.ts` `qboTokenCall`, `qboRefresher` |
 | Every refresh may return a new refresh token; the newest one must be stored every time | `oauth/tokens.ts` stores it; `qboRefresher` shares one refresh per refresh token in an isolate |
 | Revoke at `POST https://developer.api.intuit.com/v2/oauth2/tokens/revoke`, Basic auth, JSON `{"token": "<refresh token>"}`; revoking the refresh token ends the grant | `index.ts` `revoke` |
 | API base `https://sandbox-quickbooks.api.intuit.com` (sandbox) and `https://quickbooks.api.intuit.com` (production), paths `/v3/company/{realmId}/…`, `Accept: application/json` | `api.ts` |
@@ -67,9 +67,10 @@ Against the docs:
     body versus the CloudEvents array Intuit announced moving to (we read both: which one does the
     "Mezonas" app get, and from when?); retries and their timing.
 12. Refresh tokens: whether an older refresh token keeps working for a while after a newer one is
-    issued. If it does not, two isolates refreshing at once could disconnect a client (one isolate
-    shares its refresh; across isolates we rely on Intuit giving the same answer). Watch for
-    `invalid_grant` right after a refresh in the logs.
+    issued. If it does not, two isolates refreshing at once race: one isolate shares its refresh;
+    across isolates `tokenManager` saves only over the token it started from and, when Intuit
+    refuses the spent one (`invalid_grant`), carries on with the newer token another isolate
+    stored (docs/enterprise-readiness.md E1). Watch for `invalid_grant` right after a refresh.
 13. The current Intuit developer terms and what production keys need (app review, the security
     questionnaire, the EULA and privacy policy links: the public site has them, §1.29).
 

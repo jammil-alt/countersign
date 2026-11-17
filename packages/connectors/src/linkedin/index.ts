@@ -23,6 +23,7 @@ import { type FetchLike, formEncode, globalFetch, timeoutSignal } from "../http"
 import {
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   SignInRefusedError,
   type TokenRefresher,
   tokenManager,
@@ -238,7 +239,9 @@ export function createLinkedInConnector(options: LinkedInOptions = {}): Connecto
         client_secret: c.secret,
       });
       if ("error" in answer) {
-        throw new ReconnectRequiredError(`LinkedIn refused the refresh: ${answer.error}`);
+        // UNCHECKED (NOTES.md): LinkedIn documents `invalid_request` for a refresh token that is
+        // invalid, expired or revoked; `invalid_grant` is seen too.
+        throw refreshRefused("LinkedIn", answer.error, ["invalid_grant", "invalid_request"]);
       }
       return {
         ...tokens,

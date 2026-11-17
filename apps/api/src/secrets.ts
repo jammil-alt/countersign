@@ -9,6 +9,7 @@ import {
   type CredentialsAccessor,
   credentialKeysFromEnv,
   encryptedCredentials,
+  saveCredentialsIf,
   tenantKeysIn,
   type VaultCipher,
 } from "@countersign/connectors";
@@ -65,5 +66,7 @@ export async function connectionCredentials(
         .set({ credentialsEncrypted: envelope as Record<string, unknown> })
         .where(where);
     },
+    saveIf: (envelope, expected) =>
+      saveCredentialsIf(tx, { tenantId: row.tenantId, connectionId: row.id }, envelope, expected),
   });
 }

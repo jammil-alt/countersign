@@ -2,7 +2,7 @@ import type { JsonObject } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { defineConnector } from "../connector";
 import { CredentialCipher, generateEncryptionKey, memoryTenantKeys } from "../credentials";
-import { memoryCredentials } from "../credentials-accessor";
+import { encryptedCredentials, memoryCredentials } from "../credentials-accessor";
 import { fromBase64Url, fromUtf8, toBase64Url, utf8 } from "../runtime";
 import { beginAuthorization, completeAuthorization, type OAuthCallbackError } from "./flow";
 import { createOAuthState, OAUTH_STATE_TTL_MS, readOAuthState, verifyOAuthState } from "./state";
@@ -10,10 +10,14 @@ import {
   needsRefresh,
   type OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
+  TokenRefreshError,
   type TokenRefresher,
   tokenManager,
 } from "./tokens";
 
+/** The runtime's timers (the Workers types leave `setTimeout` out of this package). */
+const timers = globalThis as unknown as { setTimeout: (f: () => void, ms: number) => unknown };
 const secret = "a-test-secret-that-is-at-least-32-bytes-long";
 const who = {
   tenantId: "0190f0c8-0000-7000-8000-000000000001",
@@ -157,21 +161,67 @@ function tokens(over: JsonObject = {}): JsonObject {
 }
 
 describe("tokenManager", () => {
-  function refresher(rotate = true): TokenRefresher & { calls: number } {
+  const tick = () => new Promise<void>((resolve) => timers.setTimeout(resolve, 0));
+  /**
+   * A provider's token endpoint. With `rotate`, it behaves like Intuit's and Microsoft's: every
+   * refresh issues a new refresh token, and one already spent is refused (`invalid_grant`).
+   */
+  function refresher(rotate = true): TokenRefresher & { calls: number; live: string } {
     const r = {
       calls: 0,
+      live: "rt-1",
       async refresh(current: OAuthTokens, { now }: { now: Date }) {
         r.calls += 1;
+        if (rotate && current.refreshToken !== r.live) {
+          throw new ReconnectRequiredError("the provider refused the refresh: invalid_grant");
+        }
+        const serial = r.calls + 1;
+        if (rotate) r.live = `rt-${serial}`;
         for (let i = 0; i < 5; i++) await Promise.resolve();
         return {
-          accessToken: `at-${r.calls + 1}`,
-          ...(rotate ? { refreshToken: `rt-${r.calls + 1}` } : {}),
+          accessToken: `at-${serial}`,
+          ...(rotate ? { refreshToken: `rt-${serial}` } : {}),
           expiresAt: new Date(now.getTime() + 3600_000).toISOString(),
           ...(current.scope ? { scope: current.scope } : {}),
         };
       },
     };
     return r;
+  }
+
+  /**
+   * One connection's stored envelope, and an accessor per isolate over it: each caches what it
+   * read, as `encryptedCredentials` does for a run step.
+   */
+  async function sharedStore(initial: JsonObject) {
+    const cipher = (await CredentialCipher.create({ current: generateEncryptionKey() })).forClients(
+      memoryTenantKeys(),
+    );
+    const binding = {
+      tenantId: who.tenantId,
+      connectionId: "0190f0c8-0000-7000-8000-0000000000aa",
+    };
+    let stored: unknown = await cipher.encrypt(initial, binding);
+    return {
+      async current() {
+        return cipher.decrypt(stored, binding);
+      },
+      isolate() {
+        return encryptedCredentials({
+          cipher,
+          binding,
+          load: async () => stored,
+          save: async (env) => {
+            stored = env;
+          },
+          saveIf: async (env, expected) => {
+            if (JSON.stringify(stored) !== JSON.stringify(expected)) return false;
+            stored = env;
+            return true;
+          },
+        });
+      },
+    };
   }
 
   it("uses the stored token until it is about to expire", async () => {
@@ -229,6 +279,87 @@ describe("tokenManager", () => {
     );
     expect(result.status).toBe(200);
     expect(seen).toEqual(["at-1", "at-2"]);
+  });
+
+  it("keeps the connection when two isolates refresh a rotating token at once", async () => {
+    const store = await sharedStore(tokens({ expiresAt: t0.toISOString(), realmId: "9130" }));
+    const provider = refresher();
+    const a = store.isolate();
+    const b = store.isolate();
+    // Both isolates read the tokens before either refreshes.
+    await Promise.all([a.get(), b.get()]);
+    const ma = tokenManager({ credentials: a, refresher: provider, now: () => t0, sleep: tick });
+    const mb = tokenManager({ credentials: b, refresher: provider, now: () => t0, sleep: tick });
+    const got = await Promise.all([ma.accessToken(), mb.accessToken()]);
+    expect(got).toEqual(["at-2", "at-2"]);
+    expect(await store.current()).toMatchObject({
+      accessToken: "at-2",
+      refreshToken: "rt-2",
+      realmId: "9130",
+    });
+    expect(provider.live).toBe("rt-2");
+  });
+
+  it("uses another isolate's newer tokens instead of refreshing with a spent one", async () => {
+    const store = await sharedStore(tokens({ expiresAt: t0.toISOString() }));
+    const provider = refresher();
+    const a = store.isolate();
+    const b = store.isolate();
+    await b.get();
+    await tokenManager({ credentials: a, refresher: provider, now: () => t0 }).accessToken();
+    // b's cache still has rt-1, which the provider would now refuse.
+    const mb = tokenManager({ credentials: b, refresher: provider, now: () => t0 });
+    expect(await mb.accessToken()).toBe("at-2");
+    expect(provider.calls).toBe(1);
+    expect(await store.current()).toMatchObject({ refreshToken: "rt-2" });
+  });
+
+  it("never overwrites a newer refresh token with an older one", async () => {
+    const store = await sharedStore(tokens({ expiresAt: t0.toISOString() }));
+    const a = store.isolate();
+    const b = store.isolate();
+    await Promise.all([a.get(), b.get()]);
+    // A provider that answers both refreshes; the first saved wins and the other is dropped.
+    let n = 0;
+    const lenient: TokenRefresher = {
+      async refresh(_current, { now }) {
+        n += 1;
+        const serial = n + 1;
+        for (let i = 0; i < 5 * n; i++) await Promise.resolve();
+        return {
+          accessToken: `at-${serial}`,
+          refreshToken: `rt-${serial}`,
+          expiresAt: new Date(now.getTime() + 3600_000).toISOString(),
+        };
+      },
+    };
+    const ma = tokenManager({ credentials: a, refresher: lenient, now: () => t0 });
+    const mb = tokenManager({ credentials: b, refresher: lenient, now: () => t0 });
+    const got = await Promise.all([ma.accessToken(), mb.accessToken()]);
+    expect(got).toEqual(["at-2", "at-2"]);
+    expect(await store.current()).toMatchObject({ accessToken: "at-2", refreshToken: "rt-2" });
+  });
+
+  it("asks for a reconnect when the provider refuses the stored refresh token", async () => {
+    const credentials = memoryCredentials(tokens({ expiresAt: t0.toISOString() }));
+    const provider = refresher();
+    provider.live = "rt-other";
+    const m = tokenManager({ credentials, refresher: provider, now: () => t0, sleep: tick });
+    await expect(m.accessToken()).rejects.toBeInstanceOf(ReconnectRequiredError);
+    expect(credentials.current()).toMatchObject({ refreshToken: "rt-1" });
+  });
+
+  it("disconnects only for a dead grant, not for our keys or a provider incident", () => {
+    expect(refreshRefused("Intuit", "invalid_grant")).toBeInstanceOf(ReconnectRequiredError);
+    for (const code of ["invalid_client", "server_error", "temporarily_unavailable", 42]) {
+      const error = refreshRefused("Intuit", code);
+      expect(error).toBeInstanceOf(TokenRefreshError);
+      expect(error).not.toBeInstanceOf(ReconnectRequiredError);
+      expect(error).toMatchObject({ notWritten: true, retryable: true });
+    }
+    expect(refreshRefused("Zoho", "invalid_code", ["invalid_code"])).toBeInstanceOf(
+      ReconnectRequiredError,
+    );
   });
 
   it("asks for a reconnect when there is nothing to refresh with", async () => {

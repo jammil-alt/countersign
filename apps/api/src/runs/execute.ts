@@ -28,6 +28,7 @@ import {
   globalFetch,
   type ObjectStore,
   R2ObjectStore,
+  saveCredentialsIf,
   tenantKeysInDb,
   type UrlSigner,
 } from "@countersign/connectors";
@@ -223,12 +224,27 @@ export function credentialsFor(
               .set({ credentialsEncrypted: envelope as Record<string, unknown> })
               .where(and(eq(connection.id, conn.id), eq(connection.tenantId, conn.tenantId)));
           }),
+        saveIf: (envelope, expected) =>
+          withTenant(db, conn.tenantId, (tx) =>
+            saveCredentialsIf(
+              tx,
+              { tenantId: conn.tenantId, connectionId: conn.id },
+              envelope,
+              expected,
+            ),
+          ),
       });
       return inner;
     };
     return {
       get: async () => (await open()).get(),
       set: async (value) => (await open()).set(value),
+      // E1: the refresh's compare-and-swap (tokenManager).
+      update: async (decide) => {
+        const update = (await open()).update;
+        if (!update) throw new Error("the credentials can't be swapped");
+        return update(decide);
+      },
     };
   };
 }

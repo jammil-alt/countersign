@@ -20,6 +20,7 @@ import { runReadTool } from "../invoke";
 import {
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   type TokenRefresher,
   tokenManager,
 } from "../oauth/tokens";
@@ -362,9 +363,9 @@ export function createRampConnector(options: RampOptions = {}): Connector {
         refresh_token: tokens.refreshToken,
       });
       if (!r.ok) {
-        if (r.status === 400 || r.status === 401) {
-          throw new ReconnectRequiredError(`Ramp refused the refresh: ${r.error}`);
-        }
+        // invalid_grant: revoked or expired. Anything else (invalid_client: our keys) is not
+        // the client's to fix.
+        if (r.status === 400 || r.status === 401) throw refreshRefused("Ramp", r.error);
         throw new RampApiError(
           r.status,
           r.error,

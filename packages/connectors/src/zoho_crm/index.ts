@@ -12,6 +12,7 @@ import { type FetchLike, formEncode, globalFetch, parseUrl, timeoutSignal } from
 import {
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   type TokenRefresher,
   tokenManager,
 } from "../oauth/tokens";
@@ -305,8 +306,9 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
         client_secret: c.secret,
       });
       if ("error" in answer) {
-        // invalid_code (revoked or expired grant), invalid_client: the client must sign in again.
-        throw new ReconnectRequiredError(`Zoho refused the refresh: ${answer.error}`);
+        // invalid_code: Zoho's word for a refresh token that is invalid (revoked). invalid_client
+        // (our keys) and "Access Denied" (too many refreshes) leave the connection as it is.
+        throw refreshRefused("Zoho", answer.error, ["invalid_code", "invalid_grant"]);
       }
       const apiDomain =
         answer.api_domain && isZohoApiDomain(answer.api_domain)

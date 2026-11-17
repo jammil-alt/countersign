@@ -44,6 +44,7 @@ import {
 import {
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   SignInRefusedError,
   type TokenRefresher,
   tokenManager,
@@ -326,7 +327,7 @@ export function createGcalConnector(options: GcalOptions = {}): Connector {
       });
       if ("error" in answer) {
         // invalid_grant: revoked, or expired (after 7 days while the app is in Testing).
-        throw new ReconnectRequiredError(`Google refused the refresh: ${answer.error}`);
+        throw refreshRefused("Google", answer.error);
       }
       return {
         ...tokens,

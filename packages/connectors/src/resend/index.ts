@@ -15,7 +15,7 @@ import { z } from "zod";
 import { type AttachmentLimits, describeOutbound, loadOutbound, summaries } from "../attachments";
 import { type Connector, defineConnector, defineWriteTool, type ToolContext } from "../connector";
 import { requireCredentials } from "../credentials-accessor";
-import { type FetchLike, globalFetch } from "../http";
+import { type FetchLike, globalFetch, timeoutSignal } from "../http";
 import { toBase64 } from "../runtime";
 import { reachReplyTo } from "../upload/forwarding";
 
@@ -100,15 +100,41 @@ export type ResendConfig = z.infer<typeof ResendConfig>;
 export const ResendCredentials = z.object({ apiKey: z.string().min(8) });
 
 export class ResendError extends Error {
+  /** Resend answered and took nothing (`sendRefusedStatus`): nothing was sent or made. */
+  readonly notWritten: boolean;
   constructor(
     readonly status: number | null,
     message: string,
   ) {
     super(message);
     this.name = "ResendError";
+    this.notWritten = status !== null && sendRefusedStatus(status);
   }
 }
 
+/** Waits before retrying a 429 when Resend sends no Retry-After; then the call fails. */
+const RATE_LIMIT_BACKOFF_MS = [1000, 2000, 4000];
+/** The longest Retry-After we wait for; a longer one fails the call (the step's retry). */
+const RETRY_AFTER_MAX_MS = 5000;
+
+const defaultSleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    const st = (globalThis as unknown as { setTimeout: (f: () => void, ms: number) => unknown })
+      .setTimeout;
+    st(resolve, ms);
+  });
+
+export interface ResendRequestOptions {
+  /** Waits between 429 retries (tests pass a fast one). */
+  sleep?: (ms: number) => Promise<void>;
+  timeoutMs?: number;
+}
+
+/**
+ * One call to Resend's API: a timeout, no redirects followed, and a 429 (every client shares one
+ * Resend team and its rate limit) retried a few times after Retry-After. Resend did nothing with a
+ * request it answered 429, and a send carries its Idempotency-Key, so the retry is safe.
+ */
 export async function resendRequest(
   fetch: FetchLike,
   apiKey: string,
@@ -116,28 +142,45 @@ export async function resendRequest(
   path: string,
   body?: unknown,
   headers: Record<string, string> = {},
+  opts: ResendRequestOptions = {},
 ): Promise<unknown> {
-  const res = await fetch(`${RESEND_API}${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${apiKey}`,
-      "content-type": "application/json",
-      ...headers,
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const text = await res.text();
-  let parsed: unknown = null;
-  try {
-    parsed = text ? JSON.parse(text) : null;
-  } catch {
-    parsed = null;
+  const sleep = opts.sleep ?? defaultSleep;
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${RESEND_API}${path}`, {
+      method,
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json",
+        ...headers,
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      redirect: "manual",
+      signal: timeoutSignal(opts.timeoutMs ?? 30_000),
+    });
+    const text = await res.text();
+    let parsed: unknown = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = null;
+    }
+    if (res.status === 429 && attempt < RATE_LIMIT_BACKOFF_MS.length) {
+      const after = Number(res.headers.get("retry-after"));
+      const wait =
+        Number.isFinite(after) && after > 0
+          ? after * 1000
+          : (RATE_LIMIT_BACKOFF_MS[attempt] as number);
+      if (wait <= RETRY_AFTER_MAX_MS) {
+        await sleep(wait);
+        continue;
+      }
+    }
+    if (!res.ok) {
+      const msg = (parsed as { message?: unknown } | null)?.message;
+      throw new ResendError(res.status, `Resend answered ${res.status}: ${String(msg ?? "error")}`);
+    }
+    return parsed;
   }
-  if (!res.ok) {
-    const msg = (parsed as { message?: unknown } | null)?.message;
-    throw new ResendError(res.status, `Resend answered ${res.status}: ${String(msg ?? "error")}`);
-  }
-  return parsed;
 }
 
 // ── Provisioning (the operator, with Mezonas' key) ──────────────────────────────────────────────
@@ -206,6 +249,30 @@ export interface EmailSendAttempt {
   from: string;
   subject: string;
   startedAt: Date;
+  /**
+   * 1 for the first try. A try the provider refused (it answered, and sent nothing) may be
+   * followed by the next under the same key; the newest one is what a re-run looks at.
+   */
+  attempt?: number;
+  /** From `attemptFor`: the provider refused this try, so nothing was sent. */
+  refused?: boolean;
+}
+
+/**
+ * A send's HTTP answer that says the provider sent nothing: any 4xx but 408 and 409 (bad request,
+ * the token refused, not allowed, too large, a rate limit). A 409 is a clash with another request
+ * (Resend: one with the same Idempotency-Key still running), and a timeout or a 5xx after the
+ * request left may have been sent.
+ */
+export function sendRefusedStatus(status: number): boolean {
+  return status >= 400 && status < 500 && status !== 408 && status !== 409;
+}
+
+/** A short reason for a refused send's record: the HTTP status, or the error's kind. */
+export function refusalReason(error: unknown): string {
+  const status = (error as { status?: unknown } | null)?.status;
+  if (typeof status === "number") return `HTTP_${status}`;
+  return error instanceof Error ? error.name : "refused";
 }
 
 export interface EmailServices {
@@ -213,8 +280,18 @@ export interface EmailServices {
   checkSend(input: { to: string; now: Date }): Promise<EmailSendCheck>;
   /** Records that a send is starting, before the provider is called; the first per key stands. */
   startAttempt?(attempt: EmailSendAttempt): Promise<void>;
-  /** The send started under this key, if any. */
+  /** The newest send started under this key, if any, with `attempt` and `refused`. */
   attemptFor?(idempotencyKey: string): Promise<EmailSendAttempt | null>;
+  /**
+   * Records that the provider refused try `attempt` (it answered and sent nothing), so a re-run
+   * may try again instead of stopping for a person. Without it, every started try stands.
+   */
+  refuseAttempt?(input: {
+    idempotencyKey: string;
+    attempt: number;
+    reason: string;
+    at: Date;
+  }): Promise<void>;
   /** The client's forwarding address, where replies come back; null when it has none. */
   replyAddress?(): Promise<string | null>;
   /** The email already sent under this key, if any (a re-run after a crash). */
@@ -267,6 +344,8 @@ function emailServices(ctx: ToolContext): EmailServices {
 
 export interface ResendConnectorOptions {
   fetch?: FetchLike;
+  /** Waits between 429 retries (tests pass a fast one). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export function createResendConnector(options: ResendConnectorOptions = {}): Connector {
@@ -358,6 +437,7 @@ export function createResendConnector(options: ResendConnectorOptions = {}): Con
               // DECISION: Resend's idempotency key is the external action's key, so a retried send
               // inside Resend's window is not sent twice (NOTES.md: the header's name and window).
               { "Idempotency-Key": ctx.idempotencyKey },
+              options.sleep ? { sleep: options.sleep } : {},
             ),
           );
           const output = {

@@ -4,7 +4,7 @@
 // key. Every function runs inside the caller's withTenant() for that one client (invariant 1).
 
 import { connection, type Db, type Tx, tenantKey, withTenant } from "@countersign/db";
-import { and, asc, eq, isNotNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import {
   type CredentialCipher,
   CredentialError,
@@ -71,6 +71,31 @@ export function tenantKeysInDb(db: Db): TenantKeyStore {
       withTenant(db, tenantId, (tx) => tenantKeysIn(tx).active(tenantId, wrapNew)),
     get: (tenantId, id) => withTenant(db, tenantId, (tx) => tenantKeysIn(tx).get(tenantId, id)),
   };
+}
+
+/**
+ * Writes a connection's credentials envelope only if the stored one is still `expected` (null:
+ * none stored), in `tx` (scoped to the client): the compare-and-swap behind
+ * `encryptedCredentials`'s `saveIf`. True when it was written.
+ */
+export async function saveCredentialsIf(
+  tx: Tx,
+  where: { tenantId: string; connectionId: string },
+  envelope: unknown,
+  expected: unknown,
+): Promise<boolean> {
+  const stored =
+    expected == null
+      ? isNull(connection.credentialsEncrypted)
+      : sql`${connection.credentialsEncrypted}::jsonb = ${JSON.stringify(expected)}::jsonb`;
+  const rows = await tx
+    .update(connection)
+    .set({ credentialsEncrypted: envelope as Record<string, unknown> })
+    .where(
+      and(eq(connection.id, where.connectionId), eq(connection.tenantId, where.tenantId), stored),
+    )
+    .returning({ id: connection.id });
+  return rows.length > 0;
 }
 
 /**

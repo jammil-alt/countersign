@@ -10,15 +10,15 @@ import cloudEvents from "../../../../fixtures/qbo/webhook-cloudevents.json";
 import notification from "../../../../fixtures/qbo/webhook-notification.json";
 import type { DocumentServices, WriteContext } from "../connector";
 import { CredentialCipher, generateEncryptionKey, memoryTenantKeys } from "../credentials";
-import { memoryCredentials } from "../credentials-accessor";
+import { encryptedCredentials, memoryCredentials } from "../credentials-accessor";
 import { formDecode } from "../http";
 import { captureBefore, executeWrite, runReadTool, standInOutput, ToolCallError } from "../invoke";
 import { memoryLogger } from "../logger";
 import { beginAuthorization, completeAuthorization } from "../oauth/flow";
-import { ReconnectRequiredError } from "../oauth/tokens";
+import { ReconnectRequiredError, TokenRefreshError } from "../oauth/tokens";
 import { ConnectorRegistry } from "../registry";
 import { fromUtf8, utf8 } from "../runtime";
-import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo, QBO_FIXTURES } from "../testing";
+import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo, jsonResponse, QBO_FIXTURES } from "../testing";
 import {
   BANKING_TOOLS,
   createQboConnector,
@@ -38,6 +38,8 @@ import {
   wire,
 } from "./index";
 
+/** The runtime's timers (the Workers types leave `setTimeout` out of this package). */
+const timers = globalThis as unknown as { setTimeout: (f: () => void, ms: number) => unknown };
 const NOW = new Date("2026-11-05T18:00:00.000Z");
 const tenant = "0190f0c8-0000-7000-8000-000000000001";
 const user = "0190f0c8-0000-7000-8000-0000000000a1";
@@ -342,6 +344,120 @@ describe("qbo connector: manifest and sign-in", () => {
     await expect(runReadTool(s.connector, QBO_TOOLS.itemQuery, {}, ctx())).rejects.toBeInstanceOf(
       ReconnectRequiredError,
     );
+  });
+
+  it("keeps the connection when two isolates refresh at once, storing the newest token", async () => {
+    const s = setup();
+    const { grant, ctx } = await signedIn(s);
+    const cipher = (await CredentialCipher.create({ current: generateEncryptionKey() })).forClients(
+      memoryTenantKeys(),
+    );
+    const binding = { tenantId: tenant, connectionId };
+    let stored: unknown = await cipher.encrypt(grant.credentials as JsonObject, binding);
+    const isolate = () => {
+      // Each isolate has its own connector (its own refresh cache) and its own cached credentials.
+      const connector = createQboConnector({
+        ...FAKE_QBO_CLIENT,
+        environment: "sandbox",
+        fetch: s.qbo.fetch,
+        sleep: () => new Promise<void>((resolve) => timers.setTimeout(resolve, 0)),
+        now: () => NOW,
+      });
+      const credentials = encryptedCredentials({
+        cipher,
+        binding,
+        load: async () => stored,
+        save: async (env) => {
+          stored = env;
+        },
+        saveIf: async (env, expected) => {
+          if (JSON.stringify(stored) !== JSON.stringify(expected)) return false;
+          stored = env;
+          return true;
+        },
+      });
+      return { connector, credentials };
+    };
+    const a = isolate();
+    const b = isolate();
+    await Promise.all([a.credentials.get(), b.credentials.get()]);
+    s.qbo.expireAccessTokens();
+    const outs = await Promise.all(
+      [a, b].map((i) =>
+        runReadTool(i.connector, QBO_TOOLS.itemQuery, {}, { ...ctx(), credentials: i.credentials }),
+      ),
+    );
+    expect(outs).toHaveLength(2);
+    // Intuit refused the second refresh with the spent token; the newest one is stored.
+    expect(s.qbo.requests.filter((r) => r.body?.includes("grant_type=refresh_token"))).toHaveLength(
+      2,
+    );
+    expect(await cipher.decrypt(stored, binding)).toMatchObject({
+      refreshToken: s.qbo.refreshToken,
+    });
+  });
+
+  it("leaves the connection alone when Intuit refuses our app's keys, not the client's grant", async () => {
+    const s = setup();
+    const { store, ctx } = await signedIn(s);
+    const before = store.current();
+    // A rotated or wrong client secret: Intuit answers 401 invalid_client.
+    const wrongKeys = createQboConnector({
+      clientId: FAKE_QBO_CLIENT.clientId,
+      clientSecret: "not-the-secret",
+      environment: "sandbox",
+      fetch: s.qbo.fetch,
+      sleep: fastSleep,
+      now: () => NOW,
+    });
+    s.qbo.expireAccessTokens();
+    const error = await runReadTool(wrongKeys, QBO_TOOLS.itemQuery, {}, ctx()).catch((e) => e);
+    expect(error).toBeInstanceOf(TokenRefreshError);
+    expect(error).not.toBeInstanceOf(ReconnectRequiredError);
+    expect(store.current()).toEqual(before);
+    // With the right keys again, the same grant still works.
+    await runReadTool(s.connector, QBO_TOOLS.itemQuery, {}, ctx());
+  });
+
+  it("treats a provider incident at the token endpoint as retryable", async () => {
+    const s = setup();
+    const { ctx } = await signedIn(s);
+    s.qbo.expireAccessTokens();
+    for (const [status, body] of [
+      [503, { error: "temporarily_unavailable" }],
+      [500, { error: "server_error" }],
+    ] as const) {
+      const down = createQboConnector({
+        ...FAKE_QBO_CLIENT,
+        environment: "sandbox",
+        fetch: async (url, init) =>
+          url.includes("tokens/bearer") ? jsonResponse(status, body) : s.qbo.fetch(url, init),
+        sleep: fastSleep,
+        now: () => NOW,
+      });
+      const error = await runReadTool(down, QBO_TOOLS.itemQuery, {}, ctx()).catch((e) => e);
+      expect(error).toBeInstanceOf(TokenRefreshError);
+    }
+  });
+
+  it("keeps the connection when QuickBooks refuses a token it has just refreshed", async () => {
+    const s = setup();
+    const { ctx } = await signedIn(s);
+    const refusing = createQboConnector({
+      ...FAKE_QBO_CLIENT,
+      environment: "sandbox",
+      fetch: async (url, init) =>
+        url.includes("/v3/company/")
+          ? jsonResponse(401, {
+              fault: { error: [{ code: "3200", message: "AuthenticationFailed" }] },
+            })
+          : s.qbo.fetch(url, init),
+      sleep: fastSleep,
+      now: () => NOW,
+    });
+    const error = await runReadTool(refusing, QBO_TOOLS.itemQuery, {}, ctx()).catch((e) => e);
+    expect(error).not.toBeInstanceOf(ReconnectRequiredError);
+    expect(error).toMatchObject({ status: 401, retryable: true });
   });
 
   it("refreshes before expiry without waiting for a 401", async () => {

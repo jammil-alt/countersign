@@ -10,6 +10,7 @@ import { checkPublicHttpsUrl, formEncode, type HttpResponseLike, timeoutSignal }
 import {
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   type TokenRefresher,
   tokenManager,
 } from "../oauth/tokens";
@@ -318,8 +319,9 @@ function qboRefreshOnce(doFetch: () => QboFetch, keys: () => QboAppKeys): TokenR
         refresh_token: tokens.refreshToken,
       });
       if ("error" in answer) {
-        // invalid_grant: revoked, expired (100 days unused), or an older refresh token.
-        throw new ReconnectRequiredError(`Intuit refused the refresh: ${answer.error}`);
+        // invalid_grant: revoked, expired (100 days unused), or an older refresh token: the client
+        // signs in again. Anything else (invalid_client: our keys) leaves the connection as it is.
+        throw refreshRefused("Intuit", answer.error);
       }
       return { ...creds.data, ...tokensFrom(answer, now) };
     },
@@ -397,6 +399,7 @@ export async function qboClient(ctx: ToolContext, opts: QboClientOptions): Promi
     credentials: ctx.credentials,
     refresher: opts.refresher,
     now: ctx.now,
+    ...(opts.sleep ? { sleep: opts.sleep } : {}),
   });
   const throttle = throttleFor(realmId, sleep);
 
@@ -443,7 +446,15 @@ export async function qboClient(ctx: ToolContext, opts: QboClientOptions): Promi
     const text = await res.text();
     const parsed = parseJson(text);
     if (res.status === 401) {
-      throw new ReconnectRequiredError("QuickBooks refused the access token after a refresh");
+      // DECISION: a 401 right after a refresh that worked is not a dead grant (Intuit just took
+      // the refresh token), so the connection stays connected and a later try may get through.
+      throw new QboApiError(
+        401,
+        "HTTP_401",
+        "QuickBooks refused the access token after a refresh",
+        true,
+        intuitTidOf(res),
+      );
     }
     const fault = readFault(parsed);
     const tid = intuitTidOf(res);
