@@ -320,14 +320,16 @@ describe("Sales", () => {
     expect(screen.queryByTestId("deal-setup")).toBeNull();
     expect(screen.getByTestId("deal-stage-lead")).toHaveAttribute("aria-current", "step");
 
-    // The composer opens on the internal note; email comes with Reggie's inbox.
+    // The composer opens on the internal note; the Email tab asks for a subject and sends.
     await userEvent.type(screen.getByTestId("deal-composer-text"), "Karen wants it by January.");
     await userEvent.click(screen.getByTestId("deal-composer-save"));
     await waitFor(() =>
       expect(notes).toEqual([{ kind: "note", body: "Karen wants it by January." }]),
     );
     await userEvent.click(screen.getByTestId("deal-composer-email"));
-    expect(screen.getByTestId("deal-composer-email-later")).toBeInTheDocument();
+    expect(screen.getByTestId("deal-composer-subject")).toBeInTheDocument();
+    expect(screen.getByTestId("deal-composer-save")).toHaveTextContent("Send");
+    expect(screen.getByTestId("deal-composer-save")).toBeDisabled();
 
     await userEvent.click(screen.getByTestId("deal-stage-proposal"));
     await waitFor(() => expect(moves).toEqual([{ stage: "proposal" }]));

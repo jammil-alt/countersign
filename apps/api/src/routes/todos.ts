@@ -41,6 +41,7 @@ import { clientActivity } from "../work/activity";
 import { clientWork } from "../work/client-work";
 import { aboutHref, todoList, todoScope, todoViews } from "../work/todos";
 import { addTodo, type TodoRow } from "../work/todos-store";
+import { sendDealEmail } from "./autopilot";
 
 async function readTodo(
   tx: Tx,
@@ -167,10 +168,6 @@ const refOf = (row: TodoRow): Record<string, string> =>
   >;
 
 /** A route by name, when its stream has added it (B2's deal email); else null. */
-function routeNamed(name: string): RouteSpec | null {
-  return (routes as unknown as Record<string, RouteSpec | undefined>)[name] ?? null;
-}
-
 const startOfToday = (now: Date) =>
   new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
@@ -325,22 +322,9 @@ export function todoRoutes(app: Hono<AppEnv>): void {
           });
           href = aboutHref("issue", ref.issueId);
         } else if (ref.dealId) {
-          // The deal's email is Reggie's inbox stream's (§1.123.4); until it is there, refuse.
-          const email = routeNamed("opsDealEmail");
-          if (!email) {
-            throw new HttpError(409, "not_yet", "email from a deal comes with Reggie's inbox");
-          }
-          await invokeRoute(
-            app,
-            ctx.c,
-            ctx.session,
-            email,
-            {
-              params: { id: ref.dealId },
-              body: { subject: draft?.subject ?? row.title, text },
-            },
-            "todo",
-          );
+          // The deal's email is Reggie's inbox's (§1.123.4). It is a slow route, which
+          // invokeRoute can't run, so its sending is called directly, as this operator.
+          await sendDealEmail(ctx, ref.dealId, { subject: draft?.subject ?? row.title, text });
           href = aboutHref("deal", ref.dealId);
         } else {
           throw new HttpError(409, "no_target", "this reply has nowhere to go");

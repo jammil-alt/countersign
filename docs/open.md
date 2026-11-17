@@ -168,12 +168,15 @@ then one pass of its "To verify" list against the real service.
 
 ## 4. Everything else
 
-### Back office work: Sales and Build (designed 2026-11-17, parked)
+### Back office work: Sales, Build, Your call and Autopilot (built 2026-11-17, not merged)
 
 One to-do list (Your call), Sales (new accounts and expansion) and Build (issues, agent builds and
-enhancements in one work order), with Reggie doing most of the work. Agreed as a design and a plan
-to come back to; nothing is built. The plan, its steps (B1–W1) and the owner's open questions:
-`docs/cases-plan.md`. The screens: `docs/design/pipelines.html` and `docs/design/workflows.html`.
+enhancements in one work order), with Reggie doing most of the work. Built on two stacked draft
+PRs, neither merged: the migrations (0061–0064, PR #380) and the code on top of it
+(`claude/ops-work-szb740`). Waiting on the owner to try it on staging and say when to merge.
+Decisions: `docs/plan.md` §1.123 (M64–M68); the plan: `docs/cases-plan.md`; the screens:
+`docs/design/pipelines.html` and `docs/design/workflows.html`. What each stream left open is in
+its "Not yet" row in §1.123.1–§1.123.4.
 
 ### Area owners, owner chat and Home (designed 2026-11-12)
 

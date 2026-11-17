@@ -286,7 +286,7 @@ describe.skipIf(!h)("Your call", () => {
     expect(byTitle.get("Void the 14 duplicates")?.owner).toBe("client");
   });
 
-  it("Do it refuses a deal email until Reggie's inbox is there, and leaves the to-do open", async () => {
+  it("Do it sends a deal email through the deal's route, and a refusal leaves the to-do open", async () => {
     const t = await seed({
       title: "First reply to Ridgeline",
       owner: "operator",
@@ -298,7 +298,8 @@ describe.skipIf(!h)("Your call", () => {
       },
     });
     const res = await H.call(OPERATOR, "POST", `/api/ops/todos/${t.id}/act`, {});
-    expect([404, 409]).toContain(res.status);
+    // No such deal (and no mailer in the harness): the route refuses and nothing is done.
+    expect([404, 503]).toContain(res.status);
     const [row] = await withOperator(H.db, [H.A.tenantId], (tx) =>
       tx.select().from(todo).where(eq(todo.id, t.id)),
     );

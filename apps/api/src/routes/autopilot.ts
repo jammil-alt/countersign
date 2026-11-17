@@ -11,7 +11,15 @@ import type { Hono } from "hono";
 import { autopilotView, setPlayLevel } from "../backoffice/autopilot";
 import { dealTag, HELLO_LOCAL, sendTaggedEmail, taggedAddress } from "../backoffice/outbound-email";
 import { readOne } from "../backoffice/reggie-pass";
-import { type AppEnv, HttpError, mount, mountLong, notFound, txOnly } from "../http";
+import {
+  type AppEnv,
+  HttpError,
+  type LongHandlerCtx,
+  mount,
+  mountLong,
+  notFound,
+  txOnly,
+} from "../http";
 import { mailerFromEnv } from "../notify/mailer";
 import { workerTransport } from "../runs/execute";
 import { addActivity, dealDetail, readDeal, salesToday } from "../work/deals";
@@ -36,54 +44,8 @@ export function autopilotRoutes(app: Hono<AppEnv>): void {
   mountLong(
     app,
     routes.opsDealEmail,
-    async ({ inTx, tenantIds, params, body, session, services }) => {
-      const domain = services.env.EMAIL_FORWARDING_DOMAIN?.trim();
-      const mailer = mailerFromEnv(services.env, services.deps.fetch?.(services.env));
-      if (!mailer.isConfigured || !domain) {
-        throw new HttpError(503, "email_off", "email isn't set up here yet");
-      }
-      const run = txOnly(inTx);
-      const prepared = await run(async (tx) => {
-        const row = await readDeal(tx, tenantIds, params.id, true);
-        const people = await tx.select().from(dealPerson).where(eq(dealPerson.dealId, row.id));
-        const to = people.find((p) => p.isPrimary && p.email) ?? people.find((p) => p.email);
-        if (!to?.email)
-          throw new HttpError(422, "no_email", "add the person's email to the deal first");
-        let tag = row.replyTag;
-        if (!tag) {
-          tag = dealTag();
-          await tx.update(deal).set({ replyTag: tag }).where(eq(deal.id, row.id));
-        }
-        return { row, to, tag };
-      });
-      const idempotencyKey = `deal-${prepared.row.id}-${crypto.randomUUID()}`;
-      const providerId = await sendTaggedEmail(mailer, {
-        to: prepared.to.email as string,
-        subject: body.subject,
-        text: body.text,
-        from: session.user.name?.trim() || "Your Mezonas lead",
-        replyTo: taggedAddress(HELLO_LOCAL, prepared.tag, domain),
-        idempotencyKey,
-      }).catch((error: unknown) => {
-        throw new HttpError(
-          502,
-          "send_failed",
-          error instanceof Error ? error.message : "the email didn't go",
-        );
-      });
-      return run(async (tx) => {
-        await addActivity(tx, prepared.row.id, {
-          kind: "email_out",
-          actor: "operator",
-          userId: session.user.id,
-          subject: body.subject,
-          body: body.text,
-          meta: { to: prepared.to.email, personId: prepared.to.id, providerId },
-        });
-        await tx.update(deal).set({ waitingOn: "client" }).where(eq(deal.id, prepared.row.id));
-        return dealDetail(tx, await readDeal(tx, tenantIds, prepared.row.id), salesToday());
-      });
-    },
+    async ({ inTx, tenantIds, params, body, session, services }) =>
+      sendDealEmail({ inTx, tenantIds, session, services }, params.id, body),
   );
 
   // A reminder for a to-do the client owns: a message from their lead in the lead conversation.
@@ -137,5 +99,69 @@ export function autopilotRoutes(app: Hono<AppEnv>): void {
       },
     );
     return { read };
+  });
+}
+
+type LongArgs = LongHandlerCtx<typeof routes.opsDealEmail>;
+
+/**
+ * Sends a deal's email (`POST /api/ops/deals/:id/email`). A slow route can't be run through
+ * `invokeRoute`, so Your call's "Do it" (§1.123.3) calls this directly, as the same operator.
+ */
+export async function sendDealEmail(
+  {
+    inTx,
+    tenantIds,
+    session,
+    services,
+  }: Pick<LongArgs, "inTx" | "tenantIds" | "session" | "services">,
+  dealId: string,
+  body: { subject: string; text: string },
+) {
+  const domain = services.env.EMAIL_FORWARDING_DOMAIN?.trim();
+  const mailer = mailerFromEnv(services.env, services.deps.fetch?.(services.env));
+  if (!mailer.isConfigured || !domain) {
+    throw new HttpError(503, "email_off", "email isn't set up here yet");
+  }
+  const run = txOnly(inTx);
+  const prepared = await run(async (tx) => {
+    const row = await readDeal(tx, tenantIds, dealId, true);
+    const people = await tx.select().from(dealPerson).where(eq(dealPerson.dealId, row.id));
+    const to = people.find((p) => p.isPrimary && p.email) ?? people.find((p) => p.email);
+    if (!to?.email)
+      throw new HttpError(422, "no_email", "add the person's email to the deal first");
+    let tag = row.replyTag;
+    if (!tag) {
+      tag = dealTag();
+      await tx.update(deal).set({ replyTag: tag }).where(eq(deal.id, row.id));
+    }
+    return { row, to, tag };
+  });
+  const idempotencyKey = `deal-${prepared.row.id}-${crypto.randomUUID()}`;
+  const providerId = await sendTaggedEmail(mailer, {
+    to: prepared.to.email as string,
+    subject: body.subject,
+    text: body.text,
+    from: session.user.name?.trim() || "Your Mezonas lead",
+    replyTo: taggedAddress(HELLO_LOCAL, prepared.tag, domain),
+    idempotencyKey,
+  }).catch((error: unknown) => {
+    throw new HttpError(
+      502,
+      "send_failed",
+      error instanceof Error ? error.message : "the email didn't go",
+    );
+  });
+  return run(async (tx) => {
+    await addActivity(tx, prepared.row.id, {
+      kind: "email_out",
+      actor: "operator",
+      userId: session.user.id,
+      subject: body.subject,
+      body: body.text,
+      meta: { to: prepared.to.email, personId: prepared.to.id, providerId },
+    });
+    await tx.update(deal).set({ waitingOn: "client" }).where(eq(deal.id, prepared.row.id));
+    return dealDetail(tx, await readDeal(tx, tenantIds, prepared.row.id), salesToday());
   });
 }

@@ -1,7 +1,7 @@
 // Reggie's and the clients' lists on Your call (docs/plan.md §1.123.3; the prototype's
 // `theirList()`): a table with the columns used everywhere else (What, Client, Kind, Due), sorted
 // by due date; "Take it" moves one of Reggie's to you; "Remind" asks Reggie to chase the client
-// (its route is Reggie's stream's, §1.123.4, and shows once it is there).
+// (its route is Reggie's stream's, §1.123.4).
 import { type RouteSpec, type TodoView, YOUR_CALL_WORDS } from "@countersign/core";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -12,9 +12,8 @@ import { Due } from "../parts";
 
 type Col = "what" | "client" | "kind" | "due";
 
-/** Reggie's chase route, once its stream has added it. */
-export const remindRoute = (apiRoutes as unknown as Record<string, RouteSpec | undefined>)
-  .opsTodoRemind;
+/** Reggie's chase route (§1.123.4). */
+export const remindRoute: RouteSpec | undefined = apiRoutes.opsTodoRemind;
 
 export function TheirList({
   who,

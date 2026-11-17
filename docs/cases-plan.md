@@ -1,4 +1,12 @@
-# Back office work: Sales and Build (design and plan, parked 2026-11-17)
+# Back office work: Sales and Build (design and plan, agreed 2026-11-17)
+
+**Status (2026-11-17): built, not merged.** The owner asked for it built on 2026-11-17. It is on
+two stacked draft PRs: the migrations (0061–0064, PR #380, `claude/ops-work-migrations-szb740`)
+and the code on top of it (`claude/ops-work-szb740`): Build, Sales, Your call, and Reggie with
+Autopilot and `support@`/`hello@` email, all against fakes. Neither is to be merged until the
+owner says so. The decisions are `docs/plan.md` §1.123 (the §7 questions are answered there),
+the milestones M64–M68. The text below is the plan as agreed; its "nothing here is built" is
+history.
 
 The owner wants one place in the back office to bring clients in, sell them more, and build and
 fix what they need, with Reggie doing most of the work so one person can run many clients'

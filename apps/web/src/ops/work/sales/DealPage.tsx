@@ -452,25 +452,33 @@ type ComposerTab = (typeof COMPOSER_TABS)[number][0];
 
 function Composer({ id, isLead, onDone }: { id: string; isLead: boolean; onDone(): void }) {
   const api = useApiClient();
-  // DECISION: sending email from a deal is Reggie's stream (§1.123.4, `POST
-  // /api/ops/deals/:id/email`); until it lands the Email tab says so and the composer opens on
-  // the internal note.
+  // The Email tab sends through Reggie's inbox (§1.123.4, `POST /api/ops/deals/:id/email`) to
+  // the deal's primary person, written on the timeline as email out. The composer opens on the
+  // internal note.
   const [tab, setTab] = useState<ComposerTab>("note");
   const [text, setText] = useState("");
+  const [subject, setSubject] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const tabs = COMPOSER_TABS.map(
     ([k, label]) => [k, k === "email" && !isLead ? "Reply to the client" : label] as const,
   );
   async function save() {
-    if (tab === "email") return;
     setBusy(true);
     setError(null);
     try {
-      await api.call(apiRoutes.opsDealActivity, {
-        params: { id },
-        body: { kind: tab, body: text.trim() },
-      });
+      if (tab === "email") {
+        await api.call(apiRoutes.opsDealEmail, {
+          params: { id },
+          body: { subject: subject.trim(), text: text.trim() },
+        });
+        setSubject("");
+      } else {
+        await api.call(apiRoutes.opsDealActivity, {
+          params: { id },
+          body: { kind: tab, body: text.trim() },
+        });
+      }
       setText("");
       onDone();
     } catch (e) {
@@ -495,41 +503,53 @@ function Composer({ id, isLead, onDone }: { id: string; isLead: boolean; onDone(
           </button>
         ))}
       </div>
-      {tab === "email" ? (
-        <p className="m-0 text-sm text-ink-muted" data-testid="deal-composer-email-later">
-          Email from the deal comes with Reggie's inbox. Until then, write from your mail and log it
-          here as a note.
-        </p>
-      ) : (
-        <form
-          className="flex flex-col gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (text.trim()) void save();
-          }}
-        >
-          <TextArea
-            rows={3}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder={tab === "note" ? "Only the back office sees this." : "What was said"}
-            data-testid="deal-composer-text"
+      <form
+        className="flex flex-col gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (text.trim() && (tab !== "email" || subject.trim())) void save();
+        }}
+      >
+        {tab === "email" ? (
+          <TextInput
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="Subject"
+            aria-label="Subject"
+            data-testid="deal-composer-subject"
           />
-          {error ? <ErrorNotice error={error} /> : null}
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-ink-muted">Goes on the timeline as activity.</span>
-            <Button
-              type="submit"
-              size="sm"
-              variant="primary"
-              disabled={busy || !text.trim()}
-              data-testid="deal-composer-save"
-            >
-              Save
-            </Button>
-          </div>
-        </form>
-      )}
+        ) : null}
+        <TextArea
+          rows={3}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={
+            tab === "note"
+              ? "Only the back office sees this."
+              : tab === "email"
+                ? "Write to them. Replies come back to this deal."
+                : "What was said"
+          }
+          data-testid="deal-composer-text"
+        />
+        {error ? <ErrorNotice error={error} /> : null}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-ink-muted">
+            {tab === "email"
+              ? "Goes from you via Mezonas to the deal's primary person."
+              : "Goes on the timeline as activity."}
+          </span>
+          <Button
+            type="submit"
+            size="sm"
+            variant="primary"
+            disabled={busy || !text.trim() || (tab === "email" && !subject.trim())}
+            data-testid="deal-composer-save"
+          >
+            {tab === "email" ? "Send" : "Save"}
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }
