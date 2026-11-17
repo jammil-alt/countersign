@@ -17,6 +17,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { type ApiHarness, createApiHarness } from "./api.test-helper";
 import type { Bindings } from "./env";
+import { claimAttempt } from "./second-factor";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -337,6 +338,48 @@ describe.skipIf(!h)("the second step of signing in (§1.100)", () => {
     });
     expect(blocked.status).toBe(429);
     expect(blocked.json.error.code).toBe("too_many_attempts");
+  });
+
+  it("counts tries sent at once one at a time, before any code is checked", async () => {
+    const b = new Browser();
+    await signIn(b, H.B.admin);
+    await request(b, "POST", "/api/auth/second-factor/setup", {
+      kind: "sms",
+      phone: "+15559876543",
+    });
+    // Eight wrong codes at once: five are checked and refused, the rest refused unchecked.
+    const tries = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        request(b, "POST", "/api/auth/second-factor/verify", { kind: "sms", code: "111111" }),
+      ),
+    );
+    expect(tries.map((t) => t.status).sort()).toEqual([422, 422, 422, 422, 422, 429, 429, 429]);
+    // The right code is refused too, until the 15 minutes pass.
+    const right = await request(b, "POST", "/api/auth/second-factor/verify", {
+      kind: "sms",
+      code: "246810",
+    });
+    expect([right.status, right.json.error.code]).toEqual([429, "too_many_attempts"]);
+    const recovery = await request(b, "POST", "/api/auth/second-factor/recovery", {
+      code: "AAAA-BBBB",
+    });
+    expect(recovery.status).toBe(429);
+    const attempts = await H.t.db
+      .select()
+      .from(auditEvent)
+      .where(
+        and(
+          eq(auditEvent.action, "session.second_factor_attempt"),
+          eq(auditEvent.actorUserId, H.B.admin),
+        ),
+      );
+    expect(attempts).toHaveLength(5);
+    // A try whose row can't be written is no try: the claim fails rather than letting it through.
+    await expect(
+      claimAttempt(H.t.db, H.operator, async () => {
+        throw new Error("audit row not written");
+      }),
+    ).rejects.toThrow("audit row not written");
   });
 
   const operator = new Browser();

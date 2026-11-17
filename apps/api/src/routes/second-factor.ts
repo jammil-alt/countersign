@@ -27,7 +27,9 @@ import {
   findConnection,
 } from "../mcp/approval";
 import {
+  ATTEMPT_ACTION,
   allowedKinds,
+  claimAttempt,
   factorsOf,
   newRecoveryCodes,
   overLimit,
@@ -212,10 +214,10 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
     const userId = session.user.id;
     const db = services.db;
     const now = new Date();
-    if (overLimit(await recentCount(db, userId, "wrong_code", now))) throw tooMany();
     const allowed = await allowedKinds(db, userId);
     const factor = (await factorsOf(db, userId)).find((f) => f.kind === body.kind);
     if (!factor || !allowed.includes(body.kind)) throw notFound("that method");
+    await tryOnce(c, session, body.kind);
 
     let right: boolean;
     try {
@@ -258,7 +260,7 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
     const userId = session.user.id;
     const db = services.db;
     const now = new Date();
-    if (overLimit(await recentCount(db, userId, "wrong_code", now))) throw tooMany();
+    await tryOnce(c, session, "recovery");
     const allowed = await allowedKinds(db, userId);
     const usable = (await factorsOf(db, userId)).find(
       (f) => f.verifiedAt && allowed.includes(f.kind),
@@ -387,6 +389,18 @@ export function claudeConnectionRoutes(app: Hono<AppEnv>): void {
 
 const tooMany = () =>
   new HttpError(429, "too_many_attempts", "too many tries; wait 15 minutes and try again");
+
+/**
+ * Audit 5.4: one try of a code, claimed (and its row written) before the code is checked; past
+ * the limit, 429 and the code is never checked. A failure to claim fails the request.
+ */
+async function tryOnce(c: AppContext, session: Session, method: string): Promise<void> {
+  const { db } = c.get("req").services();
+  const claimed = await claimAttempt(db, session.user.id, (tx) =>
+    auditInTx(tx, c, entry(session, ATTEMPT_ACTION, "ok", 200, { method })),
+  );
+  if (!claimed) throw tooMany();
+}
 
 /** Inserts or replaces the person's unverified method of one kind. */
 async function saveFactor(
