@@ -76,6 +76,7 @@ const IdTokenClaims = z.looseObject({
   aud: z.string(),
   exp: z.number(),
   tid: z.string().min(1),
+  oid: z.string().min(1).max(100).optional(),
   email: z.string().optional(),
   preferred_username: z.string().optional(),
 });
@@ -98,6 +99,16 @@ export function looksLikeAddress(value: string): boolean {
 export interface MicrosoftAccount {
   address: string;
   tid: string;
+  /** The account's object id in its directory: it stays when the address is renamed. */
+  oid?: string;
+}
+
+/**
+ * The connection's `config.accountIds` for a Microsoft account (the platform compares them when
+ * the account signs in again): its directory and object id, which a rename of the address keeps.
+ */
+export function microsoftAccountIds(account: MicrosoftAccount): string[] {
+  return account.oid ? [`ms:${account.tid}:${account.oid}`] : [];
 }
 
 /**
@@ -132,7 +143,9 @@ export function microsoftIdTokenAccount(
   }
   for (const candidate of [claims.email, claims.preferred_username]) {
     const v = candidate?.trim().toLowerCase();
-    if (v && looksLikeAddress(v)) return { address: v, tid: claims.tid };
+    if (v && looksLikeAddress(v)) {
+      return { address: v, tid: claims.tid, ...(claims.oid ? { oid: claims.oid } : {}) };
+    }
   }
   throw new SignInRefusedError("Microsoft didn't say which mailbox signed in");
 }

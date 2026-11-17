@@ -348,6 +348,24 @@ Still to do:
    in `wrangler.jsonc`, a commit or a message. Without it the webhook answers 503. Check after a
    deploy: an unsigned POST answers 401 (`curl -sS -X POST <url> -d '{}'`); Intuit's "Send test
    notification", if offered, answers 200 and shows as "qbo webhook received" in the Worker's logs.
+7. **Changing a client's QuickBooks company.** A sign-in to another company (another realm) is
+   taken only while the connection has stored no QuickBooks records (no `raw_record` rows for it):
+   a wrong sandbox company, or the Sandbox client trying another one. After that the portal says
+   "Your books here come from another QuickBooks company" (409 `different_company`), whether the
+   connection is connected or disconnected, because the client's transactions and vendors are keyed
+   by QuickBooks' per-company ids. Changing it then **needs the owner**: it rewrites client records
+   by hand, and `raw_record` is immutable history (invariant 3), so it is never deleted. What the
+   first company left, all in that client (`withTenant`): `transaction` and `transaction_line` with
+   `connector = 'qbo'` (documents and runs point at them), `receivable` and `ledger_account` /
+   `ledger_dimension` rows of the connection, `vendor.external_refs ->> 'qbo'`, and the
+   connection's `raw_record` rows. With the owner's decision, either start a new client for the
+   other company (nothing to clear), or keep the client: disconnect, take the old company's ids out
+   of `transaction.external_id` and `vendor.external_refs` (for example prefix them) so the new
+   company's ids can't land on them, and leave `raw_record` as it is. Then add a new `connection`
+   row for `qbo` in the client (status `pending`, the old row's `permissions`): a sign-in lands on
+   the newest one, which has no records, so the other company is taken, and its sync and ledger
+   start empty. Move the agents' bindings to it in the back office, and record what was done in the
+   client's notes.
 
 ### Google (Gmail, send only, M10)
 

@@ -41,6 +41,7 @@ import {
   graphScope,
   MICROSOFT_SIGN_IN_SCOPES,
   MicrosoftApiError,
+  microsoftAccountIds,
   microsoftSignIn,
 } from "../microsoft/identity";
 import { ReconnectRequiredError, TokenRefreshError } from "../oauth/tokens";
@@ -699,7 +700,12 @@ export function createExcelConnector(options: ExcelOptions = {}): ExcelConnector
       return {
         externalAccountId: account.address,
         credentials: credentials as unknown as JsonObject,
-        config: { address: account.address, tid: account.tid, scopes: [EXCEL_GRAPH_SCOPE] },
+        config: {
+          address: account.address,
+          tid: account.tid,
+          scopes: [EXCEL_GRAPH_SCOPE],
+          accountIds: microsoftAccountIds(account),
+        },
       };
     },
 

@@ -382,6 +382,9 @@ export function createLinkedInConnector(options: LinkedInOptions = {}): Connecto
     },
 
     tokens: refresher,
+    // The first page the person administers names the connection; signing in again may list
+    // them in another order, or with others.
+    accountMayChange: true,
 
     // DECISION: disconnect revokes the token at LinkedIn (best effort), then the platform drops it.
     async revoke(ctx) {

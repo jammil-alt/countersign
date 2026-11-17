@@ -34,6 +34,7 @@ import {
   MICROSOFT_SIGN_IN_SCOPES,
   MicrosoftApiError,
   MicrosoftCredentials,
+  microsoftAccountIds,
   microsoftSignIn,
 } from "../microsoft/identity";
 import {
@@ -278,7 +279,11 @@ export function createOutlookConnector(options: OutlookOptions = {}): Connector 
       return {
         externalAccountId: account.address,
         credentials: credentials as unknown as JsonObject,
-        config: { address: account.address, scopes: ["Mail.Send"] },
+        config: {
+          address: account.address,
+          scopes: ["Mail.Send"],
+          accountIds: microsoftAccountIds(account),
+        },
       };
     },
 

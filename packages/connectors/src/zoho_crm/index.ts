@@ -583,6 +583,9 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
         config: {
           dataCenter: params.location ?? parseUrl(accountsServer)?.hostname ?? "us",
           apiDomain: answer.api_domain,
+          // Every organization the user is in names the same account: Zoho's order of them
+          // isn't promised, so a sign-in again may name another one first.
+          accountIds: org.data.org.map((o) => String(o.id)).sort(),
           ...(first.company_name ? { orgName: first.company_name } : {}),
         },
       };

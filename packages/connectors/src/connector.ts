@@ -523,6 +523,11 @@ export interface LinkStart {
 // DECISION: handleCallback returns a grant rather than a Connection (ARCHITECTURE §6.1 sketch), so
 // connectors stay free of the database and the platform alone encrypts and stores credentials.
 export interface ConnectionGrant {
+  /**
+   * The account signed in to. A connector whose account has other stable ids (a Microsoft
+   * account's object id, every Zoho organization of the user) lists them in `config.accountIds`:
+   * a sign-in again is the same account when any id, stored or new, matches.
+   */
   externalAccountId: string | null;
   credentials: JsonObject;
   config?: JsonObject;

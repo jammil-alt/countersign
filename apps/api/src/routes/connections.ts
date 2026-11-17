@@ -44,7 +44,7 @@ import {
   userLanguage,
   uuidv7,
 } from "@countersign/core";
-import { connection, connectionChange, type Tx, tenant } from "@countersign/db";
+import { connection, connectionChange, rawRecord, type Tx, tenant } from "@countersign/db";
 import { and, count, desc, eq, gt, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import type { Bindings } from "../env";
@@ -365,26 +365,62 @@ function oauthConnector(platform: Platform, connectorId: string): Connector {
  * QuickBooks company, a mailbox, a Slack workspace): `same` (or nothing to compare) keeps it as
  * before; another account is refused while the connection still holds the first one's sign-in,
  * since its stored records and sync point belong to that account; on a disconnected connection
- * it is `other_account`, and the sync starts again from the beginning.
+ * it is `other_account`: the account and credentials change and only the sync cursor is cleared
+ * (its config and bindings stay). The accounts match when any of their ids does: the account id
+ * and `config.accountIds` (stable ids a connector lists, e.g. a Microsoft account's object id),
+ * stored or new, so a connection stored before a connector listed them still matches.
  */
-// DECISION: QuickBooks refuses another company, connected or not: its ids are small numbers
-// per company, and the client's transactions and vendors are keyed by them per client, not per
-// connection, so a second company's Bill 145 would land on the first one's. Changing the company
-// is ours to do by hand. A connector whose account id names what it reads, not whose account it
-// is (Search Console's property), sets `accountMayChange`.
+// DECISION: QuickBooks refuses another company, connected or not, once the connection has stored
+// QuickBooks records: its ids are small numbers per company, and the client's transactions and
+// vendors are keyed by them per client, not per connection, so a second company's Bill 145 would
+// land on the first one's. Changing it then is ours to do by hand (docs/operations.md, "Changing
+// a client's QuickBooks company"). Before any record, the company may change (a wrong sandbox
+// company, the Sandbox client). A connector whose account id names what it reads, not whose
+// account it is (Search Console's property, LinkedIn's first page, a Plaid item made again by a
+// new Link), sets `accountMayChange`.
 export function accountChange(
   connector: Pick<Connector, "manifest" | "accountMayChange">,
-  existing: Pick<ConnectionRow, "status" | "externalAccountId"> | undefined,
-  next: string | null,
+  existing: Pick<ConnectionRow, "status" | "externalAccountId" | "config"> | undefined,
+  next: { externalAccountId: string | null; config?: unknown },
+  recordsStored = true,
 ): "same" | "other_account" | "refuse_connected" | "refuse_company" {
-  const before = existing?.externalAccountId?.trim().toLowerCase();
-  const after = next?.trim().toLowerCase();
-  if (!existing || !before || !after || before === after || connector.accountMayChange) {
+  if (!existing || connector.accountMayChange) return "same";
+  const before = accountIds(existing.externalAccountId, existing.config);
+  const after = accountIds(next.externalAccountId, next.config);
+  if (!before.primary || !after.primary || before.all.some((id) => after.all.includes(id))) {
     return "same";
   }
-  if (connector.manifest.id === QBO_CONNECTOR_ID) return "refuse_company";
+  if (connector.manifest.id === QBO_CONNECTOR_ID) {
+    return recordsStored ? "refuse_company" : "other_account";
+  }
   if (existing.status !== "disconnected") return "refuse_connected";
   return "other_account";
+}
+
+/** Whether a connection has stored any of its tool's records yet. */
+async function hasRawRecords(
+  ctx: { inTx: <T>(work: (tx: Tx) => Promise<T>) => Promise<T> },
+  row: Pick<ConnectionRow, "id" | "tenantId">,
+): Promise<boolean> {
+  const [hit] = await ctx.inTx((tx) =>
+    tx
+      .select({ id: rawRecord.id })
+      .from(rawRecord)
+      .where(and(eq(rawRecord.tenantId, row.tenantId), eq(rawRecord.connectionId, row.id)))
+      .limit(1),
+  );
+  return hit !== undefined;
+}
+
+/** An account's ids, compared without case: its account id first, then `config.accountIds`. */
+function accountIds(id: string | null, config: unknown): { primary: string | null; all: string[] } {
+  const norm = (v: string) => v.trim().toLowerCase();
+  const primary = id && norm(id) ? norm(id) : null;
+  const listed = (config as { accountIds?: unknown } | null)?.accountIds;
+  const more = Array.isArray(listed)
+    ? listed.filter((v): v is string => typeof v === "string" && norm(v) !== "").map(norm)
+    : [];
+  return { primary, all: [...(primary ? [primary] : []), ...more] };
 }
 
 /**
@@ -455,7 +491,13 @@ async function finishSignIn(
       `${connector.manifest.name} did not complete the sign-in`,
     );
   }
-  const change = accountChange(connector, existing, done.grant.externalAccountId);
+  // DECISION: a refused sign-in's fresh grant is not revoked at the provider. Plaid's (a billed
+  // item) can't be refused (`accountMayChange`); Intuit's and Google's revoke ends the person's
+  // whole grant to our app, which may be serving another connection, so the unused tokens are
+  // dropped here and expire.
+  const recordsStored =
+    connectorId === QBO_CONNECTOR_ID && existing ? await hasRawRecords(ctx, existing) : true;
+  const change = accountChange(connector, existing, done.grant, recordsStored);
   if (change === "refuse_connected") {
     throw new HttpError(
       409,
@@ -475,8 +517,15 @@ async function finishSignIn(
     credentialsEncrypted: done.credentials as Record<string, unknown>,
     externalAccountId: done.grant.externalAccountId,
     connectedBy: input.userId,
-    // Another account on a disconnected connection: its sync starts from the beginning.
-    ...(change === "other_account" ? { syncCursor: null } : {}),
+    // Another account: its sync starts from the beginning (QuickBooks keeps its sync claim).
+    ...(change === "other_account"
+      ? {
+          syncCursor:
+            connectorId === QBO_CONNECTOR_ID
+              ? sql`jsonb_strip_nulls(jsonb_build_object('running', ${connection.syncCursor} -> 'running', 'pending', ${connection.syncCursor} -> 'pending'))`
+              : null,
+        }
+      : {}),
   };
   await ctx.inTx(async (tx) => {
     if (existing) {

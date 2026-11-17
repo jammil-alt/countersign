@@ -1,11 +1,17 @@
 // Signing in to QuickBooks again (audit 2.2): the same company keeps the connection, its sync point
-// and its records as before; another company is refused, and the connection is left as it was,
-// while connected and once disconnected (its records are keyed by QuickBooks' per-company ids).
-// The rule for every connector that names one account per connection is checked on its own.
+// and its records as before; before any record is stored the company may change (its sync starts
+// over); after, another company is refused and the connection is left as it was, while connected
+// and once disconnected (its records are keyed by QuickBooks' per-company ids). The rule for every
+// connector that names one account per connection is checked on its own.
 
-import { createQboConnector, generateEncryptionKey } from "@countersign/connectors";
+import {
+  createBankfeedConnector,
+  createLinkedInConnector,
+  createQboConnector,
+  generateEncryptionKey,
+} from "@countersign/connectors";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "@countersign/connectors/testing";
-import { connection } from "@countersign/db";
+import { connection, rawRecord, withTenant } from "@countersign/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ApiHarness, admin, createApiHarness, OPERATOR } from "./api.test-helper";
@@ -19,7 +25,7 @@ const ENCRYPTION_KEY = generateEncryptionKey();
 const ORIGIN = "https://staging.mezonas.test";
 /** A second company the same Intuit user can pick. */
 const OTHER_REALM = "4620816365171234567";
-const qbo = fakeQbo({ codes: ["code-1", "code-2", "code-3", "code-4"] });
+const qbo = fakeQbo({ codes: ["code-1", "code-2", "code-3", "code-4", "code-5"] });
 
 const h = await createApiHarness({
   connectors: () => [
@@ -87,9 +93,46 @@ describe.skipIf(!h)("signing in to QuickBooks again", () => {
     });
   });
 
-  it("refuses another company while connected, and leaves the connection as it was", async () => {
-    const before = await row();
+  it("changes the company while the connection has stored no QuickBooks records", async () => {
+    // A sync is running (its claim stays); nothing stored yet: the wrong company was picked.
+    await H.t.db
+      .update(connection)
+      .set({
+        syncCursor: {
+          v: 1,
+          phase: "initial",
+          entity: "Vendor",
+          start: 1,
+          sinceDate: "2026-08-07",
+          changedSince: "2026-11-05T17:59:00.000Z",
+          running: { instanceId: "qbo-x", reason: "connected", at: "2026-11-05T18:00:00.000Z" },
+        },
+      })
+      .where(eq(connection.id, connectionId));
     const other = await signIn("code-3", OTHER_REALM);
+    expect(other.status, JSON.stringify(other.json)).toBe(200);
+    const r = await row();
+    await H.settle();
+    expect(r).toMatchObject({ status: "connected", externalAccountId: OTHER_REALM });
+    // Its sync starts over for the new company.
+    expect(r?.syncCursor).not.toHaveProperty("phase");
+    expect(r?.syncCursor).toMatchObject({ running: { instanceId: "qbo-x" } });
+  });
+
+  it("refuses another company once records are stored, and leaves the connection as it was", async () => {
+    await withTenant(H.db, H.A.tenantId, (tx) =>
+      tx.insert(rawRecord).values({
+        tenantId: H.A.tenantId,
+        connectionId,
+        connector: "qbo",
+        entityType: "Vendor",
+        externalId: "56",
+        externalVersion: "0",
+        payload: { Id: "56", SyncToken: "0" },
+      }),
+    );
+    const before = await row();
+    const other = await signIn("code-4", FAKE_QBO_REALM);
     expect(other.status, JSON.stringify(other.json)).toBe(409);
     expect(j(other.json).error).toMatchObject({ code: "different_company" });
     expect(await row()).toEqual(before);
@@ -100,7 +143,7 @@ describe.skipIf(!h)("signing in to QuickBooks again", () => {
     expect(off.status, JSON.stringify(off.json)).toBe(200);
     const before = await row();
     expect(before?.status).toBe("disconnected");
-    const other = await signIn("code-4", OTHER_REALM);
+    const other = await signIn("code-5", FAKE_QBO_REALM);
     expect(other.status, JSON.stringify(other.json)).toBe(409);
     expect(j(other.json).error).toMatchObject({ code: "different_company" });
     expect(await row()).toEqual(before);
@@ -108,37 +151,62 @@ describe.skipIf(!h)("signing in to QuickBooks again", () => {
 });
 
 describe("a sign-in to another account (every connector)", () => {
-  const mail = { manifest: { id: "gmail" } } as Parameters<typeof accountChange>[0];
-  const books = { manifest: { id: "qbo" } } as Parameters<typeof accountChange>[0];
-  const property = { manifest: { id: "gsc_oauth" }, accountMayChange: true } as Parameters<
-    typeof accountChange
-  >[0];
-  const connected = { status: "connected", externalAccountId: "ana@example.com" } as const;
-  const failing = { status: "error", externalAccountId: "ana@example.com" } as const;
-  const disconnected = { status: "disconnected", externalAccountId: "ana@example.com" } as const;
+  type Who = Parameters<typeof accountChange>[0];
+  const mail = { manifest: { id: "gmail" } } as Who;
+  const books = { manifest: { id: "qbo" } } as Who;
+  const property = { manifest: { id: "gsc_oauth" }, accountMayChange: true } as Who;
+  const as = (externalAccountId: string | null, accountIds?: string[]) => ({
+    externalAccountId,
+    config: accountIds ? { accountIds } : {},
+  });
+  const connected = { status: "connected" as const, ...as("ana@example.com") };
+  const failing = { status: "error" as const, ...as("ana@example.com") };
+  const disconnected = { status: "disconnected" as const, ...as("ana@example.com") };
 
   it("keeps the same account, a first sign-in and an account the connection never named", () => {
-    expect(accountChange(mail, connected, "Ana@Example.com")).toBe("same");
-    expect(accountChange(mail, undefined, "bo@example.com")).toBe("same");
-    expect(accountChange(mail, { ...connected, externalAccountId: null }, "bo@example.com")).toBe(
-      "same",
-    );
-    expect(accountChange(mail, connected, null)).toBe("same");
+    expect(accountChange(mail, connected, as("Ana@Example.com"))).toBe("same");
+    expect(accountChange(mail, undefined, as("bo@example.com"))).toBe("same");
+    expect(
+      accountChange(mail, { ...connected, externalAccountId: null }, as("bo@example.com")),
+    ).toBe("same");
+    expect(accountChange(mail, connected, as(null))).toBe("same");
   });
 
   it("refuses another account while the connection holds the first one's sign-in", () => {
-    expect(accountChange(mail, connected, "bo@example.com")).toBe("refuse_connected");
-    expect(accountChange(mail, failing, "bo@example.com")).toBe("refuse_connected");
+    expect(accountChange(mail, connected, as("bo@example.com"))).toBe("refuse_connected");
+    expect(accountChange(mail, failing, as("bo@example.com"))).toBe("refuse_connected");
   });
 
-  it("starts afresh on a disconnected connection, except QuickBooks, which always refuses", () => {
-    expect(accountChange(mail, disconnected, "bo@example.com")).toBe("other_account");
+  it("starts afresh on a disconnected connection; QuickBooks only before it stored records", () => {
+    expect(accountChange(mail, disconnected, as("bo@example.com"))).toBe("other_account");
     for (const status of ["connected", "disconnected"] as const) {
-      expect(accountChange(books, { status, externalAccountId: "1" }, "2")).toBe("refuse_company");
+      const row = { status, ...as("1") };
+      expect(accountChange(books, row, as("2"))).toBe("refuse_company");
+      expect(accountChange(books, row, as("2"), false)).toBe("other_account");
+      expect(accountChange(books, row, as("1"))).toBe("same");
     }
   });
 
+  it("matches an account by any of its stable ids, stored before or not", () => {
+    // A Microsoft account renamed: its object id stays.
+    const renamed = { status: "connected" as const, ...as("pat@shop.example", ["ms:t1:o1"]) };
+    expect(accountChange(mail, renamed, as("pat.lee@shop.example", ["ms:t1:o1"]))).toBe("same");
+    expect(accountChange(mail, renamed, as("kim@shop.example", ["ms:t1:o2"]))).toBe(
+      "refuse_connected",
+    );
+    // A connection stored before the ids were kept: its account id still matches.
+    expect(accountChange(mail, connected, as("ana@example.com", ["ms:t1:o1"]))).toBe("same");
+    // Zoho: the user's organizations, in another order, the stored first among them.
+    const zoho = { status: "connected" as const, ...as("700") };
+    expect(accountChange(mail, zoho, as("800", ["700", "800"]))).toBe("same");
+    expect(accountChange(mail, zoho, as("900", ["900"]))).toBe("refuse_connected");
+  });
+
   it("lets a connector whose account id names what it reads change it", () => {
-    expect(accountChange(property, connected, "sc-domain:example.com")).toBe("same");
+    expect(accountChange(property, connected, as("sc-domain:example.com"))).toBe("same");
+    const bank = createBankfeedConnector();
+    expect(accountChange(bank, connected, as("item-2"))).toBe("same");
+    const pages = createLinkedInConnector({});
+    expect(accountChange(pages, connected, as("urn:li:organization:2"))).toBe("same");
   });
 });

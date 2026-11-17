@@ -160,7 +160,11 @@ describe("outlook sign-in", () => {
   it("keeps the address from the ID token and the tokens, with the code sent to the token endpoint", async () => {
     const { grant, ms } = await signIn();
     expect(grant.externalAccountId).toBe("pat.lee@shop.example");
-    expect(grant.config).toEqual({ address: "pat.lee@shop.example", scopes: ["Mail.Send"] });
+    expect(grant.config).toEqual({
+      address: "pat.lee@shop.example",
+      scopes: ["Mail.Send"],
+      accountIds: [expect.stringMatching(/^ms:[^:]+:oid-pat\.lee@shop\.example$/)],
+    });
     expect(grant.credentials).toMatchObject({
       address: "pat.lee@shop.example",
       accessToken: ms.issued().accessTokens[0],

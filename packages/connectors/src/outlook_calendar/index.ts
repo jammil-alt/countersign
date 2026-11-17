@@ -37,6 +37,7 @@ import {
   MicrosoftApiError,
   type MicrosoftAppOptions,
   MicrosoftCredentials,
+  microsoftAccountIds,
   microsoftSignIn,
 } from "../microsoft/identity";
 import { ReconnectRequiredError } from "../oauth/tokens";
@@ -516,7 +517,10 @@ export function createOutlookCalendarConnector(options: OutlookCalendarOptions =
       return {
         externalAccountId: address,
         credentials: credentials as unknown as JsonObject,
-        config: config as unknown as JsonObject,
+        config: {
+          ...config,
+          accountIds: microsoftAccountIds(signedIn.account),
+        } as unknown as JsonObject,
       };
     },
 

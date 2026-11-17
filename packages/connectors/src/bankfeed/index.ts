@@ -568,6 +568,9 @@ export function createBankfeedConnector(options: BankfeedOptions = {}): Bankfeed
     auth: "oauth2",
     // B-5 (docs/plan.md §1.79): a client connects each bank on its own (one Plaid item each).
     multiple: true,
+    // A connection whose item is gone at Plaid is signed in again through a new Link, which makes
+    // a new item: its id changes, and the sync starts over for it (apps/api bankfeed/sync.ts).
+    accountMayChange: true,
     entities: [BANKFEED_TRANSACTION_ENTITY, "Account"],
     // Card charges and bank transactions are named as the design names them (ARCHITECTURE §6.11),
     // so another feed provider can raise the same events later.
